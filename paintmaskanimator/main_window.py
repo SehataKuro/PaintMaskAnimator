@@ -3541,7 +3541,8 @@ class MainWindow(QMainWindow):
             ):
                 return self.apply_xdts_layer_bindings(parsed)
             return self.apply_time_remap_to_active_layer(parsed)
-        except Exception as exc:
+        except _OPERATION_ERRORS as exc:
+            log.warning("time-remap paste failed: %s", exc, exc_info=True)
             QMessageBox.warning(
                 self,
                 "タイムリマップ貼り付け",
@@ -3580,7 +3581,8 @@ class MainWindow(QMainWindow):
                 )
             )
             opaque_background = background_rgb is not None
-        except Exception as exc:
+        except _OPERATION_ERRORS as exc:
+            log.warning("first-image color/alpha inspection failed: %s", exc, exc_info=True)
             return None, (
                 "1枚目の色と透明度を確認できませんでした。\n"
                 f"{exc}"
@@ -3615,7 +3617,8 @@ class MainWindow(QMainWindow):
             if not dialog.reduction_enabled:
                 return None, ""
             palette = dialog.selected_palette()
-        except Exception as exc:
+        except _OPERATION_ERRORS as exc:
+            log.warning("binarization preparation failed: %s", exc, exc_info=True)
             return None, (
                 "2値化の準備中に"
                 "エラーが発生しました。\n"
@@ -3667,7 +3670,8 @@ class MainWindow(QMainWindow):
                 try:
                     with PILImage.open(path) as pil:
                         width, height = pil.size
-                except Exception as exc:
+                except (OSError, ValueError, TypeError) as exc:
+                    log.info("PIL size read of %s failed: %s", path, exc)
                     return False, f"{Path(path).name}\n画像サイズを取得できませんでした。\n{exc}"
             else:
                 image, error = self.canvas._read_image_file(path)
