@@ -6647,7 +6647,8 @@ class MainWindow(QMainWindow):
                             viewport=viewport,
                             force=True,
                         )
-                    except Exception:
+                    except (ValueError, KeyError, IndexError, TypeError, OSError, RuntimeError, AttributeError) as exc:
+                        log.debug("PSD layer composite failed, skipping: %s", exc)
                         rendered = None
                     if rendered is None:
                         skipped += 1
@@ -6666,7 +6667,8 @@ class MainWindow(QMainWindow):
                     skipped += 1
             if not imported:
                 raise ValueError("読み込める画像レイヤーがありません。")
-        except Exception as exc:
+        except _OPERATION_ERRORS as exc:
+            log.error("PSD import failed: %s", exc, exc_info=True)
             QMessageBox.critical(
                 self, "PSD読み込み", f"PSDを読み込めませんでした。\n\n{exc}"
             )
@@ -7269,7 +7271,8 @@ class MainWindow(QMainWindow):
             if exported_keys == 0:
                 raise ValueError("書き出せるキーフレームがありません。")
             psd.save(path)
-        except Exception as exc:
+        except _OPERATION_ERRORS as exc:
+            log.error("PSD export failed: %s", exc, exc_info=True)
             QMessageBox.critical(
                 self, "PSD書き出し", f"PSDを書き出せませんでした。\n\n{exc}"
             )
@@ -7592,7 +7595,8 @@ class MainWindow(QMainWindow):
                     "duration",
                 ])
                 writer.writerows(timing_rows)
-        except Exception as exc:
+        except (_OPERATION_ERRORS + (csv.Error,)) as exc:
+            log.error("sequence/CSV export failed: %s", exc, exc_info=True)
             QMessageBox.critical(
                 self,
                 "連番書き出しエラー",
