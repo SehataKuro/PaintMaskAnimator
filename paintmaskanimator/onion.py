@@ -1,4 +1,7 @@
 from .common import *  # noqa: F401,F403
+from .logging_setup import get_logger
+
+log = get_logger(__name__)
 
 
 class OnionOpacityGraph(QWidget):
@@ -200,8 +203,8 @@ class OnionScaleSlider(QSlider):
             self._slow_drag_start_value = int(self.value())
             try:
                 self.grabMouse()
-            except Exception:
-                pass
+            except RuntimeError as exc:
+                log.debug("grabMouse() failed: %s", exc)
             event.accept()
             return
         super().mousePressEvent(event)
@@ -241,8 +244,8 @@ class OnionScaleSlider(QSlider):
             self._slow_dragging = False
             try:
                 self.releaseMouse()
-            except Exception:
-                pass
+            except RuntimeError as exc:
+                log.debug("releaseMouse() failed: %s", exc)
             event.accept()
             return
         super().mouseReleaseEvent(event)
@@ -326,8 +329,8 @@ class OnionRotationSlider(QSlider):
             self._slow_drag_start_value = int(self.value())
             try:
                 self.grabMouse()
-            except Exception:
-                pass
+            except RuntimeError as exc:
+                log.debug("grabMouse() failed: %s", exc)
             event.accept()
             return
         super().mousePressEvent(event)
@@ -365,8 +368,8 @@ class OnionRotationSlider(QSlider):
             self._slow_dragging = False
             try:
                 self.releaseMouse()
-            except Exception:
-                pass
+            except RuntimeError as exc:
+                log.debug("releaseMouse() failed: %s", exc)
             event.accept()
             return
         super().mouseReleaseEvent(event)
