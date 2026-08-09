@@ -14,6 +14,9 @@ import urllib.error
 import urllib.request
 
 from .constants import APP_VERSION, GITHUB_REPO
+from .logging_setup import get_logger
+
+log = get_logger(__name__)
 
 API_ROOT = "https://api.github.com"
 _TIMEOUT = 15
@@ -117,7 +120,10 @@ def check_for_update(token, repo=GITHUB_REPO, current_version=APP_VERSION):
         return {"status": "error", "message": f"HTTPエラー: {error.code}"}
     except urllib.error.URLError as error:
         return {"status": "error", "message": f"ネットワークエラー: {error.reason}"}
-    except Exception as error:  # noqa: BLE001 - surface anything else to the UI
+    except (ValueError, KeyError, OSError) as error:
+        # Malformed release JSON (ValueError/KeyError) or other I/O issues not
+        # already handled above; surface the message to the UI.
+        log.warning("update check failed: %s", error, exc_info=True)
         return {"status": "error", "message": str(error)}
 
     latest = release.get("tag_name") or release.get("name") or ""
