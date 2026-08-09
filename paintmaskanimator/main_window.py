@@ -1,5 +1,5 @@
 from .common import *  # noqa: F401,F403
-from . import constants, project_io
+from . import config, constants, project_io, updater
 from .canvas import PaintCanvas
 from .color_panel import UsedColorPanel
 from .color_reduction import ColorReductionDialog
@@ -497,6 +497,11 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self.drawing_color_dock.toggleViewAction())
         view_menu.addAction(self.palette_dock.toggleViewAction())
         view_menu.addAction(self.timeline_dock.toggleViewAction())
+
+        help_menu=self.menuBar().addMenu("ヘルプ")
+        a_check_update=QAction("更新を確認…", self)
+        a_check_update.triggered.connect(self.check_for_updates_interactive)
+        help_menu.addAction(a_check_update)
 
         self.resizeDocks(
             [self.tools_dock, self.drawing_color_dock, self.palette_dock],
@@ -5802,6 +5807,122 @@ class MainWindow(QMainWindow):
             self.setWindowTitle(f"{APP_DISPLAY_NAME} — {name}")
         else:
             self.setWindowTitle(f"{APP_DISPLAY_NAME} — 新規プロジェクト")
+
+    def _prompt_github_token(self):
+        """Ask for (and remember) the GitHub token used for update checks."""
+        existing = config.get_value("github_token", "")
+        token, ok = QInputDialog.getText(
+            self,
+            "更新用トークン",
+            "更新確認には、このリポジトリを読み取れるGitHubトークンが必要です。\n"
+            "（Settings > Developer settings > Personal access tokens で発行）",
+            text=existing,
+        )
+        if not ok:
+            return None
+        token = token.strip()
+        config.set_value("github_token", token or None)
+        return token or None
+
+    def check_for_updates_interactive(self):
+        token = config.get_value("github_token")
+        if not token:
+            token = self._prompt_github_token()
+            if not token:
+                return
+
+        QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
+        try:
+            result = updater.check_for_update(token)
+        finally:
+            QApplication.restoreOverrideCursor()
+
+        status = result.get("status")
+        if status == "error":
+            QMessageBox.warning(
+                self, "更新確認エラー", result.get("message", "不明なエラー")
+            )
+            return
+        if status == "up_to_date":
+            QMessageBox.information(
+                self,
+                "更新の確認",
+                f"最新版を使用しています。（現在: v{constants.APP_VERSION}）",
+            )
+            return
+
+        latest = result.get("latest", "")
+        asset = result.get("asset")
+        if not asset:
+            QMessageBox.information(
+                self,
+                "更新あり",
+                f"新しいバージョン {latest} がありますが、インストーラが\n"
+                "見つかりませんでした。リリースページを確認してください。",
+            )
+            return
+
+        answer = QMessageBox.question(
+            self,
+            "更新があります",
+            f"新しいバージョン {latest} が利用可能です。\n"
+            f"（現在: v{constants.APP_VERSION}）\n\n"
+            "ダウンロードしてインストールしますか？",
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self._download_and_run_installer(asset, token, latest)
+
+    def _download_and_run_installer(self, asset, token, latest):
+        dest = Path(tempfile.gettempdir()) / str(
+            asset.get("name", f"PaintMaskAnimator-Setup-{latest}.exe")
+        )
+        dialog = QProgressDialog(
+            "更新をダウンロードしています…", "キャンセル", 0, 100, self
+        )
+        dialog.setWindowTitle("更新のダウンロード")
+        dialog.setAutoClose(False)
+        dialog.setMinimumDuration(0)
+        cancelled = {"flag": False}
+        dialog.canceled.connect(lambda: cancelled.__setitem__("flag", True))
+
+        def on_progress(downloaded, total):
+            if total > 0:
+                dialog.setValue(int(downloaded * 100 / total))
+            QApplication.processEvents()
+            if cancelled["flag"]:
+                raise RuntimeError("cancelled")
+
+        try:
+            updater.download_asset(asset, token, dest, progress=on_progress)
+        except RuntimeError:
+            dialog.close()
+            return
+        except Exception as error:  # noqa: BLE001
+            dialog.close()
+            QMessageBox.warning(
+                self, "ダウンロード失敗", f"更新を取得できませんでした。\n\n{error}"
+            )
+            return
+        dialog.close()
+
+        answer = QMessageBox.question(
+            self,
+            "インストール",
+            "ダウンロードが完了しました。インストーラを起動して\n"
+            "アプリを終了します。よろしいですか？",
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            import os
+            os.startfile(str(dest))  # noqa: SLF001 - Windows installer launch
+        except Exception as error:  # noqa: BLE001
+            QMessageBox.warning(
+                self, "起動失敗", f"インストーラを起動できませんでした。\n\n{error}"
+            )
+            return
+        self.close()
 
     def image_color_hex(self, color):
         return QColor(color).name(QColor.NameFormat.HexRgb).upper()

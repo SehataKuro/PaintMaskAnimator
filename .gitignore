@@ -1,2 +1,9 @@
 __pycache__/
 *.pyc
+
+# Build / packaging artifacts
+build/
+dist/
+dist_installer/
+*.spec.bak
+.pytest_cache/
