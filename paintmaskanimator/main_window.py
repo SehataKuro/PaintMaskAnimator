@@ -10,6 +10,23 @@ from .timeline import TimelineWidget
 from .toolpanel import ToolPanel
 from .utils import blank_image, disable_windows_ink_feedback, workspace_size
 from .widgets import (CanvasSizeDialog, ShortcutDialog, TimeRemapPasteDialog, TransformLineThicknessDialog, TweenCommandPopup)
+from .logging_setup import get_logger
+
+log = get_logger(__name__)
+
+# Realistic failure set for the top-level user-action handlers below (file
+# I/O, PIL/numpy/Qt image pipelines): everything expected while still letting
+# non-Exception control-flow (KeyboardInterrupt/SystemExit) propagate.
+_OPERATION_ERRORS = (
+    OSError,
+    ValueError,
+    TypeError,
+    KeyError,
+    IndexError,
+    RuntimeError,
+    AttributeError,
+    MemoryError,
+)
 
 
 class MainWindow(QMainWindow):
@@ -996,7 +1013,8 @@ class MainWindow(QMainWindow):
                 (int(row), int(column))
                 for row, column in cells
             }
-        except Exception:
+        except (TypeError, ValueError) as exc:
+            log.debug("could not normalize selected cells: %s", exc)
             return
         if not selected_cells:
             return
@@ -1479,7 +1497,8 @@ class MainWindow(QMainWindow):
     def _used_color_cache_key(self, image):
         try:
             return (int(image.cacheKey()), image.width(), image.height())
-        except Exception:
+        except (AttributeError, RuntimeError, TypeError) as exc:
+            log.debug("cacheKey() unavailable, using id() fallback: %s", exc)
             return (id(image), image.width(), image.height())
 
     def _used_color_layer_signature(self, layer_index):
