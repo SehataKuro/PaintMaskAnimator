@@ -26,6 +26,7 @@ _OPERATION_ERRORS = (
     RuntimeError,
     AttributeError,
     MemoryError,
+    zipfile.BadZipFile,  # archive read/write paths (projects, PSD) — not an OSError
 )
 
 
@@ -6145,7 +6146,8 @@ class MainWindow(QMainWindow):
                 3000,
             )
             return True
-        except Exception as error:
+        except _OPERATION_ERRORS as error:
+            log.error("project save failed: %s", error, exc_info=True)
             QMessageBox.critical(
                 self,
                 "プロジェクト保存エラー",
@@ -6540,7 +6542,8 @@ class MainWindow(QMainWindow):
                 3000,
             )
             return True
-        except Exception as error:
+        except _OPERATION_ERRORS as error:
+            log.error("project open failed: %s", error, exc_info=True)
             QMessageBox.critical(
                 self,
                 "プロジェクト読込エラー",
