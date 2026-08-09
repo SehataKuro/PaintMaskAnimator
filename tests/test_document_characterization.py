@@ -124,6 +124,15 @@ def test_composite_blank_is_stable(canvas):
     assert h1 == h2
 
 
+def test_composite_blank_golden(canvas):
+    """Golden hash of a blank white composite, fixed at the package split so
+    later domain extractions can't silently change the rendered output."""
+    img = canvas.composite(0, white=True)
+    assert _img_hash(img).startswith(
+        "c1a278749cec5086"
+    ), "composite output changed vs the golden baseline"
+
+
 def test_composite_white_vs_transparent_background_differ(canvas):
     hw = _img_hash(canvas.composite(0, white=True))
     ht = _img_hash(canvas.composite(0, white=False))
