@@ -517,6 +517,7 @@ class ToolPanel(QWidget):
 
         v.addWidget(self.opacity_slider)
         v.addWidget(self.opacity)
+        # 描画色ドック：メイン／サブ／背景色ボタンのみ。
         self.drawing_color_box = QWidget()
         color_layout = QVBoxLayout(self.drawing_color_box)
         color_layout.setContentsMargins(3, 3, 3, 3)
@@ -530,13 +531,30 @@ class ToolPanel(QWidget):
         for button in (self.main_btn, self.sub_btn, self.transparent_btn):
             button.setFixedHeight(24)
         cg.addWidget(self.main_btn,0,0); cg.addWidget(self.sub_btn,0,1); cg.addWidget(self.transparent_btn,1,0,1,2)
+        color_layout.addLayout(cg)
+        color_layout.addStretch(1)
+
+        # カラーサークルドック：HSV(四角)／HLS(三角)を切替可能。
+        self.wheel_mode = "HSV"
+        self.color_wheel_box = QWidget()
+        wheel_layout = QVBoxLayout(self.color_wheel_box)
+        wheel_layout.setContentsMargins(3, 3, 3, 3)
+        wheel_layout.setSpacing(2)
         self.hsv_wheel = HSVColorWheel()
         self.hsv_wheel.colorChanged.connect(self.wheel_color_changed)
-        color_layout.addWidget(self.hsv_wheel)
-        self.color_space=QComboBox(); self.color_space.setFixedHeight(22); self.color_space.addItems(["RGB", "HSV"]); self.color_space.currentTextChanged.connect(self.rebuild_color_sliders); color_layout.addWidget(self.color_space)
-        self.slider_box=QWidget(); self.slider_layout=QFormLayout(self.slider_box); self.slider_layout.setContentsMargins(0,0,0,0); self.slider_layout.setVerticalSpacing(1); color_layout.addWidget(self.slider_box)
-        color_layout.addLayout(cg)
-        self.color_sliders=[]; self.color_value_labels=[]; self.rebuild_color_sliders("RGB")
+        wheel_layout.addWidget(self.hsv_wheel)
+        wheel_layout.addStretch(1)
+
+        # カラースライダードック：RGB／HLS／CMYKを切替可能。
+        self.slider_mode = "RGB"
+        self.color_slider_box = QWidget()
+        slider_box_layout = QVBoxLayout(self.color_slider_box)
+        slider_box_layout.setContentsMargins(3, 3, 3, 3)
+        slider_box_layout.setSpacing(2)
+        self.slider_box=QWidget(); self.slider_layout=QFormLayout(self.slider_box); self.slider_layout.setContentsMargins(0,0,0,0); self.slider_layout.setVerticalSpacing(1)
+        slider_box_layout.addWidget(self.slider_box)
+        slider_box_layout.addStretch(1)
+        self.color_sliders=[]; self.color_value_labels=[]; self.rebuild_color_sliders(self.slider_mode)
         self.silhouette_btn=QPushButton("背景以外を黒シルエット表示")
         self.silhouette_btn.setCheckable(True)
         v.addWidget(self.silhouette_btn)
@@ -833,46 +851,79 @@ class ToolPanel(QWidget):
         self.color_sliders=[]
         self.color_value_labels=[]
 
+    #: スライダーモードごとのチャンネル定義（表示名, 最小, 最大）。
+    SLIDER_SPECS = {
+        "RGB": [("R", 0, 255), ("G", 0, 255), ("B", 0, 255)],
+        "HLS": [("H", 0, 359), ("L", 0, 255), ("S", 0, 255)],
+        "CMYK": [("C", 0, 255), ("M", 0, 255), ("Y", 0, 255), ("K", 0, 255)],
+    }
+
+    def set_wheel_mode(self, mode):
+        mode = str(mode).upper()
+        if mode not in HSVColorWheel.MODES:
+            return
+        self.wheel_mode = mode
+        self.hsv_wheel.setMode(mode)
+
+    def set_slider_mode(self, mode):
+        mode = str(mode).upper()
+        if mode not in self.SLIDER_SPECS or mode == self.slider_mode:
+            return
+        self.slider_mode = mode
+        self.rebuild_color_sliders(mode)
+
     def rebuild_color_sliders(self, mode):
+        mode = str(mode).upper()
+        if mode not in self.SLIDER_SPECS:
+            mode = "RGB"
+        self.slider_mode = mode
         self.clear_slider_layout()
-        specs = (
-            [("R", 0, 255), ("G", 0, 255), ("B", 0, 255)]
-            if mode == "RGB"
-            else [("H", 0, 359), ("S", 0, 255), ("V", 0, 255)]
-        )
-        for name, lo, hi in specs:
+        for name, lo, hi in self.SLIDER_SPECS[mode]:
             slider = QSlider(Qt.Orientation.Horizontal)
-            if mode == "RGB":
-                slider.setRange(lo, hi)
-                slider.setSingleStep(1)
-                slider.setProperty("valueScale", 1.0)
-                value_control = SliderValueSpinBox(
-                    slider, scale=1.0, step=1.0
-                )
-            else:
-                slider.setRange(lo, hi)
-                slider.setSingleStep(1)
-                slider.setProperty("valueScale", 1.0)
-                value_control = SliderValueSpinBox(
-                    slider, scale=1.0, step=1.0
-                )
+            slider.setRange(lo, hi)
+            slider.setSingleStep(1)
+            slider.setProperty("valueScale", 1.0)
             slider.setProperty("channel", name)
+            value_control = SliderValueSpinBox(slider, scale=1.0, step=1.0)
             row = QWidget()
             row_layout = QHBoxLayout(row)
             row_layout.setContentsMargins(0, 0, 0, 0)
             row_layout.addWidget(slider, 1)
             row_layout.addWidget(value_control)
-            slider.valueChanged.connect(
-                self.slider_color_changed
-            )
+            slider.valueChanged.connect(self.slider_color_changed)
             self.slider_layout.addRow(name, row)
             self.color_sliders.append(slider)
             self.color_value_labels.append(value_control)
         self.sync_sliders()
         self.update_slider_gradients()
 
-
     def active_color(self): return self.main_color if self.color_mode=="main" else self.sub_color
+
+    def _channel_values_from_color(self, color):
+        """現在のスライダーモードにおける各チャンネル値を返す。"""
+        if self.slider_mode == "RGB":
+            return [color.red(), color.green(), color.blue()]
+        if self.slider_mode == "HLS":
+            return [
+                max(0, color.hslHue()),
+                color.lightness(),
+                color.hslSaturation(),
+            ]
+        # CMYK
+        cyan, magenta, yellow, black, _alpha = color.getCmyk()
+        return [cyan, magenta, yellow, black]
+
+    def _color_from_channel_values(self, values):
+        """スライダー値から現在のモードに応じた色を組み立てる。"""
+        clamp = lambda v: max(0, min(255, int(v)))
+        if self.slider_mode == "RGB":
+            return QColor(clamp(values[0]), clamp(values[1]), clamp(values[2]))
+        if self.slider_mode == "HLS":
+            hue = max(0, min(359, int(values[0])))
+            return QColor.fromHsl(hue, clamp(values[2]), clamp(values[1]))
+        return QColor.fromCmyk(
+            clamp(values[0]), clamp(values[1]), clamp(values[2]), clamp(values[3])
+        )
 
     def sync_sliders(self):
         self.hsv_wheel.setEnabled(self.color_mode != "transparent")
@@ -880,22 +931,12 @@ class ToolPanel(QWidget):
             self.hsv_wheel.setColor(self.active_color())
         if not self.color_sliders or self.color_mode == "transparent":
             return
-        color = self.active_color()
-        if self.color_space.currentText() == "RGB":
-            values = [
-                int(color.red()),
-                int(color.green()),
-                int(color.blue()),
-            ]
-        else:
-            hsv = color.getHsv()
-            values = [max(0, hsv[0]), hsv[1], hsv[2]]
-
-        for index, (slider, value) in enumerate(
-            zip(self.color_sliders, values)
-        ):
+        values = self._channel_values_from_color(self.active_color())
+        for index, slider in enumerate(self.color_sliders):
+            if index >= len(values):
+                break
             scale = float(slider.property("valueScale") or 1.0)
-            slider_value = int(round(float(value) * scale))
+            slider_value = int(round(float(values[index]) * scale))
             slider_value = max(
                 slider.minimum(),
                 min(slider.maximum(), slider_value),
@@ -909,25 +950,34 @@ class ToolPanel(QWidget):
                 )
         self.update_slider_gradients()
 
-
     def update_slider_gradients(self):
-        if len(self.color_sliders) != 3:
+        specs = self.SLIDER_SPECS.get(self.slider_mode)
+        if not specs or len(self.color_sliders) != len(specs):
             return
-        mode = self.color_space.currentText()
         active = self.active_color() if self.color_mode != "transparent" else QColor("black")
-        if mode == "RGB":
+        if self.slider_mode == "RGB":
             gradients = [
                 "stop:0 rgb(0,%d,%d), stop:1 rgb(255,%d,%d)" % (active.green(), active.blue(), active.green(), active.blue()),
                 "stop:0 rgb(%d,0,%d), stop:1 rgb(%d,255,%d)" % (active.red(), active.blue(), active.red(), active.blue()),
                 "stop:0 rgb(%d,%d,0), stop:1 rgb(%d,%d,255)" % (active.red(), active.green(), active.red(), active.green()),
             ]
-        else:
-            hue = max(0, active.hsvHue())
-            hue_color = QColor.fromHsv(hue, 255, 255).name()
+        elif self.slider_mode == "HLS":
+            hue = max(0, active.hslHue())
+            sat = max(1, active.hslSaturation())
+            mid = QColor.fromHsl(hue, sat, 128).name()
+            gray = QColor.fromHsl(hue, 0, 128).name()
+            pure = QColor.fromHsl(hue, sat, 128).name()
             gradients = [
                 "stop:0 #ff0000, stop:0.17 #ffff00, stop:0.33 #00ff00, stop:0.50 #00ffff, stop:0.67 #0000ff, stop:0.83 #ff00ff, stop:1 #ff0000",
-                f"stop:0 #ffffff, stop:1 {hue_color}",
-                f"stop:0 #000000, stop:1 {QColor.fromHsv(hue, max(1,active.hsvSaturation()),255).name()}",
+                f"stop:0 #000000, stop:0.5 {mid}, stop:1 #ffffff",
+                f"stop:0 {gray}, stop:1 {pure}",
+            ]
+        else:  # CMYK
+            gradients = [
+                "stop:0 #ffffff, stop:1 #00ffff",
+                "stop:0 #ffffff, stop:1 #ff00ff",
+                "stop:0 #ffffff, stop:1 #ffff00",
+                "stop:0 #ffffff, stop:1 #000000",
             ]
         for slider, gradient in zip(self.color_sliders, gradients):
             slider.setStyleSheet(
@@ -938,24 +988,15 @@ class ToolPanel(QWidget):
             )
 
     def slider_color_changed(self):
+        specs = self.SLIDER_SPECS.get(self.slider_mode)
         if (
             self.color_mode == "transparent"
-            or len(self.color_sliders) != 3
+            or not specs
+            or len(self.color_sliders) != len(specs)
         ):
             return
-        if self.color_space.currentText() == "RGB":
-            red, green, blue = [
-                max(0, min(255, int(slider.value())))
-                for slider in self.color_sliders
-            ]
-            color = QColor(red, green, blue)
-        else:
-            hue, saturation, value = [
-                slider.value() for slider in self.color_sliders
-            ]
-            color = QColor.fromHsv(
-                int(hue), int(saturation), int(value)
-            )
+        values = [slider.value() for slider in self.color_sliders]
+        color = self._color_from_channel_values(values)
 
         if self.color_mode == "main":
             self.main_color = color

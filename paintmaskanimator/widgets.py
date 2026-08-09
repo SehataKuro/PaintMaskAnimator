@@ -677,10 +677,15 @@ class TweenCommandPopup(QDialog):
 
 class HSVColorWheel(QWidget):
     colorChanged = Signal(QColor)
+    modeChanged = Signal(str)
+
+    #: 対応するカラーサークルのモード。
+    MODES = ("HSV", "HLS")
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._color = QColor("black")
+        self._mode = "HSV"
         self._cache_key = None
         self._cache_image = QImage()
         self._drag_part = None
@@ -694,9 +699,30 @@ class HSVColorWheel(QWidget):
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Fixed,
         )
-        self.setToolTip(
-            "上のバーで色相、下の四角で彩度と明度を選択します。"
-        )
+        self._update_tooltip()
+
+    def mode(self):
+        return self._mode
+
+    def setMode(self, mode):
+        mode = str(mode).upper()
+        if mode not in self.MODES or mode == self._mode:
+            return
+        self._mode = mode
+        self._cache_key = None
+        self._update_tooltip()
+        self.update()
+        self.modeChanged.emit(self._mode)
+
+    def _update_tooltip(self):
+        if self._mode == "HLS":
+            self.setToolTip(
+                "上のバーで色相、下の三角で輝度(L)と彩度(S)を選択します。"
+            )
+        else:
+            self.setToolTip(
+                "上のバーで色相、下の四角で彩度と明度を選択します。"
+            )
 
     def setColor(self, color):
         color = QColor(color)
@@ -727,6 +753,73 @@ class HSVColorWheel(QWidget):
         )
         return hue_bar, square
 
+    def _triangle_vertices(self):
+        """HLS三角形の頂点。上=純色、左下=黒、右下=白。"""
+        _hue_bar, square = self._wheel_geometry()
+        top = QPointF(square.center().x(), square.top())
+        bottom_left = QPointF(square.left(), square.bottom())
+        bottom_right = QPointF(square.right(), square.bottom())
+        return top, bottom_left, bottom_right
+
+    @staticmethod
+    def _barycentric(point, top, bottom_left, bottom_right):
+        denom = (
+            (bottom_left.y() - bottom_right.y()) * (top.x() - bottom_right.x())
+            + (bottom_right.x() - bottom_left.x()) * (top.y() - bottom_right.y())
+        )
+        if abs(denom) < 1e-9:
+            return 0.0, 0.0, 1.0
+        w_top = (
+            (bottom_left.y() - bottom_right.y()) * (point.x() - bottom_right.x())
+            + (bottom_right.x() - bottom_left.x()) * (point.y() - bottom_right.y())
+        ) / denom
+        w_left = (
+            (bottom_right.y() - top.y()) * (point.x() - bottom_right.x())
+            + (top.x() - bottom_right.x()) * (point.y() - bottom_right.y())
+        ) / denom
+        w_right = 1.0 - w_top - w_left
+        return w_top, w_left, w_right
+
+    def _triangle_color(self, w_top, w_left, w_right):
+        """頂点重みから色を合成する（黒は寄与なし）。"""
+        hue = max(0, self._color.hsvHue())
+        pure = QColor.fromHsv(hue, 255, 255)
+        red = w_top * pure.red() + w_right * 255.0
+        green = w_top * pure.green() + w_right * 255.0
+        blue = w_top * pure.blue() + w_right * 255.0
+        clamp = lambda v: max(0, min(255, int(round(v))))
+        return QColor(clamp(red), clamp(green), clamp(blue))
+
+    def _triangle_point_for_color(self):
+        """現在色に対応する三角形内の座標を最小二乗で求める。"""
+        top, bottom_left, bottom_right = self._triangle_vertices()
+        hue = max(0, self._color.hsvHue())
+        pure = QColor.fromHsv(hue, 255, 255)
+        hr, hg, hb = pure.red(), pure.green(), pure.blue()
+        cr, cg, cb = self._color.red(), self._color.green(), self._color.blue()
+        s_aa = hr * hr + hg * hg + hb * hb
+        s_ac = (hr + hg + hb) * 255.0
+        s_cc = 3.0 * 255.0 * 255.0
+        b1 = hr * cr + hg * cg + hb * cb
+        b2 = 255.0 * (cr + cg + cb)
+        det = s_aa * s_cc - s_ac * s_ac
+        if abs(det) < 1e-6:
+            w_top, w_right = 0.0, 1.0
+        else:
+            w_top = (b1 * s_cc - b2 * s_ac) / det
+            w_right = (s_aa * b2 - s_ac * b1) / det
+        w_top = max(0.0, w_top)
+        w_right = max(0.0, w_right)
+        total = w_top + w_right
+        if total > 1.0:
+            w_top /= total
+            w_right /= total
+        w_left = 1.0 - w_top - w_right
+        return QPointF(
+            w_top * top.x() + w_left * bottom_left.x() + w_right * bottom_right.x(),
+            w_top * top.y() + w_left * bottom_left.y() + w_right * bottom_right.y(),
+        )
+
     def resizeEvent(self, event):
         self.hue_value.setGeometry(
             max(0, self.width() - 56),
@@ -741,11 +834,13 @@ class HSVColorWheel(QWidget):
         hue_bar, square = self._wheel_geometry()
         width, height = self.width(), self.height()
         hue = max(0, self._color.hsvHue())
-        cache_key = (width, height, hue)
+        cache_key = (width, height, hue, self._mode)
         if self._cache_key == cache_key:
             return self._cache_image
         image = QImage(width, height, QImage.Format.Format_ARGB32)
         image.fill(Qt.GlobalColor.transparent)
+        if self._mode == "HLS":
+            top, bottom_left, bottom_right = self._triangle_vertices()
         for y in range(height):
             for x in range(width):
                 if hue_bar.contains(x + 0.5, y + 0.5):
@@ -756,6 +851,20 @@ class HSVColorWheel(QWidget):
                     ))
                     image.setPixelColor(
                         x, y, QColor.fromHsv(bar_hue, 255, 255)
+                    )
+                elif self._mode == "HLS":
+                    if not square.contains(x + 0.5, y + 0.5):
+                        continue
+                    w_top, w_left, w_right = self._barycentric(
+                        QPointF(x + 0.5, y + 0.5),
+                        top,
+                        bottom_left,
+                        bottom_right,
+                    )
+                    if w_top < 0 or w_left < 0 or w_right < 0:
+                        continue
+                    image.setPixelColor(
+                        x, y, self._triangle_color(w_top, w_left, w_right)
                     )
                 elif square.contains(x + 0.5, y + 0.5):
                     saturation = int(round(
@@ -787,16 +896,23 @@ class HSVColorWheel(QWidget):
             hue_bar.left()
             + hue_bar.width() * hue / 359.0
         )
-        square_point = QPointF(
-            square.left()
-            + square.width() * self._color.hsvSaturation() / 255.0,
-            square.bottom()
-            - square.height() * self._color.value() / 255.0,
-        )
+        if self._mode == "HLS":
+            marker_point = self._triangle_point_for_color()
+        else:
+            marker_point = QPointF(
+                square.left()
+                + square.width() * self._color.hsvSaturation() / 255.0,
+                square.bottom()
+                - square.height() * self._color.value() / 255.0,
+            )
         painter.setPen(QPen(QColor("#555555"), 1))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(hue_bar.adjusted(-1, -1, 1, 1))
-        painter.drawRect(square.adjusted(-1, -1, 1, 1))
+        if self._mode == "HLS":
+            top, bottom_left, bottom_right = self._triangle_vertices()
+            painter.drawPolygon(QPolygonF([top, bottom_left, bottom_right]))
+        else:
+            painter.drawRect(square.adjusted(-1, -1, 1, 1))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.setPen(QPen(QColor("white"), 2))
         painter.drawRect(QRectF(
@@ -805,7 +921,7 @@ class HSVColorWheel(QWidget):
             6.0,
             hue_bar.height() + 4.0,
         ))
-        painter.drawEllipse(square_point, 5, 5)
+        painter.drawEllipse(marker_point, 5, 5)
         painter.setPen(QPen(QColor("black"), 1))
         painter.drawRect(QRectF(
             hue_x - 4.0,
@@ -813,7 +929,7 @@ class HSVColorWheel(QWidget):
             8.0,
             hue_bar.height() + 6.0,
         ))
-        painter.drawEllipse(square_point, 6, 6)
+        painter.drawEllipse(marker_point, 6, 6)
         painter.setPen(QColor("#333333"))
         painter.drawText(
             QRectF(0, 4, 18, 22),
@@ -829,11 +945,31 @@ class HSVColorWheel(QWidget):
             return "sv"
         return None
 
+    def _select_triangle(self, position):
+        top, bottom_left, bottom_right = self._triangle_vertices()
+        w_top, w_left, w_right = self._barycentric(
+            position, top, bottom_left, bottom_right
+        )
+        # 三角形の外をドラッグしても近い辺へ射影する。
+        w_top = max(0.0, w_top)
+        w_left = max(0.0, w_left)
+        w_right = max(0.0, w_right)
+        total = w_top + w_left + w_right
+        if total <= 1e-9:
+            return
+        w_top, w_left, w_right = w_top / total, w_left / total, w_right / total
+        self._color = self._triangle_color(w_top, w_left, w_right)
+        self.update()
+        self.colorChanged.emit(QColor(self._color))
+
     def _select_at(self, position, part=None):
         if not self.isEnabled():
             return
         hue_bar, square = self._wheel_geometry()
         part = part or self._part_at(position)
+        if part == "sv" and self._mode == "HLS":
+            self._select_triangle(position)
+            return
         if part == "hue":
             hue = int(round(
                 359.0
@@ -896,6 +1032,51 @@ class HSVColorWheel(QWidget):
     def mouseReleaseEvent(self, event):
         self._drag_part = None
         super().mouseReleaseEvent(event)
+
+
+class DockTitleBar(QWidget):
+    """右クリックでモード切替メニューを出せるドックのタイトルバー。
+
+    フロート／クローズボタンは標準タイトルバーと同じ動作を保つ。
+    """
+
+    contextMenuRequested = Signal(QPoint)
+
+    def __init__(self, title, dock):
+        super().__init__(dock)
+        self._dock = dock
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(6, 2, 4, 2)
+        layout.setSpacing(2)
+
+        self.title_label = QLabel(title)
+        self.title_label.setStyleSheet("font-weight:bold;")
+        layout.addWidget(self.title_label)
+        layout.addStretch(1)
+
+        self.float_button = QToolButton(self)
+        self.float_button.setText("❐")
+        self.float_button.setAutoRaise(True)
+        self.float_button.setToolTip("フロート／ドッキング切替")
+        self.float_button.clicked.connect(self._toggle_float)
+        layout.addWidget(self.float_button)
+
+        self.close_button = QToolButton(self)
+        self.close_button.setText("✕")
+        self.close_button.setAutoRaise(True)
+        self.close_button.setToolTip("閉じる")
+        self.close_button.clicked.connect(self._dock.close)
+        layout.addWidget(self.close_button)
+
+    def setTitle(self, title):
+        self.title_label.setText(title)
+
+    def _toggle_float(self):
+        self._dock.setFloating(not self._dock.isFloating())
+
+    def contextMenuEvent(self, event):
+        self.contextMenuRequested.emit(event.globalPos())
+        event.accept()
 
 
 class TimeRemapPasteDialog(QDialog):

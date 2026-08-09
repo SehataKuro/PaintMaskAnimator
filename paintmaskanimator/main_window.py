@@ -9,7 +9,7 @@ from .pressure import PressureDialog
 from .timeline import TimelineWidget
 from .toolpanel import ToolPanel
 from .utils import blank_image, disable_windows_ink_feedback, workspace_size
-from .widgets import (CanvasSizeDialog, ShortcutDialog, TimeRemapPasteDialog, TransformLineThicknessDialog, TweenCommandPopup)
+from .widgets import (CanvasSizeDialog, DockTitleBar, HSVColorWheel, ShortcutDialog, TimeRemapPasteDialog, TransformLineThicknessDialog, TweenCommandPopup)
 
 
 class MainWindow(QMainWindow):
@@ -443,6 +443,18 @@ class MainWindow(QMainWindow):
             self.tools.drawing_color_box
         )
 
+        self.color_wheel_scroll = QScrollArea()
+        self.color_wheel_scroll.setWidgetResizable(True)
+        self.color_wheel_scroll.setMinimumSize(0, 0)
+        self.color_wheel_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.color_wheel_scroll.setWidget(self.tools.color_wheel_box)
+
+        self.color_slider_scroll = QScrollArea()
+        self.color_slider_scroll.setWidgetResizable(True)
+        self.color_slider_scroll.setMinimumSize(0, 0)
+        self.color_slider_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.color_slider_scroll.setWidget(self.tools.color_slider_box)
+
         self.tools_dock=QDockWidget("ツール", self)
         self.tools_dock.setObjectName("toolsDock")
         self.tools_dock.setWidget(self.tools_scroll)
@@ -475,6 +487,46 @@ class MainWindow(QMainWindow):
             Qt.Orientation.Vertical,
         )
 
+        self.color_wheel_dock=QDockWidget("カラーサークル", self)
+        self.color_wheel_dock.setObjectName("colorWheelDock")
+        self.color_wheel_dock.setWidget(self.color_wheel_scroll)
+        self.color_wheel_dock.setAllowedAreas(
+            Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea
+        )
+        self.color_wheel_title=DockTitleBar("カラーサークル", self.color_wheel_dock)
+        self.color_wheel_title.contextMenuRequested.connect(
+            self._show_color_wheel_mode_menu
+        )
+        self.color_wheel_dock.setTitleBarWidget(self.color_wheel_title)
+        self.addDockWidget(
+            Qt.DockWidgetArea.RightDockWidgetArea, self.color_wheel_dock
+        )
+
+        self.color_slider_dock=QDockWidget("カラースライダー", self)
+        self.color_slider_dock.setObjectName("colorSliderDock")
+        self.color_slider_dock.setWidget(self.color_slider_scroll)
+        self.color_slider_dock.setAllowedAreas(
+            Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea
+        )
+        self.color_slider_title=DockTitleBar("カラースライダー", self.color_slider_dock)
+        self.color_slider_title.contextMenuRequested.connect(
+            self._show_color_slider_mode_menu
+        )
+        self.color_slider_dock.setTitleBarWidget(self.color_slider_title)
+        self.addDockWidget(
+            Qt.DockWidgetArea.RightDockWidgetArea, self.color_slider_dock
+        )
+        self.splitDockWidget(
+            self.drawing_color_dock,
+            self.color_wheel_dock,
+            Qt.Orientation.Vertical,
+        )
+        self.splitDockWidget(
+            self.color_wheel_dock,
+            self.color_slider_dock,
+            Qt.Orientation.Vertical,
+        )
+
         self.timeline_dock=QDockWidget("タイムライン", self)
         self.timeline_dock.setObjectName("timelineDock")
         self.timeline.setMaximumHeight(16777215)
@@ -497,6 +549,8 @@ class MainWindow(QMainWindow):
         view_menu=self.menuBar().addMenu("表示")
         view_menu.addAction(self.tools_dock.toggleViewAction())
         view_menu.addAction(self.drawing_color_dock.toggleViewAction())
+        view_menu.addAction(self.color_wheel_dock.toggleViewAction())
+        view_menu.addAction(self.color_slider_dock.toggleViewAction())
         view_menu.addAction(self.palette_dock.toggleViewAction())
         view_menu.addAction(self.timeline_dock.toggleViewAction())
 
@@ -511,8 +565,13 @@ class MainWindow(QMainWindow):
             Qt.Orientation.Horizontal,
         )
         self.resizeDocks(
-            [self.drawing_color_dock, self.palette_dock],
-            [390, 450],
+            [
+                self.drawing_color_dock,
+                self.color_wheel_dock,
+                self.color_slider_dock,
+                self.palette_dock,
+            ],
+            [96, 230, 150, 450],
             Qt.Orientation.Vertical,
         )
         self.resizeDocks(
@@ -525,6 +584,33 @@ class MainWindow(QMainWindow):
         bfit.clicked.connect(self.fit_canvas)
         self.rot.valueChanged.connect(self.set_rot)
         b0.clicked.connect(lambda:self.rot.setValue(0))
+
+    def _show_color_wheel_mode_menu(self, global_position):
+        menu = QMenu(self)
+        current = self.tools.hsv_wheel.mode()
+        labels = {"HSV": "HSV（四角）", "HLS": "HLS（三角）"}
+        actions = {}
+        for mode in HSVColorWheel.MODES:
+            action = menu.addAction(labels.get(mode, mode))
+            action.setCheckable(True)
+            action.setChecked(mode == current)
+            actions[action] = mode
+        chosen = menu.exec(global_position)
+        if chosen in actions:
+            self.tools.set_wheel_mode(actions[chosen])
+
+    def _show_color_slider_mode_menu(self, global_position):
+        menu = QMenu(self)
+        current = self.tools.slider_mode
+        actions = {}
+        for mode in ("RGB", "HLS", "CMYK"):
+            action = menu.addAction(mode)
+            action.setCheckable(True)
+            action.setChecked(mode == current)
+            actions[action] = mode
+        chosen = menu.exec(global_position)
+        if chosen in actions:
+            self.tools.set_slider_mode(actions[chosen])
 
     def connect(self):
         self.tools.silhouette_btn.clicked.connect(
@@ -6792,6 +6878,8 @@ class MainWindow(QMainWindow):
             self.palette.scroll,
             self.tools_scroll,
             self.drawing_color_scroll,
+            self.color_wheel_scroll,
+            self.color_slider_scroll,
             self.palette_scroll,
         )
         for area in candidates:
@@ -6813,6 +6901,10 @@ class MainWindow(QMainWindow):
             self.tools_scroll.viewport(),
             self.drawing_color_dock,
             self.drawing_color_scroll.viewport(),
+            self.color_wheel_dock,
+            self.color_wheel_scroll.viewport(),
+            self.color_slider_dock,
+            self.color_slider_scroll.viewport(),
             self.palette_dock,
             self.palette_scroll.viewport(),
             self.palette.scroll.viewport(),
