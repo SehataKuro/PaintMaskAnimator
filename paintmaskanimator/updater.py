@@ -111,9 +111,19 @@ def check_for_update(token, repo=GITHUB_REPO, current_version=APP_VERSION):
         release = fetch_latest_release(token, repo)
     except urllib.error.HTTPError as error:
         if error.code in (401, 403):
-            return {"status": "error", "message": "トークンが無効か、権限がありません。"}
+            return {
+                "status": "error",
+                "auth_error": True,
+                "message": "トークンが無効か、権限がありません。",
+            }
         if error.code == 404:
-            return {"status": "error", "message": "リリースが見つかりません。"}
+            # For a private repo GitHub also returns 404 when the token can't
+            # see it, so this may be a permissions problem too.
+            return {
+                "status": "error",
+                "message": "リリースが見つかりません（未公開、またはトークンに"
+                "このリポジトリの読み取り権限が無い可能性があります）。",
+            }
         return {"status": "error", "message": f"HTTPエラー: {error.code}"}
     except urllib.error.URLError as error:
         return {"status": "error", "message": f"ネットワークエラー: {error.reason}"}

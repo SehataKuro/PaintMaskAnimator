@@ -45,6 +45,38 @@ def test_pick_installer_asset_none():
     assert updater.pick_installer_asset({}) is None
 
 
+def test_check_for_update_maps_auth_error(monkeypatch):
+    import urllib.error
+
+    def boom(*a, **k):
+        raise urllib.error.HTTPError("u", 403, "Forbidden", {}, None)
+
+    monkeypatch.setattr(updater, "fetch_latest_release", boom)
+    result = updater.check_for_update("bad-token")
+    assert result["status"] == "error"
+    assert result.get("auth_error") is True
+
+
+def test_check_for_update_404_not_auth(monkeypatch):
+    import urllib.error
+
+    def boom(*a, **k):
+        raise urllib.error.HTTPError("u", 404, "Not Found", {}, None)
+
+    monkeypatch.setattr(updater, "fetch_latest_release", boom)
+    result = updater.check_for_update("tok")
+    assert result["status"] == "error"
+    assert not result.get("auth_error")
+
+
+def test_check_for_update_up_to_date(monkeypatch):
+    monkeypatch.setattr(
+        updater, "fetch_latest_release", lambda *a, **k: {"tag_name": "v0.5"}
+    )
+    result = updater.check_for_update("tok", current_version="0.5")
+    assert result["status"] == "up_to_date"
+
+
 def test_config_roundtrip(tmp_path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))

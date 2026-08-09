@@ -5841,6 +5841,19 @@ class MainWindow(QMainWindow):
 
         status = result.get("status")
         if status == "error":
+            # A bad/expired token would otherwise be stuck forever, since a
+            # stored token is reused without re-prompting — offer to re-enter it.
+            if result.get("auth_error"):
+                answer = QMessageBox.question(
+                    self,
+                    "更新確認エラー",
+                    result.get("message", "") + "\n\nトークンを入力し直しますか？",
+                )
+                if answer == QMessageBox.StandardButton.Yes:
+                    new_token = self._prompt_github_token()
+                    if new_token:
+                        self.check_for_updates_interactive()
+                return
             QMessageBox.warning(
                 self, "更新確認エラー", result.get("message", "不明なエラー")
             )
