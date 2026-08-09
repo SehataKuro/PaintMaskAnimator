@@ -1,8 +1,9 @@
 from .common import *  # noqa: F401,F403
+from . import constants
 
 
 def workspace_size():
-    return CANVAS_WIDTH + OUTSIDE_MARGIN * 2, CANVAS_HEIGHT + OUTSIDE_MARGIN * 2
+    return constants.CANVAS_WIDTH + OUTSIDE_MARGIN * 2, constants.CANVAS_HEIGHT + OUTSIDE_MARGIN * 2
 
 
 def disable_windows_ink_feedback(*widgets):
@@ -72,7 +73,7 @@ def paper_image():
     """White paper only inside the real canvas; outside stays transparent/dark."""
     im = blank_image()
     p = QPainter(im)
-    p.fillRect(OUTSIDE_MARGIN, OUTSIDE_MARGIN, CANVAS_WIDTH, CANVAS_HEIGHT, QColor("white"))
+    p.fillRect(OUTSIDE_MARGIN, OUTSIDE_MARGIN, constants.CANVAS_WIDTH, constants.CANVAS_HEIGHT, QColor("white"))
     p.end()
     return im
 

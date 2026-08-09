@@ -1,4 +1,11 @@
-"""Application-wide constants."""
+"""Application-wide constants.
+
+Note: ``CANVAS_WIDTH`` / ``CANVAS_HEIGHT`` are *mutable* runtime state — they
+change when the project canvas is resized. They are deliberately excluded from
+``__all__`` so that ``from .constants import *`` does NOT create per-module
+copies that would go stale after a resize. Always read/write them through the
+module, e.g. ``constants.CANVAS_WIDTH``.
+"""
 
 APP_NAME = "PaintMaskAnimator"
 APP_VERSION = "0.5"
@@ -19,3 +26,9 @@ MAX_SINGLE_IMAGE_PIXELS = MAX_IMAGE_DIMENSION * MAX_IMAGE_DIMENSION
 TP_MASK_PROXY_THRESHOLD = 5000
 TP_MASK_PROXY_MAX_DIMENSION = 1280
 TP_MASK_PROXY_MAX_COLORS = 32
+
+# Everything except the mutable canvas dimensions is safe to star-import.
+__all__ = [
+    _n for _n in list(globals())
+    if _n.isupper() and _n not in ("CANVAS_WIDTH", "CANVAS_HEIGHT")
+]

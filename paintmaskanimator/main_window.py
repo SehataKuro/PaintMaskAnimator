@@ -1,4 +1,5 @@
 from .common import *  # noqa: F401,F403
+from . import constants
 from .canvas import PaintCanvas
 from .color_panel import UsedColorPanel
 from .color_reduction import ColorReductionDialog
@@ -3625,8 +3626,8 @@ class MainWindow(QMainWindow):
     def prepare_image_import(self, paths):
         # Keep this step light: inspect dimensions only. Color analysis is deferred
         # until after the image is visible and is cached per cell.
-        max_width = CANVAS_WIDTH
-        max_height = CANVAS_HEIGHT
+        max_width = constants.CANVAS_WIDTH
+        max_height = constants.CANVAS_HEIGHT
         for path in paths:
             reader = QImageReader(str(path))
             try:
@@ -3649,7 +3650,7 @@ class MainWindow(QMainWindow):
                 width, height = image.width(), image.height()
             max_width = max(max_width, width)
             max_height = max(max_height, height)
-        if max_width > CANVAS_WIDTH or max_height > CANVAS_HEIGHT:
+        if max_width > constants.CANVAS_WIDTH or max_height > constants.CANVAS_HEIGHT:
             self.canvas.push_doc_undo()
             self.replace_doc(max_width, max_height, preserve=True)
             self.statusBar().showMessage(
@@ -5790,7 +5791,7 @@ class MainWindow(QMainWindow):
         w,h=workspace_size();availw=max(100,self.canvas.width()-40);availh=max(100,self.canvas.height()-40);z=min(availw/w,availh/h);self.canvas.zoom=z;self.canvas.pan=QPointF((self.canvas.width()-w*z)/2,(self.canvas.height()-h*z)/2);self.zoom.blockSignals(True);self.zoom.setValue(int(z*100));self.zoom.blockSignals(False);self.zoom_label.setText(f"{z*100:.0f}%");self.canvas.update()
 
     def new_doc(self):
-        d=CanvasSizeDialog(CANVAS_WIDTH,CANVAS_HEIGHT,"新規作成",self)
+        d=CanvasSizeDialog(constants.CANVAS_WIDTH,constants.CANVAS_HEIGHT,"新規作成",self)
         if d.exec():
             self.replace_doc(*d.values())
             self.current_project_path = None
@@ -5845,8 +5846,8 @@ class MainWindow(QMainWindow):
             "format_version": 1,
             "application_version": 100,
             "canvas": {
-                "width": int(CANVAS_WIDTH),
-                "height": int(CANVAS_HEIGHT),
+                "width": int(constants.CANVAS_WIDTH),
+                "height": int(constants.CANVAS_HEIGHT),
             },
             "fps": int(self.timeline.fps.value()),
             "timeline_mode": str(self.canvas.timeline_mode),
@@ -6107,7 +6108,6 @@ class MainWindow(QMainWindow):
         super().dropEvent(event)
 
     def open_project(self, path):
-        global CANVAS_WIDTH, CANVAS_HEIGHT
         project_path = Path(path)
         try:
             with zipfile.ZipFile(project_path, "r") as archive:
@@ -6286,8 +6286,8 @@ class MainWindow(QMainWindow):
                         )
                     )
 
-            CANVAS_WIDTH = width
-            CANVAS_HEIGHT = height
+            constants.CANVAS_WIDTH = width
+            constants.CANVAS_HEIGHT = height
             self.canvas.frames = loaded_frames
             self.canvas.current_frame = max(
                 0,
@@ -6710,11 +6710,11 @@ class MainWindow(QMainWindow):
             )
             return
 
-        if int(psd.width) > CANVAS_WIDTH or int(psd.height) > CANVAS_HEIGHT:
+        if int(psd.width) > constants.CANVAS_WIDTH or int(psd.height) > constants.CANVAS_HEIGHT:
             self.canvas.push_doc_undo()
             self.replace_doc(
-                max(CANVAS_WIDTH, int(psd.width)),
-                max(CANVAS_HEIGHT, int(psd.height)),
+                max(constants.CANVAS_WIDTH, int(psd.width)),
+                max(constants.CANVAS_HEIGHT, int(psd.height)),
                 preserve=True,
             )
         self.canvas.push_doc_undo()
@@ -6751,11 +6751,10 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "PSD読み込み", message)
 
     def resize_doc(self):
-        d=CanvasSizeDialog(CANVAS_WIDTH,CANVAS_HEIGHT,"キャンバスサイズの変更",self)
+        d=CanvasSizeDialog(constants.CANVAS_WIDTH,constants.CANVAS_HEIGHT,"キャンバスサイズの変更",self)
         if d.exec():self.canvas.push_doc_undo();self.replace_doc(*d.values(),preserve=True)
     def replace_doc(self,w,h,preserve=False):
-        global CANVAS_WIDTH,CANVAS_HEIGHT
-        old_frames=self.canvas.frames if preserve else None;oldw,oldh=CANVAS_WIDTH,CANVAS_HEIGHT;CANVAS_WIDTH,CANVAS_HEIGHT=w,h
+        old_frames=self.canvas.frames if preserve else None;oldw,oldh=constants.CANVAS_WIDTH,constants.CANVAS_HEIGHT;constants.CANVAS_WIDTH,constants.CANVAS_HEIGHT=w,h
         if preserve:
             new=[]
             for f in old_frames:
@@ -7135,7 +7134,7 @@ class MainWindow(QMainWindow):
             ("タイムライン", self.timeline_actions),
         ]
         ShortcutDialog(categories, self).exec()
-    def crop_image(self,fi):return self.canvas.composite(fi,True).copy(OUTSIDE_MARGIN,OUTSIDE_MARGIN,CANVAS_WIDTH,CANVAS_HEIGHT)
+    def crop_image(self,fi):return self.canvas.composite(fi,True).copy(OUTSIDE_MARGIN,OUTSIDE_MARGIN,constants.CANVAS_WIDTH,constants.CANVAS_HEIGHT)
     def save_png(self):
         path,_=QFileDialog.getSaveFileName(self,"PNG保存","frame.png","PNG (*.png)");
         if path:self.crop_image(self.canvas.current_frame).save(path if path.lower().endswith('.png') else path+'.png','PNG')
@@ -7268,7 +7267,7 @@ class MainWindow(QMainWindow):
         try:
             psd = PSDImage.new(
                 "RGB",
-                (int(CANVAS_WIDTH), int(CANVAS_HEIGHT)),
+                (int(constants.CANVAS_WIDTH), int(constants.CANVAS_HEIGHT)),
                 color=(255, 255, 255),
             )
             layer_count = len(self.canvas.frames[0].layers)
@@ -7290,8 +7289,8 @@ class MainWindow(QMainWindow):
                     source = layer.image.copy(
                         OUTSIDE_MARGIN,
                         OUTSIDE_MARGIN,
-                        CANVAS_WIDTH,
-                        CANVAS_HEIGHT,
+                        constants.CANVAS_WIDTH,
+                        constants.CANVAS_HEIGHT,
                     )
                     pil_image = PaintCanvas._qimage_to_pil_rgba(source)
                     pixel_layer = psd.create_pixel_layer(
@@ -7580,8 +7579,8 @@ class MainWindow(QMainWindow):
                 image = layer.image.copy(
                     OUTSIDE_MARGIN,
                     OUTSIDE_MARGIN,
-                    CANVAS_WIDTH,
-                    CANVAS_HEIGHT,
+                    constants.CANVAS_WIDTH,
+                    constants.CANVAS_HEIGHT,
                 )
                 layer_number = layer_numbers.get(layer_index, 0) + 1
                 layer_numbers[layer_index] = layer_number

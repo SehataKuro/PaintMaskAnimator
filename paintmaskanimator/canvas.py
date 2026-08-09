@@ -1,4 +1,5 @@
 from .common import *  # noqa: F401,F403
+from . import constants
 from .models import Frame, Layer, make_frame
 from .pressure import _pressure_bezier_at
 from .timeline import TimelineWidget
@@ -233,7 +234,7 @@ class PaintCanvas(QWidget):
     def layers(self): return self.frames[self.current_frame].layers
     @property
     def active_layer(self): return self.layers[self.active_layer_index]
-    def document_snapshot(self): return ([f.clone() for f in self.frames],self.current_frame,self.active_layer_index,CANVAS_WIDTH,CANVAS_HEIGHT)
+    def document_snapshot(self): return ([f.clone() for f in self.frames],self.current_frame,self.active_layer_index,constants.CANVAS_WIDTH,constants.CANVAS_HEIGHT)
     def push_doc_undo(self): self.undo_stack.append(("doc",self.document_snapshot())); self.undo_stack=self.undo_stack[-MAX_UNDO:]; self.redo_stack.clear()
     def push_layer_undo(self):
         l=self.active_layer; self.undo_stack.append(("layer",self.current_frame,self.active_layer_index,l.image.copy(),l.has_content)); self.undo_stack=self.undo_stack[-MAX_UNDO:]; self.redo_stack.clear()
@@ -296,12 +297,11 @@ class PaintCanvas(QWidget):
         l=self.frames[fi].layers[li]
         return ("layer",fi,li,l.image.copy(),l.has_content)
     def apply_undo_entry(self,e):
-        global CANVAS_WIDTH,CANVAS_HEIGHT
         if e[0]=="doc":
             _,snap=e
             fs,cf,al,w,h=snap
-            CANVAS_WIDTH=w
-            CANVAS_HEIGHT=h
+            constants.CANVAS_WIDTH=w
+            constants.CANVAS_HEIGHT=h
             self.frames=[f.clone() for f in fs]
             self.current_frame=cf
             self.active_layer_index=al
@@ -2010,7 +2010,7 @@ class PaintCanvas(QWidget):
     def work_rect(self):
         w,h=workspace_size(); return QRectF(self.pan.x(),self.pan.y(),w*self.zoom,h*self.zoom)
     def canvas_rect(self):
-        return QRectF(self.pan.x()+OUTSIDE_MARGIN*self.zoom,self.pan.y()+OUTSIDE_MARGIN*self.zoom,CANVAS_WIDTH*self.zoom,CANVAS_HEIGHT*self.zoom)
+        return QRectF(self.pan.x()+OUTSIDE_MARGIN*self.zoom,self.pan.y()+OUTSIDE_MARGIN*self.zoom,constants.CANVAS_WIDTH*self.zoom,constants.CANVAS_HEIGHT*self.zoom)
     def widget_to_canvas(self,p):
         c=self.work_rect().center(); q=QPointF(p)
         if self.rotation:
@@ -3703,8 +3703,8 @@ class PaintCanvas(QWidget):
             self.frames.append(frame)
 
     def _place_imported_image(self, image, target):
-        x = OUTSIDE_MARGIN + (CANVAS_WIDTH - image.width()) // 2
-        y = OUTSIDE_MARGIN + (CANVAS_HEIGHT - image.height()) // 2
+        x = OUTSIDE_MARGIN + (constants.CANVAS_WIDTH - image.width()) // 2
+        y = OUTSIDE_MARGIN + (constants.CANVAS_HEIGHT - image.height()) // 2
         painter = QPainter(target)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, False)
         painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
