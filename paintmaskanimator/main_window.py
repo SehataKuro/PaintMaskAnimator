@@ -4463,7 +4463,8 @@ class MainWindow(QMainWindow):
                 total_steps,
                 "トゥイーンのキーフレーム化が完了しました",
             )
-        except Exception as exc:
+        except _OPERATION_ERRORS as exc:
+            log.warning("tween keyframe generation failed: %s", exc, exc_info=True)
             # 途中生成に失敗した場合も、開始前の元画像へ戻す。
             if undo_snapshot is not None:
                 self.canvas.apply_undo_entry(("doc", undo_snapshot))
@@ -5923,7 +5924,8 @@ class MainWindow(QMainWindow):
         except RuntimeError:
             dialog.close()
             return
-        except Exception as error:  # noqa: BLE001
+        except (OSError, ValueError) as error:
+            log.warning("update download failed: %s", error, exc_info=True)
             dialog.close()
             QMessageBox.warning(
                 self, "ダウンロード失敗", f"更新を取得できませんでした。\n\n{error}"
@@ -5942,7 +5944,8 @@ class MainWindow(QMainWindow):
         try:
             import os
             os.startfile(str(dest))  # noqa: SLF001 - Windows installer launch
-        except Exception as error:  # noqa: BLE001
+        except OSError as error:
+            log.warning("installer launch failed: %s", error, exc_info=True)
             QMessageBox.warning(
                 self, "起動失敗", f"インストーラを起動できませんでした。\n\n{error}"
             )
@@ -6001,8 +6004,10 @@ class MainWindow(QMainWindow):
                 self.canvas.frames,
             )
         except Exception:
-            import traceback
-            traceback.print_exc()
+            # Autosave is best-effort and must never raise into the event loop,
+            # so the broad catch is intentional; log the traceback instead of
+            # printing it so it lands in the app log.
+            log.exception("autosave failed")
 
     def _maybe_restore_autosave(self):
         """On startup, offer to restore a leftover autosave (likely a crash)."""
