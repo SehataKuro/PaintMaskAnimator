@@ -120,3 +120,121 @@ def qimage_to_pil_rgba(image):
 def pil_rgba_to_qimage(image):
     rgba = np.asarray(image.convert("RGBA"), dtype=np.uint8)
     return rgba_array_to_qimage(rgba)
+
+
+def tp_uses_proxy(target_width, target_height):
+    return max(int(target_width), int(target_height)) >= TP_MASK_PROXY_THRESHOLD
+
+
+def scanline_connected_region(passable, starts):
+    """Fast 4-connected flood fill using horizontal runs instead of per-pixel stacks."""
+    height, width = passable.shape
+    region = np.zeros((height, width), dtype=bool)
+    if isinstance(starts, tuple) and len(starts) == 2 and isinstance(starts[0], (int, np.integer)):
+        stack = [(int(starts[0]), int(starts[1]))]
+    else:
+        stack = [(int(x), int(y)) for x, y in starts]
+    while stack:
+        x, y = stack.pop()
+        if (
+            x < 0 or y < 0 or x >= width or y >= height
+            or region[y, x] or not passable[y, x]
+        ):
+            continue
+        left = x
+        while left > 0 and passable[y, left - 1] and not region[y, left - 1]:
+            left -= 1
+        right = x
+        while right + 1 < width and passable[y, right + 1] and not region[y, right + 1]:
+            right += 1
+        region[y, left:right + 1] = True
+        for next_y in (y - 1, y + 1):
+            if next_y < 0 or next_y >= height:
+                continue
+            scan_x = left
+            while scan_x <= right:
+                if passable[next_y, scan_x] and not region[next_y, scan_x]:
+                    stack.append((scan_x, next_y))
+                    scan_x += 1
+                    while (
+                        scan_x <= right
+                        and passable[next_y, scan_x]
+                        and not region[next_y, scan_x]
+                    ):
+                        scan_x += 1
+                scan_x += 1
+    return region
+
+
+def bool_mask_image(mask):
+    mask = np.asarray(mask, dtype=bool)
+    height, width = mask.shape
+    rgba = np.zeros((height, width, 4), dtype=np.uint8)
+    rgba[:, :, :3] = 255
+    rgba[:, :, 3] = mask.astype(np.uint8) * 255
+    return QImage(
+        rgba.data,
+        width,
+        height,
+        rgba.strides[0],
+        QImage.Format.Format_RGBA8888,
+    ).copy()
+
+
+def tp_transparent_to_white(image):
+    """v0.7 rule: transparent source pixels become opaque #FFFFFF masks."""
+    rgba = np.asarray(image.convert("RGBA"), dtype=np.uint8).copy()
+    transparent = rgba[:, :, 3] == 0
+    rgba[transparent] = (255, 255, 255, 255)
+    return PILImage.fromarray(rgba, "RGBA")
+
+
+def tp_white_to_transparent(image):
+    """v0.7 rule: exact #FFFFFF is transparent in the TP result."""
+    rgba = np.asarray(image.convert("RGBA"), dtype=np.uint8).copy()
+    white = np.all(rgba[:, :, :3] == 255, axis=2)
+    rgba[white, 3] = 0
+    return PILImage.fromarray(rgba, "RGBA")
+
+
+def tp_prepare_palette_image(image, max_colors=64):
+    """Port of prepare_palette_image() from the v0.7 prototype."""
+    source = image.convert("RGBA")
+    colors = source.getcolors(maxcolors=max_colors + 1)
+    opaque = (
+        [(count, rgba) for count, rgba in colors if rgba[3] > 0]
+        if colors is not None
+        else []
+    )
+    if colors is not None and len(opaque) <= max_colors:
+        palette = [rgba for _count, rgba in sorted(opaque, reverse=True)]
+        return source, palette
+
+    alpha = source.getchannel("A")
+    rgb = source.convert("RGB").quantize(
+        colors=max_colors,
+        method=PILImage.Quantize.MEDIANCUT,
+        dither=PILImage.Dither.NONE,
+    ).convert("RGBA")
+    rgb.putalpha(alpha.point(lambda value: 255 if value >= 96 else 0))
+    colors = rgb.getcolors(maxcolors=1_000_000) or []
+    palette = [
+        rgba for _count, rgba in sorted(
+            ((count, rgba) for count, rgba in colors if rgba[3] > 0),
+            reverse=True,
+        )
+    ]
+    return rgb, palette
+
+
+def tp_make_color_masks(image, palette):
+    rgba = np.asarray(image.convert("RGBA"), dtype=np.uint8)
+    return [
+        PILImage.fromarray(
+            (np.all(rgba == np.asarray(color, dtype=np.uint8), axis=2)
+             * 255).astype(np.uint8),
+            "L",
+        )
+        for color in palette
+    ]
+

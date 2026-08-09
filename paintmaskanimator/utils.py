@@ -272,3 +272,10 @@ class _ScreenColorDragMixin:
             return True
 
         return super().event(event)
+
+
+def natural_path_key(path):
+    import re
+    return [int(part) if part.isdigit() else part.lower()
+            for part in re.split(r"(\d+)", Path(path).name)]
+
