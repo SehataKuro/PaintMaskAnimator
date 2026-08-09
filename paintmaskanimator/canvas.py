@@ -1,5 +1,6 @@
 from .common import *  # noqa: F401,F403
 from . import constants
+from .document import Document
 from .models import Frame, Layer, make_frame
 from .pressure import _pressure_bezier_at
 from .timeline import TimelineWidget
@@ -16,7 +17,7 @@ class PaintCanvas(QWidget):
     changed=Signal(); selectionChanged=Signal(); selectionCleared=Signal(); cellChanged=Signal(int,int); imagesDropped=Signal(object); projectDropped=Signal(str); timeRemapDropped=Signal(str); colorSampled=Signal(QColor)
     def __init__(self):
         super().__init__(); self.setFocusPolicy(Qt.FocusPolicy.StrongFocus); self.setMouseTracking(True); self.setTabletTracking(True); self.setMinimumSize(320,120); self.setAcceptDrops(True)
-        self.frames=[make_frame()]; self.current_frame=0; self.active_layer_index=0
+        self._document=Document()
         self._playback_active=False
         self._playback_frame_cache={}
         self._playback_cache_limit=14
@@ -230,11 +231,26 @@ class PaintCanvas(QWidget):
         self._position_selection_clear_overlay()
         super().resizeEvent(event)
 
+    # Core document state lives in self._document; these properties delegate so
+    # the many existing `self.frames` / `self.current_frame` call sites keep
+    # working unchanged.
     @property
-    def layers(self): return self.frames[self.current_frame].layers
+    def frames(self): return self._document.frames
+    @frames.setter
+    def frames(self, value): self._document.frames = value
     @property
-    def active_layer(self): return self.layers[self.active_layer_index]
-    def document_snapshot(self): return ([f.clone() for f in self.frames],self.current_frame,self.active_layer_index,constants.CANVAS_WIDTH,constants.CANVAS_HEIGHT)
+    def current_frame(self): return self._document.current_frame
+    @current_frame.setter
+    def current_frame(self, value): self._document.current_frame = value
+    @property
+    def active_layer_index(self): return self._document.active_layer_index
+    @active_layer_index.setter
+    def active_layer_index(self, value): self._document.active_layer_index = value
+    @property
+    def layers(self): return self._document.layers
+    @property
+    def active_layer(self): return self._document.active_layer
+    def document_snapshot(self): return self._document.snapshot()
     def push_doc_undo(self): self.undo_stack.append(("doc",self.document_snapshot())); self.undo_stack=self.undo_stack[-MAX_UNDO:]; self.redo_stack.clear()
     def push_layer_undo(self):
         l=self.active_layer; self.undo_stack.append(("layer",self.current_frame,self.active_layer_index,l.image.copy(),l.has_content)); self.undo_stack=self.undo_stack[-MAX_UNDO:]; self.redo_stack.clear()
