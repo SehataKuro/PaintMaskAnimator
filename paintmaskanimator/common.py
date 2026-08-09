@@ -13,13 +13,15 @@ from typing import List, Optional
 
 try:
     from PIL import Image as PILImage, ImageFilter as PILImageFilter
-except Exception:
+except (ImportError, OSError):
+    # Pillow is optional; a missing or broken install disables PIL-backed paths.
     PILImage = None
     PILImageFilter = None
 
 try:
     from psd_tools import PSDImage
-except Exception:
+except (ImportError, OSError):
+    # psd_tools is optional; absence disables .psd import only.
     PSDImage = None
 
 try:
@@ -53,5 +55,7 @@ except ModuleNotFoundError as exc:
         _messagebox.showerror(f"{APP_DISPLAY_NAME} 起動エラー", message)
         _root.destroy()
     except Exception:
+        # tkinter itself may be missing or unusable (no display); the console
+        # message above is the fallback, so ignore any GUI-dialog failure.
         pass
     raise SystemExit(1) from None

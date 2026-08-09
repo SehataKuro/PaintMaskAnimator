@@ -1,5 +1,8 @@
 from .common import *  # noqa: F401,F403
 from .canvas import PaintCanvas
+from .logging_setup import get_logger
+
+log = get_logger(__name__)
 
 
 class ToneCurveWidget(QWidget):
@@ -654,8 +657,9 @@ class ColorReductionDialog(QDialog):
                 QPixmap.fromImage(preview)
             )
             self.original_preview.setFixedSize(preview.size())
-        except Exception:
+        except (ValueError, IndexError, TypeError, RuntimeError, AttributeError) as exc:
             # 操作中の簡易表示失敗は、確定済み表示へ静かに戻す。
+            log.debug("tone-curve live preview failed: %s", exc)
             self._restore_confirmed_preview(
                 show_dirty_state=True
             )
@@ -850,8 +854,8 @@ class ColorReductionDialog(QDialog):
                 watched.setCursor(Qt.CursorShape.ClosedHandCursor)
                 try:
                     watched.grabMouse()
-                except Exception:
-                    pass
+                except RuntimeError as exc:
+                    log.debug("grabMouse() failed: %s", exc)
                 event.accept()
                 return True
 
@@ -887,8 +891,8 @@ class ColorReductionDialog(QDialog):
                 if pan_widget is not None:
                     try:
                         pan_widget.releaseMouse()
-                    except Exception:
-                        pass
+                    except RuntimeError as exc:
+                        log.debug("releaseMouse() failed: %s", exc)
                     pan_widget.setCursor(
                         Qt.CursorShape.OpenHandCursor
                     )
@@ -972,7 +976,8 @@ class ColorReductionDialog(QDialog):
         tone_points = self.tone_curve_points()
         try:
             tone_key = self.tone_curve_points_key()
-        except Exception:
+        except (TypeError, ValueError, IndexError, AttributeError) as exc:
+            log.debug("tone_curve_points_key() failed, using identity: %s", exc)
             tone_points = [
                 (0.0, 0.0),
                 (1.0, 1.0),
@@ -1142,7 +1147,8 @@ class ColorReductionDialog(QDialog):
                     self._sync_preview_scroll("v", old_v),
                 ),
             )
-        except Exception as exc:
+        except (ValueError, IndexError, TypeError, RuntimeError, AttributeError, MemoryError) as exc:
+            log.warning("binarization preview generation failed: %s", exc, exc_info=True)
             self._preview_dirty = True
             self._restore_confirmed_preview(
                 show_dirty_state=True
@@ -1200,7 +1206,8 @@ class ColorReductionDialog(QDialog):
             return
         try:
             self.selected_palette()
-        except Exception as exc:
+        except ValueError as exc:
+            log.info("palette not ready for apply: %s", exc)
             QMessageBox.warning(
                 self,
                 "2値化",

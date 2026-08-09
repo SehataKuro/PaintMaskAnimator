@@ -1,5 +1,8 @@
 from .common import *  # noqa: F401,F403
 from . import constants
+from .logging_setup import get_logger
+
+log = get_logger(__name__)
 
 
 def workspace_size():
@@ -43,7 +46,9 @@ def disable_windows_ink_feedback(*widgets):
                 handle = wintypes.HWND(
                     int(widget.winId())
                 )
-            except Exception:
+            except (RuntimeError, ValueError, TypeError) as exc:
+                # winId() fails for a not-yet-realized or destroyed widget.
+                log.debug("winId() unavailable for widget: %s", exc)
                 continue
 
             for feedback_type in feedback_types:
@@ -55,11 +60,15 @@ def disable_windows_ink_feedback(*widgets):
                         ctypes.sizeof(disabled),
                         ctypes.byref(disabled),
                     )
-                except Exception:
-                    pass
-    except Exception:
+                except OSError as exc:
+                    log.debug(
+                        "SetWindowFeedbackSetting(%s) failed: %s",
+                        feedback_type,
+                        exc,
+                    )
+    except (OSError, AttributeError, ImportError) as exc:
         # Windowsのバージョンや環境が未対応でも起動は継続する。
-        pass
+        log.debug("Windows Ink feedback tweak unavailable: %s", exc)
 
 
 def blank_image(fill=Qt.GlobalColor.transparent):
@@ -145,20 +154,20 @@ class _ScreenColorDragMixin:
         self._touch_pick_candidate = False
         try:
             self.grabMouse()
-        except Exception:
-            pass
+        except RuntimeError as exc:
+            log.debug("grabMouse() failed: %s", exc)
         QApplication.setOverrideCursor(Qt.CursorShape.CrossCursor)
         self._screen_pick_cursor_pushed = True
         try:
             self.setDown(False)
-        except Exception:
-            pass
+        except RuntimeError as exc:
+            log.debug("setDown(False) failed: %s", exc)
 
     def _cancel_screen_pick_cursor(self):
         try:
             self.releaseMouse()
-        except Exception:
-            pass
+        except RuntimeError as exc:
+            log.debug("releaseMouse() failed: %s", exc)
         if self._screen_pick_cursor_pushed:
             QApplication.restoreOverrideCursor()
             self._screen_pick_cursor_pushed = False
