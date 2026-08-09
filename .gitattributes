@@ -1,0 +1,6 @@
+# Normalize line endings: keep LF in the repo for all text/scripts so CI
+# (Linux runners, shell in workflows) never sees CRLF.
+* text=auto eol=lf
+*.png binary
+*.pmap binary
+*.psd binary
