@@ -53,6 +53,8 @@ class MainWindow(QMainWindow):
                 self.canvas,
             ),
         )
+        self._setup_autosave()
+        QTimer.singleShot(0, self._maybe_restore_autosave)
     def make_shortcut_action(self, name, callback, shortcut=""):
         action = QAction(name, self)
         if shortcut:
@@ -5957,10 +5959,56 @@ class MainWindow(QMainWindow):
             return True
         return False
 
-    def write_project(self, path):
-        project_path = Path(path)
+    def _autosave_path(self):
+        return config.config_dir() / "autosave.pmap"
 
-        metadata = {
+    def _setup_autosave(self, interval_ms=180000):
+        """Periodically snapshot the project so a crash doesn't lose work."""
+        self._autosave_timer = QTimer(self)
+        self._autosave_timer.setInterval(int(interval_ms))
+        self._autosave_timer.timeout.connect(self._autosave)
+        self._autosave_timer.start()
+
+    def _autosave(self):
+        # Must never raise into the event loop — autosave is best-effort.
+        try:
+            project_io.write_project_archive(
+                self._autosave_path(),
+                self.build_project_metadata(),
+                self.canvas.frames,
+            )
+        except Exception:
+            import traceback
+            traceback.print_exc()
+
+    def _maybe_restore_autosave(self):
+        """On startup, offer to restore a leftover autosave (likely a crash)."""
+        path = self._autosave_path()
+        try:
+            if not path.exists() or path.stat().st_size == 0:
+                return
+        except OSError:
+            return
+        answer = QMessageBox.question(
+            self,
+            "作業の復元",
+            "前回のセッションが正常に終了しなかった可能性があります。\n"
+            "自動保存された作業を復元しますか？",
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            self.open_project(str(path))
+        else:
+            self._clear_autosave()
+
+    def _clear_autosave(self):
+        try:
+            self._autosave_path().unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    def build_project_metadata(self):
+        """Assemble the project metadata dict from current widget state."""
+        return {
             "format": "PaintMaskAnimatorProject",
             "format_version": 1,
             "application_version": 100,
@@ -6052,6 +6100,11 @@ class MainWindow(QMainWindow):
             },
             "frames": [],
         }
+
+    def write_project(self, path):
+        project_path = Path(path)
+
+        metadata = self.build_project_metadata()
 
         try:
             project_io.write_project_archive(
@@ -6987,12 +7040,17 @@ class MainWindow(QMainWindow):
             self.timer.stop()
             self._used_color_timer.stop()
             self._visible_color_timer.stop()
+            if getattr(self, "_autosave_timer", None) is not None:
+                self._autosave_timer.stop()
             self.timeline.blockSignals(True)
             self.timeline.table.blockSignals(True)
             self.timeline.layer_list.blockSignals(True)
             self.canvas.blockSignals(True)
         except RuntimeError:
             pass
+        # A clean shutdown clears the autosave so we don't prompt to restore
+        # on the next launch.
+        self._clear_autosave()
         event.accept()
 
     def pressure(self):
