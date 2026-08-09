@@ -24,16 +24,16 @@ except Exception:
 
 try:
     import numpy as np
-    from PySide6.QtCore import QEvent, QItemSelectionModel, QPoint, QPointF, QRectF, QSize, Qt, QTimer, Signal
-    from PySide6.QtGui import QAction, QColor, QImage, QImageReader, QKeySequence, QPainter, QPainterPath, QPen, QPolygonF, QRegion, QTransform, QPixmap, QCursor, QValidator
+    from PySide6.QtCore import QEvent, QItemSelectionModel, QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer, Signal
+    from PySide6.QtGui import QAction, QColor, QIcon, QImage, QImageReader, QKeySequence, QPainter, QPainterPath, QPen, QPolygonF, QRegion, QTransform, QPixmap, QCursor, QValidator
     from PySide6.QtWidgets import (
         QApplication, QCheckBox, QColorDialog, QDialog, QDialogButtonBox,
         QDoubleSpinBox, QFileDialog, QFormLayout, QGridLayout, QHBoxLayout,
-        QLabel, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
+        QLabel, QListView, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
         QMenu, QPushButton, QSlider, QSpinBox, QTableWidget, QComboBox,
         QTableWidgetItem, QTabBar, QTabWidget, QToolButton, QVBoxLayout, QWidget, QAbstractItemView, QHeaderView, QScrollArea,
         QKeySequenceEdit, QDockWidget, QProgressDialog, QPlainTextEdit, QStyledItemDelegate, QStyle,
-        QSizePolicy, QAbstractSpinBox, QInputDialog,
+        QSizePolicy, QAbstractButton, QAbstractSpinBox, QInputDialog, QSplitter,
     )
 except ModuleNotFoundError as exc:
     # Double-clicking a .py normally closes the console immediately. Show a visible

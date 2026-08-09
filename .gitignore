@@ -3,6 +3,7 @@ __pycache__/
 
 # Build / packaging artifacts
 build/
+build_verify/
 dist/
 dist_installer/
 *.spec.bak

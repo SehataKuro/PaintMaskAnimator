@@ -1034,51 +1034,6 @@ class HSVColorWheel(QWidget):
         super().mouseReleaseEvent(event)
 
 
-class DockTitleBar(QWidget):
-    """右クリックでモード切替メニューを出せるドックのタイトルバー。
-
-    フロート／クローズボタンは標準タイトルバーと同じ動作を保つ。
-    """
-
-    contextMenuRequested = Signal(QPoint)
-
-    def __init__(self, title, dock):
-        super().__init__(dock)
-        self._dock = dock
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 2, 4, 2)
-        layout.setSpacing(2)
-
-        self.title_label = QLabel(title)
-        self.title_label.setStyleSheet("font-weight:bold;")
-        layout.addWidget(self.title_label)
-        layout.addStretch(1)
-
-        self.float_button = QToolButton(self)
-        self.float_button.setText("❐")
-        self.float_button.setAutoRaise(True)
-        self.float_button.setToolTip("フロート／ドッキング切替")
-        self.float_button.clicked.connect(self._toggle_float)
-        layout.addWidget(self.float_button)
-
-        self.close_button = QToolButton(self)
-        self.close_button.setText("✕")
-        self.close_button.setAutoRaise(True)
-        self.close_button.setToolTip("閉じる")
-        self.close_button.clicked.connect(self._dock.close)
-        layout.addWidget(self.close_button)
-
-    def setTitle(self, title):
-        self.title_label.setText(title)
-
-    def _toggle_float(self):
-        self._dock.setFloating(not self._dock.isFloating())
-
-    def contextMenuEvent(self, event):
-        self.contextMenuRequested.emit(event.globalPos())
-        event.accept()
-
-
 class TimeRemapPasteDialog(QDialog):
     """コピー情報をタイムシート表へ貼り付けて確認する画面。"""
 

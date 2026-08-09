@@ -405,7 +405,7 @@ class OnionRotationSlider(QSlider):
         super().wheelEvent(event)
 
 
-class OnionSkinSettingsBrowser(QDockWidget):
+class OnionSkinSettingsBrowser(QWidget):
     """オニオンスキンを即時調整する一時表示ブラウザ。"""
 
     settingsChanged = Signal()
@@ -441,25 +441,15 @@ class OnionSkinSettingsBrowser(QDockWidget):
         canvas_rotation=0.0,
         parent=None,
     ):
-        super().__init__("オニオンスキン設定", parent)
+        super().__init__(parent)
         self.setObjectName("temporaryOnionSkinSettingsBrowser")
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
-        self.setAllowedAreas(
-            Qt.DockWidgetArea.LeftDockWidgetArea
-            | Qt.DockWidgetArea.RightDockWidgetArea
-        )
-        self.setFeatures(
-            QDockWidget.DockWidgetFeature.DockWidgetClosable
-            | QDockWidget.DockWidgetFeature.DockWidgetMovable
-            | QDockWidget.DockWidgetFeature.DockWidgetFloatable
-        )
         self.setMinimumWidth(320)
 
         self.previous_color = QColor(previous_color)
         self.next_color = QColor(next_color)
 
-        container = QWidget()
-        layout = QVBoxLayout(container)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(6, 6, 6, 6)
         layout.setSpacing(3)
 
@@ -692,7 +682,6 @@ class OnionSkinSettingsBrowser(QDockWidget):
         close_button.clicked.connect(self.close)
         layout.addWidget(close_button)
 
-        self.setWidget(container)
 
         self.previous_color_button.clicked.connect(
             lambda: self._choose_color("previous")

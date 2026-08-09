@@ -9,7 +9,7 @@ from PyInstaller.utils.hooks import collect_submodules
 
 hiddenimports = []
 # Optional deps: bundle them if present in the build environment.
-for optional in ("PIL", "psd_tools"):
+for optional in ("PIL", "psd_tools", "PySide6QtAds"):
     try:
         __import__(optional)
         hiddenimports += collect_submodules(optional)
