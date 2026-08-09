@@ -53,3 +53,22 @@ coll = COLLECT(
     upx=False,
     name="PaintMaskAnimator",
 )
+
+# On macOS, wrap the collected app into a proper .app bundle for the .dmg.
+import sys as _sys
+if _sys.platform == "darwin":
+    app = BUNDLE(
+        coll,
+        name="PaintMaskAnimator.app",
+        icon="app.icns" if __import__("os").path.exists(
+            __import__("os").path.join(__import__("os").path.dirname(SPEC), "app.icns")
+        ) else None,
+        bundle_identifier="com.sehatakuro.paintmaskanimator",
+        info_plist={
+            "CFBundleName": "PaintMaskAnimator",
+            "CFBundleDisplayName": "PaintMaskAnimator",
+            "CFBundleShortVersionString": "0.6.1",
+            "CFBundleVersion": "0.6.1",
+            "NSHighResolutionCapable": True,
+        },
+    )

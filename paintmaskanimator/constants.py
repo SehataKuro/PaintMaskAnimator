@@ -8,7 +8,7 @@ module, e.g. ``constants.CANVAS_WIDTH``.
 """
 
 APP_NAME = "PaintMaskAnimator"
-APP_VERSION = "0.6"
+APP_VERSION = "0.6.1"
 APP_DISPLAY_NAME = f"{APP_NAME} V{APP_VERSION}"
 # GitHub repository used by the in-app updater (Releases are fetched from here).
 GITHUB_REPO = "SehataKuro/PaintMaskAnimator"

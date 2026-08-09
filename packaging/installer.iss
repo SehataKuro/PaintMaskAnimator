@@ -1,9 +1,10 @@
 ; Inno Setup script for PaintMaskAnimator.
-; Compile:  iscc /DAppVersion=0.5.0 packaging\installer.iss
+; Compile: iscc /DAppVersion=0.6.1 packaging\installer.iss
+; Silent in-place update: PaintMaskAnimator-Setup-0.6.1.exe /SILENT
 ; Expects the PyInstaller one-folder build at dist\PaintMaskAnimator\.
 
 #ifndef AppVersion
-  #define AppVersion "0.5.0"
+  #define AppVersion "0.6.1"
 #endif
 
 #define AppName "PaintMaskAnimator"
@@ -27,6 +28,11 @@ ArchitecturesInstallIn64BitMode=x64compatible
 ; Per-user install by default (no admin rights required).
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
+; In-place update support: if the app is running (e.g. the in-app updater
+; launched this installer), close it before replacing files, then relaunch.
+CloseApplications=yes
+CloseApplicationsFilter={#AppExeName}
+RestartApplications=yes
 
 [Languages]
 Name: "japanese"; MessagesFile: "compiler:Languages\Japanese.isl"
