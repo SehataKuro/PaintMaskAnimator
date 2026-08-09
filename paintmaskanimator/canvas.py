@@ -7,6 +7,9 @@ from .pressure import _pressure_bezier_at
 from .timeline import TimelineWidget
 from .toolpanel import ToolPanel
 from .utils import blank_image, workspace_size
+from .logging_setup import get_logger
+
+log = get_logger(__name__)
 
 
 class PaintCanvas(QWidget):
@@ -896,7 +899,8 @@ class PaintCanvas(QWidget):
                     layer_index,
                     column,
                 )
-            except Exception:
+            except (IndexError, KeyError, TypeError, AttributeError, ValueError) as exc:
+                log.debug("timeline_span_at(col=%s) failed: %s", column, exc)
                 continue
             if kind in ("content", "blank") and start == column:
                 columns.append(column)
@@ -2543,7 +2547,8 @@ class PaintCanvas(QWidget):
                     total,
                     "プレビューを更新しました",
                 )
-        except Exception as exc:
+        except (ValueError, IndexError, TypeError, RuntimeError, AttributeError, MemoryError) as exc:
+            log.warning("quality preview generation failed: %s", exc, exc_info=True)
             self.status_message.emit(
                 f"クオリティプレビューを生成できませんでした: {exc}"
             )
@@ -3571,7 +3576,10 @@ class PaintCanvas(QWidget):
                     raw = pil.tobytes("raw", "RGBA")
                     converted = QImage(raw, pil.width, pil.height, pil.width * 4, QImage.Format.Format_RGBA8888)
                     image = converted.copy()
-            except Exception as exc:
+            except (OSError, ValueError, TypeError, MemoryError, RuntimeError) as exc:
+                # Pillow raises a wide, loosely-documented set on undecodable
+                # or oversized images; record it and fall back to the Qt reader.
+                log.info("Pillow decode of %s failed: %s", path, exc)
                 errors.append(f"Pillow: {exc}")
         if image.isNull():
             suffix = Path(path).suffix.lower() or "拡張子なし"
@@ -5937,7 +5945,8 @@ class PaintCanvas(QWidget):
                 image.width(),
                 image.height(),
             )
-        except Exception:
+        except (AttributeError, RuntimeError, TypeError) as exc:
+            log.debug("cacheKey() unavailable, using id() fallback: %s", exc)
             key = (id(image), image.width(), image.height())
 
         cached = self._pseudo_transparency_cache.get(key)
@@ -5995,7 +6004,8 @@ class PaintCanvas(QWidget):
             return base
         try:
             key = (int(base.cacheKey()), base.width(), base.height())
-        except Exception:
+        except (AttributeError, RuntimeError, TypeError) as exc:
+            log.debug("cacheKey() unavailable, using id() fallback: %s", exc)
             key = (id(base), base.width(), base.height())
         cached = self._silhouette_cache.get(key)
         if cached is not None:
@@ -6035,7 +6045,8 @@ class PaintCanvas(QWidget):
         rgb = legacy_rgb
         try:
             image_key = int(layer.image.cacheKey())
-        except Exception:
+        except (AttributeError, RuntimeError, TypeError) as exc:
+            log.debug("cacheKey() unavailable, using id() fallback: %s", exc)
             image_key = id(layer.image)
         width, height = layer.image.width(), layer.image.height()
         visible_key = None if visible is None else tuple(sorted(visible))
@@ -6404,7 +6415,8 @@ class PaintCanvas(QWidget):
         """入り抜き幅を変化させながら、非AA線分として描画する。"""
         try:
             length = max(1.0, float(path.length()))
-        except Exception:
+        except (AttributeError, RuntimeError, TypeError, ValueError) as exc:
+            log.debug("path.length() failed, using endpoint distance: %s", exc)
             length = max(
                 1.0,
                 math.hypot(
