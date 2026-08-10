@@ -19,7 +19,7 @@ except (ImportError, OSError):
     PILImageFilter = None
 
 try:
-    from psd_tools import PSDImage
+    from psd_tools import PSDImage  # pyright: ignore[reportMissingImports]
 except (ImportError, OSError):
     # psd_tools is optional; absence disables .psd import only.
     PSDImage = None

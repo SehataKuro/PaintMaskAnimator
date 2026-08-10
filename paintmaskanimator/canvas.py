@@ -6,7 +6,7 @@ from .models import Frame, Layer, make_frame
 from .pressure import _pressure_bezier_at
 from .timeline import TimelineWidget
 from .toolpanel import ToolPanel
-from .utils import blank_image, workspace_size
+from .utils import blank_image, natural_path_key, workspace_size
 from .logging_setup import get_logger
 
 log = get_logger(__name__)
@@ -3153,7 +3153,7 @@ class PaintCanvas(QWidget):
             )
             region = QRegion()
             for y in range(mask.shape[0]):
-                row = mask[y]
+                row = mask[y]  # pyright: ignore[reportOptionalSubscript]
                 changes = np.diff(
                     np.pad(row.astype(np.int8), (1, 1))
                 )
@@ -4087,7 +4087,7 @@ class PaintCanvas(QWidget):
 
     @staticmethod
     def _natural_path_key(*args, **kwargs):
-        return utils.natural_path_key(*args, **kwargs)
+        return natural_path_key(*args, **kwargs)
 
     def _ensure_frame_count(self, count):
         if count <= len(self.frames):

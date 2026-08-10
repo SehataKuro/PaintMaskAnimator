@@ -1038,7 +1038,7 @@ class HSVColorWheel(QWidget):
         painter.setPen(QPen(QColor("white"), 2))
         if self._hue_mode == "RING":
             angle = math.radians(hue)
-            marker_radius = (ring_outer + ring_inner) / 2.0
+            marker_radius = (ring_outer + ring_inner) / 2.0  # pyright: ignore[reportOperatorIssue]
             hue_point = QPointF(
                 ring_center.x() + math.sin(angle) * marker_radius,
                 ring_center.y() - math.cos(angle) * marker_radius,

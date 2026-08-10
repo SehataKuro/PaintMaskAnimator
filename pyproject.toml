@@ -27,6 +27,19 @@ packages = ["paintmaskanimator"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
+[tool.pyright]
+include = ["paintmaskanimator"]
+pythonVersion = "3.10"
+typeCheckingMode = "basic"
+# PySide6/Qt's stubs surface many dynamic-attribute and Optional-narrowing
+# false positives across this legacy GUI code. Downgrade the high-volume,
+# Qt-driven rules to warnings so the CI gate still fails on *new* real bugs
+# (undefined names, bad calls in typed code) while we tighten incrementally.
+reportAttributeAccessIssue = "warning"
+reportArgumentType = "warning"
+reportOptionalMemberAccess = "warning"
+reportCallIssue = "warning"
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"
