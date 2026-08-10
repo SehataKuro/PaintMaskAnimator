@@ -2,6 +2,215 @@ from .common import *  # noqa: F401,F403
 from .widgets import (BrushSizeSpinBox, ClickableValueLabel, HSVColorWheel, LineTaperCurvePopup, SliderValueSpinBox, SwatchEyedropButton)
 
 
+TOOL_DEFINITIONS = [
+    ("brush", "ブラシ"), ("line", "ライン"),
+    ("shape", "図形"), ("bucket", "バケツ"),
+    ("lasso_fill", "投げ縄塗り"), ("lasso", "投げ縄選択"),
+    ("rect_select", "長方形選択"), ("auto_select", "自動選択"),
+    ("eyedropper", "スポイト"), ("dust", "ゴミ取り"),
+]
+
+
+def _tool_icon(tool_id):
+    """Return a compact, theme-independent pictogram for a drawing tool."""
+    pixmap = QPixmap(32, 32)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    foreground = QColor("#37474f")
+    accent = QColor("#00897b")
+    painter.setPen(QPen(foreground, 2.2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    if tool_id == "brush":
+        painter.drawLine(9, 23, 21, 8)
+        painter.setBrush(accent)
+        painter.drawEllipse(6, 21, 7, 5)
+    elif tool_id == "line":
+        painter.drawLine(7, 24, 25, 7)
+        painter.drawEllipse(5, 22, 4, 4)
+        painter.drawEllipse(23, 5, 4, 4)
+    elif tool_id == "shape":
+        polygon = QPolygonF([QPointF(16, 6), QPointF(26, 16), QPointF(16, 26), QPointF(6, 16)])
+        painter.drawPolygon(polygon)
+    elif tool_id == "bucket":
+        painter.save()
+        painter.translate(16, 15)
+        painter.rotate(-35)
+        painter.drawRect(-7, -7, 14, 14)
+        painter.restore()
+        painter.setPen(QPen(accent, 2.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        painter.drawLine(19, 24, 25, 24)
+    elif tool_id in ("lasso", "lasso_fill"):
+        path = QPainterPath(QPointF(8, 10))
+        path.cubicTo(16, 4, 27, 9, 24, 17)
+        path.cubicTo(21, 25, 8, 25, 7, 17)
+        path.cubicTo(6, 13, 9, 10, 13, 11)
+        if tool_id == "lasso_fill":
+            painter.setBrush(accent)
+        painter.drawPath(path)
+        painter.drawLine(13, 11, 18, 26)
+    elif tool_id == "rect_select":
+        painter.setPen(QPen(foreground, 2, Qt.PenStyle.DashLine))
+        painter.drawRect(7, 7, 18, 18)
+    elif tool_id == "auto_select":
+        painter.drawLine(9, 24, 20, 10)
+        for x1, y1, x2, y2 in ((20, 6, 20, 3), (24, 8, 27, 6), (25, 12, 29, 12), (17, 7, 15, 4)):
+            painter.drawLine(x1, y1, x2, y2)
+    elif tool_id == "eyedropper":
+        painter.drawLine(9, 24, 23, 9)
+        painter.drawEllipse(19, 6, 7, 7)
+        painter.setPen(QPen(accent, 2.5))
+        painter.drawLine(7, 25, 11, 25)
+    elif tool_id == "dust":
+        painter.setBrush(accent)
+        painter.drawEllipse(8, 9, 5, 5)
+        painter.drawEllipse(19, 8, 4, 4)
+        painter.drawEllipse(14, 19, 6, 6)
+    painter.end()
+    return QIcon(pixmap)
+
+
+class ToolSelectorPanel(QWidget):
+    """Narrow icon-only tool selector; options live in ``ToolPanel``."""
+    toolChanged = Signal(str)
+    snapWidthRequested = Signal(int)
+    TOOLS = TOOL_DEFINITIONS
+
+    CELL_SIZE = 30
+    ICON_SIZE = 24
+    PANEL_MARGIN = 2
+    # QListView's wrapping check is strict at an exact N * gridSize boundary.
+    # One shared pixel (not one per cell) keeps the final cell on the row.
+    LAYOUT_SLACK = 1
+
+    def __init__(self):
+        super().__init__()
+        self.items = {}
+        self.active_tool = "brush"
+        self._column_count = 1
+        self.setMinimumWidth(self.width_for_columns(1))
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(
+            self.PANEL_MARGIN, self.PANEL_MARGIN,
+            self.PANEL_MARGIN, self.PANEL_MARGIN,
+        )
+        layout.setSpacing(0)
+        self.list = QListWidget()
+        self.list.setViewMode(QListView.ViewMode.IconMode)
+        self.list.setFlow(QListView.Flow.LeftToRight)
+        self.list.setWrapping(True)
+        self.list.setResizeMode(QListView.ResizeMode.Adjust)
+        self.list.setMovement(QListView.Movement.Static)
+        self.list.setSelectionMode(QListView.SelectionMode.SingleSelection)
+        self.list.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding
+        )
+        self.list.setIconSize(QSize(self.ICON_SIZE, self.ICON_SIZE))
+        self.list.setGridSize(QSize(self.CELL_SIZE, self.CELL_SIZE))
+        self.list.setSpacing(0)
+        self.list.setFrameStyle(0)
+        self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.list.setStyleSheet(
+            "QListWidget{background:transparent;outline:0;border:0;}"
+            "QListWidget::item{margin:1px;border:1px solid transparent;"
+            "border-radius:7px;}"
+            "QListWidget::item:hover{background:#e4f2fb;"
+            "border-color:transparent;}"
+            "QListWidget::item:selected{background:#cfeaff;"
+            "border:1px solid transparent;}"
+            "QListWidget::item:selected:hover{background:#bfe3fb;"
+            "border-color:transparent;}"
+        )
+        layout.addWidget(self.list)
+        for tool_id, label in self.TOOLS:
+            item = QListWidgetItem(_tool_icon(tool_id), "")
+            item.setData(Qt.ItemDataRole.UserRole, tool_id)
+            item.setData(Qt.ItemDataRole.ToolTipRole, label)
+            item.setData(Qt.ItemDataRole.AccessibleTextRole, label)
+            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.list.addItem(item)
+            self.items[tool_id] = item
+        self.list.currentItemChanged.connect(self._current_item_changed)
+        self.set_active_tool("brush")
+
+    def minimumSizeHint(self):
+        return QSize(self.width_for_columns(1), 0)
+
+    def sizeHint(self):
+        return QSize(self.width_for_columns(1), self.CELL_SIZE * len(self.items))
+
+    @classmethod
+    def width_for_columns(cls, columns):
+        columns = max(1, int(columns))
+        return (
+            cls.PANEL_MARGIN * 2
+            + columns * cls.CELL_SIZE
+            + cls.LAYOUT_SLACK
+        )
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        available_width = max(
+            1,
+            self.width() - self.PANEL_MARGIN * 2 - self.LAYOUT_SLACK,
+        )
+        columns = max(
+            1,
+            min(
+                len(self.items),
+                (available_width + self.CELL_SIZE // 2) // self.CELL_SIZE,
+            ),
+        )
+        self._column_count = columns
+        target_width = self.width_for_columns(columns)
+        if self.width() != target_width:
+            self.snapWidthRequested.emit(target_width)
+
+    def displayed_column_count(self):
+        """Return the number of icons Qt actually placed on the first row."""
+        if not self.items:
+            return 1
+        self.list.doItemsLayout()
+        first_rect = self.list.visualItemRect(self.list.item(0))
+        first_y = first_rect.y()
+        columns = 0
+        for index in range(self.list.count()):
+            rect = self.list.visualItemRect(self.list.item(index))
+            if rect.y() != first_y:
+                break
+            columns += 1
+        return max(1, columns)
+
+    def set_active_tool(self, tool_id):
+        item = self.items.get(tool_id)
+        if item is None:
+            return
+        self.active_tool = tool_id
+        self.list.blockSignals(True)
+        self.list.setCurrentItem(item)
+        self.list.blockSignals(False)
+
+    def _current_item_changed(self, current, _previous):
+        if current is None:
+            return
+        tool_id = current.data(Qt.ItemDataRole.UserRole)
+        if tool_id == self.active_tool:
+            return
+        self.active_tool = tool_id
+        self.toolChanged.emit(tool_id)
+
+    def select_tool(self, tool_id):
+        item = self.items.get(tool_id)
+        if item is None:
+            return
+        if tool_id == self.active_tool:
+            self.list.setCurrentItem(item)
+            return
+        self.list.setCurrentItem(item)
+
+
 class ToolPanel(QWidget):
     toolChanged = Signal(str)
     colorModeChanged = Signal(str)
@@ -16,45 +225,22 @@ class ToolPanel(QWidget):
     transformMeshGridChanged = Signal(int, int)
     selectionCommitRequested = Signal()
     selectionCancelRequested = Signal()
-    sameImageReplacementRequested = Signal()
-    mainLineRepaintRequested = Signal()
     flipLayerRequested = Signal(bool)
     swapMainSubRequested = Signal()
     isolateColorRequested = Signal()
-    silhouetteRequested = Signal()
     removeDustRequested = Signal()
     backgroundColorRequested = Signal()
     clearColorFilterRequested = Signal()
-    TOOLS = [
-        ("brush","ブラシ"),("line","ライン"),
-        ("shape","図形"),("bucket","バケツ"),
-        ("lasso_fill","投げ縄塗り"),("lasso","投げ縄選択"),
-        ("rect_select","長方形選択"),("auto_select","自動選択"),
-        ("eyedropper","スポイト"),
-        ("dust","ゴミ取り")
-    ]
+    TOOLS = TOOL_DEFINITIONS
 
     def __init__(self):
-        super().__init__(); self.setFixedWidth(190); self.buttons={}; self.active_tool="brush"
+        super().__init__(); self.setFixedWidth(190); self.active_tool="brush"
         self._line_curve_popup = None
         self.main_color=QColor("black"); self.sub_color=QColor(255,0,0); self.color_mode="main"; self.transparent_display_color=QColor("white")
         v=QVBoxLayout(self)
         v.setContentsMargins(4, 4, 4, 4)
         v.setSpacing(3)
-        v.addWidget(QLabel("<b>ツール</b>"))
-        g=QGridLayout()
-        g.setContentsMargins(0, 0, 0, 0)
-        g.setHorizontalSpacing(2)
-        g.setVerticalSpacing(2)
-        for i,(tid,label) in enumerate(self.TOOLS):
-            b=QToolButton(); b.setText(label); b.setCheckable(True); b.setMinimumHeight(27)
-            if tid == "auto_select":
-                b.setToolTip(
-                    "クリックした連続領域を選択します。"
-                    "Shift＋クリックで追加、Alt＋クリックで削除します。"
-                )
-            b.clicked.connect(lambda _=False,t=tid:self.select_tool(t)); self.buttons[tid]=b; g.addWidget(b,i//2,i%2)
-        v.addLayout(g)
+        v.addWidget(QLabel("<b>ツールプロパティ</b>"))
         self.active=QLabel(); self.active.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.active.setStyleSheet("background:#2f6fa5;color:white;padding:6px;font-weight:bold"); v.addWidget(self.active)
 
@@ -517,6 +703,7 @@ class ToolPanel(QWidget):
 
         v.addWidget(self.opacity_slider)
         v.addWidget(self.opacity)
+        # 描画色ドック：メイン／サブ／背景色ボタンのみ。
         self.drawing_color_box = QWidget()
         color_layout = QVBoxLayout(self.drawing_color_box)
         color_layout.setContentsMargins(3, 3, 3, 3)
@@ -530,35 +717,30 @@ class ToolPanel(QWidget):
         for button in (self.main_btn, self.sub_btn, self.transparent_btn):
             button.setFixedHeight(24)
         cg.addWidget(self.main_btn,0,0); cg.addWidget(self.sub_btn,0,1); cg.addWidget(self.transparent_btn,1,0,1,2)
+        color_layout.addLayout(cg)
+        color_layout.addStretch(1)
+
+        # カラーサークルドック：HSV(四角)／HLS(三角)を切替可能。
+        self.wheel_mode = "HSV"
+        self.color_wheel_box = QWidget()
+        wheel_layout = QVBoxLayout(self.color_wheel_box)
+        wheel_layout.setContentsMargins(3, 3, 3, 3)
+        wheel_layout.setSpacing(2)
         self.hsv_wheel = HSVColorWheel()
         self.hsv_wheel.colorChanged.connect(self.wheel_color_changed)
-        color_layout.addWidget(self.hsv_wheel)
-        self.color_space=QComboBox(); self.color_space.setFixedHeight(22); self.color_space.addItems(["RGB", "HSV"]); self.color_space.currentTextChanged.connect(self.rebuild_color_sliders); color_layout.addWidget(self.color_space)
-        self.slider_box=QWidget(); self.slider_layout=QFormLayout(self.slider_box); self.slider_layout.setContentsMargins(0,0,0,0); self.slider_layout.setVerticalSpacing(1); color_layout.addWidget(self.slider_box)
-        color_layout.addLayout(cg)
-        self.color_sliders=[]; self.color_value_labels=[]; self.rebuild_color_sliders("RGB")
-        self.silhouette_btn=QPushButton("背景以外を黒シルエット表示")
-        self.silhouette_btn.setCheckable(True)
-        v.addWidget(self.silhouette_btn)
-        self.same_image_replacement_btn=QPushButton("同一画像を置換色に登録")
-        self.same_image_replacement_btn.setToolTip(
-            "同じタイムライン位置にある上のレイヤーと画素配置を比較し、"
-            "一致した色対応を置換色へ登録します。"
-        )
-        self.same_image_replacement_btn.clicked.connect(
-            self.sameImageReplacementRequested
-        )
-        v.addWidget(self.same_image_replacement_btn)
-        self.mainline_btn=QPushButton("MainLineRepaint")
-        self.mainline_btn.setToolTip("メイン色・サブ色を線レイヤーへ分離し、抜けた面を周囲の最多色で埋めます。")
-        self.mainline_btn.clicked.connect(self.mainLineRepaintRequested)
-        v.addWidget(self.mainline_btn)
-        for button in (
-            self.silhouette_btn,
-            self.same_image_replacement_btn,
-            self.mainline_btn,
-        ):
-            button.setFixedHeight(23)
+        wheel_layout.addWidget(self.hsv_wheel)
+        wheel_layout.addStretch(1)
+
+        # カラースライダードック：RGB／HLS／CMYKを切替可能。
+        self.slider_mode = "RGB"
+        self.color_slider_box = QWidget()
+        slider_box_layout = QVBoxLayout(self.color_slider_box)
+        slider_box_layout.setContentsMargins(3, 3, 3, 3)
+        slider_box_layout.setSpacing(2)
+        self.slider_box=QWidget(); self.slider_layout=QFormLayout(self.slider_box); self.slider_layout.setContentsMargins(0,0,0,0); self.slider_layout.setVerticalSpacing(1)
+        slider_box_layout.addWidget(self.slider_box)
+        slider_box_layout.addStretch(1)
+        self.color_sliders=[]; self.color_value_labels=[]; self.rebuild_color_sliders(self.slider_mode)
         # サイズ欄は▲▼のみ、RGB/HSV数値欄は▲▼と半角数値入力に対応。
         for numeric in self.findChildren(QAbstractSpinBox):
             is_size_numeric = numeric is self.size
@@ -689,8 +871,6 @@ class ToolPanel(QWidget):
 
     def select_tool(self, tid):
         self.active_tool=tid
-        for k,b in self.buttons.items():
-            b.setChecked(k==tid)
         self.active.setText("使用中："+dict(self.TOOLS)[tid])
         self.toolChanged.emit(tid)
 
@@ -833,46 +1013,79 @@ class ToolPanel(QWidget):
         self.color_sliders=[]
         self.color_value_labels=[]
 
+    #: スライダーモードごとのチャンネル定義（表示名, 最小, 最大）。
+    SLIDER_SPECS = {
+        "RGB": [("R", 0, 255), ("G", 0, 255), ("B", 0, 255)],
+        "HLS": [("H", 0, 359), ("L", 0, 255), ("S", 0, 255)],
+        "CMYK": [("C", 0, 255), ("M", 0, 255), ("Y", 0, 255), ("K", 0, 255)],
+    }
+
+    def set_wheel_mode(self, mode):
+        mode = str(mode).upper()
+        if mode not in HSVColorWheel.MODES:
+            return
+        self.wheel_mode = mode
+        self.hsv_wheel.setMode(mode)
+
+    def set_slider_mode(self, mode):
+        mode = str(mode).upper()
+        if mode not in self.SLIDER_SPECS or mode == self.slider_mode:
+            return
+        self.slider_mode = mode
+        self.rebuild_color_sliders(mode)
+
     def rebuild_color_sliders(self, mode):
+        mode = str(mode).upper()
+        if mode not in self.SLIDER_SPECS:
+            mode = "RGB"
+        self.slider_mode = mode
         self.clear_slider_layout()
-        specs = (
-            [("R", 0, 255), ("G", 0, 255), ("B", 0, 255)]
-            if mode == "RGB"
-            else [("H", 0, 359), ("S", 0, 255), ("V", 0, 255)]
-        )
-        for name, lo, hi in specs:
+        for name, lo, hi in self.SLIDER_SPECS[mode]:
             slider = QSlider(Qt.Orientation.Horizontal)
-            if mode == "RGB":
-                slider.setRange(lo, hi)
-                slider.setSingleStep(1)
-                slider.setProperty("valueScale", 1.0)
-                value_control = SliderValueSpinBox(
-                    slider, scale=1.0, step=1.0
-                )
-            else:
-                slider.setRange(lo, hi)
-                slider.setSingleStep(1)
-                slider.setProperty("valueScale", 1.0)
-                value_control = SliderValueSpinBox(
-                    slider, scale=1.0, step=1.0
-                )
+            slider.setRange(lo, hi)
+            slider.setSingleStep(1)
+            slider.setProperty("valueScale", 1.0)
             slider.setProperty("channel", name)
+            value_control = SliderValueSpinBox(slider, scale=1.0, step=1.0)
             row = QWidget()
             row_layout = QHBoxLayout(row)
             row_layout.setContentsMargins(0, 0, 0, 0)
             row_layout.addWidget(slider, 1)
             row_layout.addWidget(value_control)
-            slider.valueChanged.connect(
-                self.slider_color_changed
-            )
+            slider.valueChanged.connect(self.slider_color_changed)
             self.slider_layout.addRow(name, row)
             self.color_sliders.append(slider)
             self.color_value_labels.append(value_control)
         self.sync_sliders()
         self.update_slider_gradients()
 
-
     def active_color(self): return self.main_color if self.color_mode=="main" else self.sub_color
+
+    def _channel_values_from_color(self, color):
+        """現在のスライダーモードにおける各チャンネル値を返す。"""
+        if self.slider_mode == "RGB":
+            return [color.red(), color.green(), color.blue()]
+        if self.slider_mode == "HLS":
+            return [
+                max(0, color.hslHue()),
+                color.lightness(),
+                color.hslSaturation(),
+            ]
+        # CMYK
+        cyan, magenta, yellow, black, _alpha = color.getCmyk()
+        return [cyan, magenta, yellow, black]
+
+    def _color_from_channel_values(self, values):
+        """スライダー値から現在のモードに応じた色を組み立てる。"""
+        clamp = lambda v: max(0, min(255, int(v)))
+        if self.slider_mode == "RGB":
+            return QColor(clamp(values[0]), clamp(values[1]), clamp(values[2]))
+        if self.slider_mode == "HLS":
+            hue = max(0, min(359, int(values[0])))
+            return QColor.fromHsl(hue, clamp(values[2]), clamp(values[1]))
+        return QColor.fromCmyk(
+            clamp(values[0]), clamp(values[1]), clamp(values[2]), clamp(values[3])
+        )
 
     def sync_sliders(self):
         self.hsv_wheel.setEnabled(self.color_mode != "transparent")
@@ -880,22 +1093,12 @@ class ToolPanel(QWidget):
             self.hsv_wheel.setColor(self.active_color())
         if not self.color_sliders or self.color_mode == "transparent":
             return
-        color = self.active_color()
-        if self.color_space.currentText() == "RGB":
-            values = [
-                int(color.red()),
-                int(color.green()),
-                int(color.blue()),
-            ]
-        else:
-            hsv = color.getHsv()
-            values = [max(0, hsv[0]), hsv[1], hsv[2]]
-
-        for index, (slider, value) in enumerate(
-            zip(self.color_sliders, values)
-        ):
+        values = self._channel_values_from_color(self.active_color())
+        for index, slider in enumerate(self.color_sliders):
+            if index >= len(values):
+                break
             scale = float(slider.property("valueScale") or 1.0)
-            slider_value = int(round(float(value) * scale))
+            slider_value = int(round(float(values[index]) * scale))
             slider_value = max(
                 slider.minimum(),
                 min(slider.maximum(), slider_value),
@@ -909,25 +1112,34 @@ class ToolPanel(QWidget):
                 )
         self.update_slider_gradients()
 
-
     def update_slider_gradients(self):
-        if len(self.color_sliders) != 3:
+        specs = self.SLIDER_SPECS.get(self.slider_mode)
+        if not specs or len(self.color_sliders) != len(specs):
             return
-        mode = self.color_space.currentText()
         active = self.active_color() if self.color_mode != "transparent" else QColor("black")
-        if mode == "RGB":
+        if self.slider_mode == "RGB":
             gradients = [
                 "stop:0 rgb(0,%d,%d), stop:1 rgb(255,%d,%d)" % (active.green(), active.blue(), active.green(), active.blue()),
                 "stop:0 rgb(%d,0,%d), stop:1 rgb(%d,255,%d)" % (active.red(), active.blue(), active.red(), active.blue()),
                 "stop:0 rgb(%d,%d,0), stop:1 rgb(%d,%d,255)" % (active.red(), active.green(), active.red(), active.green()),
             ]
-        else:
-            hue = max(0, active.hsvHue())
-            hue_color = QColor.fromHsv(hue, 255, 255).name()
+        elif self.slider_mode == "HLS":
+            hue = max(0, active.hslHue())
+            sat = max(1, active.hslSaturation())
+            mid = QColor.fromHsl(hue, sat, 128).name()
+            gray = QColor.fromHsl(hue, 0, 128).name()
+            pure = QColor.fromHsl(hue, sat, 128).name()
             gradients = [
                 "stop:0 #ff0000, stop:0.17 #ffff00, stop:0.33 #00ff00, stop:0.50 #00ffff, stop:0.67 #0000ff, stop:0.83 #ff00ff, stop:1 #ff0000",
-                f"stop:0 #ffffff, stop:1 {hue_color}",
-                f"stop:0 #000000, stop:1 {QColor.fromHsv(hue, max(1,active.hsvSaturation()),255).name()}",
+                f"stop:0 #000000, stop:0.5 {mid}, stop:1 #ffffff",
+                f"stop:0 {gray}, stop:1 {pure}",
+            ]
+        else:  # CMYK
+            gradients = [
+                "stop:0 #ffffff, stop:1 #00ffff",
+                "stop:0 #ffffff, stop:1 #ff00ff",
+                "stop:0 #ffffff, stop:1 #ffff00",
+                "stop:0 #ffffff, stop:1 #000000",
             ]
         for slider, gradient in zip(self.color_sliders, gradients):
             slider.setStyleSheet(
@@ -938,24 +1150,15 @@ class ToolPanel(QWidget):
             )
 
     def slider_color_changed(self):
+        specs = self.SLIDER_SPECS.get(self.slider_mode)
         if (
             self.color_mode == "transparent"
-            or len(self.color_sliders) != 3
+            or not specs
+            or len(self.color_sliders) != len(specs)
         ):
             return
-        if self.color_space.currentText() == "RGB":
-            red, green, blue = [
-                max(0, min(255, int(slider.value())))
-                for slider in self.color_sliders
-            ]
-            color = QColor(red, green, blue)
-        else:
-            hue, saturation, value = [
-                slider.value() for slider in self.color_sliders
-            ]
-            color = QColor.fromHsv(
-                int(hue), int(saturation), int(value)
-            )
+        values = [slider.value() for slider in self.color_sliders]
+        color = self._color_from_channel_values(values)
 
         if self.color_mode == "main":
             self.main_color = color

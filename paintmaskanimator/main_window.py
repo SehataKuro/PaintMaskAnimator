@@ -1,5 +1,7 @@
 from .common import *  # noqa: F401,F403
+import PySide6QtAds as QtAds
 from . import config, constants, project_io, updater
+from .actionpanel import ActionPanel
 from .canvas import PaintCanvas
 from .color_panel import UsedColorPanel
 from .color_reduction import ColorReductionDialog
@@ -7,9 +9,9 @@ from .models import Frame, Layer, make_frame
 from .onion import OnionSkinSettingsBrowser
 from .pressure import PressureDialog
 from .timeline import TimelineWidget
-from .toolpanel import ToolPanel
+from .toolpanel import ToolPanel, ToolSelectorPanel
 from .utils import blank_image, disable_windows_ink_feedback, workspace_size
-from .widgets import (CanvasSizeDialog, ShortcutDialog, TimeRemapPasteDialog, TransformLineThicknessDialog, TweenCommandPopup)
+from .widgets import (CanvasSizeDialog, HSVColorWheel, ShortcutDialog, TimeRemapPasteDialog, TransformLineThicknessDialog, TweenCommandPopup)
 from .logging_setup import get_logger
 
 log = get_logger(__name__)
@@ -33,7 +35,7 @@ _OPERATION_ERRORS = (
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__();self.setWindowTitle(APP_DISPLAY_NAME);self.resize(1500,960);self.setAcceptDrops(True)
-        self.canvas=PaintCanvas();self.tools=ToolPanel();self.timeline=TimelineWidget();self.palette=UsedColorPanel();self.timer=QTimer(self);self.timer.timeout.connect(self.advance)
+        self.canvas=PaintCanvas();self.tool_selector=ToolSelectorPanel();self.tools=ToolPanel();self.timeline=TimelineWidget();self.palette=UsedColorPanel();self.timer=QTimer(self);self.timer.timeout.connect(self.advance)
         self.timer.setTimerType(Qt.TimerType.PreciseTimer)
         self._playback_started_at=None
         self._playback_emitted_steps=0
@@ -48,6 +50,7 @@ class MainWindow(QMainWindow):
         self._suppress_used_color_refresh_once = False
         self._tween_command_popup = None
         self._onion_settings_browser = None
+        self._onion_settings_dock = None
         self._held_canvas_shortcut_tokens = set()
         self._ui_hold_drag_mode = None
         self._ui_hold_scroll_area = None
@@ -59,8 +62,21 @@ class MainWindow(QMainWindow):
         self._visible_color_timer.setSingleShot(True)
         self._visible_color_timer.setInterval(20)
         self._visible_color_timer.timeout.connect(self._apply_pending_visible_colors)
+        self._pending_tool_selector_snap = None
+        self._tool_selector_resize_drag_active = False
+        self._tool_selector_snap_timer = QTimer(self)
+        self._tool_selector_snap_timer.setSingleShot(True)
+        self._tool_selector_snap_timer.setInterval(180)
+        self._tool_selector_snap_timer.timeout.connect(
+            self._apply_tool_selector_snap
+        )
+        self._split_drop_candidate = None
+        self._split_drop_dragged_dock = None
+        self._split_drop_source_area = None
+        self._split_drop_press_pos = None
+        self._dock_menu_builders = {}
         self.current_project_path = None
-        self.build_actions();self.build_menu();self.build_ui();self.connect();self.refresh_ui()
+        self.build_actions();self.action_panel=ActionPanel(self);self.build_action_panel();self.build_menu();self.build_ui();self.connect();self.refresh_ui();self.action_panel.reload_python_actions()
         QApplication.instance().installEventFilter(self)
         self.update_project_title()
         QTimer.singleShot(0,self.fit_canvas)
@@ -81,6 +97,35 @@ class MainWindow(QMainWindow):
         action.triggered.connect(callback)
         self.addAction(action)
         return action
+
+    def build_action_panel(self):
+        self.action_panel.add_action(
+            "silhouette",
+            "背景以外を黒シルエット表示",
+            lambda _checked=False: self.a_silhouette.trigger(),
+            checkable=True,
+            source="builtin",
+        )
+        self.action_panel.add_action(
+            "same_image_replacement",
+            "同一画像を置換色に登録",
+            self.register_same_image_replacements,
+            tooltip=(
+                "同じタイムライン位置にある上のレイヤーと画素配置を比較し、"
+                "一致した色対応を置換色へ登録します。"
+            ),
+            source="builtin",
+        )
+        self.action_panel.add_action(
+            "main_line_repaint",
+            "MainLineRepaint",
+            self.main_line_repaint,
+            tooltip=(
+                "メイン色・サブ色を線レイヤーへ分離し、"
+                "抜けた面を周囲の最多色で埋めます。"
+            ),
+            source="builtin",
+        )
 
     def build_actions(self):
         self.a_new=QAction("新規作成…",self);self.a_new.setShortcut("Ctrl+N");self.a_new.triggered.connect(self.new_doc)
@@ -412,6 +457,35 @@ class MainWindow(QMainWindow):
         a.addSeparator()
         a.addAction(self.a_tl_paste_time_remap)
     def build_ui(self):
+        QtAds.CDockManager.setConfigFlag(
+            QtAds.CDockManager.eConfigFlag.AlwaysShowTabs, True
+        )
+        QtAds.CDockManager.setConfigFlag(
+            QtAds.CDockManager.eConfigFlag.DockAreaHasUndockButton, False
+        )
+        QtAds.CDockManager.setConfigFlag(
+            QtAds.CDockManager.eConfigFlag.DockAreaHasTabsMenuButton, False
+        )
+        QtAds.CDockManager.setConfigFlag(
+            QtAds.CDockManager.eConfigFlag.ActiveTabHasCloseButton, False
+        )
+        QtAds.CDockManager.setConfigFlag(
+            QtAds.CDockManager.eConfigFlag.DockAreaHasCloseButton, False
+        )
+        QtAds.CDockManager.setConfigFlag(
+            QtAds.CDockManager.eConfigFlag.OpaqueSplitterResize, True
+        )
+        QtAds.CDockManager.setConfigFlag(
+            QtAds.CDockManager.eConfigFlag.FloatingContainerForceQWidgetTitleBar,
+            True,
+        )
+        QtAds.CDockManager.setConfigFlag(
+            QtAds.CDockManager.eConfigFlag.FloatingContainerForceNativeTitleBar,
+            False,
+        )
+        QtAds.CDockManager.setConfigFlag(
+            QtAds.CDockManager.eConfigFlag.DoubleClickUndocksWidget, True
+        )
         self.setDockNestingEnabled(True)
         center=QWidget()
         cv=QVBoxLayout(center)
@@ -432,7 +506,30 @@ class MainWindow(QMainWindow):
         for w in (QLabel("拡大"),self.zoom,self.zoom_label,b100,bfit,QLabel("回転"),self.rot,self.rot_label,b0):
             bar.addWidget(w)
         cv.addLayout(bar)
-        self.setCentralWidget(center)
+        self.dock_manager = QtAds.CDockManager(self)
+        self._customize_docking_hover()
+        self._setup_split_drop_overlay()
+        self.dock_manager.floatingWidgetCreated.connect(
+            self._configure_floating_window
+        )
+        self.central_dock = QtAds.CDockWidget(self.dock_manager, "キャンバス")
+        self.central_dock.setObjectName("canvasDock")
+        self.central_dock.setWidget(
+            center, QtAds.CDockWidget.eInsertMode.ForceNoScrollArea
+        )
+        self.dock_manager.setCentralWidget(self.central_dock)
+        # setCentralWidget() intentionally strips movable/floatable in ADS;
+        # restore them afterwards because the canvas is detachable here.
+        self.central_dock.setFeatures(
+            QtAds.CDockWidget.DockWidgetFeature.DockWidgetFocusable
+            | QtAds.CDockWidget.DockWidgetFeature.DockWidgetMovable
+            | QtAds.CDockWidget.DockWidgetFeature.DockWidgetFloatable
+        )
+        self.central_dock.topLevelChanged.connect(
+            lambda floating: self._sync_floating_title(
+                self.central_dock, floating
+            )
+        )
 
         self.tools.setMinimumWidth(180)
         self.tools.setMaximumWidth(16777215)
@@ -461,60 +558,151 @@ class MainWindow(QMainWindow):
             self.tools.drawing_color_box
         )
 
-        self.tools_dock=QDockWidget("ツール", self)
+        self.color_wheel_scroll = QScrollArea()
+        self.color_wheel_scroll.setWidgetResizable(True)
+        self.color_wheel_scroll.setMinimumSize(0, 0)
+        self.color_wheel_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.color_wheel_scroll.setWidget(self.tools.color_wheel_box)
+
+        self.color_slider_scroll = QScrollArea()
+        self.color_slider_scroll.setWidgetResizable(True)
+        self.color_slider_scroll.setMinimumSize(0, 0)
+        self.color_slider_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.color_slider_scroll.setWidget(self.tools.color_slider_box)
+
+        self.tool_selector_dock=QtAds.CDockWidget(self.dock_manager, "ツール")
+        self.tool_selector_dock.setObjectName("toolSelectorDock")
+        self.tool_selector_dock.setFeatures(
+            QtAds.CDockWidget.DockWidgetFeature.DockWidgetMovable
+            | QtAds.CDockWidget.DockWidgetFeature.DockWidgetFocusable
+            | QtAds.CDockWidget.DockWidgetFeature.DockWidgetFloatable
+        )
+        self.tool_selector_dock.setMinimumSizeHintMode(
+            QtAds.CDockWidget.eMinimumSizeHintMode.MinimumSizeHintFromContentMinimumSize
+        )
+        self.tool_selector_dock.setWidget(
+            self.tool_selector, QtAds.CDockWidget.eInsertMode.ForceNoScrollArea
+        )
+        tool_area = self.dock_manager.addDockWidget(
+            QtAds.LeftDockWidgetArea, self.tool_selector_dock
+        )
+
+        self.tools_dock=QtAds.CDockWidget(self.dock_manager, "ツールプロパティ")
         self.tools_dock.setObjectName("toolsDock")
-        self.tools_dock.setWidget(self.tools_scroll)
-        self.tools_dock.setAllowedAreas(
-            Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea
+        self.tools_dock.setWidget(
+            self.tools_scroll, QtAds.CDockWidget.eInsertMode.ForceNoScrollArea
         )
-        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.tools_dock)
+        tools_area = self.dock_manager.addDockWidget(
+            QtAds.RightDockWidgetArea, self.tools_dock, tool_area
+        )
 
-        self.drawing_color_dock=QDockWidget("描画色", self)
+        self.action_panel_scroll = QScrollArea()
+        self.action_panel_scroll.setWidgetResizable(True)
+        self.action_panel_scroll.setMinimumSize(0, 0)
+        self.action_panel_scroll.setWidget(self.action_panel)
+        self.action_panel_dock=QtAds.CDockWidget(self.dock_manager, "アクション")
+        self.action_panel_dock.setObjectName("actionPanelDock")
+        self.action_panel_dock.setWidget(
+            self.action_panel_scroll, QtAds.CDockWidget.eInsertMode.ForceNoScrollArea
+        )
+        self.dock_manager.addDockWidget(
+            QtAds.BottomDockWidgetArea, self.action_panel_dock, tools_area
+        )
+
+        self.drawing_color_dock=QtAds.CDockWidget(self.dock_manager, "描画色")
         self.drawing_color_dock.setObjectName("drawingColorDock")
-        self.drawing_color_dock.setWidget(self.drawing_color_scroll)
-        self.drawing_color_dock.setAllowedAreas(
-            Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea
+        self.drawing_color_dock.setWidget(
+            self.drawing_color_scroll, QtAds.CDockWidget.eInsertMode.ForceNoScrollArea
         )
-        self.addDockWidget(
-            Qt.DockWidgetArea.RightDockWidgetArea,
-            self.drawing_color_dock,
+        drawing_area = self.dock_manager.addDockWidget(
+            QtAds.RightDockWidgetArea, self.drawing_color_dock
         )
 
-        self.palette_dock=QDockWidget("使用色", self)
+        self.color_wheel_dock=QtAds.CDockWidget(self.dock_manager, "カラーサークル")
+        self.color_wheel_dock.setObjectName("colorWheelDock")
+        self.color_wheel_dock.setWidget(
+            self.color_wheel_scroll, QtAds.CDockWidget.eInsertMode.ForceNoScrollArea
+        )
+        wheel_area = self.dock_manager.addDockWidget(
+            QtAds.BottomDockWidgetArea, self.color_wheel_dock, drawing_area
+        )
+
+        self.color_slider_dock=QtAds.CDockWidget(self.dock_manager, "カラースライダー")
+        self.color_slider_dock.setObjectName("colorSliderDock")
+        self.color_slider_dock.setWidget(
+            self.color_slider_scroll, QtAds.CDockWidget.eInsertMode.ForceNoScrollArea
+        )
+        self.dock_manager.addDockWidget(
+            QtAds.BottomDockWidgetArea, self.color_slider_dock, wheel_area
+        )
+
+        self.palette_dock=QtAds.CDockWidget(self.dock_manager, "使用色")
         self.palette_dock.setObjectName("paletteDock")
-        self.palette_dock.setWidget(self.palette_scroll)
-        self.palette_dock.setAllowedAreas(
-            Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea
+        self.palette_dock.setWidget(
+            self.palette_scroll, QtAds.CDockWidget.eInsertMode.ForceNoScrollArea
         )
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.palette_dock)
-        self.splitDockWidget(
-            self.drawing_color_dock,
-            self.palette_dock,
-            Qt.Orientation.Vertical,
+        self.dock_manager.addDockWidget(
+            QtAds.BottomDockWidgetArea, self.palette_dock, drawing_area
         )
 
-        self.timeline_dock=QDockWidget("タイムライン", self)
+        self.timeline_dock=QtAds.CDockWidget(self.dock_manager, "タイムライン")
         self.timeline_dock.setObjectName("timelineDock")
         self.timeline.setMaximumHeight(16777215)
-        self.timeline_dock.setWidget(self.timeline)
+        self.timeline_dock.setWidget(
+            self.timeline, QtAds.CDockWidget.eInsertMode.ForceNoScrollArea
+        )
         self.timeline_dock.setMinimumHeight(70)
         self.timeline_dock.setMaximumHeight(16777215)
-        self.timeline_dock.setAllowedAreas(
-            Qt.DockWidgetArea.TopDockWidgetArea | Qt.DockWidgetArea.BottomDockWidgetArea
+        self.dock_manager.addDockWidget(
+            QtAds.BottomDockWidgetArea, self.timeline_dock
         )
-        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.timeline_dock)
-        self.setCorner(
-            Qt.Corner.BottomLeftCorner,
-            Qt.DockWidgetArea.BottomDockWidgetArea,
+        # 各パネルのタブ左端に付けるハンバーガーメニューの内容。
+        # 未登録のパネルは閉じる／フロートの共通項目だけになる。
+        dock_menu_builders = {
+            self.color_wheel_dock: self._build_color_wheel_menu,
+            self.color_slider_dock: self._build_color_slider_menu,
+        }
+        for dock in (
+            self.tool_selector_dock,
+            self.tools_dock,
+            self.action_panel_dock,
+            self.drawing_color_dock,
+            self.color_wheel_dock,
+            self.color_slider_dock,
+            self.palette_dock,
+            self.timeline_dock,
+        ):
+            dock.topLevelChanged.connect(
+                lambda floating, current=dock:
+                self._sync_floating_title(current, floating)
+            )
+            self._add_dock_hamburger(dock, dock_menu_builders.get(dock))
+        self.dock_manager.dockAreasAdded.connect(
+            lambda *_args: QTimer.singleShot(
+                0, self._sync_all_area_hamburgers
+            )
         )
-        self.setCorner(
-            Qt.Corner.BottomRightCorner,
-            Qt.DockWidgetArea.BottomDockWidgetArea,
+        self.dock_manager.dockWidgetAdded.connect(
+            lambda *_args: QTimer.singleShot(
+                0, self._sync_all_area_hamburgers
+            )
+        )
+        self._build_workspace_menu()
+        self._finalize_startup_dock_ui()
+        QTimer.singleShot(
+            0,
+            lambda: self._resize_tool_selector_area(
+                self.tool_selector.width_for_columns(1)
+            ),
         )
 
         view_menu=self.menuBar().addMenu("表示")
+        view_menu.addAction(self.tool_selector_dock.toggleViewAction())
         view_menu.addAction(self.tools_dock.toggleViewAction())
+        view_menu.addAction(self.action_panel_dock.toggleViewAction())
         view_menu.addAction(self.drawing_color_dock.toggleViewAction())
+        view_menu.addAction(self.color_wheel_dock.toggleViewAction())
+        view_menu.addAction(self.color_slider_dock.toggleViewAction())
         view_menu.addAction(self.palette_dock.toggleViewAction())
         view_menu.addAction(self.timeline_dock.toggleViewAction())
 
@@ -523,31 +711,677 @@ class MainWindow(QMainWindow):
         a_check_update.triggered.connect(self.check_for_updates_interactive)
         help_menu.addAction(a_check_update)
 
-        self.resizeDocks(
-            [self.tools_dock, self.drawing_color_dock, self.palette_dock],
-            [220, 240, 260],
-            Qt.Orientation.Horizontal,
-        )
-        self.resizeDocks(
-            [self.drawing_color_dock, self.palette_dock],
-            [390, 450],
-            Qt.Orientation.Vertical,
-        )
-        self.resizeDocks(
-            [self.timeline_dock],
-            [210],
-            Qt.Orientation.Vertical,
-        )
         self.zoom.valueChanged.connect(self.set_zoom)
         b100.clicked.connect(lambda:self.set_zoom(100))
         bfit.clicked.connect(self.fit_canvas)
         self.rot.valueChanged.connect(self.set_rot)
         b0.clicked.connect(lambda:self.rot.setValue(0))
 
-    def connect(self):
-        self.tools.silhouette_btn.clicked.connect(
-            lambda _checked=False: self.a_silhouette.trigger()
+    def _workspace_records(self):
+        records = config.get_value("workspaces", {})
+        return records if isinstance(records, dict) else {}
+
+    def _capture_workspace(self):
+        return {
+            "dock_state": bytes(
+                self.dock_manager.saveState().toBase64()
+            ).decode("ascii"),
+            "window_geometry": bytes(
+                self.saveGeometry().toBase64()
+            ).decode("ascii"),
+        }
+
+    def _save_workspace(self, name):
+        name = str(name).strip()
+        if not name:
+            return False
+        records = self._workspace_records()
+        records[name] = self._capture_workspace()
+        config.set_value("workspaces", records)
+        config.set_value("active_workspace", name)
+        self._refresh_workspace_menu()
+        return True
+
+    def _apply_workspace(self, name, restore_geometry=True):
+        record = self._workspace_records().get(name)
+        if not isinstance(record, dict):
+            return False
+        state = QByteArray.fromBase64(
+            str(record.get("dock_state", "")).encode("ascii")
         )
+        if state.isEmpty() or not self.dock_manager.restoreState(state):
+            return False
+        if restore_geometry:
+            geometry = QByteArray.fromBase64(
+                str(record.get("window_geometry", "")).encode("ascii")
+            )
+            if not geometry.isEmpty():
+                self.restoreGeometry(geometry)
+        config.set_value("active_workspace", name)
+        QTimer.singleShot(0, self._sync_all_area_hamburgers)
+        self._refresh_workspace_menu()
+        return True
+
+    def _delete_workspace(self, name):
+        records = self._workspace_records()
+        if name not in records:
+            return False
+        del records[name]
+        config.set_value("workspaces", records or None)
+        if config.get_value("active_workspace") == name:
+            config.set_value("active_workspace", None)
+        self._refresh_workspace_menu()
+        return True
+
+    def _prompt_save_workspace(self):
+        name, accepted = QInputDialog.getText(
+            self, "ワークスペースを保存", "ワークスペース名："
+        )
+        if accepted and name.strip():
+            self._save_workspace(name)
+
+    def _prompt_delete_workspace(self):
+        names = sorted(self._workspace_records())
+        if not names:
+            return
+        name, accepted = QInputDialog.getItem(
+            self, "ワークスペースを削除", "削除するワークスペース：",
+            names, 0, False,
+        )
+        if accepted:
+            self._delete_workspace(name)
+
+    def _build_workspace_menu(self):
+        self.workspace_menu = self.menuBar().addMenu("ワークスペース")
+        self._refresh_workspace_menu()
+
+    def _refresh_workspace_menu(self):
+        menu = getattr(self, "workspace_menu", None)
+        if menu is None:
+            return
+        menu.clear()
+        save_action = menu.addAction("現在の配置を保存…")
+        save_action.triggered.connect(self._prompt_save_workspace)
+        records = self._workspace_records()
+        if records:
+            menu.addSeparator()
+            active = config.get_value("active_workspace")
+            for name in sorted(records):
+                action = menu.addAction(name)
+                action.setCheckable(True)
+                action.setChecked(name == active)
+                action.triggered.connect(
+                    lambda _checked=False, n=name: self._apply_workspace(n)
+                )
+            menu.addSeparator()
+            delete_action = menu.addAction("ワークスペースを削除…")
+            delete_action.triggered.connect(self._prompt_delete_workspace)
+
+    def _finalize_startup_dock_ui(self):
+        active = config.get_value("active_workspace")
+        if not active or not self._apply_workspace(active):
+            # A save/restore cycle makes the initial areas follow the same ADS
+            # reconstruction path used after tabs are stacked.
+            state = self.dock_manager.saveState()
+            self.dock_manager.restoreState(state)
+        self._sync_all_area_hamburgers()
+
+    def _hamburger_icon(self):
+        """フォントに依存しない3本線アイコンを生成して使い回す。"""
+        cached = getattr(self, "_hamburger_icon_cache", None)
+        if cached is not None:
+            return cached
+        pixmap = QPixmap(24, 24)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        pen = QPen(QColor("#53606a"), 2.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+        painter.setPen(pen)
+        for y in (7, 12, 17):
+            painter.drawLine(5, y, 19, y)
+        painter.end()
+        icon = QIcon(pixmap)
+        self._hamburger_icon_cache = icon
+        return icon
+
+    def _add_dock_hamburger_old(self, dock, specific_builder=None):
+        """ドックのタブ左端にハンバーガーメニューボタンを設置する。
+
+        ボタンはドック所有とし、フロート／再ドッキングでタブが作り直され
+        ても失われないよう、その都度タブへ再挿入する。
+        """
+        button = QToolButton(dock)
+        button.setObjectName("dockHamburger")
+        button.setIcon(self._hamburger_icon())
+        button.setIconSize(QSize(12, 12))
+        button.setAutoRaise(True)
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.setToolTip("パネルメニュー")
+        button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        button.setFixedSize(18, 18)
+        button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        button.setStyleSheet(
+            "QToolButton{border:none;background:transparent;padding:0;margin:0 2px;}"
+            "QToolButton::menu-indicator{image:none;width:0;}"
+        )
+        menu = QMenu(button)
+        menu.aboutToShow.connect(
+            lambda m=menu, d=dock, b=specific_builder:
+            self._rebuild_dock_menu(m, d, b)
+        )
+        button.setMenu(menu)
+        dock._hamburger_button = button
+        dock._hamburger_builder = specific_builder
+        self._attach_dock_hamburger(dock)
+        # タブが生成済みでない構築初期でも確実に挿入されるよう遅延実行する。
+        QTimer.singleShot(0, lambda d=dock: self._attach_dock_hamburger(d))
+        dock.topLevelChanged.connect(
+            lambda _floating, d=dock:
+            QTimer.singleShot(0, lambda: self._attach_dock_hamburger(d))
+        )
+
+    def _attach_dock_hamburger(self, dock):
+        button = getattr(dock, "_hamburger_button", None)
+        if button is None:
+            return
+        tab = dock.tabWidget()
+        if tab is None:
+            return
+        layout = tab.layout()
+        if layout is None:
+            return
+        for index in range(layout.count()):
+            if layout.itemAt(index).widget() is button:
+                return
+        button.setParent(tab)
+        layout.insertWidget(0, button)
+        button.show()
+
+    def _add_dock_hamburger(self, dock, specific_builder=None):
+        self._dock_menu_builders[dock] = specific_builder
+        self._attach_area_hamburger(dock)
+        QTimer.singleShot(0, lambda d=dock: self._attach_area_hamburger(d))
+        dock.topLevelChanged.connect(
+            lambda _floating, d=dock:
+            QTimer.singleShot(0, lambda: self._attach_area_hamburger(d))
+        )
+
+    def _attach_area_hamburger(self, dock):
+        area = dock.dockAreaWidget()
+        if area is None:
+            return
+        title_bar = area.titleBar()
+        buttons = title_bar.findChildren(
+            QToolButton,
+            "dockHamburger",
+            Qt.FindChildOption.FindDirectChildrenOnly,
+        )
+        cached = getattr(area, "_hamburger_button", None)
+        button = cached if cached in buttons else (buttons[0] if buttons else None)
+        for duplicate in buttons:
+            if duplicate is button:
+                continue
+            title_bar.layout().removeWidget(duplicate)
+            duplicate.hide()
+            duplicate.setParent(None)
+            duplicate.deleteLater()
+        if button is None:
+            button = QToolButton(title_bar)
+            button.setObjectName("dockHamburger")
+            button.setIcon(self._hamburger_icon())
+            button.setIconSize(QSize(12, 12))
+            button.setAutoRaise(True)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            button.setToolTip("パネルメニュー")
+            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            button.setFixedSize(18, 18)
+            button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+            button.setStyleSheet(
+                "QToolButton{border:none;background:transparent;"
+                "padding:0;margin:0;}"
+                "QToolButton::menu-indicator{image:none;width:0;}"
+            )
+            menu = QMenu(button)
+            menu.aboutToShow.connect(
+                lambda m=menu, a=area: self._rebuild_area_dock_menu(m, a)
+            )
+            button.setMenu(menu)
+            title_bar.layout().insertWidget(0, button)
+            area._hamburger_button = button
+            area.currentChanged.connect(
+                lambda _index, a=area: self._sync_area_hamburger(a)
+            )
+        if title_bar.layout().indexOf(button) != 0:
+            title_bar.layout().removeWidget(button)
+            title_bar.layout().insertWidget(0, button)
+        area._hamburger_button = button
+        self._sync_area_hamburger(area)
+
+    def _sync_all_area_hamburgers(self):
+        """Restore shared buttons after ADS has regrouped or rebuilt areas."""
+        for area in self.dock_manager.openedDockAreas():
+            if any(
+                dock in self._dock_menu_builders
+                for dock in area.openedDockWidgets()
+            ):
+                current = area.currentDockWidget()
+                source = (
+                    current if current in self._dock_menu_builders
+                    else next(
+                        dock for dock in area.openedDockWidgets()
+                        if dock in self._dock_menu_builders
+                    )
+                )
+                self._attach_area_hamburger(source)
+
+    def _sync_area_hamburger(self, area):
+        title_bar = area.titleBar()
+        title_bar.setFixedHeight(22)
+        title_bar.tabBar().setFixedHeight(22)
+        for dock in area.openedDockWidgets():
+            tab = dock.tabWidget()
+            tab.ensurePolished()
+            tab.setFixedHeight(20)
+            tab.setSizePolicy(
+                tab.sizePolicy().horizontalPolicy(),
+                QSizePolicy.Policy.Fixed,
+            )
+        button = getattr(area, "_hamburger_button", None)
+        if button is not None:
+            button.setVisible(
+                area.currentDockWidget() in self._dock_menu_builders
+            )
+
+    def _rebuild_area_dock_menu(self, menu, area):
+        dock = area.currentDockWidget()
+        if dock not in self._dock_menu_builders:
+            menu.clear()
+            return
+        self._rebuild_dock_menu(
+            menu, dock, self._dock_menu_builders.get(dock)
+        )
+
+    def _rebuild_dock_menu(self, menu, dock, specific_builder):
+        menu.clear()
+        if specific_builder is not None:
+            specific_builder(menu)
+            menu.addSeparator()
+        self._build_default_dock_menu(menu, dock)
+
+    def _build_default_dock_menu(self, menu, dock):
+        float_action = menu.addAction("フロート表示")
+        float_action.setEnabled(not dock.isFloating())
+        float_action.triggered.connect(lambda _c=False, d=dock: d.setFloating())
+        close_action = menu.addAction("パネルを閉じる")
+        close_action.triggered.connect(
+            lambda _c=False, d=dock: d.closeDockWidget()
+        )
+
+    def _build_color_wheel_menu(self, menu):
+        current = self.tools.hsv_wheel.mode()
+        labels = {"HSV": "HSV（四角）", "HLS": "HLS（三角）"}
+        for mode in HSVColorWheel.MODES:
+            action = menu.addAction(labels.get(mode, mode))
+            action.setCheckable(True)
+            action.setChecked(mode == current)
+            action.triggered.connect(
+                lambda _c=False, m=mode: self.tools.set_wheel_mode(m)
+            )
+
+    def _build_color_slider_menu(self, menu):
+        current = self.tools.slider_mode
+        for mode in ("RGB", "HLS", "CMYK"):
+            action = menu.addAction(mode)
+            action.setCheckable(True)
+            action.setChecked(mode == current)
+            action.triggered.connect(
+                lambda _c=False, m=mode: self.tools.set_slider_mode(m)
+            )
+
+    def _customize_docking_hover(self):
+        """Apply richer hover feedback while keeping ADS drop geometry intact."""
+        self.dock_manager.setStyleSheet(
+            "ads--CDockAreaWidget{border:0;}"
+            "ads--CDockAreaWidget:hover{border:0;}"
+            "ads--CDockAreaTitleBar{background:#edf1f4;"
+            "border-bottom:1px solid #cbd3da;min-height:22px;max-height:22px;}"
+            "ads--CDockAreaTitleBar:hover{background:#e2e8ec;border-bottom-color:#c2cbd2;}"
+            "ads--CDockWidgetTab{background:#e9edf0;color:#53606a;"
+            "border:1px solid transparent;border-radius:5px 5px 0 0;"
+            "padding:0 9px;min-height:20px;max-height:20px;}"
+            "ads--CDockWidgetTab:hover{background:#dde4e9;color:#253944;"
+            "border-color:transparent;}"
+            "ads--CDockWidgetTab[activeTab=\"true\"]{background:#ffffff;"
+            "color:#294550;border-color:#cbd3d9;border-bottom-color:#ffffff;}"
+            "ads--CDockWidgetTab[activeTab=\"true\"]:hover{background:#f4fbff;"
+            "color:#203943;border-color:#c3ccd2;}"
+            "ads--CDockSplitter::handle{background:#d9dfe4;}"
+            "ads--CDockSplitter::handle:hover{background:#aeb9c1;}"
+        )
+
+        # Keep the standard ADS target calculation and drop-area preview, but
+        # make its central cross glyph fully transparent.
+        for overlay in (
+            self.dock_manager.containerOverlay(),
+            self.dock_manager.dockAreaOverlay(),
+        ):
+            overlay.ensurePolished()
+            overlay.enableDropPreview(True)
+            overlay.setWindowOpacity(0.42)
+        for cross in self.dock_manager.findChildren(QtAds.CDockOverlayCross):
+            cross.setWindowOpacity(0.0)
+            self._expand_docking_hit_zones(cross)
+
+    def _expand_docking_hit_zones(self, cross):
+        """Divide the complete hovered panel into five ADS drop targets."""
+        layout = cross.layout()
+        targets = {
+            int(target.property("dockWidgetArea")): target
+            for target in cross.findChildren(QLabel, "DockWidgetAreaLabel")
+        }
+        placements = {
+            int(QtAds.TopDockWidgetArea): (0, 0, 1, 3),
+            int(QtAds.LeftDockWidgetArea): (1, 0, 1, 1),
+            int(QtAds.CenterDockWidgetArea): (1, 1, 1, 1),
+            int(QtAds.RightDockWidgetArea): (1, 2, 1, 1),
+            int(QtAds.BottomDockWidgetArea): (2, 0, 1, 3),
+        }
+        for target in targets.values():
+            layout.removeWidget(target)
+            target.setMinimumSize(0, 0)
+            target.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+            )
+        layout.setContentsMargins(0, 0, 0, 0)
+        for row in range(5):
+            layout.setRowStretch(row, 1 if row < 3 else 0)
+            layout.setColumnStretch(row, 1 if row < 3 else 0)
+        for area, placement in placements.items():
+            target = targets.get(area)
+            if target is not None:
+                layout.addWidget(target, *placement)
+
+    def _setup_split_drop_overlay(self):
+        """Create the insertion marker used for drops between dock areas."""
+        self._split_drop_overlay = QWidget(None)
+        self._split_drop_overlay.setWindowFlags(
+            Qt.WindowType.Tool
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+        )
+        self._split_drop_overlay.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents
+        )
+        self._split_drop_overlay.setStyleSheet(
+            "background:#657680;border-radius:2px;"
+        )
+        self._split_drop_skeletons = []
+        for _index in range(2):
+            skeleton = QWidget(None)
+            skeleton.setWindowFlags(
+                Qt.WindowType.Tool
+                | Qt.WindowType.FramelessWindowHint
+                | Qt.WindowType.WindowStaysOnTopHint
+            )
+            skeleton.setAttribute(
+                Qt.WidgetAttribute.WA_TransparentForMouseEvents
+            )
+            skeleton.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+            skeleton.setStyleSheet(
+                "background:rgba(90,110,122,38);"
+                "border:2px solid rgba(90,110,122,150);"
+                "border-radius:3px;"
+            )
+            self._split_drop_skeletons.append(skeleton)
+        self._split_drop_timer = QTimer(self)
+        self._split_drop_timer.setInterval(33)
+        self._split_drop_timer.timeout.connect(self._update_split_drop_target)
+
+    def _start_split_drop_monitor(self):
+        if not self._split_drop_timer.isActive():
+            self._split_drop_timer.start()
+
+    def _active_dragged_dock(self):
+        for floating in self.dock_manager.floatingWidgets():
+            if floating.isDraggingActive():
+                return floating.topLevelDockWidget()
+        if self._split_drop_dragged_dock is not None:
+            return self._split_drop_dragged_dock
+        return None
+
+    def _update_split_drop_target(self):
+        dragged = self._active_dragged_dock()
+        if dragged is None:
+            if not self.dock_manager.floatingWidgets():
+                self._split_drop_timer.stop()
+            self._hide_split_drop_feedback()
+            # Native window dragging does not always deliver the release to
+            # QApplication. Commit on the active -> released transition too.
+            if (
+                self._split_drop_candidate is not None
+                and QApplication.mouseButtons() == Qt.MouseButton.NoButton
+            ):
+                QTimer.singleShot(0, self._commit_split_drop)
+            return
+        cursor = QCursor.pos()
+        areas = [
+            area for area in self.dock_manager.findChildren(QtAds.CDockAreaWidget)
+            if area.isVisible() and area.openDockWidgetsCount() > 0
+        ]
+        boundaries = []
+        best = None
+        for first in areas:
+            first_rect = QRectF(
+                first.mapToGlobal(first.rect().topLeft()), first.size()
+            ).toRect()
+            for second in areas:
+                if first is second:
+                    continue
+                second_rect = QRectF(
+                    second.mapToGlobal(second.rect().topLeft()), second.size()
+                ).toRect()
+                vertical_gap = abs(first_rect.right() - second_rect.left())
+                overlap_top = max(first_rect.top(), second_rect.top())
+                overlap_bottom = min(first_rect.bottom(), second_rect.bottom())
+                if overlap_bottom > overlap_top and vertical_gap <= 8:
+                    boundary = (first_rect.right() + second_rect.left()) // 2
+                    boundaries.append(("v", boundary, overlap_top,
+                                       overlap_bottom, first, first_rect,
+                                       second, second_rect))
+                horizontal_gap = abs(first_rect.bottom() - second_rect.top())
+                overlap_left = max(first_rect.left(), second_rect.left())
+                overlap_right = min(first_rect.right(), second_rect.right())
+                if overlap_right > overlap_left and horizontal_gap <= 8:
+                    boundary = (first_rect.bottom() + second_rect.top()) // 2
+                    boundaries.append(("h", boundary, overlap_left,
+                                       overlap_right, first, first_rect,
+                                       second, second_rect))
+        for (
+            orientation, boundary, start, end, first, first_rect,
+            _second, _second_rect,
+        ) in boundaries:
+            group = [
+                entry for entry in boundaries
+                if entry[0] == orientation and abs(entry[1] - boundary) <= 4
+            ]
+            group_start = min(entry[2] for entry in group)
+            group_end = max(entry[3] for entry in group)
+            tolerance = 26 if len(group) > 1 else 14
+            distance = abs(
+                cursor.x() - boundary if orientation == "v"
+                else cursor.y() - boundary
+            )
+            along = cursor.y() if orientation == "v" else cursor.x()
+            if not (distance <= tolerance and group_start <= along <= group_end):
+                continue
+            containing = [entry for entry in group if entry[2] <= along <= entry[3]]
+            chosen = min(
+                containing or group,
+                key=lambda entry: 0 if entry[2] <= along <= entry[3]
+                else min(abs(along - entry[2]), abs(along - entry[3])),
+            )
+            first, first_rect = chosen[4], chosen[5]
+            second, second_rect = chosen[6], chosen[7]
+            dragged_in_first = dragged in first.dockWidgets()
+            if orientation == "v":
+                marker = QRect(boundary - 2, group_start, 4,
+                               group_end - group_start + 1)
+                if dragged_in_first:
+                    side = QtAds.LeftDockWidgetArea
+                    target_area, target_rect = second, second_rect
+                else:
+                    side = QtAds.RightDockWidgetArea
+                    target_area, target_rect = first, first_rect
+            else:
+                marker = QRect(group_start, boundary - 2,
+                               group_end - group_start + 1, 4)
+                if dragged_in_first:
+                    side = QtAds.TopDockWidgetArea
+                    target_area, target_rect = second, second_rect
+                else:
+                    side = QtAds.BottomDockWidgetArea
+                    target_area, target_rect = first, first_rect
+            score = (distance, -len(group))
+            if best is None or score < best[0]:
+                best = (score, side, target_area, marker, target_rect)
+        if best is None:
+            self._split_drop_candidate = None
+            self._split_drop_dragged_dock = dragged
+            self._hide_split_drop_feedback()
+            return
+        _, side, target_area, marker, target_rect = best
+        self._split_drop_candidate = (side, target_area)
+        self._split_drop_dragged_dock = dragged
+        if self._split_drop_source_area is None:
+            self._split_drop_source_area = dragged.dockAreaWidget()
+        self._split_drop_overlay.setGeometry(marker)
+        self._split_drop_overlay.show()
+        self._split_drop_overlay.raise_()
+        self._show_split_skeleton(side, target_rect)
+
+    def _show_split_skeleton(self, side, target_rect):
+        first = QRect(target_rect)
+        inserted = QRect(target_rect)
+        if side == QtAds.RightDockWidgetArea:
+            inserted_width = max(48, int(target_rect.width() * 0.35))
+            inserted.setLeft(target_rect.right() - inserted_width + 1)
+            first.setRight(inserted.left() - 3)
+        else:
+            inserted_height = max(48, int(target_rect.height() * 0.35))
+            inserted.setTop(target_rect.bottom() - inserted_height + 1)
+            first.setBottom(inserted.top() - 3)
+        for widget, geometry in zip(
+            self._split_drop_skeletons, (first, inserted)
+        ):
+            widget.setGeometry(geometry)
+            widget.show()
+            widget.raise_()
+
+    def _hide_split_drop_feedback(self):
+        self._split_drop_overlay.hide()
+        for skeleton in self._split_drop_skeletons:
+            skeleton.hide()
+
+    def _commit_split_drop(self):
+        """Finish custom boundary feedback without performing a second drop.
+
+        QtAds owns the actual mouse-release drop. Calling addDockWidget here as
+        well races its internal floating-container cleanup and can orphan the
+        dragged tab, especially with native Windows title-bar dragging.
+        """
+        self._split_drop_candidate = None
+        self._split_drop_dragged_dock = None
+        self._split_drop_source_area = None
+        self._split_drop_press_pos = None
+        self._hide_split_drop_feedback()
+        QTimer.singleShot(0, self._sync_all_area_hamburgers)
+
+    def _snap_tool_selector_width(self, content_width):
+        """Queue a snap after resizing settles to avoid fighting the drag."""
+        if (
+            QApplication.mouseButtons() == Qt.MouseButton.NoButton
+            and not self._tool_selector_resize_drag_active
+        ):
+            # ADS also resizes dock contents while docking, tabbing, restoring
+            # layouts, and resizing the main window. Those layout-driven
+            # changes must not make the tool panel resize itself again.
+            return
+        self._pending_tool_selector_snap = int(content_width)
+        self._tool_selector_snap_timer.start()
+
+    def _sync_floating_title(self, dock, floating):
+        """Avoid duplicate titles without replacing ADS drag handling."""
+        def update():
+            area = dock.dockAreaWidget()
+            if area is None:
+                return
+            hide_inner_tab = bool(floating) and area.openDockWidgetsCount() == 1
+            area.titleBar().setVisible(not hide_inner_tab)
+        QTimer.singleShot(0, update)
+
+    def _configure_floating_window(self, floating):
+        """Use a compact close-only title bar for floating panel groups."""
+        floating.setWindowIcon(QIcon())
+        floating.setWindowFlags(
+            Qt.WindowType.Tool
+            | Qt.WindowType.CustomizeWindowHint
+            | Qt.WindowType.WindowTitleHint
+            | Qt.WindowType.WindowCloseButtonHint
+        )
+
+    def _apply_tool_selector_snap(self):
+        """Apply the last requested column width once per completed drag."""
+        if self._pending_tool_selector_snap is None:
+            return
+        if QApplication.mouseButtons() != Qt.MouseButton.NoButton:
+            # A pause while dragging is not the end of the resize. Keep the
+            # request pending and retry only as a fallback for platforms where
+            # the native resize release is not delivered to the app.
+            self._tool_selector_snap_timer.start()
+            return
+        # Snap to the number of columns QListView actually rendered, rather
+        # than guessing from which mathematical width is nearest.
+        columns = self.tool_selector.displayed_column_count()
+        self.tool_selector._column_count = columns
+        content_width = self.tool_selector.width_for_columns(columns)
+        self._pending_tool_selector_snap = None
+        dock = self.tool_selector_dock
+        frame_width = max(0, dock.width() - self.tool_selector.width())
+        target_width = int(content_width) + frame_width
+        if dock.isFloating():
+            floating_window = dock.window()
+            floating_window.resize(target_width, floating_window.height())
+        else:
+            self._resize_tool_selector_area(content_width)
+
+    def _resize_tool_selector_area(self, content_width):
+        dock = self.tool_selector_dock
+        frame_width = max(0, dock.width() - self.tool_selector.width())
+        target_width = int(content_width) + frame_width
+        child = dock
+        parent = dock.parentWidget()
+        while parent is not None:
+            if isinstance(parent, QSplitter) and parent.orientation() == Qt.Orientation.Horizontal:
+                index = parent.indexOf(child)
+                sizes = parent.sizes()
+                if 0 <= index < len(sizes):
+                    delta = sizes[index] - target_width
+                    sizes[index] = target_width
+                    recipients = [i for i in range(len(sizes)) if i != index]
+                    if recipients:
+                        recipient = max(recipients, key=lambda i: sizes[i])
+                        sizes[recipient] = max(1, sizes[recipient] + delta)
+                    parent.setSizes(sizes)
+                return
+            child = parent
+            parent = parent.parentWidget()
+
+    def connect(self):
+        self.tool_selector.toolChanged.connect(self.tools.select_tool)
+        self.tool_selector.snapWidthRequested.connect(
+            self._snap_tool_selector_width
+        )
+        self.tools.toolChanged.connect(self.tool_selector.set_active_tool)
         self.tools.toolChanged.connect(self.canvas.set_tool)
         self.tools.size.valueChanged.connect(self.canvas.set_pen_size)
         self.tools.brush_stabilizer.valueChanged.connect(
@@ -610,10 +1444,6 @@ class MainWindow(QMainWindow):
         self.tools.flipLayerRequested.connect(self.canvas.flip_active_layer)
         self.tools.swapMainSubRequested.connect(self.swap_main_sub)
         self.tools.removeDustRequested.connect(self.remove_dust_fill_surrounding)
-        self.tools.sameImageReplacementRequested.connect(
-            self.register_same_image_replacements
-        )
-        self.tools.mainLineRepaintRequested.connect(self.main_line_repaint)
         self.tools.backgroundColorRequested.connect(self.choose_background_color)
 
         self.timeline.frameSelected.connect(self.select_timeline_exposure)
@@ -3897,10 +4727,11 @@ class MainWindow(QMainWindow):
             self.a_silhouette.setChecked(checked)
             self.a_silhouette.blockSignals(False)
 
-        if hasattr(self.tools, "silhouette_btn"):
-            self.tools.silhouette_btn.blockSignals(True)
-            self.tools.silhouette_btn.setChecked(checked)
-            self.tools.silhouette_btn.blockSignals(False)
+        silhouette_button = self.action_panel.button("silhouette")
+        if silhouette_button is not None:
+            silhouette_button.blockSignals(True)
+            silhouette_button.setChecked(checked)
+            silhouette_button.blockSignals(False)
 
         self.canvas._silhouette_cache.clear()
         self.canvas.update()
@@ -5009,16 +5840,17 @@ class MainWindow(QMainWindow):
         if checked:
             self.show_onion_settings()
         else:
-            browser = self._onion_settings_browser
-            if browser is not None:
-                browser.close()
+            onion_dock = self._onion_settings_dock
+            if onion_dock is not None:
+                onion_dock.closeDockWidget()
         self.canvas.update()
 
     def show_onion_settings(self):
         browser = self._onion_settings_browser
         if browser is not None:
-            browser.show()
-            browser.raise_()
+            if self._onion_settings_dock is not None:
+                self._onion_settings_dock.toggleView(True)
+                self._onion_settings_dock.raise_()
             return
 
         browser = OnionSkinSettingsBrowser(
@@ -5065,20 +5897,34 @@ class MainWindow(QMainWindow):
             self._onion_settings_browser_destroyed
         )
 
-        self.addDockWidget(
-            Qt.DockWidgetArea.RightDockWidgetArea,
-            browser,
+        onion_dock = QtAds.CDockWidget(
+            self.dock_manager, "オニオンスキン設定"
         )
-        if (
-            hasattr(self, "palette_dock")
-            and self.palette_dock is not None
-        ):
-            self.tabifyDockWidget(self.palette_dock, browser)
-        browser.show()
-        browser.raise_()
+        onion_dock.setObjectName("onionSkinSettingsDock")
+        onion_dock.setFeatures(
+            QtAds.CDockWidget.DockWidgetFeature.DockWidgetClosable
+            | QtAds.CDockWidget.DockWidgetFeature.DockWidgetMovable
+            | QtAds.CDockWidget.DockWidgetFeature.DockWidgetFloatable
+            | QtAds.CDockWidget.DockWidgetFeature.DockWidgetDeleteOnClose
+            | QtAds.CDockWidget.DockWidgetFeature.DeleteContentOnClose
+        )
+        onion_dock.setWidget(
+            browser, QtAds.CDockWidget.eInsertMode.ForceNoScrollArea
+        )
+        onion_dock.topLevelChanged.connect(
+            lambda floating, current=onion_dock:
+            self._sync_floating_title(current, floating)
+        )
+        self._onion_settings_dock = onion_dock
+        palette_area = self.palette_dock.dockAreaWidget()
+        self.dock_manager.addDockWidgetTabToArea(onion_dock, palette_area)
+        self._add_dock_hamburger(onion_dock)
+        onion_dock.toggleView(True)
+        onion_dock.raise_()
 
     def _onion_settings_browser_destroyed(self, *_args):
         self._onion_settings_browser = None
+        self._onion_settings_dock = None
         self.canvas.cancel_onion_interaction(restore=False)
         if self.timeline.onion_settings.isChecked():
             self.timeline.onion_settings.blockSignals(True)
@@ -6532,9 +7378,11 @@ class MainWindow(QMainWindow):
             self.a_silhouette.setChecked(
                 self.canvas.silhouette_non_background
             )
-            self.tools.silhouette_btn.setChecked(
-                self.canvas.silhouette_non_background
-            )
+            silhouette_button = self.action_panel.button("silhouette")
+            if silhouette_button is not None:
+                silhouette_button.setChecked(
+                    self.canvas.silhouette_non_background
+                )
             self.timeline.onion.blockSignals(True)
             self.timeline.onion.setChecked(self.canvas.onion_skin)
             self.timeline.onion.blockSignals(False)
@@ -6825,6 +7673,8 @@ class MainWindow(QMainWindow):
             self.palette.scroll,
             self.tools_scroll,
             self.drawing_color_scroll,
+            self.color_wheel_scroll,
+            self.color_slider_scroll,
             self.palette_scroll,
         )
         for area in candidates:
@@ -6846,6 +7696,10 @@ class MainWindow(QMainWindow):
             self.tools_scroll.viewport(),
             self.drawing_color_dock,
             self.drawing_color_scroll.viewport(),
+            self.color_wheel_dock,
+            self.color_wheel_scroll.viewport(),
+            self.color_slider_dock,
+            self.color_slider_scroll.viewport(),
             self.palette_dock,
             self.palette_scroll.viewport(),
             self.palette.scroll.viewport(),
@@ -7025,6 +7879,27 @@ class MainWindow(QMainWindow):
             self._update_auxiliary_hold_cursors()
 
     def eventFilter(self, watched, event):
+        if event.type() == QEvent.Type.MouseButtonRelease:
+            QTimer.singleShot(0, self._sync_all_area_hamburgers)
+        if type(watched).__name__ == "QSplitterHandle":
+            splitter = watched.parentWidget()
+            area = self.tool_selector_dock.dockAreaWidget()
+            if (
+                isinstance(splitter, QSplitter)
+                and splitter.orientation() == Qt.Orientation.Horizontal
+                and area is not None
+                and splitter.indexOf(area) >= 0
+            ):
+                if event.type() == QEvent.Type.MouseButtonPress:
+                    self._tool_selector_resize_drag_active = True
+                elif event.type() == QEvent.Type.MouseButtonRelease:
+                    self._tool_selector_resize_drag_active = False
+        if (
+            event.type() == QEvent.Type.MouseButtonRelease
+            and self._pending_tool_selector_snap is not None
+        ):
+            self._tool_selector_snap_timer.stop()
+            QTimer.singleShot(0, self._apply_tool_selector_snap)
         if event.type() in (
             QEvent.Type.MouseButtonPress,
             QEvent.Type.MouseButtonRelease,
@@ -7092,6 +7967,10 @@ class MainWindow(QMainWindow):
             self.timeline.table.blockSignals(True)
             self.timeline.layer_list.blockSignals(True)
             self.canvas.blockSignals(True)
+            self._split_drop_timer.stop()
+            self._split_drop_overlay.close()
+            for skeleton in self._split_drop_skeletons:
+                skeleton.close()
         except RuntimeError:
             pass
         # A clean shutdown clears the autosave so we don't prompt to restore
