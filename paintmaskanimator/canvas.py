@@ -3967,6 +3967,11 @@ class PaintCanvas(
                     preview_only=True,
                 )
             if transform_preview is not None:
+                if quality_ready and self.transform_original_layer is not None:
+                    transform_preview = self._merge_quality_transform(
+                        self.transform_original_layer,
+                        transform_preview,
+                    )
                 transform_preview = self._pseudo_transparent_display_image(
                     transform_preview
                 )
@@ -3974,7 +3979,7 @@ class PaintCanvas(
                     transform_preview.mirrored(True, False)
                     if self.flip_horizontal else transform_preview
                 )
-                p.setOpacity(.85)
+                p.setOpacity(1 if quality_ready else .85)
                 p.drawImage(wr, transform_preview)
                 p.setOpacity(1)
         p.setPen(QPen(QColor(15,15,15),1));p.drawRect(cr);p.restore()

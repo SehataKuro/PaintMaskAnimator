@@ -436,6 +436,23 @@ class SelectionMixin(CanvasMembers):
         painter.end()
         return base
 
+    def _merge_quality_transform(self, original, preview):
+        """Merge TP output without painting over pixels outside the selection."""
+        base = self._cleared_selection_base(original)
+        result = preview.copy()
+        # White is the application's transparent sentinel.  Convert it to real
+        # alpha before placing the unselected artwork above the transformed
+        # selection, otherwise the sentinel would hide transformed pixels that
+        # extend into an otherwise blank area.
+        preserved = self._pseudo_transparent_display_image(base)
+        painter = QPainter(result)
+        painter.setCompositionMode(
+            QPainter.CompositionMode.CompositionMode_SourceOver
+        )
+        painter.drawImage(0, 0, preserved)
+        painter.end()
+        return result
+
     def _reset_selection_transform(self):
         self.transform_active = False
         self.transform_mode = None
@@ -542,11 +559,14 @@ class SelectionMixin(CanvasMembers):
             if preview is None:
                 continue
 
-            base = self._cleared_selection_base(original)
-            painter = QPainter(base)
-            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
-            painter.drawImage(0, 0, preview)
-            painter.end()
+            if quality_active:
+                base = self._merge_quality_transform(original, preview)
+            else:
+                base = self._cleared_selection_base(original)
+                painter = QPainter(base)
+                painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+                painter.drawImage(0, 0, preview)
+                painter.end()
 
             undo_cells.append((frame_index, original.copy(), original_has_content))
             layer.image = base

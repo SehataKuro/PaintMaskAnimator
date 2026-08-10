@@ -100,6 +100,7 @@ class CanvasMembers(_MembersBase):
         _mesh_curve_point: Any
         _mesh_preview_image: Any
         _mesh_reference_grid: Any
+        _merge_quality_transform: Any
         _natural_path_key: Any
         _normalized_angle: Any
         _onion_cache: Any
