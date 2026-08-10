@@ -1,6 +1,7 @@
 from .common import *  # noqa: F401,F403
 import PySide6QtAds as QtAds
-from . import config, constants, project_io, updater
+from . import config, constants, project_io, theme, updater
+from .theme import StatusBar
 from .actionpanel import ActionPanel
 from .canvas import PaintCanvas
 from .color_panel import UsedColorPanel
@@ -89,6 +90,31 @@ class MainWindow(QMainWindow):
         )
         self._setup_autosave()
         QTimer.singleShot(0, self._maybe_restore_autosave)
+    def status(self, message, level="info", timeout=4000):
+        """Show a severity-coloured message in the bottom status bar.
+
+        ``level`` is one of ``info`` / ``success`` / ``warning`` / ``error``.
+        Falls back to the plain status bar if the styled one is unavailable.
+        """
+        bar = self.statusBar()
+        show = getattr(bar, "show_message", None)
+        if callable(show):
+            show(message, level, timeout)
+        else:
+            bar.showMessage(message, timeout)
+
+    def set_theme(self, name):
+        """Switch the light/dark theme, persist it, and refresh the UI."""
+        app = QApplication.instance()
+        if app is not None:
+            theme.apply_theme(app, name, persist=True)
+        bar = self.statusBar()
+        if hasattr(bar, "refresh_palette"):
+            bar.refresh_palette()
+        if hasattr(self, "theme_actions"):
+            for key, action in self.theme_actions.items():
+                action.setChecked(key == theme.current_theme())
+
     def make_shortcut_action(self, name, callback, shortcut=""):
         action = QAction(name, self)
         if shortcut:
@@ -456,6 +482,23 @@ class MainWindow(QMainWindow):
         a.addAction(self.a_tl_next_key)
         a.addSeparator()
         a.addAction(self.a_tl_paste_time_remap)
+        self._build_view_menu()
+    def _build_view_menu(self):
+        view_menu = self.menuBar().addMenu("表示")
+        theme_menu = view_menu.addMenu("テーマ")
+        group = QActionGroup(self)
+        group.setExclusive(True)
+        self.theme_actions = {}
+        labels = {"light": "ライト（明るい）", "dark": "ダーク（暗い）"}
+        active = theme.current_theme()
+        for name in theme.available_themes():
+            action = QAction(labels.get(name, name), self)
+            action.setCheckable(True)
+            action.setChecked(name == active)
+            action.triggered.connect(lambda _=False, n=name: self.set_theme(n))
+            group.addAction(action)
+            theme_menu.addAction(action)
+            self.theme_actions[name] = action
     def build_ui(self):
         QtAds.CDockManager.setConfigFlag(
             QtAds.CDockManager.eConfigFlag.AlwaysShowTabs, True
@@ -487,6 +530,8 @@ class MainWindow(QMainWindow):
             QtAds.CDockManager.eConfigFlag.DoubleClickUndocksWidget, True
         )
         self.setDockNestingEnabled(True)
+        self.status_bar = StatusBar(self)
+        self.setStatusBar(self.status_bar)
         center=QWidget()
         cv=QVBoxLayout(center)
         cv.setContentsMargins(0,0,0,0)

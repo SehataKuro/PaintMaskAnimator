@@ -45,6 +45,8 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName(APP_DISPLAY_NAME)
     app.setApplicationVersion(APP_VERSION)
+    from . import theme
+    theme.apply_theme(app)
     window = MainWindow()
     window.show()
     QTimer.singleShot(0, window.fit_canvas)
