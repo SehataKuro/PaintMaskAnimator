@@ -20,6 +20,9 @@ from PySide6.QtWidgets import (
 )
 
 from . import config
+from .logging_setup import get_logger
+
+log = get_logger(__name__)
 
 CONFIG_KEY = "ui_theme"
 ACCENT_KEY = "ui_accent"
@@ -483,8 +486,8 @@ def apply_theme(app, name=None, persist=False):
     # Windows style does not — required for a complete dark theme.
     try:
         app.setStyle("Fusion")
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001 - Fusion is optional; theming degrades but must not crash startup
+        log.debug("could not apply Fusion style, using platform default: %s", exc)
     app.setPalette(build_qpalette(name))
     app.setStyleSheet(build_stylesheet(name))
     app.setProperty("ui_theme", name)
