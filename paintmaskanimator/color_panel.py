@@ -1,5 +1,8 @@
 from .common import *  # noqa: F401,F403
 from .utils import _ScreenColorDragMixin
+from .logging_setup import get_logger
+
+log = get_logger(__name__)
 
 
 class ScreenEyedropButton(_ScreenColorDragMixin, QToolButton):
@@ -289,8 +292,8 @@ class ColorVisibilityCheckBox(QCheckBox):
         self._sweeping = True
         try:
             self.grabMouse()
-        except Exception:
-            pass
+        except RuntimeError as exc:
+            log.debug("grabMouse() failed: %s", exc)
         self.sweepStarted.emit(not self.isChecked())
         event.accept()
 
@@ -310,8 +313,8 @@ class ColorVisibilityCheckBox(QCheckBox):
             self._sweeping = False
             try:
                 self.releaseMouse()
-            except Exception:
-                pass
+            except RuntimeError as exc:
+                log.debug("releaseMouse() failed: %s", exc)
             self.sweepFinished.emit()
             event.accept()
             return
@@ -368,8 +371,8 @@ class MaskColorCheckBox(QCheckBox):
         self._sweeping = True
         try:
             self.grabMouse()
-        except Exception:
-            pass
+        except RuntimeError as exc:
+            log.debug("grabMouse() failed: %s", exc)
         self.sweepStarted.emit(not self.isChecked())
         event.accept()
 
@@ -389,8 +392,8 @@ class MaskColorCheckBox(QCheckBox):
             self._sweeping = False
             try:
                 self.releaseMouse()
-            except Exception:
-                pass
+            except RuntimeError as exc:
+                log.debug("releaseMouse() failed: %s", exc)
             self.sweepFinished.emit()
             event.accept()
             return
@@ -424,8 +427,8 @@ class CheckClickArea(QWidget):
                 self._sweeping = True
                 try:
                     self.grabMouse()
-                except Exception:
-                    pass
+                except RuntimeError as exc:
+                    log.debug("grabMouse() failed: %s", exc)
                 self.checkbox.sweepStarted.emit(not self.checkbox.isChecked())
             elif self.checkbox.isEnabled():
                 self.checkbox.setChecked(not self.checkbox.isChecked())
@@ -445,8 +448,8 @@ class CheckClickArea(QWidget):
             self._sweeping = False
             try:
                 self.releaseMouse()
-            except Exception:
-                pass
+            except RuntimeError as exc:
+                log.debug("releaseMouse() failed: %s", exc)
             self.checkbox.sweepFinished.emit()
             event.accept()
             return
@@ -538,8 +541,8 @@ class ColorSelectionArea(QWidget):
             self._select_dragging = True
             try:
                 self.grabMouse()
-            except Exception:
-                pass
+            except RuntimeError as exc:
+                log.debug("grabMouse() failed: %s", exc)
             # ドラッグ対象のON/OFFは、クリックで状態が変わる前に確定する。
             self.dragStarted.emit(event.modifiers())
             self.clicked.emit(event.modifiers())
@@ -563,8 +566,8 @@ class ColorSelectionArea(QWidget):
             self._select_dragging = False
             try:
                 self.releaseMouse()
-            except Exception:
-                pass
+            except RuntimeError as exc:
+                log.debug("releaseMouse() failed: %s", exc)
             self.dragFinished.emit()
             event.accept()
             return

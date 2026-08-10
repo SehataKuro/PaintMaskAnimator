@@ -12,6 +12,24 @@ from .timeline import TimelineWidget
 from .toolpanel import ToolPanel, ToolSelectorPanel
 from .utils import blank_image, disable_windows_ink_feedback, workspace_size
 from .widgets import (CanvasSizeDialog, HSVColorWheel, ShortcutDialog, TimeRemapPasteDialog, TransformLineThicknessDialog, TweenCommandPopup)
+from .logging_setup import get_logger
+
+log = get_logger(__name__)
+
+# Realistic failure set for the top-level user-action handlers below (file
+# I/O, PIL/numpy/Qt image pipelines): everything expected while still letting
+# non-Exception control-flow (KeyboardInterrupt/SystemExit) propagate.
+_OPERATION_ERRORS = (
+    OSError,
+    ValueError,
+    TypeError,
+    KeyError,
+    IndexError,
+    RuntimeError,
+    AttributeError,
+    MemoryError,
+    zipfile.BadZipFile,  # archive read/write paths (projects, PSD) — not an OSError
+)
 
 
 class MainWindow(QMainWindow):
@@ -1826,7 +1844,8 @@ class MainWindow(QMainWindow):
                 (int(row), int(column))
                 for row, column in cells
             }
-        except Exception:
+        except (TypeError, ValueError) as exc:
+            log.debug("could not normalize selected cells: %s", exc)
             return
         if not selected_cells:
             return
@@ -2309,7 +2328,8 @@ class MainWindow(QMainWindow):
     def _used_color_cache_key(self, image):
         try:
             return (int(image.cacheKey()), image.width(), image.height())
-        except Exception:
+        except (AttributeError, RuntimeError, TypeError) as exc:
+            log.debug("cacheKey() unavailable, using id() fallback: %s", exc)
             return (id(image), image.width(), image.height())
 
     def _used_color_layer_signature(self, layer_index):
@@ -4352,7 +4372,8 @@ class MainWindow(QMainWindow):
             ):
                 return self.apply_xdts_layer_bindings(parsed)
             return self.apply_time_remap_to_active_layer(parsed)
-        except Exception as exc:
+        except _OPERATION_ERRORS as exc:
+            log.warning("time-remap paste failed: %s", exc, exc_info=True)
             QMessageBox.warning(
                 self,
                 "タイムリマップ貼り付け",
@@ -4391,7 +4412,8 @@ class MainWindow(QMainWindow):
                 )
             )
             opaque_background = background_rgb is not None
-        except Exception as exc:
+        except _OPERATION_ERRORS as exc:
+            log.warning("first-image color/alpha inspection failed: %s", exc, exc_info=True)
             return None, (
                 "1枚目の色と透明度を確認できませんでした。\n"
                 f"{exc}"
@@ -4426,7 +4448,8 @@ class MainWindow(QMainWindow):
             if not dialog.reduction_enabled:
                 return None, ""
             palette = dialog.selected_palette()
-        except Exception as exc:
+        except _OPERATION_ERRORS as exc:
+            log.warning("binarization preparation failed: %s", exc, exc_info=True)
             return None, (
                 "2値化の準備中に"
                 "エラーが発生しました。\n"
@@ -4478,7 +4501,8 @@ class MainWindow(QMainWindow):
                 try:
                     with PILImage.open(path) as pil:
                         width, height = pil.size
-                except Exception as exc:
+                except (OSError, ValueError, TypeError) as exc:
+                    log.info("PIL size read of %s failed: %s", path, exc)
                     return False, f"{Path(path).name}\n画像サイズを取得できませんでした。\n{exc}"
             else:
                 image, error = self.canvas._read_image_file(path)
@@ -5271,7 +5295,8 @@ class MainWindow(QMainWindow):
                 total_steps,
                 "トゥイーンのキーフレーム化が完了しました",
             )
-        except Exception as exc:
+        except _OPERATION_ERRORS as exc:
+            log.warning("tween keyframe generation failed: %s", exc, exc_info=True)
             # 途中生成に失敗した場合も、開始前の元画像へ戻す。
             if undo_snapshot is not None:
                 self.canvas.apply_undo_entry(("doc", undo_snapshot))
@@ -6759,7 +6784,8 @@ class MainWindow(QMainWindow):
         except RuntimeError:
             dialog.close()
             return
-        except Exception as error:  # noqa: BLE001
+        except (OSError, ValueError) as error:
+            log.warning("update download failed: %s", error, exc_info=True)
             dialog.close()
             QMessageBox.warning(
                 self, "ダウンロード失敗", f"更新を取得できませんでした。\n\n{error}"
@@ -6778,7 +6804,8 @@ class MainWindow(QMainWindow):
         try:
             import os
             os.startfile(str(dest))  # noqa: SLF001 - Windows installer launch
-        except Exception as error:  # noqa: BLE001
+        except OSError as error:
+            log.warning("installer launch failed: %s", error, exc_info=True)
             QMessageBox.warning(
                 self, "起動失敗", f"インストーラを起動できませんでした。\n\n{error}"
             )
@@ -6837,8 +6864,10 @@ class MainWindow(QMainWindow):
                 self.canvas.frames,
             )
         except Exception:
-            import traceback
-            traceback.print_exc()
+            # Autosave is best-effort and must never raise into the event loop,
+            # so the broad catch is intentional; log the traceback instead of
+            # printing it so it lands in the app log.
+            log.exception("autosave failed")
 
     def _maybe_restore_autosave(self):
         """On startup, offer to restore a leftover autosave (likely a crash)."""
@@ -6976,7 +7005,8 @@ class MainWindow(QMainWindow):
                 3000,
             )
             return True
-        except Exception as error:
+        except _OPERATION_ERRORS as error:
+            log.error("project save failed: %s", error, exc_info=True)
             QMessageBox.critical(
                 self,
                 "プロジェクト保存エラー",
@@ -7373,7 +7403,8 @@ class MainWindow(QMainWindow):
                 3000,
             )
             return True
-        except Exception as error:
+        except _OPERATION_ERRORS as error:
+            log.error("project open failed: %s", error, exc_info=True)
             QMessageBox.critical(
                 self,
                 "プロジェクト読込エラー",
@@ -7477,7 +7508,8 @@ class MainWindow(QMainWindow):
                             viewport=viewport,
                             force=True,
                         )
-                    except Exception:
+                    except (ValueError, KeyError, IndexError, TypeError, OSError, RuntimeError, AttributeError) as exc:
+                        log.debug("PSD layer composite failed, skipping: %s", exc)
                         rendered = None
                     if rendered is None:
                         skipped += 1
@@ -7496,7 +7528,8 @@ class MainWindow(QMainWindow):
                     skipped += 1
             if not imported:
                 raise ValueError("読み込める画像レイヤーがありません。")
-        except Exception as exc:
+        except _OPERATION_ERRORS as exc:
+            log.error("PSD import failed: %s", exc, exc_info=True)
             QMessageBox.critical(
                 self, "PSD読み込み", f"PSDを読み込めませんでした。\n\n{exc}"
             )
@@ -8130,7 +8163,8 @@ class MainWindow(QMainWindow):
             if exported_keys == 0:
                 raise ValueError("書き出せるキーフレームがありません。")
             psd.save(path)
-        except Exception as exc:
+        except _OPERATION_ERRORS as exc:
+            log.error("PSD export failed: %s", exc, exc_info=True)
             QMessageBox.critical(
                 self, "PSD書き出し", f"PSDを書き出せませんでした。\n\n{exc}"
             )
@@ -8453,7 +8487,8 @@ class MainWindow(QMainWindow):
                     "duration",
                 ])
                 writer.writerows(timing_rows)
-        except Exception as exc:
+        except (_OPERATION_ERRORS + (csv.Error,)) as exc:
+            log.error("sequence/CSV export failed: %s", exc, exc_info=True)
             QMessageBox.critical(
                 self,
                 "連番書き出しエラー",

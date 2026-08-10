@@ -9,6 +9,9 @@ from .common import *  # noqa: F401,F403
 from . import constants
 from .models import Frame, Layer
 from .utils import blank_image
+from .logging_setup import get_logger
+
+log = get_logger(__name__)
 
 
 def read_project_archive(path):
@@ -274,8 +277,10 @@ def write_project_archive(project_path, metadata, frames):
 
         temporary_path.replace(project_path)
     except Exception:
+        # Any failure while writing leaves a half-written temp file; remove it
+        # and re-raise so the caller sees the original error.
         try:
             temporary_path.unlink(missing_ok=True)
-        except Exception:
-            pass
+        except OSError as exc:
+            log.debug("could not remove temp project file: %s", exc)
         raise

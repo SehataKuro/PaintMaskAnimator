@@ -39,6 +39,8 @@ def _show_unhandled_exception(exc_type, exc_value, exc_tb):
 
 
 def main():
+    from .logging_setup import configure_logging
+    configure_logging()
     sys.excepthook = _show_unhandled_exception
     app = QApplication(sys.argv)
     app.setApplicationName(APP_DISPLAY_NAME)

@@ -1,5 +1,8 @@
 from .common import *  # noqa: F401,F403
 from .utils import _ScreenColorDragMixin
+from .logging_setup import get_logger
+
+log = get_logger(__name__)
 
 
 class TransformLineThicknessDialog(QDialog):
@@ -1585,7 +1588,10 @@ class TimeRemapPasteDialog(QDialog):
 
         try:
             parsed = owner.parse_time_remap_text(raw_text)
-        except Exception as exc:
+        except (ValueError, KeyError, IndexError, TypeError) as exc:
+            # Malformed clipboard/timesheet data is expected here; show the
+            # first line of the error in the preview status and log details.
+            log.info("time-remap preview parse failed: %s", exc)
             self._parsed_preview = None
             self._parsed_source = None
             self._parsed_raw_text = None

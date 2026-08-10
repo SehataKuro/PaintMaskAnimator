@@ -1,4 +1,7 @@
 from .common import *  # noqa: F401,F403
+from .logging_setup import get_logger
+
+log = get_logger(__name__)
 
 
 def _pressure_bezier_segments(points):
@@ -138,7 +141,8 @@ class PressureCurveWidget(QWidget):
                 try:
                     x, y = float(point[0]), float(point[1])
                     points.append((max(0.0, min(1.0, x)), max(0.0, min(1.0, y))))
-                except Exception:
+                except (TypeError, ValueError, IndexError, KeyError) as exc:
+                    log.debug("skipping malformed pressure-curve point %r: %s", point, exc)
                     continue
             self._points = sorted(points, key=lambda value: value[0])
         else:
