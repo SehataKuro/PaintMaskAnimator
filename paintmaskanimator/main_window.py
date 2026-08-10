@@ -78,6 +78,8 @@ class MainWindow(QMainWindow):
         self._dock_menu_builders = {}
         self.current_project_path = None
         self.build_actions();self.action_panel=ActionPanel(self);self.build_action_panel();self.build_menu();self.build_ui();self.connect();self.refresh_ui();self.action_panel.reload_python_actions()
+        self._refresh_theme_dependent_ui()
+        self._sync_tool_selector_swatch()
         QApplication.instance().installEventFilter(self)
         self.update_project_title()
         QTimer.singleShot(0,self.fit_canvas)
@@ -108,9 +110,7 @@ class MainWindow(QMainWindow):
         app = QApplication.instance()
         if app is not None:
             theme.apply_theme(app, name, persist=True)
-        bar = self.statusBar()
-        if hasattr(bar, "refresh_palette"):
-            bar.refresh_palette()
+        self._refresh_theme_dependent_ui()
         if hasattr(self, "theme_actions"):
             for key, action in self.theme_actions.items():
                 action.setChecked(key == theme.current_theme())
@@ -499,6 +499,43 @@ class MainWindow(QMainWindow):
             group.addAction(action)
             theme_menu.addAction(action)
             self.theme_actions[name] = action
+        accent_menu = view_menu.addMenu("アクセントカラー")
+        for label, hexval in theme.ACCENT_PRESETS:
+            act = QAction(f"{label}", self)
+            act.triggered.connect(
+                lambda _=False, h=hexval: self.set_accent(h)
+            )
+            accent_menu.addAction(act)
+        accent_menu.addSeparator()
+        custom = QAction("カスタム…", self)
+        custom.triggered.connect(self.choose_accent_color)
+        accent_menu.addAction(custom)
+    def choose_accent_color(self):
+        current = QColor(theme.current_accent())
+        color = QColorDialog.getColor(
+            current, self, "アクセントカラーを選択"
+        )
+        if color.isValid():
+            self.set_accent(color.name())
+    def set_accent(self, color):
+        """Change the accent colour app-wide, persist it, and restyle."""
+        app = QApplication.instance()
+        if app is not None:
+            theme.set_accent(app, color, persist=True)
+        self._refresh_theme_dependent_ui()
+    def _refresh_theme_dependent_ui(self):
+        """Re-apply palette-derived styles after a theme/accent change."""
+        bar = self.statusBar()
+        if hasattr(bar, "refresh_palette"):
+            bar.refresh_palette()
+        if hasattr(self.tools, "apply_theme"):
+            self.tools.apply_theme()
+        if hasattr(self.tool_selector, "apply_theme"):
+            self.tool_selector.apply_theme()
+        if hasattr(self.timeline, "apply_theme"):
+            self.timeline.apply_theme()
+        if hasattr(self, "dock_manager"):
+            self._customize_docking_hover()
     def build_ui(self):
         QtAds.CDockManager.setConfigFlag(
             QtAds.CDockManager.eConfigFlag.AlwaysShowTabs, True
@@ -593,16 +630,9 @@ class MainWindow(QMainWindow):
         self.palette_scroll.setMinimumSize(0, 0)
         self.palette_scroll.setWidget(self.palette)
 
-        self.drawing_color_scroll = QScrollArea()
-        self.drawing_color_scroll.setWidgetResizable(True)
-        self.drawing_color_scroll.setMinimumSize(0, 0)
-        self.drawing_color_scroll.setFrameShape(
-            QScrollArea.Shape.NoFrame
-        )
-        self.drawing_color_scroll.setWidget(
-            self.tools.drawing_color_box
-        )
-
+        # 描画色パネルは廃止。描画色（メイン/サブ/背景）はツールバー最下部の
+        # スウォッチへ移設した。drawing_color_box 自体は色状態の保持用として
+        # 構築されるが、ドックには表示しない。
         self.color_wheel_scroll = QScrollArea()
         self.color_wheel_scroll.setWidgetResizable(True)
         self.color_wheel_scroll.setMinimumSize(0, 0)
@@ -654,23 +684,16 @@ class MainWindow(QMainWindow):
             QtAds.BottomDockWidgetArea, self.action_panel_dock, tools_area
         )
 
-        self.drawing_color_dock=QtAds.CDockWidget(self.dock_manager, "描画色")
-        self.drawing_color_dock.setObjectName("drawingColorDock")
-        self.drawing_color_dock.setWidget(
-            self.drawing_color_scroll, QtAds.CDockWidget.eInsertMode.ForceNoScrollArea
-        )
-        drawing_area = self.dock_manager.addDockWidget(
-            QtAds.RightDockWidgetArea, self.drawing_color_dock
-        )
-
         self.color_wheel_dock=QtAds.CDockWidget(self.dock_manager, "カラーサークル")
         self.color_wheel_dock.setObjectName("colorWheelDock")
         self.color_wheel_dock.setWidget(
             self.color_wheel_scroll, QtAds.CDockWidget.eInsertMode.ForceNoScrollArea
         )
-        wheel_area = self.dock_manager.addDockWidget(
-            QtAds.BottomDockWidgetArea, self.color_wheel_dock, drawing_area
+        # カラーサークルを右エリアのアンカーにする（旧・描画色ドックの位置）。
+        drawing_area = self.dock_manager.addDockWidget(
+            QtAds.RightDockWidgetArea, self.color_wheel_dock
         )
+        wheel_area = drawing_area
 
         self.color_slider_dock=QtAds.CDockWidget(self.dock_manager, "カラースライダー")
         self.color_slider_dock.setObjectName("colorSliderDock")
@@ -711,7 +734,6 @@ class MainWindow(QMainWindow):
             self.tool_selector_dock,
             self.tools_dock,
             self.action_panel_dock,
-            self.drawing_color_dock,
             self.color_wheel_dock,
             self.color_slider_dock,
             self.palette_dock,
@@ -741,11 +763,11 @@ class MainWindow(QMainWindow):
             ),
         )
 
-        view_menu=self.menuBar().addMenu("表示")
+        panel_menu=self.menuBar().addMenu("パネル")
+        view_menu=panel_menu
         view_menu.addAction(self.tool_selector_dock.toggleViewAction())
         view_menu.addAction(self.tools_dock.toggleViewAction())
         view_menu.addAction(self.action_panel_dock.toggleViewAction())
-        view_menu.addAction(self.drawing_color_dock.toggleViewAction())
         view_menu.addAction(self.color_wheel_dock.toggleViewAction())
         view_menu.addAction(self.color_slider_dock.toggleViewAction())
         view_menu.addAction(self.palette_dock.toggleViewAction())
@@ -1096,23 +1118,25 @@ class MainWindow(QMainWindow):
 
     def _customize_docking_hover(self):
         """Apply richer hover feedback while keeping ADS drop geometry intact."""
+        c = theme.palette()
         self.dock_manager.setStyleSheet(
-            "ads--CDockAreaWidget{border:0;}"
+            "ads--CDockAreaWidget{border:0;background:%(window)s;}"
             "ads--CDockAreaWidget:hover{border:0;}"
-            "ads--CDockAreaTitleBar{background:#edf1f4;"
-            "border-bottom:1px solid #cbd3da;min-height:22px;max-height:22px;}"
-            "ads--CDockAreaTitleBar:hover{background:#e2e8ec;border-bottom-color:#c2cbd2;}"
-            "ads--CDockWidgetTab{background:#e9edf0;color:#53606a;"
+            "ads--CDockAreaTitleBar{background:%(surface_alt)s;"
+            "border-bottom:1px solid %(border)s;min-height:22px;max-height:22px;}"
+            "ads--CDockAreaTitleBar:hover{background:%(hover)s;border-bottom-color:%(border)s;}"
+            "ads--CDockWidgetTab{background:%(surface_alt)s;color:%(text_muted)s;"
             "border:1px solid transparent;border-radius:5px 5px 0 0;"
             "padding:0 9px;min-height:20px;max-height:20px;}"
-            "ads--CDockWidgetTab:hover{background:#dde4e9;color:#253944;"
+            "ads--CDockWidgetTab:hover{background:%(hover)s;color:%(text)s;"
             "border-color:transparent;}"
-            "ads--CDockWidgetTab[activeTab=\"true\"]{background:#ffffff;"
-            "color:#294550;border-color:#cbd3d9;border-bottom-color:#ffffff;}"
-            "ads--CDockWidgetTab[activeTab=\"true\"]:hover{background:#f4fbff;"
-            "color:#203943;border-color:#c3ccd2;}"
-            "ads--CDockSplitter::handle{background:#d9dfe4;}"
-            "ads--CDockSplitter::handle:hover{background:#aeb9c1;}"
+            "ads--CDockWidgetTab[activeTab=\"true\"]{background:%(surface)s;"
+            "color:%(text)s;border-color:%(border)s;border-bottom-color:%(surface)s;}"
+            "ads--CDockWidgetTab[activeTab=\"true\"]:hover{background:%(surface)s;"
+            "color:%(text)s;border-color:%(accent)s;}"
+            "ads--CDockSplitter::handle{background:%(border)s;}"
+            "ads--CDockSplitter::handle:hover{background:%(text_muted)s;}"
+            % c
         )
 
         # Keep the standard ADS target calculation and drop-area preview, but
@@ -1449,6 +1473,17 @@ class MainWindow(QMainWindow):
         )
         self.tools.colorModeChanged.connect(self.set_color_mode)
         self.tools.colorChanged.connect(self.set_color_value)
+        # Keep the tool-bar drawing-colour swatch in sync with the panel.
+        self.tool_selector.colorModeRequested.connect(self.set_color_mode)
+        self.tool_selector.backgroundColorRequested.connect(
+            self.choose_background_color
+        )
+        self.tools.colorModeChanged.connect(
+            lambda _m=None: self._sync_tool_selector_swatch()
+        )
+        self.tools.colorChanged.connect(
+            lambda *_a: self._sync_tool_selector_swatch()
+        )
         self.tools.main_btn.colorPicked.connect(
             lambda color: self.apply_sampled_color_to_mode("main", color)
         )
@@ -6719,7 +6754,16 @@ class MainWindow(QMainWindow):
     def choose_color(self,mode):
         base=self.canvas.main_color if mode=="main" else self.canvas.sub_color;c=QColorDialog.getColor(base,self,"色を選択")
         if c.isValid():setattr(self.canvas,mode+"_color",c);self.set_color_mode(mode)
-    def set_color_mode(self,mode):self.canvas.color_mode=mode;self.tools.set_colors(self.canvas.main_color,self.canvas.sub_color,mode,self.canvas.transparent_display_color)
+    def set_color_mode(self,mode):self.canvas.color_mode=mode;self.tools.set_colors(self.canvas.main_color,self.canvas.sub_color,mode,self.canvas.transparent_display_color);self._sync_tool_selector_swatch()
+    def _sync_tool_selector_swatch(self):
+        selector = getattr(self, "tool_selector", None)
+        if selector is not None and hasattr(selector, "set_swatch_colors"):
+            selector.set_swatch_colors(
+                self.tools.main_color,
+                self.tools.sub_color,
+                self.tools.color_mode,
+                self.canvas.transparent_display_color,
+            )
     def sync_canvas_view_controls(self, zoom_value, rotation_value):
         zoom_percent = max(self.zoom.minimum(), min(self.zoom.maximum(), int(round(float(zoom_value) * 100))))
         rotation_degrees = max(-180, min(180, int(round(float(rotation_value)))))
@@ -7743,7 +7787,6 @@ class MainWindow(QMainWindow):
         candidates = (
             self.palette.scroll,
             self.tools_scroll,
-            self.drawing_color_scroll,
             self.color_wheel_scroll,
             self.color_slider_scroll,
             self.palette_scroll,
@@ -7765,8 +7808,6 @@ class MainWindow(QMainWindow):
             self.timeline.table.viewport(),
             self.tools_dock,
             self.tools_scroll.viewport(),
-            self.drawing_color_dock,
-            self.drawing_color_scroll.viewport(),
             self.color_wheel_dock,
             self.color_wheel_scroll.viewport(),
             self.color_slider_dock,
@@ -8028,6 +8069,15 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         """Stop active timers and UI signals before Qt destroys child widgets."""
         self._closing = True
+        try:
+            # A closed window must stop filtering application-wide events;
+            # otherwise it keeps intercepting input for the rest of the process
+            # (and leaks across tests that share one QApplication).
+            app = QApplication.instance()
+            if app is not None:
+                app.removeEventFilter(self)
+        except RuntimeError:
+            pass
         try:
             self.timer.stop()
             self._used_color_timer.stop()

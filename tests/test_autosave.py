@@ -35,4 +35,11 @@ def test_autosave_writes_and_clears(qapp, tmp_path, monkeypatch):
         window._clear_autosave()
         assert not autosave.exists()
     finally:
+        # Destroy the window here (not just close) and drain deferred events so
+        # the shared QApplication doesn't carry a live MainWindow into the next
+        # GUI test module, which would stall it.
         window.close()
+        window.deleteLater()
+        window = None
+        qapp.processEvents()
+        qapp.processEvents()

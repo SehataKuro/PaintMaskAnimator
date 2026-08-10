@@ -25,7 +25,7 @@ def _panel_docks(window):
         window.tool_selector_dock,
         window.tools_dock,
         window.action_panel_dock,
-        window.drawing_color_dock,
+        window.tools_dock,
         window.color_wheel_dock,
         window.color_slider_dock,
         window.palette_dock,
@@ -67,7 +67,7 @@ def test_main_panels_use_qt_advanced_docking(qapp, tmp_path, monkeypatch):
             window.tool_selector_dock,
             window.tools_dock,
             window.action_panel_dock,
-            window.drawing_color_dock,
+            window.tools_dock,
             window.palette_dock,
             window.timeline_dock,
         ):
@@ -231,7 +231,7 @@ def test_tabbed_panels_share_left_aligned_hamburger(qapp, tmp_path, monkeypatch)
     window = MainWindow()
     window.show()
     try:
-        area = window.drawing_color_dock.dockAreaWidget()
+        area = window.tools_dock.dockAreaWidget()
         window.dock_manager.addDockWidgetTabToArea(
             window.color_wheel_dock, area
         )
@@ -245,18 +245,29 @@ def test_tabbed_panels_share_left_aligned_hamburger(qapp, tmp_path, monkeypatch)
         )
         assert len(buttons) == 1
         assert title_bar.layout().itemAt(0).widget() is buttons[0]
-        assert window.drawing_color_dock.tabWidget().findChild(
+        assert window.tools_dock.tabWidget().findChild(
             QWidget, "dockHamburger"
         ) is None
+
+        def has_checkable(menu):
+            # The wheel menu nests its mode toggles inside submenus
+            # ("色相の形" / "内側の形"), so recurse into them.
+            for action in menu.actions():
+                if action.isCheckable():
+                    return True
+                submenu = action.menu()
+                if submenu is not None and has_checkable(submenu):
+                    return True
+            return False
 
         area.setCurrentDockWidget(window.color_wheel_dock)
         menu = buttons[0].menu()
         menu.aboutToShow.emit()
-        assert any(action.isCheckable() for action in menu.actions())
+        assert has_checkable(menu)
 
-        area.setCurrentDockWidget(window.drawing_color_dock)
+        area.setCurrentDockWidget(window.tools_dock)
         menu.aboutToShow.emit()
-        assert not any(action.isCheckable() for action in menu.actions())
+        assert not has_checkable(menu)
     finally:
         window.close()
 
@@ -296,10 +307,10 @@ def test_dock_tab_height_is_consistent_when_stacked(qapp, tmp_path, monkeypatch)
     window.show()
     try:
         qapp.processEvents()
-        area = window.drawing_color_dock.dockAreaWidget()
+        area = window.tools_dock.dockAreaWidget()
         window._sync_all_area_hamburgers()
         qapp.processEvents()
-        single_height = window.drawing_color_dock.tabWidget().height()
+        single_height = window.tools_dock.tabWidget().height()
         window.dock_manager.addDockWidgetTabToArea(
             window.color_wheel_dock, area
         )
@@ -323,7 +334,7 @@ def test_hamburger_sync_removes_duplicates(qapp, tmp_path, monkeypatch):
     window = MainWindow()
     window.show()
     try:
-        area = window.drawing_color_dock.dockAreaWidget()
+        area = window.tools_dock.dockAreaWidget()
         title_bar = area.titleBar()
         duplicate = QToolButton(title_bar)
         duplicate.setObjectName("dockHamburger")
@@ -353,7 +364,7 @@ def test_named_workspace_restores_dock_layout(qapp, tmp_path, monkeypatch):
     window.show()
     try:
         window._finalize_startup_dock_ui()
-        area = window.drawing_color_dock.dockAreaWidget()
+        area = window.tools_dock.dockAreaWidget()
         window.dock_manager.addDockWidgetTabToArea(
             window.color_wheel_dock, area
         )
@@ -368,7 +379,7 @@ def test_named_workspace_restores_dock_layout(qapp, tmp_path, monkeypatch):
         assert window.color_wheel_dock.isVisible()
         assert (
             window.color_wheel_dock.dockAreaWidget()
-            is window.drawing_color_dock.dockAreaWidget()
+            is window.tools_dock.dockAreaWidget()
         )
         assert window._delete_workspace("カラー作業")
         assert "カラー作業" not in window._workspace_records()
@@ -385,7 +396,7 @@ def test_boundary_drop_does_not_move_tab_twice(qapp, tmp_path, monkeypatch):
     try:
         dragged = window.action_panel_dock
         source = dragged.dockAreaWidget()
-        target = window.drawing_color_dock.dockAreaWidget()
+        target = window.tools_dock.dockAreaWidget()
         window._split_drop_dragged_dock = dragged
         window._split_drop_source_area = source
         window._split_drop_candidate = (QtAds.RightDockWidgetArea, target)
@@ -412,7 +423,7 @@ def test_boundary_feedback_never_performs_the_drop_itself(
     try:
         dragged = window.action_panel_dock
         source = dragged.dockAreaWidget()
-        target = window.drawing_color_dock.dockAreaWidget()
+        target = window.tools_dock.dockAreaWidget()
         source_tabs = tuple(source.openedDockWidgets())
         target_tabs = tuple(target.openedDockWidgets())
         window._split_drop_dragged_dock = dragged
@@ -456,7 +467,7 @@ def test_repeated_stack_and_split_keeps_every_panel(qapp, tmp_path, monkeypatch)
             window.color_slider_dock,
         )
         for _cycle in range(3):
-            target = window.drawing_color_dock.dockAreaWidget()
+            target = window.tools_dock.dockAreaWidget()
             for dock in moving:
                 window.dock_manager.addDockWidgetTabToArea(dock, target)
             qapp.processEvents()
@@ -483,7 +494,7 @@ def test_close_and_reopen_tab_preserves_shared_menu(qapp, tmp_path, monkeypatch)
     window = MainWindow()
     window.show()
     try:
-        area = window.drawing_color_dock.dockAreaWidget()
+        area = window.tools_dock.dockAreaWidget()
         window.dock_manager.addDockWidgetTabToArea(window.color_wheel_dock, area)
         for _cycle in range(3):
             window.color_wheel_dock.closeDockWidget()
@@ -506,9 +517,9 @@ def test_workspace_repeated_round_trip_preserves_all_tabs(
     window = MainWindow()
     window.show()
     try:
-        area = window.drawing_color_dock.dockAreaWidget()
+        area = window.tools_dock.dockAreaWidget()
         grouped = (
-            window.drawing_color_dock,
+            window.tools_dock,
             window.color_wheel_dock,
             window.color_slider_dock,
             window.palette_dock,
@@ -526,7 +537,7 @@ def test_workspace_repeated_round_trip_preserves_all_tabs(
             )
             assert window._apply_workspace("stress", restore_geometry=False)
             qapp.processEvents()
-            restored_area = window.drawing_color_dock.dockAreaWidget()
+            restored_area = window.tools_dock.dockAreaWidget()
             assert all(dock.dockAreaWidget() is restored_area for dock in grouped)
             assert restored_area.currentDockWidget() is window.color_slider_dock
             _assert_docking_invariants(window)

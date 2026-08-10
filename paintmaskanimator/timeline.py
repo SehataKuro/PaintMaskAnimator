@@ -1,4 +1,5 @@
 from .common import *  # noqa: F401,F403
+from . import theme
 from .models import Layer
 
 
@@ -740,16 +741,13 @@ class TimelineWidget(QWidget):
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         )
         self.layer_opacity_value.setFixedWidth(38)
-        self.layer_opacity_value.setStyleSheet(
-            "font-size:10px;color:#555;padding:0px;"
-        )
         self.layer_opacity_value.setToolTip(
             "現在選択しているレイヤーの表示不透明度"
         )
 
         c.addStretch()
         compact_hint = QLabel("Shift/Ctrl：複数選択")
-        compact_hint.setStyleSheet("font-size:9px;color:#666;")
+        self.compact_hint = compact_hint
         compact_hint.setToolTip(
             "ドラッグ・Shift＋クリック：複数選択／"
             "選択範囲をそのままドラッグ：まとめて移動／"
@@ -791,11 +789,6 @@ class TimelineWidget(QWidget):
         self.layer_list.setVerticalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
-        self.layer_list.setStyleSheet(
-            "QListWidget{border:0px;margin:0px;padding:0px;background:#f5f5f5;outline:0;}"
-            "QListWidget::item{border:0px;padding:0px;background:#f5f5f5;}"
-            "QListWidget::item:selected{background:#d9ecf6;color:#155f83;}"
-        )
         self.layer_list.setSelectionMode(
             QAbstractItemView.SelectionMode.ContiguousSelection
         )
@@ -820,9 +813,6 @@ class TimelineWidget(QWidget):
             QSizePolicy.Policy.Preferred,
             QSizePolicy.Policy.Fixed,
         )
-        self.layer_header_spacer.setStyleSheet(
-            "background:#f3f3f3;border:0px;margin:0px;padding:0px;"
-        )
         layer_header_layout = QHBoxLayout(self.layer_header_spacer)
         layer_header_layout.setContentsMargins(2,0,2,0)
         layer_header_layout.setSpacing(2)
@@ -840,8 +830,8 @@ class TimelineWidget(QWidget):
 
         layer_widget=QWidget()
         layer_widget.setContentsMargins(0,0,0,0)
-        layer_widget.setStyleSheet("border:0px;margin:0px;padding:0px;background:#f5f5f5;")
         layer_widget.setLayout(layer_box)
+        self.layer_widget = layer_widget
         body.addWidget(layer_widget,0)
 
         self.table=TimelineTable()
@@ -865,17 +855,6 @@ class TimelineWidget(QWidget):
         self.table.horizontalHeader().setSectionsMovable(False)
         self.table.verticalHeader().setSectionsMovable(False)
         self.table.verticalHeader().setVisible(False)
-        self.table.setStyleSheet(
-            "QTableWidget{border:0px;margin:0px;padding:0px;"
-            "gridline-color:#bcc8ce;background:#f5f5f5;}"
-            "QHeaderView{border:0px;margin:0px;padding:0px;}"
-            "QHeaderView::section{background:#f3f3f3;border:0px;"
-            "border-bottom:1px solid #c8c8c8;border-right:1px solid #c8c8c8;"
-            "padding:2px;color:#222;}"
-            "QTableWidget::item{border:0px;color:#155f83;}"
-            "QTableWidget::item:selected{background:transparent;color:#155f83;"
-            "border:2px solid #ff2b1c;}"
-        )
         self.table.setShowGrid(True)
 
         # どちらを縦スクロールしてもレイヤー名とタイムライン行を同時に動かす。
@@ -943,6 +922,51 @@ class TimelineWidget(QWidget):
         self.layer_opacity_slider.valueChanged.connect(
             self._layer_opacity_slider_changed
         )
+        self.apply_theme()
+
+    def apply_theme(self):
+        """Palette-aware styling for the timeline surfaces.
+
+        Keeps the timeline's design (compact rows, red selected-cell frame,
+        amber/blue mode tabs) but sources neutral colours from the active theme
+        so it reads well in both light and dark, with a touch more polish.
+        """
+        c = theme.palette()
+        panel = "border:0px;margin:0px;padding:0px;background:%s;" % c["surface_alt"]
+        self.layer_widget.setStyleSheet(panel)
+        self.layer_header_spacer.setStyleSheet(panel)
+        self.layer_list.setStyleSheet(
+            "QListWidget{border:0px;margin:0px;padding:0px;background:%s;outline:0;}"
+            "QListWidget::item{border:0px;padding:2px 0px;background:%s;color:%s;}"
+            "QListWidget::item:selected{background:%s;color:%s;}"
+            % (
+                c["surface_alt"], c["surface_alt"], c["text"],
+                c["selection"], c["text"],
+            )
+        )
+        self.table.setStyleSheet(
+            "QTableWidget{border:0px;margin:0px;padding:0px;"
+            "gridline-color:%s;background:%s;}"
+            "QHeaderView{border:0px;margin:0px;padding:0px;}"
+            "QHeaderView::section{background:%s;border:0px;"
+            "border-bottom:1px solid %s;border-right:1px solid %s;"
+            "padding:2px;color:%s;}"
+            "QTableWidget::item{border:0px;color:%s;}"
+            "QTableWidget::item:selected{background:transparent;color:%s;"
+            "border:2px solid #ff2b1c;}"
+            % (
+                c["border"], c["surface"],
+                c["surface_alt"], c["border"], c["border"], c["text"],
+                c["text"], c["text"],
+            )
+        )
+        self.compact_hint.setStyleSheet(
+            "font-size:9px;color:%s;" % c["text_muted"]
+        )
+        self.layer_opacity_value.setStyleSheet(
+            "font-size:10px;color:%s;padding:0px;" % c["text_muted"]
+        )
+        self._update_timeline_mode_tab_style()
 
     def _timeline_mode_tab_changed(self, index):
         self.timeline_mode = (
@@ -977,11 +1001,14 @@ class TimelineWidget(QWidget):
             selected_background = "#2F83B8"
             selected_border = "#155E8A"
             selected_foreground = "#FFFFFF"
+        c = theme.palette()
         self.mode_tabs.setStyleSheet(
-            "QTabBar::tab{background:#E2E2E2;color:#555;"
-            "border:1px solid #999;border-bottom:1px solid #777;"
-            "padding:4px 18px;min-width:58px;}"
-            "QTabBar::tab:selected{"
+            "QTabBar::tab{background:%s;color:%s;"
+            "border:1px solid %s;border-bottom:1px solid %s;"
+            "padding:4px 18px;min-width:58px;"
+            "border-top-left-radius:6px;border-top-right-radius:6px;}"
+            % (c["surface_alt"], c["text_muted"], c["border"], c["border"])
+            + "QTabBar::tab:selected{"
             f"background:{selected_background};"
             f"color:{selected_foreground};"
             f"border:2px solid {selected_border};"

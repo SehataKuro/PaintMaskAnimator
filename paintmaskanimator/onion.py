@@ -1,4 +1,5 @@
 from .common import *  # noqa: F401,F403
+from . import theme
 from .logging_setup import get_logger
 
 log = get_logger(__name__)
@@ -101,12 +102,14 @@ class OnionOpacityGraph(QWidget):
             slider.setValue(max(0, min(100, int(value))))
             slider.setFixedSize(16, 70)
             slider.setTickPosition(QSlider.TickPosition.NoTicks)
+            _c = theme.palette()
             slider.setStyleSheet(
                 "QSlider::groove:vertical{width:4px;"
-                "background:#777;border-radius:2px;}"
-                "QSlider::handle:vertical{height:8px;width:12px;"
-                "margin:0 -4px;background:#e8e8e8;"
-                "border:1px solid #555;border-radius:2px;}"
+                "background:%s;border-radius:2px;}"
+                "QSlider::handle:vertical{height:12px;width:12px;"
+                "margin:0 -6px;background:%s;"
+                "border:2px solid %s;border-radius:8px;}"
+                % (_c["border"], _c["surface"], _c["accent"])
             )
             slider.setToolTip(
                 f"{index + 1}枚目の濃度：{slider.value()}%"

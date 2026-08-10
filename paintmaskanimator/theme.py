@@ -14,6 +14,7 @@ This module owns two things:
 The chosen theme is persisted through :mod:`.config` so it survives restarts.
 """
 from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import (
     QStatusBar, QLabel, QHBoxLayout, QWidget, QFrame, QSizePolicy,
 )
@@ -21,7 +22,20 @@ from PySide6.QtWidgets import (
 from . import config
 
 CONFIG_KEY = "ui_theme"
+ACCENT_KEY = "ui_accent"
 DEFAULT_THEME = "light"
+DEFAULT_ACCENT = "#2f6fed"
+
+# Named accent presets offered in the "表示 > アクセントカラー" menu. The
+# custom picker can still choose any colour; these are just quick presets.
+ACCENT_PRESETS = (
+    ("ブルー", "#2f6fed"),
+    ("ティール", "#0d9488"),
+    ("グリーン", "#1a8a4a"),
+    ("パープル", "#7c4dff"),
+    ("オレンジ", "#e0730a"),
+    ("レッド", "#d64545"),
+)
 
 # ---------------------------------------------------------------------------
 # Palettes
@@ -73,16 +87,49 @@ def available_themes():
     return tuple(PALETTES.keys())
 
 
+def _mix(a, b, ratio):
+    """Blend two hex colours; ``ratio`` is the weight of ``a`` (0..1)."""
+    ca, cb = QColor(a), QColor(b)
+    r = round(ca.red() * ratio + cb.red() * (1 - ratio))
+    g = round(ca.green() * ratio + cb.green() * (1 - ratio))
+    bl = round(ca.blue() * ratio + cb.blue() * (1 - ratio))
+    return QColor(r, g, bl).name()
+
+
 def palette(name=None):
-    """Return the colour dict for ``name`` (or the active theme)."""
+    """Return the colour dict for ``name`` (or the active theme).
+
+    A copy is returned with the user's accent colour blended in, so callers
+    always read a consistent, up-to-date accent.
+    """
     if name is None:
         name = current_theme()
-    return PALETTES.get(name, PALETTES[DEFAULT_THEME])
+    base = PALETTES.get(name, PALETTES[DEFAULT_THEME])
+    c = dict(base)
+    accent = current_accent()
+    c["accent"] = accent
+    # Hover = accent nudged toward the window colour so it reads as "pressed".
+    c["accent_hover"] = _mix(accent, c["window"], 0.82)
+    # Selection = accent softened into the surface for subtle highlights.
+    c["selection"] = _mix(accent, c["surface"], 0.28)
+    # The neutral "info" severity follows the accent so the app feels unified.
+    c["info"] = accent
+    return c
 
 
 def current_theme():
     name = config.get_value(CONFIG_KEY, DEFAULT_THEME)
     return name if name in PALETTES else DEFAULT_THEME
+
+
+def current_accent():
+    value = config.get_value(ACCENT_KEY, DEFAULT_ACCENT)
+    return value if QColor(value).isValid() else DEFAULT_ACCENT
+
+
+def accent():
+    """Convenience alias for the active accent colour (hex string)."""
+    return current_accent()
 
 
 def build_stylesheet(name):
@@ -160,25 +207,61 @@ def build_stylesheet(name):
     }}
     QComboBox::drop-down {{ border: none; width: 18px; }}
 
-    /* Sliders */
+    /* Sliders — thin rounded track, accent fill, clean circular knob. */
+    QSlider:horizontal {{ min-height: 20px; }}
     QSlider::groove:horizontal {{
-        height: 4px;
-        background: {c['border']};
-        border-radius: 2px;
+        height: 6px;
+        background: {c['surface_alt']};
+        border: 1px solid {c['border']};
+        border-radius: 4px;
     }}
     QSlider::sub-page:horizontal {{
         background: {c['accent']};
-        border-radius: 2px;
+        border: 1px solid {c['accent']};
+        border-radius: 4px;
+    }}
+    QSlider::add-page:horizontal {{
+        background: {c['surface_alt']};
+        border: 1px solid {c['border']};
+        border-radius: 4px;
     }}
     QSlider::handle:horizontal {{
         background: {c['surface']};
         border: 2px solid {c['accent']};
         width: 14px;
         height: 14px;
+        /* Centre the 18px knob box over the 8px groove box. */
         margin: -6px 0;
-        border-radius: 8px;
+        border-radius: 9px;
     }}
-    QSlider::handle:horizontal:hover {{ background: {c['hover']}; }}
+    QSlider::handle:horizontal:hover {{ background: {c['selection']}; }}
+    QSlider::handle:horizontal:pressed {{ background: {c['accent']}; }}
+    QSlider:vertical {{ min-width: 20px; }}
+    QSlider::groove:vertical {{
+        width: 6px;
+        background: {c['surface_alt']};
+        border: 1px solid {c['border']};
+        border-radius: 4px;
+    }}
+    QSlider::sub-page:vertical {{
+        background: {c['surface_alt']};
+        border: 1px solid {c['border']};
+        border-radius: 4px;
+    }}
+    QSlider::add-page:vertical {{
+        background: {c['accent']};
+        border: 1px solid {c['accent']};
+        border-radius: 4px;
+    }}
+    QSlider::handle:vertical {{
+        background: {c['surface']};
+        border: 2px solid {c['accent']};
+        width: 14px;
+        height: 14px;
+        margin: 0 -6px;
+        border-radius: 9px;
+    }}
+    QSlider::handle:vertical:hover {{ background: {c['selection']}; }}
 
     /* Scroll bars */
     QScrollBar:vertical {{
@@ -235,17 +318,71 @@ def build_stylesheet(name):
     """
 
 
+def build_qpalette(name):
+    """Build a QPalette so unstyled widget backgrounds follow the theme.
+
+    The global style sheet only paints the widgets it names; container
+    backgrounds (scroll areas, list/table viewports, dialogs, input bases)
+    come from the QPalette. Setting both is what makes dark mode complete.
+    """
+    c = palette(name)
+    pal = QPalette()
+    window = QColor(c["window"])
+    surface = QColor(c["surface"])
+    text = QColor(c["text"])
+    muted = QColor(c["text_muted"])
+    disabled = QColor(_mix(c["text"], c["window"], 0.45))
+    pal.setColor(QPalette.ColorRole.Window, window)
+    pal.setColor(QPalette.ColorRole.WindowText, text)
+    pal.setColor(QPalette.ColorRole.Base, surface)
+    pal.setColor(QPalette.ColorRole.AlternateBase, QColor(c["surface_alt"]))
+    pal.setColor(QPalette.ColorRole.Text, text)
+    pal.setColor(QPalette.ColorRole.Button, surface)
+    pal.setColor(QPalette.ColorRole.ButtonText, text)
+    pal.setColor(QPalette.ColorRole.ToolTipBase, surface)
+    pal.setColor(QPalette.ColorRole.ToolTipText, text)
+    pal.setColor(QPalette.ColorRole.PlaceholderText, muted)
+    pal.setColor(QPalette.ColorRole.Highlight, QColor(c["accent"]))
+    pal.setColor(QPalette.ColorRole.HighlightedText, QColor(c["accent_text"]))
+    pal.setColor(QPalette.ColorRole.Link, QColor(c["accent"]))
+    for role in (
+        QPalette.ColorRole.WindowText, QPalette.ColorRole.Text,
+        QPalette.ColorRole.ButtonText,
+    ):
+        pal.setColor(QPalette.ColorGroup.Disabled, role, disabled)
+    return pal
+
+
 def apply_theme(app, name=None, persist=False):
     """Apply the theme to the ``QApplication`` and optionally persist it."""
     if name is None:
         name = current_theme()
     if name not in PALETTES:
         name = DEFAULT_THEME
-    app.setStyleSheet(build_stylesheet(name))
-    app.setProperty("ui_theme", name)
     if persist:
         config.set_value(CONFIG_KEY, name)
+    # Fusion honours QPalette consistently across platforms, which the native
+    # Windows style does not — required for a complete dark theme.
+    try:
+        app.setStyle("Fusion")
+    except Exception:
+        pass
+    app.setPalette(build_qpalette(name))
+    app.setStyleSheet(build_stylesheet(name))
+    app.setProperty("ui_theme", name)
     return name
+
+
+def set_accent(app, color, persist=True):
+    """Persist a new accent colour and re-apply the current theme's styles."""
+    hexval = QColor(color).name() if not isinstance(color, str) else color
+    if not QColor(hexval).isValid():
+        return current_accent()
+    if persist:
+        config.set_value(ACCENT_KEY, hexval)
+    app.setPalette(build_qpalette(current_theme()))
+    app.setStyleSheet(build_stylesheet(current_theme()))
+    return hexval
 
 
 # ---------------------------------------------------------------------------

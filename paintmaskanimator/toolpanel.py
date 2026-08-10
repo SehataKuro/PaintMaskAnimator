@@ -1,4 +1,5 @@
 from .common import *  # noqa: F401,F403
+from . import theme
 from .widgets import (BrushSizeSpinBox, ClickableValueLabel, HSVColorWheel, LineTaperCurvePopup, SliderValueSpinBox, SwatchEyedropButton)
 
 
@@ -70,10 +71,94 @@ def _tool_icon(tool_id):
     return QIcon(pixmap)
 
 
+class SwatchStack(QWidget):
+    """Compact drawing-colour control: stacked main/sub swatches plus a
+    background swatch below, sized to fit the tool bar's current width.
+
+    Emits ``modeRequested`` with ``"main"`` / ``"sub"`` / ``"transparent"``.
+    ``backgroundColorRequested`` fires on right-clicking the background swatch
+    (to change the background display colour).
+    """
+    modeRequested = Signal(str)
+    backgroundColorRequested = Signal()
+
+    def __init__(self, width=52, parent=None):
+        super().__init__(parent)
+        self._main = QColor("black")
+        self._sub = QColor(255, 0, 0)
+        self._bg = QColor("white")
+        self._mode = "main"
+        self._sub_btn = QPushButton(self)
+        self._main_btn = QPushButton(self)
+        self._bg_btn = QPushButton(self)
+        for btn in (self._sub_btn, self._main_btn, self._bg_btn):
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._main_btn.setToolTip("クリック：メイン色に切替")
+        self._sub_btn.setToolTip("クリック：サブ色に切替")
+        self._bg_btn.setToolTip(
+            "クリック：背景色で描画／右クリック：背景色を変更"
+        )
+        self._main_btn.clicked.connect(lambda: self.modeRequested.emit("main"))
+        self._sub_btn.clicked.connect(lambda: self.modeRequested.emit("sub"))
+        self._bg_btn.clicked.connect(
+            lambda: self.modeRequested.emit("transparent")
+        )
+        self._bg_btn.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu
+        )
+        self._bg_btn.customContextMenuRequested.connect(
+            lambda _p: self.backgroundColorRequested.emit()
+        )
+        self.relayout(width)
+
+    def relayout(self, width):
+        """Resize the swatch to ``width`` px (shrinks to one icon column)."""
+        w = max(16, int(width))
+        box = max(10, round(w * 0.64))
+        off = w - box
+        self._main_btn.setGeometry(0, 0, box, box)
+        self._sub_btn.setGeometry(off, off, box, box)
+        gap = 3
+        bg_h = max(8, round(w * 0.26))
+        self._bg_btn.setGeometry(0, w + gap, w, bg_h)
+        self.setFixedSize(w, w + gap + bg_h)
+        self._restyle()
+
+    def set_colors(self, main, sub, mode, background=None):
+        self._main = QColor(main)
+        self._sub = QColor(sub)
+        if background is not None:
+            self._bg = QColor(background)
+        self._mode = mode
+        self._restyle()
+
+    def _restyle(self):
+        accent = theme.accent()
+        def style(c, selected):
+            border = (
+                f"2px solid {accent}" if selected else "1px solid #202020"
+            )
+            return (
+                f"QPushButton{{background:{c.name()};border:{border};"
+                "border-radius:4px;}"
+            )
+        self._sub_btn.setStyleSheet(style(self._sub, self._mode == "sub"))
+        self._main_btn.setStyleSheet(style(self._main, self._mode == "main"))
+        self._bg_btn.setStyleSheet(
+            style(self._bg, self._mode == "transparent")
+        )
+        if self._mode == "sub":
+            self._sub_btn.raise_()
+        else:
+            self._main_btn.raise_()
+
+
 class ToolSelectorPanel(QWidget):
     """Narrow icon-only tool selector; options live in ``ToolPanel``."""
     toolChanged = Signal(str)
     snapWidthRequested = Signal(int)
+    colorModeRequested = Signal(str)
+    backgroundColorRequested = Signal()
     TOOLS = TOOL_DEFINITIONS
 
     CELL_SIZE = 30
@@ -101,7 +186,10 @@ class ToolSelectorPanel(QWidget):
         self.list.setFlow(QListView.Flow.LeftToRight)
         self.list.setWrapping(True)
         self.list.setResizeMode(QListView.ResizeMode.Adjust)
-        self.list.setMovement(QListView.Movement.Static)
+        # Free movement + internal move so tool icons can be reordered by drag.
+        self.list.setMovement(QListView.Movement.Snap)
+        self.list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self.list.setDefaultDropAction(Qt.DropAction.MoveAction)
         self.list.setSelectionMode(QListView.SelectionMode.SingleSelection)
         self.list.setSizePolicy(
             QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding
@@ -112,18 +200,22 @@ class ToolSelectorPanel(QWidget):
         self.list.setFrameStyle(0)
         self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.list.setStyleSheet(
-            "QListWidget{background:transparent;outline:0;border:0;}"
-            "QListWidget::item{margin:1px;border:1px solid transparent;"
-            "border-radius:7px;}"
-            "QListWidget::item:hover{background:#e4f2fb;"
-            "border-color:transparent;}"
-            "QListWidget::item:selected{background:#cfeaff;"
-            "border:1px solid transparent;}"
-            "QListWidget::item:selected:hover{background:#bfe3fb;"
-            "border-color:transparent;}"
+        self._apply_list_theme()
+        layout.addWidget(self.list, 1)
+        # Drawing-colour swatch (main/sub/background) at the BOTTOM of the bar.
+        # Its width tracks the icon column count (shrinks to one column).
+        self.color_swatch = SwatchStack(self.CELL_SIZE * 2 - 8)
+        self.color_swatch.modeRequested.connect(self.colorModeRequested)
+        self.color_swatch.backgroundColorRequested.connect(
+            self.backgroundColorRequested
         )
-        layout.addWidget(self.list)
+        self._swatch_holder = QWidget()
+        swatch_row = QHBoxLayout(self._swatch_holder)
+        swatch_row.setContentsMargins(0, 4, 0, 2)
+        swatch_row.addStretch(1)
+        swatch_row.addWidget(self.color_swatch)
+        swatch_row.addStretch(1)
+        layout.addWidget(self._swatch_holder)
         for tool_id, label in self.TOOLS:
             item = QListWidgetItem(_tool_icon(tool_id), "")
             item.setData(Qt.ItemDataRole.UserRole, tool_id)
@@ -133,7 +225,60 @@ class ToolSelectorPanel(QWidget):
             self.list.addItem(item)
             self.items[tool_id] = item
         self.list.currentItemChanged.connect(self._current_item_changed)
+        # InternalMove drag-reorder recreates QListWidgetItems on drop, so the
+        # references in self.items go stale. Rebuild the map when rows change.
+        self.list.model().rowsInserted.connect(self._rebuild_item_map)
         self.set_active_tool("brush")
+        self._resize_swatch_to_columns()
+
+    def _rebuild_item_map(self, *args):
+        rebuilt = {}
+        for index in range(self.list.count()):
+            item = self.list.item(index)
+            tool_id = item.data(Qt.ItemDataRole.UserRole)
+            if tool_id:
+                rebuilt[tool_id] = item
+        if rebuilt:
+            self.items = rebuilt
+            # Restore the active highlight on the (possibly new) item.
+            active = self.items.get(self.active_tool)
+            if active is not None:
+                self.list.blockSignals(True)
+                self.list.setCurrentItem(active)
+                self.list.blockSignals(False)
+
+    def _apply_list_theme(self):
+        c = theme.palette()
+        self.list.setStyleSheet(
+            "QListWidget{background:transparent;outline:0;border:0;}"
+            "QListWidget::item{margin:1px;border:1px solid transparent;"
+            "border-radius:7px;}"
+            f"QListWidget::item:hover{{background:{c['hover']};"
+            "border-color:transparent;}"
+            f"QListWidget::item:selected{{background:{c['selection']};"
+            f"border:1px solid {c['accent']};}}"
+            f"QListWidget::item:selected:hover{{background:{c['selection']};"
+            f"border-color:{c['accent']};}}"
+        )
+
+    def apply_theme(self):
+        """Re-apply palette-derived styling after a theme/accent change."""
+        self._apply_list_theme()
+        self.color_swatch._restyle()
+
+    def set_swatch_colors(self, main, sub, mode, background=None):
+        self.color_swatch.set_colors(main, sub, mode, background)
+
+    def _resize_swatch_to_columns(self):
+        """Size the drawing-colour swatch to the current icon column count."""
+        columns = max(1, self._column_count)
+        # Fit within the column band, capped so a wide bar stays reasonable.
+        swatch_w = min(
+            columns * self.CELL_SIZE - 6,
+            self.CELL_SIZE * 3,
+        )
+        swatch_w = max(18, swatch_w)
+        self.color_swatch.relayout(swatch_w)
 
     def minimumSizeHint(self):
         return QSize(self.width_for_columns(1), 0)
@@ -163,7 +308,11 @@ class ToolSelectorPanel(QWidget):
                 (available_width + self.CELL_SIZE // 2) // self.CELL_SIZE,
             ),
         )
-        self._column_count = columns
+        if columns != self._column_count:
+            self._column_count = columns
+            self._resize_swatch_to_columns()
+        else:
+            self._column_count = columns
         target_width = self.width_for_columns(columns)
         if self.width() != target_width:
             self.snapWidthRequested.emit(target_width)
@@ -716,8 +865,9 @@ class ToolPanel(QWidget):
         self.color_swatch_stack.setFixedSize(104, 76)
         self.sub_btn = SwatchEyedropButton(self.color_swatch_stack)
         self.main_btn = SwatchEyedropButton(self.color_swatch_stack)
-        self.sub_btn.setText("サブ")
-        self.main_btn.setText("メイン")
+        # No "メイン/サブ" caption text — the colour itself is the label.
+        self.sub_btn.setText("")
+        self.main_btn.setText("")
         self.sub_btn.setGeometry(38, 25, 58, 46)
         self.main_btn.setGeometry(7, 4, 58, 46)
         self.main_btn.raise_()
@@ -742,6 +892,32 @@ class ToolPanel(QWidget):
         swatch_row.addWidget(self.color_swatch_stack)
         swatch_row.addLayout(controls, 1)
         color_layout.addLayout(swatch_row)
+
+        # 背景色スウォッチ：メイン/サブの下に配置。クリックで背景色（透明表示色）
+        # を描画色として選択、右クリックで表示色そのものを変更する。
+        bg_row = QHBoxLayout()
+        bg_row.setContentsMargins(0, 0, 0, 0)
+        bg_row.setSpacing(7)
+        self.background_label = QLabel("背景色")
+        self.background_label.setStyleSheet("font-size:10px;")
+        self.background_btn = SwatchEyedropButton()
+        self.background_btn.setFixedSize(58, 22)
+        self.background_btn.setToolTip(
+            "クリック：背景色で描画／右クリック：背景色の表示色を変更"
+        )
+        self.background_btn.clicked.connect(
+            lambda: self.set_color_mode("transparent")
+        )
+        self.background_btn.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu
+        )
+        self.background_btn.customContextMenuRequested.connect(
+            lambda _p: self.backgroundColorRequested.emit()
+        )
+        bg_row.addWidget(self.background_btn)
+        bg_row.addWidget(self.background_label)
+        bg_row.addStretch(1)
+        color_layout.addLayout(bg_row)
         self.main_btn.clicked.connect(lambda: self.set_color_mode("main"))
         self.sub_btn.clicked.connect(lambda: self.set_color_mode("sub"))
         self.swap_colors_button.clicked.connect(self.swapMainSubRequested)
@@ -761,11 +937,13 @@ class ToolPanel(QWidget):
         self.wheel_mode = HSVColorWheel.DEFAULT_MODE
         self.wheel_hue_mode = HSVColorWheel.DEFAULT_HUE_MODE
         self.color_wheel_box = QWidget()
-        self.color_wheel_box.setStyleSheet(
-            "QWidget#colorPickerSurface{background:#e8e8e8;"
-            "border:1px solid #b8b8b8;border-radius:3px;}"
-        )
         self.color_wheel_box.setObjectName("colorPickerSurface")
+        _wheel_c = theme.palette()
+        self.color_wheel_box.setStyleSheet(
+            "QWidget#colorPickerSurface{background:%s;"
+            "border:1px solid %s;border-radius:6px;}"
+            % (_wheel_c["surface_alt"], _wheel_c["border"])
+        )
         wheel_layout = QVBoxLayout(self.color_wheel_box)
         wheel_layout.setContentsMargins(3, 3, 3, 3)
         wheel_layout.setSpacing(2)
@@ -1043,28 +1221,45 @@ class ToolPanel(QWidget):
         self.refresh_swatches(); self.sync_sliders()
 
     def refresh_swatches(self):
+        accent = theme.accent()
+        hover = theme.palette()["accent_hover"]
         def style(c, selected):
             fg = "white" if c.lightness() < 110 else "black"
-            border = "3px solid #2d8cff" if selected else "2px solid #202020"
+            border = (
+                f"3px solid {accent}" if selected else "2px solid #202020"
+            )
             return (
                 f"QPushButton{{background:{c.name()};color:{fg};border:{border};"
-                "font-size:10px;font-weight:600;padding:2px;}"
-                "QPushButton:hover{border-color:#78b7ff;}"
+                "font-size:10px;font-weight:600;padding:2px;border-radius:4px;}"
+                f"QPushButton:hover{{border-color:{hover};}}"
             )
         self.main_btn.setStyleSheet(style(self.main_color,self.color_mode=="main"))
         self.sub_btn.setStyleSheet(style(self.sub_color,self.color_mode=="sub"))
+        self.background_btn.setStyleSheet(
+            style(self.transparent_display_color, self.color_mode == "transparent")
+        )
         self.transparent_btn.setStyleSheet(
-            "QPushButton{font-size:10px;padding:1px 5px;"
+            "QPushButton{font-size:10px;padding:1px 5px;border-radius:4px;"
             + (
-                "border:2px solid #2d8cff;background:#f4f4f4;}"
+                f"border:2px solid {accent};}}"
                 if self.color_mode == "transparent" else
-                "border:1px solid #888;background:#f4f4f4;}"
+                "border:1px solid #888;}"
             )
         )
         if self.color_mode == "sub":
             self.sub_btn.raise_()
         else:
             self.main_btn.raise_()
+
+    def apply_theme(self):
+        """Re-apply palette-derived styling after a theme/accent change."""
+        c = theme.palette()
+        self.color_wheel_box.setStyleSheet(
+            "QWidget#colorPickerSurface{background:%s;"
+            "border:1px solid %s;border-radius:6px;}" % (c["surface_alt"], c["border"])
+        )
+        self.refresh_swatches()
+        self.update_slider_gradients()
 
     def clear_slider_layout(self):
         while self.slider_layout.rowCount(): self.slider_layout.removeRow(0)
@@ -1208,12 +1403,20 @@ class ToolPanel(QWidget):
                 "stop:0 #ffffff, stop:1 #ffff00",
                 "stop:0 #ffffff, stop:1 #000000",
             ]
+        c = theme.palette()
         for slider, gradient in zip(self.color_sliders, gradients):
             slider.setStyleSheet(
-                "QSlider::groove:horizontal{height:12px;border:1px solid #555;"
-                f"background:qlineargradient(x1:0,y1:0,x2:1,y2:0,{gradient});}}"
-                "QSlider::handle:horizontal{width:12px;margin:-3px 0;border:2px solid white;"
-                "background:#333;border-radius:6px;}"
+                "QSlider::groove:horizontal{height:14px;border:1px solid %s;"
+                "border-radius:7px;"
+                "background:qlineargradient(x1:0,y1:0,x2:1,y2:0,%s);}"
+                # Keep the gradient fully visible: the filled/empty halves must
+                # not paint over it (the global theme fills sub-page with accent).
+                "QSlider::sub-page:horizontal{background:transparent;}"
+                "QSlider::add-page:horizontal{background:transparent;}"
+                # Round, ring-style handle that reveals the colour beneath it.
+                "QSlider::handle:horizontal{width:14px;height:14px;margin:-3px 0;"
+                "border:2px solid white;background:transparent;border-radius:9px;}"
+                % (c["border"], gradient)
             )
 
     def slider_color_changed(self):
