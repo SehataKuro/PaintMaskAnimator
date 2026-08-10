@@ -6,12 +6,13 @@ shortcuts. They run against a live ``PaintCanvas`` instance; because the mixin
 precedes ``QWidget`` in the MRO, these overrides win over the base class.
 """
 from .common import *  # noqa: F401,F403
+from ._canvas_members import CanvasMembers
 from .logging_setup import get_logger
 
 log = get_logger(__name__)
 
 
-class InputEventMixin:
+class InputEventMixin(CanvasMembers):
     def enterEvent(self, event):
         local = self.mapFromGlobal(QCursor.pos())
         self._brush_cursor_widget_pos = QPointF(local)

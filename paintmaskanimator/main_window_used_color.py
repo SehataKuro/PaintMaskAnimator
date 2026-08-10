@@ -6,12 +6,13 @@ sync across undo/redo, and apply palette edits (isolate / replace / delete /
 merge). They run against a live ``MainWindow`` instance.
 """
 from .common import *  # noqa: F401,F403
+from ._main_window_members import MainWindowMembers
 from .logging_setup import get_logger
 
 log = get_logger(__name__)
 
 
-class UsedColorMixin:
+class UsedColorMixin(MainWindowMembers):
     def schedule_used_color_refresh(self):
         # 描画直後は colorUsed で新色だけを即時追加し、全画像の色走査は
         # アイドル時にまとめる。投げ縄塗り・バケツ確定時の一拍停止を防ぐ。

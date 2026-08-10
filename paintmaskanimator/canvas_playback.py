@@ -6,12 +6,13 @@ image shown for each played-back frame. They run against a live ``PaintCanvas``
 instance.
 """
 from .common import *  # noqa: F401,F403
+from ._canvas_members import CanvasMembers
 from .logging_setup import get_logger
 
 log = get_logger(__name__)
 
 
-class PlaybackMixin:
+class PlaybackMixin(CanvasMembers):
     def _build_playback_key_map(self):
         """各フレームで表示するキーフレームを事前解決する。"""
         frame_count = len(self.frames)

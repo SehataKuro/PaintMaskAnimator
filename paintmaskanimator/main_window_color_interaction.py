@@ -6,6 +6,7 @@ sets, color-filter isolation, and tool-selector swatch sync. They run against a
 live ``MainWindow`` instance.
 """
 from .common import *  # noqa: F401,F403
+from ._main_window_members import MainWindowMembers
 from . import theme
 from .widgets import TransformLineThicknessDialog
 from .logging_setup import get_logger
@@ -13,7 +14,7 @@ from .logging_setup import get_logger
 log = get_logger(__name__)
 
 
-class ColorInteractionMixin:
+class ColorInteractionMixin(MainWindowMembers):
     def choose_accent_color(self):
         current = QColor(theme.current_accent())
         color = QColorDialog.getColor(

@@ -6,6 +6,7 @@ cell move/copy against the timeline widget. They run against a live
 ``MainWindow`` instance.
 """
 from .common import *  # noqa: F401,F403
+from ._main_window_members import MainWindowMembers
 from .utils import blank_image
 from .timeline import TimelineWidget
 from .logging_setup import get_logger
@@ -13,7 +14,7 @@ from .logging_setup import get_logger
 log = get_logger(__name__)
 
 
-class TimelineOpsMixin:
+class TimelineOpsMixin(MainWindowMembers):
     def set_timeline_mode(self, mode):
         mode = "sheet" if str(mode) == "sheet" else "sequence"
         layer_index = int(self.canvas.active_layer_index)

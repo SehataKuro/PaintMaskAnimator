@@ -7,6 +7,7 @@ snapping. They run against a live ``MainWindow`` instance and its
 ``dock_manager``.
 """
 from .common import *  # noqa: F401,F403
+from ._main_window_members import MainWindowMembers
 import PySide6QtAds as QtAds
 from . import config, theme
 from .widgets import HSVColorWheel
@@ -15,7 +16,7 @@ from .logging_setup import get_logger
 log = get_logger(__name__)
 
 
-class DockingMixin:
+class DockingMixin(MainWindowMembers):
     def _finalize_startup_dock_ui(self):
         active = config.get_value("active_workspace")
         if not active or not self._apply_workspace(active):

@@ -5,12 +5,13 @@ into a settled brush position/pressure, drive the follow-up settle timer, and
 finish the stabilized stroke. They run against a live ``PaintCanvas`` instance.
 """
 from .common import *  # noqa: F401,F403
+from ._canvas_members import CanvasMembers
 from .logging_setup import get_logger
 
 log = get_logger(__name__)
 
 
-class BrushStabilizerMixin:
+class BrushStabilizerMixin(CanvasMembers):
     def set_brush_stabilizer(self, value):
         self.brush_stabilizer_strength = max(
             0, min(300, int(value))

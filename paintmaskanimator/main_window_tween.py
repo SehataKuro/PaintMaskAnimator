@@ -6,6 +6,7 @@ dispatch the shared "commit/cancel current transform-or-tween" actions. They
 run against a live ``MainWindow`` instance.
 """
 from .common import *  # noqa: F401,F403
+from ._main_window_members import MainWindowMembers
 from .errors import OPERATION_ERRORS as _OPERATION_ERRORS
 from .widgets import TweenCommandPopup
 from .logging_setup import get_logger
@@ -13,7 +14,7 @@ from .logging_setup import get_logger
 log = get_logger(__name__)
 
 
-class TweenMixin:
+class TweenMixin(MainWindowMembers):
     def _refresh_timeline_tween_marker(self):
         self.timeline.refresh(
             self.canvas.frames,

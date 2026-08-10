@@ -5,6 +5,7 @@ merge, delete, reorder, and edit layer rows across all frames, keeping the
 timeline in sync. They run against a live ``MainWindow`` instance.
 """
 from .common import *  # noqa: F401,F403
+from ._main_window_members import MainWindowMembers
 from .models import Layer
 from .utils import blank_image
 from .logging_setup import get_logger
@@ -12,7 +13,7 @@ from .logging_setup import get_logger
 log = get_logger(__name__)
 
 
-class LayerOpsMixin:
+class LayerOpsMixin(MainWindowMembers):
     def _layer_indices_from_rows(self, rows):
         count = len(self.canvas.layers)
         result = []

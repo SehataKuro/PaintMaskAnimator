@@ -5,6 +5,7 @@ region snapshots onto the undo stack and apply them on undo/redo. They run
 against a live ``PaintCanvas`` instance and its ``_document`` + stacks.
 """
 from .common import *  # noqa: F401,F403
+from ._canvas_members import CanvasMembers
 from . import constants
 from .models import Layer
 from .utils import blank_image
@@ -13,7 +14,7 @@ from .logging_setup import get_logger
 log = get_logger(__name__)
 
 
-class UndoMixin:
+class UndoMixin(CanvasMembers):
     def document_snapshot(self): return self._document.snapshot()
 
     def push_doc_undo(self): self.undo_stack.append(("doc",self.document_snapshot())); self.undo_stack=self.undo_stack[-MAX_UNDO:]; self.redo_stack.clear()

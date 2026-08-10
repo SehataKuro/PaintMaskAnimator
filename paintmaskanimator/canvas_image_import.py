@@ -7,6 +7,7 @@ run against a live ``PaintCanvas`` instance and reuse its frame/layer state and
 the color-reduction delegating methods that remain on the widget.
 """
 from .common import *  # noqa: F401,F403
+from ._canvas_members import CanvasMembers
 from . import constants
 from .models import Layer
 from .utils import blank_image, natural_path_key
@@ -15,7 +16,7 @@ from .logging_setup import get_logger
 log = get_logger(__name__)
 
 
-class ImageImportMixin:
+class ImageImportMixin(CanvasMembers):
     """Image-file import pipeline + canvas drag-and-drop event handlers."""
 
     def _read_image_file(self, path):

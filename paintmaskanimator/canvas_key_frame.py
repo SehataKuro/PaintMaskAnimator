@@ -6,13 +6,14 @@ the active cell is an editable key before painting. They run against a live
 ``PaintCanvas`` instance.
 """
 from .common import *  # noqa: F401,F403
+from ._canvas_members import CanvasMembers
 from .utils import blank_image
 from .logging_setup import get_logger
 
 log = get_logger(__name__)
 
 
-class KeyFrameMixin:
+class KeyFrameMixin(CanvasMembers):
     def create_blank_key(
         self,
         column=None,

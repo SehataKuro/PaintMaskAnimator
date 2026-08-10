@@ -6,6 +6,7 @@ into the widgets (the low-level archive read/write lives in ``project_io``).
 They run against a live ``MainWindow`` instance.
 """
 from .common import *  # noqa: F401,F403
+from ._main_window_members import MainWindowMembers
 from . import constants, project_io
 from .errors import OPERATION_ERRORS as _OPERATION_ERRORS
 from .logging_setup import get_logger
@@ -13,7 +14,7 @@ from .logging_setup import get_logger
 log = get_logger(__name__)
 
 
-class ProjectIOMixin:
+class ProjectIOMixin(MainWindowMembers):
     def update_project_title(self):
         if self.current_project_path:
             name = Path(self.current_project_path).name

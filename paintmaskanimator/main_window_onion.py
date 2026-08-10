@@ -12,9 +12,10 @@ from PySide6.QtCore import QPointF
 from PySide6.QtGui import QColor
 
 from .onion import OnionSkinSettingsBrowser
+from ._main_window_members import MainWindowMembers
 
 
-class OnionSkinMixin:
+class OnionSkinMixin(MainWindowMembers):
     """Onion-skin toggles and the onion settings browser dock."""
 
     def set_onion_all_layers(self, enabled):

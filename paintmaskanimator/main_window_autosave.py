@@ -11,11 +11,12 @@ from PySide6.QtWidgets import QMessageBox
 
 from . import config, project_io
 from .logging_setup import get_logger
+from ._main_window_members import MainWindowMembers
 
 log = get_logger(__name__)
 
 
-class AutosaveMixin:
+class AutosaveMixin(MainWindowMembers):
     """Periodic best-effort project snapshots + startup crash recovery."""
 
     def _autosave_path(self):

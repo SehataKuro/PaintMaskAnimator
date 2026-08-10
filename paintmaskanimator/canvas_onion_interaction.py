@@ -6,12 +6,13 @@ drag editing of onion-skin shift/rotation/scale and canvas view rotation
 ``PaintCanvas`` instance and reuse its geometry helpers and onion state.
 """
 from .common import *  # noqa: F401,F403
+from ._canvas_members import CanvasMembers
 from .logging_setup import get_logger
 
 log = get_logger(__name__)
 
 
-class OnionInteractionMixin:
+class OnionInteractionMixin(CanvasMembers):
     """Interactive drag editing of onion-skin transforms."""
 
     def begin_onion_transform_interaction(self, direction):

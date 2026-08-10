@@ -6,13 +6,14 @@ it, and patch that cache for in-progress strokes. They run against a live
 ``PaintCanvas`` instance.
 """
 from .common import *  # noqa: F401,F403
+from ._canvas_members import CanvasMembers
 from . import colors
 from .logging_setup import get_logger
 
 log = get_logger(__name__)
 
 
-class PseudoTransparencyMixin:
+class PseudoTransparencyMixin(CanvasMembers):
     @staticmethod
     def is_pseudo_transparent_color(*args, **kwargs):
         return colors.is_pseudo_transparent_color(*args, **kwargs)

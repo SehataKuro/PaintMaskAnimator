@@ -6,6 +6,7 @@ formats. They run against a live ``MainWindow`` instance and reuse its canvas,
 timeline, and metadata helpers.
 """
 from .common import *  # noqa: F401,F403
+from ._main_window_members import MainWindowMembers
 from . import constants
 from .canvas import PaintCanvas
 from .errors import OPERATION_ERRORS as _OPERATION_ERRORS
@@ -15,7 +16,7 @@ from .logging_setup import get_logger
 log = get_logger(__name__)
 
 
-class ExportMixin:
+class ExportMixin(MainWindowMembers):
     def export_xdts_dialog(self):
         path, _ = QFileDialog.getSaveFileName(
             self,

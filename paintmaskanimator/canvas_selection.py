@@ -6,13 +6,14 @@ copy/cut/paste of the selected region. They run against a live ``PaintCanvas``
 instance and reuse its frame/layer state and the TP-transform mask helpers.
 """
 from .common import *  # noqa: F401,F403
+from ._canvas_members import CanvasMembers
 from . import imaging
 from .logging_setup import get_logger
 
 log = get_logger(__name__)
 
 
-class SelectionMixin:
+class SelectionMixin(CanvasMembers):
     def selection_mask_bool(self, width=None, height=None, offset_x=0, offset_y=0):
         """Return a boolean mask for the active selection in the requested local area."""
         if not self.selection_polygon:

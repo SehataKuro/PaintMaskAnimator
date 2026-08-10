@@ -6,6 +6,7 @@ through the deformation mesh, and manage the mesh grid + preview. They run
 against a live ``PaintCanvas`` instance and reuse its selection/transform state.
 """
 from .common import *  # noqa: F401,F403
+from ._canvas_members import CanvasMembers
 from . import geometry, imaging
 from .utils import workspace_size
 from .logging_setup import get_logger
@@ -13,7 +14,7 @@ from .logging_setup import get_logger
 log = get_logger(__name__)
 
 
-class TransformMaskMixin:
+class TransformMaskMixin(CanvasMembers):
     def _invalidate_tp_preview_cache(self, geometry=True):
         """Invalidate TP output; geometry=False keeps transformed mask cache."""
         self._tp_preview_cache_key = None

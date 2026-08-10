@@ -5,6 +5,7 @@ time-remap text, rebuild the per-layer source bank, and apply remapped exposure
 states to the active layer. They run against a live ``MainWindow`` instance.
 """
 from .common import *  # noqa: F401,F403
+from ._main_window_members import MainWindowMembers
 from .errors import OPERATION_ERRORS as _OPERATION_ERRORS
 from .utils import blank_image
 from .widgets import TimeRemapPasteDialog
@@ -13,7 +14,7 @@ from .logging_setup import get_logger
 log = get_logger(__name__)
 
 
-class TimeRemapMixin:
+class TimeRemapMixin(MainWindowMembers):
     @staticmethod
     def _parse_after_effects_time_remap(raw_text):
         text_value = str(raw_text or "").replace("\r", "")

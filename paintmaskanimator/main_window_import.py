@@ -5,6 +5,7 @@ dialogs and parsing that bring external PSD layers and XDTS timesheets into the
 current project. They run against a live ``MainWindow`` instance.
 """
 from .common import *  # noqa: F401,F403
+from ._main_window_members import MainWindowMembers
 from . import constants
 from .canvas import PaintCanvas
 from .errors import OPERATION_ERRORS as _OPERATION_ERRORS
@@ -15,7 +16,7 @@ from .logging_setup import get_logger
 log = get_logger(__name__)
 
 
-class ImportMixin:
+class ImportMixin(MainWindowMembers):
     @staticmethod
     def _parse_xdts_timesheet(raw_text):
         text_value = str(raw_text or "").lstrip("\ufeff")

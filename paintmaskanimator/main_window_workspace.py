@@ -8,9 +8,10 @@ from PySide6.QtCore import QByteArray, QTimer
 from PySide6.QtWidgets import QInputDialog
 
 from . import config
+from ._main_window_members import MainWindowMembers
 
 
-class WorkspaceMixin:
+class WorkspaceMixin(MainWindowMembers):
     """Persist, apply, and manage named dock-layout workspaces."""
 
     def _workspace_records(self):

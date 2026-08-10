@@ -6,13 +6,14 @@ onion range beneath the active frame. They run against a live ``PaintCanvas``
 instance and are called from its ``paintEvent``.
 """
 from .common import *  # noqa: F401,F403
+from ._canvas_members import CanvasMembers
 from .utils import blank_image
 from .logging_setup import get_logger
 
 log = get_logger(__name__)
 
 
-class OnionRenderMixin:
+class OnionRenderMixin(CanvasMembers):
     def _tinted_onion_image(
         self, frame_index, color, color_enabled=True, selected_colors_only=False
     ):

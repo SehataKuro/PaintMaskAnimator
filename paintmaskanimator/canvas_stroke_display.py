@@ -6,12 +6,13 @@ re-transforming the whole layer each stamp, plus the warm-up/pre-warm paths
 that avoid first-stroke jank. They run against a live ``PaintCanvas`` instance.
 """
 from .common import *  # noqa: F401,F403
+from ._canvas_members import CanvasMembers
 from .logging_setup import get_logger
 
 log = get_logger(__name__)
 
 
-class StrokeDisplayMixin:
+class StrokeDisplayMixin(CanvasMembers):
     def _begin_opaque_brush_stroke(self):
         """Start a stroke without allocating or copying a full-layer image."""
         self._stroke_before_tiles = {}
