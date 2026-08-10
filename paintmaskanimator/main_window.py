@@ -606,9 +606,6 @@ class MainWindow(QMainWindow):
         wheel_area = self.dock_manager.addDockWidget(
             QtAds.BottomDockWidgetArea, self.color_wheel_dock, drawing_area
         )
-        self._install_dock_tab_menu(
-            self.color_wheel_dock, self._show_color_wheel_mode_menu
-        )
 
         self.color_slider_dock=QtAds.CDockWidget(self.dock_manager, "カラースライダー")
         self.color_slider_dock.setObjectName("colorSliderDock")
@@ -617,9 +614,6 @@ class MainWindow(QMainWindow):
         )
         self.dock_manager.addDockWidget(
             QtAds.BottomDockWidgetArea, self.color_slider_dock, wheel_area
-        )
-        self._install_dock_tab_menu(
-            self.color_slider_dock, self._show_color_slider_mode_menu
         )
 
         self.palette_dock=QtAds.CDockWidget(self.dock_manager, "使用色")
@@ -642,6 +636,12 @@ class MainWindow(QMainWindow):
         self.dock_manager.addDockWidget(
             QtAds.BottomDockWidgetArea, self.timeline_dock
         )
+        # 各パネルのタブ左端に付けるハンバーガーメニューの内容。
+        # 未登録のパネルは閉じる／フロートの共通項目だけになる。
+        dock_menu_builders = {
+            self.color_wheel_dock: self._build_color_wheel_menu,
+            self.color_slider_dock: self._build_color_slider_menu,
+        }
         for dock in (
             self.tool_selector_dock,
             self.tools_dock,
@@ -656,6 +656,7 @@ class MainWindow(QMainWindow):
                 lambda floating, current=dock:
                 self._sync_floating_title(current, floating)
             )
+            self._add_dock_hamburger(dock, dock_menu_builders.get(dock))
         QTimer.singleShot(
             0,
             lambda: self._resize_tool_selector_area(
@@ -684,42 +685,113 @@ class MainWindow(QMainWindow):
         self.rot.valueChanged.connect(self.set_rot)
         b0.clicked.connect(lambda:self.rot.setValue(0))
 
-    def _install_dock_tab_menu(self, dock, handler):
-        """ドックのタイトルタブを右クリックしたらモード切替メニューを出す。"""
+    def _hamburger_icon(self):
+        """フォントに依存しない3本線アイコンを生成して使い回す。"""
+        cached = getattr(self, "_hamburger_icon_cache", None)
+        if cached is not None:
+            return cached
+        pixmap = QPixmap(24, 24)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        pen = QPen(QColor("#53606a"), 2.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+        painter.setPen(pen)
+        for y in (7, 12, 17):
+            painter.drawLine(5, y, 19, y)
+        painter.end()
+        icon = QIcon(pixmap)
+        self._hamburger_icon_cache = icon
+        return icon
+
+    def _add_dock_hamburger(self, dock, specific_builder=None):
+        """ドックのタブ左端にハンバーガーメニューボタンを設置する。
+
+        ボタンはドック所有とし、フロート／再ドッキングでタブが作り直され
+        ても失われないよう、その都度タブへ再挿入する。
+        """
+        button = QToolButton(dock)
+        button.setObjectName("dockHamburger")
+        button.setIcon(self._hamburger_icon())
+        button.setIconSize(QSize(12, 12))
+        button.setAutoRaise(True)
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.setToolTip("パネルメニュー")
+        button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        button.setFixedSize(18, 18)
+        button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        button.setStyleSheet(
+            "QToolButton{border:none;background:transparent;padding:0;margin:0 2px;}"
+            "QToolButton::menu-indicator{image:none;width:0;}"
+        )
+        menu = QMenu(button)
+        menu.aboutToShow.connect(
+            lambda m=menu, d=dock, b=specific_builder:
+            self._rebuild_dock_menu(m, d, b)
+        )
+        button.setMenu(menu)
+        dock._hamburger_button = button
+        dock._hamburger_builder = specific_builder
+        self._attach_dock_hamburger(dock)
+        # タブが生成済みでない構築初期でも確実に挿入されるよう遅延実行する。
+        QTimer.singleShot(0, lambda d=dock: self._attach_dock_hamburger(d))
+        dock.topLevelChanged.connect(
+            lambda _floating, d=dock:
+            QTimer.singleShot(0, lambda: self._attach_dock_hamburger(d))
+        )
+
+    def _attach_dock_hamburger(self, dock):
+        button = getattr(dock, "_hamburger_button", None)
+        if button is None:
+            return
         tab = dock.tabWidget()
         if tab is None:
             return
-        tab.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        tab.customContextMenuRequested.connect(
-            lambda pos, source=tab: handler(source.mapToGlobal(pos))
+        layout = tab.layout()
+        if layout is None:
+            return
+        for index in range(layout.count()):
+            if layout.itemAt(index).widget() is button:
+                return
+        button.setParent(tab)
+        layout.insertWidget(0, button)
+        button.show()
+
+    def _rebuild_dock_menu(self, menu, dock, specific_builder):
+        menu.clear()
+        if specific_builder is not None:
+            specific_builder(menu)
+            menu.addSeparator()
+        self._build_default_dock_menu(menu, dock)
+
+    def _build_default_dock_menu(self, menu, dock):
+        float_action = menu.addAction("フロート表示")
+        float_action.setEnabled(not dock.isFloating())
+        float_action.triggered.connect(lambda _c=False, d=dock: d.setFloating())
+        close_action = menu.addAction("パネルを閉じる")
+        close_action.triggered.connect(
+            lambda _c=False, d=dock: d.closeDockWidget()
         )
 
-    def _show_color_wheel_mode_menu(self, global_position):
-        menu = QMenu(self)
+    def _build_color_wheel_menu(self, menu):
         current = self.tools.hsv_wheel.mode()
         labels = {"HSV": "HSV（四角）", "HLS": "HLS（三角）"}
-        actions = {}
         for mode in HSVColorWheel.MODES:
             action = menu.addAction(labels.get(mode, mode))
             action.setCheckable(True)
             action.setChecked(mode == current)
-            actions[action] = mode
-        chosen = menu.exec(global_position)
-        if chosen in actions:
-            self.tools.set_wheel_mode(actions[chosen])
+            action.triggered.connect(
+                lambda _c=False, m=mode: self.tools.set_wheel_mode(m)
+            )
 
-    def _show_color_slider_mode_menu(self, global_position):
-        menu = QMenu(self)
+    def _build_color_slider_menu(self, menu):
         current = self.tools.slider_mode
-        actions = {}
         for mode in ("RGB", "HLS", "CMYK"):
             action = menu.addAction(mode)
             action.setCheckable(True)
             action.setChecked(mode == current)
-            actions[action] = mode
-        chosen = menu.exec(global_position)
-        if chosen in actions:
-            self.tools.set_slider_mode(actions[chosen])
+            action.triggered.connect(
+                lambda _c=False, m=mode: self.tools.set_slider_mode(m)
+            )
 
     def _customize_docking_hover(self):
         """Apply richer hover feedback while keeping ADS drop geometry intact."""
@@ -5574,6 +5646,7 @@ class MainWindow(QMainWindow):
         self._onion_settings_dock = onion_dock
         palette_area = self.palette_dock.dockAreaWidget()
         self.dock_manager.addDockWidgetTabToArea(onion_dock, palette_area)
+        self._add_dock_hamburger(onion_dock)
         onion_dock.toggleView(True)
         onion_dock.raise_()
 
