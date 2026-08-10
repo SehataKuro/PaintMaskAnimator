@@ -407,7 +407,6 @@ class MainWindow(
             ("背景以外を黒シルエット表示", self.a_silhouette),
             ("選択色だけ表示", self.a_isolate_color),
             ("特定色表示を解除", self.a_clear_color_filter),
-            ("メイン色とサブ色を交換", self.a_swap_main_sub),
             ("ゴミ取り", self.a_remove_dust),
             ("選択範囲を解除", self.a_selection_clear),
         ]
