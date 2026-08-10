@@ -54,7 +54,9 @@ class MainWindow(QMainWindow):
         )
         self._split_drop_candidate = None
         self._split_drop_dragged_dock = None
+        self._split_drop_source_area = None
         self._split_drop_press_pos = None
+        self._dock_menu_builders = {}
         self.current_project_path = None
         self.build_actions();self.action_panel=ActionPanel(self);self.build_action_panel();self.build_menu();self.build_ui();self.connect();self.refresh_ui();self.action_panel.reload_python_actions()
         QApplication.instance().installEventFilter(self)
@@ -657,6 +659,18 @@ class MainWindow(QMainWindow):
                 self._sync_floating_title(current, floating)
             )
             self._add_dock_hamburger(dock, dock_menu_builders.get(dock))
+        self.dock_manager.dockAreasAdded.connect(
+            lambda *_args: QTimer.singleShot(
+                0, self._sync_all_area_hamburgers
+            )
+        )
+        self.dock_manager.dockWidgetAdded.connect(
+            lambda *_args: QTimer.singleShot(
+                0, self._sync_all_area_hamburgers
+            )
+        )
+        self._build_workspace_menu()
+        self._finalize_startup_dock_ui()
         QTimer.singleShot(
             0,
             lambda: self._resize_tool_selector_area(
@@ -685,6 +699,115 @@ class MainWindow(QMainWindow):
         self.rot.valueChanged.connect(self.set_rot)
         b0.clicked.connect(lambda:self.rot.setValue(0))
 
+    def _workspace_records(self):
+        records = config.get_value("workspaces", {})
+        return records if isinstance(records, dict) else {}
+
+    def _capture_workspace(self):
+        return {
+            "dock_state": bytes(
+                self.dock_manager.saveState().toBase64()
+            ).decode("ascii"),
+            "window_geometry": bytes(
+                self.saveGeometry().toBase64()
+            ).decode("ascii"),
+        }
+
+    def _save_workspace(self, name):
+        name = str(name).strip()
+        if not name:
+            return False
+        records = self._workspace_records()
+        records[name] = self._capture_workspace()
+        config.set_value("workspaces", records)
+        config.set_value("active_workspace", name)
+        self._refresh_workspace_menu()
+        return True
+
+    def _apply_workspace(self, name, restore_geometry=True):
+        record = self._workspace_records().get(name)
+        if not isinstance(record, dict):
+            return False
+        state = QByteArray.fromBase64(
+            str(record.get("dock_state", "")).encode("ascii")
+        )
+        if state.isEmpty() or not self.dock_manager.restoreState(state):
+            return False
+        if restore_geometry:
+            geometry = QByteArray.fromBase64(
+                str(record.get("window_geometry", "")).encode("ascii")
+            )
+            if not geometry.isEmpty():
+                self.restoreGeometry(geometry)
+        config.set_value("active_workspace", name)
+        QTimer.singleShot(0, self._sync_all_area_hamburgers)
+        self._refresh_workspace_menu()
+        return True
+
+    def _delete_workspace(self, name):
+        records = self._workspace_records()
+        if name not in records:
+            return False
+        del records[name]
+        config.set_value("workspaces", records or None)
+        if config.get_value("active_workspace") == name:
+            config.set_value("active_workspace", None)
+        self._refresh_workspace_menu()
+        return True
+
+    def _prompt_save_workspace(self):
+        name, accepted = QInputDialog.getText(
+            self, "ワークスペースを保存", "ワークスペース名："
+        )
+        if accepted and name.strip():
+            self._save_workspace(name)
+
+    def _prompt_delete_workspace(self):
+        names = sorted(self._workspace_records())
+        if not names:
+            return
+        name, accepted = QInputDialog.getItem(
+            self, "ワークスペースを削除", "削除するワークスペース：",
+            names, 0, False,
+        )
+        if accepted:
+            self._delete_workspace(name)
+
+    def _build_workspace_menu(self):
+        self.workspace_menu = self.menuBar().addMenu("ワークスペース")
+        self._refresh_workspace_menu()
+
+    def _refresh_workspace_menu(self):
+        menu = getattr(self, "workspace_menu", None)
+        if menu is None:
+            return
+        menu.clear()
+        save_action = menu.addAction("現在の配置を保存…")
+        save_action.triggered.connect(self._prompt_save_workspace)
+        records = self._workspace_records()
+        if records:
+            menu.addSeparator()
+            active = config.get_value("active_workspace")
+            for name in sorted(records):
+                action = menu.addAction(name)
+                action.setCheckable(True)
+                action.setChecked(name == active)
+                action.triggered.connect(
+                    lambda _checked=False, n=name: self._apply_workspace(n)
+                )
+            menu.addSeparator()
+            delete_action = menu.addAction("ワークスペースを削除…")
+            delete_action.triggered.connect(self._prompt_delete_workspace)
+
+    def _finalize_startup_dock_ui(self):
+        active = config.get_value("active_workspace")
+        if not active or not self._apply_workspace(active):
+            # A save/restore cycle makes the initial areas follow the same ADS
+            # reconstruction path used after tabs are stacked.
+            state = self.dock_manager.saveState()
+            self.dock_manager.restoreState(state)
+        self._sync_all_area_hamburgers()
+
     def _hamburger_icon(self):
         """フォントに依存しない3本線アイコンを生成して使い回す。"""
         cached = getattr(self, "_hamburger_icon_cache", None)
@@ -703,7 +826,7 @@ class MainWindow(QMainWindow):
         self._hamburger_icon_cache = icon
         return icon
 
-    def _add_dock_hamburger(self, dock, specific_builder=None):
+    def _add_dock_hamburger_old(self, dock, specific_builder=None):
         """ドックのタブ左端にハンバーガーメニューボタンを設置する。
 
         ボタンはドック所有とし、フロート／再ドッキングでタブが作り直され
@@ -756,6 +879,110 @@ class MainWindow(QMainWindow):
         layout.insertWidget(0, button)
         button.show()
 
+    def _add_dock_hamburger(self, dock, specific_builder=None):
+        self._dock_menu_builders[dock] = specific_builder
+        self._attach_area_hamburger(dock)
+        QTimer.singleShot(0, lambda d=dock: self._attach_area_hamburger(d))
+        dock.topLevelChanged.connect(
+            lambda _floating, d=dock:
+            QTimer.singleShot(0, lambda: self._attach_area_hamburger(d))
+        )
+
+    def _attach_area_hamburger(self, dock):
+        area = dock.dockAreaWidget()
+        if area is None:
+            return
+        title_bar = area.titleBar()
+        buttons = title_bar.findChildren(
+            QToolButton,
+            "dockHamburger",
+            Qt.FindChildOption.FindDirectChildrenOnly,
+        )
+        cached = getattr(area, "_hamburger_button", None)
+        button = cached if cached in buttons else (buttons[0] if buttons else None)
+        for duplicate in buttons:
+            if duplicate is button:
+                continue
+            title_bar.layout().removeWidget(duplicate)
+            duplicate.hide()
+            duplicate.setParent(None)
+            duplicate.deleteLater()
+        if button is None:
+            button = QToolButton(title_bar)
+            button.setObjectName("dockHamburger")
+            button.setIcon(self._hamburger_icon())
+            button.setIconSize(QSize(12, 12))
+            button.setAutoRaise(True)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            button.setToolTip("パネルメニュー")
+            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            button.setFixedSize(18, 18)
+            button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+            button.setStyleSheet(
+                "QToolButton{border:none;background:transparent;"
+                "padding:0;margin:0;}"
+                "QToolButton::menu-indicator{image:none;width:0;}"
+            )
+            menu = QMenu(button)
+            menu.aboutToShow.connect(
+                lambda m=menu, a=area: self._rebuild_area_dock_menu(m, a)
+            )
+            button.setMenu(menu)
+            title_bar.layout().insertWidget(0, button)
+            area._hamburger_button = button
+            area.currentChanged.connect(
+                lambda _index, a=area: self._sync_area_hamburger(a)
+            )
+        if title_bar.layout().indexOf(button) != 0:
+            title_bar.layout().removeWidget(button)
+            title_bar.layout().insertWidget(0, button)
+        area._hamburger_button = button
+        self._sync_area_hamburger(area)
+
+    def _sync_all_area_hamburgers(self):
+        """Restore shared buttons after ADS has regrouped or rebuilt areas."""
+        for area in self.dock_manager.openedDockAreas():
+            if any(
+                dock in self._dock_menu_builders
+                for dock in area.openedDockWidgets()
+            ):
+                current = area.currentDockWidget()
+                source = (
+                    current if current in self._dock_menu_builders
+                    else next(
+                        dock for dock in area.openedDockWidgets()
+                        if dock in self._dock_menu_builders
+                    )
+                )
+                self._attach_area_hamburger(source)
+
+    def _sync_area_hamburger(self, area):
+        title_bar = area.titleBar()
+        title_bar.setFixedHeight(22)
+        title_bar.tabBar().setFixedHeight(22)
+        for dock in area.openedDockWidgets():
+            tab = dock.tabWidget()
+            tab.ensurePolished()
+            tab.setFixedHeight(20)
+            tab.setSizePolicy(
+                tab.sizePolicy().horizontalPolicy(),
+                QSizePolicy.Policy.Fixed,
+            )
+        button = getattr(area, "_hamburger_button", None)
+        if button is not None:
+            button.setVisible(
+                area.currentDockWidget() in self._dock_menu_builders
+            )
+
+    def _rebuild_area_dock_menu(self, menu, area):
+        dock = area.currentDockWidget()
+        if dock not in self._dock_menu_builders:
+            menu.clear()
+            return
+        self._rebuild_dock_menu(
+            menu, dock, self._dock_menu_builders.get(dock)
+        )
+
     def _rebuild_dock_menu(self, menu, dock, specific_builder):
         menu.clear()
         if specific_builder is not None:
@@ -796,12 +1023,14 @@ class MainWindow(QMainWindow):
     def _customize_docking_hover(self):
         """Apply richer hover feedback while keeping ADS drop geometry intact."""
         self.dock_manager.setStyleSheet(
-            "ads--CDockAreaWidget{border:1px solid transparent;}"
-            "ads--CDockAreaWidget:hover{border:1px solid transparent;}"
-            "ads--CDockAreaTitleBar{background:#edf1f4;border-bottom:1px solid #cbd3da;}"
+            "ads--CDockAreaWidget{border:0;}"
+            "ads--CDockAreaWidget:hover{border:0;}"
+            "ads--CDockAreaTitleBar{background:#edf1f4;"
+            "border-bottom:1px solid #cbd3da;min-height:22px;max-height:22px;}"
             "ads--CDockAreaTitleBar:hover{background:#e2e8ec;border-bottom-color:#c2cbd2;}"
             "ads--CDockWidgetTab{background:#e9edf0;color:#53606a;"
-            "border:1px solid transparent;border-radius:6px 6px 0 0;padding:4px 9px;}"
+            "border:1px solid transparent;border-radius:5px 5px 0 0;"
+            "padding:0 9px;min-height:20px;max-height:20px;}"
             "ads--CDockWidgetTab:hover{background:#dde4e9;color:#253944;"
             "border-color:transparent;}"
             "ads--CDockWidgetTab[activeTab=\"true\"]{background:#ffffff;"
@@ -939,15 +1168,20 @@ class MainWindow(QMainWindow):
                 if overlap_bottom > overlap_top and vertical_gap <= 8:
                     boundary = (first_rect.right() + second_rect.left()) // 2
                     boundaries.append(("v", boundary, overlap_top,
-                                       overlap_bottom, first, first_rect))
+                                       overlap_bottom, first, first_rect,
+                                       second, second_rect))
                 horizontal_gap = abs(first_rect.bottom() - second_rect.top())
                 overlap_left = max(first_rect.left(), second_rect.left())
                 overlap_right = min(first_rect.right(), second_rect.right())
                 if overlap_right > overlap_left and horizontal_gap <= 8:
                     boundary = (first_rect.bottom() + second_rect.top()) // 2
                     boundaries.append(("h", boundary, overlap_left,
-                                       overlap_right, first, first_rect))
-        for orientation, boundary, start, end, first, first_rect in boundaries:
+                                       overlap_right, first, first_rect,
+                                       second, second_rect))
+        for (
+            orientation, boundary, start, end, first, first_rect,
+            _second, _second_rect,
+        ) in boundaries:
             group = [
                 entry for entry in boundaries
                 if entry[0] == orientation and abs(entry[1] - boundary) <= 4
@@ -969,17 +1203,29 @@ class MainWindow(QMainWindow):
                 else min(abs(along - entry[2]), abs(along - entry[3])),
             )
             first, first_rect = chosen[4], chosen[5]
+            second, second_rect = chosen[6], chosen[7]
+            dragged_in_first = dragged in first.dockWidgets()
             if orientation == "v":
                 marker = QRect(boundary - 2, group_start, 4,
                                group_end - group_start + 1)
-                side = QtAds.RightDockWidgetArea
+                if dragged_in_first:
+                    side = QtAds.LeftDockWidgetArea
+                    target_area, target_rect = second, second_rect
+                else:
+                    side = QtAds.RightDockWidgetArea
+                    target_area, target_rect = first, first_rect
             else:
                 marker = QRect(group_start, boundary - 2,
                                group_end - group_start + 1, 4)
-                side = QtAds.BottomDockWidgetArea
+                if dragged_in_first:
+                    side = QtAds.TopDockWidgetArea
+                    target_area, target_rect = second, second_rect
+                else:
+                    side = QtAds.BottomDockWidgetArea
+                    target_area, target_rect = first, first_rect
             score = (distance, -len(group))
             if best is None or score < best[0]:
-                best = (score, side, first, marker, first_rect)
+                best = (score, side, target_area, marker, target_rect)
         if best is None:
             self._split_drop_candidate = None
             self._split_drop_dragged_dock = dragged
@@ -988,6 +1234,8 @@ class MainWindow(QMainWindow):
         _, side, target_area, marker, target_rect = best
         self._split_drop_candidate = (side, target_area)
         self._split_drop_dragged_dock = dragged
+        if self._split_drop_source_area is None:
+            self._split_drop_source_area = dragged.dockAreaWidget()
         self._split_drop_overlay.setGeometry(marker)
         self._split_drop_overlay.show()
         self._split_drop_overlay.raise_()
@@ -1017,18 +1265,18 @@ class MainWindow(QMainWindow):
             skeleton.hide()
 
     def _commit_split_drop(self):
-        candidate = self._split_drop_candidate
-        dragged = self._split_drop_dragged_dock
+        """Finish custom boundary feedback without performing a second drop.
+
+        QtAds owns the actual mouse-release drop. Calling addDockWidget here as
+        well races its internal floating-container cleanup and can orphan the
+        dragged tab, especially with native Windows title-bar dragging.
+        """
         self._split_drop_candidate = None
         self._split_drop_dragged_dock = None
+        self._split_drop_source_area = None
         self._split_drop_press_pos = None
         self._hide_split_drop_feedback()
-        if candidate is None or dragged is None:
-            return
-        side, target_area = candidate
-        if target_area is None or dragged is target_area.currentDockWidget():
-            return
-        self.dock_manager.addDockWidget(side, dragged, target_area)
+        QTimer.singleShot(0, self._sync_all_area_hamburgers)
 
     def _snap_tool_selector_width(self, content_width):
         """Queue a snap after resizing settles to avoid fighting the drag."""
@@ -1062,7 +1310,6 @@ class MainWindow(QMainWindow):
             | Qt.WindowType.WindowTitleHint
             | Qt.WindowType.WindowCloseButtonHint
         )
-        self._start_split_drop_monitor()
 
     def _apply_tool_selector_snap(self):
         """Apply the last requested column width once per completed drag."""
@@ -7599,36 +7846,8 @@ class MainWindow(QMainWindow):
             self._update_auxiliary_hold_cursors()
 
     def eventFilter(self, watched, event):
-        if event.type() == QEvent.Type.MouseButtonPress:
-            dragged = None
-            if isinstance(watched, QtAds.CDockWidgetTab):
-                dragged = watched.dockWidget()
-            elif isinstance(watched, QtAds.CDockAreaTitleBar):
-                area = watched.dockAreaWidget()
-                if area is not None and area.openDockWidgetsCount() == 1:
-                    dragged = area.currentDockWidget()
-            if dragged is not None:
-                self._split_drop_dragged_dock = dragged
-                self._split_drop_press_pos = event.globalPosition().toPoint()
-        elif (
-            event.type() == QEvent.Type.MouseMove
-            and self._split_drop_dragged_dock is not None
-            and self._split_drop_press_pos is not None
-            and (
-                event.globalPosition().toPoint() - self._split_drop_press_pos
-            ).manhattanLength()
-            >= QApplication.startDragDistance()
-        ):
-            self._start_split_drop_monitor()
-        if (
-            event.type() == QEvent.Type.MouseButtonRelease
-            and self._split_drop_candidate is not None
-        ):
-            QTimer.singleShot(0, self._commit_split_drop)
-        elif event.type() == QEvent.Type.MouseButtonRelease:
-            self._split_drop_dragged_dock = None
-            self._split_drop_press_pos = None
-            self._hide_split_drop_feedback()
+        if event.type() == QEvent.Type.MouseButtonRelease:
+            QTimer.singleShot(0, self._sync_all_area_hamburgers)
         if type(watched).__name__ == "QSplitterHandle":
             splitter = watched.parentWidget()
             area = self.tool_selector_dock.dockAreaWidget()

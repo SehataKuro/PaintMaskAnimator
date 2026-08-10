@@ -24,7 +24,7 @@ except Exception:
 
 try:
     import numpy as np
-    from PySide6.QtCore import QEvent, QItemSelectionModel, QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer, Signal
+    from PySide6.QtCore import QByteArray, QEvent, QItemSelectionModel, QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer, Signal
     from PySide6.QtGui import QAction, QColor, QIcon, QImage, QImageReader, QKeySequence, QPainter, QPainterPath, QPen, QPolygonF, QRegion, QTransform, QPixmap, QCursor, QValidator
     from PySide6.QtWidgets import (
         QApplication, QCheckBox, QColorDialog, QDialog, QDialogButtonBox,
