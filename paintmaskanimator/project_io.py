@@ -6,7 +6,6 @@ objects and returns/consumes plain data, so MainWindow keeps only the
 widget<->metadata mapping and the UI feedback.
 """
 from .common import *  # noqa: F401,F403
-from . import constants
 from .models import Frame, Layer
 from .utils import blank_image
 from .logging_setup import get_logger

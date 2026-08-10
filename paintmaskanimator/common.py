@@ -6,7 +6,16 @@ PIL/psd_tools, the stdlib modules, and the application constants.
 
 from .constants import *  # noqa: F401,F403
 
-import csv, json, math, re, shutil, subprocess, sys, tempfile, time, zipfile
+import csv
+import json
+import math
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import List, Optional
@@ -19,7 +28,7 @@ except (ImportError, OSError):
     PILImageFilter = None
 
 try:
-    from psd_tools import PSDImage
+    from psd_tools import PSDImage  # pyright: ignore[reportMissingImports]
 except (ImportError, OSError):
     # psd_tools is optional; absence disables .psd import only.
     PSDImage = None

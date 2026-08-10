@@ -1,6 +1,5 @@
 from .common import *  # noqa: F401,F403
 from . import theme
-from .models import Layer
 
 
 class LayerListDelegate(QStyledItemDelegate):
