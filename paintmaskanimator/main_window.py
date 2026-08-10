@@ -14,6 +14,7 @@ from .toolpanel import ToolPanel, ToolSelectorPanel
 from .utils import blank_image, disable_windows_ink_feedback, workspace_size
 from .widgets import (CanvasSizeDialog, HSVColorWheel, ShortcutDialog, TimeRemapPasteDialog, TransformLineThicknessDialog, TweenCommandPopup)
 from .logging_setup import get_logger
+from .main_window_autosave import AutosaveMixin
 
 log = get_logger(__name__)
 
@@ -33,7 +34,7 @@ _OPERATION_ERRORS = (
 )
 
 
-class MainWindow(QMainWindow):
+class MainWindow(AutosaveMixin, QMainWindow):
     def __init__(self):
         super().__init__();self.setWindowTitle(APP_DISPLAY_NAME);self.resize(1500,960);self.setAcceptDrops(True)
         self.canvas=PaintCanvas();self.tool_selector=ToolSelectorPanel();self.tools=ToolPanel();self.timeline=TimelineWidget();self.palette=UsedColorPanel();self.timer=QTimer(self);self.timer.timeout.connect(self.advance)
@@ -6959,55 +6960,6 @@ class MainWindow(QMainWindow):
             self.update_project_title()
             return True
         return False
-
-    def _autosave_path(self):
-        return config.config_dir() / "autosave.pmap"
-
-    def _setup_autosave(self, interval_ms=180000):
-        """Periodically snapshot the project so a crash doesn't lose work."""
-        self._autosave_timer = QTimer(self)
-        self._autosave_timer.setInterval(int(interval_ms))
-        self._autosave_timer.timeout.connect(self._autosave)
-        self._autosave_timer.start()
-
-    def _autosave(self):
-        # Must never raise into the event loop — autosave is best-effort.
-        try:
-            project_io.write_project_archive(
-                self._autosave_path(),
-                self.build_project_metadata(),
-                self.canvas.frames,
-            )
-        except Exception:
-            # Autosave is best-effort and must never raise into the event loop,
-            # so the broad catch is intentional; log the traceback instead of
-            # printing it so it lands in the app log.
-            log.exception("autosave failed")
-
-    def _maybe_restore_autosave(self):
-        """On startup, offer to restore a leftover autosave (likely a crash)."""
-        path = self._autosave_path()
-        try:
-            if not path.exists() or path.stat().st_size == 0:
-                return
-        except OSError:
-            return
-        answer = QMessageBox.question(
-            self,
-            "作業の復元",
-            "前回のセッションが正常に終了しなかった可能性があります。\n"
-            "自動保存された作業を復元しますか？",
-        )
-        if answer == QMessageBox.StandardButton.Yes:
-            self.open_project(str(path))
-        else:
-            self._clear_autosave()
-
-    def _clear_autosave(self):
-        try:
-            self._autosave_path().unlink(missing_ok=True)
-        except OSError:
-            pass
 
     def build_project_metadata(self):
         """Assemble the project metadata dict from current widget state."""
