@@ -272,6 +272,23 @@ class PaintCanvas(QWidget):
     def push_doc_undo(self): self.undo_stack.append(("doc",self.document_snapshot())); self.undo_stack=self.undo_stack[-MAX_UNDO:]; self.redo_stack.clear()
     def push_layer_undo(self):
         l=self.active_layer; self.undo_stack.append(("layer",self.current_frame,self.active_layer_index,l.image.copy(),l.has_content)); self.undo_stack=self.undo_stack[-MAX_UNDO:]; self.redo_stack.clear()
+    def push_layer_region_undo(self, rect):
+        """Store only the part of the active layer an operation can change."""
+        layer = self.active_layer
+        rect = QRect(rect).intersected(layer.image.rect())
+        if rect.isEmpty():
+            return False
+        self.undo_stack.append((
+            "layer_region",
+            int(self.current_frame),
+            int(self.active_layer_index),
+            rect,
+            layer.image.copy(rect),
+            bool(layer.has_content),
+        ))
+        self.undo_stack = self.undo_stack[-MAX_UNDO:]
+        self.redo_stack.clear()
+        return True
     def current_state_for(self,entry):
         if entry[0]=="doc":
             return ("doc",self.document_snapshot())
@@ -376,6 +393,11 @@ class PaintCanvas(QWidget):
                 self.current_frame = fi
                 self.active_layer_index = li
                 layer = self.frames[fi].layers[li]
+                old_display_key = self._pseudo_transparency_key(layer.image)
+                display = self._pseudo_transparency_cache.pop(
+                    old_display_key,
+                    None,
+                )
                 painter = QPainter(layer.image)
                 painter.setCompositionMode(
                     QPainter.CompositionMode.CompositionMode_Source
@@ -384,7 +406,17 @@ class PaintCanvas(QWidget):
                     painter.drawImage(QRect(rect).topLeft(), image)
                 painter.end()
                 layer.has_content = bool(hc)
-                self._pseudo_transparency_cache.clear()
+                if display is not None:
+                    for rect, _image in tiles:
+                        self._patch_pseudo_transparent_display(
+                            display,
+                            layer.image,
+                            QRect(rect),
+                        )
+                    self._cache_pseudo_transparent_display(
+                        layer.image,
+                        display,
+                    )
                 self._stroke_display_image = None
                 self._stroke_display_layer_index = -1
                 self.cellChanged.emit(fi, li)
@@ -399,6 +431,11 @@ class PaintCanvas(QWidget):
                 self.current_frame = fi
                 self.active_layer_index = li
                 layer = self.frames[fi].layers[li]
+                old_display_key = self._pseudo_transparency_key(layer.image)
+                display = self._pseudo_transparency_cache.pop(
+                    old_display_key,
+                    None,
+                )
                 painter = QPainter(layer.image)
                 painter.setCompositionMode(
                     QPainter.CompositionMode.CompositionMode_Source
@@ -406,7 +443,16 @@ class PaintCanvas(QWidget):
                 painter.drawImage(QRect(bbox).topLeft(), crop)
                 painter.end()
                 layer.has_content = bool(hc)
-                self._pseudo_transparency_cache.clear()
+                if display is not None:
+                    self._patch_pseudo_transparent_display(
+                        display,
+                        layer.image,
+                        QRect(bbox),
+                    )
+                    self._cache_pseudo_transparent_display(
+                        layer.image,
+                        display,
+                    )
                 self._stroke_display_image = None
                 self._stroke_display_layer_index = -1
                 self.cellChanged.emit(fi, li)
@@ -416,7 +462,10 @@ class PaintCanvas(QWidget):
             fs,cf,al,w,h=snap
             constants.CANVAS_WIDTH=w
             constants.CANVAS_HEIGHT=h
-            self.frames=[f.clone() for f in fs]
+            # The entry was popped before application and its inverse has
+            # already been captured. Transfer the stored snapshot directly;
+            # cloning every frame/layer/image again only adds latency.
+            self.frames=fs
             self.current_frame=cf
             self.active_layer_index=al
             self.coalesce_numbered_images()
@@ -426,7 +475,7 @@ class PaintCanvas(QWidget):
             self.active_layer_index = li
             for fi, img, hc in cells:
                 if 0 <= fi < len(self.frames) and 0 <= li < len(self.frames[fi].layers):
-                    self.frames[fi].layers[li].image = img.copy()
+                    self.frames[fi].layers[li].image = img
                     self.frames[fi].layers[li].has_content = hc
                     self.cellChanged.emit(fi, li)
             self.selectionChanged.emit()
@@ -446,7 +495,7 @@ class PaintCanvas(QWidget):
             _, index, stored_layers, target_active = e
             for frame_index, frame in enumerate(self.frames):
                 if frame_index < len(stored_layers):
-                    layer = stored_layers[frame_index].clone()
+                    layer = stored_layers[frame_index]
                 else:
                     layer = Layer(
                         f"Layer {index + 1}",
@@ -476,7 +525,7 @@ class PaintCanvas(QWidget):
                     and 0 <= li < len(self.frames[fi].layers)
                 ):
                     layer = self.frames[fi].layers[li]
-                    layer.image = image.copy()
+                    layer.image = image
                     layer.has_content = bool(has_content)
                     layer.exposure = max(1, int(exposure))
             if len(self.frames) > restore_count:
@@ -494,7 +543,7 @@ class PaintCanvas(QWidget):
             _,fi,li,img,hc=e
             self.current_frame=fi
             self.active_layer_index=li
-            self.frames[fi].layers[li].image=img.copy()
+            self.frames[fi].layers[li].image=img
             self.frames[fi].layers[li].has_content=hc
             self.cellChanged.emit(fi,li)
             self.selectionChanged.emit()
@@ -576,10 +625,29 @@ class PaintCanvas(QWidget):
         self.selectionChanged.emit()
         self.update()
     def delete_layer(self):
-        if len(self.layers)<=1:return
-        self.push_doc_undo();
-        for f in self.frames:f.layers.pop(self.active_layer_index)
-        self.active_layer_index=max(0,self.active_layer_index-1); self.changed.emit(); self.update()
+        if len(self.layers) <= 1:
+            return
+        index = int(self.active_layer_index)
+        target_active = max(0, index - 1)
+        stored_layers = [
+            frame.layers[index].clone()
+            for frame in self.frames
+        ]
+        self.undo_stack.append((
+            "layer_insert",
+            index,
+            stored_layers,
+            target_active,
+        ))
+        self.undo_stack = self.undo_stack[-MAX_UNDO:]
+        self.redo_stack.clear()
+        for frame in self.frames:
+            frame.layers.pop(index)
+        self.active_layer_index = target_active
+        self._onion_cache.clear()
+        self.changed.emit()
+        self.selectionChanged.emit()
+        self.update()
     @staticmethod
     def _clear_timeline_layer_cell(layer):
         layer.image = blank_image()
@@ -2717,7 +2785,15 @@ class PaintCanvas(QWidget):
         buffer = self._stroke_display_image
         if buffer is None:
             return
-        image = self.active_layer.image
+        self._patch_pseudo_transparent_display(
+            buffer,
+            self.active_layer.image,
+            canvas_rect,
+        )
+
+    @staticmethod
+    def _patch_pseudo_transparent_display(buffer, image, canvas_rect):
+        """Update one region of an existing pseudo-transparent display."""
         x1 = max(0, int(canvas_rect.left()))
         y1 = max(0, int(canvas_rect.top()))
         x2 = min(image.width(), int(canvas_rect.left() + canvas_rect.width()))
@@ -2757,6 +2833,16 @@ class PaintCanvas(QWidget):
         painter.drawImage(x1, y1, patch)
         painter.end()
 
+    def _cache_pseudo_transparent_display(self, image, display):
+        if display is None or display.isNull():
+            return
+        key = self._pseudo_transparency_key(image)
+        if len(self._pseudo_transparency_cache) >= 96:
+            self._pseudo_transparency_cache.pop(
+                next(iter(self._pseudo_transparency_cache))
+            )
+        self._pseudo_transparency_cache[key] = display
+
     def _finish_stroke_display(self):
         """Hand the fully-patched buffer to the display cache, then release it.
 
@@ -2771,19 +2857,7 @@ class PaintCanvas(QWidget):
         layer = self.active_layer
         if layer is None or layer.image is None or layer.image.isNull():
             return
-        try:
-            key = (
-                int(layer.image.cacheKey()),
-                layer.image.width(),
-                layer.image.height(),
-            )
-        except (AttributeError, RuntimeError, TypeError):
-            return
-        if len(self._pseudo_transparency_cache) >= 96:
-            self._pseudo_transparency_cache.pop(
-                next(iter(self._pseudo_transparency_cache))
-            )
-        self._pseudo_transparency_cache[key] = buffer
+        self._cache_pseudo_transparent_display(layer.image, buffer)
 
     def selected_mask_colors(self):
         values = {
@@ -3528,6 +3602,25 @@ class PaintCanvas(QWidget):
             if self.undo_stack:
                 self.undo_stack.pop()
             return
+
+        # Replace the provisional full-layer snapshot with the actual changed
+        # bounding box now that the fill region is known.
+        if self.undo_stack and self.undo_stack[-1][0] == "layer":
+            previous = self.undo_stack[-1]
+            fill_rect = QRect(
+                int(xs.min()),
+                int(ys.min()),
+                int(xs.max() - xs.min() + 1),
+                int(ys.max() - ys.min() + 1),
+            )
+            self.undo_stack[-1] = (
+                "layer_region",
+                int(previous[1]),
+                int(previous[2]),
+                fill_rect,
+                previous[3].copy(fill_rect),
+                bool(previous[4]),
+            )
 
         source_rgb = np.asarray(
             [
@@ -6272,7 +6365,7 @@ class PaintCanvas(QWidget):
     def cut_selection(self):
         rect=self.selection_bounds().intersected(self.active_layer.image.rect())
         if rect.isEmpty(): return
-        self.push_layer_undo()
+        self.push_layer_region_undo(rect)
         QApplication.clipboard().setImage(self.active_layer.image.copy(rect))
         p=QPainter(self.active_layer.image)
         p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Clear)
@@ -6285,9 +6378,12 @@ class PaintCanvas(QWidget):
         image=QApplication.clipboard().image()
         if image.isNull(): return
         self.ensure_editable_key()
-        self.push_layer_undo()
         rect=self.selection_bounds()
         pos=rect.topLeft() if self.selection_polygon else QPoint(OUTSIDE_MARGIN,OUTSIDE_MARGIN)
+        changed_rect = QRect(pos, image.size()).intersected(
+            self.active_layer.image.rect()
+        )
+        if not self.push_layer_region_undo(changed_rect): return
         p=QPainter(self.active_layer.image);p.drawImage(pos,image);p.end()
         self.active_layer.has_content=True
         self.cellChanged.emit(self.current_frame,self.active_layer_index);self.update()
@@ -6876,7 +6972,6 @@ class PaintCanvas(QWidget):
         if path is None:
             return
         self.ensure_editable_key()
-        self.push_layer_undo()
         panel = self._active_tool_panel()
         base_width = max(0.5, float(self.pen_size))
         start_width = None
@@ -6904,6 +6999,17 @@ class PaintCanvas(QWidget):
                 )
 
         source_color = self.paint_source_color()
+        maximum_width = max(
+            base_width,
+            float(start_width or 0.0),
+            float(end_width or 0.0),
+        )
+        undo_margin = int(math.ceil(maximum_width / 2.0)) + 3
+        undo_rect = path.boundingRect().adjusted(
+            -undo_margin, -undo_margin, undo_margin, undo_margin
+        ).toAlignedRect()
+        if not self.push_layer_region_undo(undo_rect):
+            return
         base_image = self.active_layer.image.copy()
         overlay = QImage(
             self.active_layer.image.width(),
@@ -7037,7 +7143,6 @@ class PaintCanvas(QWidget):
             return
 
         self.ensure_editable_key()
-        self.push_layer_undo()
         panel = self._active_tool_panel()
         use_split_colors = bool(
             panel is not None
@@ -7052,6 +7157,12 @@ class PaintCanvas(QWidget):
             if panel is not None
             else 1.0
         )
+        undo_margin = int(math.ceil(float(outline_width) / 2.0)) + 3
+        undo_rect = path.boundingRect().adjusted(
+            -undo_margin, -undo_margin, undo_margin, undo_margin
+        ).toAlignedRect()
+        if not self.push_layer_region_undo(undo_rect):
+            return
 
         if use_split_colors:
             outline_color = self.paint_source_color(
@@ -7132,8 +7243,6 @@ class PaintCanvas(QWidget):
             return
 
         self.ensure_editable_key()
-        self.push_layer_undo()
-
         window = self.window()
         outline_and_fill = bool(
             hasattr(window, "tools")
@@ -7156,9 +7265,8 @@ class PaintCanvas(QWidget):
             -margin, -margin, margin, margin
         ).toAlignedRect().intersected(self.active_layer.image.rect())
         if rect.isEmpty():
-            if self.undo_stack:
-                self.undo_stack.pop()
             return
+        self.push_layer_region_undo(rect)
 
         local_polygon = QPolygonF([
             QPointF(point.x() - rect.x(), point.y() - rect.y())

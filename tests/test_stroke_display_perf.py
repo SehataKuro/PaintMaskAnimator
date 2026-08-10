@@ -192,8 +192,30 @@ def test_brush_undo_stores_only_touched_tiles(qapp, monkeypatch, tmp_path):
         assert np.array_equal(_rgba(canvas.active_layer.image), painted)
     finally:
         window.close()
-        window.deleteLater()
-        qapp.processEvents()
+
+
+def test_brush_undo_redo_keeps_incremental_display_cache(qapp):
+    from paintmaskanimator.canvas import PaintCanvas
+
+    canvas = PaintCanvas()
+    _draw_test_stroke(canvas)
+    canvas._finish_opaque_brush_stroke()
+
+    canvas.undo()
+    undo_key = canvas._pseudo_transparency_key(canvas.active_layer.image)
+    undo_display = canvas._pseudo_transparency_cache.get(undo_key)
+    assert undo_display is not None
+    assert canvas._pseudo_transparent_display_image(
+        canvas.active_layer.image
+    ) is undo_display
+
+    canvas.redo()
+    redo_key = canvas._pseudo_transparency_key(canvas.active_layer.image)
+    redo_display = canvas._pseudo_transparency_cache.get(redo_key)
+    assert redo_display is not None
+    assert canvas._pseudo_transparent_display_image(
+        canvas.active_layer.image
+    ) is redo_display
 
 
 def test_tiled_snapshot_keeps_stroke_opacity_stable(qapp, monkeypatch, tmp_path):
