@@ -519,10 +519,14 @@ class TransformMaskMixin:
                 ),
             )
         else:
+            # ``getcolors`` on an RGBA image yields ``(count, (r, g, b, a))``
+            # tuples, but its type hint also admits scalar entries for
+            # palette/luminance images.  Normalise to RGBA tuples so both the
+            # runtime and the type checker treat ``color`` as a sequence.
             palette_rgba = sorted(
                 tuple(int(channel) for channel in color)
                 for _count, color in exact_color_counts
-                if color[3] > 0
+                if isinstance(color, tuple) and color[3] > 0
             )
 
         prepared_array = np.asarray(prepared.convert("RGBA"), dtype=np.uint8)
