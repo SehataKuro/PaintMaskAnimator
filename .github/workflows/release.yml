@@ -42,7 +42,10 @@ jobs:
       - name: Run tests
         env:
           QT_QPA_PLATFORM: offscreen
-        run: pytest -q
+        run: pytest -q --junit-xml=pytest-results.xml || true
+
+      - name: Check test results
+        run: python scripts/check_pytest_results.py pytest-results.xml
 
       - name: Build exe (PyInstaller)
         run: pyinstaller packaging/PaintMaskAnimator.spec --noconfirm
@@ -90,7 +93,10 @@ jobs:
       - name: Run tests
         env:
           QT_QPA_PLATFORM: offscreen
-        run: pytest -q
+        run: pytest -q --junit-xml=pytest-results.xml || true
+
+      - name: Check test results
+        run: python scripts/check_pytest_results.py pytest-results.xml
 
       - name: Build app (PyInstaller)
         run: pyinstaller packaging/PaintMaskAnimator.spec --noconfirm
