@@ -7710,6 +7710,13 @@ class MainWindow(QMainWindow):
             self.current_project_path = None
             self.update_project_title()
         self.refresh_ui()
+        # Allocate the blank stroke-display buffer once the new document UI is
+        # back in the event loop, rather than on the user's first pen press.
+        QTimer.singleShot(
+            0,
+            self.canvas.prewarm_blank_stroke_display,
+        )
+        QTimer.singleShot(0, self.canvas.warm_up_brush_runtime)
         QTimer.singleShot(0,self.fit_canvas)
     @staticmethod
     def _normalize_shortcut_token(token):

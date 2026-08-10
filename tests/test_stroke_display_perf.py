@@ -54,6 +54,69 @@ def _draw_test_stroke(canvas):
     return idx
 
 
+def test_first_stroke_on_blank_canvas_skips_full_display_transform(
+    qapp, monkeypatch
+):
+    """A press before the first repaint must not scan the whole new canvas."""
+    from paintmaskanimator.canvas import PaintCanvas
+
+    canvas = PaintCanvas()
+    assert canvas.active_layer is not None
+    assert not canvas.active_layer.has_content
+    canvas._pseudo_transparency_cache.clear()
+
+    def unexpected_full_transform(_image):
+        raise AssertionError("blank first stroke used the full-image path")
+
+    monkeypatch.setattr(
+        canvas,
+        "_pseudo_transparent_display_image",
+        unexpected_full_transform,
+    )
+    # This is the production order: mouse/tablet press promotes the unused
+    # cell to an editable key before it initializes the stroke display.
+    canvas.ensure_editable_key()
+    assert canvas.active_layer.has_content
+    canvas._begin_opaque_brush_stroke()
+
+    display = canvas._stroke_display_image
+    assert display is not None
+    assert display.size() == canvas.active_layer.image.size()
+    assert display.format() == QImage.Format.Format_ARGB32_Premultiplied
+    assert display.pixelColor(0, 0).alpha() == 0
+
+
+def test_blank_canvas_prewarm_supplies_first_stroke_buffer(qapp):
+    from paintmaskanimator.canvas import PaintCanvas
+
+    canvas = PaintCanvas()
+    canvas._pseudo_transparency_cache.clear()
+    canvas.prewarm_blank_stroke_display()
+
+    key = canvas._pseudo_transparency_key(canvas.active_layer.image)
+    warmed = canvas._pseudo_transparency_cache[key]
+    canvas.ensure_editable_key()
+    canvas._begin_opaque_brush_stroke()
+
+    assert canvas._stroke_display_image is warmed
+
+
+def test_brush_runtime_warmup_is_idempotent_and_non_mutating(qapp):
+    from paintmaskanimator.canvas import PaintCanvas
+
+    canvas = PaintCanvas()
+    image_key = int(canvas.active_layer.image.cacheKey())
+    undo_count = len(canvas.undo_stack)
+
+    canvas.warm_up_brush_runtime()
+    canvas.warm_up_brush_runtime()
+
+    assert canvas._brush_runtime_warmed
+    assert int(canvas.active_layer.image.cacheKey()) == image_key
+    assert len(canvas.undo_stack) == undo_count
+    assert not canvas.active_layer.has_content
+
+
 def test_stroke_display_buffer_matches_full_recompute(qapp, monkeypatch, tmp_path):
     monkeypatch.setenv("APPDATA", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))

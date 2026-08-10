@@ -166,6 +166,7 @@ class PaintCanvas(QWidget):
         self._brush_cursor_inside = False
         # ブラシ確定時にタイムライン全体を作り直さないための状態。
         self._brush_started_with_content = True
+        self._editable_key_was_blank = False
         self._brush_blend_base_image = None
         self._brush_blended_colors = set()
         # Undo用の変更前画素はタイル単位で遅延保存する。全画面サイズの
@@ -180,6 +181,7 @@ class PaintCanvas(QWidget):
         # 大画像でストロークごとに全画素を再変換する重い処理を避けるための最適化。
         self._stroke_display_image = None
         self._stroke_display_layer_index = -1
+        self._brush_runtime_warmed = False
         self._cell_structure_dirty = True
         # ライン／図形ツールのプレビュー状態
         self.line_start=None
@@ -214,6 +216,7 @@ class PaintCanvas(QWidget):
         self.selectionChanged.connect(
             self._update_selection_clear_overlay
         )
+        QTimer.singleShot(0, self.warm_up_brush_runtime)
     def _position_selection_clear_overlay(self):
         button = getattr(self, "selection_clear_overlay", None)
         if button is None:
@@ -1380,6 +1383,7 @@ class PaintCanvas(QWidget):
 
     def ensure_editable_key(self):
         """未使用／○／保持セルを独立した●キーフレームへ変換する。"""
+        self._editable_key_was_blank = False
         layer = self.active_layer
         if layer.has_content:
             if layer.sequence_number is not None:
@@ -1428,9 +1432,13 @@ class PaintCanvas(QWidget):
                 if kind == "content"
                 else blank_image()
             )
+            self._editable_key_was_blank = kind != "content"
             layer.exposure = max(1, old_end - current + 1)
         else:
-            layer.image = blank_image()
+            # An uncreated cell already owns a transparent image.  Keep it
+            # instead of allocating and clearing another full-canvas image at
+            # the instant the first stroke begins.
+            self._editable_key_was_blank = True
             layer.exposure = 1
 
         layer.has_content = True
@@ -2594,6 +2602,77 @@ class PaintCanvas(QWidget):
             return False
         return True
 
+    def prewarm_blank_stroke_display(self):
+        """Prepare a new blank layer's display buffer before the first press."""
+        if not self._stroke_display_eligible():
+            return
+        layer = self.active_layer
+        if layer.has_content or layer.image is None or layer.image.isNull():
+            return
+        key = self._pseudo_transparency_key(layer.image)
+        if key in self._pseudo_transparency_cache:
+            return
+        display = QImage(
+            layer.image.size(),
+            QImage.Format.Format_ARGB32_Premultiplied,
+        )
+        display.fill(Qt.GlobalColor.transparent)
+        if len(self._pseudo_transparency_cache) >= 96:
+            self._pseudo_transparency_cache.pop(
+                next(iter(self._pseudo_transparency_cache))
+            )
+        self._pseudo_transparency_cache[key] = display
+
+    def warm_up_brush_runtime(self):
+        """Prime Qt/numpy brush primitives without touching the document."""
+        if self._brush_runtime_warmed:
+            return
+
+        scratch = QImage(
+            64,
+            64,
+            QImage.Format.Format_ARGB32_Premultiplied,
+        )
+        scratch.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(scratch)
+        painter.setRenderHint(
+            QPainter.RenderHint.Antialiasing,
+            False,
+        )
+        painter.setCompositionMode(
+            QPainter.CompositionMode.CompositionMode_SourceOver
+        )
+        painter.setPen(QPen(
+            QColor(32, 64, 96, 255),
+            8.0,
+            Qt.PenStyle.SolidLine,
+            Qt.PenCapStyle.RoundCap,
+            Qt.PenJoinStyle.RoundJoin,
+        ))
+        painter.drawLine(QPointF(12, 12), QPointF(52, 44))
+        painter.end()
+
+        # Exercise the same format conversion and ndarray view used by the
+        # first real stamp.  Keep the scratch image local so no display cache,
+        # layer pixels, or undo state is affected.
+        rgba = scratch.convertToFormat(QImage.Format.Format_RGBA8888)
+        ptr = rgba.bits()
+        try:
+            ptr.setsize(rgba.sizeInBytes())
+        except AttributeError:
+            pass
+        rows = np.frombuffer(ptr, dtype=np.uint8).reshape(
+            (rgba.height(), rgba.bytesPerLine())
+        )
+        _ = rows[:, : rgba.width() * 4].reshape(
+            (rgba.height(), rgba.width(), 4)
+        )[:, :, 3].max()
+        rgba.convertToFormat(
+            QImage.Format.Format_ARGB32_Premultiplied
+        )
+        self.pressure_size_scale(1.0)
+        self._brush_runtime_warmed = True
+
     def _init_stroke_display(self):
         """Move the cached display image into stroke ownership without copying.
 
@@ -2608,10 +2687,26 @@ class PaintCanvas(QWidget):
         cache_key = self._pseudo_transparency_key(layer.image)
         base = self._pseudo_transparency_cache.pop(cache_key, None)
         if base is None:
-            # Usually the idle repaint has already populated this cache. Keep a
-            # correctness fallback for presses arriving before the first paint.
-            base = self._pseudo_transparent_display_image(layer.image)
-            self._pseudo_transparency_cache.pop(cache_key, None)
+            if (
+                not layer.has_content
+                or self._editable_key_was_blank
+            ):
+                # A brand-new canvas can receive a press before its first idle
+                # repaint.  Its layer is known to be entirely transparent, so
+                # avoid scanning and converting the whole workspace on the
+                # first stroke.  The buffer is patched incrementally below as
+                # stamps are written to the real layer image.
+                base = QImage(
+                    layer.image.size(),
+                    QImage.Format.Format_ARGB32_Premultiplied,
+                )
+                base.fill(Qt.GlobalColor.transparent)
+            else:
+                # Usually the idle repaint has already populated this cache.
+                # Keep a correctness fallback for presses arriving before the
+                # first paint on a layer that already contains pixels.
+                base = self._pseudo_transparent_display_image(layer.image)
+                self._pseudo_transparency_cache.pop(cache_key, None)
         if base is None or base.isNull():
             return
         self._stroke_display_image = base
