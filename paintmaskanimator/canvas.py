@@ -168,10 +168,9 @@ class PaintCanvas(QWidget):
         self._brush_started_with_content = True
         self._brush_blend_base_image = None
         self._brush_blended_colors = set()
-        # Store only the portions touched by a brush stroke.  This buffer is
-        # allocated at canvas size, but pixels are copied into it lazily.
-        self._stroke_before = None
-        self._stroke_saved_region = None
+        # Undo用の変更前画素はタイル単位で遅延保存する。全画面サイズの
+        # QImageをストローク開始時に確保しない。
+        self._stroke_before_tiles = None
         self._stroke_dirty_rect = None
         self._stroke_undo_frame = 0
         self._stroke_undo_layer = 0
@@ -289,6 +288,25 @@ class PaintCanvas(QWidget):
                 layer.image.copy(bbox),
                 bool(layer.has_content),
             )
+        if entry[0] == "layer_tiles":
+            _, fi, li, tiles, _hc = entry
+            if not (
+                0 <= int(fi) < len(self.frames)
+                and 0 <= int(li) < len(self.frames[int(fi)].layers)
+            ):
+                return None
+            layer = self.frames[int(fi)].layers[int(li)]
+            current_tiles = tuple(
+                (QRect(rect), layer.image.copy(QRect(rect)))
+                for rect, _image in tiles
+            )
+            return (
+                "layer_tiles",
+                int(fi),
+                int(li),
+                current_tiles,
+                bool(layer.has_content),
+            )
         if entry[0]=="layer_batch":
             _, li, cells = entry
             current = []
@@ -345,7 +363,30 @@ class PaintCanvas(QWidget):
         l=self.frames[fi].layers[li]
         return ("layer",fi,li,l.image.copy(),l.has_content)
     def apply_undo_entry(self,e):
-        if e[0] == "layer_region":
+        if e[0] == "layer_tiles":
+            _, fi, li, tiles, hc = e
+            if (
+                0 <= int(fi) < len(self.frames)
+                and 0 <= int(li) < len(self.frames[int(fi)].layers)
+            ):
+                fi, li = int(fi), int(li)
+                self.current_frame = fi
+                self.active_layer_index = li
+                layer = self.frames[fi].layers[li]
+                painter = QPainter(layer.image)
+                painter.setCompositionMode(
+                    QPainter.CompositionMode.CompositionMode_Source
+                )
+                for rect, image in tiles:
+                    painter.drawImage(QRect(rect).topLeft(), image)
+                painter.end()
+                layer.has_content = bool(hc)
+                self._pseudo_transparency_cache.clear()
+                self._stroke_display_image = None
+                self._stroke_display_layer_index = -1
+                self.cellChanged.emit(fi, li)
+                self.selectionChanged.emit()
+        elif e[0] == "layer_region":
             _, fi, li, bbox, crop, hc = e
             if (
                 0 <= int(fi) < len(self.frames)
@@ -2312,24 +2353,30 @@ class PaintCanvas(QWidget):
             ]
         else:
             # 不透明度を明示的にONにした場合だけ、通常のRGB合成を行う。
-            reference = (
-                base_image
-                if (
-                    base_image is not None
-                    and not base_image.isNull()
-                    and base_image.width()
-                    == destination_image.width()
-                    and base_image.height()
-                    == destination_image.height()
+            if (
+                base_image is not None
+                and not base_image.isNull()
+                and base_image.width() == width
+                and base_image.height() == height
+            ):
+                base_crop = base_image
+            else:
+                reference = (
+                    base_image
+                    if (
+                        base_image is not None
+                        and not base_image.isNull()
+                        and base_image.width() == destination_image.width()
+                        and base_image.height() == destination_image.height()
+                    )
+                    else destination_image
                 )
-                else destination_image
-            )
-            base_crop = reference.copy(
-                destination_x,
-                destination_y,
-                width,
-                height,
-            )
+                base_crop = reference.copy(
+                    destination_x,
+                    destination_y,
+                    width,
+                    height,
+                )
             base_rgba = self._qimage_rgba_array(
                 base_crop
             )
@@ -2401,17 +2448,13 @@ class PaintCanvas(QWidget):
         )
 
     def _begin_opaque_brush_stroke(self):
-        """Start a stroke without copying the entire active layer."""
-        live = self.active_layer.image
-        self._stroke_before = QImage(
-            live.width(), live.height(), live.format()
-        )
-        self._stroke_saved_region = QRegion()
+        """Start a stroke without allocating or copying a full-layer image."""
+        self._stroke_before_tiles = {}
         self._stroke_dirty_rect = QRect()
         self._stroke_undo_frame = int(self.current_frame)
         self._stroke_undo_layer = int(self.active_layer_index)
         self._stroke_prev_has_content = bool(self.active_layer.has_content)
-        self._brush_blend_base_image = self._stroke_before
+        self._brush_blend_base_image = None
         self._brush_blended_colors = set()
         # この値はUIの不透明度だけから取得する。
         # タブレット筆圧値は絶対に掛けない。
@@ -2421,27 +2464,81 @@ class PaintCanvas(QWidget):
         self._init_stroke_display()
 
     def _ensure_before_region(self, rect):
-        """Lazily preserve the pre-stroke pixels for a touched region."""
-        if self._stroke_before is None:
+        """Lazily preserve pre-stroke pixels in fixed-size touched tiles."""
+        tiles = self._stroke_before_tiles
+        if tiles is None:
             return
+        live = self.active_layer.image
         bounds = QRect(
-            0, 0, self._stroke_before.width(), self._stroke_before.height()
+            0, 0, live.width(), live.height()
         )
         rect = QRect(rect).intersected(bounds)
         if rect.isEmpty():
             return
-        pending = QRegion(rect).subtracted(self._stroke_saved_region)
-        if not pending.isEmpty():
-            live = self.active_layer.image
-            painter = QPainter(self._stroke_before)
-            painter.setCompositionMode(
-                QPainter.CompositionMode.CompositionMode_Source
-            )
-            for piece in pending:
-                painter.drawImage(piece.topLeft(), live.copy(piece))
-            painter.end()
-            self._stroke_saved_region = self._stroke_saved_region.united(rect)
+        tile_size = 256
+        first_x = rect.left() // tile_size
+        last_x = rect.right() // tile_size
+        first_y = rect.top() // tile_size
+        last_y = rect.bottom() // tile_size
+        for tile_y in range(first_y, last_y + 1):
+            for tile_x in range(first_x, last_x + 1):
+                key = (tile_x, tile_y)
+                if key in tiles:
+                    continue
+                tile_rect = QRect(
+                    tile_x * tile_size,
+                    tile_y * tile_size,
+                    tile_size,
+                    tile_size,
+                ).intersected(bounds)
+                tiles[key] = (tile_rect, live.copy(tile_rect))
         self._stroke_dirty_rect = self._stroke_dirty_rect.united(rect)
+
+    def _stroke_before_region(self, rect):
+        """Assemble a small immutable pre-stroke crop from saved tiles."""
+        rect = QRect(rect)
+        tiles = self._stroke_before_tiles
+        if tiles is None or rect.isEmpty():
+            return QImage()
+        result = QImage(
+            rect.width(),
+            rect.height(),
+            self.active_layer.image.format(),
+        )
+        result.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(result)
+        painter.setCompositionMode(
+            QPainter.CompositionMode.CompositionMode_Source
+        )
+        tile_size = 256
+        for tile_y in range(
+            rect.top() // tile_size,
+            rect.bottom() // tile_size + 1,
+        ):
+            for tile_x in range(
+                rect.left() // tile_size,
+                rect.right() // tile_size + 1,
+            ):
+                saved = tiles.get((tile_x, tile_y))
+                if saved is None:
+                    continue
+                tile_rect, tile_image = saved
+                overlap = QRect(tile_rect).intersected(rect)
+                if overlap.isEmpty():
+                    continue
+                source = QRect(
+                    overlap.x() - tile_rect.x(),
+                    overlap.y() - tile_rect.y(),
+                    overlap.width(),
+                    overlap.height(),
+                )
+                painter.drawImage(
+                    QPoint(overlap.x() - rect.x(), overlap.y() - rect.y()),
+                    tile_image,
+                    source,
+                )
+        painter.end()
+        return result
 
     def _finish_opaque_brush_stroke(self):
         colors = tuple(
@@ -2449,24 +2546,24 @@ class PaintCanvas(QWidget):
         )
         self._emit_actual_paint_colors(colors)
         if (
-            self._stroke_before is not None
+            self._stroke_before_tiles is not None
             and self._stroke_dirty_rect is not None
             and not self._stroke_dirty_rect.isEmpty()
         ):
-            bbox = QRect(self._stroke_dirty_rect)
-            self._ensure_before_region(bbox)
+            tiles = tuple(
+                (QRect(rect), image)
+                for rect, image in self._stroke_before_tiles.values()
+            )
             self.undo_stack.append((
-                "layer_region",
+                "layer_tiles",
                 self._stroke_undo_frame,
                 self._stroke_undo_layer,
-                bbox,
-                self._stroke_before.copy(bbox),
+                tiles,
                 self._stroke_prev_has_content,
             ))
             self.undo_stack = self.undo_stack[-MAX_UNDO:]
             self.redo_stack.clear()
-        self._stroke_before = None
-        self._stroke_saved_region = None
+        self._stroke_before_tiles = None
         self._stroke_dirty_rect = None
         self._brush_blend_base_image = None
         self._brush_blended_colors = set()
@@ -2498,21 +2595,26 @@ class PaintCanvas(QWidget):
         return True
 
     def _init_stroke_display(self):
-        """Snapshot the active layer's display image once at stroke start.
+        """Move the cached display image into stroke ownership without copying.
 
         The per-stamp cost then becomes proportional to the brush footprint
-        instead of the whole canvas (a 8000×8000 full re-transform is ~340 ms).
+        and a warm-cache stroke start is independent of canvas size.
         """
         self._stroke_display_image = None
         self._stroke_display_layer_index = -1
         if not self._stroke_display_eligible():
             return
         layer = self.active_layer
-        base = self._pseudo_transparent_display_image(layer.image)
+        cache_key = self._pseudo_transparency_key(layer.image)
+        base = self._pseudo_transparency_cache.pop(cache_key, None)
+        if base is None:
+            # Usually the idle repaint has already populated this cache. Keep a
+            # correctness fallback for presses arriving before the first paint.
+            base = self._pseudo_transparent_display_image(layer.image)
+            self._pseudo_transparency_cache.pop(cache_key, None)
         if base is None or base.isNull():
             return
-        # A private, mutable copy we can patch region-by-region.
-        self._stroke_display_image = base.copy()
+        self._stroke_display_image = base
         self._stroke_display_layer_index = self.active_layer_index
 
     def _patch_stroke_display(self, canvas_rect):
@@ -2982,6 +3084,7 @@ class PaintCanvas(QWidget):
             bottom - top,
         ).toAlignedRect()
         self._ensure_before_region(rect)
+        before_region = self._stroke_before_region(rect)
         overlay = QImage(
             rect.width(),
             rect.height(),
@@ -3023,26 +3126,13 @@ class PaintCanvas(QWidget):
         painter.drawLine(local_a, local_b)
         painter.end()
 
-        base_image = getattr(
-            self,
-            "_brush_blend_base_image",
-            None,
-        )
-        if base_image is None or base_image.isNull():
-            base_image = self.active_layer.image.copy()
-
         sub_only = bool(
             painter_tool == "brush"
             and not getattr(self, "mask_all_enabled", True)
         )
         if sub_only:
             overlay_rgba = self._qimage_rgba_array(overlay)
-            base_region = base_image.copy(
-                rect.x(),
-                rect.y(),
-                rect.width(),
-                rect.height(),
-            )
+            base_region = before_region
             base_rgba = self._qimage_rgba_array(base_region)
 
             selected_rgbs = self.selected_mask_colors()
@@ -3099,7 +3189,7 @@ class PaintCanvas(QWidget):
         colors = self._blend_overlay_into_active_layer(
             overlay,
             rect.topLeft(),
-            base_image=base_image,
+            base_image=before_region,
             opacity=fixed_opacity,
             exact_colors=(source_color,),
         )
@@ -6156,19 +6246,23 @@ class PaintCanvas(QWidget):
         self.colorSampled.emit(QColor(color))
         self.update()
 
-    def _pseudo_transparent_display_image(self, image):
-        """#FFFFFFを表示上だけ透明化し、他の可視画素はα255で表示する。"""
-        if image is None or image.isNull():
-            return image
+    def _pseudo_transparency_key(self, image):
+        """Return the cache key shared by idle and in-stroke display paths."""
         try:
-            key = (
+            return (
                 int(image.cacheKey()),
                 image.width(),
                 image.height(),
             )
         except (AttributeError, RuntimeError, TypeError) as exc:
             log.debug("cacheKey() unavailable, using id() fallback: %s", exc)
-            key = (id(image), image.width(), image.height())
+            return (id(image), image.width(), image.height())
+
+    def _pseudo_transparent_display_image(self, image):
+        """#FFFFFFを表示上だけ透明化し、他の可視画素はα255で表示する。"""
+        if image is None or image.isNull():
+            return image
+        key = self._pseudo_transparency_key(image)
 
         cached = self._pseudo_transparency_cache.get(key)
         if cached is not None:

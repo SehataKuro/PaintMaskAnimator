@@ -41,8 +41,13 @@ def _draw_test_stroke(canvas):
     canvas.color_mode = "main"
     canvas.pen_size = 18.0
     # Prime the display cache like an idle repaint would.
-    canvas._pseudo_transparent_display_image(canvas.active_layer.image)
+    cached = canvas._pseudo_transparent_display_image(canvas.active_layer.image)
     canvas._begin_opaque_brush_stroke()
+    # The warm display buffer is moved into stroke ownership, not copied.
+    assert canvas._stroke_display_image is cached
+    assert canvas._pseudo_transparency_key(
+        canvas.active_layer.image
+    ) not in canvas._pseudo_transparency_cache
     points = [QPointF(250 + i * 60, 250 + i * 45) for i in range(12)]
     for i in range(1, len(points)):
         canvas.draw_line(points[i - 1], points[i], 1.0)
@@ -88,7 +93,7 @@ def test_stroke_display_buffer_matches_full_recompute(qapp, monkeypatch, tmp_pat
         qapp.processEvents()
 
 
-def test_brush_undo_stores_only_the_touched_region(qapp, monkeypatch, tmp_path):
+def test_brush_undo_stores_only_touched_tiles(qapp, monkeypatch, tmp_path):
     monkeypatch.setenv("APPDATA", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     from paintmaskanimator import constants
@@ -105,14 +110,62 @@ def test_brush_undo_stores_only_the_touched_region(qapp, monkeypatch, tmp_path):
         canvas._finish_opaque_brush_stroke()
 
         entry = canvas.undo_stack[-1]
-        assert entry[0] == "layer_region"
-        assert entry[3].width() < canvas.active_layer.image.width()
-        assert entry[3].height() < canvas.active_layer.image.height()
+        assert entry[0] == "layer_tiles"
+        tiles = entry[3]
+        assert tiles
+        assert all(rect.width() <= 256 for rect, _image in tiles)
+        assert all(rect.height() <= 256 for rect, _image in tiles)
+        stored_pixels = sum(
+            rect.width() * rect.height() for rect, _image in tiles
+        )
+        assert stored_pixels < (
+            canvas.active_layer.image.width()
+            * canvas.active_layer.image.height()
+        )
 
         canvas.undo()
         assert np.array_equal(_rgba(canvas.active_layer.image), before)
         canvas.redo()
         assert np.array_equal(_rgba(canvas.active_layer.image), painted)
+    finally:
+        window.close()
+        window.deleteLater()
+        qapp.processEvents()
+
+
+def test_tiled_snapshot_keeps_stroke_opacity_stable(qapp, monkeypatch, tmp_path):
+    """Overlapping stamps blend against the pre-stroke tile, not each other."""
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    from paintmaskanimator import constants
+    monkeypatch.setattr(constants, "CANVAS_WIDTH", 512, raising=False)
+    monkeypatch.setattr(constants, "CANVAS_HEIGHT", 512, raising=False)
+
+    from paintmaskanimator.main_window import MainWindow
+    window = MainWindow()
+    try:
+        canvas = window.canvas
+        canvas.active_layer_index = next(
+            i for i, layer in enumerate(canvas.layers)
+            if not getattr(layer, "is_paper", False)
+        )
+        canvas.main_color = QColor("#0000ff")
+        canvas.color_mode = "main"
+        canvas.pen_size = 20.0
+        canvas.pen_opacity = 0.5
+        window.tools.opacity_enabled.setChecked(True)
+        start = QPointF(190, 200)
+        end = QPointF(210, 200)
+        canvas._pseudo_transparent_display_image(canvas.active_layer.image)
+        canvas._begin_opaque_brush_stroke()
+        canvas.draw_line(start, end, 1.0)
+        once = canvas.active_layer.image.pixelColor(200, 200)
+        canvas.draw_line(start, end, 1.0)
+        twice = canvas.active_layer.image.pixelColor(200, 200)
+        canvas._finish_opaque_brush_stroke()
+
+        assert once == twice
+        assert (once.red(), once.green(), once.blue()) == (128, 128, 255)
     finally:
         window.close()
         window.deleteLater()
