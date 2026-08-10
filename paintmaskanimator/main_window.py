@@ -15,6 +15,7 @@ from .utils import blank_image, disable_windows_ink_feedback, workspace_size
 from .widgets import (CanvasSizeDialog, HSVColorWheel, ShortcutDialog, TimeRemapPasteDialog, TransformLineThicknessDialog, TweenCommandPopup)
 from .logging_setup import get_logger
 from .main_window_autosave import AutosaveMixin
+from .main_window_workspace import WorkspaceMixin
 
 log = get_logger(__name__)
 
@@ -34,7 +35,7 @@ _OPERATION_ERRORS = (
 )
 
 
-class MainWindow(AutosaveMixin, QMainWindow):
+class MainWindow(WorkspaceMixin, AutosaveMixin, QMainWindow):
     def __init__(self):
         super().__init__();self.setWindowTitle(APP_DISPLAY_NAME);self.resize(1500,960);self.setAcceptDrops(True)
         self.canvas=PaintCanvas();self.tool_selector=ToolSelectorPanel();self.tools=ToolPanel();self.timeline=TimelineWidget();self.palette=UsedColorPanel();self.timer=QTimer(self);self.timer.timeout.connect(self.advance)
@@ -784,106 +785,6 @@ class MainWindow(AutosaveMixin, QMainWindow):
         bfit.clicked.connect(self.fit_canvas)
         self.rot.valueChanged.connect(self.set_rot)
         b0.clicked.connect(lambda:self.rot.setValue(0))
-
-    def _workspace_records(self):
-        records = config.get_value("workspaces", {})
-        return records if isinstance(records, dict) else {}
-
-    def _capture_workspace(self):
-        return {
-            "dock_state": bytes(
-                self.dock_manager.saveState().toBase64()
-            ).decode("ascii"),
-            "window_geometry": bytes(
-                self.saveGeometry().toBase64()
-            ).decode("ascii"),
-        }
-
-    def _save_workspace(self, name):
-        name = str(name).strip()
-        if not name:
-            return False
-        records = self._workspace_records()
-        records[name] = self._capture_workspace()
-        config.set_value("workspaces", records)
-        config.set_value("active_workspace", name)
-        self._refresh_workspace_menu()
-        return True
-
-    def _apply_workspace(self, name, restore_geometry=True):
-        record = self._workspace_records().get(name)
-        if not isinstance(record, dict):
-            return False
-        state = QByteArray.fromBase64(
-            str(record.get("dock_state", "")).encode("ascii")
-        )
-        if state.isEmpty() or not self.dock_manager.restoreState(state):
-            return False
-        if restore_geometry:
-            geometry = QByteArray.fromBase64(
-                str(record.get("window_geometry", "")).encode("ascii")
-            )
-            if not geometry.isEmpty():
-                self.restoreGeometry(geometry)
-        config.set_value("active_workspace", name)
-        QTimer.singleShot(0, self._sync_all_area_hamburgers)
-        self._refresh_workspace_menu()
-        return True
-
-    def _delete_workspace(self, name):
-        records = self._workspace_records()
-        if name not in records:
-            return False
-        del records[name]
-        config.set_value("workspaces", records or None)
-        if config.get_value("active_workspace") == name:
-            config.set_value("active_workspace", None)
-        self._refresh_workspace_menu()
-        return True
-
-    def _prompt_save_workspace(self):
-        name, accepted = QInputDialog.getText(
-            self, "ワークスペースを保存", "ワークスペース名："
-        )
-        if accepted and name.strip():
-            self._save_workspace(name)
-
-    def _prompt_delete_workspace(self):
-        names = sorted(self._workspace_records())
-        if not names:
-            return
-        name, accepted = QInputDialog.getItem(
-            self, "ワークスペースを削除", "削除するワークスペース：",
-            names, 0, False,
-        )
-        if accepted:
-            self._delete_workspace(name)
-
-    def _build_workspace_menu(self):
-        self.workspace_menu = self.menuBar().addMenu("ワークスペース")
-        self._refresh_workspace_menu()
-
-    def _refresh_workspace_menu(self):
-        menu = getattr(self, "workspace_menu", None)
-        if menu is None:
-            return
-        menu.clear()
-        save_action = menu.addAction("現在の配置を保存…")
-        save_action.triggered.connect(self._prompt_save_workspace)
-        records = self._workspace_records()
-        if records:
-            menu.addSeparator()
-            active = config.get_value("active_workspace")
-            for name in sorted(records):
-                action = menu.addAction(name)
-                action.setCheckable(True)
-                action.setChecked(name == active)
-                action.triggered.connect(
-                    lambda _checked=False, n=name: self._apply_workspace(n)
-                )
-            menu.addSeparator()
-            delete_action = menu.addAction("ワークスペースを削除…")
-            delete_action.triggered.connect(self._prompt_delete_workspace)
 
     def _finalize_startup_dock_ui(self):
         active = config.get_value("active_workspace")
