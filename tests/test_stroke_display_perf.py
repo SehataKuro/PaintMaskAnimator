@@ -86,3 +86,34 @@ def test_stroke_display_buffer_matches_full_recompute(qapp, monkeypatch, tmp_pat
         window = None
         qapp.processEvents()
         qapp.processEvents()
+
+
+def test_brush_undo_stores_only_the_touched_region(qapp, monkeypatch, tmp_path):
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    from paintmaskanimator import constants
+    monkeypatch.setattr(constants, "CANVAS_WIDTH", 1400, raising=False)
+    monkeypatch.setattr(constants, "CANVAS_HEIGHT", 1400, raising=False)
+
+    from paintmaskanimator.main_window import MainWindow
+    window = MainWindow()
+    try:
+        canvas = window.canvas
+        before = _rgba(canvas.active_layer.image)
+        _draw_test_stroke(canvas)
+        painted = _rgba(canvas.active_layer.image)
+        canvas._finish_opaque_brush_stroke()
+
+        entry = canvas.undo_stack[-1]
+        assert entry[0] == "layer_region"
+        assert entry[3].width() < canvas.active_layer.image.width()
+        assert entry[3].height() < canvas.active_layer.image.height()
+
+        canvas.undo()
+        assert np.array_equal(_rgba(canvas.active_layer.image), before)
+        canvas.redo()
+        assert np.array_equal(_rgba(canvas.active_layer.image), painted)
+    finally:
+        window.close()
+        window.deleteLater()
+        qapp.processEvents()

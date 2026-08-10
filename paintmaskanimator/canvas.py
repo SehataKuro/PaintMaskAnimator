@@ -168,6 +168,14 @@ class PaintCanvas(QWidget):
         self._brush_started_with_content = True
         self._brush_blend_base_image = None
         self._brush_blended_colors = set()
+        # Store only the portions touched by a brush stroke.  This buffer is
+        # allocated at canvas size, but pixels are copied into it lazily.
+        self._stroke_before = None
+        self._stroke_saved_region = None
+        self._stroke_dirty_rect = None
+        self._stroke_undo_frame = 0
+        self._stroke_undo_layer = 0
+        self._stroke_prev_has_content = False
         self._brush_stroke_opacity = 1.0
         # ブラシ描画中の表示用バッファ（白→透明変換をストローク領域だけ差分更新する）。
         # 大画像でストロークごとに全画素を再変換する重い処理を避けるための最適化。
@@ -265,6 +273,22 @@ class PaintCanvas(QWidget):
     def current_state_for(self,entry):
         if entry[0]=="doc":
             return ("doc",self.document_snapshot())
+        if entry[0] == "layer_region":
+            _, fi, li, bbox, _before, _hc = entry
+            if not (
+                0 <= int(fi) < len(self.frames)
+                and 0 <= int(li) < len(self.frames[int(fi)].layers)
+            ):
+                return None
+            layer = self.frames[int(fi)].layers[int(li)]
+            return (
+                "layer_region",
+                int(fi),
+                int(li),
+                QRect(bbox),
+                layer.image.copy(bbox),
+                bool(layer.has_content),
+            )
         if entry[0]=="layer_batch":
             _, li, cells = entry
             current = []
@@ -321,7 +345,29 @@ class PaintCanvas(QWidget):
         l=self.frames[fi].layers[li]
         return ("layer",fi,li,l.image.copy(),l.has_content)
     def apply_undo_entry(self,e):
-        if e[0]=="doc":
+        if e[0] == "layer_region":
+            _, fi, li, bbox, crop, hc = e
+            if (
+                0 <= int(fi) < len(self.frames)
+                and 0 <= int(li) < len(self.frames[int(fi)].layers)
+            ):
+                fi, li = int(fi), int(li)
+                self.current_frame = fi
+                self.active_layer_index = li
+                layer = self.frames[fi].layers[li]
+                painter = QPainter(layer.image)
+                painter.setCompositionMode(
+                    QPainter.CompositionMode.CompositionMode_Source
+                )
+                painter.drawImage(QRect(bbox).topLeft(), crop)
+                painter.end()
+                layer.has_content = bool(hc)
+                self._pseudo_transparency_cache.clear()
+                self._stroke_display_image = None
+                self._stroke_display_layer_index = -1
+                self.cellChanged.emit(fi, li)
+                self.selectionChanged.emit()
+        elif e[0]=="doc":
             _,snap=e
             fs,cf,al,w,h=snap
             constants.CANVAS_WIDTH=w
@@ -2355,10 +2401,17 @@ class PaintCanvas(QWidget):
         )
 
     def _begin_opaque_brush_stroke(self):
-        """UI不透明度を固定し、筆圧から完全に分離する。"""
-        self._brush_blend_base_image = (
-            self.active_layer.image.copy()
+        """Start a stroke without copying the entire active layer."""
+        live = self.active_layer.image
+        self._stroke_before = QImage(
+            live.width(), live.height(), live.format()
         )
+        self._stroke_saved_region = QRegion()
+        self._stroke_dirty_rect = QRect()
+        self._stroke_undo_frame = int(self.current_frame)
+        self._stroke_undo_layer = int(self.active_layer_index)
+        self._stroke_prev_has_content = bool(self.active_layer.has_content)
+        self._brush_blend_base_image = self._stroke_before
         self._brush_blended_colors = set()
         # この値はUIの不透明度だけから取得する。
         # タブレット筆圧値は絶対に掛けない。
@@ -2367,11 +2420,54 @@ class PaintCanvas(QWidget):
         )
         self._init_stroke_display()
 
+    def _ensure_before_region(self, rect):
+        """Lazily preserve the pre-stroke pixels for a touched region."""
+        if self._stroke_before is None:
+            return
+        bounds = QRect(
+            0, 0, self._stroke_before.width(), self._stroke_before.height()
+        )
+        rect = QRect(rect).intersected(bounds)
+        if rect.isEmpty():
+            return
+        pending = QRegion(rect).subtracted(self._stroke_saved_region)
+        if not pending.isEmpty():
+            live = self.active_layer.image
+            painter = QPainter(self._stroke_before)
+            painter.setCompositionMode(
+                QPainter.CompositionMode.CompositionMode_Source
+            )
+            for piece in pending:
+                painter.drawImage(piece.topLeft(), live.copy(piece))
+            painter.end()
+            self._stroke_saved_region = self._stroke_saved_region.united(rect)
+        self._stroke_dirty_rect = self._stroke_dirty_rect.united(rect)
+
     def _finish_opaque_brush_stroke(self):
         colors = tuple(
             getattr(self, "_brush_blended_colors", set())
         )
         self._emit_actual_paint_colors(colors)
+        if (
+            self._stroke_before is not None
+            and self._stroke_dirty_rect is not None
+            and not self._stroke_dirty_rect.isEmpty()
+        ):
+            bbox = QRect(self._stroke_dirty_rect)
+            self._ensure_before_region(bbox)
+            self.undo_stack.append((
+                "layer_region",
+                self._stroke_undo_frame,
+                self._stroke_undo_layer,
+                bbox,
+                self._stroke_before.copy(bbox),
+                self._stroke_prev_has_content,
+            ))
+            self.undo_stack = self.undo_stack[-MAX_UNDO:]
+            self.redo_stack.clear()
+        self._stroke_before = None
+        self._stroke_saved_region = None
+        self._stroke_dirty_rect = None
         self._brush_blend_base_image = None
         self._brush_blended_colors = set()
         self._brush_stroke_opacity = (
@@ -2885,6 +2981,7 @@ class PaintCanvas(QWidget):
             right - left,
             bottom - top,
         ).toAlignedRect()
+        self._ensure_before_region(rect)
         overlay = QImage(
             rect.width(),
             rect.height(),
@@ -7107,7 +7204,6 @@ class PaintCanvas(QWidget):
         if t == "brush":
             self._brush_started_with_content = bool(self.active_layer.has_content)
             self.ensure_editable_key()
-            self.push_layer_undo()
             self._begin_opaque_brush_stroke()
             self.drawing = True
             self._reset_brush_stabilizer(p)
@@ -7382,7 +7478,6 @@ class PaintCanvas(QWidget):
         if e.type()==e.Type.TabletPress and self.inside(p):
             self._brush_started_with_content = bool(self.active_layer.has_content)
             self.ensure_editable_key()
-            self.push_layer_undo()
             self._begin_opaque_brush_stroke()
             self.drawing = True
             self._reset_brush_stabilizer(p)
