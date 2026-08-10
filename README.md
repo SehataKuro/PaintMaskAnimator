@@ -1,55 +1,55 @@
 # PaintMaskAnimator
 
-Paint / mask animation tool built with PySide6.
+PySide6 で作られたペイント / マスクアニメーションツールです。
 
-## Requirements
+## 必要環境
 
-- Python 3.10+
-- PySide6, PySide6-QtAds, numpy (required); Pillow, psd-tools (optional, enable extra import/export features)
+- Python 3.10 以上
+- PySide6、PySide6-QtAds、numpy（必須）／Pillow、psd-tools（任意。追加の読み込み・書き出し機能が有効になります）
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## Run
+## 実行
 
 ```bash
 python PaintMaskAnimator.py
 ```
 
-or as a module:
+またはモジュールとして：
 
 ```bash
 python -m paintmaskanimator
 ```
 
-## Development
+## 開発
 
 ```bash
 pip install -r requirements-dev.txt
 QT_QPA_PLATFORM=offscreen pytest -q
 ```
 
-Tests run headless (offscreen Qt). CI runs them on every push.
+テストはヘッドレス（オフスクリーン Qt）で実行されます。CI は push のたびに実行されます。
 
-## Project layout
+## プロジェクト構成
 
-The application is a Python package under [`paintmaskanimator/`](paintmaskanimator/):
+アプリケーションは [`paintmaskanimator/`](paintmaskanimator/) 以下の Python パッケージです：
 
-| Module | Responsibility |
+| モジュール | 役割 |
 | --- | --- |
-| `document.py` | Project state model (frames / layers / cursor, snapshot) |
-| `imaging.py`, `geometry.py`, `colors.py`, `color_ops.py` | Pure, Qt-independent algorithms |
-| `project_io.py` | Project (`.zip`) save / load serialization |
-| `canvas.py`, `timeline.py`, `toolpanel.py`, `main_window.py`, … | UI layer (PySide6 widgets) |
+| `document.py` | プロジェクト状態モデル（フレーム / レイヤー / カーソル、スナップショット） |
+| `imaging.py`、`geometry.py`、`colors.py`、`color_ops.py` | Qt に依存しない純粋なアルゴリズム |
+| `project_io.py` | プロジェクト（`.zip`）の保存 / 読み込みシリアライズ |
+| `canvas.py`、`timeline.py`、`toolpanel.py`、`main_window.py` など | UI レイヤー（PySide6 ウィジェット） |
 
-`PaintMaskAnimator.py` at the repo root is a thin launcher.
+リポジトリ直下の `PaintMaskAnimator.py` は薄いランチャーです。
 
-## Python actions
+## Python アクション
 
-The Action panel can load custom buttons from Python files. Click
-`フォルダを開く` in the panel, copy a `*.py` file into that folder, and click
-`再読み込み`. Each file must expose:
+アクションパネルは Python ファイルからカスタムボタンを読み込めます。パネルの
+`フォルダを開く` をクリックし、そのフォルダに `*.py` ファイルをコピーして
+`再読み込み` をクリックしてください。各ファイルは次の関数を公開する必要があります：
 
 ```python
 def register_actions(panel, window):
@@ -61,7 +61,7 @@ def register_actions(panel, window):
     )
 ```
 
-Checkable actions can use `checkable=True`; their callback receives the checked
-state. See [`examples/actions/hello_status.py`](examples/actions/hello_status.py).
-Action scripts are regular Python code and should only be installed from sources
-you trust.
+チェック可能なアクションは `checkable=True` を使用でき、コールバックはチェック
+状態を受け取ります。[`examples/actions/hello_status.py`](examples/actions/hello_status.py)
+を参照してください。アクションスクリプトは通常の Python コードなので、信頼できる
+提供元からのみインストールしてください。
