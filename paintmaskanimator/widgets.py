@@ -681,21 +681,42 @@ class TweenCommandPopup(QDialog):
 class HSVColorWheel(QWidget):
     colorChanged = Signal(QColor)
     modeChanged = Signal(str)
+    hueModeChanged = Signal(str)
 
-    #: 対応するカラーサークルのモード。
+    #: 内側のピッカー形状と色相ピッカーの形状は独立して選択できる。
     MODES = ("HSV", "HLS")
+    HUE_MODES = ("RING", "BAR")
+    DEFAULT_MODE = "HSV"
+    DEFAULT_HUE_MODE = "RING"
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._color = QColor("black")
-        self._mode = "HSV"
+        self._mode = self.DEFAULT_MODE
+        self._hue_mode = self.DEFAULT_HUE_MODE
         self._cache_key = None
         self._cache_image = QImage()
         self._drag_part = None
-        self.hue_value = QSpinBox(self)
-        self.hue_value.setRange(0, 359)
-        self.hue_value.setFixedWidth(54)
-        self.hue_value.valueChanged.connect(self._hue_value_changed)
+        self.color_code_edit = QLineEdit(self._color.name().upper(), self)
+        self.color_code_edit.setFixedSize(72, 22)
+        self.color_code_edit.setMaxLength(7)
+        self.color_code_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.color_code_edit.setToolTip(
+            "カラーコードを入力して Enter で色を変更"
+        )
+        self.color_code_edit.setStyleSheet(
+            "QLineEdit{font-size:10px;padding:1px 3px;}"
+        )
+        self.color_code_edit.editingFinished.connect(self._apply_color_code)
+        self.color_copy_button = QPushButton("コピー", self)
+        self.color_copy_button.setFixedSize(44, 22)
+        self.color_copy_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.color_copy_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.color_copy_button.setToolTip("現在のカラーコードをコピー")
+        self.color_copy_button.setStyleSheet(
+            "QPushButton{font-size:9px;padding:1px 2px;}"
+        )
+        self.color_copy_button.clicked.connect(self._copy_color_code)
         self.setMinimumSize(160, 180)
         self.setMaximumHeight(220)
         self.setSizePolicy(
@@ -709,6 +730,10 @@ class HSVColorWheel(QWidget):
 
     def setMode(self, mode):
         mode = str(mode).upper()
+        # 以前の一体型モード名も読み替えられるようにする。
+        if mode == "HSV_RING":
+            self.setHueMode("RING")
+            mode = "HSV"
         if mode not in self.MODES or mode == self._mode:
             return
         self._mode = mode
@@ -717,44 +742,112 @@ class HSVColorWheel(QWidget):
         self.update()
         self.modeChanged.emit(self._mode)
 
+    def hueMode(self):
+        return self._hue_mode
+
+    def setHueMode(self, mode):
+        mode = str(mode).upper()
+        if mode not in self.HUE_MODES or mode == self._hue_mode:
+            return
+        self._hue_mode = mode
+        self._cache_key = None
+        self._update_tooltip()
+        self.update()
+        self.hueModeChanged.emit(self._hue_mode)
+
     def _update_tooltip(self):
-        if self._mode == "HLS":
-            self.setToolTip(
-                "上のバーで色相、下の三角で輝度(L)と彩度(S)を選択します。"
-            )
-        else:
-            self.setToolTip(
-                "上のバーで色相、下の四角で彩度と明度を選択します。"
-            )
+        hue_picker = "外側の色相リング" if self._hue_mode == "RING" else "上の色相バー"
+        inner_picker = (
+            "内側の三角で輝度(L)と彩度(S)"
+            if self._mode == "HLS" else
+            "内側の四角で彩度と明度"
+        )
+        self.setToolTip(f"{hue_picker}と、{inner_picker}を選択します。")
 
     def setColor(self, color):
         color = QColor(color)
         if not color.isValid():
             return
         self._color = color
-        hue = max(0, color.hsvHue())
-        self.hue_value.blockSignals(True)
-        self.hue_value.setValue(hue)
-        self.hue_value.blockSignals(False)
+        self._refresh_color_code()
         self.update()
 
+    def _refresh_color_code(self):
+        self.color_code_edit.setText(self._color.name().upper())
+
+    def _apply_color_code(self):
+        text = self.color_code_edit.text().strip()
+        if text and not text.startswith("#"):
+            text = "#" + text
+        color = QColor(text)
+        if not color.isValid() or len(text) not in (4, 7):
+            self._refresh_color_code()
+            return
+        self._color = color
+        self._cache_key = None
+        self._refresh_color_code()
+        self.update()
+        self.colorChanged.emit(QColor(self._color))
+
+    def _copy_color_code(self):
+        clipboard = QApplication.clipboard()
+        if clipboard is not None:
+            clipboard.setText(self._color.name().upper())
+
     def _wheel_geometry(self):
+        if self._hue_mode == "RING":
+            available_height = max(1.0, self.height() - 28.0)
+            diameter = min(
+                max(1.0, self.width() - 4.0),
+                max(1.0, available_height - 2.0),
+            )
+            outer = QRectF(
+                (self.width() - diameter) / 2.0,
+                2.0 + (available_height - diameter) / 2.0,
+                diameter,
+                diameter,
+            )
+            outer_radius = diameter / 2.0
+            ring_width = max(12.0, min(22.0, outer_radius * 0.20))
+            inner_radius = max(1.0, outer_radius - ring_width - 3.0)
+            square_side = inner_radius * math.sqrt(2.0)
+            square = QRectF(
+                outer.center().x() - square_side / 2.0,
+                outer.center().y() - square_side / 2.0,
+                square_side,
+                square_side,
+            )
+            return outer, square
         hue_bar = QRectF(
-            20.0,
-            7.0,
-            max(24.0, self.width() - 82.0),
+            4.0,
+            3.0,
+            max(24.0, self.width() - 8.0),
             18.0,
         )
-        available_width = max(1.0, self.width() - 36.0)
-        available_height = max(1.0, self.height() - 40.0)
+        available_width = max(1.0, self.width() - 8.0)
+        available_height = max(1.0, self.height() - 54.0)
         square_side = min(available_width, available_height)
         square = QRectF(
-            30.0,
-            35.0,
+            (self.width() - square_side) / 2.0,
+            25.0,
             square_side,
             square_side,
         )
         return hue_bar, square
+
+    def _ring_metrics(self):
+        outer, _square = self._wheel_geometry()
+        outer_radius = outer.width() / 2.0
+        ring_width = max(12.0, min(22.0, outer_radius * 0.20))
+        return outer.center(), outer_radius, outer_radius - ring_width
+
+    @staticmethod
+    def _ring_hue(center, position):
+        angle = math.atan2(
+            position.x() - center.x(),
+            center.y() - position.y(),
+        )
+        return int(round((math.degrees(angle) % 360.0) * 359.0 / 360.0))
 
     def _triangle_vertices(self):
         """HLS三角形の頂点。上=純色、左下=黒、右下=白。"""
@@ -824,11 +917,12 @@ class HSVColorWheel(QWidget):
         )
 
     def resizeEvent(self, event):
-        self.hue_value.setGeometry(
-            max(0, self.width() - 56),
-            3,
-            54,
-            26,
+        bottom = max(0, self.height() - self.color_code_edit.height() - 2)
+        copy_x = max(0, self.width() - self.color_copy_button.width() - 2)
+        self.color_copy_button.move(copy_x, bottom)
+        self.color_code_edit.move(
+            max(0, copy_x - self.color_code_edit.width() - 2),
+            bottom,
         )
         self._cache_key = None
         super().resizeEvent(event)
@@ -837,16 +931,31 @@ class HSVColorWheel(QWidget):
         hue_bar, square = self._wheel_geometry()
         width, height = self.width(), self.height()
         hue = max(0, self._color.hsvHue())
-        cache_key = (width, height, hue, self._mode)
+        cache_key = (width, height, hue, self._mode, self._hue_mode)
         if self._cache_key == cache_key:
             return self._cache_image
         image = QImage(width, height, QImage.Format.Format_ARGB32)
         image.fill(Qt.GlobalColor.transparent)
         if self._mode == "HLS":
             top, bottom_left, bottom_right = self._triangle_vertices()
+        if self._hue_mode == "RING":
+            ring_center, ring_outer, ring_inner = self._ring_metrics()
         for y in range(height):
             for x in range(width):
-                if hue_bar.contains(x + 0.5, y + 0.5):
+                point = QPointF(x + 0.5, y + 0.5)
+                if self._hue_mode == "RING":
+                    distance = math.hypot(
+                        point.x() - ring_center.x(),
+                        point.y() - ring_center.y(),
+                    )
+                    if ring_inner <= distance <= ring_outer:
+                        image.setPixelColor(
+                            x, y, QColor.fromHsv(
+                                self._ring_hue(ring_center, point), 255, 255
+                            )
+                        )
+                        continue
+                elif hue_bar.contains(point):
                     bar_hue = int(round(
                         359.0
                         * (x + 0.5 - hue_bar.left())
@@ -855,7 +964,8 @@ class HSVColorWheel(QWidget):
                     image.setPixelColor(
                         x, y, QColor.fromHsv(bar_hue, 255, 255)
                     )
-                elif self._mode == "HLS":
+                    continue
+                if self._mode == "HLS":
                     if not square.contains(x + 0.5, y + 0.5):
                         continue
                     w_top, w_left, w_right = self._barycentric(
@@ -869,7 +979,7 @@ class HSVColorWheel(QWidget):
                     image.setPixelColor(
                         x, y, self._triangle_color(w_top, w_left, w_right)
                     )
-                elif square.contains(x + 0.5, y + 0.5):
+                elif square.contains(point):
                     saturation = int(round(
                         255.0 * (x + 0.5 - square.left()) / square.width()
                     ))
@@ -910,7 +1020,12 @@ class HSVColorWheel(QWidget):
             )
         painter.setPen(QPen(QColor("#555555"), 1))
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawRect(hue_bar.adjusted(-1, -1, 1, 1))
+        if self._hue_mode == "RING":
+            ring_center, ring_outer, ring_inner = self._ring_metrics()
+            painter.drawEllipse(hue_bar)
+            painter.drawEllipse(ring_center, ring_inner, ring_inner)
+        else:
+            painter.drawRect(hue_bar.adjusted(-1, -1, 1, 1))
         if self._mode == "HLS":
             top, bottom_left, bottom_right = self._triangle_vertices()
             painter.drawPolygon(QPolygonF([top, bottom_left, bottom_right]))
@@ -918,30 +1033,53 @@ class HSVColorWheel(QWidget):
             painter.drawRect(square.adjusted(-1, -1, 1, 1))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.setPen(QPen(QColor("white"), 2))
-        painter.drawRect(QRectF(
-            hue_x - 3.0,
-            hue_bar.top() - 2.0,
-            6.0,
-            hue_bar.height() + 4.0,
-        ))
+        if self._hue_mode == "RING":
+            angle = math.radians(hue)
+            marker_radius = (ring_outer + ring_inner) / 2.0
+            hue_point = QPointF(
+                ring_center.x() + math.sin(angle) * marker_radius,
+                ring_center.y() - math.cos(angle) * marker_radius,
+            )
+            painter.drawEllipse(hue_point, 4, 4)
+        else:
+            painter.drawRect(QRectF(
+                hue_x - 3.0,
+                hue_bar.top() - 2.0,
+                6.0,
+                hue_bar.height() + 4.0,
+            ))
         painter.drawEllipse(marker_point, 5, 5)
         painter.setPen(QPen(QColor("black"), 1))
-        painter.drawRect(QRectF(
-            hue_x - 4.0,
-            hue_bar.top() - 3.0,
-            8.0,
-            hue_bar.height() + 6.0,
-        ))
+        if self._hue_mode == "RING":
+            painter.drawEllipse(hue_point, 5, 5)
+        else:
+            painter.drawRect(QRectF(
+                hue_x - 4.0,
+                hue_bar.top() - 3.0,
+                8.0,
+                hue_bar.height() + 6.0,
+            ))
         painter.drawEllipse(marker_point, 6, 6)
-        painter.setPen(QColor("#333333"))
-        painter.drawText(
-            QRectF(0, 4, 18, 22),
-            Qt.AlignmentFlag.AlignCenter,
-            "H",
-        )
+        if self._hue_mode != "RING":
+            painter.setPen(QColor("#333333"))
+            painter.drawText(
+                QRectF(0, 4, 18, 22),
+                Qt.AlignmentFlag.AlignCenter,
+                "H",
+            )
 
     def _part_at(self, position):
         hue_bar, square = self._wheel_geometry()
+        if self._hue_mode == "RING":
+            center, outer_radius, inner_radius = self._ring_metrics()
+            distance = math.hypot(
+                position.x() - center.x(), position.y() - center.y()
+            )
+            if inner_radius - 3.0 <= distance <= outer_radius + 3.0:
+                return "hue"
+            if square.contains(position):
+                return "sv"
+            return None
         if hue_bar.adjusted(-3, -4, 3, 4).contains(position):
             return "hue"
         if square.contains(position):
@@ -962,6 +1100,7 @@ class HSVColorWheel(QWidget):
             return
         w_top, w_left, w_right = w_top / total, w_left / total, w_right / total
         self._color = self._triangle_color(w_top, w_left, w_right)
+        self._refresh_color_code()
         self.update()
         self.colorChanged.emit(QColor(self._color))
 
@@ -974,11 +1113,14 @@ class HSVColorWheel(QWidget):
             self._select_triangle(position)
             return
         if part == "hue":
-            hue = int(round(
-                359.0
-                * (position.x() - hue_bar.left())
-                / hue_bar.width()
-            ))
+            if self._hue_mode == "RING":
+                hue = self._ring_hue(hue_bar.center(), position)
+            else:
+                hue = int(round(
+                    359.0
+                    * (position.x() - hue_bar.left())
+                    / hue_bar.width()
+                ))
             hue = max(0, min(359, hue))
             saturation = self._color.hsvSaturation()
             value = self._color.value() or 255
@@ -1001,17 +1143,7 @@ class HSVColorWheel(QWidget):
         self._color = QColor.fromHsv(hue, saturation, value)
         if part == "hue":
             self._cache_key = None
-            self.hue_value.blockSignals(True)
-            self.hue_value.setValue(hue)
-            self.hue_value.blockSignals(False)
-        self.update()
-        self.colorChanged.emit(QColor(self._color))
-
-    def _hue_value_changed(self, hue):
-        saturation = self._color.hsvSaturation()
-        value = self._color.value() or 255
-        self._color = QColor.fromHsv(int(hue), saturation, value)
-        self._cache_key = None
+        self._refresh_color_code()
         self.update()
         self.colorChanged.emit(QColor(self._color))
 

@@ -31,7 +31,7 @@ try:
     from PySide6.QtWidgets import (
         QApplication, QCheckBox, QColorDialog, QDialog, QDialogButtonBox,
         QDoubleSpinBox, QFileDialog, QFormLayout, QGridLayout, QHBoxLayout,
-        QLabel, QListView, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
+        QLabel, QLineEdit, QListView, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
         QMenu, QPushButton, QSlider, QSpinBox, QTableWidget, QComboBox,
         QTableWidgetItem, QTabBar, QTabWidget, QToolButton, QVBoxLayout, QWidget, QAbstractItemView, QHeaderView, QScrollArea,
         QKeySequenceEdit, QDockWidget, QProgressDialog, QPlainTextEdit, QStyledItemDelegate, QStyle,

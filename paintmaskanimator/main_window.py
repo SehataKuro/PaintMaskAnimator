@@ -1018,12 +1018,23 @@ class MainWindow(QMainWindow):
         )
 
     def _build_color_wheel_menu(self, menu):
-        current = self.tools.hsv_wheel.mode()
-        labels = {"HSV": "HSV（四角）", "HLS": "HLS（三角）"}
-        for mode in HSVColorWheel.MODES:
-            action = menu.addAction(labels.get(mode, mode))
+        wheel = self.tools.hsv_wheel
+        hue_menu = menu.addMenu("色相の形")
+        hue_labels = {"RING": "リング", "BAR": "バー"}
+        for mode in HSVColorWheel.HUE_MODES:
+            action = hue_menu.addAction(hue_labels[mode])
             action.setCheckable(True)
-            action.setChecked(mode == current)
+            action.setChecked(mode == wheel.hueMode())
+            action.triggered.connect(
+                lambda _c=False, m=mode: self.tools.set_wheel_hue_mode(m)
+            )
+
+        inner_menu = menu.addMenu("内側の形")
+        labels = {"HSV": "四角（HSV）", "HLS": "三角（HLS）"}
+        for mode in HSVColorWheel.MODES:
+            action = inner_menu.addAction(labels[mode])
+            action.setCheckable(True)
+            action.setChecked(mode == wheel.mode())
             action.triggered.connect(
                 lambda _c=False, m=mode: self.tools.set_wheel_mode(m)
             )
@@ -1443,6 +1454,7 @@ class MainWindow(QMainWindow):
         )
         self.tools.flipLayerRequested.connect(self.canvas.flip_active_layer)
         self.tools.swapMainSubRequested.connect(self.swap_main_sub)
+        self.tools.resetMainSubRequested.connect(self.reset_main_sub)
         self.tools.removeDustRequested.connect(self.remove_dust_fill_surrounding)
         self.tools.backgroundColorRequested.connect(self.choose_background_color)
 
@@ -4715,6 +4727,20 @@ class MainWindow(QMainWindow):
             self.canvas.transparent_display_color,
         )
         self.statusBar().showMessage("メインカラーとサブカラーを交換しました。", 1800)
+
+    def reset_main_sub(self):
+        self.canvas.main_color = QColor("black")
+        self.canvas.sub_color = QColor("white")
+        if self.canvas.color_mode not in ("main", "sub"):
+            self.canvas.color_mode = "main"
+        self.tools.set_colors(
+            self.canvas.main_color,
+            self.canvas.sub_color,
+            self.canvas.color_mode,
+            self.canvas.transparent_display_color,
+        )
+        self.canvas.update()
+        self.statusBar().showMessage("メイン色とサブ色を初期化しました。", 1800)
 
     def toggle_silhouette(self, checked=None):
         if checked is None:

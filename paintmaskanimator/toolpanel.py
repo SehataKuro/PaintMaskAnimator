@@ -227,6 +227,7 @@ class ToolPanel(QWidget):
     selectionCancelRequested = Signal()
     flipLayerRequested = Signal(bool)
     swapMainSubRequested = Signal()
+    resetMainSubRequested = Signal()
     isolateColorRequested = Signal()
     removeDustRequested = Signal()
     backgroundColorRequested = Signal()
@@ -703,26 +704,68 @@ class ToolPanel(QWidget):
 
         v.addWidget(self.opacity_slider)
         v.addWidget(self.opacity)
-        # 描画色ドック：メイン／サブ／背景色ボタンのみ。
+        # Photoshop風の前景色／背景色スタック。
         self.drawing_color_box = QWidget()
         color_layout = QVBoxLayout(self.drawing_color_box)
-        color_layout.setContentsMargins(3, 3, 3, 3)
-        color_layout.setSpacing(2)
-
-        cg=QGridLayout()
-        self.main_btn=SwatchEyedropButton(); self.main_btn.setText("メイン"); self.sub_btn=SwatchEyedropButton(); self.sub_btn.setText("サブ"); self.transparent_btn=QPushButton("背景色")
-        self.main_btn.setToolTip("クリック：メイン色を選択／左または右へドラッグして離す：その位置をスポイト")
-        self.sub_btn.setToolTip("クリック：サブ色を選択／左または右へドラッグして離す：その位置をスポイト")
-        self.main_btn.clicked.connect(lambda:self.set_color_mode("main")); self.sub_btn.clicked.connect(lambda:self.set_color_mode("sub")); self.transparent_btn.clicked.connect(lambda:self.set_color_mode("transparent")); self.transparent_btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu); self.transparent_btn.customContextMenuRequested.connect(lambda _p:self.backgroundColorRequested.emit())
-        for button in (self.main_btn, self.sub_btn, self.transparent_btn):
-            button.setFixedHeight(24)
-        cg.addWidget(self.main_btn,0,0); cg.addWidget(self.sub_btn,0,1); cg.addWidget(self.transparent_btn,1,0,1,2)
-        color_layout.addLayout(cg)
+        color_layout.setContentsMargins(6, 5, 6, 5)
+        color_layout.setSpacing(3)
+        swatch_row = QHBoxLayout()
+        swatch_row.setContentsMargins(0, 0, 0, 0)
+        swatch_row.setSpacing(7)
+        self.color_swatch_stack = QWidget()
+        self.color_swatch_stack.setFixedSize(104, 76)
+        self.sub_btn = SwatchEyedropButton(self.color_swatch_stack)
+        self.main_btn = SwatchEyedropButton(self.color_swatch_stack)
+        self.sub_btn.setText("サブ")
+        self.main_btn.setText("メイン")
+        self.sub_btn.setGeometry(38, 25, 58, 46)
+        self.main_btn.setGeometry(7, 4, 58, 46)
+        self.main_btn.raise_()
+        self.main_btn.setToolTip("クリック：メイン色を選択／ドラッグ：スポイト")
+        self.sub_btn.setToolTip("クリック：サブ色を選択／ドラッグ：スポイト")
+        controls = QVBoxLayout()
+        controls.setContentsMargins(0, 0, 0, 0)
+        controls.setSpacing(3)
+        self.swap_colors_button = QPushButton("⇄  入れ替え")
+        self.reset_colors_button = QPushButton("◩  初期色")
+        self.transparent_btn = QPushButton("透明色")
+        for button in (
+            self.swap_colors_button,
+            self.reset_colors_button,
+            self.transparent_btn,
+        ):
+            button.setFixedHeight(22)
+            button.setStyleSheet("QPushButton{font-size:10px;padding:1px 5px;}")
+        controls.addWidget(self.swap_colors_button)
+        controls.addWidget(self.reset_colors_button)
+        controls.addWidget(self.transparent_btn)
+        swatch_row.addWidget(self.color_swatch_stack)
+        swatch_row.addLayout(controls, 1)
+        color_layout.addLayout(swatch_row)
+        self.main_btn.clicked.connect(lambda: self.set_color_mode("main"))
+        self.sub_btn.clicked.connect(lambda: self.set_color_mode("sub"))
+        self.swap_colors_button.clicked.connect(self.swapMainSubRequested)
+        self.reset_colors_button.clicked.connect(self.resetMainSubRequested)
+        self.transparent_btn.clicked.connect(
+            lambda: self.set_color_mode("transparent")
+        )
+        self.transparent_btn.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu
+        )
+        self.transparent_btn.customContextMenuRequested.connect(
+            lambda _p: self.backgroundColorRequested.emit()
+        )
         color_layout.addStretch(1)
 
-        # カラーサークルドック：HSV(四角)／HLS(三角)を切替可能。
-        self.wheel_mode = "HSV"
+        # カラーサークルドック：色相リング／HSV(四角)／HLS(三角)を切替可能。
+        self.wheel_mode = HSVColorWheel.DEFAULT_MODE
+        self.wheel_hue_mode = HSVColorWheel.DEFAULT_HUE_MODE
         self.color_wheel_box = QWidget()
+        self.color_wheel_box.setStyleSheet(
+            "QWidget#colorPickerSurface{background:#e8e8e8;"
+            "border:1px solid #b8b8b8;border-radius:3px;}"
+        )
+        self.color_wheel_box.setObjectName("colorPickerSurface")
         wheel_layout = QVBoxLayout(self.color_wheel_box)
         wheel_layout.setContentsMargins(3, 3, 3, 3)
         wheel_layout.setSpacing(2)
@@ -737,7 +780,7 @@ class ToolPanel(QWidget):
         slider_box_layout = QVBoxLayout(self.color_slider_box)
         slider_box_layout.setContentsMargins(3, 3, 3, 3)
         slider_box_layout.setSpacing(2)
-        self.slider_box=QWidget(); self.slider_layout=QFormLayout(self.slider_box); self.slider_layout.setContentsMargins(0,0,0,0); self.slider_layout.setVerticalSpacing(1)
+        self.slider_box=QWidget(); self.slider_layout=QFormLayout(self.slider_box); self.slider_layout.setContentsMargins(4,4,4,4); self.slider_layout.setVerticalSpacing(3)
         slider_box_layout.addWidget(self.slider_box)
         slider_box_layout.addStretch(1)
         self.color_sliders=[]; self.color_value_labels=[]; self.rebuild_color_sliders(self.slider_mode)
@@ -746,7 +789,6 @@ class ToolPanel(QWidget):
             is_size_numeric = numeric is self.size
             is_color_numeric = (
                 isinstance(numeric, SliderValueSpinBox)
-                or numeric is self.hsv_wheel.hue_value
             )
             is_interactive_numeric = (
                 is_size_numeric or is_color_numeric
@@ -1002,11 +1044,27 @@ class ToolPanel(QWidget):
 
     def refresh_swatches(self):
         def style(c, selected):
-            fg='white' if c.lightness()<110 else 'black'; border='3px solid #e53935' if selected else '1px solid #777'
-            return f"background:{c.name()};color:{fg};border:{border};padding:5px;"
+            fg = "white" if c.lightness() < 110 else "black"
+            border = "3px solid #2d8cff" if selected else "2px solid #202020"
+            return (
+                f"QPushButton{{background:{c.name()};color:{fg};border:{border};"
+                "font-size:10px;font-weight:600;padding:2px;}"
+                "QPushButton:hover{border-color:#78b7ff;}"
+            )
         self.main_btn.setStyleSheet(style(self.main_color,self.color_mode=="main"))
         self.sub_btn.setStyleSheet(style(self.sub_color,self.color_mode=="sub"))
-        self.transparent_btn.setStyleSheet(style(self.transparent_display_color,self.color_mode=="transparent"))
+        self.transparent_btn.setStyleSheet(
+            "QPushButton{font-size:10px;padding:1px 5px;"
+            + (
+                "border:2px solid #2d8cff;background:#f4f4f4;}"
+                if self.color_mode == "transparent" else
+                "border:1px solid #888;background:#f4f4f4;}"
+            )
+        )
+        if self.color_mode == "sub":
+            self.sub_btn.raise_()
+        else:
+            self.main_btn.raise_()
 
     def clear_slider_layout(self):
         while self.slider_layout.rowCount(): self.slider_layout.removeRow(0)
@@ -1026,6 +1084,13 @@ class ToolPanel(QWidget):
             return
         self.wheel_mode = mode
         self.hsv_wheel.setMode(mode)
+
+    def set_wheel_hue_mode(self, mode):
+        mode = str(mode).upper()
+        if mode not in HSVColorWheel.HUE_MODES:
+            return
+        self.wheel_hue_mode = mode
+        self.hsv_wheel.setHueMode(mode)
 
     def set_slider_mode(self, mode):
         mode = str(mode).upper()
@@ -1047,6 +1112,8 @@ class ToolPanel(QWidget):
             slider.setProperty("valueScale", 1.0)
             slider.setProperty("channel", name)
             value_control = SliderValueSpinBox(slider, scale=1.0, step=1.0)
+            if mode == "HLS" and name == "H":
+                value_control.setWrapping(True)
             row = QWidget()
             row_layout = QHBoxLayout(row)
             row_layout.setContentsMargins(0, 0, 0, 0)
