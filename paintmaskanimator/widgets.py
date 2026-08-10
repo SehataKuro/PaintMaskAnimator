@@ -1,4 +1,5 @@
 from .common import *  # noqa: F401,F403
+from . import theme
 from .utils import _ScreenColorDragMixin
 from .logging_setup import get_logger
 
@@ -324,7 +325,8 @@ class SliderValueSpinBox(QDoubleSpinBox):
         self.setStyleSheet(
             "QDoubleSpinBox{font-size:10px;padding-left:1px;"
             "padding-right:10px;"
-            "selection-background-color:#3874b8;}"
+            "selection-background-color:palette(highlight);"
+            "selection-color:palette(highlighted-text);}"
         )
 
         editor = self.lineEdit()
@@ -355,8 +357,9 @@ class SliderValueSpinBox(QDoubleSpinBox):
             button.setStyleSheet(
                 "QToolButton{border:none;background:transparent;"
                 "padding:0px;margin:0px;font-size:7px;}"
-                "QToolButton:hover{background:#d8d8d8;}"
-                "QToolButton:pressed{background:#bcbcbc;}"
+                "QToolButton:hover{background:palette(alternate-base);}"
+                "QToolButton:pressed{background:palette(highlight);"
+                "color:palette(highlighted-text);}"
             )
 
         self._up_button.clicked.connect(
@@ -561,7 +564,7 @@ class LineTaperCurvePopup(QDialog):
         layout.addWidget(self.slider)
         note = QLabel("小さいほど緩やか、大きいほど先端付近で急に変化します。")
         note.setWordWrap(True)
-        note.setStyleSheet("font-size:10px;color:#666;")
+        note.setStyleSheet("font-size:10px;")
         layout.addWidget(note)
         self._value_changed(self.slider.value())
 
@@ -635,7 +638,7 @@ class TweenCommandPopup(QDialog):
         self.direction_note = QLabel()
         self.direction_note.setWordWrap(True)
         self.direction_note.setStyleSheet(
-            "font-size:10px;color:#555;"
+            "font-size:10px;"
         )
         layout.addWidget(self.direction_note)
         self.reverse_generation.toggled.connect(
@@ -1258,12 +1261,15 @@ class TimeRemapPasteDialog(QDialog):
         self.preview_table.verticalHeader().setDefaultSectionSize(22)
         self.preview_table.setAcceptDrops(False)
         self.preview_table.viewport().setAcceptDrops(False)
+        c = theme.palette()
         self.preview_table.setStyleSheet(
-            "QTableWidget{gridline-color:#aeb8bf;"
-            "background:#fafafa;alternate-background-color:#eef5f8;}"
-            "QHeaderView::section{background:#dce8ed;"
-            "padding:3px;border:1px solid #aeb8bf;}"
-            "QTableWidget::item:selected{background:#b9dced;color:#111;}"
+            "QTableWidget{gridline-color:%s;background:%s;"
+            "alternate-background-color:%s;}"
+            "QHeaderView::section{background:%s;padding:3px;"
+            "border:1px solid %s;}"
+            "QTableWidget::item:selected{background:%s;color:%s;}"
+            % (c["border"], c["surface"], c["surface_alt"], c["surface_alt"],
+               c["border"], c["accent"], c["accent_text"])
         )
         self.preview_table.itemChanged.connect(
             self._preview_item_changed
@@ -1293,7 +1299,7 @@ class TimeRemapPasteDialog(QDialog):
             "「使用」を外した行は取り除き、後続を詰めて反映します。"
         )
         note.setWordWrap(True)
-        note.setStyleSheet("font-size:10px;color:#555;")
+        note.setStyleSheet("font-size:10px;")
         layout.addWidget(note)
 
         buttons = QDialogButtonBox(
@@ -1390,7 +1396,7 @@ class TimeRemapPasteDialog(QDialog):
         self._included_rows.clear()
         self._column_layer_bindings.clear()
         self.preview_status.setText("データ待機中")
-        self.preview_status.setStyleSheet("color:#666;")
+        self.preview_status.setStyleSheet("color:palette(placeholder-text);")
 
     def _parser_owner(self):
         owner = self.parent()

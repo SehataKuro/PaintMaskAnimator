@@ -392,7 +392,9 @@ class ToolPanel(QWidget):
         v.setSpacing(3)
         v.addWidget(QLabel("<b>ツールプロパティ</b>"))
         self.active=QLabel(); self.active.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.active.setStyleSheet("background:#2f6fa5;color:white;padding:6px;font-weight:bold"); v.addWidget(self.active)
+        self.active.setStyleSheet(
+            "padding:6px;font-weight:bold;border-radius:4px;"
+        ); v.addWidget(self.active)
 
         # Context commands: only commands required by the selected tool are shown.
         self.command_box=QWidget(); self.command_layout=QVBoxLayout(self.command_box)
@@ -472,7 +474,7 @@ class ToolPanel(QWidget):
         )
         self.transform_line_width_note.setWordWrap(True)
         self.transform_line_width_note.setStyleSheet(
-            "color:#b8b8b8;padding-left:4px;padding-right:4px;"
+            "color:palette(placeholder-text);padding-left:4px;padding-right:4px;"
         )
         self.transform_line_width_label=QLabel("実線の太さ：159")
         self.transform_line_width=QSlider(Qt.Orientation.Horizontal)
@@ -1221,12 +1223,13 @@ class ToolPanel(QWidget):
         self.refresh_swatches(); self.sync_sliders()
 
     def refresh_swatches(self):
-        accent = theme.accent()
-        hover = theme.palette()["accent_hover"]
+        palette = theme.palette()
+        accent = palette["accent"]
+        hover = palette["accent_hover"]
         def style(c, selected):
             fg = "white" if c.lightness() < 110 else "black"
             border = (
-                f"3px solid {accent}" if selected else "2px solid #202020"
+                f"3px solid {accent}" if selected else f"2px solid {palette['border']}"
             )
             return (
                 f"QPushButton{{background:{c.name()};color:{fg};border:{border};"
@@ -1243,7 +1246,7 @@ class ToolPanel(QWidget):
             + (
                 f"border:2px solid {accent};}}"
                 if self.color_mode == "transparent" else
-                "border:1px solid #888;}"
+                f"border:1px solid {palette['border']};}}"
             )
         )
         if self.color_mode == "sub":
@@ -1257,6 +1260,10 @@ class ToolPanel(QWidget):
         self.color_wheel_box.setStyleSheet(
             "QWidget#colorPickerSurface{background:%s;"
             "border:1px solid %s;border-radius:6px;}" % (c["surface_alt"], c["border"])
+        )
+        self.active.setStyleSheet(
+            "background:%s;color:%s;padding:6px;font-weight:bold;"
+            "border-radius:4px;" % (c["accent"], c["accent_text"])
         )
         self.refresh_swatches()
         self.update_slider_gradients()

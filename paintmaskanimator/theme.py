@@ -61,6 +61,18 @@ PALETTES = {
         "success": "#1a8a4a",
         "warning": "#b8730a",
         "error": "#c62828",
+        "timeline_key": "#bfe7f4",
+        "timeline_key_text": "#0d6694",
+        "timeline_hold": "#d9f0f7",
+        "timeline_hold_text": "#256b88",
+        "timeline_sheet_key": "#ffe08a",
+        "timeline_sheet_key_text": "#795300",
+        "timeline_sheet_hold": "#fff1b8",
+        "timeline_sheet_hold_text": "#80621a",
+        "timeline_blank": "#eaf7fb",
+        "timeline_blank_text": "#648b9b",
+        "timeline_uncreated": "#f5f5f5",
+        "timeline_uncreated_text": "#777d85",
     },
     "dark": {
         "window": "#22252b",
@@ -79,6 +91,18 @@ PALETTES = {
         "success": "#4cc47c",
         "warning": "#e0a63a",
         "error": "#ff6b6b",
+        "timeline_key": "#16445a",
+        "timeline_key_text": "#8ed8f5",
+        "timeline_hold": "#213c49",
+        "timeline_hold_text": "#a8d5e8",
+        "timeline_sheet_key": "#594514",
+        "timeline_sheet_key_text": "#ffd86a",
+        "timeline_sheet_hold": "#463b21",
+        "timeline_sheet_hold_text": "#ead28b",
+        "timeline_blank": "#283840",
+        "timeline_blank_text": "#82aeba",
+        "timeline_uncreated": "#292d34",
+        "timeline_uncreated_text": "#9aa2ad",
     },
 }
 
@@ -96,6 +120,24 @@ def _mix(a, b, ratio):
     return QColor(r, g, bl).name()
 
 
+def _contrast_text(background):
+    """Return black or white, whichever is more legible on ``background``."""
+    color = QColor(background)
+
+    def luminance(channel):
+        value = channel / 255.0
+        return value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4
+
+    level = (
+        0.2126 * luminance(color.red())
+        + 0.7152 * luminance(color.green())
+        + 0.0722 * luminance(color.blue())
+    )
+    white_ratio = 1.05 / (level + 0.05)
+    black_ratio = (level + 0.05) / 0.05
+    return "#ffffff" if white_ratio >= black_ratio else "#000000"
+
+
 def palette(name=None):
     """Return the colour dict for ``name`` (or the active theme).
 
@@ -108,6 +150,7 @@ def palette(name=None):
     c = dict(base)
     accent = current_accent()
     c["accent"] = accent
+    c["accent_text"] = _contrast_text(accent)
     # Hover = accent nudged toward the window colour so it reads as "pressed".
     c["accent_hover"] = _mix(accent, c["window"], 0.82)
     # Selection = accent softened into the surface for subtle highlights.
@@ -206,6 +249,75 @@ def build_stylesheet(name):
         selection-color: {c['accent_text']};
     }}
     QComboBox::drop-down {{ border: none; width: 18px; }}
+    QLineEdit:disabled, QPlainTextEdit:disabled, QSpinBox:disabled,
+    QDoubleSpinBox:disabled, QComboBox:disabled {{
+        background-color: {c['surface_alt']};
+        color: {c['text_muted']};
+    }}
+    QComboBox QAbstractItemView {{
+        background-color: {c['surface']};
+        color: {c['text']};
+        border: 1px solid {c['border']};
+        selection-background-color: {c['accent']};
+        selection-color: {c['accent_text']};
+        outline: 0;
+    }}
+
+    /* Generic containers and item views. */
+    QFrame[frameShape="4"], QFrame[frameShape="5"] {{ color: {c['border']}; }}
+    QGroupBox {{
+        border: 1px solid {c['border']};
+        border-radius: 7px;
+        margin-top: 8px;
+        padding-top: 7px;
+    }}
+    QGroupBox::title {{
+        subcontrol-origin: margin;
+        left: 8px;
+        padding: 0 4px;
+        color: {c['text']};
+    }}
+    QAbstractItemView {{
+        background-color: {c['surface']};
+        alternate-background-color: {c['surface_alt']};
+        color: {c['text']};
+        border: 1px solid {c['border']};
+        selection-background-color: {c['accent']};
+        selection-color: {c['accent_text']};
+        outline: 0;
+    }}
+    QHeaderView::section {{
+        background-color: {c['surface_alt']};
+        color: {c['text']};
+        border: none;
+        border-right: 1px solid {c['border']};
+        border-bottom: 1px solid {c['border']};
+        padding: 4px 6px;
+    }}
+    QTableCornerButton::section {{
+        background-color: {c['surface_alt']};
+        border: none;
+        border-right: 1px solid {c['border']};
+        border-bottom: 1px solid {c['border']};
+    }}
+    QToolButton {{
+        background-color: transparent;
+        color: {c['text']};
+        border: 1px solid transparent;
+        border-radius: 5px;
+        padding: 3px;
+    }}
+    QToolButton:hover {{ background-color: {c['hover']}; border-color: {c['border']}; }}
+    QToolButton:pressed, QToolButton:checked {{ background-color: {c['selection']}; border-color: {c['accent']}; }}
+    QToolButton:disabled {{ color: {c['text_muted']}; }}
+    QProgressBar {{
+        background-color: {c['surface_alt']};
+        border: 1px solid {c['border']};
+        border-radius: 5px;
+        color: {c['text']};
+        text-align: center;
+    }}
+    QProgressBar::chunk {{ background-color: {c['accent']}; border-radius: 4px; }}
 
     /* Sliders — thin rounded track, accent fill, clean circular knob. */
     QSlider:horizontal {{ min-height: 20px; }}
@@ -304,17 +416,16 @@ def build_stylesheet(name):
     }}
     QTabBar::tab:hover {{ background: {c['hover']}; }}
 
-    /* Checkboxes */
-    QCheckBox::indicator {{
-        width: 15px; height: 15px;
-        border: 1px solid {c['border']};
-        border-radius: 4px;
+    /* Keep Fusion's native checkbox/radio glyphs. Styling their indicator
+       background in QSS hides the check mark on Windows. */
+    QCheckBox:disabled, QRadioButton:disabled {{ color: {c['text_muted']}; }}
+    QTabWidget::pane {{
         background: {c['surface']};
+        border: 1px solid {c['border']};
     }}
-    QCheckBox::indicator:checked {{
-        background: {c['accent']};
-        border-color: {c['accent']};
-    }}
+    QSplitter::handle {{ background-color: {c['border']}; }}
+    QSplitter::handle:hover {{ background-color: {c['accent']}; }}
+    QMessageBox, QFileDialog, QColorDialog, QInputDialog {{ background-color: {c['window']}; }}
     """
 
 
@@ -345,6 +456,13 @@ def build_qpalette(name):
     pal.setColor(QPalette.ColorRole.Highlight, QColor(c["accent"]))
     pal.setColor(QPalette.ColorRole.HighlightedText, QColor(c["accent_text"]))
     pal.setColor(QPalette.ColorRole.Link, QColor(c["accent"]))
+    pal.setColor(QPalette.ColorRole.LinkVisited, QColor(c["accent_hover"]))
+    pal.setColor(QPalette.ColorRole.BrightText, QColor(c["error"]))
+    pal.setColor(QPalette.ColorRole.Light, QColor(_mix(c["surface"], "#ffffff", 0.78)))
+    pal.setColor(QPalette.ColorRole.Midlight, QColor(c["surface_alt"]))
+    pal.setColor(QPalette.ColorRole.Mid, QColor(c["border"]))
+    pal.setColor(QPalette.ColorRole.Dark, QColor(_mix(c["border"], "#000000", 0.72)))
+    pal.setColor(QPalette.ColorRole.Shadow, QColor("#000000"))
     for role in (
         QPalette.ColorRole.WindowText, QPalette.ColorRole.Text,
         QPalette.ColorRole.ButtonText,

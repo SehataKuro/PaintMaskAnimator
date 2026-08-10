@@ -53,7 +53,7 @@ class LayerListDelegate(QStyledItemDelegate):
             str(name),
         )
 
-        painter.setPen(QPen(QColor("#bcc8ce"), 1))
+        painter.setPen(QPen(option.palette.mid().color(), 1))
         painter.drawLine(
             option.rect.left(),
             option.rect.bottom(),
@@ -86,33 +86,25 @@ class TimelineCellDelegate(QStyledItemDelegate):
     """タイムラインセルの背景色をスタイルシートに上書きされず描画する。"""
     STATE_ROLE = Qt.ItemDataRole.UserRole + 20
 
-    COLORS = {
-        "key": QColor("#BFE7F4"),
-        "hold": QColor("#CDECF6"),
-        "sheet_key": QColor("#FFE08A"),
-        "sheet_hold": QColor("#FFF1B8"),
-        "blank": QColor("#EAF7FB"),
-        "uncreated": QColor("#F5F5F5"),
-    }
-    FOREGROUNDS = {
-        "key": QColor("#0D6694"),
-        "hold": QColor("#256B88"),
-        "sheet_key": QColor("#795300"),
-        "sheet_hold": QColor("#80621A"),
-        "blank": QColor("#8EB7C7"),
-        "uncreated": QColor("#8A8A8A"),
-    }
+    @staticmethod
+    def _state_colors(state_name):
+        c = theme.palette()
+        key = state_name if state_name in (
+            "key", "hold", "sheet_key", "sheet_hold", "blank", "uncreated"
+        ) else "uncreated"
+        return QColor(c[f"timeline_{key}"]), QColor(c[f"timeline_{key}_text"])
 
     def paint(self, painter, option, index):
         state_name = index.data(self.STATE_ROLE) or "uncreated"
         painter.save()
-        painter.fillRect(option.rect, self.COLORS.get(state_name, self.COLORS["uncreated"]))
+        background, foreground = self._state_colors(state_name)
+        painter.fillRect(option.rect, background)
         painter.setFont(index.data(Qt.ItemDataRole.FontRole) or option.font)
-        painter.setPen(self.FOREGROUNDS.get(state_name, self.FOREGROUNDS["uncreated"]))
+        painter.setPen(foreground)
         text = index.data(Qt.ItemDataRole.DisplayRole) or ""
         painter.drawText(option.rect, Qt.AlignmentFlag.AlignCenter, str(text))
         if option.state & QStyle.StateFlag.State_Selected:
-            painter.setPen(QPen(QColor("#FF2B1C"), 2))
+            painter.setPen(QPen(QColor(theme.palette()["error"]), 2))
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRect(option.rect.adjusted(1, 1, -1, -1))
         painter.restore()
@@ -953,11 +945,11 @@ class TimelineWidget(QWidget):
             "padding:2px;color:%s;}"
             "QTableWidget::item{border:0px;color:%s;}"
             "QTableWidget::item:selected{background:transparent;color:%s;"
-            "border:2px solid #ff2b1c;}"
+            "border:2px solid %s;}"
             % (
                 c["border"], c["surface"],
                 c["surface_alt"], c["border"], c["border"], c["text"],
-                c["text"], c["text"],
+                c["text"], c["text"], c["error"],
             )
         )
         self.compact_hint.setStyleSheet(
@@ -967,6 +959,8 @@ class TimelineWidget(QWidget):
             "font-size:10px;color:%s;padding:0px;" % c["text_muted"]
         )
         self._update_timeline_mode_tab_style()
+        self.table.viewport().update()
+        self.layer_list.viewport().update()
 
     def _timeline_mode_tab_changed(self, index):
         self.timeline_mode = (
@@ -1632,35 +1626,22 @@ class TimelineWidget(QWidget):
                 # 参考UIに合わせたタイムライン専用配色。
                 # キーフレームと保持区間は薄い水色、空フレームはさらに薄く、
                 # 未作成フレームはテーブル既定色のままにする。
+                cell_colors = theme.palette()
                 if span_kind == "content" and col == key_col:
-                    item.setBackground(QColor(
-                        "#FFE08A"
-                        if self.timeline_mode == "sheet"
-                        else "#BFE7F4"
-                    ))
-                    item.setForeground(QColor(
-                        "#795300"
-                        if self.timeline_mode == "sheet"
-                        else "#0D6694"
-                    ))
+                    cell_key = "sheet_key" if self.timeline_mode == "sheet" else "key"
+                    item.setBackground(QColor(cell_colors[f"timeline_{cell_key}"]))
+                    item.setForeground(QColor(cell_colors[f"timeline_{cell_key}_text"]))
                     key_font = item.font()
                     key_font.setBold(True)
                     key_font.setPointSize(max(10, key_font.pointSize()))
                     item.setFont(key_font)
                 elif span_kind == "content":
-                    item.setBackground(QColor(
-                        "#FFF1B8"
-                        if self.timeline_mode == "sheet"
-                        else "#CDECF6"
-                    ))
-                    item.setForeground(QColor(
-                        "#80621A"
-                        if self.timeline_mode == "sheet"
-                        else "#256B88"
-                    ))
+                    cell_key = "sheet_hold" if self.timeline_mode == "sheet" else "hold"
+                    item.setBackground(QColor(cell_colors[f"timeline_{cell_key}"]))
+                    item.setForeground(QColor(cell_colors[f"timeline_{cell_key}_text"]))
                 elif span_kind == "blank":
-                    item.setBackground(QColor("#EAF7FB"))
-                    item.setForeground(QColor("#8EB7C7"))
+                    item.setBackground(QColor(cell_colors["timeline_blank"]))
+                    item.setForeground(QColor(cell_colors["timeline_blank_text"]))
                     if text == "○":
                         blank_font = item.font()
                         blank_font.setBold(True)
@@ -1669,7 +1650,7 @@ class TimelineWidget(QWidget):
                         )
                         item.setFont(blank_font)
                 else:
-                    item.setForeground(QColor("#8A8A8A"))
+                    item.setForeground(QColor(cell_colors["timeline_uncreated_text"]))
                 if text in ("→", "♦", "◆"):
                     item.setForeground(
                         QColor("#A43A9E")

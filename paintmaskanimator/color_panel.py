@@ -106,7 +106,6 @@ class ReplacementColorPopup(QDialog):
 
         note = QLabel("変更は即時反映されます。右クリックをもう一度行うと閉じます。")
         note.setWordWrap(True)
-        note.setStyleSheet("color:#666;")
         layout.addWidget(note)
 
         self.sliders = []
@@ -412,7 +411,7 @@ class CheckClickArea(QWidget):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setStyleSheet(
             "CheckClickArea{background:transparent;border:none;}"
-            "CheckClickArea:hover{background:#F0F0F0;border:none;}"
+            "CheckClickArea:hover{background:palette(alternate-base);border:none;}"
         )
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -648,7 +647,6 @@ class UsedColorPanel(QWidget):
             "右クリックで統合・削除、上下ドラッグで選択を連続ON/OFFします。"
         )
         note.setWordWrap(True)
-        note.setStyleSheet("color:#666;")
         layout.addWidget(note)
 
         self.count_label = QLabel("0色")

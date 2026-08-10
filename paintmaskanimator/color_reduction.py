@@ -460,7 +460,7 @@ class ColorReductionDialog(QDialog):
             "離すと直前の2値化プレビューへ戻ります。"
         )
         note.setWordWrap(True)
-        note.setStyleSheet("color:#555;font-size:10px;")
+        note.setStyleSheet("font-size:10px;")
         layout.addWidget(note)
 
         confirm_row = QHBoxLayout()
