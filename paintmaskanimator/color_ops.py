@@ -6,7 +6,7 @@ widget state. PaintCanvas keeps delegating class/static-method wrappers so its
 callers (and color_reduction.py) are unchanged.
 """
 from .common import *  # noqa: F401,F403
-from . import constants, imaging
+from . import imaging
 from . import colors as _colors  # noqa: F401
 
 

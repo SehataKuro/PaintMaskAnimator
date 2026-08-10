@@ -2,7 +2,6 @@
 
 import importlib.util
 import traceback
-from pathlib import Path
 
 from . import config
 from .common import *  # noqa: F401,F403

@@ -2,7 +2,7 @@ from .common import *  # noqa: F401,F403
 from . import constants
 from . import color_ops, colors, geometry, imaging
 from .document import Document
-from .models import Frame, Layer, make_frame
+from .models import Layer, make_frame
 from .pressure import _pressure_bezier_at
 from .timeline import TimelineWidget
 from .toolpanel import ToolPanel
