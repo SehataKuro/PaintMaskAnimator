@@ -388,6 +388,8 @@ class CanvasMembers(_MembersBase):
         selected_used_color_rgbs: Any
         selected_used_colors: Any
         selection_bounds: Any
+        set_zoom_around_canvas_center: Any
+        center_canvas: Any
         selection_clear_overlay: Any
         selection_mask_bool: Any
         selection_mask_override: Any

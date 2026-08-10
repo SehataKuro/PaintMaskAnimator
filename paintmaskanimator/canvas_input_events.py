@@ -30,7 +30,11 @@ class InputEventMixin(CanvasMembers):
         super().leaveEvent(event)
 
     def wheelEvent(self,e):
-        old=self.zoom; factor=1.15 if e.angleDelta().y()>0 else 1/1.15; self.zoom=max(.05,min(8.0,self.zoom*factor)); cur=e.position(); self.pan=cur-(cur-self.pan)*(self.zoom/old); self.update(); e.accept()
+        factor = 1.15 if e.angleDelta().y() > 0 else 1 / 1.15
+        self.set_zoom_around_canvas_center(self.zoom * factor)
+        self.viewChanged.emit(float(self.zoom), float(self.rotation))
+        self.update()
+        e.accept()
 
     def keyPressEvent(self,e):
         if (
@@ -247,11 +251,7 @@ class InputEventMixin(CanvasMembers):
         if t == "zoom":
             delta = e.position().y() - self.last_widget.y()
             factor = math.pow(1.01, -delta)
-            old_zoom = self.zoom
-            self.zoom = max(0.05, min(8.0, self.zoom * factor))
-            anchor = e.position()
-            if old_zoom > 0:
-                self.pan = anchor - (anchor - self.pan) * (self.zoom / old_zoom)
+            self.set_zoom_around_canvas_center(self.zoom * factor)
             self.last_widget = e.position()
             self.viewChanged.emit(float(self.zoom), float(self.rotation))
             self.update()

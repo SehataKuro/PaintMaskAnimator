@@ -1146,6 +1146,24 @@ class PaintCanvas(
     def effective_tool(self): return self.temp_tool or self.tool
     def work_rect(self):
         w,h=workspace_size(); return QRectF(self.pan.x(),self.pan.y(),w*self.zoom,h*self.zoom)
+
+    def set_zoom_around_canvas_center(self, zoom):
+        """Change zoom without moving the canvas center on screen."""
+        old_zoom = max(0.0001, float(self.zoom))
+        new_zoom = max(0.05, min(8.0, float(zoom)))
+        width, height = workspace_size()
+        canvas_center = QPointF(width / 2.0, height / 2.0)
+        screen_center = self.pan + canvas_center * old_zoom
+        self.zoom = new_zoom
+        self.pan = screen_center - canvas_center * new_zoom
+
+    def center_canvas(self):
+        """Place the workspace center at the center of the canvas widget."""
+        width, height = workspace_size()
+        self.pan = QPointF(
+            (self.width() - width * self.zoom) / 2.0,
+            (self.height() - height * self.zoom) / 2.0,
+        )
     def canvas_rect(self):
         return QRectF(self.pan.x()+OUTSIDE_MARGIN*self.zoom,self.pan.y()+OUTSIDE_MARGIN*self.zoom,constants.CANVAS_WIDTH*self.zoom,constants.CANVAS_HEIGHT*self.zoom)
     def widget_to_canvas(self,p):

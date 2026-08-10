@@ -772,7 +772,7 @@ class MainWindow(
         help_menu.addAction(a_check_update)
 
         self.zoom.valueChanged.connect(self.set_zoom)
-        b100.clicked.connect(lambda:self.set_zoom(100))
+        b100.clicked.connect(self.show_canvas_at_100_percent)
         bfit.clicked.connect(self.fit_canvas)
         self.rot.valueChanged.connect(self.set_rot)
         b0.clicked.connect(lambda:self.rot.setValue(0))
@@ -2572,7 +2572,12 @@ class MainWindow(
         self.rot_label.setText(f"{rotation_degrees}°")
 
     def set_zoom(self,v):
-        self.canvas.zoom=v/100
+        self.canvas.set_zoom_around_canvas_center(v / 100)
+        self.sync_canvas_view_controls(self.canvas.zoom, self.canvas.rotation)
+        self.canvas.update()
+    def show_canvas_at_100_percent(self):
+        self.canvas.zoom = 1.0
+        self.canvas.center_canvas()
         self.sync_canvas_view_controls(self.canvas.zoom, self.canvas.rotation)
         self.canvas.update()
     def set_rot(self,v):
