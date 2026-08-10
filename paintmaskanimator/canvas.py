@@ -169,6 +169,10 @@ class PaintCanvas(QWidget):
         self._brush_blend_base_image = None
         self._brush_blended_colors = set()
         self._brush_stroke_opacity = 1.0
+        # ブラシ描画中の表示用バッファ（白→透明変換をストローク領域だけ差分更新する）。
+        # 大画像でストロークごとに全画素を再変換する重い処理を避けるための最適化。
+        self._stroke_display_image = None
+        self._stroke_display_layer_index = -1
         self._cell_structure_dirty = True
         # ライン／図形ツールのプレビュー状態
         self.line_start=None
@@ -2361,6 +2365,7 @@ class PaintCanvas(QWidget):
         self._brush_stroke_opacity = (
             self.paint_opacity_value()
         )
+        self._init_stroke_display()
 
     def _finish_opaque_brush_stroke(self):
         colors = tuple(
@@ -2372,6 +2377,120 @@ class PaintCanvas(QWidget):
         self._brush_stroke_opacity = (
             self.paint_opacity_value()
         )
+        self._finish_stroke_display()
+
+    def _stroke_display_eligible(self):
+        """True when the incremental display buffer can represent the layer.
+
+        Only when the active layer is a normal (non-paper) layer with no
+        palette/colour filter and silhouette mode off — otherwise the display
+        image is not a plain white-to-transparent transform of ``layer.image``
+        and the slower full-image path stays correct.
+        """
+        layer = self.active_layer
+        if layer is None or getattr(layer, "is_paper", False):
+            return False
+        if self.silhouette_non_background:
+            return False
+        if getattr(self, "visible_color_rgbs", None):
+            return False
+        if (
+            getattr(layer, "color_filter_enabled", False)
+            and layer.color_filter_rgb is not None
+        ):
+            return False
+        return True
+
+    def _init_stroke_display(self):
+        """Snapshot the active layer's display image once at stroke start.
+
+        The per-stamp cost then becomes proportional to the brush footprint
+        instead of the whole canvas (a 8000×8000 full re-transform is ~340 ms).
+        """
+        self._stroke_display_image = None
+        self._stroke_display_layer_index = -1
+        if not self._stroke_display_eligible():
+            return
+        layer = self.active_layer
+        base = self._pseudo_transparent_display_image(layer.image)
+        if base is None or base.isNull():
+            return
+        # A private, mutable copy we can patch region-by-region.
+        self._stroke_display_image = base.copy()
+        self._stroke_display_layer_index = self.active_layer_index
+
+    def _patch_stroke_display(self, canvas_rect):
+        """Re-apply the white→transparent transform for one stamped region."""
+        buffer = self._stroke_display_image
+        if buffer is None:
+            return
+        image = self.active_layer.image
+        x1 = max(0, int(canvas_rect.left()))
+        y1 = max(0, int(canvas_rect.top()))
+        x2 = min(image.width(), int(canvas_rect.left() + canvas_rect.width()))
+        y2 = min(image.height(), int(canvas_rect.top() + canvas_rect.height()))
+        w, h = x2 - x1, y2 - y1
+        if w <= 0 or h <= 0:
+            return
+        sub = image.copy(x1, y1, w, h).convertToFormat(
+            QImage.Format.Format_RGBA8888
+        )
+        ptr = sub.bits()
+        try:
+            ptr.setsize(sub.sizeInBytes())
+        except AttributeError:
+            pass
+        rows = np.frombuffer(ptr, dtype=np.uint8).reshape(
+            (h, sub.bytesPerLine())
+        )
+        pixels = rows[:, : w * 4].reshape((h, w, 4))
+        alpha = pixels[:, :, 3]
+        present = alpha > 0
+        white = (
+            present
+            & (pixels[:, :, 0] == 255)
+            & (pixels[:, :, 1] == 255)
+            & (pixels[:, :, 2] == 255)
+        )
+        alpha[white] = 0
+        alpha[present & ~white] = 255
+        patch = sub.convertToFormat(
+            QImage.Format.Format_ARGB32_Premultiplied
+        )
+        painter = QPainter(buffer)
+        painter.setCompositionMode(
+            QPainter.CompositionMode.CompositionMode_Source
+        )
+        painter.drawImage(x1, y1, patch)
+        painter.end()
+
+    def _finish_stroke_display(self):
+        """Hand the fully-patched buffer to the display cache, then release it.
+
+        Seeding the cache under the layer's current key means the first repaint
+        after the stroke is a cache hit instead of another full re-transform.
+        """
+        buffer = self._stroke_display_image
+        self._stroke_display_image = None
+        self._stroke_display_layer_index = -1
+        if buffer is None:
+            return
+        layer = self.active_layer
+        if layer is None or layer.image is None or layer.image.isNull():
+            return
+        try:
+            key = (
+                int(layer.image.cacheKey()),
+                layer.image.width(),
+                layer.image.height(),
+            )
+        except (AttributeError, RuntimeError, TypeError):
+            return
+        if len(self._pseudo_transparency_cache) >= 96:
+            self._pseudo_transparency_cache.pop(
+                next(iter(self._pseudo_transparency_cache))
+            )
+        self._pseudo_transparency_cache[key] = buffer
 
     def selected_mask_colors(self):
         values = {
@@ -2896,6 +3015,11 @@ class PaintCanvas(QWidget):
             color_set.update(colors)
 
         self.active_layer.has_content = True
+        if (
+            self._stroke_display_image is not None
+            and self.active_layer_index == self._stroke_display_layer_index
+        ):
+            self._patch_stroke_display(rect)
         self._update_stroke_region(a, b, draw_width)
 
     @staticmethod
@@ -6115,6 +6239,13 @@ class PaintCanvas(QWidget):
 
     def _display_layer_image(self, layer, layer_index):
         """白を疑似透明化した、表示専用のレイヤー画像を返す。"""
+        # ストローク中はアクティブレイヤーの差分更新済みバッファをそのまま使う。
+        if (
+            self._stroke_display_image is not None
+            and layer_index == self._stroke_display_layer_index
+            and layer is self.active_layer
+        ):
+            return self._stroke_display_image
         apply_palette_filter = (
             layer_index == self.active_layer_index
         )
