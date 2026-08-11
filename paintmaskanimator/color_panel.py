@@ -2,190 +2,58 @@ from .common import *  # noqa: F401,F403
 from .utils import _ScreenColorDragMixin
 from .logging_setup import get_logger
 
+from PySide6.QtCore import QMimeData
+from PySide6.QtGui import QDrag
+
 log = get_logger(__name__)
 
+# 使用色をドラッグ＆ドロップで統合するときに使う専用MIME形式。
+USED_COLOR_MIME = "application/x-pma-used-color"
 
-class ScreenEyedropButton(_ScreenColorDragMixin, QToolButton):
-    colorPicked = Signal(QColor)
-    clearRequested = Signal()  # 旧形式との互換用
-    colorEditorRequested = Signal(QPoint)
 
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._init_screen_color_drag()
-        self._right_click_candidate = False
-        self._right_click_press_global = None
-        self.setContextMenuPolicy(
-            Qt.ContextMenuPolicy.PreventContextMenu
+def _draw_eye_icon(painter, rect, color, is_open):
+    """モダンなアウトライン風の目アイコンを描く。開＝表示、閉＝非表示。"""
+    painter.save()
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+    # アイコン領域を正方形へ寄せ、上下左右に少し余白を取る。
+    size = min(rect.width(), rect.height())
+    box = QRectF(0, 0, size, size)
+    box.moveCenter(QPointF(rect.center()))
+    box.adjust(3.0, 5.0, -3.0, -5.0)
+
+    pen = QPen(color)
+    pen.setWidthF(1.6)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    painter.setPen(pen)
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+
+    cx = box.center().x()
+    cy = box.center().y()
+    half_w = box.width() / 2.0
+    lid = box.height() / 2.0
+
+    # 上まぶた・下まぶたを2本の対称な弧で描くアーモンド形。
+    outline = QPainterPath()
+    outline.moveTo(cx - half_w, cy)
+    outline.quadTo(cx, cy - lid, cx + half_w, cy)
+    outline.quadTo(cx, cy + lid, cx - half_w, cy)
+    painter.drawPath(outline)
+
+    if is_open:
+        # 瞳孔は塗りつぶしの円で表現する。
+        pupil_r = min(half_w, lid) * 0.55
+        painter.setBrush(color)
+        painter.drawEllipse(QPointF(cx, cy), pupil_r, pupil_r)
+    else:
+        # 非表示時は斜線を重ねて「閉じている」ことを示す。
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawLine(
+            QPointF(box.left(), box.bottom()),
+            QPointF(box.right(), box.top()),
         )
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.RightButton:
-            self._right_click_candidate = True
-            self._right_click_press_global = event.globalPosition().toPoint()
-            event.accept()
-            return
-        super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event):
-        if (
-            self._right_click_candidate
-            and self._right_click_press_global is not None
-            and event.buttons() & Qt.MouseButton.RightButton
-        ):
-            distance = (
-                event.globalPosition().toPoint() - self._right_click_press_global
-            ).manhattanLength()
-            if distance >= QApplication.startDragDistance():
-                self._right_click_candidate = False
-                self._begin_screen_pick(Qt.MouseButton.RightButton)
-                event.accept()
-                return
-        super().mouseMoveEvent(event)
-
-    def mouseReleaseEvent(self, event):
-        if (
-            event.button() == Qt.MouseButton.RightButton
-            and self._right_click_candidate
-            and not self._screen_pick_active
-        ):
-            self._right_click_candidate = False
-            global_position = event.globalPosition().toPoint()
-            self._right_click_press_global = None
-            self.colorEditorRequested.emit(global_position)
-            event.accept()
-            return
-        self._right_click_candidate = False
-        self._right_click_press_global = None
-        super().mouseReleaseEvent(event)
-
-
-
-class ReplacementColorPopup(QDialog):
-    """置換色をその場で編集する、ライブ反映式のRGB/HSVスライダー。"""
-
-    colorChanged = Signal(QColor)
-
-    def __init__(self, color, source_rgb=None, parent=None):
-        super().__init__(
-            parent,
-            Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint,
-        )
-        self._color = QColor(color)
-        if not self._color.isValid():
-            self._color = QColor("black")
-        self._updating = False
-        self.setWindowTitle("置換色")
-        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
-        self.setMinimumWidth(280)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(9, 9, 9, 9)
-        layout.setSpacing(5)
-
-        title = "置換色"
-        if source_rgb is not None:
-            title += "  元色 #{:02X}{:02X}{:02X}".format(*source_rgb)
-        layout.addWidget(QLabel(f"<b>{title}</b>"))
-
-        self.preview = QLabel()
-        self.preview.setFixedHeight(28)
-        self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.preview)
-
-        self.mode = QComboBox()
-        self.mode.addItems(["RGB", "HSV"])
-        self.mode.currentTextChanged.connect(self._rebuild_sliders)
-        layout.addWidget(self.mode)
-
-        self.slider_widget = QWidget()
-        self.slider_layout = QFormLayout(self.slider_widget)
-        self.slider_layout.setContentsMargins(0, 0, 0, 0)
-        self.slider_layout.setSpacing(4)
-        layout.addWidget(self.slider_widget)
-
-        note = QLabel("変更は即時反映されます。右クリックをもう一度行うと閉じます。")
-        note.setWordWrap(True)
-        layout.addWidget(note)
-
-        self.sliders = []
-        self.value_labels = []
-        self._rebuild_sliders("RGB")
-
-    def color(self):
-        return QColor(self._color)
-
-    def _clear_slider_layout(self):
-        while self.slider_layout.rowCount():
-            self.slider_layout.removeRow(0)
-        self.sliders.clear()
-        self.value_labels.clear()
-
-    def _rebuild_sliders(self, mode):
-        self._clear_slider_layout()
-        specs = (
-            [("R", 0, 255), ("G", 0, 255), ("B", 0, 255)]
-            if mode == "RGB"
-            else [("H", 0, 359), ("S", 0, 255), ("V", 0, 255)]
-        )
-        for name, minimum, maximum in specs:
-            slider = QSlider(Qt.Orientation.Horizontal)
-            slider.setRange(minimum, maximum)
-            label = QLabel("0")
-            label.setFixedWidth(34)
-            label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            row = QWidget()
-            row_layout = QHBoxLayout(row)
-            row_layout.setContentsMargins(0, 0, 0, 0)
-            row_layout.setSpacing(4)
-            row_layout.addWidget(slider, 1)
-            row_layout.addWidget(label)
-            slider.valueChanged.connect(
-                lambda value, value_label=label: value_label.setText(str(value))
-            )
-            slider.valueChanged.connect(self._sliders_changed)
-            self.slider_layout.addRow(name, row)
-            self.sliders.append(slider)
-            self.value_labels.append(label)
-        self._sync_from_color()
-
-    def _sync_from_color(self):
-        if len(self.sliders) != 3:
-            return
-        if self.mode.currentText() == "RGB":
-            values = self._color.getRgb()[:3]  # pyright: ignore[reportIndexIssue]
-        else:
-            hue, saturation, value, _alpha = self._color.getHsv()  # pyright: ignore[reportGeneralTypeIssues]
-            values = (max(0, hue), saturation, value)
-        self._updating = True
-        try:
-            for slider, label, value in zip(
-                self.sliders, self.value_labels, values
-            ):
-                slider.setValue(max(slider.minimum(), min(slider.maximum(), int(value))))
-                label.setText(str(slider.value()))
-        finally:
-            self._updating = False
-        self._refresh_preview()
-
-    def _sliders_changed(self):
-        if self._updating or len(self.sliders) != 3:
-            return
-        first, second, third = [slider.value() for slider in self.sliders]
-        if self.mode.currentText() == "RGB":
-            self._color = QColor(first, second, third)
-        else:
-            self._color = QColor.fromHsv(first, second, third)
-        self._refresh_preview()
-        self.colorChanged.emit(QColor(self._color))
-
-    def _refresh_preview(self):
-        foreground = "#111" if self._color.lightness() >= 150 else "#fff"
-        self.preview.setText(self._color.name(QColor.NameFormat.HexRgb).upper())
-        self.preview.setStyleSheet(
-            f"background:{self._color.name()};color:{foreground};"
-            "border:1px solid #777;padding:3px;"
-        )
+    painter.restore()
 
 
 class SourceColorButton(_ScreenColorDragMixin, QToolButton):
@@ -264,17 +132,15 @@ class ColorVisibilityCheckBox(QCheckBox):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
-        color = (
-            self.palette().text().color()
-            if self.isEnabled() else self.palette().mid().color()
-        )
-        painter.setPen(color)
-        painter.drawText(
-            self.rect(),
-            Qt.AlignmentFlag.AlignCenter,
-            "[●]" if self.isChecked() else "[-]",
-        )
+        if self.isChecked():
+            color = (
+                self.palette().text().color()
+                if self.isEnabled() else self.palette().mid().color()
+            )
+        else:
+            # 非表示の目は控えめなグレーで、状態差を色でも伝える。
+            color = self.palette().mid().color()
+        _draw_eye_icon(painter, self.rect(), color, self.isChecked())
         painter.end()
 
     def mousePressEvent(self, event):
@@ -456,20 +322,40 @@ class CheckClickArea(QWidget):
 
 
 class ColorSelectionArea(QWidget):
-    """使用色行／使用色枠。クリック、Shift選択、ドラッグ選択に対応。"""
+    """使用色行／使用色枠。クリック、Shift選択、他色へのドラッグ統合に対応。"""
 
     clicked = Signal(object)
-    dragStarted = Signal(object)
-    dragMoved = Signal(QPoint)
-    dragFinished = Signal()
+    dragStarted = Signal()
+    # (運んできた色rgb, モード) モード: "before" / "child" / "after"
+    colorDropped = Signal(object, str)
     contextMenuRequested = Signal(QPoint)
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._select_dragging = False
         self._selection_role = ""
         self._selection_frame_enabled = False
+        self._rgb = None
+        self._is_background = False
+        self._press_pos = None
+        self._press_modifiers = Qt.KeyboardModifier.NoModifier
+        self._drag_started = False
+        self._drop_mode = None
         self.setMouseTracking(True)
+        self.setAcceptDrops(True)
+
+    def setColorKey(self, rgb, is_background=False):
+        self._rgb = rgb
+        self._is_background = bool(is_background)
+
+    def _mode_for_pos(self, y):
+        """行内のY位置から、並べ替え(before/after)か子化(child)かを決める。"""
+        height = max(1, self.height())
+        ratio = min(1.0, max(0.0, y / height))
+        if ratio < 0.28:
+            return "before"
+        if ratio > 0.72:
+            return "after"
+        return "child"
 
     def setSelectionRole(self, role):
         """親は赤枠、子は青枠、未選択は初期版と同じ白枠で描画する。"""
@@ -533,18 +419,24 @@ class ColorSelectionArea(QWidget):
             horizontal_width,
             frame_color,
         )
+
+        if self._drop_mode == "child":
+            # 子化のドロップ先は、太い黄色枠で強調する。
+            painter.setPen(QPen(QColor("#ffca28"), 3))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRect(self.rect().adjusted(1, 1, -2, -2))
+        elif self._drop_mode in ("before", "after"):
+            # 並べ替えのドロップ位置を、行の上端／下端の水平線で示す。
+            painter.setPen(QPen(QColor("#ffca28"), 3))
+            y = 1 if self._drop_mode == "before" else self.height() - 2
+            painter.drawLine(2, y, self.width() - 3, y)
         painter.end()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            self._select_dragging = True
-            try:
-                self.grabMouse()
-            except RuntimeError as exc:
-                log.debug("grabMouse() failed: %s", exc)
-            # ドラッグ対象のON/OFFは、クリックで状態が変わる前に確定する。
-            self.dragStarted.emit(event.modifiers())
-            self.clicked.emit(event.modifiers())
+            self._press_pos = event.position().toPoint()
+            self._press_modifiers = event.modifiers()
+            self._drag_started = False
             event.accept()
             return
         if event.button() == Qt.MouseButton.RightButton:
@@ -554,23 +446,107 @@ class ColorSelectionArea(QWidget):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
-        if self._select_dragging and event.buttons() & Qt.MouseButton.LeftButton:
-            self.dragMoved.emit(event.globalPosition().toPoint())
-            event.accept()
-            return
+        if (
+            self._press_pos is not None
+            and not self._drag_started
+            and event.buttons() & Qt.MouseButton.LeftButton
+            and self._rgb is not None
+            and not self._is_background
+        ):
+            distance = (
+                event.position().toPoint() - self._press_pos
+            ).manhattanLength()
+            if distance >= QApplication.startDragDistance():
+                self._start_reorder_drag()
+                event.accept()
+                return
         super().mouseMoveEvent(event)
 
+    def _start_reorder_drag(self):
+        if self._rgb is None:
+            return
+        self._drag_started = True
+        self.dragStarted.emit()
+        red, green, blue = self._rgb
+        mime = QMimeData()
+        mime.setData(
+            USED_COLOR_MIME,
+            QByteArray(bytes((red, green, blue))),
+        )
+        drag = QDrag(self)
+        drag.setMimeData(mime)
+
+        # ドラッグ中は運んでいる色をそのままカーソルに付ける。
+        pixmap = QPixmap(28, 20)
+        pixmap.fill(QColor(red, green, blue))
+        painter = QPainter(pixmap)
+        painter.setPen(QPen(QColor("#000000"), 1))
+        painter.drawRect(0, 0, pixmap.width() - 1, pixmap.height() - 1)
+        painter.end()
+        drag.setPixmap(pixmap)
+        drag.setHotSpot(QPoint(pixmap.width() // 2, pixmap.height() // 2))
+        drag.exec(Qt.DropAction.MoveAction)
+        self._press_pos = None
+
     def mouseReleaseEvent(self, event):
-        if self._select_dragging and event.button() == Qt.MouseButton.LeftButton:
-            self._select_dragging = False
-            try:
-                self.releaseMouse()
-            except RuntimeError as exc:
-                log.debug("releaseMouse() failed: %s", exc)
-            self.dragFinished.emit()
+        if event.button() == Qt.MouseButton.LeftButton:
+            was_drag = self._drag_started
+            self._press_pos = None
+            self._drag_started = False
+            if not was_drag:
+                # ドラッグにならなければ、通常の選択トグルとして扱う。
+                self.clicked.emit(self._press_modifiers)
             event.accept()
             return
         super().mouseReleaseEvent(event)
+
+    def _payload_rgb(self, mime):
+        if not mime.hasFormat(USED_COLOR_MIME):
+            return None
+        data = bytes(mime.data(USED_COLOR_MIME))
+        if len(data) < 3:
+            return None
+        return (data[0], data[1], data[2])
+
+    def _accepts(self, event):
+        payload = self._payload_rgb(event.mimeData())
+        # 背景行はドロップ先にしない。自分自身へのドロップも無視する。
+        return payload is not None and payload != self._rgb and not self._is_background
+
+    def dragEnterEvent(self, event):
+        if not self._accepts(event):
+            event.ignore()
+            return
+        event.acceptProposedAction()
+        self._drop_mode = self._mode_for_pos(event.position().toPoint().y())
+        self.update()
+
+    def dragMoveEvent(self, event):
+        if not self._accepts(event):
+            event.ignore()
+            return
+        event.acceptProposedAction()
+        mode = self._mode_for_pos(event.position().toPoint().y())
+        if mode != self._drop_mode:
+            self._drop_mode = mode
+            self.update()
+
+    def dragLeaveEvent(self, event):
+        if self._drop_mode is not None:
+            self._drop_mode = None
+            self.update()
+
+    def dropEvent(self, event):
+        mode = self._drop_mode or self._mode_for_pos(
+            event.position().toPoint().y()
+        )
+        self._drop_mode = None
+        self.update()
+        if not self._accepts(event):
+            event.ignore()
+            return
+        event.acceptProposedAction()
+        self.colorDropped.emit(self._payload_rgb(event.mimeData()), mode)
 
     def contextMenuEvent(self, event):
         self.contextMenuRequested.emit(event.globalPos())
@@ -582,8 +558,11 @@ class UsedColorPanel(QWidget):
     isolateColorClicked = Signal(QColor)
     clearIsolateRequested = Signal()
     sourceScreenColorPicked = Signal(QColor)
-    applyReplacementRequested = Signal(object)
     mergeColorsRequested = Signal(object, object)
+    # 親子グループの非破壊プレビュー更新（{子rgb: 親rgb}）。
+    previewGroupsChanged = Signal(object)
+    # プレビュー中の親子を実ピクセルへ焼き込む要求（{子rgb: 親rgb}）。
+    freezeGroupsRequested = Signal(object)
     deleteColorsRequested = Signal(object)
     adjustLineThicknessRequested = Signal(object)
     focusColorRequested = Signal(object)
@@ -602,28 +581,25 @@ class UsedColorPanel(QWidget):
         self.setMinimumHeight(0)
         self.background_rgb = (255, 255, 255)
         self.colors = []
-        self.replacements = {}
         self.enabled_colors = {self.background_rgb: True}
         self.mask_rgbs = {self.background_rgb}
         self._mask_all_mode = True
+
+        # 親子グループ（非破壊）。{子rgb: 親rgb}。親自身は含めない。
+        # ドラッグで子付けし、キャンバス上では子を親色として描画する。
+        self.child_to_parent = {}
 
         # Used-color selection is separate from the drawing mask.
         # The most recently selected color is the parent; the others are children.
         self.selected_rgbs = []
         self.parent_rgb = None
         self._selection_anchor_rgb = None
-        self._selection_drag_active = False
-        self._selection_drag_state = True
-        self._selection_drag_touched = set()
 
         self.visibility_checks = {}
         self.mask_checks = {}
         self.source_buttons = {}
         self.source_wrappers = {}
-        self.replacement_buttons = {}
         self.row_widgets = {}
-        self._replacement_popup = None
-        self._replacement_popup_rgb = None
 
         self._visibility_sweep_active = False
         self._visibility_sweep_state = True
@@ -643,8 +619,9 @@ class UsedColorPanel(QWidget):
         layout.setSpacing(2)
         layout.addWidget(QLabel("<b>使用色</b>"))
         note = QLabel(
-            "使用色：左クリックで親・子を選択／再クリックで解除。"
-            "右クリックで統合・削除、上下ドラッグで選択を連続ON/OFFします。"
+            "使用色：ドラッグで並べ替え。色の中央へドロップするとその色の"
+            "「子」になり、キャンバス上では親色でプレビュー表示します。"
+            "問題なければ［フリーズ］で実画像へ焼き込み。右クリックで解除など。"
         )
         note.setWordWrap(True)
         layout.addWidget(note)
@@ -671,12 +648,11 @@ class UsedColorPanel(QWidget):
         mask_header.setStyleSheet("font-size:10px;")
         mask_header.setToolTip("各行の薄い背景セル全体を右クリックしてマスクメニューを開けます。")
         header.addWidget(mask_header, 0, 1, Qt.AlignmentFlag.AlignCenter)
-        header.addWidget(QLabel("選択"), 0, 2)
-        header.addWidget(QLabel("置換色"), 0, 3)
-        header.setColumnMinimumWidth(2, 72)
-        header.setColumnMinimumWidth(3, 72)
+        color_header = QLabel("色（ドラッグで並べ替え／親子付け）")
+        color_header.setStyleSheet("font-size:10px;")
+        header.addWidget(color_header, 0, 2)
+        header.setColumnMinimumWidth(2, 144)
         header.setColumnStretch(2, 1)
-        header.setColumnStretch(3, 1)
         layout.addWidget(header_widget)
 
         self.scroll = QScrollArea()
@@ -736,24 +712,26 @@ class UsedColorPanel(QWidget):
         )
         self.merge_button.setStyleSheet("font-size:10px;padding:1px;")
 
-        self.apply_button = QPushButton("色置換")
-        self.apply_button.setToolTip(
-            "右側に登録した置換色を、選択中レイヤーのすべてのコマへ適用します。"
+        self.freeze_button = QPushButton("フリーズ")
+        self.freeze_button.setToolTip(
+            "プレビュー中の親子（子→親の塗り替え）を、実際の画像へ焼き込みます。"
+            "焼き込むと親子は解除され、Undoで元に戻せます。"
         )
-        self.apply_button.clicked.connect(self._emit_replacements)
-        self.apply_button.setMinimumWidth(72)
-        self.apply_button.setMaximumWidth(16777215)
-        self.apply_button.setSizePolicy(
+        self.freeze_button.clicked.connect(self._emit_freeze)
+        self.freeze_button.setEnabled(False)
+        self.freeze_button.setMinimumWidth(72)
+        self.freeze_button.setMaximumWidth(16777215)
+        self.freeze_button.setSizePolicy(
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Fixed,
         )
-        self.apply_button.setStyleSheet("font-size:10px;padding:1px;")
+        self.freeze_button.setStyleSheet("font-size:10px;padding:1px;")
 
         for column, button in enumerate((
             self.show_all_button,
             self.clear_masks_button,
             self.merge_button,
-            self.apply_button,
+            self.freeze_button,
         )):
             button.setMinimumWidth(0)
             button_row.addWidget(button, 0, column)
@@ -815,50 +793,30 @@ class UsedColorPanel(QWidget):
 
         if rgb == self.background_rgb:
             button.setToolTip(
-                "背景色 #FFFFFF。背景色の置換はできません。"
+                "背景色 #FFFFFF。並べ替えや親子付けの対象にはできません。"
             )
         else:
             role_note = f"現在は{role}です。" if role else ""
+            group_note = ""
+            parent_of_this = self.child_to_parent.get(rgb)
+            if parent_of_this is not None:
+                group_note = (
+                    f"　現在 #{parent_of_this[0]:02X}{parent_of_this[1]:02X}"
+                    f"{parent_of_this[2]:02X} の子（プレビュー中）です。"
+                )
             button.setToolTip(
                 "クリック：統合用の使用色として選択／再クリックで解除。"
-                "最後に選んだ色が親になります。上下ドラッグ：選択を連続ON/OFF。"
+                "上へドラッグ＝並べ替え、色の中央へドロップ＝その色の子にして"
+                "親色でプレビュー。右クリックで親子解除などのメニュー。"
                 + role_note
-            )
-
-    def _set_replacement_button_style(self, source_rgb):
-        button = self.replacement_buttons.get(source_rgb)
-        if button is None:
-            return
-        replacement_color = self.replacements.get(source_rgb)
-        if replacement_color is None:
-            button.setText("未設定")
-            button.setStyleSheet(
-                "QToolButton{background:#f2f2f2;border:1px dashed #888;}"
-                "QToolButton:hover{border:1px dashed #888;}"
-            )
-        else:
-            button.setText(
-                replacement_color.name(QColor.NameFormat.HexRgb).upper()
-            )
-            text_color = self._text_color((
-                replacement_color.red(),
-                replacement_color.green(),
-                replacement_color.blue(),
-            ))
-            button.setStyleSheet(
-                "QToolButton{"
-                f"background:{replacement_color.name()};color:{text_color};"
-                "border:1px solid #777;}"
-                "QToolButton:hover{border:1px solid #777;}"
+                + group_note
             )
 
     def _clear_rows(self):
-        self._close_replacement_editor()
         self.visibility_checks.clear()
         self.mask_checks.clear()
         self.source_buttons.clear()
         self.source_wrappers.clear()
-        self.replacement_buttons.clear()
         self.row_widgets.clear()
         while self.rows.count() > 1:
             item = self.rows.takeAt(0)
@@ -868,8 +826,6 @@ class UsedColorPanel(QWidget):
 
     def _remove_color_row(self, rgb):
         """Remove only one row so palette updates do not rebuild every widget."""
-        if self._replacement_popup_rgb == rgb:
-            self._close_replacement_editor()
         widget = self.row_widgets.pop(rgb, None)
         if widget is not None:
             self.rows.removeWidget(widget)
@@ -878,20 +834,21 @@ class UsedColorPanel(QWidget):
         self.mask_checks.pop(rgb, None)
         self.source_buttons.pop(rgb, None)
         self.source_wrappers.pop(rgb, None)
-        self.replacement_buttons.pop(rgb, None)
 
     def _make_source_wrapper(self, source, source_rgb):
+        is_background = source_rgb == self.background_rgb
         wrapper = ColorSelectionArea()
+        wrapper.setColorKey(source_rgb, is_background)
+        if not is_background:
+            wrapper.setCursor(Qt.CursorShape.OpenHandCursor)
         wrapper.clicked.connect(
             lambda modifiers, rgb=source_rgb:
             self._select_used_color(rgb, modifiers)
         )
-        wrapper.dragStarted.connect(
-            lambda modifiers, rgb=source_rgb:
-            self._begin_used_color_drag(rgb, modifiers)
+        wrapper.colorDropped.connect(
+            lambda dragged_rgb, mode, target_rgb=source_rgb:
+            self._handle_color_drop(dragged_rgb, target_rgb, mode)
         )
-        wrapper.dragMoved.connect(self._move_used_color_drag)
-        wrapper.dragFinished.connect(self._end_used_color_drag)
         wrapper.contextMenuRequested.connect(
             lambda global_pos, rgb=source_rgb:
             self._show_used_color_context_menu(rgb, global_pos)
@@ -1021,43 +978,13 @@ class UsedColorPanel(QWidget):
             )
         row.addWidget(visible_area, 0, 0)
         row.addWidget(mask_area, 0, 1)
-
-        if is_background:
-            # Background does not need a replacement column, so its swatch spans both.
-            row.addWidget(source_wrapper, 0, 2, 1, 2)
-        else:
-            replacement = ScreenEyedropButton()
-            replacement.setFixedHeight(26)
-            replacement.setMinimumWidth(72)
-            replacement.setMaximumWidth(16777215)
-            replacement.setSizePolicy(
-                QSizePolicy.Policy.Expanding,
-                QSizePolicy.Policy.Fixed,
-            )
-            replacement.setStyleSheet("font-size:10px;padding:1px;")
-            replacement.setToolTip(
-                "クリック：現在のメイン／サブ色を登録。"
-                "登録済みでもう一度クリック：未設定へ戻す。"
-                "左または右へドラッグ：その位置をスポイト。"
-                "右クリック：置換色のカラースライダーを開く／もう一度で閉じる。"
-            )
-            replacement.clicked.connect(
-                lambda _=False, rgb=source_rgb: self._toggle_replacement(rgb)
-            )
-            replacement.colorPicked.connect(
-                lambda c, rgb=source_rgb: self._set_replacement_color(rgb, c)
-            )
-            replacement.colorEditorRequested.connect(
-                lambda global_pos, rgb=source_rgb:
-                self._toggle_replacement_editor(rgb, global_pos)
-            )
-            self.replacement_buttons[source_rgb] = replacement
-            self._set_replacement_button_style(source_rgb)
-            row.addWidget(source_wrapper, 0, 2)
-            row.addWidget(replacement, 0, 3)
+        # 置換色列を廃止し、色スウォッチが選択列全体を占める。
+        row.addWidget(source_wrapper, 0, 2)
 
         self.row_widgets[source_rgb] = row_widget
+        # 末尾（ストレッチの手前）へ追加する。並び順は _reapply_row_order で整える。
         self.rows.insertWidget(max(0, self.rows.count() - 1), row_widget)
+        self._refresh_group_display(source_rgb)
 
     def _normalized_colors(self, colors):
         seen = set()
@@ -1086,6 +1013,7 @@ class UsedColorPanel(QWidget):
 
         old_mask_rgbs = set(self.mask_rgbs)
         old_selected = list(self.selected_rgbs)
+        old_group_mapping = self._group_mapping()
 
         # 消えた色だけを削除する。全行再構築と色順の並べ替えを避ける。
         for rgb in tuple(removed):
@@ -1094,7 +1022,8 @@ class UsedColorPanel(QWidget):
             self._remove_color_row(rgb)
             self.enabled_colors.pop(rgb, None)
             self.mask_rgbs.discard(rgb)
-            self.replacements.pop(rgb, None)
+            # 消えた色が絡む親子プレビューは破棄する。
+            self._drop_group_links_for(rgb)
 
         self.selected_rgbs = [
             rgb for rgb in self.selected_rgbs
@@ -1132,11 +1061,14 @@ class UsedColorPanel(QWidget):
         for rgb in set(old_selected) | set(self.selected_rgbs):
             if rgb in self.source_buttons:
                 self._set_source_button_style(rgb)
-        self.replacements = {
-            rgb: color for rgb, color in self.replacements.items()
-            if rgb in incoming_keys and rgb != self.background_rgb
-        }
 
+        # 消えた色で親子が壊れた場合に備え、正規化と表示更新を行う。
+        self._normalize_groups()
+        self._reapply_row_order()
+        self._refresh_all_group_displays()
+        new_group_mapping = self._group_mapping()
+        if new_group_mapping != old_group_mapping:
+            self._emit_preview()
         self.count_label.setText(f"{len(self.colors)}色")
         if self._isolated_rgb not in incoming_keys:
             self._isolated_rgb = None
@@ -1149,6 +1081,7 @@ class UsedColorPanel(QWidget):
             self.selectedColorsChanged.emit(set(self.selected_rgbs))
         if palette_changed:
             self.visibleColorsChanged.emit(self.enabled_rgb_set())
+
     def add_color(self, color):
         """Add a newly drawn color immediately, before a whole-image scan."""
         qc = QColor(color)
@@ -1492,6 +1425,22 @@ class UsedColorPanel(QWidget):
 
         action_focus = menu.addAction("対象に注視")
         menu.addSeparator()
+
+        # 親子グループ（プレビュー）関連。
+        clicked_rgb = tuple(rgb)
+        in_group = (
+            clicked_rgb in self.child_to_parent
+            or any(p == clicked_rgb for p in self.child_to_parent.values())
+        )
+        action_ungroup = menu.addAction("親子を解除")
+        action_ungroup.setEnabled(in_group)
+        action_ungroup.setToolTip("この色に関わる親子プレビューを解除します。")
+        action_ungroup_all = menu.addAction("親子をすべて解除")
+        action_ungroup_all.setEnabled(bool(self.child_to_parent))
+        action_freeze = menu.addAction("親子をフリーズ（焼き込み）")
+        action_freeze.setEnabled(bool(self.child_to_parent))
+        action_freeze.setToolTip("プレビュー中の子→親の塗り替えを実画像へ確定します。")
+        menu.addSeparator()
         action_clear = menu.addAction("全選択解除")
 
         chosen = menu.exec(global_position)
@@ -1517,6 +1466,15 @@ class UsedColorPanel(QWidget):
         elif chosen is action_focus:
             self._set_used_color_parent(rgb)
             self.focusColorRequested.emit(tuple(rgb))
+        elif chosen is action_ungroup:
+            if self._drop_group_links_for(clicked_rgb):
+                self._normalize_groups()
+                self._refresh_all_group_displays()
+                self._emit_preview()
+        elif chosen is action_ungroup_all:
+            self._clear_groups()
+        elif chosen is action_freeze:
+            self._emit_freeze()
         elif chosen is action_clear:
             self._clear_used_color_selection()
 
@@ -1546,44 +1504,188 @@ class UsedColorPanel(QWidget):
         self._selection_anchor_rgb = rgb
         self._toggle_used_color_selection(rgb)
 
-    def _begin_used_color_drag(self, rgb, modifiers):
-        if rgb == self.background_rgb:
-            return
-        self._selection_drag_active = True
-        self._selection_drag_touched = {rgb}
-        # 未選択から開始＝ONへ、選択済みから開始＝OFFへなぞる。
-        self._selection_drag_state = rgb not in self.selected_rgbs
-
-    def _used_color_rgb_at_global(self, global_position):
-        # 表示・マスク・置換色列へはみ出しても誤操作しないよう、
-        # 「選択」列のラッパー内だけをドラッグ対象にする。
-        for rgb, widget in self.source_wrappers.items():
-            if rgb == self.background_rgb:
-                continue
-            if widget.rect().contains(widget.mapFromGlobal(global_position)):
-                return rgb
+    # ------------------------------------------------------------------
+    # ドラッグ＆ドロップによる並べ替え・親子付け（非破壊プレビュー）
+    # ------------------------------------------------------------------
+    def _color_index(self, rgb):
+        for index, color in enumerate(self.colors):
+            if self._rgb_key(color) == rgb:
+                return index
         return None
 
-    def _move_used_color_drag(self, global_position):
-        if not self._selection_drag_active:
-            return
-        rgb = self._used_color_rgb_at_global(global_position)
-        if rgb is None or rgb in self._selection_drag_touched:
-            return
-        self._selection_drag_touched.add(rgb)
-        old = set(self.selected_rgbs)
-        if self._selection_drag_state:
-            if rgb not in self.selected_rgbs:
-                self.selected_rgbs.append(rgb)
-        elif rgb in self.selected_rgbs:
-            self.selected_rgbs.remove(rgb)
-        self.parent_rgb = self.selected_rgbs[-1] if self.selected_rgbs else None
-        self._refresh_used_color_styles(old | set(self.selected_rgbs))
-        self.selectedColorsChanged.emit(set(self.selected_rgbs))
+    def _group_root(self, rgb):
+        """親子チェーンをたどって最終的な親（ルート色）を返す。"""
+        seen = set()
+        current = rgb
+        while current in self.child_to_parent and current not in seen:
+            seen.add(current)
+            current = self.child_to_parent[current]
+        return current
 
-    def _end_used_color_drag(self):
-        self._selection_drag_active = False
-        self._selection_drag_touched.clear()
+    def _drop_group_links_for(self, rgb):
+        """指定色が親でも子でも、その親子リンクをすべて解除する。"""
+        changed = self.child_to_parent.pop(rgb, None) is not None
+        for child in [c for c, p in self.child_to_parent.items() if p == rgb]:
+            self.child_to_parent.pop(child, None)
+            changed = True
+        return changed
+
+    def _handle_color_drop(self, dragged_rgb, target_rgb, mode):
+        dragged_rgb = tuple(dragged_rgb)
+        target_rgb = tuple(target_rgb)
+        if dragged_rgb == target_rgb or dragged_rgb == self.background_rgb:
+            return
+        if target_rgb == self.background_rgb:
+            return
+        if mode == "child":
+            self._make_child_of(dragged_rgb, target_rgb)
+        else:
+            self._reorder_color(dragged_rgb, target_rgb, mode)
+
+    def _make_child_of(self, child_rgb, parent_rgb):
+        """child_rgb を parent_rgb の子にして、親色プレビューを更新する。"""
+        # 循環を避ける。ドロップ先が自分の子孫なら親子化しない。
+        probe = parent_rgb
+        guard = 0
+        while probe in self.child_to_parent and guard < len(self.child_to_parent) + 1:
+            if probe == child_rgb:
+                return
+            probe = self.child_to_parent[probe]
+            guard += 1
+        # 親自身が誰かの子なら、実際のルートへ束ねる（単層に正規化）。
+        root = self._group_root(parent_rgb)
+        if root == child_rgb:
+            return
+        # child_rgb にぶら下がっていた子は、まとめて新しいルートへ移す。
+        for grandchild in [c for c, p in self.child_to_parent.items() if p == child_rgb]:
+            self.child_to_parent[grandchild] = root
+        self.child_to_parent[child_rgb] = root
+        self._normalize_groups()
+        self._refresh_all_group_displays()
+        self._emit_preview()
+
+    def _normalize_groups(self):
+        """全リンクをルート直付けに正規化し、背景・自己参照を除去する。"""
+        cleaned = {}
+        for child, parent in self.child_to_parent.items():
+            if child == self.background_rgb or child == parent:
+                continue
+            root = self._group_root(parent)
+            if root == child or root == self.background_rgb:
+                continue
+            cleaned[child] = root
+        self.child_to_parent = cleaned
+
+    def _reorder_color(self, dragged_rgb, target_rgb, mode):
+        """dragged_rgb を target_rgb の前／後ろへ移動する（背景は先頭固定）。"""
+        drag_index = self._color_index(dragged_rgb)
+        if drag_index is None:
+            return
+        moved = self.colors.pop(drag_index)
+        target_index = self._color_index(target_rgb)
+        if target_index is None:
+            self.colors.insert(drag_index, moved)
+            return
+        if mode == "after":
+            target_index += 1
+        # 背景色（先頭）より前には入れない。
+        target_index = max(1, target_index)
+        self.colors.insert(target_index, moved)
+        self._reapply_row_order()
+
+    def _reapply_row_order(self):
+        """self.colors の順序どおりに行ウィジェットを並べ替える。"""
+        for position, color in enumerate(self.colors):
+            rgb = self._rgb_key(color)
+            widget = self.row_widgets.get(rgb)
+            if widget is None:
+                continue
+            self.rows.removeWidget(widget)
+            self.rows.insertWidget(position, widget)
+
+    def _refresh_all_group_displays(self):
+        for rgb in list(self.source_buttons):
+            self._refresh_group_display(rgb)
+        has_groups = bool(self.child_to_parent)
+        self.freeze_button.setEnabled(has_groups)
+
+    def _refresh_group_display(self, rgb):
+        """子色は親色でプレビュー表示し、インデントとリンク記号を付ける。"""
+        button = self.source_buttons.get(rgb)
+        wrapper = self.source_wrappers.get(rgb)
+        if button is None:
+            return
+        parent = self.child_to_parent.get(rgb)
+        base_text = (
+            "背景色 #FFFFFF"
+            if rgb == self.background_rgb
+            else "#{:02X}{:02X}{:02X}".format(*rgb)
+        )
+        if parent is not None:
+            root = self._group_root(rgb)
+            preview = QColor(*root)
+            text_color = self._text_color(root)
+            button.setText(f"　└ {base_text} → 親色")
+            button.setStyleSheet(
+                "QToolButton{"
+                f"background:{preview.name()};color:{text_color};"
+                "border:1px dashed #ffca28;padding:2px;}"
+                "QToolButton:hover{"
+                f"background:{preview.name()};color:{text_color};"
+                "border:1px dashed #ffca28;}"
+            )
+            if wrapper is not None:
+                margin = wrapper.layout()
+                if margin is not None:
+                    margin.setContentsMargins(22, 3, 8, 3)
+        else:
+            child_count = sum(
+                1 for value in self.child_to_parent.values() if value == rgb
+            )
+            button.setText(
+                base_text if not child_count else f"{base_text}（親・{child_count}）"
+            )
+            self._set_source_button_style(rgb)
+            if wrapper is not None:
+                margin = wrapper.layout()
+                if margin is not None:
+                    margin.setContentsMargins(8, 3, 8, 3)
+
+    def _group_mapping(self):
+        """{子rgb: ルート親rgb} を返す（プレビュー／フリーズ共通）。"""
+        return {
+            child: self._group_root(child)
+            for child in self.child_to_parent
+        }
+
+    def _emit_preview(self):
+        self.previewGroupsChanged.emit(self._group_mapping())
+
+    def _clear_groups(self):
+        if not self.child_to_parent:
+            return
+        self.child_to_parent = {}
+        self._refresh_all_group_displays()
+        self._emit_preview()
+
+    def on_groups_frozen(self):
+        """フリーズ確定後：プレビューを解除する（実ピクセルは親色に確定済み）。"""
+        self.child_to_parent = {}
+        self._refresh_all_group_displays()
+        self.previewGroupsChanged.emit({})
+
+    def _emit_freeze(self):
+        mapping = self._group_mapping()
+        if not mapping:
+            window = self.window()
+            if hasattr(window, "statusBar"):
+                window.statusBar().showMessage(
+                    "フリーズする親子（プレビュー）がありません。"
+                    "色を別の色の中へドロップして親子を作成してください。",
+                    2800,
+                )
+            return
+        self.freezeGroupsRequested.emit(mapping)
 
     def _toggle_used_color_selection(self, rgb):
         if rgb == self.background_rgb:
@@ -1701,140 +1803,3 @@ class UsedColorPanel(QWidget):
         self._pre_isolate_enabled = None
         self.enabled_colors[source_rgb] = bool(checked)
         self.visibleColorsChanged.emit(self.enabled_rgb_set())
-
-    def _toggle_replacement(self, source_rgb):
-        """未設定なら登録、登録済みなら同じクリックで解除する。"""
-        if source_rgb == self.background_rgb:
-            return
-        if source_rgb in self.replacements:
-            self._clear_replacement(source_rgb)
-        else:
-            self._request_replacement(source_rgb)
-
-    def _close_replacement_editor(self):
-        popup = self._replacement_popup
-        self._replacement_popup = None
-        self._replacement_popup_rgb = None
-        if popup is not None:
-            popup.close()
-            popup.deleteLater()
-
-    def _replacement_popup_destroyed(self, popup):
-        if self._replacement_popup is popup:
-            self._replacement_popup = None
-            self._replacement_popup_rgb = None
-
-    def _toggle_replacement_editor(self, source_rgb, global_position):
-        """右クリックで開き、同じ置換色をもう一度右クリックすると閉じる。"""
-        if source_rgb == self.background_rgb:
-            return
-        if (
-            self._replacement_popup is not None
-            and self._replacement_popup.isVisible()
-            and self._replacement_popup_rgb == source_rgb
-        ):
-            self._close_replacement_editor()
-            return
-
-        self._close_replacement_editor()
-        color = self.replacements.get(source_rgb)
-        if color is None:
-            window = self.window()
-            if hasattr(window, "canvas"):
-                canvas = window.canvas
-                color = (
-                    canvas.sub_color
-                    if canvas.color_mode == "sub"
-                    else canvas.main_color
-                )
-            else:
-                color = QColor(*source_rgb)
-            # ポップアップを開いた時点で編集対象として登録する。
-            self._set_replacement_color(source_rgb, color)
-
-        popup = ReplacementColorPopup(
-            QColor(color),
-            source_rgb,
-            self,
-        )
-        self._replacement_popup = popup
-        self._replacement_popup_rgb = source_rgb
-        popup.colorChanged.connect(
-            lambda changed, rgb=source_rgb:
-            self._set_replacement_color(rgb, changed)
-        )
-        popup.destroyed.connect(
-            lambda _obj=None, current=popup:
-            self._replacement_popup_destroyed(current)
-        )
-
-        popup.adjustSize()
-        screen = QApplication.screenAt(global_position) or QApplication.primaryScreen()
-        position = QPoint(global_position)
-        if screen is not None:
-            available = screen.availableGeometry()
-            width = popup.sizeHint().width()
-            height = popup.sizeHint().height()
-            position.setX(
-                max(available.left(), min(position.x(), available.right() - width + 1))
-            )
-            position.setY(
-                max(available.top(), min(position.y(), available.bottom() - height + 1))
-            )
-        popup.move(position)
-        popup.show()
-        popup.raise_()
-        popup.activateWindow()
-
-    def _request_replacement(self, source_rgb):
-        if source_rgb == self.background_rgb:
-            return
-        window = self.window()
-        if not hasattr(window, "canvas"):
-            return
-        canvas = window.canvas
-        color = (
-            canvas.sub_color
-            if canvas.color_mode == "sub"
-            else canvas.main_color
-        )
-        self.replacements[source_rgb] = QColor(color)
-        self._set_replacement_button_style(source_rgb)
-
-    def register_replacements(self, mapping):
-        registered = 0
-        for source_rgb, target_rgb in mapping.items():
-            source_rgb = tuple(int(value) for value in source_rgb[:3])
-            target_rgb = tuple(int(value) for value in target_rgb[:3])
-            if (
-                source_rgb == self.background_rgb
-                or source_rgb not in self.replacement_buttons
-            ):
-                continue
-            self.replacements[source_rgb] = QColor(*target_rgb)
-            self._set_replacement_button_style(source_rgb)
-            registered += 1
-        return registered
-
-    def _set_replacement_color(self, source_rgb, color):
-        if source_rgb == self.background_rgb:
-            return
-        self.replacements[source_rgb] = QColor(color)
-        self._set_replacement_button_style(source_rgb)
-
-    def _clear_replacement(self, source_rgb):
-        """登録済みの置換色を、同じ左クリックでもう一度押して解除する。"""
-        if source_rgb == self.background_rgb:
-            return
-        if self._replacement_popup_rgb == source_rgb:
-            self._close_replacement_editor()
-        self.replacements.pop(source_rgb, None)
-        self._set_replacement_button_style(source_rgb)
-
-    def _emit_replacements(self):
-        mapping = {
-            tuple(source): (color.red(), color.green(), color.blue())
-            for source, color in self.replacements.items()
-            if tuple(source) != self.background_rgb
-        }
-        self.applyReplacementRequested.emit(mapping)

@@ -50,6 +50,8 @@ class PaintCanvas(
         self._sequence_archive={}
         self.timeline_mode="sheet"
         self.tool="brush"; self.temp_tool=None; self.main_color=QColor("black"); self.sub_color=QColor(255,0,0); self.color_mode="main"; self.transparent_display_color=QColor("white"); self.background_mask_rgb=(255,255,255); self.mask_color_rgbs=set(); self.mask_color_rgb=None; self.mask_all_enabled=True; self.selected_used_color_rgbs=set(); self.visible_color_rgbs=None
+        # 使用色の親子プレビュー：{子rgb: 親rgb}。表示時のみ子を親色へ塗り替える（非破壊）。
+        self.preview_color_remap={}
         self.selection_polygon=[]
         self.selection_mask_override=None
         self.selection_outline_polygons=[]
@@ -3239,7 +3241,12 @@ class PaintCanvas(
             if getattr(layer, "color_filter_enabled", False) and layer.color_filter_rgb is not None
             else None
         )
-        if visible is None and legacy_rgb is None:
+        # 使用色の親子プレビュー：表示時のみ子色を親色へ塗り替える（非破壊）。
+        remap = (
+            dict(getattr(self, "preview_color_remap", None) or {})
+            if apply_palette_filter else {}
+        )
+        if visible is None and legacy_rgb is None and not remap:
             return layer.image
         rgb = legacy_rgb
         try:
@@ -3249,7 +3256,8 @@ class PaintCanvas(
             image_key = id(layer.image)
         width, height = layer.image.width(), layer.image.height()
         visible_key = None if visible is None else tuple(sorted(visible))
-        key = (image_key, width, height, rgb, visible_key)
+        remap_key = tuple(sorted(remap.items())) if remap else None
+        key = (image_key, width, height, rgb, visible_key, remap_key)
         cached = self._color_filter_cache.get(key)
         if cached is not None:
             return cached
@@ -3305,6 +3313,17 @@ class PaintCanvas(
             )
             keep &= opaque & (packed == packed_target)
         pixels[:, :, 3][~keep] = 0
+
+        # 親子プレビュー：残っている子色ピクセルを親色へ塗り替える。
+        for child, parent in remap.items():
+            child_packed = (
+                (int(child[0]) << 16) | (int(child[1]) << 8) | int(child[2])
+            )
+            mask = keep & (packed == child_packed)
+            if mask.any():
+                pixels[:, :, 0][mask] = int(parent[0])
+                pixels[:, :, 1][mask] = int(parent[1])
+                pixels[:, :, 2][mask] = int(parent[2])
 
         filtered = rgba.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
         if len(self._color_filter_cache) >= 96:

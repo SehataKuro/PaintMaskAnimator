@@ -140,11 +140,11 @@ class MainWindow(
         )
         self.action_panel.add_action(
             "same_image_replacement",
-            "同一画像を置換色に登録",
+            "同一画像から色置換",
             self.register_same_image_replacements,
             tooltip=(
                 "同じタイムライン位置にある上のレイヤーと画素配置を比較し、"
-                "一致した色対応を置換色へ登録します。"
+                "一致した色対応をそのまま実画像へ適用します。"
             ),
             source="builtin",
         )
@@ -981,9 +981,8 @@ class MainWindow(
             lambda color: self.apply_sampled_color_to_mode("main", color)
         )
         self.palette.sourceScreenColorPicked.connect(self.apply_sampled_color)
-        self.palette.applyReplacementRequested.connect(
-            self.apply_palette_replacements
-        )
+        self.palette.previewGroupsChanged.connect(self.set_preview_color_groups)
+        self.palette.freezeGroupsRequested.connect(self.freeze_preview_color_groups)
         self.palette.mergeColorsRequested.connect(self.apply_palette_merge)
         self.palette.deleteColorsRequested.connect(
             self.apply_palette_delete
@@ -1835,19 +1834,18 @@ class MainWindow(
             )
             if mapping is None:
                 continue
-            registered = self.palette.register_replacements(mapping)
-            if registered <= 0:
+            # 置換色列は廃止したため、対応付けはその場で実画像へ適用する。
+            applied = self.apply_palette_replacements(
+                mapping,
+                operation="同一画像から色置換",
+            )
+            if not applied:
                 QMessageBox.warning(
                     self,
-                    "同一画像を置換色に登録",
-                    "一致する画像は見つかりましたが、登録できる使用色がありません。",
+                    "同一画像から色置換",
+                    "一致する画像は見つかりましたが、置換できる使用色がありません。",
                 )
                 return
-            self.statusBar().showMessage(
-                f"上側レイヤー「{target_layer.name}」から"
-                f"{registered}色を置換色に登録しました。",
-                4000,
-            )
             return
 
         QMessageBox.warning(
