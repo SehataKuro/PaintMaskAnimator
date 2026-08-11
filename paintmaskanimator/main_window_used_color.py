@@ -29,12 +29,47 @@ class UsedColorMixin(MainWindowMembers):
             return
         self.canvas.undo()
         self._refresh_used_colors_without_delay()
+        self.refresh_history_panel()
 
     def redo_with_used_colors(self):
         if not self.canvas.redo_stack:
             return
         self.canvas.redo()
         self._refresh_used_colors_without_delay()
+        self.refresh_history_panel()
+
+    def push_palette_history(self, before, label):
+        """使用色パネルの並べ替え・親子・表示/マスク変更をUndo履歴へ積む。"""
+        self.canvas.undo_stack.append(("palette_state", before, label))
+        self.canvas.undo_stack = self.canvas.undo_stack[-MAX_UNDO:]
+        self.canvas.redo_stack.clear()
+        self.refresh_history_panel()
+
+    def jump_history(self, delta):
+        """ヒストリーパネルのクリック位置まで、必要な回数だけUndo/Redoする。"""
+        try:
+            steps = int(delta)
+        except (TypeError, ValueError):
+            return
+        if steps < 0:
+            for _ in range(-steps):
+                if not self.canvas.undo_stack:
+                    break
+                self.canvas.undo()
+        elif steps > 0:
+            for _ in range(steps):
+                if not self.canvas.redo_stack:
+                    break
+                self.canvas.redo()
+        else:
+            return
+        self._refresh_used_colors_without_delay()
+        self.refresh_history_panel()
+
+    def refresh_history_panel(self):
+        panel = getattr(self, "history_panel", None)
+        if panel is not None:
+            panel.refresh()
 
     def _used_color_cache_key(self, image):
         try:

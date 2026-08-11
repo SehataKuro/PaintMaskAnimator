@@ -29,6 +29,7 @@ def _panel_docks(window):
         window.color_wheel_dock,
         window.color_slider_dock,
         window.palette_dock,
+        window.history_dock,
         window.timeline_dock,
     )
 

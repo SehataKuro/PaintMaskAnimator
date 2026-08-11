@@ -14,6 +14,31 @@ from .logging_setup import get_logger
 log = get_logger(__name__)
 
 
+# 各Undoエントリの種別から、ヒストリーパネルに出す日本語ラベルを引く。
+# エントリのタプル構造は変えず、種別（先頭要素）だけを見て表示名を決める。
+_HISTORY_LABELS = {
+    "doc": "全体編集",
+    "layer": "描画",
+    "layer_region": "描画",
+    "layer_tiles": "描画",
+    "layer_batch": "色編集",
+    "layer_remove": "レイヤー構成",
+    "layer_insert": "レイヤー構成",
+    "tween_batch": "トゥイーン",
+}
+
+
+def history_label_for(entry):
+    """Undoエントリ1件を、ヒストリー表示用の短いラベルに変換する。"""
+    if not entry:
+        return "編集"
+    kind = entry[0]
+    if kind == "palette_state":
+        # パレット操作は種別ごとのラベルを自身に持つ（3要素目）。
+        return entry[2] if len(entry) > 2 else "パレット編集"
+    return _HISTORY_LABELS.get(kind, "編集")
+
+
 class UndoMixin(CanvasMembers):
     def document_snapshot(self): return self._document.snapshot()
 
@@ -115,6 +140,11 @@ class UndoMixin(CanvasMembers):
                 self._stroke_display_layer_index = -1
                 self.cellChanged.emit(fi, li)
                 self.selectionChanged.emit()
+        elif e[0] == "palette_state":
+            # 使用色パネルの並び順・親子プレビュー・表示/マスクを復元する。
+            palette = getattr(self, "_palette", None)
+            if palette is not None and len(e) > 1:
+                palette.restore_history_state(e[1])
         elif e[0]=="doc":
             _,snap=e
             fs,cf,al,w,h=snap

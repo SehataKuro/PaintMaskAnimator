@@ -2,6 +2,8 @@ from .common import *  # noqa: F401,F403
 from .utils import _ScreenColorDragMixin
 from .logging_setup import get_logger
 
+from contextlib import contextmanager
+
 from PySide6.QtCore import QMimeData
 from PySide6.QtGui import QDrag
 
@@ -569,6 +571,9 @@ class UsedColorPanel(QWidget):
     maskColorsChanged = Signal(object)
     selectedColorsChanged = Signal(object)
     visibleColorsChanged = Signal(object)
+    # 並べ替え・親子・表示/マスクの変更をUndo履歴へ積む要求。
+    # (変更前スナップショット, 履歴ラベル) を渡す。
+    historyStatePush = Signal(object, str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -613,6 +618,10 @@ class UsedColorPanel(QWidget):
         self._pre_isolate_enabled = None
         self._mask_alt_rgb = None
         self._pre_mask_alt = None
+
+        # Undo履歴用。復元中は再記録を止め、スウィープ中は開始時状態を保持する。
+        self._history_suspended = False
+        self._sweep_history_before = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(3, 3, 3, 3)
@@ -1134,11 +1143,12 @@ class UsedColorPanel(QWidget):
         return True
 
     def _show_all_colors(self):
-        self._isolated_rgb = None
-        self._pre_isolate_enabled = None
-        for rgb in self.visibility_checks:
-            self._set_checkbox_without_signal(rgb, True)
-        self.visibleColorsChanged.emit(self.enabled_rgb_set())
+        with self._history_edit("全表示"):
+            self._isolated_rgb = None
+            self._pre_isolate_enabled = None
+            for rgb in self.visibility_checks:
+                self._set_checkbox_without_signal(rgb, True)
+            self.visibleColorsChanged.emit(self.enabled_rgb_set())
 
     def all_masks_enabled(self):
         keys = set(self.mask_checks)
@@ -1149,21 +1159,23 @@ class UsedColorPanel(QWidget):
         self.maskColorsChanged.emit(set(self.mask_rgbs))
 
     def _set_visibility_state(self, rgb, enabled):
-        self._isolated_rgb = None
-        self._pre_isolate_enabled = None
-        self._set_checkbox_without_signal(rgb, enabled)
-        self.visibleColorsChanged.emit(self.enabled_rgb_set())
+        with self._history_edit("表示の切り替え"):
+            self._isolated_rgb = None
+            self._pre_isolate_enabled = None
+            self._set_checkbox_without_signal(rgb, enabled)
+            self.visibleColorsChanged.emit(self.enabled_rgb_set())
 
     def _disable_other_visible_colors(self, rgb):
         """右クリック対象だけを表示し、それ以外をOFFにする。"""
-        self._isolated_rgb = None
-        self._pre_isolate_enabled = None
-        for key in self.visibility_checks:
-            self._set_checkbox_without_signal(
-                key,
-                key == rgb,
-            )
-        self.visibleColorsChanged.emit(self.enabled_rgb_set())
+        with self._history_edit("対象以外を非表示"):
+            self._isolated_rgb = None
+            self._pre_isolate_enabled = None
+            for key in self.visibility_checks:
+                self._set_checkbox_without_signal(
+                    key,
+                    key == rgb,
+                )
+            self.visibleColorsChanged.emit(self.enabled_rgb_set())
 
     def _show_visibility_context_menu(self, rgb, global_position):
         menu = QMenu(self)
@@ -1183,11 +1195,19 @@ class UsedColorPanel(QWidget):
             self._show_all_colors()
 
     def _set_mask_color(self, rgb, checked):
-        if checked:
-            self.mask_rgbs.add(rgb)
-        else:
-            self.mask_rgbs.discard(rgb)
-        self._emit_mask_state()
+        if self._mask_sweep_active:
+            if checked:
+                self.mask_rgbs.add(rgb)
+            else:
+                self.mask_rgbs.discard(rgb)
+            self._emit_mask_state()
+            return
+        with self._history_edit("マスクの切り替え"):
+            if checked:
+                self.mask_rgbs.add(rgb)
+            else:
+                self.mask_rgbs.discard(rgb)
+            self._emit_mask_state()
 
     def _set_mask_checkbox_without_signal(self, rgb, checked):
         checkbox = self.mask_checks.get(rgb)
@@ -1197,41 +1217,47 @@ class UsedColorPanel(QWidget):
             checkbox.blockSignals(False)
 
     def _set_all_masks_on(self):
-        self.mask_rgbs = set(self.mask_checks)
-        for rgb in self.mask_checks:
-            self._set_mask_checkbox_without_signal(rgb, True)
-        self._emit_mask_state()
+        with self._history_edit("マスクを全体ON"):
+            self.mask_rgbs = set(self.mask_checks)
+            for rgb in self.mask_checks:
+                self._set_mask_checkbox_without_signal(rgb, True)
+            self._emit_mask_state()
 
     def _clear_mask_colors(self):
         """Compatibility helper: turn every mask OFF."""
-        self.mask_rgbs.clear()
-        for rgb in self.mask_checks:
-            self._set_mask_checkbox_without_signal(rgb, False)
-        self._emit_mask_state()
+        with self._history_edit("マスクを全体OFF"):
+            self.mask_rgbs.clear()
+            for rgb in self.mask_checks:
+                self._set_mask_checkbox_without_signal(rgb, False)
+            self._emit_mask_state()
 
     def _isolate_mask_color(self, rgb):
         """Alt+click: enable only the clicked mask."""
-        self.mask_rgbs = {rgb}
-        for key in self.mask_checks:
-            self._set_mask_checkbox_without_signal(key, key == rgb)
-        self._emit_mask_state()
+        with self._history_edit("この色だけマスクON"):
+            self.mask_rgbs = {rgb}
+            for key in self.mask_checks:
+                self._set_mask_checkbox_without_signal(key, key == rgb)
+            self._emit_mask_state()
 
     def _disable_other_masks(self, rgb):
         """右クリック対象だけをONにし、それ以外のマスクをOFFにする。"""
-        self.mask_rgbs = {rgb}
-        for key in self.mask_checks:
-            self._set_mask_checkbox_without_signal(key, key == rgb)
-        self._emit_mask_state()
+        with self._history_edit("対象以外のマスクOFF"):
+            self.mask_rgbs = {rgb}
+            for key in self.mask_checks:
+                self._set_mask_checkbox_without_signal(key, key == rgb)
+            self._emit_mask_state()
 
     def _set_single_mask_state(self, rgb, enabled):
-        self._set_mask_checkbox_without_signal(rgb, enabled)
-        if enabled:
-            self.mask_rgbs.add(rgb)
-        else:
-            self.mask_rgbs.discard(rgb)
-        self._emit_mask_state()
+        with self._history_edit("マスクの切り替え"):
+            self._set_mask_checkbox_without_signal(rgb, enabled)
+            if enabled:
+                self.mask_rgbs.add(rgb)
+            else:
+                self.mask_rgbs.discard(rgb)
+            self._emit_mask_state()
 
     def _begin_mask_sweep(self, source_rgb, checked):
+        self._sweep_history_before = self.capture_history_state()
         self._mask_sweep_active = True
         self._mask_sweep_state = bool(checked)
         self._mask_sweep_touched = {source_rgb}
@@ -1272,6 +1298,8 @@ class UsedColorPanel(QWidget):
         self._mask_sweep_active = False
         if self._mask_sweep_changed:
             self._emit_mask_state()
+            self._record_history("マスクの一括切り替え", self._sweep_history_before)
+        self._sweep_history_before = None
         self._mask_sweep_touched.clear()
         self._mask_sweep_changed = False
 
@@ -1467,16 +1495,127 @@ class UsedColorPanel(QWidget):
             self._set_used_color_parent(rgb)
             self.focusColorRequested.emit(tuple(rgb))
         elif chosen is action_ungroup:
-            if self._drop_group_links_for(clicked_rgb):
-                self._normalize_groups()
-                self._refresh_all_group_displays()
-                self._emit_preview()
+            with self._history_edit("親子を解除"):
+                if self._drop_group_links_for(clicked_rgb):
+                    self._normalize_groups()
+                    self._refresh_all_group_displays()
+                    self._emit_preview()
         elif chosen is action_ungroup_all:
             self._clear_groups()
         elif chosen is action_freeze:
             self._emit_freeze()
         elif chosen is action_clear:
             self._clear_used_color_selection()
+
+    # ------------------------------------------------------------------
+    # Undo履歴（並べ替え・親子・表示/マスク）
+    # ------------------------------------------------------------------
+    def capture_history_state(self):
+        """Undo/Redoで復元するパネル状態のスナップショットを作る。"""
+        return {
+            "order": tuple(self._rgb_key(color) for color in self.colors),
+            "groups": dict(self.child_to_parent),
+            "enabled": dict(self.enabled_colors),
+            "mask": set(self.mask_rgbs),
+            "selected": list(self.selected_rgbs),
+            "parent": self.parent_rgb,
+        }
+
+    @staticmethod
+    def _history_significant(snapshot):
+        """変更検知に使う、順序・親子・表示・マスクだけの部分を取り出す。"""
+        return (
+            tuple(snapshot.get("order", ())),
+            tuple(sorted(snapshot.get("groups", {}).items())),
+            tuple(sorted(snapshot.get("enabled", {}).items())),
+            tuple(sorted(snapshot.get("mask", set()))),
+        )
+
+    def restore_history_state(self, snapshot):
+        """スナップショットへパネルを戻し、キャンバス側の再描画信号も出す。"""
+        if not snapshot:
+            return
+        self._history_suspended = True
+        try:
+            existing = {self._rgb_key(color) for color in self.colors}
+            by_key = {self._rgb_key(color): color for color in self.colors}
+
+            # 並び順を復元する（背景は必ず先頭。未知色は末尾へ回す）。
+            ordered = []
+            if self.background_rgb in existing:
+                ordered.append(self.background_rgb)
+            for rgb in snapshot.get("order", ()):
+                if rgb in existing and rgb not in ordered:
+                    ordered.append(rgb)
+            for rgb in (self._rgb_key(color) for color in self.colors):
+                if rgb not in ordered:
+                    ordered.append(rgb)
+            self.colors = [by_key[rgb] for rgb in ordered if rgb in by_key]
+            self._reapply_row_order()
+
+            # 親子プレビューを復元する。
+            self.child_to_parent = {
+                child: parent
+                for child, parent in snapshot.get("groups", {}).items()
+                if child in existing and parent in existing
+            }
+            self._normalize_groups()
+            self._refresh_all_group_displays()
+
+            # 表示状態を復元する。
+            enabled = snapshot.get("enabled", {})
+            self._isolated_rgb = None
+            self._pre_isolate_enabled = None
+            for rgb in self.visibility_checks:
+                self._set_checkbox_without_signal(rgb, enabled.get(rgb, True))
+
+            # マスク状態を復元する。
+            mask = snapshot.get("mask", set())
+            self.mask_rgbs = {
+                rgb for rgb in mask
+                if rgb in existing or rgb == self.background_rgb
+            }
+            for rgb in self.mask_checks:
+                self._set_mask_checkbox_without_signal(rgb, rgb in self.mask_rgbs)
+            self._mask_all_mode = self.all_masks_enabled()
+
+            # 選択状態も戻す（履歴の見た目を揃えるため）。
+            self.selected_rgbs = [
+                rgb for rgb in snapshot.get("selected", []) if rgb in existing
+            ]
+            parent = snapshot.get("parent")
+            self.parent_rgb = (
+                parent if parent in existing
+                else (self.selected_rgbs[-1] if self.selected_rgbs else None)
+            )
+            self._refresh_used_color_styles()
+        finally:
+            self._history_suspended = False
+
+        # キャンバス側へ最新状態を伝える。
+        self._emit_preview()
+        self.maskColorsChanged.emit(set(self.mask_rgbs))
+        self.selectedColorsChanged.emit(set(self.selected_rgbs))
+        self.visibleColorsChanged.emit(self.enabled_rgb_set())
+
+    def _record_history(self, label, before):
+        """変更前後を比べ、意味のある差があればUndo履歴へ積む。"""
+        if self._history_suspended or before is None:
+            return
+        after = self.capture_history_state()
+        if self._history_significant(before) == self._history_significant(after):
+            return
+        self.historyStatePush.emit(before, label)
+
+    @contextmanager
+    def _history_edit(self, label):
+        """with で囲んだ範囲の変更を1件のUndoエントリにまとめる。"""
+        if self._history_suspended:
+            yield
+            return
+        before = self.capture_history_state()
+        yield
+        self._record_history(label, before)
 
     def _ordered_non_background_rgbs(self):
         return [
@@ -1537,10 +1676,12 @@ class UsedColorPanel(QWidget):
             return
         if target_rgb == self.background_rgb:
             return
-        if mode == "child":
-            self._make_child_of(dragged_rgb, target_rgb)
-        else:
-            self._reorder_color(dragged_rgb, target_rgb, mode)
+        label = "親子付け" if mode == "child" else "使用色の並べ替え"
+        with self._history_edit(label):
+            if mode == "child":
+                self._make_child_of(dragged_rgb, target_rgb)
+            else:
+                self._reorder_color(dragged_rgb, target_rgb, mode)
 
     def _make_child_of(self, child_rgb, parent_rgb):
         """child_rgb を parent_rgb の子にして、親色プレビューを更新する。"""
@@ -1664,9 +1805,10 @@ class UsedColorPanel(QWidget):
     def _clear_groups(self):
         if not self.child_to_parent:
             return
-        self.child_to_parent = {}
-        self._refresh_all_group_displays()
-        self._emit_preview()
+        with self._history_edit("親子をすべて解除"):
+            self.child_to_parent = {}
+            self._refresh_all_group_displays()
+            self._emit_preview()
 
     def on_groups_frozen(self):
         """フリーズ確定後：プレビューを解除する（実ピクセルは親色に確定済み）。"""
@@ -1729,29 +1871,31 @@ class UsedColorPanel(QWidget):
             checkbox.blockSignals(False)
 
     def _isolate_visible_color(self, source_rgb):
-        if (
-            self._isolated_rgb == source_rgb
-            and self._pre_isolate_enabled is not None
-        ):
-            restore = dict(self._pre_isolate_enabled)
-            self._isolated_rgb = None
-            self._pre_isolate_enabled = None
-            for rgb in self.visibility_checks:
-                self._set_checkbox_without_signal(
-                    rgb,
-                    restore.get(rgb, True),
-                )
-        else:
-            self._pre_isolate_enabled = dict(self.enabled_colors)
-            self._isolated_rgb = source_rgb
-            for rgb in self.visibility_checks:
-                self._set_checkbox_without_signal(
-                    rgb,
-                    rgb == source_rgb,
-                )
-        self.visibleColorsChanged.emit(self.enabled_rgb_set())
+        with self._history_edit("この色だけ表示"):
+            if (
+                self._isolated_rgb == source_rgb
+                and self._pre_isolate_enabled is not None
+            ):
+                restore = dict(self._pre_isolate_enabled)
+                self._isolated_rgb = None
+                self._pre_isolate_enabled = None
+                for rgb in self.visibility_checks:
+                    self._set_checkbox_without_signal(
+                        rgb,
+                        restore.get(rgb, True),
+                    )
+            else:
+                self._pre_isolate_enabled = dict(self.enabled_colors)
+                self._isolated_rgb = source_rgb
+                for rgb in self.visibility_checks:
+                    self._set_checkbox_without_signal(
+                        rgb,
+                        rgb == source_rgb,
+                    )
+            self.visibleColorsChanged.emit(self.enabled_rgb_set())
 
     def _begin_visibility_sweep(self, source_rgb, checked):
+        self._sweep_history_before = self.capture_history_state()
         self._isolated_rgb = None
         self._pre_isolate_enabled = None
         self._visibility_sweep_active = True
@@ -1793,13 +1937,16 @@ class UsedColorPanel(QWidget):
         self._visibility_sweep_active = False
         if self._visibility_sweep_changed:
             self.visibleColorsChanged.emit(self.enabled_rgb_set())
+            self._record_history("表示の一括切り替え", self._sweep_history_before)
+        self._sweep_history_before = None
         self._visibility_sweep_touched.clear()
         self._visibility_sweep_changed = False
 
     def _set_color_visible(self, source_rgb, checked):
         if self._visibility_sweep_active:
             return
-        self._isolated_rgb = None
-        self._pre_isolate_enabled = None
-        self.enabled_colors[source_rgb] = bool(checked)
-        self.visibleColorsChanged.emit(self.enabled_rgb_set())
+        with self._history_edit("表示の切り替え"):
+            self._isolated_rgb = None
+            self._pre_isolate_enabled = None
+            self.enabled_colors[source_rgb] = bool(checked)
+            self.visibleColorsChanged.emit(self.enabled_rgb_set())

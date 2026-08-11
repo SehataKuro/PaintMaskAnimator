@@ -209,6 +209,9 @@ class PaintCanvas(
         self.shape_start=None
         self.shape_end=None
         self.undo_stack=[]; self.redo_stack=[]; self.stroke_before=None
+        # 使用色パネルへの参照。MainWindow が初期化時に差し込む。
+        # palette_state のUndo/Redoでパネル状態を復元するために使う。
+        self._palette=None
         self.mesh_points=[]; self.mesh_original=None; self.mesh_active=-1; self.mesh_grid=4
         self.checker_light=QColor(255,255,255); self.checker_dark=QColor(255,255,255)
 
@@ -289,6 +292,13 @@ class PaintCanvas(
     def current_state_for(self,entry):
         if entry[0]=="doc":
             return ("doc",self.document_snapshot())
+        if entry[0] == "palette_state":
+            palette = getattr(self, "_palette", None)
+            if palette is None:
+                return None
+            # 反対側スタックには「現在のパレット状態」を積む。ラベルは対称。
+            label = entry[2] if len(entry) > 2 else "パレット編集"
+            return ("palette_state", palette.capture_history_state(), label)
         if entry[0] == "layer_region":
             _, fi, li, bbox, _before, _hc = entry
             if not (

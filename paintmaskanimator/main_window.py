@@ -6,6 +6,7 @@ from .actionpanel import ActionPanel
 from .canvas import PaintCanvas
 from .errors import OPERATION_ERRORS
 from .color_panel import UsedColorPanel
+from .history_panel import HistoryPanel
 from .color_reduction import ColorReductionDialog
 from .models import Frame, Layer, make_frame
 from .pressure import PressureDialog
@@ -42,7 +43,10 @@ class MainWindow(
 ):
     def __init__(self):
         super().__init__();self.setWindowTitle(APP_DISPLAY_NAME);self.resize(1500,960);self.setAcceptDrops(True)
-        self.canvas=PaintCanvas();self.tool_selector=ToolSelectorPanel();self.tools=ToolPanel();self.timeline=TimelineWidget();self.palette=UsedColorPanel();self.timer=QTimer(self);self.timer.timeout.connect(self.advance)
+        self.canvas=PaintCanvas();self.tool_selector=ToolSelectorPanel();self.tools=ToolPanel();self.timeline=TimelineWidget();self.palette=UsedColorPanel();self.history_panel=HistoryPanel();self.timer=QTimer(self);self.timer.timeout.connect(self.advance)
+        # palette_state のUndo/Redoでパネル状態を復元できるよう相互参照を張る。
+        self.canvas._palette=self.palette
+        self.history_panel.set_canvas(self.canvas)
         self.timer.setTimerType(Qt.TimerType.PreciseTimer)
         self._playback_started_at=None
         self._playback_emitted_steps=0
@@ -622,6 +626,11 @@ class MainWindow(
         self.palette_scroll.setMinimumSize(0, 0)
         self.palette_scroll.setWidget(self.palette)
 
+        self.history_scroll = QScrollArea()
+        self.history_scroll.setWidgetResizable(True)
+        self.history_scroll.setMinimumSize(0, 0)
+        self.history_scroll.setWidget(self.history_panel)
+
         # 描画色パネルは廃止。描画色（メイン/サブ/背景）はツールバー最下部の
         # スウォッチへ移設した。drawing_color_box 自体は色状態の保持用として
         # 構築されるが、ドックには表示しない。
@@ -701,8 +710,18 @@ class MainWindow(
         self.palette_dock.setWidget(
             self.palette_scroll, QtAds.CDockWidget.eInsertMode.ForceNoScrollArea
         )
-        self.dock_manager.addDockWidget(
+        palette_area = self.dock_manager.addDockWidget(
             QtAds.BottomDockWidgetArea, self.palette_dock, drawing_area
+        )
+
+        self.history_dock=QtAds.CDockWidget(self.dock_manager, "ヒストリー")
+        self.history_dock.setObjectName("historyDock")
+        self.history_dock.setWidget(
+            self.history_scroll, QtAds.CDockWidget.eInsertMode.ForceNoScrollArea
+        )
+        # 使用色パネルと同じ場所にタブとして重ねる。
+        self.dock_manager.addDockWidget(
+            QtAds.CenterDockWidgetArea, self.history_dock, palette_area
         )
 
         self.timeline_dock=QtAds.CDockWidget(self.dock_manager, "タイムライン")
@@ -729,6 +748,7 @@ class MainWindow(
             self.color_wheel_dock,
             self.color_slider_dock,
             self.palette_dock,
+            self.history_dock,
             self.timeline_dock,
         ):
             dock.topLevelChanged.connect(
@@ -763,6 +783,7 @@ class MainWindow(
         view_menu.addAction(self.color_wheel_dock.toggleViewAction())
         view_menu.addAction(self.color_slider_dock.toggleViewAction())
         view_menu.addAction(self.palette_dock.toggleViewAction())
+        view_menu.addAction(self.history_dock.toggleViewAction())
         view_menu.addAction(self.timeline_dock.toggleViewAction())
 
         help_menu=self.menuBar().addMenu("ヘルプ")
@@ -997,6 +1018,13 @@ class MainWindow(
         self.palette.maskColorsChanged.connect(self.set_mask_colors)
         self.palette.selectedColorsChanged.connect(self.set_selected_used_colors)
         self.palette.visibleColorsChanged.connect(self.set_visible_colors)
+        self.palette.historyStatePush.connect(self.push_palette_history)
+        self.history_panel.jumpRequested.connect(self.jump_history)
+        # 編集のたびにヒストリー一覧を更新する。
+        self.canvas.changed.connect(self.refresh_history_panel)
+        self.canvas.cellChanged.connect(
+            lambda *_args: self.refresh_history_panel()
+        )
 
     def _on_canvas_cell_changed(self, frame_index, layer_index):
         self.canvas.sync_numbered_image_from_cell(
