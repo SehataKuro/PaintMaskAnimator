@@ -27,7 +27,7 @@ python -m paintmaskanimator
 
 ```bash
 pip install -r requirements-dev.txt
-QT_QPA_PLATFORM=offscreen pytest -q
+QT_QPA_PLATFORM=offscreen python scripts/run_tests.py -q
 ```
 
 テストはヘッドレス（オフスクリーン Qt）で実行されます。CI は push のたびに実行されます。

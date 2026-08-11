@@ -34,23 +34,15 @@ jobs:
           pip install -r requirements-dev.txt
 
       - name: Lint (ruff)
-        run: ruff check paintmaskanimator tests
+        run: ruff check paintmaskanimator tests scripts
 
       - name: Type check (pyright)
         run: pyright
 
-      # The full GUI suite passes, but running many PySide6 CDockManager windows
-      # in one interpreter can segfault during static teardown *after* the run
-      # finishes (all tests still pass). That would flip the process exit code,
-      # so gate CI on the JUnit report instead — which still catches real
-      # failures and any crash that happens before results are written.
       - name: Run tests
         run: >
-          pytest -q --junit-xml=pytest-results.xml
+          python scripts/run_tests.py -q
           --cov=paintmaskanimator --cov-report=term-missing --cov-report=xml
-          || true
-      - name: Check test results
-        run: python scripts/check_pytest_results.py pytest-results.xml
       - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@v4

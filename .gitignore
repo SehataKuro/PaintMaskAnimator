@@ -1,5 +1,6 @@
 __pycache__/
 *.pyc
+*.egg-info/
 
 # Build / packaging artifacts
 build/
@@ -8,6 +9,8 @@ dist/
 dist_installer/
 *.spec.bak
 .pytest_cache/
+.pytest-tmp/
+*.log
 
 # Coverage
 .coverage

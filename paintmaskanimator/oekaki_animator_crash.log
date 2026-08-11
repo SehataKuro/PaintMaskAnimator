@@ -1,5 +1,0 @@
-Traceback (most recent call last):
-  File "D:\Documents\GitHub\PaintMaskAnimator\paintmaskanimator\main_window.py", line 7051, in eventFilter
-    if event.type() in (
-    
-KeyboardInterrupt

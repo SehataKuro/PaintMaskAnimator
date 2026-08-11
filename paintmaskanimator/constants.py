@@ -7,8 +7,27 @@ copies that would go stale after a resize. Always read/write them through the
 module, e.g. ``constants.CANVAS_WIDTH``.
 """
 
+from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
+import tomllib
+
+
 APP_NAME = "PaintMaskAnimator"
-APP_VERSION = "0.6.2"
+try:
+    # pyproject.toml is the single source of truth.  Editable installs and
+    # packaged builds both expose the value through distribution metadata.
+    APP_VERSION = version("paintmaskanimator")
+except PackageNotFoundError:
+    # Running a source checkout without installing it is supported by the
+    # legacy launcher.  Keep that mode useful without maintaining a second
+    # version literal.
+    project_file = Path(__file__).resolve().parent.parent / "pyproject.toml"
+    try:
+        APP_VERSION = str(
+            tomllib.loads(project_file.read_text(encoding="utf-8"))["project"]["version"]
+        )
+    except (OSError, KeyError, tomllib.TOMLDecodeError):
+        APP_VERSION = "development"
 APP_DISPLAY_NAME = f"{APP_NAME} V{APP_VERSION}"
 # GitHub repository used by the in-app updater (Releases are fetched from here).
 GITHUB_REPO = "SehataKuro/PaintMaskAnimator"

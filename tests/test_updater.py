@@ -32,12 +32,16 @@ def test_pick_installer_asset_prefers_setup():
             {"name": "PaintMaskAnimator-Setup-0.6.exe", "url": "u2"},
         ]
     }
-    assert updater.pick_installer_asset(release)["url"] == "u2"
+    asset = updater.pick_installer_asset(release)
+    assert asset is not None
+    assert asset["url"] == "u2"
 
 
 def test_pick_installer_asset_falls_back_to_exe():
     release = {"assets": [{"name": "app.exe", "url": "u1"}]}
-    assert updater.pick_installer_asset(release)["url"] == "u1"
+    asset = updater.pick_installer_asset(release)
+    assert asset is not None
+    assert asset["url"] == "u1"
 
 
 def test_pick_installer_asset_none():

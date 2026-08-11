@@ -6,6 +6,12 @@ Build from the repo root:
 Output: dist/PaintMaskAnimator/PaintMaskAnimator.exe (one-folder build).
 """
 from PyInstaller.utils.hooks import collect_submodules
+import pathlib
+import tomllib
+
+PROJECT_VERSION = tomllib.loads(
+    pathlib.Path("pyproject.toml").read_text(encoding="utf-8")
+)["project"]["version"]
 
 hiddenimports = []
 # Optional deps: bundle them if present in the build environment.
@@ -67,8 +73,8 @@ if _sys.platform == "darwin":
         info_plist={
             "CFBundleName": "PaintMaskAnimator",
             "CFBundleDisplayName": "PaintMaskAnimator",
-            "CFBundleShortVersionString": "0.6.1",
-            "CFBundleVersion": "0.6.1",
+            "CFBundleShortVersionString": PROJECT_VERSION,
+            "CFBundleVersion": PROJECT_VERSION,
             "NSHighResolutionCapable": True,
         },
     )

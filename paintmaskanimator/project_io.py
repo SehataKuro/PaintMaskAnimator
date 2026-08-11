@@ -5,7 +5,23 @@ project.json plus one PNG per layer-cell). Works with Frame/Layer domain
 objects and returns/consumes plain data, so MainWindow keeps only the
 widget<->metadata mapping and the UI feedback.
 """
-from .common import *  # noqa: F401,F403
+import json
+import math
+import tempfile
+import zipfile
+from pathlib import Path, PurePosixPath
+
+from PySide6.QtGui import QImage
+
+from .constants import (
+    MAX_PROJECT_ARCHIVE_BYTES,
+    MAX_PROJECT_DECODED_PIXELS,
+    MAX_PROJECT_FRAMES,
+    MAX_PROJECT_IMAGE_BYTES,
+    MAX_PROJECT_LAYER_CELLS,
+    MAX_PROJECT_LAYERS,
+    MAX_PROJECT_METADATA_BYTES,
+)
 from .models import Frame, Layer
 from .utils import blank_image
 from .logging_setup import get_logger
@@ -106,7 +122,7 @@ def read_project_archive(path):
                         f"レイヤー画像が大きすぎます: {image_path}"
                     )
                 image_bytes = archive.read(image_path)
-                image = QImage.fromData(image_bytes, "PNG")
+                image = QImage.fromData(image_bytes)
                 if image.isNull():
                     raise ValueError(
                         f"レイヤー画像を復元できません: {image_path}"

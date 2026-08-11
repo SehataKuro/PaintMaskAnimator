@@ -1,10 +1,10 @@
 ; Inno Setup script for PaintMaskAnimator.
-; Compile: iscc /DAppVersion=0.6.1 packaging\installer.iss
-; Silent in-place update: PaintMaskAnimator-Setup-0.6.1.exe /SILENT
+; Compile: iscc /DAppVersion=<version from pyproject.toml> packaging\installer.iss
+; The release workflow always supplies AppVersion.
 ; Expects the PyInstaller one-folder build at dist\PaintMaskAnimator\.
 
 #ifndef AppVersion
-  #define AppVersion "0.6.1"
+  #error AppVersion must be supplied from pyproject.toml with /DAppVersion=x.y.z
 #endif
 
 #define AppName "PaintMaskAnimator"

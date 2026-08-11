@@ -39,13 +39,18 @@ jobs:
           pip install -r requirements-dev.txt
           pip install Pillow psd-tools
 
+      - name: Validate release version
+        run: python scripts/check_version.py "${{ steps.ver.outputs.version }}"
+
+      - name: Lint and type check
+        run: |
+          ruff check paintmaskanimator tests scripts
+          pyright
+
       - name: Run tests
         env:
           QT_QPA_PLATFORM: offscreen
-        run: pytest -q --junit-xml=pytest-results.xml || true
-
-      - name: Check test results
-        run: python scripts/check_pytest_results.py pytest-results.xml
+        run: python scripts/run_tests.py -q
 
       - name: Build exe (PyInstaller)
         run: pyinstaller packaging/PaintMaskAnimator.spec --noconfirm
@@ -90,13 +95,18 @@ jobs:
           pip install -r requirements-dev.txt
           pip install Pillow psd-tools
 
+      - name: Validate release version
+        run: python scripts/check_version.py "${{ steps.ver.outputs.version }}"
+
+      - name: Lint and type check
+        run: |
+          ruff check paintmaskanimator tests scripts
+          pyright
+
       - name: Run tests
         env:
           QT_QPA_PLATFORM: offscreen
-        run: pytest -q --junit-xml=pytest-results.xml || true
-
-      - name: Check test results
-        run: python scripts/check_pytest_results.py pytest-results.xml
+        run: python scripts/run_tests.py -q
 
       - name: Build app (PyInstaller)
         run: pyinstaller packaging/PaintMaskAnimator.spec --noconfirm
