@@ -72,6 +72,107 @@ def test_parent_child_group_is_undoable():
     assert panel.child_to_parent.get(red) == blue
 
 
+def test_reordering_child_outside_parent_block_detaches_it():
+    _app()
+    panel = _panel_with_colors()
+
+    red, green, blue = (255, 0, 0), (0, 128, 0), (0, 0, 255)
+    panel._handle_color_drop(red, blue, "child")
+    assert panel.child_to_parent.get(red) == blue
+
+    panel._handle_color_drop(red, green, "before")
+
+    assert red not in panel.child_to_parent
+
+
+def test_reordering_child_within_parent_block_keeps_relationship():
+    _app()
+    panel = UsedColorPanel()
+    panel.set_colors([
+        QColor("red"), QColor("green"), QColor("blue"), QColor("yellow")
+    ])
+
+    red, green = (255, 0, 0), (0, 128, 0)
+    blue, yellow = (0, 0, 255), (255, 255, 0)
+    panel._handle_color_drop(red, blue, "child")
+    panel._handle_color_drop(green, blue, "child")
+
+    panel._handle_color_drop(red, green, "after")
+
+    assert panel.child_to_parent.get(red) == blue
+    assert panel.child_to_parent.get(green) == blue
+    assert yellow not in panel.child_to_parent
+
+
+def test_dragging_one_selected_color_groups_all_selected_colors():
+    _app()
+    panel = UsedColorPanel()
+    panel.set_colors([
+        QColor("red"), QColor("green"), QColor("blue"), QColor("yellow")
+    ])
+    red, green = (255, 0, 0), (0, 128, 0)
+    blue, yellow = (0, 0, 255), (255, 255, 0)
+    panel.selected_rgbs = [red, green]
+
+    panel._handle_color_drop(red, blue, "child")
+
+    assert panel.child_to_parent == {red: blue, green: blue}
+    assert yellow not in panel.child_to_parent
+
+
+def test_dragging_unselected_color_only_groups_dragged_color():
+    _app()
+    panel = _panel_with_colors()
+    red, green, blue = (255, 0, 0), (0, 128, 0), (0, 0, 255)
+    panel.selected_rgbs = [green]
+
+    panel._handle_color_drop(red, blue, "child")
+
+    assert panel.child_to_parent == {red: blue}
+
+
+def test_dragging_selected_children_above_parent_moves_and_detaches_them():
+    _app()
+    panel = UsedColorPanel()
+    panel.set_colors([
+        QColor("red"), QColor("green"), QColor("blue"), QColor("yellow")
+    ])
+    red, green = (255, 0, 0), (0, 128, 0)
+    blue = (0, 0, 255)
+    panel._handle_color_drop(red, blue, "child")
+    panel._handle_color_drop(green, blue, "child")
+    panel.selected_rgbs = [red, green]
+
+    panel._handle_color_drop(red, blue, "before")
+
+    order = [panel._rgb_key(color) for color in panel.colors]
+    assert order.index(red) < order.index(blue)
+    assert order.index(green) < order.index(blue)
+    assert red not in panel.child_to_parent
+    assert green not in panel.child_to_parent
+
+
+def test_dragging_selected_children_below_group_moves_and_detaches_them():
+    _app()
+    panel = UsedColorPanel()
+    panel.set_colors([
+        QColor("red"), QColor("green"), QColor("blue"), QColor("yellow")
+    ])
+    red, green = (255, 0, 0), (0, 128, 0)
+    blue, yellow = (0, 0, 255), (255, 255, 0)
+    panel._handle_color_drop(red, blue, "child")
+    panel._handle_color_drop(green, blue, "child")
+    panel.selected_rgbs = [red, green]
+
+    panel._handle_color_drop(red, yellow, "after")
+
+    order = [panel._rgb_key(color) for color in panel.colors]
+    assert order.index(red) > order.index(yellow)
+    assert order.index(green) > order.index(yellow)
+    assert red not in panel.child_to_parent
+    assert green not in panel.child_to_parent
+
+
 def test_visibility_toggle_is_undoable():
     _app()
     canvas = PaintCanvas()

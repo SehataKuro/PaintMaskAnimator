@@ -934,28 +934,25 @@ class UsedColorPanel(QWidget):
             checkbox.update()
 
     def _apply_swatch_text(self, rgb):
-        """色面積を最大化するため、HEXはホバー時のみ表示する。"""
+        """色スウォッチにカラーコードを常時表示する。"""
         button = self.source_buttons.get(rgb)
         if button is None:
             return
         is_background = rgb == self.background_rgb
         is_child = rgb in self.child_to_parent
-        hovered = rgb == self._hovered_rgb
         hex_text = (
             "背景色 #FFFFFF" if is_background
             else "#{:02X}{:02X}{:02X}".format(*rgb)
         )
         if is_child:
-            # 子は階層記号（└）を常に残し、HEXはホバー時のみ。
-            button.setText(f"　└ {hex_text}" if hovered else "　└")
-            return
-        if hovered:
-            button.setText(hex_text)
+            button.setText(f"　└ {hex_text}")
             return
         child_count = sum(
             1 for parent in self.child_to_parent.values() if parent == rgb
         )
-        button.setText(f"（親・{child_count}）" if child_count else "")
+        button.setText(
+            f"{hex_text}（親・{child_count}）" if child_count else hex_text
+        )
 
     def _set_source_button_style(self, rgb):
         button = self.source_buttons.get(rgb)
@@ -1573,33 +1570,6 @@ class UsedColorPanel(QWidget):
         self._refresh_used_color_styles(old | set(self.selected_rgbs))
         self.selectedColorsChanged.emit(set(self.selected_rgbs))
 
-    def _previous_selected_parent(self, rgb):
-        """現在の色より前に選択された、直近の色を親候補として返す。"""
-        for value in reversed(self.selected_rgbs):
-            if value != rgb and value != self.background_rgb:
-                return value
-        return None
-
-    def _set_used_color_child(self, rgb):
-        if rgb == self.background_rgb:
-            return False
-        parent = self._previous_selected_parent(rgb)
-        if parent is None:
-            return False
-        old = set(self.selected_rgbs)
-        values = [
-            value for value in self.selected_rgbs
-            if value not in (rgb, parent)
-        ]
-        # 子を先、親を最後に置く。最後に選ばれたものが親という既存仕様を保つ。
-        values.extend([rgb, parent])
-        self.selected_rgbs = values
-        self.parent_rgb = parent
-        self._selection_anchor_rgb = rgb
-        self._refresh_used_color_styles(old | set(values))
-        self.selectedColorsChanged.emit(set(values))
-        return True
-
     def _clear_used_color_selection(self):
         old = set(self.selected_rgbs)
         changed = bool(old) or self.parent_rgb is not None
@@ -1619,33 +1589,10 @@ class UsedColorPanel(QWidget):
             if chosen is action_main_color:
                 self.mainColorRequested.emit(QColor(*rgb))
             return
-        action_parent = menu.addAction("親を選択")
-        action_child = menu.addAction("子を選択")
-        # 色一覧で一つ前ではなく、操作上で一つ前に選択された色を親にする。
-        action_child.setEnabled(self._previous_selected_parent(rgb) is not None)
-        action_merge_parent = menu.addAction("親と統合")
         parent = (
             tuple(self.parent_rgb)
             if self.parent_rgb is not None
             else None
-        )
-        if parent is None or parent == self.background_rgb:
-            merge_sources = set()
-        else:
-            # 右クリックした色に関係なく、現在選択されている
-            # 親色・子色のすべてを親色へ統合する。
-            merge_sources = {
-                tuple(value)
-                for value in self.selected_rgbs
-                if tuple(value) != self.background_rgb
-            }
-        action_merge_parent.setEnabled(
-            parent is not None
-            and parent in merge_sources
-            and len(merge_sources) >= 2
-        )
-        action_merge_parent.setToolTip(
-            "現在選択されているすべての色を、親色へ統合します。"
         )
 
         selected_line_colors = {
@@ -1664,28 +1611,27 @@ class UsedColorPanel(QWidget):
         delete_sources.discard(self.background_rgb)
 
         action_delete = menu.addAction("削除")
-        action_delete.setEnabled(bool(delete_sources))
         action_delete.setToolTip(
             "選択した使用色を #FFFFFF へ統合します。"
         )
 
-        action_thickness = menu.addAction("太さを調整")
         main_window = self.window()
         canvas = getattr(main_window, "canvas", None)
         tween_running = bool(
             getattr(canvas, "tween_pending", None)
         )
-        action_thickness.setEnabled(
+        can_adjust_thickness = (
             not tween_running
             and parent is not None
             and tuple(rgb) == parent
             and parent in selected_line_colors
         )
-        action_thickness.setToolTip(
-            "選択中の親色・子色をまとめて調整します。"
-            if not tween_running
-            else "トゥイーン中は線の太さを変更できません。"
-        )
+        action_thickness = None
+        if can_adjust_thickness:
+            action_thickness = menu.addAction("太さを調整")
+            action_thickness.setToolTip(
+                "選択中の親色・子色をまとめて調整します。"
+            )
 
         action_focus = menu.addAction("対象に注視")
         menu.addSeparator()
@@ -1696,51 +1642,46 @@ class UsedColorPanel(QWidget):
             clicked_rgb in self.child_to_parent
             or any(p == clicked_rgb for p in self.child_to_parent.values())
         )
-        action_ungroup = menu.addAction("親子を解除")
-        action_ungroup.setEnabled(in_group)
-        action_ungroup.setToolTip("この色に関わる親子プレビューを解除します。")
-        action_ungroup_all = menu.addAction("親子をすべて解除")
-        action_ungroup_all.setEnabled(bool(self.child_to_parent))
-        action_freeze = menu.addAction("親子をフリーズ（焼き込み）")
-        action_freeze.setEnabled(bool(self.child_to_parent))
-        action_freeze.setToolTip("プレビュー中の子→親の塗り替えを実画像へ確定します。")
-        menu.addSeparator()
-        action_clear = menu.addAction("全選択解除")
+        action_ungroup = None
+        if in_group:
+            action_ungroup = menu.addAction("親子を解除")
+            action_ungroup.setToolTip("この色に関わる親子プレビューを解除します。")
+        action_ungroup_all = None
+        action_freeze = None
+        if self.child_to_parent:
+            action_ungroup_all = menu.addAction("親子をすべて解除")
+            action_freeze = menu.addAction("親子をフリーズ（焼き込み）")
+            action_freeze.setToolTip("プレビュー中の子→親の塗り替えを実画像へ確定します。")
+        action_clear = None
+        if self.selected_rgbs:
+            menu.addSeparator()
+            action_clear = menu.addAction("全選択解除")
 
         chosen = menu.exec(global_position)
         if chosen is action_main_color:
             self.mainColorRequested.emit(QColor(*rgb))
-        elif chosen is action_parent:
-            self._set_used_color_parent(rgb)
-        elif chosen is action_child:
-            self._set_used_color_child(rgb)
-        elif chosen is action_merge_parent:
-            self.mergeColorsRequested.emit(
-                parent,
-                set(merge_sources),
-            )
         elif chosen is action_delete:
             self.deleteColorsRequested.emit(
                 set(delete_sources)
             )
-        elif chosen is action_thickness:
+        elif action_thickness is not None and chosen is action_thickness:
             self.adjustLineThicknessRequested.emit(
                 set(selected_line_colors)
             )
         elif chosen is action_focus:
             self._set_used_color_parent(rgb)
             self.focusColorRequested.emit(tuple(rgb))
-        elif chosen is action_ungroup:
+        elif action_ungroup is not None and chosen is action_ungroup:
             with self._history_edit("親子を解除"):
                 if self._drop_group_links_for(clicked_rgb):
                     self._normalize_groups()
                     self._refresh_all_group_displays()
                     self._emit_preview()
-        elif chosen is action_ungroup_all:
+        elif action_ungroup_all is not None and chosen is action_ungroup_all:
             self._clear_groups()
-        elif chosen is action_freeze:
+        elif action_freeze is not None and chosen is action_freeze:
             self._emit_freeze()
-        elif chosen is action_clear:
+        elif action_clear is not None and chosen is action_clear:
             self._clear_used_color_selection()
 
     # ------------------------------------------------------------------
@@ -2002,9 +1943,33 @@ class UsedColorPanel(QWidget):
         label = "親子付け" if mode == "child" else "使用色の並べ替え"
         with self._history_edit(label):
             if mode == "child":
-                self._make_child_of(dragged_rgb, target_rgb)
+                selected = {
+                    tuple(value) for value in self.selected_rgbs
+                    if tuple(value) != self.background_rgb
+                }
+                children = (
+                    [
+                        self._rgb_key(color) for color in self.colors
+                        if self._rgb_key(color) in selected
+                        and self._rgb_key(color) != target_rgb
+                    ]
+                    if dragged_rgb in selected
+                    else [dragged_rgb]
+                )
+                for child_rgb in children:
+                    self._make_child_of(child_rgb, target_rgb)
             else:
-                self._reorder_color(dragged_rgb, target_rgb, mode)
+                selected = {
+                    tuple(value) for value in self.selected_rgbs
+                    if tuple(value) != self.background_rgb
+                }
+                if dragged_rgb in selected and len(selected) > 1:
+                    self._reorder_color_block(selected, target_rgb, mode)
+                else:
+                    self._reorder_color(dragged_rgb, target_rgb, mode)
+                if self._drop_group_links_outside_parent_blocks():
+                    self._refresh_all_group_displays()
+                    self._emit_preview()
 
     def _make_child_of(self, child_rgb, parent_rgb):
         """child_rgb を parent_rgb の子にして、親色プレビューを更新する。"""
@@ -2057,6 +2022,67 @@ class UsedColorPanel(QWidget):
         target_index = max(1, target_index)
         self.colors.insert(target_index, moved)
         self._reapply_row_order()
+
+    def _reorder_color_block(self, selected_rgbs, target_rgb, mode):
+        """複数選択色を現在の並び順のまま一括移動する。"""
+        selected = set(selected_rgbs)
+        selected.discard(self.background_rgb)
+        if not selected or target_rgb in selected:
+            return
+
+        moved = [
+            color for color in self.colors
+            if self._rgb_key(color) in selected
+        ]
+        if not moved:
+            return
+        remaining = [
+            color for color in self.colors
+            if self._rgb_key(color) not in selected
+        ]
+        target_index = next(
+            (
+                index for index, color in enumerate(remaining)
+                if self._rgb_key(color) == target_rgb
+            ),
+            None,
+        )
+        if target_index is None:
+            return
+        if mode == "after":
+            target_index += 1
+        target_index = max(1, target_index)
+        self.colors = [
+            *remaining[:target_index],
+            *moved,
+            *remaining[target_index:],
+        ]
+        self._reapply_row_order()
+
+    def _drop_group_links_outside_parent_blocks(self):
+        """親の直後に連続していない子の親子リンクを解除する。"""
+        if not self.child_to_parent:
+            return False
+
+        order = [self._rgb_key(color) for color in self.colors]
+        retained_children = set()
+        parents = set(self.child_to_parent.values())
+        for parent in parents:
+            try:
+                index = order.index(parent) + 1
+            except ValueError:
+                continue
+            while (
+                index < len(order)
+                and self.child_to_parent.get(order[index]) == parent
+            ):
+                retained_children.add(order[index])
+                index += 1
+
+        detached = set(self.child_to_parent) - retained_children
+        for child in detached:
+            self.child_to_parent.pop(child, None)
+        return bool(detached)
 
     def _reorder_children_under_parents(self):
         """子色を、その親色（ルート）の直後へまとめて並べ替える。"""
