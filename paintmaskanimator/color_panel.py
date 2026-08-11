@@ -268,6 +268,109 @@ class MaskColorCheckBox(QCheckBox):
         super().mouseReleaseEvent(event)
 
 
+def _draw_check_glyph(painter, rect, color, is_checked):
+    """モダンな角丸チェックボックスを描く。ON＝アクセント塗り＋チェック。"""
+    painter.save()
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+    size = min(rect.width(), rect.height())
+    box = QRectF(0, 0, size, size)
+    box.moveCenter(QPointF(rect.center()))
+    box.adjust(6.0, 6.0, -6.0, -6.0)
+
+    if is_checked:
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(color)
+        painter.drawRoundedRect(box, 3.0, 3.0)
+        # 白いチェックマーク。
+        pen = QPen(QColor("#ffffff"))
+        pen.setWidthF(1.8)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        path = QPainterPath()
+        path.moveTo(box.left() + box.width() * 0.24, box.top() + box.height() * 0.52)
+        path.lineTo(box.left() + box.width() * 0.44, box.top() + box.height() * 0.72)
+        path.lineTo(box.left() + box.width() * 0.78, box.top() + box.height() * 0.28)
+        painter.drawPath(path)
+    else:
+        pen = QPen(color)
+        pen.setWidthF(1.4)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRoundedRect(box, 3.0, 3.0)
+    painter.restore()
+
+
+class ColorSelectionCheckBox(QCheckBox):
+    """行頭の「選択」チェック。クリックと上下スイープの一括ON/OFFに対応。"""
+    altClicked = Signal()
+    sweepStarted = Signal(bool)
+    sweepMoved = Signal(QPoint)
+    sweepFinished = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._sweeping = False
+        self._consume_release = False
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFixedSize(30, 24)
+        self.setStyleSheet(
+            "QCheckBox{background:transparent;border:none;padding:0px;}"
+        )
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        color = (
+            self.palette().highlight().color()
+            if self.isChecked() else self.palette().mid().color()
+        )
+        _draw_check_glyph(painter, self.rect(), color, self.isChecked())
+        painter.end()
+
+    def mousePressEvent(self, event):
+        if event.button() != Qt.MouseButton.LeftButton:
+            super().mousePressEvent(event)
+            return
+        if event.modifiers() & Qt.KeyboardModifier.AltModifier:
+            self._consume_release = True
+            self.altClicked.emit()
+            event.accept()
+            return
+        self._consume_release = False
+        self._sweeping = True
+        try:
+            self.grabMouse()
+        except RuntimeError as exc:
+            log.debug("grabMouse() failed: %s", exc)
+        self.sweepStarted.emit(not self.isChecked())
+        event.accept()
+
+    def mouseMoveEvent(self, event):
+        if self._sweeping:
+            self.sweepMoved.emit(event.globalPosition().toPoint())
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if self._consume_release and event.button() == Qt.MouseButton.LeftButton:
+            self._consume_release = False
+            event.accept()
+            return
+        if self._sweeping and event.button() == Qt.MouseButton.LeftButton:
+            self._sweeping = False
+            try:
+                self.releaseMouse()
+            except RuntimeError as exc:
+                log.debug("releaseMouse() failed: %s", exc)
+            self.sweepFinished.emit()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+
 class CheckClickArea(QWidget):
     """薄い判定領域全体でチェックを操作できるラッパー。"""
 
@@ -332,11 +435,14 @@ class ColorSelectionArea(QWidget):
     # (運んできた色rgb, モード) モード: "before" / "child" / "after"
     colorDropped = Signal(object, str)
     contextMenuRequested = Signal(QPoint)
+    hoverChanged = Signal(bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._selection_role = ""
+        self._selected = False
         self._selection_frame_enabled = False
+        # 親子グループを示す左端の縦ライン色（None＝グループなし）。
+        self._group_line_color = None
         self._rgb = None
         self._is_background = False
         self._press_pos = None
@@ -360,69 +466,58 @@ class ColorSelectionArea(QWidget):
             return "after"
         return "child"
 
-    def setSelectionRole(self, role):
-        """親は赤枠、子は青枠、未選択は初期版と同じ白枠で描画する。"""
-        role = str(role or "")
-        if role not in ("parent", "child", ""):
-            role = ""
-        changed = self._selection_role != role or not self._selection_frame_enabled
-        self._selection_role = role
+    def setSelected(self, selected):
+        """選択状態を、色に依存しない単一アクセント枠で表す。"""
+        selected = bool(selected)
+        changed = self._selected != selected or not self._selection_frame_enabled
+        self._selected = selected
         self._selection_frame_enabled = True
         if changed:
             self.update()
 
+    def setGroupLine(self, color):
+        """親子グループを示す左端の縦ライン色を設定する（None＝非表示）。"""
+        new_color = QColor(color) if color is not None else None
+        old = self._group_line_color
+        same = (
+            (old is None and new_color is None)
+            or (old is not None and new_color is not None and old.rgb() == new_color.rgb())
+        )
+        self._group_line_color = new_color
+        if not same:
+            self.update()
+
+    def enterEvent(self, event):
+        self.hoverChanged.emit(True)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self.hoverChanged.emit(False)
+        super().leaveEvent(event)
+
     def paintEvent(self, event):
         super().paintEvent(event)
-        if not self._selection_frame_enabled:
-            return
-
         painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+        # 親子グループを、色を触らずに左端の縦ラインで束ねて示す。
+        if self._group_line_color is not None:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(self._group_line_color)
+            painter.drawRoundedRect(QRectF(1.0, 1.0, 3.0, self.height() - 2.0), 1.5, 1.5)
+
+        # 選択は親子で色分けせず、テーマのアクセント色による細い角丸枠に統一。
+        if self._selection_frame_enabled and self._selected:
+            accent = self.palette().highlight().color()
+            pen = QPen(accent)
+            pen.setWidthF(2.0)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(
+                QRectF(self.rect()).adjusted(1.5, 1.5, -1.5, -1.5), 4.0, 4.0
+            )
+
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
-        rect = self.rect().adjusted(1, 1, -2, -2)
-
-        if self._selection_role == "parent":
-            frame_color = QColor("#e53935")
-            side_width = 8
-            horizontal_width = 3
-        elif self._selection_role == "child":
-            frame_color = QColor("#2979ff")
-            side_width = 8
-            horizontal_width = 3
-        else:
-            frame_color = QColor("#ffffff")
-            side_width = 2
-            horizontal_width = 2
-
-        # 親・子選択時は左右の縦線を太くして視認性を上げる。
-        painter.fillRect(
-            rect.left(),
-            rect.top(),
-            side_width,
-            rect.height(),
-            frame_color,
-        )
-        painter.fillRect(
-            rect.right() - side_width + 1,
-            rect.top(),
-            side_width,
-            rect.height(),
-            frame_color,
-        )
-        painter.fillRect(
-            rect.left(),
-            rect.top(),
-            rect.width(),
-            horizontal_width,
-            frame_color,
-        )
-        painter.fillRect(
-            rect.left(),
-            rect.bottom() - horizontal_width + 1,
-            rect.width(),
-            horizontal_width,
-            frame_color,
-        )
-
         if self._drop_mode == "child":
             # 子化のドロップ先は、半透明の塗り＋太い黄色枠で強調する。
             fill = QColor("#ffca28")
@@ -630,9 +725,18 @@ class UsedColorPanel(QWidget):
 
         self.visibility_checks = {}
         self.mask_checks = {}
+        self.selection_checks = {}
         self.source_buttons = {}
         self.source_wrappers = {}
         self.row_widgets = {}
+
+        # ホバー中の色（HEXはホバー時のみ表示して色面積を最大化する）。
+        self._hovered_rgb = None
+
+        self._selection_sweep_active = False
+        self._selection_sweep_state = True
+        self._selection_sweep_touched = set()
+        self._selection_sweep_changed = False
 
         self._visibility_sweep_active = False
         self._visibility_sweep_state = True
@@ -656,9 +760,10 @@ class UsedColorPanel(QWidget):
         layout.setSpacing(2)
         layout.addWidget(QLabel("<b>使用色</b>"))
         note = QLabel(
-            "使用色：ドラッグで並べ替え。色の中央へドロップするとその色の"
-            "「子」になり、キャンバス上では親色でプレビュー表示します。"
-            "問題なければ［フリーズ］で実画像へ焼き込み。右クリックで解除など。"
+            "使用色：クリックで選択（Shift＝範囲／Ctrl＝追加）。"
+            "ドラッグで並べ替え、色の中央へドロップ＝その色の「子」にして"
+            "親色でプレビュー表示。親子付け／解除はドラッグと右クリックのみ。"
+            "問題なければ［フリーズ］で実画像へ焼き込みます。"
         )
         note.setWordWrap(True)
         layout.addWidget(note)
@@ -675,21 +780,33 @@ class UsedColorPanel(QWidget):
         header.setHorizontalSpacing(0)
         header.setColumnMinimumWidth(0, 32)
         header.setColumnMinimumWidth(1, 32)
+        header.setColumnMinimumWidth(2, 32)
+        selection_header = QLabel("選択")
+        selection_header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        selection_header.setStyleSheet("font-size:10px;")
+        selection_header.setToolTip(
+            "クリック：この色だけ選択／Shift＋クリック：範囲選択／"
+            "Ctrl＋クリック：追加・解除。チェックと選択は連動します。"
+        )
+        header.addWidget(selection_header, 0, 0, Qt.AlignmentFlag.AlignCenter)
         visibility_header = QLabel("表示")
         visibility_header.setAlignment(Qt.AlignmentFlag.AlignCenter)
         visibility_header.setStyleSheet("font-size:10px;")
         visibility_header.setToolTip("各行の薄い背景セル全体を右クリックして表示メニューを開けます。")
-        header.addWidget(visibility_header, 0, 0, Qt.AlignmentFlag.AlignCenter)
-        mask_header = QLabel("マスク")
+        header.addWidget(visibility_header, 0, 1, Qt.AlignmentFlag.AlignCenter)
+        mask_header = QLabel("描画対象")
         mask_header.setAlignment(Qt.AlignmentFlag.AlignCenter)
         mask_header.setStyleSheet("font-size:10px;")
-        mask_header.setToolTip("各行の薄い背景セル全体を右クリックしてマスクメニューを開けます。")
-        header.addWidget(mask_header, 0, 1, Qt.AlignmentFlag.AlignCenter)
+        mask_header.setToolTip(
+            "ONにした色の上へ描けます。各行の薄い背景セル全体を"
+            "右クリックして描画対象メニューを開けます。"
+        )
+        header.addWidget(mask_header, 0, 2, Qt.AlignmentFlag.AlignCenter)
         color_header = QLabel("色（ドラッグで並べ替え／親子付け）")
         color_header.setStyleSheet("font-size:10px;")
-        header.addWidget(color_header, 0, 2)
-        header.setColumnMinimumWidth(2, 144)
-        header.setColumnStretch(2, 1)
+        header.addWidget(color_header, 0, 3)
+        header.setColumnMinimumWidth(3, 144)
+        header.setColumnStretch(3, 1)
         layout.addWidget(header_widget)
 
         self.scroll = QScrollArea()
@@ -715,10 +832,14 @@ class UsedColorPanel(QWidget):
         button_row.setContentsMargins(1, 0, 1 + scrollbar_width, 0)
         button_row.setColumnMinimumWidth(0, 32)
         button_row.setColumnMinimumWidth(1, 32)
-        button_row.setColumnMinimumWidth(2, 72)
-        button_row.setColumnMinimumWidth(3, 72)
-        button_row.setColumnStretch(2, 1)
+        button_row.setColumnMinimumWidth(2, 32)
         button_row.setColumnStretch(3, 1)
+
+        self.clear_selection_button = QPushButton("選択")
+        self.clear_selection_button.setToolTip("選択をすべて解除します。")
+        self.clear_selection_button.clicked.connect(self._clear_used_color_selection)
+        self.clear_selection_button.setFixedWidth(32)
+        self.clear_selection_button.setStyleSheet("font-size:9px;padding:0px;")
 
         self.show_all_button = QPushButton("全表示")
         self.show_all_button.setToolTip(
@@ -765,13 +886,20 @@ class UsedColorPanel(QWidget):
         self.freeze_button.setStyleSheet("font-size:10px;padding:1px;")
 
         for column, button in enumerate((
+            self.clear_selection_button,
             self.show_all_button,
             self.clear_masks_button,
-            self.merge_button,
-            self.freeze_button,
         )):
             button.setMinimumWidth(0)
             button_row.addWidget(button, 0, column)
+        # 統合・フリーズは色スウォッチ列（col3）に横並びで置く。
+        action_buttons = QHBoxLayout()
+        action_buttons.setContentsMargins(0, 0, 0, 0)
+        action_buttons.setSpacing(2)
+        for button in (self.merge_button, self.freeze_button):
+            button.setMinimumWidth(0)
+            action_buttons.addWidget(button)
+        button_row.addLayout(action_buttons, 0, 3)
         layout.addLayout(button_row)
 
     @staticmethod
@@ -784,56 +912,84 @@ class UsedColorPanel(QWidget):
         luminance = 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]
         return "#111111" if luminance >= 150 else "#ffffff"
 
+    def _group_line_color(self, rgb):
+        """rgb が親子グループに属していれば、束ねる縦ライン色（ルート親色）を返す。"""
+        if rgb in self.child_to_parent:
+            root = self._group_root(rgb)
+            return QColor(*root)
+        if any(parent == rgb for parent in self.child_to_parent.values()):
+            return QColor(*rgb)
+        return None
+
+    def _sync_selection_check(self, rgb):
+        checkbox = self.selection_checks.get(rgb)
+        if checkbox is None:
+            return
+        selected = rgb in self.selected_rgbs
+        if checkbox.isChecked() != selected:
+            checkbox.blockSignals(True)
+            checkbox.setChecked(selected)
+            checkbox.blockSignals(False)
+        else:
+            checkbox.update()
+
+    def _apply_swatch_text(self, rgb):
+        """色面積を最大化するため、HEXはホバー時のみ表示する。"""
+        button = self.source_buttons.get(rgb)
+        if button is None:
+            return
+        is_background = rgb == self.background_rgb
+        is_child = rgb in self.child_to_parent
+        hovered = rgb == self._hovered_rgb
+        hex_text = (
+            "背景色 #FFFFFF" if is_background
+            else "#{:02X}{:02X}{:02X}".format(*rgb)
+        )
+        if is_child:
+            # 子は階層記号（└）を常に残し、HEXはホバー時のみ。
+            button.setText(f"　└ {hex_text}" if hovered else "　└")
+            return
+        if hovered:
+            button.setText(hex_text)
+            return
+        child_count = sum(
+            1 for parent in self.child_to_parent.values() if parent == rgb
+        )
+        button.setText(f"（親・{child_count}）" if child_count else "")
+
     def _set_source_button_style(self, rgb):
         button = self.source_buttons.get(rgb)
         wrapper = self.source_wrappers.get(rgb)
         if button is None:
             return
 
-        color = QColor(*rgb)
-        text_color = self._text_color(rgb)
-        if rgb == self.parent_rgb:
-            inner_border = "1px solid #ffffff"
-            selection_role = "parent"
-            role = "親"
-        elif rgb in self.selected_rgbs:
-            inner_border = "1px solid #ffffff"
-            selection_role = "child"
-            role = "子"
-        else:
-            inner_border = "1px solid #ffffff"
-            selection_role = ""
-            role = ""
-
-        button.setStyleSheet(
-            "QToolButton{"
-            f"background:{color.name()};color:{text_color};border:{inner_border};"
-            "padding:2px;"
-            "}"
-            "QToolButton:hover{"
-            f"background:{color.name()};color:{text_color};border:{inner_border};"
-            "}"
-        )
+        selected = rgb in self.selected_rgbs
         if wrapper is not None:
-            if hasattr(wrapper, "setSelectionRole"):
-                wrapper.setSelectionRole(selection_role)
-            else:
-                # 旧ウィジェットとの互換用。
-                fallback = (
-                    "#e53935" if selection_role == "parent"
-                    else "#2979ff" if selection_role == "child"
-                    else "#777777"
-                )
-                wrapper.setStyleSheet(
-                    f"background:{fallback};border:2px solid #ffffff;"
-                )
+            wrapper.setSelected(selected)
+            wrapper.setGroupLine(self._group_line_color(rgb))
+        self._sync_selection_check(rgb)
+
+        # 子色のボタン見た目（元色＋親色ボーダー）は _refresh_group_display が持つ。
+        if rgb not in self.child_to_parent:
+            color = QColor(*rgb)
+            text_color = self._text_color(rgb)
+            button.setStyleSheet(
+                "QToolButton{"
+                f"background:{color.name()};color:{text_color};"
+                "border:1px solid rgba(255,255,255,0.55);padding:2px;"
+                "}"
+                "QToolButton:hover{"
+                f"background:{color.name()};color:{text_color};"
+                "border:1px solid rgba(255,255,255,0.55);"
+                "}"
+            )
+            self._apply_swatch_text(rgb)
 
         if rgb == self.background_rgb:
             button.setToolTip(
                 "背景色 #FFFFFF。並べ替えや親子付けの対象にはできません。"
             )
         else:
-            role_note = f"現在は{role}です。" if role else ""
             group_note = ""
             parent_of_this = self.child_to_parent.get(rgb)
             if parent_of_this is not None:
@@ -842,16 +998,27 @@ class UsedColorPanel(QWidget):
                     f"{parent_of_this[2]:02X} の子（プレビュー中）です。"
                 )
             button.setToolTip(
-                "クリック：統合用の使用色として選択／再クリックで解除。"
-                "上へドラッグ＝並べ替え、色の中央へドロップ＝その色の子にして"
-                "親色でプレビュー。右クリックで親子解除などのメニュー。"
-                + role_note
+                "クリック：この色だけ選択／Shift＋クリック：範囲選択／"
+                "Ctrl＋クリック：選択に追加・解除。"
+                "ドラッグで並べ替え、色の中央へドロップ＝その色の子にして"
+                "親色でプレビュー。親子付け／解除はドラッグと右クリックのみ。"
                 + group_note
             )
+
+    def _on_swatch_hover(self, rgb, hovered):
+        if hovered:
+            previous = self._hovered_rgb
+            self._hovered_rgb = rgb
+            if previous is not None and previous != rgb:
+                self._apply_swatch_text(previous)
+        elif self._hovered_rgb == rgb:
+            self._hovered_rgb = None
+        self._apply_swatch_text(rgb)
 
     def _clear_rows(self):
         self.visibility_checks.clear()
         self.mask_checks.clear()
+        self.selection_checks.clear()
         self.source_buttons.clear()
         self.source_wrappers.clear()
         self.row_widgets.clear()
@@ -869,6 +1036,7 @@ class UsedColorPanel(QWidget):
             widget.deleteLater()
         self.visibility_checks.pop(rgb, None)
         self.mask_checks.pop(rgb, None)
+        self.selection_checks.pop(rgb, None)
         self.source_buttons.pop(rgb, None)
         self.source_wrappers.pop(rgb, None)
 
@@ -890,8 +1058,12 @@ class UsedColorPanel(QWidget):
             lambda global_pos, rgb=source_rgb:
             self._show_used_color_context_menu(rgb, global_pos)
         )
+        wrapper.hoverChanged.connect(
+            lambda hovered, rgb=source_rgb: self._on_swatch_hover(rgb, hovered)
+        )
         wrapper_layout = QHBoxLayout(wrapper)
-        wrapper_layout.setContentsMargins(8, 3, 8, 3)
+        # 右余白は0にしてスウォッチを選択列いっぱいへ広げる。
+        wrapper_layout.setContentsMargins(2, 3, 0, 3)
         wrapper_layout.setSpacing(0)
         wrapper_layout.addWidget(source)
         self.source_wrappers[source_rgb] = wrapper
@@ -910,10 +1082,35 @@ class UsedColorPanel(QWidget):
         row.setHorizontalSpacing(0)
         row.setColumnMinimumWidth(0, 32)
         row.setColumnMinimumWidth(1, 32)
-        row.setColumnMinimumWidth(2, 72)
+        row.setColumnMinimumWidth(2, 32)
         row.setColumnMinimumWidth(3, 72)
-        row.setColumnStretch(2, 1)
         row.setColumnStretch(3, 1)
+
+        selection_check = ColorSelectionCheckBox()
+        selection_check.setChecked(source_rgb in self.selected_rgbs)
+        selection_check.setEnabled(not is_background)
+        selection_check.setToolTip(
+            "背景色は選択できません。"
+            if is_background else
+            (
+                "クリック：この色だけ選択／Shift＋クリック：範囲選択／"
+                "Ctrl＋クリック：追加・解除／上下になぞる：一括選択／"
+                "Alt＋クリック：この色だけ選択"
+            )
+        )
+        if not is_background:
+            selection_check.toggled.connect(
+                lambda checked, rgb=source_rgb: self._on_selection_check_toggled(rgb, checked)
+            )
+            selection_check.altClicked.connect(
+                lambda rgb=source_rgb: self._select_single_used_color(rgb)
+            )
+            selection_check.sweepStarted.connect(
+                lambda checked, rgb=source_rgb: self._begin_selection_sweep(rgb, checked)
+            )
+            selection_check.sweepMoved.connect(self._move_selection_sweep)
+            selection_check.sweepFinished.connect(self._end_selection_sweep)
+        self.selection_checks[source_rgb] = selection_check
 
         visible_check = ColorVisibilityCheckBox()
         visible_check.setChecked(
@@ -949,13 +1146,15 @@ class UsedColorPanel(QWidget):
         mask_check.setChecked(source_rgb in self.mask_rgbs)
         mask_check.setToolTip(
             (
+                "描画対象：ONにするとこの色の上へ描けます。"
                 "クリック：ON/OFF／上下になぞる：一括ON/OFF／"
-                "Alt＋クリック：この色だけON／右クリック：マスクメニュー"
+                "Alt＋クリック：この色だけON／右クリック：描画対象メニュー"
             )
             if not is_background else
             (
-                "クリック：背景マスクON/OFF／上下になぞる：一括ON/OFF／"
-                "Alt＋クリック：背景だけON／右クリック：マスクメニュー"
+                "描画対象：ONにすると背景の上へ描けます。"
+                "クリック：ON/OFF／上下になぞる：一括ON/OFF／"
+                "Alt＋クリック：背景だけON／右クリック：描画対象メニュー"
             )
         )
         mask_check.toggled.connect(
@@ -999,8 +1198,15 @@ class UsedColorPanel(QWidget):
         self._set_source_button_style(source_rgb)
 
         # チェックボックスだけでなく、薄いグレーのセル全体をクリック領域にする。
+        selection_area = CheckClickArea(selection_check)
         visible_area = CheckClickArea(visible_check)
         mask_area = CheckClickArea(mask_check)
+        for widget in (selection_check, selection_area):
+            widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            widget.customContextMenuRequested.connect(
+                lambda pos, w=widget, rgb=source_rgb:
+                self._show_used_color_context_menu(rgb, w.mapToGlobal(pos))
+            )
         for widget in (visible_check, visible_area):
             widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
             widget.customContextMenuRequested.connect(
@@ -1013,10 +1219,11 @@ class UsedColorPanel(QWidget):
                 lambda pos, w=widget, rgb=source_rgb:
                 self._show_mask_context_menu(rgb, w.mapToGlobal(pos))
             )
-        row.addWidget(visible_area, 0, 0)
-        row.addWidget(mask_area, 0, 1)
-        # 置換色列を廃止し、色スウォッチが選択列全体を占める。
-        row.addWidget(source_wrapper, 0, 2)
+        row.addWidget(selection_area, 0, 0)
+        row.addWidget(visible_area, 0, 1)
+        row.addWidget(mask_area, 0, 2)
+        # 置換色列を廃止し、色スウォッチが色列全体を占める。
+        row.addWidget(source_wrapper, 0, 3)
 
         self.row_widgets[source_rgb] = row_widget
         # 末尾（ストレッチの手前）へ追加する。並び順は _reapply_row_order で整える。
@@ -1654,24 +1861,110 @@ class UsedColorPanel(QWidget):
         ]
 
     def _select_used_color(self, rgb, modifiers=Qt.KeyboardModifier.NoModifier):
+        """クリック＝単独選択／Shift＝範囲選択／Ctrl＝個別トグル。"""
         if rgb == self.background_rgb:
             return
-        if modifiers & Qt.KeyboardModifier.ShiftModifier and self._selection_anchor_rgb:
+        shift = bool(modifiers & Qt.KeyboardModifier.ShiftModifier)
+        ctrl = bool(modifiers & Qt.KeyboardModifier.ControlModifier)
+
+        if shift and self._selection_anchor_rgb:
             ordered = self._ordered_non_background_rgbs()
             if rgb in ordered and self._selection_anchor_rgb in ordered:
                 start = ordered.index(self._selection_anchor_rgb)
                 end = ordered.index(rgb)
                 lo, hi = sorted((start, end))
                 old = set(self.selected_rgbs)
-                for value in ordered[lo:hi + 1]:
-                    if value not in self.selected_rgbs:
-                        self.selected_rgbs.append(value)
+                # 直前選択からクリック色までを範囲としてまとめ選択する。
+                self.selected_rgbs = list(ordered[lo:hi + 1])
                 self.parent_rgb = rgb
                 self._refresh_used_color_styles(old | set(self.selected_rgbs))
                 self.selectedColorsChanged.emit(set(self.selected_rgbs))
                 return
+
+        if ctrl:
+            # 個別に追加／解除。
+            self._selection_anchor_rgb = rgb
+            self._toggle_used_color_selection(rgb)
+            return
+
+        # 修飾なしクリックは、その色だけを単独選択する。
         self._selection_anchor_rgb = rgb
-        self._toggle_used_color_selection(rgb)
+        self._select_single_used_color(rgb)
+
+    def _select_single_used_color(self, rgb):
+        if rgb == self.background_rgb:
+            return
+        old = set(self.selected_rgbs)
+        self.selected_rgbs = [rgb]
+        self.parent_rgb = rgb
+        self._selection_anchor_rgb = rgb
+        self._refresh_used_color_styles(old | {rgb})
+        self.selectedColorsChanged.emit({rgb})
+
+    # ------------------------------------------------------------------
+    # 「選択」チェックボックス（クリック連動・上下スイープ一括選択）
+    # ------------------------------------------------------------------
+    def _apply_selection_state(self, rgb, selected):
+        """1色分の選択状態を更新する（emitは呼び出し側で行う）。"""
+        if rgb == self.background_rgb:
+            return
+        was = rgb in self.selected_rgbs
+        if bool(selected) == was:
+            return
+        if selected:
+            self.selected_rgbs.append(rgb)
+        else:
+            self.selected_rgbs.remove(rgb)
+        self.parent_rgb = self.selected_rgbs[-1] if self.selected_rgbs else None
+        self._selection_anchor_rgb = rgb
+        self._set_source_button_style(rgb)
+        self._selection_sweep_changed = True
+
+    def _on_selection_check_toggled(self, rgb, checked):
+        if self._selection_sweep_active:
+            return
+        self._selection_sweep_changed = False
+        self._apply_selection_state(rgb, checked)
+        if self._selection_sweep_changed:
+            self.selectedColorsChanged.emit(set(self.selected_rgbs))
+        self._selection_sweep_changed = False
+
+    def _selection_check_rgb_at_global(self, global_position):
+        for rgb, checkbox in self.selection_checks.items():
+            area = checkbox.parentWidget()
+            target = area if isinstance(area, CheckClickArea) else checkbox
+            if target.rect().contains(target.mapFromGlobal(global_position)):
+                return rgb
+        return None
+
+    def _begin_selection_sweep(self, source_rgb, checked):
+        self._selection_sweep_active = True
+        self._selection_sweep_state = bool(checked)
+        self._selection_sweep_touched = {source_rgb}
+        self._selection_sweep_changed = False
+        self._apply_selection_state(source_rgb, checked)
+
+    def _move_selection_sweep(self, global_position):
+        if not self._selection_sweep_active:
+            return
+        rgb = self._selection_check_rgb_at_global(global_position)
+        if (
+            rgb is None
+            or rgb in self._selection_sweep_touched
+            or rgb == self.background_rgb
+        ):
+            return
+        self._selection_sweep_touched.add(rgb)
+        self._apply_selection_state(rgb, self._selection_sweep_state)
+
+    def _end_selection_sweep(self):
+        if not self._selection_sweep_active:
+            return
+        self._selection_sweep_active = False
+        if self._selection_sweep_changed:
+            self.selectedColorsChanged.emit(set(self.selected_rgbs))
+        self._selection_sweep_touched.clear()
+        self._selection_sweep_changed = False
 
     # ------------------------------------------------------------------
     # ドラッグ＆ドロップによる並べ替え・親子付け（非破壊プレビュー）
@@ -1814,46 +2107,39 @@ class UsedColorPanel(QWidget):
         self.freeze_button.setEnabled(has_groups)
 
     def _refresh_group_display(self, rgb):
-        """子色は親色でプレビュー表示し、インデントとリンク記号を付ける。"""
+        """子色は元色のまま表示し、ボーダーを親色にして階層を示す。"""
         button = self.source_buttons.get(rgb)
         wrapper = self.source_wrappers.get(rgb)
         if button is None:
             return
         parent = self.child_to_parent.get(rgb)
-        base_text = (
-            "背景色 #FFFFFF"
-            if rgb == self.background_rgb
-            else "#{:02X}{:02X}{:02X}".format(*rgb)
-        )
         if parent is not None:
+            # 元色は保持し、縁取り（ボーダー）だけを親色にする。
             root = self._group_root(rgb)
-            preview = QColor(*root)
-            text_color = self._text_color(root)
-            button.setText(f"　└ {base_text} → 親色")
+            parent_color = QColor(*root)
+            own = QColor(*rgb)
+            text_color = self._text_color(rgb)
             button.setStyleSheet(
                 "QToolButton{"
-                f"background:{preview.name()};color:{text_color};"
-                "border:1px dashed #ffca28;padding:2px;}"
+                f"background:{own.name()};color:{text_color};"
+                f"border:2px solid {parent_color.name()};padding:2px;}}"
                 "QToolButton:hover{"
-                f"background:{preview.name()};color:{text_color};"
-                "border:1px dashed #ffca28;}"
+                f"background:{own.name()};color:{text_color};"
+                f"border:2px solid {parent_color.name()};}}"
             )
             if wrapper is not None:
                 margin = wrapper.layout()
                 if margin is not None:
-                    margin.setContentsMargins(22, 3, 8, 3)
+                    # 行頭インデントで階層を示す（右余白は0でスウォッチを広げる）。
+                    margin.setContentsMargins(20, 3, 0, 3)
         else:
-            child_count = sum(
-                1 for value in self.child_to_parent.values() if value == rgb
-            )
-            button.setText(
-                base_text if not child_count else f"{base_text}（親・{child_count}）"
-            )
-            self._set_source_button_style(rgb)
             if wrapper is not None:
                 margin = wrapper.layout()
                 if margin is not None:
-                    margin.setContentsMargins(8, 3, 8, 3)
+                    margin.setContentsMargins(2, 3, 0, 3)
+        # 選択枠・グループ縦ライン・チェック同期・HEX表示・ツールチップを更新。
+        self._set_source_button_style(rgb)
+        self._apply_swatch_text(rgb)
 
     def _group_mapping(self):
         """{子rgb: ルート親rgb} を返す（プレビュー／フリーズ共通）。"""
