@@ -6,6 +6,7 @@ from contextlib import contextmanager
 
 from PySide6.QtCore import QMimeData
 from PySide6.QtGui import QDrag
+from PySide6.QtWidgets import QGraphicsOpacityEffect
 
 log = get_logger(__name__)
 
@@ -423,15 +424,23 @@ class ColorSelectionArea(QWidget):
         )
 
         if self._drop_mode == "child":
-            # 子化のドロップ先は、太い黄色枠で強調する。
+            # 子化のドロップ先は、半透明の塗り＋太い黄色枠で強調する。
+            fill = QColor("#ffca28")
+            fill.setAlpha(60)
+            painter.fillRect(self.rect().adjusted(1, 1, -2, -2), fill)
             painter.setPen(QPen(QColor("#ffca28"), 3))
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRect(self.rect().adjusted(1, 1, -2, -2))
         elif self._drop_mode in ("before", "after"):
-            # 並べ替えのドロップ位置を、行の上端／下端の水平線で示す。
-            painter.setPen(QPen(QColor("#ffca28"), 3))
-            y = 1 if self._drop_mode == "before" else self.height() - 2
-            painter.drawLine(2, y, self.width() - 3, y)
+            # 並べ替えのドロップ位置を、太い挿入バー＋左右の丸で明示する。
+            bar_color = QColor("#ffca28")
+            y = 2 if self._drop_mode == "before" else self.height() - 3
+            painter.setPen(QPen(bar_color, 4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            painter.drawLine(6, y, self.width() - 7, y)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(bar_color)
+            painter.drawEllipse(QPointF(6, y), 3.5, 3.5)
+            painter.drawEllipse(QPointF(self.width() - 7, y), 3.5, 3.5)
         painter.end()
 
     def mousePressEvent(self, event):
@@ -478,16 +487,35 @@ class ColorSelectionArea(QWidget):
         drag = QDrag(self)
         drag.setMimeData(mime)
 
-        # ドラッグ中は運んでいる色をそのままカーソルに付ける。
-        pixmap = QPixmap(28, 20)
-        pixmap.fill(QColor(red, green, blue))
+        # ドラッグ中は運んでいる色を、少し浮き上がったカードとしてカーソルに付ける。
+        scale = self.devicePixelRatioF() if hasattr(self, "devicePixelRatioF") else 1.0
+        pw, ph = 40, 28
+        pixmap = QPixmap(int(pw * scale), int(ph * scale))
+        pixmap.setDevicePixelRatio(scale)
+        pixmap.fill(Qt.GlobalColor.transparent)
         painter = QPainter(pixmap)
-        painter.setPen(QPen(QColor("#000000"), 1))
-        painter.drawRect(0, 0, pixmap.width() - 1, pixmap.height() - 1)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        # 影で「持ち上げている」感を出す。
+        shadow = QColor(0, 0, 0, 70)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(shadow)
+        painter.drawRoundedRect(QRectF(3, 4, pw - 5, ph - 5), 4, 4)
+        # 運んでいる色本体。
+        painter.setBrush(QColor(red, green, blue))
+        painter.setPen(QPen(QColor("#ffffff"), 1.5))
+        painter.drawRoundedRect(QRectF(1, 1, pw - 6, ph - 7), 4, 4)
         painter.end()
         drag.setPixmap(pixmap)
-        drag.setHotSpot(QPoint(pixmap.width() // 2, pixmap.height() // 2))
-        drag.exec(Qt.DropAction.MoveAction)
+        drag.setHotSpot(QPoint(int((pw - 6) / 2), int((ph - 7) / 2)))
+
+        # ドラッグ元の行を半透明にして、掴んでいることが分かるようにする。
+        effect = QGraphicsOpacityEffect(self)
+        effect.setOpacity(0.4)
+        self.setGraphicsEffect(effect)
+        try:
+            drag.exec(Qt.DropAction.MoveAction)
+        finally:
+            self.setGraphicsEffect(None)
         self._press_pos = None
 
     def mouseReleaseEvent(self, event):
@@ -1073,6 +1101,7 @@ class UsedColorPanel(QWidget):
 
         # 消えた色で親子が壊れた場合に備え、正規化と表示更新を行う。
         self._normalize_groups()
+        self._reorder_children_under_parents()
         self._reapply_row_order()
         self._refresh_all_group_displays()
         new_group_mapping = self._group_mapping()
@@ -1560,6 +1589,7 @@ class UsedColorPanel(QWidget):
                 if child in existing and parent in existing
             }
             self._normalize_groups()
+            self._reorder_children_under_parents()
             self._refresh_all_group_displays()
 
             # 表示状態を復元する。
@@ -1702,6 +1732,7 @@ class UsedColorPanel(QWidget):
             self.child_to_parent[grandchild] = root
         self.child_to_parent[child_rgb] = root
         self._normalize_groups()
+        self._reorder_children_under_parents()
         self._refresh_all_group_displays()
         self._emit_preview()
 
@@ -1732,6 +1763,38 @@ class UsedColorPanel(QWidget):
         # 背景色（先頭）より前には入れない。
         target_index = max(1, target_index)
         self.colors.insert(target_index, moved)
+        self._reapply_row_order()
+
+    def _reorder_children_under_parents(self):
+        """子色を、その親色（ルート）の直後へまとめて並べ替える。"""
+        if not self.child_to_parent:
+            return
+        key_to_color = {self._rgb_key(color): color for color in self.colors}
+        order = [self._rgb_key(color) for color in self.colors]
+        child_set = set(self.child_to_parent)
+
+        # 各ルート親ごとに、現在の並び順を保ったまま子をぶら下げる。
+        children_by_root = {}
+        for child in order:
+            if child in child_set:
+                children_by_root.setdefault(
+                    self._group_root(child), []
+                ).append(child)
+
+        result = []
+        for rgb in order:
+            if rgb in child_set:
+                continue  # 親の直後にまとめて置くのでここでは飛ばす。
+            result.append(rgb)
+            result.extend(children_by_root.get(rgb, []))
+        # 親が見つからない子は末尾へ回して取りこぼしを防ぐ。
+        for child in order:
+            if child in child_set and child not in result:
+                result.append(child)
+
+        self.colors = [
+            key_to_color[rgb] for rgb in result if rgb in key_to_color
+        ]
         self._reapply_row_order()
 
     def _reapply_row_order(self):
