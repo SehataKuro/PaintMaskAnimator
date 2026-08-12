@@ -29,8 +29,18 @@ except PackageNotFoundError:
     except (OSError, KeyError, tomllib.TOMLDecodeError):
         APP_VERSION = "development"
 APP_DISPLAY_NAME = f"{APP_NAME} V{APP_VERSION}"
-# GitHub repository used by the in-app updater (Releases are fetched from here).
+# GitHub repository (used for release automation / links only).
 GITHUB_REPO = "SehataKuro/PaintMaskAnimator"
+# Update feed. The whole /paintmaskanimator/ path (installers + manifest
+# included) sits behind the site's shared Basic-auth password, so the in-app
+# updater authenticates with the SAME shared credentials baked in below. These
+# must match the Cloudflare `SITE_USERNAME`/`SITE_PASSWORD` env vars. Note: a
+# baked-in shared password is discoverable in the distributed binary — this is
+# casual-visitor deterrence, not a strong secret.
+UPDATE_BASE_URL = "https://jokomanato.com/paintmaskanimator"
+UPDATE_MANIFEST_URL = f"{UPDATE_BASE_URL}/updates.json"
+UPDATE_USERNAME = "guest"
+UPDATE_PASSWORD = "CHANGE_ME"  # must equal Cloudflare SITE_PASSWORD
 CANVAS_WIDTH = 1280
 CANVAS_HEIGHT = 720
 OUTSIDE_MARGIN = 0

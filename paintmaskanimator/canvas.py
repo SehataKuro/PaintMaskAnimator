@@ -1,3 +1,17 @@
+"""The ``PaintCanvas`` widget — the drawing surface and its irreducible core.
+
+Architecture (see also the domain modules ``document``/``imaging``/``geometry``/
+``colors``/``color_ops``/``project_io``): cohesive method clusters were extracted
+into ``canvas_<topic>.py`` as ``*Mixin`` classes and composed onto ``PaintCanvas``
+below. What remains in this file is the irreducible widget core — ``__init__``,
+``paintEvent``, brush-stamp/stroke geometry, and the glue that mixins share.
+
+MRO note: ``InputEventMixin`` provides Qt event overrides (``mousePressEvent`` &c.)
+and therefore MUST precede ``QWidget`` in the base list, or the overrides lose to
+``QWidget``'s defaults. Type-only member declarations for attributes set in
+``__init__`` (invisible to a checker inspecting one mixin in isolation) live in
+``_canvas_members.py``; a genuinely undefined name still surfaces there.
+"""
 from .common import *  # noqa: F401,F403
 from . import constants
 from . import color_ops, colors, geometry, imaging

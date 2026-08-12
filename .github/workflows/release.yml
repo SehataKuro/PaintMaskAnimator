@@ -145,3 +145,71 @@ jobs:
         with:
           files: release-assets/*
           generate_release_notes: true
+
+  publish-to-site:
+    # Host the installers on the public site path and refresh updates.json so
+    # the in-app updater works without any token/credential.
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Determine version
+        id: ver
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download built installers
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Generate update manifest
+        run: |
+          python scripts/generate_update_manifest.py \
+            --version "${{ steps.ver.outputs.version }}" \
+            --assets-dir release-assets \
+            --base-url https://jokomanato.com/paintmaskanimator \
+            --download-subdir downloads \
+            --output updates.json
+          cat updates.json
+
+      - name: Check out website repository
+        uses: actions/checkout@v4
+        with:
+          repository: SehataKuro/jokomanato.com
+          ref: main
+          token: ${{ secrets.JOKOMANATO_DEPLOY_TOKEN }}
+          path: website
+
+      - name: Publish installers and manifest
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          dest="website/public/paintmaskanimator"
+          mkdir -p "$dest/downloads"
+          # Copy the installer binaries (ignore any non-installer artifacts).
+          find release-assets -type f \
+            \( -iname '*.exe' -o -iname '*.dmg' \) \
+            -exec cp {} "$dest/downloads/" \;
+          cp updates.json "$dest/updates.json"
+          cd website
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/paintmaskanimator/downloads public/paintmaskanimator/updates.json
+          if git diff --cached --quiet; then
+            echo "No installer changes to publish."
+            exit 0
+          fi
+          git commit -m "chore: publish PaintMaskAnimator installers v${VERSION}"
+          git push origin HEAD:main

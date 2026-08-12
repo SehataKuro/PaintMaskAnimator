@@ -1,6 +1,17 @@
+"""The ``MainWindow`` — application shell, menu/dock wiring, and top-level actions.
+
+Architecture: cohesive method clusters were extracted into ``main_window_<topic>.py``
+as ``*Mixin`` classes and composed onto ``MainWindow`` below (autosave, workspaces,
+onion skin, export, import, docking, time-remap, timeline ops, layer ops, tween,
+used-color, project I/O, color interaction). What remains here is the irreducible
+shell: window setup, action/menu construction, the ``PaintCanvas`` <-> timeline
+glue, and document lifecycle (``new_doc``/``replace_doc``). Type-only member
+declarations shared by the mixins live in ``_main_window_members.py``; the shared
+error set is ``errors.OPERATION_ERRORS`` (aliased ``_OPERATION_ERRORS``).
+"""
 from .common import *  # noqa: F401,F403
 import PySide6QtAds as QtAds
-from . import config, constants, imaging, theme, updater
+from . import constants, imaging, theme, updater
 from .theme import StatusBar
 from .actionpanel import ActionPanel
 from .canvas import PaintCanvas
@@ -90,7 +101,9 @@ class MainWindow(
         self.build_actions();self.action_panel=ActionPanel(self);self.build_action_panel();self.build_menu();self.build_ui();self.connect();self.refresh_ui();self.action_panel.reload_python_actions()
         self._refresh_theme_dependent_ui()
         self._sync_tool_selector_swatch()
-        QApplication.instance().installEventFilter(self)
+        app = QApplication.instance()
+        if app is not None:
+            app.installEventFilter(self)
         self.update_project_title()
         QTimer.singleShot(0,self.fit_canvas)
         QTimer.singleShot(
@@ -2562,50 +2575,17 @@ class MainWindow(
             self.current_project_path = None
             self.update_project_title()
 
-    def _prompt_github_token(self):
-        """Ask for (and remember) the GitHub token used for update checks."""
-        existing = config.get_value("github_token", "")
-        token, ok = QInputDialog.getText(
-            self,
-            "更新用トークン",
-            "更新確認には、このリポジトリを読み取れるGitHubトークンが必要です。\n"
-            "（Settings > Developer settings > Personal access tokens で発行）",
-            text=existing,
-        )
-        if not ok:
-            return None
-        token = token.strip()
-        config.set_value("github_token", token or None)
-        return token or None
-
     def check_for_updates_interactive(self):
-        token = config.get_value("github_token")
-        if not token:
-            token = self._prompt_github_token()
-            if not token:
-                return
-
+        # The update feed is public (installers are hosted outside the site's
+        # viewing-page password), so no token/credential is required.
         QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
         try:
-            result = updater.check_for_update(token)
+            result = updater.check_for_update()
         finally:
             QApplication.restoreOverrideCursor()
 
         status = result.get("status")
         if status == "error":
-            # A bad/expired token would otherwise be stuck forever, since a
-            # stored token is reused without re-prompting — offer to re-enter it.
-            if result.get("auth_error"):
-                answer = QMessageBox.question(
-                    self,
-                    "更新確認エラー",
-                    result.get("message", "") + "\n\nトークンを入力し直しますか？",
-                )
-                if answer == QMessageBox.StandardButton.Yes:
-                    new_token = self._prompt_github_token()
-                    if new_token:
-                        self.check_for_updates_interactive()
-                return
             QMessageBox.warning(
                 self, "更新確認エラー", result.get("message", "不明なエラー")
             )
@@ -2624,8 +2604,8 @@ class MainWindow(
             QMessageBox.information(
                 self,
                 "更新あり",
-                f"新しいバージョン {latest} がありますが、インストーラが\n"
-                "見つかりませんでした。リリースページを確認してください。",
+                f"新しいバージョン {latest} が利用可能ですが、この環境向けの\n"
+                "インストーラが見つかりませんでした。配布ページを確認してください。",
             )
             return
 
@@ -2638,9 +2618,9 @@ class MainWindow(
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
-        self._download_and_run_installer(asset, token, latest)
+        self._download_and_run_installer(asset, latest)
 
-    def _download_and_run_installer(self, asset, token, latest):
+    def _download_and_run_installer(self, asset, latest):
         dest = Path(tempfile.gettempdir()) / str(
             asset.get("name", f"PaintMaskAnimator-Setup-{latest}.exe")
         )
@@ -2661,7 +2641,7 @@ class MainWindow(
                 raise RuntimeError("cancelled")
 
         try:
-            updater.download_asset(asset, token, dest, progress=on_progress)
+            updater.download_asset(asset, dest, progress=on_progress)
         except RuntimeError:
             dialog.close()
             return
@@ -2684,8 +2664,13 @@ class MainWindow(
             return
         try:
             import os
-            os.startfile(str(dest))  # noqa: SLF001 - Windows installer launch
-        except OSError as error:
+            if sys.platform.startswith("win"):
+                os.startfile(str(dest))  # noqa: SLF001 - Windows installer launch
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", str(dest)])
+            else:
+                subprocess.Popen(["xdg-open", str(dest)])
+        except (OSError, ValueError) as error:
             log.warning("installer launch failed: %s", error, exc_info=True)
             QMessageBox.warning(
                 self, "起動失敗", f"インストーラを起動できませんでした。\n\n{error}"
@@ -2890,7 +2875,18 @@ class MainWindow(
                     ni=blank_image();p=QPainter(ni);p.drawImage(QRectF(OUTSIDE_MARGIN, OUTSIDE_MARGIN, min(oldw, w), min(oldh, h)), l.image, QRectF(OUTSIDE_MARGIN, OUTSIDE_MARGIN, min(oldw, w), min(oldh, h)));p.end();ls.append(Layer(l.name,ni,l.visible,l.opacity,l.is_paper,l.has_content,l.alpha_locked,l.exposure,l.color_filter_enabled,tuple(l.color_filter_rgb) if l.color_filter_rgb is not None else None,bool(l.is_blank_key),l.sequence_number,bool(l.sequence_only)))
                 new.append(Frame(ls,f.duration))
             self.canvas.frames=new
-        else:self.canvas.frames=[make_frame()];self.canvas.undo_stack.clear();self.canvas.redo_stack.clear();self.set_timeline_mode("sheet")
+        else:
+            # A brand-new document must not inherit transient interaction state
+            # from the previous one: an active selection/transform or a running
+            # playback still references the old (now-discarded) frames and canvas
+            # size, which produced stale overlays and intermittent errors on the
+            # fresh document.
+            if self.canvas._playback_active:
+                self.timeline.play.setChecked(False)
+                self.play(False)
+            self.cancel_transform_or_tween()
+            self.canvas.clear_selection()
+            self.canvas.frames=[make_frame()];self.canvas.undo_stack.clear();self.canvas.redo_stack.clear();self.set_timeline_mode("sheet")
         self.canvas.current_frame=0
         self.canvas.active_layer_index=0
         if not preserve:

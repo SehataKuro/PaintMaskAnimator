@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PaintMaskAnimator ダウンロード</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        max-width: 42rem; margin: 0 auto; padding: 2rem 1.25rem; line-height: 1.6;
+      }
+      h1 { font-size: 1.6rem; margin-bottom: 0.25rem; }
+      .version { color: #6b7280; margin-top: 0; }
+      ul { list-style: none; padding: 0; }
+      li {
+        border: 1px solid rgba(128,128,128,0.35); border-radius: 0.6rem;
+        padding: 0.9rem 1.1rem; margin: 0.6rem 0;
+        display: flex; justify-content: space-between; align-items: center; gap: 1rem;
+      }
+      a.dl {
+        background: #2563eb; color: #fff; text-decoration: none;
+        padding: 0.5rem 1rem; border-radius: 0.5rem; white-space: nowrap;
+      }
+      a.dl:hover { background: #1d4ed8; }
+      .name { font-weight: 600; word-break: break-all; }
+      .plat { color: #6b7280; font-size: 0.9rem; }
+      #error { color: #b91c1c; }
+    </style>
+  </head>
+  <body>
+    <h1>PaintMaskAnimator ダウンロード</h1>
+    <p class="version" id="version">最新版を確認しています…</p>
+    <ul id="assets"></ul>
+    <p id="error" hidden></p>
+    <script>
+      const LABELS = { windows: "Windows (インストーラ)", macos: "macOS (DMG)", linux: "Linux" };
+      fetch("../updates.json", { cache: "no-store" })
+        .then((r) => { if (!r.ok) throw new Error("updates.json " + r.status); return r.json(); })
+        .then((m) => {
+          document.getElementById("version").textContent = "最新版: v" + (m.version || "?");
+          const ul = document.getElementById("assets");
+          const assets = m.assets || {};
+          const keys = Object.keys(assets);
+          if (!keys.length) { ul.innerHTML = "<li>配布物が見つかりませんでした。</li>"; return; }
+          for (const key of keys) {
+            const a = assets[key];
+            const li = document.createElement("li");
+            const info = document.createElement("div");
+            info.innerHTML = '<div class="name">' + (a.name || key) + '</div>' +
+              '<div class="plat">' + (LABELS[key] || key) + '</div>';
+            const link = document.createElement("a");
+            link.className = "dl"; link.href = a.url; link.textContent = "ダウンロード";
+            link.setAttribute("download", "");
+            li.append(info, link);
+            ul.appendChild(li);
+          }
+        })
+        .catch((e) => {
+          const el = document.getElementById("error");
+          el.hidden = false; el.textContent = "配布情報を読み込めませんでした: " + e.message;
+          document.getElementById("version").textContent = "";
+        });
+    </script>
+  </body>
+</html>

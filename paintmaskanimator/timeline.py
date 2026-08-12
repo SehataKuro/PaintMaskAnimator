@@ -574,12 +574,12 @@ class TimelineTable(QTableWidget):
             )
         elif action_cancel is not None and chosen is action_cancel:
             self.tweenCancelRequested.emit()
-        elif action_free is not None and chosen is action_free:
+        elif action_free is not None and chosen is action_free and item is not None:
             self.tweenRequested.emit(
                 int(index.row()),
                 int(item.data(Qt.ItemDataRole.UserRole)),
             )
-        elif action_mesh is not None and chosen is action_mesh:
+        elif action_mesh is not None and chosen is action_mesh and item is not None:
             self.tweenMeshRequested.emit(
                 int(index.row()),
                 int(item.data(Qt.ItemDataRole.UserRole)),

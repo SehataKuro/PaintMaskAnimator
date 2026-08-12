@@ -91,7 +91,6 @@ class MainWindowMembers(_MembersBase):
         _playback_started_at: Any
         _previous_draw_color_mode: Any
         _prompt_delete_workspace: Any
-        _prompt_github_token: Any
         _prompt_save_workspace: Any
         _qimage_rgba_array: Any
         _rebuild_area_dock_menu: Any

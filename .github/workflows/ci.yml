@@ -47,6 +47,7 @@ jobs:
           python scripts/run_tests.py -q
           --cov=paintmaskanimator --cov-report=term-missing --cov-report=xml
           --cov-report=json:progress-site/.coverage-map.json
+          --cov-report=html:coverage-html
 
       - uses: actions/setup-node@v4
         with:
@@ -63,6 +64,15 @@ jobs:
           npm run data
           npm test
           npm run export-site
+
+      # export-site rebuilds dist/site from scratch, so the coverage report is
+      # copied in afterwards. It is then served at /paintmaskanimator/coverage.
+      # (The download page lives under downloads/, which the deploy step keeps
+      # separate from the rsynced feature map — see publish-feature-map.)
+      - name: Add coverage report to site
+        run: |
+          mkdir -p progress-site/dist/site/coverage
+          cp -R coverage-html/. progress-site/dist/site/coverage/
 
       - name: Upload feature map artifact
         uses: actions/upload-artifact@v4
@@ -93,6 +103,11 @@ jobs:
           name: feature-map-${{ github.sha }}
           path: generated-site
 
+      - name: Check out this repository (for deploy assets)
+        uses: actions/checkout@v4
+        with:
+          path: source
+
       - name: Check out website repository
         uses: actions/checkout@v4
         with:
@@ -106,11 +121,29 @@ jobs:
           SOURCE_SHA: ${{ github.sha }}
         run: |
           mkdir -p website/public/paintmaskanimator
-          rsync -a --delete generated-site/ website/public/paintmaskanimator/
+          # --delete keeps the site in sync with the generated output, but the
+          # installer downloads and the update manifest are published by the
+          # Release workflow (not here), so they must be preserved.
+          rsync -a --delete \
+            --exclude 'downloads/' \
+            --exclude 'updates.json' \
+            generated-site/ website/public/paintmaskanimator/
+          # The static download page lives under the excluded downloads/ dir
+          # (kept separate so installer binaries there are never rsync-deleted),
+          # so copy it in explicitly. Installers + updates.json are published by
+          # the Release workflow.
+          mkdir -p website/public/paintmaskanimator/downloads
+          cp source/deploy/jokomanato/downloads/index.html \
+            website/public/paintmaskanimator/downloads/index.html
+          # Basic-auth Function for the viewing pages (downloads/updates.json
+          # stay public — see the middleware allowlist).
+          mkdir -p website/functions/paintmaskanimator
+          cp source/deploy/jokomanato/functions/paintmaskanimator/_middleware.js \
+            website/functions/paintmaskanimator/_middleware.js
           cd website
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add public/paintmaskanimator
+          git add public/paintmaskanimator functions/paintmaskanimator
           if git diff --cached --quiet; then
             echo "Feature map is already up to date."
             exit 0

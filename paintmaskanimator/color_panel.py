@@ -1021,7 +1021,7 @@ class UsedColorPanel(QWidget):
         self.row_widgets.clear()
         while self.rows.count() > 1:
             item = self.rows.takeAt(0)
-            widget = item.widget()
+            widget = item.widget() if item is not None else None
             if widget is not None:
                 widget.deleteLater()
 

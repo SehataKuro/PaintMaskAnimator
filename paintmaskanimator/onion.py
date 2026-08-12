@@ -56,7 +56,7 @@ class OnionOpacityGraph(QWidget):
     def _clear_layout(self):
         while self._layout.count():
             item = self._layout.takeAt(0)
-            widget = item.widget()
+            widget = item.widget() if item is not None else None
             if widget is not None:
                 widget.deleteLater()
 

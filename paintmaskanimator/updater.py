@@ -1,24 +1,47 @@
-"""In-app updater against a (private) GitHub repository's Releases.
+"""In-app updater against the public update feed on the project site.
 
-The repo is private, so the GitHub API and release-asset downloads require a
-Personal Access Token with read access. The user registers that token in the
-app (Help > 更新を確認); it is stored via :mod:`config`. Nothing here is
-hardcoded — no token ships with the app.
+The whole ``/paintmaskanimator/`` path — installers and the manifest at
+:data:`~paintmaskanimator.constants.UPDATE_MANIFEST_URL` included — sits behind
+the site's shared Basic-auth password. The updater authenticates automatically
+with the shared credentials baked into :mod:`~paintmaskanimator.constants`
+(``UPDATE_USERNAME``/``UPDATE_PASSWORD``), so the user never enters anything and
+no per-user GitHub token is involved. A baked-in shared password is discoverable
+in the distributed binary — this is casual-visitor deterrence, not a strong
+secret.
 
-The pure helpers (version parsing/compare, release-JSON picking) are unit
+Manifest shape (all URLs may be absolute or relative to the manifest)::
+
+    {
+      "version": "0.6.0",
+      "assets": {
+        "windows": {"name": "PaintMaskAnimator-Setup-0.6.0.exe",
+                    "url": "downloads/PaintMaskAnimator-Setup-0.6.0.exe"},
+        "macos":   {"name": "PaintMaskAnimator-0.6.0-macOS.dmg",
+                    "url": "downloads/PaintMaskAnimator-0.6.0-macOS.dmg"}
+      }
+    }
+
+The pure helpers (version parsing/compare, manifest asset picking) are unit
 tested; the network functions are thin wrappers over urllib.
 """
+import base64
 import json
 import re
+import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
-from .constants import APP_VERSION, GITHUB_REPO
+from .constants import (
+    APP_VERSION,
+    UPDATE_MANIFEST_URL,
+    UPDATE_PASSWORD,
+    UPDATE_USERNAME,
+)
 from .logging_setup import get_logger
 
 log = get_logger(__name__)
 
-API_ROOT = "https://api.github.com"
 _TIMEOUT = 15
 
 
@@ -47,47 +70,90 @@ def is_newer(latest, current):
     return a > b
 
 
-def pick_installer_asset(release):
-    """Choose the Windows installer asset from a release JSON dict.
+def current_platform_key():
+    """Return the manifest asset key for the running platform."""
+    if sys.platform.startswith("win"):
+        return "windows"
+    if sys.platform == "darwin":
+        return "macos"
+    return "linux"
 
-    Prefers a '*Setup*.exe' asset, else the first '.exe', else None. Returns the
-    asset dict (with 'name' and 'url' the API asset URL).
+
+def pick_installer_asset(manifest, platform_key=None):
+    """Choose the installer asset for ``platform_key`` from a manifest dict.
+
+    Returns an asset dict with at least a ``url`` (resolved to absolute against
+    :data:`UPDATE_MANIFEST_URL`), or ``None`` when nothing matches. Falls back
+    to a legacy GitHub-style ``assets`` list of ``*.exe`` entries so older
+    manifests keep working.
     """
-    assets = release.get("assets") or []
-    exes = [a for a in assets if str(a.get("name", "")).lower().endswith(".exe")]
-    if not exes:
-        return None
-    for asset in exes:
-        if "setup" in str(asset.get("name", "")).lower():
-            return asset
-    return exes[0]
+    platform_key = platform_key or current_platform_key()
+    assets = manifest.get("assets")
+
+    if isinstance(assets, dict):
+        asset = assets.get(platform_key)
+        if not asset:
+            return None
+        asset = dict(asset)
+        asset["url"] = _resolve_url(asset.get("url"))
+        return asset if asset["url"] else None
+
+    # Legacy list form (GitHub release assets): pick a Windows installer.
+    if isinstance(assets, list):
+        exes = [
+            a for a in assets
+            if str(a.get("name", "")).lower().endswith(".exe")
+        ]
+        if not exes:
+            return None
+        chosen = next(
+            (a for a in exes if "setup" in str(a.get("name", "")).lower()),
+            exes[0],
+        )
+        chosen = dict(chosen)
+        chosen["url"] = _resolve_url(chosen.get("url"))
+        return chosen if chosen["url"] else None
+
+    return None
 
 
-def _request(url, token, accept):
-    headers = {
-        "Accept": accept,
-        "X-GitHub-Api-Version": "2022-11-28",
-        "User-Agent": "PaintMaskAnimator-Updater",
-    }
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
+def _resolve_url(url, base=UPDATE_MANIFEST_URL):
+    """Resolve a possibly-relative manifest URL against the manifest location."""
+    if not url:
+        return ""
+    return urllib.parse.urljoin(base, str(url))
+
+
+def _auth_header():
+    """Build the shared Basic-auth header, or {} when no password is set.
+
+    Reads the module-level ``UPDATE_USERNAME``/``UPDATE_PASSWORD`` at call time.
+    """
+    if not UPDATE_PASSWORD:
+        return {}
+    token = base64.b64encode(f"{UPDATE_USERNAME}:{UPDATE_PASSWORD}".encode("utf-8"))
+    return {"Authorization": f"Basic {token.decode('ascii')}"}
+
+
+def _request(url, accept):
+    headers = {"Accept": accept, "User-Agent": "PaintMaskAnimator-Updater"}
+    headers.update(_auth_header())
     return urllib.request.Request(url, headers=headers)
 
 
-def fetch_latest_release(token, repo=GITHUB_REPO):
-    """Fetch the latest release JSON. Raises urllib errors on failure."""
-    url = f"{API_ROOT}/repos/{repo}/releases/latest"
-    request = _request(url, token, "application/vnd.github+json")
+def fetch_manifest(url=UPDATE_MANIFEST_URL):
+    """Fetch and parse the update manifest. Raises urllib errors on failure."""
+    request = _request(url, "application/json")
     with urllib.request.urlopen(request, timeout=_TIMEOUT) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
-def download_asset(asset, token, dest_path, progress=None):
-    """Download a release asset (by its API url) to ``dest_path``.
+def download_asset(asset, dest_path, progress=None):
+    """Download an installer asset to ``dest_path`` (no credentials needed).
 
     ``progress`` (optional) is called with (downloaded_bytes, total_bytes).
     """
-    request = _request(asset["url"], token, "application/octet-stream")
+    request = _request(asset["url"], "application/octet-stream")
     with urllib.request.urlopen(request, timeout=_TIMEOUT) as response:
         total = int(response.headers.get("Content-Length", 0))
         downloaded = 0
@@ -103,45 +169,44 @@ def download_asset(asset, token, dest_path, progress=None):
     return dest_path
 
 
-def check_for_update(token, repo=GITHUB_REPO, current_version=APP_VERSION):
-    """High-level check. Returns a dict describing the result:
+def check_for_update(
+    manifest_url=UPDATE_MANIFEST_URL, current_version=APP_VERSION
+):
+    """High-level check against the public feed. Returns a dict:
 
     {"status": "up_to_date" | "update_available" | "error",
-     "latest": <tag>, "release": <json>, "asset": <asset|None>,
+     "latest": <version>, "manifest": <json>, "asset": <asset|None>,
      "message": <str for error>}
     """
     try:
-        release = fetch_latest_release(token, repo)
+        manifest = fetch_manifest(manifest_url)
     except urllib.error.HTTPError as error:
         if error.code in (401, 403):
             return {
                 "status": "error",
-                "auth_error": True,
-                "message": "トークンが無効か、権限がありません。",
+                "message": "更新サーバーの認証に失敗しました。アプリの更新用"
+                "パスワードがサイト側の設定と一致していない可能性があります。",
             }
         if error.code == 404:
-            # For a private repo GitHub also returns 404 when the token can't
-            # see it, so this may be a permissions problem too.
             return {
                 "status": "error",
-                "message": "リリースが見つかりません（未公開、またはトークンに"
-                "このリポジトリの読み取り権限が無い可能性があります）。",
+                "message": "更新情報が見つかりませんでした（updates.json 未公開）。",
             }
         return {"status": "error", "message": f"HTTPエラー: {error.code}"}
     except urllib.error.URLError as error:
         return {"status": "error", "message": f"ネットワークエラー: {error.reason}"}
     except (ValueError, KeyError, OSError) as error:
-        # Malformed release JSON (ValueError/KeyError) or other I/O issues not
-        # already handled above; surface the message to the UI.
+        # Malformed manifest JSON (ValueError/KeyError) or other I/O issues;
+        # surface the message to the UI.
         log.warning("update check failed: %s", error, exc_info=True)
         return {"status": "error", "message": str(error)}
 
-    latest = release.get("tag_name") or release.get("name") or ""
+    latest = manifest.get("version") or manifest.get("tag_name") or ""
     if not is_newer(latest, current_version):
-        return {"status": "up_to_date", "latest": latest, "release": release}
+        return {"status": "up_to_date", "latest": latest, "manifest": manifest}
     return {
         "status": "update_available",
         "latest": latest,
-        "release": release,
-        "asset": pick_installer_asset(release),
+        "manifest": manifest,
+        "asset": pick_installer_asset(manifest),
     }
