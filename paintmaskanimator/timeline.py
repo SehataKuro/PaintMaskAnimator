@@ -130,6 +130,9 @@ class TimelineTable(QTableWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        # Mirrors the owning TimelineWidget's frame count; the widget writes it
+        # (``self.table._real_frame_count = ...``) and cell-hit tests read it.
+        self._real_frame_count = 1
         self._drag_source = None
         self._drag_preview_dest = None
         self._duplicate_drag = False
@@ -566,7 +569,7 @@ class TimelineTable(QTableWidget):
                     int(index.row()),
                     int(index.column()),
                 )
-        elif chosen is action_extend:
+        elif chosen is action_extend and key_column is not None and exposure is not None:
             self.extendExposureRequested.emit(
                 int(index.row()),
                 int(key_column),

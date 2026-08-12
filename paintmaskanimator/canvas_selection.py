@@ -464,7 +464,7 @@ class SelectionMixin(CanvasMembers):
     def commit_selection_transform(self, all_frames=None):
         if not self.transform_active:
             return
-        window = self.window()
+        window: Any = self.window()
         quality_active = bool(getattr(self, "transform_quality_active", False))
         if all_frames is None:
             all_frames = bool(

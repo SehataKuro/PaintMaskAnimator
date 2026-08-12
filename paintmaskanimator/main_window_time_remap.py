@@ -281,7 +281,7 @@ class TimeRemapMixin(MainWindowMembers):
 
         # 同じ絵番号／空フレームが連続する区間を露出へ圧縮。
         run_start = start_frame
-        run_state = states[0]
+        run_state: Any = states[0]
         sentinel = object()
         for offset in range(1, len(states) + 1):
             next_state = states[offset] if offset < len(states) else sentinel

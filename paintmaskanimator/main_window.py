@@ -534,7 +534,7 @@ class MainWindow(
         accent_menu.addAction(custom)
     def _refresh_theme_dependent_ui(self):
         """Re-apply palette-derived styles after a theme/accent change."""
-        bar = self.statusBar()
+        bar: Any = self.statusBar()
         if hasattr(bar, "refresh_palette"):
             bar.refresh_palette()
         if hasattr(self.tools, "apply_theme"):
@@ -1272,7 +1272,7 @@ class MainWindow(
             if not isinstance(entry, dict):
                 continue
             try:
-                frame = int(entry.get("frame"))
+                frame = int(entry.get("frame"))  # pyright: ignore[reportArgumentType]  # None/str caught below
             except (TypeError, ValueError):
                 continue
             if frame < 0:
@@ -2036,7 +2036,7 @@ class MainWindow(
                     counts = {}
                     for color in neighbors:
                         counts[color] = counts.get(color, 0) + 1
-                    fill_color = max(counts, key=counts.get)
+                    fill_color = max(counts, key=lambda c: counts[c])
                     paint_pixels[y, x, 0] = fill_color[0]
                     paint_pixels[y, x, 1] = fill_color[1]
                     paint_pixels[y, x, 2] = fill_color[2]
@@ -3309,7 +3309,7 @@ class MainWindow(
     def crop_image(self,fi):return self.canvas.composite(fi,True).copy(OUTSIDE_MARGIN,OUTSIDE_MARGIN,constants.CANVAS_WIDTH,constants.CANVAS_HEIGHT)
     def save_png(self):
         path,_=QFileDialog.getSaveFileName(self,"PNG保存","frame.png","PNG (*.png)");
-        if path:self.crop_image(self.canvas.current_frame).save(path if path.lower().endswith('.png') else path+'.png','PNG')
+        if path:self.crop_image(self.canvas.current_frame).save(path if path.lower().endswith('.png') else path+'.png','PNG')  # pyright: ignore[reportCallIssue,reportArgumentType]  # QImage.save accepts a str format at runtime
     def exposure_images(self):
         out=[]
         for i,f in enumerate(self.canvas.frames):

@@ -59,7 +59,7 @@ TP_MASK_PROXY_MAX_DIMENSION = 1280
 TP_MASK_PROXY_MAX_COLORS = 32
 
 # Everything except the mutable canvas dimensions is safe to star-import.
-__all__ = [
+__all__ = [  # pyright: ignore[reportUnsupportedDunderAll]
     _n for _n in list(globals())
     if _n.isupper() and _n not in ("CANVAS_WIDTH", "CANVAS_HEIGHT")
 ]

@@ -18,7 +18,7 @@ import time
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import List, Optional
+from typing import Any, List, Optional
 
 try:
     from PIL import Image as PILImage, ImageFilter as PILImageFilter

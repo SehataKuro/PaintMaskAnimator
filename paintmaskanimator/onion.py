@@ -66,7 +66,7 @@ class OnionOpacityGraph(QWidget):
         if not current:
             current = list(self._values)
         self._clear_layout()
-        self._sliders = [None] * count
+        self._sliders: list[Any] = [None] * count
 
         visual_indices = (
             range(count - 1, -1, -1)

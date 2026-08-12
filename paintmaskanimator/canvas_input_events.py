@@ -46,7 +46,7 @@ class InputEventMixin(CanvasMembers):
             return
 
         if self.transform_active and e.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            window = self.window()
+            window: Any = self.window()
             if hasattr(window, "commit_transform_or_tween"):
                 window.commit_transform_or_tween()
             else:
@@ -54,7 +54,7 @@ class InputEventMixin(CanvasMembers):
             e.accept()
             return
         if self.transform_active and e.key() == Qt.Key.Key_Escape:
-            window = self.window()
+            window: Any = self.window()
             if hasattr(window, "cancel_transform_or_tween"):
                 window.cancel_transform_or_tween()
             else:

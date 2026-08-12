@@ -225,7 +225,7 @@ class PaintCanvas(
         self.undo_stack=[]; self.redo_stack=[]; self.stroke_before=None
         # 使用色パネルへの参照。MainWindow が初期化時に差し込む。
         # palette_state のUndo/Redoでパネル状態を復元するために使う。
-        self._palette=None
+        self._palette: Any=None  # set by MainWindow to the shared UsedColorPanel
         self.mesh_points=[]; self.mesh_original=None; self.mesh_active=-1; self.mesh_grid=4
         self.checker_light=QColor(255,255,255); self.checker_dark=QColor(255,255,255)
 
@@ -810,9 +810,9 @@ class PaintCanvas(
                 ):
                     sheet_numbers.append(int(layer.sequence_number))
             all_numbers = {
-                int(frame.layers[target_layer_index].sequence_number)
+                int(seq)
                 for frame in self.frames
-                if frame.layers[target_layer_index].sequence_number is not None
+                if (seq := frame.layers[target_layer_index].sequence_number) is not None
             }
             all_numbers.update(
                 int(number)
@@ -1237,7 +1237,7 @@ class PaintCanvas(
 
     def paint_opacity_value(self, opacity=None):
         """UI不透明度だけを返す。筆圧値は一切参照しない。"""
-        window = self.window()
+        window: Any = self.window()
         tools = getattr(window, "tools", None)
         checkbox = getattr(
             tools,
@@ -1622,7 +1622,7 @@ class PaintCanvas(
             + len(self.transform_tp_line_masks)
             + 2,
         )
-        window = self.window()
+        window: Any = self.window()
         progress = None
         can_show_counter = all(
             hasattr(window, name)
@@ -1806,7 +1806,7 @@ class PaintCanvas(
             QPointF(float(point.x()) - float(offset_x), float(point.y()) - float(offset_y))
             for point in self.selection_polygon
         ])
-        if len(polygon) >= 3:
+        if polygon.count() >= 3:
             path = QPainterPath()
             path.addPolygon(polygon)
             path.closeSubpath()
@@ -2050,7 +2050,7 @@ class PaintCanvas(
         replacement = self.paint_source_color()
         paint_opacity = self.paint_opacity_value()
 
-        window = self.window()
+        window: Any = self.window()
         include_masks = bool(
             hasattr(window, "tools")
             and window.tools.bucket_include_sub.isChecked()
@@ -2353,7 +2353,7 @@ class PaintCanvas(
             )
         )
 
-        window = self.window()
+        window: Any = self.window()
         tools = getattr(window, "tools", None)
         adjacent = bool(
             tools is None or tools.bucket_adjacent.isChecked()
@@ -2435,7 +2435,7 @@ class PaintCanvas(
             self.clear_selection()
             return True
 
-        contour_owner = self.window()
+        contour_owner: Any = self.window()
         contours = contour_owner._mask_contours(combined)
         contour = contour_owner._largest_contour(contours)
         if not contour:
@@ -3395,10 +3395,10 @@ class PaintCanvas(
                 continue
             layer = self.frames[key_frame].layers[layer_index]
             if layer.visible:
-                painter.setOpacity(layer.opacity)
-                painter.drawImage(
-                    0, 0, self._display_layer_image(layer, layer_index)
-                )
+                display_image = self._display_layer_image(layer, layer_index)
+                if display_image is not None:
+                    painter.setOpacity(layer.opacity)
+                    painter.drawImage(0, 0, display_image)
         painter.end()
         return result
 
@@ -3423,7 +3423,7 @@ class PaintCanvas(
             painter.drawImage(target_rect, draw_image)
         painter.setOpacity(1.0)
     def _active_tool_panel(self):
-        window = self.window()
+        window: Any = self.window()
         return window.tools if hasattr(window, "tools") else None
 
     def _prepare_draw_painter(self, painter, transparent=False):
@@ -3777,7 +3777,7 @@ class PaintCanvas(
             return
 
         self.ensure_editable_key()
-        window = self.window()
+        window: Any = self.window()
         outline_and_fill = bool(
             hasattr(window, "tools")
             and window.tools.lasso_main_outline_sub_fill.isChecked()

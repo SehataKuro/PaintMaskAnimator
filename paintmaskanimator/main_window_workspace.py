@@ -24,7 +24,7 @@ class WorkspaceMixin(MainWindowMembers):
                 self.dock_manager.saveState().toBase64()
             ).decode("ascii"),
             "window_geometry": bytes(
-                self.saveGeometry().toBase64()
+                self.saveGeometry().toBase64().data()
             ).decode("ascii"),
         }
 

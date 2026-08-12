@@ -610,7 +610,7 @@ class ColorSelectionArea(QWidget):
         try:
             drag.exec(Qt.DropAction.MoveAction)
         finally:
-            self.setGraphicsEffect(None)
+            self.setGraphicsEffect(None)  # pyright: ignore[reportArgumentType]  # None clears the effect
         self._press_pos = None
 
     def mouseReleaseEvent(self, event):
@@ -698,6 +698,12 @@ class UsedColorPanel(QWidget):
     # (変更前スナップショット, 履歴ラベル) を渡す。
     historyStatePush = Signal(object, str)
 
+    # RGB-keyed state. Declared here so every assignment widens to plain
+    # ``int`` tuples instead of pyright inferring ``Literal[255]`` keys from the
+    # ``(255, 255, 255)`` background seed (which then rejected real colours).
+    enabled_colors: dict[tuple[int, int, int], bool]
+    mask_rgbs: set[tuple[int, int, int]]
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setMinimumWidth(300)
@@ -707,7 +713,7 @@ class UsedColorPanel(QWidget):
             QSizePolicy.Policy.Expanding,
         )
         self.setMinimumHeight(0)
-        self.background_rgb = (255, 255, 255)
+        self.background_rgb: tuple[int, int, int] = (255, 255, 255)
         self.colors = []
         self.enabled_colors = {self.background_rgb: True}
         self.mask_rgbs = {self.background_rgb}
@@ -809,7 +815,7 @@ class UsedColorPanel(QWidget):
         header.setColumnStretch(3, 1)
         layout.addWidget(header_widget)
 
-        self.scroll = QScrollArea()
+        self.scroll: QScrollArea = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setMinimumHeight(0)
         self.scroll.setHorizontalScrollBarPolicy(
@@ -1615,7 +1621,7 @@ class UsedColorPanel(QWidget):
             "選択した使用色を #FFFFFF へ統合します。"
         )
 
-        main_window = self.window()
+        main_window: Any = self.window()
         canvas = getattr(main_window, "canvas", None)
         tween_running = bool(
             getattr(canvas, "tween_pending", None)
@@ -2194,7 +2200,7 @@ class UsedColorPanel(QWidget):
     def _emit_freeze(self):
         mapping = self._group_mapping()
         if not mapping:
-            window = self.window()
+            window: Any = self.window()
             if hasattr(window, "statusBar"):
                 window.statusBar().showMessage(
                     "フリーズする親子（プレビュー）がありません。"
@@ -2227,7 +2233,7 @@ class UsedColorPanel(QWidget):
 
     def _emit_merge(self):
         if self.parent_rgb is None or len(self.selected_rgbs) < 2:
-            window = self.window()
+            window: Any = self.window()
             if hasattr(window, "statusBar"):
                 window.statusBar().showMessage(
                     "統合する使用色を2色以上選択してください。最後に選んだ色が親です。",

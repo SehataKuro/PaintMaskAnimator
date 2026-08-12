@@ -1,8 +1,14 @@
 from .common import *  # noqa: F401,F403
+from typing import TYPE_CHECKING
 from . import constants
 from .logging_setup import get_logger
 
 log = get_logger(__name__)
+
+if TYPE_CHECKING:
+    from PySide6.QtWidgets import QWidget as _DragBase
+else:
+    _DragBase = object
 
 
 def workspace_size():
@@ -71,7 +77,7 @@ def disable_windows_ink_feedback(*widgets):
         log.debug("Windows Ink feedback tweak unavailable: %s", exc)
 
 
-def blank_image(fill=Qt.GlobalColor.transparent):
+def blank_image(fill: Any = Qt.GlobalColor.transparent):
     w, h = workspace_size()
     im = QImage(w, h, QImage.Format.Format_ARGB32_Premultiplied)
     im.fill(fill)
@@ -119,8 +125,22 @@ def _sample_screen_color(global_position):
     return color
 
 
-class _ScreenColorDragMixin:
-    """Mouse, pen and touch drag support for the screen eyedropper."""
+class _ScreenColorDragMixin(_DragBase):
+    """Mouse, pen and touch drag support for the screen eyedropper.
+
+    At runtime this mixes into a concrete ``QAbstractButton`` subclass, so the
+    Qt widget/button API and the ``colorPicked``/``screenColorPicked`` signals
+    are all present. The ``TYPE_CHECKING`` declarations below tell pyright about
+    the members the concrete host provides (see ``_canvas_members`` for the same
+    pattern), so accessing them here is not flagged as an unknown attribute.
+    """
+
+    if TYPE_CHECKING:
+        colorPicked: Signal
+        screenColorPicked: Signal
+        # QAbstractButton members not present on the QWidget type-check base.
+        click: Any
+        setDown: Any
 
     def _init_screen_color_drag(self):
         self._screen_pick_active = False

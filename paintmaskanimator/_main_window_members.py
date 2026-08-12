@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from .canvas import PaintCanvas
     from .toolpanel import ToolPanel, ToolSelectorPanel
     from .timeline import TimelineWidget
+    from .color_panel import UsedColorPanel
     _MembersBase = QMainWindow
 else:
     _MembersBase = object
@@ -301,6 +302,7 @@ class MainWindowMembers(_MembersBase):
         open_dropped_time_remap: Any
         open_project: Any
         open_project_dialog: Any
+        palette: UsedColorPanel
         palette_dock: Any
         palette_scroll: Any
         parse_time_remap_text: Any
