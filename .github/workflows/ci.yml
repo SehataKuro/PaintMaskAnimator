@@ -122,25 +122,27 @@ jobs:
         run: |
           mkdir -p website/public/paintmaskanimator
           # --delete keeps the site in sync with the generated output, but the
-          # installer downloads and the update manifest are published by the
-          # Release workflow (not here), so they must be preserved.
+          # download indexes are published by the Release workflow (not here),
+          # so they must be preserved.
           rsync -a --delete \
             --exclude 'downloads/' \
             --exclude 'updates.json' \
             --exclude 'versions.json' \
             generated-site/ website/public/paintmaskanimator/
           # The static download page lives under the excluded downloads/ dir
-          # (kept separate so installer binaries there are never rsync-deleted),
-          # so copy it in explicitly. Installers + updates.json are published by
-          # the Release workflow.
+          # (kept separate so the JSON indexes there are never rsync-deleted),
+          # so copy it in explicitly. Installers live in R2 and are streamed by
+          # the downloads Function; the indexes come from the Release workflow.
           mkdir -p website/public/paintmaskanimator/downloads
           cp source/deploy/jokomanato/downloads/index.html \
             website/public/paintmaskanimator/downloads/index.html
-          # Basic-auth Function for the viewing pages (downloads/updates.json
-          # stay public — see the middleware allowlist).
-          mkdir -p website/functions/paintmaskanimator
+          # Cloudflare Pages Functions: Basic-auth over the whole path, plus the
+          # R2-backed installer download route.
+          mkdir -p website/functions/paintmaskanimator/downloads
           cp source/deploy/jokomanato/functions/paintmaskanimator/_middleware.js \
             website/functions/paintmaskanimator/_middleware.js
+          cp "source/deploy/jokomanato/functions/paintmaskanimator/downloads/[[path]].js" \
+            "website/functions/paintmaskanimator/downloads/[[path]].js"
           cd website
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

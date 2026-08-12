@@ -147,9 +147,12 @@ jobs:
           generate_release_notes: true
 
   publish-to-site:
-    # Host the installers on the public site path and refresh updates.json so
-    # the in-app updater works without any token/credential.
-    needs: [build-windows, build-macos]
+    # Installers exceed Cloudflare Pages' 25 MiB static-asset limit, so they are
+    # uploaded to an R2 bucket (served via a Pages Function) instead of being
+    # committed to the site repo. Only the small JSON indexes are committed.
+    # Runs after the GitHub Release exists so the indexes reflect it.
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [publish-release]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -158,31 +161,38 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Determine version
-        id: ver
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Download built installers
         uses: actions/download-artifact@v4
         with:
           path: release-assets
           merge-multiple: true
 
-      - name: Generate update manifest
+      - name: Upload installers to R2
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET || 'paintmaskanimator-downloads' }}
         run: |
-          python scripts/generate_update_manifest.py \
-            --version "${{ steps.ver.outputs.version }}" \
-            --assets-dir release-assets \
+          find release-assets -type f \
+            \( -iname '*.exe' -o -iname '*.dmg' \) -print0 |
+          while IFS= read -r -d '' file; do
+            name="$(basename "$file")"
+            echo "Uploading $name to R2 bucket $R2_BUCKET"
+            npx --yes wrangler@4 r2 object put "$R2_BUCKET/$name" \
+              --file "$file" --remote
+          done
+
+      - name: Build download indexes from releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api "repos/${{ github.repository }}/releases" --paginate > releases.json
+          python scripts/generate_download_indexes.py \
+            --input releases.json \
             --base-url https://jokomanato.com/paintmaskanimator \
             --download-subdir downloads \
-            --output updates.json
-          cat updates.json
+            --versions-output versions.json \
+            --updates-output updates.json
 
       - name: Check out website repository
         uses: actions/checkout@v4
@@ -192,32 +202,19 @@ jobs:
           token: ${{ secrets.JOKOMANATO_DEPLOY_TOKEN }}
           path: website
 
-      - name: Publish installers and manifest
-        env:
-          VERSION: ${{ steps.ver.outputs.version }}
+      - name: Publish download indexes
         run: |
           dest="website/public/paintmaskanimator"
-          mkdir -p "$dest/downloads"
-          # Copy the installer binaries (ignore any non-installer artifacts).
-          # Past releases already in downloads/ are preserved (never deleted),
-          # so the directory accumulates the full download history.
-          find release-assets -type f \
-            \( -iname '*.exe' -o -iname '*.dmg' \) \
-            -exec cp {} "$dest/downloads/" \;
+          mkdir -p "$dest"
           cp updates.json "$dest/updates.json"
-          # Rebuild the full version history from everything now hosted.
-          python scripts/generate_versions_index.py \
-            --downloads-dir "$dest/downloads" \
-            --base-url https://jokomanato.com/paintmaskanimator \
-            --download-subdir downloads \
-            --output "$dest/versions.json"
+          cp versions.json "$dest/versions.json"
           cd website
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add public/paintmaskanimator/downloads public/paintmaskanimator/updates.json public/paintmaskanimator/versions.json
+          git add public/paintmaskanimator/updates.json public/paintmaskanimator/versions.json
           if git diff --cached --quiet; then
-            echo "No installer changes to publish."
+            echo "Download indexes already up to date."
             exit 0
           fi
-          git commit -m "chore: publish PaintMaskAnimator installers v${VERSION}"
+          git commit -m "chore: refresh PaintMaskAnimator download indexes (${GITHUB_REF_NAME})"
           git push origin HEAD:main
