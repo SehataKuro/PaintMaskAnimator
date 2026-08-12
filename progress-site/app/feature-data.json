@@ -1,0 +1,187 @@
+{
+  "generatedAt": "2026-08-12T18:06:59.598932",
+  "totalCoverage": 39,
+  "features": [
+    {
+      "name": "描画キャンバス",
+      "area": "描画",
+      "modules": [
+        "canvas.py",
+        "canvas_input_events.py",
+        "canvas_stroke_display.py",
+        "canvas_brush_stabilizer.py"
+      ],
+      "statements": 2933,
+      "covered": 954,
+      "coverage": 33
+    },
+    {
+      "name": "選択・変形",
+      "area": "描画",
+      "modules": [
+        "canvas_selection.py",
+        "canvas_transform_mask.py",
+        "geometry.py"
+      ],
+      "statements": 978,
+      "covered": 149,
+      "coverage": 15
+    },
+    {
+      "name": "画像読み込み",
+      "area": "描画",
+      "modules": [
+        "canvas_image_import.py",
+        "main_window_import.py",
+        "imaging.py"
+      ],
+      "statements": 622,
+      "covered": 111,
+      "coverage": 18
+    },
+    {
+      "name": "オニオンスキン",
+      "area": "アニメーション",
+      "modules": [
+        "onion.py",
+        "canvas_onion_interaction.py",
+        "canvas_onion_render.py",
+        "main_window_onion.py"
+      ],
+      "statements": 972,
+      "covered": 95,
+      "coverage": 10
+    },
+    {
+      "name": "タイムライン",
+      "area": "アニメーション",
+      "modules": [
+        "timeline.py",
+        "main_window_timeline_ops.py",
+        "canvas_key_frame.py"
+      ],
+      "statements": 1556,
+      "covered": 550,
+      "coverage": 35
+    },
+    {
+      "name": "再生・タイムリマップ",
+      "area": "アニメーション",
+      "modules": [
+        "canvas_playback.py",
+        "main_window_time_remap.py"
+      ],
+      "statements": 311,
+      "covered": 48,
+      "coverage": 15
+    },
+    {
+      "name": "中割り・Tween",
+      "area": "アニメーション",
+      "modules": [
+        "main_window_tween.py"
+      ],
+      "statements": 236,
+      "covered": 15,
+      "coverage": 6
+    },
+    {
+      "name": "色・パレット",
+      "area": "カラー",
+      "modules": [
+        "colors.py",
+        "color_ops.py",
+        "color_panel.py",
+        "main_window_color_interaction.py",
+        "main_window_used_color.py"
+      ],
+      "statements": 2761,
+      "covered": 1320,
+      "coverage": 48
+    },
+    {
+      "name": "減色",
+      "area": "カラー",
+      "modules": [
+        "color_reduction.py"
+      ],
+      "statements": 636,
+      "covered": 58,
+      "coverage": 9
+    },
+    {
+      "name": "プロジェクト保存",
+      "area": "ファイル",
+      "modules": [
+        "project_io.py",
+        "main_window_project_io.py",
+        "main_window_autosave.py",
+        "document.py",
+        "models.py"
+      ],
+      "statements": 382,
+      "covered": 197,
+      "coverage": 52
+    },
+    {
+      "name": "書き出し",
+      "area": "ファイル",
+      "modules": [
+        "main_window_export.py"
+      ],
+      "statements": 196,
+      "covered": 37,
+      "coverage": 19
+    },
+    {
+      "name": "ワークスペース・UI",
+      "area": "UI",
+      "modules": [
+        "main_window.py",
+        "main_window_docking.py",
+        "main_window_workspace.py",
+        "widgets.py",
+        "toolpanel.py",
+        "actionpanel.py",
+        "history_panel.py",
+        "theme.py"
+      ],
+      "statements": 4613,
+      "covered": 2707,
+      "coverage": 59
+    },
+    {
+      "name": "基盤・更新",
+      "area": "基盤",
+      "modules": [
+        "__main__.py",
+        "config.py",
+        "logging_setup.py",
+        "updater.py",
+        "pressure.py",
+        "utils.py",
+        "constants.py",
+        "errors.py"
+      ],
+      "statements": 668,
+      "covered": 329,
+      "coverage": 49
+    },
+    {
+      "name": "未分類モジュール",
+      "area": "未分類",
+      "modules": [
+        "__init__.py",
+        "_canvas_members.py",
+        "_main_window_members.py",
+        "canvas_pseudo_transparency.py",
+        "canvas_undo.py",
+        "common.py",
+        "main_window_layer_ops.py"
+      ],
+      "statements": 480,
+      "covered": 231,
+      "coverage": 48
+    }
+  ]
+}
