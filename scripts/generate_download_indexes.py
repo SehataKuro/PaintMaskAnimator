@@ -74,7 +74,6 @@ def build_indexes(
                 "version": version,
                 "prerelease": bool(release.get("prerelease")),
                 "notes": str(release.get("body") or "").strip(),
-                "release_url": str(release.get("html_url") or ""),
                 "assets": assets,
             }
         )
@@ -86,7 +85,6 @@ def build_indexes(
             {
                 "version": e["version"],
                 "notes": e["notes"],
-                "release_url": e["release_url"],
                 "assets": e["assets"],
             }
             for e in entries

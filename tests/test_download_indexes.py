@@ -72,11 +72,10 @@ def test_empty_when_no_releases():
     assert updates == {"version": "", "assets": {}}
 
 
-def test_versions_include_release_notes_and_source_url():
+def test_versions_include_release_notes():
     releases = [_release("v0.6.3", ["setup.exe"], body="### 修正\n- 表示を改善")]
 
     versions, _ = gdi.build_indexes(releases, BASE, "downloads")
 
     entry = versions["versions"][0]
     assert entry["notes"] == "### 修正\n- 表示を改善"
-    assert entry["release_url"].endswith("/v0.6.3")

@@ -34,7 +34,6 @@
       .release-notes h3 { font-size: 1rem; margin: 1rem 0 0.25rem; }
       .release-notes ul { list-style: disc; padding-left: 1.25rem; }
       .release-notes li { display: list-item; border: 0; padding: 0; margin: 0.25rem 0; }
-      .release-source { font-size: 0.9rem; }
     </style>
   </head>
   <body>
@@ -92,12 +91,6 @@
             paragraph.textContent = line.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
             box.appendChild(paragraph); list = null;
           }
-        }
-        if (version.release_url) {
-          const source = document.createElement("a");
-          source.className = "release-source"; source.href = version.release_url;
-          source.textContent = "GitHub でリリースを見る";
-          box.appendChild(source);
         }
         return box;
       }
