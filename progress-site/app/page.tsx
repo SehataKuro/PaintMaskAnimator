@@ -34,6 +34,7 @@ export default function Home() {
     return treemap<{ children?: Feature[] }>().size([size.width, size.height]).paddingInner(4).round(true).tile(treemapSquarify)(root).leaves();
   }, [visible, size]);
 
+  const ranked = useMemo(() => [...visible].sort((a, b) => a.coverage - b.coverage), [visible]);
   const covered = visible.reduce((n, x) => n + x.covered, 0);
   const statements = visible.reduce((n, x) => n + x.statements, 0);
   const coverage = statements ? Math.round(covered / statements * 100) : 0;
@@ -72,9 +73,31 @@ export default function Home() {
         {selected && <aside className="detail">
           <p className="detail-area">{selected.area} / COVERAGE EVIDENCE</p><h2>{selected.name}</h2>
           <div className="primary"><span>テスト実行済み</span><strong>{selected.coverage}%</strong><p>{selected.covered.toLocaleString()} / {selected.statements.toLocaleString()} 行</p></div>
-          <dl><div><dt>集計対象モジュール</dt><dd>{selected.modules.map((x) => <code key={x}>{x}</code>)}</dd></div><div><dt>この数値が意味すること</dt><dd>テスト実行時に通ったコード行の割合です。仕様の完成度そのものではなく、現在の実装がどこまで自動検証されているかを表します。</dd></div></dl>
+          <dl><div><dt>集計対象モジュール</dt><dd>{selected.modules.map((x) => <code key={x}>{x}</code>)}</dd></div></dl>
         </aside>}
       </div>
+
+      <section className="ranking">
+        <div className="ranking-head"><h2>機能別カバレッジ一覧</h2><span>カバレッジの低い順・{ranked.length}件</span></div>
+        <table>
+          <thead>
+            <tr><th>機能</th><th>カテゴリ</th><th className="num">カバレッジ</th><th className="num">実行行 / 実行可能行</th></tr>
+          </thead>
+          <tbody>
+            {ranked.map((feature) => (
+              <tr key={feature.name} className={selected?.name === feature.name ? "selected" : ""} onClick={() => setSelectedName(feature.name)}>
+                <th scope="row">{feature.name}</th>
+                <td>{feature.area}</td>
+                <td className="num">
+                  <div className="bar-cell"><span className="bar"><i className={tone(feature.coverage)} style={{ width: `${feature.coverage}%` }} /></span><em>{feature.coverage}%</em></div>
+                </td>
+                <td className="num mono">{feature.covered.toLocaleString()} / {feature.statements.toLocaleString()}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+
       <footer><span>PaintMaskAnimator</span><span>計測: pytest-cov / 配置: d3-hierarchy</span></footer>
     </main>
   );

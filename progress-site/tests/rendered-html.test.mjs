@@ -39,6 +39,4 @@ test("renders every feature and its coverage evidence", async () => {
   for (const feature of report.features) {
     assert.match(html, new RegExp(`aria-label="${feature.name} 行カバレッジ${feature.coverage}%"`));
   }
-  assert.match(html, /この数値が意味すること/);
-  assert.match(html, /仕様の完成度そのものではなく/);
 });
