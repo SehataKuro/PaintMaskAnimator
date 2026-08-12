@@ -40,7 +40,11 @@ export async function onRequest(context) {
   const headers = new Headers();
   object.writeHttpMetadata(headers);
   headers.set("etag", object.httpEtag);
-  headers.set("cache-control", "public, max-age=3600");
+  // These files sit behind the shared Basic-auth password. NEVER let Cloudflare
+  // edge-cache them publicly: a cached 200 would be replayed to unauthenticated
+  // requests (cf-cache HIT) and bypass the password entirely. `private,
+  // no-store` keeps the response from any shared cache.
+  headers.set("cache-control", "private, no-store");
   headers.set(
     "content-disposition",
     `attachment; filename="${key.split("/").pop()}"`,
