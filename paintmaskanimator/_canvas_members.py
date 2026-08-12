@@ -285,6 +285,7 @@ class CanvasMembers(_MembersBase):
         estimate_mixed_boundary_pixels: Any
         fill_lasso_polygon: Any
         filtered_layer_image: Any
+        _color_index_for_image: Any
         finish_transform_line_adjustment: Any
         flip_active_layer: Any
         flip_horizontal: Any

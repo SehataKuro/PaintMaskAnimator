@@ -99,23 +99,16 @@ class UsedColorMixin(MainWindowMembers):
             self.palette.count_label.setText("100色以上")
 
     def _extract_used_colors(self, image, limit=101):
-        rgba = image.convertToFormat(QImage.Format.Format_RGBA8888)
-        width, height = rgba.width(), rgba.height()
-        if width <= 0 or height <= 0:
+        # Palette filtering needs the same full-image RGB index. Build it while
+        # the used-color scan is already running so the first visibility toggle
+        # can reuse it instead of scanning every pixel again.
+        _rgba, packed, opaque = self.canvas._color_index_for_image(image)
+        if packed is None or opaque is None:
             return []
-        ptr = imaging.qimage_buffer(rgba)
-        array = np.frombuffer(ptr, dtype=np.uint8).reshape((height, rgba.bytesPerLine()))[:, :width * 4]
-        pixels = array.reshape((-1, 4))
-        pixels = pixels[pixels[:, 3] > 0, :3]
-        if pixels.size == 0:
+        visible_pixels = packed[opaque]
+        if visible_pixels.size == 0:
             return []
-        # np.unique is much faster than pixelColor() calls from Python.
-        packed = (
-            (pixels[:, 0].astype(np.uint32) << 16)
-            | (pixels[:, 1].astype(np.uint32) << 8)
-            | pixels[:, 2].astype(np.uint32)
-        )
-        unique = np.unique(packed)
+        unique = np.unique(visible_pixels)
         if len(unique) > limit:
             unique = unique[:limit]
         return [

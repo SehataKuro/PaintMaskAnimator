@@ -3248,6 +3248,39 @@ class PaintCanvas(
         self._silhouette_cache[key] = result
         return result
 
+    def _color_index_for_image(self, image):
+        """Return the cached RGBA/pixel index used by palette filtering."""
+        try:
+            image_key = int(image.cacheKey())
+        except (AttributeError, RuntimeError, TypeError) as exc:
+            log.debug("cacheKey() unavailable, using id() fallback: %s", exc)
+            image_key = id(image)
+        width, height = image.width(), image.height()
+        index_key = (image_key, width, height)
+        indexed = self._color_index_cache.get(index_key)
+        if indexed is not None:
+            return indexed
+
+        base_rgba = image.convertToFormat(QImage.Format.Format_RGBA8888)
+        if width <= 0 or height <= 0:
+            return base_rgba, None, None
+        base_ptr = imaging.qimage_buffer(base_rgba)
+        base_rows = np.frombuffer(base_ptr, dtype=np.uint8).reshape(
+            (height, base_rgba.bytesPerLine())
+        )
+        base_pixels = base_rows[:, :width * 4].reshape((height, width, 4))
+        opaque = (base_pixels[:, :, 3] > 0).copy()
+        packed = (
+            (base_pixels[:, :, 0].astype(np.uint32) << 16)
+            | (base_pixels[:, :, 1].astype(np.uint32) << 8)
+            | base_pixels[:, :, 2].astype(np.uint32)
+        )
+        indexed = (base_rgba.copy(), packed, opaque)
+        if len(self._color_index_cache) >= 24:
+            self._color_index_cache.pop(next(iter(self._color_index_cache)))
+        self._color_index_cache[index_key] = indexed
+        return indexed
+
     def filtered_layer_image(self, layer, apply_palette_filter=True):
         """Return a cached display-only image honoring this layer's palette visibility."""
         visible = (
@@ -3280,29 +3313,9 @@ class PaintCanvas(
         if cached is not None:
             return cached
 
-        index_key = (image_key, width, height)
-        indexed = self._color_index_cache.get(index_key)
-        if indexed is None:
-            base_rgba = layer.image.convertToFormat(QImage.Format.Format_RGBA8888)
-            if width <= 0 or height <= 0:
-                return base_rgba
-            base_ptr = imaging.qimage_buffer(base_rgba)
-            base_rows = np.frombuffer(base_ptr, dtype=np.uint8).reshape(
-                (height, base_rgba.bytesPerLine())
-            )
-            base_pixels = base_rows[:, :width * 4].reshape((height, width, 4))
-            opaque = (base_pixels[:, :, 3] > 0).copy()
-            packed = (
-                (base_pixels[:, :, 0].astype(np.uint32) << 16)
-                | (base_pixels[:, :, 1].astype(np.uint32) << 8)
-                | base_pixels[:, :, 2].astype(np.uint32)
-            )
-            indexed = (base_rgba.copy(), packed, opaque)
-            if len(self._color_index_cache) >= 24:
-                self._color_index_cache.pop(next(iter(self._color_index_cache)))
-            self._color_index_cache[index_key] = indexed
-
-        base_rgba, packed, opaque = indexed
+        base_rgba, packed, opaque = self._color_index_for_image(layer.image)
+        if packed is None or opaque is None:
+            return base_rgba
         rgba = base_rgba.copy()
         ptr = imaging.qimage_buffer(rgba)
         rows = np.frombuffer(ptr, dtype=np.uint8).reshape((height, rgba.bytesPerLine()))

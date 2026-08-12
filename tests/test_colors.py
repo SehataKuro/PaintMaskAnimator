@@ -1,14 +1,17 @@
 """Unit tests for the extracted pure color/palette/tone-curve helpers."""
 import os
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtGui import QColor  # noqa: E402
+from PySide6.QtGui import QColor, QImage  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 from paintmaskanimator import colors  # noqa: E402
+from paintmaskanimator.canvas import PaintCanvas  # noqa: E402
+from paintmaskanimator.main_window_used_color import UsedColorMixin  # noqa: E402
 
 
 @pytest.fixture(scope="session")
@@ -76,3 +79,28 @@ def test_priority_palette_within_bound(qapp):
     pal = colors.priority_palette_colors_from_samples(sample, 5)
     assert pal.shape[1] == 3
     assert pal.shape[0] <= 5
+
+
+def test_used_color_scan_prewarms_palette_filter_index(qapp):
+    canvas = PaintCanvas()
+    image = QImage(2, 1, QImage.Format.Format_ARGB32)
+    image.setPixelColor(0, 0, QColor(255, 0, 0))
+    image.setPixelColor(1, 0, QColor(0, 0, 255))
+    owner = object.__new__(UsedColorMixin)
+    owner.canvas = canvas
+
+    assert owner._extract_used_colors(image) == [(0, 0, 255), (255, 0, 0)]
+    assert len(canvas._color_index_cache) == 1
+    warmed_index = next(iter(canvas._color_index_cache.values()))
+
+    canvas.visible_color_rgbs = {(255, 0, 0)}
+    layer = SimpleNamespace(
+        image=image,
+        color_filter_enabled=False,
+        color_filter_rgb=None,
+    )
+    filtered = canvas.filtered_layer_image(layer)
+
+    assert next(iter(canvas._color_index_cache.values())) is warmed_index
+    assert filtered.pixelColor(0, 0).alpha() == 255
+    assert filtered.pixelColor(1, 0).alpha() == 0
