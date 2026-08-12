@@ -169,3 +169,108 @@ def test_config_roundtrip(tmp_path, monkeypatch):
     config.set_value("some_key", None)
     assert config.get_value("some_key") is None
     assert config.get_value("missing", "def") == "def"
+
+
+class _FakeResponse:
+    def __init__(self, chunks, content_length=None):
+        self._chunks = iter(chunks)
+        self.headers = {}
+        if content_length is not None:
+            self.headers["Content-Length"] = str(content_length)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def read(self, _size=-1):
+        return next(self._chunks, b"")
+
+
+def test_pick_installer_asset_rejects_missing_urls_and_unknown_shape():
+    assert updater.pick_installer_asset({"assets": {"linux": {}}}, "linux") is None
+    assert updater.pick_installer_asset({"assets": []}, "windows") is None
+    assert updater.pick_installer_asset({"assets": "invalid"}, "windows") is None
+
+
+def test_pick_installer_asset_legacy_uses_first_exe_without_setup():
+    manifest = {"assets": [{"name": "portable.EXE", "url": "portable.exe"}]}
+    asset = updater.pick_installer_asset(manifest, platform_key="windows")
+    assert asset is not None
+    assert asset["url"].endswith("/portable.exe")
+
+
+def test_current_platform_key(monkeypatch):
+    monkeypatch.setattr(updater.sys, "platform", "win32")
+    assert updater.current_platform_key() == "windows"
+    monkeypatch.setattr(updater.sys, "platform", "darwin")
+    assert updater.current_platform_key() == "macos"
+    monkeypatch.setattr(updater.sys, "platform", "linux")
+    assert updater.current_platform_key() == "linux"
+
+
+def test_fetch_manifest_builds_request_and_decodes_json(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(request, timeout):
+        captured["request"] = request
+        captured["timeout"] = timeout
+        return _FakeResponse([b'{"version": "1.2.3"}'])
+
+    monkeypatch.setattr(updater.urllib.request, "urlopen", fake_urlopen)
+    assert updater.fetch_manifest("https://example.test/updates.json") == {
+        "version": "1.2.3"
+    }
+    assert captured["request"].get_header("Accept") == "application/json"
+    assert captured["timeout"] == updater._TIMEOUT
+
+
+def test_download_asset_writes_chunks_and_reports_progress(tmp_path, monkeypatch):
+    progress = []
+    response = _FakeResponse([b"abc", b"de", b""], content_length=5)
+    monkeypatch.setattr(updater.urllib.request, "urlopen", lambda *a, **k: response)
+    destination = tmp_path / "installer.exe"
+
+    result = updater.download_asset(
+        {"url": "https://example.test/installer.exe"},
+        destination,
+        lambda downloaded, total: progress.append((downloaded, total)),
+    )
+
+    assert result == destination
+    assert destination.read_bytes() == b"abcde"
+    assert progress == [(3, 5), (5, 5)]
+
+
+def test_check_for_update_maps_other_http_error(monkeypatch):
+    import urllib.error
+
+    def boom(*a, **k):
+        raise urllib.error.HTTPError("u", 503, "Unavailable", {}, None)
+
+    monkeypatch.setattr(updater, "fetch_manifest", boom)
+    result = updater.check_for_update()
+    assert result["status"] == "error"
+    assert result["message"].endswith("503")
+
+
+def test_check_for_update_maps_malformed_manifest(monkeypatch):
+    def boom(*a, **k):
+        raise ValueError("invalid json")
+
+    monkeypatch.setattr(updater, "fetch_manifest", boom)
+    result = updater.check_for_update()
+    assert result == {"status": "error", "message": "invalid json"}
+
+
+def test_check_for_update_accepts_legacy_tag_name(monkeypatch):
+    monkeypatch.setattr(
+        updater,
+        "fetch_manifest",
+        lambda *a, **k: {"tag_name": "v2.0", "assets": []},
+    )
+    result = updater.check_for_update(current_version="1.0")
+    assert result["status"] == "update_available"
+    assert result["latest"] == "v2.0"
+    assert result["asset"] is None
