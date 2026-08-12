@@ -35,14 +35,27 @@
     <p id="error" hidden></p>
     <script>
       const LABELS = { windows: "Windows (インストーラ)", macos: "macOS (DMG)", linux: "Linux" };
+      const versionEl = document.getElementById("version");
+      const notYet = () => {
+        // updates.json does not exist yet (no release published). Cloudflare's
+        // SPA fallback serves index.html, so the body is HTML rather than JSON.
+        versionEl.textContent = "まだ配布物が公開されていません。";
+      };
       fetch("../updates.json", { cache: "no-store" })
-        .then((r) => { if (!r.ok) throw new Error("updates.json " + r.status); return r.json(); })
+        .then(async (r) => {
+          if (!r.ok) return null;
+          const ct = r.headers.get("content-type") || "";
+          const body = await r.text();
+          if (!ct.includes("json") && !body.trim().startsWith("{")) return null;
+          try { return JSON.parse(body); } catch { return null; }
+        })
         .then((m) => {
-          document.getElementById("version").textContent = "最新版: v" + (m.version || "?");
+          if (!m) { notYet(); return; }
+          versionEl.textContent = "最新版: v" + (m.version || "?");
           const ul = document.getElementById("assets");
           const assets = m.assets || {};
           const keys = Object.keys(assets);
-          if (!keys.length) { ul.innerHTML = "<li>配布物が見つかりませんでした。</li>"; return; }
+          if (!keys.length) { notYet(); return; }
           for (const key of keys) {
             const a = assets[key];
             const li = document.createElement("li");
@@ -56,11 +69,7 @@
             ul.appendChild(li);
           }
         })
-        .catch((e) => {
-          const el = document.getElementById("error");
-          el.hidden = false; el.textContent = "配布情報を読み込めませんでした: " + e.message;
-          document.getElementById("version").textContent = "";
-        });
+        .catch(() => notYet());
     </script>
   </body>
 </html>
