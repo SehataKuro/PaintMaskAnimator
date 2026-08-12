@@ -6,6 +6,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -43,6 +46,31 @@ jobs:
         run: >
           python scripts/run_tests.py -q
           --cov=paintmaskanimator --cov-report=term-missing --cov-report=xml
+          --cov-report=json:progress-site/.coverage-map.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: progress-site/package-lock.json
+
+      - name: Generate feature verification map
+        working-directory: progress-site
+        env:
+          SITE_BASE_PATH: /paintmaskanimator
+        run: |
+          npm ci
+          npm run data
+          npm test
+          npm run export-site
+
+      - name: Upload feature map artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: feature-map-${{ github.sha }}
+          path: progress-site/dist/site
+          include-hidden-files: true
+
       - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@v4
@@ -50,3 +78,42 @@ jobs:
           name: coverage-xml
           path: coverage.xml
           if-no-files-found: ignore
+
+  publish-feature-map:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-latest
+    concurrency:
+      group: publish-feature-map
+      cancel-in-progress: true
+    steps:
+      - name: Download generated site
+        uses: actions/download-artifact@v4
+        with:
+          name: feature-map-${{ github.sha }}
+          path: generated-site
+
+      - name: Check out website repository
+        uses: actions/checkout@v4
+        with:
+          repository: SehataKuro/jokomanato.com
+          ref: main
+          token: ${{ secrets.JOKOMANATO_DEPLOY_TOKEN }}
+          path: website
+
+      - name: Update website content
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          mkdir -p website/public/paintmaskanimator
+          rsync -a --delete generated-site/ website/public/paintmaskanimator/
+          cd website
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/paintmaskanimator
+          if git diff --cached --quiet; then
+            echo "Feature map is already up to date."
+            exit 0
+          fi
+          git commit -m "chore: update PaintMaskAnimator feature map (${SOURCE_SHA::7})"
+          git push origin HEAD:main
