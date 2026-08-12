@@ -30,6 +30,11 @@
       .vlabel { font-weight: 700; }
       details { margin-top: 0.5rem; }
       summary { cursor: pointer; color: #2563eb; }
+      .release-notes { margin: 1rem 0 1.25rem; padding-left: 1rem; border-left: 3px solid rgba(37,99,235,0.35); }
+      .release-notes h3 { font-size: 1rem; margin: 1rem 0 0.25rem; }
+      .release-notes ul { list-style: disc; padding-left: 1.25rem; }
+      .release-notes li { display: list-item; border: 0; padding: 0; margin: 0.25rem 0; }
+      .release-source { font-size: 0.9rem; }
     </style>
   </head>
   <body>
@@ -65,6 +70,38 @@
         return ul;
       }
 
+      function releaseNotes(version) {
+        if (!version.notes) return null;
+        const box = document.createElement("div");
+        box.className = "release-notes";
+        let list = null;
+        for (const rawLine of version.notes.split(/\r?\n/)) {
+          const line = rawLine.trim();
+          if (!line) { list = null; continue; }
+          if (/^#{2,4}\s+/.test(line)) {
+            const heading = document.createElement("h3");
+            heading.textContent = line.replace(/^#{2,4}\s+/, "");
+            box.appendChild(heading); list = null;
+          } else if (line.startsWith("- ")) {
+            if (!list) { list = document.createElement("ul"); box.appendChild(list); }
+            const item = document.createElement("li");
+            item.textContent = line.slice(2).replace(/`([^`]+)`/g, "$1");
+            list.appendChild(item);
+          } else {
+            const paragraph = document.createElement("p");
+            paragraph.textContent = line.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+            box.appendChild(paragraph); list = null;
+          }
+        }
+        if (version.release_url) {
+          const source = document.createElement("a");
+          source.className = "release-source"; source.href = version.release_url;
+          source.textContent = "GitHub でリリースを見る";
+          box.appendChild(source);
+        }
+        return box;
+      }
+
       async function parseJson(r) {
         if (!r.ok) return null;
         const ct = r.headers.get("content-type") || "";
@@ -78,6 +115,8 @@
         const latest = versions[0];
         versionEl.textContent = "最新版: v" + latest.version;
         document.getElementById("latest").appendChild(assetList(latest.assets, false));
+        const latestNotes = releaseNotes(latest);
+        if (latestNotes) document.getElementById("latest").appendChild(latestNotes);
 
         const past = versions.slice(1);
         if (!past.length) return;
@@ -91,6 +130,8 @@
           summary.innerHTML = '<span class="vlabel">v' + v.version + '</span>';
           details.appendChild(summary);
           details.appendChild(assetList(v.assets, true));
+          const notes = releaseNotes(v);
+          if (notes) details.appendChild(notes);
           h.appendChild(details);
         }
       }

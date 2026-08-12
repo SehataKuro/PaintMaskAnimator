@@ -15,11 +15,13 @@ _spec.loader.exec_module(gdi)
 BASE = "https://jokomanato.com/paintmaskanimator"
 
 
-def _release(tag, names, prerelease=False, draft=False):
+def _release(tag, names, prerelease=False, draft=False, body=""):
     return {
         "tag_name": tag,
         "prerelease": prerelease,
         "draft": draft,
+        "body": body,
+        "html_url": f"https://github.example/releases/tag/{tag}",
         "assets": [{"name": n} for n in names],
     }
 
@@ -68,3 +70,13 @@ def test_empty_when_no_releases():
     versions, updates = gdi.build_indexes([], BASE, "downloads")
     assert versions == {"versions": []}
     assert updates == {"version": "", "assets": {}}
+
+
+def test_versions_include_release_notes_and_source_url():
+    releases = [_release("v0.6.3", ["setup.exe"], body="### 修正\n- 表示を改善")]
+
+    versions, _ = gdi.build_indexes(releases, BASE, "downloads")
+
+    entry = versions["versions"][0]
+    assert entry["notes"] == "### 修正\n- 表示を改善"
+    assert entry["release_url"].endswith("/v0.6.3")

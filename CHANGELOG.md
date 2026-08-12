@@ -47,6 +47,24 @@ PaintMaskAnimator の主な変更点を記録します。
 - CI に品質ゲート（ruff + pyright + カバレッジ）を追加し、依存関係を単一ソース化。型チェックを導入し、pyright 警告を 1789 → 213 に削減。
 - コードベース全体の broad な `except` を狭小化し、エラーを握りつぶさずログ出力するように変更。
 
+## [0.6.1] - 2026-08-10
+
+### 変更
+- Windows 版を Inno Setup インストーラー、macOS 版をアプリケーション入り DMG として配布する構成へ刷新。
+- PyInstaller の設定を共通化し、アプリに必要なモジュールやリソースを確実に含めるよう改善。
+
+### 修正
+- リリースタグとアプリ本体、Python パッケージ、インストーラーのバージョンが一致するよう修正。
+
+## [0.6] - 2026-08-09
+
+### 追加
+- PaintMaskAnimator の初回リリース。
+- フレームとレイヤーを使ったペイント・マスクアニメーション編集に対応。
+- プロジェクトの保存・読込、画像処理、減色、オートセーブ、クラッシュ復元、アプリ内更新機能を追加。
+- Windows と macOS 向けの配布パッケージ、CI、自動テストを整備。
+
 [0.6.3]: https://github.com/SehataKuro/PaintMaskAnimator/releases/tag/v0.6.3
 [0.6.2]: https://github.com/SehataKuro/PaintMaskAnimator/releases/tag/v0.6.2
 [0.6.1]: https://github.com/SehataKuro/PaintMaskAnimator/releases/tag/v0.6.1
+[0.6]: https://github.com/SehataKuro/PaintMaskAnimator/releases/tag/v0.6

@@ -134,17 +134,25 @@ jobs:
     needs: [build-windows, build-macos]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - name: Download release artifacts
         uses: actions/download-artifact@v4
         with:
           path: release-assets
           merge-multiple: true
 
+      - name: Build release notes from changelog
+        run: |
+          python scripts/extract_release_notes.py \
+            "${GITHUB_REF_NAME#v}" \
+            --output release-notes.md
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: release-assets/*
-          generate_release_notes: true
+          body_path: release-notes.md
 
   publish-to-site:
     # Installers exceed Cloudflare Pages' 25 MiB static-asset limit, so they are
