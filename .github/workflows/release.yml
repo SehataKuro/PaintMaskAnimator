@@ -199,14 +199,22 @@ jobs:
           dest="website/public/paintmaskanimator"
           mkdir -p "$dest/downloads"
           # Copy the installer binaries (ignore any non-installer artifacts).
+          # Past releases already in downloads/ are preserved (never deleted),
+          # so the directory accumulates the full download history.
           find release-assets -type f \
             \( -iname '*.exe' -o -iname '*.dmg' \) \
             -exec cp {} "$dest/downloads/" \;
           cp updates.json "$dest/updates.json"
+          # Rebuild the full version history from everything now hosted.
+          python scripts/generate_versions_index.py \
+            --downloads-dir "$dest/downloads" \
+            --base-url https://jokomanato.com/paintmaskanimator \
+            --download-subdir downloads \
+            --output "$dest/versions.json"
           cd website
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add public/paintmaskanimator/downloads public/paintmaskanimator/updates.json
+          git add public/paintmaskanimator/downloads public/paintmaskanimator/updates.json public/paintmaskanimator/versions.json
           if git diff --cached --quiet; then
             echo "No installer changes to publish."
             exit 0

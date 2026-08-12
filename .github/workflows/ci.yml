@@ -127,6 +127,7 @@ jobs:
           rsync -a --delete \
             --exclude 'downloads/' \
             --exclude 'updates.json' \
+            --exclude 'versions.json' \
             generated-site/ website/public/paintmaskanimator/
           # The static download page lives under the excluded downloads/ dir
           # (kept separate so installer binaries there are never rsync-deleted),

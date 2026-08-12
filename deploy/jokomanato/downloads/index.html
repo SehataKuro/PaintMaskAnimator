@@ -11,6 +11,7 @@
         max-width: 42rem; margin: 0 auto; padding: 2rem 1.25rem; line-height: 1.6;
       }
       h1 { font-size: 1.6rem; margin-bottom: 0.25rem; }
+      h2 { font-size: 1.1rem; margin: 2rem 0 0.5rem; }
       .version { color: #6b7280; margin-top: 0; }
       ul { list-style: none; padding: 0; }
       li {
@@ -23,51 +24,89 @@
         padding: 0.5rem 1rem; border-radius: 0.5rem; white-space: nowrap;
       }
       a.dl:hover { background: #1d4ed8; }
+      a.dl.secondary { background: transparent; color: #2563eb; border: 1px solid #2563eb; }
       .name { font-weight: 600; word-break: break-all; }
       .plat { color: #6b7280; font-size: 0.9rem; }
-      #error { color: #b91c1c; }
+      .vlabel { font-weight: 700; }
+      details { margin-top: 0.5rem; }
+      summary { cursor: pointer; color: #2563eb; }
     </style>
   </head>
   <body>
     <h1>PaintMaskAnimator ダウンロード</h1>
     <p class="version" id="version">最新版を確認しています…</p>
-    <ul id="assets"></ul>
-    <p id="error" hidden></p>
+    <section id="latest"></section>
+    <section id="history"></section>
     <script>
       const LABELS = { windows: "Windows (インストーラ)", macos: "macOS (DMG)", linux: "Linux" };
       const versionEl = document.getElementById("version");
       const notYet = () => {
-        // updates.json does not exist yet (no release published). Cloudflare's
+        // No release published yet: versions.json does not exist and Cloudflare's
         // SPA fallback serves index.html, so the body is HTML rather than JSON.
         versionEl.textContent = "まだ配布物が公開されていません。";
       };
-      fetch("../updates.json", { cache: "no-store" })
-        .then(async (r) => {
-          if (!r.ok) return null;
-          const ct = r.headers.get("content-type") || "";
-          const body = await r.text();
-          if (!ct.includes("json") && !body.trim().startsWith("{")) return null;
-          try { return JSON.parse(body); } catch { return null; }
-        })
-        .then((m) => {
-          if (!m) { notYet(); return; }
-          versionEl.textContent = "最新版: v" + (m.version || "?");
-          const ul = document.getElementById("assets");
-          const assets = m.assets || {};
-          const keys = Object.keys(assets);
-          if (!keys.length) { notYet(); return; }
-          for (const key of keys) {
-            const a = assets[key];
-            const li = document.createElement("li");
-            const info = document.createElement("div");
-            info.innerHTML = '<div class="name">' + (a.name || key) + '</div>' +
-              '<div class="plat">' + (LABELS[key] || key) + '</div>';
-            const link = document.createElement("a");
-            link.className = "dl"; link.href = a.url; link.textContent = "ダウンロード";
-            link.setAttribute("download", "");
-            li.append(info, link);
-            ul.appendChild(li);
-          }
+
+      function assetRow(key, asset, secondary) {
+        const li = document.createElement("li");
+        const info = document.createElement("div");
+        info.innerHTML = '<div class="name">' + (asset.name || key) + '</div>' +
+          '<div class="plat">' + (LABELS[key] || key) + '</div>';
+        const link = document.createElement("a");
+        link.className = secondary ? "dl secondary" : "dl";
+        link.href = asset.url; link.textContent = "ダウンロード";
+        link.setAttribute("download", "");
+        li.append(info, link);
+        return li;
+      }
+
+      function assetList(assets, secondary) {
+        const ul = document.createElement("ul");
+        for (const key of Object.keys(assets)) ul.appendChild(assetRow(key, assets[key], secondary));
+        return ul;
+      }
+
+      async function parseJson(r) {
+        if (!r.ok) return null;
+        const ct = r.headers.get("content-type") || "";
+        const body = await r.text();
+        if (!ct.includes("json") && !body.trim().startsWith("{")) return null;
+        try { return JSON.parse(body); } catch { return null; }
+      }
+
+      function render(versions) {
+        if (!versions || !versions.length) { notYet(); return; }
+        const latest = versions[0];
+        versionEl.textContent = "最新版: v" + latest.version;
+        document.getElementById("latest").appendChild(assetList(latest.assets, false));
+
+        const past = versions.slice(1);
+        if (!past.length) return;
+        const h = document.getElementById("history");
+        const heading = document.createElement("h2");
+        heading.textContent = "過去のバージョン";
+        h.appendChild(heading);
+        for (const v of past) {
+          const details = document.createElement("details");
+          const summary = document.createElement("summary");
+          summary.innerHTML = '<span class="vlabel">v' + v.version + '</span>';
+          details.appendChild(summary);
+          details.appendChild(assetList(v.assets, true));
+          h.appendChild(details);
+        }
+      }
+
+      // Prefer versions.json (full history); fall back to updates.json (latest
+      // only) for older deploys that predate the history index.
+      fetch("../versions.json", { cache: "no-store" })
+        .then(parseJson)
+        .then((idx) => {
+          if (idx && Array.isArray(idx.versions)) { render(idx.versions); return; }
+          return fetch("../updates.json", { cache: "no-store" })
+            .then(parseJson)
+            .then((m) => {
+              if (m && m.assets) render([{ version: m.version || "?", assets: m.assets }]);
+              else notYet();
+            });
         })
         .catch(() => notYet());
     </script>
