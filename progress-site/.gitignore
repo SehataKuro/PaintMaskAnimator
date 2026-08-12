@@ -42,3 +42,8 @@ yarn-error.log*
 /.wrangler/
 /outputs/
 /work/
+
+# The repository root ignores build/, but this source plugin is required by
+# vite.config.ts in clean CI checkouts.
+!/build/
+!/build/sites-vite-plugin.ts
