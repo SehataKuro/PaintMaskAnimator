@@ -26,7 +26,10 @@ test("server-renders the feature verification map", async () => {
 
   assert.match(html, /<title>PaintMaskAnimator — 機能検証マップ<\/title>/);
   assert.match(html, /<h1>機能検証マップ<\/h1>/);
-  assert.match(html, new RegExp(`${coverage}(?:<!-- -->)?%`));
+  // The overall coverage renders in the score header as `N<small>%</small>`.
+  // (Matching a bare `N%` was fragile: it only passed when the overall figure
+  // happened to equal one of the per-feature percentages rendered elsewhere.)
+  assert.match(html, new RegExp(`<strong>${coverage}<small>%</small></strong>`));
   assert.match(html, new RegExp(statements.toLocaleString("en-US")));
   assert.match(html, /未分類モジュール/);
   assert.match(html, /https:\/\/jokomanato\.com\/paintmaskanimator\/og\.png/);
