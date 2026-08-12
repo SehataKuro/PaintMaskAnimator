@@ -5,7 +5,11 @@ priority palettes, HSV features, tone-curve normalization, palette painting).
 No widget or document state. PaintCanvas keeps delegating wrappers so its call
 sites are unchanged.
 """
-from .common import *  # noqa: F401,F403
+import math
+
+import numpy as np
+from PySide6.QtGui import QColor
+
 from . import constants  # noqa: F401
 
 
@@ -383,4 +387,3 @@ def priority_palette_colors_from_samples(
     ]
 
     return np.asarray(selected, dtype=np.uint8).reshape((-1, 3))
-

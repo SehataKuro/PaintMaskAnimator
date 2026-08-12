@@ -5,7 +5,27 @@ buffer-handling can be unit-tested without a widget. PaintCanvas keeps thin
 static/class-method wrappers that delegate here, so its call sites are
 unchanged.
 """
-from .common import *  # noqa: F401,F403
+from typing import Any
+
+import numpy as np
+from PySide6.QtGui import QImage
+
+from .common import PILImage
+from .constants import TP_MASK_PROXY_THRESHOLD
+
+
+def qimage_buffer(image: QImage, *, const: bool = False) -> Any:
+    """Return a sized Python buffer for a QImage across PySide6 versions.
+
+    Older Shiboken bindings expose ``setsize`` while newer bindings already
+    return a correctly sized memoryview.  Keeping the compatibility probe here
+    prevents every image operation from duplicating an exception-based check.
+    """
+    pointer: Any = image.constBits() if const else image.bits()
+    setsize = getattr(pointer, "setsize", None)
+    if callable(setsize):
+        setsize(int(image.sizeInBytes()))
+    return pointer
 
 
 def qimage_rgba_array(image):
@@ -18,11 +38,7 @@ def qimage_rgba_array(image):
         return np.zeros((0, 0, 4), dtype=np.uint8)
 
     byte_count = int(converted.sizeInBytes())
-    ptr = converted.constBits()
-    try:
-        ptr.setsize(byte_count)
-    except (AttributeError, TypeError):
-        pass
+    ptr = qimage_buffer(converted, const=True)
 
     try:
         flat = np.frombuffer(
@@ -97,11 +113,7 @@ def qimage_gray_array(image):
     width, height = gray.width(), gray.height()
     if width <= 0 or height <= 0:
         return np.zeros((0, 0), dtype=np.uint8)
-    ptr = gray.bits()
-    try:
-        ptr.setsize(gray.sizeInBytes())
-    except AttributeError:
-        pass
+    ptr = qimage_buffer(gray)
     rows = np.frombuffer(ptr, dtype=np.uint8).reshape(
         (height, gray.bytesPerLine())
     )
@@ -237,4 +249,3 @@ def tp_make_color_masks(image, palette):
         )
         for color in palette
     ]
-

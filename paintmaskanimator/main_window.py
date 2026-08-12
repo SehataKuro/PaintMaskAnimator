@@ -1,6 +1,6 @@
 from .common import *  # noqa: F401,F403
 import PySide6QtAds as QtAds
-from . import config, constants, theme, updater
+from . import config, constants, imaging, theme, updater
 from .theme import StatusBar
 from .actionpanel import ActionPanel
 from .canvas import PaintCanvas
@@ -827,11 +827,11 @@ class MainWindow(
         )
         self.tools.toolChanged.connect(self.tool_selector.set_active_tool)
         self.tools.toolChanged.connect(self.canvas.set_tool)
-        self.tools.size.valueChanged.connect(self.canvas.set_pen_size)
+        self.tools.brush_size_spinbox.valueChanged.connect(self.canvas.set_pen_size)
         self.tools.brush_stabilizer.valueChanged.connect(
             self.canvas.set_brush_stabilizer
         )
-        self.tools.size.pressureRequested.connect(self.pressure)
+        self.tools.brush_size_spinbox.pressureRequested.connect(self.pressure)
         self.tools.opacity.valueChanged.connect(
             lambda value: setattr(self.canvas, "pen_opacity", value / 100)
         )
@@ -1095,19 +1095,10 @@ class MainWindow(
     def _image_contains_rgb(image, rgb):
         if image is None or image.isNull():
             return False
-        rgba = image.convertToFormat(QImage.Format.Format_RGBA8888)
-        width, height = rgba.width(), rgba.height()
+        pixels = imaging.qimage_rgba_array(image)
+        height, width = pixels.shape[:2]
         if width <= 0 or height <= 0:
             return False
-        ptr = rgba.bits()
-        try:
-            ptr.setsize(rgba.sizeInBytes())
-        except AttributeError:
-            pass
-        rows = np.frombuffer(ptr, dtype=np.uint8).reshape(
-            (height, rgba.bytesPerLine())
-        )
-        pixels = rows[:, :width * 4].reshape((height, width, 4))
         target = np.array(
             [int(rgb[0]), int(rgb[1]), int(rgb[2])],
             dtype=np.uint8,
@@ -1436,10 +1427,8 @@ class MainWindow(
         max_height = constants.CANVAS_HEIGHT
         for path in paths:
             reader = QImageReader(str(path))
-            try:
+            if hasattr(reader, "setDecideFormatFromContent"):
                 reader.setDecideFormatFromContent(True)
-            except AttributeError:
-                pass
             size = reader.size()
             if size.isValid():
                 width, height = size.width(), size.height()
@@ -1754,17 +1743,7 @@ class MainWindow(
 
     @staticmethod
     def _qimage_rgba_array(image):
-        rgba = image.convertToFormat(QImage.Format.Format_RGBA8888)
-        width, height = rgba.width(), rgba.height()
-        ptr = rgba.bits()
-        try:
-            ptr.setsize(rgba.sizeInBytes())
-        except AttributeError:
-            pass
-        rows = np.frombuffer(ptr, dtype=np.uint8).reshape(
-            (height, rgba.bytesPerLine())
-        )
-        return rows[:, :width * 4].reshape((height, width, 4)).copy()
+        return imaging.qimage_rgba_array(image)
 
     def _replacement_mapping_for_aligned_images(self, source_image, target_image):
         """Return source->target RGB mapping when every aligned pixel is consistent."""
@@ -1925,15 +1904,8 @@ class MainWindow(
             source = frame.layers[source_index]
             if not source.has_content:
                 continue
-            image = source.image.convertToFormat(QImage.Format.Format_RGBA8888)
-            width, height = image.width(), image.height()
-            ptr = image.bits()
-            try:
-                ptr.setsize(image.sizeInBytes())
-            except AttributeError:
-                pass
-            rows = np.frombuffer(ptr, dtype=np.uint8).reshape((height, image.bytesPerLine()))
-            pixels = rows[:, :width*4].reshape((height, width, 4))
+            pixels = imaging.qimage_rgba_array(source.image)
+            height, width = pixels.shape[:2]
             visible = pixels[:, :, 3] > 0
             rgb24 = (
                 pixels[:, :, 0].astype(np.uint32) << 16
@@ -1997,18 +1969,8 @@ class MainWindow(
             if not source.has_content:
                 continue
 
-            rgba = source.image.convertToFormat(QImage.Format.Format_RGBA8888)
-            width, height = rgba.width(), rgba.height()
-            ptr = rgba.bits()
-            try:
-                ptr.setsize(rgba.sizeInBytes())
-            except AttributeError:
-                pass
-
-            rows = np.frombuffer(ptr, dtype=np.uint8).reshape(
-                (height, rgba.bytesPerLine())
-            )
-            pixels = rows[:, :width * 4].reshape((height, width, 4))
+            pixels = imaging.qimage_rgba_array(source.image)
+            height, width = pixels.shape[:2]
 
             visible = pixels[:, :, 3] > 0
             rgb24 = (
@@ -2276,28 +2238,11 @@ class MainWindow(
                 if not layer.has_content:
                     continue
 
-                rgba = layer.image.convertToFormat(
-                    QImage.Format.Format_RGBA8888
-                )
-                width = rgba.width()
-                height = rgba.height()
+                pixels = imaging.qimage_rgba_array(layer.image)
+                height, width = pixels.shape[:2]
                 if width <= 0 or height <= 0:
                     continue
 
-                ptr = rgba.bits()
-                try:
-                    ptr.setsize(rgba.sizeInBytes())
-                except AttributeError:
-                    pass
-                rows = np.frombuffer(
-                    ptr,
-                    dtype=np.uint8,
-                ).reshape(
-                    (height, rgba.bytesPerLine())
-                )
-                pixels = rows[:,:width * 4].reshape(
-                    (height, width, 4)
-                )
                 rgb = pixels[:,:,:3]
                 pseudo_white = (
                     (pixels[:,:,3] == 0)
@@ -2513,9 +2458,7 @@ class MainWindow(
                             bool(layer.has_content),
                         )
                     )
-                    layer.image = rgba.convertToFormat(
-                        QImage.Format.Format_ARGB32_Premultiplied
-                    )
+                    layer.image = imaging.rgba_array_to_qimage(pixels)
                     # ○化や未使用化はせず、キーフレーム構造を維持する。
                     layer.has_content = True
                     changed_cells += 1
@@ -3074,13 +3017,13 @@ class MainWindow(
             try:
                 widget.unsetCursor()
             except RuntimeError:
-                pass
+                log.debug("cursor target was deleted during cleanup", exc_info=True)
         if tool == "hand":
             for widget in self._auxiliary_cursor_targets():
                 try:
                     widget.setCursor(Qt.CursorShape.OpenHandCursor)
                 except RuntimeError:
-                    pass
+                    log.debug("cursor target was deleted during update", exc_info=True)
         elif tool == "zoom":
             try:
                 self.timeline.setCursor(Qt.CursorShape.SizeVerCursor)
@@ -3088,7 +3031,7 @@ class MainWindow(
                     Qt.CursorShape.SizeVerCursor
                 )
             except RuntimeError:
-                pass
+                log.debug("timeline was deleted during cursor update", exc_info=True)
 
     def _finish_auxiliary_hold_drag(self):
         grab_widget = self._ui_hold_grab_widget
@@ -3099,7 +3042,7 @@ class MainWindow(
             try:
                 grab_widget.releaseMouse()
             except RuntimeError:
-                pass
+                log.debug("mouse grab owner was deleted during release", exc_info=True)
         self._update_auxiliary_hold_cursors()
 
     def _handle_auxiliary_hold_event(self, watched, event):
@@ -3328,7 +3271,7 @@ class MainWindow(
             if app is not None:
                 app.removeEventFilter(self)
         except RuntimeError:
-            pass
+            log.debug("application was deleted during event-filter cleanup", exc_info=True)
         try:
             self.timer.stop()
             self._used_color_timer.stop()
@@ -3344,7 +3287,7 @@ class MainWindow(
             for skeleton in self._split_drop_skeletons:
                 skeleton.close()
         except RuntimeError:
-            pass
+            log.debug("window child was deleted during shutdown", exc_info=True)
         # A clean shutdown clears the autosave so we don't prompt to restore
         # on the next launch.
         self._clear_autosave()
@@ -3381,9 +3324,7 @@ class MainWindow(
         if PILImage is not None:
             rgba=image.convertToFormat(QImage.Format.Format_RGBA8888)
             width,height=rgba.width(),rgba.height()
-            ptr=rgba.bits()
-            try:ptr.setsize(rgba.sizeInBytes())
-            except AttributeError:pass
+            ptr = imaging.qimage_buffer(rgba)
             rows=np.frombuffer(ptr,dtype=np.uint8).reshape((height,rgba.bytesPerLine()))
             pixels=rows[:,:width*4].reshape((height,width,4)).copy()
             pil=PILImage.fromarray(pixels,"RGBA")

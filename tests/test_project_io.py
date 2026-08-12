@@ -75,3 +75,21 @@ def test_write_fills_metadata_frames(qapp, tmp_path):
     project_io.write_project_archive(tmp_path / "p.pmap", md, [make_frame()])
     assert len(md["frames"]) == 1
     assert md["frames"][0]["layers"][0]["name"]
+
+
+def test_failed_write_preserves_existing_project(qapp, tmp_path, monkeypatch):
+    path = tmp_path / "important.pmap"
+    original = b"existing project data"
+    path.write_bytes(original)
+
+    class BrokenArchive:
+        def __init__(self, *_args, **_kwargs):
+            raise OSError("disk full")
+
+    monkeypatch.setattr(project_io.zipfile, "ZipFile", BrokenArchive)
+
+    with pytest.raises(OSError, match="disk full"):
+        project_io.write_project_archive(path, _metadata(), [make_frame()])
+
+    assert path.read_bytes() == original
+    assert not path.with_suffix(".pmap.tmp").exists()

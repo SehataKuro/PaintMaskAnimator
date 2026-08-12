@@ -41,7 +41,7 @@ branch = true
 [tool.coverage.report]
 show_missing = true
 skip_covered = false
-fail_under = 34
+fail_under = 35.0
 
 [tool.pyright]
 include = ["paintmaskanimator", "scripts", "tests"]

@@ -4,7 +4,11 @@ Stateless functions over angles, points, grids and homographies. No widget or
 document state — trivially unit-testable. PaintCanvas keeps thin delegating
 wrappers so its call sites are unchanged.
 """
-from .common import *  # noqa: F401,F403
+import math
+
+import numpy as np
+from PySide6.QtCore import QPointF
+from PySide6.QtGui import QTransform
 
 
 def normalized_angle(angle):

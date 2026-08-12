@@ -7,6 +7,7 @@ instance and are called from its ``paintEvent``.
 """
 from .common import *  # noqa: F401,F403
 from ._canvas_members import CanvasMembers
+from . import imaging
 from .utils import blank_image
 from .logging_setup import get_logger
 
@@ -67,11 +68,7 @@ class OnionRenderMixin(CanvasMembers):
                     painter.end()
         image = image.convertToFormat(QImage.Format.Format_RGBA8888)
         width, height = image.width(), image.height()
-        ptr = image.bits()
-        try:
-            ptr.setsize(image.sizeInBytes())
-        except AttributeError:
-            pass
+        ptr = imaging.qimage_buffer(image)
         rows = np.frombuffer(ptr, dtype=np.uint8).reshape(
             (height, image.bytesPerLine())
         )

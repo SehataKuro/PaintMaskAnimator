@@ -8,6 +8,7 @@ instance.
 from .common import *  # noqa: F401,F403
 from ._canvas_members import CanvasMembers
 from .logging_setup import get_logger
+from typing import Optional
 
 log = get_logger(__name__)
 
@@ -24,13 +25,13 @@ class PlaybackMixin(CanvasMembers):
             (len(frame.layers) for frame in self.frames),
             default=0,
         )
-        resolved = [
+        resolved: list[list[Optional[int]]] = [
             [None] * layer_count
             for _ in range(frame_count)
         ]
 
         for layer_index in range(layer_count):
-            current_key = None
+            current_key: Optional[int] = None
             exposure_end = -1
             for frame_index in range(frame_count):
                 if layer_index >= len(

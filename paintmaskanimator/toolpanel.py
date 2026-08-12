@@ -776,25 +776,25 @@ class ToolPanel(QWidget):
         self.pressure_settings_button = QPushButton("筆圧…")
         self.pressure_settings_button.setFixedHeight(24)
         self.pressure_settings_button.clicked.connect(
-            lambda: self.size.pressureRequested.emit()
+            lambda: self.brush_size_spinbox.pressureRequested.emit()
         )
         size_title_row.addWidget(self.pressure_settings_button)
         v.addLayout(size_title_row)
-        self.size=BrushSizeSpinBox()
-        self.size.setRange(0.5, 400.0)
-        self.size.setSingleStep(0.5)
-        self.size.setDecimals(1)
-        self.size.setValue(8.0)
+        self.brush_size_spinbox = BrushSizeSpinBox()
+        self.brush_size_spinbox.setRange(0.5, 400.0)
+        self.brush_size_spinbox.setSingleStep(0.5)
+        self.brush_size_spinbox.setDecimals(1)
+        self.brush_size_spinbox.setValue(8.0)
         self.size_slider=QSlider(Qt.Orientation.Horizontal)
         self.size_slider.setRange(1, 800)
         self.size_slider.setValue(16)
-        self.size.valueChanged.connect(
+        self.brush_size_spinbox.valueChanged.connect(
             lambda value: self.size_slider.setValue(int(round(value * 2)))
         )
         self.size_slider.valueChanged.connect(
-            lambda value: self.size.setValue(value / 2.0)
+            lambda value: self.brush_size_spinbox.setValue(value / 2.0)
         )
-        v.addWidget(self.size_slider); v.addWidget(self.size)
+        v.addWidget(self.size_slider); v.addWidget(self.brush_size_spinbox)
 
         self.brush_stabilizer_label = QLabel("手振れ補正：0")
         self.brush_stabilizer = QSlider(Qt.Orientation.Horizontal)
@@ -966,7 +966,7 @@ class ToolPanel(QWidget):
         self.color_sliders=[]; self.color_value_labels=[]; self.rebuild_color_sliders(self.slider_mode)
         # サイズ欄は▲▼のみ、RGB/HSV数値欄は▲▼と半角数値入力に対応。
         for numeric in self.findChildren(QAbstractSpinBox):
-            is_size_numeric = numeric is self.size
+            is_size_numeric = numeric is self.brush_size_spinbox
             is_color_numeric = (
                 isinstance(numeric, SliderValueSpinBox)
             )
@@ -1202,11 +1202,11 @@ class ToolPanel(QWidget):
             "<b>ラインサイズ</b>" if is_line else "<b>ブラシサイズ</b>"
         )
         self.size_title.setVisible(uses_size)
-        self.size.setPressurePopupEnabled(tid == "brush")
+        self.brush_size_spinbox.setPressurePopupEnabled(tid == "brush")
         # ラインは筆圧を検出しないため、筆圧設定はブラシ時だけ表示する。
         self.pressure_settings_button.setVisible(tid == "brush")
         self.size_slider.setVisible(uses_size)
-        self.size.setVisible(uses_size)
+        self.brush_size_spinbox.setVisible(uses_size)
         self.brush_stabilizer_label.setVisible(tid == "brush")
         self.brush_stabilizer.setVisible(tid == "brush")
         self.opacity_title.setVisible(uses_opacity)

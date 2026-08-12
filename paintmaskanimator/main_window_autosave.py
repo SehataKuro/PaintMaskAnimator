@@ -66,4 +66,6 @@ class AutosaveMixin(MainWindowMembers):
         try:
             self._autosave_path().unlink(missing_ok=True)
         except OSError:
-            pass
+            # A stale snapshot can trigger another recovery prompt on the next
+            # launch, so preserve the failure details for diagnosis.
+            log.warning("failed to remove autosave snapshot: %s", self._autosave_path(), exc_info=True)

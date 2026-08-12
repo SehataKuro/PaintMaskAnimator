@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QApplication
 from paintmaskanimator import constants
 from paintmaskanimator.main_window import MainWindow
 from paintmaskanimator.project_io import read_project_archive, write_project_archive
+from paintmaskanimator.toolpanel import ToolPanel
 
 
 @pytest.fixture(scope="module")
@@ -24,6 +25,16 @@ def test_runtime_version_matches_project_metadata():
     expected = project["project"]["version"]
     assert importlib.metadata.version("paintmaskanimator") == expected
     assert constants.APP_VERSION == expected
+
+
+def test_tool_panel_preserves_qwidget_size_api(qapp):
+    panel = ToolPanel()
+    try:
+        assert callable(panel.size)
+        assert panel.size().isValid()
+        assert panel.brush_size_spinbox.value() == 8.0
+    finally:
+        panel.deleteLater()
 
 
 def test_window_document_roundtrips_through_project_archive(

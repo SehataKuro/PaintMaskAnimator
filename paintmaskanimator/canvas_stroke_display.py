@@ -7,6 +7,7 @@ that avoid first-stroke jank. They run against a live ``PaintCanvas`` instance.
 """
 from .common import *  # noqa: F401,F403
 from ._canvas_members import CanvasMembers
+from . import imaging
 from .logging_setup import get_logger
 
 log = get_logger(__name__)
@@ -183,11 +184,7 @@ class StrokeDisplayMixin(CanvasMembers):
         # first real stamp.  Keep the scratch image local so no display cache,
         # layer pixels, or undo state is affected.
         rgba = scratch.convertToFormat(QImage.Format.Format_RGBA8888)
-        ptr = rgba.bits()
-        try:
-            ptr.setsize(rgba.sizeInBytes())
-        except AttributeError:
-            pass
+        ptr = imaging.qimage_buffer(rgba)
         rows = np.frombuffer(ptr, dtype=np.uint8).reshape(
             (rgba.height(), rgba.bytesPerLine())
         )

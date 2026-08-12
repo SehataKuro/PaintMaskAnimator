@@ -59,5 +59,7 @@ if __name__ == '__main__':
     except SystemExit:
         raise
     except Exception:
-        sys.excepthook(*sys.exc_info())
+        exc_type, exc_value, exc_tb = sys.exc_info()
+        if exc_type is not None and exc_value is not None:
+            sys.excepthook(exc_type, exc_value, exc_tb)
         raise SystemExit(1) from None

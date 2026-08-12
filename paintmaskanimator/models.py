@@ -1,4 +1,8 @@
-from .common import *  # noqa: F401,F403
+from dataclasses import dataclass
+from typing import List, Optional
+
+from PySide6.QtGui import QImage
+
 from .utils import blank_image
 
 

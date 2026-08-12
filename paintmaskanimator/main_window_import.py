@@ -5,6 +5,7 @@ dialogs and parsing that bring external PSD layers and XDTS timesheets into the
 current project. They run against a live ``MainWindow`` instance.
 """
 from .common import *  # noqa: F401,F403
+from typing import Any, cast
 from ._main_window_members import MainWindowMembers
 from . import constants
 from .canvas import PaintCanvas
@@ -350,7 +351,11 @@ class ImportMixin(MainWindowMembers):
             imported_cell_count = 0
             viewport = (0, 0, psd_width, psd_height)
             for top_layer in psd:
-                frame_layers = list(top_layer) if top_layer.is_group() else [top_layer]
+                frame_layers = (
+                    list(cast(Any, top_layer))
+                    if top_layer.is_group()
+                    else [top_layer]
+                )
                 imported_cell_count += len(frame_layers)
                 if imported_cell_count > MAX_PROJECT_LAYER_CELLS:
                     raise ValueError("PSDのレイヤー項目数が上限を超えています。")

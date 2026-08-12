@@ -7,7 +7,7 @@ it, and patch that cache for in-progress strokes. They run against a live
 """
 from .common import *  # noqa: F401,F403
 from ._canvas_members import CanvasMembers
-from . import colors
+from . import colors, imaging
 from .logging_setup import get_logger
 
 log = get_logger(__name__)
@@ -31,11 +31,7 @@ class PseudoTransparencyMixin(CanvasMembers):
         sub = image.copy(x1, y1, w, h).convertToFormat(
             QImage.Format.Format_RGBA8888
         )
-        ptr = sub.bits()
-        try:
-            ptr.setsize(sub.sizeInBytes())
-        except AttributeError:
-            pass
+        ptr = imaging.qimage_buffer(sub)
         rows = np.frombuffer(ptr, dtype=np.uint8).reshape(
             (h, sub.bytesPerLine())
         )
@@ -99,11 +95,7 @@ class PseudoTransparencyMixin(CanvasMembers):
         if width <= 0 or height <= 0:
             return rgba
 
-        ptr = rgba.bits()
-        try:
-            ptr.setsize(rgba.sizeInBytes())
-        except AttributeError:
-            pass
+        ptr = imaging.qimage_buffer(rgba)
         rows = np.frombuffer(
             ptr,
             dtype=np.uint8,

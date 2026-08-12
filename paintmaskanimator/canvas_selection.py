@@ -49,11 +49,7 @@ class SelectionMixin(CanvasMembers):
         painter.setBrush(QColor(255, 255, 255, 255))
         painter.drawPolygon(local_polygon)
         painter.end()
-        ptr = mask.bits()
-        try:
-            ptr.setsize(mask.sizeInBytes())
-        except AttributeError:
-            pass
+        ptr = imaging.qimage_buffer(mask)
         rows = np.frombuffer(ptr, dtype=np.uint8).reshape(
             (height, mask.bytesPerLine())
         )
@@ -174,11 +170,7 @@ class SelectionMixin(CanvasMembers):
         width, height = image.width(), image.height()
         if width <= 0 or height <= 0:
             return False
-        ptr = image.bits()
-        try:
-            ptr.setsize(image.sizeInBytes())
-        except AttributeError:
-            pass
+        ptr = imaging.qimage_buffer(image)
         rows = np.frombuffer(ptr, dtype=np.uint8).reshape(
             (height, image.bytesPerLine())
         )

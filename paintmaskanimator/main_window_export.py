@@ -41,6 +41,18 @@ class ExportMixin(MainWindowMembers):
                     self.canvas.frames, layer_index, column
                 )
                 if kind == "content":
+                    if key_column is None:
+                        log.warning(
+                            "timeline reported content without a key frame: layer=%s frame=%s",
+                            layer_index,
+                            column,
+                        )
+                        value = "SYMBOL_NULL_CELL"
+                        frame_data.append({
+                            "frame": column,
+                            "data": [{"id": 0, "values": [value]}],
+                        })
+                        continue
                     if column == key_column:
                         number = self.canvas.frames[key_column].layers[
                             layer_index
@@ -132,6 +144,8 @@ class ExportMixin(MainWindowMembers):
                         constants.CANVAS_HEIGHT,
                     )
                     pil_image = PaintCanvas._qimage_to_pil_rgba(source)
+                    if pil_image is None:
+                        raise RuntimeError("PSD書き出しに必要な画像変換を利用できません。")
                     pixel_layer = psd.create_pixel_layer(
                         pil_image,
                         name=f"{folder_name}{key_number:04d}",

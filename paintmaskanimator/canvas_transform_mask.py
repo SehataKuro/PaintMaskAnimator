@@ -358,11 +358,7 @@ class TransformMaskMixin(CanvasMembers):
         ch = int(target_height if target_height is not None else self.active_layer.image.height())
         if sw <= 0 or sh <= 0 or cw <= 0 or ch <= 0:
             return None
-        sp = source.bits()
-        try:
-            sp.setsize(source.sizeInBytes())
-        except AttributeError:
-            pass
+        sp = imaging.qimage_buffer(source)
         source_rows = np.frombuffer(sp, dtype=np.uint8).reshape(
             (sh, source.bytesPerLine())
         )

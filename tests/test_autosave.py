@@ -1,5 +1,6 @@
 """Functional test for autosave write/clear (config dir redirected to tmp)."""
 import os
+import logging
 
 import pytest
 
@@ -43,3 +44,18 @@ def test_autosave_writes_and_clears(qapp, tmp_path, monkeypatch):
         window = None
         qapp.processEvents()
         qapp.processEvents()
+
+
+def test_clear_autosave_logs_unlink_failure(caplog, monkeypatch, tmp_path):
+    from paintmaskanimator.main_window_autosave import AutosaveMixin
+
+    snapshot = tmp_path / "autosave.pmap"
+    snapshot.write_bytes(b"snapshot")
+    owner = object.__new__(AutosaveMixin)
+    monkeypatch.setattr(owner, "_autosave_path", lambda: snapshot)
+    monkeypatch.setattr(type(snapshot), "unlink", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("locked")))
+
+    with caplog.at_level(logging.WARNING, logger="paintmaskanimator.main_window_autosave"):
+        owner._clear_autosave()
+
+    assert "failed to remove autosave snapshot" in caplog.text

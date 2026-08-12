@@ -47,6 +47,12 @@ def test_gray_array_shape(qapp):
     assert np.all(gray == 255)
 
 
+def test_qimage_buffer_exposes_full_storage(qapp):
+    image = QImage(7, 3, QImage.Format.Format_RGBA8888)
+    buffer = imaging.qimage_buffer(image)
+    assert np.frombuffer(buffer, dtype=np.uint8).size >= image.sizeInBytes()
+
+
 def test_delegators_match_module(qapp):
     """PaintCanvas wrappers must call through to imaging.*"""
     from paintmaskanimator.canvas import PaintCanvas

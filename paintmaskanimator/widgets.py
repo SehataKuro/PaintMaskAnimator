@@ -1,4 +1,5 @@
 from .common import *  # noqa: F401,F403
+from typing import Any
 from . import theme
 from .utils import _ScreenColorDragMixin
 from .logging_setup import get_logger
@@ -1180,7 +1181,7 @@ class TimeRemapPasteDialog(QDialog):
         self.setWindowTitle("タイムリマップをタイムシートへ貼り付け")
         self.resize(760, 650)
         self._parsed_preview = None
-        self._parsed_source = None
+        self._parsed_source: dict[str, Any] | None = None
         self._parsed_raw_text = None
         self._included_rows = []
         self._column_layer_bindings = {}
@@ -1402,13 +1403,23 @@ class TimeRemapPasteDialog(QDialog):
         owner = self.parent()
         return owner if owner is not None else None
 
+    @staticmethod
+    def _list_value(value):
+        """Normalize an untrusted parser field to a plain list."""
+        return list(value) if isinstance(value, (list, tuple)) else []
+
+    @classmethod
+    def _mapping_list(cls, value):
+        """Keep only mapping-shaped entries from an untrusted parser field."""
+        return [dict(item) for item in cls._list_value(value) if isinstance(item, dict)]
+
     def _sheet_columns(self):
         if self._parsed_source is None:
             return []
-        columns = list(self._parsed_source.get("sheet_columns", []))
+        columns = self._mapping_list(self._parsed_source.get("sheet_columns"))
         if columns:
             return columns
-        tracks = list(self._parsed_source.get("tracks", []))
+        tracks = self._mapping_list(self._parsed_source.get("tracks"))
         if tracks:
             return [
                 dict(
@@ -1419,12 +1430,12 @@ class TimeRemapPasteDialog(QDialog):
                     bindable=True,
                     display_values=[
                         "×" if state is None else str(int(state))
-                        for state in track.get("states", [])
+                        for state in self._list_value(track.get("states"))
                     ],
                 )
                 for index, track in enumerate(tracks)
             ]
-        states = list(self._parsed_source.get("states", []))
+        states = self._list_value(self._parsed_source.get("states"))
         if not states:
             return []
         return [{
@@ -1451,11 +1462,13 @@ class TimeRemapPasteDialog(QDialog):
     def _available_layers(self):
         owner = self._parser_owner()
         canvas = getattr(owner, "canvas", None)
-        frames = getattr(canvas, "frames", []) if canvas is not None else []
+        if canvas is None:
+            return []
+        frames = getattr(canvas, "frames", [])
         if not frames:
             return []
         frame_index = max(
-            0, min(int(canvas.current_frame), len(frames) - 1)
+            0, min(int(getattr(canvas, "current_frame", 0)), len(frames) - 1)
         )
         return [
             (index, str(layer.name))
@@ -1487,7 +1500,8 @@ class TimeRemapPasteDialog(QDialog):
                 used_layers.add(match)
         if not self._column_layer_bindings and bindable and layers:
             owner = self._parser_owner()
-            active = int(getattr(owner.canvas, "active_layer_index", 0))
+            canvas = getattr(owner, "canvas", None)
+            active = int(getattr(canvas, "active_layer_index", 0))
             if any(index == active for index, _name in layers):
                 self._column_layer_bindings[
                     self._column_uid(bindable[0])
@@ -1568,7 +1582,7 @@ class TimeRemapPasteDialog(QDialog):
             uid = self._column_uid(column)
             layer_index = self._column_layer_bindings.get(uid)
             if bool(column.get("bindable", False)):
-                linked = layers.get(layer_index)
+                linked = layers.get(layer_index) if layer_index is not None else None
                 link_text = f"→ {linked}" if linked else "クリックで紐づけ"
                 labels.append(f"{group}\n{name}\n{link_text}")
             else:
@@ -1614,11 +1628,14 @@ class TimeRemapPasteDialog(QDialog):
         self._update_preview_status()
 
     def _update_preview_status(self):
+        source = self._parsed_source
+        if source is None:
+            return
         columns = self._sheet_columns()
         if not columns:
             return
         duration = max(
-            [len(column.get("display_values", [])) for column in columns]
+            [len(self._list_value(column.get("display_values"))) for column in columns]
             + [len(self._included_rows)]
         )
         included = list(self._included_rows)
@@ -1630,7 +1647,7 @@ class TimeRemapPasteDialog(QDialog):
             if self._column_uid(column) in self._column_layer_bindings
         )
         format_name = str(
-            self._parsed_source.get("format", "タイムリマップ")
+            source.get("format", "タイムリマップ")
         )
         self.preview_status.setText(
             f"{format_name}／使用 {used_count}／"
@@ -1640,13 +1657,16 @@ class TimeRemapPasteDialog(QDialog):
         self.preview_status.setStyleSheet("color:#176b42;")
 
     def _populate_preview_table(self):
+        source = self._parsed_source
+        if source is None:
+            return
         columns = self._sheet_columns()
         if not columns:
             return
         duration = max(
-            len(column.get("display_values", [])) for column in columns
+            len(self._list_value(column.get("display_values"))) for column in columns
         )
-        start_frame = int(self._parsed_source.get("start_frame", 0))
+        start_frame = int(source.get("start_frame", 0))
         if len(self._included_rows) != duration:
             self._included_rows = [True] * duration
 
@@ -1686,7 +1706,7 @@ class TimeRemapPasteDialog(QDialog):
                 self.preview_table.setItem(row, 0, use_item)
                 self.preview_table.setItem(row, 1, frame_item)
                 for offset, column in enumerate(columns, 2):
-                    values = list(column.get("display_values", []))
+                    values = self._list_value(column.get("display_values"))
                     value = values[row] if row < len(values) else ""
                     cell_item = QTableWidgetItem(str(value))
                     cell_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1717,15 +1737,16 @@ class TimeRemapPasteDialog(QDialog):
             return
 
         owner = self._parser_owner()
-        if owner is None or not hasattr(
-            owner, "parse_time_remap_text"
-        ):
+        parser = getattr(owner, "parse_time_remap_text", None)
+        if not callable(parser):
             self.preview_status.setText("解析機能を取得できません")
             self.preview_status.setStyleSheet("color:#b00020;")
             return
 
         try:
-            parsed = owner.parse_time_remap_text(raw_text)
+            parsed = parser(raw_text)
+            if not isinstance(parsed, dict):
+                raise TypeError("タイムリマップの解析結果は辞書である必要があります。")
         except (ValueError, KeyError, IndexError, TypeError) as exc:
             # Malformed clipboard/timesheet data is expected here; show the
             # first line of the error in the preview status and log details.
@@ -1745,7 +1766,7 @@ class TimeRemapPasteDialog(QDialog):
         self._parsed_preview = parsed
         columns = self._sheet_columns()
         duration = max(
-            [len(column.get("display_values", [])) for column in columns]
+            [len(self._list_value(column.get("display_values"))) for column in columns]
             + [0]
         )
         self._included_rows = [True] * duration
@@ -1765,8 +1786,8 @@ class TimeRemapPasteDialog(QDialog):
         filtered_columns = []
         for column in columns:
             filtered_column = dict(column)
-            states = list(column.get("states", []))
-            values = list(column.get("display_values", []))
+            states = self._list_value(column.get("states"))
+            values = self._list_value(column.get("display_values"))
             if states:
                 filtered_column["states"] = [
                     state for state, keep in zip(states, self._included_rows)

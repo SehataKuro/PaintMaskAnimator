@@ -7,6 +7,7 @@ merge). They run against a live ``MainWindow`` instance.
 """
 from .common import *  # noqa: F401,F403
 from ._main_window_members import MainWindowMembers
+from . import imaging
 from .logging_setup import get_logger
 
 log = get_logger(__name__)
@@ -102,11 +103,7 @@ class UsedColorMixin(MainWindowMembers):
         width, height = rgba.width(), rgba.height()
         if width <= 0 or height <= 0:
             return []
-        ptr = rgba.bits()
-        try:
-            ptr.setsize(rgba.sizeInBytes())
-        except AttributeError:
-            pass
+        ptr = imaging.qimage_buffer(rgba)
         array = np.frombuffer(ptr, dtype=np.uint8).reshape((height, rgba.bytesPerLine()))[:, :width * 4]
         pixels = array.reshape((-1, 4))
         pixels = pixels[pixels[:, 3] > 0, :3]
@@ -307,11 +304,7 @@ class UsedColorMixin(MainWindowMembers):
                 width, height = rgba.width(), rgba.height()
                 if width <= 0 or height <= 0:
                     continue
-                ptr = rgba.bits()
-                try:
-                    ptr.setsize(rgba.sizeInBytes())
-                except AttributeError:
-                    pass
+                ptr = imaging.qimage_buffer(rgba)
                 rows = np.frombuffer(
                     ptr, dtype=np.uint8
                 ).reshape((height, rgba.bytesPerLine()))

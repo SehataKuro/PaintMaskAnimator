@@ -8,7 +8,7 @@ the color-reduction delegating methods that remain on the widget.
 """
 from .common import *  # noqa: F401,F403
 from ._canvas_members import CanvasMembers
-from . import constants
+from . import constants, imaging
 from .models import Layer
 from .utils import blank_image, natural_path_key
 from .logging_setup import get_logger
@@ -25,10 +25,8 @@ class ImageImportMixin(CanvasMembers):
         errors = []
         reader = QImageReader(path)
         reader.setAutoTransform(False)
-        try:
+        if hasattr(reader, "setDecideFormatFromContent"):
             reader.setDecideFormatFromContent(True)
-        except AttributeError:
-            pass
         declared_size = reader.size()
         if declared_size.isValid():
             declared_width = int(declared_size.width())
@@ -99,11 +97,7 @@ class ImageImportMixin(CanvasMembers):
         if width <= 0 or height <= 0:
             return rgba
 
-        ptr = rgba.bits()
-        try:
-            ptr.setsize(rgba.sizeInBytes())
-        except AttributeError:
-            pass
+        ptr = imaging.qimage_buffer(rgba)
         rows = np.frombuffer(ptr, dtype=np.uint8).reshape(
             (height, rgba.bytesPerLine())
         )

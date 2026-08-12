@@ -1774,6 +1774,8 @@ class PaintCanvas(
                 int(round(offset_x)),
                 int(round(offset_y)),
             )
+            if mask is None:
+                return
             region = QRegion()
             for y in range(mask.shape[0]):
                 row = mask[y]  # pyright: ignore[reportOptionalSubscript]
@@ -2024,11 +2026,7 @@ class PaintCanvas(
             self.status_message.emit("選択範囲の外側なので塗りを開始しませんでした。")
             return
 
-        ptr = image.bits()
-        try:
-            ptr.setsize(image.sizeInBytes())
-        except AttributeError:
-            pass
+        ptr = imaging.qimage_buffer(image)
         rows = np.frombuffer(ptr, dtype=np.uint8).reshape(
             (height, image.bytesPerLine())
         )
@@ -2318,11 +2316,7 @@ class PaintCanvas(
         if not (0 <= start_x < width and 0 <= start_y < height):
             return False
 
-        ptr = image.bits()
-        try:
-            ptr.setsize(image.sizeInBytes())
-        except AttributeError:
-            pass
+        ptr = imaging.qimage_buffer(image)
         rows = np.frombuffer(ptr, dtype=np.uint8).reshape(
             (height, image.bytesPerLine())
         )
@@ -2358,7 +2352,7 @@ class PaintCanvas(
 
         if adjacent:
             passable = target_mask
-            if close_gap:
+            if close_gap and tools is not None:
                 radius = max(1, int(tools.bucket_gap_width.value()))
                 boundary = ~target_mask
                 expanded = boundary.copy()
@@ -3180,6 +3174,8 @@ class PaintCanvas(
             # 使用色の表示OFFなどで見えていない画素は飛ばすが、
             # 表示不透明度やシルエット色はスポイト色へ混ぜない。
             display_source = self._display_layer_image(layer, layer_index)
+            if display_source is None:
+                continue
             if display_source.pixelColor(x, y).alpha() == 0:
                 continue
             candidate = source.pixelColor(x, y)
@@ -3211,6 +3207,8 @@ class PaintCanvas(
         )
         if not layer.is_paper:
             base = self._pseudo_transparent_display_image(base)
+        if base is None:
+            return QImage()
         if not self.silhouette_non_background:
             return base
         try:
@@ -3223,11 +3221,7 @@ class PaintCanvas(
             return cached
         rgba = base.convertToFormat(QImage.Format.Format_RGBA8888)
         width, height = rgba.width(), rgba.height()
-        ptr = rgba.bits()
-        try:
-            ptr.setsize(rgba.sizeInBytes())
-        except AttributeError:
-            pass
+        ptr = imaging.qimage_buffer(rgba)
         rows = np.frombuffer(ptr, dtype=np.uint8).reshape((height, rgba.bytesPerLine()))
         pixels = rows[:, :width * 4].reshape((height, width, 4))
         visible = pixels[:, :, 3] > 0
@@ -3278,11 +3272,7 @@ class PaintCanvas(
             base_rgba = layer.image.convertToFormat(QImage.Format.Format_RGBA8888)
             if width <= 0 or height <= 0:
                 return base_rgba
-            base_ptr = base_rgba.bits()
-            try:
-                base_ptr.setsize(base_rgba.sizeInBytes())
-            except AttributeError:
-                pass
+            base_ptr = imaging.qimage_buffer(base_rgba)
             base_rows = np.frombuffer(base_ptr, dtype=np.uint8).reshape(
                 (height, base_rgba.bytesPerLine())
             )
@@ -3300,11 +3290,7 @@ class PaintCanvas(
 
         base_rgba, packed, opaque = indexed
         rgba = base_rgba.copy()
-        ptr = rgba.bits()
-        try:
-            ptr.setsize(rgba.sizeInBytes())
-        except AttributeError:
-            pass
+        ptr = imaging.qimage_buffer(rgba)
         rows = np.frombuffer(ptr, dtype=np.uint8).reshape((height, rgba.bytesPerLine()))
         pixels = rows[:, :width * 4].reshape((height, width, 4))
 
@@ -3402,6 +3388,8 @@ class PaintCanvas(
             if not layer.visible:
                 continue
             draw_image = self._display_layer_image(layer, layer_index)
+            if draw_image is None:
+                continue
             if self.flip_horizontal:
                 draw_image = draw_image.mirrored(True, False)
             painter.setOpacity(layer.opacity)
@@ -3833,13 +3821,8 @@ class PaintCanvas(
             QImage.Format.Format_RGBA8888
         )
 
-        source_ptr = source.bits()
-        mask_ptr = mask_image.bits()
-        try:
-            source_ptr.setsize(source.sizeInBytes())
-            mask_ptr.setsize(mask_image.sizeInBytes())
-        except AttributeError:
-            pass
+        source_ptr = imaging.qimage_buffer(source)
+        mask_ptr = imaging.qimage_buffer(mask_image)
         source_rows = np.frombuffer(
             source_ptr, dtype=np.uint8
         ).reshape((height, source.bytesPerLine()))
@@ -4004,6 +3987,8 @@ class PaintCanvas(
                 transform_preview = self._pseudo_transparent_display_image(
                     transform_preview
                 )
+                if transform_preview is None:
+                    transform_preview = QImage()
                 transform_preview = (
                     transform_preview.mirrored(True, False)
                     if self.flip_horizontal else transform_preview
