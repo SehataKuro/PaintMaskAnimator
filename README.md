@@ -1,8 +1,16 @@
 # PaintMaskAnimator
 
-[機能検証マップ（各コミットのテスト結果から自動更新）](https://jokomanato.com/paintmaskanimator/)
-
 PySide6 で作られたペイント / マスクアニメーションツールです。
+
+## 関連リンク
+
+- [ダウンロードページ](https://jokomanato.com/paintmaskanimator/downloads/)
+- [機能検証マップ（各コミットのテスト結果から自動更新）](https://jokomanato.com/paintmaskanimator/)
+
+ページの閲覧には Basic 認証が必要です。
+
+- ユーザー名: `guest`
+- パスワード: `6eCKEq`
 
 ## プロジェクトの由来と開発思想
 
