@@ -48,6 +48,7 @@ def test_pick_installer_asset_absolute_url_preserved():
         "assets": {"macos": {"name": "a.dmg", "url": "https://cdn.example/a.dmg"}}
     }
     asset = updater.pick_installer_asset(manifest, platform_key="macos")
+    assert asset is not None
     assert asset["url"] == "https://cdn.example/a.dmg"
 
 
