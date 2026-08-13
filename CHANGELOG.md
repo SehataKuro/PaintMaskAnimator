@@ -11,6 +11,14 @@ PaintMaskAnimator の主な変更点を記録します。
 
 ### 内部
 
+- `canvas.py` (4,225行) からタイムライン構造編集・描画ツール・自由変形ジオメトリを
+  3つのMixinへ分離（`canvas_timeline_ops.py` / `canvas_paint_tools.py` /
+  `canvas_transform_geometry.py`）。本体は1,815行。
+- `color_panel.py` (2,327行) を行ウィジェット群（`color_panel_widgets.py`）と
+  5つのMixin（グループ化・選択・表示/非表示・マスク色・履歴スナップショット）へ分離。
+  本体は808行。型スタブ `_color_panel_members.py` を新設。
+  分離に伴いpyrightが未importの `CheckClickArea` / `QGraphicsOpacityEffect` を検出（実行時
+  エラーになる箇所。`from .common import *` のためruffでは検出できなかった）。
 - `main_window.py` (3,385行) からUI組み立て・線画処理・入力処理を3つのMixinへ分離
   （`main_window_ui_build.py` / `main_window_line_ops.py` / `main_window_input.py`）。
   本体は1,048行となり、アプリ状態・キャンバス連携・ドキュメント生存期間だけが残った。
