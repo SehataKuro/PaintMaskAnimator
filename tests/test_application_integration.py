@@ -2,8 +2,12 @@
 from __future__ import annotations
 
 import importlib.metadata
-import tomllib
 from pathlib import Path
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10 has no tomllib
+    tomllib = None
 
 import pytest
 from PySide6.QtGui import QColor
@@ -20,7 +24,9 @@ def qapp():
     return QApplication.instance() or QApplication([])
 
 
+@pytest.mark.skipif(tomllib is None, reason="tomllib requires Python 3.11+")
 def test_runtime_version_matches_project_metadata():
+    assert tomllib is not None
     project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
     expected = project["project"]["version"]
     assert importlib.metadata.version("paintmaskanimator") == expected

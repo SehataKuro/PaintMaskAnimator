@@ -371,6 +371,7 @@ class CanvasMembers(_MembersBase):
         push_doc_undo: Any
         push_layer_region_undo: Any
         push_layer_undo: Any
+        push_undo: Any
         raster_triangle: Any
         rect_end: Any
         rect_start: Any

@@ -34,6 +34,17 @@ from .canvas_selection import SelectionMixin
 from .canvas_stroke_display import StrokeDisplayMixin
 from .canvas_transform_mask import TransformMaskMixin
 from .canvas_undo import UndoMixin
+from .undo_entries import (
+    DocUndo,
+    LayerBatchUndo,
+    LayerInsertUndo,
+    LayerRegionUndo,
+    LayerRemoveUndo,
+    LayerTilesUndo,
+    LayerUndo,
+    PaletteStateUndo,
+    TweenBatchUndo,
+)
 
 log = get_logger(__name__)
 
@@ -303,82 +314,81 @@ class PaintCanvas(
     def layers(self): return self._document.layers
     @property
     def active_layer(self): return self._document.active_layer
-    def current_state_for(self,entry):
-        if entry[0]=="doc":
-            return ("doc",self.document_snapshot())
-        if entry[0] == "palette_state":
+    def current_state_for(self, entry):
+        """Capture the inverse of ``entry``: the state undoing it would replace.
+
+        Returns ``None`` when the entry targets a cell that no longer exists
+        (timeline deletions leave stale history behind), telling the caller to
+        drop it instead of applying it.
+        """
+        def _cell_exists(fi, li):
+            return (
+                0 <= fi < len(self.frames)
+                and 0 <= li < len(self.frames[fi].layers)
+            )
+
+        if isinstance(entry, DocUndo):
+            return DocUndo(self.document_snapshot())
+        if isinstance(entry, PaletteStateUndo):
             palette = getattr(self, "_palette", None)
             if palette is None:
                 return None
             # 反対側スタックには「現在のパレット状態」を積む。ラベルは対称。
-            label = entry[2] if len(entry) > 2 else "パレット編集"
-            return ("palette_state", palette.capture_history_state(), label)
-        if entry[0] == "layer_region":
-            _, fi, li, bbox, _before, _hc = entry
-            if not (
-                0 <= int(fi) < len(self.frames)
-                and 0 <= int(li) < len(self.frames[int(fi)].layers)
-            ):
+            return PaletteStateUndo(palette.capture_history_state(), entry.label)
+        if isinstance(entry, LayerRegionUndo):
+            if not _cell_exists(entry.frame, entry.layer):
                 return None
-            layer = self.frames[int(fi)].layers[int(li)]
-            return (
-                "layer_region",
-                int(fi),
-                int(li),
-                QRect(bbox),
-                layer.image.copy(bbox),
+            layer = self.frames[entry.frame].layers[entry.layer]
+            return LayerRegionUndo(
+                entry.frame,
+                entry.layer,
+                QRect(entry.rect),
+                layer.image.copy(entry.rect),
                 bool(layer.has_content),
             )
-        if entry[0] == "layer_tiles":
-            _, fi, li, tiles, _hc = entry
-            if not (
-                0 <= int(fi) < len(self.frames)
-                and 0 <= int(li) < len(self.frames[int(fi)].layers)
-            ):
+        if isinstance(entry, LayerTilesUndo):
+            if not _cell_exists(entry.frame, entry.layer):
                 return None
-            layer = self.frames[int(fi)].layers[int(li)]
-            current_tiles = tuple(
-                (QRect(rect), layer.image.copy(QRect(rect)))
-                for rect, _image in tiles
-            )
-            return (
-                "layer_tiles",
-                int(fi),
-                int(li),
-                current_tiles,
+            layer = self.frames[entry.frame].layers[entry.layer]
+            return LayerTilesUndo(
+                entry.frame,
+                entry.layer,
+                tuple(
+                    (QRect(rect), layer.image.copy(QRect(rect)))
+                    for rect, _image in entry.tiles
+                ),
                 bool(layer.has_content),
             )
-        if entry[0]=="layer_batch":
-            _, li, cells = entry
-            current = []
-            for fi, _, _ in cells:
-                if 0 <= fi < len(self.frames) and 0 <= li < len(self.frames[fi].layers):
-                    layer = self.frames[fi].layers[li]
-                    current.append((fi, layer.image.copy(), layer.has_content))
-            return ("layer_batch", li, current) if current else None
-        if entry[0] == "layer_remove":
-            _, index, _target_active = entry
-            stored = []
-            for frame in self.frames:
-                if 0 <= index < len(frame.layers):
-                    stored.append(frame.layers[index].clone())
-            return (
-                "layer_insert",
+        if isinstance(entry, LayerBatchUndo):
+            li = entry.layer
+            current = [
+                (fi, self.frames[fi].layers[li].image.copy(),
+                 self.frames[fi].layers[li].has_content)
+                for fi, _img, _hc in entry.cells
+                if _cell_exists(fi, li)
+            ]
+            return LayerBatchUndo(li, current) if current else None
+        if isinstance(entry, LayerRemoveUndo):
+            index = entry.index
+            stored = [
+                frame.layers[index].clone()
+                for frame in self.frames
+                if 0 <= index < len(frame.layers)
+            ]
+            return LayerInsertUndo(
                 int(index),
                 stored,
                 int(self.active_layer_index),
             )
-        if entry[0] == "layer_insert":
-            _, index, _layers, _target_active = entry
-            return (
-                "layer_remove",
-                int(index),
+        if isinstance(entry, LayerInsertUndo):
+            return LayerRemoveUndo(
+                int(entry.index),
                 int(self.active_layer_index),
             )
-        if entry[0] == "tween_batch":
-            _, li, _restore_count, start, end, _cells = entry
+        if isinstance(entry, TweenBatchUndo):
+            li = entry.layer
             current = []
-            for fi in range(int(start), min(int(end) + 1, len(self.frames))):
+            for fi in range(int(entry.start), min(int(entry.end) + 1, len(self.frames))):
                 if 0 <= li < len(self.frames[fi].layers):
                     layer = self.frames[fi].layers[li]
                     current.append((
@@ -387,22 +397,26 @@ class PaintCanvas(
                         bool(layer.has_content),
                         int(layer.exposure),
                     ))
-            return (
-                "tween_batch",
+            return TweenBatchUndo(
                 int(li),
                 len(self.frames),
-                int(start),
-                int(end),
+                int(entry.start),
+                int(entry.end),
                 current,
             )
-        _,fi,li,_,_=entry
-        if not (
-            0 <= int(fi) < len(self.frames)
-            and 0 <= int(li) < len(self.frames[int(fi)].layers)
-        ):
-            return None
-        l=self.frames[fi].layers[li]
-        return ("layer",fi,li,l.image.copy(),l.has_content)
+        if isinstance(entry, LayerUndo):
+            if not _cell_exists(entry.frame, entry.layer):
+                return None
+            layer = self.frames[entry.frame].layers[entry.layer]
+            return LayerUndo(
+                entry.frame,
+                entry.layer,
+                layer.image.copy(),
+                layer.has_content,
+            )
+        log.warning("unknown undo entry type: %r", type(entry).__name__)
+        return None
+
     def set_layer_visibility(self, li, on):
         if li < 0:
             return
@@ -435,13 +449,7 @@ class PaintCanvas(
         old_active = int(self.active_layer_index)
         insert_index = len(self.layers)
         name = f"Layer {insert_index + 1}"
-        self.undo_stack.append((
-            "layer_remove",
-            insert_index,
-            old_active,
-        ))
-        self.undo_stack = self.undo_stack[-MAX_UNDO:]
-        self.redo_stack.clear()
+        self.push_undo(LayerRemoveUndo(insert_index, old_active))
 
         # QImageの暗黙共有を使い、空画像バッファをコマ数分確保しない。
         shared_blank = blank_image()
@@ -468,14 +476,7 @@ class PaintCanvas(
             frame.layers[index].clone()
             for frame in self.frames
         ]
-        self.undo_stack.append((
-            "layer_insert",
-            index,
-            stored_layers,
-            target_active,
-        ))
-        self.undo_stack = self.undo_stack[-MAX_UNDO:]
-        self.redo_stack.clear()
+        self.push_undo(LayerInsertUndo(index, stored_layers, target_active))
         for frame in self.frames:
             frame.layers.pop(index)
         self.active_layer_index = target_active
@@ -2240,7 +2241,7 @@ class PaintCanvas(
 
         # Replace the provisional full-layer snapshot with the actual changed
         # bounding box now that the fill region is known.
-        if self.undo_stack and self.undo_stack[-1][0] == "layer":
+        if self.undo_stack and isinstance(self.undo_stack[-1], LayerUndo):
             previous = self.undo_stack[-1]
             fill_rect = QRect(
                 int(xs.min()),
@@ -2248,13 +2249,12 @@ class PaintCanvas(
                 int(xs.max() - xs.min() + 1),
                 int(ys.max() - ys.min() + 1),
             )
-            self.undo_stack[-1] = (
-                "layer_region",
-                int(previous[1]),
-                int(previous[2]),
+            self.undo_stack[-1] = LayerRegionUndo(
+                previous.frame,
+                previous.layer,
                 fill_rect,
-                previous[3].copy(fill_rect),
-                bool(previous[4]),
+                previous.image.copy(fill_rect),
+                bool(previous.has_content),
             )
 
         source_rgb = np.asarray(

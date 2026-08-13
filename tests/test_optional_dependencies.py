@@ -24,7 +24,8 @@ def qapp():
     return QApplication.instance() or QApplication([])
 
 
-def _solid_qimage(color=QColor(10, 20, 30, 255)):
+def _solid_qimage(color=None):
+    color = QColor(10, 20, 30, 255) if color is None else color
     image = QImage(4, 3, QImage.Format.Format_ARGB32_Premultiplied)
     image.fill(color)
     return image
