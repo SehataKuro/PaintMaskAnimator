@@ -9,6 +9,7 @@ from .common import *  # noqa: F401,F403
 from ._canvas_members import CanvasMembers
 from . import imaging
 from .logging_setup import get_logger
+from .undo_entries import LayerBatchUndo, LayerUndo
 
 log = get_logger(__name__)
 
@@ -577,13 +578,11 @@ class SelectionMixin(CanvasMembers):
         if undo_cells:
             if len(undo_cells) == 1:
                 frame_index, image, has_content = undo_cells[0]
-                self.undo_stack.append((
-                    "layer", frame_index, layer_index, image, has_content
-                ))
+                self.push_undo(
+                    LayerUndo(frame_index, layer_index, image, has_content)
+                )
             else:
-                self.undo_stack.append(("layer_batch", layer_index, undo_cells))
-            self.undo_stack = self.undo_stack[-MAX_UNDO:]
-            self.redo_stack.clear()
+                self.push_undo(LayerBatchUndo(layer_index, undo_cells))
             # 変形ではコマ構造と使用色の種類は変わらないため、
             # タイムライン全再構築・使用色全走査は行わない。
         elif (

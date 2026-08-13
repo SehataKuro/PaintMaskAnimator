@@ -45,6 +45,11 @@ CANVAS_WIDTH = 1280
 CANVAS_HEIGHT = 720
 OUTSIDE_MARGIN = 0
 MAX_UNDO = 30
+# Entry count alone does not bound undo memory: 30 full-layer snapshots of a
+# 4K canvas across several layers is multiple gigabytes, while 30 stroke tile
+# patches are a few megabytes. The stack is trimmed by whichever limit binds
+# first, and always keeps at least one entry so undo never becomes a no-op.
+MAX_UNDO_BYTES = 768 * 1024 * 1024
 MAX_PROJECT_METADATA_BYTES = 16 * 1024 * 1024
 MAX_PROJECT_FRAMES = 10000
 MAX_PROJECT_LAYERS = 256

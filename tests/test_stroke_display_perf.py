@@ -16,6 +16,8 @@ from PySide6.QtCore import QPointF  # noqa: E402
 from PySide6.QtGui import QColor, QImage  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+from paintmaskanimator.undo_entries import LayerTilesUndo  # noqa: E402
+
 
 @pytest.fixture(scope="session")
 def qapp():
@@ -173,8 +175,8 @@ def test_brush_undo_stores_only_touched_tiles(qapp, monkeypatch, tmp_path):
         canvas._finish_opaque_brush_stroke()
 
         entry = canvas.undo_stack[-1]
-        assert entry[0] == "layer_tiles"
-        tiles = entry[3]
+        assert isinstance(entry, LayerTilesUndo)
+        tiles = entry.tiles
         assert tiles
         assert all(rect.width() <= 256 for rect, _image in tiles)
         assert all(rect.height() <= 256 for rect, _image in tiles)

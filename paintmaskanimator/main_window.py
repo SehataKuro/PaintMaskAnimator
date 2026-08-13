@@ -18,6 +18,7 @@ from .canvas import PaintCanvas
 from .errors import OPERATION_ERRORS
 from .color_panel import UsedColorPanel
 from .history_panel import HistoryPanel
+from .undo_entries import LayerBatchUndo
 from .color_reduction import ColorReductionDialog
 from .models import Frame, Layer, make_frame
 from .pressure import PressureDialog
@@ -2501,13 +2502,7 @@ class MainWindow(
             )
             return
 
-        self.canvas.undo_stack.append(
-            ("layer_batch", layer_index, undo_cells)
-        )
-        self.canvas.undo_stack = (
-            self.canvas.undo_stack[-MAX_UNDO:]
-        )
-        self.canvas.redo_stack.clear()
+        self.canvas.push_undo(LayerBatchUndo(layer_index, undo_cells))
         # 表示専用キャッシュも含めてすべて破棄する。
         # ゴミ取り／塗り抜けは画像オブジェクトを差し替えるため、
         # ここを更新しないと表示／非表示切替まで旧画像が残る場合がある。

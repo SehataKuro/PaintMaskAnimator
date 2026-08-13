@@ -9,6 +9,7 @@ from .common import *  # noqa: F401,F403
 from ._main_window_members import MainWindowMembers
 from . import imaging
 from .logging_setup import get_logger
+from .undo_entries import LayerBatchUndo, PaletteStateUndo
 
 log = get_logger(__name__)
 
@@ -41,9 +42,7 @@ class UsedColorMixin(MainWindowMembers):
 
     def push_palette_history(self, before, label):
         """使用色パネルの並べ替え・親子・表示/マスク変更をUndo履歴へ積む。"""
-        self.canvas.undo_stack.append(("palette_state", before, label))
-        self.canvas.undo_stack = self.canvas.undo_stack[-MAX_UNDO:]
-        self.canvas.redo_stack.clear()
+        self.canvas.push_undo(PaletteStateUndo(before, label))
         self.refresh_history_panel()
 
     def jump_history(self, delta):
@@ -361,9 +360,7 @@ class UsedColorMixin(MainWindowMembers):
             )
             return False
 
-        self.canvas.undo_stack.append(("layer_batch", layer_index, undo_cells))
-        self.canvas.undo_stack = self.canvas.undo_stack[-MAX_UNDO:]
-        self.canvas.redo_stack.clear()
+        self.canvas.push_undo(LayerBatchUndo(layer_index, undo_cells))
         for cache_key in cache_removals:
             self._used_color_cache.pop(cache_key, None)
         self._used_color_cache.update(cache_updates)

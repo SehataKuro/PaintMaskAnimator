@@ -9,6 +9,7 @@ from .common import *  # noqa: F401,F403
 from ._canvas_members import CanvasMembers
 from . import imaging
 from .logging_setup import get_logger
+from .undo_entries import LayerTilesUndo
 
 log = get_logger(__name__)
 
@@ -90,15 +91,12 @@ class StrokeDisplayMixin(CanvasMembers):
                 (QRect(rect), image)
                 for rect, image in self._stroke_before_tiles.values()
             )
-            self.undo_stack.append((
-                "layer_tiles",
-                self._stroke_undo_frame,
-                self._stroke_undo_layer,
+            self.push_undo(LayerTilesUndo(
+                int(self._stroke_undo_frame),
+                int(self._stroke_undo_layer),
                 tiles,
-                self._stroke_prev_has_content,
+                bool(self._stroke_prev_has_content),
             ))
-            self.undo_stack = self.undo_stack[-MAX_UNDO:]
-            self.redo_stack.clear()
         self._stroke_before_tiles = None
         self._stroke_dirty_rect = None
         self._brush_blend_base_image = None

@@ -10,6 +10,7 @@ from ._main_window_members import MainWindowMembers
 from .errors import OPERATION_ERRORS as _OPERATION_ERRORS
 from .widgets import TweenCommandPopup
 from .logging_setup import get_logger
+from .undo_entries import DocUndo
 
 log = get_logger(__name__)
 
@@ -513,9 +514,7 @@ class TweenMixin(MainWindowMembers):
                 raise RuntimeError(
                     "トゥイーン開始前のUndo情報を取得できませんでした。"
                 )
-            self.canvas.undo_stack.append(("doc", undo_snapshot))
-            self.canvas.undo_stack = self.canvas.undo_stack[-MAX_UNDO:]
-            self.canvas.redo_stack.clear()
+            self.canvas.push_undo(DocUndo(undo_snapshot))
 
             self.update_progress_counter(
                 progress,
@@ -527,7 +526,7 @@ class TweenMixin(MainWindowMembers):
             log.warning("tween keyframe generation failed: %s", exc, exc_info=True)
             # 途中生成に失敗した場合も、開始前の元画像へ戻す。
             if undo_snapshot is not None:
-                self.canvas.apply_undo_entry(("doc", undo_snapshot))
+                self.canvas.apply_undo_entry(DocUndo(undo_snapshot))
             else:
                 self.canvas.transform_points = [
                     QPointF(point) for point in final_points
