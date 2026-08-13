@@ -11,6 +11,14 @@ PaintMaskAnimator の主な変更点を記録します。
 
 ### 内部
 
+- `main_window.py` (3,385行) からUI組み立て・線画処理・入力処理を3つのMixinへ分離
+  （`main_window_ui_build.py` / `main_window_line_ops.py` / `main_window_input.py`）。
+  本体は1,048行となり、アプリ状態・キャンバス連携・ドキュメント生存期間だけが残った。
+- `MainWindow.connect()` を `connect_signals()` へ改名。PySide6ではMixin側に置いた
+  `connect` が組み込みの `QObject.connect` に隠されるため（実際に分離時に発現した）。
+- 型スタブ（`_main_window_members.py` / `_canvas_members.py`）の `Any` を実型へ置き換え開始
+  （`palette` / `history_panel` / 各タイマー / `frames` / `undo_stack` など）。
+  pyright警告は149件から111件へ減少し、`reportOptionalMemberAccess` の緩和を撤去。
 - Undo/Redoのスタック要素を、タグ付きタプルから型付きデータクラス（`undo_entries.py`）へ移行。
 - Undoスタックを件数だけでなく保持画像の合計バイト数でも制限（`MAX_UNDO_BYTES`）。
 - 全Undo登録箇所を `PaintCanvas.push_undo()` に集約し、上限調整とRedo破棄の書き忘れを防止。
