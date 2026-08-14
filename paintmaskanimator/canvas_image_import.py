@@ -8,7 +8,7 @@ the color-reduction delegating methods that remain on the widget.
 """
 from .common import *  # noqa: F401,F403
 from ._canvas_members import CanvasMembers
-from . import constants, imaging
+from . import constants, despeckle, imaging
 from .models import Layer
 from .utils import blank_image, natural_path_key
 from .logging_setup import get_logger
@@ -128,6 +128,130 @@ class ImageImportMixin(CanvasMembers):
             return image
         return self._make_white_transparent(image)
 
+    def _apply_import_pipeline(self, image, path, color_reduction):
+        """1枚分の取り込み整形。取り込みと再変換で同じ経路を通す。"""
+        if not color_reduction:
+            return self._remove_import_background(image, path)
+
+        palette = color_reduction.get("palette")
+        extraction_mode = color_reduction.get("extraction_mode", "surface")
+        line_extraction = extraction_mode == "line"
+        reduction_background = (
+            (255, 255, 255)
+            if line_extraction
+            else color_reduction.get("background_rgb")
+        )
+        alpha_threshold = int(color_reduction.get("alpha_threshold", 128))
+        tone_curve_points = color_reduction.get(
+            "tone_curve_points",
+            [(0.0, 0.0), (1.0, 1.0)],
+        )
+        if tone_curve_points:
+            image = self.apply_tone_curve(
+                image,
+                tone_curve_points=tone_curve_points,
+                background_rgb=reduction_background,
+            )
+        if palette is not None:
+            image = self.apply_color_reduction_palette(
+                image,
+                palette,
+                alpha_threshold=alpha_threshold,
+                opaque_background=(
+                    True
+                    if line_extraction
+                    else bool(color_reduction.get("opaque_background", False))
+                ),
+                background_rgb=reduction_background,
+                tone_curve_points=[(0.0, 0.0), (1.0, 1.0)],
+                extraction_mode=extraction_mode,
+            )
+        stage = color_reduction.get("despeckle") or {}
+        if stage.get("enabled"):
+            image, _changed = despeckle.despeckle_image(
+                image,
+                mode=stage.get("mode", despeckle.DUST_MODE),
+                max_area=int(stage.get("max_area", 4)),
+                removal_rgba=tuple(
+                    color_reduction.get(
+                        "despeckle_removal_rgba",
+                        (255, 255, 255, 255),
+                    )
+                ),
+            )
+        return image
+
+    def reconvert_imported_sequence(
+        self,
+        color_reduction,
+        progress_callback=None,
+    ):
+        """取り込み済み連番を、元ファイルから設定だけ変えて作り直す。
+
+        取り込みし直し（レイヤー追加）ではなく、同じレイヤーの各コマを
+        置き換える。元画像は再読込するため、整形の積み重ねにならない。
+        """
+        paths = list(getattr(self, "_sequence_import_paths", []))
+        layer_index = int(
+            getattr(self, "_sequence_source_bank_layer_index", -1)
+        )
+        start_frame = int(getattr(self, "_sequence_import_start_frame", 0))
+        if not paths or layer_index < 0:
+            return False, "再変換できる取り込み連番がありません。"
+
+        missing = [path for path in paths if not Path(path).exists()]
+        if missing:
+            return False, (
+                "元の画像ファイルが見つかりません。\n"
+                f"{Path(missing[0]).name} ほか {len(missing)} 件"
+            )
+
+        converted = []
+        for index, path in enumerate(paths, 1):
+            if progress_callback:
+                progress_callback(
+                    index - 1,
+                    len(paths),
+                    f"{Path(path).name} を再変換しています",
+                )
+            image, error = self._read_image_file(path)
+            if image is None:
+                return False, f"{Path(path).name}\n{error}"
+            converted.append(
+                self._apply_import_pipeline(image, path, color_reduction)
+            )
+
+        last_frame = start_frame + len(converted) - 1
+        if last_frame >= len(self.frames):
+            return False, "取り込み時のコマが残っていないため再変換できません。"
+        for frame in self.frames[start_frame:last_frame + 1]:
+            if layer_index >= len(frame.layers):
+                return False, "取り込み時のレイヤーが残っていないため再変換できません。"
+
+        self.push_doc_undo()
+        for offset, image in enumerate(converted):
+            layer = self.frames[start_frame + offset].layers[layer_index]
+            layer.image = blank_image()
+            self._place_imported_image(image, layer.image)
+            layer.has_content = True
+        self._sequence_source_bank = [
+            self.frames[start_frame + offset]
+            .layers[layer_index].image.copy()
+            for offset in range(len(converted))
+        ]
+        self._sequence_import_settings = dict(color_reduction or {})
+        self._color_filter_cache.clear()
+        self._color_index_cache.clear()
+        self._pseudo_transparency_cache.clear()
+        self._silhouette_cache.clear()
+        self._onion_cache.clear()
+        self._playback_frame_cache.clear()
+        self.changed.emit()
+        self.update()
+        if progress_callback:
+            progress_callback(len(paths), len(paths), "再変換が完了しました")
+        return True, ""
+
     def import_image(self, path, color_reduction=None):
         return self.import_image_sequence(
             [path],
@@ -151,65 +275,17 @@ class ImageImportMixin(CanvasMembers):
             image, error = self._read_image_file(path)
             if image is None:
                 return False, f"{Path(path).name}\n{error}"
-            if color_reduction:
-                palette = color_reduction.get("palette")
-                extraction_mode = color_reduction.get(
-                    "extraction_mode",
-                    "surface",
+            if progress_callback and color_reduction:
+                progress_callback(
+                    index - 1,
+                    len(paths),
+                    f"{Path(path).name} を整形しています",
                 )
-                line_extraction = extraction_mode == "line"
-                reduction_background = (
-                    (255, 255, 255)
-                    if line_extraction
-                    else color_reduction.get("background_rgb")
-                )
-                alpha_threshold = int(
-                    color_reduction.get(
-                        "alpha_threshold",
-                        128,
-                    )
-                )
-                tone_curve_points = color_reduction.get(
-                    "tone_curve_points",
-                    [(0.0, 0.0), (1.0, 1.0)],
-                )
-                if tone_curve_points:
-                    image = self.apply_tone_curve(
-                        image,
-                        tone_curve_points=tone_curve_points,
-                        background_rgb=reduction_background,
-                    )
-                if palette is not None:
-                    if progress_callback:
-                        progress_callback(
-                            index - 1,
-                            len(paths),
-                            f"{Path(path).name} の元画像へトーンカーブを適用し、"
-                            "共通パレットで2値化しています",
-                        )
-                    image = self.apply_color_reduction_palette(
-                        image,
-                        palette,
-                        alpha_threshold=alpha_threshold,
-                        opaque_background=(
-                            True
-                            if line_extraction
-                            else bool(
-                                color_reduction.get(
-                                    "opaque_background",
-                                    False,
-                                )
-                            )
-                        ),
-                        background_rgb=reduction_background,
-                        tone_curve_points=[
-                            (0.0, 0.0),
-                            (1.0, 1.0),
-                        ],
-                        extraction_mode=extraction_mode,
-                    )
-            else:
-                image = self._remove_import_background(image, path)
+            image = self._apply_import_pipeline(
+                image,
+                path,
+                color_reduction,
+            )
             decoded.append((path, image))
         if progress_callback:
             progress_callback(len(paths), len(paths), "画像の配置を準備しています")
@@ -237,6 +313,10 @@ class ImageImportMixin(CanvasMembers):
         ]
         self._sequence_source_bank_layer_index = int(insert_index)
         self._sequence_source_bank_layer_name = str(name)
+        # 取り込み設定を変えた再変換のために、元ファイルと設定を控える。
+        self._sequence_import_paths = [str(path) for path, _ in decoded]
+        self._sequence_import_start_frame = int(start_frame)
+        self._sequence_import_settings = dict(color_reduction or {})
         self.active_layer_index = insert_index
         self.current_frame = start_frame
         self.changed.emit()

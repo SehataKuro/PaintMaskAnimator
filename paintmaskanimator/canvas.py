@@ -82,6 +82,10 @@ class PaintCanvas(
         self._sequence_source_bank=[]
         self._sequence_source_bank_layer_index=-1
         self._sequence_source_bank_layer_name=""
+        # 取り込み設定を変えた再変換のための元ファイルと設定。
+        self._sequence_import_paths=[]
+        self._sequence_import_start_frame=0
+        self._sequence_import_settings={}
         # シートから外した絵番号を、右クリックで再配置するため保持する。
         self._sequence_archive={}
         self.timeline_mode="sheet"

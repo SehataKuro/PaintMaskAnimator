@@ -76,6 +76,13 @@ class UIBuildMixin(MainWindowMembers):
         self.a_import_images.triggered.connect(self.import_images_dialog)
         self.a_import_folder=QAction("画像フォルダーを読み込む…",self)
         self.a_import_folder.triggered.connect(self.import_image_folder_dialog)
+        self.a_reconvert_sequence=QAction("取り込み設定を変更して再変換…",self)
+        self.a_reconvert_sequence.setToolTip(
+            "直前に取り込んだ連番を、元ファイルから設定だけ変えて作り直します。"
+        )
+        self.a_reconvert_sequence.triggered.connect(
+            self.reconvert_imported_sequence_dialog
+        )
         self.a_import_psd=QAction("PSDを読み込む…",self)
         self.a_import_psd.triggered.connect(self.import_psd_dialog)
 
@@ -291,6 +298,7 @@ class UIBuildMixin(MainWindowMembers):
             ("プロジェクトを開く", self.a_open_project),
             ("画像を読み込む", self.a_import_images),
             ("画像フォルダーを読み込む", self.a_import_folder),
+            ("取り込み設定を変更して再変換", self.a_reconvert_sequence),
             ("上書き保存", self.a_save_project),
             ("名前を付けて保存", self.a_save_project_as),
             ("現在のコマをPNG書き出し", self.a_save),
@@ -355,6 +363,7 @@ class UIBuildMixin(MainWindowMembers):
         f.addAction(self.a_import_images)
         f.addAction(self.a_import_folder)
         f.addAction(self.a_import_psd)
+        f.addAction(self.a_reconvert_sequence)
         f.addSeparator()
         f.addAction(self.a_save_project)
         f.addAction(self.a_save_project_as)

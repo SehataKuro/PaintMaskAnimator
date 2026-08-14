@@ -418,7 +418,67 @@ class MainWindow(
                 (float(x), float(y))
                 for x, y in dialog.tone_curve_points()
             ],
+            "despeckle": dialog.despeckle_options(),
+            "despeckle_removal_rgba": (
+                dialog.despeckle_removal_rgba()
+            ),
+            "sample_frame_count": len(representative_images),
         }, ""
+
+    def reconvert_imported_sequence_dialog(self):
+        """取り込み済み連番を、設定だけ変えて元ファイルから作り直す。"""
+        paths = list(
+            getattr(self.canvas, "_sequence_import_paths", [])
+        )
+        if not paths:
+            QMessageBox.information(
+                self,
+                "再変換",
+                "再変換できる取り込み連番がありません。\n"
+                "先に画像／画像フォルダーを読み込んでください。",
+            )
+            return
+
+        color_reduction, error = self.prepare_color_reduction(paths)
+        if error:
+            if error != "__cancelled__":
+                QMessageBox.warning(
+                    self,
+                    "再変換",
+                    f"再変換の準備に失敗しました。\n\n{error}",
+                )
+            return
+
+        progress = self.create_progress_counter(
+            "再変換",
+            max(1, len(paths)),
+            "元画像を再変換しています",
+        )
+        try:
+            ok, error = self.canvas.reconvert_imported_sequence(
+                color_reduction,
+                lambda value, total, label: (
+                    self.update_progress_counter(
+                        progress,
+                        value,
+                        max(1, total),
+                        label,
+                    )
+                ),
+            )
+        finally:
+            self.close_progress_counter(progress)
+
+        if not ok:
+            QMessageBox.warning(self, "再変換", error)
+            return
+
+        self._used_color_cache.clear()
+        self.schedule_used_color_refresh()
+        self.statusBar().showMessage(
+            f"取り込み済みの{len(paths)}枚を新しい設定で再変換しました。",
+            3600,
+        )
 
     def prepare_image_import(self, paths):
         # Keep this step light: inspect dimensions only. Color analysis is deferred

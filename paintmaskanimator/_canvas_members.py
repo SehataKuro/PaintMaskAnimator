@@ -173,6 +173,11 @@ class CanvasMembers(_MembersBase):
         _sequence_source_bank: Any
         _sequence_source_bank_layer_index: Any
         _sequence_source_bank_layer_name: Any
+        _sequence_import_paths: Any
+        _sequence_import_start_frame: Any
+        _sequence_import_settings: Any
+        _apply_import_pipeline: Any
+        reconvert_imported_sequence: Any
         _shape_path: Any
         _shape_rect: Any
         _shift_timeline_layer_left: Any

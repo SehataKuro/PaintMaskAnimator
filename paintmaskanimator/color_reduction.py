@@ -1,8 +1,13 @@
 from .common import *  # noqa: F401,F403
+from . import config, despeckle
 from .canvas import PaintCanvas
 from .logging_setup import get_logger
 
 log = get_logger(__name__)
+
+# 取り込み設定の保存先キー（config.json）。
+LAST_IMPORT_SETTINGS_KEY = "color_reduction_last_settings"
+IMPORT_PRESETS_KEY = "color_reduction_presets"
 
 
 class ToneCurveWidget(QWidget):
@@ -459,7 +464,59 @@ class ColorReductionDialog(QDialog):
         tone_layout.addWidget(self.tone_curve_label)
         tone_layout.addWidget(tone_reset)
         controls.addRow("トーンカーブ", tone_row)
+
+        despeckle_row = QWidget()
+        despeckle_layout = QHBoxLayout(despeckle_row)
+        despeckle_layout.setContentsMargins(0, 0, 0, 0)
+        despeckle_layout.setSpacing(5)
+        self.despeckle_enabled = QCheckBox("2値化のあとに実行")
+        self.despeckle_enabled.setToolTip(
+            "取り込み時に、孤立した小さな色点の除去／小さな塗り抜けを"
+            "各コマへ適用します。プレビューにも反映されます。"
+        )
+        self.despeckle_mode = QComboBox()
+        self.despeckle_mode.addItem(despeckle.DUST_MODE)
+        self.despeckle_mode.addItem(despeckle.FILL_MODE)
+        self.despeckle_size = QSpinBox()
+        self.despeckle_size.setRange(1, 100)
+        self.despeckle_size.setValue(4)
+        self.despeckle_size.setSuffix(" px以下")
+        self.despeckle_size.setFixedWidth(96)
+        for signal in (
+            self.despeckle_enabled.toggled,
+            self.despeckle_size.valueChanged,
+            self.despeckle_mode.currentIndexChanged,
+        ):
+            signal.connect(self._mark_preview_dirty)
+        despeckle_layout.addWidget(self.despeckle_enabled)
+        despeckle_layout.addWidget(self.despeckle_mode)
+        despeckle_layout.addWidget(self.despeckle_size)
+        despeckle_layout.addStretch(1)
+        controls.addRow("ゴミ取り", despeckle_row)
+
+        preset_row = QWidget()
+        preset_layout = QHBoxLayout(preset_row)
+        preset_layout.setContentsMargins(0, 0, 0, 0)
+        preset_layout.setSpacing(5)
+        self.preset_selector = QComboBox()
+        self.preset_selector.setMinimumWidth(160)
+        preset_load = QPushButton("読み込み")
+        preset_save = QPushButton("保存")
+        preset_delete = QPushButton("削除")
+        for button in (preset_load, preset_save, preset_delete):
+            button.setFixedWidth(72)
+        preset_load.clicked.connect(self._load_selected_preset)
+        preset_save.clicked.connect(self._save_current_preset)
+        preset_delete.clicked.connect(self._delete_selected_preset)
+        preset_layout.addWidget(self.preset_selector, 1)
+        preset_layout.addWidget(preset_load)
+        preset_layout.addWidget(preset_save)
+        preset_layout.addWidget(preset_delete)
+        controls.addRow("プリセット", preset_row)
+
         layout.addLayout(controls)
+        self._refresh_preset_selector()
+        self.apply_settings(config.get_value(LAST_IMPORT_SETTINGS_KEY))
 
         note = QLabel(
             "色数の変更中はプレビューを更新しません。"
@@ -517,6 +574,114 @@ class ColorReductionDialog(QDialog):
         self._update_preview()
         self._initial_preview = False
         QTimer.singleShot(0, self._center_preview_position)
+
+    # ------------------------------------------------------------------
+    # 取り込み設定（プリセット保存／再変換で共有する素のデータ）
+    # ------------------------------------------------------------------
+
+    def current_settings(self):
+        """ダイアログの操作内容をJSON化できる辞書で返す。"""
+        return {
+            "extraction_mode": self.selected_extraction_mode(),
+            "target_colors": int(self.color_count.value()),
+            "tone_curve_points": [
+                [float(x), float(y)]
+                for x, y in self.tone_curve_points()
+            ],
+            "despeckle": self.despeckle_options(),
+        }
+
+    def apply_settings(self, settings):
+        """`current_settings` 形式の辞書をダイアログへ反映する。"""
+        if not isinstance(settings, dict):
+            return False
+        try:
+            mode_index = self.extraction_mode.findData(
+                settings.get("extraction_mode", "line")
+            )
+            if mode_index >= 0:
+                self.extraction_mode.setCurrentIndex(mode_index)
+            if "target_colors" in settings:
+                self.color_count.setValue(int(settings["target_colors"]))
+            points = settings.get("tone_curve_points")
+            if points:
+                self.tone_curve.setPoints(
+                    [(float(x), float(y)) for x, y in points]
+                )
+            stage = settings.get("despeckle") or {}
+            self.despeckle_enabled.setChecked(bool(stage.get("enabled")))
+            size = int(stage.get("max_area", self.despeckle_size.value()))
+            self.despeckle_size.setValue(max(1, min(100, size)))
+            stage_index = self.despeckle_mode.findText(
+                str(stage.get("mode", despeckle.DUST_MODE))
+            )
+            if stage_index >= 0:
+                self.despeckle_mode.setCurrentIndex(stage_index)
+        except (TypeError, ValueError, IndexError) as exc:
+            log.info("stored import settings ignored: %s", exc)
+            return False
+        return True
+
+    def despeckle_removal_rgba(self):
+        """ゴミを消した跡に書き込む色。確定パレット外の色を作らない。"""
+        if self.selected_extraction_mode() == "line" or self.opaque_background:
+            background = self.background_rgb or (255, 255, 255)
+            return tuple(int(value) for value in background) + (255,)
+        return (0, 0, 0, 0)
+
+    def despeckle_options(self):
+        return {
+            "enabled": bool(self.despeckle_enabled.isChecked()),
+            "mode": self.despeckle_mode.currentText(),
+            "max_area": int(self.despeckle_size.value()),
+        }
+
+    def _stored_presets(self):
+        presets = config.get_value(IMPORT_PRESETS_KEY, {})
+        return presets if isinstance(presets, dict) else {}
+
+    def _refresh_preset_selector(self, selected_name=None):
+        self.preset_selector.clear()
+        names = sorted(self._stored_presets())
+        self.preset_selector.addItems(names)
+        if selected_name and selected_name in names:
+            self.preset_selector.setCurrentIndex(names.index(selected_name))
+        self.preset_selector.setEnabled(bool(names))
+
+    def _load_selected_preset(self):
+        name = self.preset_selector.currentText().strip()
+        presets = self._stored_presets()
+        if not name or name not in presets:
+            QMessageBox.information(
+                self, "取り込み設定", "読み込めるプリセットがありません。"
+            )
+            return
+        if self.apply_settings(presets[name]):
+            self._mark_preview_dirty()
+
+    def _save_current_preset(self):
+        name, accepted = QInputDialog.getText(
+            self,
+            "取り込み設定の保存",
+            "プリセット名",
+            text=self.preset_selector.currentText(),
+        )
+        name = str(name).strip()
+        if not accepted or not name:
+            return
+        presets = self._stored_presets()
+        presets[name] = self.current_settings()
+        config.set_value(IMPORT_PRESETS_KEY, presets)
+        self._refresh_preset_selector(name)
+
+    def _delete_selected_preset(self):
+        name = self.preset_selector.currentText().strip()
+        presets = self._stored_presets()
+        if name not in presets:
+            return
+        presets.pop(name, None)
+        config.set_value(IMPORT_PRESETS_KEY, presets)
+        self._refresh_preset_selector()
 
     def tone_curve_points(self):
         return self.tone_curve.points()
@@ -1122,6 +1287,20 @@ class ColorReductionDialog(QDialog):
                 cache_key
             ].copy()
 
+            stage = self.despeckle_options()
+            if stage["enabled"]:
+                self._update_color_progress(
+                    progress,
+                    3,
+                    f"{stage['mode']}を適用しています",
+                )
+                reduced, _changed = despeckle.despeckle_image(
+                    reduced,
+                    mode=stage["mode"],
+                    max_area=stage["max_area"],
+                    removal_rgba=self.despeckle_removal_rgba(),
+                )
+
             self._palette = palette
             self._palette_key = cache_key
             self._reduced_full_image = reduced
@@ -1222,6 +1401,14 @@ class ColorReductionDialog(QDialog):
             )
             return
         self.reduction_enabled = True
+        # 次回の取り込みで同じ設定から始められるようにする。
+        try:
+            config.set_value(
+                LAST_IMPORT_SETTINGS_KEY,
+                self.current_settings(),
+            )
+        except OSError as exc:
+            log.info("import settings could not be stored: %s", exc)
         self.accept()
 
     def _accept_without_reduction(self):

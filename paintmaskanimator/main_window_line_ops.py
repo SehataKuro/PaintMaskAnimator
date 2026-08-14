@@ -9,7 +9,7 @@ long-running passes live here too. They run against a live ``MainWindow``.
 """
 from .common import *  # noqa: F401,F403
 from ._main_window_members import MainWindowMembers
-from . import imaging
+from . import despeckle, imaging
 from .models import Layer
 from .undo_entries import LayerBatchUndo
 from .utils import blank_image
@@ -737,56 +737,6 @@ class LineOpsMixin(MainWindowMembers):
             )
             return
 
-        def component_list(mask):
-            """4方向接続成分を返す。各画素は1度だけ走査する。"""
-            pending = np.asarray(
-                mask,
-                dtype=bool,
-            ).copy()
-            candidate_y, candidate_x = np.nonzero(
-                pending
-            )
-            height, width = pending.shape
-
-            for y0, x0 in zip(
-                candidate_y,
-                candidate_x,
-            ):
-                y0 = int(y0)
-                x0 = int(x0)
-                if not pending[y0, x0]:
-                    continue
-
-                stack = [(x0, y0)]
-                pending[y0, x0] = False
-                component = []
-                touches_edge = False
-
-                while stack:
-                    x, y = stack.pop()
-                    component.append((y, x))
-                    if (
-                        x == 0 or y == 0
-                        or x == width - 1
-                        or y == height - 1
-                    ):
-                        touches_edge = True
-
-                    if x > 0 and pending[y, x - 1]:
-                        pending[y, x - 1] = False
-                        stack.append((x - 1, y))
-                    if x + 1 < width and pending[y, x + 1]:
-                        pending[y, x + 1] = False
-                        stack.append((x + 1, y))
-                    if y > 0 and pending[y - 1, x]:
-                        pending[y - 1, x] = False
-                        stack.append((x, y - 1))
-                    if y + 1 < height and pending[y + 1, x]:
-                        pending[y + 1, x] = False
-                        stack.append((x, y + 1))
-
-                yield component, touches_edge
-
         changed_cells = 0
         changed_pixels = 0
         changed_frame_indices = []
@@ -823,212 +773,14 @@ class LineOpsMixin(MainWindowMembers):
                 if width <= 0 or height <= 0:
                     continue
 
-                rgb = pixels[:,:,:3]
-                pseudo_white = (
-                    (pixels[:,:,3] == 0)
-                    | np.all(rgb == 255, axis=2)
+                cell_changed = despeckle.despeckle_pixels(
+                    pixels,
+                    mode=mode,
+                    max_area=max_area,
+                    selected_colors=(
+                        selected_colors if selected_only else None
+                    ),
                 )
-                cell_changed = 0
-
-                if mode == "塗り抜け":
-                    # 外周につながらない小さな白領域を周囲色で埋める。
-                    starts = []
-                    starts.extend(
-                        (int(x), 0)
-                        for x in np.flatnonzero(
-                            pseudo_white[0,:]
-                        )
-                    )
-                    if height > 1:
-                        starts.extend(
-                            (int(x), height - 1)
-                            for x in np.flatnonzero(
-                                pseudo_white[-1,:]
-                            )
-                        )
-                    if width > 1:
-                        starts.extend(
-                            (0, int(y))
-                            for y in np.flatnonzero(
-                                pseudo_white[:,0]
-                            )
-                        )
-                        starts.extend(
-                            (width - 1, int(y))
-                            for y in np.flatnonzero(
-                                pseudo_white[:,-1]
-                            )
-                        )
-
-                    outside = (
-                        self.canvas._scanline_connected_region(
-                            pseudo_white,
-                            starts,
-                        )
-                        if starts
-                        else np.zeros_like(pseudo_white)
-                    )
-                    holes = pseudo_white & ~outside
-
-                    for component, _touches_edge in component_list(
-                        holes
-                    ):
-                        area = len(component)
-                        if area == 0 or area > max_area:
-                            continue
-
-                        border_positions = set()
-                        for y, x in component:
-                            for ny in range(
-                                max(0, y - 1),
-                                min(height, y + 2),
-                            ):
-                                for nx in range(
-                                    max(0, x - 1),
-                                    min(width, x + 2),
-                                ):
-                                    if (
-                                        (ny != y or nx != x)
-                                        and not pseudo_white[ny, nx]
-                                    ):
-                                        border_positions.add(
-                                            (ny, nx)
-                                        )
-
-                        if not border_positions:
-                            continue
-
-                        border_yx = np.asarray(
-                            tuple(border_positions),
-                            dtype=np.int32,
-                        )
-                        border_rgb = pixels[
-                            border_yx[:,0],
-                            border_yx[:,1],
-                            :3,
-                        ]
-
-                        if selected_only:
-                            keep = np.zeros(
-                                len(border_rgb),
-                                dtype=bool,
-                            )
-                            for selected_color in selected_colors:
-                                keep |= np.all(
-                                    border_rgb
-                                    == np.asarray(
-                                        selected_color,
-                                        dtype=np.uint8,
-                                    ),
-                                    axis=1,
-                                )
-                            border_rgb = border_rgb[keep]
-                            if border_rgb.size == 0:
-                                continue
-
-                        packed = (
-                            (
-                                border_rgb[:,0].astype(
-                                    np.uint32
-                                ) << 16
-                            )
-                            | (
-                                border_rgb[:,1].astype(
-                                    np.uint32
-                                ) << 8
-                            )
-                            | border_rgb[:,2].astype(
-                                np.uint32
-                            )
-                        )
-                        values, counts = np.unique(
-                            packed,
-                            return_counts=True,
-                        )
-                        selected = int(
-                            values[int(np.argmax(counts))]
-                        )
-                        fill = np.asarray(
-                            [
-                                (selected >> 16) & 255,
-                                (selected >> 8) & 255,
-                                selected & 255,
-                            ],
-                            dtype=np.uint8,
-                        )
-                        coordinates = np.asarray(
-                            component,
-                            dtype=np.int32,
-                        )
-                        cy = coordinates[:,0]
-                        cx = coordinates[:,1]
-                        pixels[cy,cx,:3] = fill
-                        pixels[cy,cx,3] = 255
-                        cell_changed += area
-
-                else:
-                    # ゴミ取り：小さな色点を白へ変更する。
-                    removal_mask = np.zeros(
-                        (height, width),
-                        dtype=bool,
-                    )
-
-                    if selected_only:
-                        # 選択色ごとに独立判定する。
-                        # 青1pxが黒に接していても青成分は1pxとして消える。
-                        for selected_color in selected_colors:
-                            color_mask = (
-                                ~pseudo_white
-                                & np.all(
-                                    rgb
-                                    == np.asarray(
-                                        selected_color,
-                                        dtype=np.uint8,
-                                    ),
-                                    axis=2,
-                                )
-                            )
-                            for component, _edge in component_list(
-                                color_mask
-                            ):
-                                if (
-                                    0 < len(component)
-                                    <= max_area
-                                ):
-                                    coordinates = np.asarray(
-                                        component,
-                                        dtype=np.int32,
-                                    )
-                                    removal_mask[
-                                        coordinates[:,0],
-                                        coordinates[:,1],
-                                    ] = True
-                    else:
-                        # 未選択時は、白背景から独立した小さな色塊を削除。
-                        foreground = ~pseudo_white
-                        for component, touches_edge in component_list(
-                            foreground
-                        ):
-                            if (
-                                not touches_edge
-                                and 0 < len(component)
-                                <= max_area
-                            ):
-                                coordinates = np.asarray(
-                                    component,
-                                    dtype=np.int32,
-                                )
-                                removal_mask[
-                                    coordinates[:,0],
-                                    coordinates[:,1],
-                                ] = True
-
-                    cell_changed = int(
-                        np.count_nonzero(removal_mask)
-                    )
-                    if cell_changed:
-                        pixels[removal_mask,:3] = 255
-                        pixels[removal_mask,3] = 255
 
                 if cell_changed:
                     undo_cells.append(

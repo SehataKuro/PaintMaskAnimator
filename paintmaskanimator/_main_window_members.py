@@ -319,6 +319,7 @@ class MainWindowMembers(_MembersBase):
         parse_time_remap_text: Any
         play: Any
         prepare_color_reduction: Any
+        reconvert_imported_sequence_dialog: Any
         prepare_image_import: Any
         pressure: Any
         previous_timeline_frame: Any
