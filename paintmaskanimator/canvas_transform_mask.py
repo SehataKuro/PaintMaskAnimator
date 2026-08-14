@@ -4,10 +4,17 @@ Split out of ``canvas.py`` as a mixin. These methods build and cache the
 per-color masks used by the "TP quality" transform, render/project those masks
 through the deformation mesh, and manage the mesh grid + preview. They run
 against a live ``PaintCanvas`` instance and reuse its selection/transform state.
+
+The colors are held as a single *label image* (one id per pixel) rather than one
+grayscale mask per color, and the deformation is resolved by
+:mod:`.mask_transform`, which inverse-maps every output pixel and gives it to
+whichever color covers most of it.  That keeps the result strictly binary while
+producing a regular staircase along rotated edges; see ``mask_transform`` for
+why the previous forward-mapping + blur approach could not.
 """
 from .common import *  # noqa: F401,F403
 from ._canvas_members import CanvasMembers
-from . import geometry, imaging
+from . import geometry, imaging, mask_transform
 from .utils import workspace_size
 from .logging_setup import get_logger
 
@@ -30,6 +37,8 @@ class TransformMaskMixin(CanvasMembers):
         self.transform_tp_masks = []
         self.transform_tp_line_masks = []
         self.transform_tp_prepared_preview = None
+        self._tp_label_image = None
+        self._tp_label_colors = None
         self._tp_mask_source_key = None
         if clear_proxy:
             self._tp_proxy_source_key = None
@@ -486,9 +495,60 @@ class TransformMaskMixin(CanvasMembers):
     def _tp_prepare_palette_image(*args, **kwargs):
         return imaging.tp_prepare_palette_image(*args, **kwargs)
 
-    @staticmethod
-    def _tp_make_color_masks(*args, **kwargs):
-        return imaging.tp_make_color_masks(*args, **kwargs)
+    def _build_tp_label_image(self, prepared_array, palette_rgba, line_colors):
+        """Turn the prepared image into one label id per pixel.
+
+        Label ids double as the tie-break order used when two colors cover the
+        same output pixel equally: line colors win first, then darker colors
+        over lighter ones.  Id 0 means "no source pixel here".  Returns the
+        ``rgb -> id`` mapping so the caller can record which id each color got.
+        """
+        def luminance(color):
+            red, green, blue = (float(channel) for channel in color[:3])
+            return 0.299 * red + 0.587 * green + 0.114 * blue
+
+        # Semi-transparent pixels can put the same RGB in the palette twice;
+        # they render identically here, so one label each is enough.
+        ordered = []
+        for rgb in list(line_colors) + sorted(palette_rgba, key=luminance):
+            color = tuple(int(channel) for channel in rgb[:3])
+            if color not in ordered:
+                ordered.append(color)
+
+        height, width = prepared_array.shape[:2]
+        labels = np.zeros((height, width), dtype=np.uint16)
+        colors = np.zeros((len(ordered) + 1, 4), dtype=np.uint8)
+        label_ids = {}
+        opaque = prepared_array[:, :, 3] > 0
+        assigned = np.zeros((height, width), dtype=bool)
+        for index, rgb in enumerate(ordered, 1):
+            label_ids[rgb] = index
+            colors[index, :3] = rgb
+            colors[index, 3] = 255
+            matched = opaque & np.all(
+                prepared_array[:, :, :3] == np.asarray(rgb, dtype=np.uint8),
+                axis=2,
+            )
+            labels[matched] = index
+            assigned |= matched
+
+        # Quantization can leave a few pixels off-palette.  Snapping them to the
+        # nearest palette color keeps the transform from punching holes that the
+        # source image does not have.
+        leftover = opaque & ~assigned
+        if np.any(leftover) and ordered:
+            palette = np.asarray(ordered, dtype=np.int16)
+            pixels = prepared_array[leftover][:, :3].astype(np.int16)
+            distances = np.sum(
+                (pixels[:, None, :] - palette[None, :, :]) ** 2, axis=2
+            )
+            labels[leftover] = (np.argmin(distances, axis=1) + 1).astype(
+                np.uint16
+            )
+
+        self._tp_label_image = labels
+        self._tp_label_colors = colors
+        return label_ids
 
     def _prepare_tp_transform_masks(self, source_image=None):
         """Build the same exact-color masks used by TP Mask Transform v0.7."""
@@ -527,81 +587,45 @@ class TransformMaskMixin(CanvasMembers):
             )
 
         prepared_array = np.asarray(prepared.convert("RGBA"), dtype=np.uint8)
-        line_masks = []
+        line_colors = []
         for line_color in self.transform_tp_line_colors:
-            red, green, blue = line_color
-            selected = (
+            present = np.any(
                 (prepared_array[:, :, 3] > 0)
                 & np.all(
                     prepared_array[:, :, :3]
-                    == np.asarray((red, green, blue), dtype=np.uint8),
+                    == np.asarray(
+                        tuple(int(channel) for channel in line_color),
+                        dtype=np.uint8,
+                    ),
                     axis=2,
                 )
             )
-            candidate = PILImage.fromarray(
-                (selected * 255).astype(np.uint8), "L"
-            )
-            if candidate.getbbox() is not None:
-                line_masks.append((tuple(line_color), candidate))
+            if present:
+                line_colors.append(tuple(int(c) for c in line_color))
                 palette_rgba = [
                     color for color in palette_rgba
                     if tuple(color[:3]) != tuple(line_color)
                 ]
 
-        self.transform_tp_palette = list(palette_rgba)
-        self.transform_tp_masks = self._tp_make_color_masks(
-            prepared, self.transform_tp_palette
+        label_ids = self._build_tp_label_image(
+            prepared_array, palette_rgba, line_colors
         )
-        self.transform_tp_line_masks = line_masks
+        self.transform_tp_palette = list(palette_rgba)
+        # These stay parallel to the palette so callers that only need their
+        # length (progress totals) or truthiness keep working; the pixels now
+        # live in the shared label image instead of one mask per color.
+        self.transform_tp_masks = [
+            label_ids[tuple(color[:3])] for color in palette_rgba
+        ]
+        self.transform_tp_line_masks = [
+            (color, label_ids[color]) for color in line_colors
+        ]
         self.transform_tp_prepared_preview = self._pil_rgba_to_qimage(
             self._tp_white_to_transparent(prepared)
         )
         self._tp_mask_source_key = self._tp_mask_key(source)
         self._invalidate_tp_preview_cache()
         return bool(self.transform_tp_masks or self.transform_tp_line_masks)
-
-    def _tp_is_enlarging(self):
-        source = self.transform_source
-        if source is None or source.isNull() or not self.transform_points:
-            return False
-        source_width = max(1.0, float(source.width()))
-        source_height = max(1.0, float(source.height()))
-
-        if self.transform_mode == "mesh":
-            cols = max(2, int(getattr(self, "transform_mesh_cols", 4)))
-            rows = max(2, int(getattr(self, "transform_mesh_rows", 4)))
-            if len(self.transform_points) != cols * rows:
-                return False
-            horizontal = []
-            vertical = []
-            for row in range(rows):
-                for col in range(cols - 1):
-                    p0 = self.transform_points[row * cols + col]
-                    p1 = self.transform_points[row * cols + col + 1]
-                    horizontal.append(math.hypot(p1.x()-p0.x(), p1.y()-p0.y()))
-            for row in range(rows - 1):
-                for col in range(cols):
-                    p0 = self.transform_points[row * cols + col]
-                    p1 = self.transform_points[(row + 1) * cols + col]
-                    vertical.append(math.hypot(p1.x()-p0.x(), p1.y()-p0.y()))
-            expected_x = source_width / max(1, cols - 1)
-            expected_y = source_height / max(1, rows - 1)
-            scale_x = (sum(horizontal) / len(horizontal)) / expected_x if horizontal else 1.0
-            scale_y = (sum(vertical) / len(vertical)) / expected_y if vertical else 1.0
-            return scale_x > 1.0001 or scale_y > 1.0001
-
-        if len(self.transform_points) != 4:
-            return False
-        p0, p1, p2, p3 = self.transform_points[:4]
-        scale_x = (
-            math.hypot(p1.x()-p0.x(), p1.y()-p0.y())
-            + math.hypot(p2.x()-p3.x(), p2.y()-p3.y())
-        ) / (2.0 * source_width)
-        scale_y = (
-            math.hypot(p3.x()-p0.x(), p3.y()-p0.y())
-            + math.hypot(p2.x()-p1.x(), p2.y()-p1.y())
-        ) / (2.0 * source_height)
-        return scale_x > 1.0001 or scale_y > 1.0001
 
     def _tp_transform_bbox(self, target_width, target_height):
         outline = self.transform_outer_polygon()
@@ -623,209 +647,45 @@ class TransformMaskMixin(CanvasMembers):
             raw_bounds.intersected(canvas),
         )
 
-    def _tp_mesh_render_mask(self, source_array, bbox, render_scale, smooth):
-        # クオリティ変形も画素補間は行わず、色境界を最近傍で保持する。
-        smooth = False
-        source_array = np.asarray(source_array, dtype=np.uint8)
-        source_height, source_width = source_array.shape
-        out_width = max(1, int(math.ceil(bbox.width() * render_scale)))
-        out_height = max(1, int(math.ceil(bbox.height() * render_scale)))
-        output = np.zeros((out_height, out_width), dtype=np.uint8)
-        cols = max(2, int(getattr(self, "transform_mesh_cols", 4)))
-        rows = max(2, int(getattr(self, "transform_mesh_rows", 4)))
-        if len(self.transform_points) != cols * rows:
-            return output
+    def _tp_inverse_mapper(self, bbox, source_width, source_height):
+        """Build the output -> source map for the active transform mode.
 
-        points = [
-            QPointF(
-                (point.x() - bbox.left()) * render_scale,
-                (point.y() - bbox.top()) * render_scale,
-            )
-            for point in self.transform_points
-        ]
-
-        def raster_triangle(target_triangle, source_triangle):
-            target_x = np.array(
-                [point.x() for point in target_triangle], dtype=np.float64
-            )
-            target_y = np.array(
-                [point.y() for point in target_triangle], dtype=np.float64
-            )
-            min_x = max(0, int(math.floor(float(target_x.min()))))
-            max_x = min(out_width - 1, int(math.ceil(float(target_x.max()))))
-            min_y = max(0, int(math.floor(float(target_y.min()))))
-            max_y = min(out_height - 1, int(math.ceil(float(target_y.max()))))
-            if max_x < min_x or max_y < min_y:
-                return
-            denominator = (
-                (target_y[1] - target_y[2]) * (target_x[0] - target_x[2])
-                + (target_x[2] - target_x[1]) * (target_y[0] - target_y[2])
-            )
-            if abs(denominator) < 1e-8:
-                return
-            yy, xx = np.mgrid[min_y:max_y + 1, min_x:max_x + 1]
-            weight0 = (
-                (target_y[1] - target_y[2]) * (xx - target_x[2])
-                + (target_x[2] - target_x[1]) * (yy - target_y[2])
-            ) / denominator
-            weight1 = (
-                (target_y[2] - target_y[0]) * (xx - target_x[2])
-                + (target_x[0] - target_x[2]) * (yy - target_y[2])
-            ) / denominator
-            weight2 = 1.0 - weight0 - weight1
-            inside = (
-                (weight0 >= -1e-6)
-                & (weight1 >= -1e-6)
-                & (weight2 >= -1e-6)
-            )
-            if not np.any(inside):
-                return
-            source_x = (
-                weight0 * source_triangle[0][0]
-                + weight1 * source_triangle[1][0]
-                + weight2 * source_triangle[2][0]
-            )
-            source_y = (
-                weight0 * source_triangle[0][1]
-                + weight1 * source_triangle[1][1]
-                + weight2 * source_triangle[2][1]
-            )
-            region = output[min_y:max_y + 1, min_x:max_x + 1]
-            if smooth:
-                source_x = np.clip(source_x, 0.0, source_width - 1.0)
-                source_y = np.clip(source_y, 0.0, source_height - 1.0)
-                x0 = np.floor(source_x).astype(np.int32)
-                y0 = np.floor(source_y).astype(np.int32)
-                x1 = np.minimum(source_width - 1, x0 + 1)
-                y1 = np.minimum(source_height - 1, y0 + 1)
-                fraction_x = source_x - x0
-                fraction_y = source_y - y0
-                sampled = (
-                    source_array[y0, x0].astype(np.float32)
-                    * (1.0-fraction_x) * (1.0-fraction_y)
-                    + source_array[y0, x1].astype(np.float32)
-                    * fraction_x * (1.0-fraction_y)
-                    + source_array[y1, x0].astype(np.float32)
-                    * (1.0-fraction_x) * fraction_y
-                    + source_array[y1, x1].astype(np.float32)
-                    * fraction_x * fraction_y
-                )
-                region[inside] = np.clip(
-                    sampled[inside] + 0.5, 0, 255
-                ).astype(np.uint8)
-            else:
-                sample_x = np.clip(
-                    np.rint(source_x).astype(np.int32), 0, source_width - 1
-                )
-                sample_y = np.clip(
-                    np.rint(source_y).astype(np.int32), 0, source_height - 1
-                )
-                region[inside] = source_array[
-                    sample_y[inside], sample_x[inside]
-                ]
-
-        curved, dense_cols, dense_rows = self._curved_mesh_points(
-            points, cols, rows, subdivisions=8
-        )
-        for dense_y in range(dense_rows - 1):
-            source_y0 = (
-                (source_height - 1)
-                * dense_y / max(1, dense_rows - 1)
-            )
-            source_y1 = (
-                (source_height - 1)
-                * (dense_y + 1) / max(1, dense_rows - 1)
-            )
-            for dense_x in range(dense_cols - 1):
-                source_x0 = (
-                    (source_width - 1)
-                    * dense_x / max(1, dense_cols - 1)
-                )
-                source_x1 = (
-                    (source_width - 1)
-                    * (dense_x + 1) / max(1, dense_cols - 1)
-                )
-                index = dense_y * dense_cols + dense_x
-                p00 = curved[index]
-                p10 = curved[index + 1]
-                p01 = curved[index + dense_cols]
-                p11 = curved[index + dense_cols + 1]
-                raster_triangle(
-                    (p00, p10, p11),
-                    (
-                        (source_x0, source_y0),
-                        (source_x1, source_y0),
-                        (source_x1, source_y1),
-                    ),
-                )
-                raster_triangle(
-                    (p00, p11, p01),
-                    (
-                        (source_x0, source_y0),
-                        (source_x1, source_y1),
-                        (source_x0, source_y1),
-                    ),
-                )
-        return output
-
-    def _tp_project_mask_to_bbox(self, mask, bbox, render_scale=1):
-        out_width = max(1, int(math.ceil(bbox.width() * render_scale)))
-        out_height = max(1, int(math.ceil(bbox.height() * render_scale)))
+        Returns ``None`` when the transform state cannot describe a mapping.
+        Coordinates are relative to ``bbox`` so the caller renders only the
+        region the transform actually touches.
+        """
+        left, top = float(bbox.left()), float(bbox.top())
         if self.transform_mode == "mesh":
-            source_array = np.asarray(mask.convert("L"), dtype=np.uint8)
-            rendered = self._tp_mesh_render_mask(
-                source_array, bbox, render_scale, smooth=False
+            cols = max(2, int(getattr(self, "transform_mesh_cols", 4)))
+            rows = max(2, int(getattr(self, "transform_mesh_rows", 4)))
+            if len(self.transform_points) != cols * rows:
+                return None
+            # Curve the grid in canvas coordinates, matching the plain preview:
+            # the reference grid it interpolates against lives in that space.
+            curved, dense_cols, dense_rows = self._curved_mesh_points(
+                self.transform_points, cols, rows, subdivisions=8
             )
-            return PILImage.fromarray(rendered, "L")
-
-        output = QImage(
-            out_width, out_height, QImage.Format.Format_Grayscale8
-        )
-        output.fill(0)
-        source_width, source_height = mask.size
-        source_quad = [
-            QPointF(0, 0), QPointF(source_width, 0),
-            QPointF(source_width, source_height), QPointF(0, source_height),
-        ]
+            dense = [
+                (point.x() - left, point.y() - top) for point in curved
+            ]
+            return mask_transform.MeshMapper(
+                dense, dense_cols, dense_rows, source_width, source_height
+            )
+        if len(self.transform_points) != 4:
+            return None
         target_quad = [
-            QPointF(
-                (point.x() - bbox.left()) * render_scale,
-                (point.y() - bbox.top()) * render_scale,
-            )
+            (point.x() - left, point.y() - top)
             for point in self.transform_points[:4]
         ]
-        transform = self._quad_homography(source_quad, target_quad)
-        painter = QPainter(output)
-        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, False)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
-        painter.setTransform(transform)
-        painter.drawImage(QPointF(0, 0), self._pil_l_to_qimage(mask))
-        painter.end()
-        return PILImage.fromarray(self._qimage_gray_array(output), "L")
+        try:
+            return mask_transform.QuadMapper(
+                target_quad, source_width, source_height
+            )
+        except np.linalg.LinAlgError:
+            # A collapsed quad has no inverse; the caller falls back to the
+            # plain projection rather than showing a blank preview.
+            return None
 
-    def _tp_render_mask_to_bbox(
-        self, mask, bbox, smoothing=0.0, supersample=4
-    ):
-        """v0.7 mask renderer, extended to free and mesh transformations."""
-        if self._tp_proxy_rendering:
-            supersample = 1
-        out_width = max(1, int(math.ceil(bbox.width())))
-        out_height = max(1, int(math.ceil(bbox.height())))
-        if self._tp_is_enlarging():
-            source = mask.convert("L")
-            if smoothing > 0.001:
-                source = source.filter(
-                    PILImageFilter.GaussianBlur(radius=float(smoothing))
-                )
-            return self._tp_project_mask_to_bbox(source, bbox, 1)
-
-        high = self._tp_project_mask_to_bbox(mask.convert("L"), bbox, supersample)
-        high = high.filter(
-            PILImageFilter.GaussianBlur(radius=0.65 * supersample)
-        )
-        return high.resize(
-            (out_width, out_height), PILImage.Resampling.LANCZOS
-        )
 
     def _tp_geometry_key(self, source, target_width, target_height, bbox):
         points = tuple(
@@ -868,76 +728,77 @@ class TransformMaskMixin(CanvasMembers):
         ):
             return QRectF(self._tp_geometry_cache_bbox)
 
-        total = max(
-            1,
-            len(self.transform_tp_masks)
-            + len(self.transform_tp_line_masks)
-            + 2,
-        )
-        completed = 0
-        if progress_callback is not None:
-            progress_callback(
-                completed, total, "色マスクの変形を準備しています"
-            )
-
         width = max(1, int(math.ceil(bbox.width())))
         height = max(1, int(math.ceil(bbox.height())))
-        best_value = np.zeros((height, width), dtype=np.uint8)
-        best_rgba = np.zeros((height, width, 4), dtype=np.uint8)
-
-        # Every exact color, including the temporary white background, competes
-        # for each output pixel.  This is the defining v0.7 TP_mask behavior.
-        fill_count = len(self.transform_tp_masks)
-        for mask_index, (color, mask) in enumerate(zip(
-            self.transform_tp_palette, self.transform_tp_masks
-        ), 1):
-            rendered = self._tp_render_mask_to_bbox(
-                mask, bbox, self.transform_tp_fill_smoothing
+        label_image = self._tp_label_image
+        label_colors = self._tp_label_colors
+        if label_image is None or label_colors is None:
+            self._tp_geometry_cache_bbox = QRectF()
+            self._tp_geometry_cache_fill_overlay = PILImage.new(
+                "RGBA", (1, 1), (0, 0, 0, 0)
             )
-            values = np.asarray(rendered, dtype=np.uint8)
-            replace = values > best_value
-            if np.any(replace):
-                best_value[replace] = values[replace]
-                best_rgba[replace] = np.asarray(color, dtype=np.uint8)
-            completed += 1
+            self._tp_geometry_cache_line_soft = []
+            return QRectF()
+
+        source_height, source_width = label_image.shape
+        mapper = self._tp_inverse_mapper(bbox, source_width, source_height)
+        if mapper is None:
+            self._tp_geometry_cache_bbox = QRectF()
+            self._tp_geometry_cache_fill_overlay = PILImage.new(
+                "RGBA", (1, 1), (0, 0, 0, 0)
+            )
+            self._tp_geometry_cache_line_soft = []
+            return QRectF()
+
+        # The proxy only feeds the drag-time preview, so it trades coverage
+        # resolution for speed; the committed render always uses the full grid.
+        subsamples = (
+            TP_MASK_PROXY_SUBSAMPLES
+            if self._tp_proxy_rendering
+            else mask_transform.DEFAULT_SUBSAMPLES
+        )
+        line_labels = [label for _color, label in self.transform_tp_line_masks]
+
+        # One progress scale for the whole build: every band, plus the final
+        # recombination step.
+        steps = [0, 1]
+
+        def report(done, total):
+            steps[:] = [int(done), int(total)]
             if progress_callback is not None:
                 progress_callback(
-                    completed,
-                    total,
-                    f"色マスクを変形しています（{mask_index} / {fill_count}）",
+                    min(int(done), int(total)),
+                    max(1, int(total)) + 1,
+                    "色マスクを変形しています",
                 )
 
-        output = np.zeros((height, width, 4), dtype=np.uint8)
-        visible = best_value > 0
-        if np.any(visible):
-            output[visible, :3] = best_rgba[visible, :3]
-            output[visible, 3] = 255
-        white = visible & np.all(output[:, :, :3] == 255, axis=2)
-        output[white, 3] = 0
-        completed += 1
+        labels, coverage = mask_transform.render_labels(
+            label_image,
+            mapper,
+            width,
+            height,
+            subsamples=subsamples,
+            coverage_labels=line_labels,
+            protect_labels=line_labels,
+            progress=report,
+        )
+
+        final = max(1, steps[1]) + 1
         if progress_callback is not None:
-            progress_callback(
-                completed, total, "色マスクを再合成しています"
-            )
+            progress_callback(final, final, "色マスクを再合成しています")
+        output = mask_transform.labels_to_rgba(labels, label_colors)
+        # v0.7 rule, unchanged: exact #FFFFFF is the transform's transparency.
+        white = (output[:, :, 3] > 0) & np.all(
+            output[:, :, :3] == 255, axis=2
+        )
+        output[white, 3] = 0
 
         line_soft = []
-        line_count = len(self.transform_tp_line_masks)
-        for line_index, (line_color, line_mask) in enumerate(
-            self.transform_tp_line_masks, 1
-        ):
+        for line_color, label in self.transform_tp_line_masks:
             line_soft.append((
                 tuple(line_color),
-                self._tp_render_mask_to_bbox(
-                    line_mask, bbox, self.transform_tp_line_smoothing
-                ),
+                PILImage.fromarray(coverage[label], "L"),
             ))
-            completed += 1
-            if progress_callback is not None:
-                progress_callback(
-                    completed,
-                    total,
-                    f"実線マスクを変形しています（{line_index} / {line_count}）",
-                )
 
         self._tp_geometry_cache_key = cache_key
         self._tp_geometry_cache_bbox = QRectF(bbox)
@@ -945,12 +806,8 @@ class TransformMaskMixin(CanvasMembers):
             output, "RGBA"
         )
         self._tp_geometry_cache_line_soft = line_soft
-        completed += 1
-        if progress_callback is not None:
-            progress_callback(
-                min(completed, total), total, "プレビューを仕上げています"
-            )
         return bbox
+
 
     def _tp_mask_preview_image(
         self, source_image=None, target_width=None, target_height=None,

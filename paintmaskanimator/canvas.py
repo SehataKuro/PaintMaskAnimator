@@ -110,15 +110,16 @@ class PaintCanvas(
         self.transform_quality_active=False
         self.transform_line_threshold=96
         self.transform_tp_line_colors=()
-        # TP_mask v0.7 compatible data.  The selected image is converted to
-        # one monochrome mask per exact color, then every mask is transformed
-        # independently and recombined without interpolation colors.
+        # TP_mask v0.7 compatible data.  The selected image is reduced to exact
+        # colors and stored as one label id per pixel; the deformation gives
+        # each output pixel to whichever color covers most of it, so no
+        # interpolation colors are ever produced.
         self.transform_tp_palette=[]
         self.transform_tp_masks=[]
         self.transform_tp_line_masks=[]
         self.transform_tp_prepared_preview=None
-        self.transform_tp_fill_smoothing=0.55
-        self.transform_tp_line_smoothing=0.85
+        self._tp_label_image=None
+        self._tp_label_colors=None
         self._tp_geometry_cache_key=None
         self._tp_geometry_cache_bbox=None
         self._tp_geometry_cache_fill_overlay=None

@@ -72,6 +72,9 @@ MAX_SINGLE_IMAGE_PIXELS = MAX_IMAGE_DIMENSION * MAX_IMAGE_DIMENSION
 TP_MASK_PROXY_THRESHOLD = 5000
 TP_MASK_PROXY_MAX_DIMENSION = 1280
 TP_MASK_PROXY_MAX_COLORS = 32
+# Coverage probes per axis while dragging the low-resolution proxy: 2x2 keeps
+# the preview responsive, the committed render uses the full grid.
+TP_MASK_PROXY_SUBSAMPLES = 2
 
 # Everything except the mutable canvas dimensions is safe to star-import.
 __all__ = [
