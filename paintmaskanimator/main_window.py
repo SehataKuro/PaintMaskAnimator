@@ -1725,8 +1725,7 @@ class MainWindow(
             self.tools.transform_line_width.value()
         )
         self.canvas.transform_apply_all_frames = (
-            False if quality_active
-            else self.tools.selection_all_frames.isChecked()
+            self.tools.selection_all_frames.isChecked()
         )
         if not self.canvas.begin_selection_transform(mode):
             self.canvas.transform_apply_all_frames = False
@@ -1737,9 +1736,8 @@ class MainWindow(
             return
         self.canvas.setFocus()
         target_note = (
-            "Tp_mask v0.7クオリティ方式／現在のコマへ適用します。"
-            if quality_active else
-            (
+            ("クオリティ方式／" if quality_active else "")
+            + (
                 "すべてのコマへ適用します。"
                 if self.canvas.transform_apply_all_frames
                 else "現在のコマへ適用します。"

@@ -495,6 +495,29 @@ class TransformMaskMixin(CanvasMembers):
     def _tp_prepare_palette_image(*args, **kwargs):
         return imaging.tp_prepare_palette_image(*args, **kwargs)
 
+    @staticmethod
+    def _tp_packed_rgb(prepared_array):
+        """Pack RGB into one uint32 per pixel so colors compare in a single op."""
+        rgb = prepared_array[:, :, :3].astype(np.uint32)
+        return (rgb[:, :, 0] << 16) | (rgb[:, :, 1] << 8) | rgb[:, :, 2]
+
+    @classmethod
+    def _tp_exact_palette(cls, prepared_array):
+        """Every exact opaque color in the prepared image, sorted."""
+        opaque = prepared_array[:, :, 3] > 0
+        if not np.any(opaque):
+            return []
+        packed = np.unique(cls._tp_packed_rgb(prepared_array)[opaque])
+        return [
+            (
+                int((value >> 16) & 0xFF),
+                int((value >> 8) & 0xFF),
+                int(value & 0xFF),
+                255,
+            )
+            for value in packed
+        ]
+
     def _build_tp_label_image(self, prepared_array, palette_rgba, line_colors):
         """Turn the prepared image into one label id per pixel.
 
@@ -502,6 +525,9 @@ class TransformMaskMixin(CanvasMembers):
         same output pixel equally: line colors win first, then darker colors
         over lighter ones.  Id 0 means "no source pixel here".  Returns the
         ``rgb -> id`` mapping so the caller can record which id each color got.
+
+        The pixels are labelled by looking each packed color up in the palette,
+        so the cost does not grow with the number of colors.
         """
         def luminance(color):
             red, green, blue = (float(channel) for channel in color[:3])
@@ -510,41 +536,40 @@ class TransformMaskMixin(CanvasMembers):
         # Semi-transparent pixels can put the same RGB in the palette twice;
         # they render identically here, so one label each is enough.
         ordered = []
+        seen = set()
         for rgb in list(line_colors) + sorted(palette_rgba, key=luminance):
             color = tuple(int(channel) for channel in rgb[:3])
-            if color not in ordered:
+            if color not in seen:
+                seen.add(color)
                 ordered.append(color)
 
-        height, width = prepared_array.shape[:2]
-        labels = np.zeros((height, width), dtype=np.uint16)
+        label_ids = {rgb: index for index, rgb in enumerate(ordered, 1)}
         colors = np.zeros((len(ordered) + 1, 4), dtype=np.uint8)
-        label_ids = {}
-        opaque = prepared_array[:, :, 3] > 0
-        assigned = np.zeros((height, width), dtype=bool)
         for index, rgb in enumerate(ordered, 1):
-            label_ids[rgb] = index
             colors[index, :3] = rgb
             colors[index, 3] = 255
-            matched = opaque & np.all(
-                prepared_array[:, :, :3] == np.asarray(rgb, dtype=np.uint8),
-                axis=2,
-            )
-            labels[matched] = index
-            assigned |= matched
 
-        # Quantization can leave a few pixels off-palette.  Snapping them to the
-        # nearest palette color keeps the transform from punching holes that the
-        # source image does not have.
-        leftover = opaque & ~assigned
-        if np.any(leftover) and ordered:
-            palette = np.asarray(ordered, dtype=np.int16)
-            pixels = prepared_array[leftover][:, :3].astype(np.int16)
-            distances = np.sum(
-                (pixels[:, None, :] - palette[None, :, :]) ** 2, axis=2
-            )
-            labels[leftover] = (np.argmin(distances, axis=1) + 1).astype(
-                np.uint16
-            )
+        packed_palette = np.asarray(
+            [(r << 16) | (g << 8) | b for r, g, b in ordered],
+            dtype=np.uint32,
+        )
+        order = np.argsort(packed_palette)
+        sorted_palette = packed_palette[order]
+        packed = self._tp_packed_rgb(prepared_array)
+        position = np.searchsorted(sorted_palette, packed)
+        np.clip(position, 0, max(0, len(ordered) - 1), out=position)
+        labels = (order[position] + 1).astype(np.uint16)
+        labels[prepared_array[:, :, 3] == 0] = 0
+        if len(ordered):
+            # Quantization can leave a few pixels off-palette; searchsorted then
+            # lands on a neighbour, which is the nearest color in packed order
+            # and keeps the transform from punching holes the source lacks.
+            missed = sorted_palette[position] != packed
+            if np.any(missed):
+                log.debug(
+                    "%d pixel(s) were not an exact palette color",
+                    int(np.count_nonzero(missed)),
+                )
 
         self._tp_label_image = labels
         self._tp_label_colors = colors
@@ -562,31 +587,23 @@ class TransformMaskMixin(CanvasMembers):
 
         source_rgba = self._qimage_to_pil_rgba(source).convert("RGBA")
         prepared = self._tp_transparent_to_white(source_rgba)
-        exact_color_counts = prepared.getcolors(maxcolors=257)
-        if exact_color_counts is None:
-            # This intentionally mirrors v0.7: color-rich images are reduced
-            # without dithering.  The large-image proxy uses fewer colors to
-            # keep its temporary mask memory bounded.
-            prepared, palette_rgba = self._tp_prepare_palette_image(
-                source_rgba,
-                (
-                    TP_MASK_PROXY_MAX_COLORS
-                    if self._tp_proxy_rendering
-                    else 64
-                ),
-            )
-        else:
-            # ``getcolors`` on an RGBA image yields ``(count, (r, g, b, a))``
-            # tuples, but its type hint also admits scalar entries for
-            # palette/luminance images.  Normalise to RGBA tuples so both the
-            # runtime and the type checker treat ``color`` as a sequence.
-            palette_rgba = sorted(
-                tuple(int(channel) for channel in color)
-                for _count, color in exact_color_counts
-                if isinstance(color, tuple) and color[3] > 0
-            )
-
         prepared_array = np.asarray(prepared.convert("RGBA"), dtype=np.uint8)
+        palette_rgba = self._tp_exact_palette(prepared_array)
+        if len(palette_rgba) > TP_MASK_MAX_TRANSFORM_COLORS:
+            # Beyond this the source is not flat-colored art, and one label per
+            # color stops being meaningful.  Reducing is still better than
+            # refusing, but say so instead of changing the colors silently.
+            prepared, palette_rgba = self._tp_prepare_palette_image(
+                source_rgba, TP_MASK_MAX_TRANSFORM_COLORS
+            )
+            prepared_array = np.asarray(
+                prepared.convert("RGBA"), dtype=np.uint8
+            )
+            palette_rgba = self._tp_exact_palette(prepared_array)
+            self.status_message.emit(
+                f"色数が多いため {len(palette_rgba)} 色へ減色して変形します。"
+                "先に2値化しておくと元の色のまま変形できます。"
+            )
         line_colors = []
         for line_color in self.transform_tp_line_colors:
             present = np.any(

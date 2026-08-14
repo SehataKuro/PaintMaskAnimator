@@ -106,7 +106,7 @@ class PaintCanvas(
         self.transform_layer_index=0
         self.transform_apply_all_frames=False
         self.tween_pending = None
-        self.transform_quality=False
+        self.transform_quality=True
         self.transform_quality_active=False
         self.transform_line_threshold=96
         self.transform_tp_line_colors=()
@@ -1685,8 +1685,6 @@ class PaintCanvas(
 
     def set_transform_quality(self, enabled):
         self.transform_quality = bool(enabled)
-        if self.transform_quality:
-            self.transform_apply_all_frames = False
         if self.transform_active:
             self.transform_quality_active = self.transform_quality
             self.transform_tp_line_colors = tuple(sorted(self.selected_used_colors()))

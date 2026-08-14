@@ -209,6 +209,169 @@ def test_mesh_transform_is_binary_too(canvas):
     assert present <= {FILL, LINE}
 
 
+def test_many_exact_colors_are_carried_through_untouched(canvas):
+    """A palette past the old 257-color probe must not be silently requantized.
+
+    The previous implementation dropped such sources to 64 quantized colors, so
+    the output contained no color the artist had actually painted.
+    """
+    side = 18                                   # 324 flat color patches
+    cell = SIZE // side
+    rgba = np.zeros((SIZE, SIZE, 4), np.uint8)
+    rgba[:, :] = (255, 255, 255, 255)
+    for index in range(side * side):
+        row, column = divmod(index, side)
+        rgba[
+            row * cell:(row + 1) * cell, column * cell:(column + 1) * cell
+        ] = (20 + index % 200, 20 + index // 7 % 200, 20 + index // 3 % 200, 255)
+    source = imaging.rgba_array_to_qimage(rgba)
+
+    canvas.transform_active = True
+    canvas.transform_mode = "free"
+    canvas.transform_source = source
+    canvas.transform_source_rect = QRectF(0, 0, SIZE, SIZE)
+    canvas.transform_points = rotate(27)
+    canvas.transform_tp_line_colors = ()
+    canvas.transform_quality_active = True
+    canvas._clear_tp_transform_masks()
+    assert canvas._prepare_tp_transform_masks(source)
+    image, _rect = canvas._tp_mask_preview_image(source, SIZE * 2, SIZE * 2)
+    rendered = imaging.qimage_rgba_array(image)
+
+    before = {
+        tuple(int(channel) for channel in color)
+        for color in np.unique(rgba[:, :, :3].reshape(-1, 3), axis=0)
+    }
+    assert len(before) > 257
+    after = {
+        tuple(int(channel) for channel in color)
+        for color in np.unique(rendered[rendered[:, :, 3] > 0][:, :3], axis=0)
+    }
+    assert after <= before
+    assert len(after) > 257
+
+
+def test_quality_transform_applies_to_every_frame(canvas):
+    """Quality and "all frames" are no longer mutually exclusive."""
+    while len(canvas.frames) < 4:
+        canvas._ensure_frame_count(len(canvas.frames) + 1)
+    for index, frame in enumerate(canvas.frames):
+        layer = frame.layers[0]
+        rgba = imaging.qimage_rgba_array(layer.image).copy()
+        rgba[:, :] = (0, 0, 0, 0)
+        top = 40 + index * 3
+        rgba[top:top + 90, 60:150] = (*FILL, 255)
+        rgba[top:top + 90, 100:104] = (*LINE, 255)
+        layer.image = imaging.rgba_array_to_qimage(rgba).convertToFormat(
+            layer.image.format()
+        )
+        layer.has_content = True
+
+    canvas.selection_polygon = [
+        QPointF(50, 30), QPointF(160, 30), QPointF(160, 145), QPointF(50, 145)
+    ]
+    canvas.transform_quality = True
+    canvas.transform_apply_all_frames = True
+    assert canvas.begin_selection_transform("free")
+    assert canvas.transform_quality_active
+    assert canvas.transform_apply_all_frames
+
+    centre_x, centre_y = 105, 87
+    canvas.transform_points = [
+        QPointF(
+            centre_x + (point.x() - centre_x) * 0.83
+            - (point.y() - centre_y) * 0.36,
+            centre_y + (point.x() - centre_x) * 0.36
+            + (point.y() - centre_y) * 0.83,
+        )
+        for point in canvas.transform_points
+    ]
+    canvas._invalidate_tp_preview_cache()
+    canvas.commit_selection_transform(all_frames=True)
+
+    for index, frame in enumerate(canvas.frames):
+        rendered = imaging.qimage_rgba_array(frame.layers[0].image)
+        alpha = rendered[:, :, 3]
+        assert not np.any((alpha > 0) & (alpha < 255)), index
+        colors = {
+            tuple(int(channel) for channel in color)
+            for color in np.unique(rendered[alpha == 255][:, :3], axis=0)
+        }
+        assert colors <= {FILL, LINE}, index
+        assert np.any(np.all(rendered[:, :, :3] == LINE, axis=2) & (alpha > 0))
+    # One undo must take every frame back.
+    assert len(canvas.undo_stack) == 1
+
+
+def _commit_a_rotation(canvas):
+    layer = canvas.frames[0].layers[0]
+    rgba = imaging.qimage_rgba_array(layer.image).copy()
+    rgba[:, :] = (0, 0, 0, 0)
+    rgba[40:130, 60:150] = (*FILL, 255)
+    rgba[40:130, 100:104] = (*LINE, 255)
+    layer.image = imaging.rgba_array_to_qimage(rgba).convertToFormat(
+        layer.image.format()
+    )
+    layer.has_content = True
+    canvas.selection_polygon = [
+        QPointF(50, 30), QPointF(160, 30), QPointF(160, 145), QPointF(50, 145)
+    ]
+    canvas.transform_quality = True
+    assert canvas.begin_selection_transform("free")
+    centre_x, centre_y = 105, 87
+    canvas.transform_points = [
+        QPointF(
+            centre_x + (point.x() - centre_x) * 0.83
+            - (point.y() - centre_y) * 0.36,
+            centre_y + (point.x() - centre_x) * 0.36
+            + (point.y() - centre_y) * 0.83,
+        )
+        for point in canvas.transform_points
+    ]
+    canvas._invalidate_tp_preview_cache()
+    return canvas
+
+
+def _committed_pixels(canvas):
+    rendered = imaging.qimage_rgba_array(canvas.frames[0].layers[0].image)
+    alpha = rendered[:, :, 3]
+    return (
+        int(np.count_nonzero(alpha > 0)),
+        int(np.count_nonzero(
+            np.all(rendered[:, :, :3] == LINE, axis=2) & (alpha > 0)
+        )),
+        int(np.count_nonzero((alpha > 0) & (alpha < 255))),
+    )
+
+
+def test_commit_uses_full_resolution_even_after_a_proxy_preview(monkeypatch):
+    """The drag-time proxy is a preview only; committing must not bake it in."""
+    app = QApplication.instance() or QApplication([])
+
+    reference = _commit_a_rotation(PaintCanvas())
+    reference.commit_selection_transform(all_frames=False)
+    expected = _committed_pixels(reference)
+
+    monkeypatch.setattr(imaging, "TP_MASK_PROXY_THRESHOLD", 64)
+    proxied = _commit_a_rotation(PaintCanvas())
+    assert proxied._tp_uses_proxy(
+        proxied.active_layer.image.width(), proxied.active_layer.image.height()
+    )
+    proxied.transform_preview_image(
+        proxied.transform_source,
+        proxied.active_layer.image.width(),
+        proxied.active_layer.image.height(),
+        quality=True,
+        preview_only=True,
+    )
+    proxied.commit_selection_transform(all_frames=False)
+
+    assert _committed_pixels(proxied) == expected
+    for widget in (reference, proxied):
+        widget.deleteLater()
+    app.processEvents()
+
+
 def test_degenerate_quad_does_not_raise(canvas):
     source = make_source()
     canvas.transform_active = True
