@@ -216,8 +216,6 @@ class SelectionMixin(CanvasMembers):
         self.transform_mode = mode
         self.transform_quality_active = bool(getattr(self, "transform_quality", False))
         self.transform_tp_line_colors = tuple(sorted(self.selected_used_colors()))
-        if self.transform_quality_active:
-            self.transform_apply_all_frames = False
         self._invalidate_tp_preview_cache()
         self.transform_frame_index = self.current_frame
         self.transform_layer_index = self.active_layer_index
@@ -474,7 +472,6 @@ class SelectionMixin(CanvasMembers):
                 else getattr(self, "transform_apply_all_frames", False)
             )
         if quality_active:
-            all_frames = False
             target_width = self.active_layer.image.width()
             target_height = self.active_layer.image.height()
             if self._tp_uses_proxy(target_width, target_height):

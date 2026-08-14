@@ -68,6 +68,7 @@ class CanvasMembers(_MembersBase):
         _brush_stroke_opacity: Any
         _build_playback_key_map: Any
         _build_tp_geometry_cache: Any
+        _build_tp_label_image: Any
         _cache_pseudo_transparent_display: Any
         _cell_structure_dirty: Any
         _clear_selection_state: Any
@@ -199,22 +200,20 @@ class CanvasMembers(_MembersBase):
         _tp_geometry_cache_key: Any
         _tp_geometry_cache_line_soft: Any
         _tp_geometry_key: Any
-        _tp_is_enlarging: Any
-        _tp_make_color_masks: Any
+        _tp_inverse_mapper: Any
+        _tp_label_colors: Any
+        _tp_label_image: Any
         _tp_mask_key: Any
         _tp_mask_preview_image: Any
         _tp_mask_source_key: Any
-        _tp_mesh_render_mask: Any
         _tp_prepare_palette_image: Any
         _tp_preview_cache_image: Any
         _tp_preview_cache_key: Any
         _tp_preview_progress_busy: Any
         _tp_preview_progress_scheduled: Any
-        _tp_project_mask_to_bbox: Any
         _tp_proxy_rendering: Any
         _tp_proxy_source_image: Any
         _tp_proxy_source_key: Any
-        _tp_render_mask_to_bbox: Any
         _tp_transform_bbox: Any
         _tp_transparent_to_white: Any
         _tp_uses_proxy: Any
@@ -457,10 +456,8 @@ class CanvasMembers(_MembersBase):
         transform_rotation_handle: Any
         transform_source: Any
         transform_source_rect: Any
-        transform_tp_fill_smoothing: Any
         transform_tp_line_colors: Any
         transform_tp_line_masks: Any
-        transform_tp_line_smoothing: Any
         transform_tp_masks: Any
         transform_tp_palette: Any
         transform_tp_prepared_preview: Any
