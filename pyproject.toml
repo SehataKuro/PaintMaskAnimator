@@ -53,7 +53,8 @@ typeCheckingMode = "basic"
 # (undefined names, bad calls in typed code) while we tighten incrementally.
 reportAttributeAccessIssue = "warning"
 reportArgumentType = "warning"
-reportOptionalMemberAccess = "warning"
+# reportOptionalMemberAccess is clean and back at error level; the rest are
+# tightened the same way once their remaining sites are typed.
 reportCallIssue = "warning"
 
 [tool.ruff]

@@ -9,9 +9,13 @@ isolation cannot see members defined on its siblings or set in
 
 At runtime ``CanvasMembers`` is an empty ``object`` subclass, so mixing it in
 is harmless. Under ``TYPE_CHECKING`` it inherits the real Qt base, so Qt
-methods resolve too. Members are declared here as ``Any`` (a handful with
-precise types); a genuinely undefined name -- a typo or a removed
+methods resolve too. A genuinely undefined name -- a typo or a removed
 attribute -- still surfaces, because it never appears in this list.
+
+Entries are being migrated from ``Any`` to their real types; every one that
+moves off ``Any`` starts type-checking its own call sites, so prefer adding a
+precise type here over widening one. ``Any`` remains the default for the many
+method stubs, whose signatures live with the mixin that defines them.
 """
 from __future__ import annotations
 
@@ -21,6 +25,8 @@ if TYPE_CHECKING:
     from PySide6.QtWidgets import QWidget
     from PySide6.QtCore import Signal
     from .document import Document
+    from .models import Frame, Layer
+    from .undo_entries import UndoEntry
     _MembersBase = QWidget
 else:
     _MembersBase = object
@@ -221,7 +227,7 @@ class CanvasMembers(_MembersBase):
         _update_selection_fade: Any
         _update_stroke_region: Any
         active_layer: Any
-        active_layer_index: Any
+        active_layer_index: int
         add_frame: Any
         add_layer: Any
         apply_color_reduction_palette: Any
@@ -264,7 +270,7 @@ class CanvasMembers(_MembersBase):
         copy_selection: Any
         create_blank_key: Any
         current_exposure: Any
-        current_frame: Any
+        current_frame: int
         current_state_for: Any
         cut_selection: Any
         delete_frame: Any
@@ -287,9 +293,9 @@ class CanvasMembers(_MembersBase):
         _color_index_for_image: Any
         finish_transform_line_adjustment: Any
         flip_active_layer: Any
-        flip_horizontal: Any
+        flip_horizontal: bool
         flood_fill: Any
-        frames: Any
+        frames: list[Frame]
         image_alpha_statistics: Any
         import_image: Any
         import_image_sequence: Any
@@ -300,7 +306,7 @@ class CanvasMembers(_MembersBase):
         lasso: Any
         last_canvas: Any
         last_widget: Any
-        layers: Any
+        layers: list[Layer]
         line_control: Any
         line_curve_stage: Any
         line_end: Any
@@ -353,7 +359,7 @@ class CanvasMembers(_MembersBase):
         paint_source_color: Any
         pan: Any
         paste_clipboard: Any
-        pen_opacity: Any
+        pen_opacity: float
         pen_size: Any
         playback_advance: Any
         playback_frame_image: Any
@@ -375,7 +381,7 @@ class CanvasMembers(_MembersBase):
         rect_end: Any
         rect_start: Any
         redo: Any
-        redo_stack: Any
+        redo_stack: list[UndoEntry]
         refresh_quality_preview_with_counter: Any
         report: Any
         request_quality_preview_counter: Any
@@ -459,7 +465,7 @@ class CanvasMembers(_MembersBase):
         transparent_display_color: Any
         tween_pending: Any
         undo: Any
-        undo_stack: Any
+        undo_stack: list[UndoEntry]
         update_tool_cursor: Any
         update_transform_drag: Any
         visible_color_rgbs: Any

@@ -9,17 +9,26 @@ isolation cannot see members defined on its siblings or set in
 
 At runtime ``MainWindowMembers`` is an empty ``object`` subclass, so mixing it in
 is harmless. Under ``TYPE_CHECKING`` it inherits the real Qt base, so Qt
-methods resolve too. Members are declared here as ``Any`` (a handful with
-precise types); a genuinely undefined name -- a typo or a removed
+methods resolve too. A genuinely undefined name -- a typo or a removed
 attribute -- still surfaces, because it never appears in this list.
+
+Entries are being migrated from ``Any`` to their real types; every one that
+moves off ``Any`` starts type-checking its own call sites, so prefer adding a
+precise type here over widening one. ``Any`` remains the default for the many
+method stubs, whose signatures live with the mixin that defines them.
 """
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from PySide6.QtCore import QTimer
     from PySide6.QtWidgets import QMainWindow
+    from .actionpanel import ActionPanel
     from .canvas import PaintCanvas
+    from .color_panel import UsedColorPanel
+    from .history_panel import HistoryPanel
+    from .theme import StatusBar
     from .toolpanel import ToolPanel, ToolSelectorPanel
     from .timeline import TimelineWidget
     _MembersBase = QMainWindow
@@ -126,7 +135,7 @@ class MainWindowMembers(_MembersBase):
         _sync_tool_selector_swatch: Any
         _time_remap_source_bank: Any
         _tool_selector_resize_drag_active: Any
-        _tool_selector_snap_timer: Any
+        _tool_selector_snap_timer: QTimer
         _tween_command_popup: Any
         _ui_hold_drag_mode: Any
         _ui_hold_grab_widget: Any
@@ -142,8 +151,8 @@ class MainWindowMembers(_MembersBase):
         _used_color_layer_cache: Any
         _used_color_layer_signature: Any
         _used_color_request: Any
-        _used_color_timer: Any
-        _visible_color_timer: Any
+        _used_color_timer: QTimer
+        _visible_color_timer: QTimer
         _widget_in_timeline: Any
         _workspace_records: Any
         a_bucket_close_gap: Any
@@ -211,7 +220,7 @@ class MainWindowMembers(_MembersBase):
         a_transform_rotate_left: Any
         a_transform_rotate_right: Any
         a_undo: Any
-        action_panel: Any
+        action_panel: ActionPanel
         action_panel_dock: Any
         action_panel_scroll: Any
         add_layer_fast: Any
@@ -272,7 +281,9 @@ class MainWindowMembers(_MembersBase):
         finish_onion_browser_interaction: Any
         fit_canvas: Any
         focus_used_color: Any
+        freeze_preview_color_groups: Any
         general_actions: Any
+        history_panel: HistoryPanel
         image_color_hex: Any
         import_dropped_image: Any
         import_dropped_images: Any
@@ -281,6 +292,7 @@ class MainWindowMembers(_MembersBase):
         import_psd_dialog: Any
         import_xdts_dialog: Any
         isolate_selected_color: Any
+        jump_history: Any
         layer_name_row: Any
         layer_opacity_row: Any
         layer_selected: Any
@@ -301,6 +313,7 @@ class MainWindowMembers(_MembersBase):
         open_dropped_time_remap: Any
         open_project: Any
         open_project_dialog: Any
+        palette: UsedColorPanel
         palette_dock: Any
         palette_scroll: Any
         parse_time_remap_text: Any
@@ -310,8 +323,10 @@ class MainWindowMembers(_MembersBase):
         pressure: Any
         previous_timeline_frame: Any
         previous_timeline_key: Any
+        push_palette_history: Any
         recall_sequence_number: Any
         redo_with_used_colors: Any
+        refresh_history_panel: Any
         refresh_selection: Any
         refresh_ui: Any
         refresh_used_colors: Any
@@ -338,6 +353,7 @@ class MainWindowMembers(_MembersBase):
         set_mask_colors: Any
         set_onion_all_layers: Any
         set_onion_skin: Any
+        set_preview_color_groups: Any
         set_rot: Any
         set_selected_used_colors: Any
         set_theme: Any
@@ -346,11 +362,12 @@ class MainWindowMembers(_MembersBase):
         set_visible_colors: Any
         set_zoom: Any
         shortcuts: Any
+        show_canvas_at_100_percent: Any
         show_onion_settings: Any
         show_time_remap_paste_dialog: Any
         start_wire_transform: Any
         status: Any
-        status_bar: Any
+        status_bar: StatusBar
         swap_main_sub: Any
         sync_canvas_view_controls: Any
         sync_onion_browser_from_canvas: Any
@@ -358,7 +375,7 @@ class MainWindowMembers(_MembersBase):
         timeline: TimelineWidget
         timeline_actions: Any
         timeline_dock: Any
-        timer: Any
+        timer: QTimer
         toggle_draw_background_color: Any
         toggle_onion_settings_popup: Any
         toggle_silhouette: Any
