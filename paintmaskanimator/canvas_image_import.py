@@ -111,6 +111,23 @@ class ImageImportMixin(CanvasMembers):
         pixels[:, :, 3][white] = 0
         return rgba.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
 
+    def _remove_import_background(self, image, path):
+        """取り込み時の背景除去。外周連結の明色背景を既定で透明化する。"""
+        if image is None or image.isNull():
+            return image
+        background_rgb = self.detect_opaque_border_background(image)
+        if background_rgb is not None:
+            return self.remove_border_connected_background(
+                image,
+                background_rgb,
+            )
+        # 背景を検出できない画像では従来の挙動を保つ。JPEGはアルファを
+        # 持たないため、完全一致の白抜きは行わない（圧縮で白くなった
+        # 画素まで欠けて見えるため）。
+        if Path(path).suffix.lower() in (".jpg", ".jpeg"):
+            return image
+        return self._make_white_transparent(image)
+
     def import_image(self, path, color_reduction=None):
         return self.import_image_sequence(
             [path],
@@ -192,11 +209,7 @@ class ImageImportMixin(CanvasMembers):
                         extraction_mode=extraction_mode,
                     )
             else:
-                # JPEGにはアルファチャンネルがないため、白を透明化すると
-                # 圧縮後に白となった画素まで欠けて見える。デコード済みの
-                # RGBをそのまま保持し、PNG／TGAの既存透明化だけを維持する。
-                if Path(path).suffix.lower() not in (".jpg", ".jpeg"):
-                    image = self._make_white_transparent(image)
+                image = self._remove_import_background(image, path)
             decoded.append((path, image))
         if progress_callback:
             progress_callback(len(paths), len(paths), "画像の配置を準備しています")

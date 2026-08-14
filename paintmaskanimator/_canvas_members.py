@@ -101,6 +101,7 @@ class CanvasMembers(_MembersBase):
         _line_preview_path: Any
         _local_color_variation: Any
         _make_white_transparent: Any
+        _remove_import_background: Any
         _masked_selection_source: Any
         _median_cut_palette_from_samples: Any
         _mesh_catmull_scalar: Any
@@ -277,6 +278,7 @@ class CanvasMembers(_MembersBase):
         delete_layer: Any
         delete_sequence_entry: Any
         detect_opaque_border_background: Any
+        remove_border_connected_background: Any
         dilate: Any
         displacement_at: Any
         document_snapshot: Any

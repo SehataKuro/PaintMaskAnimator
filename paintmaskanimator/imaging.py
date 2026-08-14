@@ -8,7 +8,8 @@ unchanged.
 from typing import Any
 
 import numpy as np
-from PySide6.QtGui import QImage
+from PySide6.QtCore import QPoint, Qt
+from PySide6.QtGui import QColor, QImage, QPainter
 
 from .common import PILImage
 from .constants import TP_MASK_PROXY_THRESHOLD
@@ -238,3 +239,56 @@ def tp_prepare_palette_image(image, max_colors=64):
     ]
     return rgb, palette
 
+
+
+def select_representative_indexes(total, count=3):
+    """先頭・末尾を含む等間隔の代表インデックスを返す。"""
+    total = int(total)
+    count = max(1, int(count))
+    if total <= 0:
+        return []
+    if total <= count:
+        return list(range(total))
+    if count == 1:
+        return [0]
+    step = (total - 1) / (count - 1)
+    indexes = sorted({int(round(index * step)) for index in range(count)})
+    return [min(max(value, 0), total - 1) for value in indexes]
+
+
+def build_representative_sheet(images, background_rgb=None):
+    """代表フレームを横に並べた1枚のQImageを作る。
+
+    パレット推定とプレビューを「1枚目だけ」に依存させないための下地。
+    余白は背景色（無ければ透明）で埋め、背景検出結果と矛盾させない。
+    """
+    frames = [
+        image for image in images
+        if image is not None and not image.isNull()
+    ]
+    if not frames:
+        return None
+    if len(frames) == 1:
+        return frames[0].copy()
+
+    width = sum(int(image.width()) for image in frames)
+    height = max(int(image.height()) for image in frames)
+    if width <= 0 or height <= 0:
+        return frames[0].copy()
+
+    sheet = QImage(width, height, QImage.Format.Format_ARGB32_Premultiplied)
+    if background_rgb is not None:
+        red, green, blue = (int(value) for value in background_rgb)
+        sheet.fill(QColor(red, green, blue, 255))
+    else:
+        sheet.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(sheet)
+    painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, False)
+    painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+    offset = 0
+    for image in frames:
+        painter.drawImage(QPoint(offset, 0), image)
+        offset += int(image.width())
+    painter.end()
+    return sheet

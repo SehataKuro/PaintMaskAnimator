@@ -301,6 +301,7 @@ class ColorReductionDialog(QDialog):
         opaque_background=False,
         background_rgb=None,
         parent=None,
+        sample_frame_count=1,
     ):
         super().__init__(parent)
         self.setWindowTitle("2値化")
@@ -308,6 +309,7 @@ class ColorReductionDialog(QDialog):
 
         self.source_image = source_image.copy()
         self.original_color_count = int(original_color_count)
+        self.sample_frame_count = max(1, int(sample_frame_count))
         self.semi_transparent_count = int(
             semi_transparent_count
         )
@@ -349,8 +351,13 @@ class ColorReductionDialog(QDialog):
             if self.opaque_background
             else f"半透明 {self.semi_transparent_count:,}px"
         )
+        sample_note = (
+            "1枚目"
+            if self.sample_frame_count <= 1
+            else f"代表{self.sample_frame_count}枚（先頭・中間・末尾）"
+        )
         summary = QLabel(
-            f"1枚目：{self.original_color_count:,}色／"
+            f"{sample_note}：{self.original_color_count:,}色／"
             f"{background_note}　"
             "トーンカーブを元画像へ先に適用し、その後に色数を調整して2値化します。"
         )

@@ -80,6 +80,10 @@ TP_MASK_MAX_TRANSFORM_COLORS = 4096
 # the preview responsive, the committed render uses the full grid.
 TP_MASK_PROXY_SUBSAMPLES = 2
 
+# 減色パレットを推定するために取り込み連番から抜き出す代表フレーム数。
+# 先頭・中間・末尾を含む等間隔サンプルで、1枚目依存を避ける。
+COLOR_REDUCTION_SAMPLE_FRAMES = 3
+
 # Everything except the mutable canvas dimensions is safe to star-import.
 __all__ = [
     _n for _n in list(globals())

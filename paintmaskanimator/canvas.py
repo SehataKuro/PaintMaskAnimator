@@ -1173,6 +1173,10 @@ class PaintCanvas(
     def detect_opaque_border_background(cls, *args, **kwargs):
         return color_ops.detect_opaque_border_background(*args, **kwargs)
 
+    @classmethod
+    def remove_border_connected_background(cls, *args, **kwargs):
+        return color_ops.remove_border_connected_background(*args, **kwargs)
+
     @staticmethod
     def _local_color_variation(*args, **kwargs):
         return colors.local_color_variation(*args, **kwargs)

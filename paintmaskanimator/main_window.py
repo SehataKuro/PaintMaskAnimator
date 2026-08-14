@@ -311,31 +311,47 @@ class MainWindow(
         if not paths:
             return None, ""
 
-        first_image, error = self.canvas._read_image_file(
-            paths[0]
-        )
-        if first_image is None:
-            return None, (
-                f"{Path(paths[0]).name}\n{error}"
+        # パレットは1枚目ではなく、先頭・中間・末尾の代表フレームから
+        # 推定する。中間で色が増減する素材でも取りこぼさないため。
+        representative_paths = [
+            paths[index]
+            for index in imaging.select_representative_indexes(
+                len(paths),
+                COLOR_REDUCTION_SAMPLE_FRAMES,
             )
+        ]
+        representative_images = []
+        for path in representative_paths:
+            image, error = self.canvas._read_image_file(path)
+            if image is None:
+                return None, f"{Path(path).name}\n{error}"
+            representative_images.append(image)
+
+        first_image = representative_images[0]
 
         try:
-            color_count = (
-                self.canvas.opaque_rgb_color_count(first_image)
-            )
-            alpha_statistics = (
-                self.canvas.image_alpha_statistics(first_image)
-            )
             background_rgb = (
                 self.canvas.detect_opaque_border_background(
                     first_image
                 )
             )
+            sample_image = imaging.build_representative_sheet(
+                representative_images,
+                background_rgb,
+            )
+            if sample_image is None or sample_image.isNull():
+                sample_image = first_image
+            color_count = (
+                self.canvas.opaque_rgb_color_count(sample_image)
+            )
+            alpha_statistics = (
+                self.canvas.image_alpha_statistics(sample_image)
+            )
             opaque_background = background_rgb is not None
         except _OPERATION_ERRORS as exc:
-            log.warning("first-image color/alpha inspection failed: %s", exc, exc_info=True)
+            log.warning("representative-frame color/alpha inspection failed: %s", exc, exc_info=True)
             return None, (
-                "1枚目の色と透明度を確認できませんでした。\n"
+                "代表フレームの色と透明度を確認できませんでした。\n"
                 f"{exc}"
             )
 
@@ -353,12 +369,13 @@ class MainWindow(
 
         try:
             dialog = ColorReductionDialog(
-                first_image,
+                sample_image,
                 color_count,
                 semi_transparent_count,
                 opaque_background,
                 background_rgb,
                 self,
+                sample_frame_count=len(representative_images),
             )
             if (
                 dialog.exec()

@@ -182,6 +182,104 @@ def detect_opaque_border_background(image):
     return tuple(int(value) for value in dominant)
 
 
+def _propagate_rows(seed_row, candidate_row):
+    """1行内で、連続した候補画素の区間へ種を広げる。"""
+    if not np.any(seed_row):
+        return seed_row
+    # 候補が途切れるたびに区間IDが増えるので、区間ごとに種の有無を集計する。
+    run_ids = np.cumsum(~candidate_row)
+    seeded_runs = np.zeros(int(run_ids[-1]) + 1, dtype=bool)
+    seeded_runs[run_ids[seed_row]] = True
+    return candidate_row & seeded_runs[run_ids]
+
+
+def border_connected_background_mask(
+    rgba,
+    background_rgb,
+    tolerance=32,
+):
+    """外周から連結した背景色の画素マスクを返す。
+
+    JPEGの圧縮ノイズで完全一致しなくなった背景を拾うため、色距離の
+    しきい値で候補を作り、画像の外周から到達できる連結成分だけを
+    背景として扱う（内側の白い塗り面は残る）。
+    """
+    rgba = np.asarray(rgba, dtype=np.uint8)
+    if rgba.ndim != 3 or rgba.shape[0] <= 0 or rgba.shape[1] <= 0:
+        return np.zeros(rgba.shape[:2], dtype=bool)
+
+    target = np.asarray(
+        [int(value) for value in background_rgb],
+        dtype=np.int32,
+    )
+    delta = rgba[:, :, :3].astype(np.int32) - target[None, None, :]
+    limit = int(tolerance) * int(tolerance) * 3
+    candidate = np.sum(delta * delta, axis=2) <= limit
+    candidate &= rgba[:, :, 3] > 0
+    if not np.any(candidate):
+        return candidate
+
+    height, width = candidate.shape
+    reached = np.zeros_like(candidate)
+    reached[0, :] = candidate[0, :]
+    reached[height - 1, :] = candidate[height - 1, :]
+    reached[:, 0] |= candidate[:, 0]
+    reached[:, width - 1] |= candidate[:, width - 1]
+
+    # 前方／後方のラスタ走査を、変化がなくなるまで繰り返す。
+    # 各走査は行内を完全に伝播させるため、通常は数回で収束する。
+    for _ in range(height + 1):
+        previous = int(np.count_nonzero(reached))
+        for y in range(height):
+            row = reached[y]
+            if y > 0:
+                row = row | (reached[y - 1] & candidate[y])
+            reached[y] = _propagate_rows(row, candidate[y])
+        for y in range(height - 1, -1, -1):
+            row = reached[y]
+            if y + 1 < height:
+                row = row | (reached[y + 1] & candidate[y])
+            reached[y] = _propagate_rows(row, candidate[y])
+        if int(np.count_nonzero(reached)) == previous:
+            break
+    return reached
+
+
+def remove_border_connected_background(
+    image,
+    background_rgb=None,
+    tolerance=32,
+):
+    """外周につながる背景色を透明化したQImageを返す。"""
+    if image is None or image.isNull():
+        return image
+    if background_rgb is None:
+        background_rgb = detect_opaque_border_background(image)
+    if background_rgb is None:
+        return image
+
+    rgba_image = image.convertToFormat(QImage.Format.Format_RGBA8888)
+    width, height = rgba_image.width(), rgba_image.height()
+    if width <= 0 or height <= 0:
+        return image
+
+    pointer = imaging.qimage_buffer(rgba_image)
+    rows = np.frombuffer(pointer, dtype=np.uint8).reshape(
+        (height, rgba_image.bytesPerLine())
+    )
+    pixels = rows[:, :width * 4].reshape((height, width, 4))
+    mask = border_connected_background_mask(
+        pixels,
+        background_rgb,
+        tolerance=tolerance,
+    )
+    if np.any(mask):
+        pixels[:, :, 3][mask] = 0
+    return rgba_image.convertToFormat(
+        QImage.Format.Format_ARGB32_Premultiplied
+    )
+
+
 def estimate_mixed_boundary_pixels(
     image,
     background_rgb=None,
