@@ -899,7 +899,7 @@ class MainWindow(
                 self.play(False)
             self.cancel_transform_or_tween()
             self.canvas.clear_selection()
-            self.canvas.frames=[make_frame()];self.canvas.undo_stack.clear();self.canvas.redo_stack.clear();self.set_timeline_mode("sheet")
+            self.canvas.frames=[make_frame()];self.canvas.undo_stack.clear();self.canvas.redo_stack.clear();self.canvas.clear_history_branches();self.set_timeline_mode("sheet")
         self.canvas.current_frame=0
         self.canvas.active_layer_index=0
         if not preserve:

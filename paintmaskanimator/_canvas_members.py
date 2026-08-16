@@ -382,6 +382,9 @@ class CanvasMembers(_MembersBase):
         rect_start: Any
         redo: Any
         redo_stack: list[UndoEntry]
+        history_branches: Any
+        clear_history_branches: Any
+        switch_history_branch: Any
         refresh_quality_preview_with_counter: Any
         report: Any
         request_quality_preview_counter: Any

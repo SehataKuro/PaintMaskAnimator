@@ -924,6 +924,9 @@ class UIBuildMixin(MainWindowMembers):
         self.palette.visibleColorsChanged.connect(self.set_visible_colors)
         self.palette.historyStatePush.connect(self.push_palette_history)
         self.history_panel.jumpRequested.connect(self.jump_history)
+        self.history_panel.branchSwitchRequested.connect(
+            self.switch_history_branch
+        )
         # 編集のたびにヒストリー一覧を更新する。
         self.canvas.changed.connect(self.refresh_history_panel)
         self.canvas.cellChanged.connect(

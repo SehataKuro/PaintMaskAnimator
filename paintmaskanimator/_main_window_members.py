@@ -295,6 +295,7 @@ class MainWindowMembers(_MembersBase):
         invalidate_scope_caches: Any
         isolate_selected_color: Any
         jump_history: Any
+        switch_history_branch: Any
         layer_name_row: Any
         layer_opacity_row: Any
         layer_selected: Any
