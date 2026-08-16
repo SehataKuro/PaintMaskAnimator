@@ -11,7 +11,7 @@ from .common import *  # noqa: F401,F403
 from ._main_window_members import MainWindowMembers
 from . import imaging
 from .models import Layer
-from .undo_entries import LayerBatchUndo
+from .frame_scope import resolve_cells
 from .utils import blank_image
 from .errors import OPERATION_ERRORS
 from .logging_setup import get_logger
@@ -649,17 +649,18 @@ class LineOpsMixin(MainWindowMembers):
             3800,
         )
 
-    def create_progress_counter(self, title, total, label=None):
+    def create_progress_counter(self, title, total, label=None, cancellable=False):
         total = max(1, int(total))
         dialog = QProgressDialog(
             label or title,
-            "",
+            "中止" if cancellable else "",
             0,
             total,
             self,
         )
         dialog.setWindowTitle(title)
-        dialog.setCancelButton(None)
+        if not cancellable:
+            dialog.setCancelButton(None)
         dialog.setWindowModality(Qt.WindowModality.WindowModal)
         dialog.setMinimumDuration(0)
         dialog.setAutoClose(False)
@@ -706,31 +707,13 @@ class LineOpsMixin(MainWindowMembers):
             )
             return
 
-        layer_index = int(
-            self.canvas.active_layer_index
+        # 適用範囲は一括処理ランナーへ渡すスコープ1つで表す。保持区間の畳み込み
+        # （同じキーフレーム画像を1度だけ処理する）はランナー側の責務。
+        scope = self.current_frame_scope(
+            self.tools.dust_all_frames.isChecked(),
+            selection_only=selected_only,
         )
-        requested_frames = (
-            range(len(self.canvas.frames))
-            if self.tools.dust_all_frames.isChecked()
-            else (self.canvas.current_frame,)
-        )
-
-        # 保持区間は同じキーフレーム画像を指すため1回だけ処理する。
-        frame_indices = []
-        seen_keys = set()
-        for frame_index in requested_frames:
-            key_frame = self.canvas.resolve_key_frame(
-                int(frame_index),
-                layer_index,
-            )
-            if key_frame is None:
-                continue
-            if key_frame in seen_keys:
-                continue
-            seen_keys.add(key_frame)
-            frame_indices.append(key_frame)
-
-        if not frame_indices:
+        if not resolve_cells(self.canvas, scope):
             self.statusBar().showMessage(
                 "選択レイヤーに処理できるキーフレームがありません。",
                 2800,
@@ -787,231 +770,190 @@ class LineOpsMixin(MainWindowMembers):
 
                 yield component, touches_edge
 
-        changed_cells = 0
-        changed_pixels = 0
-        changed_frame_indices = []
-        undo_cells = []
+        changed_by_cell = {}
 
-        progress = self.create_progress_counter(
-            mode,
-            max(1, len(frame_indices)),
-            f"{mode}対象を解析しています",
-        )
-        QApplication.setOverrideCursor(
-            Qt.CursorShape.WaitCursor
-        )
-        try:
-            for counter, frame_index in enumerate(
-                frame_indices,
-                1,
-            ):
-                self.update_progress_counter(
-                    progress,
-                    counter - 1,
-                    max(1, len(frame_indices)),
-                    f"コマ {frame_index + 1} を解析しています",
+        def despeckle(context):
+            """1レイヤー分のゴミ取り／塗り抜け。純粋な op として渡す。
+
+            入力画像は書き換えず、変更後の画像を返す（変更なしは None）。
+            対象セルの決定・進捗・Undo のまとめ上げはランナー側が持つ。
+            """
+            layer = context.layer
+            pixels = imaging.qimage_rgba_array(layer.image)
+            height, width = pixels.shape[:2]
+            if width <= 0 or height <= 0:
+                return None
+
+            rgb = pixels[:,:,:3]
+            pseudo_white = (
+                (pixels[:,:,3] == 0)
+                | np.all(rgb == 255, axis=2)
+            )
+            cell_changed = 0
+
+            if mode == "塗り抜け":
+                # 外周につながらない小さな白領域を周囲色で埋める。
+                starts = []
+                starts.extend(
+                    (int(x), 0)
+                    for x in np.flatnonzero(
+                        pseudo_white[0,:]
+                    )
                 )
-                frame = self.canvas.frames[frame_index]
-                if layer_index >= len(frame.layers):
-                    continue
-                layer = frame.layers[layer_index]
-                if not layer.has_content:
-                    continue
-
-                pixels = imaging.qimage_rgba_array(layer.image)
-                height, width = pixels.shape[:2]
-                if width <= 0 or height <= 0:
-                    continue
-
-                rgb = pixels[:,:,:3]
-                pseudo_white = (
-                    (pixels[:,:,3] == 0)
-                    | np.all(rgb == 255, axis=2)
-                )
-                cell_changed = 0
-
-                if mode == "塗り抜け":
-                    # 外周につながらない小さな白領域を周囲色で埋める。
-                    starts = []
+                if height > 1:
                     starts.extend(
-                        (int(x), 0)
+                        (int(x), height - 1)
                         for x in np.flatnonzero(
-                            pseudo_white[0,:]
+                            pseudo_white[-1,:]
                         )
                     )
-                    if height > 1:
-                        starts.extend(
-                            (int(x), height - 1)
-                            for x in np.flatnonzero(
-                                pseudo_white[-1,:]
-                            )
+                if width > 1:
+                    starts.extend(
+                        (0, int(y))
+                        for y in np.flatnonzero(
+                            pseudo_white[:,0]
                         )
-                    if width > 1:
-                        starts.extend(
-                            (0, int(y))
-                            for y in np.flatnonzero(
-                                pseudo_white[:,0]
-                            )
-                        )
-                        starts.extend(
-                            (width - 1, int(y))
-                            for y in np.flatnonzero(
-                                pseudo_white[:,-1]
-                            )
-                        )
-
-                    outside = (
-                        self.canvas._scanline_connected_region(
-                            pseudo_white,
-                            starts,
-                        )
-                        if starts
-                        else np.zeros_like(pseudo_white)
                     )
-                    holes = pseudo_white & ~outside
-
-                    for component, _touches_edge in component_list(
-                        holes
-                    ):
-                        area = len(component)
-                        if area == 0 or area > max_area:
-                            continue
-
-                        border_positions = set()
-                        for y, x in component:
-                            for ny in range(
-                                max(0, y - 1),
-                                min(height, y + 2),
-                            ):
-                                for nx in range(
-                                    max(0, x - 1),
-                                    min(width, x + 2),
-                                ):
-                                    if (
-                                        (ny != y or nx != x)
-                                        and not pseudo_white[ny, nx]
-                                    ):
-                                        border_positions.add(
-                                            (ny, nx)
-                                        )
-
-                        if not border_positions:
-                            continue
-
-                        border_yx = np.asarray(
-                            tuple(border_positions),
-                            dtype=np.int32,
+                    starts.extend(
+                        (width - 1, int(y))
+                        for y in np.flatnonzero(
+                            pseudo_white[:,-1]
                         )
-                        border_rgb = pixels[
-                            border_yx[:,0],
-                            border_yx[:,1],
-                            :3,
-                        ]
-
-                        if selected_only:
-                            keep = np.zeros(
-                                len(border_rgb),
-                                dtype=bool,
-                            )
-                            for selected_color in selected_colors:
-                                keep |= np.all(
-                                    border_rgb
-                                    == np.asarray(
-                                        selected_color,
-                                        dtype=np.uint8,
-                                    ),
-                                    axis=1,
-                                )
-                            border_rgb = border_rgb[keep]
-                            if border_rgb.size == 0:
-                                continue
-
-                        packed = (
-                            (
-                                border_rgb[:,0].astype(
-                                    np.uint32
-                                ) << 16
-                            )
-                            | (
-                                border_rgb[:,1].astype(
-                                    np.uint32
-                                ) << 8
-                            )
-                            | border_rgb[:,2].astype(
-                                np.uint32
-                            )
-                        )
-                        values, counts = np.unique(
-                            packed,
-                            return_counts=True,
-                        )
-                        selected = int(
-                            values[int(np.argmax(counts))]
-                        )
-                        fill = np.asarray(
-                            [
-                                (selected >> 16) & 255,
-                                (selected >> 8) & 255,
-                                selected & 255,
-                            ],
-                            dtype=np.uint8,
-                        )
-                        coordinates = np.asarray(
-                            component,
-                            dtype=np.int32,
-                        )
-                        cy = coordinates[:,0]
-                        cx = coordinates[:,1]
-                        pixels[cy,cx,:3] = fill
-                        pixels[cy,cx,3] = 255
-                        cell_changed += area
-
-                else:
-                    # ゴミ取り：小さな色点を白へ変更する。
-                    removal_mask = np.zeros(
-                        (height, width),
-                        dtype=bool,
                     )
 
-                    if selected_only:
-                        # 選択色ごとに独立判定する。
-                        # 青1pxが黒に接していても青成分は1pxとして消える。
-                        for selected_color in selected_colors:
-                            color_mask = (
-                                ~pseudo_white
-                                & np.all(
-                                    rgb
-                                    == np.asarray(
-                                        selected_color,
-                                        dtype=np.uint8,
-                                    ),
-                                    axis=2,
-                                )
-                            )
-                            for component, _edge in component_list(
-                                color_mask
+                outside = (
+                    self.canvas._scanline_connected_region(
+                        pseudo_white,
+                        starts,
+                    )
+                    if starts
+                    else np.zeros_like(pseudo_white)
+                )
+                holes = pseudo_white & ~outside
+
+                for component, _touches_edge in component_list(
+                    holes
+                ):
+                    area = len(component)
+                    if area == 0 or area > max_area:
+                        continue
+
+                    border_positions = set()
+                    for y, x in component:
+                        for ny in range(
+                            max(0, y - 1),
+                            min(height, y + 2),
+                        ):
+                            for nx in range(
+                                max(0, x - 1),
+                                min(width, x + 2),
                             ):
                                 if (
-                                    0 < len(component)
-                                    <= max_area
+                                    (ny != y or nx != x)
+                                    and not pseudo_white[ny, nx]
                                 ):
-                                    coordinates = np.asarray(
-                                        component,
-                                        dtype=np.int32,
+                                    border_positions.add(
+                                        (ny, nx)
                                     )
-                                    removal_mask[
-                                        coordinates[:,0],
-                                        coordinates[:,1],
-                                    ] = True
-                    else:
-                        # 未選択時は、白背景から独立した小さな色塊を削除。
-                        foreground = ~pseudo_white
-                        for component, touches_edge in component_list(
-                            foreground
+
+                    if not border_positions:
+                        continue
+
+                    border_yx = np.asarray(
+                        tuple(border_positions),
+                        dtype=np.int32,
+                    )
+                    border_rgb = pixels[
+                        border_yx[:,0],
+                        border_yx[:,1],
+                        :3,
+                    ]
+
+                    if selected_only:
+                        keep = np.zeros(
+                            len(border_rgb),
+                            dtype=bool,
+                        )
+                        for selected_color in selected_colors:
+                            keep |= np.all(
+                                border_rgb
+                                == np.asarray(
+                                    selected_color,
+                                    dtype=np.uint8,
+                                ),
+                                axis=1,
+                            )
+                        border_rgb = border_rgb[keep]
+                        if border_rgb.size == 0:
+                            continue
+
+                    packed = (
+                        (
+                            border_rgb[:,0].astype(
+                                np.uint32
+                            ) << 16
+                        )
+                        | (
+                            border_rgb[:,1].astype(
+                                np.uint32
+                            ) << 8
+                        )
+                        | border_rgb[:,2].astype(
+                            np.uint32
+                        )
+                    )
+                    values, counts = np.unique(
+                        packed,
+                        return_counts=True,
+                    )
+                    selected = int(
+                        values[int(np.argmax(counts))]
+                    )
+                    fill = np.asarray(
+                        [
+                            (selected >> 16) & 255,
+                            (selected >> 8) & 255,
+                            selected & 255,
+                        ],
+                        dtype=np.uint8,
+                    )
+                    coordinates = np.asarray(
+                        component,
+                        dtype=np.int32,
+                    )
+                    cy = coordinates[:,0]
+                    cx = coordinates[:,1]
+                    pixels[cy,cx,:3] = fill
+                    pixels[cy,cx,3] = 255
+                    cell_changed += area
+
+            else:
+                # ゴミ取り：小さな色点を白へ変更する。
+                removal_mask = np.zeros(
+                    (height, width),
+                    dtype=bool,
+                )
+
+                if selected_only:
+                    # 選択色ごとに独立判定する。
+                    # 青1pxが黒に接していても青成分は1pxとして消える。
+                    for selected_color in selected_colors:
+                        color_mask = (
+                            ~pseudo_white
+                            & np.all(
+                                rgb
+                                == np.asarray(
+                                    selected_color,
+                                    dtype=np.uint8,
+                                ),
+                                axis=2,
+                            )
+                        )
+                        for component, _edge in component_list(
+                            color_mask
                         ):
                             if (
-                                not touches_edge
-                                and 0 < len(component)
+                                0 < len(component)
                                 <= max_area
                             ):
                                 coordinates = np.asarray(
@@ -1022,40 +964,58 @@ class LineOpsMixin(MainWindowMembers):
                                     coordinates[:,0],
                                     coordinates[:,1],
                                 ] = True
+                else:
+                    # 未選択時は、白背景から独立した小さな色塊を削除。
+                    foreground = ~pseudo_white
+                    for component, touches_edge in component_list(
+                        foreground
+                    ):
+                        if (
+                            not touches_edge
+                            and 0 < len(component)
+                            <= max_area
+                        ):
+                            coordinates = np.asarray(
+                                component,
+                                dtype=np.int32,
+                            )
+                            removal_mask[
+                                coordinates[:,0],
+                                coordinates[:,1],
+                            ] = True
 
-                    cell_changed = int(
-                        np.count_nonzero(removal_mask)
-                    )
-                    if cell_changed:
-                        pixels[removal_mask,:3] = 255
-                        pixels[removal_mask,3] = 255
-
-                if cell_changed:
-                    undo_cells.append(
-                        (
-                            frame_index,
-                            layer.image.copy(),
-                            bool(layer.has_content),
-                        )
-                    )
-                    layer.image = imaging.rgba_array_to_qimage(pixels)
-                    # ○化や未使用化はせず、キーフレーム構造を維持する。
-                    layer.has_content = True
-                    changed_cells += 1
-                    changed_pixels += cell_changed
-                    changed_frame_indices.append(
-                        int(frame_index)
-                    )
-
-                self.update_progress_counter(
-                    progress,
-                    counter,
-                    max(1, len(frame_indices)),
-                    f"コマ {frame_index + 1} の処理が完了しました",
+                cell_changed = int(
+                    np.count_nonzero(removal_mask)
                 )
-        finally:
-            QApplication.restoreOverrideCursor()
-            self.close_progress_counter(progress)
+                if cell_changed:
+                    pixels[removal_mask,:3] = 255
+                    pixels[removal_mask,3] = 255
+
+
+            if not cell_changed:
+                return None
+            changed_by_cell[(context.frame, context.layer_index)] = cell_changed
+            # ○化や未使用化はせず、キーフレーム構造を維持する。
+            return imaging.rgba_array_to_qimage(pixels)
+
+        result = self.run_over_scope(
+            scope,
+            despeckle,
+            label=mode,
+            progress_label=f"{mode}対象を解析しています",
+            count_pixels=lambda context, _image: changed_by_cell.get(
+                (context.frame, context.layer_index), 0
+            ),
+            cancellable=True,
+        )
+        changed_cells = result.changed_cells
+        changed_pixels = result.changed_pixels
+        if result.cancelled:
+            self.statusBar().showMessage(
+                f"{mode}を中止しました。画像は変更していません。",
+                2800,
+            )
+            return
 
         if not changed_pixels:
             target_text = (
@@ -1068,26 +1028,9 @@ class LineOpsMixin(MainWindowMembers):
             )
             return
 
-        self.canvas.push_undo(LayerBatchUndo(layer_index, undo_cells))
-        # 表示専用キャッシュも含めてすべて破棄する。
-        # ゴミ取り／塗り抜けは画像オブジェクトを差し替えるため、
-        # ここを更新しないと表示／非表示切替まで旧画像が残る場合がある。
-        self.canvas._color_filter_cache.clear()
-        self.canvas._color_index_cache.clear()
-        self.canvas._pseudo_transparency_cache.clear()
-        self.canvas._silhouette_cache.clear()
-        self.canvas._onion_cache.clear()
-        self.canvas._playback_frame_cache.clear()
-
-        # 変更したセルを通知し、現在表示中の保持コマも即時再描画する。
-        for changed_frame_index in changed_frame_indices:
-            self.canvas.cellChanged.emit(
-                int(changed_frame_index),
-                int(layer_index),
-            )
-
-        self.canvas.changed.emit()
-        self.canvas.update()
+        # 表示キャッシュの破棄・セル通知・再描画は run_over_scope 済み。
+        # 進捗ダイアログを閉じた直後に旧表示が残らないよう、ここでは即時の
+        # 再描画だけを追加で行う。
         self.canvas.repaint()
         QApplication.processEvents()
 

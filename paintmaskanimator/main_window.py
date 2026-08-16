@@ -41,6 +41,7 @@ from .main_window_timeline_ops import TimelineOpsMixin
 from .main_window_tween import TweenMixin
 from .main_window_ui_build import UIBuildMixin
 from .main_window_used_color import UsedColorMixin
+from .main_window_scope_ops import ScopeOpsMixin
 from .main_window_workspace import WorkspaceMixin
 
 log = get_logger(__name__)
@@ -54,7 +55,7 @@ class MainWindow(
     UIBuildMixin, WorkspaceMixin, OnionSkinMixin, ExportMixin, ImportMixin,
     InputMixin, DockingMixin, TimeRemapMixin, TimelineOpsMixin, LayerOpsMixin,
     LineOpsMixin, TweenMixin, UsedColorMixin, ProjectIOMixin,
-    ColorInteractionMixin, AutosaveMixin, QMainWindow
+    ColorInteractionMixin, AutosaveMixin, ScopeOpsMixin, QMainWindow
 ):
     def __init__(self):
         super().__init__();self.setWindowTitle(APP_DISPLAY_NAME);self.resize(1500,960);self.setAcceptDrops(True)

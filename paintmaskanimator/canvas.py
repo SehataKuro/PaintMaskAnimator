@@ -52,6 +52,7 @@ from .undo_entries import (
     LayerTilesUndo,
     LayerUndo,
     PaletteStateUndo,
+    ScopedBatchUndo,
     TweenBatchUndo,
 )
 
@@ -371,6 +372,14 @@ class PaintCanvas(
                 ),
                 bool(layer.has_content),
             )
+        if isinstance(entry, ScopedBatchUndo):
+            current = [
+                (fi, li, self.frames[fi].layers[li].image.copy(),
+                 bool(self.frames[fi].layers[li].has_content))
+                for fi, li, _img, _hc in entry.cells
+                if _cell_exists(fi, li)
+            ]
+            return ScopedBatchUndo(current, entry.label) if current else None
         if isinstance(entry, LayerBatchUndo):
             li = entry.layer
             current = [

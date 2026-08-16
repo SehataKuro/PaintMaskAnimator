@@ -265,6 +265,7 @@ class MainWindowMembers(_MembersBase):
         copy_timeline_cell: Any
         create_blank_timeline_key: Any
         create_progress_counter: Any
+        current_frame_scope: Any
         crop_image: Any
         current_project_path: Any
         delete_layer_rows: Any
@@ -291,6 +292,7 @@ class MainWindowMembers(_MembersBase):
         import_images_dialog: Any
         import_psd_dialog: Any
         import_xdts_dialog: Any
+        invalidate_scope_caches: Any
         isolate_selected_color: Any
         jump_history: Any
         layer_name_row: Any
@@ -331,6 +333,7 @@ class MainWindowMembers(_MembersBase):
         refresh_ui: Any
         refresh_used_colors: Any
         refresh_used_colors_with_counter: Any
+        run_over_scope: Any
         register_same_image_replacements: Any
         relative_shift: Any
         remove_dust_fill_surrounding: Any

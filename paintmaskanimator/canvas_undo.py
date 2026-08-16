@@ -19,6 +19,7 @@ from .undo_entries import (
     LayerTilesUndo,
     LayerUndo,
     PaletteStateUndo,
+    ScopedBatchUndo,
     TweenBatchUndo,
     history_label_for,
 )
@@ -182,6 +183,23 @@ class UndoMixin(CanvasMembers):
                     self.frames[fi].layers[li].image = img
                     self.frames[fi].layers[li].has_content = hc
                     self.cellChanged.emit(fi, li)
+            self.selectionChanged.emit()
+        elif isinstance(e, ScopedBatchUndo):
+            # 一括処理ランナー（frame_scope）1回分。レイヤーを跨いで復元する。
+            for fi, li, img, hc in e.cells:
+                if (
+                    0 <= fi < len(self.frames)
+                    and 0 <= li < len(self.frames[fi].layers)
+                ):
+                    self.frames[fi].layers[li].image = img
+                    self.frames[fi].layers[li].has_content = hc
+                    self.cellChanged.emit(fi, li)
+            if e.cells:
+                self.active_layer_index = max(
+                    0,
+                    min(int(e.cells[0][1]), len(self.layers) - 1),
+                )
+            self._onion_cache.clear()
             self.selectionChanged.emit()
         elif isinstance(e, LayerRemoveUndo):
             index = e.index

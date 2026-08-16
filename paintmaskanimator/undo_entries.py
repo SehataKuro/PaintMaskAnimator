@@ -130,6 +130,28 @@ class LayerBatchUndo(UndoEntry):
 
 
 @dataclass
+class ScopedBatchUndo(UndoEntry):
+    """一括処理ランナー1回分：``(frame, layer, image, has_content)`` のセル群。
+
+    ``LayerBatchUndo`` が1レイヤー固定だったのに対し、こちらはレイヤーを跨げる。
+    どれだけのコマ・レイヤーへ適用しても Undo は常にこの1件になる。
+    """
+
+    HISTORY_LABEL = "一括処理"
+
+    cells: List[Tuple[int, int, Any, bool]]
+    label: str = field(default="一括処理")
+
+    @property
+    def history_label(self) -> str:
+        return self.label or self.HISTORY_LABEL
+
+    @property
+    def nbytes(self) -> int:
+        return sum(_image_bytes(image) for _fi, _li, image, _hc in self.cells)
+
+
+@dataclass
 class LayerRemoveUndo(UndoEntry):
     """Undo of "add layer": drop the layer at ``index`` from every frame."""
 
