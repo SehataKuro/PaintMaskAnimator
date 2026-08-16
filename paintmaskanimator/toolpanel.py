@@ -464,10 +464,10 @@ class ToolPanel(QWidget):
         self.selection_all_frames.setChecked(False)
 
         self.transform_quality=QCheckBox("クオリティ（Tp_mask v0.7方式）")
-        self.transform_quality.setChecked(False)
+        self.transform_quality.setChecked(True)
         self.transform_quality.setToolTip(
-            "使用色ごとのマスクを変形して再合成します。"
-            "有効時は現在のコマだけに適用されます。"
+            "色ごとに分離して変形し、中間色を作らずに再合成します。"
+            "拡大・縮小・回転で線や塗りが崩れにくくなります。"
         )
         self.transform_line_width_note=QLabel(
             "色選択があるときは実線の太さを調整できます。"
@@ -493,7 +493,7 @@ class ToolPanel(QWidget):
         self._has_transform_line_colors=False
         self._tween_active=False
         self.transform_quality.toggled.connect(self._sync_transform_quality_options)
-        self._sync_transform_quality_options(False)
+        self._sync_transform_quality_options(True)
         self._refresh_transform_line_width_visibility()
 
         self.bucket_adjacent=QCheckBox("隣接")
@@ -1056,14 +1056,10 @@ class ToolPanel(QWidget):
         popup.raise_()
 
     def _sync_transform_quality_options(self, enabled):
-        enabled = bool(enabled)
-        if enabled:
-            self.selection_all_frames.setChecked(False)
-        self.selection_all_frames.setEnabled(not enabled)
         self.selection_all_frames.setToolTip(
-            "クオリティ（Tp_mask v0.7方式）では選択できません。"
-            if enabled else
             "選択範囲の変形をすべてのコマへ適用します。"
+            + ("クオリティ変形はコマごとに時間がかかります。"
+               if bool(enabled) else "")
         )
 
     def _refresh_transform_line_width_visibility(self):

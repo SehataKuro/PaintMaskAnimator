@@ -30,6 +30,10 @@ def _layer(color="red", *, content=False, exposure=1, visible=True, opacity=1.0)
 
 
 class _Playback(PlaybackMixin):
+    # The frames are ``SimpleNamespace`` stand-ins rather than real ``Frame``
+    # objects, so the annotation from ``CanvasMembers`` is deliberately widened.
+    frames: list
+
     def __init__(self):
         self.frames = []
         self.current_frame = 0
@@ -118,6 +122,7 @@ def test_frame_image_rejects_invalid_index_and_skips_layers(qapp):
     playback.frames = [SimpleNamespace(layers=[_layer(visible=False), _layer("blue")])]
     playback._playback_resolved_keys = [[0, None]]
     image = playback.playback_frame_image(0, QRectF(0, 0, 2, 1))
+    assert image is not None
     assert not image.isNull()
     assert playback.display_calls == []
 
@@ -133,6 +138,7 @@ def test_frame_image_uses_fallback_resolution_flip_and_cache(qapp):
 
     first = playback.playback_frame_image(0, QRectF(0, 0, 2, 1))
     assert playback.resolutions == [(0, 0)]
+    assert first is not None
     assert first.pixelColor(0, 0) == QColor("blue")
     assert first.pixelColor(1, 0) == QColor("red")
 

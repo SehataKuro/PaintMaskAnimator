@@ -9,6 +9,7 @@ from .common import *  # noqa: F401,F403
 from ._main_window_members import MainWindowMembers
 from . import imaging
 from .logging_setup import get_logger
+from .undo_entries import PaletteStateUndo
 
 log = get_logger(__name__)
 
@@ -41,9 +42,7 @@ class UsedColorMixin(MainWindowMembers):
 
     def push_palette_history(self, before, label):
         """使用色パネルの並べ替え・親子・表示/マスク変更をUndo履歴へ積む。"""
-        self.canvas.undo_stack.append(("palette_state", before, label))
-        self.canvas.undo_stack = self.canvas.undo_stack[-MAX_UNDO:]
-        self.canvas.redo_stack.clear()
+        self.canvas.push_undo(PaletteStateUndo(before, label))
         self.refresh_history_panel()
 
     def jump_history(self, delta):
@@ -260,99 +259,76 @@ class UsedColorMixin(MainWindowMembers):
             dtype=np.uint8,
         )
 
-        layer_index = self.canvas.active_layer_index
-        changed_pixels = 0
-        changed_cells = 0
-        undo_cells = []
         cache_updates = {}
         cache_removals = set()
-        frame_items = list(enumerate(self.canvas.frames))
-        progress = self.create_progress_counter(
-            operation,
-            len(frame_items),
-            f"{operation}の対象コマを確認しています",
+        changed_by_cell = {}
+
+        def replace_colors(context):
+            """1レイヤー分の色置換。純粋な op として一括処理ランナーへ渡す。"""
+            layer = context.layer
+            old_cache_key = self._used_color_cache_key(layer.image)
+            old_cached_colors = self._used_color_cache.get(old_cache_key)
+            rgba = layer.image.convertToFormat(
+                QImage.Format.Format_RGBA8888
+            )
+            width, height = rgba.width(), rgba.height()
+            if width <= 0 or height <= 0:
+                return None
+            ptr = imaging.qimage_buffer(rgba)
+            rows = np.frombuffer(
+                ptr, dtype=np.uint8
+            ).reshape((height, rgba.bytesPerLine()))
+            pixels = rows[:, :width * 4].reshape((height, width, 4))
+
+            packed = (
+                (pixels[:, :, 0].astype(np.uint32) << 16)
+                | (pixels[:, :, 1].astype(np.uint32) << 8)
+                | pixels[:, :, 2].astype(np.uint32)
+            )
+            indices = np.searchsorted(source_values, packed)
+            safe_indices = np.minimum(indices, len(source_values) - 1)
+            matches = (
+                (indices < len(source_values))
+                & (source_values[safe_indices] == packed)
+                & (pixels[:, :, 3] != 0)
+            )
+            cell_count = int(np.count_nonzero(matches))
+            if not cell_count:
+                return None
+
+            pixels[:, :, :3][matches] = destination_values[
+                safe_indices[matches]
+            ]
+            produced = rgba.convertToFormat(
+                QImage.Format.Format_ARGB32_Premultiplied
+            )
+            cache_removals.add(old_cache_key)
+            if old_cached_colors is not None:
+                old_colors, exceeded = old_cached_colors
+                transformed_colors = []
+                seen_transformed = set()
+                for rgb in old_colors:
+                    new_rgb = tuple(rgb_mapping.get(tuple(rgb), tuple(rgb)))
+                    if new_rgb in seen_transformed:
+                        continue
+                    seen_transformed.add(new_rgb)
+                    transformed_colors.append(new_rgb)
+                cache_updates[
+                    self._used_color_cache_key(produced)
+                ] = (transformed_colors[:100], exceeded)
+            changed_by_cell[(context.frame, context.layer_index)] = cell_count
+            return produced
+
+        result = self.run_over_scope(
+            self.current_frame_scope(True),
+            replace_colors,
+            label=operation,
+            count_pixels=lambda context, _image: changed_by_cell.get(
+                (context.frame, context.layer_index), 0
+            ),
         )
-        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        try:
-            for progress_index, (frame_index, frame) in enumerate(
-                frame_items, 1
-            ):
-                self.update_progress_counter(
-                    progress,
-                    progress_index - 1,
-                    len(frame_items),
-                    f"コマ {frame_index + 1} に{operation}を適用しています",
-                )
-                if layer_index >= len(frame.layers):
-                    continue
-                layer = frame.layers[layer_index]
-                if not layer.has_content:
-                    continue
-
-                old_cache_key = self._used_color_cache_key(layer.image)
-                old_cached_colors = self._used_color_cache.get(old_cache_key)
-                rgba = layer.image.convertToFormat(
-                    QImage.Format.Format_RGBA8888
-                )
-                width, height = rgba.width(), rgba.height()
-                if width <= 0 or height <= 0:
-                    continue
-                ptr = imaging.qimage_buffer(rgba)
-                rows = np.frombuffer(
-                    ptr, dtype=np.uint8
-                ).reshape((height, rgba.bytesPerLine()))
-                pixels = rows[:, :width * 4].reshape((height, width, 4))
-
-                packed = (
-                    (pixels[:, :, 0].astype(np.uint32) << 16)
-                    | (pixels[:, :, 1].astype(np.uint32) << 8)
-                    | pixels[:, :, 2].astype(np.uint32)
-                )
-                indices = np.searchsorted(source_values, packed)
-                safe_indices = np.minimum(indices, len(source_values) - 1)
-                matches = (
-                    (indices < len(source_values))
-                    & (source_values[safe_indices] == packed)
-                    & (pixels[:, :, 3] != 0)
-                )
-                cell_count = int(np.count_nonzero(matches))
-                if not cell_count:
-                    continue
-
-                undo_cells.append(
-                    (frame_index, layer.image.copy(), layer.has_content)
-                )
-                pixels[:, :, :3][matches] = destination_values[
-                    safe_indices[matches]
-                ]
-                layer.image = rgba.convertToFormat(
-                    QImage.Format.Format_ARGB32_Premultiplied
-                )
-                cache_removals.add(old_cache_key)
-                if old_cached_colors is not None:
-                    old_colors, exceeded = old_cached_colors
-                    transformed_colors = []
-                    seen_transformed = set()
-                    for rgb in old_colors:
-                        new_rgb = tuple(rgb_mapping.get(tuple(rgb), tuple(rgb)))
-                        if new_rgb in seen_transformed:
-                            continue
-                        seen_transformed.add(new_rgb)
-                        transformed_colors.append(new_rgb)
-                    cache_updates[
-                        self._used_color_cache_key(layer.image)
-                    ] = (transformed_colors[:100], exceeded)
-                changed_pixels += cell_count
-                changed_cells += 1
-                self.update_progress_counter(
-                    progress,
-                    progress_index,
-                    len(frame_items),
-                    f"コマ {frame_index + 1} の{operation}が完了しました",
-                )
-        finally:
-            QApplication.restoreOverrideCursor()
-            self.close_progress_counter(progress)
+        changed_cells = result.changed_cells
+        changed_pixels = result.changed_pixels
 
         if not changed_pixels:
             self.statusBar().showMessage(
@@ -361,19 +337,13 @@ class UsedColorMixin(MainWindowMembers):
             )
             return False
 
-        self.canvas.undo_stack.append(("layer_batch", layer_index, undo_cells))
-        self.canvas.undo_stack = self.canvas.undo_stack[-MAX_UNDO:]
-        self.canvas.redo_stack.clear()
         for cache_key in cache_removals:
             self._used_color_cache.pop(cache_key, None)
         self._used_color_cache.update(cache_updates)
-        self.canvas._color_filter_cache.clear()
-        self.canvas._color_index_cache.clear()
-        self.canvas._silhouette_cache.clear()
 
-        # コマ構造は変わらないためタイムラインを再構築しない。
-        # 画像更新と、キャッシュを利用した使用色一覧の更新だけを行う。
-        self.canvas.update()
+        # コマ構造は変わらないためタイムラインを再構築しない。画像更新と、
+        # キャッシュを利用した使用色一覧の更新だけを行う（表示キャッシュの
+        # 破棄と再描画は run_over_scope 側で済んでいる）。
         self.schedule_used_color_refresh()
         self.statusBar().showMessage(
             f"{changed_cells}セル・{changed_pixels:,}ピクセルへ{operation}を適用しました。",

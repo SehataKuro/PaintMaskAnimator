@@ -1,7 +1,9 @@
 """Small per-user JSON config store (Qt-independent).
 
-Holds lightweight preferences such as the GitHub token used by the in-app
-updater. Stored under the OS user-config directory so it survives reinstalls.
+Holds lightweight preferences (theme, workspace layout, log level, action-panel
+settings). Stored under the OS user-config directory so it survives reinstalls.
+The updater uses a baked-in shared credential, so no per-user secret is kept
+here; the file is still written owner-only in case one is added later.
 """
 import json
 import os
@@ -34,13 +36,19 @@ def load_config():
 
 
 def save_config(data):
-    """Persist the config dict atomically."""
+    """Persist the config dict atomically, owner-readable only."""
     path = config_path()
     tmp = path.with_suffix(".json.tmp")
     tmp.write_text(
         json.dumps(data, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    # chmod is a no-op for practical purposes on Windows (and can fail on odd
+    # filesystems); a failure here must not lose the user's settings.
+    try:
+        os.chmod(tmp, 0o600)
+    except OSError:
+        pass
     tmp.replace(path)
 
 

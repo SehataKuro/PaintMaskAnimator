@@ -9,6 +9,7 @@ from .common import *  # noqa: F401,F403
 from ._canvas_members import CanvasMembers
 from . import imaging
 from .logging_setup import get_logger
+from .undo_entries import LayerBatchUndo, LayerUndo
 
 log = get_logger(__name__)
 
@@ -215,8 +216,6 @@ class SelectionMixin(CanvasMembers):
         self.transform_mode = mode
         self.transform_quality_active = bool(getattr(self, "transform_quality", False))
         self.transform_tp_line_colors = tuple(sorted(self.selected_used_colors()))
-        if self.transform_quality_active:
-            self.transform_apply_all_frames = False
         self._invalidate_tp_preview_cache()
         self.transform_frame_index = self.current_frame
         self.transform_layer_index = self.active_layer_index
@@ -473,7 +472,6 @@ class SelectionMixin(CanvasMembers):
                 else getattr(self, "transform_apply_all_frames", False)
             )
         if quality_active:
-            all_frames = False
             target_width = self.active_layer.image.width()
             target_height = self.active_layer.image.height()
             if self._tp_uses_proxy(target_width, target_height):
@@ -577,13 +575,11 @@ class SelectionMixin(CanvasMembers):
         if undo_cells:
             if len(undo_cells) == 1:
                 frame_index, image, has_content = undo_cells[0]
-                self.undo_stack.append((
-                    "layer", frame_index, layer_index, image, has_content
-                ))
+                self.push_undo(
+                    LayerUndo(frame_index, layer_index, image, has_content)
+                )
             else:
-                self.undo_stack.append(("layer_batch", layer_index, undo_cells))
-            self.undo_stack = self.undo_stack[-MAX_UNDO:]
-            self.redo_stack.clear()
+                self.push_undo(LayerBatchUndo(layer_index, undo_cells))
             # 変形ではコマ構造と使用色の種類は変わらないため、
             # タイムライン全再構築・使用色全走査は行わない。
         elif (
