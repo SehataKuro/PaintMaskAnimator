@@ -238,14 +238,3 @@ def tp_prepare_palette_image(image, max_colors=64):
     ]
     return rgb, palette
 
-
-def tp_make_color_masks(image, palette):
-    rgba = np.asarray(image.convert("RGBA"), dtype=np.uint8)
-    return [
-        PILImage.fromarray(
-            (np.all(rgba == np.asarray(color, dtype=np.uint8), axis=2)
-             * 255).astype(np.uint8),
-            "L",
-        )
-        for color in palette
-    ]

@@ -11,7 +11,7 @@ requires-python = ">=3.10"
 dependencies = [
     "PySide6>=6.5,<7",
     "PySide6-QtAds>=5.0,<5.1",
-    "numpy>=1.24,<2",
+    "numpy>=1.24,<3",
 ]
 
 [project.optional-dependencies]
@@ -41,7 +41,7 @@ branch = true
 [tool.coverage.report]
 show_missing = true
 skip_covered = false
-fail_under = 35.0
+fail_under = 37.0
 
 [tool.pyright]
 include = ["paintmaskanimator", "scripts", "tests"]
@@ -53,7 +53,8 @@ typeCheckingMode = "basic"
 # (undefined names, bad calls in typed code) while we tighten incrementally.
 reportAttributeAccessIssue = "warning"
 reportArgumentType = "warning"
-reportOptionalMemberAccess = "warning"
+# reportOptionalMemberAccess is clean and back at error level; the rest are
+# tightened the same way once their remaining sites are typed.
 reportCallIssue = "warning"
 
 [tool.ruff]
@@ -65,12 +66,17 @@ target-version = "py310"
 # pycodestyle errors+warnings (E/W). Stylistic-only rule families (UP, RUF,
 # SIM, …) are intentionally left out for now to keep the gate meaningful and
 # the diff small; tighten incrementally.
-select = ["E4", "E9", "F", "W"]
+select = ["E4", "E9", "F", "W", "B"]
 # The package uses `from .common import *` on purpose (shared Qt/stdlib names);
 # don't flag star imports or the resulting "may be undefined" noise.
 # E7 statement-style rules are omitted on purpose: this code base deliberately
 # uses compact `;`-separated one-liners.
-ignore = ["F403", "F405"]
+# B905 (zip without `strict=`) needs a per-call-site decision about whether
+# unequal lengths are a bug or intentional truncation; enabling it blindly
+# would just add `strict=False` noise. Revisit call site by call site.
+# Purely stylistic families stay out for now (as of this commit: SIM 10,
+# UP 32, RET 1, C4 1 findings) so the gate keeps flagging real defects only.
+ignore = ["F403", "F405", "B905"]
 
 [tool.ruff.lint.per-file-ignores]
 # common.py is a deliberate re-export hub: every module does

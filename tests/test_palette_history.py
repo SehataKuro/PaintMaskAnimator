@@ -7,7 +7,12 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication
 
 from paintmaskanimator.canvas import PaintCanvas
-from paintmaskanimator.canvas_undo import history_label_for
+from paintmaskanimator.undo_entries import (
+    LayerBatchUndo,
+    LayerRegionUndo,
+    PaletteStateUndo,
+    history_label_for,
+)
 from paintmaskanimator.color_panel import UsedColorPanel
 
 
@@ -20,7 +25,7 @@ def _wire(panel, canvas):
     canvas._palette = panel
 
     def push(before, label):
-        canvas.undo_stack.append(("palette_state", before, label))
+        canvas.undo_stack.append(PaletteStateUndo(before, label))
         canvas.redo_stack.clear()
 
     panel.historyStatePush.connect(push)
@@ -45,7 +50,7 @@ def test_reorder_is_undoable():
     after_order = [panel._rgb_key(c) for c in panel.colors]
 
     assert after_order != before_order
-    assert canvas.undo_stack[-1][0] == "palette_state"
+    assert isinstance(canvas.undo_stack[-1], PaletteStateUndo)
 
     canvas.undo()
     assert [panel._rgb_key(c) for c in panel.colors] == before_order
@@ -204,6 +209,7 @@ def test_no_history_entry_when_state_unchanged():
 
 
 def test_history_labels():
-    assert history_label_for(("layer_region", 0, 0)) == "描画"
-    assert history_label_for(("palette_state", {}, "使用色の並べ替え")) == "使用色の並べ替え"
-    assert history_label_for(("layer_batch", 0, [])) == "色編集"
+    assert history_label_for(LayerRegionUndo(0, 0, None, None, False)) == "描画"
+    assert history_label_for(PaletteStateUndo({}, "使用色の並べ替え")) == "使用色の並べ替え"
+    assert history_label_for(LayerBatchUndo(0, [])) == "色編集"
+    assert history_label_for(PaletteStateUndo({})) == "パレット編集"

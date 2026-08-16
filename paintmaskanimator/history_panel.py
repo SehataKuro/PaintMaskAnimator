@@ -7,7 +7,7 @@ redo states dimmed below) and lets the user click a row to jump straight there
 by replaying the right number of undo/redo steps.
 """
 from .common import *  # noqa: F401,F403
-from .canvas_undo import history_label_for
+from .undo_entries import history_label_for
 from .logging_setup import get_logger
 
 log = get_logger(__name__)

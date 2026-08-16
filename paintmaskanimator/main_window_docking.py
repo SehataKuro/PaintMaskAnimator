@@ -410,7 +410,7 @@ class DockingMixin(MainWindowMembers):
                                        overlap_right, first, first_rect,
                                        second, second_rect))
         for (
-            orientation, boundary, start, end, first, first_rect,
+            orientation, boundary, _start, _end, first, first_rect,
             _second, _second_rect,
         ) in boundaries:
             group = [
