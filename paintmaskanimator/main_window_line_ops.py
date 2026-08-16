@@ -9,9 +9,8 @@ long-running passes live here too. They run against a live ``MainWindow``.
 """
 from .common import *  # noqa: F401,F403
 from ._main_window_members import MainWindowMembers
-from . import despeckle, imaging
+from . import despeckle, frame_scope, imaging
 from .models import Layer
-from .undo_entries import LayerBatchUndo
 from .utils import blank_image
 from .errors import OPERATION_ERRORS
 from .logging_setup import get_logger
@@ -649,17 +648,29 @@ class LineOpsMixin(MainWindowMembers):
             3800,
         )
 
-    def create_progress_counter(self, title, total, label=None):
+    def create_progress_counter(
+        self,
+        title,
+        total,
+        label=None,
+        cancellable=False,
+    ):
+        """進捗カウンター。`cancellable` で中断ボタンを出す。
+
+        中断は一括処理ランナー（frame_scope）が拾い、それまでの変更を
+        巻き戻すので、押した時点で部分適用は残らない。
+        """
         total = max(1, int(total))
         dialog = QProgressDialog(
             label or title,
-            "",
+            "中止" if cancellable else "",
             0,
             total,
             self,
         )
         dialog.setWindowTitle(title)
-        dialog.setCancelButton(None)
+        if not cancellable:
+            dialog.setCancelButton(None)
         dialog.setWindowModality(Qt.WindowModality.WindowModal)
         dialog.setMinimumDuration(0)
         dialog.setAutoClose(False)
@@ -709,105 +720,77 @@ class LineOpsMixin(MainWindowMembers):
         layer_index = int(
             self.canvas.active_layer_index
         )
-        requested_frames = (
-            range(len(self.canvas.frames))
+        scope = (
+            frame_scope.FrameScope.all_frames(self.canvas, [layer_index])
             if self.tools.dust_all_frames.isChecked()
-            else (self.canvas.current_frame,)
-        )
-
-        # 保持区間は同じキーフレーム画像を指すため1回だけ処理する。
-        frame_indices = []
-        seen_keys = set()
-        for frame_index in requested_frames:
-            key_frame = self.canvas.resolve_key_frame(
-                int(frame_index),
-                layer_index,
+            else frame_scope.FrameScope.current_frame(
+                self.canvas, [layer_index]
             )
-            if key_frame is None:
-                continue
-            if key_frame in seen_keys:
-                continue
-            seen_keys.add(key_frame)
-            frame_indices.append(key_frame)
-
-        if not frame_indices:
+        )
+        cells = frame_scope.resolve_scope_cells(self.canvas, scope)
+        if not cells:
             self.statusBar().showMessage(
                 "選択レイヤーに処理できるキーフレームがありません。",
                 2800,
             )
             return
 
-        changed_cells = 0
-        changed_pixels = 0
-        changed_frame_indices = []
-        undo_cells = []
+        def despeckle_cell(context):
+            pixels = imaging.qimage_rgba_array(context.image)
+            changed = despeckle.despeckle_pixels(
+                pixels,
+                mode=mode,
+                max_area=max_area,
+                selected_colors=(
+                    selected_colors if selected_only else None
+                ),
+            )
+            if not changed:
+                return None
+            # ○化や未使用化はせず、キーフレーム構造を維持する。
+            return imaging.rgba_array_to_qimage(pixels), changed
 
         progress = self.create_progress_counter(
             mode,
-            max(1, len(frame_indices)),
+            max(1, len(cells)),
             f"{mode}対象を解析しています",
+            cancellable=True,
         )
         QApplication.setOverrideCursor(
             Qt.CursorShape.WaitCursor
         )
         try:
-            for counter, frame_index in enumerate(
-                frame_indices,
-                1,
-            ):
-                self.update_progress_counter(
-                    progress,
-                    counter - 1,
-                    max(1, len(frame_indices)),
-                    f"コマ {frame_index + 1} を解析しています",
-                )
-                frame = self.canvas.frames[frame_index]
-                if layer_index >= len(frame.layers):
-                    continue
-                layer = frame.layers[layer_index]
-                if not layer.has_content:
-                    continue
-
-                pixels = imaging.qimage_rgba_array(layer.image)
-                height, width = pixels.shape[:2]
-                if width <= 0 or height <= 0:
-                    continue
-
-                cell_changed = despeckle.despeckle_pixels(
-                    pixels,
-                    mode=mode,
-                    max_area=max_area,
-                    selected_colors=(
-                        selected_colors if selected_only else None
-                    ),
-                )
-
-                if cell_changed:
-                    undo_cells.append(
-                        (
-                            frame_index,
-                            layer.image.copy(),
-                            bool(layer.has_content),
-                        )
+            result = frame_scope.apply_over_scope(
+                self.canvas,
+                scope,
+                despeckle_cell,
+                label=mode,
+                progress=lambda value, total, message: (
+                    self.update_progress_counter(
+                        progress,
+                        value,
+                        max(1, total),
+                        message,
                     )
-                    layer.image = imaging.rgba_array_to_qimage(pixels)
-                    # ○化や未使用化はせず、キーフレーム構造を維持する。
-                    layer.has_content = True
-                    changed_cells += 1
-                    changed_pixels += cell_changed
-                    changed_frame_indices.append(
-                        int(frame_index)
-                    )
-
-                self.update_progress_counter(
-                    progress,
-                    counter,
-                    max(1, len(frame_indices)),
-                    f"コマ {frame_index + 1} の処理が完了しました",
-                )
+                ),
+                cancelled=progress.wasCanceled,
+            )
         finally:
             QApplication.restoreOverrideCursor()
             self.close_progress_counter(progress)
+
+        if result.cancelled:
+            self.statusBar().showMessage(
+                f"{mode}を中止しました。変更は残していません。",
+                3000,
+            )
+            return
+
+        changed_cells = result.changed_cells
+        changed_pixels = result.changed_pixels
+        changed_frame_indices = [
+            frame_index for frame_index, _layer in result.cells
+        ]
 
         if not changed_pixels:
             target_text = (
@@ -820,7 +803,6 @@ class LineOpsMixin(MainWindowMembers):
             )
             return
 
-        self.canvas.push_undo(LayerBatchUndo(layer_index, undo_cells))
         # 表示専用キャッシュも含めてすべて破棄する。
         # ゴミ取り／塗り抜けは画像オブジェクトを差し替えるため、
         # ここを更新しないと表示／非表示切替まで旧画像が残る場合がある。

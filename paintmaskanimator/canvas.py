@@ -52,6 +52,7 @@ from .undo_entries import (
     LayerTilesUndo,
     LayerUndo,
     PaletteStateUndo,
+    ScopeBatchUndo,
     TweenBatchUndo,
 )
 
@@ -384,6 +385,19 @@ class PaintCanvas(
                 if _cell_exists(fi, li)
             ]
             return LayerBatchUndo(li, current) if current else None
+        if isinstance(entry, ScopeBatchUndo):
+            current = [
+                inverse
+                for inverse in (
+                    self.current_state_for(batch) for batch in entry.entries
+                )
+                if inverse is not None
+            ]
+            return (
+                ScopeBatchUndo(current, entry.label)
+                if current
+                else None
+            )
         if isinstance(entry, LayerRemoveUndo):
             index = entry.index
             stored = [

@@ -19,6 +19,7 @@ from .undo_entries import (
     LayerTilesUndo,
     LayerUndo,
     PaletteStateUndo,
+    ScopeBatchUndo,
     TweenBatchUndo,
     history_label_for,
 )
@@ -183,6 +184,9 @@ class UndoMixin(CanvasMembers):
                     self.frames[fi].layers[li].has_content = hc
                     self.cellChanged.emit(fi, li)
             self.selectionChanged.emit()
+        elif isinstance(e, ScopeBatchUndo):
+            for batch in e.entries:
+                self.apply_undo_entry(batch)
         elif isinstance(e, LayerRemoveUndo):
             index = e.index
             for frame in self.frames:

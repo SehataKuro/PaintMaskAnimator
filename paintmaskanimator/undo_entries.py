@@ -130,6 +130,28 @@ class LayerBatchUndo(UndoEntry):
 
 
 @dataclass
+class ScopeBatchUndo(UndoEntry):
+    """一括処理ランナー1回分：複数レイヤーぶんの ``LayerBatchUndo`` を束ねる。
+
+    適用範囲が複数レイヤーにまたがっても、ユーザーから見た「1操作」は
+    Undo 1回で元に戻る必要がある。ラベルは実行した操作名をそのまま出す。
+    """
+
+    HISTORY_LABEL = "一括処理"
+
+    entries: List[LayerBatchUndo]
+    label: str = field(default="一括処理")
+
+    @property
+    def history_label(self) -> str:
+        return self.label or self.HISTORY_LABEL
+
+    @property
+    def nbytes(self) -> int:
+        return sum(entry.nbytes for entry in self.entries)
+
+
+@dataclass
 class LayerRemoveUndo(UndoEntry):
     """Undo of "add layer": drop the layer at ``index`` from every frame."""
 
