@@ -42,7 +42,7 @@ try:
         QDoubleSpinBox, QFileDialog, QFormLayout, QGridLayout, QHBoxLayout,
         QLabel, QLineEdit, QListView, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
         QMenu, QPushButton, QSlider, QSpinBox, QTableWidget, QComboBox,
-        QTableWidgetItem, QTabBar, QTabWidget, QToolButton, QVBoxLayout, QWidget, QAbstractItemView, QHeaderView, QScrollArea,
+        QTableWidgetItem, QTabBar, QTabWidget, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QAbstractItemView, QHeaderView, QScrollArea,
         QKeySequenceEdit, QDockWidget, QProgressDialog, QPlainTextEdit, QStyledItemDelegate, QStyle,
         QSizePolicy, QAbstractButton, QAbstractSpinBox, QInputDialog, QSplitter,
     )

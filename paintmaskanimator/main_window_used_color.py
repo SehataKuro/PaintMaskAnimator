@@ -66,6 +66,19 @@ class UsedColorMixin(MainWindowMembers):
         self._refresh_used_colors_without_delay()
         self.refresh_history_panel()
 
+    def switch_history_branch(self, branch_index):
+        """ヒストリーパネルで選ばれた分岐へ履歴を切り替える。"""
+        try:
+            index = int(branch_index)
+        except (TypeError, ValueError):
+            return
+        if not self.canvas.switch_history_branch(index):
+            # 到達できなくなった分岐だった場合も一覧を作り直す。
+            self.refresh_history_panel()
+            return
+        self._refresh_used_colors_without_delay()
+        self.refresh_history_panel()
+
     def refresh_history_panel(self):
         panel = getattr(self, "history_panel", None)
         if panel is not None:

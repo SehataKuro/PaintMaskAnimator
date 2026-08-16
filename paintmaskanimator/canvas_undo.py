@@ -26,7 +26,39 @@ from .undo_entries import (
 
 log = get_logger(__name__)
 
-__all__ = ["UndoMixin", "history_label_for", "trim_undo_stack"]
+__all__ = [
+    "HistoryBranch",
+    "MAX_HISTORY_BRANCHES",
+    "UndoMixin",
+    "history_label_for",
+    "trim_undo_stack",
+]
+
+#: 保持する分岐の最大本数。古いものから捨てる。
+MAX_HISTORY_BRANCHES = 20
+
+
+class HistoryBranch:
+    """Undo後に新しい編集をして捨てられた「もう一つの未来」1本分。
+
+    ``position`` は分岐点（そのRedo列が適用できる状態）の undo_stack 長さ。
+    ``entries`` は捨てられた redo_stack のコピーで、末尾が分岐点の直後に
+    進む1手。ヒストリーパネルはこれをブランチとして表示し、選んだら
+    ``UndoMixin.switch_history_branch`` でその未来へ戻せる。
+    """
+
+    __slots__ = ("position", "entries", "label")
+
+    def __init__(self, position, entries, label):
+        self.position = int(position)
+        self.entries = list(entries)
+        self.label = str(label)
+
+    def __repr__(self):  # pragma: no cover - デバッグ用
+        return (
+            f"HistoryBranch(position={self.position}, "
+            f"steps={len(self.entries)}, label={self.label!r})"
+        )
 
 
 def trim_undo_stack(stack):
@@ -48,15 +80,90 @@ class UndoMixin(CanvasMembers):
     def document_snapshot(self): return self._document.snapshot()
 
     def push_undo(self, entry):
-        """Push one undo entry, trim to the limits, and invalidate redo.
+        """Push one undo entry, trim to the limits, and branch off redo.
 
-        Every producer goes through here so the trim/clear pair cannot be
-        forgotten at a new call site.
+        Every producer goes through here so the trim/branch pair cannot be
+        forgotten at a new call site. Undoしてから新しく編集した場合、捨てる
+        はずだったRedo列はブランチとして残し、あとから選び直せるようにする。
         """
+        before = len(self.undo_stack)
         self.undo_stack.append(entry)
         trim_undo_stack(self.undo_stack)
-        self.redo_stack.clear()
+        removed = before + 1 - len(self.undo_stack)
+        if removed > 0:
+            self._shift_history_branches(-removed)
+        if self.redo_stack:
+            # 分岐点は「今の編集を積む直前の状態」＝新エントリ1件手前。
+            self._archive_redo_branch(len(self.undo_stack) - 1)
+            self.redo_stack.clear()
         return entry
+
+    @property
+    def history_branches(self):
+        """捨てられた未来（ブランチ）の一覧。初回アクセスで作る。"""
+        branches = getattr(self, "_history_branches", None)
+        if branches is None:
+            branches = []
+            self._history_branches = branches
+        return branches
+
+    def clear_history_branches(self):
+        self.history_branches.clear()
+
+    def _shift_history_branches(self, delta):
+        """undo_stackの古い側が削られた分だけ分岐点をずらす（範囲外は破棄）。"""
+        branches = self.history_branches
+        shifted = []
+        for branch in branches:
+            branch.position += int(delta)
+            if branch.position >= 0:
+                shifted.append(branch)
+        branches[:] = shifted
+
+    def _archive_redo_branch(self, position):
+        """現在のredo_stackを1本のブランチとして退避する。"""
+        entries = list(self.redo_stack)
+        if not entries:
+            return None
+        branch = HistoryBranch(
+            max(0, int(position)),
+            entries,
+            history_label_for(entries[-1]),
+        )
+        branches = self.history_branches
+        branches.append(branch)
+        if len(branches) > MAX_HISTORY_BRANCHES:
+            del branches[:-MAX_HISTORY_BRANCHES]
+        return branch
+
+    def switch_history_branch(self, branch):
+        """分岐点まで巻き戻し、そのブランチの未来をRedo列として採用する。
+
+        ``branch`` は :class:`HistoryBranch` か ``history_branches`` の添字。
+        いま辿っていた未来は入れ替わりにブランチとして保存されるので、
+        行ったり来たりできる。
+        """
+        branches = self.history_branches
+        if isinstance(branch, int):
+            if not (0 <= branch < len(branches)):
+                return False
+            branch = branches[branch]
+        if branch not in branches:
+            return False
+        position = int(branch.position)
+        if position > len(self.undo_stack):
+            # 履歴が縮んで到達できなくなったブランチは捨てる。
+            branches.remove(branch)
+            return False
+        for _ in range(len(self.undo_stack) - position):
+            if not self.undo_stack:
+                break
+            self.undo()
+        branches.remove(branch)
+        # 巻き戻しで redo_stack に溜まった「いま辿っていた未来」を保存する。
+        self._archive_redo_branch(len(self.undo_stack))
+        self.redo_stack[:] = branch.entries
+        return True
 
     def push_doc_undo(self):
         self.push_undo(DocUndo(self.document_snapshot()))

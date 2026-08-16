@@ -385,6 +385,7 @@ class ProjectIOMixin(MainWindowMembers):
             )
             self.canvas.undo_stack.clear()
             self.canvas.redo_stack.clear()
+            self.canvas.clear_history_branches()
             self.canvas._color_filter_cache.clear()
             self.canvas._silhouette_cache.clear()
             self._used_color_cache.clear()
