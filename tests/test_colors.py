@@ -77,8 +77,11 @@ def test_local_color_variation_flat_is_zero(qapp):
 def test_priority_palette_within_bound(qapp):
     sample = np.random.default_rng(3).integers(0, 256, (200, 3), dtype=np.uint8)
     pal = colors.priority_palette_colors_from_samples(sample, 5)
-    assert pal.shape[1] == 3
-    assert pal.shape[0] <= 5
+    # Compared as a whole: NumPy 2 types ``.shape`` as a variadic tuple, so
+    # both indexing and unpacking it are static type errors.
+    assert pal.ndim == 2
+    assert pal.shape[-1:] == (3,)
+    assert len(pal) <= 5
 
 
 def test_used_color_scan_prewarms_palette_filter_index(qapp):

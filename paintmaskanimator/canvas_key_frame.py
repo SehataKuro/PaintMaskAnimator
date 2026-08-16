@@ -288,11 +288,11 @@ class KeyFrameMixin(CanvasMembers):
                 layer.sequence_number = int(retained_number)
             else:
                 existing_numbers = [
-                    int(frame.layers[layer_index].sequence_number)
+                    int(seq)
                     for frame in self.frames
                     if (
                         frame.layers[layer_index].has_content
-                        and frame.layers[layer_index].sequence_number is not None
+                        and (seq := frame.layers[layer_index].sequence_number) is not None
                     )
                 ]
                 layer.sequence_number = max(existing_numbers, default=0) + 1
