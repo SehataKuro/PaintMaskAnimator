@@ -174,6 +174,7 @@ class MainWindowMembers(_MembersBase):
         a_hold_zoom: Any
         a_import_folder: Any
         a_import_images: Any
+        a_import_images_raw: Any
         a_import_psd: Any
         a_isolate_color: Any
         a_mainline_repaint: Any
@@ -288,8 +289,10 @@ class MainWindowMembers(_MembersBase):
         image_color_hex: Any
         import_dropped_image: Any
         import_dropped_images: Any
+        import_dropped_images_raw: Any
         import_image_folder_dialog: Any
         import_images_dialog: Any
+        import_images_raw_dialog: Any
         import_psd_dialog: Any
         import_xdts_dialog: Any
         invalidate_scope_caches: Any
@@ -361,6 +364,7 @@ class MainWindowMembers(_MembersBase):
         set_rot: Any
         set_selected_used_colors: Any
         set_theme: Any
+        set_layer_draft_rows: Any
         set_timeline_mode: Any
         set_tween_reverse_generation: Any
         set_visible_colors: Any

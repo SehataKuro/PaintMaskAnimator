@@ -21,6 +21,8 @@ class Layer:
     is_blank_key: bool = False
     sequence_number: Optional[int] = None
     sequence_only: bool = False
+    # 下書きレイヤー: 色数削減の対象外で、読み込んだ画素をそのまま表示・保存する。
+    is_draft: bool = False
 
     def clone(self):
         return Layer(
@@ -31,6 +33,7 @@ class Layer:
             bool(self.is_blank_key),
             self.sequence_number,
             bool(self.sequence_only),
+            bool(self.is_draft),
         )
 
 

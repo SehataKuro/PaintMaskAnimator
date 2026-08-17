@@ -166,6 +166,21 @@ class UsedColorMixin(MainWindowMembers):
             return
 
         layer_index = self.canvas.active_layer_index
+        # 下書きレイヤーは色数削減の対象外。使用色を取得せず空表示にする。
+        current_frame = self.canvas.frames[
+            max(0, min(int(self.canvas.current_frame), len(self.canvas.frames) - 1))
+        ]
+        if (
+            0 <= layer_index < len(current_frame.layers)
+            and getattr(current_frame.layers[layer_index], "is_draft", False)
+        ):
+            self.palette.set_colors([])
+            if progress is not None:
+                total = progress_total or max(1, progress_offset + len(self.canvas.frames))
+                self.update_progress_counter(
+                    progress, total, total, "使用色の認識が完了しました"
+                )
+            return
         layer_signature = self._used_color_layer_signature(layer_index)
         layer_cache_key = (int(layer_index), layer_signature)
         cached_layer = self._used_color_layer_cache.get(layer_cache_key)

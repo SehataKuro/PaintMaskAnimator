@@ -111,10 +111,11 @@ class ImageImportMixin(CanvasMembers):
         pixels[:, :, 3][white] = 0
         return rgba.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
 
-    def import_image(self, path, color_reduction=None):
+    def import_image(self, path, color_reduction=None, draft=False):
         return self.import_image_sequence(
             [path],
             color_reduction=color_reduction,
+            draft=draft,
         )
 
     def import_image_sequence(
@@ -123,6 +124,7 @@ class ImageImportMixin(CanvasMembers):
         progress_callback=None,
         color_reduction=None,
         layer_name=None,
+        draft=False,
     ):
         paths = sorted([str(path) for path in paths], key=self._natural_path_key)
         if not paths:
@@ -134,7 +136,11 @@ class ImageImportMixin(CanvasMembers):
             image, error = self._read_image_file(path)
             if image is None:
                 return False, f"{Path(path).name}\n{error}"
-            if color_reduction:
+            if draft:
+                # 変換なし読み込み: 色数削減も白透明化も行わず、
+                # 読み込んだ画素をそのまま下書きレイヤーへ配置する。
+                pass
+            elif color_reduction:
                 palette = color_reduction.get("palette")
                 extraction_mode = color_reduction.get(
                     "extraction_mode",
@@ -208,7 +214,7 @@ class ImageImportMixin(CanvasMembers):
             name = Path(decoded[0][0]).stem or f"Image {len(self.layers)}"
         insert_index = len(self.frames[0].layers)
         for frame in self.frames:
-            frame.layers.append(Layer(name, blank_image()))
+            frame.layers.append(Layer(name, blank_image(), is_draft=bool(draft)))
         for offset, (_, image) in enumerate(decoded):
             if progress_callback:
                 progress_callback(offset, len(decoded), f"{offset + 1} / {len(decoded)} 枚を配置しています")

@@ -76,6 +76,8 @@ class UIBuildMixin(MainWindowMembers):
         self.a_import_images.triggered.connect(self.import_images_dialog)
         self.a_import_folder=QAction("画像フォルダーを読み込む…",self)
         self.a_import_folder.triggered.connect(self.import_image_folder_dialog)
+        self.a_import_images_raw=QAction("変換せず読み込む（下書きレイヤー）…",self)
+        self.a_import_images_raw.triggered.connect(self.import_images_raw_dialog)
         self.a_import_psd=QAction("PSDを読み込む…",self)
         self.a_import_psd.triggered.connect(self.import_psd_dialog)
 
@@ -354,6 +356,7 @@ class UIBuildMixin(MainWindowMembers):
         f.addAction(self.a_open_project)
         f.addAction(self.a_import_images)
         f.addAction(self.a_import_folder)
+        f.addAction(self.a_import_images_raw)
         f.addAction(self.a_import_psd)
         f.addSeparator()
         f.addAction(self.a_save_project)
@@ -882,6 +885,9 @@ class UIBuildMixin(MainWindowMembers):
         self.timeline.duplicateLayersRequested.connect(self.duplicate_layer_rows)
         self.timeline.mergeLayersRequested.connect(self.merge_layer_rows)
         self.timeline.deleteLayersRequested.connect(self.delete_layer_rows)
+        self.timeline.toggleDraftLayersRequested.connect(
+            self.set_layer_draft_rows
+        )
 
         self.canvas.imagesDropped.connect(self.import_dropped_images)
         self.canvas.projectDropped.connect(self.open_dropped_project)

@@ -613,6 +613,7 @@ class TimelineWidget(QWidget):
     extendExposureRequested=Signal(int,int,int)
     timelineModeChanged=Signal(str)
     normalizeNumbersRequested=Signal(object)
+    toggleDraftLayersRequested=Signal(object)
     def __init__(self):
         super().__init__()
         self.setAcceptDrops(True)
@@ -1220,6 +1221,18 @@ class TimelineWidget(QWidget):
             if index.isValid()
         })
 
+    def _rows_all_draft(self, rows):
+        """選択した全レイヤー行が下書きレイヤーなら True。"""
+        checked = False
+        for row in rows:
+            item = self.layer_list.item(int(row))
+            if item is None:
+                return False
+            checked = True
+            if not bool(item.data(Qt.ItemDataRole.UserRole + 6)):
+                return False
+        return checked
+
     def _show_layer_context_menu(self, position):
         item = self.layer_list.itemAt(position)
         if item is None:
@@ -1236,6 +1249,10 @@ class TimelineWidget(QWidget):
         action_merge = menu.addAction("結合")
         action_merge.setEnabled(len(rows) >= 2)
         action_delete = menu.addAction("削除")
+        menu.addSeparator()
+        action_draft = menu.addAction("下書きレイヤー")
+        action_draft.setCheckable(True)
+        action_draft.setChecked(bool(self._rows_all_draft(rows)))
         action_normalize = None
         if self.timeline_mode == "sheet":
             menu.addSeparator()
@@ -1247,6 +1264,8 @@ class TimelineWidget(QWidget):
             self.mergeLayersRequested.emit(rows)
         elif chosen is action_delete:
             self.deleteLayersRequested.emit(rows)
+        elif chosen is action_draft:
+            self.toggleDraftLayersRequested.emit(rows)
         elif action_normalize is not None and chosen is action_normalize:
             self.normalizeNumbersRequested.emit(rows)
 
@@ -1452,6 +1471,7 @@ class TimelineWidget(QWidget):
         self.layer_list.clear()
         self._active_layer_index = int(active)
         for layer in reversed(frames[current].layers):
+            is_draft = bool(getattr(layer, "is_draft", False))
             item = QListWidgetItem(layer.name)
             item.setFlags(
                 (
@@ -1466,8 +1486,14 @@ class TimelineWidget(QWidget):
             item.setData(Qt.ItemDataRole.UserRole + 3, layer.name)
             item.setData(Qt.ItemDataRole.UserRole + 4, bool(layer.visible))
             item.setData(Qt.ItemDataRole.UserRole + 5, float(layer.opacity))
+            item.setData(Qt.ItemDataRole.UserRole + 6, is_draft)
+            if is_draft:
+                font = item.font()
+                font.setItalic(True)
+                item.setFont(font)
             item.setToolTip(
-                "[●] 表示／[-] 非表示。左端クリックで切替、"
+                ("下書きレイヤー（色数削減の対象外）。\n" if is_draft else "")
+                + "[●] 表示／[-] 非表示。左端クリックで切替、"
                 "ダブルクリックでレイヤー名を変更。"
             )
             item.setSizeHint(QSize(0, row_height))
