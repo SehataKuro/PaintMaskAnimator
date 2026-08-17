@@ -96,20 +96,24 @@ class _HistoryGraph(QWidget):
             x = _MARGIN_X
             painter.drawLine(int(x), int(prev["y"]), int(x), int(node["y"]))
 
-        # 分岐は親ノードから曲線でぶら下げる。
+        # 分岐をつなぐ。先頭ノードは本線の親から曲線で枝分かれし、以降は
+        # 同じレーンを縦線でつないで、分岐後の履歴が本線同様に列で伸びる。
+        painter.setBrush(Qt.BrushStyle.NoBrush)
         for node in self._nodes:
             if node["kind"] != _KIND_BRANCH:
                 continue
-            x0 = _MARGIN_X
-            y0 = node["parent_y"]
             x1 = _MARGIN_X + node["lane"] * _LANE_W
             y1 = node["y"]
-            path = QPainterPath()
-            path.moveTo(x0, y0)
-            path.cubicTo(x0, (y0 + y1) / 2, x1, y0, x1, y1)
+            x0 = node["from_x"]
+            y0 = node["from_y"]
             painter.setPen(QPen(mid_color, 2))
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawPath(path)
+            if node["curve"]:
+                path = QPainterPath()
+                path.moveTo(x0, y0)
+                path.cubicTo(x0, (y0 + y1) / 2, x1, y0, x1, y1)
+                painter.drawPath(path)
+            else:
+                painter.drawLine(int(x0), int(y0), int(x1), int(y1))
 
         # ノード本体とラベル。self.font() は呼ぶたび別インスタンスを返すので、
         # 太字化しても通常フォントには影響しない。
@@ -259,12 +263,7 @@ class HistoryPanel(QWidget):
 
         for label, delta, position, is_future in rows:
             main_y = y_for(slot)
-            if position == current_row:
-                display = f"{label}（現在）"
-            elif is_future:
-                display = label
-            else:
-                display = label
+            display = f"{label}（現在）" if position == current_row else label
             main_index = len(nodes)
             nodes.append({
                 "kind": _KIND_MAIN,
@@ -273,24 +272,42 @@ class HistoryPanel(QWidget):
                 "lane": 0,
                 "y": main_y,
                 "is_future": is_future,
-                "parent_y": main_y,
+                "from_x": _MARGIN_X,
+                "from_y": main_y,
+                "curve": False,
             })
             if position == current_row:
                 current_index = main_index
             slot += 1
 
+            # 分岐を1手ずつのノード列に展開する。entries は redo_stack のコピー
+            # なので、末尾が分岐直後の1手。分岐点に近い順（末尾→先頭）に並べ、
+            # 本線と同じく上から下へ時間が進むようにする。
             for branch_index, branch in by_position.get(position, []):
-                branch_y = y_for(slot)
-                nodes.append({
-                    "kind": _KIND_BRANCH,
-                    "value": int(branch_index),
-                    "label": f"{branch.label}（分岐 {len(branch.entries)}件）",
-                    "lane": 1,
-                    "y": branch_y,
-                    "is_future": True,
-                    "parent_y": main_y,
-                })
-                slot += 1
+                prev_x, prev_y = _MARGIN_X, main_y
+                entries = branch.entries
+                total = len(entries)
+                for k in range(total):
+                    entry = entries[total - 1 - k]
+                    branch_y = y_for(slot)
+                    label = history_label_for(entry)
+                    if k == 0 and total > 1:
+                        label = f"{label}（分岐 {total}件）"
+                    elif k == 0:
+                        label = f"{label}（分岐）"
+                    nodes.append({
+                        "kind": _KIND_BRANCH,
+                        "value": int(branch_index),
+                        "label": label,
+                        "lane": 1,
+                        "y": branch_y,
+                        "is_future": True,
+                        "from_x": prev_x,
+                        "from_y": prev_y,
+                        "curve": (k == 0),
+                    })
+                    prev_x, prev_y = _MARGIN_X + _LANE_W, branch_y
+                    slot += 1
 
         self.graph.set_nodes(nodes, current_index)
 
