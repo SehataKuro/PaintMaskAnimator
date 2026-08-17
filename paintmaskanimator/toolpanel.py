@@ -1099,7 +1099,8 @@ class ToolPanel(QWidget):
         is_dust = tid == "dust"
         is_lasso_fill = tid == "lasso_fill"
         uses_size = tid in ("brush", "line")
-        uses_opacity = tid in ("brush", "line", "shape", "bucket", "lasso_fill")
+        # ブラシは常に不透明（白=消しゴム）。不透明度設定はブラシでは持たない。
+        uses_opacity = tid in ("line", "shape", "bucket", "lasso_fill")
 
         self.command_box.setVisible(
             is_selection or is_line or is_shape

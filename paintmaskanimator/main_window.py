@@ -159,11 +159,10 @@ class MainWindow(
                 self.canvas.frames, frame_index, layer_index
             )
 
-        # Opaque brush colors are added immediately through colorUsed. Avoid a
-        # full all-frame color scan after every normal 100% stroke.
+        # ブラシは常に100%不透明で、色は colorUsed で即時追加される。
+        # 通常ストロークのたびに全フレーム走査するのを避ける。
         normal_opaque_brush = (
             self.canvas.effective_tool() == "brush"
-            and float(self.canvas.pen_opacity) >= 0.999
             and not self.canvas.is_pseudo_transparent_color(
                 self.canvas.paint_source_color()
             )

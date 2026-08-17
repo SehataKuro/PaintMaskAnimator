@@ -195,13 +195,9 @@ class PaintToolsMixin(CanvasMembers):
                 overlay_rgba
             )
 
-        # 筆圧とは無関係な、ストローク開始時の固定不透明度。
+        # ブラシは常に100%不透明（白=消しゴム）。不透明度設定は持たない。
         fixed_opacity = float(
-            getattr(
-                self,
-                "_brush_stroke_opacity",
-                self.paint_opacity_value(),
-            )
+            getattr(self, "_brush_stroke_opacity", 1.0)
         )
         colors = self._blend_overlay_into_active_layer(
             overlay,

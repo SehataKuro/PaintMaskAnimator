@@ -138,8 +138,8 @@ def test_brush_undo_stores_only_touched_tiles(qapp, monkeypatch, tmp_path):
         window.close()
 
 
-def test_tiled_snapshot_keeps_stroke_opacity_stable(qapp, monkeypatch, tmp_path):
-    """Overlapping stamps blend against the pre-stroke tile, not each other."""
+def test_brush_ignores_opacity_setting(qapp, monkeypatch, tmp_path):
+    """The brush is always 100% opaque; the shared opacity control is ignored."""
     monkeypatch.setenv("APPDATA", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     from paintmaskanimator import constants
@@ -157,6 +157,7 @@ def test_tiled_snapshot_keeps_stroke_opacity_stable(qapp, monkeypatch, tmp_path)
         canvas.main_color = QColor("#0000ff")
         canvas.color_mode = "main"
         canvas.pen_size = 20.0
+        # Even with the opacity control turned on at 50%, the brush stays opaque.
         canvas.pen_opacity = 0.5
         window.tools.opacity_enabled.setChecked(True)
         start = QPointF(190, 200)
@@ -169,7 +170,7 @@ def test_tiled_snapshot_keeps_stroke_opacity_stable(qapp, monkeypatch, tmp_path)
         canvas._finish_opaque_brush_stroke()
 
         assert once == twice
-        assert (once.red(), once.green(), once.blue()) == (128, 128, 255)
+        assert (once.red(), once.green(), once.blue()) == (0, 0, 255)
     finally:
         window.close()
         window.deleteLater()

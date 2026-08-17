@@ -25,11 +25,8 @@ class StrokeDisplayMixin(CanvasMembers):
         self._stroke_prev_has_content = bool(self.active_layer.has_content)
         self._brush_blend_base_image = None
         self._brush_blended_colors = set()
-        # この値はUIの不透明度だけから取得する。
-        # タブレット筆圧値は絶対に掛けない。
-        self._brush_stroke_opacity = (
-            self.paint_opacity_value()
-        )
+        # ブラシは常に100%不透明（白=消しゴム）。不透明度設定は持たない。
+        self._brush_stroke_opacity = 1.0
 
     def _stroke_before_region(self, rect):
         """Assemble a small immutable pre-stroke crop from saved tiles."""
@@ -101,9 +98,7 @@ class StrokeDisplayMixin(CanvasMembers):
         self._stroke_dirty_rect = None
         self._brush_blend_base_image = None
         self._brush_blended_colors = set()
-        self._brush_stroke_opacity = (
-            self.paint_opacity_value()
-        )
+        self._brush_stroke_opacity = 1.0
 
     def warm_up_brush_runtime(self):
         """Prime Qt/numpy brush primitives without touching the document."""
