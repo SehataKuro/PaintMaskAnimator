@@ -85,13 +85,13 @@ def test_history_panel_shows_branch_under_its_divergence_point():
 
     nodes = panel.graph._nodes
     branch_nodes = [n for n in nodes if n["kind"] == "branch"]
-    main_ys = {n["y"] for n in nodes if n["kind"] == "main"}
+    main_cells = {(n["col"], n["row"]) for n in nodes if n["kind"] == "main"}
     assert len(branch_nodes) == 1
-    # 分岐の先頭ノードは、それが分かれた本線ノードから曲線で枝分かれする。
+    # 分岐の先頭ブロックは、分かれた本線ブロックからカーブで枝分かれする。
     assert branch_nodes[0]["curve"] is True
-    assert branch_nodes[0]["from_y"] in main_ys
-    # 分岐は本線より一段インデントされ、本線ノードとは別位置に描かれる。
-    assert branch_nodes[0]["lane"] == 1
+    assert branch_nodes[0]["from"] in main_cells
+    # 分岐は本線（列0）とは別の列に置かれる。
+    assert branch_nodes[0]["col"] >= 1
     panel.deleteLater()
 
 
@@ -109,10 +109,36 @@ def test_history_panel_expands_multi_step_branch():
     panel.set_canvas(canvas)
 
     branch_nodes = [n for n in panel.graph._nodes if n["kind"] == "branch"]
-    # 捨てられた未来（赤・緑の2手）が1手ずつのノードとして展開される。
+    # 捨てられた未来（赤・緑の2手）が1手ずつのブロックとして展開される。
     assert len(branch_nodes) == 2
-    # 2番目以降は同じレーンを縦線でつなぐ（曲線ではない）。
+    # 同じ分岐は同じ列に縦に並び、2番目以降は縦線（カーブではない）でつながる。
+    assert branch_nodes[0]["col"] == branch_nodes[1]["col"]
     assert branch_nodes[0]["curve"] is True
     assert branch_nodes[1]["curve"] is False
-    assert branch_nodes[1]["from_y"] == branch_nodes[0]["y"]
+    assert branch_nodes[1]["from"] == (
+        branch_nodes[0]["col"], branch_nodes[0]["row"]
+    )
+    assert branch_nodes[1]["row"] == branch_nodes[0]["row"] + 1
+    panel.deleteLater()
+
+
+def test_history_panel_spreads_sibling_branches_into_columns():
+    _app()
+    canvas = PaintCanvas()
+    # 同じ分岐点から3つの未来を作る：戻る→編集、を繰り返す。
+    _paint(canvas, QRect(10, 10, 8, 8), "red")
+    canvas.undo()
+    _paint(canvas, QRect(20, 20, 8, 8), "green")
+    canvas.undo()
+    _paint(canvas, QRect(30, 30, 8, 8), "blue")
+
+    panel = HistoryPanel()
+    panel.set_canvas(canvas)
+
+    branch_nodes = [n for n in panel.graph._nodes if n["kind"] == "branch"]
+    # 同じ分岐点から出た2つの分岐が、別々の列に横並びになる。
+    assert len(branch_nodes) == 2
+    cols = {n["col"] for n in branch_nodes}
+    assert len(cols) == 2
+    assert all(c >= 1 for c in cols)
     panel.deleteLater()

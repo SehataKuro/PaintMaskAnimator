@@ -1,13 +1,15 @@
-"""History panel: a branching, node-graph view of the undo/redo stacks.
+"""History panel: a branching, block-graph view of the undo/redo stacks.
 
 The canvas keeps a delta-based ``undo_stack`` / ``redo_stack`` plus the futures
 that were split off when a new edit followed an undo (``history_branches``).
-This panel does not own any state of its own; it draws the main line as a
-vertical string of nodes (oldest past state at the top, the current state
-highlighted, future redo states dimmed below) connected by a trunk, and hangs
-each split-off future off the node it diverged from as a side branch. Clicking
-a main-line node jumps there by replaying the right number of undo/redo steps;
-clicking a branch node switches the canvas over to that future instead.
+This panel does not own any state of its own; it lays the history out on a big
+2-D canvas of blocks. The main line runs straight down column 0 (oldest past
+state at the top, the current state highlighted, future redo states dimmed
+below). Each split-off future becomes its own downward column of blocks,
+diverging from the block it branched off; several branches sharing one
+divergence point fan out into separate columns side by side. Clicking a
+main-line block jumps there by replaying the right number of undo/redo steps;
+clicking a branch block switches the canvas over to that future instead.
 """
 from .common import *  # noqa: F401,F403
 from .undo_entries import history_label_for
@@ -18,16 +20,26 @@ log = get_logger(__name__)
 _KIND_MAIN = "main"       # 値＝移動量（負=Undo、正=Redo）
 _KIND_BRANCH = "branch"   # 値＝canvas.history_branches の添字
 
-# ノード描画の寸法。
-_ROW_H = 30       # 1行の高さ。
-_LANE_W = 22      # レーン1段ぶんの横インデント。
-_MARGIN_X = 16    # 左端から本線ノード中心までの距離。
-_NODE_R = 6       # ノード（丸）の半径。
-_TEXT_GAP = 12    # ノード中心からラベル先頭までの距離。
+# ブロック（1状態）とグリッドの寸法。
+_BLOCK_W = 128   # ブロックの横幅。
+_BLOCK_H = 26    # ブロックの高さ。
+_COL_GAP = 28    # 列（レーン）どうしの隙間。
+_ROW_GAP = 16    # 行どうしの隙間。
+_COL_PITCH = _BLOCK_W + _COL_GAP
+_ROW_PITCH = _BLOCK_H + _ROW_GAP
+_MARGIN = 14     # キャンバス端からの余白。
+_RADIUS = 6      # ブロック角の丸み。
+
+
+def _block_rect(col, row):
+    """列・行のグリッド座標を、そのブロックの矩形に変換する。"""
+    x = _MARGIN + col * _COL_PITCH
+    y = _MARGIN + row * _ROW_PITCH
+    return QRectF(x, y, _BLOCK_W, _BLOCK_H)
 
 
 class _HistoryGraph(QWidget):
-    """undo/redo/分岐を、線でつないだノード図として描くキャンバス。"""
+    """undo/redo/分岐を、ブロックと接続線で描く2Dキャンバス。"""
 
     jumpRequested = Signal(int)
     branchSwitchRequested = Signal(int)
@@ -35,28 +47,33 @@ class _HistoryGraph(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._nodes = []          # 描画・当たり判定用のノード情報。
-        self._current_index = -1  # 本線の現在ノードの visual 添字。
+        self._current_index = -1  # 現在ノードの添字。
         self.setMouseTracking(True)
-        self.setMinimumWidth(180)
+        self.setMinimumWidth(_MARGIN * 2 + _BLOCK_W)
 
     def set_nodes(self, nodes, current_index):
         self._nodes = nodes
         self._current_index = current_index
-        height = _MARGIN_X + len(nodes) * _ROW_H
-        self.setMinimumHeight(height)
-        self.resize(max(self.width(), self.minimumWidth()), height)
+        max_col = max((n["col"] for n in nodes), default=0)
+        max_row = max((n["row"] for n in nodes), default=0)
+        width = _MARGIN * 2 + (max_col + 1) * _BLOCK_W + max_col * _COL_GAP
+        height = _MARGIN * 2 + (max_row + 1) * _BLOCK_H + max_row * _ROW_GAP
+        self.setMinimumSize(int(width), int(height))
+        self.resize(int(max(width, self.width())), int(height))
         self.update()
 
+    def _clickable(self, node):
+        return node["kind"] == _KIND_BRANCH or int(node["value"]) != 0
+
     # --- 当たり判定・操作 -------------------------------------------------
-    def _node_at(self, y):
+    def _node_at(self, pos):
         for node in self._nodes:
-            top = node["y"] - _ROW_H / 2
-            if top <= y <= top + _ROW_H:
+            if _block_rect(node["col"], node["row"]).contains(pos):
                 return node
         return None
 
     def mousePressEvent(self, event):
-        node = self._node_at(event.position().y())
+        node = self._node_at(event.position())
         if node is None:
             return
         if node["kind"] == _KIND_MAIN:
@@ -67,12 +84,10 @@ class _HistoryGraph(QWidget):
             self.branchSwitchRequested.emit(int(node["value"]))
 
     def mouseMoveEvent(self, event):
-        node = self._node_at(event.position().y())
+        node = self._node_at(event.position())
         self.setCursor(
             Qt.CursorShape.PointingHandCursor
-            if node is not None and (
-                node["kind"] == _KIND_BRANCH or int(node["value"]) != 0
-            )
+            if node is not None and self._clickable(node)
             else Qt.CursorShape.ArrowCursor
         )
 
@@ -85,94 +100,88 @@ class _HistoryGraph(QWidget):
         text_color = pal.text().color()
         mid_color = pal.mid().color()
         accent = pal.highlight().color()
-        trunk_color = QColor(mid_color)
+        accent_text = pal.highlightedText().color()
+        past_fill = QColor(mid_color)
+        past_fill.setAlpha(60)
 
-        main_nodes = [n for n in self._nodes if n["kind"] == _KIND_MAIN]
-
-        # 本線の幹（隣り合う本線ノードを縦線でつなぐ）。
-        trunk_pen = QPen(trunk_color, 2)
-        painter.setPen(trunk_pen)
-        for prev, node in zip(main_nodes, main_nodes[1:]):
-            x = _MARGIN_X
-            painter.drawLine(int(x), int(prev["y"]), int(x), int(node["y"]))
-
-        # 分岐をつなぐ。先頭ノードは本線の親から曲線で枝分かれし、以降は
-        # 同じレーンを縦線でつないで、分岐後の履歴が本線同様に列で伸びる。
-        painter.setBrush(Qt.BrushStyle.NoBrush)
+        # まず接続線を下地として描く（ブロックの背面）。
         for node in self._nodes:
-            if node["kind"] != _KIND_BRANCH:
+            src = node.get("from")
+            if src is None:
                 continue
-            x1 = _MARGIN_X + node["lane"] * _LANE_W
-            y1 = node["y"]
-            x0 = node["from_x"]
-            y0 = node["from_y"]
-            painter.setPen(QPen(mid_color, 2))
+            parent = _block_rect(src[0], src[1])
+            child = _block_rect(node["col"], node["row"])
+            p0x = parent.center().x()
+            p0y = parent.bottom()
+            p1x = child.center().x()
+            p1y = child.top()
+            painter.setBrush(Qt.BrushStyle.NoBrush)
             if node["curve"]:
+                # 別の列へ枝分かれ：S字カーブでつなぐ。
+                painter.setPen(QPen(mid_color, 2))
                 path = QPainterPath()
-                path.moveTo(x0, y0)
-                path.cubicTo(x0, (y0 + y1) / 2, x1, y0, x1, y1)
+                path.moveTo(p0x, p0y)
+                mid_y = (p0y + p1y) / 2
+                path.cubicTo(p0x, mid_y, p1x, mid_y, p1x, p1y)
                 painter.drawPath(path)
             else:
-                painter.drawLine(int(x0), int(y0), int(x1), int(y1))
+                # 同じ列の連続：まっすぐ縦線。
+                pen = QPen(mid_color, 2)
+                painter.setPen(pen)
+                painter.drawLine(int(p0x), int(p0y), int(p1x), int(p1y))
 
-        # ノード本体とラベル。self.font() は呼ぶたび別インスタンスを返すので、
-        # 太字化しても通常フォントには影響しない。
+        # ブロック本体。
         normal_font = self.font()
         bold_font = self.font()
         bold_font.setBold(True)
         for index, node in enumerate(self._nodes):
-            cx = _MARGIN_X + node["lane"] * _LANE_W
-            cy = node["y"]
+            rect = _block_rect(node["col"], node["row"])
             is_current = (
                 node["kind"] == _KIND_MAIN and index == self._current_index
             )
+            is_branch = node["kind"] == _KIND_BRANCH
 
-            if node["kind"] == _KIND_BRANCH:
-                # 分岐は中抜きのひし形で本線と区別する。
-                self._draw_diamond(painter, cx, cy, _NODE_R, mid_color, hollow=True)
-                label_color = mid_color
-            elif is_current:
-                # 現在位置はアクセント色の塗り＋外周リング。
+            if is_current:
                 painter.setPen(QPen(accent, 2))
                 painter.setBrush(accent)
-                painter.drawEllipse(QPointF(cx, cy), _NODE_R, _NODE_R)
+                text_pen = accent_text
+                font = bold_font
+            elif is_branch:
+                pen = QPen(mid_color, 1.5)
+                pen.setStyle(Qt.PenStyle.DashLine)
+                painter.setPen(pen)
                 painter.setBrush(Qt.BrushStyle.NoBrush)
-                painter.setPen(QPen(accent, 2))
-                painter.drawEllipse(QPointF(cx, cy), _NODE_R + 3, _NODE_R + 3)
-                label_color = text_color
+                text_pen = mid_color
+                font = normal_font
             elif node["is_future"]:
-                # 未来（Redo先）は中抜きの丸で淡く。
-                painter.setPen(QPen(mid_color, 2))
+                painter.setPen(QPen(mid_color, 1.5))
                 painter.setBrush(Qt.BrushStyle.NoBrush)
-                painter.drawEllipse(QPointF(cx, cy), _NODE_R, _NODE_R)
-                label_color = mid_color
+                text_pen = mid_color
+                font = normal_font
             else:
-                # 過去の確定状態は塗りつぶしの丸。
-                painter.setPen(Qt.PenStyle.NoPen)
-                painter.setBrush(text_color)
-                painter.drawEllipse(QPointF(cx, cy), _NODE_R, _NODE_R)
-                label_color = text_color
+                painter.setPen(QPen(mid_color, 1.5))
+                painter.setBrush(past_fill)
+                text_pen = text_color
+                font = normal_font
 
-            painter.setFont(bold_font if is_current else normal_font)
-            painter.setPen(label_color)
-            tx = cx + _NODE_R + _TEXT_GAP
+            painter.drawRoundedRect(rect, _RADIUS, _RADIUS)
+
+            painter.setFont(font)
+            painter.setPen(text_pen)
             fm = painter.fontMetrics()
-            ty = cy + fm.ascent() / 2 - 1
-            painter.drawText(int(tx), int(ty), node["label"])
+            text_rect = rect.adjusted(8, 0, -8, 0)
+            label = fm.elidedText(
+                node["label"],
+                Qt.TextElideMode.ElideRight,
+                int(text_rect.width()),
+            )
+            painter.drawText(
+                text_rect,
+                int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                label,
+            )
 
         painter.end()
-
-    @staticmethod
-    def _draw_diamond(painter, cx, cy, r, color, hollow=False):
-        poly = QPolygonF([
-            QPointF(cx, cy - r),
-            QPointF(cx + r, cy),
-            QPointF(cx, cy + r),
-            QPointF(cx - r, cy),
-        ])
-        painter.setPen(QPen(color, 2))
-        painter.setBrush(Qt.BrushStyle.NoBrush if hollow else color)
-        painter.drawPolygon(poly)
 
 
 class HistoryPanel(QWidget):
@@ -191,9 +200,10 @@ class HistoryPanel(QWidget):
         layout.setSpacing(2)
         layout.addWidget(QLabel("<b>ヒストリー</b>"))
         note = QLabel(
-            "操作の履歴です。ノードをクリックすると、その状態まで一気に戻る／"
-            "進むします。戻ってから編集し直したときの元の履歴は"
-            "「◇」のブランチとして残り、クリックでそちらへ戻せます。"
+            "操作の履歴です。ブロックをクリックすると、その状態まで一気に戻る／"
+            "進むします。戻ってから編集し直したときの元の履歴は右隣の列に"
+            "分岐として残り、同じ地点から複数分岐したときは横に並びます。"
+            "点線のブロックをクリックでそちらへ戻せます。"
         )
         note.setWordWrap(True)
         note.setStyleSheet("font-size:10px;")
@@ -204,9 +214,12 @@ class HistoryPanel(QWidget):
         self.graph.branchSwitchRequested.connect(self.branchSwitchRequested)
 
         self._scroll = QScrollArea()
-        self._scroll.setWidgetResizable(True)
+        self._scroll.setWidgetResizable(False)
         self._scroll.setWidget(self.graph)
         self._scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        self._scroll.setVerticalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAsNeeded
         )
         layout.addWidget(self._scroll, 1)
@@ -218,8 +231,8 @@ class HistoryPanel(QWidget):
     def _main_rows(self, undo_stack, redo_stack):
         """本線の行を ``(ラベル, 移動量, 分岐位置, 未来か)`` の並びで返す。
 
-        分岐位置はその行が表す状態でのundo_stackの長さ。ブランチはこの値で
-        どの行にぶら下がるかが決まる。
+        分岐位置はその行が表す状態でのundo_stackの長さ。この値がそのまま
+        本線ブロックの行番号（row）になり、分岐はこの行から下へ伸びる。
         """
         n = len(undo_stack)
         # 何も積まれていない最初の状態。全部Undoすればここへ戻れる。
@@ -234,7 +247,7 @@ class HistoryPanel(QWidget):
         return rows
 
     def refresh(self):
-        """undo/redoスタックと分岐の現在の内容からノード図を作り直す。"""
+        """undo/redoスタックと分岐の現在の内容からブロック配置を作り直す。"""
         canvas = self._canvas
         if canvas is None:
             return
@@ -246,72 +259,85 @@ class HistoryPanel(QWidget):
         # 先頭に「開始状態」行があるぶん、現在行はundo段数と一致する。
         current_row = len(undo_stack)
 
-        # 分岐位置ごとにブランチをまとめる。
-        by_position = {}
-        for index, branch in enumerate(branches):
-            by_position.setdefault(int(branch.position), []).append(
-                (index, branch)
-            )
-
-        # 本線ノードと分岐ノードを縦に並べて配置する。分岐は親行の直後に差し込む。
         nodes = []
         current_index = -1
-        slot = 0
 
-        def y_for(s):
-            return _MARGIN_X + s * _ROW_H + _ROW_H / 2
-
+        # 本線は列0にまっすぐ並ぶ。行番号はその状態の分岐位置に一致する。
         for label, delta, position, is_future in rows:
-            main_y = y_for(slot)
             display = f"{label}（現在）" if position == current_row else label
-            main_index = len(nodes)
+            src = None if position == 0 else (0, position - 1)
+            if position == current_row:
+                current_index = len(nodes)
             nodes.append({
                 "kind": _KIND_MAIN,
                 "value": int(delta),
                 "label": display,
-                "lane": 0,
-                "y": main_y,
+                "col": 0,
+                "row": position,
                 "is_future": is_future,
-                "from_x": _MARGIN_X,
-                "from_y": main_y,
+                "from": src,
                 "curve": False,
             })
-            if position == current_row:
-                current_index = main_index
-            slot += 1
 
-            # 分岐を1手ずつのノード列に展開する。entries は redo_stack のコピー
-            # なので、末尾が分岐直後の1手。分岐点に近い順（末尾→先頭）に並べ、
-            # 本線と同じく上から下へ時間が進むようにする。
-            for branch_index, branch in by_position.get(position, []):
-                prev_x, prev_y = _MARGIN_X, main_y
-                entries = branch.entries
-                total = len(entries)
-                for k in range(total):
-                    entry = entries[total - 1 - k]
-                    branch_y = y_for(slot)
-                    label = history_label_for(entry)
-                    if k == 0 and total > 1:
-                        label = f"{label}（分岐 {total}件）"
-                    elif k == 0:
-                        label = f"{label}（分岐）"
-                    nodes.append({
-                        "kind": _KIND_BRANCH,
-                        "value": int(branch_index),
-                        "label": label,
-                        "lane": 1,
-                        "y": branch_y,
-                        "is_future": True,
-                        "from_x": prev_x,
-                        "from_y": prev_y,
-                        "curve": (k == 0),
-                    })
-                    prev_x, prev_y = _MARGIN_X + _LANE_W, branch_y
-                    slot += 1
+        # 分岐を列に割り当てる。行範囲が重ならない分岐は同じ列を使い回すが、
+        # 同じ分岐点から出た複数の分岐は必ず別の列になり、横に並ぶ。
+        col_spans = {}  # col -> [(row_start, row_end), ...]
+
+        def alloc_col(start, end):
+            col = 1
+            while True:
+                spans = col_spans.setdefault(col, [])
+                if all(end < s or start > e for s, e in spans):
+                    spans.append((start, end))
+                    return col
+                col += 1
+
+        indexed = sorted(
+            enumerate(branches),
+            key=lambda pair: (int(pair[1].position), pair[0]),
+        )
+        for branch_index, branch in indexed:
+            entries = branch.entries
+            total = len(entries)
+            if total == 0:
+                continue
+            position = int(branch.position)
+            start_row = position + 1
+            end_row = position + total
+            col = alloc_col(start_row, end_row)
+
+            # entries は redo_stack のコピー。末尾が分岐直後の1手なので、
+            # 分岐点に近い順（末尾→先頭）に上から並べる。
+            prev = (0, position)  # 先頭ブロックは本線の分岐点から枝分かれ。
+            for k in range(total):
+                entry = entries[total - 1 - k]
+                row = start_row + k
+                label = history_label_for(entry)
+                if k == 0:
+                    label = (
+                        f"{label}（分岐 {total}件）"
+                        if total > 1 else f"{label}（分岐）"
+                    )
+                nodes.append({
+                    "kind": _KIND_BRANCH,
+                    "value": int(branch_index),
+                    "label": label,
+                    "col": col,
+                    "row": row,
+                    "is_future": True,
+                    "from": prev,
+                    "curve": (k == 0),
+                })
+                prev = (col, row)
 
         self.graph.set_nodes(nodes, current_index)
 
-        # 現在ノードが見えるようスクロールする。
+        # 現在ブロックが見えるようスクロールする。
         if current_index >= 0:
-            target = int(nodes[current_index]["y"])
-            self._scroll.ensureVisible(0, target, 0, _ROW_H)
+            rect = _block_rect(
+                nodes[current_index]["col"], nodes[current_index]["row"]
+            )
+            self._scroll.ensureVisible(
+                int(rect.center().x()), int(rect.center().y()),
+                _BLOCK_W, _ROW_PITCH,
+            )
