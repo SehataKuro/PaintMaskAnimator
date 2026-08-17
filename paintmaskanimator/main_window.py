@@ -899,6 +899,12 @@ class MainWindow(
                 self.play(False)
             self.cancel_transform_or_tween()
             self.canvas.clear_selection()
+            # Reset the frame/layer cursor *before* set_timeline_mode runs: it
+            # accesses self.canvas.layers (i.e. frames[current_frame]), which
+            # would be out of range if the previous document left current_frame
+            # past index 0 of the new single-frame list.
+            self.canvas.current_frame=0
+            self.canvas.active_layer_index=0
             self.canvas.frames=[make_frame()];self.canvas.undo_stack.clear();self.canvas.redo_stack.clear();self.canvas.clear_history_branches();self.set_timeline_mode("sheet")
         self.canvas.current_frame=0
         self.canvas.active_layer_index=0

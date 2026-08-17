@@ -107,7 +107,13 @@ class DockingMixin(MainWindowMembers):
         )
 
     def _attach_area_hamburger(self, dock):
-        area = dock.dockAreaWidget()
+        # Reached from queued singleShot / topLevelChanged callbacks; the dock's
+        # C++ object may already be gone by the time they run.
+        try:
+            area = dock.dockAreaWidget()
+        except RuntimeError as exc:
+            log.debug("_attach_area_hamburger on deleted dock: %s", exc)
+            return
         if area is None:
             return
         title_bar = area.titleBar()
@@ -175,25 +181,38 @@ class DockingMixin(MainWindowMembers):
                 self._attach_area_hamburger(source)
 
     def _sync_area_hamburger(self, area):
-        title_bar = area.titleBar()
-        title_bar.setFixedHeight(22)
-        title_bar.tabBar().setFixedHeight(22)
-        for dock in area.openedDockWidgets():
-            tab = dock.tabWidget()
-            tab.ensurePolished()
-            tab.setFixedHeight(20)
-            tab.setSizePolicy(
-                tab.sizePolicy().horizontalPolicy(),
-                QSizePolicy.Policy.Fixed,
-            )
-        button = getattr(area, "_hamburger_button", None)
-        if button is not None:
-            button.setVisible(
-                area.currentDockWidget() in self._dock_menu_builders
-            )
+        # These run from queued signals (currentChanged / topLevelChanged); ADS
+        # may have already destroyed the underlying C++ CDockAreaWidget by the
+        # time they fire, so any attribute access raises RuntimeError. Bail out
+        # instead of crashing.
+        try:
+            title_bar = area.titleBar()
+            title_bar.setFixedHeight(22)
+            title_bar.tabBar().setFixedHeight(22)
+            for dock in area.openedDockWidgets():
+                tab = dock.tabWidget()
+                tab.ensurePolished()
+                tab.setFixedHeight(20)
+                tab.setSizePolicy(
+                    tab.sizePolicy().horizontalPolicy(),
+                    QSizePolicy.Policy.Fixed,
+                )
+            button = getattr(area, "_hamburger_button", None)
+            if button is not None:
+                button.setVisible(
+                    area.currentDockWidget() in self._dock_menu_builders
+                )
+        except RuntimeError as exc:
+            log.debug("_sync_area_hamburger on deleted area: %s", exc)
 
     def _rebuild_area_dock_menu(self, menu, area):
-        dock = area.currentDockWidget()
+        # aboutToShow can fire after ADS deleted the area's C++ object.
+        try:
+            dock = area.currentDockWidget()
+        except RuntimeError as exc:
+            log.debug("_rebuild_area_dock_menu on deleted area: %s", exc)
+            menu.clear()
+            return
         if dock not in self._dock_menu_builders:
             menu.clear()
             return

@@ -1511,6 +1511,11 @@ class PaintCanvas(
     def draw_frame_direct(self, painter, target_rect, frame_index):
         """Draw the current frame directly to the widget, avoiding a full-size
         temporary composite on every brush mouse move."""
+        # A repaint can be scheduled while the document is mid-swap (e.g. during
+        # new_doc/replace_doc), leaving frame_index transiently out of range.
+        # Skip the draw rather than crash the paintEvent.
+        if not (0 <= frame_index < len(self.frames)):
+            return
         layer_count = len(self.frames[frame_index].layers)
         for layer_index in range(layer_count):
             key_frame = self.resolve_key_frame(frame_index, layer_index)
