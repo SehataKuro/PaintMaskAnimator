@@ -103,6 +103,46 @@ def test_legacy_white_migrates_to_transparent(qapp, tmp_path):
         ).alpha() == 255  # paper stays opaque white
 
 
+def test_draft_layer_roundtrip_preserves_white(qapp, tmp_path):
+    from PySide6.QtGui import QColor, QImage
+
+    frames = [make_frame()]
+    draft = next(
+        layer for layer in frames[0].layers
+        if not getattr(layer, "is_paper", False)
+    )
+    draft.is_draft = True
+    draft.has_content = True
+    # Draft layers keep imported pixels as-is, including opaque white.
+    draft.image.setPixelColor(0, 0, QColor(255, 255, 255, 255))
+
+    path = tmp_path / "draft.pmap"
+    project_io.write_project_archive(path, _metadata(), frames)
+
+    # Strip the mask_format marker so the legacy white->transparent migration
+    # would run for non-draft layers; draft layers must be exempt.
+    import json
+    import zipfile
+    raw = tmp_path / "draft_raw.pmap"
+    with zipfile.ZipFile(path) as zin, zipfile.ZipFile(raw, "w") as zout:
+        for info in zin.infolist():
+            data = zin.read(info.filename)
+            if info.filename == "project.json":
+                meta = json.loads(data.decode("utf-8"))
+                meta.pop("mask_format", None)
+                data = json.dumps(meta).encode("utf-8")
+            zout.writestr(info, data)
+
+    _meta, loaded, _w, _h = project_io.read_project_archive(raw)
+    out = next(
+        layer for layer in loaded[0].layers
+        if getattr(layer, "is_draft", False)
+    )
+    assert out.is_draft is True
+    rgba = out.image.convertToFormat(QImage.Format.Format_RGBA8888)
+    assert rgba.pixelColor(0, 0) == QColor(255, 255, 255, 255)
+
+
 def test_current_save_is_mask_format_2(qapp, tmp_path):
     from PySide6.QtGui import QColor, QImage
 

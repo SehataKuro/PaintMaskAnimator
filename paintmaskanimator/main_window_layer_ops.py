@@ -315,12 +315,46 @@ class LayerOpsMixin(MainWindowMembers):
                     float(opacity),
                 )
 
+    def set_layer_draft_rows(self, rows):
+        """選択レイヤーの下書きレイヤーモードを切り替える（後から変更可能）。"""
+        indices = self._layer_indices_from_rows(rows)
+        if not indices:
+            return
+        layers = self.canvas.layers
+        # 選択内の1つでも下書きでなければ全て下書きにする（トグル）。
+        new_state = not all(
+            bool(getattr(layers[index], "is_draft", False))
+            for index in indices
+        )
+        self.canvas.push_doc_undo()
+        for frame in self.canvas.frames:
+            for index in indices:
+                if index < len(frame.layers):
+                    frame.layers[index].is_draft = new_state
+        self.canvas._onion_cache.clear()
+        self.canvas._color_filter_cache.clear()
+        self.canvas._color_index_cache.clear()
+        self.canvas._silhouette_cache.clear()
+        self._used_color_cache.clear()
+        self._used_color_layer_cache.clear()
+        self.canvas.changed.emit()
+        self.canvas.selectionChanged.emit()
+        self.canvas.update()
+        self._refresh_used_colors_without_delay()
+        self.statusBar().showMessage(
+            "下書きレイヤーモードを"
+            + ("有効化" if new_state else "解除")
+            + "しました。",
+            2600,
+        )
+
     @staticmethod
     def _copy_layer_display_properties(source, target):
         target.name = str(source.name)
         target.visible = bool(source.visible)
         target.opacity = float(source.opacity)
         target.is_paper = bool(source.is_paper)
+        target.is_draft = bool(getattr(source, "is_draft", False))
         target.alpha_locked = bool(source.alpha_locked)
         target.color_filter_enabled = bool(
             source.color_filter_enabled

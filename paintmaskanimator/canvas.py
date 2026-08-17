@@ -1374,6 +1374,10 @@ class PaintCanvas(
         不要。ストローク中もアクティブレイヤーの実画素へ直接合成しているので、
         ここで ``layer.image`` を返せばそのまま最新の描画結果が表示される。
         """
+        # 下書きレイヤーは色数削減の対象外。プレビューの色をそのまま出力する
+        # ため、パレット絞り込みやシルエット等の表示変換を一切適用しない。
+        if getattr(layer, "is_draft", False):
+            return layer.image
         apply_palette_filter = (
             layer_index == self.active_layer_index
         )

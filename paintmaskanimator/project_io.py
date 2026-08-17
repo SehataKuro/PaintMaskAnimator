@@ -149,8 +149,13 @@ def read_project_archive(path):
                 image = image.convertToFormat(
                     QImage.Format.Format_ARGB32_Premultiplied
                 )
-                if needs_white_migration and not bool(
-                    layer_data.get("is_paper", False)
+                is_draft = bool(layer_data.get("is_draft", False))
+                # 下書きレイヤーは読み込んだ画素をそのまま保持するため、
+                # 用紙レイヤーと同様に白→透明の移行対象から除外する。
+                if (
+                    needs_white_migration
+                    and not bool(layer_data.get("is_paper", False))
+                    and not is_draft
                 ):
                     image = white_to_transparent_qimage(image)
 
@@ -213,6 +218,7 @@ def read_project_archive(path):
                             sequence_number
                         ),
                         bool(layer_data.get("sequence_only", False)),
+                        is_draft,
                     )
                 )
 
@@ -277,6 +283,7 @@ def write_project_archive(project_path, metadata, frames):
                             ),
                             "sequence_number": layer.sequence_number,
                             "sequence_only": bool(layer.sequence_only),
+                            "is_draft": bool(getattr(layer, "is_draft", False)),
                             "color_filter_enabled": bool(
                                 layer.color_filter_enabled
                             ),

@@ -875,6 +875,67 @@ class MainWindow(
         )
 
 
+    def import_images_raw_dialog(self):
+        """変換せず（色数削減なしで）画像を下書きレイヤーへ読み込む。"""
+        paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            "変換せず読み込む（下書きレイヤー）",
+            "",
+            "画像 (*.png *.jpg *.jpeg *.tga);;"
+            "PNG (*.png);;JPEG (*.jpg *.jpeg);;TGA (*.tga)",
+        )
+        if not paths:
+            return
+        self.import_dropped_images_raw(paths)
+
+    def import_dropped_images_raw(self, paths, layer_name=None):
+        prepared, error = self.prepare_image_import(paths)
+        if not prepared:
+            if error != "__cancelled__":
+                QMessageBox.warning(
+                    self,
+                    "変換せず読み込む",
+                    f"画像を読み込めませんでした。\n\n{error}",
+                )
+            return
+        estimated_frames = max(1, len(self.canvas.frames) + len(paths))
+        combined_total = max(1, len(paths) + estimated_frames)
+        progress = self.create_progress_counter(
+            "変換せず読み込む",
+            combined_total,
+            "画像を読み込んでいます",
+        )
+        ok = False
+        error = ""
+        try:
+            ok, error = self.canvas.import_image_sequence(
+                paths,
+                lambda value, total, label: self.update_progress_counter(
+                    progress,
+                    value,
+                    combined_total,
+                    f"{label}（画像 {value}/{total}）",
+                ),
+                layer_name=layer_name,
+                draft=True,
+            )
+        finally:
+            self.close_progress_counter(progress)
+        if not ok:
+            QMessageBox.warning(
+                self,
+                "変換せず読み込む",
+                f"画像を読み込めませんでした。\n\n{error}",
+            )
+            return
+        self.set_timeline_mode("sequence")
+        # 下書きレイヤーは色数を取得しないため、使用色パネルは空にする。
+        self._refresh_used_colors_without_delay()
+        self.statusBar().showMessage(
+            f"{len(paths)}枚を下書きレイヤーへ変換せず読み込みました。",
+            3200,
+        )
+
     def resize_doc(self):
         d=CanvasSizeDialog(constants.CANVAS_WIDTH,constants.CANVAS_HEIGHT,"キャンバスサイズの変更",self)
         if d.exec():self.canvas.push_doc_undo();self.replace_doc(*d.values(),preserve=True)
