@@ -1,7 +1,8 @@
 """Example PaintMaskAnimator user action.
 
-Copy this file to the folder opened by Action panel > Open Folder, then press
-Reload in the Action panel.
+Open the in-app editor (Action panel > ☰ > スクリプトを編集), create a new
+script, and paste this content — or copy this file into the actions folder and
+press 保存して再読み込み. See docs/actions.md for details.
 """
 
 
