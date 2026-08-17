@@ -69,7 +69,6 @@ class CanvasMembers(_MembersBase):
         _build_playback_key_map: Any
         _build_tp_geometry_cache: Any
         _build_tp_label_image: Any
-        _cache_pseudo_transparent_display: Any
         _cell_structure_dirty: Any
         _clear_selection_state: Any
         _clear_timeline_layer_cell: Any
@@ -91,9 +90,7 @@ class CanvasMembers(_MembersBase):
         _eyedropper_cursor: Any
         _finish_opaque_brush_stroke: Any
         _finish_stabilized_brush: Any
-        _finish_stroke_display: Any
         _hue_cluster_palette_from_samples: Any
-        _init_stroke_display: Any
         _invalidate_tp_preview_cache: Any
         _last_brush_pressure: Any
         _last_raw_canvas: Any
@@ -130,8 +127,6 @@ class CanvasMembers(_MembersBase):
         _onion_interaction_start_widget: Any
         _onion_widget_delta_to_canvas: Any
         _paint_rgb_palette: Any
-        _patch_pseudo_transparent_display: Any
-        _patch_stroke_display: Any
         _pil_l_to_qimage: Any
         _pil_rgba_to_qimage: Any
         _place_imported_image: Any
@@ -147,9 +142,6 @@ class CanvasMembers(_MembersBase):
         _priority_palette_colors_from_samples: Any
         _project_transform_source: Any
         _proxy_transform_preview_image: Any
-        _pseudo_transparency_cache: Any
-        _pseudo_transparency_key: Any
-        _pseudo_transparent_display_image: Any
         _qimage_gray_array: Any
         _qimage_rgba_array: Any
         _qimage_to_pil_rgba: Any
@@ -186,9 +178,6 @@ class CanvasMembers(_MembersBase):
         _stroke_before_region: Any
         _stroke_before_tiles: Any
         _stroke_dirty_rect: Any
-        _stroke_display_eligible: Any
-        _stroke_display_image: Any
-        _stroke_display_layer_index: Any
         _stroke_prev_has_content: Any
         _stroke_undo_frame: Any
         _stroke_undo_layer: Any
@@ -372,7 +361,6 @@ class CanvasMembers(_MembersBase):
         pressure_value: Any
         previous_frame: Any
         previous_key_frame: Any
-        prewarm_blank_stroke_display: Any
         push_doc_undo: Any
         push_layer_region_undo: Any
         push_layer_undo: Any

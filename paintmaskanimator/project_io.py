@@ -22,9 +22,15 @@ from .constants import (
     MAX_PROJECT_LAYERS,
     MAX_PROJECT_METADATA_BYTES,
 )
+from .imaging import white_to_transparent_qimage
 from .models import Frame, Layer
 from .utils import blank_image
 from .logging_setup import get_logger
+
+# Bump when the on-disk pixel contract changes. mask_format >= 2 stores erased
+# areas as alpha=0; format 1 (or missing) stored them as pseudo-transparent
+# opaque #FFFFFF and needs a white->transparent migration on load.
+CURRENT_MASK_FORMAT = 2
 
 log = get_logger(__name__)
 
@@ -61,6 +67,15 @@ def read_project_archive(path):
             "OekakiAnimationProject",
         ):
             raise ValueError("対応していないプロジェクト形式です。")
+
+        try:
+            mask_format = int(metadata.get("mask_format", 1))
+        except (TypeError, ValueError):
+            mask_format = 1
+        # Legacy files stored erased pixels as opaque #FFFFFF; convert them to
+        # real transparency so they read the same now that pseudo-transparency
+        # is gone. The paper layer legitimately stays white and is skipped.
+        needs_white_migration = mask_format < CURRENT_MASK_FORMAT
 
         canvas_data = metadata.get("canvas", {})
         width = int(canvas_data.get("width", 1280))
@@ -134,6 +149,10 @@ def read_project_archive(path):
                 image = image.convertToFormat(
                     QImage.Format.Format_ARGB32_Premultiplied
                 )
+                if needs_white_migration and not bool(
+                    layer_data.get("is_paper", False)
+                ):
+                    image = white_to_transparent_qimage(image)
 
                 filter_rgb = layer_data.get("color_filter_rgb")
                 exposure = int(layer_data.get("exposure", 1))

@@ -431,11 +431,10 @@ class SelectionMixin(CanvasMembers):
         """Merge TP output without painting over pixels outside the selection."""
         base = self._cleared_selection_base(original)
         result = preview.copy()
-        # White is the application's transparent sentinel.  Convert it to real
-        # alpha before placing the unselected artwork above the transformed
-        # selection, otherwise the sentinel would hide transformed pixels that
-        # extend into an otherwise blank area.
-        preserved = self._pseudo_transparent_display_image(base)
+        # Erased areas are already alpha=0 in layer data, so the unselected
+        # artwork can be placed directly over the transformed selection without
+        # any white->transparent conversion.
+        preserved = base
         painter = QPainter(result)
         painter.setCompositionMode(
             QPainter.CompositionMode.CompositionMode_SourceOver

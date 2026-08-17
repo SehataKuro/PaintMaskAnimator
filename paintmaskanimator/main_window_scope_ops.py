@@ -104,7 +104,6 @@ class ScopeOpsMixin(MainWindowMembers):
         for cache_name in (
             "_color_filter_cache",
             "_color_index_cache",
-            "_pseudo_transparency_cache",
             "_silhouette_cache",
             "_onion_cache",
             "_playback_frame_cache",

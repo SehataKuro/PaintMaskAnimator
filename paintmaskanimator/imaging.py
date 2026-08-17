@@ -193,6 +193,38 @@ def bool_mask_image(mask):
     ).copy()
 
 
+def white_to_transparent_qimage(image):
+    """Convert exact #FFFFFF opaque pixels to alpha=0 (QImage in/out).
+
+    Used to migrate legacy layer data where pure white was the pseudo-transparent
+    eraser sentinel. Non-destructive to appearance: white was already displayed
+    as transparent under the old pseudo-transparency transform.
+    """
+    if image is None or image.isNull():
+        return image
+    rgba = image.convertToFormat(QImage.Format.Format_RGBA8888)
+    width, height = rgba.width(), rgba.height()
+    if width <= 0 or height <= 0:
+        return image
+    ptr = qimage_buffer(rgba)
+    rows = np.frombuffer(ptr, dtype=np.uint8).reshape(
+        (height, rgba.bytesPerLine())
+    )
+    pixels = rows[:, : width * 4].reshape((height, width, 4))
+    white = (
+        (pixels[:, :, 3] > 0)
+        & (pixels[:, :, 0] == 255)
+        & (pixels[:, :, 1] == 255)
+        & (pixels[:, :, 2] == 255)
+    )
+    if not white.any():
+        return image.convertToFormat(
+            QImage.Format.Format_ARGB32_Premultiplied
+        )
+    pixels[white] = 0
+    return rgba.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
+
+
 def tp_transparent_to_white(image):
     """v0.7 rule: transparent source pixels become opaque #FFFFFF masks."""
     rgba = np.asarray(image.convert("RGBA"), dtype=np.uint8).copy()

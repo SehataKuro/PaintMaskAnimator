@@ -12,7 +12,7 @@ declarations shared by the mixins live in ``_main_window_members.py``; the share
 error set is ``errors.OPERATION_ERRORS`` (aliased ``_OPERATION_ERRORS``).
 """
 from .common import *  # noqa: F401,F403
-from . import constants, imaging, theme, updater
+from . import constants, imaging, project_io, theme, updater
 from .actionpanel import ActionPanel
 from .canvas import PaintCanvas
 from .errors import OPERATION_ERRORS
@@ -697,6 +697,7 @@ class MainWindow(
         return {
             "format": "PaintMaskAnimatorProject",
             "format_version": 1,
+            "mask_format": project_io.CURRENT_MASK_FORMAT,
             "application_version": 100,
             "canvas": {
                 "width": int(constants.CANVAS_WIDTH),
@@ -912,12 +913,6 @@ class MainWindow(
             self.current_project_path = None
             self.update_project_title()
         self.refresh_ui()
-        # Allocate the blank stroke-display buffer once the new document UI is
-        # back in the event loop, rather than on the user's first pen press.
-        QTimer.singleShot(
-            0,
-            self.canvas.prewarm_blank_stroke_display,
-        )
         QTimer.singleShot(0, self.canvas.warm_up_brush_runtime)
         QTimer.singleShot(0,self.fit_canvas)
 

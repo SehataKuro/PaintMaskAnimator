@@ -9,7 +9,9 @@ def test_quality_transform_preserves_art_outside_selection():
     app = QApplication.instance() or QApplication([])
     canvas = PaintCanvas()
     original = QImage(80, 40, QImage.Format.Format_ARGB32_Premultiplied)
-    original.fill(QColor(255, 255, 255, 255))
+    # Erased/background areas are alpha=0 under the eraser model (issue #15),
+    # not the old opaque #FFFFFF sentinel.
+    original.fill(QColor(0, 0, 0, 0))
     original.setPixelColor(32, 15, QColor(0, 0, 255, 255))
     preview = QImage(original.size(), original.format())
     preview.fill(QColor(0, 0, 0, 0))

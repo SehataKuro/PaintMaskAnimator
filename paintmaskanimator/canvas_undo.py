@@ -171,11 +171,16 @@ class UndoMixin(CanvasMembers):
         return True
 
     def _invalidate_display_caches(self):
-        """疑似透明表示・ストローク表示・オニオンの各キャッシュを一括で捨てる。"""
-        self._pseudo_transparency_cache.clear()
+        """QImage.cacheKey() で引く表示派生キャッシュを一括で捨てる。
+
+        分岐を行き来すると QImage が生成・破棄され cacheKey() が使い回されるため、
+        別状態の派生画像が残って見えることがある。分岐切り替え時に捨て、次の描画で
+        実ピクセルから作り直させる。
+        """
+        self._color_filter_cache.clear()
+        self._color_index_cache.clear()
+        self._silhouette_cache.clear()
         self._onion_cache.clear()
-        self._stroke_display_image = None
-        self._stroke_display_layer_index = -1
         self.update()
 
     def push_doc_undo(self):
@@ -215,11 +220,6 @@ class UndoMixin(CanvasMembers):
                 self.current_frame = fi
                 self.active_layer_index = li
                 layer = self.frames[fi].layers[li]
-                old_display_key = self._pseudo_transparency_key(layer.image)
-                display = self._pseudo_transparency_cache.pop(
-                    old_display_key,
-                    None,
-                )
                 painter = QPainter(layer.image)
                 painter.setCompositionMode(
                     QPainter.CompositionMode.CompositionMode_Source
@@ -228,19 +228,6 @@ class UndoMixin(CanvasMembers):
                     painter.drawImage(QRect(rect).topLeft(), image)
                 painter.end()
                 layer.has_content = bool(e.has_content)
-                if display is not None:
-                    for rect, _image in e.tiles:
-                        self._patch_pseudo_transparent_display(
-                            display,
-                            layer.image,
-                            QRect(rect),
-                        )
-                    self._cache_pseudo_transparent_display(
-                        layer.image,
-                        display,
-                    )
-                self._stroke_display_image = None
-                self._stroke_display_layer_index = -1
                 self.cellChanged.emit(fi, li)
                 self.selectionChanged.emit()
         elif isinstance(e, LayerRegionUndo):
@@ -252,11 +239,6 @@ class UndoMixin(CanvasMembers):
                 self.current_frame = fi
                 self.active_layer_index = li
                 layer = self.frames[fi].layers[li]
-                old_display_key = self._pseudo_transparency_key(layer.image)
-                display = self._pseudo_transparency_cache.pop(
-                    old_display_key,
-                    None,
-                )
                 painter = QPainter(layer.image)
                 painter.setCompositionMode(
                     QPainter.CompositionMode.CompositionMode_Source
@@ -264,18 +246,6 @@ class UndoMixin(CanvasMembers):
                 painter.drawImage(QRect(e.rect).topLeft(), e.image)
                 painter.end()
                 layer.has_content = bool(e.has_content)
-                if display is not None:
-                    self._patch_pseudo_transparent_display(
-                        display,
-                        layer.image,
-                        QRect(e.rect),
-                    )
-                    self._cache_pseudo_transparent_display(
-                        layer.image,
-                        display,
-                    )
-                self._stroke_display_image = None
-                self._stroke_display_layer_index = -1
                 self.cellChanged.emit(fi, li)
                 self.selectionChanged.emit()
         elif isinstance(e, PaletteStateUndo):

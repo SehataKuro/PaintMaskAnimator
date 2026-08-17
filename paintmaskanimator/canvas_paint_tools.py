@@ -219,11 +219,6 @@ class PaintToolsMixin(CanvasMembers):
             color_set.update(colors)
 
         self.active_layer.has_content = True
-        if (
-            self._stroke_display_image is not None
-            and self.active_layer_index == self._stroke_display_layer_index
-        ):
-            self._patch_stroke_display(rect)
         self._update_stroke_region(a, b, draw_width)
 
     @staticmethod

@@ -1,9 +1,11 @@
-"""Brush strokes on a large canvas must not re-transform the whole layer.
+"""Brush strokes draw straight into the layer image; no display-buffer detour.
 
-Regression guard for the incremental stroke-display buffer: during a brush
-stroke the active layer's white->transparent display image is patched only in
-the stamped region, so the per-stamp cost is independent of canvas size. The
-patched buffer must stay pixel-identical to a full recompute.
+Since #FFFFFF is a true eraser (alpha=0) rather than a pseudo-transparent
+sentinel, the display image equals ``layer.image`` for a plain layer. There is
+no white->transparent transform to amortize, so the brush blends directly into
+the real layer pixels and the incremental display buffer is gone. These tests
+guard the remaining contracts: strokes land in the layer, undo stores only the
+touched tiles, and overlapping stamps keep a stable opacity.
 """
 import os
 
@@ -42,65 +44,12 @@ def _draw_test_stroke(canvas):
     canvas.main_color = QColor("#3355ff")
     canvas.color_mode = "main"
     canvas.pen_size = 18.0
-    # Prime the display cache like an idle repaint would.
-    cached = canvas._pseudo_transparent_display_image(canvas.active_layer.image)
+    canvas.ensure_editable_key()
     canvas._begin_opaque_brush_stroke()
-    # The warm display buffer is moved into stroke ownership, not copied.
-    assert canvas._stroke_display_image is cached
-    assert canvas._pseudo_transparency_key(
-        canvas.active_layer.image
-    ) not in canvas._pseudo_transparency_cache
     points = [QPointF(250 + i * 60, 250 + i * 45) for i in range(12)]
     for i in range(1, len(points)):
         canvas.draw_line(points[i - 1], points[i], 1.0)
     return idx
-
-
-def test_first_stroke_on_blank_canvas_skips_full_display_transform(
-    qapp, monkeypatch
-):
-    """A press before the first repaint must not scan the whole new canvas."""
-    from paintmaskanimator.canvas import PaintCanvas
-
-    canvas = PaintCanvas()
-    assert canvas.active_layer is not None
-    assert not canvas.active_layer.has_content
-    canvas._pseudo_transparency_cache.clear()
-
-    def unexpected_full_transform(_image):
-        raise AssertionError("blank first stroke used the full-image path")
-
-    monkeypatch.setattr(
-        canvas,
-        "_pseudo_transparent_display_image",
-        unexpected_full_transform,
-    )
-    # This is the production order: mouse/tablet press promotes the unused
-    # cell to an editable key before it initializes the stroke display.
-    canvas.ensure_editable_key()
-    assert canvas.active_layer.has_content
-    canvas._begin_opaque_brush_stroke()
-
-    display = canvas._stroke_display_image
-    assert display is not None
-    assert display.size() == canvas.active_layer.image.size()
-    assert display.format() == QImage.Format.Format_ARGB32_Premultiplied
-    assert display.pixelColor(0, 0).alpha() == 0
-
-
-def test_blank_canvas_prewarm_supplies_first_stroke_buffer(qapp):
-    from paintmaskanimator.canvas import PaintCanvas
-
-    canvas = PaintCanvas()
-    canvas._pseudo_transparency_cache.clear()
-    canvas.prewarm_blank_stroke_display()
-
-    key = canvas._pseudo_transparency_key(canvas.active_layer.image)
-    warmed = canvas._pseudo_transparency_cache[key]
-    canvas.ensure_editable_key()
-    canvas._begin_opaque_brush_stroke()
-
-    assert canvas._stroke_display_image is warmed
 
 
 def test_brush_runtime_warmup_is_idempotent_and_non_mutating(qapp):
@@ -119,7 +68,7 @@ def test_brush_runtime_warmup_is_idempotent_and_non_mutating(qapp):
     assert not canvas.active_layer.has_content
 
 
-def test_stroke_display_buffer_matches_full_recompute(qapp, monkeypatch, tmp_path):
+def test_stroke_is_visible_through_layer_image(qapp, monkeypatch, tmp_path):
     monkeypatch.setenv("APPDATA", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     from paintmaskanimator import constants
@@ -130,26 +79,19 @@ def test_stroke_display_buffer_matches_full_recompute(qapp, monkeypatch, tmp_pat
     window = MainWindow()
     try:
         canvas = window.canvas
-        assert canvas._stroke_display_eligible()
         idx = _draw_test_stroke(canvas)
 
-        # During the stroke the display path returns the incremental buffer.
-        assert canvas._stroke_display_image is not None
+        # No detour buffer: the display path is the live layer image itself, so
+        # in-progress stamps are already visible.
         assert (
             canvas._display_layer_image(canvas.active_layer, idx)
-            is canvas._stroke_display_image
+            is canvas.active_layer.image
         )
-        patched = _rgba(canvas._stroke_display_image.copy())
+        painted = _rgba(canvas.active_layer.image)
+        assert np.any(painted[:, :, 3] == 255)
 
         canvas._finish_opaque_brush_stroke()
-        assert canvas._stroke_display_image is None
-
-        # Ground truth: a fresh full white->transparent transform.
-        canvas._pseudo_transparency_cache.clear()
-        truth = _rgba(
-            canvas._pseudo_transparent_display_image(canvas.active_layer.image)
-        )
-        assert np.array_equal(patched, truth)
+        assert np.array_equal(_rgba(canvas.active_layer.image), painted)
     finally:
         window.close()
         window.deleteLater()
@@ -196,30 +138,6 @@ def test_brush_undo_stores_only_touched_tiles(qapp, monkeypatch, tmp_path):
         window.close()
 
 
-def test_brush_undo_redo_keeps_incremental_display_cache(qapp):
-    from paintmaskanimator.canvas import PaintCanvas
-
-    canvas = PaintCanvas()
-    _draw_test_stroke(canvas)
-    canvas._finish_opaque_brush_stroke()
-
-    canvas.undo()
-    undo_key = canvas._pseudo_transparency_key(canvas.active_layer.image)
-    undo_display = canvas._pseudo_transparency_cache.get(undo_key)
-    assert undo_display is not None
-    assert canvas._pseudo_transparent_display_image(
-        canvas.active_layer.image
-    ) is undo_display
-
-    canvas.redo()
-    redo_key = canvas._pseudo_transparency_key(canvas.active_layer.image)
-    redo_display = canvas._pseudo_transparency_cache.get(redo_key)
-    assert redo_display is not None
-    assert canvas._pseudo_transparent_display_image(
-        canvas.active_layer.image
-    ) is redo_display
-
-
 def test_tiled_snapshot_keeps_stroke_opacity_stable(qapp, monkeypatch, tmp_path):
     """Overlapping stamps blend against the pre-stroke tile, not each other."""
     monkeypatch.setenv("APPDATA", str(tmp_path))
@@ -243,7 +161,6 @@ def test_tiled_snapshot_keeps_stroke_opacity_stable(qapp, monkeypatch, tmp_path)
         window.tools.opacity_enabled.setChecked(True)
         start = QPointF(190, 200)
         end = QPointF(210, 200)
-        canvas._pseudo_transparent_display_image(canvas.active_layer.image)
         canvas._begin_opaque_brush_stroke()
         canvas.draw_line(start, end, 1.0)
         once = canvas.active_layer.image.pixelColor(200, 200)

@@ -1,9 +1,10 @@
-"""Stroke-display buffer (fast in-progress brush preview) for PaintCanvas.
+"""Brush-stroke bookkeeping for PaintCanvas.
 
-Split out of ``canvas.py`` as a mixin. These methods maintain the lightweight
-overlay buffer that shows an in-progress opaque brush stroke without
-re-transforming the whole layer each stamp, plus the warm-up/pre-warm paths
-that avoid first-stroke jank. They run against a live ``PaintCanvas`` instance.
+Split out of ``canvas.py`` as a mixin. Brush stamps blend directly into the
+live layer image (the display path returns ``layer.image`` unchanged), so there
+is no separate display buffer. What remains here is the stroke lifecycle: the
+per-stroke tile snapshot that backs ``LayerTilesUndo`` and the brush-runtime
+warm-up that avoids first-stroke jank. They run against a live ``PaintCanvas``.
 """
 from .common import *  # noqa: F401,F403
 from ._canvas_members import CanvasMembers
@@ -29,7 +30,6 @@ class StrokeDisplayMixin(CanvasMembers):
         self._brush_stroke_opacity = (
             self.paint_opacity_value()
         )
-        self._init_stroke_display()
 
     def _stroke_before_region(self, rect):
         """Assemble a small immutable pre-stroke crop from saved tiles."""
@@ -104,50 +104,6 @@ class StrokeDisplayMixin(CanvasMembers):
         self._brush_stroke_opacity = (
             self.paint_opacity_value()
         )
-        self._finish_stroke_display()
-
-    def _stroke_display_eligible(self):
-        """True when the incremental display buffer can represent the layer.
-
-        Only when the active layer is a normal (non-paper) layer with no
-        palette/colour filter and silhouette mode off — otherwise the display
-        image is not a plain white-to-transparent transform of ``layer.image``
-        and the slower full-image path stays correct.
-        """
-        layer = self.active_layer
-        if layer is None or getattr(layer, "is_paper", False):
-            return False
-        if self.silhouette_non_background:
-            return False
-        if getattr(self, "visible_color_rgbs", None):
-            return False
-        if (
-            getattr(layer, "color_filter_enabled", False)
-            and layer.color_filter_rgb is not None
-        ):
-            return False
-        return True
-
-    def prewarm_blank_stroke_display(self):
-        """Prepare a new blank layer's display buffer before the first press."""
-        if not self._stroke_display_eligible():
-            return
-        layer = self.active_layer
-        if layer.has_content or layer.image is None or layer.image.isNull():
-            return
-        key = self._pseudo_transparency_key(layer.image)
-        if key in self._pseudo_transparency_cache:
-            return
-        display = QImage(
-            layer.image.size(),
-            QImage.Format.Format_ARGB32_Premultiplied,
-        )
-        display.fill(Qt.GlobalColor.transparent)
-        if len(self._pseudo_transparency_cache) >= 96:
-            self._pseudo_transparency_cache.pop(
-                next(iter(self._pseudo_transparency_cache))
-            )
-        self._pseudo_transparency_cache[key] = display
 
     def warm_up_brush_runtime(self):
         """Prime Qt/numpy brush primitives without touching the document."""
@@ -194,69 +150,3 @@ class StrokeDisplayMixin(CanvasMembers):
         )
         self.pressure_size_scale(1.0)
         self._brush_runtime_warmed = True
-
-    def _init_stroke_display(self):
-        """Move the cached display image into stroke ownership without copying.
-
-        The per-stamp cost then becomes proportional to the brush footprint
-        and a warm-cache stroke start is independent of canvas size.
-        """
-        self._stroke_display_image = None
-        self._stroke_display_layer_index = -1
-        if not self._stroke_display_eligible():
-            return
-        layer = self.active_layer
-        cache_key = self._pseudo_transparency_key(layer.image)
-        base = self._pseudo_transparency_cache.pop(cache_key, None)
-        if base is None:
-            if (
-                not layer.has_content
-                or self._editable_key_was_blank
-            ):
-                # A brand-new canvas can receive a press before its first idle
-                # repaint.  Its layer is known to be entirely transparent, so
-                # avoid scanning and converting the whole workspace on the
-                # first stroke.  The buffer is patched incrementally below as
-                # stamps are written to the real layer image.
-                base = QImage(
-                    layer.image.size(),
-                    QImage.Format.Format_ARGB32_Premultiplied,
-                )
-                base.fill(Qt.GlobalColor.transparent)
-            else:
-                # Usually the idle repaint has already populated this cache.
-                # Keep a correctness fallback for presses arriving before the
-                # first paint on a layer that already contains pixels.
-                base = self._pseudo_transparent_display_image(layer.image)
-                self._pseudo_transparency_cache.pop(cache_key, None)
-        if base is None or base.isNull():
-            return
-        self._stroke_display_image = base
-        self._stroke_display_layer_index = self.active_layer_index
-
-    def _patch_stroke_display(self, canvas_rect):
-        """Re-apply the white→transparent transform for one stamped region."""
-        buffer = self._stroke_display_image
-        if buffer is None:
-            return
-        self._patch_pseudo_transparent_display(
-            buffer,
-            self.active_layer.image,
-            canvas_rect,
-        )
-
-    def _finish_stroke_display(self):
-        """Hand the fully-patched buffer to the display cache, then release it.
-
-        Seeding the cache under the layer's current key means the first repaint
-        after the stroke is a cache hit instead of another full re-transform.
-        """
-        buffer = self._stroke_display_image
-        self._stroke_display_image = None
-        self._stroke_display_layer_index = -1
-        if buffer is None:
-            return
-        layer = self.active_layer
-        if layer is None or layer.image is None or layer.image.isNull():
-            return
-        self._cache_pseudo_transparent_display(layer.image, buffer)

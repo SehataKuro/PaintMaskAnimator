@@ -36,7 +36,6 @@ from .canvas_onion_interaction import OnionInteractionMixin
 from .canvas_onion_render import OnionRenderMixin
 from .canvas_paint_tools import PaintToolsMixin
 from .canvas_playback import PlaybackMixin
-from .canvas_pseudo_transparency import PseudoTransparencyMixin
 from .canvas_selection import SelectionMixin
 from .canvas_stroke_display import StrokeDisplayMixin
 from .canvas_timeline_ops import TimelineStructureMixin
@@ -63,7 +62,7 @@ class PaintCanvas(
     ImageImportMixin, OnionInteractionMixin, OnionRenderMixin, SelectionMixin,
     TransformMaskMixin, TransformGeometryMixin, PaintToolsMixin,
     TimelineStructureMixin, BrushStabilizerMixin, StrokeDisplayMixin,
-    InputEventMixin, UndoMixin, PlaybackMixin, PseudoTransparencyMixin,
+    InputEventMixin, UndoMixin, PlaybackMixin,
     KeyFrameMixin, QWidget
 ):
     status_message=Signal(str)
@@ -211,7 +210,6 @@ class PaintCanvas(
         self._onion_interaction_start_tu_tb_scale=1.0
         self.onion_all_layers=True
         self._color_filter_cache = {}
-        self._pseudo_transparency_cache = {}
         # 画像ごとのRGBインデックスを保持し、表示チェックのたびの再計算を避ける。
         self._color_index_cache = {}
         self.silhouette_non_background = False
@@ -233,10 +231,6 @@ class PaintCanvas(
         self._stroke_undo_layer = 0
         self._stroke_prev_has_content = False
         self._brush_stroke_opacity = 1.0
-        # ブラシ描画中の表示用バッファ（白→透明変換をストローク領域だけ差分更新する）。
-        # 大画像でストロークごとに全画素を再変換する重い処理を避けるための最適化。
-        self._stroke_display_image = None
-        self._stroke_display_layer_index = -1
         self._brush_runtime_warmed = False
         self._cell_structure_dirty = True
         # ライン／図形ツールのプレビュー状態
@@ -1350,8 +1344,6 @@ class PaintCanvas(
             layer,
             apply_palette_filter,
         )
-        if not layer.is_paper:
-            base = self._pseudo_transparent_display_image(base)
         if base is None:
             return QImage()
         if not self.silhouette_non_background:
@@ -1486,14 +1478,12 @@ class PaintCanvas(
         return filtered
 
     def _display_layer_image(self, layer, layer_index):
-        """白を疑似透明化した、表示専用のレイヤー画像を返す。"""
-        # ストローク中はアクティブレイヤーの差分更新済みバッファをそのまま使う。
-        if (
-            self._stroke_display_image is not None
-            and layer_index == self._stroke_display_layer_index
-            and layer is self.active_layer
-        ):
-            return self._stroke_display_image
+        """パレット/シルエット等の表示フィルタを適用したレイヤー画像を返す。
+
+        消しゴム(白)は既にレイヤーデータ上で alpha=0 のため、疑似透明の表示変換は
+        不要。ストローク中もアクティブレイヤーの実画素へ直接合成しているので、
+        ここで ``layer.image`` を返せばそのまま最新の描画結果が表示される。
+        """
         apply_palette_filter = (
             layer_index == self.active_layer_index
         )
@@ -1506,15 +1496,10 @@ class PaintCanvas(
                 apply_palette_filter,
             )
 
-        draw_image = self.filtered_layer_image(
+        return self.filtered_layer_image(
             layer,
             apply_palette_filter,
         )
-        if not layer.is_paper:
-            draw_image = self._pseudo_transparent_display_image(
-                draw_image
-            )
-        return draw_image
 
     def composite(self, fi, white=True):
         result = blank_image(QColor("white") if white else Qt.GlobalColor.transparent)
@@ -1569,6 +1554,15 @@ class PaintCanvas(
         painter.setCompositionMode(
             QPainter.CompositionMode.CompositionMode_Source
         )
+
+    @staticmethod
+    def is_pseudo_transparent_color(color):
+        """True when ``color`` is the eraser sentinel (#FFFFFF).
+
+        White strokes erase (alpha=0) rather than painting, so callers use this
+        to avoid recording white as a used colour.
+        """
+        return colors.is_pseudo_transparent_color(color)
 
     def _current_stroke_color(self):
         color = self.opaque_paint_color()
@@ -1640,9 +1634,6 @@ class PaintCanvas(
                         self.transform_original_layer,
                         transform_preview,
                     )
-                transform_preview = self._pseudo_transparent_display_image(
-                    transform_preview
-                )
                 if transform_preview is None:
                     transform_preview = QImage()
                 transform_preview = (
