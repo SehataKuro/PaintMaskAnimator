@@ -570,6 +570,10 @@ class SelectionMixin(CanvasMembers):
                 frame_index,
                 layer_index,
             )
+            # 描画系ツールと同様にセル変更を通知する。これがないと
+            # ヒストリーパネル（cellChanged/changedで更新）が確定後も
+            # 再描画されず、変形の履歴が一覧に現れない。
+            self.cellChanged.emit(frame_index, layer_index)
 
         if undo_cells:
             if len(undo_cells) == 1:
