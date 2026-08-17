@@ -71,21 +71,22 @@ QT_QPA_PLATFORM=offscreen python scripts/run_tests.py -q
 
 ## Python アクション
 
-アクションパネルは Python ファイルからカスタムボタンを読み込めます。パネルの
-`フォルダを開く` をクリックし、そのフォルダに `*.py` ファイルをコピーして
-`再読み込み` をクリックしてください。各ファイルは次の関数を公開する必要があります：
+アクションパネルは、Python スクリプトからカスタムボタンを追加できます。アクション
+パネル右下の **☰ → スクリプトを編集** でアプリ内エディタが開き、スクリプトの作成・
+編集・再読み込みが行えます。各スクリプトは次の関数を公開します：
 
 ```python
 def register_actions(panel, window):
     panel.add_action(
         "my.unique.action",
         "My Action",
-        lambda: window.statusBar().showMessage("Done", 3000),
+        lambda: window.status_bar.showMessage("Done", 3000),
         tooltip="Optional help text",
     )
 ```
 
-チェック可能なアクションは `checkable=True` を使用でき、コールバックはチェック
-状態を受け取ります。[`examples/actions/hello_status.py`](examples/actions/hello_status.py)
-を参照してください。アクションスクリプトは通常の Python コードなので、信頼できる
-提供元からのみインストールしてください。
+書き方・API リファレンス・組み込みアクションの一覧・トラブルシューティングは
+[`docs/actions.md`](docs/actions.md) にまとめています。サンプルは
+[`examples/actions/hello_status.py`](examples/actions/hello_status.py) を参照して
+ください。アクションスクリプトは通常の Python コードなので、信頼できる提供元から
+のみインストールしてください。
