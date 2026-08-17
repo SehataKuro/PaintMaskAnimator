@@ -474,6 +474,22 @@ class PaintToolsMixin(CanvasMembers):
             dtype=np.uint8,
         )
 
+        replacement_is_white = bool(
+            int(replacement.red()) == 255
+            and int(replacement.green()) == 255
+            and int(replacement.blue()) == 255
+        )
+        if replacement_is_white:
+            # 白バケツは本物の消しゴム：該当領域を alpha=0 へ抜く。
+            pixels[ys, xs, :] = 0
+            self.active_layer.image = image.convertToFormat(
+                QImage.Format.Format_ARGB32_Premultiplied
+            )
+            self.active_layer.has_content = True
+            self.cellChanged.emit(self.current_frame, self.active_layer_index)
+            self.update()
+            return
+
         if paint_opacity >= 0.999999:
             # 100%は正規RGBをそのまま書き込み、近似色を生成しない。
             pixels[ys, xs, :3] = source_rgb

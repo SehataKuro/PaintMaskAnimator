@@ -837,6 +837,19 @@ class PaintCanvas(
                 active_mask
             ]
 
+        # 白(#FFFFFF)ストロークは疑似透明ではなく本物の消しゴムとして扱う。
+        # 該当画素をレイヤーへ書かず、alpha=0 へ抜く（下のレイヤーが透ける）。
+        erase_mask = active_mask & np.all(
+            result_rgba[:, :, :3] == 255,
+            axis=2,
+        )
+        erase_rgba = None
+        if np.any(erase_mask):
+            erase_rgba = np.zeros_like(result_rgba)
+            erase_rgba[erase_mask, 3] = 255
+            # SourceOver では白を書き込まない（消去はこの後 DestinationOut で行う）。
+            result_rgba[erase_mask, 3] = 0
+
         result_image = self._rgba_array_to_qimage(
             result_rgba
         )
@@ -848,12 +861,21 @@ class PaintCanvas(
             QPoint(destination_x, destination_y),
             result_image,
         )
+        if erase_rgba is not None:
+            erase_image = self._rgba_array_to_qimage(erase_rgba)
+            painter.setCompositionMode(
+                QPainter.CompositionMode.CompositionMode_DestinationOut
+            )
+            painter.drawImage(
+                QPoint(destination_x, destination_y),
+                erase_image,
+            )
         painter.end()
 
         if written_rgb.size == 0:
             return ()
 
-        # 100%は正規RGBだけを通知する。
+        # 100%は正規RGBだけを通知する。白は消しゴム扱いなので使用色に含めない。
         if amount >= 0.999999:
             palette = self._paint_rgb_palette(
                 exact_colors
@@ -862,6 +884,8 @@ class PaintCanvas(
                 return tuple(
                     tuple(int(channel) for channel in rgb)
                     for rgb in palette
+                    if tuple(int(channel) for channel in rgb)
+                    != (255, 255, 255)
                 )
 
         unique = np.unique(
@@ -871,6 +895,8 @@ class PaintCanvas(
         return tuple(
             tuple(int(channel) for channel in rgb)
             for rgb in unique
+            if tuple(int(channel) for channel in rgb)
+            != (255, 255, 255)
         )
 
 
