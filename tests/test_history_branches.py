@@ -83,12 +83,12 @@ def test_history_panel_shows_branch_under_its_divergence_point():
     panel = HistoryPanel()
     panel.set_canvas(canvas)
 
-    top_level = [
-        panel.tree.topLevelItem(i) for i in range(panel.tree.topLevelItemCount())
-    ]
-    branch_parents = [
-        item for item in top_level if item.childCount() > 0
-    ]
-    assert len(branch_parents) == 1
-    assert branch_parents[0].child(0).text(0).startswith("⑂")
+    nodes = panel.graph._nodes
+    branch_nodes = [n for n in nodes if n["kind"] == "branch"]
+    main_ys = {n["y"] for n in nodes if n["kind"] == "main"}
+    assert len(branch_nodes) == 1
+    # 分岐ノードは、それが分かれた本線ノードにぶら下がる（親のyに紐づく）。
+    assert branch_nodes[0]["parent_y"] in main_ys
+    # 分岐は本線より一段インデントされ、本線ノードとは別位置に描かれる。
+    assert branch_nodes[0]["lane"] == 1
     panel.deleteLater()
