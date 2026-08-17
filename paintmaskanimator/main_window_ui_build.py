@@ -32,33 +32,10 @@ class UIBuildMixin(MainWindowMembers):
         return action
 
     def build_action_panel(self):
-        self.action_panel.add_action(
-            "silhouette",
-            "背景以外を黒シルエット表示",
-            lambda _checked=False: self.a_silhouette.trigger(),
-            checkable=True,
-            source="builtin",
-        )
-        self.action_panel.add_action(
-            "same_image_replacement",
-            "同一画像から色置換",
-            self.register_same_image_replacements,
-            tooltip=(
-                "同じタイムライン位置にある上のレイヤーと画素配置を比較し、"
-                "一致した色対応をそのまま実画像へ適用します。"
-            ),
-            source="builtin",
-        )
-        self.action_panel.add_action(
-            "main_line_repaint",
-            "MainLineRepaint",
-            self.main_line_repaint,
-            tooltip=(
-                "メイン色・サブ色を線レイヤーへ分離し、"
-                "抜けた面を周囲の最多色で埋めます。"
-            ),
-            source="builtin",
-        )
+        # Built-in actions are now editable default scripts seeded into the
+        # actions folder and registered via ActionPanel.reload_python_actions().
+        # See paintmaskanimator.actionpanel.BUILTIN_SCRIPTS.
+        pass
 
     def build_actions(self):
         self.a_new=QAction("新規作成…",self);self.a_new.setShortcut("Ctrl+N");self.a_new.triggered.connect(self.new_doc)
