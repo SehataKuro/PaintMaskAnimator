@@ -42,7 +42,8 @@ class _HistoryGraph(QWidget):
     """undo/redo/分岐を、ブロックと接続線で描く2Dキャンバス。"""
 
     jumpRequested = Signal(int)
-    branchSwitchRequested = Signal(int)
+    # (分岐の添字, 切り替え後に進めるRedo回数)。クリックしたブロックまで進む。
+    branchSwitchRequested = Signal(int, int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -81,7 +82,9 @@ class _HistoryGraph(QWidget):
             if delta != 0:
                 self.jumpRequested.emit(delta)
         elif node["kind"] == _KIND_BRANCH:
-            self.branchSwitchRequested.emit(int(node["value"]))
+            self.branchSwitchRequested.emit(
+                int(node["value"]), int(node["steps"])
+            )
 
     def mouseMoveEvent(self, event):
         node = self._node_at(event.position())
@@ -187,8 +190,8 @@ class _HistoryGraph(QWidget):
 class HistoryPanel(QWidget):
     # クリックされた行までの移動量。負ならUndo、正ならRedoの回数。
     jumpRequested = Signal(int)
-    # クリックされたブランチの添字（canvas.history_branches内）。
-    branchSwitchRequested = Signal(int)
+    # クリックされたブランチの添字と、切り替え後に進めるRedo回数。
+    branchSwitchRequested = Signal(int, int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -321,6 +324,8 @@ class HistoryPanel(QWidget):
                 nodes.append({
                     "kind": _KIND_BRANCH,
                     "value": int(branch_index),
+                    # 分岐へ切り替えたあと、このブロックまで進むRedo回数。
+                    "steps": k + 1,
                     "label": label,
                     "col": col,
                     "row": row,
