@@ -66,16 +66,26 @@ class UsedColorMixin(MainWindowMembers):
         self._refresh_used_colors_without_delay()
         self.refresh_history_panel()
 
-    def switch_history_branch(self, branch_index):
-        """ヒストリーパネルで選ばれた分岐へ履歴を切り替える。"""
+    def switch_history_branch(self, branch_index, redo_steps=0):
+        """ヒストリーパネルで選ばれた分岐へ履歴を切り替える。
+
+        ``redo_steps`` はクリックされたブロックが分岐点から何手目かで、
+        切り替え後にその回数だけRedoして、クリックした状態まで進む。
+        """
         try:
             index = int(branch_index)
+            steps = max(0, int(redo_steps))
         except (TypeError, ValueError):
             return
         if not self.canvas.switch_history_branch(index):
             # 到達できなくなった分岐だった場合も一覧を作り直す。
             self.refresh_history_panel()
             return
+        # クリックしたブロックまで、分岐の未来を進める。
+        for _ in range(steps):
+            if not self.canvas.redo_stack:
+                break
+            self.canvas.redo()
         self._refresh_used_colors_without_delay()
         self.refresh_history_panel()
 

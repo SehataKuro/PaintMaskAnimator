@@ -122,6 +122,37 @@ def test_history_panel_expands_multi_step_branch():
     panel.deleteLater()
 
 
+def test_clicking_branch_block_lands_on_that_state():
+    _app()
+    canvas = PaintCanvas()
+    red_rect = QRect(10, 10, 8, 8)
+    green_rect = QRect(20, 20, 8, 8)
+    blue_rect = QRect(40, 40, 8, 8)
+    # 赤→緑まで進めてから2手戻り、青を描いて赤・緑の2手ぶんの分岐を作る。
+    _paint(canvas, red_rect, "red")
+    _paint(canvas, green_rect, "green")
+    canvas.undo()
+    canvas.undo()
+    _paint(canvas, blue_rect, "blue")
+
+    panel = HistoryPanel()
+    panel.set_canvas(canvas)
+
+    branch_nodes = [n for n in panel.graph._nodes if n["kind"] == "branch"]
+    # 分岐点に近い順（赤=1手, 緑=2手）にRedo回数が振られている。
+    assert [n["steps"] for n in branch_nodes] == [1, 2]
+
+    # 2番目のブロック（緑）をクリックしたときの処理相当：分岐へ切り替え、
+    # steps回Redoして、クリックした緑の状態まで進む。
+    green_block = branch_nodes[1]
+    assert canvas.switch_history_branch(green_block["value"]) is True
+    for _ in range(green_block["steps"]):
+        canvas.redo()
+    assert canvas.active_layer.image.pixelColor(green_rect.center()) == QColor("green")
+    assert canvas.active_layer.image.pixelColor(red_rect.center()) == QColor("red")
+    panel.deleteLater()
+
+
 def test_history_panel_spreads_sibling_branches_into_columns():
     _app()
     canvas = PaintCanvas()
