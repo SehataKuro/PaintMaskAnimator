@@ -2,7 +2,13 @@
 
 import importlib.util
 import json
+import re as _re
 import traceback
+
+from PySide6.QtGui import (
+    QColor, QFont, QPalette, QSyntaxHighlighter, QTextCharFormat, QTextFormat,
+)
+from PySide6.QtWidgets import QTextEdit
 
 from . import config
 from .common import *  # noqa: F401,F403
@@ -79,12 +85,18 @@ class ActionPanel(QWidget):
         layout.addStretch()
 
         controls = QHBoxLayout()
-        self.edit_button = QPushButton("スクリプトを編集")
-        self.edit_button.setToolTip(
-            "アプリ内でPythonアクションを編集・新規作成します"
+        self.menu_button = QToolButton()
+        self.menu_button.setText("☰")  # hamburger ☰
+        self.menu_button.setToolTip("アクションメニュー")
+        self.menu_button.setPopupMode(
+            QToolButton.ToolButtonPopupMode.InstantPopup
         )
-        self.edit_button.clicked.connect(self.open_script_editor)
-        controls.addWidget(self.edit_button)
+        menu = QMenu(self.menu_button)
+        edit_action = menu.addAction("スクリプトを編集")
+        edit_action.triggered.connect(self.open_script_editor)
+        self.menu_button.setMenu(menu)
+        controls.addStretch()
+        controls.addWidget(self.menu_button)
         layout.addLayout(controls)
 
     def open_script_editor(self):
@@ -244,6 +256,163 @@ def register_actions(panel, window):
 '''
 
 
+class PythonHighlighter(QSyntaxHighlighter):
+    """Minimal Python syntax highlighter for the action editor."""
+
+    KEYWORDS = (
+        "and as assert async await break class continue def del elif else "
+        "except finally for from global if import in is lambda nonlocal not "
+        "or pass raise return try while with yield True False None self"
+    ).split()
+
+    def __init__(self, document, dark):
+        super().__init__(document)
+        palette = {
+            "keyword": "#c586c0" if dark else "#0000ff",
+            "builtin": "#569cd6" if dark else "#267f99",
+            "string": "#ce9178" if dark else "#a31515",
+            "comment": "#6a9955" if dark else "#008000",
+            "number": "#b5cea8" if dark else "#098658",
+            "func": "#dcdcaa" if dark else "#795e26",
+            "decorator": "#dcdcaa" if dark else "#795e26",
+        }
+
+        def fmt(color, *, italic=False, bold=False):
+            f = QTextCharFormat()
+            f.setForeground(QColor(color))
+            if italic:
+                f.setFontItalic(True)
+            if bold:
+                f.setFontWeight(QFont.Weight.Bold)
+            return f
+
+        kw_fmt = fmt(palette["keyword"], bold=True)
+        self._rules = [
+            (_re.compile(r"\b" + kw + r"\b"), kw_fmt) for kw in self.KEYWORDS
+        ]
+        self._rules += [
+            (_re.compile(r"@\w+"), fmt(palette["decorator"])),
+            (_re.compile(r"\bdef\s+(\w+)"), fmt(palette["func"])),
+            (_re.compile(r"\bclass\s+(\w+)"), fmt(palette["func"])),
+            (_re.compile(r"\b\d+(?:\.\d+)?\b"), fmt(palette["number"])),
+        ]
+        self._string_fmt = fmt(palette["string"])
+        self._comment_fmt = fmt(palette["comment"], italic=True)
+        self._string_re = _re.compile(
+            r"'[^'\\]*(?:\\.[^'\\]*)*'|\"[^\"\\]*(?:\\.[^\"\\]*)*\""
+        )
+        self._comment_re = _re.compile(r"#[^\n]*")
+
+    def highlightBlock(self, text):  # noqa: N802 - Qt override
+        for pattern, char_fmt in self._rules:
+            for match in pattern.finditer(text):
+                start = match.start(1) if match.groups() else match.start()
+                end = match.end(1) if match.groups() else match.end()
+                self.setFormat(start, end - start, char_fmt)
+        for match in self._string_re.finditer(text):
+            self.setFormat(match.start(), match.end() - match.start(),
+                           self._string_fmt)
+        comment = self._comment_re.search(text)
+        if comment:
+            self.setFormat(comment.start(),
+                           len(text) - comment.start(), self._comment_fmt)
+
+
+class _LineNumberArea(QWidget):
+    def __init__(self, editor):
+        super().__init__(editor)
+        self._editor = editor
+
+    def sizeHint(self):  # noqa: N802 - Qt override
+        return QSize(self._editor.line_number_area_width(), 0)
+
+    def paintEvent(self, event):  # noqa: N802 - Qt override
+        self._editor.line_number_area_paint(event)
+
+
+class CodeEditor(QPlainTextEdit):
+    """A monospace editor with a line-number gutter and current-line highlight."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        mono = QFont("Consolas")
+        mono.setStyleHint(QFont.StyleHint.Monospace)
+        mono.setPointSize(11)
+        self.setFont(mono)
+        self.setTabStopDistance(4 * self.fontMetrics().horizontalAdvance(" "))
+
+        base = self.palette().color(QPalette.ColorRole.Base)
+        self._dark = base.lightness() < 128
+        self._gutter_bg = base.darker(115) if not self._dark else base.lighter(140)
+        self._gutter_fg = QColor("#858585")
+        self._current_line_bg = (
+            base.lighter(118) if self._dark else base.darker(104)
+        )
+
+        self._line_numbers = _LineNumberArea(self)
+        self.blockCountChanged.connect(self._update_gutter_width)
+        self.updateRequest.connect(self._update_gutter)
+        self.cursorPositionChanged.connect(self._highlight_current_line)
+        self._update_gutter_width(0)
+        self._highlight_current_line()
+
+    def line_number_area_width(self):
+        digits = max(2, len(str(max(1, self.blockCount()))))
+        return 12 + self.fontMetrics().horizontalAdvance("9") * digits
+
+    def _update_gutter_width(self, _count):
+        self.setViewportMargins(self.line_number_area_width(), 0, 0, 0)
+
+    def _update_gutter(self, rect, dy):
+        if dy:
+            self._line_numbers.scroll(0, dy)
+        else:
+            self._line_numbers.update(
+                0, rect.y(), self._line_numbers.width(), rect.height()
+            )
+        if rect.contains(self.viewport().rect()):
+            self._update_gutter_width(0)
+
+    def resizeEvent(self, event):  # noqa: N802 - Qt override
+        super().resizeEvent(event)
+        cr = self.contentsRect()
+        self._line_numbers.setGeometry(
+            cr.left(), cr.top(), self.line_number_area_width(), cr.height()
+        )
+
+    def _highlight_current_line(self):
+        selection = QTextEdit.ExtraSelection()
+        selection.format.setBackground(self._current_line_bg)
+        selection.format.setProperty(QTextFormat.Property.FullWidthSelection, True)
+        selection.cursor = self.textCursor()
+        selection.cursor.clearSelection()
+        self.setExtraSelections([selection])
+
+    def line_number_area_paint(self, event):
+        painter = QPainter(self._line_numbers)
+        painter.fillRect(event.rect(), self._gutter_bg)
+        block = self.firstVisibleBlock()
+        block_number = block.blockNumber()
+        top = self.blockBoundingGeometry(block).translated(
+            self.contentOffset()
+        ).top()
+        bottom = top + self.blockBoundingRect(block).height()
+        painter.setPen(self._gutter_fg)
+        width = self._line_numbers.width() - 6
+        height = self.fontMetrics().height()
+        while block.isValid() and top <= event.rect().bottom():
+            if block.isVisible() and bottom >= event.rect().top():
+                painter.drawText(
+                    0, int(top), width, height,
+                    Qt.AlignmentFlag.AlignRight, str(block_number + 1),
+                )
+            block = block.next()
+            top = bottom
+            bottom = top + self.blockBoundingRect(block).height()
+            block_number += 1
+
+
 class ScriptEditorDialog(QDialog):
     """In-app editor for the ``*.py`` action scripts in the actions folder."""
 
@@ -268,16 +437,10 @@ class ScriptEditorDialog(QDialog):
         right = QWidget()
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(0, 0, 0, 0)
-        self.editor = QPlainTextEdit()
-        self.editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
-        try:
-            from PySide6.QtGui import QFont
-            mono = QFont("Consolas")
-            mono.setStyleHint(QFont.StyleHint.Monospace)
-            self.editor.setFont(mono)
-        except Exception:  # noqa: BLE001 - font is cosmetic only
-            pass
-        self.editor.setTabStopDistance(4 * self.editor.fontMetrics().horizontalAdvance(" "))
+        self.editor = CodeEditor()
+        self._highlighter = PythonHighlighter(
+            self.editor.document(), self.editor._dark
+        )
         self.editor.textChanged.connect(self._on_text_changed)
         right_layout.addWidget(self.editor, 1)
         splitter.addWidget(right)
