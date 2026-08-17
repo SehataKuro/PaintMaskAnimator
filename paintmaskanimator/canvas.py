@@ -220,7 +220,6 @@ class PaintCanvas(
         self._brush_cursor_inside = False
         # ブラシ確定時にタイムライン全体を作り直さないための状態。
         self._brush_started_with_content = True
-        self._editable_key_was_blank = False
         self._brush_blend_base_image = None
         self._brush_blended_colors = set()
         # Undo用の変更前画素はタイル単位で遅延保存する。全画面サイズの
@@ -876,10 +875,12 @@ class PaintCanvas(
             )
             if palette.size:
                 return tuple(
-                    tuple(int(channel) for channel in rgb)
-                    for rgb in palette
-                    if tuple(int(channel) for channel in rgb)
-                    != (255, 255, 255)
+                    rgb
+                    for rgb in (
+                        tuple(int(channel) for channel in row)
+                        for row in palette
+                    )
+                    if rgb != (255, 255, 255)
                 )
 
         unique = np.unique(
@@ -887,10 +888,12 @@ class PaintCanvas(
             axis=0,
         )
         return tuple(
-            tuple(int(channel) for channel in rgb)
-            for rgb in unique
-            if tuple(int(channel) for channel in rgb)
-            != (255, 255, 255)
+            rgb
+            for rgb in (
+                tuple(int(channel) for channel in row)
+                for row in unique
+            )
+            if rgb != (255, 255, 255)
         )
 
 

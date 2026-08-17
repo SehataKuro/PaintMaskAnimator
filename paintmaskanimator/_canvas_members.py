@@ -83,7 +83,6 @@ class CanvasMembers(_MembersBase):
         _draw_onion_range: Any
         _draw_stabilized_brush_to: Any
         _draw_tapered_path: Any
-        _editable_key_was_blank: Any
         _emit_actual_paint_colors: Any
         _ensure_before_region: Any
         _ensure_frame_count: Any

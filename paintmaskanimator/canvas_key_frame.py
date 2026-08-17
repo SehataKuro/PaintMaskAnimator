@@ -223,7 +223,6 @@ class KeyFrameMixin(CanvasMembers):
 
     def ensure_editable_key(self):
         """未使用／○／保持セルを独立した●キーフレームへ変換する。"""
-        self._editable_key_was_blank = False
         layer = self.active_layer
         if layer.has_content:
             if layer.sequence_number is not None:
@@ -272,13 +271,11 @@ class KeyFrameMixin(CanvasMembers):
                 if kind == "content"
                 else blank_image()
             )
-            self._editable_key_was_blank = kind != "content"
             layer.exposure = max(1, old_end - current + 1)
         else:
             # An uncreated cell already owns a transparent image.  Keep it
             # instead of allocating and clearing another full-canvas image at
             # the instant the first stroke begins.
-            self._editable_key_was_blank = True
             layer.exposure = 1
 
         layer.has_content = True
