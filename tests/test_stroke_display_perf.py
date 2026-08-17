@@ -138,8 +138,8 @@ def test_brush_undo_stores_only_touched_tiles(qapp, monkeypatch, tmp_path):
         window.close()
 
 
-def test_brush_ignores_opacity_setting(qapp, monkeypatch, tmp_path):
-    """The brush is always 100% opaque; the shared opacity control is ignored."""
+def test_brush_is_always_opaque(qapp, monkeypatch, tmp_path):
+    """The brush always writes 100% opaque pixels; there is no opacity setting."""
     monkeypatch.setenv("APPDATA", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     from paintmaskanimator import constants
@@ -150,6 +150,10 @@ def test_brush_ignores_opacity_setting(qapp, monkeypatch, tmp_path):
     window = MainWindow()
     try:
         canvas = window.canvas
+        # The opacity feature has been removed entirely.
+        assert not hasattr(canvas, "pen_opacity")
+        assert not hasattr(canvas, "paint_opacity_value")
+        assert not hasattr(window.tools, "opacity_enabled")
         canvas.active_layer_index = next(
             i for i, layer in enumerate(canvas.layers)
             if not getattr(layer, "is_paper", False)
@@ -157,9 +161,6 @@ def test_brush_ignores_opacity_setting(qapp, monkeypatch, tmp_path):
         canvas.main_color = QColor("#0000ff")
         canvas.color_mode = "main"
         canvas.pen_size = 20.0
-        # Even with the opacity control turned on at 50%, the brush stays opaque.
-        canvas.pen_opacity = 0.5
-        window.tools.opacity_enabled.setChecked(True)
         start = QPointF(190, 200)
         end = QPointF(210, 200)
         canvas._begin_opaque_brush_stroke()

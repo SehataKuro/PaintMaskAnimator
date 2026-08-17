@@ -736,9 +736,6 @@ class UIBuildMixin(MainWindowMembers):
             self.canvas.set_brush_stabilizer
         )
         self.tools.brush_size_spinbox.pressureRequested.connect(self.pressure)
-        self.tools.opacity.valueChanged.connect(
-            lambda value: setattr(self.canvas, "pen_opacity", value / 100)
-        )
         self.tools.colorModeChanged.connect(self.set_color_mode)
         self.tools.colorChanged.connect(self.set_color_value)
         # Keep the tool-bar drawing-colour swatch in sync with the panel.

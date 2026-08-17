@@ -172,9 +172,7 @@ class InputEventMixin(CanvasMembers):
             self._start_brush_follow_timer()
             self.last_canvas = QPointF(p)
             self.draw_line(p, p, 1.0)
-            used_color = self.opaque_paint_color(
-                opacity=self._brush_stroke_opacity
-            )
+            used_color = self.opaque_paint_color()
             if not self.is_pseudo_transparent_color(used_color):
                 self.colorUsed.emit(used_color)
         elif t == "bucket":
@@ -447,9 +445,7 @@ class InputEventMixin(CanvasMembers):
             pressure = self._smooth_brush_pressure(pressure)
             self._last_brush_pressure = pressure
             self.draw_line(p, p, pressure)
-            used_color = self.opaque_paint_color(
-                opacity=self._brush_stroke_opacity
-            )
+            used_color = self.opaque_paint_color()
             if not self.is_pseudo_transparent_color(used_color):
                 self.colorUsed.emit(used_color)
             e.accept()

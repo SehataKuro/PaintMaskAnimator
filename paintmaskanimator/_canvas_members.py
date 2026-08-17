@@ -55,7 +55,6 @@ class CanvasMembers(_MembersBase):
         _binary_paint_overlay_rgba: Any
         _blend_overlay_into_active_layer: Any
         _bool_mask_image: Any
-        _brush_blend_base_image: Any
         _brush_blended_colors: Any
         _brush_cursor_inside: Any
         _brush_cursor_widget_pos: Any
@@ -65,7 +64,6 @@ class CanvasMembers(_MembersBase):
         _brush_stabilizer_history: Any
         _brush_stabilizer_window: Any
         _brush_started_with_content: Any
-        _brush_stroke_opacity: Any
         _build_playback_key_map: Any
         _build_tp_geometry_cache: Any
         _build_tp_label_image: Any
@@ -234,7 +232,6 @@ class CanvasMembers(_MembersBase):
         begin_transform_drag: Any
         begin_transform_line_adjustment: Any
         binarize_alpha_for_pixel_art: Any
-        blended_paint_color: Any
         brush_stabilizer_strength: Any
         build_color_reduction_palette: Any
         cancel_mesh: Any
@@ -343,11 +340,9 @@ class CanvasMembers(_MembersBase):
         onion_tu_tb_scale: Any
         opaque_paint_color: Any
         opaque_rgb_color_count: Any
-        paint_opacity_value: Any
         paint_source_color: Any
         pan: Any
         paste_clipboard: Any
-        pen_opacity: float
         pen_size: Any
         playback_advance: Any
         playback_frame_image: Any

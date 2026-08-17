@@ -156,7 +156,7 @@ class PaintCanvas(
         self.transform_mesh_rows=4
         self.transform_mesh_grid=4  # legacy compatibility
         self.transform_mesh_reference_points=[]
-        self.pen_size=8; self.pen_opacity=1.0
+        self.pen_size=8
         self.brush_stabilizer_strength = 0
         self._stabilized_canvas = None
         self._last_raw_canvas = None
@@ -220,7 +220,6 @@ class PaintCanvas(
         self._brush_cursor_inside = False
         # ブラシ確定時にタイムライン全体を作り直さないための状態。
         self._brush_started_with_content = True
-        self._brush_blend_base_image = None
         self._brush_blended_colors = set()
         # Undo用の変更前画素はタイル単位で遅延保存する。全画面サイズの
         # QImageをストローク開始時に確保しない。
@@ -229,7 +228,6 @@ class PaintCanvas(
         self._stroke_undo_frame = 0
         self._stroke_undo_layer = 0
         self._stroke_prev_has_content = False
-        self._brush_stroke_opacity = 1.0
         self._brush_runtime_warmed = False
         self._cell_structure_dirty = True
         # ライン／図形ツールのプレビュー状態
@@ -584,46 +582,8 @@ class PaintCanvas(
         source.setAlpha(255)
         return source
 
-    def paint_opacity_value(self, opacity=None):
-        """UI不透明度だけを返す。筆圧値は一切参照しない。"""
-        window: Any = self.window()
-        tools = getattr(window, "tools", None)
-        checkbox = getattr(
-            tools,
-            "opacity_enabled",
-            None,
-        )
-        enabled = bool(
-            checkbox is not None
-            and checkbox.isChecked()
-        )
-        if not enabled:
-            return 1.0
-
-        amount = (
-            float(self.pen_opacity)
-            if opacity is None
-            else float(opacity)
-        )
-        return max(0.0, min(1.0, amount))
-
-    def blended_paint_color(
-        self,
-        destination_color,
-        base_color=None,
-        opacity=None,
-    ):
-        """互換用。下地と混色せず、指定RGBをそのまま返す。"""
-        del destination_color, opacity
-        return self.paint_source_color(base_color)
-
-    def opaque_paint_color(
-        self,
-        base_color=None,
-        opacity=None,
-    ):
-        """選択RGBをα255のまま返す。不透明度ではRGBを変えない。"""
-        del opacity
+    def opaque_paint_color(self, base_color=None):
+        """選択RGBをα255のまま返す。"""
         return self.paint_source_color(base_color)
 
     def _emit_actual_paint_colors(self, colors, maximum=64):
@@ -695,11 +655,12 @@ class PaintCanvas(
         self,
         overlay,
         top_left=None,
-        base_image=None,
-        opacity=None,
         exact_colors=None,
     ):
-        """100%は正規RGB直書き、100%未満だけ通常の不透明度合成。"""
+        """選択RGBをそのままレイヤーへ直書きする（常に100%不透明）。
+
+        白(#FFFFFF)は本物の消しゴムとして該当画素を alpha=0 へ抜く。
+        """
         if overlay is None or overlay.isNull():
             return ()
 
@@ -753,82 +714,11 @@ class PaintCanvas(
             exact_colors,
         )
 
-        amount = self.paint_opacity_value(opacity)
-        if amount <= 0.0:
-            return ()
-
         result_rgba = np.zeros_like(overlay_rgba)
-
-        if amount >= 0.999999:
-            # 最重要経路：100%では下地を参照せず正規RGBを直書きする。
-            # ここでは新しい近似RGBを生成しない。
-            result_rgba[active_mask, :3] = (
-                overlay_rgba[active_mask, :3]
-            )
-            result_rgba[active_mask, 3] = 255
-            written_rgb = overlay_rgba[
-                active_mask,
-                :3,
-            ]
-        else:
-            # 不透明度を明示的にONにした場合だけ、通常のRGB合成を行う。
-            if (
-                base_image is not None
-                and not base_image.isNull()
-                and base_image.width() == width
-                and base_image.height() == height
-            ):
-                base_crop = base_image
-            else:
-                reference = (
-                    base_image
-                    if (
-                        base_image is not None
-                        and not base_image.isNull()
-                        and base_image.width() == destination_image.width()
-                        and base_image.height() == destination_image.height()
-                    )
-                    else destination_image
-                )
-                base_crop = reference.copy(
-                    destination_x,
-                    destination_y,
-                    width,
-                    height,
-                )
-            base_rgba = self._qimage_rgba_array(
-                base_crop
-            )
-            base_rgb = base_rgba[
-                :, :, :3
-            ].astype(np.float32)
-            base_rgb[
-                base_rgba[:, :, 3] == 0
-            ] = 255.0
-
-            source_rgb = overlay_rgba[
-                :, :, :3
-            ].astype(np.float32)
-            blended_rgb = np.clip(
-                np.rint(
-                    base_rgb * (1.0 - amount)
-                    + source_rgb * amount
-                ),
-                0,
-                255,
-            ).astype(np.uint8)
-
-            result_rgba[
-                active_mask,
-                :3,
-            ] = blended_rgb[active_mask]
-            result_rgba[
-                active_mask,
-                3,
-            ] = 255
-            written_rgb = blended_rgb[
-                active_mask
-            ]
+        # 下地を参照せず正規RGBを直書きする（近似色を生成しない）。
+        result_rgba[active_mask, :3] = overlay_rgba[active_mask, :3]
+        result_rgba[active_mask, 3] = 255
+        written_rgb = overlay_rgba[active_mask, :3]
 
         # 白(#FFFFFF)ストロークは疑似透明ではなく本物の消しゴムとして扱う。
         # 該当画素をレイヤーへ書かず、alpha=0 へ抜く（下のレイヤーが透ける）。
@@ -868,20 +758,17 @@ class PaintCanvas(
         if written_rgb.size == 0:
             return ()
 
-        # 100%は正規RGBだけを通知する。白は消しゴム扱いなので使用色に含めない。
-        if amount >= 0.999999:
-            palette = self._paint_rgb_palette(
-                exact_colors
-            )
-            if palette.size:
-                return tuple(
-                    rgb
-                    for rgb in (
-                        tuple(int(channel) for channel in row)
-                        for row in palette
-                    )
-                    if rgb != (255, 255, 255)
+        # 正規RGBを通知する。白は消しゴム扱いなので使用色に含めない。
+        palette = self._paint_rgb_palette(exact_colors)
+        if palette.size:
+            return tuple(
+                rgb
+                for rgb in (
+                    tuple(int(channel) for channel in row)
+                    for row in palette
                 )
+                if rgb != (255, 255, 255)
+            )
 
         unique = np.unique(
             written_rgb,

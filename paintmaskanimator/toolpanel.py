@@ -812,49 +812,6 @@ class ToolPanel(QWidget):
         v.addWidget(self.brush_stabilizer_label)
         v.addWidget(self.brush_stabilizer)
 
-        self.opacity_enabled=QCheckBox("不透明度を使用")
-        self.opacity_enabled.setChecked(False)
-        self.opacity_title=self.opacity_enabled
-        v.addWidget(self.opacity_title)
-
-        self.opacity=QSpinBox()
-        self.opacity.setRange(1,100)
-        self.opacity.setValue(100)
-        self.opacity.setSuffix("%")
-        self.opacity_slider=QSlider(Qt.Orientation.Horizontal)
-        self.opacity_slider.setRange(1,100)
-        self.opacity_slider.setValue(100)
-
-        opacity_tooltip = (
-            "OFF：常に100%で、選択RGBをそのまま保存します。"
-            "ON：設定値に応じて下地RGBと合成します。"
-            "100%時はONでもRGB直書きなので近似色は増えません。"
-            "筆圧は線幅だけに反映し、不透明度やアルファへは"
-            "絶対に使用しません。"
-        )
-        self.opacity_title.setToolTip(opacity_tooltip)
-        self.opacity.setToolTip(opacity_tooltip)
-        self.opacity_slider.setToolTip(opacity_tooltip)
-
-        self.opacity.valueChanged.connect(
-            self.opacity_slider.setValue
-        )
-        self.opacity_slider.valueChanged.connect(
-            self.opacity.setValue
-        )
-
-        def sync_opacity_controls(enabled):
-            enabled = bool(enabled)
-            self.opacity.setEnabled(enabled)
-            self.opacity_slider.setEnabled(enabled)
-
-        self.opacity_enabled.toggled.connect(
-            sync_opacity_controls
-        )
-        sync_opacity_controls(False)
-
-        v.addWidget(self.opacity_slider)
-        v.addWidget(self.opacity)
         # Photoshop風の前景色／背景色スタック。
         self.drawing_color_box = QWidget()
         color_layout = QVBoxLayout(self.drawing_color_box)
@@ -1099,8 +1056,6 @@ class ToolPanel(QWidget):
         is_dust = tid == "dust"
         is_lasso_fill = tid == "lasso_fill"
         uses_size = tid in ("brush", "line")
-        # ブラシは常に不透明（白=消しゴム）。不透明度設定はブラシでは持たない。
-        uses_opacity = tid in ("line", "shape", "bucket", "lasso_fill")
 
         self.command_box.setVisible(
             is_selection or is_line or is_shape
@@ -1206,9 +1161,6 @@ class ToolPanel(QWidget):
         self.brush_size_spinbox.setVisible(uses_size)
         self.brush_stabilizer_label.setVisible(tid == "brush")
         self.brush_stabilizer.setVisible(tid == "brush")
-        self.opacity_title.setVisible(uses_opacity)
-        self.opacity_slider.setVisible(uses_opacity)
-        self.opacity.setVisible(uses_opacity)
 
 
     def set_color_mode(self, mode):

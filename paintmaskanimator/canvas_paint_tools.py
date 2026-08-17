@@ -195,15 +195,9 @@ class PaintToolsMixin(CanvasMembers):
                 overlay_rgba
             )
 
-        # ブラシは常に100%不透明（白=消しゴム）。不透明度設定は持たない。
-        fixed_opacity = float(
-            getattr(self, "_brush_stroke_opacity", 1.0)
-        )
         colors = self._blend_overlay_into_active_layer(
             overlay,
             rect.topLeft(),
-            base_image=before_region,
-            opacity=fixed_opacity,
             exact_colors=(source_color,),
         )
         color_set = getattr(
@@ -248,7 +242,6 @@ class PaintToolsMixin(CanvasMembers):
 
         target = pixels[start_y, start_x].copy()
         replacement = self.paint_source_color()
-        paint_opacity = self.paint_opacity_value()
 
         window: Any = self.window()
         include_masks = bool(
@@ -481,40 +474,8 @@ class PaintToolsMixin(CanvasMembers):
             self.update()
             return
 
-        if paint_opacity >= 0.999999:
-            # 100%は正規RGBをそのまま書き込み、近似色を生成しない。
-            pixels[ys, xs, :3] = source_rgb
-            written_rgb = source_rgb.reshape(
-                (1, 3)
-            )
-        else:
-            # 不透明度チェックONかつ100%未満の場合だけ通常混色。
-            destination_rgb = pixels[
-                ys,
-                xs,
-                :3,
-            ].astype(np.float32)
-            transparent_pixels = (
-                pixels[ys, xs, 3] == 0
-            )
-            destination_rgb[
-                transparent_pixels
-            ] = 255.0
-            source_float = source_rgb.astype(
-                np.float32
-            )
-            written_rgb = np.clip(
-                np.rint(
-                    destination_rgb
-                    * (1.0 - paint_opacity)
-                    + source_float[None, :]
-                    * paint_opacity
-                ),
-                0,
-                255,
-            ).astype(np.uint8)
-            pixels[ys, xs, :3] = written_rgb
-
+        # 正規RGBをそのまま書き込む（近似色を生成しない）。
+        pixels[ys, xs, :3] = source_rgb
         pixels[ys, xs, 3] = 255
 
         self.active_layer.image = image.convertToFormat(
@@ -529,8 +490,6 @@ class PaintToolsMixin(CanvasMembers):
                     int(source_rgb[2]),
                 ),
             )
-            if paint_opacity >= 0.999999
-            else np.unique(written_rgb, axis=0)
         )
         self.cellChanged.emit(self.current_frame, self.active_layer_index)
         self.update()
@@ -779,7 +738,6 @@ class PaintToolsMixin(CanvasMembers):
         ).toAlignedRect()
         if not self.push_layer_region_undo(undo_rect):
             return
-        base_image = self.active_layer.image.copy()
         overlay = QImage(
             self.active_layer.image.width(),
             self.active_layer.image.height(),
@@ -828,8 +786,6 @@ class PaintToolsMixin(CanvasMembers):
         colors = self._blend_overlay_into_active_layer(
             overlay,
             QPoint(0, 0),
-            base_image=base_image,
-            opacity=self.pen_opacity,
             exact_colors=(source_color,),
         )
         self._emit_actual_paint_colors(colors)
@@ -944,7 +900,6 @@ class PaintToolsMixin(CanvasMembers):
             outline_color = self.paint_source_color()
             fill_color = QColor(outline_color)
 
-        base_image = self.active_layer.image.copy()
         overlay = QImage(
             self.active_layer.image.width(),
             self.active_layer.image.height(),
@@ -991,8 +946,6 @@ class PaintToolsMixin(CanvasMembers):
         colors = self._blend_overlay_into_active_layer(
             overlay,
             QPoint(0, 0),
-            base_image=base_image,
-            opacity=self.pen_opacity,
             exact_colors=exact_shape_colors,
         )
         self._emit_actual_paint_colors(colors)
@@ -1166,8 +1119,6 @@ class PaintToolsMixin(CanvasMembers):
         colors = self._blend_overlay_into_active_layer(
             overlay,
             rect.topLeft(),
-            base_image=self.active_layer.image.copy(),
-            opacity=self.pen_opacity,
             exact_colors=exact_lasso_colors,
         )
 
