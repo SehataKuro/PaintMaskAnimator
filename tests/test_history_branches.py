@@ -66,6 +66,24 @@ def test_switch_history_branch_restores_the_other_future():
     assert canvas.active_layer.image.pixelColor(blue_rect.center()) == QColor("blue")
 
 
+def test_switch_history_branch_invalidates_display_cache():
+    _app()
+    canvas = PaintCanvas()
+    _paint(canvas, QRect(10, 10, 8, 8), "red")
+    canvas.undo()
+    _paint(canvas, QRect(40, 40, 8, 8), "blue")
+
+    # 表示キャッシュに何か溜めておく（cacheKey 使い回しによる残像の元）。
+    canvas._pseudo_transparency_cache[("stale", 1, 1)] = object()
+    canvas._onion_cache[("stale",)] = object()
+
+    assert canvas.switch_history_branch(0) is True
+    # 分岐切り替えで表示キャッシュが捨てられ、別分岐の残像が残らない。
+    assert canvas._pseudo_transparency_cache == {}
+    assert canvas._onion_cache == {}
+    assert canvas._stroke_display_image is None
+
+
 def test_switch_history_branch_rejects_bad_index():
     _app()
     canvas = PaintCanvas()
