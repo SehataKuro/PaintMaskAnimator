@@ -87,8 +87,32 @@ def test_history_panel_shows_branch_under_its_divergence_point():
     branch_nodes = [n for n in nodes if n["kind"] == "branch"]
     main_ys = {n["y"] for n in nodes if n["kind"] == "main"}
     assert len(branch_nodes) == 1
-    # 分岐ノードは、それが分かれた本線ノードにぶら下がる（親のyに紐づく）。
-    assert branch_nodes[0]["parent_y"] in main_ys
+    # 分岐の先頭ノードは、それが分かれた本線ノードから曲線で枝分かれする。
+    assert branch_nodes[0]["curve"] is True
+    assert branch_nodes[0]["from_y"] in main_ys
     # 分岐は本線より一段インデントされ、本線ノードとは別位置に描かれる。
     assert branch_nodes[0]["lane"] == 1
+    panel.deleteLater()
+
+
+def test_history_panel_expands_multi_step_branch():
+    _app()
+    canvas = PaintCanvas()
+    # 2手進めてから2手戻り、別の編集をして2手ぶんの分岐を作る。
+    _paint(canvas, QRect(10, 10, 8, 8), "red")
+    _paint(canvas, QRect(20, 20, 8, 8), "green")
+    canvas.undo()
+    canvas.undo()
+    _paint(canvas, QRect(40, 40, 8, 8), "blue")
+
+    panel = HistoryPanel()
+    panel.set_canvas(canvas)
+
+    branch_nodes = [n for n in panel.graph._nodes if n["kind"] == "branch"]
+    # 捨てられた未来（赤・緑の2手）が1手ずつのノードとして展開される。
+    assert len(branch_nodes) == 2
+    # 2番目以降は同じレーンを縦線でつなぐ（曲線ではない）。
+    assert branch_nodes[0]["curve"] is True
+    assert branch_nodes[1]["curve"] is False
+    assert branch_nodes[1]["from_y"] == branch_nodes[0]["y"]
     panel.deleteLater()
