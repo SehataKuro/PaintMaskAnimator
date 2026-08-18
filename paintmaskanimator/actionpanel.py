@@ -1,14 +1,14 @@
 """Action panel with built-in and user-defined Python actions."""
 
+import hashlib
 import importlib.util
 import json
-import re as _re
+import os
 import traceback
 
-from PySide6.QtGui import (
-    QColor, QFont, QPalette, QSyntaxHighlighter, QTextCharFormat, QTextFormat,
-)
-from PySide6.QtWidgets import QTextEdit
+from PySide6.QtCore import QObject, QUrl, Signal, Slot
+from PySide6.QtWebChannel import QWebChannel
+from PySide6.QtWebEngineWidgets import QWebEngineView
 
 from . import config
 from .common import *  # noqa: F401,F403
@@ -16,47 +16,72 @@ from .common import *  # noqa: F401,F403
 
 # Built-in actions ship as editable default scripts. They are written into the
 # actions folder on first run (see ``_seed_builtin_scripts``) so users can edit
-# or delete them like any other action. Each references methods on ``window``.
+# or delete them like any other action. These files also serve as copyable API
+# examples, so callbacks are deliberately named and commented.
 BUILTIN_SCRIPTS = {
-    "builtin_silhouette.py": '''"""組み込みアクション: 背景以外を黒シルエット表示。"""
+    "builtin_silhouette.py": '''"""チェック式アクションの例: 背景以外を黒シルエット表示。"""
 
 
 def register_actions(panel, window):
+    # checkable=True のコールバックには、ボタンの新しい状態が渡ります。
+    def set_silhouette(checked):
+        action = window.a_silhouette
+        # QAction.trigger() は状態を反転するので、必要な場合だけ呼びます。
+        if action.isChecked() != checked:
+            action.trigger()
+
     panel.add_action(
-        "silhouette",
+        "silhouette",  # 他のスクリプトと重複しないID
         "背景以外を黒シルエット表示",
-        lambda checked=False: window.a_silhouette.trigger(),
+        set_silhouette,
+        tooltip="背景以外の色を黒で表示します。もう一度押すと解除します。",
         checkable=True,
     )
 ''',
-    "builtin_same_image_replacement.py": '''"""組み込みアクション: 同一画像から色置換。"""
+    "builtin_same_image_replacement.py": '''"""通常のアクションの例: 同一画像から色置換。"""
 
 
 def register_actions(panel, window):
+    def replace_colors():
+        # window は MainWindow です。既存の操作を呼び出せます。
+        window.register_same_image_replacements()
+        window.status_bar.showMessage("同一画像から色置換を実行しました", 3000)
+
     panel.add_action(
         "same_image_replacement",
         "同一画像から色置換",
-        lambda: window.register_same_image_replacements(),
+        replace_colors,
         tooltip=(
             "同じタイムライン位置にある上のレイヤーと画素配置を比較し、"
             "一致した色対応をそのまま実画像へ適用します。"
         ),
     )
 ''',
-    "builtin_main_line_repaint.py": '''"""組み込みアクション: MainLineRepaint。"""
+    "builtin_main_line_repaint.py": '''"""処理を関数に分ける例: MainLineRepaint。"""
 
 
 def register_actions(panel, window):
+    def repaint_main_line():
+        # 通常ボタンのコールバックには引数が渡りません。
+        window.main_line_repaint()
+
     panel.add_action(
         "main_line_repaint",
         "MainLineRepaint",
-        lambda: window.main_line_repaint(),
+        repaint_main_line,
         tooltip=(
             "メイン色・サブ色を線レイヤーへ分離し、"
             "抜けた面を周囲の最多色で埋めます。"
         ),
     )
 ''',
+}
+
+# 初期版を一字も編集していないファイルだけ、新しい参考例へ更新します。
+LEGACY_BUILTIN_HASHES = {
+    "builtin_silhouette.py": "f4da2226d3af2cb0e7a230f100551be3a0edb8d98b3a3a1e45a486f5157c982e",
+    "builtin_same_image_replacement.py": "d6116d312479ea89bc167c84886fedbd7f9680b5ba70f0fd25447c2b2f3d9e8b",
+    "builtin_main_line_repaint.py": "70855b6e6f7bed6562f9f25b24149a54d66aad9ec55ed7a5264fcd2fed2772d2",
 }
 
 
@@ -109,6 +134,14 @@ class ActionPanel(QWidget):
         changed = False
         for name, content in BUILTIN_SCRIPTS.items():
             if name in seeded:
+                path = actions_dir / name
+                try:
+                    current = path.read_text(encoding="utf-8")
+                    digest = hashlib.sha256(current.encode()).hexdigest()
+                    if digest == LEGACY_BUILTIN_HASHES.get(name):
+                        path.write_text(content, encoding="utf-8")
+                except (OSError, UnicodeError):
+                    pass
                 continue
             path = actions_dir / name
             if not path.exists():
@@ -216,7 +249,6 @@ class ActionPanel(QWidget):
         path = self.actions_dir()
         try:
             if sys.platform == "win32":
-                import os
                 os.startfile(path)  # noqa: S606 - user-requested local folder
             elif sys.platform == "darwin":
                 subprocess.Popen(["open", str(path)])
@@ -226,176 +258,89 @@ class ActionPanel(QWidget):
             QMessageBox.warning(self, "フォルダを開けません", str(error))
 
 
-NEW_SCRIPT_TEMPLATE = '''"""ユーザー定義アクション。
+NEW_SCRIPT_TEMPLATE = '''"""ユーザー定義アクションのひな形。
 
-``register_actions(panel, window)`` を定義し、``panel.add_action(...)`` を
-呼び出してください。``window`` はメインウィンドウです。
+register_actions(panel, window) は読み込み時に1回呼ばれます。
+window は PaintMaskAnimator のメインウィンドウです。
 """
 
 
 def register_actions(panel, window):
-    def run():
-        window.status_bar.showMessage("Hello from a custom action", 3000)
+    def run():  # 通常ボタンのコールバックは引数なし
+        # ここに実行したい処理を書きます。
+        window.status_bar.showMessage("カスタムアクションを実行しました", 3000)
 
-    panel.add_action("example.hello", "サンプルアクション", run)
+    panel.add_action(
+        "my_action.run",             # 必須: 重複しないID
+        "マイアクション",            # 必須: ボタンに表示する名前
+        run,                          # 必須: run() ではなく関数自体
+        tooltip="この処理の説明です",  # 任意
+    )
+
+    # 切り替えボタンにする場合:
+    # def toggle(checked):
+    #     window.status_bar.showMessage(f"状態: {checked}", 3000)
+    # panel.add_action("my_action.toggle", "切り替え", toggle, checkable=True)
 '''
 
 
-class PythonHighlighter(QSyntaxHighlighter):
-    """Minimal Python syntax highlighter for the action editor."""
+class _MonacoBridge(QObject):
+    """Receive editor events from Monaco through Qt WebChannel."""
 
-    KEYWORDS = (
-        "and as assert async await break class continue def del elif else "
-        "except finally for from global if import in is lambda nonlocal not "
-        "or pass raise return try while with yield True False None self"
-    ).split()
-
-    def __init__(self, document, dark):
-        super().__init__(document)
-        palette = {
-            "keyword": "#c586c0" if dark else "#0000ff",
-            "builtin": "#569cd6" if dark else "#267f99",
-            "string": "#ce9178" if dark else "#a31515",
-            "comment": "#6a9955" if dark else "#008000",
-            "number": "#b5cea8" if dark else "#098658",
-            "func": "#dcdcaa" if dark else "#795e26",
-            "decorator": "#dcdcaa" if dark else "#795e26",
-        }
-
-        def fmt(color, *, italic=False, bold=False):
-            f = QTextCharFormat()
-            f.setForeground(QColor(color))
-            if italic:
-                f.setFontItalic(True)
-            if bold:
-                f.setFontWeight(QFont.Weight.Bold)
-            return f
-
-        kw_fmt = fmt(palette["keyword"], bold=True)
-        self._rules = [
-            (_re.compile(r"\b" + kw + r"\b"), kw_fmt) for kw in self.KEYWORDS
-        ]
-        self._rules += [
-            (_re.compile(r"@\w+"), fmt(palette["decorator"])),
-            (_re.compile(r"\bdef\s+(\w+)"), fmt(palette["func"])),
-            (_re.compile(r"\bclass\s+(\w+)"), fmt(palette["func"])),
-            (_re.compile(r"\b\d+(?:\.\d+)?\b"), fmt(palette["number"])),
-        ]
-        self._string_fmt = fmt(palette["string"])
-        self._comment_fmt = fmt(palette["comment"], italic=True)
-        self._string_re = _re.compile(
-            r"'[^'\\]*(?:\\.[^'\\]*)*'|\"[^\"\\]*(?:\\.[^\"\\]*)*\""
-        )
-        self._comment_re = _re.compile(r"#[^\n]*")
-
-    def highlightBlock(self, text):  # noqa: N802 - Qt override
-        for pattern, char_fmt in self._rules:
-            for match in pattern.finditer(text):
-                start = match.start(1) if match.groups() else match.start()
-                end = match.end(1) if match.groups() else match.end()
-                self.setFormat(start, end - start, char_fmt)
-        for match in self._string_re.finditer(text):
-            self.setFormat(match.start(), match.end() - match.start(),
-                           self._string_fmt)
-        comment = self._comment_re.search(text)
-        if comment:
-            self.setFormat(comment.start(),
-                           len(text) - comment.start(), self._comment_fmt)
-
-
-class _LineNumberArea(QWidget):
     def __init__(self, editor):
         super().__init__(editor)
-        self._editor = editor
+        self.editor = editor
 
-    def sizeHint(self):  # noqa: N802 - Qt override
-        return QSize(self._editor.line_number_area_width(), 0)
+    @Slot(str)
+    def contentChanged(self, text):  # noqa: N802 - called from JavaScript
+        self.editor._content_changed(text)
 
-    def paintEvent(self, event):  # noqa: N802 - Qt override
-        self._editor.line_number_area_paint(event)
+    @Slot()
+    def editorReady(self):  # noqa: N802 - called from JavaScript
+        self.editor._editor_ready()
 
 
-class CodeEditor(QPlainTextEdit):
-    """A monospace editor with a line-number gutter and current-line highlight."""
+class MonacoEditor(QWebEngineView):
+    """Monaco Editor embedded in Qt, with a small text-widget-compatible API."""
+
+    textChanged = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
-        mono = QFont("Consolas")
-        mono.setStyleHint(QFont.StyleHint.Monospace)
-        mono.setPointSize(11)
-        self.setFont(mono)
-        self.setTabStopDistance(4 * self.fontMetrics().horizontalAdvance(" "))
+        self._text = ""
+        self._ready = False
+        self._bridge = _MonacoBridge(self)
+        self._channel = QWebChannel(self.page())
+        self._channel.registerObject("bridge", self._bridge)
+        self.page().setWebChannel(self._channel)
+        html_path = Path(__file__).with_name("assets") / "monaco_editor.html"
+        self.setUrl(QUrl.fromLocalFile(str(html_path.resolve())))
 
-        base = self.palette().color(QPalette.ColorRole.Base)
-        self._dark = base.lightness() < 128
-        self._gutter_bg = base.darker(115) if not self._dark else base.lighter(140)
-        self._gutter_fg = QColor("#858585")
-        self._current_line_bg = (
-            base.lighter(118) if self._dark else base.darker(104)
-        )
+    def _editor_ready(self):
+        self._ready = True
+        self._send_text()
 
-        self._line_numbers = _LineNumberArea(self)
-        self.blockCountChanged.connect(self._update_gutter_width)
-        self.updateRequest.connect(self._update_gutter)
-        self.cursorPositionChanged.connect(self._highlight_current_line)
-        self._update_gutter_width(0)
-        self._highlight_current_line()
+    def _content_changed(self, text):
+        if text == self._text:
+            return
+        self._text = text
+        self.textChanged.emit()
 
-    def line_number_area_width(self):
-        digits = max(2, len(str(max(1, self.blockCount()))))
-        return 12 + self.fontMetrics().horizontalAdvance("9") * digits
+    def _send_text(self):
+        if self._ready:
+            encoded = json.dumps(self._text, ensure_ascii=False)
+            self.page().runJavaScript(f"window.setEditorText({encoded})")
 
-    def _update_gutter_width(self, _count):
-        self.setViewportMargins(self.line_number_area_width(), 0, 0, 0)
+    def setPlainText(self, text):
+        self._text = str(text)
+        self._send_text()
 
-    def _update_gutter(self, rect, dy):
-        if dy:
-            self._line_numbers.scroll(0, dy)
-        else:
-            self._line_numbers.update(
-                0, rect.y(), self._line_numbers.width(), rect.height()
-            )
-        if rect.contains(self.viewport().rect()):
-            self._update_gutter_width(0)
+    def toPlainText(self):
+        return self._text
 
-    def resizeEvent(self, event):  # noqa: N802 - Qt override
-        super().resizeEvent(event)
-        cr = self.contentsRect()
-        self._line_numbers.setGeometry(
-            cr.left(), cr.top(), self.line_number_area_width(), cr.height()
-        )
-
-    def _highlight_current_line(self):
-        selection = QTextEdit.ExtraSelection()
-        selection.format.setBackground(self._current_line_bg)
-        selection.format.setProperty(QTextFormat.Property.FullWidthSelection, True)
-        selection.cursor = self.textCursor()
-        selection.cursor.clearSelection()
-        self.setExtraSelections([selection])
-
-    def line_number_area_paint(self, event):
-        painter = QPainter(self._line_numbers)
-        painter.fillRect(event.rect(), self._gutter_bg)
-        block = self.firstVisibleBlock()
-        block_number = block.blockNumber()
-        top = self.blockBoundingGeometry(block).translated(
-            self.contentOffset()
-        ).top()
-        bottom = top + self.blockBoundingRect(block).height()
-        painter.setPen(self._gutter_fg)
-        width = self._line_numbers.width() - 6
-        height = self.fontMetrics().height()
-        while block.isValid() and top <= event.rect().bottom():
-            if block.isVisible() and bottom >= event.rect().top():
-                painter.drawText(
-                    0, int(top), width, height,
-                    Qt.AlignmentFlag.AlignRight, str(block_number + 1),
-                )
-            block = block.next()
-            top = bottom
-            bottom = top + self.blockBoundingRect(block).height()
-            block_number += 1
+    def focus_editor(self):
+        if self._ready:
+            self.page().runJavaScript("window.focusEditor()")
 
 
 class ScriptEditorDialog(QDialog):
@@ -422,10 +367,7 @@ class ScriptEditorDialog(QDialog):
         right = QWidget()
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(0, 0, 0, 0)
-        self.editor = CodeEditor()
-        self._highlighter = PythonHighlighter(
-            self.editor.document(), self.editor._dark
-        )
+        self.editor = MonacoEditor()
         self.editor.textChanged.connect(self._on_text_changed)
         right_layout.addWidget(self.editor, 1)
         splitter.addWidget(right)
@@ -436,17 +378,20 @@ class ScriptEditorDialog(QDialog):
         self.delete_button = QPushButton("削除")
         self.save_button = QPushButton("保存")
         self.save_reload_button = QPushButton("保存して再読み込み")
+        self.vscode_button = QPushButton("VS Codeで開く")
         self.close_button = QPushButton("閉じる")
         self.new_button.clicked.connect(self._new_script)
         self.delete_button.clicked.connect(self._delete_script)
         self.save_button.clicked.connect(lambda: self._save_current())
         self.save_reload_button.clicked.connect(self._save_and_reload)
+        self.vscode_button.clicked.connect(self._open_in_vscode)
         self.close_button.clicked.connect(self.close)
         buttons.addWidget(self.new_button)
         buttons.addWidget(self.delete_button)
         buttons.addStretch()
         buttons.addWidget(self.save_button)
         buttons.addWidget(self.save_reload_button)
+        buttons.addWidget(self.vscode_button)
         buttons.addWidget(self.close_button)
         outer.addLayout(buttons)
 
@@ -549,6 +494,34 @@ class ScriptEditorDialog(QDialog):
         QMessageBox.information(
             self, "再読み込み", "Pythonアクションを再読み込みしました。"
         )
+
+    def _open_in_vscode(self):
+        if self._current_path is None:
+            return
+        if self._dirty and not self._save_current():
+            return
+        executable = shutil.which("code") or shutil.which("code-insiders")
+        if sys.platform == "win32" and executable is None:
+            candidates = []
+            for variable in ("LOCALAPPDATA", "PROGRAMFILES", "PROGRAMFILES(X86)"):
+                root = os.environ.get(variable)
+                if root:
+                    candidates.extend([
+                        Path(root) / "Programs/Microsoft VS Code/Code.exe",
+                        Path(root) / "Microsoft VS Code/Code.exe",
+                    ])
+            executable = next((str(path) for path in candidates if path.is_file()), None)
+        if executable is None:
+            QMessageBox.warning(
+                self,
+                "VS Codeが見つかりません",
+                "Visual Studio Codeをインストールするか、codeコマンドをPATHへ追加してください。",
+            )
+            return
+        try:
+            subprocess.Popen([executable, "--goto", str(self._current_path.resolve())])
+        except OSError as error:
+            QMessageBox.warning(self, "VS Codeを開けません", str(error))
 
     def _new_script(self):
         if not self._confirm_discard():

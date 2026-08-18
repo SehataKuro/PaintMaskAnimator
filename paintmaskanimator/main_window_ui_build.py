@@ -150,7 +150,7 @@ class UIBuildMixin(MainWindowMembers):
             "描画色と背景色を切り替え", self.toggle_draw_background_color, "C"
         )
         self.a_swap_main_sub = self.make_shortcut_action(
-            "メイン色とサブ色を入れ替え", self.swap_main_sub, "X"
+            "メイン色とサブ色を切り替え", self.swap_main_sub, "X"
         )
         self.a_choose_background = self.make_shortcut_action(
             "背景色の表示色を変更", self.choose_background_color
@@ -292,7 +292,7 @@ class UIBuildMixin(MainWindowMembers):
             ("描画色：サブを選択", self.a_select_sub),
             ("描画色：背景色を選択", self.a_select_transparent),
             ("描画色と背景色を切り替え", self.a_toggle_draw_background),
-            ("メイン色とサブ色を入れ替え", self.a_swap_main_sub),
+            ("メイン色とサブ色を切り替え", self.a_swap_main_sub),
             ("背景色の表示色を変更", self.a_choose_background),
             ("MainLineRepaint", self.a_mainline_repaint),
             ("選択範囲：自由変形", self.a_selection_transform),

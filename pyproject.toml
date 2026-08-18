@@ -31,6 +31,9 @@ paintmaskanimator = "paintmaskanimator.__main__:main"
 [tool.setuptools]
 packages = ["paintmaskanimator"]
 
+[tool.setuptools.package-data]
+paintmaskanimator = ["assets/**/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 

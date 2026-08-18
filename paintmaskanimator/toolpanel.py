@@ -88,6 +88,7 @@ class SwatchStack(QWidget):
         self._sub = QColor(255, 0, 0)
         self._bg = QColor("white")
         self._mode = "main"
+        self._columns = 2
         self._sub_btn = QPushButton(self)
         self._main_btn = QPushButton(self)
         self._bg_btn = QPushButton(self)
@@ -111,9 +112,16 @@ class SwatchStack(QWidget):
         )
         self.relayout(width)
 
-    def relayout(self, width):
+    def relayout(self, width, columns=None):
         """Resize the swatch to ``width`` px (shrinks to one icon column)."""
         w = max(16, int(width))
+        if columns is not None:
+            self._columns = max(1, int(columns))
+        if self._columns == 1:
+            self.setFixedSize(w, w * 3 + 6)
+            self._layout_buttons()
+            self._restyle()
+            return
         box = max(10, round(w * 0.64))
         off = w - box
         self._main_btn.setGeometry(0, 0, box, box)
@@ -124,6 +132,20 @@ class SwatchStack(QWidget):
         self.setFixedSize(w, w + gap + bg_h)
         self._restyle()
 
+    def _layout_buttons(self):
+        if self._columns != 1:
+            return
+        w = self.width()
+        gap = 3
+        if self._mode == "sub":
+            order = (self._sub_btn, self._main_btn, self._bg_btn)
+        elif self._mode == "transparent":
+            order = (self._bg_btn, self._main_btn, self._sub_btn)
+        else:
+            order = (self._main_btn, self._sub_btn, self._bg_btn)
+        for row, button in enumerate(order):
+            button.setGeometry(0, row * (w + gap), w, w)
+
     def set_colors(self, main, sub, mode, background=None):
         self._main = QColor(main)
         self._sub = QColor(sub)
@@ -133,6 +155,7 @@ class SwatchStack(QWidget):
         self._restyle()
 
     def _restyle(self):
+        self._layout_buttons()
         accent = theme.accent()
         def style(c, selected):
             border = (
@@ -173,6 +196,13 @@ class ToolSelectorPanel(QWidget):
         self.items = {}
         self.active_tool = "brush"
         self._column_count = 1
+        self._swatch_column_count = 1
+        self._swatch_sync_timer = QTimer(self)
+        self._swatch_sync_timer.setSingleShot(True)
+        self._swatch_sync_timer.setInterval(0)
+        self._swatch_sync_timer.timeout.connect(
+            self.sync_swatch_to_displayed_columns
+        )
         self.setMinimumWidth(self.width_for_columns(1))
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         layout = QVBoxLayout(self)
@@ -269,16 +299,26 @@ class ToolSelectorPanel(QWidget):
     def set_swatch_colors(self, main, sub, mode, background=None):
         self.color_swatch.set_colors(main, sub, mode, background)
 
-    def _resize_swatch_to_columns(self):
+    def _resize_swatch_to_columns(self, columns=None):
         """Size the drawing-colour swatch to the current icon column count."""
-        columns = max(1, self._column_count)
+        if columns is None:
+            columns = self._column_count
+        columns = max(1, int(columns))
+        self._swatch_column_count = columns
         # Fit within the column band, capped so a wide bar stays reasonable.
         swatch_w = min(
             columns * self.CELL_SIZE - 6,
             self.CELL_SIZE * 3,
         )
         swatch_w = max(18, swatch_w)
-        self.color_swatch.relayout(swatch_w)
+        self.color_swatch.relayout(swatch_w, columns)
+
+    def sync_swatch_to_displayed_columns(self):
+        """Match the swatch to the columns the icon view actually rendered."""
+        columns = self.displayed_column_count()
+        if columns == self._swatch_column_count:
+            return
+        self._resize_swatch_to_columns(columns)
 
     def minimumSizeHint(self):
         return QSize(self.width_for_columns(1), 0)
@@ -308,14 +348,14 @@ class ToolSelectorPanel(QWidget):
                 (available_width + self.CELL_SIZE // 2) // self.CELL_SIZE,
             ),
         )
-        if columns != self._column_count:
-            self._column_count = columns
-            self._resize_swatch_to_columns()
-        else:
-            self._column_count = columns
+        self._column_count = columns
         target_width = self.width_for_columns(columns)
         if self.width() != target_width:
             self.snapWidthRequested.emit(target_width)
+        # QListWidget lays its items out after the parent resize.  Recheck on
+        # the next event-loop turn so the colour control changes at exactly
+        # the same threshold as the visible icon columns.
+        self._swatch_sync_timer.start()
 
     def displayed_column_count(self):
         """Return the number of icons Qt actually placed on the first row."""
@@ -835,7 +875,7 @@ class ToolPanel(QWidget):
         controls = QVBoxLayout()
         controls.setContentsMargins(0, 0, 0, 0)
         controls.setSpacing(3)
-        self.swap_colors_button = QPushButton("⇄  入れ替え")
+        self.swap_colors_button = QPushButton("⇄  切り替え")
         self.reset_colors_button = QPushButton("◩  初期色")
         self.transparent_btn = QPushButton("透明色")
         for button in (

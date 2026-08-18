@@ -579,6 +579,7 @@ class DockingMixin(MainWindowMembers):
         # than guessing from which mathematical width is nearest.
         columns = self.tool_selector.displayed_column_count()
         self.tool_selector._column_count = columns
+        self.tool_selector._resize_swatch_to_columns(columns)
         content_width = self.tool_selector.width_for_columns(columns)
         self._pending_tool_selector_snap = None
         dock = self.tool_selector_dock

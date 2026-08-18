@@ -26,7 +26,7 @@ a = Analysis(
     ["../PaintMaskAnimator.py"],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[("paintmaskanimator/assets", "paintmaskanimator/assets")],
     hiddenimports=hiddenimports,
     hookspath=[],
     runtime_hooks=[],

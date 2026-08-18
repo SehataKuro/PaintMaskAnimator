@@ -156,9 +156,11 @@ class LineOpsMixin(MainWindowMembers):
 
 
     def swap_main_sub(self):
-        self.canvas.main_color, self.canvas.sub_color = (
-            QColor(self.canvas.sub_color),
-            QColor(self.canvas.main_color),
+        # X switches the active drawing colour.  Keep each colour assigned to
+        # its swatch so the selected swatch itself can move to the foreground
+        # together with its accent border.
+        self.canvas.color_mode = (
+            "sub" if self.canvas.color_mode == "main" else "main"
         )
         self.tools.set_colors(
             self.canvas.main_color,
@@ -166,7 +168,9 @@ class LineOpsMixin(MainWindowMembers):
             self.canvas.color_mode,
             self.canvas.transparent_display_color,
         )
-        self.statusBar().showMessage("メインカラーとサブカラーを交換しました。", 1800)
+        self._sync_tool_selector_swatch()
+        self.canvas.update()
+        self.statusBar().showMessage("メインカラーとサブカラーを切り替えました。", 1800)
 
     def reset_main_sub(self):
         self.canvas.main_color = QColor("black")
