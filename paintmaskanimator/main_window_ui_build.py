@@ -83,8 +83,6 @@ class UIBuildMixin(MainWindowMembers):
         self.a_isolate_color.triggered.connect(self.isolate_selected_color)
         self.a_clear_color_filter=QAction("特定色表示を解除",self)
         self.a_clear_color_filter.triggered.connect(self.clear_selected_color_filter)
-        self.a_swap_main_sub=QAction("メインカラーとサブカラーを交換",self)
-        self.a_swap_main_sub.triggered.connect(self.swap_main_sub)
         self.a_silhouette=QAction("背景以外を黒シルエット表示",self); self.a_silhouette.setCheckable(True)
         self.a_silhouette.triggered.connect(self.toggle_silhouette)
         self.a_remove_dust=QAction("ゴミ取り／塗り抜け…",self)
@@ -130,7 +128,7 @@ class UIBuildMixin(MainWindowMembers):
             self.a_cut, self.a_copy, self.a_paste, self.a_save, self.a_save_tga,
             self.a_export_png_seq, self.a_export_tga_seq, self.a_prev, self.a_next,
             self.a_pressure, self.a_isolate_color, self.a_clear_color_filter,
-            self.a_swap_main_sub, self.a_silhouette, self.a_remove_dust,
+            self.a_silhouette, self.a_remove_dust,
         ):
             action.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
 
@@ -288,7 +286,6 @@ class UIBuildMixin(MainWindowMembers):
             ("選択色だけ表示", self.a_isolate_color),
             ("特定色表示を解除", self.a_clear_color_filter),
             ("ゴミ取り", self.a_remove_dust),
-            ("選択範囲を解除", self.a_selection_clear),
         ]
         self.tool_command_actions = [
             ("描画色：メインを選択", self.a_select_main),
