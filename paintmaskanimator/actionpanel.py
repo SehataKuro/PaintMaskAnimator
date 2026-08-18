@@ -84,21 +84,6 @@ class ActionPanel(QWidget):
         layout.addLayout(self.action_layout)
         layout.addStretch()
 
-        controls = QHBoxLayout()
-        self.menu_button = QToolButton()
-        self.menu_button.setText("☰")  # hamburger ☰
-        self.menu_button.setToolTip("アクションメニュー")
-        self.menu_button.setPopupMode(
-            QToolButton.ToolButtonPopupMode.InstantPopup
-        )
-        menu = QMenu(self.menu_button)
-        edit_action = menu.addAction("スクリプトを編集")
-        edit_action.triggered.connect(self.open_script_editor)
-        self.menu_button.setMenu(menu)
-        controls.addStretch()
-        controls.addWidget(self.menu_button)
-        layout.addLayout(controls)
-
     def open_script_editor(self):
         dialog = ScriptEditorDialog(self)
         dialog.exec()
