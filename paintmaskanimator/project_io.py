@@ -62,10 +62,7 @@ def read_project_archive(path):
         metadata = json.loads(
             archive.read("project.json").decode("utf-8")
         )
-        if metadata.get("format") not in (
-            "PaintMaskAnimatorProject",
-            "OekakiAnimationProject",
-        ):
+        if metadata.get("format") != "PaintMaskAnimatorProject":
             raise ValueError("対応していないプロジェクト形式です。")
 
         try:
