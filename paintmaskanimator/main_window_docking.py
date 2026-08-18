@@ -236,6 +236,10 @@ class DockingMixin(MainWindowMembers):
             lambda _c=False, d=dock: d.closeDockWidget()
         )
 
+    def _build_action_panel_menu(self, menu):
+        edit_action = menu.addAction("スクリプトを編集")
+        edit_action.triggered.connect(self.action_panel.open_script_editor)
+
     def _build_color_wheel_menu(self, menu):
         wheel = self.tools.hsv_wheel
         hue_menu = menu.addMenu("色相の形")
