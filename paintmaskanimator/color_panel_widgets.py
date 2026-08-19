@@ -20,6 +20,127 @@ log = get_logger(__name__)
 USED_COLOR_MIME = "application/x-pma-used-color"
 
 
+class ColorCategoryHeader(QWidget):
+    """使用色カテゴリーの折りたたみ・表示・ドロップ用ヘッダー。"""
+
+    visibilityChanged = Signal(bool)
+    collapsedChanged = Signal(bool)
+    colorDropped = Signal(object)
+    contextMenuRequested = Signal(QPoint)
+
+    def __init__(self, name, parent=None):
+        super().__init__(parent)
+        self._name = str(name)
+        self._drop_active = False
+        self.setAcceptDrops(True)
+        self.setObjectName("usedColorCategoryHeader")
+        self.setMinimumHeight(32)
+        self.setStyleSheet(
+            "QWidget#usedColorCategoryHeader{"
+            "background-color:palette(midlight);"
+            "border:2px solid palette(mid);border-radius:4px;}"
+            "QWidget#usedColorCategoryHeader:hover{"
+            "border-color:palette(highlight);}"
+        )
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(6, 2, 7, 2)
+        layout.setSpacing(4)
+        self.collapse_button = QToolButton(self)
+        self.collapse_button.setCheckable(True)
+        self.collapse_button.setChecked(False)
+        self.collapse_button.setText("▼")
+        self.collapse_button.setToolTip("フォルダーを折りたたむ")
+        self.visibility_check = QCheckBox(self)
+        self.visibility_check.setTristate(True)
+        self.visibility_check.setToolTip("フォルダー内の色を一括表示／非表示")
+        self.name_label = QLabel(self._name, self)
+        self.name_label.setStyleSheet("font-weight:700;")
+        layout.addWidget(self.collapse_button)
+        layout.addWidget(self.visibility_check)
+        layout.addWidget(self.name_label, 1)
+        self.collapse_button.toggled.connect(self._on_collapsed)
+        self.visibility_check.clicked.connect(self.visibilityChanged.emit)
+
+    def name(self):
+        return self._name
+
+    def setName(self, name):
+        self._name = str(name)
+        self.name_label.setText(self._name)
+
+    def setCollapsed(self, collapsed):
+        self.collapse_button.blockSignals(True)
+        self.collapse_button.setChecked(bool(collapsed))
+        self.collapse_button.blockSignals(False)
+        self._sync_collapse_text(bool(collapsed))
+
+    def _sync_collapse_text(self, collapsed):
+        self.collapse_button.setText("▶" if collapsed else "▼")
+        self.collapse_button.setToolTip(
+            "フォルダーを展開" if collapsed else "フォルダーを折りたたむ"
+        )
+
+    def _on_collapsed(self, collapsed):
+        self._sync_collapse_text(collapsed)
+        self.collapsedChanged.emit(bool(collapsed))
+
+    def setVisibilityState(self, values):
+        states = [bool(value) for value in values]
+        if states and all(states):
+            state = Qt.CheckState.Checked
+        elif states and any(states):
+            state = Qt.CheckState.PartiallyChecked
+        else:
+            state = Qt.CheckState.Unchecked
+        self.visibility_check.blockSignals(True)
+        self.visibility_check.setCheckState(state)
+        self.visibility_check.blockSignals(False)
+
+    @staticmethod
+    def _payload_rgb(mime):
+        if not mime.hasFormat(USED_COLOR_MIME):
+            return None
+        data = bytes(mime.data(USED_COLOR_MIME))
+        if len(data) < 3:
+            return None
+        return (data[0], data[1], data[2])
+
+    def dragEnterEvent(self, event):
+        if self._payload_rgb(event.mimeData()) is None:
+            event.ignore()
+            return
+        self._drop_active = True
+        self.update()
+        event.acceptProposedAction()
+
+    def dragLeaveEvent(self, event):
+        self._drop_active = False
+        self.update()
+        super().dragLeaveEvent(event)
+
+    def dropEvent(self, event):
+        rgb = self._payload_rgb(event.mimeData())
+        self._drop_active = False
+        self.update()
+        if rgb is None:
+            event.ignore()
+            return
+        event.acceptProposedAction()
+        self.colorDropped.emit(rgb)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self._drop_active:
+            painter = QPainter(self)
+            painter.setPen(QPen(QColor("#ffca28"), 3))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(self.rect().adjusted(1, 1, -2, -2), 3, 3)
+
+    def contextMenuEvent(self, event):
+        self.contextMenuRequested.emit(event.globalPos())
+        event.accept()
+
+
 def _draw_eye_icon(painter, rect, color, is_open):
     """モダンなアウトライン風の目アイコンを描く。開＝表示、閉＝非表示。"""
     painter.save()
@@ -120,6 +241,175 @@ class SourceColorButton(_ScreenColorDragMixin, QToolButton):
     def contextMenuEvent(self, event):
         self.contextMenuRequested.emit(event.globalPos())
         event.accept()
+
+
+class ScreenEyedropButton(_ScreenColorDragMixin, QToolButton):
+    """置換色の登録・画面スポイト・編集要求を提供するボタン。"""
+
+    colorPicked = Signal(QColor)
+    colorEditorRequested = Signal(QPoint)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._init_screen_color_drag()
+        self._right_click_candidate = False
+        self._right_click_press_global = None
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.PreventContextMenu)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.RightButton:
+            self._right_click_candidate = True
+            self._right_click_press_global = event.globalPosition().toPoint()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if (
+            self._right_click_candidate
+            and self._right_click_press_global is not None
+            and event.buttons() & Qt.MouseButton.RightButton
+            and (
+                event.globalPosition().toPoint()
+                - self._right_click_press_global
+            ).manhattanLength() >= QApplication.startDragDistance()
+        ):
+            self._right_click_candidate = False
+            self._begin_screen_pick(Qt.MouseButton.RightButton)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if (
+            event.button() == Qt.MouseButton.RightButton
+            and self._right_click_candidate
+            and not self._screen_pick_active
+        ):
+            self._right_click_candidate = False
+            position = event.globalPosition().toPoint()
+            self._right_click_press_global = None
+            self.colorEditorRequested.emit(position)
+            event.accept()
+            return
+        self._right_click_candidate = False
+        self._right_click_press_global = None
+        super().mouseReleaseEvent(event)
+
+
+class ReplacementColorPopup(QDialog):
+    """置換色をRGB／HSVスライダーで編集するポップアップ。"""
+
+    colorChanged = Signal(QColor)
+
+    def __init__(self, color, source_rgb=None, parent=None):
+        super().__init__(
+            parent,
+            Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint,
+        )
+        self._color = QColor(color)
+        if not self._color.isValid():
+            self._color = QColor("black")
+        self._updating = False
+        self.setWindowTitle("置換色")
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        self.setMinimumWidth(280)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(9, 9, 9, 9)
+        layout.setSpacing(5)
+        title = "置換色"
+        if source_rgb is not None:
+            title += "  元色 #{:02X}{:02X}{:02X}".format(*source_rgb)
+        layout.addWidget(QLabel(f"<b>{title}</b>"))
+        self.preview = QLabel()
+        self.preview.setFixedHeight(28)
+        self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.preview)
+        self.mode = QComboBox()
+        self.mode.addItems(["RGB", "HSV"])
+        self.mode.currentTextChanged.connect(self._rebuild_sliders)
+        layout.addWidget(self.mode)
+        self.slider_widget = QWidget()
+        self.slider_layout = QFormLayout(self.slider_widget)
+        self.slider_layout.setContentsMargins(0, 0, 0, 0)
+        self.slider_layout.setSpacing(4)
+        layout.addWidget(self.slider_widget)
+        self.sliders = []
+        self.value_labels = []
+        self._rebuild_sliders("RGB")
+
+    def _clear_slider_layout(self):
+        while self.slider_layout.rowCount():
+            self.slider_layout.removeRow(0)
+        self.sliders.clear()
+        self.value_labels.clear()
+
+    def _rebuild_sliders(self, mode):
+        self._clear_slider_layout()
+        specs = (
+            [("R", 0, 255), ("G", 0, 255), ("B", 0, 255)]
+            if mode == "RGB"
+            else [("H", 0, 359), ("S", 0, 255), ("V", 0, 255)]
+        )
+        for name, minimum, maximum in specs:
+            slider = QSlider(Qt.Orientation.Horizontal)
+            slider.setRange(minimum, maximum)
+            label = QLabel("0")
+            label.setFixedWidth(34)
+            label.setAlignment(
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            )
+            row = QWidget()
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.setSpacing(4)
+            row_layout.addWidget(slider, 1)
+            row_layout.addWidget(label)
+            slider.valueChanged.connect(
+                lambda value, target=label: target.setText(str(value))
+            )
+            slider.valueChanged.connect(self._sliders_changed)
+            self.slider_layout.addRow(name, row)
+            self.sliders.append(slider)
+            self.value_labels.append(label)
+        self._sync_from_color()
+
+    def _sync_from_color(self):
+        if self.mode.currentText() == "RGB":
+            values = self._color.getRgb()[:3]
+        else:
+            hue, saturation, value, _alpha = self._color.getHsv()
+            values = (max(0, hue), saturation, value)
+        self._updating = True
+        try:
+            for slider, label, value in zip(
+                self.sliders, self.value_labels, values
+            ):
+                slider.setValue(int(value))
+                label.setText(str(slider.value()))
+        finally:
+            self._updating = False
+        self._refresh_preview()
+
+    def _sliders_changed(self):
+        if self._updating or len(self.sliders) != 3:
+            return
+        values = [slider.value() for slider in self.sliders]
+        self._color = (
+            QColor(*values)
+            if self.mode.currentText() == "RGB"
+            else QColor.fromHsv(*values)
+        )
+        self._refresh_preview()
+        self.colorChanged.emit(QColor(self._color))
+
+    def _refresh_preview(self):
+        foreground = "#111" if self._color.lightness() >= 150 else "#fff"
+        self.preview.setText(self._color.name(QColor.NameFormat.HexRgb).upper())
+        self.preview.setStyleSheet(
+            f"background:{self._color.name()};color:{foreground};"
+            "border:1px solid #777;padding:3px;"
+        )
 
 
 class ColorVisibilityCheckBox(QCheckBox):

@@ -32,6 +32,7 @@ else:
 class UsedColorPanelMembers(_MembersBase):
     if TYPE_CHECKING:
         adjustLineThicknessRequested: Signal
+        applyReplacementRequested: Signal
         clearIsolateRequested: Signal
         deleteColorsRequested: Signal
         focusColorRequested: Signal
@@ -48,6 +49,7 @@ class UsedColorPanelMembers(_MembersBase):
         add_color: Any
         all_masks_enabled: Any
         _append_color_row: Any
+        apply_button: Any
         _apply_selection_state: Any
         _apply_swatch_text: Any
         background_rgb: Any
@@ -55,12 +57,18 @@ class UsedColorPanelMembers(_MembersBase):
         _begin_selection_sweep: Any
         _begin_visibility_sweep: Any
         capture_history_state: Any
+        category_collapsed: Any
+        category_colors: Any
+        category_order: Any
+        category_widgets: Any
         _checkbox_rgb_at_global: Any
         child_to_parent: Any
         _clear_groups: Any
         _clear_mask_colors: Any
+        _clear_replacement: Any
         clear_masks_button: Any
         _clear_rows: Any
+        clear_categories: Any
         clear_selection_button: Any
         _clear_used_color_selection: Any
         _color_index: Any
@@ -75,6 +83,7 @@ class UsedColorPanelMembers(_MembersBase):
         _emit_mask_state: Any
         _emit_merge: Any
         _emit_preview: Any
+        _emit_replacements: Any
         enabled_colors: Any
         enabled_rgb_set: Any
         _end_mask_sweep: Any
@@ -88,6 +97,9 @@ class UsedColorPanelMembers(_MembersBase):
         _history_edit: Any
         _history_significant: Any
         _history_suspended: Any
+        _category_members: Any
+        _refresh_category_headers: Any
+        _sync_category_headers: Any
         _hovered_rgb: Any
         _isolate_mask_color: Any
         _isolate_visible_color: Any
@@ -118,6 +130,9 @@ class UsedColorPanelMembers(_MembersBase):
         _pre_mask_alt: Any
         _reapply_row_order: Any
         _record_history: Any
+        register_replacements: Any
+        replacement_buttons: Any
+        replacements: Any
         _refresh_all_group_displays: Any
         _refresh_group_display: Any
         _refresh_used_color_styles: Any
@@ -149,6 +164,8 @@ class UsedColorPanelMembers(_MembersBase):
         set_colors: Any
         _set_mask_checkbox_without_signal: Any
         _set_mask_color: Any
+        _set_replacement_button_style: Any
+        _set_replacement_color: Any
         _set_single_mask_state: Any
         _set_source_button_style: Any
         _set_used_color_parent: Any

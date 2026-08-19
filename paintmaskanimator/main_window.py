@@ -18,6 +18,7 @@ from .canvas import PaintCanvas
 from .errors import OPERATION_ERRORS
 from .color_panel import UsedColorPanel
 from .history_panel import HistoryPanel
+from .subview import SubViewWidget
 from .color_reduction import ColorReductionDialog
 from .models import Frame, Layer, make_frame
 from .pressure import PressureDialog
@@ -59,7 +60,7 @@ class MainWindow(
 ):
     def __init__(self):
         super().__init__();self.setWindowTitle(APP_DISPLAY_NAME);self.resize(1500,960);self.setAcceptDrops(True)
-        self.canvas=PaintCanvas();self.tool_selector=ToolSelectorPanel();self.tools=ToolPanel();self.timeline=TimelineWidget();self.palette=UsedColorPanel();self.history_panel=HistoryPanel();self.timer=QTimer(self);self.timer.timeout.connect(self.advance)
+        self.canvas=PaintCanvas();self.tool_selector=ToolSelectorPanel();self.tools=ToolPanel();self.timeline=TimelineWidget();self.palette=UsedColorPanel();self.history_panel=HistoryPanel();self.subview=SubViewWidget(self);self.timer=QTimer(self);self.timer.timeout.connect(self.advance)
         # palette_state のUndo/Redoでパネル状態を復元できるよう相互参照を張る。
         self.canvas._palette=self.palette
         self.history_panel.set_canvas(self.canvas)
@@ -74,6 +75,7 @@ class MainWindow(
         self._used_color_timer.setInterval(180)
         self._used_color_timer.timeout.connect(self.refresh_used_colors)
         self._pending_visible_colors = None
+        self._pending_palette_categories = None
         self._suppress_used_color_refresh_once = False
         self._tween_command_popup = None
         self._onion_settings_browser = None
@@ -784,6 +786,7 @@ class MainWindow(
                 "curve": float(self.canvas.pressure_curve),
                 "points": getattr(self.canvas, "pressure_curve_points", [[0.0,0.0],[1.0,1.0]]),
             },
+            "used_color_categories": self.palette.serialize_categories(),
             "frames": [],
         }
 
@@ -966,6 +969,7 @@ class MainWindow(
             # past index 0 of the new single-frame list.
             self.canvas.current_frame=0
             self.canvas.active_layer_index=0
+            self.palette.clear_categories()
             self.canvas.frames=[make_frame()];self.canvas.undo_stack.clear();self.canvas.redo_stack.clear();self.canvas.clear_history_branches();self.set_timeline_mode("sheet")
         self.canvas.current_frame=0
         self.canvas.active_layer_index=0

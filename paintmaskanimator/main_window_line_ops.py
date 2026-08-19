@@ -425,18 +425,19 @@ class LineOpsMixin(MainWindowMembers):
             )
             if mapping is None:
                 continue
-            # 置換色列は廃止したため、対応付けはその場で実画像へ適用する。
-            applied = self.apply_palette_replacements(
-                mapping,
-                operation="同一画像から色置換",
-            )
-            if not applied:
+            registered = self.palette.register_replacements(mapping)
+            if registered <= 0:
                 QMessageBox.warning(
                     self,
-                    "同一画像から色置換",
-                    "一致する画像は見つかりましたが、置換できる使用色がありません。",
+                    "同一画像を置換色に登録",
+                    "一致する画像は見つかりましたが、登録できる使用色がありません。",
                 )
                 return
+            self.statusBar().showMessage(
+                f"上側レイヤー「{target_layer.name}」から"
+                f"{registered}色を置換色に登録しました。",
+                4000,
+            )
             return
 
         QMessageBox.warning(

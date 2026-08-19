@@ -20,10 +20,13 @@ from .color_panel_selection import ColorSelectionMixin
 from .color_panel_visibility import ColorVisibilityMixin
 from .color_panel_widgets import (
     CheckClickArea,
+    ColorCategoryHeader,
     ColorSelectionArea,
     ColorSelectionCheckBox,
     ColorVisibilityCheckBox,
     MaskColorCheckBox,
+    ReplacementColorPopup,
+    ScreenEyedropButton,
     SourceColorButton,
 )
 
@@ -38,6 +41,7 @@ class UsedColorPanel(
     isolateColorClicked = Signal(QColor)
     clearIsolateRequested = Signal()
     sourceScreenColorPicked = Signal(QColor)
+    applyReplacementRequested = Signal(object)
     mergeColorsRequested = Signal(object, object)
     # 親子グループの非破壊プレビュー更新（{子rgb: 親rgb}）。
     previewGroupsChanged = Signal(object)
@@ -77,6 +81,16 @@ class UsedColorPanel(
         # 親子グループ（非破壊）。{子rgb: 親rgb}。親自身は含めない。
         # ドラッグで子付けし、キャンバス上では子を親色として描画する。
         self.child_to_parent = {}
+
+        # 使用色カテゴリー（1色につき1フォルダー、1階層）。
+        self.category_order = []
+        self.category_colors = {}
+        self.category_collapsed = {}
+        self.category_widgets = {}
+        self.replacements = {}
+        self.replacement_buttons = {}
+        self._replacement_popup = None
+        self._replacement_popup_rgb = None
 
         # Used-color selection is separate from the drawing mask.
         # The most recently selected color is the parent; the others are children.
@@ -122,6 +136,8 @@ class UsedColorPanel(
         layout.addWidget(QLabel("<b>使用色</b>"))
         note = QLabel(
             "使用色：クリックで選択（Shift＝範囲／Ctrl＝追加）。"
+            "［＋フォルダー］でカテゴリーを作り、色をヘッダーへドラッグして格納。"
+            "フォルダーのチェックで所属色を一括表示／非表示。"
             "ドラッグで並べ替え、色の中央へドロップ＝その色の「子」にして"
             "親色でプレビュー表示。親子付け／解除はドラッグと右クリックのみ。"
             "問題なければ［フリーズ］で実画像へ焼き込みます。"
@@ -131,6 +147,10 @@ class UsedColorPanel(
 
         self.count_label = QLabel("0色")
         layout.addWidget(self.count_label)
+        self.category_button = QPushButton("＋ フォルダー")
+        self.category_button.setToolTip("使用色をまとめるフォルダーを作成します。")
+        self.category_button.clicked.connect(self._prompt_create_category)
+        layout.addWidget(self.category_button)
 
         header_widget = QWidget()
         header = QGridLayout(header_widget)
@@ -166,8 +186,14 @@ class UsedColorPanel(
         color_header = QLabel("色（ドラッグで並べ替え／親子付け）")
         color_header.setStyleSheet("font-size:10px;")
         header.addWidget(color_header, 0, 3)
+        replacement_header = QLabel("置換色")
+        replacement_header.setStyleSheet("font-size:10px;")
+        replacement_header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        header.addWidget(replacement_header, 0, 4)
         header.setColumnMinimumWidth(3, 144)
+        header.setColumnMinimumWidth(4, 72)
         header.setColumnStretch(3, 1)
+        header.setColumnStretch(4, 1)
         layout.addWidget(header_widget)
 
         self.scroll: QScrollArea = QScrollArea()
@@ -187,14 +213,17 @@ class UsedColorPanel(
         self.scroll.setWidget(self.content)
         layout.addWidget(self.scroll, 1)
 
-        # 見出しと同じ4列に配置し、各ボタンの意味と位置を揃える。
+        # 見出しと同じ5列に配置し、各ボタンの意味と位置を揃える。
         button_row = QGridLayout()
         button_row.setHorizontalSpacing(0)
         button_row.setContentsMargins(1, 0, 1 + scrollbar_width, 0)
         button_row.setColumnMinimumWidth(0, 32)
         button_row.setColumnMinimumWidth(1, 32)
         button_row.setColumnMinimumWidth(2, 32)
+        button_row.setColumnMinimumWidth(3, 144)
+        button_row.setColumnMinimumWidth(4, 72)
         button_row.setColumnStretch(3, 1)
+        button_row.setColumnStretch(4, 1)
 
         self.clear_selection_button = QPushButton("選択")
         self.clear_selection_button.setToolTip("選択をすべて解除します。")
@@ -246,6 +275,17 @@ class UsedColorPanel(
         )
         self.freeze_button.setStyleSheet("font-size:10px;padding:1px;")
 
+        self.apply_button = QPushButton("色置換")
+        self.apply_button.setToolTip(
+            "登録した置換色を、選択レイヤーのすべてのコマへ適用します。"
+        )
+        self.apply_button.clicked.connect(self._emit_replacements)
+        self.apply_button.setMinimumWidth(72)
+        self.apply_button.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        self.apply_button.setStyleSheet("font-size:10px;padding:1px;")
+
         for column, button in enumerate((
             self.clear_selection_button,
             self.show_all_button,
@@ -261,7 +301,9 @@ class UsedColorPanel(
             button.setMinimumWidth(0)
             action_buttons.addWidget(button)
         button_row.addLayout(action_buttons, 0, 3)
+        button_row.addWidget(self.apply_button, 0, 4)
         layout.addLayout(button_row)
+        self.visibleColorsChanged.connect(self._refresh_category_headers)
 
     @staticmethod
     def _rgb_key(color):
@@ -272,6 +314,425 @@ class UsedColorPanel(
     def _text_color(rgb):
         luminance = 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]
         return "#111111" if luminance >= 150 else "#ffffff"
+
+    def _set_replacement_button_style(self, source_rgb):
+        button = self.replacement_buttons.get(source_rgb)
+        if button is None:
+            return
+        replacement_color = self.replacements.get(source_rgb)
+        if replacement_color is None:
+            button.setText("未設定")
+            button.setStyleSheet(
+                "QToolButton{background:#f2f2f2;border:1px dashed #888;}"
+                "QToolButton:hover{border:1px dashed #888;}"
+            )
+            return
+        button.setText(
+            replacement_color.name(QColor.NameFormat.HexRgb).upper()
+        )
+        replacement_rgb = (
+            replacement_color.red(),
+            replacement_color.green(),
+            replacement_color.blue(),
+        )
+        button.setStyleSheet(
+            "QToolButton{"
+            f"background:{replacement_color.name()};"
+            f"color:{self._text_color(replacement_rgb)};"
+            "border:1px solid #777;}"
+            "QToolButton:hover{border:1px solid #777;}"
+        )
+
+    def _toggle_replacement(self, source_rgb):
+        """未設定なら現在色を登録し、登録済みなら解除する。"""
+        if source_rgb == self.background_rgb:
+            return
+        if source_rgb in self.replacements:
+            self._clear_replacement(source_rgb)
+        else:
+            self._request_replacement(source_rgb)
+
+    def _close_replacement_editor(self):
+        popup = self._replacement_popup
+        self._replacement_popup = None
+        self._replacement_popup_rgb = None
+        if popup is not None:
+            popup.close()
+            popup.deleteLater()
+
+    def _replacement_popup_destroyed(self, popup):
+        if self._replacement_popup is popup:
+            self._replacement_popup = None
+            self._replacement_popup_rgb = None
+
+    def _toggle_replacement_editor(self, source_rgb, global_position):
+        """右クリックでRGB／HSV編集を開き、再度の右クリックで閉じる。"""
+        if source_rgb == self.background_rgb:
+            return
+        if (
+            self._replacement_popup is not None
+            and self._replacement_popup.isVisible()
+            and self._replacement_popup_rgb == source_rgb
+        ):
+            self._close_replacement_editor()
+            return
+
+        self._close_replacement_editor()
+        color = self.replacements.get(source_rgb)
+        if color is None:
+            window = self.window()
+            canvas = getattr(window, "canvas", None)
+            if canvas is not None:
+                color = (
+                    canvas.sub_color
+                    if canvas.color_mode == "sub"
+                    else canvas.main_color
+                )
+            else:
+                color = QColor(*source_rgb)
+            self._set_replacement_color(source_rgb, color)
+
+        popup = ReplacementColorPopup(QColor(color), source_rgb, self)
+        self._replacement_popup = popup
+        self._replacement_popup_rgb = source_rgb
+        popup.colorChanged.connect(
+            lambda changed, rgb=source_rgb:
+            self._set_replacement_color(rgb, changed)
+        )
+        popup.destroyed.connect(
+            lambda _obj=None, current=popup:
+            self._replacement_popup_destroyed(current)
+        )
+
+        popup.adjustSize()
+        screen = (
+            QApplication.screenAt(global_position)
+            or QApplication.primaryScreen()
+        )
+        position = QPoint(global_position)
+        if screen is not None:
+            available = screen.availableGeometry()
+            width = popup.sizeHint().width()
+            height = popup.sizeHint().height()
+            position.setX(max(
+                available.left(),
+                min(position.x(), available.right() - width + 1),
+            ))
+            position.setY(max(
+                available.top(),
+                min(position.y(), available.bottom() - height + 1),
+            ))
+        popup.move(position)
+        popup.show()
+        popup.raise_()
+        popup.activateWindow()
+
+    def _request_replacement(self, source_rgb):
+        if source_rgb == self.background_rgb:
+            return
+        canvas = getattr(self.window(), "canvas", None)
+        if canvas is None:
+            return
+        color = (
+            canvas.sub_color
+            if canvas.color_mode == "sub"
+            else canvas.main_color
+        )
+        self._set_replacement_color(source_rgb, color)
+
+    def register_replacements(self, mapping):
+        registered = 0
+        for source_rgb, target_rgb in mapping.items():
+            source_rgb = tuple(int(value) for value in source_rgb[:3])
+            target_rgb = tuple(int(value) for value in target_rgb[:3])
+            if (
+                source_rgb == self.background_rgb
+                or source_rgb not in self.replacement_buttons
+            ):
+                continue
+            self._set_replacement_color(source_rgb, QColor(*target_rgb))
+            registered += 1
+        return registered
+
+    def _set_replacement_color(self, source_rgb, color):
+        if source_rgb == self.background_rgb:
+            return
+        replacement = QColor(color)
+        if not replacement.isValid():
+            return
+        self.replacements[source_rgb] = replacement
+        self._set_replacement_button_style(source_rgb)
+
+    def _clear_replacement(self, source_rgb):
+        if source_rgb == self.background_rgb:
+            return
+        if self._replacement_popup_rgb == source_rgb:
+            self._close_replacement_editor()
+        self.replacements.pop(source_rgb, None)
+        self._set_replacement_button_style(source_rgb)
+
+    def _emit_replacements(self):
+        mapping = {
+            tuple(source): (color.red(), color.green(), color.blue())
+            for source, color in self.replacements.items()
+            if tuple(source) != self.background_rgb
+            and tuple(source) in self.replacement_buttons
+        }
+        self.applyReplacementRequested.emit(mapping)
+
+    def _unique_category_name(self, requested):
+        base = str(requested or "").strip() or "新規フォルダー"
+        name = base
+        suffix = 2
+        existing = {value.casefold() for value in self.category_order}
+        while name.casefold() in existing:
+            name = f"{base} {suffix}"
+            suffix += 1
+        return name
+
+    def _prompt_create_category(self):
+        name, accepted = QInputDialog.getText(
+            self, "使用色フォルダー", "フォルダー名：",
+            text=self._unique_category_name("新規フォルダー"),
+        )
+        if accepted and str(name).strip():
+            self.create_category(str(name).strip())
+
+    def create_category(self, name, record_history=True):
+        name = self._unique_category_name(name)
+        before = self.capture_history_state() if record_history else None
+        self.category_order.append(name)
+        self.category_collapsed[name] = False
+        self._ensure_category_header(name)
+        self._reapply_row_order()
+        self._refresh_category_headers()
+        if record_history:
+            self._record_history("使用色フォルダーを作成", before)
+        return name
+
+    def _ensure_category_header(self, name):
+        header = self.category_widgets.get(name)
+        if header is not None:
+            header.setName(name)
+            return header
+        header = ColorCategoryHeader(name, self.content)
+        header.visibilityChanged.connect(
+            lambda visible, category=name:
+            self._set_category_visibility(category, visible)
+        )
+        header.collapsedChanged.connect(
+            lambda collapsed, category=name:
+            self._set_category_collapsed(category, collapsed)
+        )
+        header.colorDropped.connect(
+            lambda rgb, category=name:
+            self._move_colors_to_category(rgb, category)
+        )
+        header.contextMenuRequested.connect(
+            lambda global_pos, category=name:
+            self._show_category_context_menu(category, global_pos)
+        )
+        self.category_widgets[name] = header
+        return header
+
+    def _sync_category_headers(self):
+        for name in list(self.category_widgets):
+            if name in self.category_order:
+                continue
+            header = self.category_widgets.pop(name)
+            self.rows.removeWidget(header)
+            header.deleteLater()
+        for name in self.category_order:
+            self._ensure_category_header(name)
+
+    def _category_members(self, name, existing_only=True):
+        existing = set(self.source_buttons)
+        return [
+            self._rgb_key(color) for color in self.colors
+            if self.category_colors.get(self._rgb_key(color)) == name
+            and self._rgb_key(color) != self.background_rgb
+            and (not existing_only or self._rgb_key(color) in existing)
+        ]
+
+    def _refresh_category_headers(self, *_args):
+        for name in self.category_order:
+            header = self.category_widgets.get(name)
+            if header is None:
+                continue
+            members = self._category_members(name)
+            header.setVisibilityState(
+                [self.enabled_colors.get(rgb, True) for rgb in members]
+            )
+            header.name_label.setText(f"📁 {name}（{len(members)}色）")
+            header.setToolTip(
+                "フォルダーへ色をドラッグして格納できます。"
+                "右クリックで名前変更・削除ができます。"
+            )
+
+    def _set_category_collapsed(self, name, collapsed):
+        if name not in self.category_order:
+            return
+        self.category_collapsed[name] = bool(collapsed)
+        self._reapply_row_order()
+
+    def _set_category_visibility(self, name, visible):
+        members = self._category_members(name)
+        if not members:
+            self._refresh_category_headers()
+            return
+        with self._history_edit("使用色フォルダーの表示切り替え"):
+            self._isolated_rgb = None
+            self._pre_isolate_enabled = None
+            for rgb in members:
+                self._set_checkbox_without_signal(rgb, bool(visible))
+            self.visibleColorsChanged.emit(self.enabled_rgb_set())
+
+    def _move_colors_to_category(self, dragged_rgb, category):
+        if category not in self.category_order:
+            return
+        dragged_rgb = tuple(dragged_rgb)
+        selected = {tuple(rgb) for rgb in self.selected_rgbs}
+        sources = selected if dragged_rgb in selected else {dragged_rgb}
+        sources.discard(self.background_rgb)
+        if not sources:
+            return
+        with self._history_edit("使用色をフォルダーへ移動"):
+            for rgb in sources:
+                self.category_colors[rgb] = category
+            self.category_collapsed[category] = False
+            header = self.category_widgets.get(category)
+            if header is not None:
+                header.setCollapsed(False)
+            self._reapply_row_order()
+            self._refresh_category_headers()
+
+    def _move_colors_to_uncategorized(self, sources):
+        sources = {tuple(rgb) for rgb in sources}
+        with self._history_edit("使用色をフォルダーから移動"):
+            for rgb in sources:
+                self.category_colors.pop(rgb, None)
+            self._reapply_row_order()
+            self._refresh_category_headers()
+
+    def _show_category_context_menu(self, name, global_position):
+        if name not in self.category_order:
+            return
+        menu = QMenu(self)
+        rename_action = menu.addAction("名前を変更…")
+        delete_action = menu.addAction("フォルダーを削除")
+        chosen = menu.exec(global_position)
+        if chosen is rename_action:
+            new_name, accepted = QInputDialog.getText(
+                self, "使用色フォルダー", "フォルダー名：", text=name
+            )
+            new_name = str(new_name).strip()
+            if accepted and new_name and new_name != name:
+                self.rename_category(name, new_name)
+        elif chosen is delete_action:
+            self.delete_category(name)
+
+    def rename_category(self, old_name, new_name):
+        if old_name not in self.category_order:
+            return
+        if new_name.casefold() != old_name.casefold():
+            new_name = self._unique_category_name(new_name)
+        before = self.capture_history_state()
+        index = self.category_order.index(old_name)
+        self.category_order[index] = new_name
+        for rgb, category in list(self.category_colors.items()):
+            if category == old_name:
+                self.category_colors[rgb] = new_name
+        collapsed = self.category_collapsed.pop(old_name, False)
+        self.category_collapsed[new_name] = collapsed
+        old_header = self.category_widgets.pop(old_name, None)
+        if old_header is not None:
+            self.rows.removeWidget(old_header)
+            old_header.deleteLater()
+        self._ensure_category_header(new_name).setCollapsed(collapsed)
+        self._reapply_row_order()
+        self._refresh_category_headers()
+        self._record_history("使用色フォルダー名を変更", before)
+
+    def delete_category(self, name, record_history=True):
+        if name not in self.category_order:
+            return
+        before = self.capture_history_state() if record_history else None
+        self.category_order.remove(name)
+        self.category_collapsed.pop(name, None)
+        for rgb, category in list(self.category_colors.items()):
+            if category == name:
+                self.category_colors.pop(rgb, None)
+        header = self.category_widgets.pop(name, None)
+        if header is not None:
+            self.rows.removeWidget(header)
+            header.deleteLater()
+        self._reapply_row_order()
+        if record_history:
+            self._record_history("使用色フォルダーを削除", before)
+
+    def clear_categories(self):
+        for header in self.category_widgets.values():
+            self.rows.removeWidget(header)
+            header.deleteLater()
+        self.category_order = []
+        self.category_colors = {}
+        self.category_collapsed = {}
+        self.category_widgets = {}
+        self._reapply_row_order()
+
+    def serialize_categories(self):
+        return {
+            "folders": [
+                {
+                    "name": name,
+                    "collapsed": bool(self.category_collapsed.get(name, False)),
+                }
+                for name in self.category_order
+            ],
+            "assignments": {
+                "#{:02X}{:02X}{:02X}".format(*rgb): category
+                for rgb, category in self.category_colors.items()
+                if category in self.category_order
+            },
+            "enabled": {
+                "#{:02X}{:02X}{:02X}".format(*rgb): bool(enabled)
+                for rgb, enabled in self.enabled_colors.items()
+            },
+        }
+
+    def restore_categories(self, payload):
+        if not isinstance(payload, dict):
+            self.clear_categories()
+            return
+        self.clear_categories()
+        folders = payload.get("folders", [])
+        if isinstance(folders, list):
+            for entry in folders:
+                if not isinstance(entry, dict):
+                    continue
+                name = str(entry.get("name", "")).strip()
+                if not name:
+                    continue
+                name = self.create_category(name, record_history=False)
+                collapsed = bool(entry.get("collapsed", False))
+                self.category_collapsed[name] = collapsed
+                self.category_widgets[name].setCollapsed(collapsed)
+        assignments = payload.get("assignments", {})
+        if isinstance(assignments, dict):
+            for color_hex, category in assignments.items():
+                color = QColor(str(color_hex))
+                if color.isValid() and category in self.category_order:
+                    self.category_colors[self._rgb_key(color)] = category
+        enabled = payload.get("enabled", {})
+        if isinstance(enabled, dict):
+            for color_hex, visible in enabled.items():
+                color = QColor(str(color_hex))
+                rgb = self._rgb_key(color)
+                if color.isValid() and rgb in self.visibility_checks:
+                    self._set_checkbox_without_signal(rgb, bool(visible))
+        self._reapply_row_order()
+        self._refresh_category_headers()
+        self.visibleColorsChanged.emit(self.enabled_rgb_set())
 
     def _group_line_color(self, rgb):
         """rgb が親子グループに属していれば、束ねる縦ライン色（ルート親色）を返す。"""
@@ -362,11 +823,13 @@ class UsedColorPanel(
         self._apply_swatch_text(rgb)
 
     def _clear_rows(self):
+        self._close_replacement_editor()
         self.visibility_checks.clear()
         self.mask_checks.clear()
         self.selection_checks.clear()
         self.source_buttons.clear()
         self.source_wrappers.clear()
+        self.replacement_buttons.clear()
         self.row_widgets.clear()
         while self.rows.count() > 1:
             item = self.rows.takeAt(0)
@@ -376,6 +839,8 @@ class UsedColorPanel(
 
     def _remove_color_row(self, rgb):
         """Remove only one row so palette updates do not rebuild every widget."""
+        if self._replacement_popup_rgb == rgb:
+            self._close_replacement_editor()
         widget = self.row_widgets.pop(rgb, None)
         if widget is not None:
             self.rows.removeWidget(widget)
@@ -385,6 +850,8 @@ class UsedColorPanel(
         self.selection_checks.pop(rgb, None)
         self.source_buttons.pop(rgb, None)
         self.source_wrappers.pop(rgb, None)
+        self.replacement_buttons.pop(rgb, None)
+        self.replacements.pop(rgb, None)
 
     def _make_source_wrapper(self, source, source_rgb):
         is_background = source_rgb == self.background_rgb
@@ -430,7 +897,9 @@ class UsedColorPanel(
         row.setColumnMinimumWidth(1, 32)
         row.setColumnMinimumWidth(2, 32)
         row.setColumnMinimumWidth(3, 72)
+        row.setColumnMinimumWidth(4, 72)
         row.setColumnStretch(3, 1)
+        row.setColumnStretch(4, 1)
 
         selection_check = ColorSelectionCheckBox()
         selection_check.setChecked(source_rgb in self.selected_rgbs)
@@ -568,8 +1037,35 @@ class UsedColorPanel(
         row.addWidget(selection_area, 0, 0)
         row.addWidget(visible_area, 0, 1)
         row.addWidget(mask_area, 0, 2)
-        # 置換色列を廃止し、色スウォッチが色列全体を占める。
-        row.addWidget(source_wrapper, 0, 3)
+        if is_background:
+            row.addWidget(source_wrapper, 0, 3, 1, 2)
+        else:
+            replacement = ScreenEyedropButton()
+            replacement.setFixedHeight(26)
+            replacement.setMinimumWidth(72)
+            replacement.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+            )
+            replacement.setToolTip(
+                "クリック：現在のメイン／サブ色を登録・解除。"
+                "ドラッグ：画面からスポイト。右クリック：RGB／HSV編集。"
+            )
+            replacement.clicked.connect(
+                lambda _checked=False, rgb=source_rgb:
+                self._toggle_replacement(rgb)
+            )
+            replacement.colorPicked.connect(
+                lambda color, rgb=source_rgb:
+                self._set_replacement_color(rgb, color)
+            )
+            replacement.colorEditorRequested.connect(
+                lambda global_pos, rgb=source_rgb:
+                self._toggle_replacement_editor(rgb, global_pos)
+            )
+            self.replacement_buttons[source_rgb] = replacement
+            self._set_replacement_button_style(source_rgb)
+            row.addWidget(source_wrapper, 0, 3)
+            row.addWidget(replacement, 0, 4)
 
         self.row_widgets[source_rgb] = row_widget
         # 末尾（ストレッチの手前）へ追加する。並び順は _reapply_row_order で整える。
@@ -596,6 +1092,10 @@ class UsedColorPanel(
             self._rgb_key(color): QColor(color) for color in normalized
         }
         incoming_keys = {self.background_rgb, *incoming_by_key.keys()}
+        self.replacements = {
+            rgb: color for rgb, color in self.replacements.items()
+            if rgb in incoming_keys and rgb != self.background_rgb
+        }
         current_keys = {self._rgb_key(color) for color in self.colors}
         added = incoming_keys - current_keys
         removed = current_keys - incoming_keys
@@ -760,6 +1260,15 @@ class UsedColorPanel(
             )
 
         action_focus = menu.addAction("対象に注視")
+        folder_menu = menu.addMenu("フォルダーへ移動")
+        folder_actions = {}
+        uncategorized_action = folder_menu.addAction("未分類")
+        folder_menu.addSeparator()
+        for category_name in self.category_order:
+            action = folder_menu.addAction(category_name)
+            folder_actions[action] = category_name
+        folder_menu.addSeparator()
+        new_folder_action = folder_menu.addAction("新規フォルダー…")
         menu.addSeparator()
 
         # 親子グループ（プレビュー）関連。
@@ -797,6 +1306,25 @@ class UsedColorPanel(
         elif chosen is action_focus:
             self._set_used_color_parent(rgb)
             self.focusColorRequested.emit(tuple(rgb))
+        elif chosen is uncategorized_action:
+            move_sources = (
+                selected_line_colors
+                if clicked_rgb in selected_line_colors
+                else {clicked_rgb}
+            )
+            self._move_colors_to_uncategorized(move_sources)
+        elif chosen in folder_actions:
+            self._move_colors_to_category(
+                clicked_rgb, folder_actions[chosen]
+            )
+        elif chosen is new_folder_action:
+            name, accepted = QInputDialog.getText(
+                self, "使用色フォルダー", "フォルダー名：",
+                text=self._unique_category_name("新規フォルダー"),
+            )
+            if accepted and str(name).strip():
+                category = self.create_category(str(name).strip())
+                self._move_colors_to_category(clicked_rgb, category)
         elif action_ungroup is not None and chosen is action_ungroup:
             with self._history_edit("親子を解除"):
                 if self._drop_group_links_for(clicked_rgb):

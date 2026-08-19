@@ -117,6 +117,12 @@ class UsedColorMixin(MainWindowMembers):
     def _apply_used_color_result(self, colors, exceeded=False):
         ordered = [QColor(r, g, b) for r, g, b in colors[:100]]
         self.palette.set_colors(ordered)
+        pending_categories = getattr(
+            self, "_pending_palette_categories", None
+        )
+        if pending_categories is not None:
+            self._pending_palette_categories = None
+            self.palette.restore_categories(pending_categories)
         if exceeded:
             self.palette.count_label.setText("100色以上")
 

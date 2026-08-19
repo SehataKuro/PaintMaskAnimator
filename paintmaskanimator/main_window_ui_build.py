@@ -393,6 +393,63 @@ class UIBuildMixin(MainWindowMembers):
         custom = QAction("カスタム…", self)
         custom.triggered.connect(self.choose_accent_color)
         accent_menu.addAction(custom)
+        view_menu.addSeparator()
+        self.subview_action = QAction("サブビュー", self)
+        self.subview_action.setCheckable(True)
+        self.subview_action.setChecked(True)
+        self.subview_action.triggered.connect(self._set_subview_visible)
+        view_menu.addAction(self.subview_action)
+
+    def _set_subview_visible(self, visible):
+        if visible:
+            self.subview.show()
+            self.subview.raise_()
+            self.subview.activateWindow()
+        else:
+            self.subview.hide()
+
+    def _place_subview_initially(self):
+        """右パネルとタイムラインを避け、参考画像向けの縦長位置へ置く。"""
+        main_top_left = self.mapToGlobal(QPoint(0, 0))
+        main_right = main_top_left.x() + self.width()
+        right_boundary = main_right - max(260, int(self.width() * 0.15))
+        try:
+            if self.palette_dock.isVisible():
+                right_boundary = self.palette_dock.mapToGlobal(QPoint(0, 0)).x()
+        except RuntimeError:
+            pass
+
+        top = main_top_left.y() + self.menuBar().height() + 38
+        timeline_top = main_top_left.y() + self.height() - 170
+        try:
+            if self.timeline_dock.isVisible():
+                timeline_top = self.timeline_dock.mapToGlobal(QPoint(0, 0)).y()
+        except RuntimeError:
+            pass
+
+        width = max(640, min(790, int(self.width() * 0.42)))
+        available_height = max(500, timeline_top - top - 10)
+        height = min(900, available_height)
+        left = right_boundary - width - 10
+
+        screen = QApplication.screenAt(QPoint(left, top))
+        if screen is None:
+            screen = QApplication.primaryScreen()
+        if screen is not None:
+            available = screen.availableGeometry()
+            width = min(width, available.width())
+            height = min(height, available.height())
+            left = max(
+                available.left(),
+                min(left, available.right() - width + 1),
+            )
+            top = max(
+                available.top(),
+                min(top, available.bottom() - height + 1),
+            )
+        self.subview.setGeometry(left, top, width, height)
+        self.subview.show()
+        self.subview.raise_()
     def _refresh_theme_dependent_ui(self):
         """Re-apply palette-derived styles after a theme/accent change."""
         bar: Any = self.statusBar()
@@ -597,6 +654,8 @@ class UIBuildMixin(MainWindowMembers):
         self.dock_manager.addDockWidget(
             QtAds.CenterDockWidgetArea, self.history_dock, palette_area
         )
+        # 使用色をヒストリーより前のタブとして、起動時の前面にする。
+        palette_area.setCurrentDockWidget(self.palette_dock)
 
         self.timeline_dock=QtAds.CDockWidget(self.dock_manager, "タイムライン")
         self.timeline_dock.setObjectName("timelineDock")
@@ -643,6 +702,12 @@ class UIBuildMixin(MainWindowMembers):
         )
         self._build_workspace_menu()
         self._finalize_startup_dock_ui()
+        self.subview.visibilityChanged.connect(
+            lambda visible: self.subview_action.setChecked(bool(visible))
+        )
+        QTimer.singleShot(0, self.subview.show)
+        # 最大化とQtAdsのレイアウト確定後に、下段参考画像の位置へ置く。
+        QTimer.singleShot(180, self._place_subview_initially)
         QTimer.singleShot(
             0,
             lambda: self._resize_tool_selector_area(
@@ -716,6 +781,21 @@ class UIBuildMixin(MainWindowMembers):
         self.tools.brush_size_spinbox.pressureRequested.connect(self.pressure)
         self.tools.colorModeChanged.connect(self.set_color_mode)
         self.tools.colorChanged.connect(self.set_color_value)
+        self.subview.colorPicked.connect(self.apply_sampled_color)
+        self.subview.set_color_provider(
+            lambda: (
+                self.canvas.sub_color
+                if self.canvas.color_mode == "sub"
+                else self.canvas.main_color
+            )
+        )
+        self.subview.colorPicked.connect(
+            lambda color: self.status(
+                f"サブビューから {color.name().upper()} を取得しました",
+                "success",
+                2500,
+            )
+        )
         # Keep the tool-bar drawing-colour swatch in sync with the panel.
         self.tool_selector.colorModeRequested.connect(self.set_color_mode)
         self.tool_selector.backgroundColorRequested.connect(
@@ -884,6 +964,9 @@ class UIBuildMixin(MainWindowMembers):
             lambda color: self.apply_sampled_color_to_mode("main", color)
         )
         self.palette.sourceScreenColorPicked.connect(self.apply_sampled_color)
+        self.palette.applyReplacementRequested.connect(
+            self.apply_palette_replacements
+        )
         self.palette.previewGroupsChanged.connect(self.set_preview_color_groups)
         self.palette.freezeGroupsRequested.connect(self.freeze_preview_color_groups)
         self.palette.mergeColorsRequested.connect(self.apply_palette_merge)

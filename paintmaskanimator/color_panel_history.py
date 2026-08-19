@@ -25,6 +25,9 @@ class ColorPanelHistoryMixin(UsedColorPanelMembers):
             "mask": set(self.mask_rgbs),
             "selected": list(self.selected_rgbs),
             "parent": self.parent_rgb,
+            "category_order": list(self.category_order),
+            "category_colors": dict(self.category_colors),
+            "category_collapsed": dict(self.category_collapsed),
         }
 
     @staticmethod
@@ -35,6 +38,8 @@ class ColorPanelHistoryMixin(UsedColorPanelMembers):
             tuple(sorted(snapshot.get("groups", {}).items())),
             tuple(sorted(snapshot.get("enabled", {}).items())),
             tuple(sorted(snapshot.get("mask", set()))),
+            tuple(snapshot.get("category_order", ())),
+            tuple(sorted(snapshot.get("category_colors", {}).items())),
         )
 
     def restore_history_state(self, snapshot):
@@ -57,6 +62,25 @@ class ColorPanelHistoryMixin(UsedColorPanelMembers):
                 if rgb not in ordered:
                     ordered.append(rgb)
             self.colors = [by_key[rgb] for rgb in ordered if rgb in by_key]
+
+            # 使用色フォルダーを復元する。色が一時的に別レイヤーで未表示でも
+            # プロジェクト内の割り当ては保持する。
+            self.category_order = [
+                str(name) for name in snapshot.get("category_order", [])
+                if str(name).strip()
+            ]
+            self.category_colors = {
+                tuple(rgb): str(category)
+                for rgb, category in snapshot.get("category_colors", {}).items()
+                if str(category) in self.category_order
+            }
+            self.category_collapsed = {
+                name: bool(snapshot.get("category_collapsed", {}).get(name, False))
+                for name in self.category_order
+            }
+            self._sync_category_headers()
+            for name, header in self.category_widgets.items():
+                header.setCollapsed(self.category_collapsed.get(name, False))
             self._reapply_row_order()
 
             # 親子プレビューを復元する。
@@ -96,6 +120,7 @@ class ColorPanelHistoryMixin(UsedColorPanelMembers):
                 else (self.selected_rgbs[-1] if self.selected_rgbs else None)
             )
             self._refresh_used_color_styles()
+            self._refresh_category_headers()
         finally:
             self._history_suspended = False
 

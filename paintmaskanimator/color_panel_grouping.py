@@ -221,14 +221,66 @@ class ColorGroupingMixin(UsedColorPanelMembers):
         self._reapply_row_order()
 
     def _reapply_row_order(self):
-        """self.colors の順序どおりに行ウィジェットを並べ替える。"""
-        for position, color in enumerate(self.colors):
+        """背景、カテゴリーフォルダー、未分類色の順に行を並べる。"""
+        self._sync_category_headers()
+        for widget in list(self.category_widgets.values()) + list(self.row_widgets.values()):
+            self.rows.removeWidget(widget)
+
+        def set_category_member_visual(widget, in_category):
+            row_layout = widget.layout()
+            if row_layout is not None:
+                row_layout.setContentsMargins(
+                    20 if in_category else 0, 0, 0, 0
+                )
+            if in_category:
+                widget.setObjectName("usedColorCategoryMember")
+                widget.setStyleSheet(
+                    "QWidget#usedColorCategoryMember{"
+                    "background-color:palette(alternate-base);"
+                    "border-left:3px solid palette(highlight);}"
+                )
+                widget.setToolTip("使用色フォルダーに格納されています。")
+            else:
+                widget.setObjectName("usedColorRow")
+                widget.setStyleSheet("")
+                widget.setToolTip("")
+
+        position = 0
+        background = self.row_widgets.get(self.background_rgb)
+        if background is not None:
+            set_category_member_visual(background, False)
+            background.setVisible(True)
+            self.rows.insertWidget(position, background)
+            position += 1
+
+        for category in self.category_order:
+            header = self.category_widgets.get(category)
+            if header is None:
+                continue
+            self.rows.insertWidget(position, header)
+            header.setVisible(True)
+            position += 1
+            collapsed = bool(self.category_collapsed.get(category, False))
+            for rgb in self._category_members(category):
+                widget = self.row_widgets.get(rgb)
+                if widget is None:
+                    continue
+                set_category_member_visual(widget, True)
+                widget.setVisible(not collapsed)
+                self.rows.insertWidget(position, widget)
+                position += 1
+
+        for color in self.colors:
             rgb = self._rgb_key(color)
+            if rgb == self.background_rgb or rgb in self.category_colors:
+                continue
             widget = self.row_widgets.get(rgb)
             if widget is None:
                 continue
-            self.rows.removeWidget(widget)
+            set_category_member_visual(widget, False)
+            widget.setVisible(True)
             self.rows.insertWidget(position, widget)
+            position += 1
 
     def _refresh_all_group_displays(self):
         for rgb in list(self.source_buttons):

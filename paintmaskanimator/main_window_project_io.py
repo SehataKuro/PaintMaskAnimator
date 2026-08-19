@@ -127,6 +127,11 @@ class ProjectIOMixin(MainWindowMembers):
         try:
             metadata, loaded_frames, width, height = project_io.read_project_archive(project_path)
 
+            self.palette.clear_categories()
+            self._pending_palette_categories = metadata.get(
+                "used_color_categories", {}
+            )
+
             constants.CANVAS_WIDTH = width
             constants.CANVAS_HEIGHT = height
             self.canvas.frames = loaded_frames

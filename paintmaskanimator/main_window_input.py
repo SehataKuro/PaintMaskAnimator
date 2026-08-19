@@ -298,6 +298,41 @@ class InputMixin(MainWindowMembers):
             self._update_auxiliary_hold_cursors()
 
     def eventFilter(self, watched, event):
+        # サブビューは独立ウィンドウとしてSpace系操作を自身で処理する。
+        # アプリ全体のキャンバス用ショートカットへ横取りさせない。
+        subview_active = QApplication.activeWindow() is self.subview
+        if (
+            isinstance(watched, QWidget)
+            and (
+                watched is self.subview
+                or self.subview.isAncestorOf(watched)
+                or subview_active
+            )
+            and event.type() in (
+                QEvent.Type.ShortcutOverride,
+                QEvent.Type.KeyPress,
+                QEvent.Type.KeyRelease,
+                QEvent.Type.MouseButtonPress,
+                QEvent.Type.MouseButtonRelease,
+                QEvent.Type.MouseMove,
+                QEvent.Type.Wheel,
+            )
+        ):
+            if (
+                event.type() == QEvent.Type.ShortcutOverride
+                and event.key() in (Qt.Key.Key_Space, Qt.Key.Key_Control)
+            ):
+                event.accept()
+                return True
+            if (
+                event.type() in (QEvent.Type.KeyPress, QEvent.Type.KeyRelease)
+                and event.key() in (Qt.Key.Key_Space, Qt.Key.Key_Control)
+                and not event.isAutoRepeat()
+            ):
+                self.subview.handle_hold_key_event(event)
+                event.accept()
+                return True
+            return super().eventFilter(watched, event)
         if event.type() == QEvent.Type.MouseButtonRelease:
             QTimer.singleShot(0, self._sync_all_area_hamburgers)
         if type(watched).__name__ == "QSplitterHandle":
