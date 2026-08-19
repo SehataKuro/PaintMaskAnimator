@@ -1,5 +1,7 @@
 # PaintMaskAnimator
 
+[English](README.en.md) | 日本語
+
 PySide6 で作られたペイント / マスクアニメーションツールです。
 
 ## 関連リンク
