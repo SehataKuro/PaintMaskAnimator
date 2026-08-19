@@ -20,12 +20,6 @@ class SubViewWidget(QWidget):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMinimumSize(180, 140)
         self.setWindowTitle("サブビュー")
-        self.setWindowFlags(
-            Qt.WindowType.Tool
-            | Qt.WindowType.WindowTitleHint
-            | Qt.WindowType.WindowCloseButtonHint
-        )
-        self.resize(620, 520)
         self._image = QImage()
         self._path = None
         self._files = []

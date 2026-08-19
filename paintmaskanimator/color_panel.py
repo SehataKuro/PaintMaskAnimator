@@ -140,7 +140,7 @@ class UsedColorPanel(
             "フォルダーのチェックで所属色を一括表示／非表示。"
             "ドラッグで並べ替え、色の中央へドロップ＝その色の「子」にして"
             "親色でプレビュー表示。親子付け／解除はドラッグと右クリックのみ。"
-            "問題なければ［フリーズ］で実画像へ焼き込みます。"
+            "問題なければ［統合］で実画像へ焼き込みます。"
         )
         note.setWordWrap(True)
         layout.addWidget(note)
@@ -247,20 +247,7 @@ class UsedColorPanel(
         self.clear_masks_button.setFixedWidth(32)
         self.clear_masks_button.setStyleSheet("font-size:9px;padding:0px;")
 
-        self.merge_button = QPushButton("統合")
-        self.merge_button.setToolTip(
-            "選択した子の色を、最後に選択した親の色へ統合します。"
-        )
-        self.merge_button.clicked.connect(self._emit_merge)
-        self.merge_button.setMinimumWidth(72)
-        self.merge_button.setMaximumWidth(16777215)
-        self.merge_button.setSizePolicy(
-            QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Fixed,
-        )
-        self.merge_button.setStyleSheet("font-size:10px;padding:1px;")
-
-        self.freeze_button = QPushButton("フリーズ")
+        self.freeze_button = QPushButton("統合")
         self.freeze_button.setToolTip(
             "プレビュー中の親子（子→親の塗り替え）を、実際の画像へ焼き込みます。"
             "焼き込むと親子は解除され、Undoで元に戻せます。"
@@ -293,13 +280,12 @@ class UsedColorPanel(
         )):
             button.setMinimumWidth(0)
             button_row.addWidget(button, 0, column)
-        # 統合・フリーズは色スウォッチ列（col3）に横並びで置く。
+        # 親子プレビューの統合は色スウォッチ列（col3）に置く。
         action_buttons = QHBoxLayout()
         action_buttons.setContentsMargins(0, 0, 0, 0)
         action_buttons.setSpacing(2)
-        for button in (self.merge_button, self.freeze_button):
-            button.setMinimumWidth(0)
-            action_buttons.addWidget(button)
+        self.freeze_button.setMinimumWidth(0)
+        action_buttons.addWidget(self.freeze_button)
         button_row.addLayout(action_buttons, 0, 3)
         button_row.addWidget(self.apply_button, 0, 4)
         layout.addLayout(button_row)
@@ -1285,7 +1271,7 @@ class UsedColorPanel(
         action_freeze = None
         if self.child_to_parent:
             action_ungroup_all = menu.addAction("親子をすべて解除")
-            action_freeze = menu.addAction("親子をフリーズ（焼き込み）")
+            action_freeze = menu.addAction("親子を統合（焼き込み）")
             action_freeze.setToolTip("プレビュー中の子→親の塗り替えを実画像へ確定します。")
         action_clear = None
         if self.selected_rgbs:

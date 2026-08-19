@@ -401,55 +401,17 @@ class UIBuildMixin(MainWindowMembers):
         view_menu.addAction(self.subview_action)
 
     def _set_subview_visible(self, visible):
+        dock = getattr(self, "subview_dock", None)
+        if dock is not None:
+            dock.toggleView(bool(visible))
+            if visible:
+                dock.raise_()
+            return
         if visible:
             self.subview.show()
             self.subview.raise_()
-            self.subview.activateWindow()
         else:
             self.subview.hide()
-
-    def _place_subview_initially(self):
-        """右パネルとタイムラインを避け、参考画像向けの縦長位置へ置く。"""
-        main_top_left = self.mapToGlobal(QPoint(0, 0))
-        main_right = main_top_left.x() + self.width()
-        right_boundary = main_right - max(260, int(self.width() * 0.15))
-        try:
-            if self.palette_dock.isVisible():
-                right_boundary = self.palette_dock.mapToGlobal(QPoint(0, 0)).x()
-        except RuntimeError:
-            pass
-
-        top = main_top_left.y() + self.menuBar().height() + 38
-        timeline_top = main_top_left.y() + self.height() - 170
-        try:
-            if self.timeline_dock.isVisible():
-                timeline_top = self.timeline_dock.mapToGlobal(QPoint(0, 0)).y()
-        except RuntimeError:
-            pass
-
-        width = max(640, min(790, int(self.width() * 0.42)))
-        available_height = max(500, timeline_top - top - 10)
-        height = min(900, available_height)
-        left = right_boundary - width - 10
-
-        screen = QApplication.screenAt(QPoint(left, top))
-        if screen is None:
-            screen = QApplication.primaryScreen()
-        if screen is not None:
-            available = screen.availableGeometry()
-            width = min(width, available.width())
-            height = min(height, available.height())
-            left = max(
-                available.left(),
-                min(left, available.right() - width + 1),
-            )
-            top = max(
-                available.top(),
-                min(top, available.bottom() - height + 1),
-            )
-        self.subview.setGeometry(left, top, width, height)
-        self.subview.show()
-        self.subview.raise_()
     def _refresh_theme_dependent_ui(self):
         """Re-apply palette-derived styles after a theme/accent change."""
         bar: Any = self.statusBar()
@@ -657,6 +619,15 @@ class UIBuildMixin(MainWindowMembers):
         # 使用色をヒストリーより前のタブとして、起動時の前面にする。
         palette_area.setCurrentDockWidget(self.palette_dock)
 
+        self.subview_dock=QtAds.CDockWidget(self.dock_manager, "サブビュー")
+        self.subview_dock.setObjectName("subviewDock")
+        self.subview_dock.setWidget(
+            self.subview, QtAds.CDockWidget.eInsertMode.ForceNoScrollArea
+        )
+        self.dock_manager.addDockWidget(
+            QtAds.RightDockWidgetArea, self.subview_dock
+        )
+
         self.timeline_dock=QtAds.CDockWidget(self.dock_manager, "タイムライン")
         self.timeline_dock.setObjectName("timelineDock")
         self.timeline.setMaximumHeight(16777215)
@@ -683,6 +654,7 @@ class UIBuildMixin(MainWindowMembers):
             self.color_slider_dock,
             self.palette_dock,
             self.history_dock,
+            self.subview_dock,
             self.timeline_dock,
         ):
             dock.topLevelChanged.connect(
@@ -690,6 +662,7 @@ class UIBuildMixin(MainWindowMembers):
                 self._sync_floating_title(current, floating)
             )
             self._add_dock_hamburger(dock, dock_menu_builders.get(dock))
+            self._sync_floating_title(dock, False)
         self.dock_manager.dockAreasAdded.connect(
             lambda *_args: QTimer.singleShot(
                 0, self._sync_all_area_hamburgers
@@ -702,12 +675,21 @@ class UIBuildMixin(MainWindowMembers):
         )
         self._build_workspace_menu()
         self._finalize_startup_dock_ui()
-        self.subview.visibilityChanged.connect(
+        for dock in (
+            self.tool_selector_dock,
+            self.tools_dock,
+            self.action_panel_dock,
+            self.color_wheel_dock,
+            self.color_slider_dock,
+            self.palette_dock,
+            self.history_dock,
+            self.subview_dock,
+            self.timeline_dock,
+        ):
+            self._sync_floating_title(dock, dock.isFloating())
+        self.subview_dock.visibilityChanged.connect(
             lambda visible: self.subview_action.setChecked(bool(visible))
         )
-        QTimer.singleShot(0, self.subview.show)
-        # 最大化とQtAdsのレイアウト確定後に、下段参考画像の位置へ置く。
-        QTimer.singleShot(180, self._place_subview_initially)
         QTimer.singleShot(
             0,
             lambda: self._resize_tool_selector_area(
@@ -724,6 +706,7 @@ class UIBuildMixin(MainWindowMembers):
         view_menu.addAction(self.color_slider_dock.toggleViewAction())
         view_menu.addAction(self.palette_dock.toggleViewAction())
         view_menu.addAction(self.history_dock.toggleViewAction())
+        view_menu.addAction(self.subview_dock.toggleViewAction())
         view_menu.addAction(self.timeline_dock.toggleViewAction())
 
         help_menu=self.menuBar().addMenu("ヘルプ")

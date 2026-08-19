@@ -45,6 +45,7 @@ try:
         QTableWidgetItem, QTabBar, QTabWidget, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QAbstractItemView, QHeaderView, QScrollArea,
         QKeySequenceEdit, QDockWidget, QProgressDialog, QPlainTextEdit, QStyledItemDelegate, QStyle,
         QSizePolicy, QAbstractButton, QAbstractSpinBox, QInputDialog, QSplitter,
+        QSizeGrip,
     )
 except ModuleNotFoundError as exc:
     # Double-clicking a .py normally closes the console immediately. Show a visible

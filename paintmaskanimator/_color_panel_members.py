@@ -115,7 +115,6 @@ class UsedColorPanelMembers(_MembersBase):
         _mask_sweep_changed: Any
         _mask_sweep_state: Any
         _mask_sweep_touched: Any
-        merge_button: Any
         _move_mask_sweep: Any
         _move_selection_sweep: Any
         _move_visibility_sweep: Any

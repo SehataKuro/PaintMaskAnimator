@@ -8,12 +8,34 @@ snapping. They run against a live ``MainWindow`` instance and its
 """
 from .common import *  # noqa: F401,F403
 from ._main_window_members import MainWindowMembers
+import ctypes
+import sys
 import PySide6QtAds as QtAds
+from PySide6.QtCore import QEasingCurve, QEventLoop, QObject, QPropertyAnimation
+from PySide6.QtWidgets import QGraphicsOpacityEffect
 from . import config, theme
 from .widgets import HSVColorWheel
 from .logging_setup import get_logger
 
 log = get_logger(__name__)
+
+
+class _FloatingGripTracker(QObject):
+    """Anchor a size grip after every floating-container resize."""
+
+    def __init__(self, floating, grip):
+        super().__init__(floating)
+        self.floating = floating
+        self.grip = grip
+
+    def eventFilter(self, watched, event):
+        if event.type() in (QEvent.Type.Resize, QEvent.Type.Show):
+            self.grip.move(
+                max(0, watched.width() - self.grip.width()),
+                max(0, watched.height() - self.grip.height()),
+            )
+            self.grip.raise_()
+        return False
 
 
 class DockingMixin(MainWindowMembers):
@@ -339,6 +361,54 @@ class DockingMixin(MainWindowMembers):
 
     def _setup_split_drop_overlay(self):
         """Create the insertion marker used for drops between dock areas."""
+        self._manual_drop_preview = QWidget(None)
+        self._manual_drop_preview.setWindowFlags(
+            Qt.WindowType.Tool
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+        )
+        self._manual_drop_preview.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents
+        )
+        self._manual_drop_preview.setAttribute(
+            Qt.WidgetAttribute.WA_TranslucentBackground
+        )
+        self._manual_drop_preview.setAttribute(
+            Qt.WidgetAttribute.WA_ShowWithoutActivating
+        )
+        self._manual_drop_preview.setStyleSheet(
+            "background:rgba(82,145,190,72);"
+            "border:2px solid rgba(105,180,230,210);"
+            "border-radius:4px;"
+        )
+        self._manual_drop_animation = QPropertyAnimation(
+            self._manual_drop_preview, b"windowOpacity", self
+        )
+        self._manual_drop_animation.setDuration(160)
+        self._manual_drop_animation.setStartValue(0.45)
+        self._manual_drop_animation.setEndValue(1.0)
+        self._manual_drop_animation.setEasingCurve(
+            QEasingCurve.Type.OutCubic
+        )
+        self._manual_drop_last_candidate = None
+        self._manual_center_effect_target = None
+        self._manual_center_effect = None
+        self._manual_center_animation = None
+        self._manual_center_overlay = QWidget(self)
+        self._manual_center_overlay.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents
+        )
+        self._manual_center_overlay.setStyleSheet(
+            "background:rgba(112,92,210,125);"
+            "border:2px solid rgba(145,125,245,240);"
+            "border-radius:4px;"
+        )
+        self._manual_center_overlay.hide()
+        self._manual_tab_drag_timer = QTimer(self)
+        self._manual_tab_drag_timer.setInterval(16)
+        self._manual_tab_drag_timer.timeout.connect(
+            self._poll_manual_tab_drag
+        )
         self._split_drop_overlay = QWidget(None)
         self._split_drop_overlay.setWindowFlags(
             Qt.WindowType.Tool
@@ -518,6 +588,337 @@ class DockingMixin(MainWindowMembers):
         for skeleton in self._split_drop_skeletons:
             skeleton.hide()
 
+    def _update_manual_tab_drop(self, global_pos):
+        """Show the native ADS area overlay during a frameless tab drag."""
+        overlay = self.dock_manager.dockAreaOverlay()
+        target = None
+        target_rect = None
+        for area in self.dock_manager.openedDockAreas():
+            if area.window() is not self.window() or not area.isVisible():
+                continue
+            rect = QRect(area.mapToGlobal(QPoint()), area.size())
+            if rect.contains(global_pos):
+                target = area
+                target_rect = rect
+                break
+        if target is None:
+            overlay.hideOverlay()
+            self._clear_manual_center_effect()
+            self._manual_drop_animation.stop()
+            self._manual_drop_preview.hide()
+            self._manual_drop_last_candidate = None
+            self._manual_tab_drop_target = None
+            self._manual_tab_drop_extent = None
+            return
+        title_bar = target.titleBar()
+        title_rect = QRect(
+            title_bar.mapToGlobal(QPoint()), title_bar.size()
+        )
+        if title_rect.contains(global_pos):
+            side = QtAds.CenterDockWidgetArea
+        else:
+            x_ratio = (global_pos.x() - target_rect.left()) / max(
+                1, target_rect.width()
+            )
+            y_ratio = (global_pos.y() - target_rect.top()) / max(
+                1, target_rect.height()
+            )
+            edge = min(x_ratio, 1 - x_ratio, y_ratio, 1 - y_ratio)
+            if edge >= 0.25:
+                side = QtAds.CenterDockWidgetArea
+            elif edge == x_ratio:
+                side = QtAds.LeftDockWidgetArea
+            elif edge == 1 - x_ratio:
+                side = QtAds.RightDockWidgetArea
+            elif edge == y_ratio:
+                side = QtAds.TopDockWidgetArea
+            else:
+                side = QtAds.BottomDockWidgetArea
+        # The ADS overlay has its own palette and briefly paints underneath our
+        # preview (most noticeably for the bottom target).  The custom preview
+        # is the sole feedback for this manual drag path.
+        overlay.hideOverlay()
+        preview_rect = QRect(target_rect)
+        extent = None
+        dragged = getattr(self, "_floating_tab_drag_dock", None)
+        minimum = QSize(1, 1)
+        if dragged is not None:
+            try:
+                dragged_area = dragged.dockAreaWidget()
+                hints = (
+                    dragged_area.minimumSizeHint(),
+                    dragged_area.sizeHint(),
+                    dragged_area.titleBar().minimumSizeHint(),
+                    dragged_area.titleBar().sizeHint(),
+                    dragged.minimumSizeHint(),
+                    dragged.sizeHint(),
+                    dragged.tabWidget().minimumSizeHint(),
+                    dragged.tabWidget().sizeHint(),
+                )
+                minimum = QSize(
+                    max(1, dragged.window().width(),
+                        *(hint.width() for hint in hints)),
+                    max(1, *(hint.height() for hint in hints)),
+                )
+            except RuntimeError:
+                pass
+        target_minimum_width = 1
+        try:
+            target_dock = target.currentDockWidget()
+            target_hints = (
+                target.minimumSizeHint(),
+                target.sizeHint(),
+                target.titleBar().minimumSizeHint(),
+                target.titleBar().sizeHint(),
+                target_dock.minimumSizeHint(),
+                target_dock.sizeHint(),
+                target_dock.tabWidget().minimumSizeHint(),
+                target_dock.tabWidget().sizeHint(),
+                target_dock.widget().minimumSizeHint(),
+                target_dock.widget().sizeHint(),
+            )
+            target_minimum_width = max(
+                1, target_dock.width(), target_dock.widget().width(),
+                *(hint.width() for hint in target_hints)
+            )
+        except (AttributeError, RuntimeError):
+            pass
+        target_branch_width = target_rect.width()
+        try:
+            branch = target
+            parent = branch.parentWidget()
+            while parent is not None:
+                if (
+                    isinstance(parent, QSplitter)
+                    and parent.orientation() == Qt.Orientation.Horizontal
+                ):
+                    target_branch_width = branch.width()
+                    break
+                branch = parent
+                parent = branch.parentWidget()
+        except RuntimeError:
+            pass
+        if side == QtAds.LeftDockWidgetArea:
+            preview_rect.setWidth(max(minimum.width(), target_rect.width() // 2))
+            extent = (Qt.Orientation.Horizontal, preview_rect.width())
+        elif side == QtAds.RightDockWidgetArea:
+            width = max(minimum.width(), target_rect.width() // 2)
+            preview_rect.setLeft(target_rect.right() - width + 1)
+            extent = (Qt.Orientation.Horizontal, width)
+        elif side == QtAds.TopDockWidgetArea:
+            preview_rect.setHeight(max(minimum.height(), target_rect.height() // 2))
+            preview_rect.setWidth(max(
+                minimum.width(), target_minimum_width,
+                target_rect.width(), target_branch_width,
+            ))
+            extent = (Qt.Orientation.Vertical, preview_rect.height())
+        elif side == QtAds.BottomDockWidgetArea:
+            height = max(minimum.height(), target_rect.height() // 2)
+            preview_rect.setTop(target_rect.bottom() - height + 1)
+            preview_rect.setWidth(max(
+                minimum.width(), target_minimum_width,
+                target_rect.width(), target_branch_width,
+            ))
+            extent = (Qt.Orientation.Vertical, height)
+        candidate_key = (int(side), id(target))
+        local_preview = QRect(
+            target.mapFromGlobal(preview_rect.topLeft()), preview_rect.size()
+        )
+        self._show_manual_center_effect(
+            target, local_preview, candidate_key, side
+        )
+        self._manual_drop_preview.hide()
+        self._manual_tab_drop_target = (side, target)
+        self._manual_tab_drop_extent = extent
+
+    def _show_manual_center_effect(self, target, geometry, candidate_key, side):
+        if (
+            self._manual_center_effect_target is target
+            and self._manual_center_overlay.isVisible()
+        ):
+            # Switching between center and an edge on the same area must not
+            # hide/recreate the overlay. Recreating resets opacity to zero and
+            # produces a one-frame flash, especially at the bottom boundary.
+            self._manual_center_overlay.setGeometry(geometry)
+            self._manual_center_overlay.raise_()
+            self._manual_drop_last_candidate = candidate_key
+            return
+        self._clear_manual_center_effect()
+        overlay = self._manual_center_overlay
+        overlay.setParent(target)
+        overlay.setWindowFlags(Qt.WindowType.Widget)
+        overlay.setGeometry(geometry)
+        overlay.setStyleSheet(
+            "background:rgba(112,92,210,125);"
+            "border:2px solid rgba(145,125,245,240);"
+            "border-radius:4px;"
+        )
+        effect = QGraphicsOpacityEffect(overlay)
+        effect.setOpacity(0.0)
+        overlay.setGraphicsEffect(effect)
+        overlay.show()
+        overlay.raise_()
+        animation = QPropertyAnimation(effect, b"opacity", self)
+        animation.setDuration(180)
+        animation.setStartValue(0.0)
+        animation.setEndValue(1.0)
+        animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._manual_center_effect_target = target
+        self._manual_center_effect = effect
+        self._manual_center_animation = animation
+        self._manual_drop_last_candidate = candidate_key
+        animation.start()
+
+    def _clear_manual_center_effect(self):
+        animation = getattr(self, "_manual_center_animation", None)
+        if animation is not None:
+            animation.stop()
+        target = getattr(self, "_manual_center_effect_target", None)
+        overlay = getattr(self, "_manual_center_overlay", None)
+        if overlay is not None:
+            overlay.hide()
+            overlay.setGraphicsEffect(None)
+        self._manual_center_effect_target = None
+        self._manual_center_effect = None
+        self._manual_center_animation = None
+
+    def _finish_manual_tab_drop(self, global_pos):
+        overlay = self.dock_manager.dockAreaOverlay()
+        candidate = getattr(self, "_manual_tab_drop_target", None)
+        extent = getattr(self, "_manual_tab_drop_extent", None)
+        dock = getattr(self, "_floating_tab_drag_dock", None)
+        side = candidate[0] if candidate is not None else None
+        freeze_layout = (
+            candidate is not None
+            and dock is not None
+            and side != QtAds.CenterDockWidgetArea
+        )
+        if freeze_layout:
+            # Preserve the last preview frame until the final splitter geometry
+            # is ready; otherwise clearing it exposes one intermediate layout.
+            self.setUpdatesEnabled(False)
+        overlay.hideOverlay()
+        self._clear_manual_center_effect()
+        self._manual_drop_animation.stop()
+        self._manual_drop_preview.hide()
+        self._manual_drop_last_candidate = None
+        self._manual_tab_drop_target = None
+        self._manual_tab_drop_extent = None
+        if candidate is None or dock is None:
+            return
+        side, target = candidate
+        if side == QtAds.CenterDockWidgetArea:
+            self.dock_manager.addDockWidgetTabToArea(dock, target)
+        else:
+            try:
+                self.dock_manager.addDockWidget(side, dock, target)
+                QApplication.processEvents(
+                    QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents
+                )
+                self._apply_manual_drop_extent(dock, target, extent)
+            except Exception:
+                self.setUpdatesEnabled(True)
+                self.update()
+                raise
+            # ADS queues more than one splitter layout pass after insertion.
+            # Keep painting suspended until those passes have settled, and
+            # re-apply the preview extent before exposing the final layout.
+            for delay in (0, 20, 80, 180):
+                QTimer.singleShot(
+                    delay,
+                    lambda d=dock, t=target, e=extent:
+                    self._apply_manual_drop_extent(d, t, e),
+                )
+            QTimer.singleShot(
+                200,
+                lambda d=dock, t=target, e=extent:
+                self._finish_manual_drop_layout(d, t, e),
+            )
+        for delay in (0, 20, 80, 180):
+            QTimer.singleShot(
+                delay,
+                lambda d=dock: self._sync_floating_title(d, False),
+            )
+        QTimer.singleShot(0, self._sync_all_area_hamburgers)
+
+    def _start_manual_tab_drag_polling(self):
+        if not self._manual_tab_drag_timer.isActive():
+            self._manual_tab_drag_timer.start()
+
+    def _poll_manual_tab_drag(self):
+        floating = getattr(self, "_floating_move_window", None)
+        dock = getattr(self, "_floating_tab_drag_dock", None)
+        if floating is None or dock is None:
+            self._manual_tab_drag_timer.stop()
+            return
+        global_pos = QCursor.pos()
+        if self._physical_left_button_pressed():
+            offset = getattr(self, "_floating_move_offset", QPoint())
+            try:
+                floating.move(global_pos - offset)
+            except RuntimeError:
+                self._manual_tab_drag_timer.stop()
+                return
+            self._update_manual_tab_drop(global_pos)
+            return
+        self._manual_tab_drag_timer.stop()
+        self._finish_manual_tab_drop(global_pos)
+        self._floating_drag_grabber = None
+        self._floating_move_window = None
+        self._floating_tab_drag_dock = None
+
+    @staticmethod
+    def _physical_left_button_pressed():
+        if sys.platform == "win32":
+            try:
+                return bool(ctypes.windll.user32.GetAsyncKeyState(0x01) & 0x8000)
+            except (AttributeError, OSError):
+                pass
+        return bool(QApplication.mouseButtons() & Qt.MouseButton.LeftButton)
+
+    @staticmethod
+    def _apply_manual_drop_extent(dock, target_area, extent):
+        """Match the new splitter branch to the size shown in the preview."""
+        if extent is None:
+            return
+        try:
+            new_area = dock.dockAreaWidget()
+            splitter = new_area.parentWidget()
+            if not isinstance(splitter, QSplitter):
+                return
+            orientation, requested = extent
+            if splitter.orientation() != orientation:
+                return
+
+            def direct_branch(widget):
+                branch = widget
+                while branch is not None and branch.parentWidget() is not splitter:
+                    branch = branch.parentWidget()
+                return branch
+
+            new_branch = direct_branch(new_area)
+            target_branch = direct_branch(target_area)
+            new_index = splitter.indexOf(new_branch)
+            target_index = splitter.indexOf(target_branch)
+            if new_index < 0 or target_index < 0 or new_index == target_index:
+                return
+            sizes = splitter.sizes()
+            combined = sizes[new_index] + sizes[target_index]
+            desired = max(1, min(int(requested), combined - 1))
+            sizes[new_index] = desired
+            sizes[target_index] = combined - desired
+            splitter.setSizes(sizes)
+        except RuntimeError:
+            return
+
+    def _finish_manual_drop_layout(self, dock, target_area, extent):
+        """Expose a manual drop only after ADS' queued splitter passes."""
+        try:
+            self._apply_manual_drop_extent(dock, target_area, extent)
+        finally:
+            self.setUpdatesEnabled(True)
+            self.update()
+
     def _commit_split_drop(self):
         """Finish custom boundary feedback without performing a second drop.
 
@@ -546,24 +947,109 @@ class DockingMixin(MainWindowMembers):
         self._tool_selector_snap_timer.start()
 
     def _sync_floating_title(self, dock, floating):
-        """Avoid duplicate titles without replacing ADS drag handling."""
+        """Keep panel menus reachable while avoiding empty floating chrome."""
         def update():
-            area = dock.dockAreaWidget()
+            try:
+                area = dock.dockAreaWidget()
+                floating_now = dock.isFloating()
+            except RuntimeError:
+                return
             if area is None:
                 return
-            hide_inner_tab = bool(floating) and area.openDockWidgetsCount() == 1
-            area.titleBar().setVisible(not hide_inner_tab)
-        QTimer.singleShot(0, update)
+            # The floating container is frameless, so this is its only drag bar.
+            title_bar = area.titleBar()
+            title_bar.setVisible(True)
+            if floating_now:
+                title_bar._paintmask_move_container = dock.window()
+            elif hasattr(title_bar, "_paintmask_move_container"):
+                del title_bar._paintmask_move_container
+            close_button = title_bar.findChild(
+                QToolButton,
+                "floatingCloseButton",
+                Qt.FindChildOption.FindDirectChildrenOnly,
+            )
+            if close_button is None:
+                close_button = QToolButton(title_bar)
+                close_button.setObjectName("floatingCloseButton")
+                close_button.setText("×")
+                close_button.setToolTip("パネルを閉じる")
+                close_button.setAutoRaise(True)
+                close_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+                close_button.setFixedSize(18, 18)
+                close_button.setStyleSheet(
+                    "QToolButton{border:none;background:transparent;"
+                    "padding:0;margin:0;font-size:16px;}"
+                    "QToolButton:hover{background:rgba(220,60,60,120);}"
+                )
+                close_button.clicked.connect(
+                    lambda _checked=False, a=area:
+                    self._close_current_area_dock(a)
+                )
+                title_bar.layout().addWidget(close_button)
+            close_button.setVisible(True)
+            if dock in self._dock_menu_builders:
+                self._attach_area_hamburger(dock)
+        # ADS can rebuild the area after topLevelChanged, especially on the
+        # second and later float cycles. Re-apply chrome after both phases.
+        update()
+        for delay in (10, 50):
+            QTimer.singleShot(delay, update)
+
+    @staticmethod
+    def _close_current_area_dock(area):
+        try:
+            dock = area.currentDockWidget()
+            if dock is not None:
+                dock.closeDockWidget()
+        except RuntimeError:
+            return
 
     def _configure_floating_window(self, floating):
-        """Use a compact close-only title bar for floating panel groups."""
+        """Use the ADS panel bar as the sole chrome for floating groups."""
         floating.setWindowIcon(QIcon())
         floating.setWindowFlags(
             Qt.WindowType.Tool
-            | Qt.WindowType.CustomizeWindowHint
-            | Qt.WindowType.WindowTitleHint
-            | Qt.WindowType.WindowCloseButtonHint
+            | Qt.WindowType.FramelessWindowHint
         )
+        grip = QSizeGrip(floating)
+        grip.setObjectName("floatingResizeGrip")
+        grip.setFixedSize(16, 16)
+        grip.raise_()
+        grip.show()
+        floating._paintmask_resize_grip = grip
+        tracker = _FloatingGripTracker(floating, grip)
+        floating._paintmask_grip_tracker = tracker
+        floating.installEventFilter(tracker)
+        self._position_floating_resize_grip(floating)
+        QTimer.singleShot(
+            0, lambda f=floating: self._position_floating_resize_grip(f)
+        )
+        def sync_floating_docks():
+            try:
+                docks = tuple(floating.dockWidgets())
+            except RuntimeError:
+                return
+            for current in docks:
+                self._sync_floating_title(current, True)
+        for delay in (0, 10, 50):
+            QTimer.singleShot(delay, sync_floating_docks)
+
+    @staticmethod
+    def _position_floating_resize_grip(floating):
+        try:
+            grip = getattr(floating, "_paintmask_resize_grip", None)
+        except RuntimeError:
+            return
+        if grip is None:
+            return
+        try:
+            grip.move(
+                max(0, floating.width() - grip.width()),
+                max(0, floating.height() - grip.height()),
+            )
+            grip.raise_()
+        except RuntimeError:
+            return
 
     def _apply_tool_selector_snap(self):
         """Apply the last requested column width once per completed drag."""

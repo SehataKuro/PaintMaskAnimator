@@ -324,7 +324,7 @@ class ColorGroupingMixin(UsedColorPanelMembers):
         self._apply_swatch_text(rgb)
 
     def _group_mapping(self):
-        """{子rgb: ルート親rgb} を返す（プレビュー／フリーズ共通）。"""
+        """{子rgb: ルート親rgb} を返す（プレビュー／統合共通）。"""
         return {
             child: self._group_root(child)
             for child in self.child_to_parent
@@ -342,7 +342,7 @@ class ColorGroupingMixin(UsedColorPanelMembers):
             self._emit_preview()
 
     def on_groups_frozen(self):
-        """フリーズ確定後：プレビューを解除する（実ピクセルは親色に確定済み）。"""
+        """統合確定後：プレビューを解除する（実ピクセルは親色に確定済み）。"""
         self.child_to_parent = {}
         self._refresh_all_group_displays()
         self.previewGroupsChanged.emit({})
@@ -353,7 +353,7 @@ class ColorGroupingMixin(UsedColorPanelMembers):
             window: Any = self.window()
             if hasattr(window, "statusBar"):
                 window.statusBar().showMessage(
-                    "フリーズする親子（プレビュー）がありません。"
+                    "統合する親子（プレビュー）がありません。"
                     "色を別の色の中へドロップして親子を作成してください。",
                     2800,
                 )

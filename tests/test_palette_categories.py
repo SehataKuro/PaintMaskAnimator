@@ -1,5 +1,5 @@
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QPushButton
 
 from paintmaskanimator.color_panel import UsedColorPanel
 
@@ -12,6 +12,23 @@ def _panel_with_colors():
     panel = UsedColorPanel()
     panel.set_colors([QColor("red"), QColor("blue"), QColor("green")])
     return panel
+
+
+def test_group_commit_uses_single_merge_button():
+    app = _app()
+    panel = UsedColorPanel()
+    try:
+        buttons = [
+            button.text()
+            for button in panel.findChildren(QPushButton)
+        ]
+        assert buttons.count("統合") == 1
+        assert "フリーズ" not in buttons
+        assert not hasattr(panel, "merge_button")
+        assert panel.freeze_button.text() == "統合"
+    finally:
+        panel.close()
+        app.processEvents()
 
 
 def test_category_moves_selected_colors_and_toggles_visibility():

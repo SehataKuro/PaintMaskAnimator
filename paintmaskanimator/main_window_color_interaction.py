@@ -366,7 +366,7 @@ class ColorInteractionMixin(MainWindowMembers):
         self.canvas.preview_color_remap = {}
         applied = self.apply_palette_replacements(
             rgb_mapping,
-            operation="親子フリーズ",
+            operation="親子統合",
         )
         if applied:
             self.palette.on_groups_frozen()

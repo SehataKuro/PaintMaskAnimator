@@ -298,15 +298,157 @@ class InputMixin(MainWindowMembers):
             self._update_auxiliary_hold_cursors()
 
     def eventFilter(self, watched, event):
-        # サブビューは独立ウィンドウとしてSpace系操作を自身で処理する。
-        # アプリ全体のキャンバス用ショートカットへ横取りさせない。
-        subview_active = QApplication.activeWindow() is self.subview
+        if isinstance(watched, QWidget) and event.type() in (
+            QEvent.Type.ContextMenu,
+            QEvent.Type.MouseButtonPress,
+            QEvent.Type.MouseButtonRelease,
+        ):
+            candidate = watched
+            on_dock_tab = False
+            while candidate is not None:
+                if (
+                    isinstance(candidate, QTabBar)
+                    or type(candidate).__name__ == "CDockWidgetTab"
+                ):
+                    on_dock_tab = True
+                    break
+                candidate = candidate.parentWidget()
+            if on_dock_tab and (
+                event.type() == QEvent.Type.ContextMenu
+                or event.button() == Qt.MouseButton.RightButton
+            ):
+                event.accept()
+                return True
+
+        pending_tab_drag = getattr(self, "_pending_dock_tab_drag", None)
+        if pending_tab_drag is not None:
+            if event.type() == QEvent.Type.MouseMove and (
+                event.buttons() & Qt.MouseButton.LeftButton
+            ):
+                dock, press_global = pending_tab_drag
+                current_global = event.globalPosition().toPoint()
+                if (current_global - press_global).manhattanLength() >= 4:
+                    self._pending_dock_tab_drag = None
+                    dock.setFloating()
+                    floating = dock.window()
+                    self._floating_move_window = floating
+                    self._floating_tab_drag_dock = dock
+                    self._floating_move_offset = (
+                        current_global - floating.frameGeometry().topLeft()
+                    )
+                    self._start_manual_tab_drag_polling()
+                    floating.move(current_global - self._floating_move_offset)
+                    self._update_manual_tab_drop(current_global)
+                    event.accept()
+                    return True
+            elif event.type() == QEvent.Type.MouseButtonRelease:
+                self._pending_dock_tab_drag = None
+                event.accept()
+                return True
+
+        moving_window = getattr(self, "_floating_move_window", None)
+        if moving_window is not None:
+            if event.type() == QEvent.Type.MouseMove and (
+                event.buttons() & Qt.MouseButton.LeftButton
+            ):
+                offset = getattr(self, "_floating_move_offset", QPoint())
+                moving_window.move(event.globalPosition().toPoint() - offset)
+                if getattr(self, "_floating_tab_drag_dock", None) is not None:
+                    self._update_manual_tab_drop(
+                        event.globalPosition().toPoint()
+                    )
+                event.accept()
+                return True
+            if event.type() == QEvent.Type.MouseButtonRelease:
+                self._manual_tab_drag_timer.stop()
+                if getattr(self, "_floating_tab_drag_dock", None) is not None:
+                    self._finish_manual_tab_drop(
+                        event.globalPosition().toPoint()
+                    )
+                self._floating_drag_grabber = None
+                self._floating_move_window = None
+                self._floating_tab_drag_dock = None
+                event.accept()
+                return True
+
+        if (
+            event.type() == QEvent.Type.MouseButtonPress
+            and event.button() == Qt.MouseButton.LeftButton
+            and isinstance(watched, QWidget)
+        ):
+            candidate = watched
+            floating = None
+            blocked_by_button = False
+            tab_drag = False
+            dock_tab = None
+            on_dock_title_bar = False
+            while candidate is not None:
+                if isinstance(candidate, QAbstractButton):
+                    blocked_by_button = True
+                    break
+                if isinstance(candidate, QTabBar):
+                    tab_drag = True
+                if type(candidate).__name__ == "CDockWidgetTab":
+                    tab_drag = True
+                    dock_tab = candidate
+                if type(candidate).__name__ == "CDockAreaTitleBar":
+                    on_dock_title_bar = True
+                floating = getattr(
+                    candidate, "_paintmask_move_container", None
+                )
+                if floating is not None:
+                    break
+                candidate = candidate.parentWidget()
+            if floating is None and on_dock_title_bar:
+                current_window = watched.window()
+                if type(current_window).__name__ == "CFloatingDockContainer":
+                    floating = current_window
+            if (
+                floating is None
+                and dock_tab is not None
+                and not blocked_by_button
+            ):
+                dock = dock_tab.dockWidget()
+                area = dock.dockAreaWidget()
+                if area is not None:
+                    area.setCurrentDockWidget(dock)
+                self._pending_dock_tab_drag = (
+                    dock, event.globalPosition().toPoint()
+                )
+                event.accept()
+                return True
+            if floating is not None and not blocked_by_button:
+                if tab_drag:
+                    self._floating_move_window = floating
+                    self._floating_tab_drag_dock = (
+                        floating.topLevelDockWidget()
+                    )
+                    self._start_manual_tab_drag_polling()
+                    self._floating_move_offset = (
+                        event.globalPosition().toPoint()
+                        - floating.frameGeometry().topLeft()
+                    )
+                    event.accept()
+                    return True
+                handle = floating.windowHandle()
+                if handle is not None and handle.startSystemMove():
+                    event.accept()
+                    return True
+                self._floating_move_window = floating
+                self._floating_move_offset = (
+                    event.globalPosition().toPoint()
+                    - floating.frameGeometry().topLeft()
+                )
+                event.accept()
+                return True
+
+        # サブビューパネルのSpace系操作を、アプリ全体のキャンバス用
+        # ショートカットへ横取りさせない。
         if (
             isinstance(watched, QWidget)
             and (
                 watched is self.subview
                 or self.subview.isAncestorOf(watched)
-                or subview_active
             )
             and event.type() in (
                 QEvent.Type.ShortcutOverride,
