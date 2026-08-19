@@ -7,11 +7,12 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import PySide6QtAds as QtAds  # noqa: E402
 from PySide6.QtCore import (  # noqa: E402
     QEvent, QPoint, QPointF, QPropertyAnimation, QRect, Qt,
+    qInstallMessageHandler,
 )
 from PySide6.QtGui import QMouseEvent  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
-    QApplication, QLabel, QSizeGrip, QSizePolicy, QToolButton, QWidget,
+    QApplication, QLabel, QMenu, QSizeGrip, QSizePolicy, QToolButton, QWidget,
 )
 
 from paintmaskanimator.main_window import MainWindow  # noqa: E402
@@ -141,11 +142,14 @@ def test_docked_tab_drag_enters_manual_preview_path(qapp, tmp_path, monkeypatch)
         QTest.mousePress(tab, Qt.MouseButton.LeftButton, pos=start)
         assert window._pending_dock_tab_drag[0] is dock
 
-        moved = start + QPoint(12, 0)
+        # A large first move reproduces a fast undock.  The floating offset
+        # must still come from the original grab point inside the tab.
+        moved = start + QPoint(320, 180)
+        move_global = tab.mapToGlobal(moved)
         move_event = QMouseEvent(
             QEvent.Type.MouseMove,
             QPointF(moved),
-            QPointF(tab.mapToGlobal(moved)),
+            QPointF(move_global),
             Qt.MouseButton.LeftButton,
             Qt.MouseButton.LeftButton,
             Qt.KeyboardModifier.NoModifier,
@@ -154,6 +158,13 @@ def test_docked_tab_drag_enters_manual_preview_path(qapp, tmp_path, monkeypatch)
         assert dock.isFloating()
         assert window._floating_tab_drag_dock is dock
         assert window._floating_move_window is dock.window()
+        floating = dock.window()
+        assert 0 <= window._floating_move_offset.x() < floating.width()
+        assert 0 <= window._floating_move_offset.y() < 40
+        assert (
+            move_global - floating.frameGeometry().topLeft()
+            == window._floating_move_offset
+        )
 
         target_area = window.central_dock.dockAreaWidget()
         target_position = target_area.mapToGlobal(target_area.rect().center())
@@ -212,8 +223,53 @@ def test_single_floating_panel_keeps_hamburger_menu(qapp, tmp_path, monkeypatch)
         floating.resize(floating.width() + 80, floating.height() + 60)
         qapp.processEvents()
         assert grip.geometry().bottomRight() == floating.rect().bottomRight()
+        resize_start = floating.size()
+        grip_center = grip.rect().center()
+        QTest.mousePress(
+            grip, Qt.MouseButton.LeftButton, pos=grip_center
+        )
+        QTest.mouseMove(grip, grip_center + QPoint(40, 30), delay=10)
+        QTest.mouseRelease(
+            grip, Qt.MouseButton.LeftButton,
+            pos=grip_center + QPoint(40, 30),
+        )
+        qapp.processEvents()
+        assert floating.width() >= resize_start.width() + 35
+        assert floating.height() >= resize_start.height() + 25
+        assert grip.geometry().bottomRight() == floating.rect().bottomRight()
         floating_title_bar = window.tools_dock.dockAreaWidget().titleBar()
         assert floating_title_bar.isVisible()
+        qt_messages = []
+        previous_handler = qInstallMessageHandler(
+            lambda _kind, _context, message: qt_messages.append(message)
+        )
+        try:
+            blank_title_position = QPoint(
+                max(1, floating_title_bar.width() - 45),
+                floating_title_bar.rect().center().y(),
+            )
+            QTest.mouseClick(
+                floating_title_bar,
+                Qt.MouseButton.LeftButton,
+                pos=blank_title_position,
+            )
+        finally:
+            qInstallMessageHandler(previous_handler)
+        assert not any(
+            "must be a top level window" in message
+            for message in qt_messages
+        )
+        assert window._floating_move_window is None
+        QTest.mouseClick(
+            floating_title_bar,
+            Qt.MouseButton.RightButton,
+            pos=blank_title_position,
+        )
+        qapp.processEvents()
+        assert not any(
+            isinstance(widget, QMenu) and widget.isVisible()
+            for widget in qapp.topLevelWidgets()
+        )
         hamburger = floating_title_bar.findChild(QToolButton, "dockHamburger")
         assert hamburger is not None
         assert hamburger.isVisible()
@@ -244,8 +300,12 @@ def test_single_floating_panel_keeps_hamburger_menu(qapp, tmp_path, monkeypatch)
         )
         assert not window._manual_drop_preview.isVisible()
         assert window._manual_center_effect_target is target_area
-        assert window._manual_center_overlay.parentWidget() is target_area
-        assert window._manual_center_overlay.geometry() == target_area.rect()
+        assert window._manual_center_overlay.parentWidget() is window.dock_manager
+        center_preview_global = QRect(
+            window._manual_center_overlay.mapToGlobal(QPoint()),
+            window._manual_center_overlay.size(),
+        )
+        assert center_preview_global == target_rect
         assert window._manual_center_overlay.isVisible()
         assert (
             window._manual_center_overlay.graphicsEffect()
@@ -268,7 +328,11 @@ def test_single_floating_panel_keeps_hamburger_menu(qapp, tmp_path, monkeypatch)
             QtAds.BottomDockWidgetArea, target_area
         )
         bottom_preview = window._manual_center_overlay.geometry()
-        assert bottom_preview.bottom() == target_area.rect().bottom()
+        bottom_preview_global = QRect(
+            window._manual_center_overlay.mapToGlobal(QPoint()),
+            window._manual_center_overlay.size(),
+        )
+        assert bottom_preview_global.bottom() == target_rect.bottom()
         assert bottom_preview.height() == max(
             window.tools_dock.dockAreaWidget().minimumSizeHint().height(),
             target_area.height() // 2,

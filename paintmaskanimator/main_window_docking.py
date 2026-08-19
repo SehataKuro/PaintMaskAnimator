@@ -21,20 +21,68 @@ log = get_logger(__name__)
 
 
 class _FloatingGripTracker(QObject):
-    """Anchor a size grip after every floating-container resize."""
+    """Anchor and drive the grip for a frameless floating container."""
 
     def __init__(self, floating, grip):
         super().__init__(floating)
         self.floating = floating
         self.grip = grip
+        self._manual_resize = False
+        self._resize_origin = QPoint()
+        self._resize_size = QSize()
 
     def eventFilter(self, watched, event):
-        if event.type() in (QEvent.Type.Resize, QEvent.Type.Show):
+        if watched is self.floating and event.type() in (
+            QEvent.Type.Resize, QEvent.Type.Show
+        ):
             self.grip.move(
                 max(0, watched.width() - self.grip.width()),
                 max(0, watched.height() - self.grip.height()),
             )
             self.grip.raise_()
+        if watched is not self.grip:
+            return False
+        if (
+            event.type() == QEvent.Type.MouseButtonPress
+            and event.button() == Qt.MouseButton.LeftButton
+        ):
+            handle = (
+                self.floating.windowHandle()
+                if self.floating.isWindow() else None
+            )
+            if (
+                handle is not None
+                and handle.isTopLevel()
+                and handle.startSystemResize(
+                    Qt.Edge.RightEdge | Qt.Edge.BottomEdge
+                )
+            ):
+                event.accept()
+                return True
+            self._manual_resize = True
+            self._resize_origin = event.globalPosition().toPoint()
+            self._resize_size = self.floating.size()
+            event.accept()
+            return True
+        if event.type() == QEvent.Type.MouseMove and self._manual_resize:
+            delta = event.globalPosition().toPoint() - self._resize_origin
+            minimum = self.floating.minimumSize().expandedTo(
+                self.floating.minimumSizeHint()
+            )
+            maximum = self.floating.maximumSize()
+            width = max(minimum.width(), self._resize_size.width() + delta.x())
+            height = max(
+                minimum.height(), self._resize_size.height() + delta.y()
+            )
+            width = min(width, maximum.width())
+            height = min(height, maximum.height())
+            self.floating.resize(width, height)
+            event.accept()
+            return True
+        if event.type() == QEvent.Type.MouseButtonRelease:
+            self._manual_resize = False
+            event.accept()
+            return True
         return False
 
 
@@ -394,7 +442,10 @@ class DockingMixin(MainWindowMembers):
         self._manual_center_effect_target = None
         self._manual_center_effect = None
         self._manual_center_animation = None
-        self._manual_center_overlay = QWidget(self)
+        # One stable, unclipped overlay for every dock area.  Parenting this to
+        # an individual area clips bottom/top previews when the eventual dock
+        # branch is wider than that area.
+        self._manual_center_overlay = QWidget(self.dock_manager)
         self._manual_center_overlay.setAttribute(
             Qt.WidgetAttribute.WA_TransparentForMouseEvents
         )
@@ -720,9 +771,12 @@ class DockingMixin(MainWindowMembers):
                 target_rect.width(), target_branch_width,
             ))
             extent = (Qt.Orientation.Vertical, height)
+        if extent is not None:
+            extent = (*extent, QSize(preview_rect.size()))
         candidate_key = (int(side), id(target))
         local_preview = QRect(
-            target.mapFromGlobal(preview_rect.topLeft()), preview_rect.size()
+            self.dock_manager.mapFromGlobal(preview_rect.topLeft()),
+            preview_rect.size(),
         )
         self._show_manual_center_effect(
             target, local_preview, candidate_key, side
@@ -745,8 +799,6 @@ class DockingMixin(MainWindowMembers):
             return
         self._clear_manual_center_effect()
         overlay = self._manual_center_overlay
-        overlay.setParent(target)
-        overlay.setWindowFlags(Qt.WindowType.Widget)
         overlay.setGeometry(geometry)
         overlay.setStyleSheet(
             "background:rgba(112,92,210,125);"
@@ -886,7 +938,7 @@ class DockingMixin(MainWindowMembers):
             splitter = new_area.parentWidget()
             if not isinstance(splitter, QSplitter):
                 return
-            orientation, requested = extent
+            orientation, requested = extent[:2]
             if splitter.orientation() != orientation:
                 return
 
@@ -908,8 +960,45 @@ class DockingMixin(MainWindowMembers):
             sizes[new_index] = desired
             sizes[target_index] = combined - desired
             splitter.setSizes(sizes)
+            if len(extent) >= 3:
+                preview_size = extent[2]
+                perpendicular = (
+                    Qt.Orientation.Vertical
+                    if orientation == Qt.Orientation.Horizontal
+                    else Qt.Orientation.Horizontal
+                )
+                perpendicular_extent = (
+                    preview_size.height()
+                    if perpendicular == Qt.Orientation.Vertical
+                    else preview_size.width()
+                )
+                DockingMixin._resize_ancestor_splitter_branch(
+                    new_area, perpendicular, perpendicular_extent
+                )
         except RuntimeError:
             return
+
+    @staticmethod
+    def _resize_ancestor_splitter_branch(widget, orientation, requested):
+        """Resize the outer branch that controls a dock's other dimension."""
+        branch = widget
+        parent = branch.parentWidget()
+        while parent is not None:
+            if isinstance(parent, QSplitter) and parent.orientation() == orientation:
+                index = parent.indexOf(branch)
+                sizes = parent.sizes()
+                if index < 0 or len(sizes) < 2:
+                    return
+                desired = max(1, int(requested))
+                delta = sizes[index] - desired
+                recipients = [i for i in range(len(sizes)) if i != index]
+                recipient = max(recipients, key=lambda i: sizes[i])
+                sizes[index] = desired
+                sizes[recipient] = max(1, sizes[recipient] + delta)
+                parent.setSizes(sizes)
+                return
+            branch = parent
+            parent = branch.parentWidget()
 
     def _finish_manual_drop_layout(self, dock, target_area, extent):
         """Expose a manual drop only after ADS' queued splitter passes."""
@@ -1014,12 +1103,14 @@ class DockingMixin(MainWindowMembers):
         grip = QSizeGrip(floating)
         grip.setObjectName("floatingResizeGrip")
         grip.setFixedSize(16, 16)
+        grip.setCursor(Qt.CursorShape.SizeFDiagCursor)
         grip.raise_()
         grip.show()
         floating._paintmask_resize_grip = grip
         tracker = _FloatingGripTracker(floating, grip)
         floating._paintmask_grip_tracker = tracker
         floating.installEventFilter(tracker)
+        grip.installEventFilter(tracker)
         self._position_floating_resize_grip(floating)
         QTimer.singleShot(
             0, lambda f=floating: self._position_floating_resize_grip(f)

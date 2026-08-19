@@ -304,16 +304,17 @@ class InputMixin(MainWindowMembers):
             QEvent.Type.MouseButtonRelease,
         ):
             candidate = watched
-            on_dock_tab = False
+            on_dock_chrome = False
             while candidate is not None:
                 if (
                     isinstance(candidate, QTabBar)
                     or type(candidate).__name__ == "CDockWidgetTab"
+                    or type(candidate).__name__ == "CDockAreaTitleBar"
                 ):
-                    on_dock_tab = True
+                    on_dock_chrome = True
                     break
                 candidate = candidate.parentWidget()
-            if on_dock_tab and (
+            if on_dock_chrome and (
                 event.type() == QEvent.Type.ContextMenu
                 or event.button() == Qt.MouseButton.RightButton
             ):
@@ -325,7 +326,7 @@ class InputMixin(MainWindowMembers):
             if event.type() == QEvent.Type.MouseMove and (
                 event.buttons() & Qt.MouseButton.LeftButton
             ):
-                dock, press_global = pending_tab_drag
+                dock, press_global, press_in_tab = pending_tab_drag
                 current_global = event.globalPosition().toPoint()
                 if (current_global - press_global).manhattanLength() >= 4:
                     self._pending_dock_tab_drag = None
@@ -333,8 +334,14 @@ class InputMixin(MainWindowMembers):
                     floating = dock.window()
                     self._floating_move_window = floating
                     self._floating_tab_drag_dock = dock
+                    floating_tab = dock.tabWidget()
+                    grab_point = QPoint(
+                        max(0, min(press_in_tab.x(), floating_tab.width() - 1)),
+                        max(0, min(press_in_tab.y(), floating_tab.height() - 1)),
+                    )
                     self._floating_move_offset = (
-                        current_global - floating.frameGeometry().topLeft()
+                        floating_tab.mapToGlobal(grab_point)
+                        - floating.frameGeometry().topLeft()
                     )
                     self._start_manual_tab_drag_polling()
                     floating.move(current_global - self._floating_move_offset)
@@ -413,7 +420,9 @@ class InputMixin(MainWindowMembers):
                 if area is not None:
                     area.setCurrentDockWidget(dock)
                 self._pending_dock_tab_drag = (
-                    dock, event.globalPosition().toPoint()
+                    dock,
+                    event.globalPosition().toPoint(),
+                    dock_tab.mapFromGlobal(event.globalPosition().toPoint()),
                 )
                 event.accept()
                 return True
@@ -430,10 +439,10 @@ class InputMixin(MainWindowMembers):
                     )
                     event.accept()
                     return True
-                handle = floating.windowHandle()
-                if handle is not None and handle.startSystemMove():
-                    event.accept()
-                    return True
+                # CFloatingDockContainer can expose a QWidgetWindow handle
+                # which is not an OS top-level window. startSystemMove() then
+                # emits "must be a top level window" on a plain click. Manual
+                # movement below works for both native and alien containers.
                 self._floating_move_window = floating
                 self._floating_move_offset = (
                     event.globalPosition().toPoint()
