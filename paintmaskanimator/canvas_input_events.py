@@ -208,23 +208,34 @@ class InputEventMixin(CanvasMembers):
             self.widget_to_canvas(e.position())
         )
         self.update_tool_cursor()
-        cursor_radius = max(
-            8,
-            int(math.ceil(float(self.pen_size) * max(self.zoom, 0.01) / 2.0)) + 4,
-        )
-        self.update(
-            QRectF(old_cursor, old_cursor).adjusted(
-                -cursor_radius, -cursor_radius,
-                cursor_radius, cursor_radius,
-            ).toAlignedRect()
-        )
-        self.update(
-            QRectF(self._brush_cursor_widget_pos, self._brush_cursor_widget_pos).adjusted(
-                -cursor_radius, -cursor_radius,
-                cursor_radius, cursor_radius,
-            ).toAlignedRect()
-        )
         t = self.effective_tool()
+        if t == "brush":
+            if self.zoom < 1.0:
+                # A scaled QImage repainted through a moving, small clip can
+                # choose a different source-pixel phase on Windows.  Repaint
+                # the scaled canvas in one coordinate space so the cursor does
+                # not leave a visibly jittered trail behind it.
+                self.update()
+            else:
+                cursor_radius = max(
+                    8,
+                    int(math.ceil(
+                        float(self.pen_size) * max(self.zoom, 0.01) / 2.0
+                    )) + 4,
+                )
+                damage = QRectF(old_cursor, old_cursor).adjusted(
+                    -cursor_radius, -cursor_radius,
+                    cursor_radius, cursor_radius,
+                ).united(
+                    QRectF(
+                        self._brush_cursor_widget_pos,
+                        self._brush_cursor_widget_pos,
+                    ).adjusted(
+                        -cursor_radius, -cursor_radius,
+                        cursor_radius, cursor_radius,
+                    )
+                )
+                self.update(damage.toAlignedRect())
         p = self.widget_to_canvas(e.position())
 
         if self._onion_interaction_mode is not None:

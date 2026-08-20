@@ -7,7 +7,8 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtGui import QColor, QImage  # noqa: E402
+from PySide6.QtCore import QEvent, QPointF, Qt  # noqa: E402
+from PySide6.QtGui import QColor, QImage, QMouseEvent  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 from paintmaskanimator import colors  # noqa: E402
 from paintmaskanimator.canvas import PaintCanvas  # noqa: E402
@@ -24,6 +25,43 @@ def test_is_pseudo_transparent_color(qapp):
     assert colors.is_pseudo_transparent_color(QColor(255, 255, 255)) is True
     assert colors.is_pseudo_transparent_color(QColor("black")) is False
     assert colors.is_pseudo_transparent_color(QColor(254, 255, 255)) is False
+
+
+def _hover_event(position):
+    return QMouseEvent(
+        QEvent.Type.MouseMove,
+        QPointF(position),
+        QPointF(position),
+        Qt.MouseButton.NoButton,
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+
+
+def test_fractional_zoom_line_hover_does_not_repaint_canvas(qapp):
+    canvas = PaintCanvas()
+    canvas.resize(800, 600)
+    canvas.zoom = 0.57
+    canvas.tool = "line"
+    updates = []
+    canvas.update = lambda *args: updates.append(args)
+
+    canvas.mouseMoveEvent(_hover_event(QPointF(400, 300)))
+
+    assert updates == []
+
+
+def test_fractional_zoom_brush_hover_uses_full_repaint(qapp):
+    canvas = PaintCanvas()
+    canvas.resize(800, 600)
+    canvas.zoom = 0.57
+    canvas.tool = "brush"
+    updates = []
+    canvas.update = lambda *args: updates.append(args)
+
+    canvas.mouseMoveEvent(_hover_event(QPointF(400, 300)))
+
+    assert updates == [()]
 
 
 def test_paint_rgb_palette_dedups(qapp):
