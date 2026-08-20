@@ -1,7 +1,10 @@
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QPushButton
 
 from paintmaskanimator.color_panel import UsedColorPanel
+from paintmaskanimator.color_panel_widgets import ScreenEyedropButton
 
 
 def _app():
@@ -134,4 +137,27 @@ def test_replacement_color_can_be_registered_and_emitted():
         assert panel.replacement_buttons[red].text() == "未設定"
     finally:
         panel.close()
+        app.processEvents()
+
+
+def test_replacement_button_opens_editor_on_left_and_eyedropper_on_right():
+    app = _app()
+    button = ScreenEyedropButton()
+    button.resize(80, 26)
+    button.show()
+    app.processEvents()
+    editor_positions = []
+    picker_starts = []
+    button.colorEditorRequested.connect(editor_positions.append)
+    button._begin_global_screen_pick = lambda: picker_starts.append(True)
+    try:
+        QTest.mouseClick(button, Qt.MouseButton.LeftButton)
+        assert len(editor_positions) == 1
+        assert picker_starts == []
+
+        QTest.mouseClick(button, Qt.MouseButton.RightButton)
+        assert picker_starts == [True]
+        assert len(editor_positions) == 1
+    finally:
+        button.close()
         app.processEvents()

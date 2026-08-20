@@ -15,6 +15,31 @@ log = get_logger(__name__)
 
 
 class ColorInteractionMixin(MainWindowMembers):
+    @staticmethod
+    def _is_background_sample(color):
+        qc = QColor(color)
+        return qc.isValid() and (qc.red(), qc.green(), qc.blue()) == (
+            255, 255, 255
+        )
+
+    def _apply_sampled_drawing_color(self, mode, color):
+        qc = QColor(color)
+        if self._is_background_sample(qc):
+            mode = "transparent"
+            self.canvas.color_mode = mode
+        else:
+            mode = "sub" if mode == "sub" else "main"
+            setattr(self.canvas, f"{mode}_color", qc)
+            self.canvas.color_mode = mode
+        self.tools.set_colors(
+            self.canvas.main_color,
+            self.canvas.sub_color,
+            mode,
+            self.canvas.transparent_display_color,
+        )
+        self._sync_tool_selector_swatch()
+        return mode
+
     def choose_accent_color(self):
         current = QColor(theme.current_accent())
         color = QColorDialog.getColor(
@@ -375,26 +400,13 @@ class ColorInteractionMixin(MainWindowMembers):
             self.set_preview_color_groups(mapping)
 
     def apply_sampled_color_to_mode(self, mode, color):
-        qc = QColor(color)
-        if mode == "sub":
-            self.canvas.sub_color = qc
-        else:
-            self.canvas.main_color = qc
-        self.canvas.color_mode = mode
-        self.tools.set_colors(
-            self.canvas.main_color, self.canvas.sub_color, self.canvas.color_mode
-        )
+        self._apply_sampled_drawing_color(mode, color)
 
     def apply_sampled_color(self, color):
         mode = self.canvas.color_mode
-        if mode == "sub":
-            self.canvas.sub_color = QColor(color)
-        else:
-            self.canvas.main_color = QColor(color)
-            mode = "main"
-            self.canvas.color_mode = "main"
-        self.tools.set_colors(self.canvas.main_color, self.canvas.sub_color, mode)
-        self.palette.select_matching_color(color)
+        mode = self._apply_sampled_drawing_color(mode, color)
+        if mode != "transparent":
+            self.palette.select_matching_color(color)
 
     def isolate_selected_color(self, selected_color=None):
         if not self.canvas.frames:

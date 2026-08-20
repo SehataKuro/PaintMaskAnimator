@@ -8,6 +8,7 @@ precedes ``QWidget`` in the MRO, these overrides win over the base class.
 from .common import *  # noqa: F401,F403
 from ._canvas_members import CanvasMembers
 from .logging_setup import get_logger
+from .utils import hide_screen_color_loupe, show_screen_color_loupe
 
 log = get_logger(__name__)
 
@@ -112,6 +113,11 @@ class InputEventMixin(CanvasMembers):
         if e.button() == Qt.MouseButton.RightButton:
             p = self.widget_to_canvas(e.position())
             if self.inside(p):
+                show_screen_color_loupe(
+                    self,
+                    e.globalPosition().toPoint(),
+                    self.opaque_paint_color(),
+                )
                 self.sample_color(p)
                 e.accept()
             return
@@ -140,6 +146,12 @@ class InputEventMixin(CanvasMembers):
         ):
             return
         if t == "eyedropper":
+            self.drawing = True
+            show_screen_color_loupe(
+                self,
+                e.globalPosition().toPoint(),
+                self.opaque_paint_color(),
+            )
             self.sample_color(
                 p,
                 include_canvas_background=(self.temp_tool == "eyedropper"),
@@ -276,6 +288,11 @@ class InputEventMixin(CanvasMembers):
             self.update_transform_drag(p)
             return
         if t == "eyedropper" and self.inside(p):
+            show_screen_color_loupe(
+                self,
+                e.globalPosition().toPoint(),
+                self.opaque_paint_color(),
+            )
             self.sample_color(
                 p,
                 include_canvas_background=(self.temp_tool == "eyedropper"),
@@ -330,10 +347,15 @@ class InputEventMixin(CanvasMembers):
             e.accept()
             return
 
+        if e.button() == Qt.MouseButton.RightButton:
+            hide_screen_color_loupe(self)
+            return
         if e.button() != Qt.MouseButton.LeftButton:
             return
 
         t = self.effective_tool()
+        if t == "eyedropper":
+            hide_screen_color_loupe(self)
         if self.transform_active and self.drawing:
             self.end_transform_drag()
             self.drawing = False

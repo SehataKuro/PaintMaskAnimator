@@ -94,3 +94,25 @@ def test_photoshop_style_swatch_controls():
     assert swapped == [True]
     assert reset == [True]
     assert app is QApplication.instance()
+
+
+def test_color_wheel_switches_background_selection_to_main_color():
+    app = _application()
+    panel = ToolPanel()
+    modes = []
+    colors = []
+    panel.colorModeChanged.connect(modes.append)
+    panel.colorChanged.connect(lambda mode, color: colors.append((mode, QColor(color))))
+
+    panel.set_color_mode("transparent")
+    assert panel.hsv_wheel.isEnabled()
+    assert panel.hsv_wheel._color == panel.main_color
+
+    selected = QColor("#336699")
+    panel.wheel_color_changed(selected)
+
+    assert panel.color_mode == "main"
+    assert panel.main_color == selected
+    assert modes[-1] == "main"
+    assert colors[-1] == ("main", selected)
+    assert app is QApplication.instance()

@@ -125,6 +125,216 @@ def _sample_screen_color(global_position):
     return color
 
 
+class ScreenColorLoupe(QWidget):
+    """Click-through screen magnifier shared by every eyedropper path."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(
+            Qt.WindowType.Tool
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        self.setFixedSize(112, 136)
+        self._sample = QImage()
+        self._before = QColor()
+        self._after = QColor()
+
+    def show_at(self, global_position, before_color=None):
+        screen = QApplication.screenAt(global_position) or QApplication.primaryScreen()
+        if screen is None:
+            return
+        geometry = screen.geometry()
+        radius = 6
+        pixmap = screen.grabWindow(
+            0,
+            global_position.x() - geometry.x() - radius,
+            global_position.y() - geometry.y() - radius,
+            radius * 2 + 1,
+            radius * 2 + 1,
+        )
+        self._sample = pixmap.toImage()
+        self._before = QColor(before_color) if before_color is not None else QColor()
+        self._after = _sample_screen_color(global_position) or QColor()
+        x = global_position.x() + 24
+        if x + self.width() > geometry.right():
+            x = global_position.x() - self.width() - 24
+        y = global_position.y() - self.height() // 2
+        y = max(geometry.top(), min(geometry.bottom() - self.height() + 1, y))
+        self.move(x, y)
+        self.show()
+        self.raise_()
+        self.update()
+
+    def paintEvent(self, _event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        circle = QRectF(8, 4, 96, 96)
+        path = QPainterPath()
+        path.addEllipse(circle)
+        painter.setClipPath(path)
+        painter.fillRect(circle, QColor("#20242a"))
+        if not self._sample.isNull():
+            painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, False)
+            painter.drawImage(circle, self._sample)
+        painter.setClipping(False)
+        painter.setPen(QPen(QColor("white"), 2))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawEllipse(circle)
+        center = circle.center()
+        painter.drawLine(QPointF(center.x() - 8, center.y()), QPointF(center.x() + 8, center.y()))
+        painter.drawLine(QPointF(center.x(), center.y() - 8), QPointF(center.x(), center.y() + 8))
+        before_rect = QRectF(12, 106, 42, 22)
+        after_rect = QRectF(58, 106, 42, 22)
+        painter.fillRect(before_rect, self._before if self._before.isValid() else QColor("#000000"))
+        painter.fillRect(after_rect, self._after if self._after.isValid() else QColor("#000000"))
+        painter.setPen(QPen(QColor("white"), 1))
+        painter.drawRect(before_rect)
+        painter.drawRect(after_rect)
+        painter.drawText(before_rect, Qt.AlignmentFlag.AlignCenter, "前")
+        painter.drawText(after_rect, Qt.AlignmentFlag.AlignCenter, "後")
+
+
+def show_screen_color_loupe(owner, global_position, before_color=None):
+    loupe = getattr(owner, "_screen_color_loupe", None)
+    if loupe is None:
+        loupe = ScreenColorLoupe()
+        owner._screen_color_loupe = loupe
+    loupe.show_at(global_position, before_color)
+
+
+def hide_screen_color_loupe(owner):
+    loupe = getattr(owner, "_screen_color_loupe", None)
+    if loupe is not None:
+        loupe.hide()
+
+
+class ScreenColorPickerOverlay(QWidget):
+    """Transparent, desktop-wide input layer for persistent screen picking.
+
+    Unlike ``QWidget.grabMouse()``, this remains an actual top-level window
+    over every screen, so pointer movement and the confirming click continue
+    to arrive while the cursor is over another application.
+    """
+
+    colorPicked = Signal(QColor)
+    canceled = Signal()
+
+    def __init__(self, before_color=None):
+        super().__init__(None)
+        self._before_color = (
+            QColor(before_color) if before_color is not None else QColor()
+        )
+        self._left_pressed = False
+        self._finished = False
+        self.setWindowFlags(
+            Qt.WindowType.Tool
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.NoDropShadowWindowHint
+        )
+        # A fully transparent layered window can be treated as click-through
+        # by the Windows compositor. A nearly invisible normal tool window is
+        # still hit-testable and is hidden before the actual pixel capture.
+        self.setWindowOpacity(0.01)
+        self.setStyleSheet("background:#000000;")
+        self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setCursor(Qt.CursorShape.CrossCursor)
+
+    @staticmethod
+    def virtual_desktop_geometry():
+        screens = QApplication.screens()
+        if not screens:
+            return QRect()
+        geometry = QRect(screens[0].geometry())
+        for screen in screens[1:]:
+            geometry = geometry.united(screen.geometry())
+        return geometry
+
+    def start(self):
+        geometry = self.virtual_desktop_geometry()
+        if geometry.isEmpty():
+            self.cancel()
+            return
+        self.setGeometry(geometry)
+        self.show()
+        self.raise_()
+        self.activateWindow()
+        self.setFocus(Qt.FocusReason.ActiveWindowFocusReason)
+        show_screen_color_loupe(self, QCursor.pos(), self._before_color)
+
+    def mouseMoveEvent(self, event):
+        show_screen_color_loupe(
+            self,
+            event.globalPosition().toPoint(),
+            self._before_color,
+        )
+        event.accept()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._left_pressed = True
+            event.accept()
+            return
+        if event.button() == Qt.MouseButton.RightButton:
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and self._left_pressed:
+            self._left_pressed = False
+            self.finish(event.globalPosition().toPoint())
+            event.accept()
+            return
+        if event.button() == Qt.MouseButton.RightButton:
+            self.cancel()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Escape:
+            self.cancel()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def finish(self, global_position):
+        if self._finished:
+            return
+        self._finished = True
+        hide_screen_color_loupe(self)
+        # Remove our top-level windows from the composed desktop before the
+        # pixel capture so the sampled value is the underlying application's
+        # exact colour.
+        self.hide()
+        QApplication.processEvents()
+        color = _sample_screen_color(global_position)
+        self.close()
+        if color is not None:
+            self.colorPicked.emit(color)
+        else:
+            self.canceled.emit()
+        self.deleteLater()
+
+    def cancel(self):
+        if self._finished:
+            return
+        self._finished = True
+        hide_screen_color_loupe(self)
+        self.close()
+        self.canceled.emit()
+        self.deleteLater()
+
+    def closeEvent(self, event):
+        hide_screen_color_loupe(self)
+        super().closeEvent(event)
+
+
 class _ScreenColorDragMixin(_DragBase):
     """Mouse, pen and touch drag support for the screen eyedropper.
 
@@ -178,6 +388,8 @@ class _ScreenColorDragMixin(_DragBase):
             log.debug("grabMouse() failed: %s", exc)
         QApplication.setOverrideCursor(Qt.CursorShape.CrossCursor)
         self._screen_pick_cursor_pushed = True
+        position = self._screen_pick_press_global or QCursor.pos()
+        show_screen_color_loupe(self, position)
         try:
             self.setDown(False)
         except RuntimeError as exc:
@@ -191,6 +403,7 @@ class _ScreenColorDragMixin(_DragBase):
         if self._screen_pick_cursor_pushed:
             QApplication.restoreOverrideCursor()
             self._screen_pick_cursor_pushed = False
+        hide_screen_color_loupe(self)
 
     def _finish_screen_pick(self, global_position):
         self._screen_pick_active = False
@@ -216,6 +429,7 @@ class _ScreenColorDragMixin(_DragBase):
 
     def mouseMoveEvent(self, event):
         if self._screen_pick_active:
+            show_screen_color_loupe(self, event.globalPosition().toPoint())
             event.accept()
             return
         if (
@@ -266,6 +480,7 @@ class _ScreenColorDragMixin(_DragBase):
             position = self._event_global_position(event)
             if position is not None:
                 if self._screen_pick_active:
+                    show_screen_color_loupe(self, position)
                     event.accept()
                     return True
                 if (
@@ -307,4 +522,3 @@ def natural_path_key(path):
     import re
     return [int(part) if part.isdigit() else part.lower()
             for part in re.split(r"(\d+)", Path(path).name)]
-

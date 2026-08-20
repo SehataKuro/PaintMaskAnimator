@@ -35,9 +35,18 @@ def test_tool_selector_reflows_with_width(qapp):
         assert (
             swatch._main_btn.y(), swatch._sub_btn.y(), swatch._bg_btn.y()
         ) == (0, 27, 54)
+        assert swatch._main_btn.size() == swatch._sub_btn.size()
+        assert swatch._bg_btn.height() == swatch._main_btn.height() // 2
 
         swatch.set_colors(QColor("black"), QColor("red"), "sub", QColor("white"))
         assert (swatch._sub_btn.y(), swatch._main_btn.y()) == (0, 27)
+        background_geometry = swatch._bg_btn.geometry()
+        swatch.set_colors(
+            QColor("black"), QColor("red"), "transparent", QColor("white")
+        )
+        assert swatch._bg_btn.geometry() == background_geometry
+        assert swatch._bg_btn.y() > swatch._main_btn.y()
+        assert swatch._bg_btn.y() > swatch._sub_btn.y()
 
         selector.resize(selector.width_for_columns(3), 600)
         qapp.processEvents()

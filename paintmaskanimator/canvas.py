@@ -1219,7 +1219,12 @@ class PaintCanvas(
             if not color.isValid():
                 return
         color.setAlpha(255)
-        if self.color_mode == "sub":
+        sampled_background = (
+            color.red(), color.green(), color.blue()
+        ) == (255, 255, 255)
+        if sampled_background:
+            self.color_mode = "transparent"
+        elif self.color_mode == "sub":
             self.sub_color = QColor(color)
         else:
             self.main_color = QColor(color)

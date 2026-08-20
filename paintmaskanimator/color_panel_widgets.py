@@ -7,7 +7,7 @@ drag-and-drop handling. ``UsedColorPanel`` composes these; they know nothing
 about the panel beyond the signals they emit.
 """
 from .common import *  # noqa: F401,F403
-from .utils import _ScreenColorDragMixin
+from .utils import ScreenColorPickerOverlay, _ScreenColorDragMixin
 from .logging_setup import get_logger
 
 from PySide6.QtCore import QMimeData
@@ -252,49 +252,79 @@ class ScreenEyedropButton(_ScreenColorDragMixin, QToolButton):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._init_screen_color_drag()
-        self._right_click_candidate = False
-        self._right_click_press_global = None
+        self._screen_picker_overlay = None
+        self._right_picker_candidate = False
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.PreventContextMenu)
+        self.clicked.connect(self._request_color_editor)
+
+    def _request_color_editor(self, _checked=False):
+        self.colorEditorRequested.emit(QCursor.pos())
+
+    def _screen_picker_closed(self, overlay):
+        if self._screen_picker_overlay is overlay:
+            self._screen_picker_overlay = None
+            self._screen_pick_active = False
+
+    def _global_color_picked(self, overlay, color):
+        self._screen_picker_closed(overlay)
+        self.colorPicked.emit(QColor(color))
+
+    def _begin_global_screen_pick(self):
+        overlay = self._screen_picker_overlay
+        if overlay is not None and overlay.isVisible():
+            return
+        overlay = ScreenColorPickerOverlay()
+        self._screen_picker_overlay = overlay
+        self._screen_pick_active = True
+        overlay.colorPicked.connect(
+            lambda color, current=overlay:
+            self._global_color_picked(current, color)
+        )
+        overlay.canceled.connect(
+            lambda current=overlay: self._screen_picker_closed(current)
+        )
+        overlay.destroyed.connect(
+            lambda _obj=None, current=overlay:
+            self._screen_picker_closed(current)
+        )
+
+        # This method runs from the activating right-button release. Showing
+        # the desktop window synchronously can make Windows deliver that same
+        # release to the new window and immediately cancel it.
+        def start_after_activation_release():
+            if self._screen_picker_overlay is overlay:
+                overlay.start()
+
+        QTimer.singleShot(0, start_after_activation_release)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.RightButton:
-            self._right_click_candidate = True
-            self._right_click_press_global = event.globalPosition().toPoint()
+            self._right_picker_candidate = True
             event.accept()
             return
-        super().mousePressEvent(event)
+        # A plain left click belongs to the RGB / HSV editor. Bypass the mixin
+        # so moving while left is held cannot start the eyedropper.
+        QToolButton.mousePressEvent(self, event)
 
     def mouseMoveEvent(self, event):
-        if (
-            self._right_click_candidate
-            and self._right_click_press_global is not None
-            and event.buttons() & Qt.MouseButton.RightButton
-            and (
-                event.globalPosition().toPoint()
-                - self._right_click_press_global
-            ).manhattanLength() >= QApplication.startDragDistance()
-        ):
-            self._right_click_candidate = False
-            self._begin_screen_pick(Qt.MouseButton.RightButton)
-            event.accept()
-            return
-        super().mouseMoveEvent(event)
+        QToolButton.mouseMoveEvent(self, event)
 
     def mouseReleaseEvent(self, event):
         if (
             event.button() == Qt.MouseButton.RightButton
-            and self._right_click_candidate
-            and not self._screen_pick_active
+            and self._right_picker_candidate
         ):
-            self._right_click_candidate = False
-            position = event.globalPosition().toPoint()
-            self._right_click_press_global = None
-            self.colorEditorRequested.emit(position)
+            self._right_picker_candidate = False
+            self._begin_global_screen_pick()
             event.accept()
             return
-        self._right_click_candidate = False
-        self._right_click_press_global = None
-        super().mouseReleaseEvent(event)
+        QToolButton.mouseReleaseEvent(self, event)
+
+    def hideEvent(self, event):
+        overlay = self._screen_picker_overlay
+        if overlay is not None:
+            overlay.cancel()
+        QToolButton.hideEvent(self, event)
 
 
 class ReplacementColorPopup(QDialog):

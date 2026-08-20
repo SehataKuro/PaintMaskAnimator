@@ -118,7 +118,8 @@ class SwatchStack(QWidget):
         if columns is not None:
             self._columns = max(1, int(columns))
         if self._columns == 1:
-            self.setFixedSize(w, w * 3 + 6)
+            bg_h = max(8, round(w * 0.5))
+            self.setFixedSize(w, w * 2 + bg_h + 6)
             self._layout_buttons()
             self._restyle()
             return
@@ -137,14 +138,16 @@ class SwatchStack(QWidget):
             return
         w = self.width()
         gap = 3
+        bg_h = max(8, round(w * 0.5))
         if self._mode == "sub":
-            order = (self._sub_btn, self._main_btn, self._bg_btn)
-        elif self._mode == "transparent":
-            order = (self._bg_btn, self._main_btn, self._sub_btn)
+            top, second = self._sub_btn, self._main_btn
         else:
-            order = (self._main_btn, self._sub_btn, self._bg_btn)
-        for row, button in enumerate(order):
-            button.setGeometry(0, row * (w + gap), w, w)
+            top, second = self._main_btn, self._sub_btn
+        top.setGeometry(0, 0, w, w)
+        second.setGeometry(0, w + gap, w, w)
+        # The background colour is a fixed, shorter strip below the two
+        # drawing colours.  Selecting it must not reorder the stack.
+        self._bg_btn.setGeometry(0, 2 * (w + gap), w, bg_h)
 
     def set_colors(self, main, sub, mode, background=None):
         self._main = QColor(main)
@@ -1346,9 +1349,13 @@ class ToolPanel(QWidget):
         )
 
     def sync_sliders(self):
-        self.hsv_wheel.setEnabled(self.color_mode != "transparent")
-        if self.color_mode != "transparent":
-            self.hsv_wheel.setColor(self.active_color())
+        self.hsv_wheel.setEnabled(True)
+        wheel_color = (
+            self.main_color
+            if self.color_mode == "transparent"
+            else self.active_color()
+        )
+        self.hsv_wheel.setColor(wheel_color)
         if not self.color_sliders or self.color_mode == "transparent":
             return
         values = self._channel_values_from_color(self.active_color())
@@ -1437,7 +1444,9 @@ class ToolPanel(QWidget):
 
     def wheel_color_changed(self, color):
         if self.color_mode == "transparent":
-            return
+            # The background colour is display-only.  Starting an edit on the
+            # colour wheel therefore returns to the main drawing colour.
+            self.set_color_mode("main")
         color = QColor(color)
         if self.color_mode == "main":
             self.main_color = color

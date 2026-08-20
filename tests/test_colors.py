@@ -11,6 +11,7 @@ from PySide6.QtCore import QEvent, QPointF, Qt  # noqa: E402
 from PySide6.QtGui import QColor, QImage, QMouseEvent  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 from paintmaskanimator import colors  # noqa: E402
+from paintmaskanimator import canvas_input_events  # noqa: E402
 from paintmaskanimator.canvas import PaintCanvas  # noqa: E402
 from paintmaskanimator.main_window_used_color import UsedColorMixin  # noqa: E402
 
@@ -62,6 +63,46 @@ def test_fractional_zoom_brush_hover_uses_full_repaint(qapp):
     canvas.mouseMoveEvent(_hover_event(QPointF(400, 300)))
 
     assert updates == [()]
+
+
+@pytest.mark.parametrize(
+    ("tool", "temp_tool"),
+    (("eyedropper", None), ("brush", "eyedropper")),
+)
+def test_every_canvas_eyedropper_shows_loupe(
+    qapp, monkeypatch, tool, temp_tool
+):
+    canvas = PaintCanvas()
+    canvas.resize(800, 600)
+    canvas.tool = tool
+    canvas.temp_tool = temp_tool
+    shown = []
+    hidden = []
+    monkeypatch.setattr(
+        canvas_input_events, "show_screen_color_loupe",
+        lambda _owner, point, _before=None: shown.append(point),
+    )
+    monkeypatch.setattr(
+        canvas_input_events, "hide_screen_color_loupe",
+        lambda _owner: hidden.append(True),
+    )
+    point = QPointF(400, 300)
+    press = QMouseEvent(
+        QEvent.Type.MouseButtonPress, point, point,
+        Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    release = QMouseEvent(
+        QEvent.Type.MouseButtonRelease, point, point,
+        Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+
+    canvas.mousePressEvent(press)
+    canvas.mouseReleaseEvent(release)
+
+    assert shown == [point.toPoint()]
+    assert hidden == [True]
 
 
 def test_paint_rgb_palette_dedups(qapp):

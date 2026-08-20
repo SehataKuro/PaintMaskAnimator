@@ -128,7 +128,16 @@ class _MouseEvent:
 
 def test_right_mouse_drag_picks_color(qapp, monkeypatch):
     picker = _Picker()
+    loupe_positions = []
     monkeypatch.setattr(utils, "_sample_screen_color", lambda _point: QColor("blue"))
+    monkeypatch.setattr(
+        utils, "show_screen_color_loupe",
+        lambda _owner, point, _before=None: loupe_positions.append(point),
+    )
+    monkeypatch.setattr(
+        utils, "hide_screen_color_loupe",
+        lambda _owner: loupe_positions.append("hidden"),
+    )
     monkeypatch.setattr(QApplication, "setOverrideCursor", lambda *_: None)
     monkeypatch.setattr(QApplication, "restoreOverrideCursor", lambda: None)
 
@@ -139,12 +148,14 @@ def test_right_mouse_drag_picks_color(qapp, monkeypatch):
     move = _MouseEvent(Qt.MouseButton.NoButton, QPoint(12, 22))
     picker.mouseMoveEvent(move)
     assert move.accepted
+    assert loupe_positions[:2] == [QPoint(10, 20), QPoint(12, 22)]
 
     release = _MouseEvent(Qt.MouseButton.RightButton, QPoint(30, 40))
     picker.mouseReleaseEvent(release)
     assert release.accepted and picker.released
     assert picker.colorPicked.values == [QColor("blue")]
     assert not picker._screen_pick_active
+    assert loupe_positions[-1] == "hidden"
 
 
 def test_left_click_delegates_but_drag_starts_picker(qapp, monkeypatch):
@@ -226,6 +237,35 @@ def test_sample_screen_color_handles_missing_screen(qapp, monkeypatch):
     monkeypatch.setattr(QApplication, "screenAt", lambda _point: None)
     monkeypatch.setattr(QApplication, "primaryScreen", lambda: None)
     assert utils._sample_screen_color(QPoint(1, 1)) is None
+
+
+def test_desktop_picker_overlay_spans_screens_and_picks_on_left_click(
+    qapp, monkeypatch
+):
+    overlay = utils.ScreenColorPickerOverlay()
+    picked = []
+    hidden = []
+    overlay.colorPicked.connect(picked.append)
+    monkeypatch.setattr(
+        utils, "_sample_screen_color", lambda _point: QColor("blue")
+    )
+    monkeypatch.setattr(
+        utils, "hide_screen_color_loupe", lambda owner: hidden.append(owner)
+    )
+
+    geometry = overlay.virtual_desktop_geometry()
+    assert not geometry.isEmpty()
+    assert all(geometry.contains(screen.geometry()) for screen in qapp.screens())
+    assert overlay.windowFlags() & Qt.WindowType.WindowStaysOnTopHint
+
+    press = _MouseEvent(Qt.MouseButton.LeftButton, QPoint(20, 30))
+    release = _MouseEvent(Qt.MouseButton.LeftButton, QPoint(20, 30))
+    overlay.mousePressEvent(press)
+    overlay.mouseReleaseEvent(release)
+
+    assert press.accepted and release.accepted
+    assert picked == [QColor("blue")]
+    assert hidden
 
 
 def test_disable_windows_ink_is_noop_off_windows(monkeypatch):

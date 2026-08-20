@@ -352,7 +352,7 @@ class UsedColorPanel(
             self._replacement_popup_rgb = None
 
     def _toggle_replacement_editor(self, source_rgb, global_position):
-        """右クリックでRGB／HSV編集を開き、再度の右クリックで閉じる。"""
+        """左クリックでRGB／HSV編集を開き、再度の左クリックで閉じる。"""
         if source_rgb == self.background_rgb:
             return
         if (
@@ -1033,12 +1033,8 @@ class UsedColorPanel(
                 QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
             )
             replacement.setToolTip(
-                "クリック：現在のメイン／サブ色を登録・解除。"
-                "ドラッグ：画面からスポイト。右クリック：RGB／HSV編集。"
-            )
-            replacement.clicked.connect(
-                lambda _checked=False, rgb=source_rgb:
-                self._toggle_replacement(rgb)
+                "左クリック：RGB／HSV編集。右クリック：画面全体のスポイトへ切替。"
+                "スポイト中は左クリックで確定、Escで解除。"
             )
             replacement.colorPicked.connect(
                 lambda color, rgb=source_rgb:

@@ -9,7 +9,7 @@ from PySide6.QtCore import (  # noqa: E402
     QEvent, QPoint, QPointF, QPropertyAnimation, QRect, Qt,
     qInstallMessageHandler,
 )
-from PySide6.QtGui import QMouseEvent  # noqa: E402
+from PySide6.QtGui import QColor, QMouseEvent  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
     QApplication, QLabel, QMenu, QSizeGrip, QSizePolicy, QToolButton, QWidget,
@@ -37,6 +37,31 @@ def _panel_docks(window):
         window.subview_dock,
         window.timeline_dock,
     )
+
+
+def test_sampled_color_syncs_bottom_toolbar_and_white_selects_background(
+    qapp, tmp_path, monkeypatch
+):
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    window = MainWindow()
+    window.show()
+    try:
+        window.apply_sampled_color(QColor("#2468ac"))
+        swatch = window.tool_selector.color_swatch
+        assert swatch._main == QColor("#2468ac")
+        assert swatch._mode == "main"
+        original_main = QColor(window.canvas.main_color)
+        original_sub = QColor(window.canvas.sub_color)
+
+        window.apply_sampled_color(QColor("#ffffff"))
+
+        assert window.canvas.main_color == original_main
+        assert window.canvas.sub_color == original_sub
+        assert window.canvas.color_mode == "transparent"
+        assert swatch._mode == "transparent"
+    finally:
+        window.close()
 
 
 def _assert_docking_invariants(window):
