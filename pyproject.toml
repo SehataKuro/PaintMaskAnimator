@@ -19,6 +19,7 @@ full = ["Pillow>=9.4", "psd-tools>=1.9"]
 dev = [
     "pytest>=8",
     "pytest-cov>=4",
+    "pytest-qt>=4.4",
     "pyinstaller>=6",
     "ruff>=0.6",
     "pyright>=1.1.390",
@@ -36,6 +37,9 @@ paintmaskanimator = ["assets/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "e2e: 実イベントでUIを操作するエンドツーエンドのシナリオテスト",
+]
 
 [tool.coverage.run]
 source = ["paintmaskanimator"]
