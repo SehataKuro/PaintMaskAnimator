@@ -26,7 +26,13 @@ a = Analysis(
     ["../PaintMaskAnimator.py"],
     pathex=[],
     binaries=[],
-    datas=[("../paintmaskanimator/assets", "paintmaskanimator/assets")],
+    # Bundle the canonical version source as well as the application assets.
+    # constants.py reads this before importlib distribution metadata, avoiding
+    # stale version strings in every UI location that displays APP_VERSION.
+    datas=[
+        ("../paintmaskanimator/assets", "paintmaskanimator/assets"),
+        ("../pyproject.toml", "."),
+    ],
     hiddenimports=hiddenimports,
     hookspath=[],
     runtime_hooks=[],

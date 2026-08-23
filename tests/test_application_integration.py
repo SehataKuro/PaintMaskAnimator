@@ -33,6 +33,16 @@ def test_runtime_version_matches_project_metadata():
     assert constants.APP_VERSION == expected
 
 
+@pytest.mark.skipif(tomllib is None, reason="tomllib requires Python 3.11+")
+def test_runtime_version_prefers_project_file_over_stale_distribution_metadata(
+    monkeypatch,
+):
+    assert tomllib is not None
+    project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+    monkeypatch.setattr(constants, "version", lambda _name: "stale-version")
+    assert constants._application_version() == project["project"]["version"]
+
+
 def test_tool_panel_preserves_qwidget_size_api(qapp):
     panel = ToolPanel()
     try:
