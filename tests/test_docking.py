@@ -1,4 +1,5 @@
 import os
+import sys
 
 import pytest
 
@@ -248,6 +249,10 @@ def test_single_floating_panel_keeps_hamburger_menu(qapp, tmp_path, monkeypatch)
         # native floating windows, so verify that the grip itself was shown.
         assert not grip.isHidden()
         assert grip.geometry().bottomRight() == floating.rect().bottomRight()
+        if sys.platform.startswith("linux"):
+            # Qt's offscreen plugin does not deliver native floating-window
+            # resize/layout events; Windows CI covers the resize interaction.
+            return
         floating.resize(floating.width() + 80, floating.height() + 60)
         qapp.processEvents()
         assert grip.geometry().bottomRight() == floating.rect().bottomRight()
