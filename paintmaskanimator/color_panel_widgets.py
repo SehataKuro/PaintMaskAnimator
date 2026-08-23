@@ -406,9 +406,9 @@ class ReplacementColorPopup(QDialog):
 
     def _sync_from_color(self):
         if self.mode.currentText() == "RGB":
-            values = self._color.getRgb()[:3]
+            values = self._color.getRgb()[:3]  # pyright: ignore[reportIndexIssue]
         else:
-            hue, saturation, value, _alpha = self._color.getHsv()
+            hue, saturation, value, _alpha = self._color.getHsv()  # pyright: ignore[reportGeneralTypeIssues]
             values = (max(0, hue), saturation, value)
         self._updating = True
         try:

@@ -121,7 +121,7 @@ def test_median_cut_palette_size_bound(qapp):
     rng = np.random.default_rng(1)
     sample = rng.integers(0, 256, (500, 3), dtype=np.uint8)
     pal = colors.median_cut_palette_from_samples(sample, 8)
-    assert pal.shape[1] == 3
+    assert pal.ndim == 2 and pal.reshape(-1, 3).shape == pal.shape
     assert pal.shape[0] <= 8
 
 

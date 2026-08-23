@@ -128,7 +128,7 @@ def test_build_color_reduction_palette_shape(qapp):
     rgba[:, 4:] = (30, 30, 220, 255)     # blue half
     palette = color_ops.build_color_reduction_palette(_image(rgba), color_count=4)
     assert palette.dtype == np.uint8
-    assert palette.ndim == 2 and palette.shape[1] == 3
+    assert palette.ndim == 2 and palette.reshape(-1, 3).shape == palette.shape
     assert 1 <= palette.shape[0] <= 4
 
 

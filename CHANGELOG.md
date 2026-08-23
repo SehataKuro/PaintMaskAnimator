@@ -4,6 +4,8 @@ PaintMaskAnimator の主な変更点を記録します。
 
 ## [未リリース]
 
+## [0.6.4] - 2026-08-23
+
 ### 追加
 
 - ヒストリーをブランチ（分岐）付きのツリーで表示できるようにした。Undoしてから
@@ -148,6 +150,7 @@ PaintMaskAnimator の主な変更点を記録します。
 - プロジェクトの保存・読込、画像処理、減色、オートセーブ、クラッシュ復元、アプリ内更新機能を追加。
 - Windows と macOS 向けの配布パッケージ、CI、自動テストを整備。
 
+[0.6.4]: https://github.com/SehataKuro/PaintMaskAnimator/releases/tag/v0.6.4
 [0.6.3]: https://github.com/SehataKuro/PaintMaskAnimator/releases/tag/v0.6.3
 [0.6.2]: https://github.com/SehataKuro/PaintMaskAnimator/releases/tag/v0.6.2
 [0.6.1]: https://github.com/SehataKuro/PaintMaskAnimator/releases/tag/v0.6.1
