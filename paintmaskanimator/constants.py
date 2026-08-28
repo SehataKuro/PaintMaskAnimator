@@ -21,23 +21,30 @@ except ModuleNotFoundError:
 
 
 APP_NAME = "PaintMaskAnimator"
-try:
-    # pyproject.toml is the single source of truth.  Editable installs and
-    # packaged builds both expose the value through distribution metadata.
-    APP_VERSION = version("paintmaskanimator")
-except PackageNotFoundError:
-    # Running a source checkout without installing it is supported by the
-    # legacy launcher.  Keep that mode useful without maintaining a second
-    # version literal.
-    APP_VERSION = "development"
+
+
+def _application_version() -> str:
+    """Read the canonical version, including from a frozen application.
+
+    The build bundles ``pyproject.toml`` beside the package.  Prefer it over
+    distribution metadata so a stale editable-install ``egg-info`` directory
+    can never leak the previous release number into the UI or updater.
+    """
     if tomllib is not None:
         project_file = Path(__file__).resolve().parent.parent / "pyproject.toml"
         try:
-            APP_VERSION = str(
-                tomllib.loads(project_file.read_text(encoding="utf-8"))["project"]["version"]
-            )
+            project = tomllib.loads(project_file.read_text(encoding="utf-8"))
+            return str(project["project"]["version"])
         except (OSError, KeyError, tomllib.TOMLDecodeError):
-            APP_VERSION = "development"
+            pass
+
+    try:
+        return version("paintmaskanimator")
+    except PackageNotFoundError:
+        return "development"
+
+
+APP_VERSION = _application_version()
 APP_DISPLAY_NAME = f"{APP_NAME} V{APP_VERSION}"
 # GitHub repository (used for release automation / links only).
 GITHUB_REPO = "SehataKuro/PaintMaskAnimator"

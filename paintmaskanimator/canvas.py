@@ -764,7 +764,7 @@ class PaintCanvas(
             return tuple(
                 rgb
                 for rgb in (
-                    tuple(int(channel) for channel in row)
+                    tuple(int(channel) for channel in np.asarray(row).tolist())
                     for row in palette
                 )
                 if rgb != (255, 255, 255)

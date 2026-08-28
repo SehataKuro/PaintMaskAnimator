@@ -331,6 +331,7 @@ def priority_palette_colors_from_samples(
     for group_index, (target_rgb, fixed_mask) in enumerate(color_groups):
         if fixed_mask is None:
             target_hue = target_hues[group_index]
+            assert target_hue is not None
             hue_distance = np.abs(hue - target_hue)
             hue_distance = np.minimum(
                 hue_distance,

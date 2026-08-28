@@ -661,6 +661,7 @@ class DockingMixin(MainWindowMembers):
             self._manual_tab_drop_target = None
             self._manual_tab_drop_extent = None
             return
+        assert target_rect is not None
         title_bar = target.titleBar()
         title_rect = QRect(
             title_bar.mapToGlobal(QPoint()), title_bar.size()
@@ -825,7 +826,6 @@ class DockingMixin(MainWindowMembers):
         animation = getattr(self, "_manual_center_animation", None)
         if animation is not None:
             animation.stop()
-        target = getattr(self, "_manual_center_effect_target", None)
         overlay = getattr(self, "_manual_center_overlay", None)
         if overlay is not None:
             overlay.hide()
@@ -950,6 +950,8 @@ class DockingMixin(MainWindowMembers):
 
             new_branch = direct_branch(new_area)
             target_branch = direct_branch(target_area)
+            if new_branch is None or target_branch is None:
+                return
             new_index = splitter.indexOf(new_branch)
             target_index = splitter.indexOf(target_branch)
             if new_index < 0 or target_index < 0 or new_index == target_index:

@@ -23,9 +23,11 @@ def test_folder_loads_supported_images_and_steps_in_name_order(tmp_path):
     view = SubViewWidget()
     try:
         assert view.load_path(tmp_path)
+        assert view._path is not None
         assert view._path.name == "a.png"
         assert len(view._files) == 2
         view.step(1)
+        assert view._path is not None
         assert view._path.name == "b.png"
         assert view._image.pixelColor(0, 0) == QColor("blue")
     finally:
