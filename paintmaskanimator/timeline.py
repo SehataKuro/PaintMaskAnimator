@@ -1445,6 +1445,16 @@ class TimelineWidget(QWidget):
                 ),
                 default=1,
             )
+            real_frame_count = max(
+                real_frame_count,
+                max(
+                    (
+                        int(number)
+                        for _layer_index, number in self.sequence_archive
+                    ),
+                    default=1,
+                ),
+            )
             real_frame_count = max(1, real_frame_count)
         else:
             real_frame_count = len(frames)
@@ -1526,6 +1536,12 @@ class TimelineWidget(QWidget):
                 int(frames[column].layers[layer_index].sequence_number): column
                 for column in sequence_columns
             }
+            archive_by_number = {
+                int(number): archived
+                for (archived_layer, number), archived
+                in self.sequence_archive.items()
+                if int(archived_layer) == layer_index
+            }
             for number, frame_column in sequence_by_number.items():
                 self._sequence_frame_by_cell[(visual_row, number - 1)] = frame_column
             self.table._sequence_numbers_by_row[visual_row] = tuple(
@@ -1546,7 +1562,7 @@ class TimelineWidget(QWidget):
             if self.timeline_mode == "sequence":
                 content_key_numbers = {
                     number - 1: number
-                    for number in sequence_by_number
+                    for number in set(sequence_by_number) | set(archive_by_number)
                 }
             elif self.timeline_mode == "sheet":
                 used_numbers = [
@@ -1577,12 +1593,20 @@ class TimelineWidget(QWidget):
                 }
             for col in range(cols):
                 text = ""
+                sequence_source = None
                 if self.timeline_mode == "sequence":
                     number = col + 1
                     if number in sequence_by_number:
-                        source_layer = frames[sequence_by_number[number]].layers[layer_index]
+                        sequence_source = frames[
+                            sequence_by_number[number]
+                        ].layers[layer_index]
+                    elif number in archive_by_number:
+                        sequence_source = archive_by_number[number]
+                    if sequence_source is not None:
                         span_kind = (
-                            "content" if source_layer.has_content else "sequence_blank"
+                            "content"
+                            if sequence_source.has_content
+                            else "sequence_blank"
                         )
                         key_col, exposure = col, 1
                     else:
@@ -1605,13 +1629,24 @@ class TimelineWidget(QWidget):
                         span_kind == "content"
                         and col == key_col
                     ):
+                        source_key_layer = (
+                            sequence_source
+                            if self.timeline_mode == "sequence"
+                            else frames[key_col].layers[layer_index]
+                        )
+                        source_cell_name = getattr(
+                            source_key_layer, "cell_name", None
+                        )
                         text = (
                             "◆"
                             if (
                                 is_pending_tween
                                 and pending_reverse
                             )
-                            else str(content_key_numbers.get(key_col, ""))
+                            else str(
+                                source_cell_name
+                                or content_key_numbers.get(key_col, "")
+                            )
                         )
                     elif (
                         span_kind == "blank"
@@ -1736,8 +1771,22 @@ class TimelineWidget(QWidget):
                     span_kind == "content"
                     and col == key_col
                 ):
+                    source_cell_name = getattr(
+                        (
+                            sequence_source
+                            if self.timeline_mode == "sequence"
+                            else frames[key_col].layers[layer_index]
+                        ),
+                        "cell_name",
+                        None,
+                    )
                     item.setToolTip(
-                        f"中央をドラッグして移動／左端をドラッグして前方向へ伸縮\n"
+                        (
+                            f"CLIP STUDIOセル名：{source_cell_name}\n"
+                            if source_cell_name
+                            else ""
+                        )
+                        + f"中央をドラッグして移動／左端をドラッグして前方向へ伸縮\n"
                         f"レイヤーセル {col + 1} / "
                         f"{exposure}コマ"
                     )

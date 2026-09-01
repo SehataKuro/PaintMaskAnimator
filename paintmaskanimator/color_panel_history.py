@@ -83,7 +83,7 @@ class ColorPanelHistoryMixin(UsedColorPanelMembers):
                 header.setCollapsed(self.category_collapsed.get(name, False))
             self._reapply_row_order()
 
-            # 親子プレビューを復元する。
+            # 親子関係を復元する（キャンバス上の色は変更しない）。
             self.child_to_parent = {
                 child: parent
                 for child, parent in snapshot.get("groups", {}).items()

@@ -63,6 +63,11 @@ class UsedColorPanelMembers(_MembersBase):
         category_widgets: Any
         _checkbox_rgb_at_global: Any
         child_to_parent: Any
+        child_tags: Any
+        parent_tags: Any
+        tag_library: Any
+        tag_colors: Any
+        tag_order: Any
         _clear_groups: Any
         _clear_mask_colors: Any
         _clear_replacement: Any
@@ -139,6 +144,7 @@ class UsedColorPanelMembers(_MembersBase):
         _reorder_children_under_parents: Any
         _reorder_color: Any
         _reorder_color_block: Any
+        _reorder_parent_group: Any
         restore_history_state: Any
         _retain_parent_selection: Any
         _rgb_key: Any

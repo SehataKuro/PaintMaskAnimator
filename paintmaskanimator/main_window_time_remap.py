@@ -277,6 +277,7 @@ class TimeRemapMixin(MainWindowMembers):
             layer.has_content = False
             layer.is_blank_key = False
             layer.sequence_number = None
+            layer.cell_name = None
             layer.exposure = 1
 
         # 同じ絵番号／空フレームが連続する区間を露出へ圧縮。
@@ -296,11 +297,13 @@ class TimeRemapMixin(MainWindowMembers):
                 target.has_content = False
                 target.is_blank_key = True
                 target.sequence_number = None
+                target.cell_name = None
             else:
                 target.image = source_bank[int(run_state) - 1].copy()
                 target.has_content = True
                 target.is_blank_key = False
                 target.sequence_number = int(run_state)
+                target.cell_name = None
             if offset < len(states):
                 run_start = start_frame + offset
                 run_state = next_state

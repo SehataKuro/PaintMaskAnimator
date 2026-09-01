@@ -96,6 +96,7 @@ class TimelineStructureMixin(CanvasMembers):
         layer.exposure = 1
         layer.sequence_number = None
         layer.sequence_only = False
+        layer.cell_name = None
 
     def timeline_block_at(self, column, layer_index):
         if not self.frames:
@@ -529,7 +530,8 @@ class TimelineStructureMixin(CanvasMembers):
                 return False
             layer = self.frames[by_number[number]].layers[layer_index]
             snapshots[number] = (
-                layer.image.copy(), bool(layer.has_content), bool(layer.is_blank_key)
+                layer.image.copy(), bool(layer.has_content),
+                bool(layer.is_blank_key), getattr(layer, "cell_name", None)
             )
         if first_number < second_number:
             source_for_number = {
@@ -544,10 +546,13 @@ class TimelineStructureMixin(CanvasMembers):
             layer = frame.layers[layer_index]
             number = layer.sequence_number
             if number in source_for_number:
-                image, has_content, is_blank = snapshots[source_for_number[number]]
+                image, has_content, is_blank, cell_name = snapshots[
+                    source_for_number[number]
+                ]
                 layer.image = image.copy()
                 layer.has_content = has_content
                 layer.is_blank_key = is_blank
+                layer.cell_name = cell_name
         self.changed.emit()
         self.update()
         return True
@@ -671,6 +676,7 @@ class TimelineStructureMixin(CanvasMembers):
                 copied.is_blank_key and not copied.has_content
             )
             target.sequence_number = number
+            target.cell_name = getattr(copied, "cell_name", None)
             target.sequence_only = False
             target.exposure = max(1, int(target_exposure))
             target.visible = copied.visible
@@ -830,6 +836,7 @@ class TimelineStructureMixin(CanvasMembers):
                             else None
                         )
                         dst.sequence_number = copied.sequence_number
+                        dst.cell_name = getattr(copied, "cell_name", None)
                         dst.sequence_only = bool(copied.sequence_only)
                         self._clear_timeline_layer_cell(src)
 
@@ -843,6 +850,9 @@ class TimelineStructureMixin(CanvasMembers):
         destination.is_blank_key = source_is_blank
         destination.sequence_number = (
             None if source_is_blank else moving.sequence_number
+        )
+        destination.cell_name = (
+            None if source_is_blank else getattr(moving, "cell_name", None)
         )
         destination.sequence_only = bool(moving.sequence_only)
         destination.exposure = moving.exposure

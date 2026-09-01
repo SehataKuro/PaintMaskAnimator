@@ -43,9 +43,9 @@ class UsedColorPanel(
     sourceScreenColorPicked = Signal(QColor)
     applyReplacementRequested = Signal(object)
     mergeColorsRequested = Signal(object, object)
-    # 親子グループの非破壊プレビュー更新（{子rgb: 親rgb}）。
+    # 親子関係の更新時に旧色プレビューを解除する通知。
     previewGroupsChanged = Signal(object)
-    # プレビュー中の親子を実ピクセルへ焼き込む要求（{子rgb: 親rgb}）。
+    # 登録した親子を実ピクセルへ統合する要求（{子rgb: 親rgb}）。
     freezeGroupsRequested = Signal(object)
     deleteColorsRequested = Signal(object)
     adjustLineThicknessRequested = Signal(object)
@@ -78,9 +78,17 @@ class UsedColorPanel(
         self.mask_rgbs = {self.background_rgb}
         self._mask_all_mode = True
 
-        # 親子グループ（非破壊）。{子rgb: 親rgb}。親自身は含めない。
-        # ドラッグで子付けし、キャンバス上では子を親色として描画する。
+        # 親子グループ。{子rgb: 親rgb}。親自身は含めない。
+        # ドラッグで子付けしても、キャンバス上の色表示は変更しない。
         self.child_to_parent = {}
+
+        # カラーチャート適用時の役割情報。使用色一覧は色を簡潔に見せるため
+        # タグ文字を常時描画しないが、再登録・PMAG保存用に保持する。
+        self.child_tags = {}
+        self.parent_tags = {}
+        self.tag_library = ["Base"]
+        self.tag_colors = {"Base": "#FFFFFF"}
+        self.tag_order = []
 
         # 使用色カテゴリー（1色につき1フォルダー、1階層）。
         self.category_order = []
@@ -138,8 +146,8 @@ class UsedColorPanel(
             "使用色：クリックで選択（Shift＝範囲／Ctrl＝追加）。"
             "［＋フォルダー］でカテゴリーを作り、色をヘッダーへドラッグして格納。"
             "フォルダーのチェックで所属色を一括表示／非表示。"
-            "ドラッグで並べ替え、色の中央へドロップ＝その色の「子」にして"
-            "親色でプレビュー表示。親子付け／解除はドラッグと右クリックのみ。"
+            "ドラッグで並べ替え、色の中央へドロップ＝その色の「子」として整理。"
+            "親子付けしても色表示は変わりません。解除は右クリックから行えます。"
             "問題なければ［統合］で実画像へ焼き込みます。"
         )
         note.setWordWrap(True)
@@ -249,7 +257,7 @@ class UsedColorPanel(
 
         self.freeze_button = QPushButton("統合")
         self.freeze_button.setToolTip(
-            "プレビュー中の親子（子→親の塗り替え）を、実際の画像へ焼き込みます。"
+            "登録した親子（子→親の塗り替え）を、実際の画像へ焼き込みます。"
             "焼き込むと親子は解除され、Undoで元に戻せます。"
         )
         self.freeze_button.clicked.connect(self._emit_freeze)
@@ -280,7 +288,7 @@ class UsedColorPanel(
         )):
             button.setMinimumWidth(0)
             button_row.addWidget(button, 0, column)
-        # 親子プレビューの統合は色スウォッチ列（col3）に置く。
+        # 親子の統合確定は色スウォッチ列（col3）に置く。
         action_buttons = QHBoxLayout()
         action_buttons.setContentsMargins(0, 0, 0, 0)
         action_buttons.setSpacing(2)
@@ -686,6 +694,54 @@ class UsedColorPanel(
             },
         }
 
+    def remap_saved_color_metadata(self, mapping):
+        """色置換後も親子・タグ・フォルダー情報を新RGBへ引き継ぐ。"""
+        normalized = {
+            tuple(int(channel) for channel in source[:3]):
+            tuple(int(channel) for channel in destination[:3])
+            for source, destination in dict(mapping or {}).items()
+        }
+
+        def remap(rgb):
+            return normalized.get(tuple(rgb), tuple(rgb))
+
+        groups = {}
+        for child, parent in self.child_to_parent.items():
+            new_child, new_parent = remap(child), remap(parent)
+            if (
+                new_child != self.background_rgb
+                and new_parent != self.background_rgb
+                and new_child != new_parent
+            ):
+                groups[new_child] = new_parent
+        self.child_to_parent = groups
+
+        self.child_tags = {
+            remap(rgb): tag for rgb, tag in self.child_tags.items()
+            if remap(rgb) != self.background_rgb
+        }
+        self.parent_tags = {
+            remap(rgb): tag for rgb, tag in self.parent_tags.items()
+            if remap(rgb) != self.background_rgb
+        }
+        self.category_colors = {
+            remap(rgb): category for rgb, category in self.category_colors.items()
+            if remap(rgb) != self.background_rgb
+        }
+        self.enabled_colors = {
+            remap(rgb): bool(enabled)
+            for rgb, enabled in self.enabled_colors.items()
+        }
+        self.enabled_colors[self.background_rgb] = True
+        self.mask_rgbs = {remap(rgb) for rgb in self.mask_rgbs}
+        self.selected_rgbs = list(dict.fromkeys(
+            remap(rgb) for rgb in self.selected_rgbs
+            if remap(rgb) != self.background_rgb
+        ))
+        self.parent_rgb = (
+            remap(self.parent_rgb) if self.parent_rgb is not None else None
+        )
+
     def restore_categories(self, payload):
         if not isinstance(payload, dict):
             self.clear_categories()
@@ -788,13 +844,14 @@ class UsedColorPanel(
             if parent_of_this is not None:
                 group_note = (
                     f"　現在 #{parent_of_this[0]:02X}{parent_of_this[1]:02X}"
-                    f"{parent_of_this[2]:02X} の子（プレビュー中）です。"
+                    f"{parent_of_this[2]:02X} の子です。"
                 )
             button.setToolTip(
                 "クリック：この色だけ選択／Shift＋クリック：範囲選択／"
                 "Ctrl＋クリック：選択に追加・解除。"
-                "ドラッグで並べ替え、色の中央へドロップ＝その色の子にして"
-                "親色でプレビュー。親子付け／解除はドラッグと右クリックのみ。"
+                "ドラッグで並べ替え、色の中央へドロップ＝その色の子として整理。"
+                "親子付けしても色表示は変わりません。"
+                "解除はドラッグと右クリックで行えます。"
                 + group_note
             )
 
@@ -1094,7 +1151,7 @@ class UsedColorPanel(
             self._remove_color_row(rgb)
             self.enabled_colors.pop(rgb, None)
             self.mask_rgbs.discard(rgb)
-            # 消えた色が絡む親子プレビューは破棄する。
+            # 消えた色が絡む親子関係は破棄する。
             self._drop_group_links_for(rgb)
 
         self.selected_rgbs = [
@@ -1253,7 +1310,7 @@ class UsedColorPanel(
         new_folder_action = folder_menu.addAction("新規フォルダー…")
         menu.addSeparator()
 
-        # 親子グループ（プレビュー）関連。
+        # 親子グループ関連。
         clicked_rgb = tuple(rgb)
         in_group = (
             clicked_rgb in self.child_to_parent
@@ -1262,13 +1319,13 @@ class UsedColorPanel(
         action_ungroup = None
         if in_group:
             action_ungroup = menu.addAction("親子を解除")
-            action_ungroup.setToolTip("この色に関わる親子プレビューを解除します。")
+            action_ungroup.setToolTip("この色に関わる親子関係を解除します。")
         action_ungroup_all = None
         action_freeze = None
         if self.child_to_parent:
             action_ungroup_all = menu.addAction("親子をすべて解除")
             action_freeze = menu.addAction("親子を統合（焼き込み）")
-            action_freeze.setToolTip("プレビュー中の子→親の塗り替えを実画像へ確定します。")
+            action_freeze.setToolTip("登録した子→親の塗り替えを実画像へ確定します。")
         action_clear = None
         if self.selected_rgbs:
             menu.addSeparator()

@@ -18,6 +18,20 @@ _OPERATION_ERRORS = OPERATION_ERRORS
 
 
 class InputMixin(MainWindowMembers):
+    def _is_color_chart_widget(self, watched):
+        """Return safely during Qt teardown when the chart is already gone."""
+        if not isinstance(watched, QWidget):
+            return False
+        chart = getattr(self, "color_chart", None)
+        if chart is None:
+            return False
+        try:
+            return watched is chart or chart.isAncestorOf(watched)
+        except RuntimeError:
+            # Qt can deliver one final application event after ADS has deleted
+            # the dock contents but before this Python event filter is removed.
+            return False
+
     @staticmethod
     def _normalize_shortcut_token(token):
         aliases = {
@@ -451,6 +465,31 @@ class InputMixin(MainWindowMembers):
                 event.accept()
                 return True
 
+        # カラーチャート上では、フォーカスがボタンやスクロールバーに
+        # あってもSpace系操作をチャートキャンバスへ渡す。
+        if (
+            self._is_color_chart_widget(watched)
+            and event.type() in (
+                QEvent.Type.ShortcutOverride,
+                QEvent.Type.KeyPress,
+                QEvent.Type.KeyRelease,
+            )
+        ):
+            if (
+                event.type() == QEvent.Type.ShortcutOverride
+                and event.key() in (Qt.Key.Key_Space, Qt.Key.Key_Control)
+            ):
+                event.accept()
+                return True
+            if (
+                event.type() in (QEvent.Type.KeyPress, QEvent.Type.KeyRelease)
+                and event.key() in (Qt.Key.Key_Space, Qt.Key.Key_Control)
+                and not event.isAutoRepeat()
+            ):
+                self.color_chart.tile_canvas.handle_hold_key_event(event)
+                event.accept()
+                return True
+
         # サブビューパネルのSpace系操作を、アプリ全体のキャンバス用
         # ショートカットへ横取りさせない。
         if (
@@ -532,6 +571,11 @@ class InputMixin(MainWindowMembers):
             QEvent.Type.WindowDeactivate,
         ):
             self._held_canvas_shortcut_tokens.clear()
+            try:
+                self.color_chart.tile_canvas.clear_hold_keys()
+            except RuntimeError:
+                # The chart dock can already be destroyed during app teardown.
+                pass
             self._update_canvas_hold_operation()
             return super().eventFilter(watched, event)
 

@@ -70,7 +70,7 @@ class PaintCanvas(
     viewChanged=Signal(float, float)
     onionInteractionChanged=Signal()
     onionInteractionFinished=Signal()
-    changed=Signal(); selectionChanged=Signal(); selectionCleared=Signal(); cellChanged=Signal(int,int); imagesDropped=Signal(object); projectDropped=Signal(str); timeRemapDropped=Signal(str); colorSampled=Signal(QColor)
+    changed=Signal(); selectionChanged=Signal(); selectionCleared=Signal(); cellChanged=Signal(int,int); imagesDropped=Signal(object); projectDropped=Signal(str); timeRemapDropped=Signal(str); clipAnimationDropped=Signal(str); colorSampled=Signal(QColor)
     def __init__(self):
         super().__init__(); self.setFocusPolicy(Qt.FocusPolicy.StrongFocus); self.setMouseTracking(True); self.setTabletTracking(True); self.setMinimumSize(320,120); self.setAcceptDrops(True)
         self._document=Document()
@@ -82,6 +82,7 @@ class PaintCanvas(
         self._sequence_source_bank=[]
         self._sequence_source_bank_layer_index=-1
         self._sequence_source_bank_layer_name=""
+        self.clip_studio_source_metadata=None
         # シートから外した絵番号を、右クリックで再配置するため保持する。
         self._sequence_archive={}
         self.timeline_mode="sheet"

@@ -385,6 +385,10 @@ class UsedColorMixin(MainWindowMembers):
             self._used_color_cache.pop(cache_key, None)
         self._used_color_cache.update(cache_updates)
 
+        # 次の使用色再走査で旧RGB行が消える前に、整理情報を置換後のRGBへ
+        # 移しておく。これにより置換直後もチャートへ新しい色構成を追記できる。
+        self.palette.remap_saved_color_metadata(rgb_mapping)
+
         # コマ構造は変わらないためタイムラインを再構築しない。画像更新と、
         # キャッシュを利用した使用色一覧の更新だけを行う（表示キャッシュの
         # 破棄と再描画は run_over_scope 側で済んでいる）。

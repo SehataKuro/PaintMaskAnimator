@@ -67,11 +67,36 @@ class ColorGroupingMixin(UsedColorPanelMembers):
                     tuple(value) for value in self.selected_rgbs
                     if tuple(value) != self.background_rgb
                 }
+                # 親をつかんだ時は子も含むグループ全体を一つのブロックとして
+                # 移動する。親だけを先へ動かして子との連続が崩れ、親子が解除
+                # される従来挙動を避ける。
+                is_parent = any(
+                    parent == dragged_rgb
+                    for parent in self.child_to_parent.values()
+                )
+                if is_parent:
+                    self._reorder_parent_group(
+                        dragged_rgb, target_rgb, mode
+                    )
+                    return
+
+                moved_rgbs = (
+                    selected
+                    if dragged_rgb in selected and len(selected) > 1
+                    else {dragged_rgb}
+                )
                 if dragged_rgb in selected and len(selected) > 1:
                     self._reorder_color_block(selected, target_rgb, mode)
                 else:
                     self._reorder_color(dragged_rgb, target_rgb, mode)
-                if self._drop_group_links_outside_parent_blocks():
+                # 子を親の下からドラッグした時だけ、その子の親子関係を解除。
+                # 他グループの連続状態までは触らない。
+                detached = False
+                for moved_rgb in moved_rgbs:
+                    if moved_rgb in self.child_to_parent:
+                        self.child_to_parent.pop(moved_rgb, None)
+                        detached = True
+                if detached:
                     self._refresh_all_group_displays()
                     self._emit_preview()
 
@@ -162,6 +187,63 @@ class ColorGroupingMixin(UsedColorPanelMembers):
             *remaining[target_index:],
         ]
         self._reapply_row_order()
+
+    def _reorder_parent_group(self, parent_rgb, target_rgb, mode):
+        """親とその子を連続ブロックのまま移動し、親子関係を維持する。"""
+        group_rgbs = [parent_rgb]
+        group_rgbs.extend(
+            self._rgb_key(color) for color in self.colors
+            if self.child_to_parent.get(self._rgb_key(color)) == parent_rgb
+        )
+        group_set = set(group_rgbs)
+        if target_rgb in group_set:
+            return
+        by_key = {
+            self._rgb_key(color): color for color in self.colors
+        }
+        moved = [by_key[rgb] for rgb in group_rgbs if rgb in by_key]
+        remaining = [
+            color for color in self.colors
+            if self._rgb_key(color) not in group_set
+        ]
+        remaining_keys = [self._rgb_key(color) for color in remaining]
+        if target_rgb not in remaining_keys:
+            return
+
+        # ドロップ先も親子グループなら、その途中へ割り込ませない。
+        # 「前」は相手の親より前、「後」は相手の最後の子より後へ置く。
+        target_parent = self.child_to_parent.get(target_rgb)
+        if target_parent is None and any(
+            parent == target_rgb
+            for parent in self.child_to_parent.values()
+        ):
+            target_parent = target_rgb
+        target_group = (
+            {
+                rgb for rgb in remaining_keys
+                if rgb == target_parent
+                or self.child_to_parent.get(rgb) == target_parent
+            }
+            if target_parent is not None
+            else {target_rgb}
+        )
+        target_indexes = [
+            index for index, rgb in enumerate(remaining_keys)
+            if rgb in target_group
+        ]
+        target_index = (
+            max(target_indexes) + 1
+            if mode == "after"
+            else min(target_indexes)
+        )
+        target_index = max(1, target_index)
+        self.colors = [
+            *remaining[:target_index],
+            *moved,
+            *remaining[target_index:],
+        ]
+        self._reapply_row_order()
+        self._refresh_all_group_displays()
 
     def _drop_group_links_outside_parent_blocks(self):
         """親の直後に連続していない子の親子リンクを解除する。"""
@@ -324,14 +406,16 @@ class ColorGroupingMixin(UsedColorPanelMembers):
         self._apply_swatch_text(rgb)
 
     def _group_mapping(self):
-        """{子rgb: ルート親rgb} を返す（プレビュー／統合共通）。"""
+        """{子rgb: ルート親rgb} を返す（統合確定時に使用）。"""
         return {
             child: self._group_root(child)
             for child in self.child_to_parent
         }
 
     def _emit_preview(self):
-        self.previewGroupsChanged.emit(self._group_mapping())
+        # 親子付けは階層整理だけに使い、キャンバス上の色は置換しない。
+        # 空マッピングを通知して、旧状態の色プレビューも確実に解除する。
+        self.previewGroupsChanged.emit({})
 
     def _clear_groups(self):
         if not self.child_to_parent:
@@ -342,7 +426,7 @@ class ColorGroupingMixin(UsedColorPanelMembers):
             self._emit_preview()
 
     def on_groups_frozen(self):
-        """統合確定後：プレビューを解除する（実ピクセルは親色に確定済み）。"""
+        """統合確定後に親子関係を解除する。"""
         self.child_to_parent = {}
         self._refresh_all_group_displays()
         self.previewGroupsChanged.emit({})
@@ -353,7 +437,7 @@ class ColorGroupingMixin(UsedColorPanelMembers):
             window: Any = self.window()
             if hasattr(window, "statusBar"):
                 window.statusBar().showMessage(
-                    "統合する親子（プレビュー）がありません。"
+                    "統合する親子がありません。"
                     "色を別の色の中へドロップして親子を作成してください。",
                     2800,
                 )

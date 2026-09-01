@@ -35,6 +35,7 @@ class CanvasMembers(_MembersBase):
     if TYPE_CHECKING:
         cellChanged: Signal
         changed: Signal
+        clipAnimationDropped: Signal
         colorSampled: Signal
         colorUsed: Signal
         imagesDropped: Signal

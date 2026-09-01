@@ -216,6 +216,11 @@ def read_project_archive(path):
                         ),
                         bool(layer_data.get("sequence_only", False)),
                         is_draft,
+                        (
+                            str(layer_data.get("cell_name"))
+                            if layer_data.get("cell_name") is not None
+                            else None
+                        ),
                     )
                 )
 
@@ -233,10 +238,103 @@ def read_project_archive(path):
                     ),
                 )
             )
+        sequence_archive_data = metadata.get("sequence_archive", [])
+        if not isinstance(sequence_archive_data, list):
+            raise ValueError("連番保管セル情報が不正です。")
+        if layer_cell_count + len(sequence_archive_data) > MAX_PROJECT_LAYER_CELLS:
+            raise ValueError("プロジェクトのセル数が上限を超えています。")
+        if (
+            width
+            * height
+            * (layer_cell_count + len(sequence_archive_data))
+            > MAX_PROJECT_DECODED_PIXELS
+        ):
+            raise ValueError("プロジェクトの展開後画像サイズが大きすぎます。")
+        loaded_sequence_archive = {}
+        for archive_data in sequence_archive_data:
+            if not isinstance(archive_data, dict):
+                raise ValueError("連番保管セル情報が不正です。")
+            layer_index = int(archive_data.get("layer_index", -1))
+            number = int(archive_data.get("sequence_number", 0))
+            if not (
+                expected_layer_count is not None
+                and 0 <= layer_index < expected_layer_count
+                and 1 <= number <= MAX_PROJECT_FRAMES
+            ):
+                raise ValueError("連番保管セルのレイヤーまたは絵番号が不正です。")
+            key = (layer_index, number)
+            if key in loaded_sequence_archive:
+                raise ValueError("連番保管セルの絵番号が重複しています。")
+            image_path = str(archive_data.get("image", ""))
+            normalized_path = PurePosixPath(image_path)
+            if (
+                not image_path
+                or normalized_path.is_absolute()
+                or ".." in normalized_path.parts
+                or normalized_path.suffix.lower() != ".png"
+            ):
+                raise ValueError("連番保管セル画像の参照パスが不正です。")
+            try:
+                image_info = archive.getinfo(image_path)
+            except KeyError as error:
+                raise ValueError(
+                    f"連番保管セル画像がありません: {image_path}"
+                ) from error
+            if image_info.file_size > MAX_PROJECT_IMAGE_BYTES:
+                raise ValueError(
+                    f"連番保管セル画像が大きすぎます: {image_path}"
+                )
+            image = QImage.fromData(archive.read(image_path))
+            if (
+                image.isNull()
+                or image.width() != width
+                or image.height() != height
+            ):
+                raise ValueError(
+                    f"連番保管セル画像を復元できません: {image_path}"
+                )
+            image = image.convertToFormat(
+                QImage.Format.Format_ARGB32_Premultiplied
+            )
+            is_draft = bool(archive_data.get("is_draft", False))
+            if needs_white_migration and not is_draft:
+                image = white_to_transparent_qimage(image)
+            opacity = float(archive_data.get("opacity", 1.0))
+            if not math.isfinite(opacity):
+                raise ValueError("連番保管セルの不透明度が不正です。")
+            filter_rgb = archive_data.get("color_filter_rgb")
+            loaded_sequence_archive[key] = Layer(
+                str(archive_data.get("name", "Layer")),
+                image,
+                bool(archive_data.get("visible", True)),
+                max(0.0, min(1.0, opacity)),
+                False,
+                bool(archive_data.get("has_content", True)),
+                False,
+                1,
+                bool(archive_data.get("color_filter_enabled", False)),
+                (
+                    tuple(int(value) for value in filter_rgb[:3])
+                    if filter_rgb is not None
+                    else None
+                ),
+                bool(archive_data.get("is_blank_key", False)),
+                number,
+                False,
+                is_draft,
+                (
+                    str(archive_data.get("cell_name"))
+                    if archive_data.get("cell_name") is not None
+                    else None
+                ),
+            )
+        metadata["_loaded_sequence_archive"] = loaded_sequence_archive
     return metadata, loaded_frames, width, height
 
 
-def write_project_archive(project_path, metadata, frames):
+def write_project_archive(
+    project_path, metadata, frames, sequence_archive=None
+):
     """Serialize frames + metadata into the project archive at ``project_path``.
 
     Fills ``metadata["frames"]`` from the Frame/Layer domain objects, writes one
@@ -244,6 +342,7 @@ def write_project_archive(project_path, metadata, frames):
     destination. Raises on error (the caller shows the UI message).
     """
     project_path = Path(project_path)
+    metadata.pop("_loaded_sequence_archive", None)
     project_path.parent.mkdir(parents=True, exist_ok=True)
     temporary_path = project_path.with_suffix(project_path.suffix + ".tmp")
     try:
@@ -281,6 +380,7 @@ def write_project_archive(project_path, metadata, frames):
                             "sequence_number": layer.sequence_number,
                             "sequence_only": bool(layer.sequence_only),
                             "is_draft": bool(getattr(layer, "is_draft", False)),
+                            "cell_name": getattr(layer, "cell_name", None),
                             "color_filter_enabled": bool(
                                 layer.color_filter_enabled
                             ),
@@ -292,6 +392,43 @@ def write_project_archive(project_path, metadata, frames):
                         }
                     )
                 metadata["frames"].append(frame_data)
+
+            metadata["sequence_archive"] = []
+            for (layer_index, number), layer in sorted(
+                (sequence_archive or {}).items()
+            ):
+                image_name = (
+                    f"sequence_archive/layer_{int(layer_index):04d}/"
+                    f"cell_{int(number):06d}.png"
+                )
+                local_image = temp_root / image_name
+                local_image.parent.mkdir(parents=True, exist_ok=True)
+                if not layer.image.save(str(local_image), "PNG"):
+                    raise RuntimeError(
+                        f"連番保管セルを書き出せませんでした: {image_name}"
+                    )
+                metadata["sequence_archive"].append(
+                    {
+                        "layer_index": int(layer_index),
+                        "sequence_number": int(number),
+                        "image": image_name,
+                        "name": layer.name,
+                        "visible": bool(layer.visible),
+                        "opacity": float(layer.opacity),
+                        "has_content": bool(layer.has_content),
+                        "is_blank_key": bool(layer.is_blank_key),
+                        "is_draft": bool(getattr(layer, "is_draft", False)),
+                        "cell_name": getattr(layer, "cell_name", None),
+                        "color_filter_enabled": bool(
+                            layer.color_filter_enabled
+                        ),
+                        "color_filter_rgb": (
+                            list(layer.color_filter_rgb)
+                            if layer.color_filter_rgb is not None
+                            else None
+                        ),
+                    }
+                )
 
             with zipfile.ZipFile(
                 temporary_path,
