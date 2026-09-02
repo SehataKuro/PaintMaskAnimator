@@ -13,6 +13,7 @@ from PySide6.QtCore import QRectF
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication, QColorDialog, QDialog, QMessageBox
 from . import theme
+from .i18n import tr
 from .widgets import TransformLineThicknessDialog
 from .logging_setup import get_logger
 
@@ -59,7 +60,7 @@ class ColorInteractionController:
     def choose_accent_color(self):
         current = QColor(theme.current_accent())
         color = QColorDialog.getColor(
-            current, self.window, "アクセントカラーを選択"
+            current, self.window, tr("アクセントカラーを選択")
         )
         if color.isValid():
             self.set_accent(color.name())
@@ -85,15 +86,15 @@ class ColorInteractionController:
         )
         if self.window.canvas.mask_all_enabled:
             self.window.statusBar().showMessage(
-                "マスクは「全体」です。すべての領域に描画できます。", 1800
+                tr("マスクは「全体」です。すべての領域に描画できます。"), 1800
             )
         elif normalized:
             self.window.statusBar().showMessage(
-                f"描画可能なマスクを {len(normalized)}色選択しています。", 1800
+                tr("描画可能なマスクを {len}色選択しています。").format(len=len(normalized)), 1800
             )
         else:
             self.window.statusBar().showMessage(
-                "すべてのマスクがOFFです。描画できません。", 1800
+                tr("すべてのマスクがOFFです。描画できません。"), 1800
             )
 
     def focus_used_color(self, rgb):
@@ -124,8 +125,8 @@ class ColorInteractionController:
         if target_frame is None:
             QMessageBox.information(
                 self.window,
-                "対象に注視",
-                "現在のレイヤー内に、この色が使われているコマはありません。",
+                tr("対象に注視"),
+                tr("現在のレイヤー内に、この色が使われているコマはありません。"),
             )
             return
 
@@ -160,7 +161,7 @@ class ColorInteractionController:
             self.window.canvas.update()
         self.window.canvas.setFocus()
         self.window.statusBar().showMessage(
-            f"使用色 {rgb} が最初に現れる {target_frame + 1} コマ目へ移動しました。",
+            tr("使用色 {rgb} が最初に現れる {value} コマ目へ移動しました。").format(rgb=rgb, value=target_frame + 1),
             3200,
         )
 
@@ -168,7 +169,7 @@ class ColorInteractionController:
         """●ーーーー｜全体を1つの画像として、選択色の線幅を調整する。"""
         if getattr(self.window.canvas, "tween_pending", None):
             self.window.statusBar().showMessage(
-                "トゥイーン中は線の太さを変更できません。",
+                tr("トゥイーン中は線の太さを変更できません。"),
                 2600,
             )
             return
@@ -193,17 +194,17 @@ class ColorInteractionController:
         if not parent_rgb or parent_rgb not in line_colors:
             QMessageBox.information(
                 self.window,
-                "太さを調整",
-                "親として選択している色で右クリックしてください。",
+                tr("太さを調整"),
+                tr("親として選択している色で右クリックしてください。"),
             )
             return
 
         if self.window.canvas.transform_active:
             QMessageBox.warning(
                 self.window,
-                "太さを調整",
-                "別の変形処理を確定またはキャンセルしてから"
-                "実行してください。",
+                tr("太さを調整"),
+                tr("別の変形処理を確定またはキャンセルしてから"
+                "実行してください。"),
             )
             return
 
@@ -216,8 +217,8 @@ class ColorInteractionController:
         if block is None:
             QMessageBox.information(
                 self.window,
-                "太さを調整",
-                "現在位置には調整できるキーフレームがありません。",
+                tr("太さを調整"),
+                tr("現在位置には調整できるキーフレームがありません。"),
             )
             return
 
@@ -228,8 +229,8 @@ class ColorInteractionController:
         if not key_layer.has_content:
             QMessageBox.information(
                 self.window,
-                "太さを調整",
-                "現在の露出ブロックに画像がありません。",
+                tr("太さを調整"),
+                tr("現在の露出ブロックに画像がありません。"),
             )
             return
 
@@ -252,8 +253,8 @@ class ColorInteractionController:
             self.window.canvas.current_frame = original_frame
             QMessageBox.warning(
                 self.window,
-                "太さを調整",
-                "キーフレーム全体から描画領域を検出できません。",
+                tr("太さを調整"),
+                tr("キーフレーム全体から描画領域を検出できません。"),
             )
             return
 
@@ -320,10 +321,7 @@ class ColorInteractionController:
             )
             self.window.canvas.changed.emit()
             self.window.statusBar().showMessage(
-                f"キーフレーム {key_frame + 1}～"
-                f"{block_end + 1}（{exposure}コマ）全体へ、"
-                f"選択中の{len(line_colors)}色の太さ "
-                f"{255 - value} を適用しました。",
+                tr("キーフレーム {value}～{value2}（{exposure}コマ）全体へ、選択中の{len}色の太さ {value3} を適用しました。").format(value=key_frame + 1, value2=block_end + 1, exposure=exposure, len=len(line_colors), value3=255 - value),
                 4200,
             )
         else:
@@ -399,7 +397,7 @@ class ColorInteractionController:
         self.window.canvas.preview_color_remap = {}
         applied = self.window.used_color.apply_palette_replacements(
             rgb_mapping,
-            operation="親子統合",
+            operation="parent_merge",
         )
         if applied:
             self.window.palette.on_groups_frozen()
@@ -420,8 +418,8 @@ class ColorInteractionController:
             if self.window.canvas.color_mode == "transparent":
                 QMessageBox.information(
                     self.window,
-                    "特定色だけ表示",
-                    "背景色では特定色表示を設定できません。メイン色またはサブ色を選択してください。",
+                    tr("特定色だけ表示"),
+                    tr("背景色では特定色表示を設定できません。メイン色またはサブ色を選択してください。"),
                 )
                 return
             color = self.window.canvas.main_color if self.window.canvas.color_mode == "main" else self.window.canvas.sub_color
@@ -445,7 +443,7 @@ class ColorInteractionController:
             self.window.canvas.changed.emit()
             self.window.canvas.update()
         self.window.statusBar().showMessage(
-            f"選択レイヤーを #{rgb[0]:02X}{rgb[1]:02X}{rgb[2]:02X} だけ表示しています。元画像は変更されません。",
+            tr("選択レイヤーを #{value:02X}{value2:02X}{value3:02X} だけ表示しています。元画像は変更されません。").format(value=rgb[0], value2=rgb[1], value3=rgb[2]),
             3500,
         )
 
@@ -467,9 +465,9 @@ class ColorInteractionController:
             self.window.canvas._color_filter_cache.clear()
             self.window.canvas.changed.emit()
             self.window.canvas.update()
-            self.window.statusBar().showMessage("選択レイヤーの特定色表示を解除しました。", 2500)
+            self.window.statusBar().showMessage(tr("選択レイヤーの特定色表示を解除しました。"), 2500)
         else:
-            self.window.statusBar().showMessage("選択レイヤーには特定色表示が設定されていません。", 2500)
+            self.window.statusBar().showMessage(tr("選択レイヤーには特定色表示が設定されていません。"), 2500)
 
     def toggle_draw_background_color(self):
         previous = getattr(self.window, "_previous_draw_color_mode", "main")
@@ -486,7 +484,7 @@ class ColorInteractionController:
         color = QColorDialog.getColor(
             self.window.canvas.transparent_display_color,
             self.window,
-            "背景色の表示色を選択",
+            tr("背景色の表示色を選択"),
         )
         if not color.isValid():
             return
@@ -503,7 +501,7 @@ class ColorInteractionController:
         self.window.canvas.update()
 
     def choose_color(self,mode):
-        base=self.window.canvas.main_color if mode=="main" else self.window.canvas.sub_color;c=QColorDialog.getColor(base,self.window,"色を選択")
+        base=self.window.canvas.main_color if mode=="main" else self.window.canvas.sub_color;c=QColorDialog.getColor(base,self.window,tr("色を選択"))
         if c.isValid():setattr(self.window.canvas,mode+"_color",c);self.set_color_mode(mode)
 
     def set_color_mode(self,mode):self.window.canvas.color_mode=mode;self.window.tools.set_colors(self.window.canvas.main_color,self.window.canvas.sub_color,mode,self.window.canvas.transparent_display_color);self._sync_tool_selector_swatch()

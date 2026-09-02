@@ -11,6 +11,7 @@ import math
 import numpy as np
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QImage, QPainter, QPolygonF
+from .i18n import tr
 from .constants import TP_MASK_PROXY_MAX_DIMENSION
 from ._canvas_members import CanvasMembers
 from . import geometry
@@ -205,7 +206,7 @@ class TransformGeometryMixin(CanvasMembers):
         self.transform_drag_points = []
         if self.transform_quality_active:
             self.request_quality_preview_counter(
-                "変形後のクオリティプレビューを生成しています"
+                tr("変形後のクオリティプレビューを生成しています")
             )
         self.update()
 

@@ -27,6 +27,7 @@ import numpy as np
 from PySide6.QtCore import QPoint
 from PySide6.QtGui import QColor, QImage, QPainter
 
+from .i18n import tr
 from .constants import (
     MAX_IMAGE_DIMENSION,
     MAX_PROJECT_DECODED_PIXELS,
@@ -118,73 +119,73 @@ class ClipContainer:
     def scan(cls, path: str | os.PathLike[str]) -> "ClipContainer":
         source = Path(path)
         if source.suffix.lower() != ".clip":
-            raise ClipImportError("CLIP STUDIOの.clipファイルを指定してください。")
+            raise ClipImportError(tr("CLIP STUDIOの.clipファイルを指定してください。"))
         try:
             file_size = source.stat().st_size
             stream = source.open("rb")
         except OSError as exc:
-            raise ClipImportError(f".clipファイルを開けません。\n{exc}") from exc
+            raise ClipImportError(tr(".clipファイルを開けません。\n{exc}").format(exc=exc)) from exc
 
         sqlite_bytes: Optional[bytes] = None
         external: dict[bytes, ClipExternalObject] = {}
         try:
             header = stream.read(24)
             if len(header) != 24 or header[:8] != b"CSFCHUNK":
-                raise ClipImportError("CLIP STUDIO形式のヘッダーを確認できません。")
+                raise ClipImportError(tr("CLIP STUDIO形式のヘッダーを確認できません。"))
             offset = 24
             chunk_count = 0
             while offset < file_size:
                 chunk_count += 1
                 if chunk_count > _MAX_CHUNKS:
-                    raise ClipImportError(".clip内のチャンク数が上限を超えています。")
+                    raise ClipImportError(tr(".clip内のチャンク数が上限を超えています。"))
                 stream.seek(offset)
                 chunk_header = stream.read(16)
                 if len(chunk_header) != 16 or chunk_header[:4] != b"CHNK":
-                    raise ClipImportError(".clipのチャンク構造が壊れています。")
+                    raise ClipImportError(tr(".clipのチャンク構造が壊れています。"))
                 chunk_name = chunk_header[4:8]
                 chunk_size = int.from_bytes(chunk_header[12:16], "big")
                 body_offset = offset + 16
                 body_end = body_offset + chunk_size
                 if body_end < body_offset or body_end > file_size:
-                    raise ClipImportError(".clipのチャンクサイズが不正です。")
+                    raise ClipImportError(tr(".clipのチャンクサイズが不正です。"))
                 if chunk_name == b"SQLi":
                     if sqlite_bytes is not None:
-                        raise ClipImportError(".clip内にSQLite情報が重複しています。")
+                        raise ClipImportError(tr(".clip内にSQLite情報が重複しています。"))
                     if chunk_size > _MAX_SQLITE_BYTES:
-                        raise ClipImportError(".clipの文書情報が大きすぎます。")
+                        raise ClipImportError(tr(".clipの文書情報が大きすぎます。"))
                     stream.seek(body_offset)
                     sqlite_bytes = stream.read(chunk_size)
                     if len(sqlite_bytes) != chunk_size:
-                        raise ClipImportError(".clipの文書情報が途中で切れています。")
+                        raise ClipImportError(tr(".clipの文書情報が途中で切れています。"))
                 elif chunk_name == b"Exta":
                     if chunk_size < 16:
-                        raise ClipImportError(".clipの外部データチャンクが不正です。")
+                        raise ClipImportError(tr(".clipの外部データチャンクが不正です。"))
                     stream.seek(body_offset)
                     id_length_raw = stream.read(8)
                     id_length = int.from_bytes(id_length_raw, "big")
                     if not (1 <= id_length <= _MAX_EXTERNAL_ID_BYTES):
-                        raise ClipImportError(".clipの外部データ識別子が不正です。")
+                        raise ClipImportError(tr(".clipの外部データ識別子が不正です。"))
                     if 16 + id_length > chunk_size:
-                        raise ClipImportError(".clipの外部データ識別子が途中で切れています。")
+                        raise ClipImportError(tr(".clipの外部データ識別子が途中で切れています。"))
                     identifier = stream.read(id_length)
                     payload_size = int.from_bytes(stream.read(8), "big")
                     available = chunk_size - id_length - 16
                     if payload_size > available:
-                        raise ClipImportError(".clipの外部データサイズが不正です。")
+                        raise ClipImportError(tr(".clipの外部データサイズが不正です。"))
                     if identifier in external:
-                        raise ClipImportError(".clipの外部データ識別子が重複しています。")
+                        raise ClipImportError(tr(".clipの外部データ識別子が重複しています。"))
                     external[identifier] = ClipExternalObject(
                         stream.tell(), payload_size
                     )
                 offset = body_end
             if offset != file_size:
-                raise ClipImportError(".clipの末尾位置が不正です。")
+                raise ClipImportError(tr(".clipの末尾位置が不正です。"))
         except OSError as exc:
-            raise ClipImportError(f".clipファイルを読み取れません。\n{exc}") from exc
+            raise ClipImportError(tr(".clipファイルを読み取れません。\n{exc}").format(exc=exc)) from exc
         finally:
             stream.close()
         if sqlite_bytes is None:
-            raise ClipImportError(".clip内に文書情報（SQLi）がありません。")
+            raise ClipImportError(tr(".clip内に文書情報（SQLi）がありません。"))
         return cls(source, sqlite_bytes, external)
 
     def read_external(self, identifier: object) -> bytes:
@@ -192,16 +193,16 @@ class ClipContainer:
         item = self.external_objects.get(key)
         if item is None:
             raise ClipImportError(
-                ".clip内の参照画像またはアニメーション情報が見つかりません。"
+                tr(".clip内の参照画像またはアニメーション情報が見つかりません。")
             )
         try:
             with self.path.open("rb") as stream:
                 stream.seek(item.offset)
                 data = stream.read(item.size)
         except OSError as exc:
-            raise ClipImportError(f".clipの外部データを読めません。\n{exc}") from exc
+            raise ClipImportError(tr(".clipの外部データを読めません。\n{exc}").format(exc=exc)) from exc
         if len(data) != item.size:
-            raise ClipImportError(".clipの外部データが途中で切れています。")
+            raise ClipImportError(tr(".clipの外部データが途中で切れています。"))
         return data
 
 
@@ -212,7 +213,7 @@ def _identifier_bytes(value: object) -> bytes:
         return value.tobytes()
     if isinstance(value, (bytes, bytearray)):
         return bytes(value)
-    raise ClipImportError(".clipの外部データ識別子の型が不正です。")
+    raise ClipImportError(tr(".clipの外部データ識別子の型が不正です。"))
 
 
 def _normalize_uuid(value: object) -> bytes:
@@ -222,10 +223,10 @@ def _normalize_uuid(value: object) -> bytes:
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError as exc:
-        raise ClipImportError(".clipのレイヤーUUIDが不正です。") from exc
+        raise ClipImportError(tr(".clipのレイヤーUUIDが不正です。")) from exc
     digits = "".join(character for character in text if character in "0123456789abcdefABCDEF")
     if len(digits) != 32:
-        raise ClipImportError(".clipのレイヤーUUIDが不正です。")
+        raise ClipImportError(tr(".clipのレイヤーUUIDが不正です。"))
     return bytes.fromhex(digits)
 
 
@@ -236,7 +237,7 @@ def _table_columns(connection: sqlite3.Connection, table: str) -> set[str]:
             for row in connection.execute(f'PRAGMA table_info("{table}")')
         }
     except sqlite3.Error as exc:
-        raise ClipImportError(f".clipの{table}情報を確認できません。") from exc
+        raise ClipImportError(tr(".clipの{table}情報を確認できません。").format(table=table)) from exc
 
 
 def _require_columns(
@@ -248,7 +249,7 @@ def _require_columns(
     missing = [column for column in columns if column not in existing]
     if missing:
         raise ClipImportError(
-            f".clipの{table}情報に必要な項目がありません：{', '.join(missing)}"
+            tr(".clipの{table}情報に必要な項目がありません：{join}").format(table=table, join=', '.join(missing))
         )
     return existing
 
@@ -274,42 +275,42 @@ def _open_embedded_database(sqlite_bytes: bytes):
             path.unlink(missing_ok=True)
         except OSError:
             pass
-        raise ClipImportError(f".clipの文書データを開けません。\n{exc}") from exc
+        raise ClipImportError(tr(".clipの文書データを開けません。\n{exc}").format(exc=exc)) from exc
 
 
 def _read_u32_le(data: bytes, cursor: int) -> tuple[int, int]:
     end = cursor + 4
     if end > len(data):
-        raise ClipImportError("アニメーション情報が途中で切れています。")
+        raise ClipImportError(tr("アニメーション情報が途中で切れています。"))
     return int.from_bytes(data[cursor:end], "little"), end
 
 
 def _parse_string_table(data: bytes) -> tuple[list[str], int]:
     if len(data) < 20 or data[:12] not in (b"cmt 0100binc", b"cmt 0110binc"):
-        raise ClipImportError("未対応のCLIP STUDIOアニメーション情報です。")
+        raise ClipImportError(tr("未対応のCLIP STUDIOアニメーション情報です。"))
     count, cursor = _read_u32_le(data, 16)
     if count > 1_000_000:
-        raise ClipImportError("アニメーション文字列数が上限を超えています。")
+        raise ClipImportError(tr("アニメーション文字列数が上限を超えています。"))
     strings: list[str] = []
     for _ in range(count):
         if cursor >= len(data):
-            raise ClipImportError("アニメーション文字列が途中で切れています。")
+            raise ClipImportError(tr("アニメーション文字列が途中で切れています。"))
         length = data[cursor]
         cursor += 1
         end = cursor + length
         if end > len(data):
-            raise ClipImportError("アニメーション文字列が途中で切れています。")
+            raise ClipImportError(tr("アニメーション文字列が途中で切れています。"))
         try:
             strings.append(data[cursor:end].decode("utf-8"))
         except UnicodeDecodeError as exc:
-            raise ClipImportError("アニメーション文字列をUTF-8で読めません。") from exc
+            raise ClipImportError(tr("アニメーション文字列をUTF-8で読めません。")) from exc
         cursor = end
     return strings, cursor
 
 
 def _string_at(strings: list[str], index: int) -> str:
     if not (0 <= index < len(strings)):
-        raise ClipImportError("アニメーション文字列の参照先が不正です。")
+        raise ClipImportError(tr("アニメーション文字列の参照先が不正です。"))
     return strings[index]
 
 
@@ -363,7 +364,7 @@ def _parse_image_cel_fields(
 ) -> list[tuple[float, str]]:
     field_count, cursor = _read_u32_le(data, cursor)
     if field_count > 1024:
-        raise ClipImportError("アニメーション曲線の項目数が上限を超えています。")
+        raise ClipImportError(tr("アニメーション曲線の項目数が上限を超えています。"))
     frames: Optional[list[float]] = None
     values: Optional[list[float]] = None
     tags: Optional[list[str]] = None
@@ -372,18 +373,18 @@ def _parse_image_cel_fields(
         type_id, cursor = _read_u32_le(data, cursor)
         count, cursor = _read_u32_le(data, cursor)
         if count > MAX_PROJECT_FRAMES * 16:
-            raise ClipImportError("アニメーション曲線の配列が大きすぎます。")
+            raise ClipImportError(tr("アニメーション曲線の配列が大きすぎます。"))
         field_name = _string_at(strings, field_id)
         field_type = _string_at(strings, type_id)
         element_size = _FCURVE_ELEMENT_SIZES.get(field_type)
         if element_size is None:
             raise ClipImportError(
-                f"未対応のアニメーション曲線形式です：{field_type}"
+                tr("未対応のアニメーション曲線形式です：{type}").format(type=field_type)
             )
         byte_count = count * element_size
         end = cursor + byte_count
         if end > len(data):
-            raise ClipImportError("アニメーション曲線が途中で切れています。")
+            raise ClipImportError(tr("アニメーション曲線が途中で切れています。"))
         if field_type == "Single[]" and field_name in ("Frame", "Value"):
             array = [
                 struct.unpack_from("<f", data, cursor + index * 4)[0]
@@ -408,15 +409,15 @@ def _parse_image_cel_fields(
         first, cursor = _read_u32_le(data, cursor)
         second, cursor = _read_u32_le(data, cursor)
         if first != 0 or second != 0:
-            raise ClipImportError("アニメーション曲線の終端が不正です。")
+            raise ClipImportError(tr("アニメーション曲線の終端が不正です。"))
     if frames is None or values is None or tags is None:
-        raise ClipImportError("セル指定曲線にFrame、Value、Tagのいずれかがありません。")
+        raise ClipImportError(tr("セル指定曲線にFrame、Value、Tagのいずれかがありません。"))
     if not (len(frames) == len(values) == len(tags)):
-        raise ClipImportError("セル指定曲線の配列長が一致しません。")
+        raise ClipImportError(tr("セル指定曲線の配列長が一致しません。"))
     if any(not math.isfinite(value) for value in frames + values):
-        raise ClipImportError("セル指定曲線に不正な数値があります。")
+        raise ClipImportError(tr("セル指定曲線に不正な数値があります。"))
     if any(left > right for left, right in zip(frames, frames[1:])):
-        raise ClipImportError("セル指定曲線の時刻順が不正です。")
+        raise ClipImportError(tr("セル指定曲線の時刻順が不正です。"))
     return list(zip(frames, tags))
 
 
@@ -459,19 +460,19 @@ def parse_image_cel_curve(data: bytes) -> list[tuple[float, str]]:
 
 def _decompress_mixer(body: bytes) -> bytes:
     if len(body) < 4:
-        raise ClipImportError("アニメーション圧縮データが途中で切れています。")
+        raise ClipImportError(tr("アニメーション圧縮データが途中で切れています。"))
     compressed_size = int.from_bytes(body[:4], "little")
     if compressed_size > len(body) - 4:
-        raise ClipImportError("アニメーション圧縮データのサイズが不正です。")
+        raise ClipImportError(tr("アニメーション圧縮データのサイズが不正です。"))
     decoder = zlib.decompressobj()
     try:
         result = decoder.decompress(
             body[4:4 + compressed_size], _MAX_MIXER_BYTES + 1
         )
     except zlib.error as exc:
-        raise ClipImportError("アニメーション圧縮データを展開できません。") from exc
+        raise ClipImportError(tr("アニメーション圧縮データを展開できません。")) from exc
     if len(result) > _MAX_MIXER_BYTES or not decoder.eof:
-        raise ClipImportError("アニメーション展開データが大きすぎるか不完全です。")
+        raise ClipImportError(tr("アニメーション展開データが大きすぎるか不完全です。"))
     return result
 
 
@@ -483,7 +484,7 @@ class _BigEndianReader:
     def u32(self) -> int:
         end = self.cursor + 4
         if end > len(self.data):
-            raise ClipImportError("画像属性が途中で切れています。")
+            raise ClipImportError(tr("画像属性が途中で切れています。"))
         value = int.from_bytes(self.data[self.cursor:end], "big")
         self.cursor = end
         return value
@@ -492,11 +493,11 @@ class _BigEndianReader:
         count = self.u32()
         end = self.cursor + count * 2
         if end > len(self.data):
-            raise ClipImportError("画像属性の文字列が途中で切れています。")
+            raise ClipImportError(tr("画像属性の文字列が途中で切れています。"))
         try:
             value = self.data[self.cursor:end].decode("utf-16-be")
         except UnicodeDecodeError as exc:
-            raise ClipImportError("画像属性の文字列を読めません。") from exc
+            raise ClipImportError(tr("画像属性の文字列を読めません。")) from exc
         self.cursor = end
         return value
 
@@ -518,16 +519,16 @@ def _parse_offscreen_attributes(data: bytes) -> _OffscreenAttributes:
     extra_size = reader.u32()
     reader.u32()
     if header_size != 16 or info_size != 102 or extra_size not in (42, 58):
-        raise ClipImportError("未対応のCLIP STUDIO画像属性形式です。")
+        raise ClipImportError(tr("未対応のCLIP STUDIO画像属性形式です。"))
     if reader.utf16() != "Parameter":
-        raise ClipImportError("CLIP STUDIO画像属性のParameterがありません。")
+        raise ClipImportError(tr("CLIP STUDIO画像属性のParameterがありません。"))
     width = reader.u32()
     height = reader.u32()
     grid_width = reader.u32()
     grid_height = reader.u32()
     packing = tuple(reader.u32() for _ in range(16))
     if reader.utf16() != "InitColor":
-        raise ClipImportError("CLIP STUDIO画像属性のInitColorがありません。")
+        raise ClipImportError(tr("CLIP STUDIO画像属性のInitColorがありません。"))
     reader.u32()
     default_white = bool(reader.u32())
     reader.u32()
@@ -545,7 +546,7 @@ def _parse_offscreen_attributes(data: bytes) -> _OffscreenAttributes:
         or grid_height < 1
         or grid_width * grid_height > MAX_PROJECT_LAYER_CELLS
     ):
-        raise ClipImportError("CLIP STUDIO画像のサイズが上限外です。")
+        raise ClipImportError(tr("CLIP STUDIO画像のサイズが上限外です。"))
     return _OffscreenAttributes(
         width, height, grid_width, grid_height, default_white, packing
     )
@@ -560,44 +561,44 @@ def _parse_bitmap_blocks(data: bytes) -> list[Optional[bytes]]:
             count_start = cursor + 30
             count_end = count_start + 4
             if count_end > len(data):
-                raise ClipImportError("画像ブロックステータスが途中で切れています。")
+                raise ClipImportError(tr("画像ブロックステータスが途中で切れています。"))
             status_count = int.from_bytes(data[count_start:count_end], "big")
             block_size = status_count * 4 + 12 + len(_BLOCK_STATUS) + 4
         elif data[cursor:cursor + 4 + len(_BLOCK_CHECKSUM)] == b"\0\0\0\x0d" + _BLOCK_CHECKSUM:
             block_size = 4 + len(_BLOCK_CHECKSUM) + 12 + block_count * 4
         elif data[cursor + 8:cursor + 8 + len(_BLOCK_DATA_BEGIN)] == _BLOCK_DATA_BEGIN:
             if cursor + 4 > len(data):
-                raise ClipImportError("画像ブロックが途中で切れています。")
+                raise ClipImportError(tr("画像ブロックが途中で切れています。"))
             block_size = int.from_bytes(data[cursor:cursor + 4], "big")
             end = cursor + block_size
             trailer = b"\0\0\0\x11" + _BLOCK_DATA_END
             if block_size <= len(trailer) or end > len(data) or data[end - len(trailer):end] != trailer:
-                raise ClipImportError("画像ブロックの終端が不正です。")
+                raise ClipImportError(tr("画像ブロックの終端が不正です。"))
             content_start = cursor + 8 + len(_BLOCK_DATA_BEGIN)
             content_end = end - len(trailer)
             block = data[content_start:content_end]
             if len(block) < 20:
-                raise ClipImportError("画像ブロックの情報が不足しています。")
+                raise ClipImportError(tr("画像ブロックの情報が不足しています。"))
             has_data = int.from_bytes(block[16:20], "big")
             if has_data not in (0, 1):
-                raise ClipImportError("画像ブロックの有無フラグが不正です。")
+                raise ClipImportError(tr("画像ブロックの有無フラグが不正です。"))
             if has_data:
                 if len(block) < 28:
-                    raise ClipImportError("画像ブロックデータが途中で切れています。")
+                    raise ClipImportError(tr("画像ブロックデータが途中で切れています。"))
                 subblock_length = int.from_bytes(block[20:24], "big")
                 if len(block) != subblock_length + 24:
-                    raise ClipImportError("画像ブロックデータのサイズが不正です。")
+                    raise ClipImportError(tr("画像ブロックデータのサイズが不正です。"))
                 blocks.append(bytes(block[28:]))
             else:
                 blocks.append(None)
             block_count += 1
         else:
-            raise ClipImportError("CLIP STUDIO画像ブロックを解釈できません。")
+            raise ClipImportError(tr("CLIP STUDIO画像ブロックを解釈できません。"))
         if block_size <= 0 or cursor + block_size > len(data):
-            raise ClipImportError("CLIP STUDIO画像ブロックのサイズが不正です。")
+            raise ClipImportError(tr("CLIP STUDIO画像ブロックのサイズが不正です。"))
         cursor += block_size
     if cursor != len(data):
-        raise ClipImportError("CLIP STUDIO画像ブロックの末尾が不正です。")
+        raise ClipImportError(tr("CLIP STUDIO画像ブロックの末尾が不正です。"))
     return blocks
 
 
@@ -606,9 +607,9 @@ def _decompress_tile(data: bytes, expected_size: int) -> bytes:
     try:
         result = decoder.decompress(data, expected_size + 1)
     except zlib.error as exc:
-        raise ClipImportError("セル画像の圧縮ブロックを展開できません。") from exc
+        raise ClipImportError(tr("セル画像の圧縮ブロックを展開できません。")) from exc
     if len(result) != expected_size or not decoder.eof or decoder.unconsumed_tail:
-        raise ClipImportError("セル画像の展開後ブロックサイズが不正です。")
+        raise ClipImportError(tr("セル画像の展開後ブロックサイズが不正です。"))
     return result
 
 
@@ -627,7 +628,7 @@ def _decode_offscreen(
     )
     if packing_type not in supported_types:
         raise ClipImportError(
-            f"未対応のセル画像チャンネル構成です：{packing_type}"
+            tr("未対応のセル画像チャンネル構成です：{type}").format(type=packing_type)
         )
     blocks = (
         _parse_bitmap_blocks(external_body)
@@ -635,7 +636,7 @@ def _decode_offscreen(
         else [None] * (info.grid_width * info.grid_height)
     )
     if len(blocks) != info.grid_width * info.grid_height:
-        raise ClipImportError("セル画像のブロック数とグリッド数が一致しません。")
+        raise ClipImportError(tr("セル画像のブロック数とグリッド数が一致しません。"))
     image = QImage(info.width, info.height, QImage.Format.Format_RGBA8888)
     default_value = 255 if info.default_white else 0
     if packing_type == (1, 4):
@@ -778,24 +779,24 @@ def _render_cached_layer(
     mipmap_id = layer["LayerRenderMipmap"]
     if not mipmap_id:
         raise ClipImportError(
-            f"セル「{layer['LayerName']}」の表示合成画像が.clip内にありません。"
+            tr("セル「{LayerName}」の表示合成画像が.clip内にありません。").format(LayerName=layer['LayerName'])
         )
     mipmap = connection.execute(
         "SELECT BaseMipmapInfo FROM Mipmap WHERE MainId = ?", (mipmap_id,)
     ).fetchone()
     if mipmap is None or not mipmap[0]:
-        raise ClipImportError(f"セル「{layer['LayerName']}」のMipmap情報がありません。")
+        raise ClipImportError(tr("セル「{LayerName}」のMipmap情報がありません。").format(LayerName=layer['LayerName']))
     mipmap_info = connection.execute(
         "SELECT Offscreen FROM MipmapInfo WHERE MainId = ?", (mipmap[0],)
     ).fetchone()
     if mipmap_info is None or not mipmap_info[0]:
-        raise ClipImportError(f"セル「{layer['LayerName']}」のOffscreen情報がありません。")
+        raise ClipImportError(tr("セル「{LayerName}」のOffscreen情報がありません。").format(LayerName=layer['LayerName']))
     offscreen = connection.execute(
         "SELECT BlockData, Attribute FROM Offscreen WHERE MainId = ?",
         (mipmap_info[0],),
     ).fetchone()
     if offscreen is None or not offscreen[0] or not offscreen[1]:
-        raise ClipImportError(f"セル「{layer['LayerName']}」の画像データがありません。")
+        raise ClipImportError(tr("セル「{LayerName}」の画像データがありません。").format(LayerName=layer['LayerName']))
     block_identifier = _identifier_bytes(offscreen[0])
     external_body = (
         container.read_external(block_identifier)
@@ -832,11 +833,11 @@ def _child_layer_rows(
     visited: set[int] = set()
     while child_id:
         if child_id in visited:
-            raise ClipImportError("セル内のレイヤー構造が循環しています。")
+            raise ClipImportError(tr("セル内のレイヤー構造が循環しています。"))
         visited.add(child_id)
         child = layers_by_id.get(child_id)
         if child is None:
-            raise ClipImportError("セル内の子レイヤーが見つかりません。")
+            raise ClipImportError(tr("セル内の子レイヤーが見つかりません。"))
         children.append(child)
         child_id = _row_number(child, "LayerNextIndex")
     return children
@@ -869,7 +870,7 @@ def _render_layer(
     layer_id = _row_number(layer, "MainId")
     stack = set() if render_stack is None else set(render_stack)
     if layer_id in stack:
-        raise ClipImportError("セル内のレイヤー構造が循環しています。")
+        raise ClipImportError(tr("セル内のレイヤー構造が循環しています。"))
     stack.add(layer_id)
     children = _child_layer_rows(layers_by_id, layer)
 
@@ -938,7 +939,7 @@ def cell_sequence_numbers(layer: ClipAnimationLayer) -> dict[str, int]:
         while next_number in used:
             next_number += 1
         if next_number > MAX_PROJECT_FRAMES:
-            raise ClipImportError("アニメーションセルの絵番号がPMAの上限外です。")
+            raise ClipImportError(tr("アニメーションセルの絵番号がPMAの上限外です。"))
         result[tag] = next_number
         used.add(next_number)
     return result
@@ -983,14 +984,14 @@ def build_pma_frames(
 
     duration = end_frame - start_frame + 1
     if not (1 <= duration <= MAX_PROJECT_FRAMES):
-        raise ClipImportError("タイムラインのフレーム数がPMAの上限外です。")
+        raise ClipImportError(tr("タイムラインのフレーム数がPMAの上限外です。"))
     if not (1 <= len(layers) <= MAX_PROJECT_LAYERS):
-        raise ClipImportError("アニメーションフォルダー数がPMAの上限外です。")
+        raise ClipImportError(tr("アニメーションフォルダー数がPMAの上限外です。"))
     cell_count = duration * len(layers)
     if cell_count > MAX_PROJECT_LAYER_CELLS:
-        raise ClipImportError("タイムラインのレイヤーセル数がPMAの上限を超えています。")
+        raise ClipImportError(tr("タイムラインのレイヤーセル数がPMAの上限を超えています。"))
     if width * height * cell_count > MAX_PROJECT_DECODED_PIXELS:
-        raise ClipImportError("タイムライン展開後の画像サイズがPMAの上限を超えています。")
+        raise ClipImportError(tr("タイムライン展開後の画像サイズがPMAの上限を超えています。"))
     transparent = QImage(width, height, QImage.Format.Format_ARGB32_Premultiplied)
     transparent.fill(QColor(0, 0, 0, 0))
     frames = [
@@ -1015,8 +1016,7 @@ def build_pma_frames(
             image = source_layer.cell_images.get(tag)
             if image is None:
                 raise ClipImportError(
-                    f"アニメーションフォルダー「{source_layer.name}」の"
-                    f"セル「{tag}」を画像化できません。"
+                    tr("アニメーションフォルダー「{name}」のセル「{tag}」を画像化できません。").format(name=source_layer.name, tag=tag)
                 )
             target.image = QImage(image)
             target.has_content = True
@@ -1051,14 +1051,14 @@ def _timeline_row(connection: sqlite3.Connection) -> sqlite3.Row:
             (preferred,),
         ).fetchone()
         if row is None:
-            raise ClipImportError("有効タイムラインの参照先がありません。")
+            raise ClipImportError(tr("有効タイムラインの参照先がありません。"))
         return row
     row = connection.execute(
         f"SELECT MainId, BankId, FrameRate, StartFrame, EndFrame, {optional_name} "
         "FROM TimeLine ORDER BY MainId LIMIT 1"
     ).fetchone()
     if row is None:
-        raise ClipImportError(".clip内にアニメーションタイムラインがありません。")
+        raise ClipImportError(tr(".clip内にアニメーションタイムラインがありません。"))
     return row
 
 
@@ -1070,15 +1070,15 @@ def _direct_children(
     visited: set[int] = set()
     while child_id:
         if child_id in visited:
-            raise ClipImportError("アニメーションフォルダーのレイヤー構造が循環しています。")
+            raise ClipImportError(tr("アニメーションフォルダーのレイヤー構造が循環しています。"))
         visited.add(child_id)
         child = layers_by_id.get(child_id)
         if child is None:
-            raise ClipImportError("アニメーションフォルダーの子レイヤーがありません。")
+            raise ClipImportError(tr("アニメーションフォルダーの子レイヤーがありません。"))
         name = str(child["LayerName"] or "")
         if name in result:
             raise ClipImportError(
-                f"アニメーションフォルダー内でセル名「{name}」が重複しています。"
+                tr("アニメーションフォルダー内でセル名「{name}」が重複しています。").format(name=name)
             )
         result[name] = child
         child_id = _row_number(child, "LayerNextIndex")
@@ -1095,9 +1095,9 @@ def read_clip_animation(path: str | os.PathLike[str]) -> ClipAnimationDocument:
             connection.execute("PRAGMA query_only = ON")
             quick_check = connection.execute("PRAGMA quick_check").fetchone()
         except sqlite3.Error as exc:
-            raise ClipImportError(".clipのSQLite文書情報を検査できません。") from exc
+            raise ClipImportError(tr(".clipのSQLite文書情報を検査できません。")) from exc
         if quick_check is None or str(quick_check[0]).lower() != "ok":
-            raise ClipImportError(".clipのSQLite文書情報が壊れています。")
+            raise ClipImportError(tr(".clipのSQLite文書情報が壊れています。"))
         canvas_columns = _require_columns(
             connection, "Canvas", ("CanvasWidth", "CanvasHeight")
         )
@@ -1107,7 +1107,7 @@ def read_clip_animation(path: str | os.PathLike[str]) -> ClipAnimationDocument:
             else "SELECT CanvasWidth, CanvasHeight FROM Canvas LIMIT 1"
         ).fetchone()
         if canvas is None:
-            raise ClipImportError(".clip内にキャンバス情報がありません。")
+            raise ClipImportError(tr(".clip内にキャンバス情報がありません。"))
         width, height = int(round(float(canvas[0]))), int(round(float(canvas[1])))
         if (
             width < 1
@@ -1115,7 +1115,7 @@ def read_clip_animation(path: str | os.PathLike[str]) -> ClipAnimationDocument:
             or width > MAX_IMAGE_DIMENSION
             or height > MAX_IMAGE_DIMENSION
         ):
-            raise ClipImportError(".clipのキャンバスサイズがPMAの上限外です。")
+            raise ClipImportError(tr(".clipのキャンバスサイズがPMAの上限外です。"))
 
         timeline = _timeline_row(connection)
         fps = float(timeline["FrameRate"])
@@ -1128,11 +1128,11 @@ def read_clip_animation(path: str | os.PathLike[str]) -> ClipAnimationDocument:
             or not math.isfinite(end_value)
             or start_value > end_value
         ):
-            raise ClipImportError(".clipのFPSまたはタイムライン範囲が不正です。")
+            raise ClipImportError(tr(".clipのFPSまたはタイムライン範囲が不正です。"))
         source_start_frame = int(round(start_value))
         source_end_frame = int(round(end_value))
         if source_end_frame < source_start_frame:
-            raise ClipImportError(".clipのタイムライン範囲が不正です。")
+            raise ClipImportError(tr(".clipのタイムライン範囲が不正です。"))
         # CLIP can retain cells in a negative pre-roll (for example -0+08).
         # PMA starts at zero, so that entire pre-roll is omitted from the sheet.
         start_frame = max(0, source_start_frame)
@@ -1163,7 +1163,7 @@ def read_clip_animation(path: str | os.PathLike[str]) -> ClipAnimationDocument:
                 continue
             uuid = _normalize_uuid(row["LayerUuid"])
             if uuid in layers_by_uuid:
-                raise ClipImportError(".clip内でレイヤーUUIDが重複しています。")
+                raise ClipImportError(tr(".clip内でレイヤーUUIDが重複しています。"))
             layers_by_uuid[uuid] = row
 
         _require_columns(
@@ -1191,7 +1191,7 @@ def read_clip_animation(path: str | os.PathLike[str]) -> ClipAnimationDocument:
                 continue
             if len(parsed_layers) >= MAX_PROJECT_LAYERS:
                 raise ClipImportError(
-                    "アニメーションフォルダー数がPMAの上限を超えています。"
+                    tr("アニメーションフォルダー数がPMAの上限を超えています。")
                 )
             children = _direct_children(layers_by_id, folder)
             raw_keys: list[tuple[float, str]] = []
@@ -1228,8 +1228,7 @@ def read_clip_animation(path: str | os.PathLike[str]) -> ClipAnimationDocument:
             if missing_tags:
                 missing = sorted(missing_tags)[0]
                 raise ClipImportError(
-                    f"アニメーションフォルダー「{folder['LayerName']}」に"
-                    f"セル「{missing}」がありません。"
+                    tr("アニメーションフォルダー「{LayerName}」にセル「{missing}」がありません。").format(LayerName=folder['LayerName'], missing=missing)
                 )
             images: dict[str, QImage] = {}
             # Render every cel, including unused and negative-pre-roll-only
@@ -1251,7 +1250,7 @@ def read_clip_animation(path: str | os.PathLike[str]) -> ClipAnimationDocument:
                 )
             )
         if not parsed_layers:
-            raise ClipImportError(".clip内にアニメーションフォルダーがありません。")
+            raise ClipImportError(tr(".clip内にアニメーションフォルダーがありません。"))
         layer_tuple = tuple(parsed_layers)
         frames = build_pma_frames(
             width, height, start_frame, end_frame, layer_tuple
@@ -1268,7 +1267,7 @@ def read_clip_animation(path: str | os.PathLike[str]) -> ClipAnimationDocument:
             frames,
         )
     except sqlite3.Error as exc:
-        raise ClipImportError(f".clipの文書情報を読み取れません。\n{exc}") from exc
+        raise ClipImportError(tr(".clipの文書情報を読み取れません。\n{exc}").format(exc=exc)) from exc
     finally:
         connection.close()
         try:

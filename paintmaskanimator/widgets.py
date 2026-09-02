@@ -42,6 +42,7 @@ from PySide6.QtWidgets import (
 )
 from typing import Any
 from . import theme
+from .i18n import tr
 from .utils import _ScreenColorDragMixin
 from .logging_setup import get_logger
 
@@ -53,13 +54,13 @@ class TransformLineThicknessDialog(QDialog):
 
     def __init__(self, value=96, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("太さを調整")
+        self.setWindowTitle(tr("太さを調整"))
         self.setModal(True)
         self.resize(380, 130)
 
         layout = QVBoxLayout(self)
         note = QLabel(
-            "選択中の複数色を実線として残す太さをまとめて調整します。"
+            tr("選択中の複数色を実線として残す太さをまとめて調整します。")
         )
         note.setWordWrap(True)
         layout.addWidget(note)
@@ -98,7 +99,7 @@ class CanvasSizeDialog(QDialog):
         l = QFormLayout(self)
         self.w = QSpinBox(); self.w.setRange(64, 8192); self.w.setValue(width)
         self.h = QSpinBox(); self.h.setRange(64, 8192); self.h.setValue(height)
-        l.addRow("幅", self.w); l.addRow("高さ", self.h)
+        l.addRow(tr("幅"), self.w); l.addRow(tr("高さ"), self.h)
         b = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         b.accepted.connect(self.accept); b.rejected.connect(self.reject); l.addRow(b)
     def values(self): return self.w.value(), self.h.value()
@@ -119,7 +120,7 @@ class HoldShortcutEdit(QPushButton):
     def _begin_capture(self):
         self._waiting = True
         self.setFocus(Qt.FocusReason.MouseFocusReason)
-        self.setText("キーを押してください…")
+        self.setText(tr("キーを押してください…"))
 
     def shortcutText(self):
         return self._shortcut_text
@@ -130,9 +131,9 @@ class HoldShortcutEdit(QPushButton):
         self._refresh_text()
 
     def _refresh_text(self):
-        self.setText(self._shortcut_text or "未設定")
+        self.setText(self._shortcut_text or tr("未設定"))
         self.setToolTip(
-            "クリックしてキーを入力。BackspaceまたはDeleteで解除。"
+            tr("クリックしてキーを入力。BackspaceまたはDeleteで解除。")
         )
 
     @staticmethod
@@ -183,14 +184,14 @@ class HoldShortcutEdit(QPushButton):
 class ShortcutDialog(QDialog):
     def __init__(self, categories, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("ショートカット設定")
+        self.setWindowTitle(tr("ショートカット設定"))
         self.resize(700, 620)
         self.categories = categories
         layout = QVBoxLayout(self)
         note = QLabel(
-            "ショートカット欄を選び、実際のキーまたはキーの組み合わせを押してください。"
+            tr("ショートカット欄を選び、実際のキーまたはキーの組み合わせを押してください。"
             "文字列入力ではなくキー入力として認識します。"
-            "「キャンバス操作」では修飾キー単独も登録できます。"
+            "「キャンバス操作」では修飾キー単独も登録できます。")
         )
         note.setWordWrap(True)
         layout.addWidget(note)
@@ -251,7 +252,7 @@ class ShortcutDialog(QDialog):
             )
             QMessageBox.warning(
                 self,
-                "ショートカットの重複",
+                tr("ショートカットの重複"),
                 "同じショートカットが複数の機能に登録されています。\n\n" + details,
             )
             return
@@ -293,9 +294,9 @@ class BrushSizeSpinBox(QDoubleSpinBox):
 
     def _refresh_tooltip(self):
         self.setToolTip(
-            "▲▼をクリック：0.5ずつ変更"
+            tr("▲▼をクリック：0.5ずつ変更")
             + (
-                "／数値部分をクリック：筆圧設定"
+                tr("／数値部分をクリック：筆圧設定")
                 if self._pressure_popup_enabled else ""
             )
         )
@@ -378,9 +379,9 @@ class SliderValueSpinBox(QDoubleSpinBox):
         editor.setAlignment(Qt.AlignmentFlag.AlignRight)
         editor.setTextMargins(0, 0, 9, 0)
         editor.setToolTip(
-            "半角数字だけ入力できます。"
+            tr("半角数字だけ入力できます。")
             if self.decimals() == 0
-            else "半角数字と小数点だけ入力できます。"
+            else tr("半角数字と小数点だけ入力できます。")
         )
 
         # 標準の四角いスピンボタンを使わず、文字の▲▼を直接表示する。
@@ -412,11 +413,11 @@ class SliderValueSpinBox(QDoubleSpinBox):
         )
 
         self.setToolTip(
-            f"▲▼をクリック：{float(step):g}ずつ変更／"
+            tr("▲▼をクリック：{float:g}ずつ変更／").format(float=float(step))
             + (
-                "半角整数を直接入力できます。"
+                tr("半角整数を直接入力できます。")
                 if self.decimals() == 0
-                else "半角数値を直接入力できます。"
+                else tr("半角数値を直接入力できます。")
             )
         )
         self.valueChanged.connect(self._spin_changed)
@@ -604,7 +605,7 @@ class LineTaperCurvePopup(QDialog):
         self.slider.setValue(max(20, min(400, int(value))))
         self.slider.valueChanged.connect(self._value_changed)
         layout.addWidget(self.slider)
-        note = QLabel("小さいほど緩やか、大きいほど先端付近で急に変化します。")
+        note = QLabel(tr("小さいほど緩やか、大きいほど先端付近で急に変化します。"))
         note.setWordWrap(True)
         note.setStyleSheet("font-size:10px;")
         layout.addWidget(note)
@@ -640,8 +641,8 @@ class TweenCommandPopup(QDialog):
             | Qt.WindowType.WindowTitleHint,
         )
         self.mode = "mesh" if mode == "mesh" else "free"
-        mode_name = "メッシュ変形" if self.mode == "mesh" else "自由変形"
-        self.setWindowTitle(f"長方形選択：{mode_name}トゥイーン")
+        mode_name = tr("メッシュ変形") if self.mode == "mesh" else tr("自由変形")
+        self.setWindowTitle(tr("長方形選択：{name}トゥイーン").format(name=mode_name))
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         self.setModal(False)
         self.setMinimumWidth(260)
@@ -652,9 +653,7 @@ class TweenCommandPopup(QDialog):
 
         if self.mode == "mesh":
             description = (
-                f"<b>メッシュ変形トゥイーン</b><br>"
-                f"横{int(mesh_cols)}×縦{int(mesh_rows)}の格子点を操作して、"
-                "最後のコマの形を指定してください。"
+                tr("<b>メッシュ変形トゥイーン</b><br>横{int}×縦{int2}の格子点を操作して、最後のコマの形を指定してください。").format(int=int(mesh_cols), int2=int(mesh_rows))
             )
         else:
             description = (
@@ -666,14 +665,14 @@ class TweenCommandPopup(QDialog):
         layout.addWidget(label)
 
         self.reverse_generation = QCheckBox(
-            "逆生成（◆ーーーー│）"
+            tr("逆生成（◆ーーーー│）")
         )
         self.reverse_generation.setChecked(
             bool(reverse)
         )
         self.reverse_generation.setToolTip(
-            "ON：操作中の変形形状をキーフレーム側へ置き、"
-            "元の初期形状をラストコマ側へ置きます。"
+            tr("ON：操作中の変形形状をキーフレーム側へ置き、"
+            "元の初期形状をラストコマ側へ置きます。")
         )
         layout.addWidget(self.reverse_generation)
 
@@ -694,16 +693,16 @@ class TweenCommandPopup(QDialog):
         )
 
         rotate_row = QHBoxLayout()
-        rotate_left = QPushButton("左へ90°")
-        rotate_right = QPushButton("右へ90°")
+        rotate_left = QPushButton(tr("左へ90°"))
+        rotate_right = QPushButton(tr("右へ90°"))
         rotate_left.clicked.connect(self.rotateLeftRequested)
         rotate_right.clicked.connect(self.rotateRightRequested)
         rotate_row.addWidget(rotate_left)
         rotate_row.addWidget(rotate_right)
         layout.addLayout(rotate_row)
 
-        commit = QPushButton(f"{mode_name}を確定してトゥイーン作成")
-        cancel = QPushButton("キャンセル")
+        commit = QPushButton(tr("{name}を確定してトゥイーン作成").format(name=mode_name))
+        cancel = QPushButton(tr("キャンセル"))
         commit.clicked.connect(self.commitRequested)
         cancel.clicked.connect(self.cancelRequested)
         layout.addWidget(commit)
@@ -712,14 +711,14 @@ class TweenCommandPopup(QDialog):
     def _sync_direction_note(self, reverse):
         if reverse:
             self.direction_note.setText(
-                "逆生成：現在操作している変形形状を"
+                tr("逆生成：現在操作している変形形状を"
                 "キーフレーム側の◆へ配置し、"
-                "ラストコマ側を元の初期形状にします。"
+                "ラストコマ側を元の初期形状にします。")
             )
         else:
             self.direction_note.setText(
-                "通常生成：キーフレーム側を元の初期形状、"
-                "ラストコマ側を現在操作している変形形状にします。"
+                tr("通常生成：キーフレーム側を元の初期形状、"
+                "ラストコマ側を現在操作している変形形状にします。")
             )
 
 
@@ -747,17 +746,17 @@ class HSVColorWheel(QWidget):
         self.color_code_edit.setMaxLength(7)
         self.color_code_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.color_code_edit.setToolTip(
-            "カラーコードを入力して Enter で色を変更"
+            tr("カラーコードを入力して Enter で色を変更")
         )
         self.color_code_edit.setStyleSheet(
             "QLineEdit{font-size:10px;padding:1px 3px;}"
         )
         self.color_code_edit.editingFinished.connect(self._apply_color_code)
-        self.color_copy_button = QPushButton("コピー", self)
+        self.color_copy_button = QPushButton(tr("コピー"), self)
         self.color_copy_button.setFixedSize(44, 22)
         self.color_copy_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.color_copy_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.color_copy_button.setToolTip("現在のカラーコードをコピー")
+        self.color_copy_button.setToolTip(tr("現在のカラーコードをコピー"))
         self.color_copy_button.setStyleSheet(
             "QPushButton{font-size:9px;padding:1px 2px;}"
         )
@@ -801,13 +800,13 @@ class HSVColorWheel(QWidget):
         self.hueModeChanged.emit(self._hue_mode)
 
     def _update_tooltip(self):
-        hue_picker = "外側の色相リング" if self._hue_mode == "RING" else "上の色相バー"
+        hue_picker = tr("外側の色相リング") if self._hue_mode == "RING" else tr("上の色相バー")
         inner_picker = (
-            "内側の三角で輝度(L)と彩度(S)"
+            tr("内側の三角で輝度(L)と彩度(S)")
             if self._mode == "HLS" else
-            "内側の四角で彩度と明度"
+            tr("内側の四角で彩度と明度")
         )
-        self.setToolTip(f"{hue_picker}と、{inner_picker}を選択します。")
+        self.setToolTip(tr("{picker}と、{picker2}を選択します。").format(picker=hue_picker, picker2=inner_picker))
 
     def setColor(self, color):
         color = QColor(color)
@@ -1229,7 +1228,7 @@ class TimeRemapPasteDialog(QDialog):
         super().__init__(parent)
         self._parse_text = parse_text
         self._canvas = canvas
-        self.setWindowTitle("タイムリマップをタイムシートへ貼り付け")
+        self.setWindowTitle(tr("タイムリマップをタイムシートへ貼り付け"))
         self.resize(760, 650)
         self._parsed_preview = None
         self._parsed_source: dict[str, Any] | None = None
@@ -1244,12 +1243,12 @@ class TimeRemapPasteDialog(QDialog):
         layout.setSpacing(5)
 
         header = QHBoxLayout()
-        title = QLabel("<b>読み込みデータ</b>")
+        title = QLabel(tr("<b>読み込みデータ</b>"))
         paste_button = QPushButton(
-            "クリップボードをタイムシートへ貼付"
+            tr("クリップボードをタイムシートへ貼付")
         )
-        xdts_button = QPushButton("XDTSを読み込む…")
-        clear_button = QPushButton("クリア")
+        xdts_button = QPushButton(tr("XDTSを読み込む…"))
+        clear_button = QPushButton(tr("クリア"))
         paste_button.clicked.connect(self._paste_clipboard)
         xdts_button.clicked.connect(self._load_xdts_file)
         clear_button.clicked.connect(self.text_clear)
@@ -1262,8 +1261,8 @@ class TimeRemapPasteDialog(QDialog):
 
         self.text_edit = QPlainTextEdit()
         self.text_edit.setPlaceholderText(
-            "After Effects／ToeiDigitalTimeSheetのコピー情報を貼り付けるか、"
-            "XDTSファイルを読み込みます。XDTSはこの画面へドロップできます。"
+            tr("After Effects／ToeiDigitalTimeSheetのコピー情報を貼り付けるか、"
+            "XDTSファイルを読み込みます。XDTSはこの画面へドロップできます。")
         )
         self.text_edit.setLineWrapMode(
             QPlainTextEdit.LineWrapMode.NoWrap
@@ -1274,8 +1273,8 @@ class TimeRemapPasteDialog(QDialog):
         layout.addWidget(self.text_edit)
 
         sheet_header = QHBoxLayout()
-        sheet_title = QLabel("<b>タイムシートプレビュー</b>")
-        self.preview_status = QLabel("データ待機中")
+        sheet_title = QLabel(tr("<b>タイムシートプレビュー</b>"))
+        self.preview_status = QLabel(tr("データ待機中"))
         self.preview_status.setAlignment(
             Qt.AlignmentFlag.AlignRight
             | Qt.AlignmentFlag.AlignVCenter
@@ -1286,7 +1285,7 @@ class TimeRemapPasteDialog(QDialog):
         layout.addLayout(sheet_header)
 
         self.preview_table = QTableWidget(0, 2)
-        self.preview_table.setHorizontalHeaderLabels(["使用", "F"])
+        self.preview_table.setHorizontalHeaderLabels([tr("使用"), "F"])
         self.preview_table.verticalHeader().setVisible(False)
         self.preview_table.setEditTriggers(
             QAbstractItemView.EditTrigger.NoEditTriggers
@@ -1329,9 +1328,9 @@ class TimeRemapPasteDialog(QDialog):
         layout.addWidget(self.preview_table, 1)
 
         filter_row = QHBoxLayout()
-        exclude_button = QPushButton("選択行を除外")
-        include_button = QPushButton("選択行を使用")
-        include_all_button = QPushButton("全て使用")
+        exclude_button = QPushButton(tr("選択行を除外"))
+        include_button = QPushButton(tr("選択行を使用"))
+        include_all_button = QPushButton(tr("全て使用"))
         exclude_button.clicked.connect(
             lambda: self._set_selected_rows_included(False)
         )
@@ -1346,9 +1345,9 @@ class TimeRemapPasteDialog(QDialog):
         layout.addLayout(filter_row)
 
         note = QLabel(
-            "ACTION・CELL・CAMをXDTSの列ごとに表示します。"
+            tr("ACTION・CELL・CAMをXDTSの列ごとに表示します。"
             "CELL名をクリックするとPaintMaskAnimatorのレイヤーへ紐づけできます。"
-            "「使用」を外した行は取り除き、後続を詰めて反映します。"
+            "「使用」を外した行は取り除き、後続を詰めて反映します。")
         )
         note.setWordWrap(True)
         note.setStyleSheet("font-size:10px;")
@@ -1360,7 +1359,7 @@ class TimeRemapPasteDialog(QDialog):
         )
         buttons.button(
             QDialogButtonBox.StandardButton.Ok
-        ).setText("このタイムシートをタイムラインへ反映")
+        ).setText(tr("このタイムシートをタイムラインへ反映"))
         buttons.accepted.connect(self._accept_if_valid)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -1416,9 +1415,9 @@ class TimeRemapPasteDialog(QDialog):
     def _load_xdts_file(self):
         path, _ = QFileDialog.getOpenFileName(
             self,
-            "XDTSタイムシートを読み込む",
+            tr("XDTSタイムシートを読み込む"),
             "",
-            "XDTSタイムシート (*.xdts *.xtds);;すべてのファイル (*)",
+            tr("XDTSタイムシート (*.xdts *.xtds);;すべてのファイル (*)"),
         )
         if not path:
             return
@@ -1429,7 +1428,7 @@ class TimeRemapPasteDialog(QDialog):
             text = Path(path).read_text(encoding="utf-8-sig")
         except (OSError, UnicodeError) as exc:
             QMessageBox.warning(
-                self, "XDTS読み込み", f"読み込めませんでした。\n\n{exc}"
+                self, tr("XDTS読み込み"), tr("読み込めませんでした。\n\n{exc}").format(exc=exc)
             )
             return False
         self.text_edit.setPlainText(text)
@@ -1441,13 +1440,13 @@ class TimeRemapPasteDialog(QDialog):
         self.text_edit.clear()
         self.preview_table.setRowCount(0)
         self.preview_table.setColumnCount(2)
-        self.preview_table.setHorizontalHeaderLabels(["使用", "F"])
+        self.preview_table.setHorizontalHeaderLabels([tr("使用"), "F"])
         self._parsed_preview = None
         self._parsed_source = None
         self._parsed_raw_text = None
         self._included_rows.clear()
         self._column_layer_bindings.clear()
-        self.preview_status.setText("データ待機中")
+        self.preview_status.setText(tr("データ待機中"))
         self.preview_status.setStyleSheet("color:palette(placeholder-text);")
 
     @staticmethod
@@ -1490,7 +1489,7 @@ class TimeRemapPasteDialog(QDialog):
             "field_id": 0,
             "track_no": 0,
             "group": "CELL",
-            "name": str(self._parsed_source.get("track_name", "セル")),
+            "name": str(self._parsed_source.get("track_name", tr("セル"))),
             "states": states,
             "display_values": [
                 "×" if state is None else str(int(state))
@@ -1589,11 +1588,11 @@ class TimeRemapPasteDialog(QDialog):
         current = self._column_layer_bindings.get(uid)
         menu = QMenu(self)
         title = menu.addAction(
-            f"「{column.get('name', 'セル')}」の紐づけ先"
+            tr("「{get}」の紐づけ先").format(get=column.get('name', 'セル'))
         )
         title.setEnabled(False)
         menu.addSeparator()
-        clear_action = menu.addAction("紐づけを解除（読み込まない）")
+        clear_action = menu.addAction(tr("紐づけを解除（読み込まない）"))
         clear_action.setCheckable(True)
         clear_action.setChecked(current is None)
         clear_action.triggered.connect(
@@ -1612,14 +1611,14 @@ class TimeRemapPasteDialog(QDialog):
                 self._set_column_layer_binding(key, index)
             )
         if not layers:
-            unavailable = menu.addAction("紐づけ可能なレイヤーがありません")
+            unavailable = menu.addAction(tr("紐づけ可能なレイヤーがありません"))
             unavailable.setEnabled(False)
         menu.exec(QCursor.pos())
 
     def _update_preview_headers(self):
         columns = self._sheet_columns()
         layers = dict(self._available_layers())
-        labels = ["使用", "F"]
+        labels = [tr("使用"), "F"]
         for column in columns:
             group = str(column.get("group", "CELL"))
             name = str(column.get("name", ""))
@@ -1627,7 +1626,7 @@ class TimeRemapPasteDialog(QDialog):
             layer_index = self._column_layer_bindings.get(uid)
             if bool(column.get("bindable", False)):
                 linked = layers.get(layer_index) if layer_index is not None else None
-                link_text = f"→ {linked}" if linked else "クリックで紐づけ"
+                link_text = f"→ {linked}" if linked else tr("クリックで紐づけ")
                 labels.append(f"{group}\n{name}\n{link_text}")
             else:
                 labels.append(f"{group}\n{name}")
@@ -1645,7 +1644,7 @@ class TimeRemapPasteDialog(QDialog):
             item.setBackground(colors.get(group, QColor("#e7ecef")))
             if bool(column.get("bindable", False)):
                 item.setToolTip(
-                    "クリックして読み込み先レイヤーを選択します。"
+                    tr("クリックして読み込み先レイヤーを選択します。")
                 )
 
     def _set_selected_rows_included(self, included):
@@ -1691,12 +1690,10 @@ class TimeRemapPasteDialog(QDialog):
             if self._column_uid(column) in self._column_layer_bindings
         )
         format_name = str(
-            source.get("format", "タイムリマップ")
+            source.get("format", tr("タイムリマップ"))
         )
         self.preview_status.setText(
-            f"{format_name}／使用 {used_count}／"
-            f"除外 {max(0, duration - used_count)}／"
-            f"レイヤー紐づけ {linked_count}"
+            tr("{name}／使用 {count}／除外 {max}／レイヤー紐づけ {count2}").format(name=format_name, count=used_count, max=max(0, duration - used_count), count2=linked_count)
         )
         self.preview_status.setStyleSheet("color:#176b42;")
 
@@ -1782,14 +1779,14 @@ class TimeRemapPasteDialog(QDialog):
 
         parser = self._parse_text
         if not callable(parser):
-            self.preview_status.setText("解析機能を取得できません")
+            self.preview_status.setText(tr("解析機能を取得できません"))
             self.preview_status.setStyleSheet("color:#b00020;")
             return
 
         try:
             parsed = parser(raw_text)
             if not isinstance(parsed, dict):
-                raise TypeError("タイムリマップの解析結果は辞書である必要があります。")
+                raise TypeError("time-remap parse result must be a mapping")
         except (ValueError, KeyError, IndexError, TypeError) as exc:
             # Malformed clipboard/timesheet data is expected here; show the
             # first line of the error in the preview status and log details.
@@ -1875,8 +1872,8 @@ class TimeRemapPasteDialog(QDialog):
         if self._parsed_preview is None:
             QMessageBox.warning(
                 self,
-                "タイムリマップ",
-                "有効なタイムシートを貼り付け、使用する行を残してください。",
+                tr("タイムリマップ"),
+                tr("有効なタイムシートを貼り付け、使用する行を残してください。"),
             )
             return
         if (
@@ -1885,8 +1882,8 @@ class TimeRemapPasteDialog(QDialog):
         ):
             QMessageBox.warning(
                 self,
-                "XDTS読み込み",
-                "読み込むCELL名をクリックし、紐づけ先レイヤーを選択してください。",
+                tr("XDTS読み込み"),
+                tr("読み込むCELL名をクリックし、紐づけ先レイヤーを選択してください。"),
             )
             return
         self.accept()

@@ -7,6 +7,7 @@ A collaborator rather than a mixin -- see ``main_window_export.py`` for why.
 """
 from typing import TYPE_CHECKING
 
+from .i18n import tr
 from PySide6.QtCore import QByteArray, QTimer
 from PySide6.QtWidgets import QInputDialog
 
@@ -86,7 +87,7 @@ class WorkspaceController:
 
     def prompt_save(self):
         name, accepted = QInputDialog.getText(
-            self.window, "ワークスペースを保存", "ワークスペース名："
+            self.window, tr("ワークスペースを保存"), tr("ワークスペース名：")
         )
         if accepted and name.strip():
             self.save(name)
@@ -96,14 +97,14 @@ class WorkspaceController:
         if not names:
             return
         name, accepted = QInputDialog.getItem(
-            self.window, "ワークスペースを削除", "削除するワークスペース：",
+            self.window, tr("ワークスペースを削除"), tr("削除するワークスペース："),
             names, 0, False,
         )
         if accepted:
             self.delete(name)
 
     def build_menu(self):
-        self.window.workspace_menu = self.window.menuBar().addMenu("ワークスペース")
+        self.window.workspace_menu = self.window.menuBar().addMenu(tr("ワークスペース"))
         self.refresh_menu()
 
     def refresh_menu(self):
@@ -111,7 +112,7 @@ class WorkspaceController:
         if menu is None:
             return
         menu.clear()
-        save_action = menu.addAction("現在の配置を保存…")
+        save_action = menu.addAction(tr("現在の配置を保存…"))
         save_action.triggered.connect(self.prompt_save)
         records = self.records()
         if records:
@@ -125,5 +126,5 @@ class WorkspaceController:
                     lambda _checked=False, n=name: self.apply(n)
                 )
             menu.addSeparator()
-            delete_action = menu.addAction("ワークスペースを削除…")
+            delete_action = menu.addAction(tr("ワークスペースを削除…"))
             delete_action.triggered.connect(self.prompt_delete)

@@ -11,6 +11,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QMessageBox
 
 from . import config, project_io
+from .i18n import tr
 from .logging_setup import get_logger
 
 if TYPE_CHECKING:
@@ -65,9 +66,9 @@ class AutosaveController:
             return
         answer = QMessageBox.question(
             self.window,
-            "作業の復元",
-            "前回のセッションが正常に終了しなかった可能性があります。\n"
-            "自動保存された作業を復元しますか？",
+            tr("作業の復元"),
+            tr("前回のセッションが正常に終了しなかった可能性があります。\n"
+            "自動保存された作業を復元しますか？"),
         )
         if answer == QMessageBox.StandardButton.Yes:
             self.window.project.open(str(path))

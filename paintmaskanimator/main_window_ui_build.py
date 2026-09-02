@@ -27,7 +27,7 @@ import PySide6QtAds as QtAds
 from . import i18n, theme
 from .i18n import tr
 from .theme import StatusBar
-from .toolpanel import ToolPanel
+from .toolpanel import ToolPanel, tool_label
 from .errors import OPERATION_ERRORS
 from .logging_setup import get_logger
 
@@ -107,12 +107,12 @@ class UIBuildMixin(MainWindowMembers):
         self.a_shortcuts=QAction(tr("ショートカット設定…"),self);self.a_shortcuts.triggered.connect(self.shortcuts)
         self.tool_actions={}
         defaults={"brush":"P","line":"U","shape":"O","bucket":"G","lasso_fill":"F","lasso":"L","rect_select":"R","auto_select":"W","eyedropper":"","dust":"D"}
-        for tid,label in ToolPanel.TOOLS:
-            a=QAction(tr("ツール：{tool}").format(tool=label),self);a.setShortcut(defaults.get(tid,""));a.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut);a.triggered.connect(lambda _=False,t=tid:self.tools.select_tool(t));self.addAction(a);self.tool_actions[tid]=a
+        for tid,_source_label in ToolPanel.TOOLS:
+            a=QAction(tr("ツール：{tool}").format(tool=tool_label(tid)),self);a.setShortcut(defaults.get(tid,""));a.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut);a.triggered.connect(lambda _=False,t=tid:self.tools.select_tool(t));self.addAction(a);self.tool_actions[tid]=a
         self.general_actions=[(tr("新規作成"),self.a_new),(tr("プロジェクトを開く"),self.a_open_project),(tr("上書き保存"),self.a_save_project),(tr("元に戻す"),self.a_undo),(tr("やり直す"),self.a_redo),(tr("前のフレーム"),self.a_prev),(tr("次のフレーム"),self.a_next)]
         self.tool_action_list=[
-            (tr("ツール：{tool}").format(tool=label), self.tool_actions[tid])
-            for tid, label in ToolPanel.TOOLS
+            (tr("ツール：{tool}").format(tool=tool_label(tid)), self.tool_actions[tid])
+            for tid, _source_label in ToolPanel.TOOLS
         ]
 
         # 押している間だけ有効になるキャンバス操作。QActionは設定値の保持に使い、
@@ -405,7 +405,7 @@ class UIBuildMixin(MainWindowMembers):
             self.theme_actions[name] = action
         self._build_language_menu(view_menu)
         accent_menu = view_menu.addMenu(tr("アクセントカラー"))
-        for label, hexval in theme.ACCENT_PRESETS:
+        for label, hexval in theme.accent_presets():
             act = QAction(f"{label}", self)
             act.triggered.connect(
                 lambda _=False, h=hexval: self.colors.set_accent(h)

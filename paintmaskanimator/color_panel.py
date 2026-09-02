@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from .i18n import tr
 from .logging_setup import get_logger
 
 
@@ -157,22 +158,22 @@ class UsedColorPanel(
         layout = QVBoxLayout(self)
         layout.setContentsMargins(3, 3, 3, 3)
         layout.setSpacing(2)
-        layout.addWidget(QLabel("<b>使用色</b>"))
+        layout.addWidget(QLabel(tr("<b>使用色</b>")))
         note = QLabel(
-            "使用色：クリックで選択（Shift＝範囲／Ctrl＝追加）。"
+            tr("使用色：クリックで選択（Shift＝範囲／Ctrl＝追加）。"
             "［＋フォルダー］でカテゴリーを作り、色をヘッダーへドラッグして格納。"
             "フォルダーのチェックで所属色を一括表示／非表示。"
             "ドラッグで並べ替え、色の中央へドロップ＝その色の「子」として整理。"
             "親子付けしても色表示は変わりません。解除は右クリックから行えます。"
-            "問題なければ［統合］で実画像へ焼き込みます。"
+            "問題なければ［統合］で実画像へ焼き込みます。")
         )
         note.setWordWrap(True)
         layout.addWidget(note)
 
-        self.count_label = QLabel("0色")
+        self.count_label = QLabel(tr("0色"))
         layout.addWidget(self.count_label)
-        self.category_button = QPushButton("＋ フォルダー")
-        self.category_button.setToolTip("使用色をまとめるフォルダーを作成します。")
+        self.category_button = QPushButton(tr("＋ フォルダー"))
+        self.category_button.setToolTip(tr("使用色をまとめるフォルダーを作成します。"))
         self.category_button.clicked.connect(self._prompt_create_category)
         layout.addWidget(self.category_button)
 
@@ -186,31 +187,31 @@ class UsedColorPanel(
         header.setColumnMinimumWidth(0, 32)
         header.setColumnMinimumWidth(1, 32)
         header.setColumnMinimumWidth(2, 32)
-        selection_header = QLabel("選択")
+        selection_header = QLabel(tr("選択"))
         selection_header.setAlignment(Qt.AlignmentFlag.AlignCenter)
         selection_header.setStyleSheet("font-size:10px;")
         selection_header.setToolTip(
-            "クリック：この色だけ選択／Shift＋クリック：範囲選択／"
-            "Ctrl＋クリック：追加・解除。チェックと選択は連動します。"
+            tr("クリック：この色だけ選択／Shift＋クリック：範囲選択／"
+            "Ctrl＋クリック：追加・解除。チェックと選択は連動します。")
         )
         header.addWidget(selection_header, 0, 0, Qt.AlignmentFlag.AlignCenter)
-        visibility_header = QLabel("表示")
+        visibility_header = QLabel(tr("表示"))
         visibility_header.setAlignment(Qt.AlignmentFlag.AlignCenter)
         visibility_header.setStyleSheet("font-size:10px;")
-        visibility_header.setToolTip("各行の薄い背景セル全体を右クリックして表示メニューを開けます。")
+        visibility_header.setToolTip(tr("各行の薄い背景セル全体を右クリックして表示メニューを開けます。"))
         header.addWidget(visibility_header, 0, 1, Qt.AlignmentFlag.AlignCenter)
-        mask_header = QLabel("描画対象")
+        mask_header = QLabel(tr("描画対象"))
         mask_header.setAlignment(Qt.AlignmentFlag.AlignCenter)
         mask_header.setStyleSheet("font-size:10px;")
         mask_header.setToolTip(
-            "ONにした色の上へ描けます。各行の薄い背景セル全体を"
-            "右クリックして描画対象メニューを開けます。"
+            tr("ONにした色の上へ描けます。各行の薄い背景セル全体を"
+            "右クリックして描画対象メニューを開けます。")
         )
         header.addWidget(mask_header, 0, 2, Qt.AlignmentFlag.AlignCenter)
-        color_header = QLabel("色（ドラッグで並べ替え／親子付け）")
+        color_header = QLabel(tr("色（ドラッグで並べ替え／親子付け）"))
         color_header.setStyleSheet("font-size:10px;")
         header.addWidget(color_header, 0, 3)
-        replacement_header = QLabel("置換色")
+        replacement_header = QLabel(tr("置換色"))
         replacement_header.setStyleSheet("font-size:10px;")
         replacement_header.setAlignment(Qt.AlignmentFlag.AlignCenter)
         header.addWidget(replacement_header, 0, 4)
@@ -249,32 +250,32 @@ class UsedColorPanel(
         button_row.setColumnStretch(3, 1)
         button_row.setColumnStretch(4, 1)
 
-        self.clear_selection_button = QPushButton("選択")
-        self.clear_selection_button.setToolTip("選択をすべて解除します。")
+        self.clear_selection_button = QPushButton(tr("選択"))
+        self.clear_selection_button.setToolTip(tr("選択をすべて解除します。"))
         self.clear_selection_button.clicked.connect(self._clear_used_color_selection)
         self.clear_selection_button.setFixedWidth(32)
         self.clear_selection_button.setStyleSheet("font-size:9px;padding:0px;")
 
-        self.show_all_button = QPushButton("全表示")
+        self.show_all_button = QPushButton(tr("全表示"))
         self.show_all_button.setToolTip(
-            "非表示にした使用色と背景色をすべて表示します。"
+            tr("非表示にした使用色と背景色をすべて表示します。")
         )
         self.show_all_button.clicked.connect(self._show_all_colors)
         self.show_all_button.setFixedWidth(32)
         self.show_all_button.setStyleSheet("font-size:9px;padding:0px;")
 
-        self.clear_masks_button = QPushButton("全体")
+        self.clear_masks_button = QPushButton(tr("全体"))
         self.clear_masks_button.setToolTip(
-            "すべての使用色と背景をマスクON（描画可能）にします。"
+            tr("すべての使用色と背景をマスクON（描画可能）にします。")
         )
         self.clear_masks_button.clicked.connect(self._set_all_masks_on)
         self.clear_masks_button.setFixedWidth(32)
         self.clear_masks_button.setStyleSheet("font-size:9px;padding:0px;")
 
-        self.freeze_button = QPushButton("統合")
+        self.freeze_button = QPushButton(tr("統合"))
         self.freeze_button.setToolTip(
-            "登録した親子（子→親の塗り替え）を、実際の画像へ焼き込みます。"
-            "焼き込むと親子は解除され、Undoで元に戻せます。"
+            tr("登録した親子（子→親の塗り替え）を、実際の画像へ焼き込みます。"
+            "焼き込むと親子は解除され、Undoで元に戻せます。")
         )
         self.freeze_button.clicked.connect(self._emit_freeze)
         self.freeze_button.setEnabled(False)
@@ -286,9 +287,9 @@ class UsedColorPanel(
         )
         self.freeze_button.setStyleSheet("font-size:10px;padding:1px;")
 
-        self.apply_button = QPushButton("色置換")
+        self.apply_button = QPushButton(tr("色置換"))
         self.apply_button.setToolTip(
-            "登録した置換色を、選択レイヤーのすべてのコマへ適用します。"
+            tr("登録した置換色を、選択レイヤーのすべてのコマへ適用します。")
         )
         self.apply_button.clicked.connect(self._emit_replacements)
         self.apply_button.setMinimumWidth(72)
@@ -331,7 +332,7 @@ class UsedColorPanel(
             return
         replacement_color = self.replacements.get(source_rgb)
         if replacement_color is None:
-            button.setText("未設定")
+            button.setText(tr("未設定"))
             button.setStyleSheet(
                 "QToolButton{background:#f2f2f2;border:1px dashed #888;}"
                 "QToolButton:hover{border:1px dashed #888;}"
@@ -491,7 +492,7 @@ class UsedColorPanel(
         self.applyReplacementRequested.emit(mapping)
 
     def _unique_category_name(self, requested):
-        base = str(requested or "").strip() or "新規フォルダー"
+        base = str(requested or "").strip() or tr("新規フォルダー")
         name = base
         suffix = 2
         existing = {value.casefold() for value in self.category_order}
@@ -502,8 +503,8 @@ class UsedColorPanel(
 
     def _prompt_create_category(self):
         name, accepted = QInputDialog.getText(
-            self, "使用色フォルダー", "フォルダー名：",
-            text=self._unique_category_name("新規フォルダー"),
+            self, tr("使用色フォルダー"), tr("フォルダー名："),
+            text=self._unique_category_name(tr("新規フォルダー")),
         )
         if accepted and str(name).strip():
             self.create_category(str(name).strip())
@@ -517,7 +518,7 @@ class UsedColorPanel(
         self._reapply_row_order()
         self._refresh_category_headers()
         if record_history:
-            self._record_history("使用色フォルダーを作成", before)
+            self._record_history(tr("使用色フォルダーを作成"), before)
         return name
 
     def _ensure_category_header(self, name):
@@ -573,10 +574,10 @@ class UsedColorPanel(
             header.setVisibilityState(
                 [self.enabled_colors.get(rgb, True) for rgb in members]
             )
-            header.name_label.setText(f"📁 {name}（{len(members)}色）")
+            header.name_label.setText(tr("📁 {name}（{len}色）").format(name=name, len=len(members)))
             header.setToolTip(
-                "フォルダーへ色をドラッグして格納できます。"
-                "右クリックで名前変更・削除ができます。"
+                tr("フォルダーへ色をドラッグして格納できます。"
+                "右クリックで名前変更・削除ができます。")
             )
 
     def _set_category_collapsed(self, name, collapsed):
@@ -590,7 +591,7 @@ class UsedColorPanel(
         if not members:
             self._refresh_category_headers()
             return
-        with self._history_edit("使用色フォルダーの表示切り替え"):
+        with self._history_edit(tr("使用色フォルダーの表示切り替え")):
             self._isolated_rgb = None
             self._pre_isolate_enabled = None
             for rgb in members:
@@ -606,7 +607,7 @@ class UsedColorPanel(
         sources.discard(self.background_rgb)
         if not sources:
             return
-        with self._history_edit("使用色をフォルダーへ移動"):
+        with self._history_edit(tr("使用色をフォルダーへ移動")):
             for rgb in sources:
                 self.category_colors[rgb] = category
             self.category_collapsed[category] = False
@@ -618,7 +619,7 @@ class UsedColorPanel(
 
     def _move_colors_to_uncategorized(self, sources):
         sources = {tuple(rgb) for rgb in sources}
-        with self._history_edit("使用色をフォルダーから移動"):
+        with self._history_edit(tr("使用色をフォルダーから移動")):
             for rgb in sources:
                 self.category_colors.pop(rgb, None)
             self._reapply_row_order()
@@ -628,12 +629,12 @@ class UsedColorPanel(
         if name not in self.category_order:
             return
         menu = QMenu(self)
-        rename_action = menu.addAction("名前を変更…")
-        delete_action = menu.addAction("フォルダーを削除")
+        rename_action = menu.addAction(tr("名前を変更…"))
+        delete_action = menu.addAction(tr("フォルダーを削除"))
         chosen = menu.exec(global_position)
         if chosen is rename_action:
             new_name, accepted = QInputDialog.getText(
-                self, "使用色フォルダー", "フォルダー名：", text=name
+                self, tr("使用色フォルダー"), tr("フォルダー名："), text=name
             )
             new_name = str(new_name).strip()
             if accepted and new_name and new_name != name:
@@ -661,7 +662,7 @@ class UsedColorPanel(
         self._ensure_category_header(new_name).setCollapsed(collapsed)
         self._reapply_row_order()
         self._refresh_category_headers()
-        self._record_history("使用色フォルダー名を変更", before)
+        self._record_history(tr("使用色フォルダー名を変更"), before)
 
     def delete_category(self, name, record_history=True):
         if name not in self.category_order:
@@ -678,7 +679,7 @@ class UsedColorPanel(
             header.deleteLater()
         self._reapply_row_order()
         if record_history:
-            self._record_history("使用色フォルダーを削除", before)
+            self._record_history(tr("使用色フォルダーを削除"), before)
 
     def clear_categories(self):
         for header in self.category_widgets.values():
@@ -809,7 +810,7 @@ class UsedColorPanel(
         is_background = rgb == self.background_rgb
         is_child = rgb in self.child_to_parent
         hex_text = (
-            "背景色 #FFFFFF" if is_background
+            tr("背景色 #FFFFFF") if is_background
             else "#{:02X}{:02X}{:02X}".format(*rgb)
         )
         if is_child:
@@ -819,7 +820,7 @@ class UsedColorPanel(
             1 for parent in self.child_to_parent.values() if parent == rgb
         )
         button.setText(
-            f"{hex_text}（親・{child_count}）" if child_count else hex_text
+            tr("{text}（親・{count}）").format(text=hex_text, count=child_count) if child_count else hex_text
         )
 
     def _set_source_button_style(self, rgb):
@@ -852,22 +853,21 @@ class UsedColorPanel(
 
         if rgb == self.background_rgb:
             button.setToolTip(
-                "背景色 #FFFFFF。並べ替えや親子付けの対象にはできません。"
+                tr("背景色 #FFFFFF。並べ替えや親子付けの対象にはできません。")
             )
         else:
             group_note = ""
             parent_of_this = self.child_to_parent.get(rgb)
             if parent_of_this is not None:
                 group_note = (
-                    f"　現在 #{parent_of_this[0]:02X}{parent_of_this[1]:02X}"
-                    f"{parent_of_this[2]:02X} の子です。"
+                    tr("　現在 #{value:02X}{value2:02X}{value3:02X} の子です。").format(value=parent_of_this[0], value2=parent_of_this[1], value3=parent_of_this[2])
                 )
             button.setToolTip(
-                "クリック：この色だけ選択／Shift＋クリック：範囲選択／"
-                "Ctrl＋クリック：選択に追加・解除。"
-                "ドラッグで並べ替え、色の中央へドロップ＝その色の子として整理。"
-                "親子付けしても色表示は変わりません。"
-                "解除はドラッグと右クリックで行えます。"
+                tr("クリック：この色だけ選択／Shift＋クリック：範囲選択／"
+                   "Ctrl＋クリック：選択に追加・解除。"
+                   "ドラッグで並べ替え、色の中央へドロップ＝その色の子として整理。"
+                   "親子付けしても色表示は変わりません。"
+                   "解除はドラッグと右クリックで行えます。")
                 + group_note
             )
 
@@ -964,12 +964,12 @@ class UsedColorPanel(
         selection_check.setChecked(source_rgb in self.selected_rgbs)
         selection_check.setEnabled(not is_background)
         selection_check.setToolTip(
-            "背景色は選択できません。"
+            tr("背景色は選択できません。")
             if is_background else
             (
-                "クリック：この色だけ選択／Shift＋クリック：範囲選択／"
+                tr("クリック：この色だけ選択／Shift＋クリック：範囲選択／"
                 "Ctrl＋クリック：追加・解除／上下になぞる：一括選択／"
-                "Alt＋クリック：この色だけ選択"
+                "Alt＋クリック：この色だけ選択")
             )
         )
         if not is_background:
@@ -992,13 +992,13 @@ class UsedColorPanel(
         )
         visible_check.setToolTip(
             (
-                "クリック：背景表示ON/OFF／上下になぞる：一括ON/OFF／"
-                "Alt＋クリック：背景だけ表示／右クリック：表示メニュー"
+                tr("クリック：背景表示ON/OFF／上下になぞる：一括ON/OFF／"
+                "Alt＋クリック：背景だけ表示／右クリック：表示メニュー")
             )
             if is_background else
             (
-                "クリック：表示ON/OFF／上下になぞる：一括ON/OFF／"
-                "Alt＋クリック：この色だけ表示／右クリック：表示メニュー"
+                tr("クリック：表示ON/OFF／上下になぞる：一括ON/OFF／"
+                "Alt＋クリック：この色だけ表示／右クリック：表示メニュー")
             )
         )
         visible_check.toggled.connect(
@@ -1020,15 +1020,15 @@ class UsedColorPanel(
         mask_check.setChecked(source_rgb in self.mask_rgbs)
         mask_check.setToolTip(
             (
-                "描画対象：ONにするとこの色の上へ描けます。"
+                tr("描画対象：ONにするとこの色の上へ描けます。"
                 "クリック：ON/OFF／上下になぞる：一括ON/OFF／"
-                "Alt＋クリック：この色だけON／右クリック：描画対象メニュー"
+                "Alt＋クリック：この色だけON／右クリック：描画対象メニュー")
             )
             if not is_background else
             (
-                "描画対象：ONにすると背景の上へ描けます。"
+                tr("描画対象：ONにすると背景の上へ描けます。"
                 "クリック：ON/OFF／上下になぞる：一括ON/OFF／"
-                "Alt＋クリック：背景だけON／右クリック：描画対象メニュー"
+                "Alt＋クリック：背景だけON／右クリック：描画対象メニュー")
             )
         )
         mask_check.toggled.connect(
@@ -1048,7 +1048,7 @@ class UsedColorPanel(
         source.setFixedHeight(26)
         source.setMinimumWidth(72)
         source.setText(
-            "背景色 #FFFFFF"
+            tr("背景色 #FFFFFF")
             if is_background
             else qc.name(QColor.NameFormat.HexRgb).upper()
         )
@@ -1106,8 +1106,8 @@ class UsedColorPanel(
                 QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
             )
             replacement.setToolTip(
-                "左クリック：RGB／HSV編集。右クリック：画面全体のスポイトへ切替。"
-                "スポイト中は左クリックで確定、Escで解除。"
+                tr("左クリック：RGB／HSV編集。右クリック：画面全体のスポイトへ切替。"
+                "スポイト中は左クリックで確定、Escで解除。")
             )
             replacement.colorPicked.connect(
                 lambda color, rgb=source_rgb:
@@ -1215,7 +1215,7 @@ class UsedColorPanel(
         new_group_mapping = self._group_mapping()
         if new_group_mapping != old_group_mapping:
             self._emit_preview()
-        self.count_label.setText(f"{len(self.colors)}色")
+        self.count_label.setText(tr("{len}色").format(len=len(self.colors)))
         if self._isolated_rgb not in incoming_keys:
             self._isolated_rgb = None
             self._pre_isolate_enabled = None
@@ -1241,7 +1241,7 @@ class UsedColorPanel(
         self.mask_rgbs.add(key)
         self._mask_all_mode = True
         self._append_color_row(qc)
-        self.count_label.setText(f"{len(self.colors)}色")
+        self.count_label.setText(tr("{len}色").format(len=len(self.colors)))
         self._emit_mask_state()
         self.visibleColorsChanged.emit(self.enabled_rgb_set())
 
@@ -1263,7 +1263,7 @@ class UsedColorPanel(
 
     def _show_used_color_context_menu(self, rgb, global_position):
         menu = QMenu(self)
-        action_main_color = menu.addAction("メインカラーにする")
+        action_main_color = menu.addAction(tr("メインカラーにする"))
         menu.addSeparator()
         if rgb == self.background_rgb:
             chosen = menu.exec(global_position)
@@ -1291,9 +1291,9 @@ class UsedColorPanel(
         )
         delete_sources.discard(self.background_rgb)
 
-        action_delete = menu.addAction("削除")
+        action_delete = menu.addAction(tr("削除"))
         action_delete.setToolTip(
-            "選択した使用色を #FFFFFF へ統合します。"
+            tr("選択した使用色を #FFFFFF へ統合します。")
         )
 
         main_window: Any = self.window()
@@ -1309,21 +1309,21 @@ class UsedColorPanel(
         )
         action_thickness = None
         if can_adjust_thickness:
-            action_thickness = menu.addAction("太さを調整")
+            action_thickness = menu.addAction(tr("太さを調整"))
             action_thickness.setToolTip(
-                "選択中の親色・子色をまとめて調整します。"
+                tr("選択中の親色・子色をまとめて調整します。")
             )
 
-        action_focus = menu.addAction("対象に注視")
-        folder_menu = menu.addMenu("フォルダーへ移動")
+        action_focus = menu.addAction(tr("対象に注視"))
+        folder_menu = menu.addMenu(tr("フォルダーへ移動"))
         folder_actions = {}
-        uncategorized_action = folder_menu.addAction("未分類")
+        uncategorized_action = folder_menu.addAction(tr("未分類"))
         folder_menu.addSeparator()
         for category_name in self.category_order:
             action = folder_menu.addAction(category_name)
             folder_actions[action] = category_name
         folder_menu.addSeparator()
-        new_folder_action = folder_menu.addAction("新規フォルダー…")
+        new_folder_action = folder_menu.addAction(tr("新規フォルダー…"))
         menu.addSeparator()
 
         # 親子グループ関連。
@@ -1334,18 +1334,18 @@ class UsedColorPanel(
         )
         action_ungroup = None
         if in_group:
-            action_ungroup = menu.addAction("親子を解除")
-            action_ungroup.setToolTip("この色に関わる親子関係を解除します。")
+            action_ungroup = menu.addAction(tr("親子を解除"))
+            action_ungroup.setToolTip(tr("この色に関わる親子関係を解除します。"))
         action_ungroup_all = None
         action_freeze = None
         if self.child_to_parent:
-            action_ungroup_all = menu.addAction("親子をすべて解除")
-            action_freeze = menu.addAction("親子を統合（焼き込み）")
-            action_freeze.setToolTip("登録した子→親の塗り替えを実画像へ確定します。")
+            action_ungroup_all = menu.addAction(tr("親子をすべて解除"))
+            action_freeze = menu.addAction(tr("親子を統合（焼き込み）"))
+            action_freeze.setToolTip(tr("登録した子→親の塗り替えを実画像へ確定します。"))
         action_clear = None
         if self.selected_rgbs:
             menu.addSeparator()
-            action_clear = menu.addAction("全選択解除")
+            action_clear = menu.addAction(tr("全選択解除"))
 
         chosen = menu.exec(global_position)
         if chosen is action_main_color:
@@ -1374,14 +1374,14 @@ class UsedColorPanel(
             )
         elif chosen is new_folder_action:
             name, accepted = QInputDialog.getText(
-                self, "使用色フォルダー", "フォルダー名：",
-                text=self._unique_category_name("新規フォルダー"),
+                self, tr("使用色フォルダー"), tr("フォルダー名："),
+                text=self._unique_category_name(tr("新規フォルダー")),
             )
             if accepted and str(name).strip():
                 category = self.create_category(str(name).strip())
                 self._move_colors_to_category(clicked_rgb, category)
         elif action_ungroup is not None and chosen is action_ungroup:
-            with self._history_edit("親子を解除"):
+            with self._history_edit(tr("親子を解除")):
                 if self._drop_group_links_for(clicked_rgb):
                     self._normalize_groups()
                     self._refresh_all_group_displays()

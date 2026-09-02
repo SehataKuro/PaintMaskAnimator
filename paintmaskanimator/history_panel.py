@@ -14,6 +14,7 @@ clicking a branch block switches the canvas over to that future instead.
 from PySide6.QtCore import QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QLabel, QScrollArea, QVBoxLayout, QWidget
+from .i18n import tr
 from .undo_entries import history_label_for
 from .logging_setup import get_logger
 
@@ -203,12 +204,12 @@ class HistoryPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(3, 3, 3, 3)
         layout.setSpacing(2)
-        layout.addWidget(QLabel("<b>ヒストリー</b>"))
+        layout.addWidget(QLabel(tr("<b>ヒストリー</b>")))
         note = QLabel(
-            "操作の履歴です。ブロックをクリックすると、その状態まで一気に戻る／"
+            tr("操作の履歴です。ブロックをクリックすると、その状態まで一気に戻る／"
             "進むします。戻ってから編集し直したときの元の履歴は右隣の列に"
             "分岐として残り、同じ地点から複数分岐したときは横に並びます。"
-            "点線のブロックをクリックでそちらへ戻せます。"
+            "点線のブロックをクリックでそちらへ戻せます。")
         )
         note.setWordWrap(True)
         note.setStyleSheet("font-size:10px;")
@@ -241,7 +242,7 @@ class HistoryPanel(QWidget):
         """
         n = len(undo_stack)
         # 何も積まれていない最初の状態。全部Undoすればここへ戻れる。
-        rows = [("開始状態", -n, 0, False)]
+        rows = [(tr("開始状態"), -n, 0, False)]
         for i, entry in enumerate(undo_stack):
             # 最後のUndoエントリで到達するのが現在の状態（移動量0）。
             rows.append((history_label_for(entry), i - (n - 1), i + 1, False))
@@ -269,7 +270,7 @@ class HistoryPanel(QWidget):
 
         # 本線は列0にまっすぐ並ぶ。行番号はその状態の分岐位置に一致する。
         for label, delta, position, is_future in rows:
-            display = f"{label}（現在）" if position == current_row else label
+            display = tr("{label}（現在）").format(label=label) if position == current_row else label
             src = None if position == 0 else (0, position - 1)
             if position == current_row:
                 current_index = len(nodes)
@@ -320,8 +321,8 @@ class HistoryPanel(QWidget):
                 label = history_label_for(entry)
                 if k == 0:
                     label = (
-                        f"{label}（分岐 {total}件）"
-                        if total > 1 else f"{label}（分岐）"
+                        tr("{label}（分岐 {total}件）").format(label=label, total=total)
+                        if total > 1 else tr("{label}（分岐）").format(label=label)
                     )
                 nodes.append({
                     "kind": _KIND_BRANCH,

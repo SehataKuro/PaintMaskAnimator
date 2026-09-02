@@ -83,6 +83,21 @@ tr("{count}個のキーフレームを書き出しました。").format(count=ex
 `QObject.setObjectName()` に渡す名前（ドックの `objectName` は保存された
 ワークスペース配置の識別子なので、翻訳すると既存のレイアウトが壊れます）。
 
+**表示テキストで分岐しないでください。** `combo.currentText() == "多角形"` のような
+比較は、翻訳した瞬間に例外も出さず静かに成立しなくなります。値と表示は分けます。
+
+```python
+self.shape_type.addItem(tr("多角形"), "polygon")   # 表示 / 値
+...
+if self.shape_type.currentData() == "polygon":
+```
+
+**モジュールやクラスの定義位置で `tr()` を呼ばないでください。** そこはインポート時
+に評価されるため、翻訳の読み込みより前に走って原文が焼き付きます。関数にして
+呼び出し時に翻訳します（`theme.accent_presets()`、`toolpanel.tool_label()`、
+`undo_entries.translate_history_label()` が実例です）。引数のデフォルト値も同じ
+理由で不可で、ruff の `B008` が検出します。
+
 文字列を追加・変更したら、カタログを再生成してコミットしてください。CIは
 `--check` で鮮度を検証します。
 

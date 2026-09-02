@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .i18n import tr
 from .logging_setup import get_logger
 
 log = get_logger(__name__)
@@ -171,8 +172,8 @@ class PressureCurveWidget(QWidget):
         self.setMinimumSize(260, 170)
         self.setMouseTracking(True)
         self.setToolTip(
-            "左クリック：アンカーポイント追加／ドラッグ：移動／"
-            "右クリック：中間アンカーポイント削除／曲線：3次ベジエ補間"
+            tr("左クリック：アンカーポイント追加／ドラッグ：移動／"
+            "右クリック：中間アンカーポイント削除／曲線：3次ベジエ補間")
         )
 
     def points(self):
@@ -294,24 +295,24 @@ class PressureCurveWidget(QWidget):
         for x, y in self._points:
             painter.drawEllipse(self._value_to_point(x, y), 5, 5)
         painter.setPen(QColor(220, 220, 220))
-        painter.drawText(4, graph.top() + 10, "出力")
-        painter.drawText(graph.right() - 24, self.height() - 5, "入力")
+        painter.drawText(4, graph.top() + 10, tr("出力"))
+        painter.drawText(graph.right() - 24, self.height() - 5, tr("入力"))
         painter.end()
 
 
 class PressureDialog(QDialog):
     def __init__(self, enabled, minimum, maximum, curve, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("筆圧設定")
+        self.setWindowTitle(tr("筆圧設定"))
         self.resize(430, 390)
         layout = QVBoxLayout(self)
-        self.enabled = QCheckBox("筆圧をブラシサイズに反映")
+        self.enabled = QCheckBox(tr("筆圧をブラシサイズに反映"))
         self.enabled.setChecked(enabled)
         layout.addWidget(self.enabled)
 
         pressure_note = QLabel(
-            "筆圧はブラシサイズだけに反映されます。"
-            "描画不透明度・色・アルファ値には一切影響しません。"
+            tr("筆圧はブラシサイズだけに反映されます。"
+            "描画不透明度・色・アルファ値には一切影響しません。")
         )
         pressure_note.setWordWrap(True)
         pressure_note.setStyleSheet(
@@ -338,15 +339,15 @@ class PressureDialog(QDialog):
         max_layout.addWidget(self.maximum, 1); max_layout.addWidget(self.maximum_label)
         self.maximum.valueChanged.connect(lambda v: self.maximum_label.setText(f"{v}%"))
 
-        form.addRow("最小サイズ", min_row)
-        form.addRow("最大倍率", max_row)
+        form.addRow(tr("最小サイズ"), min_row)
+        form.addRow(tr("最大倍率"), max_row)
         layout.addLayout(form)
-        layout.addWidget(QLabel("筆圧カーブ"))
+        layout.addWidget(QLabel(tr("筆圧カーブ")))
         self.curve = PressureCurveWidget(curve)
         layout.addWidget(self.curve, 1)
-        self.curve_value = QLabel(f"アンカーポイント: {len(self.curve.points())}")
+        self.curve_value = QLabel(tr("アンカーポイント: {len}").format(len=len(self.curve.points())))
         self.curve.curveChanged.connect(
-            lambda points: self.curve_value.setText(f"アンカーポイント: {len(points)}")
+            lambda points: self.curve_value.setText(tr("アンカーポイント: {len}").format(len=len(points)))
         )
         layout.addWidget(self.curve_value)
 

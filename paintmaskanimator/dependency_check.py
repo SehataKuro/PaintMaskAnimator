@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import importlib
 
+from .i18n import tr
 from .constants import APP_DISPLAY_NAME
 
 #: Modules the application cannot start without.
@@ -29,10 +30,7 @@ def require_runtime_dependencies(modules: tuple[str, ...] = REQUIRED_MODULES) ->
 
 def _report_and_exit(missing: str) -> None:
     message = (
-        f"{missing} がインストールされていないため起動できません。\n\n"
-        "Windowsのコマンドプロンプトで次を実行してください。\n\n"
-        "py -m pip install PySide6 numpy\n\n"
-        "インストール後、このファイルをもう一度起動してください。"
+        tr("{missing} がインストールされていないため起動できません。\n\nWindowsのコマンドプロンプトで次を実行してください。\n\npy -m pip install PySide6 numpy\n\nインストール後、このファイルをもう一度起動してください。").format(missing=missing)
     )
     print(message)
     try:
@@ -41,7 +39,7 @@ def _report_and_exit(missing: str) -> None:
 
         root = tk.Tk()
         root.withdraw()
-        messagebox.showerror(f"{APP_DISPLAY_NAME} 起動エラー", message)
+        messagebox.showerror(tr("{NAME} 起動エラー").format(NAME=APP_DISPLAY_NAME), message)
         root.destroy()
     except Exception:
         # tkinter itself may be missing or unusable (no display); the console

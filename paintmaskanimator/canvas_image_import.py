@@ -10,6 +10,7 @@ import numpy as np
 from pathlib import Path
 from PySide6.QtCore import QPoint
 from PySide6.QtGui import QImage, QImageReader, QPainter
+from .i18n import tr
 from .optional_deps import PILImage
 from .constants import MAX_IMAGE_DIMENSION, MAX_SINGLE_IMAGE_PIXELS, OUTSIDE_MARGIN
 from .errors import OperationError
@@ -45,12 +46,11 @@ class ImageImportMixin(CanvasMembers):
                 or declared_width * declared_height > MAX_SINGLE_IMAGE_PIXELS
             ):
                 return None, (
-                    "画像サイズが上限を超えています。\n"
-                    f"{declared_width} × {declared_height}px"
+                    tr("画像サイズが上限を超えています。\n{width} × {height}px").format(width=declared_width, height=declared_height)
                 )
         image = reader.read()
         if image.isNull():
-            errors.append("Qt: " + (reader.errorString() or "画像データを解釈できませんでした"))
+            errors.append("Qt: " + (reader.errorString() or tr("画像データを解釈できませんでした")))
         if image.isNull() and PILImage is not None:
             try:
                 with PILImage.open(path) as pil:
@@ -63,8 +63,7 @@ class ImageImportMixin(CanvasMembers):
                         or pil_width * pil_height > MAX_SINGLE_IMAGE_PIXELS
                     ):
                         raise OperationError(
-                            "画像サイズが上限を超えています。"
-                            f" ({pil_width} × {pil_height}px)"
+                            tr("画像サイズが上限を超えています。 ({width} × {height}px)").format(width=pil_width, height=pil_height)
                         )
                     pil.load()
                     pil = pil.convert("RGBA")
@@ -77,8 +76,8 @@ class ImageImportMixin(CanvasMembers):
                 log.info("Pillow decode of %s failed: %s", path, exc)
                 errors.append(f"Pillow: {exc}")
         if image.isNull():
-            suffix = Path(path).suffix.lower() or "拡張子なし"
-            return None, f"形式: {suffix}\n" + "\n".join(errors)
+            suffix = Path(path).suffix.lower() or tr("拡張子なし")
+            return None, tr("形式: {suffix}\n").format(suffix=suffix) + "\n".join(errors)
         return image.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied), ""
 
     @staticmethod
@@ -134,11 +133,11 @@ class ImageImportMixin(CanvasMembers):
     ):
         paths = sorted([str(path) for path in paths], key=self._natural_path_key)
         if not paths:
-            return False, "画像ファイルがありません。"
+            return False, tr("画像ファイルがありません。")
         decoded = []
         for index, path in enumerate(paths, 1):
             if progress_callback:
-                progress_callback(index - 1, len(paths), f"{Path(path).name} を読み込んでいます")
+                progress_callback(index - 1, len(paths), tr("{Path} を読み込んでいます").format(Path=Path(path).name))
             image, error = self._read_image_file(path)
             if image is None:
                 return False, f"{Path(path).name}\n{error}"
@@ -179,8 +178,7 @@ class ImageImportMixin(CanvasMembers):
                         progress_callback(
                             index - 1,
                             len(paths),
-                            f"{Path(path).name} の元画像へトーンカーブを適用し、"
-                            "共通パレットで2値化しています",
+                            tr("{Path} の元画像へトーンカーブを適用し、共通パレットで2値化しています").format(Path=Path(path).name),
                         )
                     image = self.apply_color_reduction_palette(
                         image,
@@ -211,7 +209,7 @@ class ImageImportMixin(CanvasMembers):
                     image = self._make_white_transparent(image)
             decoded.append((path, image))
         if progress_callback:
-            progress_callback(len(paths), len(paths), "画像の配置を準備しています")
+            progress_callback(len(paths), len(paths), tr("画像の配置を準備しています"))
         self.push_doc_undo()
         start_frame = self.current_frame
         self._ensure_frame_count(start_frame + len(decoded))
@@ -223,7 +221,7 @@ class ImageImportMixin(CanvasMembers):
             frame.layers.append(Layer(name, blank_image(), is_draft=bool(draft)))
         for offset, (_, image) in enumerate(decoded):
             if progress_callback:
-                progress_callback(offset, len(decoded), f"{offset + 1} / {len(decoded)} 枚を配置しています")
+                progress_callback(offset, len(decoded), tr("{value} / {len} 枚を配置しています").format(value=offset + 1, len=len(decoded)))
             layer = self.frames[start_frame + offset].layers[insert_index]
             self._place_imported_image(image, layer.image)
             layer.has_content = True
@@ -242,7 +240,7 @@ class ImageImportMixin(CanvasMembers):
         self.selectionChanged.emit()
         self.update()
         if progress_callback:
-            progress_callback(len(decoded), len(decoded), "読み込み完了")
+            progress_callback(len(decoded), len(decoded), tr("読み込み完了"))
         return True, ""
 
     def dragEnterEvent(self,e):

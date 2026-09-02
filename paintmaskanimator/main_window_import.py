@@ -12,6 +12,7 @@ from pathlib import Path
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QImage
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
+from .i18n import tr
 from .optional_deps import PILImage, PSDImage
 from .constants import (
     MAX_IMAGE_DIMENSION,
@@ -50,9 +51,9 @@ class ImportController:
     def clip_animation_dialog(self):
         path, _ = QFileDialog.getOpenFileName(
             self.window,
-            "CLIP STUDIOアニメーションを読み込む",
+            tr("CLIP STUDIOアニメーションを読み込む"),
             "",
-            "CLIP STUDIO PAINT (*.clip);;すべてのファイル (*)",
+            tr("CLIP STUDIO PAINT (*.clip);;すべてのファイル (*)"),
         )
         if path:
             return self.clip_animation(path)
@@ -74,19 +75,19 @@ class ImportController:
             return True
         dialog = QMessageBox(self.window)
         dialog.setIcon(QMessageBox.Icon.Question)
-        dialog.setWindowTitle("CLIP STUDIOアニメーションを読み込む")
+        dialog.setWindowTitle(tr("CLIP STUDIOアニメーションを読み込む"))
         dialog.setText(
-            "現在のキャンバスをCLIP STUDIOアニメーションで置き換えます。\n"
-            "先に現在のプロジェクトを保存しますか？"
+            tr("現在のキャンバスをCLIP STUDIOアニメーションで置き換えます。\n"
+            "先に現在のプロジェクトを保存しますか？")
         )
         save_button = dialog.addButton(
-            "保存する", QMessageBox.ButtonRole.AcceptRole
+            tr("保存する"), QMessageBox.ButtonRole.AcceptRole
         )
         discard_button = dialog.addButton(
-            "保存せず読み込む", QMessageBox.ButtonRole.DestructiveRole
+            tr("保存せず読み込む"), QMessageBox.ButtonRole.DestructiveRole
         )
         cancel_button = dialog.addButton(
-            "キャンセル", QMessageBox.ButtonRole.RejectRole
+            tr("キャンセル"), QMessageBox.ButtonRole.RejectRole
         )
         dialog.setDefaultButton(save_button)
         dialog.exec()
@@ -102,7 +103,7 @@ class ImportController:
         if source.suffix.lower() != ".clip":
             return False
         self.window.statusBar().showMessage(
-            f"CLIP STUDIOアニメーションを解析しています：{source.name}",
+            tr("CLIP STUDIOアニメーションを解析しています：{name}").format(name=source.name),
             0,
         )
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
@@ -113,9 +114,8 @@ class ImportController:
             self.window.statusBar().clearMessage()
             QMessageBox.critical(
                 self.window,
-                "CLIP STUDIOアニメーション読み込み",
-                "読み込めませんでした。現在のドキュメントは変更されていません。"
-                f"\n\n{exc}",
+                tr("CLIP STUDIOアニメーション読み込み"),
+                tr("読み込めませんでした。現在のドキュメントは変更されていません。\n\n{exc}").format(exc=exc),
             )
             return False
         finally:
@@ -240,28 +240,23 @@ class ImportController:
             log.error("CLIP import apply failed and rolled back: %s", exc, exc_info=True)
             QMessageBox.critical(
                 self.window,
-                "CLIP STUDIOアニメーション読み込み",
-                "読み込み結果を反映できませんでした。"
-                "現在のドキュメントは元の状態へ戻しました。"
-                f"\n\n{exc}",
+                tr("CLIP STUDIOアニメーション読み込み"),
+                tr("読み込み結果を反映できませんでした。現在のドキュメントは元の状態へ戻しました。\n\n{exc}").format(exc=exc),
             )
             return False
 
         fps_note = ""
         if abs(float(parsed.fps) - self.window.timeline.fps.value()) > 1e-6:
             fps_note = (
-                f"（元FPS {parsed.fps:g}、PMA表示 {self.window.timeline.fps.value()} fps）"
+                tr("（元FPS {fps:g}、PMA表示 {value} fps）").format(fps=parsed.fps, value=self.window.timeline.fps.value())
             )
         archive_note = ""
         if self.window.canvas._sequence_archive:
             archive_note = (
-                f" 未配置セル{len(self.window.canvas._sequence_archive)}枚は"
-                "連番に保持しました。"
+                tr(" 未配置セル{len}枚は連番に保持しました。").format(len=len(self.window.canvas._sequence_archive))
             )
         self.window.statusBar().showMessage(
-            f"CLIP STUDIOから{parsed.folder_count}フォルダー・"
-            f"{parsed.frame_count}フレームを読み込みました。"
-            f"{archive_note}{fps_note}",
+            tr("CLIP STUDIOから{count}フォルダー・{count2}フレームを読み込みました。{note}{note2}").format(count=parsed.folder_count, count2=parsed.frame_count, note=archive_note, note2=fps_note),
             6000,
         )
         return True
@@ -271,16 +266,16 @@ class ImportController:
         text_value = str(raw_text or "").lstrip("\ufeff")
         lines = text_value.splitlines()
         if not lines or lines[0].strip() != "exchangeDigitalTimeSheet Save Data":
-            raise OperationError("XDTSの先頭識別文字列が一致しません。")
+            raise OperationError(tr("XDTSの先頭識別文字列が一致しません。"))
         try:
             payload = json.loads("\n".join(lines[1:]))
         except json.JSONDecodeError as exc:
-            raise OperationError(f"XDTSのJSONを解析できません。\n{exc}") from exc
+            raise OperationError(tr("XDTSのJSONを解析できません。\n{exc}").format(exc=exc)) from exc
         if int(payload.get("version", -1)) != 5:
-            raise OperationError("対応しているXDTSバージョンは5です。")
+            raise OperationError(tr("対応しているXDTSバージョンは5です。"))
         time_tables = payload.get("timeTables") or []
         if not time_tables:
-            raise OperationError("XDTSにタイムシート情報がありません。")
+            raise OperationError(tr("XDTSにタイムシート情報がありません。"))
         time_table = time_tables[0]
         duration = max(1, int(time_table.get("duration", 1)))
         headers = {}
@@ -430,7 +425,7 @@ class ImportController:
                     parsed_tracks.append(dict(column))
 
         if not parsed_tracks:
-            raise OperationError("XDTSにセル欄（fieldId 0）がありません。")
+            raise OperationError(tr("XDTSにセル欄（fieldId 0）がありません。"))
         group_order = {"ACTION": 0, "CELL": 1, "CAM": 2}
         sheet_columns.sort(
             key=lambda item: (
@@ -462,9 +457,9 @@ class ImportController:
         end_frame = int(parsed.get("end_frame", -1))
         duration = end_frame - start_frame + 1
         if duration <= 0 or not bindings:
-            raise OperationError("読み込むCELLとレイヤーの紐づけがありません。")
+            raise OperationError(tr("読み込むCELLとレイヤーの紐づけがありません。"))
         if not self.window.canvas.frames:
-            raise OperationError("タイムラインがありません。")
+            raise OperationError(tr("タイムラインがありません。"))
         current_frame = max(
             0,
             min(int(self.window.canvas.current_frame), len(self.window.canvas.frames) - 1),
@@ -478,18 +473,17 @@ class ImportController:
             states = list(column.get("states", []))
             if len(states) != duration:
                 raise OperationError(
-                    f"CELL「{column.get('name', '')}」のフレーム数が不正です。"
+                    tr("CELL「{get}」のフレーム数が不正です。").format(get=column.get('name', ''))
                 )
             layer_index = int(layer_index_value)
             if not (0 <= layer_index < len(current_layers)):
                 raise OperationError(
-                    f"CELL「{column.get('name', '')}」の紐づけ先レイヤーがありません。"
+                    tr("CELL「{get}」の紐づけ先レイヤーがありません。").format(get=column.get('name', ''))
                 )
             source_bank = self.window.time_remap._time_remap_source_bank(layer_index)
             if not source_bank:
                 raise OperationError(
-                    f"レイヤー「{current_layers[layer_index].name}」に"
-                    "連番画像がありません。"
+                    tr("レイヤー「{name}」に連番画像がありません。").format(name=current_layers[layer_index].name)
                 )
             referenced = sorted({
                 int(state) for state in states if state is not None
@@ -503,9 +497,7 @@ class ImportController:
                 if len(missing) > 12:
                     preview += "…"
                 raise OperationError(
-                    f"CELL「{column.get('name', '')}」は存在しない絵番号を"
-                    f"参照しています（レイヤー画像 {len(source_bank)}枚）。\n"
-                    f"{preview}"
+                    tr("CELL「{get}」は存在しない絵番号を参照しています（レイヤー画像 {len}枚）。\n{preview}").format(get=column.get('name', ''), len=len(source_bank), preview=preview)
                 )
             prepared.append((
                 column,
@@ -514,19 +506,16 @@ class ImportController:
                 source_bank,
             ))
         if not prepared:
-            raise OperationError("読み込めるCELLの紐づけがありません。")
+            raise OperationError(tr("読み込めるCELLの紐づけがありません。"))
 
         links = "\n".join(
-            f"・{column.get('name', 'CELL')} → "
-            f"{current_layers[layer_index].name}"
+            tr("・{get} → {name}").format(get=column.get('name', 'CELL'), name=current_layers[layer_index].name)
             for column, layer_index, _states, _bank in prepared
         )
         answer = QMessageBox.question(
             self.window,
-            "XDTSタイムシートを反映",
-            f"反映範囲：{start_frame + 1}～{end_frame + 1}フレーム\n"
-            f"紐づけ：\n{links}\n\n"
-            "紐づけたレイヤーの対象範囲を置き換えます。",
+            tr("XDTSタイムシートを反映"),
+            tr("反映範囲：{value}～{value2}フレーム\n紐づけ：\n{links}\n\n紐づけたレイヤーの対象範囲を置き換えます。").format(value=start_frame + 1, value2=end_frame + 1, links=links),
             QMessageBox.StandardButton.Yes
             | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes,
@@ -557,24 +546,23 @@ class ImportController:
         self.window.canvas.update()
         self.window.used_color.schedule_refresh()
         self.window.statusBar().showMessage(
-            f"XDTSの{len(prepared)}個のCELLを{start_frame + 1}～"
-            f"{end_frame + 1}フレームへ反映しました。",
+            tr("XDTSの{len}個のCELLを{value}～{value2}フレームへ反映しました。").format(len=len(prepared), value=start_frame + 1, value2=end_frame + 1),
             4200,
         )
         return True
 
     def psd_dialog(self):
         path, _ = QFileDialog.getOpenFileName(
-            self.window, "PSDを読み込む", "", "Photoshop Document (*.psd)"
+            self.window, tr("PSDを読み込む"), "", "Photoshop Document (*.psd)"
         )
         if not path:
             return
         if PSDImage is None or PILImage is None:
             QMessageBox.warning(
                 self.window,
-                "PSD読み込み",
-                "PSDの読み込みには psd-tools と Pillow が必要です。\n"
-                "requirements.txtをインストールしてください。",
+                tr("PSD読み込み"),
+                tr("PSDの読み込みには psd-tools と Pillow が必要です。\n"
+                "requirements.txtをインストールしてください。"),
             )
             return
         try:
@@ -589,11 +577,10 @@ class ImportController:
                 or psd_width * psd_height > MAX_SINGLE_IMAGE_PIXELS
             ):
                 raise OperationError(
-                    "PSDの画像サイズが上限を超えています。"
-                    f" ({psd_width} × {psd_height}px)"
+                    tr("PSDの画像サイズが上限を超えています。 ({width} × {height}px)").format(width=psd_width, height=psd_height)
                 )
             if len(psd) > MAX_PROJECT_LAYERS:
-                raise OperationError("PSDの最上位レイヤー数が上限を超えています。")
+                raise OperationError(tr("PSDの最上位レイヤー数が上限を超えています。"))
             imported = []
             skipped = 0
             imported_cell_count = 0
@@ -606,7 +593,7 @@ class ImportController:
                 )
                 imported_cell_count += len(frame_layers)
                 if imported_cell_count > MAX_PROJECT_LAYER_CELLS:
-                    raise OperationError("PSDのレイヤー項目数が上限を超えています。")
+                    raise OperationError(tr("PSDのレイヤー項目数が上限を超えています。"))
                 key_images = []
                 for psd_layer in frame_layers:
                     try:
@@ -633,11 +620,11 @@ class ImportController:
                 else:
                     skipped += 1
             if not imported:
-                raise OperationError("読み込める画像レイヤーがありません。")
+                raise OperationError(tr("読み込める画像レイヤーがありません。"))
         except _OPERATION_ERRORS as exc:
             log.error("PSD import failed: %s", exc, exc_info=True)
             QMessageBox.critical(
-                self.window, "PSD読み込み", f"PSDを読み込めませんでした。\n\n{exc}"
+                self.window, tr("PSD読み込み"), tr("PSDを読み込めませんでした。\n\n{exc}").format(exc=exc)
             )
             return
 
@@ -676,17 +663,17 @@ class ImportController:
         self.window.canvas.changed.emit()
         self.window.canvas.selectionChanged.emit()
         self.window.canvas.update()
-        message = f"PSDから{len(imported)}レイヤーを読み込みました。"
+        message = tr("PSDから{len}レイヤーを読み込みました。").format(len=len(imported))
         if skipped:
-            message += f"\n調整レイヤーなど{skipped}項目は破棄しました。"
-        QMessageBox.information(self.window, "PSD読み込み", message)
+            message += tr("\n調整レイヤーなど{skipped}項目は破棄しました。").format(skipped=skipped)
+        QMessageBox.information(self.window, tr("PSD読み込み"), message)
 
     def xdts_dialog(self):
         path, _ = QFileDialog.getOpenFileName(
             self.window,
-            "XDTSタイムシートを読み込む",
+            tr("XDTSタイムシートを読み込む"),
             "",
-            "XDTSタイムシート (*.xdts *.xtds);;すべてのファイル (*)",
+            tr("XDTSタイムシート (*.xdts *.xtds);;すべてのファイル (*)"),
         )
         if not path:
             return
@@ -694,13 +681,13 @@ class ImportController:
             raw = Path(path).read_text(encoding="utf-8-sig")
             first_line, json_text = raw.split("\n", 1)
             if first_line.rstrip("\r") != "exchangeDigitalTimeSheet Save Data":
-                raise OperationError("XDTSの先頭識別文字列が一致しません。")
+                raise OperationError(tr("XDTSの先頭識別文字列が一致しません。"))
             payload = json.loads(json_text)
             if int(payload.get("version", -1)) != 5:
-                raise OperationError("対応しているXDTSバージョンは5です。")
+                raise OperationError(tr("対応しているXDTSバージョンは5です。"))
             time_tables = payload.get("timeTables") or []
             if not time_tables:
-                raise OperationError("タイムシート情報がありません。")
+                raise OperationError(tr("タイムシート情報がありません。"))
             time_table = time_tables[0]
             duration = max(1, int(time_table.get("duration", 1)))
             cell_field = next(
@@ -709,7 +696,7 @@ class ImportController:
                 None,
             )
             if cell_field is None:
-                raise OperationError("セル欄（fieldId 0）がありません。")
+                raise OperationError(tr("セル欄（fieldId 0）がありません。"))
             tracks = sorted(
                 cell_field.get("tracks", []),
                 key=lambda track: int(track.get("trackNo", 0)),
@@ -721,7 +708,7 @@ class ImportController:
             )
             names = list(header.get("names", []))
         except (OSError, UnicodeError, ValueError, TypeError, json.JSONDecodeError) as exc:
-            QMessageBox.critical(self.window, "XDTS読み込み", f"読み込めませんでした。\n\n{exc}")
+            QMessageBox.critical(self.window, tr("XDTS読み込み"), tr("読み込めませんでした。\n\n{exc}").format(exc=exc))
             return
 
         self.window.canvas.push_doc_undo()
@@ -800,7 +787,7 @@ class ImportController:
         self.window.canvas.changed.emit()
         self.window.canvas.selectionChanged.emit()
         self.window.canvas.update()
-        message = "XDTSタイムシートを読み込みました。"
+        message = tr("XDTSタイムシートを読み込みました。")
         if missing_images:
-            message += f"\n対応画像がない番号：{len(missing_images)}件（白画像で配置）"
-        QMessageBox.information(self.window, "XDTS読み込み", message)
+            message += tr("\n対応画像がない番号：{len}件（白画像で配置）").format(len=len(missing_images))
+        QMessageBox.information(self.window, tr("XDTS読み込み"), message)

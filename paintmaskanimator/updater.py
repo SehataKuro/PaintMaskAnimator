@@ -38,6 +38,7 @@ from .constants import (
     UPDATE_PASSWORD,
     UPDATE_USERNAME,
 )
+from .i18n import tr
 from .logging_setup import get_logger
 
 log = get_logger(__name__)
@@ -184,17 +185,17 @@ def check_for_update(
         if error.code in (401, 403):
             return {
                 "status": "error",
-                "message": "更新サーバーの認証に失敗しました。アプリの更新用"
-                "パスワードがサイト側の設定と一致していない可能性があります。",
+                "message": tr("更新サーバーの認証に失敗しました。アプリの更新用"
+                              "パスワードがサイト側の設定と一致していない可能性があります。"),
             }
         if error.code == 404:
             return {
                 "status": "error",
-                "message": "更新情報が見つかりませんでした（updates.json 未公開）。",
+                "message": tr("更新情報が見つかりませんでした（updates.json 未公開）。"),
             }
-        return {"status": "error", "message": f"HTTPエラー: {error.code}"}
+        return {"status": "error", "message": tr("HTTPエラー: {code}").format(code=error.code)}
     except urllib.error.URLError as error:
-        return {"status": "error", "message": f"ネットワークエラー: {error.reason}"}
+        return {"status": "error", "message": tr("ネットワークエラー: {reason}").format(reason=error.reason)}
     except (ValueError, KeyError, OSError) as error:
         # Malformed manifest JSON (ValueError/KeyError) or other I/O issues;
         # surface the message to the UI.

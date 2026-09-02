@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from .i18n import tr
 from .utils import ScreenColorPickerOverlay, _ScreenColorDragMixin
 from .logging_setup import get_logger
 
@@ -63,10 +64,10 @@ class ColorCategoryHeader(QWidget):
         self.collapse_button.setCheckable(True)
         self.collapse_button.setChecked(False)
         self.collapse_button.setText("▼")
-        self.collapse_button.setToolTip("フォルダーを折りたたむ")
+        self.collapse_button.setToolTip(tr("フォルダーを折りたたむ"))
         self.visibility_check = QCheckBox(self)
         self.visibility_check.setTristate(True)
-        self.visibility_check.setToolTip("フォルダー内の色を一括表示／非表示")
+        self.visibility_check.setToolTip(tr("フォルダー内の色を一括表示／非表示"))
         self.name_label = QLabel(self._name, self)
         self.name_label.setStyleSheet("font-weight:700;")
         layout.addWidget(self.collapse_button)
@@ -91,7 +92,7 @@ class ColorCategoryHeader(QWidget):
     def _sync_collapse_text(self, collapsed):
         self.collapse_button.setText("▶" if collapsed else "▼")
         self.collapse_button.setToolTip(
-            "フォルダーを展開" if collapsed else "フォルダーを折りたたむ"
+            tr("フォルダーを展開") if collapsed else tr("フォルダーを折りたたむ")
         )
 
     def _on_collapsed(self, collapsed):
@@ -355,15 +356,17 @@ class ReplacementColorPopup(QDialog):
         if not self._color.isValid():
             self._color = QColor("black")
         self._updating = False
-        self.setWindowTitle("置換色")
+        self.setWindowTitle(tr("置換色"))
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         self.setMinimumWidth(280)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(9, 9, 9, 9)
         layout.setSpacing(5)
-        title = "置換色"
+        title = tr("置換色")
         if source_rgb is not None:
-            title += "  元色 #{:02X}{:02X}{:02X}".format(*source_rgb)
+            title = tr("置換色　元色 #{hex}").format(
+                hex="{:02X}{:02X}{:02X}".format(*source_rgb)
+            )
         layout.addWidget(QLabel(f"<b>{title}</b>"))
         self.preview = QLabel()
         self.preview.setFixedHeight(28)

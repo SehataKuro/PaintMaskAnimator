@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QFileDialog, QMessageBox
+from .i18n import tr
 from .color_chart import (
     empty_color_chart,
     merge_color_charts,
@@ -130,9 +131,9 @@ class ColorChartController:
         if not current["tiles"]:
             QMessageBox.information(
                 self.window,
-                "カラーチャート",
-                "親子付けされた使用色がありません。\n"
-                "使用色を別の色の中央へドロップして親子を作成してください。",
+                tr("カラーチャート"),
+                tr("親子付けされた使用色がありません。\n"
+                "使用色を別の色の中央へドロップして親子を作成してください。"),
             )
             return False
         before = normalize_color_chart(self.window.color_chart_data)
@@ -141,7 +142,7 @@ class ColorChartController:
         added = max(0, len(chart["groups"]) - before_count)
         self.set_data(chart)
         self.window.statusBar().showMessage(
-            f"現在の親子付けをカラーチャートへ登録しました（新規 {added}組）。",
+            tr("現在の親子付けをカラーチャートへ登録しました（新規 {added}組）。").format(added=added),
             3000,
         )
         return True
@@ -149,7 +150,7 @@ class ColorChartController:
     def apply(self):
         chart = normalize_color_chart(self.window.color_chart_data)
         if not chart["tiles"]:
-            QMessageBox.information(self.window, "カラーチャート", "適用するチャートがありません。")
+            QMessageBox.information(self.window, tr("カラーチャート"), tr("適用するチャートがありません。"))
             return False
 
         available = {
@@ -226,7 +227,7 @@ class ColorChartController:
         self.window.palette._emit_preview()
         self.window.palette.selectedColorsChanged.emit(set(self.window.palette.selected_rgbs))
         self.window.statusBar().showMessage(
-            "現在の画像に存在する色へカラーチャートを適用しました。",
+            tr("現在の画像に存在する色へカラーチャートを適用しました。"),
             3000,
         )
         return True
@@ -237,7 +238,7 @@ class ColorChartController:
             return False
         path, _ = QFileDialog.getSaveFileName(
             self.window,
-            "カラーチャートを保存",
+            tr("カラーチャートを保存"),
             "color_chart.pmag",
             "Paint Mask Group (*.pmag)",
         )
@@ -249,16 +250,16 @@ class ColorChartController:
             write_pmag(path, self.window.color_chart_data)
         except (OSError, ValueError, TypeError) as exc:
             log.error("PMAG save failed: %s", exc, exc_info=True)
-            QMessageBox.critical(self.window, "PMAG保存", f"保存できませんでした。\n\n{exc}")
+            QMessageBox.critical(self.window, tr("PMAG保存"), tr("保存できませんでした。\n\n{exc}").format(exc=exc))
             return False
-        self.window.statusBar().showMessage(f"PMAGを保存しました：{Path(path).name}", 3000)
+        self.window.statusBar().showMessage(tr("PMAGを保存しました：{Path}").format(Path=Path(path).name), 3000)
         return True
 
     def load_pmag(self, path=None):
         if path is None:
             path, _ = QFileDialog.getOpenFileName(
                 self.window,
-                "カラーチャートを読み込み",
+                tr("カラーチャートを読み込み"),
                 "",
                 "Paint Mask Group (*.pmag)",
             )
@@ -268,9 +269,9 @@ class ColorChartController:
             chart = read_pmag(path)
         except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
             log.error("PMAG load failed: %s", exc, exc_info=True)
-            QMessageBox.critical(self.window, "PMAG読込", f"読み込めませんでした。\n\n{exc}")
+            QMessageBox.critical(self.window, tr("PMAG読込"), tr("読み込めませんでした。\n\n{exc}").format(exc=exc))
             return False
         self.set_data(chart)
         self.window._set_color_chart_visible(True)
-        self.window.statusBar().showMessage(f"PMAGを読み込みました：{Path(path).name}", 3000)
+        self.window.statusBar().showMessage(tr("PMAGを読み込みました：{Path}").format(Path=Path(path).name), 3000)
         return True

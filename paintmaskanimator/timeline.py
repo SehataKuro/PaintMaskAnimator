@@ -1,4 +1,5 @@
 from pathlib import Path
+from .i18n import tr
 from PySide6.QtCore import QEvent, QItemSelectionModel, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
@@ -515,12 +516,12 @@ class TimelineTable(QTableWidget):
         )
 
         menu = QMenu(self)
-        add_menu = menu.addMenu("コマを増やす")
+        add_menu = menu.addMenu(tr("コマを増やす"))
         action_add_blank = add_menu.addAction(
-            "空フレームを追加"
+            tr("空フレームを追加")
         )
         action_extend = add_menu.addAction(
-            "表示コマを1コマ伸ばす"
+            tr("表示コマを1コマ伸ばす")
         )
         key_column = (
             item.data(Qt.ItemDataRole.UserRole)
@@ -543,7 +544,7 @@ class TimelineTable(QTableWidget):
         if index.isValid():
             numbers = self._sequence_numbers_by_row.get(int(index.row()), ())
             if numbers:
-                recall_menu = menu.addMenu("連番の番号を呼び出す")
+                recall_menu = menu.addMenu(tr("連番の番号を呼び出す"))
                 for number in numbers:
                     recall_actions[recall_menu.addAction(str(number))] = int(number)
 
@@ -566,7 +567,7 @@ class TimelineTable(QTableWidget):
                 or item.text() in ("♦", "◆")
             ):
                 action_cancel = menu.addAction(
-                    "トゥイーンをキャンセル"
+                    tr("トゥイーンをキャンセル")
                 )
             else:
                 key_col = item.data(Qt.ItemDataRole.UserRole)
@@ -574,10 +575,10 @@ class TimelineTable(QTableWidget):
                     Qt.ItemDataRole.UserRole + 1
                 )
                 tween_menu = menu.addMenu(
-                    "トゥイーンを有効にする"
+                    tr("トゥイーンを有効にする")
                 )
-                action_free = tween_menu.addAction("自由変形")
-                action_mesh = tween_menu.addAction("メッシュ変形")
+                action_free = tween_menu.addAction(tr("自由変形"))
+                action_mesh = tween_menu.addAction(tr("メッシュ変形"))
                 tween_enabled = (
                     key_col is not None
                     and exposure is not None
@@ -652,54 +653,54 @@ class TimelineWidget(QWidget):
         c.setContentsMargins(0,0,0,0)
         c.setSpacing(2)
 
-        self.add_blank = QPushButton("+空")
+        self.add_blank = QPushButton(tr("+空"))
         self.add_blank.setToolTip(
-            "●／○の開始セルでは直後へ同じ長さの○を挿入。"
-            "ー部分では選択位置から後半を○へ分割します。"
+            tr("●／○の開始セルでは直後へ同じ長さの○を挿入。"
+            "ー部分では選択位置から後半を○へ分割します。")
         )
-        self.add_exposure = QPushButton("+コマ")
+        self.add_exposure = QPushButton(tr("+コマ"))
         self.add_exposure.setToolTip(
-            "現在のキーフレーム／空フレームを1コマ伸ばします。"
+            tr("現在のキーフレーム／空フレームを1コマ伸ばします。")
         )
-        self.delete=QPushButton("削除")
-        self.delete.setToolTip("現在の表示コマを1コマ削除します。")
-        self.time_remap_paste=QPushButton("リマップ")
+        self.delete=QPushButton(tr("削除"))
+        self.delete.setToolTip(tr("現在の表示コマを1コマ削除します。"))
+        self.time_remap_paste=QPushButton(tr("リマップ"))
         self.time_remap_paste.setToolTip(
-            "AEまたはToeiDigitalTimeSheetのコピー情報を"
+            tr("AEまたはToeiDigitalTimeSheetのコピー情報を"
             "タイムシートへ貼り付けます。XDTSはタイムラインへ"
-            "ドラッグ＆ドロップできます。"
+            "ドラッグ＆ドロップできます。")
         )
         self.prev=QPushButton("◀F")
-        self.prev.setToolTip("前のフレーム（1）")
+        self.prev.setToolTip(tr("前のフレーム（1）"))
         self.next=QPushButton("F▶")
-        self.next.setToolTip("次のフレーム（2）")
+        self.next.setToolTip(tr("次のフレーム（2）"))
         self.prev_key=QPushButton("◀K")
-        self.prev_key.setToolTip("前のコマ（A）")
+        self.prev_key.setToolTip(tr("前のコマ（A）"))
         self.next_key=QPushButton("K▶")
-        self.next_key.setToolTip("次のコマ（S）")
-        self.play=QPushButton("再生")
-        self.play.setToolTip("再生／停止")
+        self.next_key.setToolTip(tr("次のコマ（S）"))
+        self.play=QPushButton(tr("再生"))
+        self.play.setToolTip(tr("再生／停止"))
         self.play.setCheckable(True)
 
-        self.onion_all_layers=QCheckBox("すべてのレイヤー")
+        self.onion_all_layers=QCheckBox(tr("すべてのレイヤー"))
         self.onion_all_layers.setChecked(True)
-        self.onion=QCheckBox("オニオンスキン")
-        self.onion.setToolTip("オニオンスキン表示のON／OFF")
-        self.onion_settings=QPushButton("設定")
+        self.onion=QCheckBox(tr("オニオンスキン"))
+        self.onion.setToolTip(tr("オニオンスキン表示のON／OFF"))
+        self.onion_settings=QPushButton(tr("設定"))
         self.onion_settings.setCheckable(True)
         self.onion_settings.setCursor(
             Qt.CursorShape.PointingHandCursor
         )
         self.onion_settings.setToolTip(
-            "クリックでオニオンスキン設定を開き、"
-            "再クリックで閉じます。"
+            tr("クリックでオニオンスキン設定を開き、"
+            "再クリックで閉じます。")
         )
         self.onion_settings.setStyleSheet(
             "QPushButton{padding:1px 5px;font-size:10px;}"
             "QPushButton:checked{background:#d7eef8;"
             "border:1px solid #4a9fc5;}"
         )
-        self.duration=QSpinBox(); self.duration.setRange(1,240); self.duration.setSuffix(" コマ")
+        self.duration=QSpinBox(); self.duration.setRange(1,240); self.duration.setSuffix(tr(" コマ"))
         self.duration.hide()
         self.fps=QSpinBox(); self.fps.setRange(1,60); self.fps.setValue(24); self.fps.setSuffix(" fps")
         self.fps.setFixedSize(68,22)
@@ -744,13 +745,13 @@ class TimelineWidget(QWidget):
         ):
             c.addWidget(widget)
         self.onion_all_layers.hide()
-        self.layer_opacity_text = QLabel("不透明")
+        self.layer_opacity_text = QLabel(tr("不透明"))
         self.layer_opacity_slider = QSlider(Qt.Orientation.Horizontal)
         self.layer_opacity_slider.setRange(0, 100)
         self.layer_opacity_slider.setValue(100)
         self.layer_opacity_slider.setFixedWidth(84)
         self.layer_opacity_slider.setToolTip(
-            "選択レイヤーの表示不透明度です。画像の色データ自体は変更しません。"
+            tr("選択レイヤーの表示不透明度です。画像の色データ自体は変更しません。")
         )
         # レイヤー不透明度は操作列の一番左に固定する。
         c.insertWidget(0, self.layer_opacity_slider)
@@ -761,31 +762,31 @@ class TimelineWidget(QWidget):
         )
         self.layer_opacity_value.setFixedWidth(38)
         self.layer_opacity_value.setToolTip(
-            "現在選択しているレイヤーの表示不透明度"
+            tr("現在選択しているレイヤーの表示不透明度")
         )
 
         c.addStretch()
-        compact_hint = QLabel("Shift/Ctrl：複数選択")
+        compact_hint = QLabel(tr("Shift/Ctrl：複数選択"))
         self.compact_hint = compact_hint
         compact_hint.setToolTip(
-            "ドラッグ・Shift＋クリック：複数選択／"
+            tr("ドラッグ・Shift＋クリック：複数選択／"
             "選択範囲をそのままドラッグ：まとめて移動／"
             "●・○中央：移動／左右端：伸縮／"
-            "Space：ハンド／Ctrl＋Space：拡大縮小"
+            "Space：ハンド／Ctrl＋Space：拡大縮小")
         )
         c.addWidget(compact_hint)
         c.addWidget(self.fps)
         c.addWidget(self.layer_opacity_value)
         v.addLayout(c)
         self.mode_tabs = QTabBar()
-        self.mode_tabs.addTab("シート")
-        self.mode_tabs.addTab("連番")
+        self.mode_tabs.addTab(tr("シート"))
+        self.mode_tabs.addTab(tr("連番"))
         self.mode_tabs.setCurrentIndex(0)
         self.mode_tabs.setExpanding(False)
         self.mode_tabs.setDrawBase(True)
         self.mode_tabs.setToolTip(
-            "連番：左から順番に自動採番／"
-            "シート：タイムシートの絵番号を保持"
+            tr("連番：左から順番に自動採番／"
+            "シート：タイムシートの絵番号を保持")
         )
         self.timeline_mode = "sheet"
         self.mode_tabs.currentChanged.connect(
@@ -835,7 +836,7 @@ class TimelineWidget(QWidget):
         layer_header_layout = QHBoxLayout(self.layer_header_spacer)
         layer_header_layout.setContentsMargins(2,0,2,0)
         layer_header_layout.setSpacing(2)
-        layer_header_layout.addWidget(QLabel("レイヤー"))
+        layer_header_layout.addWidget(QLabel(tr("レイヤー")))
         layer_header_layout.addStretch()
         self.layer_add=QPushButton("＋")
         self.layer_del=QPushButton("－")
@@ -1001,16 +1002,16 @@ class TimelineWidget(QWidget):
         sequence_mode = self.timeline_mode == "sequence"
         self.add_exposure.setVisible(not sequence_mode)
         self.add_blank.setToolTip(
-            "選択番号の直後へ、新しい空の番号画像を追加します。"
+            tr("選択番号の直後へ、新しい空の番号画像を追加します。")
             if sequence_mode
             else
-            "●／○の開始セルでは直後へ同じ長さの○を挿入。"
-            "ー部分では選択位置から後半を○へ分割します。"
+            tr("●／○の開始セルでは直後へ同じ長さの○を挿入。"
+            "ー部分では選択位置から後半を○へ分割します。")
         )
         self.delete.setToolTip(
-            "選択番号を削除し、シート側の対応セルを未使用にします。"
+            tr("選択番号を削除し、シート側の対応セルを未使用にします。")
             if sequence_mode
-            else "現在の表示コマを1コマ削除します。"
+            else tr("現在の表示コマを1コマ削除します。")
         )
 
     def _update_timeline_mode_tab_style(self):
@@ -1269,18 +1270,18 @@ class TimelineWidget(QWidget):
         if not rows:
             return
         menu = QMenu(self)
-        action_duplicate = menu.addAction("複製")
-        action_merge = menu.addAction("結合")
+        action_duplicate = menu.addAction(tr("複製"))
+        action_merge = menu.addAction(tr("結合"))
         action_merge.setEnabled(len(rows) >= 2)
-        action_delete = menu.addAction("削除")
+        action_delete = menu.addAction(tr("削除"))
         menu.addSeparator()
-        action_draft = menu.addAction("下書きレイヤー")
+        action_draft = menu.addAction(tr("下書きレイヤー"))
         action_draft.setCheckable(True)
         action_draft.setChecked(bool(self._rows_all_draft(rows)))
         action_normalize = None
         if self.timeline_mode == "sheet":
             menu.addSeparator()
-            action_normalize = menu.addAction("番号の正規化")
+            action_normalize = menu.addAction(tr("番号の正規化"))
         chosen = menu.exec(self.layer_list.viewport().mapToGlobal(position))
         if chosen is action_duplicate:
             self.duplicateLayersRequested.emit(rows)
@@ -1526,9 +1527,9 @@ class TimelineWidget(QWidget):
                 font.setItalic(True)
                 item.setFont(font)
             item.setToolTip(
-                ("下書きレイヤー（色数削減の対象外）。\n" if is_draft else "")
-                + "[●] 表示／[-] 非表示。左端クリックで切替、"
-                "ダブルクリックでレイヤー名を変更。"
+                (tr("下書きレイヤー（色数削減の対象外）。\n") if is_draft else "")
+                + tr("[●] 表示／[-] 非表示。左端クリックで切替、"
+                     "ダブルクリックでレイヤー名を変更。")
             )
             item.setSizeHint(QSize(0, row_height))
             self.layer_list.addItem(item)
@@ -1766,30 +1767,30 @@ class TimelineWidget(QWidget):
                     if is_pending_tween:
                         item.setToolTip(
                             (
-                                "逆生成トゥイーン中。"
+                                tr("逆生成トゥイーン中。"
                                 "この右端は元の初期形状です。"
-                                "右クリックでキャンセルできます。"
+                                "右クリックでキャンセルできます。")
                             )
                             if pending_reverse
                             else
-                            "トゥイーン変形中。"
-                            "右クリックでキャンセルできます。"
+                            tr("トゥイーン変形中。"
+                            "右クリックでキャンセルできます。")
                         )
                     else:
                         item.setToolTip(
                             (
-                                "右端をドラッグして後方向の表示コマ数を変更／"
-                                "右クリックでトゥイーンを有効化"
+                                tr("右端をドラッグして後方向の表示コマ数を変更／"
+                                "右クリックでトゥイーンを有効化")
                             )
                             if span_kind == "content"
-                            else "空フレームの右端をドラッグして表示コマ数を変更"
+                            else tr("空フレームの右端をドラッグして表示コマ数を変更")
                         )
                 elif text == "◆":
                     item.setToolTip(
-                        "逆生成トゥイーン中。"
+                        tr("逆生成トゥイーン中。"
                         "キーフレーム側が操作中の変形形状、"
                         "右端側が元の初期形状になります。"
-                        "右クリックでキャンセルできます。"
+                        "右クリックでキャンセルできます。")
                     )
                 elif (
                     span_kind == "content"
@@ -1806,18 +1807,16 @@ class TimelineWidget(QWidget):
                     )
                     item.setToolTip(
                         (
-                            f"CLIP STUDIOセル名：{source_cell_name}\n"
+                            tr("CLIP STUDIOセル名：{name}\n").format(name=source_cell_name)
                             if source_cell_name
                             else ""
                         )
-                        + f"中央をドラッグして移動／左端をドラッグして前方向へ伸縮\n"
-                        f"レイヤーセル {col + 1} / "
-                        f"{exposure}コマ"
+                        + tr("中央をドラッグして移動／左端をドラッグして前方向へ伸縮\nレイヤーセル {value} / {exposure}コマ").format(value=col + 1, exposure=exposure)
                     )
                 elif text == "○":
                     item.setToolTip(
-                        "空フレームの先頭です。"
-                        "描画すると自動的にキーフレーム化します。"
+                        tr("空フレームの先頭です。"
+                        "描画すると自動的にキーフレーム化します。")
                     )
                 if (
                     (self.timeline_mode != "sequence" and col == current)

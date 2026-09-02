@@ -552,7 +552,7 @@ class ColorChartCanvas(QWidget):
                 "id": tile["id"],
                 "name": tile["name"],
                 "parent": tile["parent"]["color"],
-                "parent_tag": "未設定" if tile["placeholder"] else tile["parent"]["tag"],
+                "parent_tag": tr("未設定") if tile["placeholder"] else tile["parent"]["tag"],
                 "placeholder": tile["placeholder"],
                 "children": children,
             })
@@ -1100,10 +1100,10 @@ class ColorChartPanel(QWidget):
 def read_pmag(path):
     source = Path(path)
     if source.stat().st_size > 16 * 1024 * 1024:
-        raise OperationError("PMAGファイルが大きすぎます。")
+        raise OperationError(tr("PMAGファイルが大きすぎます。"))
     payload = json.loads(source.read_text(encoding="utf-8"))
     if not isinstance(payload, dict) or payload.get("format") != PMAG_FORMAT:
-        raise OperationError("PaintMaskGroup形式ではありません。")
+        raise OperationError(tr("PaintMaskGroup形式ではありません。"))
     return normalize_color_chart(payload)
 
 

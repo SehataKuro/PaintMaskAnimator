@@ -8,6 +8,7 @@ that publish the current grouping to the main window.
 """
 from typing import Any
 from PySide6.QtGui import QColor
+from .i18n import tr
 from ._color_panel_members import UsedColorPanelMembers
 from .logging_setup import get_logger
 
@@ -45,7 +46,7 @@ class ColorGroupingMixin(UsedColorPanelMembers):
             return
         if target_rgb == self.background_rgb:
             return
-        label = "親子付け" if mode == "child" else "使用色の並べ替え"
+        label = tr("親子付け") if mode == "child" else tr("使用色の並べ替え")
         with self._history_edit(label):
             if mode == "child":
                 selected = {
@@ -322,7 +323,7 @@ class ColorGroupingMixin(UsedColorPanelMembers):
                     "background-color:palette(alternate-base);"
                     "border-left:3px solid palette(highlight);}"
                 )
-                widget.setToolTip("使用色フォルダーに格納されています。")
+                widget.setToolTip(tr("使用色フォルダーに格納されています。"))
             else:
                 widget.setObjectName("usedColorRow")
                 widget.setStyleSheet("")
@@ -421,7 +422,7 @@ class ColorGroupingMixin(UsedColorPanelMembers):
     def _clear_groups(self):
         if not self.child_to_parent:
             return
-        with self._history_edit("親子をすべて解除"):
+        with self._history_edit(tr("親子をすべて解除")):
             self.child_to_parent = {}
             self._refresh_all_group_displays()
             self._emit_preview()
@@ -438,8 +439,8 @@ class ColorGroupingMixin(UsedColorPanelMembers):
             window: Any = self.window()
             if hasattr(window, "statusBar"):
                 window.statusBar().showMessage(
-                    "統合する親子がありません。"
-                    "色を別の色の中へドロップして親子を作成してください。",
+                    tr("統合する親子がありません。"
+                    "色を別の色の中へドロップして親子を作成してください。"),
                     2800,
                 )
             return
@@ -457,7 +458,7 @@ class ColorGroupingMixin(UsedColorPanelMembers):
             window: Any = self.window()
             if hasattr(window, "statusBar"):
                 window.statusBar().showMessage(
-                    "統合する使用色を2色以上選択してください。最後に選んだ色が親です。",
+                    tr("統合する使用色を2色以上選択してください。最後に選んだ色が親です。"),
                     2800,
                 )
             return

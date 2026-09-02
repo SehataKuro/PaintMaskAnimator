@@ -12,6 +12,7 @@ from typing import Any
 from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, Qt
 from PySide6.QtGui import QColor, QImage, QPainter, QPolygonF, QRegion
 from PySide6.QtWidgets import QApplication
+from .i18n import tr
 from .optional_deps import PILImage, PILImageFilter
 from .constants import OUTSIDE_MARGIN
 from ._canvas_members import CanvasMembers
@@ -241,18 +242,18 @@ class SelectionMixin(CanvasMembers):
                 # but do not pretend that the TP_mask method is active.
                 self.transform_quality_active = False
                 self.status_message.emit(
-                    "クオリティ変形には Pillow が必要です。通常変形へ切り替えました。"
+                    tr("クオリティ変形には Pillow が必要です。通常変形へ切り替えました。")
                 )
             elif use_proxy:
                 self._clear_tp_transform_masks(clear_proxy=False)
                 self.status_message.emit(
-                    "5000px以上の画像は軽量TpMaskプレビューで表示し、"
-                    "確定時に原寸で処理します。"
+                    tr("5000px以上の画像は軽量TpMaskプレビューで表示し、"
+                    "確定時に原寸で処理します。")
                 )
             elif not self._prepare_tp_transform_masks():
                 self.transform_quality_active = False
                 self.status_message.emit(
-                    "TpMaskを準備できなかったため、通常変形へ切り替えました。"
+                    tr("TpMaskを準備できなかったため、通常変形へ切り替えました。")
                 )
         self.transform_drag_kind = None
         self.transform_drag_start = QPointF()
@@ -308,7 +309,7 @@ class SelectionMixin(CanvasMembers):
         self.transform_handle = -1
         if self.transform_quality_active:
             self.request_quality_preview_counter(
-                "最初のクオリティプレビューを生成しています"
+                tr("最初のクオリティプレビューを生成しています")
             )
         self.update()
         return True
@@ -372,7 +373,7 @@ class SelectionMixin(CanvasMembers):
         self._invalidate_tp_preview_cache()
         if self.transform_quality_active:
             self.request_quality_preview_counter(
-                "回転後のクオリティプレビューを生成しています"
+                tr("回転後のクオリティプレビューを生成しています")
             )
         self.update()
 
@@ -487,16 +488,16 @@ class SelectionMixin(CanvasMembers):
                 # 原寸マスクを生成する。代理画像を確定結果へ流用しない。
                 self._clear_tp_transform_masks(clear_proxy=False)
                 self.refresh_quality_preview_with_counter(
-                    "変形確定用の原寸クオリティ画像を生成しています",
+                    tr("変形確定用の原寸クオリティ画像を生成しています"),
                     full_resolution=True,
                 )
             elif self._tp_preview_cache_image is None:
                 self.refresh_quality_preview_with_counter(
-                    "変形確定用のクオリティ画像を生成しています"
+                    tr("変形確定用のクオリティ画像を生成しています")
                 )
             if self._tp_preview_cache_image is None:
                 self.status_message.emit(
-                    "クオリティ画像を生成できなかったため、変形確定を中止しました。"
+                    tr("クオリティ画像を生成できなかったため、変形確定を中止しました。")
                 )
                 return
 
@@ -515,9 +516,9 @@ class SelectionMixin(CanvasMembers):
         if all_frames and window is not None:
             progress = create_counter(
                 window,
-                "すべてのコマに変形",
+                tr("すべてのコマに変形"),
                 len(frame_indices),
-                "変形を準備しています",
+                tr("変形を準備しています"),
             )
 
         for progress_index, frame_index in enumerate(frame_indices, 1):
@@ -526,7 +527,7 @@ class SelectionMixin(CanvasMembers):
                     progress,
                     progress_index - 1,
                     len(frame_indices),
-                    f"コマ {frame_index + 1} を変形しています",
+                    tr("コマ {value} を変形しています").format(value=frame_index + 1),
                 )
             if not (0 <= frame_index < len(self.frames)):
                 continue

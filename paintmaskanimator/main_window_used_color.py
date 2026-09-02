@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 from PySide6.QtGui import QColor, QImage
 from . import imaging
+from .i18n import tr
 from .progress import close_counter, create_counter, update_counter
 from .logging_setup import get_logger
 from .undo_entries import PaletteStateUndo
@@ -139,7 +140,7 @@ class UsedColorController:
             self.window._pending_palette_categories = None
             self.window.palette.restore_categories(pending_categories)
         if exceeded:
-            self.window.palette.count_label.setText("100色以上")
+            self.window.palette.count_label.setText(tr("100色以上"))
 
     def _extract(self, image, limit=101):
         # Palette filtering needs the same full-image RGB index. Build it while
@@ -169,8 +170,12 @@ class UsedColorController:
         progress=None,
         progress_offset=0,
         progress_total=None,
-        progress_label="使用色を認識しています",
+        progress_label=None,
     ):
+        # Not a default argument: tr() there would run at import time, before the
+        # translator is installed.
+        if progress_label is None:
+            progress_label = tr("使用色を認識しています")
         if request is not None and request != self.window._used_color_request:
             return
         if self.window.canvas.drawing:
@@ -199,7 +204,7 @@ class UsedColorController:
             if progress is not None:
                 total = progress_total or max(1, progress_offset + len(self.window.canvas.frames))
                 update_counter(
-                    progress, total, total, "使用色の認識が完了しました"
+                    progress, total, total, tr("使用色の認識が完了しました")
                 )
             return
         layer_signature = self._layer_signature(layer_index)
@@ -211,7 +216,7 @@ class UsedColorController:
             if progress is not None:
                 total = progress_total or max(1, progress_offset + len(self.window.canvas.frames))
                 update_counter(
-                    progress, total, total, "使用色の認識が完了しました"
+                    progress, total, total, tr("使用色の認識が完了しました")
                 )
             return
         all_colors = []
@@ -226,7 +231,7 @@ class UsedColorController:
                     progress,
                     progress_offset + scan_index - 1,
                     combined_total,
-                    f"{progress_label}（{scan_index}/{frame_total}コマ）",
+                    tr("{label}（{index}/{total}コマ）").format(label=progress_label, index=scan_index, total=frame_total),
                 )
 
             if layer_index < len(frame.layers):
@@ -271,20 +276,31 @@ class UsedColorController:
                 progress,
                 progress_offset + frame_total,
                 combined_total,
-                "使用色の認識が完了しました",
+                tr("使用色の認識が完了しました"),
             )
 
     def apply_palette_isolate_color(self, color):
         self.window.colors.isolate_selected_color(QColor(color))
 
-    def apply_palette_replacements(self, mapping, operation="色置換"):
+    #: Palette edit -> the label shown in the history panel and status bar. The
+    #: key is the stable identifier the code branches on; only the value is
+    #: user-facing, so translating it cannot change any behaviour.
+    OPERATION_LABELS = {
+        "replace": "色置換",
+        "delete": "色削除",
+        "merge": "色統合",
+        "parent_merge": "親子統合",
+    }
+
+    def apply_palette_replacements(self, mapping, operation="replace"):
+        operation_label = self.OPERATION_LABELS[operation]
         if not mapping:
-            if operation == "色置換":
-                message = "置換色が登録されていません。"
-            elif operation == "色削除":
-                message = "削除する使用色が選択されていません。"
+            if operation == "replace":
+                message = tr("置換色が登録されていません。")
+            elif operation == "delete":
+                message = tr("削除する使用色が選択されていません。")
             else:
-                message = "統合する使用色が選択されていません。"
+                message = tr("統合する使用色が選択されていません。")
             self.window.statusBar().showMessage(message, 2200)
             return False
 
@@ -300,12 +316,12 @@ class UsedColorController:
             rgb_mapping[source] = destination
 
         if not packed_mapping:
-            if operation == "色置換":
-                message = "置換前と置換後が同じ色です。"
-            elif operation == "色削除":
-                message = "削除できる使用色が選択されていません。"
+            if operation == "replace":
+                message = tr("置換前と置換後が同じ色です。")
+            elif operation == "delete":
+                message = tr("削除できる使用色が選択されていません。")
             else:
-                message = "親以外の使用色を選択してください。"
+                message = tr("親以外の使用色を選択してください。")
             self.window.statusBar().showMessage(message, 2200)
             return False
 
@@ -381,7 +397,7 @@ class UsedColorController:
         result = self.window.scope.run_over(
             self.window.scope.current_frame(True),
             replace_colors,
-            label=operation,
+            label=operation_label,
             count_pixels=lambda context, _image: changed_by_cell.get(
                 (context.frame, context.layer_index), 0
             ),
@@ -391,7 +407,7 @@ class UsedColorController:
 
         if not changed_pixels:
             self.window.statusBar().showMessage(
-                "選択した使用色は画像内にありませんでした。",
+                tr("選択した使用色は画像内にありませんでした。"),
                 2400,
             )
             return False
@@ -409,7 +425,7 @@ class UsedColorController:
         # 破棄と再描画は run_over_scope 側で済んでいる）。
         self.schedule_refresh()
         self.window.statusBar().showMessage(
-            f"{changed_cells}セル・{changed_pixels:,}ピクセルへ{operation}を適用しました。",
+            tr("{cells}セル・{pixels:,}ピクセルへ{label}を適用しました。").format(cells=changed_cells, pixels=changed_pixels, label=operation_label),
             3000,
         )
         return True
@@ -432,7 +448,7 @@ class UsedColorController:
 
         if not selected:
             self.window.statusBar().showMessage(
-                "削除する使用色が選択されていません。",
+                tr("削除する使用色が選択されていません。"),
                 2400,
             )
             return
@@ -443,12 +459,12 @@ class UsedColorController:
         }
         if self.apply_palette_replacements(
             mapping,
-            operation="色削除",
+            operation="delete",
         ):
             # 削除後に存在しない親・子選択を残さない。
             self.window.palette._clear_used_color_selection()
             self.window.statusBar().showMessage(
-                f"{len(selected)}色を #FFFFFF へ統合しました。",
+                tr("{len}色を #FFFFFF へ統合しました。").format(len=len(selected)),
                 3200,
             )
 
@@ -461,7 +477,7 @@ class UsedColorController:
         }
         if parent == (255, 255, 255):
             self.window.statusBar().showMessage(
-                "背景色は統合先にできません。",
+                tr("背景色は統合先にできません。"),
                 2400,
             )
             return
@@ -470,10 +486,11 @@ class UsedColorController:
             for rgb in selected
             if rgb != parent and rgb != (255, 255, 255)
         }
-        if self.apply_palette_replacements(mapping, operation="色統合"):
+        if self.apply_palette_replacements(mapping, operation="merge"):
             self.window.palette._retain_parent_selection()
 
-    def refresh_with_counter(self, title="使用色を更新しています"):
+    def refresh_with_counter(self, title=None):
+        title = tr("使用色を更新しています") if title is None else title
         self.window._used_color_timer.stop()
         self.window._used_color_request += 1
         total = max(1, len(self.window.canvas.frames))
@@ -481,13 +498,13 @@ class UsedColorController:
             self.window,
             title,
             total,
-            "選択レイヤーの使用色を認識しています",
+            tr("選択レイヤーの使用色を認識しています"),
         )
         try:
             self.refresh(
                 progress=progress,
                 progress_total=total,
-                progress_label="選択レイヤーの使用色を認識しています",
+                progress_label=tr("選択レイヤーの使用色を認識しています"),
             )
         finally:
             close_counter(progress)

@@ -4,6 +4,7 @@ from typing import Any
 from PySide6.QtCore import QEvent, QPointF, QRect, QRectF, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QCursor, QImage, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import QApplication, QWidget
+from .i18n import tr
 from .constants import OUTSIDE_MARGIN
 from typing import TYPE_CHECKING
 from . import constants
@@ -199,8 +200,8 @@ class ScreenColorLoupe(QWidget):
         painter.setPen(QPen(QColor("white"), 1))
         painter.drawRect(before_rect)
         painter.drawRect(after_rect)
-        painter.drawText(before_rect, Qt.AlignmentFlag.AlignCenter, "前")
-        painter.drawText(after_rect, Qt.AlignmentFlag.AlignCenter, "後")
+        painter.drawText(before_rect, Qt.AlignmentFlag.AlignCenter, tr("前"))
+        painter.drawText(after_rect, Qt.AlignmentFlag.AlignCenter, tr("後"))
 
 
 def show_screen_color_loupe(owner, global_position, before_color=None):

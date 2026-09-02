@@ -6,6 +6,7 @@ of them, run the press-and-sweep drag that toggles a run of checkboxes in one
 gesture, and provide the mask context menu.
 """
 from PySide6.QtWidgets import QMenu
+from .i18n import tr
 from ._color_panel_members import UsedColorPanelMembers
 from .color_panel_widgets import CheckClickArea
 from .logging_setup import get_logger
@@ -30,7 +31,7 @@ class MaskColorsMixin(UsedColorPanelMembers):
                 self.mask_rgbs.discard(rgb)
             self._emit_mask_state()
             return
-        with self._history_edit("マスクの切り替え"):
+        with self._history_edit(tr("マスクの切り替え")):
             if checked:
                 self.mask_rgbs.add(rgb)
             else:
@@ -45,7 +46,7 @@ class MaskColorsMixin(UsedColorPanelMembers):
             checkbox.blockSignals(False)
 
     def _set_all_masks_on(self):
-        with self._history_edit("マスクを全体ON"):
+        with self._history_edit(tr("マスクを全体ON")):
             self.mask_rgbs = set(self.mask_checks)
             for rgb in self.mask_checks:
                 self._set_mask_checkbox_without_signal(rgb, True)
@@ -53,7 +54,7 @@ class MaskColorsMixin(UsedColorPanelMembers):
 
     def _clear_mask_colors(self):
         """Compatibility helper: turn every mask OFF."""
-        with self._history_edit("マスクを全体OFF"):
+        with self._history_edit(tr("マスクを全体OFF")):
             self.mask_rgbs.clear()
             for rgb in self.mask_checks:
                 self._set_mask_checkbox_without_signal(rgb, False)
@@ -61,7 +62,7 @@ class MaskColorsMixin(UsedColorPanelMembers):
 
     def _isolate_mask_color(self, rgb):
         """Alt+click: enable only the clicked mask."""
-        with self._history_edit("この色だけマスクON"):
+        with self._history_edit(tr("この色だけマスクON")):
             self.mask_rgbs = {rgb}
             for key in self.mask_checks:
                 self._set_mask_checkbox_without_signal(key, key == rgb)
@@ -69,14 +70,14 @@ class MaskColorsMixin(UsedColorPanelMembers):
 
     def _disable_other_masks(self, rgb):
         """右クリック対象だけをONにし、それ以外のマスクをOFFにする。"""
-        with self._history_edit("対象以外のマスクOFF"):
+        with self._history_edit(tr("対象以外のマスクOFF")):
             self.mask_rgbs = {rgb}
             for key in self.mask_checks:
                 self._set_mask_checkbox_without_signal(key, key == rgb)
             self._emit_mask_state()
 
     def _set_single_mask_state(self, rgb, enabled):
-        with self._history_edit("マスクの切り替え"):
+        with self._history_edit(tr("マスクの切り替え")):
             self._set_mask_checkbox_without_signal(rgb, enabled)
             if enabled:
                 self.mask_rgbs.add(rgb)
@@ -126,7 +127,7 @@ class MaskColorsMixin(UsedColorPanelMembers):
         self._mask_sweep_active = False
         if self._mask_sweep_changed:
             self._emit_mask_state()
-            self._record_history("マスクの一括切り替え", self._sweep_history_before)
+            self._record_history(tr("マスクの一括切り替え"), self._sweep_history_before)
         self._sweep_history_before = None
         self._mask_sweep_touched.clear()
         self._mask_sweep_changed = False
@@ -136,8 +137,8 @@ class MaskColorsMixin(UsedColorPanelMembers):
         action_on = menu.addAction("ON")
         action_off = menu.addAction("OFF")
         menu.addSeparator()
-        action_others = menu.addAction("対象以外をOFF")
-        action_all = menu.addAction("全表示")
+        action_others = menu.addAction(tr("対象以外をOFF"))
+        action_all = menu.addAction(tr("全表示"))
         chosen = menu.exec(global_position)
         if chosen is action_on:
             self._set_single_mask_state(rgb, True)

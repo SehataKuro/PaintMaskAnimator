@@ -8,6 +8,7 @@ A collaborator rather than a mixin -- see ``main_window_export.py`` for why.
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QItemSelectionModel, QTimer
+from .i18n import tr
 from .utils import blank_image
 from .timeline import TimelineWidget
 from .logging_setup import get_logger
@@ -153,7 +154,7 @@ class TimelineOpsController:
         self.window.canvas.selectionChanged.emit()
         self.window.canvas.update()
         self.window.statusBar().showMessage(
-            "選択レイヤーの番号をシート順に正規化しました。", 2500
+            tr("選択レイヤーの番号をシート順に正規化しました。"), 2500
         )
 
     def create_blank_key(
@@ -230,7 +231,7 @@ class TimelineOpsController:
         if self.window.canvas.timeline_mode == "sequence":
             if int(anchor_row) != int(destination_row):
                 self.window.statusBar().showMessage(
-                    "連番画像は同じレイヤー内で入れ替えてください。", 2500
+                    tr("連番画像は同じレイヤー内で入れ替えてください。"), 2500
                 )
                 return
             layer_count = len(self.window.canvas.layers)
@@ -314,7 +315,7 @@ class TimelineOpsController:
                 or not (0 <= target_layer < layer_count)
             ):
                 self.window.statusBar().showMessage(
-                    "移動先がタイムライン範囲外です。",
+                    tr("移動先がタイムライン範囲外です。"),
                     2500,
                 )
                 return
@@ -537,7 +538,7 @@ class TimelineOpsController:
                 if self.window.canvas.undo_stack:
                     self.window.canvas.undo_stack.pop()
                 self.window.statusBar().showMessage(
-                    "左端の移動先に別のコマがあるため伸縮できません。", 2500
+                    tr("左端の移動先に別のコマがあるため伸縮できません。"), 2500
                 )
                 return
             source = self.window.canvas.frames[key_column].layers[layer_index]
@@ -625,7 +626,7 @@ class TimelineOpsController:
         if self.window.canvas.timeline_mode == "sequence":
             if source_layer != destination_layer:
                 self.window.statusBar().showMessage(
-                    "連番画像は同じレイヤー内で入れ替えてください。", 2500
+                    tr("連番画像は同じレイヤー内で入れ替えてください。"), 2500
                 )
                 return
             self.window.canvas.move_sequence_image(
@@ -638,7 +639,7 @@ class TimelineOpsController:
         moved = self.window.canvas.move_timeline_cell(source_column, source_layer, destination_column, destination_layer)
         if not moved:
             self.window._suppress_used_color_refresh_once = False
-            self.window.statusBar().showMessage("コマを移動できませんでした。", 2500)
+            self.window.statusBar().showMessage(tr("コマを移動できませんでした。"), 2500)
 
     def copy_cell(self, source_row, source_column, destination_row, destination_column):
         """Altドラッグで、同じ絵番号を参照するシートキーを複製する。"""
@@ -648,7 +649,7 @@ class TimelineOpsController:
         source_layer = layer_count - 1 - int(source_row)
         destination_layer = layer_count - 1 - int(destination_row)
         if source_layer != destination_layer:
-            self.window.statusBar().showMessage("複製は同じレイヤー内で行ってください。", 2500)
+            self.window.statusBar().showMessage(tr("複製は同じレイヤー内で行ってください。"), 2500)
             return
         block = self.window.canvas.timeline_block_at(int(source_column), source_layer)
         if block is None or block[0] != "content":

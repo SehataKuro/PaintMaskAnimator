@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QToolButton,
     QWidget,
 )
+from .i18n import tr
 from ._main_window_members import MainWindowMembers
 import ctypes
 import sys
@@ -213,7 +214,7 @@ class DockingMixin(MainWindowMembers):
         button.setIconSize(QSize(12, 12))
         button.setAutoRaise(True)
         button.setCursor(Qt.CursorShape.PointingHandCursor)
-        button.setToolTip("パネルメニュー")
+        button.setToolTip(tr("パネルメニュー"))
         button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         button.setFixedSize(18, 18)
         button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
@@ -295,7 +296,7 @@ class DockingMixin(MainWindowMembers):
             button.setIconSize(QSize(12, 12))
             button.setAutoRaise(True)
             button.setCursor(Qt.CursorShape.PointingHandCursor)
-            button.setToolTip("パネルメニュー")
+            button.setToolTip(tr("パネルメニュー"))
             button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             button.setFixedSize(18, 18)
             button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
@@ -385,22 +386,22 @@ class DockingMixin(MainWindowMembers):
         self._build_default_dock_menu(menu, dock)
 
     def _build_default_dock_menu(self, menu, dock):
-        float_action = menu.addAction("フロート表示")
+        float_action = menu.addAction(tr("フロート表示"))
         float_action.setEnabled(not dock.isFloating())
         float_action.triggered.connect(lambda _c=False, d=dock: d.setFloating())
-        close_action = menu.addAction("パネルを閉じる")
+        close_action = menu.addAction(tr("パネルを閉じる"))
         close_action.triggered.connect(
             lambda _c=False, d=dock: d.closeDockWidget()
         )
 
     def _build_action_panel_menu(self, menu):
-        edit_action = menu.addAction("スクリプトを編集")
+        edit_action = menu.addAction(tr("スクリプトを編集"))
         edit_action.triggered.connect(self.action_panel.open_script_editor)
 
     def _build_color_wheel_menu(self, menu):
         wheel = self.tools.hsv_wheel
-        hue_menu = menu.addMenu("色相の形")
-        hue_labels = {"RING": "リング", "BAR": "バー"}
+        hue_menu = menu.addMenu(tr("色相の形"))
+        hue_labels = {"RING": tr("リング"), "BAR": tr("バー")}
         for mode in HSVColorWheel.HUE_MODES:
             action = hue_menu.addAction(hue_labels[mode])
             action.setCheckable(True)
@@ -409,8 +410,8 @@ class DockingMixin(MainWindowMembers):
                 lambda _c=False, m=mode: self.tools.set_wheel_hue_mode(m)
             )
 
-        inner_menu = menu.addMenu("内側の形")
-        labels = {"HSV": "四角（HSV）", "HLS": "三角（HLS）"}
+        inner_menu = menu.addMenu(tr("内側の形"))
+        labels = {"HSV": tr("四角（HSV）"), "HLS": tr("三角（HLS）")}
         for mode in HSVColorWheel.MODES:
             action = inner_menu.addAction(labels[mode])
             action.setCheckable(True)
@@ -1150,7 +1151,7 @@ class DockingMixin(MainWindowMembers):
                 close_button = QToolButton(title_bar)
                 close_button.setObjectName("floatingCloseButton")
                 close_button.setText("×")
-                close_button.setToolTip("パネルを閉じる")
+                close_button.setToolTip(tr("パネルを閉じる"))
                 close_button.setAutoRaise(True)
                 close_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
                 close_button.setFixedSize(18, 18)

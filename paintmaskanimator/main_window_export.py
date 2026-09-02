@@ -21,6 +21,7 @@ import sys
 import tempfile
 from pathlib import Path
 from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMessageBox
+from .i18n import tr
 from .optional_deps import PILImage, PSDImage
 from .constants import OUTSIDE_MARGIN
 from . import constants
@@ -45,9 +46,9 @@ class ExportController:
     def xdts_dialog(self):
         path, _ = QFileDialog.getSaveFileName(
             self.window,
-            "XDTSタイムシートを書き出す",
+            tr("XDTSタイムシートを書き出す"),
             "PaintMaskAnimator.xdts",
-            "XDTSタイムシート (*.xdts)",
+            tr("XDTSタイムシート (*.xdts)"),
         )
         if not path:
             return
@@ -115,24 +116,24 @@ class ExportController:
             )
             Path(path).write_text(text, encoding="utf-8")
         except OSError as exc:
-            QMessageBox.critical(self.window, "XDTS書き出し", str(exc))
+            QMessageBox.critical(self.window, tr("XDTS書き出し"), str(exc))
             return
         QMessageBox.information(
-            self.window, "XDTS書き出し", f"タイムシートを書き出しました。\n\n{path}"
+            self.window, tr("XDTS書き出し"), tr("タイムシートを書き出しました。\n\n{path}").format(path=path)
         )
 
     def psd_dialog(self):
         if PSDImage is None or PILImage is None:
             QMessageBox.warning(
                 self.window,
-                "PSD書き出し",
-                "PSDの書き出しには psd-tools と Pillow が必要です。\n"
-                "requirements.txtをインストールしてください。",
+                tr("PSD書き出し"),
+                tr("PSDの書き出しには psd-tools と Pillow が必要です。\n"
+                "requirements.txtをインストールしてください。"),
             )
             return
         path, _ = QFileDialog.getSaveFileName(
             self.window,
-            "PSDを書き出す",
+            tr("PSDを書き出す"),
             "PaintMaskAnimator.psd",
             "Photoshop Document (*.psd)",
         )
@@ -170,7 +171,7 @@ class ExportController:
                     )
                     pil_image = PaintCanvas._qimage_to_pil_rgba(source)
                     if pil_image is None:
-                        raise OperationError("PSD書き出しに必要な画像変換を利用できません。")
+                        raise OperationError(tr("PSD書き出しに必要な画像変換を利用できません。"))
                     pixel_layer = psd.create_pixel_layer(
                         pil_image,
                         name=f"{folder_name}{key_number:04d}",
@@ -178,18 +179,18 @@ class ExportController:
                     group.append(pixel_layer)
                     exported_keys += 1
             if exported_keys == 0:
-                raise OperationError("書き出せるキーフレームがありません。")
+                raise OperationError(tr("書き出せるキーフレームがありません。"))
             psd.save(path)
         except _OPERATION_ERRORS as exc:
             log.error("PSD export failed: %s", exc, exc_info=True)
             QMessageBox.critical(
-                self.window, "PSD書き出し", f"PSDを書き出せませんでした。\n\n{exc}"
+                self.window, tr("PSD書き出し"), tr("PSDを書き出せませんでした。\n\n{exc}").format(exc=exc)
             )
             return
         QMessageBox.information(
             self.window,
-            "PSD書き出し",
-            f"{exported_keys}個のキーフレームを書き出しました。\n\n{path}",
+            tr("PSD書き出し"),
+            tr("{keys}個のキーフレームを書き出しました。\n\n{path}").format(keys=exported_keys, path=path),
         )
 
     def key_sequence(self, image_format):
@@ -213,7 +214,7 @@ class ExportController:
         # 最初のダイアログで保存場所と親フォルダー名を同時に指定する。
         folder_dialog = QFileDialog(
             self.window,
-            f"連番{image_format}＋CSVの書き出しフォルダー",
+            tr("連番{format}＋CSVの書き出しフォルダー").format(format=image_format),
         )
         folder_dialog.setOption(
             QFileDialog.Option.DontUseNativeDialog,
@@ -225,11 +226,11 @@ class ExportController:
         )
         folder_dialog.setLabelText(
             QFileDialog.DialogLabel.FileName,
-            "フォルダー名：",
+            tr("フォルダー名："),
         )
         folder_dialog.setLabelText(
             QFileDialog.DialogLabel.Accept,
-            "この名前で作成",
+            tr("この名前で作成"),
         )
         folder_dialog.selectFile(default_folder_name)
 
@@ -248,8 +249,8 @@ class ExportController:
         if not folder_name or folder_name in (".", ".."):
             QMessageBox.warning(
                 self.window,
-                "フォルダー名",
-                "使用できるフォルダー名を指定してください。",
+                tr("フォルダー名"),
+                tr("使用できるフォルダー名を指定してください。"),
             )
             return
         destination = destination.parent / folder_name
@@ -258,17 +259,16 @@ class ExportController:
             if destination.exists() and not destination.is_dir():
                 QMessageBox.warning(
                     self.window,
-                    "書き出し先",
-                    "同じ名前のファイルが存在するため、"
-                    "フォルダーを作成できません。",
+                    tr("書き出し先"),
+                    tr("同じ名前のファイルが存在するため、"
+                    "フォルダーを作成できません。"),
                 )
                 return
             if destination.exists() and any(destination.iterdir()):
                 answer = QMessageBox.question(
                     self.window,
-                    "同名フォルダー",
-                    f"「{folder_name}」には既存のファイルがあります。\n"
-                    "このフォルダーへ書き出しますか？",
+                    tr("同名フォルダー"),
+                    tr("「{name}」には既存のファイルがあります。\nこのフォルダーへ書き出しますか？").format(name=folder_name),
                     QMessageBox.StandardButton.Yes
                     | QMessageBox.StandardButton.No,
                     QMessageBox.StandardButton.No,
@@ -284,8 +284,8 @@ class ExportController:
         except OSError as exc:
             QMessageBox.critical(
                 self.window,
-                "フォルダー作成エラー",
-                f"書き出しフォルダーを作成できません。\n\n{exc}",
+                tr("フォルダー作成エラー"),
+                tr("書き出しフォルダーを作成できません。\n\n{exc}").format(exc=exc),
             )
             return
 
@@ -306,17 +306,17 @@ class ExportController:
         if not keys:
             QMessageBox.warning(
                 self.window,
-                "連番書き出し",
-                "書き出せるキーフレームがありません。",
+                tr("連番書き出し"),
+                tr("書き出せるキーフレームがありません。"),
             )
             return
 
         timing_rows = []
         progress = create_counter(
             self.window,
-            f"連番{image_format}書き出し",
+            tr("連番{format}書き出し").format(format=image_format),
             len(keys),
-            f"「{folder_name}」へ書き出しています",
+            tr("「{name}」へ書き出しています").format(name=folder_name),
         )
         try:
             layer_numbers = {}
@@ -330,7 +330,7 @@ class ExportController:
                     progress,
                     number - 1,
                     len(keys),
-                    f"{number}枚目を書き出しています",
+                    tr("{number}枚目を書き出しています").format(number=number),
                 )
                 image = layer.image.copy(
                     OUTSIDE_MARGIN,
@@ -348,7 +348,7 @@ class ExportController:
                     )
                     if not image.save(str(output_path), "PNG"):
                         raise OSError(
-                            f"{output_path.name}を保存できませんでした。"
+                            tr("{name}を保存できませんでした。").format(name=output_path.name)
                         )
                 else:
                     output_path = image_destination / (
@@ -366,7 +366,7 @@ class ExportController:
                     progress,
                     number,
                     len(keys),
-                    f"{number}枚目の書き出しが完了しました",
+                    tr("{number}枚目の書き出しが完了しました").format(number=number),
                 )
 
             csv_path = destination / "TS.csv"
@@ -385,43 +385,38 @@ class ExportController:
             log.error("sequence/CSV export failed: %s", exc, exc_info=True)
             QMessageBox.critical(
                 self.window,
-                "連番書き出しエラー",
-                f"書き出し中にエラーが発生しました。\n\n{exc}",
+                tr("連番書き出しエラー"),
+                tr("書き出し中にエラーが発生しました。\n\n{exc}").format(exc=exc),
             )
             return
         finally:
             close_counter(progress)
 
         self.window.statusBar().showMessage(
-            f"「{folder_name}」へ{len(keys)}枚と"
-            "TS.csvを書き出しました。",
+            tr("「{name}」へ{len}枚とTS.csvを書き出しました。").format(name=folder_name, len=len(keys)),
             4000,
         )
         QMessageBox.information(
             self.window,
-            "連番書き出し完了",
-            "次の構成で書き出しました。\n\n"
-            f"{destination}\n"
-            "├─ 各レイヤー名のフォルダー\n"
-            "│  └─ レイヤー名0001...\n"
-            "└─ TS.csv",
+            tr("連番書き出し完了"),
+            tr("次の構成で書き出しました。\n\n{destination}\n├─ 各レイヤー名のフォルダー\n│  └─ レイヤー名0001...\n└─ TS.csv").format(destination=destination),
         )
 
     def mp4(self):
         app_file = Path(sys.executable) if getattr(sys, "frozen", False) else Path(__file__)
         bundled_ffmpeg = app_file.with_name("ffmpeg.exe")
         ff = str(bundled_ffmpeg) if bundled_ffmpeg.exists() else shutil.which("ffmpeg")
-        if not ff:QMessageBox.warning(self.window,'FFmpeg','ffmpegが必要です。');return
-        path,_=QFileDialog.getSaveFileName(self.window,'MP4書き出し','animation.mp4','MP4 (*.mp4)')
+        if not ff:QMessageBox.warning(self.window,'FFmpeg',tr('ffmpegが必要です。'));return
+        path,_=QFileDialog.getSaveFileName(self.window,tr('MP4書き出し'),'animation.mp4','MP4 (*.mp4)')
         if not path:return
         if not path.lower().endswith('.mp4'):path+='.mp4'
         with tempfile.TemporaryDirectory() as td:
             total = sum(max(1, int(frame.duration)) for frame in self.window.canvas.frames)
             progress = create_counter(
                 self.window,
-                "MP4書き出し",
+                tr("MP4書き出し"),
                 total,
-                "動画用フレームを準備しています",
+                tr("動画用フレームを準備しています"),
             )
             output_index = 0
             for frame_index, frame in enumerate(self.window.canvas.frames):
@@ -432,7 +427,7 @@ class ExportController:
                         progress,
                         output_index - 1,
                         total,
-                        f"フレーム {output_index} / {total} を準備しています",
+                        tr("フレーム {index} / {total} を準備しています").format(index=output_index, total=total),
                     )
                     image.save(
                         str(Path(td) / f"f_{output_index:06}.png"),
@@ -441,11 +436,11 @@ class ExportController:
             close_counter(progress)
             encoding = create_counter(
                 self.window,
-                "MP4書き出し",
+                tr("MP4書き出し"),
                 1,
-                "FFmpegで動画へ変換しています",
+                tr("FFmpegで動画へ変換しています"),
             )
             QApplication.processEvents()
             r=subprocess.run([ff,'-y','-framerate',str(self.window.timeline.fps.value()),'-i',str(Path(td)/'f_%06d.png'),'-c:v','libx264','-pix_fmt','yuv420p',path],capture_output=True,text=True)
             close_counter(encoding)
-            if r.returncode:QMessageBox.critical(self.window,'MP4エラー',r.stderr[-1500:])
+            if r.returncode:QMessageBox.critical(self.window,tr('MP4エラー'),r.stderr[-1500:])

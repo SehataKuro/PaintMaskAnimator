@@ -16,6 +16,7 @@ import math
 import numpy as np
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QImage, QPainter
+from .i18n import tr
 from .optional_deps import PILImage, PILImageFilter
 from .constants import TP_MASK_MAX_TRANSFORM_COLORS, TP_MASK_PROXY_SUBSAMPLES
 from ._canvas_members import CanvasMembers
@@ -195,7 +196,7 @@ class TransformMaskMixin(CanvasMembers):
         self._invalidate_tp_preview_cache()
         if self.transform_quality_active:
             self.request_quality_preview_counter(
-                "メッシュ格子のプレビューを生成しています"
+                tr("メッシュ格子のプレビューを生成しています")
             )
         self.update()
 
@@ -606,8 +607,7 @@ class TransformMaskMixin(CanvasMembers):
             )
             palette_rgba = self._tp_exact_palette(prepared_array)
             self.status_message.emit(
-                f"色数が多いため {len(palette_rgba)} 色へ減色して変形します。"
-                "先に2値化しておくと元の色のまま変形できます。"
+                tr("色数が多いため {len} 色へ減色して変形します。先に2値化しておくと元の色のまま変形できます。").format(len=len(palette_rgba))
             )
         line_colors = []
         for line_color in self.transform_tp_line_colors:
@@ -791,7 +791,7 @@ class TransformMaskMixin(CanvasMembers):
                 progress_callback(
                     min(int(done), int(total)),
                     max(1, int(total)) + 1,
-                    "色マスクを変形しています",
+                    tr("色マスクを変形しています"),
                 )
 
         labels, coverage = mask_transform.render_labels(
@@ -807,7 +807,7 @@ class TransformMaskMixin(CanvasMembers):
 
         final = max(1, steps[1]) + 1
         if progress_callback is not None:
-            progress_callback(final, final, "色マスクを再合成しています")
+            progress_callback(final, final, tr("色マスクを再合成しています"))
         output = mask_transform.labels_to_rgba(labels, label_colors)
         # v0.7 rule, unchanged: exact #FFFFFF is the transform's transparency.
         white = (output[:, :, 3] > 0) & np.all(

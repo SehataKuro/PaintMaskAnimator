@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import config
+from .i18n import tr
 from .logging_setup import get_logger
 
 log = get_logger(__name__)
@@ -31,14 +32,19 @@ DEFAULT_ACCENT = "#2f6fed"
 
 # Named accent presets offered in the "表示 > アクセントカラー" menu. The
 # custom picker can still choose any colour; these are just quick presets.
-ACCENT_PRESETS = (
-    ("ブルー", "#2f6fed"),
-    ("ティール", "#0d9488"),
-    ("グリーン", "#1a8a4a"),
-    ("パープル", "#7c4dff"),
-    ("オレンジ", "#e0730a"),
-    ("レッド", "#d64545"),
-)
+#
+# A function rather than a constant: ``tr()`` at module level would run at import
+# time, before the translator is installed, and freeze the source language in.
+def accent_presets():
+    """(display name, hex) for the accent-colour menu, translated at call time."""
+    return (
+        (tr("ブルー"), "#2f6fed"),
+        (tr("ティール"), "#0d9488"),
+        (tr("グリーン"), "#1a8a4a"),
+        (tr("パープル"), "#7c4dff"),
+        (tr("オレンジ"), "#e0730a"),
+        (tr("レッド"), "#d64545"),
+    )
 
 # ---------------------------------------------------------------------------
 # Palettes

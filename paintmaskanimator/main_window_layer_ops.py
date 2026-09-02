@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import QApplication, QMessageBox
+from .i18n import tr
 from .models import Layer
 from .utils import blank_image
 from .progress import close_counter, create_counter, update_counter
@@ -55,7 +56,7 @@ class LayerOpsController:
         for frame in self.window.canvas.frames:
             for index in sorted(indices, reverse=True):
                 copied = frame.layers[index].clone()
-                copied.name = f"{copied.name} コピー"
+                copied.name = tr("{name} コピー").format(name=copied.name)
                 frame.layers.insert(index + 1, copied)
         self.window.canvas.active_layer_index = min(
             len(self.window.canvas.layers) - 1,
@@ -70,13 +71,13 @@ class LayerOpsController:
         indices = self._indices_from_rows(rows)
         if len(indices) < 2:
             self.window.statusBar().showMessage(
-                "結合するレイヤーをShift＋クリックで2つ以上選択してください。",
+                tr("結合するレイヤーをShift＋クリックで2つ以上選択してください。"),
                 2600,
             )
             return
         if indices != list(range(indices[0], indices[-1] + 1)):
             self.window.statusBar().showMessage(
-                "結合できるのは連続しているレイヤーです。",
+                tr("結合できるのは連続しているレイヤーです。"),
                 2600,
             )
             return
@@ -107,9 +108,9 @@ class LayerOpsController:
 
         progress = create_counter(
             self.window,
-            "レイヤーを結合",
+            tr("レイヤーを結合"),
             max(1, frame_count),
-            "保持コマを解析しています",
+            tr("保持コマを解析しています"),
         )
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
@@ -184,7 +185,7 @@ class LayerOpsController:
                     progress,
                     frame_index + 1,
                     max(1, frame_count),
-                    f"{frame_index + 1} / {frame_count} コマを結合しています",
+                    tr("{value} / {count} コマを結合しています").format(value=frame_index + 1, count=frame_count),
                 )
         finally:
             QApplication.restoreOverrideCursor()
@@ -204,7 +205,7 @@ class LayerOpsController:
         self.window.canvas.selectionChanged.emit()
         self.window.canvas.update()
         self.window.used_color.refresh_with_counter(
-            "結合後の使用色を更新しています"
+            tr("結合後の使用色を更新しています")
         )
 
     def delete_rows(self, rows):
@@ -214,8 +215,8 @@ class LayerOpsController:
         if len(indices) >= len(self.window.canvas.layers):
             QMessageBox.warning(
                 self.window,
-                "レイヤー削除",
-                "すべてのレイヤーは削除できません。1つ以上残してください。",
+                tr("レイヤー削除"),
+                tr("すべてのレイヤーは削除できません。1つ以上残してください。"),
             )
             return
         self.window.canvas.push_doc_undo()
@@ -230,7 +231,7 @@ class LayerOpsController:
         self.window.canvas.changed.emit()
         self.window.canvas.selectionChanged.emit()
         self.window.canvas.update()
-        self.window.used_color.refresh_with_counter("削除後の使用色を更新しています")
+        self.window.used_color.refresh_with_counter(tr("削除後の使用色を更新しています"))
 
     def move_row(self, source_rows, destination_row):
         """レイヤー名と全コマのタイムラインデータを同じ順序で移動する。"""
@@ -359,9 +360,10 @@ class LayerOpsController:
         self.window.canvas.update()
         self.window.used_color._refresh_without_delay()
         self.window.statusBar().showMessage(
-            "下書きレイヤーモードを"
-            + ("有効化" if new_state else "解除")
-            + "しました。",
+            # One whole sentence per state: a translator cannot reorder around
+            # a value spliced into the middle of a concatenation.
+            tr("下書きレイヤーモードを有効化しました。") if new_state
+            else tr("下書きレイヤーモードを解除しました。"),
             2600,
         )
 

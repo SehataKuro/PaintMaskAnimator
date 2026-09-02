@@ -12,6 +12,7 @@ import PySide6QtAds as QtAds
 from PySide6.QtCore import QPointF
 from PySide6.QtGui import QColor
 
+from .i18n import tr
 from .onion import OnionSkinSettingsBrowser
 
 if TYPE_CHECKING:
@@ -102,7 +103,7 @@ class OnionSkinController:
         )
 
         onion_dock = QtAds.CDockWidget(
-            self.window.dock_manager, "オニオンスキン設定"
+            self.window.dock_manager, tr("オニオンスキン設定")
         )
         onion_dock.setObjectName("onionSkinSettingsDock")
         onion_dock.setFeatures(
@@ -376,10 +377,6 @@ class OnionSkinController:
         )
         self.window.canvas.update()
         self.window.statusBar().showMessage(
-            f"前後の位置・回転・TU/TB拡大率間の{percent:g}%を"
-            "キャンバス基準へ移しました。"
-            f"（中央回転 {target_rotation:.1f}°を基準として取得／"
-            f"撮影倍率 {target_scale * 100.0:.1f}%／"
-            "キャンバス回転 0°／デジタルズーム変更なし）",
+            tr("前後の位置・回転・TU/TB拡大率間の{percent:g}%をキャンバス基準へ移しました。（中央回転 {rotation:.1f}°を基準として取得／撮影倍率 {value:.1f}%／キャンバス回転 0°／デジタルズーム変更なし）").format(percent=percent, rotation=target_rotation, value=target_scale * 100.0),
             4200,
         )

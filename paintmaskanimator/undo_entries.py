@@ -19,6 +19,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, List, Sequence, Tuple
 
+from .i18n import tr
+
 
 def _image_bytes(image) -> int:
     """Best-effort in-memory size of a QImage (0 when it is not one)."""
@@ -211,6 +213,30 @@ class PaletteStateUndo(UndoEntry):
 
 def history_label_for(entry) -> str:
     """Undoエントリ1件を、ヒストリー表示用の短いラベルに変換する。"""
-    if isinstance(entry, UndoEntry):
-        return entry.history_label
-    return "編集"
+    label = entry.history_label if isinstance(entry, UndoEntry) else tr("編集")
+    return translate_history_label(label)
+
+
+def translate_history_label(label: str) -> str:
+    """Translate a history label at display time.
+
+    ``HISTORY_LABEL`` lives in a class body, which is evaluated at import time --
+    before the translator is installed -- so it holds the untranslated source and
+    is translated here instead. ``pyside6-lupdate`` only sees a literal inside
+    ``tr()``, hence the table.
+
+    Entries that carry a runtime label (a palette edit, a scoped batch) pass it
+    in already translated; an unknown key is returned unchanged, which is exactly
+    what those need.
+    """
+    labels = {
+        "編集": tr("編集"),
+        "全体編集": tr("全体編集"),
+        "描画": tr("描画"),
+        "色編集": tr("色編集"),
+        "一括処理": tr("一括処理"),
+        "レイヤー構成": tr("レイヤー構成"),
+        "トゥイーン": tr("トゥイーン"),
+        "パレット編集": tr("パレット編集"),
+    }
+    return labels.get(label, label)

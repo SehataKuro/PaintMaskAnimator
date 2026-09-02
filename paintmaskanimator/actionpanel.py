@@ -6,6 +6,7 @@ import json
 import os
 import traceback
 
+from .i18n import tr
 from PySide6.QtCore import QObject, QUrl, Signal, Slot
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineWidgets import QWebEngineView
@@ -165,7 +166,7 @@ class ActionPanel(QWidget):
                     path.write_text(content, encoding="utf-8")
                 except Exception as error:  # noqa: BLE001 - non-fatal
                     QMessageBox.warning(
-                        self, "組み込みアクション生成エラー",
+                        self, tr("組み込みアクション生成エラー"),
                         f"{name}: {error}",
                     )
                     continue
@@ -208,7 +209,7 @@ class ActionPanel(QWidget):
             except Exception as error:  # noqa: BLE001 - report extension errors in UI
                 QMessageBox.critical(
                     self,
-                    "Pythonアクション エラー",
+                    tr("Pythonアクション エラー"),
                     f"{label}\n\n{error}\n\n{traceback.format_exc()}",
                 )
 
@@ -242,7 +243,7 @@ class ActionPanel(QWidget):
                 module_name = f"paintmaskanimator_user_action_{index}_{path.stem}"
                 spec = importlib.util.spec_from_file_location(module_name, path)
                 if spec is None or spec.loader is None:
-                    raise ImportError(f"読み込めません: {path.name}")
+                    raise ImportError(tr("読み込めません: {name}").format(name=path.name))
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
                 register = getattr(module, "register_actions", None)
@@ -257,7 +258,7 @@ class ActionPanel(QWidget):
         if errors:
             QMessageBox.warning(
                 self,
-                "Pythonアクション読み込みエラー",
+                tr("Pythonアクション読み込みエラー"),
                 "\n".join(errors),
             )
 
@@ -271,7 +272,7 @@ class ActionPanel(QWidget):
             else:
                 subprocess.Popen(["xdg-open", str(path)])
         except Exception as error:  # noqa: BLE001
-            QMessageBox.warning(self, "フォルダを開けません", str(error))
+            QMessageBox.warning(self, tr("フォルダを開けません"), str(error))
 
 
 NEW_SCRIPT_TEMPLATE = '''"""ユーザー定義アクションのひな形。
@@ -368,7 +369,7 @@ class ScriptEditorDialog(QDialog):
         self._current_path = None
         self._dirty = False
 
-        self.setWindowTitle("Pythonアクションの編集")
+        self.setWindowTitle(tr("Pythonアクションの編集"))
         self.resize(820, 560)
 
         outer = QVBoxLayout(self)
@@ -390,12 +391,12 @@ class ScriptEditorDialog(QDialog):
         splitter.setStretchFactor(1, 1)
 
         buttons = QHBoxLayout()
-        self.new_button = QPushButton("新規")
-        self.delete_button = QPushButton("削除")
-        self.save_button = QPushButton("保存")
-        self.save_reload_button = QPushButton("保存して再読み込み")
-        self.vscode_button = QPushButton("VS Codeで開く")
-        self.close_button = QPushButton("閉じる")
+        self.new_button = QPushButton(tr("新規"))
+        self.delete_button = QPushButton(tr("削除"))
+        self.save_button = QPushButton(tr("保存"))
+        self.save_reload_button = QPushButton(tr("保存して再読み込み"))
+        self.vscode_button = QPushButton(tr("VS Codeで開く"))
+        self.close_button = QPushButton(tr("閉じる"))
         self.new_button.clicked.connect(self._new_script)
         self.delete_button.clicked.connect(self._delete_script)
         self.save_button.clicked.connect(lambda: self._save_current())
@@ -451,7 +452,7 @@ class ScriptEditorDialog(QDialog):
         try:
             text = path.read_text(encoding="utf-8")
         except Exception as error:  # noqa: BLE001
-            QMessageBox.warning(self, "読み込めません", str(error))
+            QMessageBox.warning(self, tr("読み込めません"), str(error))
             return
         self._current_path = path
         self.editor.blockSignals(True)
@@ -478,8 +479,8 @@ class ScriptEditorDialog(QDialog):
             return True
         choice = QMessageBox.question(
             self,
-            "未保存の変更",
-            f"{self._current_path.name} の変更を保存しますか？",
+            tr("未保存の変更"),
+            tr("{name} の変更を保存しますか？").format(name=self._current_path.name),
             QMessageBox.StandardButton.Save
             | QMessageBox.StandardButton.Discard
             | QMessageBox.StandardButton.Cancel,
@@ -498,7 +499,7 @@ class ScriptEditorDialog(QDialog):
                 self.editor.toPlainText(), encoding="utf-8"
             )
         except Exception as error:  # noqa: BLE001
-            QMessageBox.warning(self, "保存できません", str(error))
+            QMessageBox.warning(self, tr("保存できません"), str(error))
             return False
         self._dirty = False
         return True
@@ -508,7 +509,7 @@ class ScriptEditorDialog(QDialog):
             return
         self.panel.reload_python_actions()
         QMessageBox.information(
-            self, "再読み込み", "Pythonアクションを再読み込みしました。"
+            self, tr("再読み込み"), tr("Pythonアクションを再読み込みしました。")
         )
 
     def _open_in_vscode(self):
@@ -530,20 +531,20 @@ class ScriptEditorDialog(QDialog):
         if executable is None:
             QMessageBox.warning(
                 self,
-                "VS Codeが見つかりません",
-                "Visual Studio Codeをインストールするか、codeコマンドをPATHへ追加してください。",
+                tr("VS Codeが見つかりません"),
+                tr("Visual Studio Codeをインストールするか、codeコマンドをPATHへ追加してください。"),
             )
             return
         try:
             subprocess.Popen([executable, "--goto", str(self._current_path.resolve())])
         except OSError as error:
-            QMessageBox.warning(self, "VS Codeを開けません", str(error))
+            QMessageBox.warning(self, tr("VS Codeを開けません"), str(error))
 
     def _new_script(self):
         if not self._confirm_discard():
             return
         name, ok = QInputDialog.getText(
-            self, "新規スクリプト", "ファイル名（.py）"
+            self, tr("新規スクリプト"), tr("ファイル名（.py）")
         )
         if not ok:
             return
@@ -554,12 +555,12 @@ class ScriptEditorDialog(QDialog):
             name += ".py"
         path = self.panel.actions_dir() / name
         if path.exists():
-            QMessageBox.warning(self, "作成できません", f"既に存在します: {name}")
+            QMessageBox.warning(self, tr("作成できません"), tr("既に存在します: {name}").format(name=name))
             return
         try:
             path.write_text(NEW_SCRIPT_TEMPLATE, encoding="utf-8")
         except Exception as error:  # noqa: BLE001
-            QMessageBox.warning(self, "作成できません", str(error))
+            QMessageBox.warning(self, tr("作成できません"), str(error))
             return
         self._dirty = False
         self._refresh_file_list(select=path)
@@ -569,13 +570,13 @@ class ScriptEditorDialog(QDialog):
             return
         name = self._current_path.name
         if QMessageBox.question(
-            self, "削除", f"{name} を削除しますか？"
+            self, tr("削除"), tr("{name} を削除しますか？").format(name=name)
         ) != QMessageBox.StandardButton.Yes:
             return
         try:
             self._current_path.unlink()
         except Exception as error:  # noqa: BLE001
-            QMessageBox.warning(self, "削除できません", str(error))
+            QMessageBox.warning(self, tr("削除できません"), str(error))
             return
         self._current_path = None
         self._dirty = False

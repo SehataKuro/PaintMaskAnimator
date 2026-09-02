@@ -43,6 +43,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressDialog,
 )
+from .i18n import tr
 from .optional_deps import PILImage
 from .constants import APP_DISPLAY_NAME, OUTSIDE_MARGIN
 from . import constants, imaging, project_io, theme, updater
@@ -263,18 +264,17 @@ class MainWindow(
         text_value = str(raw_text or "").strip()
         json_start = text_value.find("{")
         if json_start < 0:
-            raise OperationError("JSONデータが見つかりません。")
+            raise OperationError(tr("JSONデータが見つかりません。"))
         try:
             payload = json.loads(text_value[json_start:])
         except json.JSONDecodeError as exc:
             raise OperationError(
-                "ToeiDigitalTimeSheetのJSONを解析できません。"
-                f"\n{exc}"
+                tr("ToeiDigitalTimeSheetのJSONを解析できません。\n{exc}").format(exc=exc)
             ) from exc
 
         layers = payload.get("layers")
         if not isinstance(layers, list) or not layers:
-            raise OperationError("layersデータが見つかりません。")
+            raise OperationError(tr("layersデータが見つかりません。"))
 
         selected_layer = None
         for layer in layers:
@@ -286,7 +286,7 @@ class MainWindow(
                 selected_layer = layer
                 break
         if selected_layer is None:
-            raise OperationError("framesデータが見つかりません。")
+            raise OperationError(tr("framesデータが見つかりません。"))
 
         parsed_entries = {}
         for entry in selected_layer.get("frames", []):
@@ -321,7 +321,7 @@ class MainWindow(
 
         if not parsed_entries:
             raise OperationError(
-                "有効なToeiDigitalTimeSheetフレームがありません。"
+                tr("有効なToeiDigitalTimeSheetフレームがありません。")
             )
 
         start_frame = min(parsed_entries)
@@ -386,8 +386,7 @@ class MainWindow(
         except _OPERATION_ERRORS as exc:
             log.warning("first-image color/alpha inspection failed: %s", exc, exc_info=True)
             return None, (
-                "1枚目の色と透明度を確認できませんでした。\n"
-                f"{exc}"
+                tr("1枚目の色と透明度を確認できませんでした。\n{exc}").format(exc=exc)
             )
 
         semi_transparent_count = int(
@@ -422,9 +421,7 @@ class MainWindow(
         except _OPERATION_ERRORS as exc:
             log.warning("binarization preparation failed: %s", exc, exc_info=True)
             return None, (
-                "2値化の準備中に"
-                "エラーが発生しました。\n"
-                f"{exc}"
+                tr("2値化の準備中にエラーが発生しました。\n{exc}").format(exc=exc)
             )
 
         return {
@@ -472,7 +469,7 @@ class MainWindow(
                         width, height = pil.size
                 except (OSError, ValueError, TypeError) as exc:
                     log.info("PIL size read of %s failed: %s", path, exc)
-                    return False, f"{Path(path).name}\n画像サイズを取得できませんでした。\n{exc}"
+                    return False, tr("{Path}\n画像サイズを取得できませんでした。\n{exc}").format(Path=Path(path).name, exc=exc)
             else:
                 image, error = self.canvas._read_image_file(path)
                 if image is None:
@@ -484,7 +481,7 @@ class MainWindow(
             self.canvas.push_doc_undo()
             self.replace_doc(max_width, max_height, preserve=True)
             self.statusBar().showMessage(
-                f"画像に合わせてキャンバスを {max_width} × {max_height}px に拡張しました。", 3500)
+                tr("画像に合わせてキャンバスを {width} × {height}px に拡張しました。").format(width=max_width, height=max_height), 3500)
         return True, ""
 
     def import_dropped_image(self, path):
@@ -495,23 +492,22 @@ class MainWindow(
             if error != "__cancelled__":
                 QMessageBox.warning(
                     self,
-                    "画像読み込み",
-                    f"{Path(path).name} を読み込めませんでした。"
-                    f"\n\n{error}",
+                    tr("画像読み込み"),
+                    tr("{Path} を読み込めませんでした。\n\n{error}").format(Path=Path(path).name, error=error),
                 )
             return
 
         prepared, error = self.prepare_image_import([path])
         if not prepared:
             if error != "__cancelled__":
-                QMessageBox.warning(self, "画像読み込み", f"{Path(path).name} を読み込めませんでした。\n\n{error}")
+                QMessageBox.warning(self, tr("画像読み込み"), tr("{Path} を読み込めませんでした。\n\n{error}").format(Path=Path(path).name, error=error))
             return
         ok, error = self.canvas.import_image(
             path,
             color_reduction=color_reduction,
         )
         if not ok:
-            QMessageBox.warning(self,"画像読み込み",f"{Path(path).name} を読み込めませんでした。\n\n{error}")
+            QMessageBox.warning(self,tr("画像読み込み"),tr("{Path} を読み込めませんでした。\n\n{error}").format(Path=Path(path).name, error=error))
         else:
             self.timeline_ops.set_mode("sequence")
             self._used_color_cache.clear()
@@ -525,25 +521,24 @@ class MainWindow(
             if error != "__cancelled__":
                 QMessageBox.warning(
                     self,
-                    "連番画像読み込み",
-                    "画像を読み込めませんでした。"
-                    f"\n\n{error}",
+                    tr("連番画像読み込み"),
+                    tr("画像を読み込めませんでした。\n\n{error}").format(error=error),
                 )
             return
 
         prepared, error = self.prepare_image_import(paths)
         if not prepared:
             if error != "__cancelled__":
-                QMessageBox.warning(self, "連番画像読み込み", f"画像を読み込めませんでした。\n\n{error}")
+                QMessageBox.warning(self, tr("連番画像読み込み"), tr("画像を読み込めませんでした。\n\n{error}").format(error=error))
             return
         # 画像配置だけでなく、その直後の使用色認識まで同じカウンターで表示する。
         estimated_frames = max(1, len(self.canvas.frames) + len(paths))
         combined_total = max(1, len(paths) + estimated_frames)
         progress = create_counter(
             self,
-            "連番画像読み込み",
+            tr("連番画像読み込み"),
             combined_total,
-            "画像を読み込んでいます",
+            tr("画像を読み込んでいます"),
         )
         ok = False
         error = ""
@@ -554,7 +549,7 @@ class MainWindow(
                     progress,
                     value,
                     combined_total,
-                    f"{label}（画像 {value}/{total}）",
+                    tr("{label}（画像 {value}/{total}）").format(label=label, value=value, total=total),
                 ),
                 color_reduction=color_reduction,
                 layer_name=layer_name,
@@ -572,13 +567,13 @@ class MainWindow(
                     progress,
                     len(paths),
                     combined_total,
-                    "画像配置完了。使用色を認識しています",
+                    tr("画像配置完了。使用色を認識しています"),
                 )
                 self.used_color.refresh(
                     progress=progress,
                     progress_offset=len(paths),
                     progress_total=combined_total,
-                    progress_label="使用色を認識しています",
+                    progress_label=tr("使用色を認識しています"),
                 )
         finally:
             close_counter(progress)
@@ -586,24 +581,22 @@ class MainWindow(
         if not ok:
             QMessageBox.warning(
                 self,
-                "連番画像読み込み",
-                f"画像を読み込めませんでした。\n\n{error}",
+                tr("連番画像読み込み"),
+                tr("画像を読み込めませんでした。\n\n{error}").format(error=error),
             )
         elif len(paths) > 1:
             reduction_note = ""
             if color_reduction:
                 reduction_method = (
-                    "元画像へトーンカーブ適用後に2値化"
+                    tr("元画像へトーンカーブ適用後に2値化")
                     if color_reduction.get("opaque_background")
-                    else "半透明を二値化"
+                    else tr("半透明を二値化")
                 )
                 reduction_note = (
-                    f"、{reduction_method}して1枚目の共通パレット"
-                    f"{int(color_reduction['target_colors'])}色を適用"
+                    tr("、{method}して1枚目の共通パレット{int}色を適用").format(method=reduction_method, int=int(color_reduction['target_colors']))
                 )
             self.statusBar().showMessage(
-                f"{len(paths)}枚の画像をタイムラインへ連番配置"
-                f"{reduction_note}し、使用色認識まで完了しました。",
+                tr("{len}枚の画像をタイムラインへ連番配置{note}し、使用色認識まで完了しました。").format(len=len(paths), note=reduction_note),
                 3600,
             )
 
@@ -633,7 +626,7 @@ class MainWindow(
         w,h=workspace_size();availw=max(100,self.canvas.width()-40);availh=max(100,self.canvas.height()-40);z=min(availw/w,availh/h);self.canvas.zoom=z;self.canvas.pan=QPointF((self.canvas.width()-w*z)/2,(self.canvas.height()-h*z)/2);self.zoom.blockSignals(True);self.zoom.setValue(int(z*100));self.zoom.blockSignals(False);self.zoom_label.setText(f"{z*100:.0f}%");self.canvas.update()
 
     def new_doc(self):
-        d=CanvasSizeDialog(constants.CANVAS_WIDTH,constants.CANVAS_HEIGHT,"新規作成",self)
+        d=CanvasSizeDialog(constants.CANVAS_WIDTH,constants.CANVAS_HEIGHT,tr("新規作成"),self)
         if d.exec():
             self.replace_doc(*d.values())
             self.current_project_path = None
@@ -651,14 +644,14 @@ class MainWindow(
         status = result.get("status")
         if status == "error":
             QMessageBox.warning(
-                self, "更新確認エラー", result.get("message", "不明なエラー")
+                self, tr("更新確認エラー"), result.get("message", tr("不明なエラー"))
             )
             return
         if status == "up_to_date":
             QMessageBox.information(
                 self,
-                "更新の確認",
-                f"最新版を使用しています。（現在: v{constants.APP_VERSION}）",
+                tr("更新の確認"),
+                tr("最新版を使用しています。（現在: v{VERSION}）").format(VERSION=constants.APP_VERSION),
             )
             return
 
@@ -667,18 +660,15 @@ class MainWindow(
         if not asset:
             QMessageBox.information(
                 self,
-                "更新あり",
-                f"新しいバージョン {latest} が利用可能ですが、この環境向けの\n"
-                "インストーラが見つかりませんでした。配布ページを確認してください。",
+                tr("更新あり"),
+                tr("新しいバージョン {latest} が利用可能ですが、この環境向けの\nインストーラが見つかりませんでした。配布ページを確認してください。").format(latest=latest),
             )
             return
 
         answer = QMessageBox.question(
             self,
-            "更新があります",
-            f"新しいバージョン {latest} が利用可能です。\n"
-            f"（現在: v{constants.APP_VERSION}）\n\n"
-            "ダウンロードしてインストールしますか？",
+            tr("更新があります"),
+            tr("新しいバージョン {latest} が利用可能です。\n（現在: v{VERSION}）\n\nダウンロードしてインストールしますか？").format(latest=latest, VERSION=constants.APP_VERSION),
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
@@ -689,9 +679,9 @@ class MainWindow(
             asset.get("name", f"PaintMaskAnimator-Setup-{latest}.exe")
         )
         dialog = QProgressDialog(
-            "更新をダウンロードしています…", "キャンセル", 0, 100, self
+            tr("更新をダウンロードしています…"), tr("キャンセル"), 0, 100, self
         )
-        dialog.setWindowTitle("更新のダウンロード")
+        dialog.setWindowTitle(tr("更新のダウンロード"))
         dialog.setAutoClose(False)
         dialog.setMinimumDuration(0)
         cancelled = {"flag": False}
@@ -713,16 +703,16 @@ class MainWindow(
             log.warning("update download failed: %s", error, exc_info=True)
             dialog.close()
             QMessageBox.warning(
-                self, "ダウンロード失敗", f"更新を取得できませんでした。\n\n{error}"
+                self, tr("ダウンロード失敗"), tr("更新を取得できませんでした。\n\n{error}").format(error=error)
             )
             return
         dialog.close()
 
         answer = QMessageBox.question(
             self,
-            "インストール",
-            "ダウンロードが完了しました。インストーラを起動して\n"
-            "アプリを終了します。よろしいですか？",
+            tr("インストール"),
+            tr("ダウンロードが完了しました。インストーラを起動して\n"
+            "アプリを終了します。よろしいですか？"),
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
@@ -737,7 +727,7 @@ class MainWindow(
         except (OSError, ValueError) as error:
             log.warning("installer launch failed: %s", error, exc_info=True)
             QMessageBox.warning(
-                self, "起動失敗", f"インストーラを起動できませんでした。\n\n{error}"
+                self, tr("起動失敗"), tr("インストーラを起動できませんでした。\n\n{error}").format(error=error)
             )
             return
         self.close()
@@ -896,10 +886,10 @@ class MainWindow(
     def import_images_dialog(self):
         paths, _ = QFileDialog.getOpenFileNames(
             self,
-            "画像を読み込む",
+            tr("画像を読み込む"),
             "",
-            "画像 (*.png *.jpg *.jpeg *.tga);;"
-            "PNG (*.png);;JPEG (*.jpg *.jpeg);;TGA (*.tga)",
+            tr("画像 (*.png *.jpg *.jpeg *.tga);;"
+            "PNG (*.png);;JPEG (*.jpg *.jpeg);;TGA (*.tga)"),
         )
         if not paths:
             return
@@ -911,7 +901,7 @@ class MainWindow(
     def import_image_folder_dialog(self):
         folder = QFileDialog.getExistingDirectory(
             self,
-            "画像フォルダーを読み込む",
+            tr("画像フォルダーを読み込む"),
             "",
         )
         if not folder:
@@ -931,9 +921,9 @@ class MainWindow(
         if not paths:
             QMessageBox.information(
                 self,
-                "画像フォルダーを読み込む",
-                "選択したフォルダーに対応画像がありません。\n\n"
-                "対応形式：PNG、JPEG、TGA",
+                tr("画像フォルダーを読み込む"),
+                tr("選択したフォルダーに対応画像がありません。\n\n"
+                "対応形式：PNG、JPEG、TGA"),
             )
             return
 
@@ -947,10 +937,10 @@ class MainWindow(
         """変換せず（色数削減なしで）画像を下書きレイヤーへ読み込む。"""
         paths, _ = QFileDialog.getOpenFileNames(
             self,
-            "変換せず読み込む（下書きレイヤー）",
+            tr("変換せず読み込む（下書きレイヤー）"),
             "",
-            "画像 (*.png *.jpg *.jpeg *.tga);;"
-            "PNG (*.png);;JPEG (*.jpg *.jpeg);;TGA (*.tga)",
+            tr("画像 (*.png *.jpg *.jpeg *.tga);;"
+            "PNG (*.png);;JPEG (*.jpg *.jpeg);;TGA (*.tga)"),
         )
         if not paths:
             return
@@ -962,17 +952,17 @@ class MainWindow(
             if error != "__cancelled__":
                 QMessageBox.warning(
                     self,
-                    "変換せず読み込む",
-                    f"画像を読み込めませんでした。\n\n{error}",
+                    tr("変換せず読み込む"),
+                    tr("画像を読み込めませんでした。\n\n{error}").format(error=error),
                 )
             return
         estimated_frames = max(1, len(self.canvas.frames) + len(paths))
         combined_total = max(1, len(paths) + estimated_frames)
         progress = create_counter(
             self,
-            "変換せず読み込む",
+            tr("変換せず読み込む"),
             combined_total,
-            "画像を読み込んでいます",
+            tr("画像を読み込んでいます"),
         )
         ok = False
         error = ""
@@ -983,7 +973,7 @@ class MainWindow(
                     progress,
                     value,
                     combined_total,
-                    f"{label}（画像 {value}/{total}）",
+                    tr("{label}（画像 {value}/{total}）").format(label=label, value=value, total=total),
                 ),
                 layer_name=layer_name,
                 draft=True,
@@ -993,20 +983,20 @@ class MainWindow(
         if not ok:
             QMessageBox.warning(
                 self,
-                "変換せず読み込む",
-                f"画像を読み込めませんでした。\n\n{error}",
+                tr("変換せず読み込む"),
+                tr("画像を読み込めませんでした。\n\n{error}").format(error=error),
             )
             return
         self.timeline_ops.set_mode("sequence")
         # 下書きレイヤーは色数を取得しないため、使用色パネルは空にする。
         self.used_color._refresh_without_delay()
         self.statusBar().showMessage(
-            f"{len(paths)}枚を下書きレイヤーへ変換せず読み込みました。",
+            tr("{len}枚を下書きレイヤーへ変換せず読み込みました。").format(len=len(paths)),
             3200,
         )
 
     def resize_doc(self):
-        d=CanvasSizeDialog(constants.CANVAS_WIDTH,constants.CANVAS_HEIGHT,"キャンバスサイズの変更",self)
+        d=CanvasSizeDialog(constants.CANVAS_WIDTH,constants.CANVAS_HEIGHT,tr("キャンバスサイズの変更"),self)
         if d.exec():self.canvas.push_doc_undo();self.replace_doc(*d.values(),preserve=True)
     def replace_doc(self,w,h,preserve=False):
         old_frames=self.canvas.frames if preserve else None;oldw,oldh=constants.CANVAS_WIDTH,constants.CANVAS_HEIGHT;constants.CANVAS_WIDTH,constants.CANVAS_HEIGHT=w,h
@@ -1091,16 +1081,16 @@ class MainWindow(
             self.canvas.pressure_curve = 1.0
     def shortcuts(self):
         categories = [
-            ("ファイル・編集", self.file_edit_actions),
-            ("ツール", self.tool_action_list),
-            ("キャンバス操作", self.canvas_operation_actions),
-            ("ツールコマンド", self.tool_command_actions),
-            ("タイムライン", self.timeline_actions),
+            (tr("ファイル・編集"), self.file_edit_actions),
+            (tr("ツール"), self.tool_action_list),
+            (tr("キャンバス操作"), self.canvas_operation_actions),
+            (tr("ツールコマンド"), self.tool_command_actions),
+            (tr("タイムライン"), self.timeline_actions),
         ]
         ShortcutDialog(categories, self).exec()
     def crop_image(self,fi):return self.canvas.composite(fi,True).copy(OUTSIDE_MARGIN,OUTSIDE_MARGIN,constants.CANVAS_WIDTH,constants.CANVAS_HEIGHT)
     def save_png(self):
-        path,_=QFileDialog.getSaveFileName(self,"PNG保存","frame.png","PNG (*.png)");
+        path,_=QFileDialog.getSaveFileName(self,tr("PNG保存"),"frame.png","PNG (*.png)");
         if path:self.crop_image(self.canvas.current_frame).save(path if path.lower().endswith('.png') else path+'.png','PNG')  # pyright: ignore[reportCallIssue,reportArgumentType]  # QImage.save accepts a str format at runtime
     def exposure_images(self):
         out=[]
@@ -1121,11 +1111,11 @@ class MainWindow(
         return image.save(str(path),"TGA")
 
     def save_tga(self):
-        path,_=QFileDialog.getSaveFileName(self,"TGA保存","frame.tga","TGA (*.tga)")
+        path,_=QFileDialog.getSaveFileName(self,tr("TGA保存"),"frame.tga","TGA (*.tga)")
         if not path:return
         if not path.lower().endswith(".tga"):path+=".tga"
         if not self.save_tga_image(self.crop_image(self.canvas.current_frame),Path(path)):
-            QMessageBox.warning(self,"TGA保存","TGAを保存できませんでした。Pillowの導入を確認してください。")
+            QMessageBox.warning(self,tr("TGA保存"),tr("TGAを保存できませんでした。Pillowの導入を確認してください。"))
 
     def _sheet_duration(self):
         duration = 1

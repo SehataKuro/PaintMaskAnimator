@@ -6,6 +6,7 @@ the press-and-sweep drag that toggles a run of rows in one gesture. Changes are
 published to the canvas through ``visibleColorsChanged``.
 """
 from PySide6.QtWidgets import QMenu
+from .i18n import tr
 from ._color_panel_members import UsedColorPanelMembers
 from .logging_setup import get_logger
 
@@ -20,7 +21,7 @@ class ColorVisibilityMixin(UsedColorPanelMembers):
         return enabled
 
     def _show_all_colors(self):
-        with self._history_edit("全表示"):
+        with self._history_edit(tr("全表示")):
             self._isolated_rgb = None
             self._pre_isolate_enabled = None
             for rgb in self.visibility_checks:
@@ -28,7 +29,7 @@ class ColorVisibilityMixin(UsedColorPanelMembers):
             self.visibleColorsChanged.emit(self.enabled_rgb_set())
 
     def _set_visibility_state(self, rgb, enabled):
-        with self._history_edit("表示の切り替え"):
+        with self._history_edit(tr("表示の切り替え")):
             self._isolated_rgb = None
             self._pre_isolate_enabled = None
             self._set_checkbox_without_signal(rgb, enabled)
@@ -36,7 +37,7 @@ class ColorVisibilityMixin(UsedColorPanelMembers):
 
     def _disable_other_visible_colors(self, rgb):
         """右クリック対象だけを表示し、それ以外をOFFにする。"""
-        with self._history_edit("対象以外を非表示"):
+        with self._history_edit(tr("対象以外を非表示")):
             self._isolated_rgb = None
             self._pre_isolate_enabled = None
             for key in self.visibility_checks:
@@ -51,8 +52,8 @@ class ColorVisibilityMixin(UsedColorPanelMembers):
         action_on = menu.addAction("ON")
         action_off = menu.addAction("OFF")
         menu.addSeparator()
-        action_others = menu.addAction("対象以外をOFF")
-        action_all = menu.addAction("全表示")
+        action_others = menu.addAction(tr("対象以外をOFF"))
+        action_all = menu.addAction(tr("全表示"))
         chosen = menu.exec(global_position)
         if chosen is action_on:
             self._set_visibility_state(rgb, True)
@@ -72,7 +73,7 @@ class ColorVisibilityMixin(UsedColorPanelMembers):
             checkbox.blockSignals(False)
 
     def _isolate_visible_color(self, source_rgb):
-        with self._history_edit("この色だけ表示"):
+        with self._history_edit(tr("この色だけ表示")):
             if (
                 self._isolated_rgb == source_rgb
                 and self._pre_isolate_enabled is not None
@@ -138,7 +139,7 @@ class ColorVisibilityMixin(UsedColorPanelMembers):
         self._visibility_sweep_active = False
         if self._visibility_sweep_changed:
             self.visibleColorsChanged.emit(self.enabled_rgb_set())
-            self._record_history("表示の一括切り替え", self._sweep_history_before)
+            self._record_history(tr("表示の一括切り替え"), self._sweep_history_before)
         self._sweep_history_before = None
         self._visibility_sweep_touched.clear()
         self._visibility_sweep_changed = False
@@ -146,7 +147,7 @@ class ColorVisibilityMixin(UsedColorPanelMembers):
     def _set_color_visible(self, source_rgb, checked):
         if self._visibility_sweep_active:
             return
-        with self._history_edit("表示の切り替え"):
+        with self._history_edit(tr("表示の切り替え")):
             self._isolated_rgb = None
             self._pre_isolate_enabled = None
             self.enabled_colors[source_rgb] = bool(checked)

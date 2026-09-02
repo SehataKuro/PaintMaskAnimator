@@ -12,6 +12,7 @@ from PySide6.QtCore import QTimer  # noqa: E402
 from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
 
 from . import i18n  # noqa: E402
+from .i18n import tr  # noqa: E402
 from .constants import APP_DISPLAY_NAME, APP_VERSION  # noqa: E402
 from .main_window import MainWindow  # noqa: E402
 
@@ -36,16 +37,16 @@ def _show_unhandled_exception(exc_type, exc_value, exc_tb):
             log_path.write_text(details, encoding="utf-8")
         except Exception:
             log_path = None
-    text = "起動中または実行中にエラーが発生しました。"
+    text = tr("起動中または実行中にエラーが発生しました。")
     if log_path:
-        text += f"\n\n詳細を保存しました：\n{log_path}"
+        text += tr("\n\n詳細を保存しました：\n{path}").format(path=log_path)
     text += f"\n\n{exc_value}"
     app = QApplication.instance()
     # Never open another modal error dialog while Qt is shutting down. Doing so
     # can create an endless loop of errors from already-destroyed widgets.
     if app is not None and not app.closingDown():
         try:
-            QMessageBox.critical(None, f"{APP_DISPLAY_NAME} エラー", text)
+            QMessageBox.critical(None, tr("{NAME} エラー").format(NAME=APP_DISPLAY_NAME), text)
         except RuntimeError:
             print(details)
     else:

@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QPoint, QPointF, Qt
 from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import QApplication, QMessageBox
+from .i18n import tr
 from .errors import OPERATION_ERRORS as _OPERATION_ERRORS, OperationError
 from .widgets import TweenCommandPopup
 from .progress import close_counter, create_counter, update_counter
@@ -122,29 +123,25 @@ class TweenController:
         self.window.canvas.setFocus()
 
         transform_mode = (
-            "メッシュ変形"
+            tr("メッシュ変形")
             if pending.get("transform_mode") == "mesh"
-            else "自由変形"
+            else tr("自由変形")
         )
         if reverse:
             self.window.statusBar().showMessage(
-                f"◆ {transform_mode}の逆生成："
-                "キーフレーム側を変形形状、"
-                "ラストコマ側を元の初期形状として生成します。",
+                tr("◆ {mode}の逆生成：キーフレーム側を変形形状、ラストコマ側を元の初期形状として生成します。").format(mode=transform_mode),
                 5000,
             )
         else:
             self.window.statusBar().showMessage(
-                f"♦ {transform_mode}の通常生成："
-                "キーフレーム側を元の初期形状、"
-                "ラストコマ側を変形形状として生成します。",
+                tr("♦ {mode}の通常生成：キーフレーム側を元の初期形状、ラストコマ側を変形形状として生成します。").format(mode=transform_mode),
                 5000,
             )
 
     def enable(self, visual_row, key_column, mode="free"):
         """タイムライン終端の｜を、自由／メッシュトゥイーンの♦へ切り替える。"""
         mode = "mesh" if mode == "mesh" else "free"
-        mode_name = "メッシュ変形" if mode == "mesh" else "自由変形"
+        mode_name = tr("メッシュ変形") if mode == "mesh" else tr("自由変形")
         if not self.window.canvas.frames:
             return
         layer_count = len(self.window.canvas.layers)
@@ -160,17 +157,16 @@ class TweenController:
         if not key_layer.has_content or exposure < 2:
             QMessageBox.warning(
                 self.window,
-                "トゥイーン",
-                "2コマ以上の表示区間を持つ画像キーフレームで実行してください。",
+                tr("トゥイーン"),
+                tr("2コマ以上の表示区間を持つ画像キーフレームで実行してください。"),
             )
             return
 
         answer = QMessageBox.question(
             self.window,
-            "トゥイーンを有効にする",
+            tr("トゥイーンを有効にする"),
             (
-                f"{exposure}コマの{mode_name}トゥイーンを開始します。\n"
-                "確定後は区間内の各コマが画像キーフレームになります。"
+                tr("{exposure}コマの{name}トゥイーンを開始します。\n確定後は区間内の各コマが画像キーフレームになります。").format(exposure=exposure, name=mode_name)
             ),
             QMessageBox.StandardButton.Ok
             | QMessageBox.StandardButton.Cancel,
@@ -208,8 +204,8 @@ class TweenController:
         if not self.window.canvas.auto_select_used_area():
             QMessageBox.warning(
                 self.window,
-                "トゥイーン",
-                "画像内に変形対象となる描画領域がありません。",
+                tr("トゥイーン"),
+                tr("画像内に変形対象となる描画領域がありません。"),
             )
             return
 
@@ -259,9 +255,7 @@ class TweenController:
         self._show_tween_command_popup(mode)
         self.window.canvas.setFocus()
         self.window.statusBar().showMessage(
-            f"♦ {mode_name}トゥイーン中です。"
-            "変形形状を指定し、ポップアップの"
-            "「逆生成」で生成方向を選べます。",
+            tr("♦ {name}トゥイーン中です。変形形状を指定し、ポップアップの「逆生成」で生成方向を選べます。").format(name=mode_name),
             5000,
         )
 
@@ -282,7 +276,7 @@ class TweenController:
         if had_tween:
             self._refresh_timeline_tween_marker()
             self.window.statusBar().showMessage(
-                "トゥイーンをキャンセルしました。",
+                tr("トゥイーンをキャンセルしました。"),
                 2200,
             )
 
@@ -308,7 +302,7 @@ class TweenController:
             else "free"
         )
         mode_name = (
-            "メッシュ変形" if transform_mode == "mesh" else "自由変形"
+            tr("メッシュ変形") if transform_mode == "mesh" else tr("自由変形")
         )
         self.window.canvas.transform_mode = transform_mode
         if transform_mode == "mesh":
@@ -360,8 +354,8 @@ class TweenController:
         ):
             QMessageBox.warning(
                 self.window,
-                "トゥイーン",
-                "変形情報を取得できないため、トゥイーンを確定できません。",
+                tr("トゥイーン"),
+                tr("変形情報を取得できないため、トゥイーンを確定できません。"),
             )
             return
 
@@ -411,10 +405,10 @@ class TweenController:
             if not self.window.canvas._prepare_tp_transform_masks():
                 QMessageBox.warning(
                     self.window,
-                    "トゥイーン確定",
-                    "TPクオリティ用の色マスクを生成できませんでした。\n"
+                    tr("トゥイーン確定"),
+                    tr("TPクオリティ用の色マスクを生成できませんでした。\n"
                     "Pillowが利用できることと、変形対象に色があることを"
-                    "確認してください。",
+                    "確認してください。"),
                 )
                 return
 
@@ -424,9 +418,9 @@ class TweenController:
         total_steps = exposure + 2
         progress = create_counter(
             self.window,
-            f"{mode_name}トゥイーンを確定",
+            tr("{name}トゥイーンを確定").format(name=mode_name),
             total_steps,
-            f"{mode_name}トゥイーン画像を準備しています",
+            tr("{name}トゥイーン画像を準備しています").format(name=mode_name),
         )
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
@@ -434,14 +428,14 @@ class TweenController:
                 progress,
                 1,
                 total_steps,
-                "開始キーフレームを準備しています",
+                tr("開始キーフレームを準備しています"),
             )
             for index in range(exposure):
                 update_counter(
                     progress,
                     index + 1,
                     total_steps,
-                    f"{mode_name}の補間コマ {index + 1}/{exposure} を生成しています",
+                    tr("{name}の補間コマ {value}/{exposure} を生成しています").format(name=mode_name, value=index + 1, exposure=exposure),
                 )
 
                 timeline_ratio = (
@@ -496,7 +490,7 @@ class TweenController:
                         )
                     if preview is None:
                         raise OperationError(
-                            f"{index + 1}コマ目の変形画像を生成できませんでした。"
+                            tr("{value}コマ目の変形画像を生成できませんでした。").format(value=index + 1)
                         )
                     image = self.window.canvas._cleared_selection_base(
                         original
@@ -517,7 +511,7 @@ class TweenController:
                 progress,
                 exposure + 1,
                 total_steps,
-                "生成した画像をタイムラインへ登録しています",
+                tr("生成した画像をタイムラインへ登録しています"),
             )
             self.window.canvas._ensure_frame_count(end_column + 1)
             for offset, image in enumerate(generated_images):
@@ -529,7 +523,7 @@ class TweenController:
 
             if undo_snapshot is None:
                 raise OperationError(
-                    "トゥイーン開始前のUndo情報を取得できませんでした。"
+                    tr("トゥイーン開始前のUndo情報を取得できませんでした。")
                 )
             self.window.canvas.push_undo(DocUndo(undo_snapshot))
 
@@ -537,7 +531,7 @@ class TweenController:
                 progress,
                 total_steps,
                 total_steps,
-                "トゥイーンのキーフレーム化が完了しました",
+                tr("トゥイーンのキーフレーム化が完了しました"),
             )
         except _OPERATION_ERRORS as exc:
             log.warning("tween keyframe generation failed: %s", exc, exc_info=True)
@@ -555,7 +549,7 @@ class TweenController:
             self._close_tween_command_popup()
             QMessageBox.warning(
                 self.window,
-                "トゥイーン確定エラー",
+                tr("トゥイーン確定エラー"),
                 str(exc),
             )
             return
@@ -592,17 +586,15 @@ class TweenController:
         self.window.canvas._update_selection_clear_overlay()
         self.window.canvas.update()
         quality_note = (
-            "（TPクオリティ適用）"
+            tr("（TPクオリティ適用）")
             if quality_active else ""
         )
         direction_note = (
-            "逆生成（◆側が変形／右端が初期）"
+            tr("逆生成（◆側が変形／右端が初期）")
             if reverse_generation
-            else "通常生成（先頭が初期／♦側が変形）"
+            else tr("通常生成（先頭が初期／♦側が変形）")
         )
         self.window.statusBar().showMessage(
-            f"{exposure}コマの{mode_name}トゥイーンを"
-            f"{direction_note}でキーフレーム化しました。"
-            f"{quality_note}",
+            tr("{exposure}コマの{name}トゥイーンを{note}でキーフレーム化しました。{note2}").format(exposure=exposure, name=mode_name, note=direction_note, note2=quality_note),
             4200,
         )

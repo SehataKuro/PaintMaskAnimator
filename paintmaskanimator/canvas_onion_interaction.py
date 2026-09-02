@@ -7,6 +7,7 @@ drag editing of onion-skin shift/rotation/scale and canvas view rotation
 """
 import math
 from PySide6.QtCore import QPointF, Qt
+from .i18n import tr
 from ._canvas_members import CanvasMembers
 from .logging_setup import get_logger
 
@@ -35,16 +36,15 @@ class OnionInteractionMixin(CanvasMembers):
         self.setFocus(Qt.FocusReason.OtherFocusReason)
         self.update_tool_cursor()
         label = (
-            "前" if self._onion_interaction_direction < 0 else "後"
+            tr("前") if self._onion_interaction_direction < 0 else tr("後")
         )
         axis_label = (
-            "X方向" if axis == "x"
-            else "Y方向" if axis == "y"
-            else "XY方向"
+            tr("X方向") if axis == "x"
+            else tr("Y方向") if axis == "y"
+            else tr("XY方向")
         )
         self.status_message.emit(
-            f"{label}のオニオンスキン：ドラッグで"
-            f"{axis_label}へ移動します。Escで解除します。"
+            tr("{label}のオニオンスキン：ドラッグで{label2}へ移動します。Escで解除します。").format(label=label, label2=axis_label)
         )
 
     def begin_onion_canvas_position_interaction(self):
@@ -57,10 +57,10 @@ class OnionInteractionMixin(CanvasMembers):
         self.setFocus(Qt.FocusReason.OtherFocusReason)
         self.update_tool_cursor()
         self.status_message.emit(
-            "表示位置：左ドラッグでキャンバス移動、"
+            tr("表示位置：左ドラッグでキャンバス移動、"
             "Shift＋左ドラッグまたは右ドラッグで回転します。"
             "TU／TB拡大率は維持され、前後オニオンの相対値へ"
-            "反映されます。Escで解除します。"
+            "反映されます。Escで解除します。")
         )
 
     def set_onion_canvas_view_rotation(self, value):

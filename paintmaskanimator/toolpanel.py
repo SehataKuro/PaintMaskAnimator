@@ -24,6 +24,10 @@ from .i18n import tr
 from .widgets import (BrushSizeSpinBox, ClickableValueLabel, HSVColorWheel, LineTaperCurvePopup, SliderValueSpinBox, SwatchEyedropButton)
 
 
+#: (tool id, source label). The id is the stable value everything branches on.
+#: The label is *not* translated here: this runs at import time, before the
+#: translator is installed, so a ``tr()`` at module level would freeze the source
+#: language in. Use :func:`tool_label` wherever the name is displayed.
 TOOL_DEFINITIONS = [
     ("brush", "ブラシ"), ("line", "ライン"),
     ("shape", "図形"), ("bucket", "バケツ"),
@@ -31,6 +35,22 @@ TOOL_DEFINITIONS = [
     ("rect_select", "長方形選択"), ("auto_select", "自動選択"),
     ("eyedropper", "スポイト"), ("dust", "ゴミ取り"),
 ]
+
+
+def tool_label(tool_id: str) -> str:
+    """The display name for a tool, translated at call time.
+
+    ``pyside6-lupdate`` only sees a literal inside ``tr()``, so the names are
+    written out here rather than beside ``TOOL_DEFINITIONS``.
+    """
+    labels = {
+        "brush": tr("ブラシ"), "line": tr("ライン"),
+        "shape": tr("図形"), "bucket": tr("バケツ"),
+        "lasso_fill": tr("投げ縄塗り"), "lasso": tr("投げ縄選択"),
+        "rect_select": tr("長方形選択"), "auto_select": tr("自動選択"),
+        "eyedropper": tr("スポイト"), "dust": tr("ゴミ取り"),
+    }
+    return labels.get(tool_id, tool_id)
 
 
 def _tool_icon(tool_id):
@@ -270,7 +290,8 @@ class ToolSelectorPanel(QWidget):
         swatch_row.addWidget(self.color_swatch)
         swatch_row.addStretch(1)
         layout.addWidget(self._swatch_holder)
-        for tool_id, label in self.TOOLS:
+        for tool_id, _source_label in self.TOOLS:
+            label = tool_label(tool_id)
             item = QListWidgetItem(_tool_icon(tool_id), "")
             item.setData(Qt.ItemDataRole.UserRole, tool_id)
             item.setData(Qt.ItemDataRole.ToolTipRole, label)
@@ -447,6 +468,13 @@ class ToolPanel(QWidget):
     clearColorFilterRequested = Signal()
     TOOLS = TOOL_DEFINITIONS
 
+    def _sync_shape_corner_controls(self, visible=True):
+        """Corner count applies to polygons only; keyed on the item data, not its label."""
+        enabled = visible and self.shape_type.currentData() == "polygon"
+        self.shape_corners_label.setEnabled(enabled)
+        self.shape_corners.setEnabled(enabled)
+        self.shape_corners_slider.setEnabled(enabled)
+
     def __init__(self):
         super().__init__(); self.setFixedWidth(190); self.active_tool="brush"
         self._line_curve_popup = None
@@ -593,18 +621,18 @@ class ToolPanel(QWidget):
         bucket_gap_layout.addWidget(self.bucket_gap_width,1)
         bucket_gap_layout.addWidget(self.bucket_gap_width_label)
 
-        self.lasso_inside_boundary=QCheckBox("境界線の内側だけを塗る")
+        self.lasso_inside_boundary=QCheckBox(tr("境界線の内側だけを塗る"))
         self.lasso_inside_boundary.setChecked(False)
-        self.lasso_main_outline_sub_fill=QCheckBox("サブ色を実線、メイン色を内面にする")
+        self.lasso_main_outline_sub_fill=QCheckBox(tr("サブ色を実線、メイン色を内面にする"))
         self.lasso_main_outline_sub_fill.setChecked(False)
-        self.lasso_outline_width_label=QLabel("外線の太さ：1.0 px")
+        self.lasso_outline_width_label=QLabel(tr("外線の太さ：1.0 px"))
         self.lasso_outline_width=QSlider(Qt.Orientation.Horizontal)
         # 0.5 px単位。値2=1.0 px、3=1.5 px、5=2.5 px。
         self.lasso_outline_width.setRange(1,40)
         self.lasso_outline_width.setValue(2)
         self.lasso_outline_width.valueChanged.connect(
             lambda value: self.lasso_outline_width_label.setText(
-                f"外線の太さ：{value / 2:.1f} px"
+                tr("外線の太さ：{value:.1f} px").format(value=value / 2)
             )
         )
         self.lasso_main_outline_sub_fill.toggled.connect(
@@ -617,18 +645,22 @@ class ToolPanel(QWidget):
         self.lasso_outline_width.setEnabled(False)
 
         # ラインツール
-        self.line_type_label = QLabel("ライン種類")
+        self.line_type_label = QLabel(tr("ライン種類"))
         self.line_type = QComboBox()
-        self.line_type.addItems(["直線", "曲線"])
+        # The item *data* is the value the rest of the app branches on; the item
+        # text is display only. Comparing against the displayed text would break
+        # the moment the UI is translated.
+        self.line_type.addItem(tr("直線"), "straight")
+        self.line_type.addItem(tr("曲線"), "curve")
         self.line_type.setToolTip(
-            "曲線は、1回目のドラッグで始点と終点を決め、"
-            "次のクリックで弓なりのカーブを確定します。"
+            tr("曲線は、1回目のドラッグで始点と終点を決め、"
+            "次のクリックで弓なりのカーブを確定します。")
         )
-        self.line_taper_in = QCheckBox("入り")
+        self.line_taper_in = QCheckBox(tr("入り"))
         self.line_taper_in.setChecked(False)
-        self.line_taper_in_size_label = ClickableValueLabel("入りサイズ：0.5 px")
+        self.line_taper_in_size_label = ClickableValueLabel(tr("入りサイズ：0.5 px"))
         self.line_taper_in_size_label.setToolTip(
-            "クリックすると入りカーブ設定がポップアップします。"
+            tr("クリックすると入りカーブ設定がポップアップします。")
         )
         self.line_taper_in_size_label.clicked.connect(
             lambda global_pos: self._show_line_curve_popup("in", global_pos)
@@ -638,26 +670,26 @@ class ToolPanel(QWidget):
         self.line_taper_in_size.setValue(1)
         self.line_taper_in_size.valueChanged.connect(
             lambda value: self.line_taper_in_size_label.setText(
-                f"入りサイズ：{value / 2:.1f} px"
+                tr("入りサイズ：{value:.1f} px").format(value=value / 2)
             )
         )
-        self.line_taper_in_curve_label = QLabel("入りカーブ：1.00")
+        self.line_taper_in_curve_label = QLabel(tr("入りカーブ：1.00"))
         self.line_taper_in_curve = QSlider(Qt.Orientation.Horizontal)
         self.line_taper_in_curve.setRange(20, 400)
         self.line_taper_in_curve.setValue(100)
         self.line_taper_in_curve.setToolTip(
-            "小さいほど緩やかに、値を大きくすると先端付近で急に太くなります。"
+            tr("小さいほど緩やかに、値を大きくすると先端付近で急に太くなります。")
         )
         self.line_taper_in_curve.valueChanged.connect(
             lambda value: self.line_taper_in_curve_label.setText(
-                f"入りカーブ：{value / 100:.2f}"
+                tr("入りカーブ：{value:.2f}").format(value=value / 100)
             )
         )
-        self.line_taper_out = QCheckBox("抜き")
+        self.line_taper_out = QCheckBox(tr("抜き"))
         self.line_taper_out.setChecked(False)
-        self.line_taper_out_size_label = ClickableValueLabel("抜きサイズ：0.5 px")
+        self.line_taper_out_size_label = ClickableValueLabel(tr("抜きサイズ：0.5 px"))
         self.line_taper_out_size_label.setToolTip(
-            "クリックすると抜きカーブ設定がポップアップします。"
+            tr("クリックすると抜きカーブ設定がポップアップします。")
         )
         self.line_taper_out_size_label.clicked.connect(
             lambda global_pos: self._show_line_curve_popup("out", global_pos)
@@ -667,19 +699,19 @@ class ToolPanel(QWidget):
         self.line_taper_out_size.setValue(1)
         self.line_taper_out_size.valueChanged.connect(
             lambda value: self.line_taper_out_size_label.setText(
-                f"抜きサイズ：{value / 2:.1f} px"
+                tr("抜きサイズ：{value:.1f} px").format(value=value / 2)
             )
         )
-        self.line_taper_out_curve_label = QLabel("抜きカーブ：1.00")
+        self.line_taper_out_curve_label = QLabel(tr("抜きカーブ：1.00"))
         self.line_taper_out_curve = QSlider(Qt.Orientation.Horizontal)
         self.line_taper_out_curve.setRange(20, 400)
         self.line_taper_out_curve.setValue(100)
         self.line_taper_out_curve.setToolTip(
-            "小さいほど緩やかに、値を大きくすると終端付近で急に細くなります。"
+            tr("小さいほど緩やかに、値を大きくすると終端付近で急に細くなります。")
         )
         self.line_taper_out_curve.valueChanged.connect(
             lambda value: self.line_taper_out_curve_label.setText(
-                f"抜きカーブ：{value / 100:.2f}"
+                tr("抜きカーブ：{value:.2f}").format(value=value / 100)
             )
         )
         self.line_taper_in.toggled.connect(
@@ -708,10 +740,11 @@ class ToolPanel(QWidget):
         self.line_taper_out_curve.setEnabled(False)
 
         # 図形ツール
-        self.shape_type_label = QLabel("図形種類")
+        self.shape_type_label = QLabel(tr("図形種類"))
         self.shape_type = QComboBox()
-        self.shape_type.addItems(["多角形", "楕円"])
-        self.shape_corners_label = QLabel("角の数")
+        self.shape_type.addItem(tr("多角形"), "polygon")
+        self.shape_type.addItem(tr("楕円"), "ellipse")
+        self.shape_corners_label = QLabel(tr("角の数"))
         self.shape_corners = QSpinBox()
         self.shape_corners.setRange(3, 32)
         self.shape_corners.setValue(4)
@@ -720,30 +753,26 @@ class ToolPanel(QWidget):
         self.shape_corners_slider.setValue(4)
         self.shape_corners_slider.valueChanged.connect(self.shape_corners.setValue)
         self.shape_corners.valueChanged.connect(self.shape_corners_slider.setValue)
-        self.shape_type.currentTextChanged.connect(
-            lambda value: (
-                self.shape_corners_label.setEnabled(value == "多角形"),
-                self.shape_corners.setEnabled(value == "多角形"),
-                self.shape_corners_slider.setEnabled(value == "多角形"),
-            )
+        self.shape_type.currentIndexChanged.connect(
+            lambda _index: self._sync_shape_corner_controls()
         )
-        self.shape_lock_ratio = QCheckBox("比率固定")
-        self.shape_fill_inside = QCheckBox("内側を塗る")
+        self.shape_lock_ratio = QCheckBox(tr("比率固定"))
+        self.shape_fill_inside = QCheckBox(tr("内側を塗る"))
         self.shape_sub_outline_main_fill = QCheckBox(
-            "サブ色を実線、メイン色を内面にする"
+            tr("サブ色を実線、メイン色を内面にする")
         )
-        self.shape_outline_width_label = QLabel("線の太さ：1.0 px")
+        self.shape_outline_width_label = QLabel(tr("線の太さ：1.0 px"))
         self.shape_outline_width = QSlider(Qt.Orientation.Horizontal)
         self.shape_outline_width.setRange(1, 80)
         self.shape_outline_width.setValue(2)
         self.shape_outline_width.valueChanged.connect(
             lambda value: self.shape_outline_width_label.setText(
-                f"線の太さ：{value / 2:.1f} px"
+                tr("線の太さ：{value:.1f} px").format(value=value / 2)
             )
         )
 
         self.bucket_require_closed=QCheckBox(
-            "領域が開いている場合は塗りを開始しない"
+            tr("領域が開いている場合は塗りを開始しない")
         )
         self.bucket_require_closed.setChecked(False)
 
@@ -762,37 +791,38 @@ class ToolPanel(QWidget):
         self.bucket_close_gap.toggled.connect(sync_bucket_options)
         sync_bucket_options()
 
-        self.dust_mode_label=QLabel("処理モード")
+        self.dust_mode_label=QLabel(tr("処理モード"))
         self.dust_mode=QComboBox()
-        self.dust_mode.addItems(["ゴミ取り", "塗り抜け"])
+        self.dust_mode.addItem(tr("ゴミ取り"), "despeckle")
+        self.dust_mode.addItem(tr("塗り抜け"), "fill_holes")
         self.dust_mode.setToolTip(
-            "ゴミ取り：小さな色点を白（#FFFFFF）へ変更します。"
-            "塗り抜け：小さな白い穴を周囲色で埋めます。"
+            tr("ゴミ取り：小さな色点を白（#FFFFFF）へ変更します。"
+            "塗り抜け：小さな白い穴を周囲色で埋めます。")
         )
-        self.dust_size_label=QLabel("適用サイズ：3 px")
+        self.dust_size_label=QLabel(tr("適用サイズ：3 px"))
         self.dust_size=QSlider(Qt.Orientation.Horizontal)
         self.dust_size.setRange(1,100)
         self.dust_size.setValue(3)
         self.dust_size.valueChanged.connect(
             lambda value: self.dust_size_label.setText(
-                f"適用サイズ：{value} px"
+                tr("適用サイズ：{value} px").format(value=value)
             )
         )
-        self.dust_selected_only=QCheckBox("選択色を対象")
+        self.dust_selected_only=QCheckBox(tr("選択色を対象"))
         self.dust_selected_only.setChecked(False)
         self.dust_selected_only.setToolTip(
-            "使用色パネルで選択している色だけを対象にします。"
+            tr("使用色パネルで選択している色だけを対象にします。"
             "色ごとに独立判定するため、別色と隣接していても"
-            "小さな選択色を削除できます。"
+            "小さな選択色を削除できます。")
         )
         self.dust_all_frames=QCheckBox(
-            "選択レイヤーのすべてのコマに適用"
+            tr("選択レイヤーのすべてのコマに適用")
         )
         self.dust_all_frames.setChecked(False)
-        self.dust_apply=QPushButton("ゴミ取りを適用")
+        self.dust_apply=QPushButton(tr("ゴミ取りを適用"))
         self.dust_mode.currentTextChanged.connect(
             lambda mode: self.dust_apply.setText(
-                f"{mode}を適用"
+                tr("{mode}を適用").format(mode=mode)
             )
         )
         self.mesh_commit.clicked.connect(self.selectionCommitRequested)
@@ -834,12 +864,12 @@ class ToolPanel(QWidget):
             self.command_layout.addWidget(command)
         v.addWidget(self.command_box)
 
-        self.size_title=QLabel("<b>ブラシサイズ</b>")
+        self.size_title=QLabel(tr("<b>ブラシサイズ</b>"))
         size_title_row = QHBoxLayout()
         size_title_row.setContentsMargins(0, 0, 0, 0)
         size_title_row.addWidget(self.size_title)
         size_title_row.addStretch()
-        self.pressure_settings_button = QPushButton("筆圧…")
+        self.pressure_settings_button = QPushButton(tr("筆圧…"))
         self.pressure_settings_button.setFixedHeight(24)
         self.pressure_settings_button.clicked.connect(
             lambda: self.brush_size_spinbox.pressureRequested.emit()
@@ -862,17 +892,17 @@ class ToolPanel(QWidget):
         )
         v.addWidget(self.size_slider); v.addWidget(self.brush_size_spinbox)
 
-        self.brush_stabilizer_label = QLabel("手振れ補正：0")
+        self.brush_stabilizer_label = QLabel(tr("手振れ補正：0"))
         self.brush_stabilizer = QSlider(Qt.Orientation.Horizontal)
         self.brush_stabilizer.setRange(0, 300)
         self.brush_stabilizer.setValue(0)
         self.brush_stabilizer.setToolTip(
-            "ブラシ軌跡を移動平均と遅延半径で滑らかにします。"
-            "0～300。値が大きいほど補正を強くします。"
+            tr("ブラシ軌跡を移動平均と遅延半径で滑らかにします。"
+            "0～300。値が大きいほど補正を強くします。")
         )
         self.brush_stabilizer.valueChanged.connect(
             lambda value: self.brush_stabilizer_label.setText(
-                f"手振れ補正：{value}"
+                tr("手振れ補正：{value}").format(value=value)
             )
         )
         v.addWidget(self.brush_stabilizer_label)
@@ -896,14 +926,14 @@ class ToolPanel(QWidget):
         self.sub_btn.setGeometry(38, 25, 58, 46)
         self.main_btn.setGeometry(7, 4, 58, 46)
         self.main_btn.raise_()
-        self.main_btn.setToolTip("クリック：メイン色を選択／ドラッグ：スポイト")
-        self.sub_btn.setToolTip("クリック：サブ色を選択／ドラッグ：スポイト")
+        self.main_btn.setToolTip(tr("クリック：メイン色を選択／ドラッグ：スポイト"))
+        self.sub_btn.setToolTip(tr("クリック：サブ色を選択／ドラッグ：スポイト"))
         controls = QVBoxLayout()
         controls.setContentsMargins(0, 0, 0, 0)
         controls.setSpacing(3)
-        self.swap_colors_button = QPushButton("⇄  切り替え")
-        self.reset_colors_button = QPushButton("◩  初期色")
-        self.transparent_btn = QPushButton("透明色")
+        self.swap_colors_button = QPushButton(tr("⇄  切り替え"))
+        self.reset_colors_button = QPushButton(tr("◩  初期色"))
+        self.transparent_btn = QPushButton(tr("透明色"))
         for button in (
             self.swap_colors_button,
             self.reset_colors_button,
@@ -923,12 +953,12 @@ class ToolPanel(QWidget):
         bg_row = QHBoxLayout()
         bg_row.setContentsMargins(0, 0, 0, 0)
         bg_row.setSpacing(7)
-        self.background_label = QLabel("背景色")
+        self.background_label = QLabel(tr("背景色"))
         self.background_label.setStyleSheet("font-size:10px;")
         self.background_btn = SwatchEyedropButton()
         self.background_btn.setFixedSize(58, 22)
         self.background_btn.setToolTip(
-            "クリック：背景色で描画／右クリック：背景色の表示色を変更"
+            tr("クリック：背景色で描画／右クリック：背景色の表示色を変更")
         )
         self.background_btn.clicked.connect(
             lambda: self.set_color_mode("transparent")
@@ -1044,10 +1074,10 @@ class ToolPanel(QWidget):
     def _show_line_curve_popup(self, which, global_position):
         self._close_line_curve_popup()
         if which == "in":
-            title = "入りカーブ"
+            title = tr("入りカーブ")
             target = self.line_taper_in_curve
         else:
-            title = "抜きカーブ"
+            title = tr("抜きカーブ")
             target = self.line_taper_out_curve
         popup = LineTaperCurvePopup(title, target.value(), self)
         self._line_curve_popup = popup
@@ -1080,8 +1110,8 @@ class ToolPanel(QWidget):
 
     def _sync_transform_quality_options(self, enabled):
         self.selection_all_frames.setToolTip(
-            "選択範囲の変形をすべてのコマへ適用します。"
-            + ("クオリティ変形はコマごとに時間がかかります。"
+            tr("選択範囲の変形をすべてのコマへ適用します。")
+            + (tr("クオリティ変形はコマごとに時間がかかります。")
                if bool(enabled) else "")
         )
 
@@ -1112,7 +1142,7 @@ class ToolPanel(QWidget):
 
     def select_tool(self, tid):
         self.active_tool=tid
-        self.active.setText("使用中："+dict(self.TOOLS)[tid])
+        self.active.setText(tr("使用中：{tool}").format(tool=tool_label(tid)))
         self.toolChanged.emit(tid)
 
         is_selection = tid in ("lasso", "rect_select", "auto_select")
@@ -1187,10 +1217,7 @@ class ToolPanel(QWidget):
             self.shape_outline_width_label,self.shape_outline_width,
         ):
             widget.setVisible(is_shape)
-        polygon_enabled = is_shape and self.shape_type.currentText() == "多角形"
-        self.shape_corners_label.setEnabled(polygon_enabled)
-        self.shape_corners.setEnabled(polygon_enabled)
-        self.shape_corners_slider.setEnabled(polygon_enabled)
+        self._sync_shape_corner_controls(visible=is_shape)
 
         self.lasso_inside_boundary.setVisible(is_lasso_fill)
         self.lasso_main_outline_sub_fill.setVisible(is_lasso_fill)
@@ -1217,7 +1244,7 @@ class ToolPanel(QWidget):
         self.dust_apply.setVisible(is_dust)
 
         self.size_title.setText(
-            "<b>ラインサイズ</b>" if is_line else "<b>ブラシサイズ</b>"
+            tr("<b>ラインサイズ</b>") if is_line else tr("<b>ブラシサイズ</b>")
         )
         self.size_title.setVisible(uses_size)
         self.brush_size_spinbox.setPressurePopupEnabled(tid == "brush")

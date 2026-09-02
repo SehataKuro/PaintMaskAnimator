@@ -9,6 +9,7 @@ import math
 from typing import Any
 from PySide6.QtCore import QPoint, QPointF, QRectF, Qt
 from PySide6.QtGui import QCursor
+from .i18n import tr
 from ._canvas_members import CanvasMembers
 from .logging_setup import get_logger
 from .utils import hide_screen_color_loupe, show_screen_color_loupe
@@ -387,14 +388,14 @@ class InputEventMixin(CanvasMembers):
         elif t == "line" and self.line_curve_stage == 1:
             self.drawing = False
             panel = self._active_tool_panel()
-            if panel is not None and panel.line_type.currentText() == "曲線":
+            if panel is not None and panel.line_type.currentData() == "curve":
                 self.line_curve_stage = 2
                 self.line_control = QPointF(
                     (self.line_start.x() + self.line_end.x()) / 2.0,
                     (self.line_start.y() + self.line_end.y()) / 2.0,
                 )
                 self.status_message.emit(
-                    "マウスを動かしてカーブを調整し、クリックで確定します。Escで取消。"
+                    tr("マウスを動かしてカーブを調整し、クリックで確定します。Escで取消。")
                 )
                 self.update()
                 return

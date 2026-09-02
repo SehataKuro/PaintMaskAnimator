@@ -11,6 +11,7 @@ from pathlib import Path
 from PySide6.QtCore import QTimer
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QFileDialog, QMessageBox
+from .i18n import tr
 from .constants import APP_DISPLAY_NAME
 from . import constants, project_io
 from .errors import OPERATION_ERRORS as _OPERATION_ERRORS
@@ -36,7 +37,7 @@ class ProjectIOController:
             name = Path(self.window.current_project_path).name
             self.window.setWindowTitle(f"{APP_DISPLAY_NAME} — {name}")
         else:
-            self.window.setWindowTitle(f"{APP_DISPLAY_NAME} — 新規プロジェクト")
+            self.window.setWindowTitle(tr("{NAME} — 新規プロジェクト").format(NAME=APP_DISPLAY_NAME))
 
     def save(self):
         if (
@@ -54,7 +55,7 @@ class ProjectIOController:
         )
         path, _ = QFileDialog.getSaveFileName(
             self.window,
-            "名前を付けて保存",
+            tr("名前を付けて保存"),
             initial,
             "PaintMaskAnimator Project (*.pman)",
         )
@@ -83,7 +84,7 @@ class ProjectIOController:
             self.window.current_project_path = project_path
             self.update_title()
             self.window.statusBar().showMessage(
-                f"プロジェクトを保存しました：{project_path.name}",
+                tr("プロジェクトを保存しました：{name}").format(name=project_path.name),
                 3000,
             )
             return True
@@ -91,18 +92,18 @@ class ProjectIOController:
             log.error("project save failed: %s", error, exc_info=True)
             QMessageBox.critical(
                 self.window,
-                "プロジェクト保存エラー",
-                f"保存できませんでした。\n\n{error}",
+                tr("プロジェクト保存エラー"),
+                tr("保存できませんでした。\n\n{error}").format(error=error),
             )
             return False
 
     def open_dialog(self):
         path, _ = QFileDialog.getOpenFileName(
             self.window,
-            "プロジェクトを開く",
+            tr("プロジェクトを開く"),
             "",
-            "PaintMaskAnimator Project (*.pman);;"
-            "旧Oekaki Animation Project (*.oap)",
+            tr("PaintMaskAnimator Project (*.pman);;"
+            "旧Oekaki Animation Project (*.oap)"),
         )
         if path:
             self.open(path)
@@ -110,19 +111,19 @@ class ProjectIOController:
     def confirm_save_before_dropped(self):
         dialog = QMessageBox(self.window)
         dialog.setIcon(QMessageBox.Icon.Question)
-        dialog.setWindowTitle("プロジェクトを開く")
+        dialog.setWindowTitle(tr("プロジェクトを開く"))
         dialog.setText(
-            "現在のキャンバスを保存してから、"
-            "ドロップしたプロジェクトを開きますか？"
+            tr("現在のキャンバスを保存してから、"
+            "ドロップしたプロジェクトを開きますか？")
         )
         save_button = dialog.addButton(
-            "保存する", QMessageBox.ButtonRole.AcceptRole
+            tr("保存する"), QMessageBox.ButtonRole.AcceptRole
         )
         discard_button = dialog.addButton(
-            "保存しない", QMessageBox.ButtonRole.DestructiveRole
+            tr("保存しない"), QMessageBox.ButtonRole.DestructiveRole
         )
         cancel_button = dialog.addButton(
-            "キャンセル", QMessageBox.ButtonRole.RejectRole
+            tr("キャンセル"), QMessageBox.ButtonRole.RejectRole
         )
         dialog.setDefaultButton(save_button)
         dialog.exec()
@@ -454,7 +455,7 @@ class ProjectIOController:
             self.window.used_color.schedule_refresh()
             QTimer.singleShot(0, self.window.fit_canvas)
             self.window.statusBar().showMessage(
-                f"プロジェクトを開きました：{project_path.name}",
+                tr("プロジェクトを開きました：{name}").format(name=project_path.name),
                 3000,
             )
             return True
@@ -462,7 +463,7 @@ class ProjectIOController:
             log.error("project open failed: %s", error, exc_info=True)
             QMessageBox.critical(
                 self.window,
-                "プロジェクト読込エラー",
-                f"プロジェクトを開けませんでした。\n\n{error}",
+                tr("プロジェクト読込エラー"),
+                tr("プロジェクトを開けませんでした。\n\n{error}").format(error=error),
             )
             return False

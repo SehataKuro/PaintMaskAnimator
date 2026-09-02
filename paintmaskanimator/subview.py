@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from .i18n import tr
 from .optional_deps import PILImage, PSDImage
 from . import imaging
 
@@ -45,7 +46,7 @@ class SubViewWidget(QWidget):
         self.setAcceptDrops(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMinimumSize(180, 140)
-        self.setWindowTitle("サブビュー")
+        self.setWindowTitle(tr("サブビュー"))
         self._image = QImage()
         self._path = None
         self._files = []
@@ -66,17 +67,17 @@ class SubViewWidget(QWidget):
 
         self.previous_button = QToolButton(self)
         self.previous_button.setText("◀")
-        self.previous_button.setToolTip("前の画像")
+        self.previous_button.setToolTip(tr("前の画像"))
         self.next_button = QToolButton(self)
         self.next_button.setText("▶")
-        self.next_button.setToolTip("次の画像")
+        self.next_button.setToolTip(tr("次の画像"))
         self.open_button = QToolButton(self)
-        self.open_button.setText("開く")
-        self.open_button.setToolTip("画像を開く")
+        self.open_button.setText(tr("開く"))
+        self.open_button.setToolTip(tr("画像を開く"))
         self.fit_button = QToolButton(self)
-        self.fit_button.setText("全体")
-        self.fit_button.setToolTip("全体を表示")
-        self.name_label = QLabel("画像またはフォルダをドロップ", self)
+        self.fit_button.setText(tr("全体"))
+        self.fit_button.setToolTip(tr("全体を表示"))
+        self.name_label = QLabel(tr("画像またはフォルダをドロップ"), self)
         self.name_label.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse
         )
@@ -104,15 +105,15 @@ class SubViewWidget(QWidget):
         self.zoom_slider.setRange(5, 800)
         self.zoom_slider.setValue(100)
         self.zoom_label = QLabel("100%")
-        self.zoom_100_button = QPushButton("100%表示")
+        self.zoom_100_button = QPushButton(tr("100%表示"))
         self.rotation_slider = QSlider(Qt.Orientation.Horizontal)
         self.rotation_slider.setRange(-180, 180)
         self.rotation_slider.setValue(0)
         self.rotation_label = QLabel("0°")
         self.rotation_0_button = QPushButton("0°")
         for widget in (
-            QLabel("拡大"), self.zoom_slider, self.zoom_label,
-            self.zoom_100_button, QLabel("回転"), self.rotation_slider,
+            QLabel(tr("拡大")), self.zoom_slider, self.zoom_label,
+            self.zoom_100_button, QLabel(tr("回転")), self.rotation_slider,
             self.rotation_label, self.rotation_0_button,
         ):
             controls.addWidget(widget)
@@ -215,10 +216,10 @@ class SubViewWidget(QWidget):
 
     def choose_image(self):
         path, _selected = QFileDialog.getOpenFileName(
-            self, "サブビュー画像を開く", "",
-            "対応画像 (*.png *.jpg *.jpeg *.tga *.psd);;"
+            self, tr("サブビュー画像を開く"), "",
+            tr("対応画像 (*.png *.jpg *.jpeg *.tga *.psd);;"
             "PNG (*.png);;JPEG (*.jpg *.jpeg);;TGA (*.tga);;PSD (*.psd);;"
-            "すべてのファイル (*)",
+            "すべてのファイル (*)"),
         )
         if path:
             self.load_path(path)
@@ -228,7 +229,7 @@ class SubViewWidget(QWidget):
         if candidate.is_dir():
             files = self._images_in_folder(candidate)
             if not files:
-                self.name_label.setText("画像が見つかりません")
+                self.name_label.setText(tr("画像が見つかりません"))
                 return False
             target = files[0]
         else:
@@ -239,7 +240,7 @@ class SubViewWidget(QWidget):
                 files.sort(key=lambda item: item.name.casefold())
         image = self._read_image(target)
         if image.isNull():
-            self.name_label.setText(f"読み込めません: {target.name}")
+            self.name_label.setText(tr("読み込めません: {name}").format(name=target.name))
             return False
         self._files = files
         self._index = files.index(target)
@@ -403,7 +404,7 @@ class _SubViewCanvas(QWidget):
             painter.setPen(QColor("#c3c8cc"))
             painter.drawText(
                 self.rect(), Qt.AlignmentFlag.AlignCenter,
-                "画像またはフォルダを\nここにドロップ",
+                tr("画像またはフォルダを\nここにドロップ"),
             )
             return
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, False)
@@ -462,8 +463,8 @@ class _SubViewCanvas(QWidget):
         painter.setPen(QPen(QColor("white"), 1))
         painter.drawRect(before_rect)
         painter.drawRect(after_rect)
-        painter.drawText(before_rect, Qt.AlignmentFlag.AlignCenter, "前")
-        painter.drawText(after_rect, Qt.AlignmentFlag.AlignCenter, "後")
+        painter.drawText(before_rect, Qt.AlignmentFlag.AlignCenter, tr("前"))
+        painter.drawText(after_rect, Qt.AlignmentFlag.AlignCenter, tr("後"))
 
     def dragEnterEvent(self, event):
         self.owner.dragEnterEvent(event)

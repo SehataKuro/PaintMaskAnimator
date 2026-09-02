@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from . import theme
+from .i18n import tr
 from .logging_setup import get_logger
 
 log = get_logger(__name__)
@@ -51,8 +52,8 @@ class OnionOpacityGraph(QWidget):
             QSizePolicy.Policy.Fixed,
         )
         self.setToolTip(
-            "各縦スライダーが、近いコマから順に1枚ずつ対応します。"
-            "上ほど濃く、下ほど薄く表示します。"
+            tr("各縦スライダーが、近いコマから順に1枚ずつ対応します。"
+            "上ほど濃く、下ほど薄く表示します。")
         )
         self.set_count(count)
 
@@ -110,7 +111,7 @@ class OnionOpacityGraph(QWidget):
                 "font-size:9px;padding:0px;margin:0px;"
             )
             number.setToolTip(
-                f"現在コマから{index + 1}枚離れたオニオンスキン"
+                tr("現在コマから{value}枚離れたオニオンスキン").format(value=index + 1)
             )
 
             slider = QSlider(Qt.Orientation.Vertical)
@@ -130,7 +131,7 @@ class OnionOpacityGraph(QWidget):
                 % (_c["border"], _c["surface"], _c["accent"])
             )
             slider.setToolTip(
-                f"{index + 1}枚目の濃度：{slider.value()}%"
+                tr("{value}枚目の濃度：{value2}%").format(value=index + 1, value2=slider.value())
             )
 
             value_label = QLabel(f"{slider.value()}")
@@ -143,7 +144,7 @@ class OnionOpacityGraph(QWidget):
             slider.valueChanged.connect(
                 lambda value, target=slider, label=value_label: (
                     target.setToolTip(
-                        f"コマ別濃度：{int(value)}%"
+                        tr("コマ別濃度：{int}%").format(int=int(value))
                     ),
                     label.setText(str(int(value))),
                     self.levelsChanged.emit(),
@@ -203,8 +204,8 @@ class OnionScaleSlider(QSlider):
         self.setTickPosition(QSlider.TickPosition.TicksBelow)
         self.setTickInterval(10)
         self.setToolTip(
-            "中央が100%。左で縮小、右で拡大します。"
-            "通常は1%ずつ、Shiftを押しながら操作すると3%ずつ動きます。"
+            tr("中央が100%。左で縮小、右で拡大します。"
+            "通常は1%ずつ、Shiftを押しながら操作すると3%ずつ動きます。")
         )
         self._slow_dragging = False
         self._slow_drag_start_x = 0.0
@@ -328,8 +329,8 @@ class OnionRotationSlider(QSlider):
         self.setTickPosition(QSlider.TickPosition.TicksBelow)
         self.setTickInterval(300)
         self.setToolTip(
-            "通常は0.5°ずつゆっくり調整します。"
-            "Shiftを押しながら操作すると3°ずつ動きます。"
+            tr("通常は0.5°ずつゆっくり調整します。"
+            "Shiftを押しながら操作すると3°ずつ動きます。")
         )
         self._slow_dragging = False
         self._slow_drag_start_x = 0.0
@@ -478,22 +479,22 @@ class OnionSkinSettingsBrowser(QWidget):
         layout.setSpacing(3)
 
         explanation = QLabel(
-            "X・Yシフトボタンを押すと、キャンバス上のドラッグで"
+            tr("X・Yシフトボタンを押すと、キャンバス上のドラッグで"
             "上下左右へ移動できます。回転とTU／TB拡大率は"
-            "スライダーで調整します。"
+            "スライダーで調整します。")
         )
         explanation.setWordWrap(True)
         layout.addWidget(explanation)
 
         self.selected_colors_only = QCheckBox(
-            "選択した使用色のみ表示"
+            tr("選択した使用色のみ表示")
         )
         self.selected_colors_only.setChecked(
             bool(selected_colors_only)
         )
         self.selected_colors_only.setToolTip(
-            "使用色パネルで親・子として選択している色だけを"
-            "オニオンスキンに表示します。"
+            tr("使用色パネルで親・子として選択している色だけを"
+            "オニオンスキンに表示します。")
         )
         layout.addWidget(self.selected_colors_only)
 
@@ -534,7 +535,7 @@ class OnionSkinSettingsBrowser(QWidget):
             self.previous_reset_button,
             self.previous_reset_both,
         ) = previous_values
-        self.tabs.addTab(previous_page, "前のコマ")
+        self.tabs.addTab(previous_page, tr("前のコマ"))
 
         next_values = self._build_direction_page(
             1,
@@ -566,7 +567,7 @@ class OnionSkinSettingsBrowser(QWidget):
             self.next_reset_button,
             self.next_reset_both,
         ) = next_values
-        self.tabs.addTab(next_page, "後のコマ")
+        self.tabs.addTab(next_page, tr("後のコマ"))
 
         position_panel = QWidget()
         position_form = QFormLayout(position_panel)
@@ -574,16 +575,16 @@ class OnionSkinSettingsBrowser(QWidget):
         position_form.setHorizontalSpacing(4)
         position_form.setVerticalSpacing(2)
 
-        self.canvas_position_button = QPushButton("表示位置")
+        self.canvas_position_button = QPushButton(tr("表示位置"))
         self.canvas_position_button.setCheckable(True)
         self.canvas_position_button.setToolTip(
-            "左ドラッグでキャンバスを移動します。"
+            tr("左ドラッグでキャンバスを移動します。"
             "Shift＋左ドラッグまたは右ドラッグで回転します。"
             "前後のオニオンスキンは画面上の位置・回転・拡大率を"
-            "保つよう相対値へ反映されます。"
+            "保つよう相対値へ反映されます。")
         )
         position_help = QLabel(
-            "左：移動　Shift／右：回転"
+            tr("左：移動　Shift／右：回転")
         )
         position_help.setWordWrap(True)
         position_form.addRow(
@@ -639,18 +640,18 @@ class OnionSkinSettingsBrowser(QWidget):
             canvas_degree_label
         )
         position_form.addRow(
-            "回転",
+            tr("回転"),
             canvas_rotation_row,
         )
 
         self.center_canvas_button = QPushButton(
-            "キャンバスを中央位置へ"
+            tr("キャンバスを中央位置へ")
         )
         self.center_canvas_button.setToolTip(
-            "中央％で指定した前後間の位置・回転・TU／TB拡大率を"
+            tr("中央％で指定した前後間の位置・回転・TU／TB拡大率を"
             "キャンバス基準へ取り込みます。"
             "キャンバス回転は0°へ戻し、表示用デジタルズームは"
-            "変更しません。"
+            "変更しません。")
         )
 
         # 中央％はボタンと同じ行へ寄せる。
@@ -684,7 +685,7 @@ class OnionSkinSettingsBrowser(QWidget):
         center_layout = QHBoxLayout(center_row)
         center_layout.setContentsMargins(0, 0, 0, 0)
         center_layout.setSpacing(2)
-        center_layout.addWidget(QLabel("中央％"))
+        center_layout.addWidget(QLabel(tr("中央％")))
         center_layout.addWidget(self.center_percent_slider, 1)
         center_layout.addWidget(self.center_percent_value)
         center_layout.addWidget(center_percent_mark)
@@ -696,13 +697,13 @@ class OnionSkinSettingsBrowser(QWidget):
         layout.addWidget(position_panel)
 
         outline_note = QLabel(
-            "オニオンスキン外周は濃度設定に関係なく、"
-            "常に100%の1px線で表示されます。"
+            tr("オニオンスキン外周は濃度設定に関係なく、"
+            "常に100%の1px線で表示されます。")
         )
         outline_note.setWordWrap(True)
         layout.addWidget(outline_note)
 
-        close_button = QPushButton("設定ブラウザを閉じる")
+        close_button = QPushButton(tr("設定ブラウザを閉じる"))
         close_button.clicked.connect(self.close)
         layout.addWidget(close_button)
 
@@ -825,15 +826,15 @@ class OnionSkinSettingsBrowser(QWidget):
         count_box = QSpinBox()
         count_box.setRange(0, 12)
         count_box.setValue(int(count))
-        count_box.setSuffix(" 枚")
-        form.addRow("表示枚数", count_box)
+        count_box.setSuffix(tr(" 枚"))
+        form.addRow(tr("表示枚数"), count_box)
 
         opacity_graph = OnionOpacityGraph(
             count_box.value(),
             levels,
             reverse_order=(int(direction) < 0),
         )
-        form.addRow("コマ別濃度", opacity_graph)
+        form.addRow(tr("コマ別濃度"), opacity_graph)
 
         opacity_slider = QSlider(Qt.Orientation.Horizontal)
         opacity_slider.setRange(1, 100)
@@ -847,9 +848,9 @@ class OnionSkinSettingsBrowser(QWidget):
         opacity_layout.setContentsMargins(0, 0, 0, 0)
         opacity_layout.addWidget(opacity_slider, 1)
         opacity_layout.addWidget(opacity_label)
-        form.addRow("全体濃度", opacity_row)
+        form.addRow(tr("全体濃度"), opacity_row)
 
-        color_enabled_box = QCheckBox("表示色を適用")
+        color_enabled_box = QCheckBox(tr("表示色を適用"))
         color_enabled_box.setChecked(bool(color_enabled))
         color_button = QPushButton()
         color_row = QWidget()
@@ -857,13 +858,13 @@ class OnionSkinSettingsBrowser(QWidget):
         color_layout.setContentsMargins(0, 0, 0, 0)
         color_layout.addWidget(color_enabled_box)
         color_layout.addWidget(color_button, 1)
-        form.addRow("表示色", color_row)
+        form.addRow(tr("表示色"), color_row)
 
-        shift_xy_button = QPushButton("X・Yシフト")
+        shift_xy_button = QPushButton(tr("X・Yシフト"))
         shift_xy_button.setCheckable(True)
         shift_xy_button.setToolTip(
-            "押した後、キャンバス上を上下左右へドラッグして"
-            "X・Yシフトを同時に調整します。"
+            tr("押した後、キャンバス上を上下左右へドラッグして"
+            "X・Yシフトを同時に調整します。")
         )
 
         shift_x_box = QSpinBox()
@@ -925,7 +926,7 @@ class OnionSkinSettingsBrowser(QWidget):
         rotation_layout.addWidget(rotation_slider, 1)
         rotation_layout.addWidget(rotation_box)
         rotation_layout.addWidget(degree_label)
-        form.addRow("回転", rotation_row)
+        form.addRow(tr("回転"), rotation_row)
 
         # TU/TB拡大率。100%が中央、1%刻み、Shiftで3倍速。
         scale_slider = OnionScaleSlider(scale)
@@ -946,13 +947,13 @@ class OnionSkinSettingsBrowser(QWidget):
         scale_layout.addWidget(scale_slider, 1)
         scale_layout.addWidget(scale_box)
         scale_layout.addWidget(percent_label)
-        form.addRow("拡大率", scale_row)
+        form.addRow(tr("拡大率"), scale_row)
 
-        reset_button = QPushButton("表示をリセット")
-        reset_both_box = QCheckBox("前後")
+        reset_button = QPushButton(tr("表示をリセット"))
+        reset_both_box = QCheckBox(tr("前後"))
         reset_both_box.setToolTip(
-            "チェックすると、前後両方の位置・回転・"
-            "拡大率を一度に初期値へ戻します。"
+            tr("チェックすると、前後両方の位置・回転・"
+            "拡大率を一度に初期値へ戻します。")
         )
         reset_row = QWidget()
         reset_layout = QHBoxLayout(reset_row)
@@ -1138,7 +1139,7 @@ class OnionSkinSettingsBrowser(QWidget):
         color = QColorDialog.getColor(
             current,
             self,
-            "オニオンスキンの表示色",
+            tr("オニオンスキンの表示色"),
         )
         if not color.isValid():
             return

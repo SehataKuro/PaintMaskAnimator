@@ -85,7 +85,9 @@ def test_dust_removal_over_all_frames_is_one_undo_entry(window):
         frame.layers[0].image.copy() for frame in window.canvas.frames
     ]
 
-    window.tools.dust_mode.setCurrentText("ゴミ取り")
+    window.tools.dust_mode.setCurrentIndex(
+        window.tools.dust_mode.findData("despeckle")
+    )
     window.tools.dust_size.setValue(16)
     window.tools.dust_selected_only.setChecked(False)
     window.tools.dust_all_frames.setChecked(True)
@@ -110,7 +112,9 @@ def test_dust_removal_without_all_frames_touches_only_the_current_cell(window):
     for frame_index in range(2):
         paint_cell(window, frame_index, "#000000", size=2, origin=(20, 20))
 
-    window.tools.dust_mode.setCurrentText("ゴミ取り")
+    window.tools.dust_mode.setCurrentIndex(
+        window.tools.dust_mode.findData("despeckle")
+    )
     window.tools.dust_size.setValue(16)
     window.tools.dust_selected_only.setChecked(False)
     window.tools.dust_all_frames.setChecked(False)
@@ -124,3 +128,30 @@ def test_dust_removal_without_all_frames_touches_only_the_current_cell(window):
     assert window.canvas.frames[1].layers[0].image.pixelColor(20, 20) == QColor(
         "#000000"
     )
+
+
+def test_every_palette_operation_has_a_label(qapp):
+    """Each caller's `operation=` must be a key of OPERATION_LABELS.
+
+    The label lookup is unconditional, so an unknown key raises KeyError before
+    anything else runs -- and the parent/child merge path had exactly that gap
+    when the labels were split from the identifiers.
+    """
+    import ast
+    import pathlib
+
+    from paintmaskanimator.main_window_used_color import UsedColorController
+
+    used = set()
+    for path in pathlib.Path("paintmaskanimator").rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.Call):
+                continue
+            if getattr(node.func, "attr", "") != "apply_palette_replacements":
+                continue
+            for keyword in node.keywords:
+                if keyword.arg == "operation" and isinstance(keyword.value, ast.Constant):
+                    used.add(keyword.value.value)
+
+    assert used, "no apply_palette_replacements(operation=...) call sites found"
+    assert used <= set(UsedColorController.OPERATION_LABELS)

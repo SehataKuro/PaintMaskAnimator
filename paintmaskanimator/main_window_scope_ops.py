@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
+from .i18n import tr
 from .frame_scope import FrameScope, apply_over_scope
 from .progress import close_counter, create_counter, update_counter
 from .logging_setup import get_logger
@@ -69,7 +70,7 @@ class ScopeOpsController:
                     self.window,
                     title,
                     dialog_state["total"],
-                    progress_label or f"{label}の対象コマを確認しています",
+                    progress_label or tr("{label}の対象コマを確認しています").format(label=label),
                     cancellable=bool(cancellable),
                 )
             frame_index = int(cell[0])
@@ -77,7 +78,7 @@ class ScopeOpsController:
                 dialog_state["dialog"],
                 done,
                 dialog_state["total"],
-                f"コマ {frame_index + 1} に{label}を適用しています",
+                tr("コマ {value} に{label}を適用しています").format(value=frame_index + 1, label=label),
             )
 
         def cancel_requested():

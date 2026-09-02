@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from .i18n import tr
 from .canvas import PaintCanvas
 from .errors import OperationError
 from .logging_setup import get_logger
@@ -44,10 +45,10 @@ class ToneCurveWidget(QWidget):
         self.setFixedHeight(112)
         self.setCursor(Qt.CursorShape.CrossCursor)
         self.setToolTip(
-            "空いている場所をクリック：点を追加／"
+            tr("空いている場所をクリック：点を追加／"
             "点をドラッグ：濃さを調整／"
             "右クリック：中間点を削除／"
-            "ダブルクリック：標準へ戻す"
+            "ダブルクリック：標準へ戻す")
         )
 
     def points(self):
@@ -323,7 +324,7 @@ class ColorReductionDialog(QDialog):
         parent=None,
     ):
         super().__init__(parent)
-        self.setWindowTitle("2値化")
+        self.setWindowTitle(tr("2値化"))
         self.resize(820, 560)
 
         self.source_image = source_image.copy()
@@ -344,7 +345,7 @@ class ColorReductionDialog(QDialog):
         self._base_reduced_cache = {}
         self._reduced_full_image = self.source_image.copy()
         self._confirmed_preview_image = self.source_image.copy()
-        self._confirmed_preview_title = "2値化　100%"
+        self._confirmed_preview_title = tr("2値化　100%")
         self._preview_dirty = False
         self._tone_drag_active = False
         self._tone_preview_source_rgba = None
@@ -365,14 +366,12 @@ class ColorReductionDialog(QDialog):
         layout.setSpacing(5)
 
         background_note = (
-            "白背景を自動検出"
+            tr("白背景を自動検出")
             if self.opaque_background
-            else f"半透明 {self.semi_transparent_count:,}px"
+            else tr("半透明 {count:,}px").format(count=self.semi_transparent_count)
         )
         summary = QLabel(
-            f"1枚目：{self.original_color_count:,}色／"
-            f"{background_note}　"
-            "トーンカーブを元画像へ先に適用し、その後に色数を調整して2値化します。"
+            tr("1枚目：{count:,}色／{note}　トーンカーブを元画像へ先に適用し、その後に色数を調整して2値化します。").format(count=self.original_color_count, note=background_note)
         )
         summary.setWordWrap(True)
         layout.addWidget(summary)
@@ -384,14 +383,14 @@ class ColorReductionDialog(QDialog):
             self.original_title,
             self.original_preview,
             self.original_scroll,
-        ) = self._build_preview_column("元画像（トーンカーブ）　100%")
+        ) = self._build_preview_column(tr("元画像（トーンカーブ）　100%"))
         (
             reduced_column,
             self.reduced_title,
             self.reduced_preview,
             self.reduced_scroll,
         ) = self._build_preview_column(
-            "2値化　100%"
+            tr("2値化　100%")
         )
         previews.addLayout(original_column, 1)
         previews.addLayout(reduced_column, 1)
@@ -403,17 +402,17 @@ class ColorReductionDialog(QDialog):
         controls.setVerticalSpacing(4)
 
         self.extraction_mode = QComboBox()
-        self.extraction_mode.addItem("色面抽出", "surface")
-        self.extraction_mode.addItem("ライン抽出", "line")
+        self.extraction_mode.addItem(tr("色面抽出"), "surface")
+        self.extraction_mode.addItem(tr("ライン抽出"), "line")
         self.extraction_mode.setCurrentIndex(1)
         self.extraction_mode.setToolTip(
-            "色面抽出：塗りの色面を保ちながらアンチエイリアスを除去します。\n"
-            "ライン抽出：白背景と元の線色を保ちながら線画を2値化します。"
+            tr("色面抽出：塗りの色面を保ちながらアンチエイリアスを除去します。\n"
+            "ライン抽出：白背景と元の線色を保ちながら線画を2値化します。")
         )
         self.extraction_mode.currentIndexChanged.connect(
             self._mark_preview_dirty
         )
-        controls.addRow("2値化方式", self.extraction_mode)
+        controls.addRow(tr("2値化方式"), self.extraction_mode)
 
         color_row = QWidget()
         color_layout = QHBoxLayout(color_row)
@@ -427,7 +426,7 @@ class ColorReductionDialog(QDialog):
         self.color_count = QSpinBox()
         self.color_count.setRange(2, 100)
         self.color_count.setValue(8)
-        self.color_count.setSuffix(" 色")
+        self.color_count.setSuffix(tr(" 色"))
         self.color_count.setFixedWidth(76)
         self.color_slider.valueChanged.connect(
             self.color_count.setValue
@@ -440,7 +439,7 @@ class ColorReductionDialog(QDialog):
         )
         color_layout.addWidget(self.color_slider, 1)
         color_layout.addWidget(self.color_count)
-        controls.addRow("色数", color_row)
+        controls.addRow(tr("色数"), color_row)
 
         tone_row = QWidget()
         tone_layout = QHBoxLayout(tone_row)
@@ -448,12 +447,12 @@ class ColorReductionDialog(QDialog):
         tone_layout.setSpacing(6)
 
         self.tone_curve = ToneCurveWidget()
-        self.tone_curve_label = QLabel("標準")
+        self.tone_curve_label = QLabel(tr("標準"))
         self.tone_curve_label.setFixedWidth(66)
         self.tone_curve_label.setAlignment(
             Qt.AlignmentFlag.AlignCenter
         )
-        tone_reset = QPushButton("標準")
+        tone_reset = QPushButton(tr("標準"))
         tone_reset.setFixedWidth(46)
         tone_reset.clicked.connect(
             self.tone_curve.resetCurve
@@ -471,27 +470,27 @@ class ColorReductionDialog(QDialog):
         tone_layout.addWidget(self.tone_curve, 1)
         tone_layout.addWidget(self.tone_curve_label)
         tone_layout.addWidget(tone_reset)
-        controls.addRow("トーンカーブ", tone_row)
+        controls.addRow(tr("トーンカーブ"), tone_row)
         layout.addLayout(controls)
 
         note = QLabel(
-            "色数の変更中はプレビューを更新しません。"
+            tr("色数の変更中はプレビューを更新しません。"
             "トーンカーブ操作中は元画像へ一時適用し、"
-            "離すと直前の2値化プレビューへ戻ります。"
+            "離すと直前の2値化プレビューへ戻ります。")
         )
         note.setWordWrap(True)
         note.setStyleSheet("font-size:10px;")
         layout.addWidget(note)
 
         confirm_row = QHBoxLayout()
-        self.preview_status = QLabel("プレビュー反映済み")
+        self.preview_status = QLabel(tr("プレビュー反映済み"))
         self.preview_status.setStyleSheet(
             "color:#28744a;font-weight:bold;"
         )
-        self.preview_confirm_button = QPushButton("プレビュー")
+        self.preview_confirm_button = QPushButton(tr("プレビュー"))
         self.preview_confirm_button.setToolTip(
-            "現在のトーンカーブと色数を使って"
-            "2値化プレビューを更新します。"
+            tr("現在のトーンカーブと色数を使って"
+            "2値化プレビューを更新します。")
         )
         self.preview_confirm_button.setMinimumWidth(110)
         self.preview_confirm_button.clicked.connect(
@@ -503,9 +502,9 @@ class ColorReductionDialog(QDialog):
         layout.addLayout(confirm_row)
 
         button_row = QHBoxLayout()
-        self.apply_button = QPushButton("全コマを2値化")
-        self.no_reduction_button = QPushButton("そのまま読み込む")
-        cancel_button = QPushButton("キャンセル")
+        self.apply_button = QPushButton(tr("全コマを2値化"))
+        self.no_reduction_button = QPushButton(tr("そのまま読み込む"))
+        cancel_button = QPushButton(tr("キャンセル"))
         self.apply_button.clicked.connect(self._accept_reduction)
         self.no_reduction_button.clicked.connect(
             self._accept_without_reduction
@@ -563,9 +562,9 @@ class ColorReductionDialog(QDialog):
     def _tone_curve_changed(self, points):
         point_count = max(0, len(points) - 2)
         self.tone_curve_label.setText(
-            "標準"
+            tr("標準")
             if point_count == 0
-            else f"中間点 {point_count}"
+            else tr("中間点 {count}").format(count=point_count)
         )
         self._mark_preview_dirty()
         if self._tone_drag_active:
@@ -584,7 +583,7 @@ class ColorReductionDialog(QDialog):
         if self._initial_preview:
             return
         self._preview_dirty = True
-        self.preview_status.setText("設定未反映")
+        self.preview_status.setText(tr("設定未反映"))
         self.preview_status.setStyleSheet(
             "color:#a15a00;font-weight:bold;"
         )
@@ -671,7 +670,7 @@ class ColorReductionDialog(QDialog):
 
             self._tone_adjusted_preview_image = preview.copy()
             self.original_title.setText(
-                "元画像（トーンカーブ）　100%"
+                tr("元画像（トーンカーブ）　100%")
             )
             self.original_preview.setPixmap(
                 QPixmap.fromImage(preview)
@@ -698,7 +697,7 @@ class ColorReductionDialog(QDialog):
         self._reduced_full_image = confirmed.copy()
         title = self._confirmed_preview_title
         if show_dirty_state and self._preview_dirty:
-            title += "（設定未反映）"
+            title += tr("（設定未反映）")
         self.reduced_title.setText(title)
         self._refresh_preview_pixmaps()
 
@@ -926,7 +925,7 @@ class ColorReductionDialog(QDialog):
             label.setPixmap(QPixmap.fromImage(image))
             label.setFixedSize(image.size())
 
-        self.original_title.setText("元画像（トーンカーブ）　100%")
+        self.original_title.setText(tr("元画像（トーンカーブ）　100%"))
         original_image = getattr(
             self,
             "_tone_adjusted_preview_image",
@@ -937,13 +936,13 @@ class ColorReductionDialog(QDialog):
 
     def _create_color_progress(self):
         progress = QProgressDialog(
-            "色相を分類しています",
+            tr("色相を分類しています"),
             "",
             0,
             3,
             self,
         )
-        progress.setWindowTitle("2値化")
+        progress.setWindowTitle(tr("2値化"))
         progress.setCancelButton(None)
         progress.setWindowModality(
             Qt.WindowModality.WindowModal
@@ -1047,7 +1046,7 @@ class ColorReductionDialog(QDialog):
                 or tone_adjusted_source.isNull()
             ):
                 raise OperationError(
-                    "トーンカーブ適用後の画像を生成できませんでした。"
+                    tr("トーンカーブ適用後の画像を生成できませんでした。")
                 )
             self._tone_adjusted_preview_image = (
                 tone_adjusted_source.copy()
@@ -1061,12 +1060,12 @@ class ColorReductionDialog(QDialog):
                 self._update_color_progress(
                     progress,
                     0,
-                    "トーンカーブを元画像へ適用しています",
+                    tr("トーンカーブを元画像へ適用しています"),
                 )
                 self._update_color_progress(
                     progress,
                     1,
-                    "近い色相をまとめて代表色を作成しています",
+                    tr("近い色相をまとめて代表色を作成しています"),
                 )
                 base_palette = (
                     PaintCanvas.build_color_reduction_palette(
@@ -1084,9 +1083,9 @@ class ColorReductionDialog(QDialog):
                     progress,
                     2,
                     (
-                        "線のアンチエイリアスを線色と白背景へ分けています"
+                        tr("線のアンチエイリアスを線色と白背景へ分けています")
                         if extraction_mode == "line"
-                        else "色面の境界を2色へ分けています"
+                        else tr("色面の境界を2色へ分けています")
                     ),
                 )
                 base_reduced = (
@@ -1105,7 +1104,7 @@ class ColorReductionDialog(QDialog):
                 )
                 if base_reduced is None or base_reduced.isNull():
                     raise OperationError(
-                        "2値化画像を生成できませんでした。"
+                        tr("2値化画像を生成できませんでした。")
                     )
 
                 self._base_palette_cache[cache_key] = (
@@ -1121,7 +1120,7 @@ class ColorReductionDialog(QDialog):
                 self._update_color_progress(
                     progress,
                     3,
-                    "プレビューを更新しています",
+                    tr("プレビューを更新しています"),
                 )
                 self._last_color_processing_seconds = (
                     time.perf_counter() - started_at
@@ -1145,8 +1144,7 @@ class ColorReductionDialog(QDialog):
             actual = len(palette)
             mode_name = self.extraction_mode.currentText()
             title = (
-                f"{mode_name}　100%（{actual}色／"
-                f"半透明 {statistics['semi_transparent']}px）"
+                tr("{name}　100%（{actual}色／半透明 {transparent}px）").format(name=mode_name, actual=actual, transparent=statistics['semi_transparent'])
             )
             self.reduced_title.setText(title)
             self._refresh_preview_pixmaps()
@@ -1154,7 +1152,7 @@ class ColorReductionDialog(QDialog):
             self._confirmed_preview_image = reduced.copy()
             self._confirmed_preview_title = title
             self._preview_dirty = False
-            self.preview_status.setText("プレビュー反映済み")
+            self.preview_status.setText(tr("プレビュー反映済み"))
             self.preview_status.setStyleSheet(
                 "color:#28744a;font-weight:bold;"
             )
@@ -1175,9 +1173,8 @@ class ColorReductionDialog(QDialog):
             )
             QMessageBox.warning(
                 self,
-                "2値化",
-                "2値化プレビューの生成中にエラーが発生しました。\n\n"
-                f"{exc}",
+                tr("2値化"),
+                tr("2値化プレビューの生成中にエラーが発生しました。\n\n{exc}").format(exc=exc),
             )
         finally:
             self._close_color_progress(progress)
@@ -1200,8 +1197,8 @@ class ColorReductionDialog(QDialog):
             or self._palette_key != expected_key
         ):
             raise OperationError(
-                "現在の設定はまだプレビューへ反映されていません。"
-                "先に「プレビュー」を押してください。"
+                tr("現在の設定はまだプレビューへ反映されていません。"
+                "先に「プレビュー」を押してください。")
             )
         return np.asarray(
             self._palette,
@@ -1219,9 +1216,9 @@ class ColorReductionDialog(QDialog):
         if self._preview_dirty:
             QMessageBox.information(
                 self,
-                "2値化",
-                "トーンカーブまたは色数が未反映です。\n"
-                "先に下の「プレビュー」を押してください。",
+                tr("2値化"),
+                tr("トーンカーブまたは色数が未反映です。\n"
+                "先に下の「プレビュー」を押してください。"),
             )
             return
         try:
@@ -1230,7 +1227,7 @@ class ColorReductionDialog(QDialog):
             log.info("palette not ready for apply: %s", exc)
             QMessageBox.warning(
                 self,
-                "2値化",
+                tr("2値化"),
                 str(exc),
             )
             return

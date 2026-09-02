@@ -11,6 +11,7 @@ import math
 import re
 from pathlib import Path
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
+from .i18n import tr
 from .errors import OPERATION_ERRORS as _OPERATION_ERRORS, OperationError
 from .utils import blank_image
 from .widgets import TimeRemapPasteDialog
@@ -80,7 +81,7 @@ class TimeRemapController:
 
         if not time_entries:
             raise OperationError(
-                "Time RemapのFrame／secondsデータが見つかりません。"
+                tr("Time RemapのFrame／secondsデータが見つかりません。")
             )
 
         # 同じフレームが複数ある場合は、後から書かれた値を優先。
@@ -154,7 +155,7 @@ class TimeRemapController:
             .strip()
         )
         if not text_value:
-            raise OperationError("貼り付けデータが空です。")
+            raise OperationError(tr("貼り付けデータが空です。"))
 
         lowered = text_value.lower()
         if text_value.startswith("exchangeDigitalTimeSheet Save Data"):
@@ -176,8 +177,8 @@ class TimeRemapController:
             return cls._parse_after_effects_time_remap(text_value)
 
         raise OperationError(
-            "Adobe After Effects、ToeiDigitalTimeSheet、XDTS形式を"
-            "判別できませんでした。"
+            tr("Adobe After Effects、ToeiDigitalTimeSheet、XDTS形式を"
+            "判別できませんでした。")
         )
 
     def _time_remap_source_bank(self, layer_index):
@@ -334,10 +335,10 @@ class TimeRemapController:
             or end_frame < start_frame
             or len(states) != end_frame - start_frame + 1
         ):
-            raise OperationError("解析したフレーム範囲が不正です。")
+            raise OperationError(tr("解析したフレーム範囲が不正です。"))
 
         if not self.window.canvas.frames:
-            raise OperationError("タイムラインがありません。")
+            raise OperationError(tr("タイムラインがありません。"))
         layer_index = int(self.window.canvas.active_layer_index)
         current_frame = max(
             0,
@@ -350,13 +351,13 @@ class TimeRemapController:
             0 <= layer_index
             < len(self.window.canvas.frames[current_frame].layers)
         ):
-            raise OperationError("対象レイヤーを選択してください。")
+            raise OperationError(tr("対象レイヤーを選択してください。"))
 
         source_bank = self._time_remap_source_bank(layer_index)
         if not source_bank:
             raise OperationError(
-                "選択レイヤーに連番画像がありません。\n"
-                "先に画像連番を読み込んでください。"
+                tr("選択レイヤーに連番画像がありません。\n"
+                "先に画像連番を読み込んでください。")
             )
 
         referenced = sorted({
@@ -376,13 +377,11 @@ class TimeRemapController:
             if len(missing) > 12:
                 preview += "…"
             raise OperationError(
-                f"連番画像は{len(source_bank)}枚ですが、"
-                "存在しない絵番号が参照されています。\n"
-                f"{preview}"
+                tr("連番画像は{len}枚ですが、存在しない絵番号が参照されています。\n{preview}").format(len=len(source_bank), preview=preview)
             )
 
         format_name = str(
-            parsed.get("format", "タイムリマップ")
+            parsed.get("format", tr("タイムリマップ"))
         )
         blank_count = sum(
             1 for state in states if state is None
@@ -391,15 +390,11 @@ class TimeRemapController:
             parsed.get("blank_label_count", 0)
         )
         message = (
-            f"形式：{format_name}\n"
-            f"反映範囲：{start_frame + 1}～"
-            f"{end_frame + 1}フレーム\n"
-            f"連番画像：{len(source_bank)}枚\n"
-            f"空フレーム：{blank_count}フレーム"
+            tr("形式：{name}\n反映範囲：{value}～{value2}フレーム\n連番画像：{len}枚\n空フレーム：{count}フレーム").format(name=format_name, value=start_frame + 1, value2=end_frame + 1, len=len(source_bank), count=blank_count)
         )
         if label_blanks:
             message += (
-                f"\n中割・記号ラベル：{label_blanks}セル"
+                tr("\n中割・記号ラベル：{blanks}セル").format(blanks=label_blanks)
             )
         message += (
             "\n\n選択レイヤーの対象範囲を置き換えます。"
@@ -407,7 +402,7 @@ class TimeRemapController:
 
         answer = QMessageBox.question(
             self.window,
-            "タイムリマップを反映",
+            tr("タイムリマップを反映"),
             message,
             QMessageBox.StandardButton.Yes
             | QMessageBox.StandardButton.No,
@@ -440,8 +435,7 @@ class TimeRemapController:
         self.window.used_color.schedule_refresh()
 
         self.window.statusBar().showMessage(
-            f"{format_name}を{start_frame + 1}～"
-            f"{end_frame + 1}フレームへ反映しました。",
+            tr("{name}を{value}～{value2}フレームへ反映しました。").format(name=format_name, value=start_frame + 1, value2=end_frame + 1),
             4200,
         )
         return True
@@ -456,8 +450,8 @@ class TimeRemapController:
             except (OSError, UnicodeError) as exc:
                 QMessageBox.warning(
                     self.window,
-                    "XDTS読み込み",
-                    f"読み込めませんでした。\n\n{exc}",
+                    tr("XDTS読み込み"),
+                    tr("読み込めませんでした。\n\n{exc}").format(exc=exc),
                 )
                 return False
         dialog = TimeRemapPasteDialog(
@@ -471,7 +465,7 @@ class TimeRemapController:
         try:
             parsed = dialog.parsed_result()
             if parsed is None:
-                raise OperationError("使用するタイムシート行がありません。")
+                raise OperationError(tr("使用するタイムシート行がありません。"))
             if (
                 str(parsed.get("format", "")).startswith("XDTS")
                 and parsed.get("sheet_columns")
@@ -482,9 +476,8 @@ class TimeRemapController:
             log.warning("time-remap paste failed: %s", exc, exc_info=True)
             QMessageBox.warning(
                 self.window,
-                "タイムリマップ貼り付け",
-                "タイムラインへ反映できませんでした。\n\n"
-                f"{exc}",
+                tr("タイムリマップ貼り付け"),
+                tr("タイムラインへ反映できませんでした。\n\n{exc}").format(exc=exc),
             )
             return False
 

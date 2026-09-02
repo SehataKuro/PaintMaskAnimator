@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QSpinBox,
 )
 from . import imaging
+from .i18n import tr
 from .models import Layer
 from .frame_scope import resolve_cells
 from .utils import blank_image
@@ -197,7 +198,7 @@ class LineOpsController:
         )
         self.window.colors._sync_tool_selector_swatch()
         self.window.canvas.update()
-        self.window.statusBar().showMessage("メインカラーとサブカラーを切り替えました。", 1800)
+        self.window.statusBar().showMessage(tr("メインカラーとサブカラーを切り替えました。"), 1800)
 
     def reset_main_sub(self):
         self.window.canvas.main_color = QColor("black")
@@ -211,7 +212,7 @@ class LineOpsController:
             self.window.canvas.transparent_display_color,
         )
         self.window.canvas.update()
-        self.window.statusBar().showMessage("メイン色とサブ色を初期化しました。", 1800)
+        self.window.statusBar().showMessage(tr("メイン色とサブ色を初期化しました。"), 1800)
 
     def toggle_silhouette(self, checked=None):
         if checked is None:
@@ -233,15 +234,15 @@ class LineOpsController:
         self.window.canvas._silhouette_cache.clear()
         self.window.canvas.update()
         self.window.statusBar().showMessage(
-            "背景以外を黒シルエット表示しています。"
+            tr("背景以外を黒シルエット表示しています。")
             if checked else
-            "黒シルエット表示を解除しました。",
+            tr("黒シルエット表示を解除しました。"),
             2200,
         )
 
     def choose_transform_mesh_grid(self):
         dialog = QDialog(self.window)
-        dialog.setWindowTitle("メッシュ格子数")
+        dialog.setWindowTitle(tr("メッシュ格子数"))
         form = QFormLayout(dialog)
 
         cols_spin = QSpinBox(dialog)
@@ -254,8 +255,8 @@ class LineOpsController:
         rows_spin.setValue(
             max(2, int(getattr(self.window.canvas, "transform_mesh_rows", 4)))
         )
-        form.addRow("横の格子数", cols_spin)
-        form.addRow("縦の格子数", rows_spin)
+        form.addRow(tr("横の格子数"), cols_spin)
+        form.addRow(tr("縦の格子数"), rows_spin)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
@@ -280,7 +281,7 @@ class LineOpsController:
         self.window.canvas.set_transform_mesh_grid(cols, rows)
         if not self.window.canvas.transform_active:
             self.window.statusBar().showMessage(
-                f"次回のメッシュ変形を 横{cols}×縦{rows} 格子に設定しました。",
+                tr("次回のメッシュ変形を 横{cols}×縦{rows} 格子に設定しました。").format(cols=cols, rows=rows),
                 2200,
             )
 
@@ -290,12 +291,12 @@ class LineOpsController:
             if not self.window.canvas.auto_select_used_area():
                 QMessageBox.warning(
                     self.window,
-                    "変形",
-                    "使用色がある領域を検出できないため、変形を開始できません。",
+                    tr("変形"),
+                    tr("使用色がある領域を検出できないため、変形を開始できません。"),
                 )
                 return
             self.window.statusBar().showMessage(
-                "選択範囲がなかったため、使用色がある領域を自動選択しました。",
+                tr("選択範囲がなかったため、使用色がある領域を自動選択しました。"),
                 2600,
             )
         self.window.canvas.transform_mesh_cols = self.window.tools.transform_mesh_grid_x.value()
@@ -329,26 +330,25 @@ class LineOpsController:
         if not self.window.canvas.begin_selection_transform(mode):
             self.window.canvas.transform_apply_all_frames = False
             QMessageBox.warning(
-                self.window, "変形",
-                "選択範囲から変形対象を作成できませんでした。"
+                self.window, tr("変形"),
+                tr("選択範囲から変形対象を作成できませんでした。")
             )
             return
         self.window.canvas.setFocus()
         target_note = (
-            ("クオリティ方式／" if quality_active else "")
+            (tr("クオリティ方式／") if quality_active else "")
             + (
-                "すべてのコマへ適用します。"
+                tr("すべてのコマへ適用します。")
                 if self.window.canvas.transform_apply_all_frames
-                else "現在のコマへ適用します。"
+                else tr("現在のコマへ適用します。")
             )
         )
         line_note = (
-            f" 選択中の使用色{len(self.window.canvas.transform_tp_line_colors)}色を実線として処理します。"
+            tr(" 選択中の使用色{len}色を実線として処理します。").format(len=len(self.window.canvas.transform_tp_line_colors))
             if quality_active and self.window.canvas.transform_tp_line_colors else ""
         )
         self.window.statusBar().showMessage(
-            "白い点：変形／枠内：移動／黄色い点：回転。"
-            f"Enterで確定、Escでキャンセルできます。{target_note}{line_note}",
+            tr("白い点：変形／枠内：移動／黄色い点：回転。Enterで確定、Escでキャンセルできます。{note}{note2}").format(note=target_note, note2=line_note),
             5000,
         )
 
@@ -415,16 +415,16 @@ class LineOpsController:
         if source_key is None:
             QMessageBox.warning(
                 self.window,
-                "同一画像を置換色に登録",
-                "選択レイヤーの現在位置に画像がありません。",
+                tr("同一画像を置換色に登録"),
+                tr("選択レイヤーの現在位置に画像がありません。"),
             )
             return
         source_layer = self.window.canvas.frames[source_key].layers[source_index]
         if not source_layer.has_content:
             QMessageBox.warning(
                 self.window,
-                "同一画像を置換色に登録",
-                "選択レイヤーの現在位置に画像がありません。",
+                tr("同一画像を置換色に登録"),
+                tr("選択レイヤーの現在位置に画像がありません。"),
             )
             return
 
@@ -440,8 +440,8 @@ class LineOpsController:
         if not candidates:
             QMessageBox.warning(
                 self.window,
-                "同一画像を置換色に登録",
-                "同じタイムライン位置の上側レイヤーに、比較できる画像がありません。",
+                tr("同一画像を置換色に登録"),
+                tr("同じタイムライン位置の上側レイヤーに、比較できる画像がありません。"),
             )
             return
 
@@ -456,23 +456,22 @@ class LineOpsController:
             if registered <= 0:
                 QMessageBox.warning(
                     self.window,
-                    "同一画像を置換色に登録",
-                    "一致する画像は見つかりましたが、登録できる使用色がありません。",
+                    tr("同一画像を置換色に登録"),
+                    tr("一致する画像は見つかりましたが、登録できる使用色がありません。"),
                 )
                 return
             self.window.statusBar().showMessage(
-                f"上側レイヤー「{target_layer.name}」から"
-                f"{registered}色を置換色に登録しました。",
+                tr("上側レイヤー「{name}」から{registered}色を置換色に登録しました。").format(name=target_layer.name, registered=registered),
                 4000,
             )
             return
 
         QMessageBox.warning(
             self.window,
-            "同一画像を置換色に登録",
-            "上側レイヤーの画像とピクセルが一致していないため、"
+            tr("同一画像を置換色に登録"),
+            tr("上側レイヤーの画像とピクセルが一致していないため、"
             "置換色には登録できません。\n"
-            "画像サイズ、透明度、色領域の形が同じか確認してください。",
+            "画像サイズ、透明度、色領域の形が同じか確認してください。"),
         )
 
     def main_line_repaint(self):
@@ -481,7 +480,7 @@ class LineOpsController:
         answer = QMessageBox.question(
             self.window,
             "MainLineRepaint",
-            "選択した使用色と、それ以外の部分を別レイヤーに分離します。",
+            tr("選択した使用色と、それ以外の部分を別レイヤーに分離します。"),
             QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
             QMessageBox.StandardButton.Cancel,
         )
@@ -492,7 +491,7 @@ class LineOpsController:
         if not selected:
             QMessageBox.information(
                 self.window, "MainLineRepaint",
-                "使用色欄で分離したい色を1色以上選択してください。"
+                tr("使用色欄で分離したい色を1色以上選択してください。")
             )
             return
         selected_set = {tuple(map(int, rgb)) for rgb in selected}
@@ -503,7 +502,7 @@ class LineOpsController:
             self.window,
             "MainLineRepaint",
             frame_total * 2,
-            "対象色を確認しています",
+            tr("対象色を確認しています"),
         )
 
         found_target = False
@@ -512,7 +511,7 @@ class LineOpsController:
                 progress,
                 scan_index - 1,
                 frame_total * 2,
-                f"コマ {scan_index} の対象色を確認しています",
+                tr("コマ {index} の対象色を確認しています").format(index=scan_index),
             )
             source = frame.layers[source_index]
             if not source.has_content:
@@ -539,7 +538,7 @@ class LineOpsController:
             QMessageBox.warning(
                 self.window,
                 "MainLineRepaint",
-                "選択した使用色が選択レイヤー内に見つかりませんでした。\n処理は適用しません。",
+                tr("選択した使用色が選択レイヤー内に見つかりませんでした。\n処理は適用しません。"),
             )
             return
 
@@ -576,7 +575,7 @@ class LineOpsController:
                 progress,
                 frame_total + frame_index,
                 frame_total * 2,
-                f"コマ {frame_index + 1} をレイヤー分離しています",
+                tr("コマ {value} をレイヤー分離しています").format(value=frame_index + 1),
             )
             source = frame.layers[source_index]
             if not source.has_content:
@@ -678,13 +677,16 @@ class LineOpsController:
         self.window.canvas.update()
 
         self.window.statusBar().showMessage(
-            "LINE／Paintを作成し、元レイヤーを非表示にしました。",
+            tr("LINE／Paintを作成し、元レイヤーを非表示にしました。"),
             3800,
         )
 
     def remove_dust_fill_surrounding(self):
         """選択レイヤー内でゴミ取り／塗り抜けを実行する。"""
-        mode = self.window.tools.dust_mode.currentText()
+        # The data is what we branch on; the text is what the user reads in the
+        # history panel and the status bar.
+        mode = self.window.tools.dust_mode.currentData()
+        mode_label = self.window.tools.dust_mode.currentText()
         max_area = max(
             1,
             min(100, int(self.window.tools.dust_size.value())),
@@ -697,7 +699,7 @@ class LineOpsController:
 
         if selected_only and not selected_colors:
             self.window.statusBar().showMessage(
-                "使用色パネルで対象色を選択してください。",
+                tr("使用色パネルで対象色を選択してください。"),
                 2800,
             )
             return
@@ -710,7 +712,7 @@ class LineOpsController:
         )
         if not resolve_cells(self.window.canvas, scope):
             self.window.statusBar().showMessage(
-                "選択レイヤーに処理できるキーフレームがありません。",
+                tr("選択レイヤーに処理できるキーフレームがありません。"),
                 2800,
             )
             return
@@ -786,7 +788,7 @@ class LineOpsController:
             )
             cell_changed = 0
 
-            if mode == "塗り抜け":
+            if mode == "fill_holes":
                 # 外周につながらない小さな白領域を周囲色で埋める。
                 starts = []
                 starts.extend(
@@ -996,8 +998,8 @@ class LineOpsController:
         result = self.window.scope.run_over(
             scope,
             despeckle,
-            label=mode,
-            progress_label=f"{mode}対象を解析しています",
+            label=mode_label,
+            progress_label=tr("{label}対象を解析しています").format(label=mode_label),
             count_pixels=lambda context, _image: changed_by_cell.get(
                 (context.frame, context.layer_index), 0
             ),
@@ -1007,18 +1009,17 @@ class LineOpsController:
         changed_pixels = result.changed_pixels
         if result.cancelled:
             self.window.statusBar().showMessage(
-                f"{mode}を中止しました。画像は変更していません。",
+                tr("{label}を中止しました。画像は変更していません。").format(label=mode_label),
                 2800,
             )
             return
 
         if not changed_pixels:
             target_text = (
-                "選択色の" if selected_only else ""
+                tr("選択色の") if selected_only else ""
             )
             self.window.statusBar().showMessage(
-                f"指定サイズ以内の{target_text}{mode}対象は"
-                "見つかりませんでした。",
+                tr("指定サイズ以内の{text}{label}対象は見つかりませんでした。").format(text=target_text, label=mode_label),
                 3000,
             )
             return
@@ -1030,14 +1031,13 @@ class LineOpsController:
         QApplication.processEvents()
 
         self.window.used_color.refresh_with_counter(
-            f"{mode}後の使用色を更新しています"
+            tr("{label}後の使用色を更新しています").format(label=mode_label)
         )
 
         # 使用色の再走査後にも再描画を予約し、進捗ダイアログの
         # 閉鎖後に旧表示へ戻ることを防ぐ。
         self.window.canvas.update()
         self.window.statusBar().showMessage(
-            f"選択レイヤーの{changed_cells}コマで"
-            f"{changed_pixels:,}ピクセルへ{mode}を適用しました。",
+            tr("選択レイヤーの{cells}コマで{pixels:,}ピクセルへ{label}を適用しました。").format(cells=changed_cells, pixels=changed_pixels, label=mode_label),
             3600,
         )

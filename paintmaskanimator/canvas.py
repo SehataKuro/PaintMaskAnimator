@@ -38,11 +38,12 @@ from PySide6.QtGui import (
     QRegion,
 )
 from PySide6.QtWidgets import QPushButton, QWidget
+from .i18n import tr
 from .constants import OUTSIDE_MARGIN
 from . import constants
 from . import color_ops, colors, geometry, imaging
 from .document import Document
-from .toolpanel import ToolPanel
+from .toolpanel import tool_label
 from .utils import blank_image, workspace_size
 from .progress import close_counter, create_counter, update_counter
 from .logging_setup import get_logger
@@ -263,8 +264,8 @@ class PaintCanvas(
         self.mesh_points=[]; self.mesh_original=None; self.mesh_active=-1; self.mesh_grid=4
         self.checker_light=QColor(255,255,255); self.checker_dark=QColor(255,255,255)
 
-        self.selection_clear_overlay = QPushButton("選択解除", self)
-        self.selection_clear_overlay.setToolTip("現在の選択範囲を解除します。")
+        self.selection_clear_overlay = QPushButton(tr("選択解除"), self)
+        self.selection_clear_overlay.setToolTip(tr("現在の選択範囲を解除します。"))
         self.selection_clear_overlay.setFixedHeight(26)
         self.selection_clear_overlay.setStyleSheet(
             "QPushButton{background:rgba(35,35,35,215);color:white;"
@@ -853,7 +854,8 @@ class PaintCanvas(
         }
 
 
-    def request_quality_preview_counter(self, label="クオリティプレビューを生成しています"):
+    def request_quality_preview_counter(self, label=None):
+        label = tr("クオリティプレビューを生成しています") if label is None else label
         """Schedule quality rendering after the current paint/input event."""
         if (
             self._tp_preview_progress_busy
@@ -868,12 +870,11 @@ class PaintCanvas(
             lambda text=str(label): self.refresh_quality_preview_with_counter(text),
         )
 
-    def refresh_quality_preview_with_counter(
-        self,
-        label="クオリティプレビューを生成しています",
-        full_resolution=False,
-    ):
+    def refresh_quality_preview_with_counter(self, label=None, full_resolution=False):
         """Build the expensive TP_mask preview with a visible mask counter."""
+        # Not a default argument: tr() there would run at import time, before the
+        # translator is installed.
+        label = tr("クオリティプレビューを生成しています") if label is None else label
         self._tp_preview_progress_scheduled = False
         if (
             self._tp_preview_progress_busy
@@ -919,9 +920,9 @@ class PaintCanvas(
                 progress = create_counter(
                     window,
                     (
-                        "Tp_mask 軽量プレビュー"
+                        tr("Tp_mask 軽量プレビュー")
                         if use_proxy
-                        else "Tp_mask クオリティプレビュー"
+                        else tr("Tp_mask クオリティプレビュー")
                     ),
                     total,
                     label,
@@ -946,12 +947,12 @@ class PaintCanvas(
                     progress,
                     total,
                     total,
-                    "プレビューを更新しました",
+                    tr("プレビューを更新しました"),
                 )
         except (ValueError, IndexError, TypeError, RuntimeError, AttributeError, MemoryError) as exc:
             log.warning("quality preview generation failed: %s", exc, exc_info=True)
             self.status_message.emit(
-                f"クオリティプレビューを生成できませんでした: {exc}"
+                tr("クオリティプレビューを生成できませんでした: {exc}").format(exc=exc)
             )
         finally:
             if progress is not None:
@@ -976,7 +977,7 @@ class PaintCanvas(
         self._invalidate_tp_preview_cache()
         if self.transform_active and self.transform_quality_active:
             self.request_quality_preview_counter(
-                "クオリティ方式へ切り替えています"
+                tr("クオリティ方式へ切り替えています")
             )
         self.update()
 
@@ -1027,7 +1028,7 @@ class PaintCanvas(
     def _render_deferred_transform_line_preview(self):
         if self.transform_active and self.transform_quality_active:
             self.request_quality_preview_counter(
-                "実線の太さをプレビューへ反映しています"
+                tr("実線の太さをプレビューへ反映しています")
             )
 
     def set_transform_line_colors(self, colors):
@@ -1046,7 +1047,7 @@ class PaintCanvas(
                 if not self._tp_uses_proxy(target_width, target_height):
                     self._prepare_tp_transform_masks()
                 self.request_quality_preview_counter(
-                    "実線色を反映しています"
+                    tr("実線色を反映しています")
                 )
             else:
                 self._invalidate_tp_preview_cache()
@@ -1579,11 +1580,11 @@ class PaintCanvas(
         if self.shape_start is not None and self.shape_end is not None:
             rect_preview = self._shape_rect()
             panel = self._active_tool_panel()
-            shape_type = panel.shape_type.currentText() if panel is not None else "多角形"
+            shape_type = panel.shape_type.currentData() if panel is not None else "polygon"
             preview_points = []
             if not rect_preview.isEmpty():
                 center = rect_preview.center()
-                if shape_type == "楕円":
+                if shape_type == "ellipse":
                     point_count = 64
                     for index in range(point_count):
                         angle = -math.pi / 2.0 + 2.0 * math.pi * index / point_count
@@ -1740,14 +1741,15 @@ class PaintCanvas(
             p.drawEllipse(ring)
             p.restore()
 
-        tool_labels = dict(ToolPanel.TOOLS)
-        tool_labels.update({
-            "hand": "ハンド",
-            "zoom": "拡大縮小",
-            "rotate": "回転",
-            "eyedropper": "スポイト",
-        })
-        tool_name = tool_labels.get(self.effective_tool(), str(self.effective_tool()))
+        # Hold-to-use canvas operations are not entries in ToolPanel.TOOLS.
+        hold_labels = {
+            "hand": tr("ハンド"),
+            "zoom": tr("拡大縮小"),
+            "rotate": tr("回転"),
+            "eyedropper": tr("スポイト"),
+        }
+        tool = self.effective_tool()
+        tool_name = hold_labels.get(tool) or tool_label(tool)
         p.setPen(QColor("white"))
         p.drawText(
             10, self.height()-10,

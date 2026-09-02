@@ -13,6 +13,7 @@ import time
 from typing import Any
 from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, Qt
 from PySide6.QtGui import QColor, QImage, QPainter, QPainterPath, QPen, QPolygonF
+from .i18n import tr
 from ._canvas_members import CanvasMembers
 from . import imaging
 from .pressure import _pressure_bezier_at
@@ -236,7 +237,7 @@ class PaintToolsMixin(CanvasMembers):
         if selection_mask is not None and not selection_mask[start_y, start_x]:
             if self.undo_stack:
                 self.undo_stack.pop()
-            self.status_message.emit("選択範囲の外側なので塗りを開始しませんでした。")
+            self.status_message.emit(tr("選択範囲の外側なので塗りを開始しませんでした。"))
             return
 
         ptr = imaging.qimage_buffer(image)
@@ -369,7 +370,7 @@ class PaintToolsMixin(CanvasMembers):
                 if self.undo_stack:
                     self.undo_stack.pop()
                 self.status_message.emit(
-                    "領域がキャンバス端まで開いているため、塗りを開始しませんでした。"
+                    tr("領域がキャンバス端まで開いているため、塗りを開始しませんでした。")
                 )
                 return
 
@@ -594,7 +595,7 @@ class PaintToolsMixin(CanvasMembers):
                 or np.any(region[:, 0]) or np.any(region[:, -1])
             ):
                 self.status_message.emit(
-                    "領域がキャンバス端まで開いているため選択しませんでした。"
+                    tr("領域がキャンバス端まで開いているため選択しませんでした。")
                 )
                 return False
         else:
@@ -828,9 +829,9 @@ class PaintToolsMixin(CanvasMembers):
         if rect.isEmpty():
             return None
         panel = self._active_tool_panel()
-        shape_type = panel.shape_type.currentText() if panel is not None else "多角形"
+        shape_type = panel.shape_type.currentData() if panel is not None else "polygon"
         path = QPainterPath()
-        if shape_type == "楕円":
+        if shape_type == "ellipse":
             path.addEllipse(rect)
             return path
 
