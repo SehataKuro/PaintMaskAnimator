@@ -11,7 +11,23 @@ from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
 from . import config
-from .common import *  # noqa: F401,F403
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QDialog,
+    QHBoxLayout,
+    QInputDialog,
+    QListWidget,
+    QListWidgetItem,
+    QMessageBox,
+    QPushButton,
+    QSplitter,
+    QVBoxLayout,
+    QWidget,
+)
 
 
 # Built-in actions ship as editable default scripts. They are written into the
@@ -44,7 +60,7 @@ def register_actions(panel, window):
 def register_actions(panel, window):
     def replace_colors():
         # window は MainWindow です。既存の操作を呼び出せます。
-        window.register_same_image_replacements()
+        window.line_ops.register_same_image_replacements()
         window.status_bar.showMessage("同一画像から色置換を実行しました", 3000)
 
     panel.add_action(
@@ -63,7 +79,7 @@ def register_actions(panel, window):
 def register_actions(panel, window):
     def repaint_main_line():
         # 通常ボタンのコールバックには引数が渡りません。
-        window.main_line_repaint()
+        window.line_ops.main_line_repaint()
 
     panel.add_action(
         "main_line_repaint",

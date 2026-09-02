@@ -5,7 +5,7 @@ checkboxes: showing or hiding a single colour, isolating one, restoring all, and
 the press-and-sweep drag that toggles a run of rows in one gesture. Changes are
 published to the canvas through ``visibleColorsChanged``.
 """
-from .common import *  # noqa: F401,F403
+from PySide6.QtWidgets import QMenu
 from ._color_panel_members import UsedColorPanelMembers
 from .logging_setup import get_logger
 

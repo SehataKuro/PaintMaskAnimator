@@ -1,21 +1,54 @@
 """The ``MainWindow`` — application shell, menu/dock wiring, and top-level actions.
 
-Architecture: cohesive method clusters were extracted into ``main_window_<topic>.py``
-as ``*Mixin`` classes and composed onto ``MainWindow`` below (autosave, workspaces,
-onion skin, export, import, docking, time-remap, timeline ops, layer ops, tween,
-used-color, project I/O, color interaction, UI construction, line ops, input).
-What remains here is the irreducible shell: application state held on the window,
-the ``PaintCanvas`` <-> timeline glue, playback, and document lifecycle
-(``new_doc``/``replace_doc``). UI assembly (actions, menus, layout, signal
-wiring) now lives in ``main_window_ui_build.py``. Type-only member
-declarations shared by the mixins live in ``_main_window_members.py``; the shared
-error set is ``errors.OPERATION_ERRORS`` (aliased ``_OPERATION_ERRORS``).
+Architecture: each cohesive feature lives in ``main_window_<topic>.py`` as a
+*controller* the window owns and reaches by name -- ``window.export``,
+``window.project``, ``window.timeline_ops`` and the rest, constructed in
+``__init__`` below. A controller takes the window in its constructor, so its
+dependencies are visible as ``self.window.…`` rather than appearing out of
+nowhere, and it can be built against a stub window in a test.
+
+These were mixins until they were migrated one by one. Composing them all onto
+one class put fifteen unrelated feature namespaces into a single ``self``, where
+two siblings could silently claim the same method name and no checker could see
+which one provided any given attribute.
+
+Three mixins remain, because their methods genuinely belong to the window
+object: ``UIBuildMixin`` constructs the window's own widgets, and ``InputMixin``
+and ``DockingMixin`` implement Qt overrides (``eventFilter``) that Qt calls on
+the window itself.
+
+What remains here is the irreducible shell: application state held on the
+window, the ``PaintCanvas`` <-> timeline glue, playback, and document lifecycle
+(``new_doc``/``replace_doc``). Type-only member declarations for the remaining
+mixins live in ``_main_window_members.py``; the shared error set is
+``errors.OPERATION_ERRORS`` (aliased ``_OPERATION_ERRORS``).
 """
-from .common import *  # noqa: F401,F403
+import json
+import math
+import numpy as np
+import re
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+from typing import Any
+from PySide6.QtCore import QPointF, QRectF, QTimer, Qt
+from PySide6.QtGui import QCursor, QImage, QImageReader, QPainter
+from PySide6.QtWidgets import (
+    QApplication,
+    QDialog,
+    QFileDialog,
+    QMainWindow,
+    QMessageBox,
+    QProgressDialog,
+)
+from .optional_deps import PILImage
+from .constants import APP_DISPLAY_NAME, OUTSIDE_MARGIN
 from . import constants, imaging, project_io, theme, updater
 from .actionpanel import ActionPanel
 from .canvas import PaintCanvas
-from .errors import OPERATION_ERRORS
+from .errors import OPERATION_ERRORS, OperationError
 from .color_panel import UsedColorPanel
 from .color_chart import ColorChartPanel, empty_color_chart
 from .history_panel import HistoryPanel
@@ -27,25 +60,26 @@ from .timeline import TimelineWidget
 from .toolpanel import ToolPanel, ToolSelectorPanel
 from .utils import blank_image, disable_windows_ink_feedback, workspace_size
 from .widgets import (CanvasSizeDialog, ShortcutDialog)
+from .progress import close_counter, create_counter, update_counter
 from .logging_setup import get_logger
-from .main_window_autosave import AutosaveMixin
-from .main_window_color_interaction import ColorInteractionMixin
-from .main_window_color_chart import ColorChartMixin
+from .main_window_autosave import AutosaveController
+from .main_window_color_interaction import ColorInteractionController
+from .main_window_color_chart import ColorChartController
 from .main_window_docking import DockingMixin
-from .main_window_export import ExportMixin
-from .main_window_import import ImportMixin
+from .main_window_export import ExportController
+from .main_window_import import ImportController
 from .main_window_input import InputMixin
-from .main_window_layer_ops import LayerOpsMixin
-from .main_window_line_ops import LineOpsMixin
-from .main_window_onion import OnionSkinMixin
-from .main_window_project_io import ProjectIOMixin
-from .main_window_time_remap import TimeRemapMixin
-from .main_window_timeline_ops import TimelineOpsMixin
-from .main_window_tween import TweenMixin
+from .main_window_layer_ops import LayerOpsController
+from .main_window_line_ops import LineOpsController
+from .main_window_onion import OnionSkinController
+from .main_window_project_io import ProjectIOController
+from .main_window_time_remap import TimeRemapController
+from .main_window_timeline_ops import TimelineOpsController
+from .main_window_tween import TweenController
 from .main_window_ui_build import UIBuildMixin
-from .main_window_used_color import UsedColorMixin
-from .main_window_scope_ops import ScopeOpsMixin
-from .main_window_workspace import WorkspaceMixin
+from .main_window_used_color import UsedColorController
+from .main_window_scope_ops import ScopeOpsController
+from .main_window_workspace import WorkspaceController
 
 log = get_logger(__name__)
 
@@ -55,14 +89,27 @@ _OPERATION_ERRORS = OPERATION_ERRORS
 
 
 class MainWindow(
-    UIBuildMixin, WorkspaceMixin, OnionSkinMixin, ExportMixin, ImportMixin,
-    InputMixin, DockingMixin, TimeRemapMixin, TimelineOpsMixin, LayerOpsMixin,
-    LineOpsMixin, TweenMixin, UsedColorMixin, ColorChartMixin, ProjectIOMixin,
-    ColorInteractionMixin, AutosaveMixin, ScopeOpsMixin, QMainWindow
+    UIBuildMixin, InputMixin, DockingMixin, QMainWindow
 ):
     def __init__(self):
         super().__init__();self.setWindowTitle(APP_DISPLAY_NAME);self.resize(1500,960);self.setAcceptDrops(True)
         self.canvas=PaintCanvas();self.tool_selector=ToolSelectorPanel();self.tools=ToolPanel();self.timeline=TimelineWidget();self.palette=UsedColorPanel();self.history_panel=HistoryPanel();self.subview=SubViewWidget(self);self.color_chart=ColorChartPanel(self);self.color_chart_data=empty_color_chart();self.timer=QTimer(self);self.timer.timeout.connect(self.advance)
+        # Feature controllers the window owns; see this module's docstring.
+        self.export=ExportController(self)
+        self.workspace=WorkspaceController(self)
+        self.autosave=AutosaveController(self)
+        self.colors=ColorInteractionController(self)
+        self.used_color=UsedColorController(self)
+        self.line_ops=LineOpsController(self)
+        self.timeline_ops=TimelineOpsController(self)
+        self.layers=LayerOpsController(self)
+        self.color_chart_ops=ColorChartController(self)
+        self.onion=OnionSkinController(self)
+        self.tween=TweenController(self)
+        self.time_remap=TimeRemapController(self)
+        self.scope=ScopeOpsController(self)
+        self.project=ProjectIOController(self)
+        self.importer=ImportController(self)
         # palette_state のUndo/Redoでパネル状態を復元できるよう相互参照を張る。
         self.canvas._palette=self.palette
         self.history_panel.set_canvas(self.canvas)
@@ -75,7 +122,7 @@ class MainWindow(
         self._used_color_timer = QTimer(self)
         self._used_color_timer.setSingleShot(True)
         self._used_color_timer.setInterval(180)
-        self._used_color_timer.timeout.connect(self.refresh_used_colors)
+        self._used_color_timer.timeout.connect(self.used_color.refresh)
         self._pending_visible_colors = None
         self._pending_palette_categories = None
         self._suppress_used_color_refresh_once = False
@@ -92,7 +139,7 @@ class MainWindow(
         self._visible_color_timer = QTimer(self)
         self._visible_color_timer.setSingleShot(True)
         self._visible_color_timer.setInterval(20)
-        self._visible_color_timer.timeout.connect(self._apply_pending_visible_colors)
+        self._visible_color_timer.timeout.connect(self.colors._apply_pending_visible_colors)
         self._pending_tool_selector_snap = None
         self._tool_selector_resize_drag_active = False
         self._tool_selector_snap_timer = QTimer(self)
@@ -109,11 +156,11 @@ class MainWindow(
         self.current_project_path = None
         self.build_actions();self.action_panel=ActionPanel(self);self.build_action_panel();self.build_menu();self.build_ui();self.connect_signals();self.refresh_ui();self.action_panel.reload_python_actions()
         self._refresh_theme_dependent_ui()
-        self._sync_tool_selector_swatch()
+        self.colors._sync_tool_selector_swatch()
         app = QApplication.instance()
         if app is not None:
             app.installEventFilter(self)
-        self.update_project_title()
+        self.project.update_title()
         QTimer.singleShot(0,self.fit_canvas)
         QTimer.singleShot(
             0,
@@ -122,8 +169,8 @@ class MainWindow(
                 self.canvas,
             ),
         )
-        self._setup_autosave()
-        QTimer.singleShot(0, self._maybe_restore_autosave)
+        self.autosave.start()
+        QTimer.singleShot(0, self.autosave.maybe_restore)
     def status(self, message, level="info", timeout=4000):
         """Show a severity-coloured message in the bottom status bar.
 
@@ -172,7 +219,7 @@ class MainWindow(
             )
         )
         if not normal_opaque_brush:
-            self.schedule_used_color_refresh()
+            self.used_color.schedule_refresh()
 
     def refresh_ui(self):
         self.canvas.coalesce_numbered_images()
@@ -186,7 +233,7 @@ class MainWindow(
         if self._suppress_used_color_refresh_once:
             self._suppress_used_color_refresh_once = False
         else:
-            self.schedule_used_color_refresh()
+            self.used_color.schedule_refresh()
 
 
     def refresh_selection(self):
@@ -216,18 +263,18 @@ class MainWindow(
         text_value = str(raw_text or "").strip()
         json_start = text_value.find("{")
         if json_start < 0:
-            raise ValueError("JSONデータが見つかりません。")
+            raise OperationError("JSONデータが見つかりません。")
         try:
             payload = json.loads(text_value[json_start:])
         except json.JSONDecodeError as exc:
-            raise ValueError(
+            raise OperationError(
                 "ToeiDigitalTimeSheetのJSONを解析できません。"
                 f"\n{exc}"
             ) from exc
 
         layers = payload.get("layers")
         if not isinstance(layers, list) or not layers:
-            raise ValueError("layersデータが見つかりません。")
+            raise OperationError("layersデータが見つかりません。")
 
         selected_layer = None
         for layer in layers:
@@ -239,7 +286,7 @@ class MainWindow(
                 selected_layer = layer
                 break
         if selected_layer is None:
-            raise ValueError("framesデータが見つかりません。")
+            raise OperationError("framesデータが見つかりません。")
 
         parsed_entries = {}
         for entry in selected_layer.get("frames", []):
@@ -273,7 +320,7 @@ class MainWindow(
             parsed_entries[frame] = token
 
         if not parsed_entries:
-            raise ValueError(
+            raise OperationError(
                 "有効なToeiDigitalTimeSheetフレームがありません。"
             )
 
@@ -466,9 +513,9 @@ class MainWindow(
         if not ok:
             QMessageBox.warning(self,"画像読み込み",f"{Path(path).name} を読み込めませんでした。\n\n{error}")
         else:
-            self.set_timeline_mode("sequence")
+            self.timeline_ops.set_mode("sequence")
             self._used_color_cache.clear()
-            self.schedule_used_color_refresh()
+            self.used_color.schedule_refresh()
 
     def import_dropped_images(self, paths, layer_name=None):
         color_reduction, error = (
@@ -492,7 +539,8 @@ class MainWindow(
         # 画像配置だけでなく、その直後の使用色認識まで同じカウンターで表示する。
         estimated_frames = max(1, len(self.canvas.frames) + len(paths))
         combined_total = max(1, len(paths) + estimated_frames)
-        progress = self.create_progress_counter(
+        progress = create_counter(
+            self,
             "連番画像読み込み",
             combined_total,
             "画像を読み込んでいます",
@@ -502,7 +550,7 @@ class MainWindow(
         try:
             ok, error = self.canvas.import_image_sequence(
                 paths,
-                lambda value, total, label: self.update_progress_counter(
+                lambda value, total, label: update_counter(
                     progress,
                     value,
                     combined_total,
@@ -512,7 +560,7 @@ class MainWindow(
                 layer_name=layer_name,
             )
             if ok:
-                self.set_timeline_mode("sequence")
+                self.timeline_ops.set_mode("sequence")
                 self._used_color_timer.stop()
                 self._used_color_request += 1
                 self._used_color_cache.clear()
@@ -520,20 +568,20 @@ class MainWindow(
                 actual_frames = len(self.canvas.frames)
                 combined_total = max(1, len(paths) + actual_frames)
                 progress.setMaximum(combined_total)
-                self.update_progress_counter(
+                update_counter(
                     progress,
                     len(paths),
                     combined_total,
                     "画像配置完了。使用色を認識しています",
                 )
-                self.refresh_used_colors(
+                self.used_color.refresh(
                     progress=progress,
                     progress_offset=len(paths),
                     progress_total=combined_total,
                     progress_label="使用色を認識しています",
                 )
         finally:
-            self.close_progress_counter(progress)
+            close_counter(progress)
 
         if not ok:
             QMessageBox.warning(
@@ -589,7 +637,7 @@ class MainWindow(
         if d.exec():
             self.replace_doc(*d.values())
             self.current_project_path = None
-            self.update_project_title()
+            self.project.update_title()
 
     def check_for_updates_interactive(self):
         # The update feed is public (installers are hosted outside the site's
@@ -714,10 +762,10 @@ class MainWindow(
             "current_frame": int(self.canvas.current_frame),
             "active_layer_index": int(self.canvas.active_layer_index),
             "colors": {
-                "main": self.image_color_hex(self.canvas.main_color),
-                "sub": self.image_color_hex(self.canvas.sub_color),
+                "main": self.colors.image_color_hex(self.canvas.main_color),
+                "sub": self.colors.image_color_hex(self.canvas.sub_color),
                 "mode": self.canvas.color_mode,
-                "background": self.image_color_hex(
+                "background": self.colors.image_color_hex(
                     self.canvas.transparent_display_color
                 ),
             },
@@ -741,10 +789,10 @@ class MainWindow(
                 "onion_center_percent": float(
                     self.canvas.onion_center_percent
                 ),
-                "onion_previous_color": self.image_color_hex(
+                "onion_previous_color": self.colors.image_color_hex(
                     self.canvas.onion_previous_color
                 ),
-                "onion_next_color": self.image_color_hex(
+                "onion_next_color": self.colors.image_color_hex(
                     self.canvas.onion_next_color
                 ),
                 "onion_previous_color_enabled": bool(
@@ -792,7 +840,7 @@ class MainWindow(
                 "points": getattr(self.canvas, "pressure_curve_points", [[0.0,0.0],[1.0,1.0]]),
             },
             "used_color_categories": self.palette.serialize_categories(),
-            "color_chart": self._normalize_color_chart(
+            "color_chart": self.color_chart_ops._normalize(
                 self.color_chart_data
             ),
             "frames": [],
@@ -831,15 +879,15 @@ class MainWindow(
             if Path(url.toLocalFile()).suffix.lower() == ".clip"
         ] if event.mimeData().hasUrls() else []
         if project_paths:
-            self.open_dropped_project(project_paths[0])
+            self.project.open_dropped(project_paths[0])
             event.acceptProposedAction()
             return
         if remap_paths:
-            self.open_dropped_time_remap(remap_paths[0])
+            self.time_remap.open_dropped(remap_paths[0])
             event.acceptProposedAction()
             return
         if clip_paths:
-            self.import_clip_animation(clip_paths[0])
+            self.importer.clip_animation(clip_paths[0])
             event.acceptProposedAction()
             return
         super().dropEvent(event)
@@ -920,7 +968,8 @@ class MainWindow(
             return
         estimated_frames = max(1, len(self.canvas.frames) + len(paths))
         combined_total = max(1, len(paths) + estimated_frames)
-        progress = self.create_progress_counter(
+        progress = create_counter(
+            self,
             "変換せず読み込む",
             combined_total,
             "画像を読み込んでいます",
@@ -930,7 +979,7 @@ class MainWindow(
         try:
             ok, error = self.canvas.import_image_sequence(
                 paths,
-                lambda value, total, label: self.update_progress_counter(
+                lambda value, total, label: update_counter(
                     progress,
                     value,
                     combined_total,
@@ -940,7 +989,7 @@ class MainWindow(
                 draft=True,
             )
         finally:
-            self.close_progress_counter(progress)
+            close_counter(progress)
         if not ok:
             QMessageBox.warning(
                 self,
@@ -948,9 +997,9 @@ class MainWindow(
                 f"画像を読み込めませんでした。\n\n{error}",
             )
             return
-        self.set_timeline_mode("sequence")
+        self.timeline_ops.set_mode("sequence")
         # 下書きレイヤーは色数を取得しないため、使用色パネルは空にする。
-        self._refresh_used_colors_without_delay()
+        self.used_color._refresh_without_delay()
         self.statusBar().showMessage(
             f"{len(paths)}枚を下書きレイヤーへ変換せず読み込みました。",
             3200,
@@ -978,7 +1027,7 @@ class MainWindow(
             if self.canvas._playback_active:
                 self.timeline.play.setChecked(False)
                 self.play(False)
-            self.cancel_transform_or_tween()
+            self.tween.cancel_transform_or_tween()
             self.canvas.clear_selection()
             # Reset the frame/layer cursor *before* set_timeline_mode runs: it
             # accesses self.canvas.layers (i.e. frames[current_frame]), which
@@ -987,14 +1036,14 @@ class MainWindow(
             self.canvas.current_frame=0
             self.canvas.active_layer_index=0
             self.palette.clear_categories()
-            self.clear_color_chart()
-            self.canvas.frames=[make_frame()];self.canvas.undo_stack.clear();self.canvas.redo_stack.clear();self.canvas.clear_history_branches();self.set_timeline_mode("sheet")
+            self.color_chart_ops.clear()
+            self.canvas.frames=[make_frame()];self.canvas.undo_stack.clear();self.canvas.redo_stack.clear();self.canvas.clear_history_branches();self.timeline_ops.set_mode("sheet")
             self.canvas.clip_studio_source_metadata = None
         self.canvas.current_frame=0
         self.canvas.active_layer_index=0
         if not preserve:
             self.current_project_path = None
-            self.update_project_title()
+            self.project.update_title()
         self.refresh_ui()
         QTimer.singleShot(0, self.canvas.warm_up_brush_runtime)
         QTimer.singleShot(0,self.fit_canvas)
@@ -1029,7 +1078,7 @@ class MainWindow(
             log.debug("window child was deleted during shutdown", exc_info=True)
         # A clean shutdown clears the autosave so we don't prompt to restore
         # on the next launch.
-        self._clear_autosave()
+        self.autosave.clear()
         event.accept()
 
     def pressure(self):

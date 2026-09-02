@@ -11,7 +11,9 @@ divergence point fan out into separate columns side by side. Clicking a
 main-line block jumps there by replaying the right number of undo/redo steps;
 clicking a branch block switches the canvas over to that future instead.
 """
-from .common import *  # noqa: F401,F403
+from PySide6.QtCore import QRectF, Qt, Signal
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
+from PySide6.QtWidgets import QLabel, QScrollArea, QVBoxLayout, QWidget
 from .undo_entries import history_label_for
 from .logging_setup import get_logger
 

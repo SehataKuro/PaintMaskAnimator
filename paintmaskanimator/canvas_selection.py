@@ -5,9 +5,18 @@ its fade overlay, the begin/commit/cancel free-transform + rotate flow, and
 copy/cut/paste of the selected region. They run against a live ``PaintCanvas``
 instance and reuse its frame/layer state and the TP-transform mask helpers.
 """
-from .common import *  # noqa: F401,F403
+import math
+import numpy as np
+import time
+from typing import Any
+from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, Qt
+from PySide6.QtGui import QColor, QImage, QPainter, QPolygonF, QRegion
+from PySide6.QtWidgets import QApplication
+from .optional_deps import PILImage, PILImageFilter
+from .constants import OUTSIDE_MARGIN
 from ._canvas_members import CanvasMembers
 from . import imaging
+from .progress import close_counter, create_counter, update_counter
 from .logging_setup import get_logger
 from .undo_entries import LayerBatchUndo, LayerUndo
 
@@ -503,8 +512,9 @@ class SelectionMixin(CanvasMembers):
         undo_cells = []
         changed_frames = []
         progress = None
-        if all_frames and hasattr(window, "create_progress_counter"):
-            progress = window.create_progress_counter(
+        if all_frames and window is not None:
+            progress = create_counter(
+                window,
                 "すべてのコマに変形",
                 len(frame_indices),
                 "変形を準備しています",
@@ -512,7 +522,7 @@ class SelectionMixin(CanvasMembers):
 
         for progress_index, frame_index in enumerate(frame_indices, 1):
             if progress is not None:
-                window.update_progress_counter(
+                update_counter(
                     progress,
                     progress_index - 1,
                     len(frame_indices),
@@ -563,7 +573,7 @@ class SelectionMixin(CanvasMembers):
             changed_frames.append(frame_index)
 
         if progress is not None:
-            window.close_progress_counter(progress)
+            close_counter(progress)
 
         for frame_index in changed_frames:
             self.sync_numbered_image_from_cell(

@@ -34,6 +34,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .errors import OperationError
+from .i18n import tr
+
 
 PMAG_FORMAT = "PaintMaskGroup"
 PMAG_VERSION = 1
@@ -403,7 +406,7 @@ def assign_chart_tag(data, hit, tag_name):
 class ColorTagDialog(QDialog):
     def __init__(self, name="", color="#58667A", *, lock_name=False, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("カラーチャートのタグ")
+        self.setWindowTitle(tr("カラーチャートのタグ"))
         self._color = QColor(color)
         if not self._color.isValid():
             self._color = QColor("#58667A")
@@ -415,8 +418,8 @@ class ColorTagDialog(QDialog):
         self.color_button = QPushButton()
         self.color_button.clicked.connect(self._choose_color)
         self._refresh_color_button()
-        form.addRow("タグ名", self.name_edit)
-        form.addRow("タグ色", self.color_button)
+        form.addRow(tr("タグ名"), self.name_edit)
+        form.addRow(tr("タグ色"), self.color_button)
         layout.addLayout(form)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
@@ -427,7 +430,7 @@ class ColorTagDialog(QDialog):
         layout.addWidget(buttons)
 
     def _choose_color(self):
-        color = QColorDialog.getColor(self._color, self, "タグ色")
+        color = QColorDialog.getColor(self._color, self, tr("タグ色"))
         if color.isValid():
             self._color = color
             self._refresh_color_button()
@@ -600,7 +603,11 @@ class ColorChartCanvas(QWidget):
             painter.setPen(QColor("#777777"))
             painter.drawRect(header)
             painter.setPen(QColor("#222222"))
-            painter.drawText(header.adjusted(4, 1, -4, -1), Qt.AlignmentFlag.AlignCenter, group["name"] or "（グループ名）")
+            painter.drawText(
+                header.adjusted(4, 1, -4, -1),
+                Qt.AlignmentFlag.AlignCenter,
+                group["name"] or tr("（グループ名）"),
+            )
             self._header_hits.append({"rect": QRectF(header), "group_id": group["id"]})
 
             body_y = y + self.HEADER_HEIGHT
@@ -879,13 +886,13 @@ class ColorChartPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
-        note = QLabel(
+        note = QLabel(tr(
             "親子色とタグを画像から独立して保持します。"
             "タイルはドラッグで移動、ダブルクリックでタグを変更できます。"
-        )
+        ))
         note.setWordWrap(True)
         layout.addWidget(note)
-        self.summary = QLabel("未登録")
+        self.summary = QLabel(tr("未登録"))
         layout.addWidget(self.summary)
 
         body = QHBoxLayout()
@@ -903,12 +910,12 @@ class ColorChartPanel(QWidget):
         tag_box.setFixedWidth(132)
         tag_layout = QVBoxLayout(tag_box)
         tag_layout.setContentsMargins(6, 2, 2, 2)
-        tag_layout.addWidget(QLabel("タグ"))
+        tag_layout.addWidget(QLabel(tr("タグ")))
         self.tag_list = TagListWidget()
-        self.tag_list.setToolTip(
+        self.tag_list.setToolTip(tr(
             "ドラッグ：色タイルへ割り当て／一覧内で順序変更\n"
             "ダブルクリック：名前とタグ色を編集"
-        )
+        ))
         tag_layout.addWidget(self.tag_list, 1)
         tag_buttons = QHBoxLayout()
         add_tag = QToolButton()
@@ -921,11 +928,11 @@ class ColorChartPanel(QWidget):
         body.addWidget(tag_box)
         layout.addLayout(body, 1)
 
-        capture = QPushButton("現在の親子付けを登録")
-        apply_button = QPushButton("チャートを使用色へ適用")
+        capture = QPushButton(tr("現在の親子付けを登録"))
+        apply_button = QPushButton(tr("チャートを使用色へ適用"))
         file_row = QHBoxLayout()
-        save_button = QPushButton("PMAG保存")
-        load_button = QPushButton("PMAG読込")
+        save_button = QPushButton(tr("PMAG保存"))
+        load_button = QPushButton(tr("PMAG読込"))
         file_row.addWidget(save_button)
         file_row.addWidget(load_button)
         layout.addWidget(capture)
@@ -953,8 +960,10 @@ class ColorChartPanel(QWidget):
         self._refresh_tags()
         child_count = sum(len(tile["children"]) for tile in self.chart["tiles"])
         self.summary.setText(
-            f"{len(self.chart['tiles'])}グループ・{child_count}子色"
-            if self.chart["tiles"] else "未登録"
+            tr("{group_count}グループ・{child_count}子色").format(
+                group_count=len(self.chart["tiles"]), child_count=child_count
+            )
+            if self.chart["tiles"] else tr("未登録")
         )
         if emit:
             self.chartChanged.emit(copy.deepcopy(self.chart))
@@ -986,7 +995,7 @@ class ColorChartPanel(QWidget):
             self.set_chart(chart, emit=True)
 
     def _choose_tile_tag(self, hit):
-        choices = ["（タグなし）", *self.chart["tag_library"]]
+        choices = [tr("（タグなし）"), *self.chart["tag_library"]]
         current = hit.get("tag", "")
         if current == "未設定":
             return
@@ -995,7 +1004,7 @@ class ColorChartPanel(QWidget):
         # QInputDialog is avoided here so the choices retain the chart order and
         # the dialog remains easy to test with ordinary Qt widgets.
         dialog = QDialog(self)
-        dialog.setWindowTitle("色タイルのタグ")
+        dialog.setWindowTitle(tr("色タイルのタグ"))
         box = QVBoxLayout(dialog)
         value.addItems(choices)
         value.setCurrentIndex(index)
@@ -1054,7 +1063,9 @@ class ColorChartPanel(QWidget):
             return
         chart = normalize_color_chart(self.chart)
         if new_name != old_name and new_name in chart["tag_library"]:
-            QMessageBox.information(self, "タグ編集", "同じ名前のタグが既にあります。")
+            QMessageBox.information(
+                self, tr("タグ編集"), tr("同じ名前のタグが既にあります。")
+            )
             return
         for tile in chart["tiles"]:
             if tile["parent"]["tag"] == old_name:
@@ -1089,10 +1100,10 @@ class ColorChartPanel(QWidget):
 def read_pmag(path):
     source = Path(path)
     if source.stat().st_size > 16 * 1024 * 1024:
-        raise ValueError("PMAGファイルが大きすぎます。")
+        raise OperationError("PMAGファイルが大きすぎます。")
     payload = json.loads(source.read_text(encoding="utf-8"))
     if not isinstance(payload, dict) or payload.get("format") != PMAG_FORMAT:
-        raise ValueError("PaintMaskGroup形式ではありません。")
+        raise OperationError("PaintMaskGroup形式ではありません。")
     return normalize_color_chart(payload)
 
 

@@ -1,25 +1,50 @@
-"""Export dialogs (XDTS / PSD / key-sequence images / MP4) for MainWindow.
+"""Export dialogs (XDTS / PSD / key-sequence images / MP4).
 
-Split out of ``main_window.py`` as a mixin. These methods drive the file
-dialogs and rendering loops that export the current project to external
-formats. They run against a live ``MainWindow`` instance and reuse its canvas,
-timeline, and metadata helpers.
+A *collaborator* of ``MainWindow`` rather than a mixin: the window owns one as
+``window.export`` and the dependency runs one way only, through the ``window``
+handle taken in ``__init__``. That handle is also the parent for the file and
+message dialogs raised here.
+
+Being a plain object (not part of the window's namespace) means these methods
+cannot collide with a sibling's, and the attributes they rely on -- ``canvas``,
+``timeline``, the progress-counter helpers -- are visible as ``self.window.…``
+instead of appearing out of nowhere. This is the shape the remaining
+``main_window_*`` mixins are being migrated to.
 """
-from .common import *  # noqa: F401,F403
-from ._main_window_members import MainWindowMembers
+from typing import TYPE_CHECKING
+
+import csv
+import json
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMessageBox
+from .optional_deps import PILImage, PSDImage
+from .constants import OUTSIDE_MARGIN
 from . import constants
 from .canvas import PaintCanvas
-from .errors import OPERATION_ERRORS as _OPERATION_ERRORS
+from .errors import OPERATION_ERRORS as _OPERATION_ERRORS, OperationError
 from .timeline import TimelineWidget
+from .progress import close_counter, create_counter, update_counter
 from .logging_setup import get_logger
+
+if TYPE_CHECKING:
+    from .main_window import MainWindow
 
 log = get_logger(__name__)
 
 
-class ExportMixin(MainWindowMembers):
-    def export_xdts_dialog(self):
+class ExportController:
+    """Exports the current document; owned by ``MainWindow`` as ``window.export``."""
+
+    def __init__(self, window: "MainWindow"):
+        self.window = window
+
+    def xdts_dialog(self):
         path, _ = QFileDialog.getSaveFileName(
-            self,
+            self.window,
             "XDTSタイムシートを書き出す",
             "PaintMaskAnimator.xdts",
             "XDTSタイムシート (*.xdts)",
@@ -29,16 +54,16 @@ class ExportMixin(MainWindowMembers):
         if not path.lower().endswith(".xdts"):
             path += ".xdts"
 
-        duration = self._sheet_duration()
+        duration = self.window._sheet_duration()
         tracks = []
         names = []
-        layer_count = len(self.canvas.frames[0].layers)
+        layer_count = len(self.window.canvas.frames[0].layers)
         for layer_index in range(layer_count):
-            names.append(self.canvas.frames[0].layers[layer_index].name)
+            names.append(self.window.canvas.frames[0].layers[layer_index].name)
             frame_data = []
             for column in range(duration):
                 kind, key_column, _exposure = TimelineWidget.timeline_span_at(
-                    self.canvas.frames, layer_index, column
+                    self.window.canvas.frames, layer_index, column
                 )
                 if kind == "content":
                     if key_column is None:
@@ -54,7 +79,7 @@ class ExportMixin(MainWindowMembers):
                         })
                         continue
                     if column == key_column:
-                        number = self.canvas.frames[key_column].layers[
+                        number = self.window.canvas.frames[key_column].layers[
                             layer_index
                         ].sequence_number
                         value = str(number) if number is not None else "SYMBOL_NULL_CELL"
@@ -90,23 +115,23 @@ class ExportMixin(MainWindowMembers):
             )
             Path(path).write_text(text, encoding="utf-8")
         except OSError as exc:
-            QMessageBox.critical(self, "XDTS書き出し", str(exc))
+            QMessageBox.critical(self.window, "XDTS書き出し", str(exc))
             return
         QMessageBox.information(
-            self, "XDTS書き出し", f"タイムシートを書き出しました。\n\n{path}"
+            self.window, "XDTS書き出し", f"タイムシートを書き出しました。\n\n{path}"
         )
 
-    def export_psd_dialog(self):
+    def psd_dialog(self):
         if PSDImage is None or PILImage is None:
             QMessageBox.warning(
-                self,
+                self.window,
                 "PSD書き出し",
                 "PSDの書き出しには psd-tools と Pillow が必要です。\n"
                 "requirements.txtをインストールしてください。",
             )
             return
         path, _ = QFileDialog.getSaveFileName(
-            self,
+            self.window,
             "PSDを書き出す",
             "PaintMaskAnimator.psd",
             "Photoshop Document (*.psd)",
@@ -121,10 +146,10 @@ class ExportMixin(MainWindowMembers):
                 (int(constants.CANVAS_WIDTH), int(constants.CANVAS_HEIGHT)),
                 color=(255, 255, 255),
             )
-            layer_count = len(self.canvas.frames[0].layers)
+            layer_count = len(self.window.canvas.frames[0].layers)
             exported_keys = 0
             for layer_index in range(layer_count):
-                template = self.canvas.frames[0].layers[layer_index]
+                template = self.window.canvas.frames[0].layers[layer_index]
                 folder_name = str(template.name or f"Layer {layer_index + 1}")
                 group = psd.create_group(
                     name=folder_name,
@@ -132,7 +157,7 @@ class ExportMixin(MainWindowMembers):
                 )
                 group.visible = bool(template.visible)
                 key_number = 0
-                for frame in self.canvas.frames:
+                for frame in self.window.canvas.frames:
                     layer = frame.layers[layer_index]
                     if not layer.has_content or layer.sequence_only:
                         continue
@@ -145,7 +170,7 @@ class ExportMixin(MainWindowMembers):
                     )
                     pil_image = PaintCanvas._qimage_to_pil_rgba(source)
                     if pil_image is None:
-                        raise RuntimeError("PSD書き出しに必要な画像変換を利用できません。")
+                        raise OperationError("PSD書き出しに必要な画像変換を利用できません。")
                     pixel_layer = psd.create_pixel_layer(
                         pil_image,
                         name=f"{folder_name}{key_number:04d}",
@@ -153,25 +178,25 @@ class ExportMixin(MainWindowMembers):
                     group.append(pixel_layer)
                     exported_keys += 1
             if exported_keys == 0:
-                raise ValueError("書き出せるキーフレームがありません。")
+                raise OperationError("書き出せるキーフレームがありません。")
             psd.save(path)
         except _OPERATION_ERRORS as exc:
             log.error("PSD export failed: %s", exc, exc_info=True)
             QMessageBox.critical(
-                self, "PSD書き出し", f"PSDを書き出せませんでした。\n\n{exc}"
+                self.window, "PSD書き出し", f"PSDを書き出せませんでした。\n\n{exc}"
             )
             return
         QMessageBox.information(
-            self,
+            self.window,
             "PSD書き出し",
             f"{exported_keys}個のキーフレームを書き出しました。\n\n{path}",
         )
 
-    def export_key_sequence(self, image_format):
+    def key_sequence(self, image_format):
         invalid = '<>:"/\\|?*'
         safe_layer_names = []
         used_names = set()
-        for layer_index, layer in enumerate(self.canvas.layers):
+        for layer_index, layer in enumerate(self.window.canvas.layers):
             base_name = "".join(
                 "_" if character in invalid else character
                 for character in (layer.name.strip() or f"Layer {layer_index + 1}")
@@ -187,7 +212,7 @@ class ExportMixin(MainWindowMembers):
 
         # 最初のダイアログで保存場所と親フォルダー名を同時に指定する。
         folder_dialog = QFileDialog(
-            self,
+            self.window,
             f"連番{image_format}＋CSVの書き出しフォルダー",
         )
         folder_dialog.setOption(
@@ -222,7 +247,7 @@ class ExportMixin(MainWindowMembers):
         ).strip(" .")
         if not folder_name or folder_name in (".", ".."):
             QMessageBox.warning(
-                self,
+                self.window,
                 "フォルダー名",
                 "使用できるフォルダー名を指定してください。",
             )
@@ -232,7 +257,7 @@ class ExportMixin(MainWindowMembers):
         try:
             if destination.exists() and not destination.is_dir():
                 QMessageBox.warning(
-                    self,
+                    self.window,
                     "書き出し先",
                     "同じ名前のファイルが存在するため、"
                     "フォルダーを作成できません。",
@@ -240,7 +265,7 @@ class ExportMixin(MainWindowMembers):
                 return
             if destination.exists() and any(destination.iterdir()):
                 answer = QMessageBox.question(
-                    self,
+                    self.window,
                     "同名フォルダー",
                     f"「{folder_name}」には既存のファイルがあります。\n"
                     "このフォルダーへ書き出しますか？",
@@ -258,7 +283,7 @@ class ExportMixin(MainWindowMembers):
                 )
         except OSError as exc:
             QMessageBox.critical(
-                self,
+                self.window,
                 "フォルダー作成エラー",
                 f"書き出しフォルダーを作成できません。\n\n{exc}",
             )
@@ -266,7 +291,7 @@ class ExportMixin(MainWindowMembers):
 
         keys = []
         for layer_index, safe_layer_name in enumerate(safe_layer_names):
-            for frame_index, frame in enumerate(self.canvas.frames):
+            for frame_index, frame in enumerate(self.window.canvas.frames):
                 if (
                     layer_index < len(frame.layers)
                     and frame.layers[layer_index].has_content
@@ -280,14 +305,15 @@ class ExportMixin(MainWindowMembers):
 
         if not keys:
             QMessageBox.warning(
-                self,
+                self.window,
                 "連番書き出し",
                 "書き出せるキーフレームがありません。",
             )
             return
 
         timing_rows = []
-        progress = self.create_progress_counter(
+        progress = create_counter(
+            self.window,
             f"連番{image_format}書き出し",
             len(keys),
             f"「{folder_name}」へ書き出しています",
@@ -300,7 +326,7 @@ class ExportMixin(MainWindowMembers):
                 frame_index,
                 layer,
             ) in enumerate(keys, 1):
-                self.update_progress_counter(
+                update_counter(
                     progress,
                     number - 1,
                     len(keys),
@@ -328,7 +354,7 @@ class ExportMixin(MainWindowMembers):
                     output_path = image_destination / (
                         filename + ".tga"
                     )
-                    self.save_tga_image(image, output_path)
+                    self.window.save_tga_image(image, output_path)
 
                 timing_rows.append([
                     filename,
@@ -336,7 +362,7 @@ class ExportMixin(MainWindowMembers):
                     frame_index + max(1, layer.exposure),
                     max(1, layer.exposure),
                 ])
-                self.update_progress_counter(
+                update_counter(
                     progress,
                     number,
                     len(keys),
@@ -358,21 +384,21 @@ class ExportMixin(MainWindowMembers):
         except (_OPERATION_ERRORS + (csv.Error,)) as exc:
             log.error("sequence/CSV export failed: %s", exc, exc_info=True)
             QMessageBox.critical(
-                self,
+                self.window,
                 "連番書き出しエラー",
                 f"書き出し中にエラーが発生しました。\n\n{exc}",
             )
             return
         finally:
-            self.close_progress_counter(progress)
+            close_counter(progress)
 
-        self.statusBar().showMessage(
+        self.window.statusBar().showMessage(
             f"「{folder_name}」へ{len(keys)}枚と"
             "TS.csvを書き出しました。",
             4000,
         )
         QMessageBox.information(
-            self,
+            self.window,
             "連番書き出し完了",
             "次の構成で書き出しました。\n\n"
             f"{destination}\n"
@@ -381,27 +407,28 @@ class ExportMixin(MainWindowMembers):
             "└─ TS.csv",
         )
 
-    def export_mp4(self):
+    def mp4(self):
         app_file = Path(sys.executable) if getattr(sys, "frozen", False) else Path(__file__)
         bundled_ffmpeg = app_file.with_name("ffmpeg.exe")
         ff = str(bundled_ffmpeg) if bundled_ffmpeg.exists() else shutil.which("ffmpeg")
-        if not ff:QMessageBox.warning(self,'FFmpeg','ffmpegが必要です。');return
-        path,_=QFileDialog.getSaveFileName(self,'MP4書き出し','animation.mp4','MP4 (*.mp4)')
+        if not ff:QMessageBox.warning(self.window,'FFmpeg','ffmpegが必要です。');return
+        path,_=QFileDialog.getSaveFileName(self.window,'MP4書き出し','animation.mp4','MP4 (*.mp4)')
         if not path:return
         if not path.lower().endswith('.mp4'):path+='.mp4'
         with tempfile.TemporaryDirectory() as td:
-            total = sum(max(1, int(frame.duration)) for frame in self.canvas.frames)
-            progress = self.create_progress_counter(
+            total = sum(max(1, int(frame.duration)) for frame in self.window.canvas.frames)
+            progress = create_counter(
+                self.window,
                 "MP4書き出し",
                 total,
                 "動画用フレームを準備しています",
             )
             output_index = 0
-            for frame_index, frame in enumerate(self.canvas.frames):
-                image = self.crop_image(frame_index)
+            for frame_index, frame in enumerate(self.window.canvas.frames):
+                image = self.window.crop_image(frame_index)
                 for _ in range(max(1, int(frame.duration))):
                     output_index += 1
-                    self.update_progress_counter(
+                    update_counter(
                         progress,
                         output_index - 1,
                         total,
@@ -411,13 +438,14 @@ class ExportMixin(MainWindowMembers):
                         str(Path(td) / f"f_{output_index:06}.png"),
                         "PNG",
                     )
-            self.close_progress_counter(progress)
-            encoding = self.create_progress_counter(
+            close_counter(progress)
+            encoding = create_counter(
+                self.window,
                 "MP4書き出し",
                 1,
                 "FFmpegで動画へ変換しています",
             )
             QApplication.processEvents()
-            r=subprocess.run([ff,'-y','-framerate',str(self.timeline.fps.value()),'-i',str(Path(td)/'f_%06d.png'),'-c:v','libx264','-pix_fmt','yuv420p',path],capture_output=True,text=True)
-            self.close_progress_counter(encoding)
-            if r.returncode:QMessageBox.critical(self,'MP4エラー',r.stderr[-1500:])
+            r=subprocess.run([ff,'-y','-framerate',str(self.window.timeline.fps.value()),'-i',str(Path(td)/'f_%06d.png'),'-c:v','libx264','-pix_fmt','yuv420p',path],capture_output=True,text=True)
+            close_counter(encoding)
+            if r.returncode:QMessageBox.critical(self.window,'MP4エラー',r.stderr[-1500:])

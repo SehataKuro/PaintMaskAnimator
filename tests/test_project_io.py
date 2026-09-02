@@ -7,6 +7,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication  # noqa: E402
 from paintmaskanimator import constants, project_io  # noqa: E402
+from paintmaskanimator.errors import OperationError  # noqa: E402
 from paintmaskanimator.models import make_frame  # noqa: E402
 
 
@@ -174,7 +175,7 @@ def test_read_rejects_non_project(qapp, tmp_path):
     path = tmp_path / "bad.zip"
     with zipfile.ZipFile(path, "w") as z:
         z.writestr("project.json", '{"format": "Nope", "frames": []}')
-    with pytest.raises(ValueError):
+    with pytest.raises(OperationError):
         project_io.read_project_archive(path)
 
 
@@ -183,7 +184,7 @@ def test_read_rejects_missing_metadata(qapp, tmp_path):
     path = tmp_path / "empty.zip"
     with zipfile.ZipFile(path, "w") as z:
         z.writestr("nothing.txt", "x")
-    with pytest.raises(ValueError):
+    with pytest.raises(OperationError):
         project_io.read_project_archive(path)
 
 

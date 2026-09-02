@@ -6,7 +6,18 @@ while dragging docks, and manage floating-window titles and tool-selector
 snapping. They run against a live ``MainWindow`` instance and its
 ``dock_manager``.
 """
-from .common import *  # noqa: F401,F403
+from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, QSize, QTimer, Qt
+from PySide6.QtGui import QColor, QCursor, QIcon, QPainter, QPen, QPixmap
+from PySide6.QtWidgets import (
+    QApplication,
+    QLabel,
+    QMenu,
+    QSizeGrip,
+    QSizePolicy,
+    QSplitter,
+    QToolButton,
+    QWidget,
+)
 from ._main_window_members import MainWindowMembers
 import ctypes
 import sys
@@ -165,7 +176,7 @@ class _FloatingGripTracker(QObject):
 class DockingMixin(MainWindowMembers):
     def _finalize_startup_dock_ui(self):
         active = config.get_value("active_workspace")
-        if not active or not self._apply_workspace(active):
+        if not active or not self.workspace.apply(active):
             # A save/restore cycle makes the initial areas follow the same ADS
             # reconstruction path used after tabs are stacked.
             state = self.dock_manager.saveState()

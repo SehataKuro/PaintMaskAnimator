@@ -13,6 +13,7 @@ from paintmaskanimator.color_chart import (
     write_pmag,
 )
 from paintmaskanimator.main_window import MainWindow
+from paintmaskanimator.main_window_autosave import AutosaveController
 
 
 def _app():
@@ -106,7 +107,7 @@ def test_apply_chart_uses_only_colors_in_current_document(
     app = _app()
     monkeypatch.setenv("APPDATA", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    monkeypatch.setattr(MainWindow, "_maybe_restore_autosave", lambda self: None)
+    monkeypatch.setattr(AutosaveController, "maybe_restore", lambda self: None)
     window = MainWindow()
     try:
         red = (220, 40, 30)
@@ -122,9 +123,9 @@ def test_apply_chart_uses_only_colors_in_current_document(
             "parent": {"color": "#123456", "tag": "Base"},
             "placeholder": False, "children": [],
         })
-        window.set_color_chart_data(chart)
+        window.color_chart_ops.set_data(chart)
 
-        assert window.apply_color_chart()
+        assert window.color_chart_ops.apply()
         assert window.palette.child_to_parent[red] == blue
         assert purple not in window.palette.child_to_parent
         assert window.palette.parent_tags[purple] == "影"
@@ -140,17 +141,17 @@ def test_color_chart_is_embedded_in_pman_and_restored(tmp_path, monkeypatch):
     app = _app()
     monkeypatch.setenv("APPDATA", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    monkeypatch.setattr(MainWindow, "_maybe_restore_autosave", lambda self: None)
+    monkeypatch.setattr(AutosaveController, "maybe_restore", lambda self: None)
     window = MainWindow()
     project_path = tmp_path / "chart_round_trip.pman"
     try:
-        window.set_color_chart_data(_chart())
+        window.color_chart_ops.set_data(_chart())
 
-        assert window.write_project(project_path)
-        window.clear_color_chart()
+        assert window.project.write(project_path)
+        window.color_chart_ops.clear()
         assert not window.color_chart_data["tiles"]
 
-        assert window.open_project(project_path)
+        assert window.project.open(project_path)
         assert len(window.color_chart_data["tiles"]) == 2
         assert window.color_chart_data["tiles"][0]["name"] == "人物"
         assert window.color_chart_data["tiles"][1]["placeholder"]

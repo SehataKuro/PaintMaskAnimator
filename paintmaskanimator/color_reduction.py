@@ -1,5 +1,25 @@
-from .common import *  # noqa: F401,F403
+import numpy as np
+import time
+from PySide6.QtCore import QEvent, QPointF, QRectF, QTimer, Qt, Signal
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtWidgets import (
+    QApplication,
+    QComboBox,
+    QDialog,
+    QFormLayout,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QProgressDialog,
+    QPushButton,
+    QScrollArea,
+    QSlider,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
+)
 from .canvas import PaintCanvas
+from .errors import OperationError
 from .logging_setup import get_logger
 
 log = get_logger(__name__)
@@ -1026,7 +1046,7 @@ class ColorReductionDialog(QDialog):
                 tone_adjusted_source is None
                 or tone_adjusted_source.isNull()
             ):
-                raise ValueError(
+                raise OperationError(
                     "トーンカーブ適用後の画像を生成できませんでした。"
                 )
             self._tone_adjusted_preview_image = (
@@ -1084,7 +1104,7 @@ class ColorReductionDialog(QDialog):
                     )
                 )
                 if base_reduced is None or base_reduced.isNull():
-                    raise ValueError(
+                    raise OperationError(
                         "2値化画像を生成できませんでした。"
                     )
 
@@ -1179,7 +1199,7 @@ class ColorReductionDialog(QDialog):
             or self._palette is None
             or self._palette_key != expected_key
         ):
-            raise ValueError(
+            raise OperationError(
                 "現在の設定はまだプレビューへ反映されていません。"
                 "先に「プレビュー」を押してください。"
             )

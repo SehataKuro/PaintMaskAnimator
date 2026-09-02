@@ -4,7 +4,7 @@ Pillow and psd-tools are declared optional (see requirements.txt): the app must
 keep working with them absent, only disabling the PIL/PSD-backed features. CI
 installs them, so the degrade branches would otherwise never be exercised. These
 tests force the "missing library" state by patching the module-level handles to
-``None`` — exactly the value ``common`` binds when the import fails."""
+``None`` — exactly the value ``optional_deps`` binds when the import fails."""
 from __future__ import annotations
 
 import os
@@ -15,7 +15,7 @@ import pytest  # noqa: E402
 from PySide6.QtGui import QColor, QImage  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from paintmaskanimator import common, imaging  # noqa: E402
+from paintmaskanimator import imaging, optional_deps  # noqa: E402
 from paintmaskanimator.canvas import PaintCanvas  # noqa: E402
 
 
@@ -31,10 +31,10 @@ def _solid_qimage(color=None):
     return image
 
 
-def test_common_binds_none_when_optional_imports_fail():
+def test_optional_deps_binds_none_when_optional_imports_fail():
     # The whole degrade design hinges on these being ``None``-able sentinels.
-    assert "PILImage" in vars(common)
-    assert "PSDImage" in vars(common)
+    assert "PILImage" in vars(optional_deps)
+    assert "PSDImage" in vars(optional_deps)
 
 
 def test_qimage_to_pil_rgba_returns_none_without_pillow(qapp, monkeypatch):
@@ -57,7 +57,7 @@ def test_image_import_falls_back_to_qt_reader_without_pillow(
 ):
     # Force the "Pillow missing" state so the PIL fallback branch is skipped and
     # the Qt reader alone must decode the file.
-    monkeypatch.setattr(common, "PILImage", None)
+    monkeypatch.setattr(optional_deps, "PILImage", None)
     import paintmaskanimator.canvas_image_import as cii
 
     monkeypatch.setattr(cii, "PILImage", None)

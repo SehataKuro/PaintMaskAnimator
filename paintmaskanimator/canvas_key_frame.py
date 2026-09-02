@@ -5,7 +5,7 @@ the previous/next key, resolve which key backs a given exposure cell, and ensure
 the active cell is an editable key before painting. They run against a live
 ``PaintCanvas`` instance.
 """
-from .common import *  # noqa: F401,F403
+# (nothing was used)
 from ._canvas_members import CanvasMembers
 from .utils import blank_image
 from .logging_setup import get_logger

@@ -7,10 +7,25 @@ signal to its handler. They run once during ``MainWindow.__init__`` (plus on
 theme changes) against a live ``MainWindow`` instance, and hold no state of their
 own -- everything is assigned onto ``self``.
 """
-from .common import *  # noqa: F401,F403
+from typing import Any
+from PySide6.QtCore import QTimer, Qt
+from PySide6.QtGui import QAction, QActionGroup, QKeySequence
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QSlider,
+    QSplitter,
+    QVBoxLayout,
+    QWidget,
+)
+from .constants import APP_DISPLAY_NAME, APP_NAME, GITHUB_REPO
 from ._main_window_members import MainWindowMembers
 import PySide6QtAds as QtAds
-from . import theme
+from . import i18n, theme
+from .i18n import tr
 from .theme import StatusBar
 from .toolpanel import ToolPanel
 from .errors import OPERATION_ERRORS
@@ -38,88 +53,91 @@ class UIBuildMixin(MainWindowMembers):
         pass
 
     def build_actions(self):
-        self.a_new=QAction("新規作成…",self);self.a_new.setShortcut("Ctrl+N");self.a_new.triggered.connect(self.new_doc)
-        self.a_resize=QAction("キャンバスサイズの変更…",self);self.a_resize.triggered.connect(self.resize_doc)
-        self.a_undo=QAction("元に戻す",self);self.a_undo.setShortcut("Ctrl+Z");self.a_undo.triggered.connect(self.undo_with_used_colors)
-        self.a_redo=QAction("やり直す",self);self.a_redo.setShortcut("Ctrl+Y");self.a_redo.triggered.connect(self.redo_with_used_colors)
-        self.a_copy=QAction("コピー",self);self.a_copy.setShortcut("Ctrl+C");self.a_copy.triggered.connect(self.canvas.copy_selection)
-        self.a_cut=QAction("切り取り",self);self.a_cut.setShortcut("Ctrl+X");self.a_cut.triggered.connect(self.canvas.cut_selection)
-        self.a_paste=QAction("貼り付け",self);self.a_paste.setShortcut("Ctrl+V");self.a_paste.triggered.connect(self.canvas.paste_clipboard)
-        self.a_open_project=QAction("プロジェクトを開く…",self)
+        self.a_new=QAction(tr("新規作成…"),self);self.a_new.setShortcut("Ctrl+N");self.a_new.triggered.connect(self.new_doc)
+        self.a_resize=QAction(tr("キャンバスサイズの変更…"),self);self.a_resize.triggered.connect(self.resize_doc)
+        self.a_undo=QAction(tr("元に戻す"),self);self.a_undo.setShortcut("Ctrl+Z");self.a_undo.triggered.connect(self.used_color.undo)
+        self.a_redo=QAction(tr("やり直す"),self);self.a_redo.setShortcut("Ctrl+Y");self.a_redo.triggered.connect(self.used_color.redo)
+        self.a_copy=QAction(tr("コピー"),self);self.a_copy.setShortcut("Ctrl+C");self.a_copy.triggered.connect(self.canvas.copy_selection)
+        self.a_cut=QAction(tr("切り取り"),self);self.a_cut.setShortcut("Ctrl+X");self.a_cut.triggered.connect(self.canvas.cut_selection)
+        self.a_paste=QAction(tr("貼り付け"),self);self.a_paste.setShortcut("Ctrl+V");self.a_paste.triggered.connect(self.canvas.paste_clipboard)
+        self.a_open_project=QAction(tr("プロジェクトを開く…"),self)
         self.a_open_project.setShortcut("Ctrl+O")
-        self.a_open_project.triggered.connect(self.open_project_dialog)
+        self.a_open_project.triggered.connect(self.project.open_dialog)
 
-        self.a_import_images=QAction("画像を読み込む…",self)
+        self.a_import_images=QAction(tr("画像を読み込む…"),self)
         self.a_import_images.triggered.connect(self.import_images_dialog)
-        self.a_import_folder=QAction("画像フォルダーを読み込む…",self)
+        self.a_import_folder=QAction(tr("画像フォルダーを読み込む…"),self)
         self.a_import_folder.triggered.connect(self.import_image_folder_dialog)
-        self.a_import_images_raw=QAction("変換せず読み込む（下書きレイヤー）…",self)
+        self.a_import_images_raw=QAction(tr("変換せず読み込む（下書きレイヤー）…"),self)
         self.a_import_images_raw.triggered.connect(self.import_images_raw_dialog)
-        self.a_import_psd=QAction("PSDを読み込む…",self)
-        self.a_import_psd.triggered.connect(self.import_psd_dialog)
-        self.a_import_clip=QAction("CLIP STUDIOアニメーションを読み込む…",self)
-        self.a_import_clip.triggered.connect(self.import_clip_animation_dialog)
+        self.a_import_psd=QAction(tr("PSDを読み込む…"),self)
+        self.a_import_psd.triggered.connect(self.importer.psd_dialog)
+        self.a_import_clip=QAction(tr("CLIP STUDIOアニメーションを読み込む…"),self)
+        self.a_import_clip.triggered.connect(self.importer.clip_animation_dialog)
 
-        self.a_save_project=QAction("上書き保存",self)
+        self.a_save_project=QAction(tr("上書き保存"),self)
         self.a_save_project.setShortcut("Ctrl+S")
-        self.a_save_project.triggered.connect(self.save_project)
+        self.a_save_project.triggered.connect(self.project.save)
 
-        self.a_save_project_as=QAction("名前を付けて保存…",self)
+        self.a_save_project_as=QAction(tr("名前を付けて保存…"),self)
         self.a_save_project_as.setShortcut("Ctrl+Shift+S")
-        self.a_save_project_as.triggered.connect(self.save_project_as)
+        self.a_save_project_as.triggered.connect(self.project.save_as)
 
-        self.a_save=QAction("現在のコマをPNG書き出し…",self)
+        self.a_save=QAction(tr("現在のコマをPNG書き出し…"),self)
         self.a_save.triggered.connect(self.save_png)
-        self.a_save_tga=QAction("現在のコマをTGA書き出し…",self)
+        self.a_save_tga=QAction(tr("現在のコマをTGA書き出し…"),self)
         self.a_save_tga.triggered.connect(self.save_tga)
-        self.a_export_png_seq=QAction("連番PNG＋CSV書き出し…",self);self.a_export_png_seq.triggered.connect(lambda:self.export_key_sequence("PNG"))
-        self.a_export_tga_seq=QAction("連番TGA＋CSV書き出し…",self);self.a_export_tga_seq.triggered.connect(lambda:self.export_key_sequence("TGA"))
-        self.a_export_xdts=QAction("XDTSタイムシートを書き出す…",self)
-        self.a_export_xdts.triggered.connect(self.export_xdts_dialog)
-        self.a_export_psd=QAction("PSDを書き出す…",self)
-        self.a_export_psd.triggered.connect(self.export_psd_dialog)
-        self.a_prev=QAction("前のフレーム",self);self.a_prev.setShortcut("1");self.a_prev.triggered.connect(self.previous_timeline_frame)
-        self.a_next=QAction("次のフレーム",self);self.a_next.setShortcut("2");self.a_next.triggered.connect(self.next_timeline_frame)
-        self.a_pressure=QAction("筆圧設定…",self);self.a_pressure.triggered.connect(self.pressure)
-        self.a_isolate_color=QAction("選択色だけ表示",self)
-        self.a_isolate_color.triggered.connect(self.isolate_selected_color)
-        self.a_clear_color_filter=QAction("特定色表示を解除",self)
-        self.a_clear_color_filter.triggered.connect(self.clear_selected_color_filter)
-        self.a_silhouette=QAction("背景以外を黒シルエット表示",self); self.a_silhouette.setCheckable(True)
-        self.a_silhouette.triggered.connect(self.toggle_silhouette)
-        self.a_remove_dust=QAction("ゴミ取り／塗り抜け…",self)
-        self.a_remove_dust.triggered.connect(self.remove_dust_fill_surrounding)
-        self.a_shortcuts=QAction("ショートカット設定…",self);self.a_shortcuts.triggered.connect(self.shortcuts)
+        self.a_export_png_seq=QAction(tr("連番PNG＋CSV書き出し…"),self);self.a_export_png_seq.triggered.connect(lambda:self.export.key_sequence("PNG"))
+        self.a_export_tga_seq=QAction(tr("連番TGA＋CSV書き出し…"),self);self.a_export_tga_seq.triggered.connect(lambda:self.export.key_sequence("TGA"))
+        self.a_export_xdts=QAction(tr("XDTSタイムシートを書き出す…"),self)
+        self.a_export_xdts.triggered.connect(self.export.xdts_dialog)
+        self.a_export_psd=QAction(tr("PSDを書き出す…"),self)
+        self.a_export_psd.triggered.connect(self.export.psd_dialog)
+        self.a_prev=QAction(tr("前のフレーム"),self);self.a_prev.setShortcut("1");self.a_prev.triggered.connect(self.timeline_ops.previous_frame)
+        self.a_next=QAction(tr("次のフレーム"),self);self.a_next.setShortcut("2");self.a_next.triggered.connect(self.timeline_ops.next_frame)
+        self.a_pressure=QAction(tr("筆圧設定…"),self);self.a_pressure.triggered.connect(self.pressure)
+        self.a_isolate_color=QAction(tr("選択色だけ表示"),self)
+        self.a_isolate_color.triggered.connect(self.colors.isolate_selected_color)
+        self.a_clear_color_filter=QAction(tr("特定色表示を解除"),self)
+        self.a_clear_color_filter.triggered.connect(self.colors.clear_selected_color_filter)
+        self.a_silhouette=QAction(tr("背景以外を黒シルエット表示"),self); self.a_silhouette.setCheckable(True)
+        self.a_silhouette.triggered.connect(self.line_ops.toggle_silhouette)
+        self.a_remove_dust=QAction(tr("ゴミ取り／塗り抜け…"),self)
+        self.a_remove_dust.triggered.connect(self.line_ops.remove_dust_fill_surrounding)
+        self.a_shortcuts=QAction(tr("ショートカット設定…"),self);self.a_shortcuts.triggered.connect(self.shortcuts)
         self.tool_actions={}
         defaults={"brush":"P","line":"U","shape":"O","bucket":"G","lasso_fill":"F","lasso":"L","rect_select":"R","auto_select":"W","eyedropper":"","dust":"D"}
         for tid,label in ToolPanel.TOOLS:
-            a=QAction("ツール："+label,self);a.setShortcut(defaults.get(tid,""));a.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut);a.triggered.connect(lambda _=False,t=tid:self.tools.select_tool(t));self.addAction(a);self.tool_actions[tid]=a
-        self.general_actions=[("新規作成",self.a_new),("プロジェクトを開く",self.a_open_project),("上書き保存",self.a_save_project),("元に戻す",self.a_undo),("やり直す",self.a_redo),("前のフレーム",self.a_prev),("次のフレーム",self.a_next)]
-        self.tool_action_list=[("ツール："+label,self.tool_actions[tid]) for tid,label in ToolPanel.TOOLS]
+            a=QAction(tr("ツール：{tool}").format(tool=label),self);a.setShortcut(defaults.get(tid,""));a.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut);a.triggered.connect(lambda _=False,t=tid:self.tools.select_tool(t));self.addAction(a);self.tool_actions[tid]=a
+        self.general_actions=[(tr("新規作成"),self.a_new),(tr("プロジェクトを開く"),self.a_open_project),(tr("上書き保存"),self.a_save_project),(tr("元に戻す"),self.a_undo),(tr("やり直す"),self.a_redo),(tr("前のフレーム"),self.a_prev),(tr("次のフレーム"),self.a_next)]
+        self.tool_action_list=[
+            (tr("ツール：{tool}").format(tool=label), self.tool_actions[tid])
+            for tid, label in ToolPanel.TOOLS
+        ]
 
         # 押している間だけ有効になるキャンバス操作。QActionは設定値の保持に使い、
         # 通常のアプリケーションショートカットとしては登録しない。
-        self.a_hold_hand = QAction("ハンド（押している間）", self)
+        self.a_hold_hand = QAction(tr("ハンド（押している間）"), self)
         self.a_hold_hand.setProperty("holdOperation", True)
         self.a_hold_hand.setProperty("holdShortcutText", "Space")
         self.a_hold_hand.setShortcut(QKeySequence("Space"))
-        self.a_hold_zoom = QAction("拡大縮小（押している間）", self)
+        self.a_hold_zoom = QAction(tr("拡大縮小（押している間）"), self)
         self.a_hold_zoom.setProperty("holdOperation", True)
         self.a_hold_zoom.setProperty("holdShortcutText", "Ctrl+Space")
         self.a_hold_zoom.setShortcut(QKeySequence("Ctrl+Space"))
-        self.a_hold_rotate = QAction("回転（押している間）", self)
+        self.a_hold_rotate = QAction(tr("回転（押している間）"), self)
         self.a_hold_rotate.setProperty("holdOperation", True)
         self.a_hold_rotate.setProperty("holdShortcutText", "Shift+Space")
         self.a_hold_rotate.setShortcut(QKeySequence("Shift+Space"))
-        self.a_hold_eyedropper = QAction("スポイト（押している間）", self)
+        self.a_hold_eyedropper = QAction(tr("スポイト（押している間）"), self)
         self.a_hold_eyedropper.setProperty("holdOperation", True)
         self.a_hold_eyedropper.setProperty("holdShortcutText", "Alt")
         self.a_hold_eyedropper.setShortcut(QKeySequence("Alt"))
         self.canvas_operation_actions = [
-            ("ハンド", self.a_hold_hand),
-            ("拡大縮小", self.a_hold_zoom),
-            ("回転", self.a_hold_rotate),
-            ("スポイト", self.a_hold_eyedropper),
+            (tr("ハンド"), self.a_hold_hand),
+            (tr("拡大縮小"), self.a_hold_zoom),
+            (tr("回転"), self.a_hold_rotate),
+            (tr("スポイト"), self.a_hold_eyedropper),
         ]
 
         # File and edit actions not previously exposed in the shortcut dialog.
@@ -135,199 +153,199 @@ class UIBuildMixin(MainWindowMembers):
             action.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
 
         self.a_export_mp4 = self.make_shortcut_action(
-            "MP4書き出し", self.export_mp4
+            tr("MP4書き出し"), self.export.mp4
         )
 
         # Tool-panel commands.
         self.a_select_main = self.make_shortcut_action(
-            "描画色：メインを選択", lambda: self.set_color_mode("main")
+            tr("描画色：メインを選択"), lambda: self.colors.set_color_mode("main")
         )
         self.a_select_sub = self.make_shortcut_action(
-            "描画色：サブを選択", lambda: self.set_color_mode("sub")
+            tr("描画色：サブを選択"), lambda: self.colors.set_color_mode("sub")
         )
         self.a_select_transparent = self.make_shortcut_action(
-            "描画色：背景色を選択", lambda: self.set_color_mode("transparent")
+            tr("描画色：背景色を選択"), lambda: self.colors.set_color_mode("transparent")
         )
         self.a_toggle_draw_background = self.make_shortcut_action(
-            "描画色と背景色を切り替え", self.toggle_draw_background_color, "C"
+            tr("描画色と背景色を切り替え"), self.colors.toggle_draw_background_color, "C"
         )
         self.a_swap_main_sub = self.make_shortcut_action(
-            "メイン色とサブ色を切り替え", self.swap_main_sub, "X"
+            tr("メイン色とサブ色を切り替え"), self.line_ops.swap_main_sub, "X"
         )
         self.a_choose_background = self.make_shortcut_action(
-            "背景色の表示色を変更", self.choose_background_color
+            tr("背景色の表示色を変更"), self.colors.choose_background_color
         )
         self.a_mainline_repaint = self.make_shortcut_action(
-            "MainLineRepaint", self.main_line_repaint
+            "MainLineRepaint", self.line_ops.main_line_repaint
         )
         self.a_selection_transform = self.make_shortcut_action(
-            "選択範囲：自由変形", lambda: self.start_wire_transform("free")
+            tr("選択範囲：自由変形"), lambda: self.line_ops.start_wire_transform("free")
         )
         self.a_selection_scale = self.make_shortcut_action(
-            "選択範囲：拡大縮小", lambda: self.start_wire_transform("scale")
+            tr("選択範囲：拡大縮小"), lambda: self.line_ops.start_wire_transform("scale")
         )
         self.a_selection_mesh = self.make_shortcut_action(
-            "選択範囲：メッシュ変形", lambda: self.start_wire_transform("mesh")
+            tr("選択範囲：メッシュ変形"), lambda: self.line_ops.start_wire_transform("mesh")
         )
         self.a_selection_clear = self.make_shortcut_action(
-            "選択範囲を解除", self.canvas.clear_selection, "Ctrl+Shift+A"
+            tr("選択範囲を解除"), self.canvas.clear_selection, "Ctrl+Shift+A"
         )
         self.a_transform_rotate_left = self.make_shortcut_action(
-            "変形：左へ90°回転",
+            tr("変形：左へ90°回転"),
             lambda: self.canvas.rotate_selection_transform(-90.0)
         )
         self.a_transform_rotate_right = self.make_shortcut_action(
-            "変形：右へ90°回転",
+            tr("変形：右へ90°回転"),
             lambda: self.canvas.rotate_selection_transform(90.0)
         )
         self.a_transform_mesh_grid = self.make_shortcut_action(
-            "メッシュ変形：格子数を変更…",
-            self.choose_transform_mesh_grid
+            tr("メッシュ変形：格子数を変更…"),
+            self.line_ops.choose_transform_mesh_grid
         )
         self.a_transform_commit = self.make_shortcut_action(
-            "変形を確定", self.commit_transform_or_tween
+            tr("変形を確定"), self.tween.commit_transform_or_tween
         )
         self.a_transform_commit.setShortcuts([
             QKeySequence(Qt.Key.Key_Return),
             QKeySequence(Qt.Key.Key_Enter),
         ])
         self.a_transform_cancel = self.make_shortcut_action(
-            "変形をキャンセル", self.cancel_transform_or_tween
+            tr("変形をキャンセル"), self.tween.cancel_transform_or_tween
         )
         self.a_bucket_include_sub = self.make_shortcut_action(
-            "バケツ：含み塗り ON/OFF",
+            tr("バケツ：含み塗り ON/OFF"),
             lambda: self.tools.bucket_include_sub.toggle()
         )
         self.a_bucket_close_gap = self.make_shortcut_action(
-            "バケツ：隙間閉じ ON/OFF",
+            tr("バケツ：隙間閉じ ON/OFF"),
             lambda: self.tools.bucket_close_gap.toggle()
         )
         self.a_dust_all_frames = self.make_shortcut_action(
-            "ゴミ取り：すべてのコマ ON/OFF",
+            tr("ゴミ取り：すべてのコマ ON/OFF"),
             lambda: self.tools.dust_all_frames.toggle()
         )
         self.a_dust_apply = self.make_shortcut_action(
-            "ゴミ取り／塗り抜けを適用", self.remove_dust_fill_surrounding
+            tr("ゴミ取り／塗り抜けを適用"), self.line_ops.remove_dust_fill_surrounding
         )
         self.a_selection_all_frames = self.make_shortcut_action(
-            "選択変形：すべてのコマ ON/OFF",
+            tr("選択変形：すべてのコマ ON/OFF"),
             self.tools.toggle_selection_all_frames
         )
 
         # Timeline commands.
         self.a_tl_add_exposure = self.make_shortcut_action(
-            "タイムライン：コマ数を1つ増やす",
+            tr("タイムライン：コマ数を1つ増やす"),
             self.timeline._extend_current_exposure,
         )
         self.a_tl_delete_frame = self.make_shortcut_action(
-            "タイムライン：コマを削除",
-            self.delete_timeline_frame,
+            tr("タイムライン：コマを削除"),
+            self.timeline_ops.delete_frame,
         )
         self.a_tl_previous = self.make_shortcut_action(
-            "タイムライン：前のフレーム",
-            self.previous_timeline_frame,
+            tr("タイムライン：前のフレーム"),
+            self.timeline_ops.previous_frame,
         )
         self.a_tl_next = self.make_shortcut_action(
-            "タイムライン：次のフレーム",
-            self.next_timeline_frame,
+            tr("タイムライン：次のフレーム"),
+            self.timeline_ops.next_frame,
         )
         self.a_tl_previous_key = self.make_shortcut_action(
-            "タイムライン：前のコマ",
-            self.previous_timeline_key,
+            tr("タイムライン：前のコマ"),
+            self.timeline_ops.previous_key,
             "A",
         )
         self.a_tl_next_key = self.make_shortcut_action(
-            "タイムライン：次のコマ",
-            self.next_timeline_key,
+            tr("タイムライン：次のコマ"),
+            self.timeline_ops.next_key,
             "S",
         )
         self.a_tl_play = self.make_shortcut_action(
-            "タイムライン：再生／停止",
+            tr("タイムライン：再生／停止"),
             lambda: self.timeline.play.toggle(),
         )
         self.a_tl_paste_time_remap = self.make_shortcut_action(
-            "タイムライン：タイムリマップを貼り付け",
-            self.show_time_remap_paste_dialog,
+            tr("タイムライン：タイムリマップを貼り付け"),
+            self.time_remap.show_paste_dialog,
         )
         self.a_tl_onion = self.make_shortcut_action(
-            "タイムライン：オニオンスキン設定",
+            tr("タイムライン：オニオンスキン設定"),
             lambda: self.timeline.onion.toggle(),
         )
         self.a_tl_layer_add = self.make_shortcut_action(
-            "タイムライン：レイヤー追加",
+            tr("タイムライン：レイヤー追加"),
             self.canvas.add_layer,
         )
         self.a_tl_layer_delete = self.make_shortcut_action(
-            "タイムライン：レイヤー削除",
+            tr("タイムライン：レイヤー削除"),
             self.canvas.delete_layer,
         )
         self.a_tl_layer_rename = self.make_shortcut_action(
-            "タイムライン：レイヤー名変更",
+            tr("タイムライン：レイヤー名変更"),
             self.timeline.rename_selected_layer,
         )
         self.file_edit_actions = [
-            ("新規作成", self.a_new),
-            ("プロジェクトを開く", self.a_open_project),
-            ("画像を読み込む", self.a_import_images),
-            ("画像フォルダーを読み込む", self.a_import_folder),
-            ("上書き保存", self.a_save_project),
-            ("名前を付けて保存", self.a_save_project_as),
-            ("現在のコマをPNG書き出し", self.a_save),
-            ("現在のコマをTGA書き出し", self.a_save_tga),
-            ("連番PNG＋CSV書き出し", self.a_export_png_seq),
-            ("連番TGA＋CSV書き出し", self.a_export_tga_seq),
-            ("MP4書き出し", self.a_export_mp4),
-            ("元に戻す", self.a_undo),
-            ("やり直す", self.a_redo),
-            ("切り取り", self.a_cut),
-            ("コピー", self.a_copy),
-            ("貼り付け", self.a_paste),
-            ("キャンバスサイズ変更", self.a_resize),
-            ("筆圧設定", self.a_pressure),
-            ("背景以外を黒シルエット表示", self.a_silhouette),
-            ("選択色だけ表示", self.a_isolate_color),
-            ("特定色表示を解除", self.a_clear_color_filter),
-            ("ゴミ取り", self.a_remove_dust),
+            (tr("新規作成"), self.a_new),
+            (tr("プロジェクトを開く"), self.a_open_project),
+            (tr("画像を読み込む"), self.a_import_images),
+            (tr("画像フォルダーを読み込む"), self.a_import_folder),
+            (tr("上書き保存"), self.a_save_project),
+            (tr("名前を付けて保存"), self.a_save_project_as),
+            (tr("現在のコマをPNG書き出し"), self.a_save),
+            (tr("現在のコマをTGA書き出し"), self.a_save_tga),
+            (tr("連番PNG＋CSV書き出し"), self.a_export_png_seq),
+            (tr("連番TGA＋CSV書き出し"), self.a_export_tga_seq),
+            (tr("MP4書き出し"), self.a_export_mp4),
+            (tr("元に戻す"), self.a_undo),
+            (tr("やり直す"), self.a_redo),
+            (tr("切り取り"), self.a_cut),
+            (tr("コピー"), self.a_copy),
+            (tr("貼り付け"), self.a_paste),
+            (tr("キャンバスサイズ変更"), self.a_resize),
+            (tr("筆圧設定"), self.a_pressure),
+            (tr("背景以外を黒シルエット表示"), self.a_silhouette),
+            (tr("選択色だけ表示"), self.a_isolate_color),
+            (tr("特定色表示を解除"), self.a_clear_color_filter),
+            (tr("ゴミ取り"), self.a_remove_dust),
         ]
         self.tool_command_actions = [
-            ("描画色：メインを選択", self.a_select_main),
-            ("描画色：サブを選択", self.a_select_sub),
-            ("描画色：背景色を選択", self.a_select_transparent),
-            ("描画色と背景色を切り替え", self.a_toggle_draw_background),
-            ("メイン色とサブ色を切り替え", self.a_swap_main_sub),
-            ("背景色の表示色を変更", self.a_choose_background),
+            (tr("描画色：メインを選択"), self.a_select_main),
+            (tr("描画色：サブを選択"), self.a_select_sub),
+            (tr("描画色：背景色を選択"), self.a_select_transparent),
+            (tr("描画色と背景色を切り替え"), self.a_toggle_draw_background),
+            (tr("メイン色とサブ色を切り替え"), self.a_swap_main_sub),
+            (tr("背景色の表示色を変更"), self.a_choose_background),
             ("MainLineRepaint", self.a_mainline_repaint),
-            ("選択範囲：自由変形", self.a_selection_transform),
-            ("選択範囲：拡大縮小", self.a_selection_scale),
-            ("選択範囲：メッシュ変形", self.a_selection_mesh),
-            ("選択範囲を解除", self.a_selection_clear),
-            ("変形：左へ90°回転", self.a_transform_rotate_left),
-            ("変形：右へ90°回転", self.a_transform_rotate_right),
-            ("メッシュ変形：格子数を変更", self.a_transform_mesh_grid),
-            ("変形を確定", self.a_transform_commit),
-            ("変形をキャンセル", self.a_transform_cancel),
-            ("バケツ：含み塗り ON/OFF", self.a_bucket_include_sub),
-            ("バケツ：隙間閉じ ON/OFF", self.a_bucket_close_gap),
-            ("ゴミ取り：すべてのコマ ON/OFF", self.a_dust_all_frames),
-            ("ゴミ取り／塗り抜けを適用", self.a_dust_apply),
-            ("選択変形：すべてのコマ ON/OFF", self.a_selection_all_frames),
+            (tr("選択範囲：自由変形"), self.a_selection_transform),
+            (tr("選択範囲：拡大縮小"), self.a_selection_scale),
+            (tr("選択範囲：メッシュ変形"), self.a_selection_mesh),
+            (tr("選択範囲を解除"), self.a_selection_clear),
+            (tr("変形：左へ90°回転"), self.a_transform_rotate_left),
+            (tr("変形：右へ90°回転"), self.a_transform_rotate_right),
+            (tr("メッシュ変形：格子数を変更"), self.a_transform_mesh_grid),
+            (tr("変形を確定"), self.a_transform_commit),
+            (tr("変形をキャンセル"), self.a_transform_cancel),
+            (tr("バケツ：含み塗り ON/OFF"), self.a_bucket_include_sub),
+            (tr("バケツ：隙間閉じ ON/OFF"), self.a_bucket_close_gap),
+            (tr("ゴミ取り：すべてのコマ ON/OFF"), self.a_dust_all_frames),
+            (tr("ゴミ取り／塗り抜けを適用"), self.a_dust_apply),
+            (tr("選択変形：すべてのコマ ON/OFF"), self.a_selection_all_frames),
         ]
         self.timeline_actions = [
-            ("コマ数を1つ増やす", self.a_tl_add_exposure),
-            ("コマを削除", self.a_tl_delete_frame),
-            ("タイムリマップを貼り付け", self.a_tl_paste_time_remap),
-            ("前のフレーム", self.a_tl_previous),
-            ("前のコマ", self.a_tl_previous_key),
-            ("再生／停止", self.a_tl_play),
-            ("次のコマ", self.a_tl_next_key),
-            ("次のフレーム", self.a_tl_next),
-            ("オニオンスキン設定", self.a_tl_onion),
-            ("レイヤー追加", self.a_tl_layer_add),
-            ("レイヤー削除", self.a_tl_layer_delete),
-            ("レイヤー名変更", self.a_tl_layer_rename),
+            (tr("コマ数を1つ増やす"), self.a_tl_add_exposure),
+            (tr("コマを削除"), self.a_tl_delete_frame),
+            (tr("タイムリマップを貼り付け"), self.a_tl_paste_time_remap),
+            (tr("前のフレーム"), self.a_tl_previous),
+            (tr("前のコマ"), self.a_tl_previous_key),
+            (tr("再生／停止"), self.a_tl_play),
+            (tr("次のコマ"), self.a_tl_next_key),
+            (tr("次のフレーム"), self.a_tl_next),
+            (tr("オニオンスキン設定"), self.a_tl_onion),
+            (tr("レイヤー追加"), self.a_tl_layer_add),
+            (tr("レイヤー削除"), self.a_tl_layer_delete),
+            (tr("レイヤー名変更"), self.a_tl_layer_rename),
         ]
     def build_menu(self):
-        f=self.menuBar().addMenu("ファイル")
+        f=self.menuBar().addMenu(tr("ファイル"))
         f.addAction(self.a_new)
         f.addAction(self.a_open_project)
         f.addAction(self.a_import_images)
@@ -346,8 +364,8 @@ class UIBuildMixin(MainWindowMembers):
         f.addAction(self.a_export_xdts)
         f.addAction(self.a_export_psd)
         f.addAction(self.a_export_mp4)
-        e=self.menuBar().addMenu("編集");e.addAction(self.a_undo);e.addAction(self.a_redo);e.addSeparator();e.addAction(self.a_cut);e.addAction(self.a_copy);e.addAction(self.a_paste);e.addSeparator();e.addAction(self.a_silhouette);e.addAction(self.a_isolate_color);e.addAction(self.a_clear_color_filter);e.addAction(self.a_swap_main_sub);e.addAction(self.a_remove_dust);e.addSeparator();e.addAction(self.a_resize);e.addAction(self.a_shortcuts);e.addAction(self.a_pressure)
-        selection_menu=self.menuBar().addMenu("選択範囲")
+        e=self.menuBar().addMenu(tr("編集"));e.addAction(self.a_undo);e.addAction(self.a_redo);e.addSeparator();e.addAction(self.a_cut);e.addAction(self.a_copy);e.addAction(self.a_paste);e.addSeparator();e.addAction(self.a_silhouette);e.addAction(self.a_isolate_color);e.addAction(self.a_clear_color_filter);e.addAction(self.a_swap_main_sub);e.addAction(self.a_remove_dust);e.addSeparator();e.addAction(self.a_resize);e.addAction(self.a_shortcuts);e.addAction(self.a_pressure)
+        selection_menu=self.menuBar().addMenu(tr("選択範囲"))
         selection_menu.addAction(self.a_selection_clear)
         selection_menu.addSeparator()
         selection_menu.addAction(self.a_selection_transform)
@@ -360,7 +378,7 @@ class UIBuildMixin(MainWindowMembers):
         selection_menu.addSeparator()
         selection_menu.addAction(self.a_transform_commit)
         selection_menu.addAction(self.a_transform_cancel)
-        a=self.menuBar().addMenu("アニメーション")
+        a=self.menuBar().addMenu(tr("アニメーション"))
         a.addAction(self.a_prev)
         a.addAction(self.a_next)
         a.addSeparator()
@@ -370,12 +388,12 @@ class UIBuildMixin(MainWindowMembers):
         a.addAction(self.a_tl_paste_time_remap)
         self._build_view_menu()
     def _build_view_menu(self):
-        view_menu = self.menuBar().addMenu("表示")
-        theme_menu = view_menu.addMenu("テーマ")
+        view_menu = self.menuBar().addMenu(tr("表示"))
+        theme_menu = view_menu.addMenu(tr("テーマ"))
         group = QActionGroup(self)
         group.setExclusive(True)
         self.theme_actions = {}
-        labels = {"light": "ライト（明るい）", "dark": "ダーク（暗い）"}
+        labels = {"light": tr("ライト（明るい）"), "dark": tr("ダーク（暗い）")}
         active = theme.current_theme()
         for name in theme.available_themes():
             action = QAction(labels.get(name, name), self)
@@ -385,30 +403,61 @@ class UIBuildMixin(MainWindowMembers):
             group.addAction(action)
             theme_menu.addAction(action)
             self.theme_actions[name] = action
-        accent_menu = view_menu.addMenu("アクセントカラー")
+        self._build_language_menu(view_menu)
+        accent_menu = view_menu.addMenu(tr("アクセントカラー"))
         for label, hexval in theme.ACCENT_PRESETS:
             act = QAction(f"{label}", self)
             act.triggered.connect(
-                lambda _=False, h=hexval: self.set_accent(h)
+                lambda _=False, h=hexval: self.colors.set_accent(h)
             )
             accent_menu.addAction(act)
         accent_menu.addSeparator()
-        custom = QAction("カスタム…", self)
-        custom.triggered.connect(self.choose_accent_color)
+        custom = QAction(tr("カスタム…"), self)
+        custom.triggered.connect(self.colors.choose_accent_color)
         accent_menu.addAction(custom)
         view_menu.addSeparator()
-        self.subview_action = QAction("サブビュー", self)
+        self.subview_action = QAction(tr("サブビュー"), self)
         self.subview_action.setCheckable(True)
         self.subview_action.setChecked(True)
         self.subview_action.triggered.connect(self._set_subview_visible)
         view_menu.addAction(self.subview_action)
-        self.color_chart_action = QAction("カラーチャート", self)
+        self.color_chart_action = QAction(tr("カラーチャート"), self)
         self.color_chart_action.setCheckable(True)
         self.color_chart_action.setChecked(False)
         self.color_chart_action.triggered.connect(
             self._set_color_chart_visible
         )
         view_menu.addAction(self.color_chart_action)
+
+    def _build_language_menu(self, view_menu):
+        """Language picker. Qt resolves ``tr()`` when a widget is built, so the
+        whole UI would have to be torn down to retranslate live; the choice is
+        persisted and applied on the next start instead."""
+        menu = view_menu.addMenu(tr("言語 / Language"))
+        group = QActionGroup(self)
+        group.setExclusive(True)
+        current = i18n.preferred_language()
+        entries = [(i18n.SYSTEM, tr("システムに合わせる"))]
+        entries += list(i18n.available_languages().items())
+        self.language_actions = {}
+        for code, label in entries:
+            action = QAction(label, self)
+            action.setCheckable(True)
+            action.setChecked(code == current)
+            action.triggered.connect(lambda _=False, c=code: self._choose_language(c))
+            group.addAction(action)
+            menu.addAction(action)
+            self.language_actions[code] = action
+
+    def _choose_language(self, code):
+        if code == i18n.preferred_language():
+            return
+        i18n.set_preferred_language(code)
+        QMessageBox.information(
+            self,
+            tr("言語 / Language"),
+            tr("次回の起動から新しい言語で表示されます。"),
+        )
 
     def _set_subview_visible(self, visible):
         dock = getattr(self, "subview_dock", None)
@@ -488,10 +537,10 @@ class UIBuildMixin(MainWindowMembers):
         self.rot=QSlider(Qt.Orientation.Horizontal)
         self.rot.setRange(-180,180)
         self.rot_label=QLabel("0°")
-        b100=QPushButton("100%表示")
-        bfit=QPushButton("全体を表示")
+        b100=QPushButton(tr("100%表示"))
+        bfit=QPushButton(tr("全体を表示"))
         b0=QPushButton("0°")
-        for w in (QLabel("拡大"),self.zoom,self.zoom_label,b100,bfit,QLabel("回転"),self.rot,self.rot_label,b0):
+        for w in (QLabel(tr("拡大")),self.zoom,self.zoom_label,b100,bfit,QLabel(tr("回転")),self.rot,self.rot_label,b0):
             bar.addWidget(w)
         cv.addLayout(bar)
         self.dock_manager = QtAds.CDockManager(self)
@@ -500,7 +549,7 @@ class UIBuildMixin(MainWindowMembers):
         self.dock_manager.floatingWidgetCreated.connect(
             self._configure_floating_window
         )
-        self.central_dock = QtAds.CDockWidget(self.dock_manager, "キャンバス")
+        self.central_dock = QtAds.CDockWidget(self.dock_manager, tr("キャンバス"))
         self.central_dock.setObjectName("canvasDock")
         self.central_dock.setWidget(
             center, QtAds.CDockWidget.eInsertMode.ForceNoScrollArea
@@ -556,7 +605,7 @@ class UIBuildMixin(MainWindowMembers):
         self.color_slider_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         self.color_slider_scroll.setWidget(self.tools.color_slider_box)
 
-        self.tool_selector_dock=QtAds.CDockWidget(self.dock_manager, "ツール")
+        self.tool_selector_dock=QtAds.CDockWidget(self.dock_manager, tr("ツール"))
         self.tool_selector_dock.setObjectName("toolSelectorDock")
         self.tool_selector_dock.setFeatures(
             QtAds.CDockWidget.DockWidgetFeature.DockWidgetMovable
@@ -573,7 +622,7 @@ class UIBuildMixin(MainWindowMembers):
             QtAds.LeftDockWidgetArea, self.tool_selector_dock
         )
 
-        self.tools_dock=QtAds.CDockWidget(self.dock_manager, "ツールプロパティ")
+        self.tools_dock=QtAds.CDockWidget(self.dock_manager, tr("ツールプロパティ"))
         self.tools_dock.setObjectName("toolsDock")
         self.tools_dock.setWidget(
             self.tools_scroll, QtAds.CDockWidget.eInsertMode.ForceNoScrollArea
@@ -586,7 +635,7 @@ class UIBuildMixin(MainWindowMembers):
         self.action_panel_scroll.setWidgetResizable(True)
         self.action_panel_scroll.setMinimumSize(0, 0)
         self.action_panel_scroll.setWidget(self.action_panel)
-        self.action_panel_dock=QtAds.CDockWidget(self.dock_manager, "アクション")
+        self.action_panel_dock=QtAds.CDockWidget(self.dock_manager, tr("アクション"))
         self.action_panel_dock.setObjectName("actionPanelDock")
         self.action_panel_dock.setWidget(
             self.action_panel_scroll, QtAds.CDockWidget.eInsertMode.ForceNoScrollArea
@@ -595,7 +644,7 @@ class UIBuildMixin(MainWindowMembers):
             QtAds.BottomDockWidgetArea, self.action_panel_dock, tools_area
         )
 
-        self.color_wheel_dock=QtAds.CDockWidget(self.dock_manager, "カラーサークル")
+        self.color_wheel_dock=QtAds.CDockWidget(self.dock_manager, tr("カラーサークル"))
         self.color_wheel_dock.setObjectName("colorWheelDock")
         self.color_wheel_dock.setWidget(
             self.color_wheel_scroll, QtAds.CDockWidget.eInsertMode.ForceNoScrollArea
@@ -606,7 +655,7 @@ class UIBuildMixin(MainWindowMembers):
         )
         wheel_area = drawing_area
 
-        self.color_slider_dock=QtAds.CDockWidget(self.dock_manager, "カラースライダー")
+        self.color_slider_dock=QtAds.CDockWidget(self.dock_manager, tr("カラースライダー"))
         self.color_slider_dock.setObjectName("colorSliderDock")
         self.color_slider_dock.setWidget(
             self.color_slider_scroll, QtAds.CDockWidget.eInsertMode.ForceNoScrollArea
@@ -615,7 +664,7 @@ class UIBuildMixin(MainWindowMembers):
             QtAds.BottomDockWidgetArea, self.color_slider_dock, wheel_area
         )
 
-        self.palette_dock=QtAds.CDockWidget(self.dock_manager, "使用色")
+        self.palette_dock=QtAds.CDockWidget(self.dock_manager, tr("使用色"))
         self.palette_dock.setObjectName("paletteDock")
         self.palette_dock.setWidget(
             self.palette_scroll, QtAds.CDockWidget.eInsertMode.ForceNoScrollArea
@@ -624,7 +673,7 @@ class UIBuildMixin(MainWindowMembers):
             QtAds.BottomDockWidgetArea, self.palette_dock, drawing_area
         )
 
-        self.history_dock=QtAds.CDockWidget(self.dock_manager, "ヒストリー")
+        self.history_dock=QtAds.CDockWidget(self.dock_manager, tr("ヒストリー"))
         self.history_dock.setObjectName("historyDock")
         self.history_dock.setWidget(
             self.history_scroll, QtAds.CDockWidget.eInsertMode.ForceNoScrollArea
@@ -637,7 +686,7 @@ class UIBuildMixin(MainWindowMembers):
         palette_area.setCurrentDockWidget(self.palette_dock)
 
         self.color_chart_dock=QtAds.CDockWidget(
-            self.dock_manager, "カラーチャート"
+            self.dock_manager, tr("カラーチャート")
         )
         self.color_chart_dock.setObjectName("colorChartDock")
         self.color_chart_dock.setWidget(
@@ -651,7 +700,7 @@ class UIBuildMixin(MainWindowMembers):
         )
         palette_area.setCurrentDockWidget(self.palette_dock)
 
-        self.subview_dock=QtAds.CDockWidget(self.dock_manager, "サブビュー")
+        self.subview_dock=QtAds.CDockWidget(self.dock_manager, tr("サブビュー"))
         self.subview_dock.setObjectName("subviewDock")
         self.subview_dock.setWidget(
             self.subview, QtAds.CDockWidget.eInsertMode.ForceNoScrollArea
@@ -660,7 +709,7 @@ class UIBuildMixin(MainWindowMembers):
             QtAds.RightDockWidgetArea, self.subview_dock
         )
 
-        self.timeline_dock=QtAds.CDockWidget(self.dock_manager, "タイムライン")
+        self.timeline_dock=QtAds.CDockWidget(self.dock_manager, tr("タイムライン"))
         self.timeline_dock.setObjectName("timelineDock")
         self.timeline.setMaximumHeight(16777215)
         self.timeline_dock.setWidget(
@@ -706,7 +755,7 @@ class UIBuildMixin(MainWindowMembers):
                 0, self._sync_all_area_hamburgers
             )
         )
-        self._build_workspace_menu()
+        self.workspace.build_menu()
         self._finalize_startup_dock_ui()
         for dock in (
             self.tool_selector_dock,
@@ -737,7 +786,7 @@ class UIBuildMixin(MainWindowMembers):
             ),
         )
 
-        panel_menu=self.menuBar().addMenu("パネル")
+        panel_menu=self.menuBar().addMenu(tr("パネル"))
         view_menu=panel_menu
         view_menu.addAction(self.tool_selector_dock.toggleViewAction())
         view_menu.addAction(self.tools_dock.toggleViewAction())
@@ -750,12 +799,12 @@ class UIBuildMixin(MainWindowMembers):
         view_menu.addAction(self.subview_dock.toggleViewAction())
         view_menu.addAction(self.timeline_dock.toggleViewAction())
 
-        help_menu=self.menuBar().addMenu("ヘルプ")
-        a_check_update=QAction("更新を確認…", self)
+        help_menu=self.menuBar().addMenu(tr("ヘルプ"))
+        a_check_update=QAction(tr("更新を確認…"), self)
         a_check_update.triggered.connect(self.check_for_updates_interactive)
         help_menu.addAction(a_check_update)
         help_menu.addSeparator()
-        a_about=QAction("バージョン情報…", self)
+        a_about=QAction(tr("バージョン情報…"), self)
         a_about.triggered.connect(self.show_about_dialog)
         help_menu.addAction(a_about)
 
@@ -807,15 +856,15 @@ class UIBuildMixin(MainWindowMembers):
             self.canvas.set_brush_stabilizer
         )
         self.tools.brush_size_spinbox.pressureRequested.connect(self.pressure)
-        self.tools.colorModeChanged.connect(self.set_color_mode)
-        self.tools.colorChanged.connect(self.set_color_value)
-        self.subview.colorPicked.connect(self.apply_sampled_color)
-        self.color_chart.colorPicked.connect(self.apply_sampled_color)
-        self.color_chart.chartChanged.connect(self.on_color_chart_edited)
-        self.color_chart.captureRequested.connect(self.capture_color_chart)
-        self.color_chart.applyRequested.connect(self.apply_color_chart)
-        self.color_chart.saveRequested.connect(self.save_color_chart_pmag)
-        self.color_chart.loadRequested.connect(self.load_color_chart_pmag)
+        self.tools.colorModeChanged.connect(self.colors.set_color_mode)
+        self.tools.colorChanged.connect(self.colors.set_color_value)
+        self.subview.colorPicked.connect(self.colors.apply_sampled_color)
+        self.color_chart.colorPicked.connect(self.colors.apply_sampled_color)
+        self.color_chart.chartChanged.connect(self.color_chart_ops.on_edited)
+        self.color_chart.captureRequested.connect(self.color_chart_ops.capture)
+        self.color_chart.applyRequested.connect(self.color_chart_ops.apply)
+        self.color_chart.saveRequested.connect(self.color_chart_ops.save_pmag)
+        self.color_chart.loadRequested.connect(self.color_chart_ops.load_pmag)
         self.subview.set_color_provider(
             lambda: (
                 self.canvas.sub_color
@@ -825,38 +874,40 @@ class UIBuildMixin(MainWindowMembers):
         )
         self.subview.colorPicked.connect(
             lambda color: self.status(
-                f"サブビューから {color.name().upper()} を取得しました",
+                tr("サブビューから {color} を取得しました").format(
+                    color=color.name().upper()
+                ),
                 "success",
                 2500,
             )
         )
         # Keep the tool-bar drawing-colour swatch in sync with the panel.
-        self.tool_selector.colorModeRequested.connect(self.set_color_mode)
+        self.tool_selector.colorModeRequested.connect(self.colors.set_color_mode)
         self.tool_selector.backgroundColorRequested.connect(
-            self.choose_background_color
+            self.colors.choose_background_color
         )
         self.tools.colorModeChanged.connect(
-            lambda _m=None: self._sync_tool_selector_swatch()
+            lambda _m=None: self.colors._sync_tool_selector_swatch()
         )
         self.tools.colorChanged.connect(
-            lambda *_a: self._sync_tool_selector_swatch()
+            lambda *_a: self.colors._sync_tool_selector_swatch()
         )
         self.tools.main_btn.colorPicked.connect(
-            lambda color: self.apply_sampled_color_to_mode("main", color)
+            lambda color: self.colors.apply_sampled_color_to_mode("main", color)
         )
         self.tools.sub_btn.colorPicked.connect(
-            lambda color: self.apply_sampled_color_to_mode("sub", color)
+            lambda color: self.colors.apply_sampled_color_to_mode("sub", color)
         )
         self.tools.meshCommitRequested.connect(self.canvas.commit_mesh)
         self.tools.meshCancelRequested.connect(self.canvas.cancel_mesh)
         self.tools.selectionTransformRequested.connect(
-            lambda: self.start_wire_transform("free")
+            lambda: self.line_ops.start_wire_transform("free")
         )
         self.tools.selectionScaleRequested.connect(
-            lambda: self.start_wire_transform("scale")
+            lambda: self.line_ops.start_wire_transform("scale")
         )
         self.tools.selectionMeshRequested.connect(
-            lambda: self.start_wire_transform("mesh")
+            lambda: self.line_ops.start_wire_transform("mesh")
         )
         self.tools.selectionClearRequested.connect(self.canvas.clear_selection)
         self.tools.selectionRotateRequested.connect(
@@ -884,24 +935,24 @@ class UIBuildMixin(MainWindowMembers):
             self.tools.transform_line_width.value()
         )
         self.tools.selectionCommitRequested.connect(
-            self.commit_transform_or_tween
+            self.tween.commit_transform_or_tween
         )
         self.tools.selectionCancelRequested.connect(
-            self.cancel_transform_or_tween
+            self.tween.cancel_transform_or_tween
         )
         self.tools.flipLayerRequested.connect(self.canvas.flip_active_layer)
-        self.tools.swapMainSubRequested.connect(self.swap_main_sub)
-        self.tools.resetMainSubRequested.connect(self.reset_main_sub)
-        self.tools.removeDustRequested.connect(self.remove_dust_fill_surrounding)
-        self.tools.backgroundColorRequested.connect(self.choose_background_color)
+        self.tools.swapMainSubRequested.connect(self.line_ops.swap_main_sub)
+        self.tools.resetMainSubRequested.connect(self.line_ops.reset_main_sub)
+        self.tools.removeDustRequested.connect(self.line_ops.remove_dust_fill_surrounding)
+        self.tools.backgroundColorRequested.connect(self.colors.choose_background_color)
 
-        self.timeline.frameSelected.connect(self.select_timeline_exposure)
+        self.timeline.frameSelected.connect(self.timeline_ops.select_exposure)
         self.timeline.addFrameRequested.connect(
             self.canvas.add_frame
         )
         self.timeline.extendExposureRequested.connect(
             lambda row, key, exposure:
-                self.resize_timeline_exposure(
+                self.timeline_ops.resize_exposure(
                     row,
                     key,
                     key + max(1, exposure),
@@ -909,47 +960,47 @@ class UIBuildMixin(MainWindowMembers):
                 )
         )
         self.timeline.deleteFrameRequested.connect(
-            self.delete_timeline_frame
+            self.timeline_ops.delete_frame
         )
-        self.timeline.previousRequested.connect(self.previous_timeline_frame)
-        self.timeline.nextRequested.connect(self.next_timeline_frame)
-        self.timeline.previousKeyRequested.connect(self.previous_timeline_key)
-        self.timeline.nextKeyRequested.connect(self.next_timeline_key)
+        self.timeline.previousRequested.connect(self.timeline_ops.previous_frame)
+        self.timeline.nextRequested.connect(self.timeline_ops.next_frame)
+        self.timeline.previousKeyRequested.connect(self.timeline_ops.previous_key)
+        self.timeline.nextKeyRequested.connect(self.timeline_ops.next_key)
         self.timeline.durationChanged.connect(self.canvas.set_duration)
-        self.timeline.cellMoveRequested.connect(self.move_timeline_cell)
-        self.timeline.cellCopyRequested.connect(self.copy_timeline_cell)
-        self.timeline.sequenceRecallRequested.connect(self.recall_sequence_number)
+        self.timeline.cellMoveRequested.connect(self.timeline_ops.move_cell)
+        self.timeline.cellCopyRequested.connect(self.timeline_ops.copy_cell)
+        self.timeline.sequenceRecallRequested.connect(self.timeline_ops.recall_sequence_number)
         self.timeline.multiCellMoveRequested.connect(
-            self.move_timeline_selection
+            self.timeline_ops.move_selection
         )
         self.timeline.timelineModeChanged.connect(
-            self.set_timeline_mode
+            self.timeline_ops.set_mode
         )
         self.timeline.normalizeNumbersRequested.connect(
-            self.normalize_timeline_numbers
+            self.timeline_ops.normalize_numbers
         )
         self.timeline.blankFrameRequested.connect(
-            self.create_blank_timeline_key
+            self.timeline_ops.create_blank_key
         )
-        self.timeline.exposureResizeRequested.connect(self.resize_timeline_exposure)
+        self.timeline.exposureResizeRequested.connect(self.timeline_ops.resize_exposure)
         self.timeline.tweenRequested.connect(
-            lambda row, column: self.enable_tween(row, column, "free")
+            lambda row, column: self.tween.enable(row, column, "free")
         )
         self.timeline.tweenMeshRequested.connect(
-            lambda row, column: self.enable_tween(row, column, "mesh")
+            lambda row, column: self.tween.enable(row, column, "mesh")
         )
         self.timeline.tweenCancelRequested.connect(
-            self.cancel_transform_or_tween
+            self.tween.cancel_transform_or_tween
         )
         self.timeline.onionPopupToggled.connect(
-            self.toggle_onion_settings_popup
+            self.onion.toggle_settings_popup
         )
-        self.timeline.onionChanged.connect(self.set_onion_skin)
+        self.timeline.onionChanged.connect(self.onion.set_enabled)
         self.timeline.timeRemapPasteRequested.connect(
-            self.show_time_remap_paste_dialog
+            self.time_remap.show_paste_dialog
         )
         self.timeline.timeRemapFileDropped.connect(
-            self.open_dropped_time_remap
+            self.time_remap.open_dropped
         )
         self.timeline.playRequested.connect(self.play)
 
@@ -961,72 +1012,72 @@ class UIBuildMixin(MainWindowMembers):
         self.canvas.cellChanged.connect(self._on_canvas_cell_changed)
         self.canvas.colorUsed.connect(self.palette.add_color)
 
-        self.timeline.layerSelected.connect(self.layer_selected)
-        self.timeline.layerVisibilityChanged.connect(self.layer_visibility_row)
-        self.timeline.layerOpacityChanged.connect(self.layer_opacity_row)
+        self.timeline.layerSelected.connect(self.layers.on_selected)
+        self.timeline.layerVisibilityChanged.connect(self.layers.set_visibility_row)
+        self.timeline.layerOpacityChanged.connect(self.layers.set_opacity_row)
         self.timeline.layer_opacity_slider.sliderPressed.connect(
             self.canvas.push_doc_undo
         )
-        self.timeline.layerNameChanged.connect(self.layer_name_row)
-        self.timeline.layerMoveRequested.connect(self.move_layer_row)
-        self.timeline.addLayerRequested.connect(self.add_layer_fast)
+        self.timeline.layerNameChanged.connect(self.layers.rename_row)
+        self.timeline.layerMoveRequested.connect(self.layers.move_row)
+        self.timeline.addLayerRequested.connect(self.layers.add_fast)
         self.timeline.deleteLayerRequested.connect(self.canvas.delete_layer)
-        self.timeline.duplicateLayersRequested.connect(self.duplicate_layer_rows)
-        self.timeline.mergeLayersRequested.connect(self.merge_layer_rows)
-        self.timeline.deleteLayersRequested.connect(self.delete_layer_rows)
+        self.timeline.duplicateLayersRequested.connect(self.layers.duplicate_rows)
+        self.timeline.mergeLayersRequested.connect(self.layers.merge_rows)
+        self.timeline.deleteLayersRequested.connect(self.layers.delete_rows)
         self.timeline.toggleDraftLayersRequested.connect(
-            self.set_layer_draft_rows
+            self.layers.set_draft_rows
         )
 
         self.canvas.imagesDropped.connect(self.import_dropped_images)
-        self.canvas.projectDropped.connect(self.open_dropped_project)
-        self.canvas.timeRemapDropped.connect(self.open_dropped_time_remap)
-        self.canvas.clipAnimationDropped.connect(self.import_clip_animation)
-        self.canvas.colorSampled.connect(self.apply_sampled_color)
+        self.canvas.projectDropped.connect(self.project.open_dropped)
+        self.canvas.timeRemapDropped.connect(self.time_remap.open_dropped)
+        self.canvas.clipAnimationDropped.connect(self.importer.clip_animation)
+        self.canvas.colorSampled.connect(self.colors.apply_sampled_color)
         self.canvas.status_message.connect(
             lambda message: self.statusBar().showMessage(message, 2500)
         )
         self.canvas.viewChanged.connect(self.sync_canvas_view_controls)
         self.canvas.onionInteractionChanged.connect(
-            self.sync_onion_browser_from_canvas
+            self.onion.sync_browser_from_canvas
         )
         self.canvas.onionInteractionFinished.connect(
-            self.finish_onion_browser_interaction
+            self.onion.finish_browser_interaction
         )
 
-        self.palette.isolateColorClicked.connect(self.apply_palette_isolate_color)
+        self.palette.isolateColorClicked.connect(self.used_color.apply_palette_isolate_color)
         self.palette.mainColorRequested.connect(
-            lambda color: self.apply_sampled_color_to_mode("main", color)
+            lambda color: self.colors.apply_sampled_color_to_mode("main", color)
         )
-        self.palette.sourceScreenColorPicked.connect(self.apply_sampled_color)
+        self.palette.sourceScreenColorPicked.connect(self.colors.apply_sampled_color)
         self.palette.applyReplacementRequested.connect(
-            self.apply_palette_replacements
+            self.used_color.apply_palette_replacements
         )
-        self.palette.previewGroupsChanged.connect(self.set_preview_color_groups)
-        self.palette.freezeGroupsRequested.connect(self.freeze_preview_color_groups)
-        self.palette.mergeColorsRequested.connect(self.apply_palette_merge)
+        self.palette.previewGroupsChanged.connect(self.colors.set_preview_color_groups)
+        self.palette.freezeGroupsRequested.connect(self.colors.freeze_preview_color_groups)
+        self.palette.mergeColorsRequested.connect(self.used_color.apply_palette_merge)
         self.palette.deleteColorsRequested.connect(
-            self.apply_palette_delete
+            self.used_color.apply_palette_delete
         )
         self.palette.adjustLineThicknessRequested.connect(
-            self.adjust_parent_line_thickness
+            self.colors.adjust_parent_line_thickness
         )
-        self.palette.focusColorRequested.connect(self.focus_used_color)
+        self.palette.focusColorRequested.connect(self.colors.focus_used_color)
         self.palette.clearIsolateRequested.connect(
-            self.clear_selected_color_filter
+            self.colors.clear_selected_color_filter
         )
-        self.palette.maskColorsChanged.connect(self.set_mask_colors)
-        self.palette.selectedColorsChanged.connect(self.set_selected_used_colors)
-        self.palette.visibleColorsChanged.connect(self.set_visible_colors)
-        self.palette.historyStatePush.connect(self.push_palette_history)
-        self.history_panel.jumpRequested.connect(self.jump_history)
+        self.palette.maskColorsChanged.connect(self.colors.set_mask_colors)
+        self.palette.selectedColorsChanged.connect(self.colors.set_selected_used_colors)
+        self.palette.visibleColorsChanged.connect(self.colors.set_visible_colors)
+        self.palette.historyStatePush.connect(self.used_color.push_palette_history)
+        self.history_panel.jumpRequested.connect(self.used_color.jump_history)
         self.history_panel.branchSwitchRequested.connect(
-            self.switch_history_branch
+            self.used_color.switch_history_branch
         )
         # 編集のたびにヒストリー一覧を更新する。
-        self.canvas.changed.connect(self.refresh_history_panel)
+        self.canvas.changed.connect(self.used_color.refresh_history_panel)
         self.canvas.cellChanged.connect(
-            lambda *_args: self.refresh_history_panel()
+            lambda *_args: self.used_color.refresh_history_panel()
         )
 
 
@@ -1041,19 +1092,21 @@ class UIBuildMixin(MainWindowMembers):
         repo_url = f"https://github.com/{GITHUB_REPO}"
         QMessageBox.about(
             self,
-            f"{APP_NAME} について",
-            f"""<h3>{APP_DISPLAY_NAME}</h3>
+            tr("{app} について").format(app=APP_NAME),
+            tr("""<h3>{app}</h3>
 <p>Copyright &copy; 2026 PaintMaskAnimator contributors</p>
 <p>本ソフトウェアは <b>Apache License 2.0</b> のもとで配布されています。
 商用・非商用を問わず、自由に利用・改変・再配布できます。</p>
 <p>本ソフトウェアは「現状有姿」で提供され、明示黙示を問わず<b>いかなる保証もありません</b>。
 詳細はライセンス全文を参照してください。</p>
 <p>ライセンス全文: <a href="https://www.apache.org/licenses/LICENSE-2.0">Apache License 2.0</a><br>
-ソースコード: <a href="{repo_url}">{repo_url}</a></p>
+ソースコード: <a href="{repo}">{repo}</a></p>
 <p><b>サードパーティコンポーネント</b><br>
 Qt for Python (PySide6) &mdash; LGPLv3<br>
 Qt Advanced Docking System &mdash; LGPL-2.1<br>
 NumPy &mdash; BSD-3-Clause / Pillow &mdash; MIT-CMU / psd-tools &mdash; MIT</p>
 <p>これらの LGPL ライブラリは差し替え可能な形で同梱されています。ライセンス全文と
-対応ソースの入手先は、配布物内の <tt>THIRD_PARTY_LICENSES.md</tt> を参照してください。</p>""",
+対応ソースの入手先は、配布物内の <tt>THIRD_PARTY_LICENSES.md</tt> を参照してください。</p>""").format(
+                app=APP_DISPLAY_NAME, repo=repo_url
+            ),
         )

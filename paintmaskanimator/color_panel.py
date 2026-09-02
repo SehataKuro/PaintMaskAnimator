@@ -9,7 +9,23 @@ widget tree, building and refreshing colour rows from a colour list, swatch
 styling, and the row context menu. Type-only member declarations shared by the
 mixins live in ``_color_panel_members.py``.
 """
-from .common import *  # noqa: F401,F403
+from typing import Any
+from PySide6.QtCore import QPoint, Qt, Signal
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import (
+    QApplication,
+    QGridLayout,
+    QHBoxLayout,
+    QInputDialog,
+    QLabel,
+    QMenu,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QStyle,
+    QVBoxLayout,
+    QWidget,
+)
 from .logging_setup import get_logger
 
 

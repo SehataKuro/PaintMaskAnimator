@@ -1,13 +1,25 @@
-"""PSD / XDTS import for MainWindow.
+"""PSD / XDTS / CLIP import; owned by ``MainWindow`` as ``window.importer``.
 
-Split out of ``main_window.py`` as a mixin. These methods drive the file
-dialogs and parsing that bring external PSD layers and XDTS timesheets into the
-current project. They run against a live ``MainWindow`` instance.
+Drives the file dialogs and the parsing that brings external PSD layers, XDTS
+timesheets and CLIP STUDIO animations into the current project.
+
+A collaborator rather than a mixin -- see ``main_window_export.py`` for why.
 """
-from .common import *  # noqa: F401,F403
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
+
+import json
+from pathlib import Path
+from PySide6.QtCore import QTimer, Qt
+from PySide6.QtGui import QImage
+from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
+from .optional_deps import PILImage, PSDImage
+from .constants import (
+    MAX_IMAGE_DIMENSION,
+    MAX_PROJECT_LAYERS,
+    MAX_PROJECT_LAYER_CELLS,
+    MAX_SINGLE_IMAGE_PIXELS,
+)
 import sqlite3
-from ._main_window_members import MainWindowMembers
 from . import constants
 from .canvas import PaintCanvas
 from .clip_animation import (
@@ -15,32 +27,43 @@ from .clip_animation import (
     cell_sequence_numbers,
     read_clip_animation,
 )
-from .errors import OPERATION_ERRORS as _OPERATION_ERRORS
+from .errors import OPERATION_ERRORS as _OPERATION_ERRORS, OperationError
 from .models import Layer
 from .utils import blank_image
 from .logging_setup import get_logger
 
+if TYPE_CHECKING:
+    from .main_window import MainWindow
+
 log = get_logger(__name__)
 
 
-class ImportMixin(MainWindowMembers):
-    def import_clip_animation_dialog(self):
+class ImportController:
+    """Owned by ``MainWindow`` as ``window.import_``.
+
+    A collaborator rather than a mixin -- see main_window_export.py for why.
+    """
+
+    def __init__(self, window: "MainWindow"):
+        self.window = window
+
+    def clip_animation_dialog(self):
         path, _ = QFileDialog.getOpenFileName(
-            self,
+            self.window,
             "CLIP STUDIOアニメーションを読み込む",
             "",
             "CLIP STUDIO PAINT (*.clip);;すべてのファイル (*)",
         )
         if path:
-            return self.import_clip_animation(path)
+            return self.clip_animation(path)
         return False
 
     def _clip_import_needs_confirmation(self):
-        if self.current_project_path:
+        if self.window.current_project_path:
             return True
-        if len(self.canvas.frames) != 1:
+        if len(self.window.canvas.frames) != 1:
             return True
-        layers = self.canvas.frames[0].layers if self.canvas.frames else []
+        layers = self.window.canvas.frames[0].layers if self.window.canvas.frames else []
         return (
             len(layers) != 1
             or any(layer.has_content or layer.is_blank_key for layer in layers)
@@ -49,7 +72,7 @@ class ImportMixin(MainWindowMembers):
     def _confirm_replace_for_clip_import(self):
         if not self._clip_import_needs_confirmation():
             return True
-        dialog = QMessageBox(self)
+        dialog = QMessageBox(self.window)
         dialog.setIcon(QMessageBox.Icon.Question)
         dialog.setWindowTitle("CLIP STUDIOアニメーションを読み込む")
         dialog.setText(
@@ -71,14 +94,14 @@ class ImportMixin(MainWindowMembers):
         if clicked is cancel_button or clicked is None:
             return False
         if clicked is save_button:
-            return bool(self.save_project())
+            return bool(self.window.project.save())
         return clicked is discard_button
 
-    def import_clip_animation(self, path, confirm_replace=True):
+    def clip_animation(self, path, confirm_replace=True):
         source = Path(path)
         if source.suffix.lower() != ".clip":
             return False
-        self.statusBar().showMessage(
+        self.window.statusBar().showMessage(
             f"CLIP STUDIOアニメーションを解析しています：{source.name}",
             0,
         )
@@ -87,9 +110,9 @@ class ImportMixin(MainWindowMembers):
             parsed = read_clip_animation(source)
         except (ClipImportError, OSError, ValueError, sqlite3.Error) as exc:
             log.error("CLIP STUDIO animation import failed: %s", exc, exc_info=True)
-            self.statusBar().clearMessage()
+            self.window.statusBar().clearMessage()
             QMessageBox.critical(
-                self,
+                self.window,
                 "CLIP STUDIOアニメーション読み込み",
                 "読み込めませんでした。現在のドキュメントは変更されていません。"
                 f"\n\n{exc}",
@@ -98,56 +121,56 @@ class ImportMixin(MainWindowMembers):
         finally:
             QApplication.restoreOverrideCursor()
         if confirm_replace and not self._confirm_replace_for_clip_import():
-            self.statusBar().clearMessage()
+            self.window.statusBar().clearMessage()
             return False
 
         old_state = {
             "width": constants.CANVAS_WIDTH,
             "height": constants.CANVAS_HEIGHT,
-            "frames": self.canvas.frames,
-            "current_frame": self.canvas.current_frame,
-            "active_layer_index": self.canvas.active_layer_index,
-            "timeline_mode": self.canvas.timeline_mode,
-            "fps": self.timeline.fps.value(),
-            "project_path": self.current_project_path,
+            "frames": self.window.canvas.frames,
+            "current_frame": self.window.canvas.current_frame,
+            "active_layer_index": self.window.canvas.active_layer_index,
+            "timeline_mode": self.window.canvas.timeline_mode,
+            "fps": self.window.timeline.fps.value(),
+            "project_path": self.window.current_project_path,
             "clip_metadata": getattr(
-                self.canvas, "clip_studio_source_metadata", None
+                self.window.canvas, "clip_studio_source_metadata", None
             ),
-            "palette": self.palette.serialize_categories(),
-            "undo": list(self.canvas.undo_stack),
-            "redo": list(self.canvas.redo_stack),
-            "branches": list(self.canvas.history_branches),
-            "sequence_archive": self.canvas._sequence_archive,
-            "sequence_bank": self.canvas._sequence_source_bank,
-            "sequence_bank_index": self.canvas._sequence_source_bank_layer_index,
-            "sequence_bank_name": self.canvas._sequence_source_bank_layer_name,
+            "palette": self.window.palette.serialize_categories(),
+            "undo": list(self.window.canvas.undo_stack),
+            "redo": list(self.window.canvas.redo_stack),
+            "branches": list(self.window.canvas.history_branches),
+            "sequence_archive": self.window.canvas._sequence_archive,
+            "sequence_bank": self.window.canvas._sequence_source_bank,
+            "sequence_bank_index": self.window.canvas._sequence_source_bank_layer_index,
+            "sequence_bank_name": self.window.canvas._sequence_source_bank_layer_name,
         }
         try:
-            if self.canvas._playback_active:
-                self.timeline.play.setChecked(False)
-                self.play(False)
-            self.cancel_transform_or_tween()
-            self.canvas.clear_selection()
+            if self.window.canvas._playback_active:
+                self.window.timeline.play.setChecked(False)
+                self.window.play(False)
+            self.window.tween.cancel_transform_or_tween()
+            self.window.canvas.clear_selection()
             constants.CANVAS_WIDTH = int(parsed.width)
             constants.CANVAS_HEIGHT = int(parsed.height)
-            self.canvas.frames = list(parsed.frames)
-            self.canvas.current_frame = 0
-            self.canvas.active_layer_index = 0
-            self.canvas.timeline_mode = "sheet"
-            self.timeline.set_timeline_mode("sheet")
-            self.timeline.fps.setValue(
+            self.window.canvas.frames = list(parsed.frames)
+            self.window.canvas.current_frame = 0
+            self.window.canvas.active_layer_index = 0
+            self.window.canvas.timeline_mode = "sheet"
+            self.window.timeline.set_timeline_mode("sheet")
+            self.window.timeline.fps.setValue(
                 max(1, min(60, int(round(parsed.fps))))
             )
-            self.canvas.clip_studio_source_metadata = parsed.source_metadata()
-            self.canvas._sequence_source_bank = []
-            self.canvas._sequence_source_bank_layer_index = -1
-            self.canvas._sequence_source_bank_layer_name = ""
+            self.window.canvas.clip_studio_source_metadata = parsed.source_metadata()
+            self.window.canvas._sequence_source_bank = []
+            self.window.canvas._sequence_source_bank_layer_index = -1
+            self.window.canvas._sequence_source_bank_layer_name = ""
             sequence_archive = {}
             for layer_index, source_layer in enumerate(parsed.layers):
                 numbers = cell_sequence_numbers(source_layer)
                 placed_numbers = {
                     int(frame.layers[layer_index].sequence_number)
-                    for frame in self.canvas.frames
+                    for frame in self.window.canvas.frames
                     if (
                         frame.layers[layer_index].has_content
                         and frame.layers[layer_index].sequence_number is not None
@@ -172,51 +195,51 @@ class ImportMixin(MainWindowMembers):
                             else str(tag)
                         ),
                     )
-            self.canvas._sequence_archive = sequence_archive
-            self.timeline.sequence_archive = self.canvas._sequence_archive
-            self.canvas.undo_stack.clear()
-            self.canvas.redo_stack.clear()
-            self.canvas.clear_history_branches()
-            self.canvas._onion_cache.clear()
-            self.canvas._color_filter_cache.clear()
-            self.canvas._color_index_cache.clear()
-            self.canvas._silhouette_cache.clear()
-            self._used_color_cache.clear()
-            self.palette.clear_categories()
-            self.current_project_path = None
-            self.update_project_title()
-            self.refresh_ui()
-            self.schedule_used_color_refresh()
-            QTimer.singleShot(0, self.fit_canvas)
+            self.window.canvas._sequence_archive = sequence_archive
+            self.window.timeline.sequence_archive = self.window.canvas._sequence_archive
+            self.window.canvas.undo_stack.clear()
+            self.window.canvas.redo_stack.clear()
+            self.window.canvas.clear_history_branches()
+            self.window.canvas._onion_cache.clear()
+            self.window.canvas._color_filter_cache.clear()
+            self.window.canvas._color_index_cache.clear()
+            self.window.canvas._silhouette_cache.clear()
+            self.window._used_color_cache.clear()
+            self.window.palette.clear_categories()
+            self.window.current_project_path = None
+            self.window.project.update_title()
+            self.window.refresh_ui()
+            self.window.used_color.schedule_refresh()
+            QTimer.singleShot(0, self.window.fit_canvas)
         except _OPERATION_ERRORS as exc:
             constants.CANVAS_WIDTH = old_state["width"]
             constants.CANVAS_HEIGHT = old_state["height"]
-            self.canvas.frames = old_state["frames"]
-            self.canvas.current_frame = old_state["current_frame"]
-            self.canvas.active_layer_index = old_state["active_layer_index"]
-            self.canvas.timeline_mode = old_state["timeline_mode"]
-            self.timeline.set_timeline_mode(old_state["timeline_mode"])
-            self.timeline.fps.setValue(old_state["fps"])
-            self.current_project_path = old_state["project_path"]
-            self.canvas.clip_studio_source_metadata = old_state["clip_metadata"]
-            self.palette.restore_categories(old_state["palette"])
-            self.canvas.undo_stack[:] = old_state["undo"]
-            self.canvas.redo_stack[:] = old_state["redo"]
-            self.canvas.history_branches[:] = old_state["branches"]
-            self.canvas._sequence_archive = old_state["sequence_archive"]
-            self.timeline.sequence_archive = self.canvas._sequence_archive
-            self.canvas._sequence_source_bank = old_state["sequence_bank"]
-            self.canvas._sequence_source_bank_layer_index = old_state[
+            self.window.canvas.frames = old_state["frames"]
+            self.window.canvas.current_frame = old_state["current_frame"]
+            self.window.canvas.active_layer_index = old_state["active_layer_index"]
+            self.window.canvas.timeline_mode = old_state["timeline_mode"]
+            self.window.timeline.set_timeline_mode(old_state["timeline_mode"])
+            self.window.timeline.fps.setValue(old_state["fps"])
+            self.window.current_project_path = old_state["project_path"]
+            self.window.canvas.clip_studio_source_metadata = old_state["clip_metadata"]
+            self.window.palette.restore_categories(old_state["palette"])
+            self.window.canvas.undo_stack[:] = old_state["undo"]
+            self.window.canvas.redo_stack[:] = old_state["redo"]
+            self.window.canvas.history_branches[:] = old_state["branches"]
+            self.window.canvas._sequence_archive = old_state["sequence_archive"]
+            self.window.timeline.sequence_archive = self.window.canvas._sequence_archive
+            self.window.canvas._sequence_source_bank = old_state["sequence_bank"]
+            self.window.canvas._sequence_source_bank_layer_index = old_state[
                 "sequence_bank_index"
             ]
-            self.canvas._sequence_source_bank_layer_name = old_state[
+            self.window.canvas._sequence_source_bank_layer_name = old_state[
                 "sequence_bank_name"
             ]
-            self.update_project_title()
-            self.refresh_ui()
+            self.window.project.update_title()
+            self.window.refresh_ui()
             log.error("CLIP import apply failed and rolled back: %s", exc, exc_info=True)
             QMessageBox.critical(
-                self,
+                self.window,
                 "CLIP STUDIOアニメーション読み込み",
                 "読み込み結果を反映できませんでした。"
                 "現在のドキュメントは元の状態へ戻しました。"
@@ -225,17 +248,17 @@ class ImportMixin(MainWindowMembers):
             return False
 
         fps_note = ""
-        if abs(float(parsed.fps) - self.timeline.fps.value()) > 1e-6:
+        if abs(float(parsed.fps) - self.window.timeline.fps.value()) > 1e-6:
             fps_note = (
-                f"（元FPS {parsed.fps:g}、PMA表示 {self.timeline.fps.value()} fps）"
+                f"（元FPS {parsed.fps:g}、PMA表示 {self.window.timeline.fps.value()} fps）"
             )
         archive_note = ""
-        if self.canvas._sequence_archive:
+        if self.window.canvas._sequence_archive:
             archive_note = (
-                f" 未配置セル{len(self.canvas._sequence_archive)}枚は"
+                f" 未配置セル{len(self.window.canvas._sequence_archive)}枚は"
                 "連番に保持しました。"
             )
-        self.statusBar().showMessage(
+        self.window.statusBar().showMessage(
             f"CLIP STUDIOから{parsed.folder_count}フォルダー・"
             f"{parsed.frame_count}フレームを読み込みました。"
             f"{archive_note}{fps_note}",
@@ -248,16 +271,16 @@ class ImportMixin(MainWindowMembers):
         text_value = str(raw_text or "").lstrip("\ufeff")
         lines = text_value.splitlines()
         if not lines or lines[0].strip() != "exchangeDigitalTimeSheet Save Data":
-            raise ValueError("XDTSの先頭識別文字列が一致しません。")
+            raise OperationError("XDTSの先頭識別文字列が一致しません。")
         try:
             payload = json.loads("\n".join(lines[1:]))
         except json.JSONDecodeError as exc:
-            raise ValueError(f"XDTSのJSONを解析できません。\n{exc}") from exc
+            raise OperationError(f"XDTSのJSONを解析できません。\n{exc}") from exc
         if int(payload.get("version", -1)) != 5:
-            raise ValueError("対応しているXDTSバージョンは5です。")
+            raise OperationError("対応しているXDTSバージョンは5です。")
         time_tables = payload.get("timeTables") or []
         if not time_tables:
-            raise ValueError("XDTSにタイムシート情報がありません。")
+            raise OperationError("XDTSにタイムシート情報がありません。")
         time_table = time_tables[0]
         duration = max(1, int(time_table.get("duration", 1)))
         headers = {}
@@ -407,7 +430,7 @@ class ImportMixin(MainWindowMembers):
                     parsed_tracks.append(dict(column))
 
         if not parsed_tracks:
-            raise ValueError("XDTSにセル欄（fieldId 0）がありません。")
+            raise OperationError("XDTSにセル欄（fieldId 0）がありません。")
         group_order = {"ACTION": 0, "CELL": 1, "CAM": 2}
         sheet_columns.sort(
             key=lambda item: (
@@ -439,14 +462,14 @@ class ImportMixin(MainWindowMembers):
         end_frame = int(parsed.get("end_frame", -1))
         duration = end_frame - start_frame + 1
         if duration <= 0 or not bindings:
-            raise ValueError("読み込むCELLとレイヤーの紐づけがありません。")
-        if not self.canvas.frames:
-            raise ValueError("タイムラインがありません。")
+            raise OperationError("読み込むCELLとレイヤーの紐づけがありません。")
+        if not self.window.canvas.frames:
+            raise OperationError("タイムラインがありません。")
         current_frame = max(
             0,
-            min(int(self.canvas.current_frame), len(self.canvas.frames) - 1),
+            min(int(self.window.canvas.current_frame), len(self.window.canvas.frames) - 1),
         )
-        current_layers = self.canvas.frames[current_frame].layers
+        current_layers = self.window.canvas.frames[current_frame].layers
         prepared = []
         for uid, layer_index_value in bindings.items():
             column = columns.get(str(uid))
@@ -454,17 +477,17 @@ class ImportMixin(MainWindowMembers):
                 continue
             states = list(column.get("states", []))
             if len(states) != duration:
-                raise ValueError(
+                raise OperationError(
                     f"CELL「{column.get('name', '')}」のフレーム数が不正です。"
                 )
             layer_index = int(layer_index_value)
             if not (0 <= layer_index < len(current_layers)):
-                raise ValueError(
+                raise OperationError(
                     f"CELL「{column.get('name', '')}」の紐づけ先レイヤーがありません。"
                 )
-            source_bank = self._time_remap_source_bank(layer_index)
+            source_bank = self.window.time_remap._time_remap_source_bank(layer_index)
             if not source_bank:
-                raise ValueError(
+                raise OperationError(
                     f"レイヤー「{current_layers[layer_index].name}」に"
                     "連番画像がありません。"
                 )
@@ -479,7 +502,7 @@ class ImportMixin(MainWindowMembers):
                 preview = ", ".join(str(value) for value in missing[:12])
                 if len(missing) > 12:
                     preview += "…"
-                raise ValueError(
+                raise OperationError(
                     f"CELL「{column.get('name', '')}」は存在しない絵番号を"
                     f"参照しています（レイヤー画像 {len(source_bank)}枚）。\n"
                     f"{preview}"
@@ -491,7 +514,7 @@ class ImportMixin(MainWindowMembers):
                 source_bank,
             ))
         if not prepared:
-            raise ValueError("読み込めるCELLの紐づけがありません。")
+            raise OperationError("読み込めるCELLの紐づけがありません。")
 
         links = "\n".join(
             f"・{column.get('name', 'CELL')} → "
@@ -499,7 +522,7 @@ class ImportMixin(MainWindowMembers):
             for column, layer_index, _states, _bank in prepared
         )
         answer = QMessageBox.question(
-            self,
+            self.window,
             "XDTSタイムシートを反映",
             f"反映範囲：{start_frame + 1}～{end_frame + 1}フレーム\n"
             f"紐づけ：\n{links}\n\n"
@@ -511,10 +534,10 @@ class ImportMixin(MainWindowMembers):
         if answer != QMessageBox.StandardButton.Yes:
             return False
 
-        self.set_timeline_mode("sheet")
-        self.canvas.push_doc_undo()
+        self.window.timeline_ops.set_mode("sheet")
+        self.window.canvas.push_doc_undo()
         for _column, layer_index, states, source_bank in prepared:
-            self._apply_time_remap_states_to_layer(
+            self.window.time_remap._apply_time_remap_states_to_layer(
                 states,
                 start_frame,
                 end_frame,
@@ -522,33 +545,33 @@ class ImportMixin(MainWindowMembers):
                 source_bank,
                 current_frame,
             )
-        self.canvas.current_frame = start_frame
-        self.canvas.active_layer_index = prepared[0][1]
-        self.canvas._onion_cache.clear()
-        self.canvas._color_filter_cache.clear()
-        self.canvas._color_index_cache.clear()
-        self.canvas._silhouette_cache.clear()
-        self._used_color_cache.clear()
-        self.canvas.changed.emit()
-        self.canvas.selectionChanged.emit()
-        self.canvas.update()
-        self.schedule_used_color_refresh()
-        self.statusBar().showMessage(
+        self.window.canvas.current_frame = start_frame
+        self.window.canvas.active_layer_index = prepared[0][1]
+        self.window.canvas._onion_cache.clear()
+        self.window.canvas._color_filter_cache.clear()
+        self.window.canvas._color_index_cache.clear()
+        self.window.canvas._silhouette_cache.clear()
+        self.window._used_color_cache.clear()
+        self.window.canvas.changed.emit()
+        self.window.canvas.selectionChanged.emit()
+        self.window.canvas.update()
+        self.window.used_color.schedule_refresh()
+        self.window.statusBar().showMessage(
             f"XDTSの{len(prepared)}個のCELLを{start_frame + 1}～"
             f"{end_frame + 1}フレームへ反映しました。",
             4200,
         )
         return True
 
-    def import_psd_dialog(self):
+    def psd_dialog(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "PSDを読み込む", "", "Photoshop Document (*.psd)"
+            self.window, "PSDを読み込む", "", "Photoshop Document (*.psd)"
         )
         if not path:
             return
         if PSDImage is None or PILImage is None:
             QMessageBox.warning(
-                self,
+                self.window,
                 "PSD読み込み",
                 "PSDの読み込みには psd-tools と Pillow が必要です。\n"
                 "requirements.txtをインストールしてください。",
@@ -565,12 +588,12 @@ class ImportMixin(MainWindowMembers):
                 or psd_height > MAX_IMAGE_DIMENSION
                 or psd_width * psd_height > MAX_SINGLE_IMAGE_PIXELS
             ):
-                raise ValueError(
+                raise OperationError(
                     "PSDの画像サイズが上限を超えています。"
                     f" ({psd_width} × {psd_height}px)"
                 )
             if len(psd) > MAX_PROJECT_LAYERS:
-                raise ValueError("PSDの最上位レイヤー数が上限を超えています。")
+                raise OperationError("PSDの最上位レイヤー数が上限を超えています。")
             imported = []
             skipped = 0
             imported_cell_count = 0
@@ -583,7 +606,7 @@ class ImportMixin(MainWindowMembers):
                 )
                 imported_cell_count += len(frame_layers)
                 if imported_cell_count > MAX_PROJECT_LAYER_CELLS:
-                    raise ValueError("PSDのレイヤー項目数が上限を超えています。")
+                    raise OperationError("PSDのレイヤー項目数が上限を超えています。")
                 key_images = []
                 for psd_layer in frame_layers:
                     try:
@@ -610,29 +633,29 @@ class ImportMixin(MainWindowMembers):
                 else:
                     skipped += 1
             if not imported:
-                raise ValueError("読み込める画像レイヤーがありません。")
+                raise OperationError("読み込める画像レイヤーがありません。")
         except _OPERATION_ERRORS as exc:
             log.error("PSD import failed: %s", exc, exc_info=True)
             QMessageBox.critical(
-                self, "PSD読み込み", f"PSDを読み込めませんでした。\n\n{exc}"
+                self.window, "PSD読み込み", f"PSDを読み込めませんでした。\n\n{exc}"
             )
             return
 
         if int(psd.width) > constants.CANVAS_WIDTH or int(psd.height) > constants.CANVAS_HEIGHT:
-            self.canvas.push_doc_undo()
-            self.replace_doc(
+            self.window.canvas.push_doc_undo()
+            self.window.replace_doc(
                 max(constants.CANVAS_WIDTH, int(psd.width)),
                 max(constants.CANVAS_HEIGHT, int(psd.height)),
                 preserve=True,
             )
-        self.canvas.push_doc_undo()
-        start_frame = int(self.canvas.current_frame)
+        self.window.canvas.push_doc_undo()
+        start_frame = int(self.window.canvas.current_frame)
         maximum_keys = max(len(images) for _name, _visible, _opacity, images in imported)
-        self.canvas._ensure_frame_count(start_frame + maximum_keys)
-        first_new_layer = len(self.canvas.frames[0].layers)
+        self.window.canvas._ensure_frame_count(start_frame + maximum_keys)
+        first_new_layer = len(self.window.canvas.frames[0].layers)
         for name, visible, opacity, key_images in imported:
-            layer_index = len(self.canvas.frames[0].layers)
-            for frame in self.canvas.frames:
+            layer_index = len(self.window.canvas.frames[0].layers)
+            for frame in self.window.canvas.frames:
                 frame.layers.append(Layer(
                     name,
                     blank_image(),
@@ -640,27 +663,27 @@ class ImportMixin(MainWindowMembers):
                     opacity=opacity,
                 ))
             for offset, image in enumerate(key_images):
-                target = self.canvas.frames[start_frame + offset].layers[layer_index]
-                self.canvas._place_imported_image(image, target.image)
+                target = self.window.canvas.frames[start_frame + offset].layers[layer_index]
+                self.window.canvas._place_imported_image(image, target.image)
                 target.has_content = True
                 target.exposure = 1
                 target.sequence_number = offset + 1
-        self.canvas.current_frame = start_frame
-        self.canvas.active_layer_index = first_new_layer
-        self.canvas.timeline_mode = "sheet"
-        self.timeline.set_timeline_mode("sheet")
-        self.canvas._cell_structure_dirty = True
-        self.canvas.changed.emit()
-        self.canvas.selectionChanged.emit()
-        self.canvas.update()
+        self.window.canvas.current_frame = start_frame
+        self.window.canvas.active_layer_index = first_new_layer
+        self.window.canvas.timeline_mode = "sheet"
+        self.window.timeline.set_timeline_mode("sheet")
+        self.window.canvas._cell_structure_dirty = True
+        self.window.canvas.changed.emit()
+        self.window.canvas.selectionChanged.emit()
+        self.window.canvas.update()
         message = f"PSDから{len(imported)}レイヤーを読み込みました。"
         if skipped:
             message += f"\n調整レイヤーなど{skipped}項目は破棄しました。"
-        QMessageBox.information(self, "PSD読み込み", message)
+        QMessageBox.information(self.window, "PSD読み込み", message)
 
-    def import_xdts_dialog(self):
+    def xdts_dialog(self):
         path, _ = QFileDialog.getOpenFileName(
-            self,
+            self.window,
             "XDTSタイムシートを読み込む",
             "",
             "XDTSタイムシート (*.xdts *.xtds);;すべてのファイル (*)",
@@ -671,13 +694,13 @@ class ImportMixin(MainWindowMembers):
             raw = Path(path).read_text(encoding="utf-8-sig")
             first_line, json_text = raw.split("\n", 1)
             if first_line.rstrip("\r") != "exchangeDigitalTimeSheet Save Data":
-                raise ValueError("XDTSの先頭識別文字列が一致しません。")
+                raise OperationError("XDTSの先頭識別文字列が一致しません。")
             payload = json.loads(json_text)
             if int(payload.get("version", -1)) != 5:
-                raise ValueError("対応しているXDTSバージョンは5です。")
+                raise OperationError("対応しているXDTSバージョンは5です。")
             time_tables = payload.get("timeTables") or []
             if not time_tables:
-                raise ValueError("タイムシート情報がありません。")
+                raise OperationError("タイムシート情報がありません。")
             time_table = time_tables[0]
             duration = max(1, int(time_table.get("duration", 1)))
             cell_field = next(
@@ -686,7 +709,7 @@ class ImportMixin(MainWindowMembers):
                 None,
             )
             if cell_field is None:
-                raise ValueError("セル欄（fieldId 0）がありません。")
+                raise OperationError("セル欄（fieldId 0）がありません。")
             tracks = sorted(
                 cell_field.get("tracks", []),
                 key=lambda track: int(track.get("trackNo", 0)),
@@ -698,31 +721,31 @@ class ImportMixin(MainWindowMembers):
             )
             names = list(header.get("names", []))
         except (OSError, UnicodeError, ValueError, TypeError, json.JSONDecodeError) as exc:
-            QMessageBox.critical(self, "XDTS読み込み", f"読み込めませんでした。\n\n{exc}")
+            QMessageBox.critical(self.window, "XDTS読み込み", f"読み込めませんでした。\n\n{exc}")
             return
 
-        self.canvas.push_doc_undo()
+        self.window.canvas.push_doc_undo()
         maximum_track = max(
             (int(track.get("trackNo", 0)) for track in tracks), default=0
         )
         required_layers = maximum_track + 1
-        for frame in self.canvas.frames:
+        for frame in self.window.canvas.frames:
             while len(frame.layers) < required_layers:
                 index = len(frame.layers)
                 name = names[index] if index < len(names) else f"Layer {index + 1}"
                 frame.layers.append(Layer(name, blank_image()))
-        self.canvas._ensure_frame_count(duration)
+        self.window.canvas._ensure_frame_count(duration)
 
         missing_images = set()
         for track in tracks:
             layer_index = int(track.get("trackNo", 0))
             image_bank = {}
-            for frame in self.canvas.frames:
+            for frame in self.window.canvas.frames:
                 layer = frame.layers[layer_index]
                 if layer.has_content and layer.sequence_number is not None:
                     image_bank.setdefault(int(layer.sequence_number), layer.image.copy())
-            for frame in self.canvas.frames:
-                self.canvas._clear_timeline_layer_cell(frame.layers[layer_index])
+            for frame in self.window.canvas.frames:
+                self.window.canvas._clear_timeline_layer_cell(frame.layers[layer_index])
             values = {int(item.get("frame", 0)): item for item in track.get("frames", [])}
             states = []
             previous = None
@@ -751,7 +774,7 @@ class ImportMixin(MainWindowMembers):
                 if end < duration and states[end] == states[run_start]:
                     continue
                 state = states[run_start]
-                target = self.canvas.frames[run_start].layers[layer_index]
+                target = self.window.canvas.frames[run_start].layers[layer_index]
                 target.exposure = end - run_start
                 if state is None:
                     target.image = blank_image()
@@ -766,18 +789,18 @@ class ImportMixin(MainWindowMembers):
                         missing_images.add((layer_index, state))
                 run_start = end
             if layer_index < len(names):
-                for frame in self.canvas.frames:
+                for frame in self.window.canvas.frames:
                     frame.layers[layer_index].name = names[layer_index]
 
-        self.canvas.current_frame = 0
-        self.canvas.active_layer_index = 0
-        self.canvas.timeline_mode = "sheet"
-        self.timeline.set_timeline_mode("sheet")
-        self.canvas._cell_structure_dirty = True
-        self.canvas.changed.emit()
-        self.canvas.selectionChanged.emit()
-        self.canvas.update()
+        self.window.canvas.current_frame = 0
+        self.window.canvas.active_layer_index = 0
+        self.window.canvas.timeline_mode = "sheet"
+        self.window.timeline.set_timeline_mode("sheet")
+        self.window.canvas._cell_structure_dirty = True
+        self.window.canvas.changed.emit()
+        self.window.canvas.selectionChanged.emit()
+        self.window.canvas.update()
         message = "XDTSタイムシートを読み込みました。"
         if missing_images:
             message += f"\n対応画像がない番号：{len(missing_images)}件（白画像で配置）"
-        QMessageBox.information(self, "XDTS読み込み", message)
+        QMessageBox.information(self.window, "XDTS読み込み", message)

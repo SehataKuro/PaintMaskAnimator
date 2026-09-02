@@ -6,7 +6,8 @@ drag-and-drop reorder of single rows and of multi-row selections, keeping
 children laid out under their parent, and the preview / freeze / merge signals
 that publish the current grouping to the main window.
 """
-from .common import *  # noqa: F401,F403
+from typing import Any
+from PySide6.QtGui import QColor
 from ._color_panel_members import UsedColorPanelMembers
 from .logging_setup import get_logger
 

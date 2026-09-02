@@ -1,27 +1,54 @@
-"""Main-line repaint, dust removal and mask-contour helpers for MainWindow.
+"""Line-art operations; owned by ``MainWindow`` as ``window.line_ops``.
 
-Split out of ``main_window.py`` as a mixin. These methods operate on the drawn
-line art rather than on documents or the UI shell: contour extraction from binary
-masks, main/sub line swapping, silhouette display, wire/mesh transform entry
-points, same-image colour replacement registration, the main-line repaint pass,
-and the surrounding-dust fill. The modal progress-counter helpers used by these
-long-running passes live here too. They run against a live ``MainWindow``.
+Operates on the drawn line art rather than on documents or the UI shell: contour
+extraction from binary masks, main/sub line swapping, silhouette display,
+wire/mesh transform entry points, same-image colour replacement registration,
+the main-line repaint pass, and the surrounding-dust fill.
+
+The modal progress counter these long passes use now lives in ``progress.py``:
+it is shared UI plumbing, and eight unrelated modules were reaching in here for
+it.
+
+A collaborator rather than a mixin -- see ``main_window_export.py`` for why.
 """
-from .common import *  # noqa: F401,F403
-from ._main_window_members import MainWindowMembers
+from typing import TYPE_CHECKING
+
+import numpy as np
+from PySide6.QtCore import QPointF
+from PySide6.QtGui import QColor, QImage
+from PySide6.QtWidgets import (
+    QApplication,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
+    QMessageBox,
+    QSpinBox,
+)
 from . import imaging
 from .models import Layer
 from .frame_scope import resolve_cells
 from .utils import blank_image
 from .errors import OPERATION_ERRORS
+from .progress import close_counter, create_counter, update_counter
 from .logging_setup import get_logger
+
+if TYPE_CHECKING:
+    from .main_window import MainWindow
 
 log = get_logger(__name__)
 
 _OPERATION_ERRORS = OPERATION_ERRORS
 
 
-class LineOpsMixin(MainWindowMembers):
+class LineOpsController:
+    """Owned by ``MainWindow`` as ``window.line_ops``.
+
+    A collaborator rather than a mixin -- see main_window_export.py for why.
+    """
+
+    def __init__(self, window: "MainWindow"):
+        self.window = window
+
     @staticmethod
     def _image_contains_rgb(image, rgb):
         if image is None or image.isNull():
@@ -159,53 +186,53 @@ class LineOpsMixin(MainWindowMembers):
         # X switches the active drawing colour.  Keep each colour assigned to
         # its swatch so the selected swatch itself can move to the foreground
         # together with its accent border.
-        self.canvas.color_mode = (
-            "sub" if self.canvas.color_mode == "main" else "main"
+        self.window.canvas.color_mode = (
+            "sub" if self.window.canvas.color_mode == "main" else "main"
         )
-        self.tools.set_colors(
-            self.canvas.main_color,
-            self.canvas.sub_color,
-            self.canvas.color_mode,
-            self.canvas.transparent_display_color,
+        self.window.tools.set_colors(
+            self.window.canvas.main_color,
+            self.window.canvas.sub_color,
+            self.window.canvas.color_mode,
+            self.window.canvas.transparent_display_color,
         )
-        self._sync_tool_selector_swatch()
-        self.canvas.update()
-        self.statusBar().showMessage("メインカラーとサブカラーを切り替えました。", 1800)
+        self.window.colors._sync_tool_selector_swatch()
+        self.window.canvas.update()
+        self.window.statusBar().showMessage("メインカラーとサブカラーを切り替えました。", 1800)
 
     def reset_main_sub(self):
-        self.canvas.main_color = QColor("black")
-        self.canvas.sub_color = QColor("white")
-        if self.canvas.color_mode not in ("main", "sub"):
-            self.canvas.color_mode = "main"
-        self.tools.set_colors(
-            self.canvas.main_color,
-            self.canvas.sub_color,
-            self.canvas.color_mode,
-            self.canvas.transparent_display_color,
+        self.window.canvas.main_color = QColor("black")
+        self.window.canvas.sub_color = QColor("white")
+        if self.window.canvas.color_mode not in ("main", "sub"):
+            self.window.canvas.color_mode = "main"
+        self.window.tools.set_colors(
+            self.window.canvas.main_color,
+            self.window.canvas.sub_color,
+            self.window.canvas.color_mode,
+            self.window.canvas.transparent_display_color,
         )
-        self.canvas.update()
-        self.statusBar().showMessage("メイン色とサブ色を初期化しました。", 1800)
+        self.window.canvas.update()
+        self.window.statusBar().showMessage("メイン色とサブ色を初期化しました。", 1800)
 
     def toggle_silhouette(self, checked=None):
         if checked is None:
-            checked = not self.canvas.silhouette_non_background
+            checked = not self.window.canvas.silhouette_non_background
         checked = bool(checked)
-        self.canvas.silhouette_non_background = checked
+        self.window.canvas.silhouette_non_background = checked
 
-        if hasattr(self, "a_silhouette"):
-            self.a_silhouette.blockSignals(True)
-            self.a_silhouette.setChecked(checked)
-            self.a_silhouette.blockSignals(False)
+        if hasattr(self.window, "a_silhouette"):
+            self.window.a_silhouette.blockSignals(True)
+            self.window.a_silhouette.setChecked(checked)
+            self.window.a_silhouette.blockSignals(False)
 
-        silhouette_button = self.action_panel.button("silhouette")
+        silhouette_button = self.window.action_panel.button("silhouette")
         if silhouette_button is not None:
             silhouette_button.blockSignals(True)
             silhouette_button.setChecked(checked)
             silhouette_button.blockSignals(False)
 
-        self.canvas._silhouette_cache.clear()
-        self.canvas.update()
-        self.statusBar().showMessage(
+        self.window.canvas._silhouette_cache.clear()
+        self.window.canvas.update()
+        self.window.statusBar().showMessage(
             "背景以外を黒シルエット表示しています。"
             if checked else
             "黒シルエット表示を解除しました。",
@@ -213,7 +240,7 @@ class LineOpsMixin(MainWindowMembers):
         )
 
     def choose_transform_mesh_grid(self):
-        dialog = QDialog(self)
+        dialog = QDialog(self.window)
         dialog.setWindowTitle("メッシュ格子数")
         form = QFormLayout(dialog)
 
@@ -222,10 +249,10 @@ class LineOpsMixin(MainWindowMembers):
         for spin in (cols_spin, rows_spin):
             spin.setRange(2, 12)
         cols_spin.setValue(
-            max(2, int(getattr(self.canvas, "transform_mesh_cols", 4)))
+            max(2, int(getattr(self.window.canvas, "transform_mesh_cols", 4)))
         )
         rows_spin.setValue(
-            max(2, int(getattr(self.canvas, "transform_mesh_rows", 4)))
+            max(2, int(getattr(self.window.canvas, "transform_mesh_rows", 4)))
         )
         form.addRow("横の格子数", cols_spin)
         form.addRow("縦の格子数", rows_spin)
@@ -244,36 +271,36 @@ class LineOpsMixin(MainWindowMembers):
         cols = cols_spin.value()
         rows = rows_spin.value()
         for spin, value in (
-            (self.tools.transform_mesh_grid_x, cols),
-            (self.tools.transform_mesh_grid_y, rows),
+            (self.window.tools.transform_mesh_grid_x, cols),
+            (self.window.tools.transform_mesh_grid_y, rows),
         ):
             spin.blockSignals(True)
             spin.setValue(value)
             spin.blockSignals(False)
-        self.canvas.set_transform_mesh_grid(cols, rows)
-        if not self.canvas.transform_active:
-            self.statusBar().showMessage(
+        self.window.canvas.set_transform_mesh_grid(cols, rows)
+        if not self.window.canvas.transform_active:
+            self.window.statusBar().showMessage(
                 f"次回のメッシュ変形を 横{cols}×縦{rows} 格子に設定しました。",
                 2200,
             )
 
 
     def start_wire_transform(self, mode, line_colors_override=None):
-        if not self.canvas.selection_polygon:
-            if not self.canvas.auto_select_used_area():
+        if not self.window.canvas.selection_polygon:
+            if not self.window.canvas.auto_select_used_area():
                 QMessageBox.warning(
-                    self,
+                    self.window,
                     "変形",
                     "使用色がある領域を検出できないため、変形を開始できません。",
                 )
                 return
-            self.statusBar().showMessage(
+            self.window.statusBar().showMessage(
                 "選択範囲がなかったため、使用色がある領域を自動選択しました。",
                 2600,
             )
-        self.canvas.transform_mesh_cols = self.tools.transform_mesh_grid_x.value()
-        self.canvas.transform_mesh_rows = self.tools.transform_mesh_grid_y.value()
-        self.canvas.transform_mesh_grid = self.canvas.transform_mesh_cols
+        self.window.canvas.transform_mesh_cols = self.window.tools.transform_mesh_grid_x.value()
+        self.window.canvas.transform_mesh_rows = self.window.tools.transform_mesh_grid_y.value()
+        self.window.canvas.transform_mesh_grid = self.window.canvas.transform_mesh_cols
 
         active_line_colors = (
             {
@@ -283,43 +310,43 @@ class LineOpsMixin(MainWindowMembers):
             if line_colors_override is not None
             else {
                 tuple(int(channel) for channel in rgb[:3])
-                for rgb in self.palette.selected_rgbs
+                for rgb in self.window.palette.selected_rgbs
             }
         )
-        self.canvas.set_transform_line_colors(active_line_colors)
-        self.tools.set_transform_line_colors_available(
+        self.window.canvas.set_transform_line_colors(active_line_colors)
+        self.window.tools.set_transform_line_colors_available(
             bool(active_line_colors)
         )
 
-        quality_active = self.tools.transform_quality.isChecked()
-        self.canvas.set_transform_quality(quality_active)
-        self.canvas.set_transform_line_threshold(
-            self.tools.transform_line_width.value()
+        quality_active = self.window.tools.transform_quality.isChecked()
+        self.window.canvas.set_transform_quality(quality_active)
+        self.window.canvas.set_transform_line_threshold(
+            self.window.tools.transform_line_width.value()
         )
-        self.canvas.transform_apply_all_frames = (
-            self.tools.selection_all_frames.isChecked()
+        self.window.canvas.transform_apply_all_frames = (
+            self.window.tools.selection_all_frames.isChecked()
         )
-        if not self.canvas.begin_selection_transform(mode):
-            self.canvas.transform_apply_all_frames = False
+        if not self.window.canvas.begin_selection_transform(mode):
+            self.window.canvas.transform_apply_all_frames = False
             QMessageBox.warning(
-                self, "変形",
+                self.window, "変形",
                 "選択範囲から変形対象を作成できませんでした。"
             )
             return
-        self.canvas.setFocus()
+        self.window.canvas.setFocus()
         target_note = (
             ("クオリティ方式／" if quality_active else "")
             + (
                 "すべてのコマへ適用します。"
-                if self.canvas.transform_apply_all_frames
+                if self.window.canvas.transform_apply_all_frames
                 else "現在のコマへ適用します。"
             )
         )
         line_note = (
-            f" 選択中の使用色{len(self.canvas.transform_tp_line_colors)}色を実線として処理します。"
-            if quality_active and self.canvas.transform_tp_line_colors else ""
+            f" 選択中の使用色{len(self.window.canvas.transform_tp_line_colors)}色を実線として処理します。"
+            if quality_active and self.window.canvas.transform_tp_line_colors else ""
         )
-        self.statusBar().showMessage(
+        self.window.statusBar().showMessage(
             "白い点：変形／枠内：移動／黄色い点：回転。"
             f"Enterで確定、Escでキャンセルできます。{target_note}{line_note}",
             5000,
@@ -380,39 +407,39 @@ class LineOpsMixin(MainWindowMembers):
         return mapping
 
     def register_same_image_replacements(self):
-        if not self.canvas.frames or not self.canvas.layers:
+        if not self.window.canvas.frames or not self.window.canvas.layers:
             return
-        frame_index = self.canvas.current_frame
-        source_index = self.canvas.active_layer_index
-        source_key = self.canvas.resolve_key_frame(frame_index, source_index)
+        frame_index = self.window.canvas.current_frame
+        source_index = self.window.canvas.active_layer_index
+        source_key = self.window.canvas.resolve_key_frame(frame_index, source_index)
         if source_key is None:
             QMessageBox.warning(
-                self,
+                self.window,
                 "同一画像を置換色に登録",
                 "選択レイヤーの現在位置に画像がありません。",
             )
             return
-        source_layer = self.canvas.frames[source_key].layers[source_index]
+        source_layer = self.window.canvas.frames[source_key].layers[source_index]
         if not source_layer.has_content:
             QMessageBox.warning(
-                self,
+                self.window,
                 "同一画像を置換色に登録",
                 "選択レイヤーの現在位置に画像がありません。",
             )
             return
 
         candidates = []
-        for layer_index in range(source_index + 1, len(self.canvas.layers)):
-            key_frame = self.canvas.resolve_key_frame(frame_index, layer_index)
+        for layer_index in range(source_index + 1, len(self.window.canvas.layers)):
+            key_frame = self.window.canvas.resolve_key_frame(frame_index, layer_index)
             if key_frame is None:
                 continue
-            layer = self.canvas.frames[key_frame].layers[layer_index]
+            layer = self.window.canvas.frames[key_frame].layers[layer_index]
             if layer.has_content:
                 candidates.append((layer_index, key_frame, layer))
 
         if not candidates:
             QMessageBox.warning(
-                self,
+                self.window,
                 "同一画像を置換色に登録",
                 "同じタイムライン位置の上側レイヤーに、比較できる画像がありません。",
             )
@@ -425,15 +452,15 @@ class LineOpsMixin(MainWindowMembers):
             )
             if mapping is None:
                 continue
-            registered = self.palette.register_replacements(mapping)
+            registered = self.window.palette.register_replacements(mapping)
             if registered <= 0:
                 QMessageBox.warning(
-                    self,
+                    self.window,
                     "同一画像を置換色に登録",
                     "一致する画像は見つかりましたが、登録できる使用色がありません。",
                 )
                 return
-            self.statusBar().showMessage(
+            self.window.statusBar().showMessage(
                 f"上側レイヤー「{target_layer.name}」から"
                 f"{registered}色を置換色に登録しました。",
                 4000,
@@ -441,7 +468,7 @@ class LineOpsMixin(MainWindowMembers):
             return
 
         QMessageBox.warning(
-            self,
+            self.window,
             "同一画像を置換色に登録",
             "上側レイヤーの画像とピクセルが一致していないため、"
             "置換色には登録できません。\n"
@@ -449,10 +476,10 @@ class LineOpsMixin(MainWindowMembers):
         )
 
     def main_line_repaint(self):
-        if not self.canvas.frames:
+        if not self.window.canvas.frames:
             return
         answer = QMessageBox.question(
-            self,
+            self.window,
             "MainLineRepaint",
             "選択した使用色と、それ以外の部分を別レイヤーに分離します。",
             QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
@@ -461,26 +488,27 @@ class LineOpsMixin(MainWindowMembers):
         if answer != QMessageBox.StandardButton.Ok:
             return
 
-        selected = list(self.palette.selected_rgb_set())
+        selected = list(self.window.palette.selected_rgb_set())
         if not selected:
             QMessageBox.information(
-                self, "MainLineRepaint",
+                self.window, "MainLineRepaint",
                 "使用色欄で分離したい色を1色以上選択してください。"
             )
             return
         selected_set = {tuple(map(int, rgb)) for rgb in selected}
 
-        source_index = self.canvas.active_layer_index
-        frame_total = max(1, len(self.canvas.frames))
-        progress = self.create_progress_counter(
+        source_index = self.window.canvas.active_layer_index
+        frame_total = max(1, len(self.window.canvas.frames))
+        progress = create_counter(
+            self.window,
             "MainLineRepaint",
             frame_total * 2,
             "対象色を確認しています",
         )
 
         found_target = False
-        for scan_index, frame in enumerate(self.canvas.frames, 1):
-            self.update_progress_counter(
+        for scan_index, frame in enumerate(self.window.canvas.frames, 1):
+            update_counter(
                 progress,
                 scan_index - 1,
                 frame_total * 2,
@@ -507,22 +535,22 @@ class LineOpsMixin(MainWindowMembers):
                 break
 
         if not found_target:
-            self.close_progress_counter(progress)
+            close_counter(progress)
             QMessageBox.warning(
-                self,
+                self.window,
                 "MainLineRepaint",
                 "選択した使用色が選択レイヤー内に見つかりませんでした。\n処理は適用しません。",
             )
             return
 
-        self.canvas.push_doc_undo()
+        self.window.canvas.push_doc_undo()
 
         # Add two layers directly above the source layer:
         # source (hidden) -> Paint -> LINE
         paint_index = source_index + 1
         line_index = source_index + 2
 
-        for frame in self.canvas.frames:
+        for frame in self.window.canvas.frames:
             source_layer = frame.layers[source_index]
             source_layer.visible = False
 
@@ -543,8 +571,8 @@ class LineOpsMixin(MainWindowMembers):
             frame.layers.insert(paint_index, paint_layer)
             frame.layers.insert(line_index, line_layer)
 
-        for frame_index, frame in enumerate(self.canvas.frames):
-            self.update_progress_counter(
+        for frame_index, frame in enumerate(self.window.canvas.frames):
+            update_counter(
                 progress,
                 frame_total + frame_index,
                 frame_total * 2,
@@ -639,74 +667,36 @@ class LineOpsMixin(MainWindowMembers):
             frame.layers[paint_index].has_content = bool(np.any(paint_pixels[:, :, 3] > 0))
             frame.layers[paint_index].exposure = source.exposure
 
-        self.close_progress_counter(progress)
-        self.canvas.active_layer_index = line_index
-        self._used_color_cache.clear()
-        self.canvas._color_filter_cache.clear()
-        self.canvas._silhouette_cache.clear()
-        self._suppress_used_color_refresh_once = True
-        self.canvas.changed.emit()
-        self.canvas.selectionChanged.emit()
-        self.canvas.update()
+        close_counter(progress)
+        self.window.canvas.active_layer_index = line_index
+        self.window._used_color_cache.clear()
+        self.window.canvas._color_filter_cache.clear()
+        self.window.canvas._silhouette_cache.clear()
+        self.window._suppress_used_color_refresh_once = True
+        self.window.canvas.changed.emit()
+        self.window.canvas.selectionChanged.emit()
+        self.window.canvas.update()
 
-        self.statusBar().showMessage(
+        self.window.statusBar().showMessage(
             "LINE／Paintを作成し、元レイヤーを非表示にしました。",
             3800,
         )
 
-    def create_progress_counter(self, title, total, label=None, cancellable=False):
-        total = max(1, int(total))
-        dialog = QProgressDialog(
-            label or title,
-            "中止" if cancellable else "",
-            0,
-            total,
-            self,
-        )
-        dialog.setWindowTitle(title)
-        if not cancellable:
-            dialog.setCancelButton(None)
-        dialog.setWindowModality(Qt.WindowModality.WindowModal)
-        dialog.setMinimumDuration(0)
-        dialog.setAutoClose(False)
-        dialog.setAutoReset(False)
-        dialog.setMinimumWidth(330)
-        dialog.setValue(0)
-        dialog.show()
-        QApplication.processEvents()
-        return dialog
-
-    def update_progress_counter(self, dialog, value, total, label):
-        if dialog is None:
-            return
-        value = max(0, min(int(total), int(value)))
-        dialog.setLabelText(f"{label}\n{value} / {int(total)}")
-        dialog.setValue(value)
-        QApplication.processEvents()
-
-    def close_progress_counter(self, dialog):
-        if dialog is None:
-            return
-        dialog.setValue(dialog.maximum())
-        dialog.close()
-        dialog.deleteLater()
-        QApplication.processEvents()
-
     def remove_dust_fill_surrounding(self):
         """選択レイヤー内でゴミ取り／塗り抜けを実行する。"""
-        mode = self.tools.dust_mode.currentText()
+        mode = self.window.tools.dust_mode.currentText()
         max_area = max(
             1,
-            min(100, int(self.tools.dust_size.value())),
+            min(100, int(self.window.tools.dust_size.value())),
         )
         selected_only = (
-            self.tools.dust_selected_only.isChecked()
+            self.window.tools.dust_selected_only.isChecked()
         )
-        selected_colors = self.canvas.selected_used_colors()
+        selected_colors = self.window.canvas.selected_used_colors()
         selected_colors.discard((255,255,255))
 
         if selected_only and not selected_colors:
-            self.statusBar().showMessage(
+            self.window.statusBar().showMessage(
                 "使用色パネルで対象色を選択してください。",
                 2800,
             )
@@ -714,12 +704,12 @@ class LineOpsMixin(MainWindowMembers):
 
         # 適用範囲は一括処理ランナーへ渡すスコープ1つで表す。保持区間の畳み込み
         # （同じキーフレーム画像を1度だけ処理する）はランナー側の責務。
-        scope = self.current_frame_scope(
-            self.tools.dust_all_frames.isChecked(),
+        scope = self.window.scope.current_frame(
+            self.window.tools.dust_all_frames.isChecked(),
             selection_only=selected_only,
         )
-        if not resolve_cells(self.canvas, scope):
-            self.statusBar().showMessage(
+        if not resolve_cells(self.window.canvas, scope):
+            self.window.statusBar().showMessage(
                 "選択レイヤーに処理できるキーフレームがありません。",
                 2800,
             )
@@ -827,7 +817,7 @@ class LineOpsMixin(MainWindowMembers):
                     )
 
                 outside = (
-                    self.canvas._scanline_connected_region(
+                    self.window.canvas._scanline_connected_region(
                         pseudo_white,
                         starts,
                     )
@@ -1003,7 +993,7 @@ class LineOpsMixin(MainWindowMembers):
             # ○化や未使用化はせず、キーフレーム構造を維持する。
             return imaging.rgba_array_to_qimage(pixels)
 
-        result = self.run_over_scope(
+        result = self.window.scope.run_over(
             scope,
             despeckle,
             label=mode,
@@ -1016,7 +1006,7 @@ class LineOpsMixin(MainWindowMembers):
         changed_cells = result.changed_cells
         changed_pixels = result.changed_pixels
         if result.cancelled:
-            self.statusBar().showMessage(
+            self.window.statusBar().showMessage(
                 f"{mode}を中止しました。画像は変更していません。",
                 2800,
             )
@@ -1026,7 +1016,7 @@ class LineOpsMixin(MainWindowMembers):
             target_text = (
                 "選択色の" if selected_only else ""
             )
-            self.statusBar().showMessage(
+            self.window.statusBar().showMessage(
                 f"指定サイズ以内の{target_text}{mode}対象は"
                 "見つかりませんでした。",
                 3000,
@@ -1036,17 +1026,17 @@ class LineOpsMixin(MainWindowMembers):
         # 表示キャッシュの破棄・セル通知・再描画は run_over_scope 済み。
         # 進捗ダイアログを閉じた直後に旧表示が残らないよう、ここでは即時の
         # 再描画だけを追加で行う。
-        self.canvas.repaint()
+        self.window.canvas.repaint()
         QApplication.processEvents()
 
-        self.refresh_used_colors_with_counter(
+        self.window.used_color.refresh_with_counter(
             f"{mode}後の使用色を更新しています"
         )
 
         # 使用色の再走査後にも再描画を予約し、進捗ダイアログの
         # 閉鎖後に旧表示へ戻ることを防ぐ。
-        self.canvas.update()
-        self.statusBar().showMessage(
+        self.window.canvas.update()
+        self.window.statusBar().showMessage(
             f"選択レイヤーの{changed_cells}コマで"
             f"{changed_pixels:,}ピクセルへ{mode}を適用しました。",
             3600,

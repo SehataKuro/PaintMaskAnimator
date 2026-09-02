@@ -26,6 +26,21 @@ if TYPE_CHECKING:
     from PySide6.QtWidgets import QMainWindow
     from .actionpanel import ActionPanel
     from .canvas import PaintCanvas
+    from .main_window_export import ExportController
+    from .main_window_workspace import WorkspaceController
+    from .main_window_autosave import AutosaveController
+    from .main_window_color_interaction import ColorInteractionController
+    from .main_window_used_color import UsedColorController
+    from .main_window_line_ops import LineOpsController
+    from .main_window_timeline_ops import TimelineOpsController
+    from .main_window_layer_ops import LayerOpsController
+    from .main_window_color_chart import ColorChartController
+    from .main_window_onion import OnionSkinController
+    from .main_window_tween import TweenController
+    from .main_window_time_remap import TimeRemapController
+    from .main_window_scope_ops import ScopeOpsController
+    from .main_window_project_io import ProjectIOController
+    from .main_window_import import ImportController
     from .color_panel import UsedColorPanel
     from .color_chart import ColorChartPanel
     from .history_panel import HistoryPanel
@@ -41,36 +56,26 @@ class MainWindowMembers(_MembersBase):
         _active_dragged_dock: Any
         _add_dock_hamburger: Any
         _add_dock_hamburger_old: Any
-        _apply_pending_visible_colors: Any
         _apply_time_remap_states_to_layer: Any
         _apply_tool_selector_snap: Any
-        _apply_used_color_result: Any
-        _apply_workspace: Any
         _attach_area_hamburger: Any
         _attach_dock_hamburger: Any
-        _autosave: Any
-        _autosave_path: Any
         _autosave_timer: Any
         _auxiliary_cursor_targets: Any
         _build_color_slider_menu: Any
         _build_color_wheel_menu: Any
         _build_default_dock_menu: Any
         _build_view_menu: Any
-        _build_workspace_menu: Any
-        _capture_workspace: Any
-        _clear_autosave: Any
         _close_tween_command_popup: Any
         _closing: Any
         _commit_split_drop: Any
         _configure_floating_window: Any
         _copy_layer_display_properties: Any
         _customize_docking_hover: Any
-        _delete_workspace: Any
         _dock_menu_builders: Any
         _download_and_run_installer: Any
         _event_key_token: Any
         _expand_docking_hit_zones: Any
-        _extract_used_colors: Any
         _finalize_startup_dock_ui: Any
         _finish_auxiliary_hold_drag: Any
         _hamburger_icon: Any
@@ -79,12 +84,7 @@ class MainWindowMembers(_MembersBase):
         _handle_auxiliary_hold_event: Any
         _held_canvas_shortcut_tokens: Any
         _hide_split_drop_feedback: Any
-        _image_contains_rgb: Any
-        _largest_contour: Any
-        _largest_mask_outer_contour: Any
         _layer_indices_from_rows: Any
-        _mask_contours: Any
-        _maybe_restore_autosave: Any
         _mouse_global_position: Any
         _navigate_sequence_number: Any
         _normalize_shortcut_token: Any
@@ -100,21 +100,13 @@ class MainWindowMembers(_MembersBase):
         _playback_emitted_steps: Any
         _playback_started_at: Any
         _previous_draw_color_mode: Any
-        _prompt_delete_workspace: Any
-        _prompt_save_workspace: Any
-        _qimage_rgba_array: Any
         _rebuild_area_dock_menu: Any
         _rebuild_dock_menu: Any
         _refresh_theme_dependent_ui: Any
         _refresh_timeline_tween_marker: Any
-        _refresh_used_colors_without_delay: Any
-        _refresh_workspace_menu: Any
-        _replacement_mapping_for_aligned_images: Any
         _resize_tool_selector_area: Any
         _restore_timeline_selection: Any
-        _save_workspace: Any
         _set_color_chart_visible: Any
-        _setup_autosave: Any
         _setup_split_drop_overlay: Any
         _sheet_duration: Any
         _shortcut_tokens: Any
@@ -134,7 +126,6 @@ class MainWindowMembers(_MembersBase):
         _sync_area_hamburger: Any
         _sync_floating_title: Any
         _sync_modifier_tokens: Any
-        _sync_tool_selector_swatch: Any
         _time_remap_source_bank: Any
         _tool_selector_resize_drag_active: Any
         _tool_selector_snap_timer: QTimer
@@ -149,14 +140,11 @@ class MainWindowMembers(_MembersBase):
         _update_canvas_hold_operation: Any
         _update_split_drop_target: Any
         _used_color_cache: Any
-        _used_color_cache_key: Any
         _used_color_layer_cache: Any
-        _used_color_layer_signature: Any
         _used_color_request: Any
         _used_color_timer: QTimer
         _visible_color_timer: QTimer
         _widget_in_timeline: Any
-        _workspace_records: Any
         a_bucket_close_gap: Any
         a_bucket_include_sub: Any
         a_choose_background: Any
@@ -227,36 +215,17 @@ class MainWindowMembers(_MembersBase):
         action_panel: ActionPanel
         action_panel_dock: Any
         action_panel_scroll: Any
-        add_layer_fast: Any
-        adjust_parent_line_thickness: Any
         advance: Any
-        apply_onion_browser_settings: Any
-        apply_palette_delete: Any
-        apply_palette_isolate_color: Any
-        apply_palette_merge: Any
-        apply_palette_replacements: Any
-        apply_sampled_color: Any
-        apply_sampled_color_to_mode: Any
-        apply_time_remap_to_active_layer: Any
-        apply_xdts_layer_bindings: Any
         area: Any
         build_action_panel: Any
         build_actions: Any
         build_menu: Any
         build_project_metadata: Any
         build_ui: Any
-        cancel_transform_or_tween: Any
         canvas: PaintCanvas
         canvas_operation_actions: Any
-        center_canvas_between_onion_shifts: Any
         central_dock: Any
         check_for_updates_interactive: Any
-        choose_accent_color: Any
-        choose_background_color: Any
-        choose_color: Any
-        choose_transform_mesh_grid: Any
-        clear_selected_color_filter: Any
-        close_progress_counter: Any
         color_slider_dock: Any
         color_slider_scroll: Any
         color_wheel_dock: Any
@@ -266,141 +235,72 @@ class MainWindowMembers(_MembersBase):
         color_chart_data: Any
         color_chart_dock: Any
         column_group: Any
-        commit_transform_or_tween: Any
-        commit_tween_transform: Any
         component_list: Any
-        confirm_save_before_dropped_project: Any
-        copy_timeline_cell: Any
-        create_blank_timeline_key: Any
-        create_progress_counter: Any
-        current_frame_scope: Any
         crop_image: Any
         current_project_path: Any
-        capture_color_chart: Any
-        apply_color_chart: Any
-        clear_color_chart: Any
-        delete_layer_rows: Any
-        delete_timeline_frame: Any
         dock_manager: Any
-        duplicate_layer_rows: Any
-        enable_tween: Any
-        export_key_sequence: Any
-        export_mp4: Any
-        export_psd_dialog: Any
-        export_xdts_dialog: Any
+        # Collaborator objects the window owns; unlike the mixin methods below,
+        # these carry their real type, so their call sites are fully checked.
+        export: ExportController
+        workspace: WorkspaceController
+        autosave: AutosaveController
+        colors: ColorInteractionController
+        used_color: UsedColorController
+        line_ops: LineOpsController
+        timeline_ops: TimelineOpsController
+        layers: LayerOpsController
+        color_chart_ops: ColorChartController
+        onion: OnionSkinController
+        tween: TweenController
+        time_remap: TimeRemapController
+        scope: ScopeOpsController
+        project: ProjectIOController
+        importer: ImportController
         exposure_images: Any
         file_edit_actions: Any
-        finish_onion_browser_interaction: Any
         fit_canvas: Any
-        focus_used_color: Any
-        freeze_preview_color_groups: Any
         general_actions: Any
         history_panel: HistoryPanel
-        image_color_hex: Any
         import_dropped_image: Any
         import_dropped_images: Any
         import_dropped_images_raw: Any
         import_image_folder_dialog: Any
         import_images_dialog: Any
         import_images_raw_dialog: Any
-        import_psd_dialog: Any
-        import_clip_animation: Any
-        import_clip_animation_dialog: Any
-        import_xdts_dialog: Any
-        invalidate_scope_caches: Any
-        isolate_selected_color: Any
-        jump_history: Any
-        switch_history_branch: Any
-        layer_name_row: Any
-        layer_opacity_row: Any
-        layer_selected: Any
-        layer_visibility_row: Any
-        main_line_repaint: Any
         make_shortcut_action: Any
-        merge_layer_rows: Any
-        move_layer_row: Any
-        move_timeline_cell: Any
-        move_timeline_selection: Any
         new_doc: Any
-        next_timeline_frame: Any
-        next_timeline_key: Any
-        normalize_timeline_numbers: Any
         normalized_onion_levels: Any
         on_progress: Any
-        open_dropped_project: Any
-        open_dropped_time_remap: Any
-        open_project: Any
-        open_project_dialog: Any
         palette: UsedColorPanel
         palette_dock: Any
         palette_scroll: Any
-        parse_time_remap_text: Any
         play: Any
         prepare_color_reduction: Any
         prepare_image_import: Any
         pressure: Any
-        previous_timeline_frame: Any
-        previous_timeline_key: Any
-        push_palette_history: Any
-        recall_sequence_number: Any
-        redo_with_used_colors: Any
-        refresh_history_panel: Any
         refresh_selection: Any
         refresh_ui: Any
-        refresh_used_colors: Any
-        refresh_used_colors_with_counter: Any
-        run_over_scope: Any
-        register_same_image_replacements: Any
         relative_shift: Any
-        remove_dust_fill_surrounding: Any
         replace_doc: Any
-        reset_main_sub: Any
         resize_doc: Any
-        resize_timeline_exposure: Any
         rot: Any
         rot_label: Any
         save_png: Any
-        save_project: Any
-        save_project_as: Any
-        save_color_chart_pmag: Any
         save_tga: Any
         save_tga_image: Any
-        schedule_used_color_refresh: Any
-        select_timeline_exposure: Any
-        set_accent: Any
-        set_color_mode: Any
-        set_color_value: Any
-        set_color_chart_data: Any
-        set_mask_colors: Any
-        set_onion_all_layers: Any
-        set_onion_skin: Any
-        set_preview_color_groups: Any
         set_rot: Any
-        set_selected_used_colors: Any
         set_theme: Any
-        set_layer_draft_rows: Any
-        set_timeline_mode: Any
-        set_tween_reverse_generation: Any
-        set_visible_colors: Any
         set_zoom: Any
         shortcuts: Any
         show_canvas_at_100_percent: Any
-        show_onion_settings: Any
-        show_time_remap_paste_dialog: Any
-        start_wire_transform: Any
         status: Any
         status_bar: StatusBar
-        swap_main_sub: Any
         sync_canvas_view_controls: Any
-        sync_onion_browser_from_canvas: Any
         theme_actions: Any
         timeline: TimelineWidget
         timeline_actions: Any
         timeline_dock: Any
         timer: QTimer
-        toggle_draw_background_color: Any
-        toggle_onion_settings_popup: Any
-        toggle_silhouette: Any
         tool_action_list: Any
         tool_actions: Any
         tool_command_actions: Any
@@ -410,10 +310,6 @@ class MainWindowMembers(_MembersBase):
         tools_dock: Any
         tools_scroll: Any
         turn_priority: Any
-        undo_with_used_colors: Any
-        update_progress_counter: Any
-        update_project_title: Any
         workspace_menu: Any
-        write_project: Any
         zoom: Any
         zoom_label: Any

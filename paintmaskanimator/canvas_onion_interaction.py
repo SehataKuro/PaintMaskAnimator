@@ -5,7 +5,8 @@ drag editing of onion-skin shift/rotation/scale and canvas view rotation
 (started from the onion settings browser). They run against a live
 ``PaintCanvas`` instance and reuse its geometry helpers and onion state.
 """
-from .common import *  # noqa: F401,F403
+import math
+from PySide6.QtCore import QPointF, Qt
 from ._canvas_members import CanvasMembers
 from .logging_setup import get_logger
 

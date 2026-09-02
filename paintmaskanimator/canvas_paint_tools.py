@@ -7,7 +7,12 @@ previews and their commits, and lasso polygon filling. Undo entries are pushed
 through ``PaintCanvas.push_undo`` as usual; they run against a live
 ``PaintCanvas``.
 """
-from .common import *  # noqa: F401,F403
+import math
+import numpy as np
+import time
+from typing import Any
+from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, Qt
+from PySide6.QtGui import QColor, QImage, QPainter, QPainterPath, QPen, QPolygonF
 from ._canvas_members import CanvasMembers
 from . import imaging
 from .pressure import _pressure_bezier_at

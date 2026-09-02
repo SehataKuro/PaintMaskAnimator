@@ -48,7 +48,7 @@ def test_cancelled_transform_leaves_the_drawing_untouched(app):
     app.select_rect((center_x - 60, center_y - 40), (center_x + 60, center_y + 40))
     app.start_transform("free")
     app.drag_transform((center_x, center_y), (center_x + SHIFT, center_y))
-    app.window.cancel_transform_or_tween()
+    app.window.tween.cancel_transform_or_tween()
     app.process_events()
 
     assert not app.canvas.transform_active

@@ -1,42 +1,54 @@
-"""Timeline cell/frame/key operations for MainWindow.
+"""Timeline cell/frame/key operations; owned as ``window.timeline_ops``.
 
-Split out of ``main_window.py`` as a mixin. These methods drive timeline
-navigation, exposure/number editing, blank-key creation, frame deletion, and
-cell move/copy against the timeline widget. They run against a live
-``MainWindow`` instance.
+Drives timeline navigation, exposure and drawing-number editing, blank-key
+creation, frame deletion, and cell move/copy against the timeline widget.
+
+A collaborator rather than a mixin -- see ``main_window_export.py`` for why.
 """
-from .common import *  # noqa: F401,F403
-from ._main_window_members import MainWindowMembers
+from typing import TYPE_CHECKING
+
+from PySide6.QtCore import QItemSelectionModel, QTimer
 from .utils import blank_image
 from .timeline import TimelineWidget
 from .logging_setup import get_logger
 
+if TYPE_CHECKING:
+    from .main_window import MainWindow
+
 log = get_logger(__name__)
 
 
-class TimelineOpsMixin(MainWindowMembers):
-    def set_timeline_mode(self, mode):
+class TimelineOpsController:
+    """Owned by ``MainWindow`` as ``window.timeline_ops``.
+
+    A collaborator rather than a mixin -- see main_window_export.py for why.
+    """
+
+    def __init__(self, window: "MainWindow"):
+        self.window = window
+
+    def set_mode(self, mode):
         mode = "sheet" if str(mode) == "sheet" else "sequence"
-        layer_index = int(self.canvas.active_layer_index)
+        layer_index = int(self.window.canvas.active_layer_index)
         selected_number = None
-        if self.canvas.frames and 0 <= layer_index < len(self.canvas.layers):
-            selected_number = self.canvas.frames[
-                self.canvas.current_frame
+        if self.window.canvas.frames and 0 <= layer_index < len(self.window.canvas.layers):
+            selected_number = self.window.canvas.frames[
+                self.window.canvas.current_frame
             ].layers[layer_index].sequence_number
-        if self.canvas.timeline_mode == "sequence" and mode == "sheet":
+        if self.window.canvas.timeline_mode == "sequence" and mode == "sheet":
             # 連番専用セルのシート配置ではフレーム数・位置が変わるため、
             # 移動前の状態を文書単位で保存してUndo参照切れを防ぐ。
             if any(
                 layer.sequence_only
-                for frame in self.canvas.frames
+                for frame in self.window.canvas.frames
                 for layer in frame.layers
             ):
-                self.canvas.push_doc_undo()
-            self.canvas.apply_sequence_only_entries()
+                self.window.canvas.push_doc_undo()
+            self.window.canvas.apply_sequence_only_entries()
         if selected_number is not None:
             matching = [
                 column
-                for column, frame in enumerate(self.canvas.frames)
+                for column, frame in enumerate(self.window.canvas.frames)
                 if (
                     frame.layers[layer_index].sequence_number == selected_number
                     and (frame.layers[layer_index].has_content or frame.layers[layer_index].is_blank_key)
@@ -44,41 +56,41 @@ class TimelineOpsMixin(MainWindowMembers):
                 )
             ]
             if matching:
-                self.canvas.current_frame = matching[0]
-        self.canvas.timeline_mode = mode
-        self.timeline.set_timeline_mode(mode)
-        self.timeline.sequence_archive = self.canvas._sequence_archive
-        self.timeline.add_exposure.setVisible(mode == "sheet")
+                self.window.canvas.current_frame = matching[0]
+        self.window.canvas.timeline_mode = mode
+        self.window.timeline.set_timeline_mode(mode)
+        self.window.timeline.sequence_archive = self.window.canvas._sequence_archive
+        self.window.timeline.add_exposure.setVisible(mode == "sheet")
         # 切り替え前の選択セルを保持すると、キャンバスだけ先に切り替わり
         # 赤枠が旧タブの列へ残る。再構築前に選択を明示的に解除する。
-        self.timeline.table.clearSelection()
-        self.timeline.refresh(
-            self.canvas.frames,
-            self.canvas.current_frame,
-            self.canvas.active_layer_index,
-            getattr(self.canvas, "tween_pending", None),
+        self.window.timeline.table.clearSelection()
+        self.window.timeline.refresh(
+            self.window.canvas.frames,
+            self.window.canvas.current_frame,
+            self.window.canvas.active_layer_index,
+            getattr(self.window.canvas, "tween_pending", None),
         )
-        self.timeline.select_current(
-            self.canvas.current_frame,
-            self.canvas.active_layer_index,
+        self.window.timeline.select_current(
+            self.window.canvas.current_frame,
+            self.window.canvas.active_layer_index,
         )
-        self.timeline.table.viewport().update()
+        self.window.timeline.table.viewport().update()
 
     def _navigate_sequence_number(self, step, wrap=False):
         """シート配置ではなく絵番号順に連番セルを移動する。"""
-        layer_index = int(self.canvas.active_layer_index)
-        columns = self.canvas.sequence_entry_columns(layer_index)
+        layer_index = int(self.window.canvas.active_layer_index)
+        columns = self.window.canvas.sequence_entry_columns(layer_index)
         entries = sorted(
             (
-                int(self.canvas.frames[column].layers[layer_index].sequence_number),
+                int(self.window.canvas.frames[column].layers[layer_index].sequence_number),
                 int(column),
             )
             for column in columns
         )
         if not entries:
             return
-        current_layer = self.canvas.frames[
-            self.canvas.current_frame
+        current_layer = self.window.canvas.frames[
+            self.window.canvas.current_frame
         ].layers[layer_index]
         current_number = current_layer.sequence_number
         current_index = next(
@@ -93,39 +105,39 @@ class TimelineOpsMixin(MainWindowMembers):
             target_index %= len(entries)
         else:
             target_index = max(0, min(len(entries) - 1, target_index))
-        self.canvas.current_frame = entries[target_index][1]
-        self.canvas.selectionChanged.emit()
-        self.canvas.update()
+        self.window.canvas.current_frame = entries[target_index][1]
+        self.window.canvas.selectionChanged.emit()
+        self.window.canvas.update()
 
-    def previous_timeline_frame(self):
-        if self.canvas.timeline_mode == "sequence":
+    def previous_frame(self):
+        if self.window.canvas.timeline_mode == "sequence":
             self._navigate_sequence_number(-1, wrap=False)
         else:
-            self.canvas.previous_frame()
+            self.window.canvas.previous_frame()
 
-    def next_timeline_frame(self):
-        if self.canvas.timeline_mode == "sequence":
+    def next_frame(self):
+        if self.window.canvas.timeline_mode == "sequence":
             self._navigate_sequence_number(1, wrap=False)
         else:
-            self.canvas.next_frame()
+            self.window.canvas.next_frame()
 
-    def previous_timeline_key(self):
-        if self.canvas.timeline_mode == "sequence":
+    def previous_key(self):
+        if self.window.canvas.timeline_mode == "sequence":
             self._navigate_sequence_number(-1, wrap=True)
         else:
-            self.canvas.previous_key_frame()
+            self.window.canvas.previous_key_frame()
 
-    def next_timeline_key(self):
-        if self.canvas.timeline_mode == "sequence":
+    def next_key(self):
+        if self.window.canvas.timeline_mode == "sequence":
             self._navigate_sequence_number(1, wrap=True)
         else:
-            self.canvas.next_key_frame()
+            self.window.canvas.next_key_frame()
 
-    def normalize_timeline_numbers(self, visual_rows):
+    def normalize_numbers(self, visual_rows):
         """選択レイヤーの絵番号をシート順へ振り直す。"""
-        if self.canvas.timeline_mode != "sheet":
+        if self.window.canvas.timeline_mode != "sheet":
             return
-        layer_count = len(self.canvas.layers)
+        layer_count = len(self.window.canvas.layers)
         layer_indices = sorted({
             layer_count - 1 - int(row)
             for row in visual_rows
@@ -133,65 +145,65 @@ class TimelineOpsMixin(MainWindowMembers):
         })
         if not layer_indices:
             return
-        self.canvas.push_doc_undo()
+        self.window.canvas.push_doc_undo()
         for layer_index in layer_indices:
-            self.canvas.normalize_sequence_numbers(layer_index)
-        self.canvas._cell_structure_dirty = True
-        self.canvas.changed.emit()
-        self.canvas.selectionChanged.emit()
-        self.canvas.update()
-        self.statusBar().showMessage(
+            self.window.canvas.normalize_sequence_numbers(layer_index)
+        self.window.canvas._cell_structure_dirty = True
+        self.window.canvas.changed.emit()
+        self.window.canvas.selectionChanged.emit()
+        self.window.canvas.update()
+        self.window.statusBar().showMessage(
             "選択レイヤーの番号をシート順に正規化しました。", 2500
         )
 
-    def create_blank_timeline_key(
+    def create_blank_key(
         self,
         visual_row,
         column,
     ):
-        layer_count = len(self.canvas.layers)
+        layer_count = len(self.window.canvas.layers)
         layer_index = layer_count - 1 - int(visual_row)
         if not (0 <= layer_index < layer_count):
             return
-        if self.canvas.timeline_mode == "sequence":
-            self.canvas.insert_sequence_blank(
+        if self.window.canvas.timeline_mode == "sequence":
+            self.window.canvas.insert_sequence_blank(
                 layer_index,
                 int(column) + 1,
             )
             return
-        self.canvas.create_blank_key(
+        self.window.canvas.create_blank_key(
             int(column),
             layer_index,
         )
 
-    def delete_timeline_frame(self):
-        if self.canvas.timeline_mode == "sequence":
-            self.canvas.delete_sequence_entry(
-                self.canvas.active_layer_index,
-                self.timeline.table.currentColumn() + 1,
+    def delete_frame(self):
+        if self.window.canvas.timeline_mode == "sequence":
+            self.window.canvas.delete_sequence_entry(
+                self.window.canvas.active_layer_index,
+                self.window.timeline.table.currentColumn() + 1,
             )
             return
-        layer_index = int(self.canvas.active_layer_index)
-        block = self.canvas.timeline_block_at(
-            self.canvas.current_frame, layer_index
+        layer_index = int(self.window.canvas.active_layer_index)
+        block = self.window.canvas.timeline_block_at(
+            self.window.canvas.current_frame, layer_index
         )
         if block is None:
             return
         _kind, start, _exposure = block
-        layer = self.canvas.frames[int(start)].layers[layer_index]
-        self.canvas.push_doc_undo()
+        layer = self.window.canvas.frames[int(start)].layers[layer_index]
+        self.window.canvas.push_doc_undo()
         if layer.has_content and layer.sequence_number is not None:
-            self.canvas._sequence_archive[
+            self.window.canvas._sequence_archive[
                 (layer_index, int(layer.sequence_number))
             ] = layer.clone()
-        self.canvas._clear_timeline_layer_cell(layer)
-        self.canvas._cell_structure_dirty = True
-        self.canvas.changed.emit()
-        self.canvas.selectionChanged.emit()
-        self.canvas.update()
+        self.window.canvas._clear_timeline_layer_cell(layer)
+        self.window.canvas._cell_structure_dirty = True
+        self.window.canvas.changed.emit()
+        self.window.canvas.selectionChanged.emit()
+        self.window.canvas.update()
 
-    def _restore_timeline_selection(self, cells):
-        table = self.timeline.table
+    def _restore_selection(self, cells):
+        table = self.window.timeline.table
         table.clearSelection()
         valid = []
         for row, column in cells:
@@ -206,7 +218,7 @@ class TimelineOpsMixin(MainWindowMembers):
                 QItemSelectionModel.SelectionFlag.NoUpdate,
             )
 
-    def move_timeline_selection(
+    def move_selection(
         self,
         cells,
         anchor_row,
@@ -215,15 +227,15 @@ class TimelineOpsMixin(MainWindowMembers):
         destination_column,
     ):
         """複数選択に含まれるコマ塊を相対配置のまま移動する。"""
-        if self.canvas.timeline_mode == "sequence":
+        if self.window.canvas.timeline_mode == "sequence":
             if int(anchor_row) != int(destination_row):
-                self.statusBar().showMessage(
+                self.window.statusBar().showMessage(
                     "連番画像は同じレイヤー内で入れ替えてください。", 2500
                 )
                 return
-            layer_count = len(self.canvas.layers)
+            layer_count = len(self.window.canvas.layers)
             layer_index = layer_count - 1 - int(anchor_row)
-            self.canvas.move_sequence_image(
+            self.window.canvas.move_sequence_image(
                 layer_index,
                 int(anchor_column) + 1,
                 int(destination_column) + 1,
@@ -247,14 +259,14 @@ class TimelineOpsMixin(MainWindowMembers):
         if row_delta == 0 and column_delta == 0:
             return
 
-        layer_count = len(self.canvas.layers)
+        layer_count = len(self.window.canvas.layers)
         blocks = {}
         for visual_row, column in selected_cells:
             layer_index = layer_count - 1 - visual_row
             if not (0 <= layer_index < layer_count):
                 continue
             kind, start, exposure = TimelineWidget.timeline_span_at(
-                self.canvas.frames,
+                self.window.canvas.frames,
                 layer_index,
                 column,
             )
@@ -264,7 +276,7 @@ class TimelineOpsMixin(MainWindowMembers):
             ):
                 key = (layer_index, int(start))
                 if key not in blocks:
-                    layer = self.canvas.frames[
+                    layer = self.window.canvas.frames[
                         int(start)
                     ].layers[layer_index]
                     blocks[key] = (
@@ -301,7 +313,7 @@ class TimelineOpsMixin(MainWindowMembers):
                 target_start < 0
                 or not (0 <= target_layer < layer_count)
             ):
-                self.statusBar().showMessage(
+                self.window.statusBar().showMessage(
                     "移動先がタイムライン範囲外です。",
                     2500,
                 )
@@ -318,7 +330,7 @@ class TimelineOpsMixin(MainWindowMembers):
                 )
             )
 
-        self.canvas.push_doc_undo()
+        self.window.canvas.push_doc_undo()
 
         # 元位置を未使用セルへ戻す。
         for (
@@ -330,10 +342,10 @@ class TimelineOpsMixin(MainWindowMembers):
             _exposure,
             _copied,
         ) in moves:
-            source = self.canvas.frames[
+            source = self.window.canvas.frames[
                 source_start
             ].layers[source_layer]
-            self.canvas._clear_timeline_layer_cell(source)
+            self.window.canvas._clear_timeline_layer_cell(source)
 
         maximum_end = max(
             target_start + exposure
@@ -347,7 +359,7 @@ class TimelineOpsMixin(MainWindowMembers):
                 _copied,
             ) in moves
         )
-        self.canvas._ensure_frame_count(maximum_end)
+        self.window.canvas._ensure_frame_count(maximum_end)
 
         # 移動先と重なる既存露出を切り、既存の明示コマを消す。
         for (
@@ -360,14 +372,14 @@ class TimelineOpsMixin(MainWindowMembers):
             _copied,
         ) in moves:
             target_end = target_start + exposure - 1
-            covering = self.canvas.timeline_block_at(
+            covering = self.window.canvas.timeline_block_at(
                 target_start,
                 target_layer,
             )
             if covering is not None:
                 _cover_kind, cover_start, _cover_exposure = covering
                 if cover_start < target_start:
-                    cover_layer = self.canvas.frames[
+                    cover_layer = self.window.canvas.frames[
                         cover_start
                     ].layers[target_layer]
                     cover_layer.exposure = max(
@@ -379,7 +391,7 @@ class TimelineOpsMixin(MainWindowMembers):
                 target_start,
                 target_end + 1,
             ):
-                target = self.canvas.frames[
+                target = self.window.canvas.frames[
                     column
                 ].layers[target_layer]
                 if (
@@ -390,7 +402,7 @@ class TimelineOpsMixin(MainWindowMembers):
                         False,
                     )
                 ):
-                    self.canvas._clear_timeline_layer_cell(
+                    self.window.canvas._clear_timeline_layer_cell(
                         target
                     )
 
@@ -404,7 +416,7 @@ class TimelineOpsMixin(MainWindowMembers):
             exposure,
             copied,
         ) in moves:
-            target = self.canvas.frames[
+            target = self.window.canvas.frames[
                 target_start
             ].layers[target_layer]
             target.image = (
@@ -452,52 +464,52 @@ class TimelineOpsMixin(MainWindowMembers):
             )
         ]
 
-        self.canvas.current_frame = max(
+        self.window.canvas.current_frame = max(
             0,
             int(destination_column),
         )
-        self.canvas.active_layer_index = max(
+        self.window.canvas.active_layer_index = max(
             0,
             min(
                 layer_count - 1,
                 layer_count - 1 - int(destination_row),
             ),
         )
-        self.canvas._cell_structure_dirty = True
-        self.canvas._onion_cache.clear()
-        self.canvas.changed.emit()
-        self.canvas.selectionChanged.emit()
-        self.canvas.update()
+        self.window.canvas._cell_structure_dirty = True
+        self.window.canvas._onion_cache.clear()
+        self.window.canvas.changed.emit()
+        self.window.canvas.selectionChanged.emit()
+        self.window.canvas.update()
         QTimer.singleShot(
             0,
             lambda cells=tuple(moved_cells):
-                self._restore_timeline_selection(cells)
+                self._restore_selection(cells)
         )
 
-    def resize_timeline_exposure(
+    def resize_exposure(
         self, visual_row, key_column, boundary_column, edge="right"
     ):
-        layer_count = len(self.canvas.layers)
+        layer_count = len(self.window.canvas.layers)
         layer_index = layer_count - 1 - int(visual_row)
         key_column = int(key_column)
         boundary_column = int(boundary_column)
         if not (
             0 <= layer_index < layer_count
-            and 0 <= key_column < len(self.canvas.frames)
+            and 0 <= key_column < len(self.window.canvas.frames)
         ):
             return
-        layer = self.canvas.frames[key_column].layers[layer_index]
+        layer = self.window.canvas.frames[key_column].layers[layer_index]
         old_exposure = max(1, int(layer.exposure))
         old_end = key_column + old_exposure - 1
-        self.canvas.push_doc_undo()
+        self.window.canvas.push_doc_undo()
 
         if edge == "left":
             previous_keys = [
                 col for col in range(0, key_column)
                 if (
-                    self.canvas.frames[col].layers[layer_index].has_content
+                    self.window.canvas.frames[col].layers[layer_index].has_content
                     or getattr(
-                        self.canvas.frames[col].layers[layer_index],
+                        self.window.canvas.frames[col].layers[layer_index],
                         "is_blank_key",
                         False,
                     )
@@ -506,15 +518,15 @@ class TimelineOpsMixin(MainWindowMembers):
             minimum_start = 0
             if previous_keys:
                 previous_key = previous_keys[-1]
-                previous_layer = self.canvas.frames[previous_key].layers[layer_index]
+                previous_layer = self.window.canvas.frames[previous_key].layers[layer_index]
                 minimum_start = previous_key + max(1, previous_layer.exposure)
             new_start = max(minimum_start, min(boundary_column, old_end))
             if new_start == key_column:
-                if self.canvas.undo_stack:
-                    self.canvas.undo_stack.pop()
+                if self.window.canvas.undo_stack:
+                    self.window.canvas.undo_stack.pop()
                 return
-            self.canvas._ensure_frame_count(old_end + 1)
-            destination = self.canvas.frames[new_start].layers[layer_index]
+            self.window.canvas._ensure_frame_count(old_end + 1)
+            destination = self.window.canvas.frames[new_start].layers[layer_index]
             if (
                 (
                     destination.has_content
@@ -522,13 +534,13 @@ class TimelineOpsMixin(MainWindowMembers):
                 )
                 and new_start != key_column
             ):
-                if self.canvas.undo_stack:
-                    self.canvas.undo_stack.pop()
-                self.statusBar().showMessage(
+                if self.window.canvas.undo_stack:
+                    self.window.canvas.undo_stack.pop()
+                self.window.statusBar().showMessage(
                     "左端の移動先に別のコマがあるため伸縮できません。", 2500
                 )
                 return
-            source = self.canvas.frames[key_column].layers[layer_index]
+            source = self.window.canvas.frames[key_column].layers[layer_index]
             copied = source.clone()
             destination.image = copied.image.copy()
             destination.has_content = bool(copied.has_content)
@@ -548,17 +560,17 @@ class TimelineOpsMixin(MainWindowMembers):
                 if copied.color_filter_rgb is not None else None
             )
             if new_start != key_column:
-                self.canvas._clear_timeline_layer_cell(source)
-            self.canvas.current_frame = new_start
+                self.window.canvas._clear_timeline_layer_cell(source)
+            self.window.canvas.current_frame = new_start
         else:
             new_end = max(key_column, boundary_column)
             requested_exposure = max(1, new_end - key_column + 1)
             next_keys = [
-                col for col in range(key_column + 1, len(self.canvas.frames))
+                col for col in range(key_column + 1, len(self.window.canvas.frames))
                 if (
-                    self.canvas.frames[col].layers[layer_index].has_content
+                    self.window.canvas.frames[col].layers[layer_index].has_content
                     or getattr(
-                        self.canvas.frames[col].layers[layer_index],
+                        self.window.canvas.frames[col].layers[layer_index],
                         "is_blank_key",
                         False,
                     )
@@ -568,16 +580,16 @@ class TimelineOpsMixin(MainWindowMembers):
             if next_keys and key_column + requested_exposure > next_keys[0]:
                 shift = key_column + requested_exposure - next_keys[0]
             if shift > 0:
-                old_count = len(self.canvas.frames)
-                self.canvas._ensure_frame_count(old_count + shift)
+                old_count = len(self.window.canvas.frames)
+                self.window.canvas._ensure_frame_count(old_count + shift)
                 for col in range(old_count - 1, key_column, -1):
-                    source = self.canvas.frames[col].layers[layer_index]
+                    source = self.window.canvas.frames[col].layers[layer_index]
                     if not (
                         source.has_content
                         or getattr(source, "is_blank_key", False)
                     ):
                         continue
-                    destination = self.canvas.frames[col + shift].layers[layer_index]
+                    destination = self.window.canvas.frames[col + shift].layers[layer_index]
                     destination.image = source.image.copy()
                     destination.has_content = bool(source.has_content)
                     destination.is_blank_key = bool(
@@ -595,56 +607,56 @@ class TimelineOpsMixin(MainWindowMembers):
                         tuple(source.color_filter_rgb)
                         if source.color_filter_rgb is not None else None
                     )
-                    self.canvas._clear_timeline_layer_cell(source)
+                    self.window.canvas._clear_timeline_layer_cell(source)
             else:
-                self.canvas._ensure_frame_count(key_column + requested_exposure)
-            self.canvas.frames[key_column].layers[layer_index].exposure = requested_exposure
-            self.canvas.current_frame = key_column
+                self.window.canvas._ensure_frame_count(key_column + requested_exposure)
+            self.window.canvas.frames[key_column].layers[layer_index].exposure = requested_exposure
+            self.window.canvas.current_frame = key_column
 
-        self.canvas.active_layer_index = layer_index
-        self.canvas.changed.emit()
-        self.canvas.selectionChanged.emit()
-        self.canvas.update()
+        self.window.canvas.active_layer_index = layer_index
+        self.window.canvas.changed.emit()
+        self.window.canvas.selectionChanged.emit()
+        self.window.canvas.update()
 
-    def move_timeline_cell(self, source_row, source_column, destination_row, destination_column):
-        layer_count = len(self.canvas.layers)
+    def move_cell(self, source_row, source_column, destination_row, destination_column):
+        layer_count = len(self.window.canvas.layers)
         source_layer = layer_count - 1 - source_row
         destination_layer = layer_count - 1 - destination_row
-        if self.canvas.timeline_mode == "sequence":
+        if self.window.canvas.timeline_mode == "sequence":
             if source_layer != destination_layer:
-                self.statusBar().showMessage(
+                self.window.statusBar().showMessage(
                     "連番画像は同じレイヤー内で入れ替えてください。", 2500
                 )
                 return
-            self.canvas.move_sequence_image(
+            self.window.canvas.move_sequence_image(
                 source_layer,
                 int(source_column) + 1,
                 int(destination_column) + 1,
             )
             return
-        self._suppress_used_color_refresh_once = True
-        moved = self.canvas.move_timeline_cell(source_column, source_layer, destination_column, destination_layer)
+        self.window._suppress_used_color_refresh_once = True
+        moved = self.window.canvas.move_timeline_cell(source_column, source_layer, destination_column, destination_layer)
         if not moved:
-            self._suppress_used_color_refresh_once = False
-            self.statusBar().showMessage("コマを移動できませんでした。", 2500)
+            self.window._suppress_used_color_refresh_once = False
+            self.window.statusBar().showMessage("コマを移動できませんでした。", 2500)
 
-    def copy_timeline_cell(self, source_row, source_column, destination_row, destination_column):
+    def copy_cell(self, source_row, source_column, destination_row, destination_column):
         """Altドラッグで、同じ絵番号を参照するシートキーを複製する。"""
-        if self.canvas.timeline_mode != "sheet":
+        if self.window.canvas.timeline_mode != "sheet":
             return
-        layer_count = len(self.canvas.layers)
+        layer_count = len(self.window.canvas.layers)
         source_layer = layer_count - 1 - int(source_row)
         destination_layer = layer_count - 1 - int(destination_row)
         if source_layer != destination_layer:
-            self.statusBar().showMessage("複製は同じレイヤー内で行ってください。", 2500)
+            self.window.statusBar().showMessage("複製は同じレイヤー内で行ってください。", 2500)
             return
-        block = self.canvas.timeline_block_at(int(source_column), source_layer)
+        block = self.window.canvas.timeline_block_at(int(source_column), source_layer)
         if block is None or block[0] != "content":
             return
-        source = self.canvas.frames[int(block[1])].layers[source_layer]
-        self.canvas.push_doc_undo()
-        self.canvas._ensure_frame_count(int(destination_column) + 1)
-        target = self.canvas.frames[int(destination_column)].layers[destination_layer]
+        source = self.window.canvas.frames[int(block[1])].layers[source_layer]
+        self.window.canvas.push_doc_undo()
+        self.window.canvas._ensure_frame_count(int(destination_column) + 1)
+        target = self.window.canvas.frames[int(destination_column)].layers[destination_layer]
         copied = source.clone()
         target.image = source.image
         target.has_content = True
@@ -658,34 +670,34 @@ class TimelineOpsMixin(MainWindowMembers):
         target.alpha_locked = copied.alpha_locked
         target.color_filter_enabled = copied.color_filter_enabled
         target.color_filter_rgb = copied.color_filter_rgb
-        self.canvas.current_frame = int(destination_column)
-        self.canvas.active_layer_index = destination_layer
-        self.canvas._cell_structure_dirty = True
-        self.canvas.changed.emit()
-        self.canvas.selectionChanged.emit()
-        self.canvas.update()
+        self.window.canvas.current_frame = int(destination_column)
+        self.window.canvas.active_layer_index = destination_layer
+        self.window.canvas._cell_structure_dirty = True
+        self.window.canvas.changed.emit()
+        self.window.canvas.selectionChanged.emit()
+        self.window.canvas.update()
 
     def recall_sequence_number(self, visual_row, column, number):
         """既存の絵番号をシートの指定位置へ再配置する。"""
-        if self.canvas.timeline_mode != "sheet":
+        if self.window.canvas.timeline_mode != "sheet":
             return
-        layer_count = len(self.canvas.layers)
+        layer_count = len(self.window.canvas.layers)
         layer_index = layer_count - 1 - int(visual_row)
-        candidates = self.canvas.sequence_entry_columns(layer_index)
+        candidates = self.window.canvas.sequence_entry_columns(layer_index)
         source = next((
-            self.canvas.frames[index].layers[layer_index]
+            self.window.canvas.frames[index].layers[layer_index]
             for index in candidates
-            if self.canvas.frames[index].layers[layer_index].sequence_number == int(number)
+            if self.window.canvas.frames[index].layers[layer_index].sequence_number == int(number)
         ), None)
         if source is None:
-            source = self.canvas._sequence_archive.get(
+            source = self.window.canvas._sequence_archive.get(
                 (layer_index, int(number))
             )
         if source is None:
             return
-        self.canvas.push_doc_undo()
-        self.canvas._ensure_frame_count(int(column) + 1)
-        target = self.canvas.frames[int(column)].layers[layer_index]
+        self.window.canvas.push_doc_undo()
+        self.window.canvas._ensure_frame_count(int(column) + 1)
+        target = self.window.canvas.frames[int(column)].layers[layer_index]
         copied = source.clone()
         target.image = source.image
         target.has_content = bool(copied.has_content)
@@ -694,34 +706,34 @@ class TimelineOpsMixin(MainWindowMembers):
         target.cell_name = getattr(copied, "cell_name", None)
         target.sequence_only = False
         target.exposure = 1
-        self.canvas.current_frame = int(column)
-        self.canvas.active_layer_index = layer_index
-        self.canvas._cell_structure_dirty = True
-        self.canvas.changed.emit()
-        self.canvas.selectionChanged.emit()
-        self.canvas.update()
+        self.window.canvas.current_frame = int(column)
+        self.window.canvas.active_layer_index = layer_index
+        self.window.canvas._cell_structure_dirty = True
+        self.window.canvas.changed.emit()
+        self.window.canvas.selectionChanged.emit()
+        self.window.canvas.update()
 
-    def select_timeline_exposure(self, column, visual_row):
-        previous_layer = self.canvas.active_layer_index
-        if self.canvas.timeline_mode == "sequence":
-            layer_count = len(self.canvas.layers)
+    def select_exposure(self, column, visual_row):
+        previous_layer = self.window.canvas.active_layer_index
+        if self.window.canvas.timeline_mode == "sequence":
+            layer_count = len(self.window.canvas.layers)
             layer_index = layer_count - 1 - int(visual_row)
             number = int(column) + 1
-            entries = self.canvas.sequence_entry_columns(layer_index)
+            entries = self.window.canvas.sequence_entry_columns(layer_index)
             frame_by_number = {
-                int(self.canvas.frames[index].layers[layer_index].sequence_number): index
+                int(self.window.canvas.frames[index].layers[layer_index].sequence_number): index
                 for index in entries
             }
             if number in frame_by_number:
-                self.canvas.current_frame = frame_by_number[number]
-                self.canvas.active_layer_index = layer_index
-                self.canvas.selectionChanged.emit()
-                self.canvas.update()
+                self.window.canvas.current_frame = frame_by_number[number]
+                self.window.canvas.active_layer_index = layer_index
+                self.window.canvas.selectionChanged.emit()
+                self.window.canvas.update()
             return
-        self.canvas.select_exposure(column, visual_row)
+        self.window.canvas.select_exposure(column, visual_row)
         # タイムラインの別レイヤーのコマを選んだ場合も、そのレイヤーの使用色へ即時更新。
-        if self.canvas.active_layer_index != previous_layer:
-            self._refresh_used_colors_without_delay()
+        if self.window.canvas.active_layer_index != previous_layer:
+            self.window.used_color._refresh_without_delay()
         else:
             # 同じレイヤーでは全コマ共通の使用色一覧なので、既存表示を維持する。
-            self.canvas.update()
+            self.window.canvas.update()

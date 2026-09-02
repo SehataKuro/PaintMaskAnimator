@@ -5,7 +5,10 @@ turn mouse/tablet/keyboard input into painting, panning, zooming, and tool
 shortcuts. They run against a live ``PaintCanvas`` instance; because the mixin
 precedes ``QWidget`` in the MRO, these overrides win over the base class.
 """
-from .common import *  # noqa: F401,F403
+import math
+from typing import Any
+from PySide6.QtCore import QPoint, QPointF, QRectF, Qt
+from PySide6.QtGui import QCursor
 from ._canvas_members import CanvasMembers
 from .logging_setup import get_logger
 from .utils import hide_screen_color_loupe, show_screen_color_loupe
@@ -49,7 +52,7 @@ class InputEventMixin(CanvasMembers):
         if self.transform_active and e.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             window: Any = self.window()
             if hasattr(window, "commit_transform_or_tween"):
-                window.commit_transform_or_tween()
+                window.tween.commit_transform_or_tween()
             else:
                 self.commit_selection_transform()
             e.accept()
@@ -57,7 +60,7 @@ class InputEventMixin(CanvasMembers):
         if self.transform_active and e.key() == Qt.Key.Key_Escape:
             window: Any = self.window()
             if hasattr(window, "cancel_transform_or_tween"):
-                window.cancel_transform_or_tween()
+                window.tween.cancel_transform_or_tween()
             else:
                 self.cancel_selection_transform()
             e.accept()

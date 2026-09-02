@@ -493,7 +493,7 @@ def test_failed_ui_import_keeps_current_document(
             "critical",
             staticmethod(lambda *args: messages.append(args)),
         )
-        assert not window.import_clip_animation(
+        assert not window.importer.clip_animation(
             tmp_path / "broken.clip", confirm_replace=False
         )
         assert window.canvas.frames is original_frames
@@ -527,7 +527,7 @@ def test_successful_ui_import_replaces_document_in_sheet_mode(
     )
     window = MainWindow()
     try:
-        assert window.import_clip_animation(
+        assert window.importer.clip_animation(
             tmp_path / "sample.clip", confirm_replace=False
         )
         assert (constants.CANVAS_WIDTH, constants.CANVAS_HEIGHT) == (3, 2)
@@ -543,7 +543,7 @@ def test_successful_ui_import_replaces_document_in_sheet_mode(
         archived = window.canvas._sequence_archive[(0, 2)]
         assert archived.cell_name == "B-8"
         assert archived.image.pixelColor(0, 0) == QColor("magenta")
-        window.set_timeline_mode("sequence")
+        window.timeline_ops.set_mode("sequence")
         sequence_cell = window.timeline.table.item(0, 1)
         assert sequence_cell is not None and sequence_cell.text() == "B-8"
     finally:
@@ -575,7 +575,7 @@ def test_ui_apply_failure_rolls_back_replaced_document(
         original_size = (constants.CANVAS_WIDTH, constants.CANVAS_HEIGHT)
         original_archive = window.canvas._sequence_archive
 
-        original_refresh = window.schedule_used_color_refresh
+        original_refresh = window.used_color.schedule_refresh
         refresh_calls = 0
 
         def fail_after_apply():
@@ -585,8 +585,10 @@ def test_ui_apply_failure_rolls_back_replaced_document(
                 raise RuntimeError("synthetic apply failure")
             return original_refresh()
 
-        monkeypatch.setattr(window, "schedule_used_color_refresh", fail_after_apply)
-        assert not window.import_clip_animation(
+        monkeypatch.setattr(
+            window.used_color, "schedule_refresh", fail_after_apply
+        )
+        assert not window.importer.clip_animation(
             tmp_path / "sample.clip", confirm_replace=False
         )
         assert window.canvas.frames is original_frames

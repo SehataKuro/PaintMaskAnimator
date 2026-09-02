@@ -5,7 +5,8 @@ selected -- click, ctrl/shift-click and checkbox toggling, the sweep drag over
 the selection column, and the queries (``selected_rgb_set``,
 ``_ordered_non_background_rgbs``) the rest of the panel and the main window use.
 """
-from .common import *  # noqa: F401,F403
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 from ._color_panel_members import UsedColorPanelMembers
 from .color_panel_widgets import CheckClickArea
 from .logging_setup import get_logger

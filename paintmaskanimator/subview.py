@@ -1,6 +1,32 @@
 """Linked reference-image viewer used by the dockable sub-view panel."""
 
-from .common import *  # noqa: F401,F403
+import math
+from pathlib import Path
+from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
+from PySide6.QtGui import (
+    QColor,
+    QCursor,
+    QImage,
+    QImageReader,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPixmap,
+    QTransform,
+)
+from PySide6.QtWidgets import (
+    QApplication,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QSizePolicy,
+    QSlider,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+)
+from .optional_deps import PILImage, PSDImage
 from . import imaging
 
 

@@ -43,7 +43,7 @@ paintmaskanimator = "paintmaskanimator.__main__:main"
 packages = ["paintmaskanimator"]
 
 [tool.setuptools.package-data]
-paintmaskanimator = ["assets/**/*"]
+paintmaskanimator = ["assets/**/*", "translations/*.qm"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -84,8 +84,6 @@ target-version = "py310"
 # SIM, …) are intentionally left out for now to keep the gate meaningful and
 # the diff small; tighten incrementally.
 select = ["E4", "E9", "F", "W", "B"]
-# The package uses `from .common import *` on purpose (shared Qt/stdlib names);
-# don't flag star imports or the resulting "may be undefined" noise.
 # E7 statement-style rules are omitted on purpose: this code base deliberately
 # uses compact `;`-separated one-liners.
 # B905 (zip without `strict=`) needs a per-call-site decision about whether
@@ -93,9 +91,9 @@ select = ["E4", "E9", "F", "W", "B"]
 # would just add `strict=False` noise. Revisit call site by call site.
 # Purely stylistic families stay out for now (as of this commit: SIM 10,
 # UP 32, RET 1, C4 1 findings) so the gate keeps flagging real defects only.
-ignore = ["F403", "F405", "B905"]
+ignore = ["B905"]
 
 [tool.ruff.lint.per-file-ignores]
-# common.py is a deliberate re-export hub: every module does
-# `from .common import *`, so its imports are "unused" only locally.
+# common.py now only holds the optional-dependency shims (PILImage/PSDImage
+# fall back to None); it re-exports them, so its imports are "unused" locally.
 "paintmaskanimator/common.py" = ["F401"]

@@ -138,7 +138,7 @@ class AppDriver:
         self.stroke([top_left, bottom_right])
 
     def start_transform(self, mode: str = "free") -> None:
-        self.window.start_wire_transform(mode)
+        self.window.line_ops.start_wire_transform(mode)
         self.process_events()
 
     def drag_transform(self, start, end) -> None:
@@ -147,12 +147,12 @@ class AppDriver:
         self.stroke([start, end])
 
     def commit_transform(self) -> None:
-        self.window.commit_transform_or_tween()
+        self.window.tween.commit_transform_or_tween()
         self.process_events()
 
     # -- 使用色パネル -------------------------------------------------
     def refresh_used_colors(self) -> None:
-        self.window._refresh_used_colors_without_delay()
+        self.window.used_color._refresh_without_delay()
         self.process_events()
 
     def used_color_rgbs(self) -> set[tuple[int, int, int]]:
@@ -163,8 +163,8 @@ class AppDriver:
 
     def show_only_colors(self, rgbs) -> None:
         """使用色パネルの表示フィルターを指定色だけに絞る。"""
-        self.window.set_visible_colors(set(rgbs))
-        self.window._apply_pending_visible_colors()
+        self.window.colors.set_visible_colors(set(rgbs))
+        self.window.colors._apply_pending_visible_colors()
         self.process_events()
 
     # -- タイムライン -------------------------------------------------
@@ -187,17 +187,17 @@ class AppDriver:
                 QFileDialog, "selectedFiles",
                 lambda self: [str(destination)],
             )
-            self.window.export_key_sequence(image_format)
+            self.window.export.key_sequence(image_format)
         self.process_events()
 
     def save_project_as(self, path: Path) -> bool:
         """「名前を付けて保存」をファイルダイアログごと差し替えて実行する。"""
         with self._answer_save_dialog(path):
-            return self.window.save_project_as()
+            return self.window.project.save_as()
 
     def open_project(self, path: Path) -> None:
         with self._answer_open_dialog(path):
-            self.window.open_project_dialog()
+            self.window.project.open_dialog()
         self.process_events()
 
     # ------------------------------------------------------------------
@@ -227,7 +227,7 @@ class AppDriver:
     def enable_tween(self, layer_index: int, key_column: int, mode: str = "free") -> None:
         """タイムラインの行番号ではなく、レイヤー番号で指定できるようにする。"""
         visual_row = len(self.canvas.layers) - 1 - layer_index
-        self.window.enable_tween(visual_row, key_column, mode)
+        self.window.tween.enable(visual_row, key_column, mode)
         self.process_events()
 
     def import_image_sequence(self, paths) -> None:
@@ -237,8 +237,8 @@ class AppDriver:
 
     def apply_time_remap(self, raw_text: str) -> None:
         """タイムシートのテキストを貼り付けたのと同じ経路で適用する。"""
-        parsed = self.window.parse_time_remap_text(raw_text)
-        self.window.apply_time_remap_to_active_layer(parsed)
+        parsed = self.window.time_remap.parse_text(raw_text)
+        self.window.time_remap.apply_to_active_layer(parsed)
         self.process_events()
 
     def sequence_numbers(self, layer_index: int) -> list:

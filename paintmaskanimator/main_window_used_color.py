@@ -1,48 +1,63 @@
-"""Used-color extraction and palette editing for MainWindow.
+"""Used-colour scanning and palette editing; owned as ``window.used_color``.
 
-Split out of ``main_window.py`` as a mixin. These methods scan the active layer
-for its used colors (with caching and progress), keep the used-color panel in
-sync across undo/redo, and apply palette edits (isolate / replace / delete /
-merge). They run against a live ``MainWindow`` instance.
+Scans the active layer for the colours it uses (cached, with a progress
+counter), keeps the used-colour panel in sync across undo/redo, and applies
+palette edits: isolate, replace, delete and merge.
+
+A collaborator rather than a mixin -- see ``main_window_export.py`` for why.
 """
-from .common import *  # noqa: F401,F403
-from ._main_window_members import MainWindowMembers
+from typing import TYPE_CHECKING
+
+import numpy as np
+from PySide6.QtGui import QColor, QImage
 from . import imaging
+from .progress import close_counter, create_counter, update_counter
 from .logging_setup import get_logger
 from .undo_entries import PaletteStateUndo
+
+if TYPE_CHECKING:
+    from .main_window import MainWindow
 
 log = get_logger(__name__)
 
 
-class UsedColorMixin(MainWindowMembers):
-    def schedule_used_color_refresh(self):
+class UsedColorController:
+    """Owned by ``MainWindow`` as ``window.used_color``.
+
+    A collaborator rather than a mixin -- see main_window_export.py for why.
+    """
+
+    def __init__(self, window: "MainWindow"):
+        self.window = window
+
+    def schedule_refresh(self):
         # 描画直後は colorUsed で新色だけを即時追加し、全画像の色走査は
         # アイドル時にまとめる。投げ縄塗り・バケツ確定時の一拍停止を防ぐ。
-        self._used_color_request += 1
-        self._used_color_timer.start()
+        self.window._used_color_request += 1
+        self.window._used_color_timer.start()
 
-    def _refresh_used_colors_without_delay(self):
-        self._used_color_timer.stop()
-        self._used_color_request += 1
-        self.refresh_used_colors(request=self._used_color_request)
+    def _refresh_without_delay(self):
+        self.window._used_color_timer.stop()
+        self.window._used_color_request += 1
+        self.refresh(request=self.window._used_color_request)
 
-    def undo_with_used_colors(self):
-        if not self.canvas.undo_stack:
+    def undo(self):
+        if not self.window.canvas.undo_stack:
             return
-        self.canvas.undo()
-        self._refresh_used_colors_without_delay()
+        self.window.canvas.undo()
+        self._refresh_without_delay()
         self.refresh_history_panel()
 
-    def redo_with_used_colors(self):
-        if not self.canvas.redo_stack:
+    def redo(self):
+        if not self.window.canvas.redo_stack:
             return
-        self.canvas.redo()
-        self._refresh_used_colors_without_delay()
+        self.window.canvas.redo()
+        self._refresh_without_delay()
         self.refresh_history_panel()
 
     def push_palette_history(self, before, label):
         """使用色パネルの並べ替え・親子・表示/マスク変更をUndo履歴へ積む。"""
-        self.canvas.push_undo(PaletteStateUndo(before, label))
+        self.window.canvas.push_undo(PaletteStateUndo(before, label))
         self.refresh_history_panel()
 
     def jump_history(self, delta):
@@ -53,17 +68,17 @@ class UsedColorMixin(MainWindowMembers):
             return
         if steps < 0:
             for _ in range(-steps):
-                if not self.canvas.undo_stack:
+                if not self.window.canvas.undo_stack:
                     break
-                self.canvas.undo()
+                self.window.canvas.undo()
         elif steps > 0:
             for _ in range(steps):
-                if not self.canvas.redo_stack:
+                if not self.window.canvas.redo_stack:
                     break
-                self.canvas.redo()
+                self.window.canvas.redo()
         else:
             return
-        self._refresh_used_colors_without_delay()
+        self._refresh_without_delay()
         self.refresh_history_panel()
 
     def switch_history_branch(self, branch_index, redo_steps=0):
@@ -77,60 +92,60 @@ class UsedColorMixin(MainWindowMembers):
             steps = max(0, int(redo_steps))
         except (TypeError, ValueError):
             return
-        if not self.canvas.switch_history_branch(index):
+        if not self.window.canvas.switch_history_branch(index):
             # 到達できなくなった分岐だった場合も一覧を作り直す。
             self.refresh_history_panel()
             return
         # クリックしたブロックまで、分岐の未来を進める。
         for _ in range(steps):
-            if not self.canvas.redo_stack:
+            if not self.window.canvas.redo_stack:
                 break
-            self.canvas.redo()
-        self._refresh_used_colors_without_delay()
+            self.window.canvas.redo()
+        self._refresh_without_delay()
         self.refresh_history_panel()
 
     def refresh_history_panel(self):
-        panel = getattr(self, "history_panel", None)
+        panel = getattr(self.window, "history_panel", None)
         if panel is not None:
             panel.refresh()
 
-    def _used_color_cache_key(self, image):
+    def _cache_key(self, image):
         try:
             return (int(image.cacheKey()), image.width(), image.height())
         except (AttributeError, RuntimeError, TypeError) as exc:
             log.debug("cacheKey() unavailable, using id() fallback: %s", exc)
             return (id(image), image.width(), image.height())
 
-    def _used_color_layer_signature(self, layer_index):
+    def _layer_signature(self, layer_index):
         signature = []
-        for frame in self.canvas.frames:
+        for frame in self.window.canvas.frames:
             if layer_index >= len(frame.layers):
                 signature.append(None)
                 continue
             layer = frame.layers[layer_index]
             signature.append(
-                self._used_color_cache_key(layer.image)
+                self._cache_key(layer.image)
                 if layer.has_content else None
             )
         return tuple(signature)
 
-    def _apply_used_color_result(self, colors, exceeded=False):
+    def _apply_result(self, colors, exceeded=False):
         ordered = [QColor(r, g, b) for r, g, b in colors[:100]]
-        self.palette.set_colors(ordered)
+        self.window.palette.set_colors(ordered)
         pending_categories = getattr(
-            self, "_pending_palette_categories", None
+            self.window, "_pending_palette_categories", None
         )
         if pending_categories is not None:
-            self._pending_palette_categories = None
-            self.palette.restore_categories(pending_categories)
+            self.window._pending_palette_categories = None
+            self.window.palette.restore_categories(pending_categories)
         if exceeded:
-            self.palette.count_label.setText("100色以上")
+            self.window.palette.count_label.setText("100色以上")
 
-    def _extract_used_colors(self, image, limit=101):
+    def _extract(self, image, limit=101):
         # Palette filtering needs the same full-image RGB index. Build it while
         # the used-color scan is already running so the first visibility toggle
         # can reuse it instead of scanning every pixel again.
-        _rgba, packed, opaque = self.canvas._color_index_for_image(image)
+        _rgba, packed, opaque = self.window.canvas._color_index_for_image(image)
         if packed is None or opaque is None:
             return []
         visible_pixels = packed[opaque]
@@ -148,7 +163,7 @@ class UsedColorMixin(MainWindowMembers):
             for value in unique
         ]
 
-    def refresh_used_colors(
+    def refresh(
         self,
         request=None,
         progress=None,
@@ -156,58 +171,58 @@ class UsedColorMixin(MainWindowMembers):
         progress_total=None,
         progress_label="使用色を認識しています",
     ):
-        if request is not None and request != self._used_color_request:
+        if request is not None and request != self.window._used_color_request:
             return
-        if self.canvas.drawing:
+        if self.window.canvas.drawing:
             # Never let an all-frame palette scan interrupt a live brush stroke.
-            self._used_color_timer.start(500)
+            self.window._used_color_timer.start(500)
             return
-        if not self.canvas.frames:
-            self.palette.set_colors([])
+        if not self.window.canvas.frames:
+            self.window.palette.set_colors([])
             if progress is not None:
                 total = progress_total or max(1, progress_offset)
-                self.update_progress_counter(
+                update_counter(
                     progress, progress_offset, total, progress_label
                 )
             return
 
-        layer_index = self.canvas.active_layer_index
+        layer_index = self.window.canvas.active_layer_index
         # 下書きレイヤーは色数削減の対象外。使用色を取得せず空表示にする。
-        current_frame = self.canvas.frames[
-            max(0, min(int(self.canvas.current_frame), len(self.canvas.frames) - 1))
+        current_frame = self.window.canvas.frames[
+            max(0, min(int(self.window.canvas.current_frame), len(self.window.canvas.frames) - 1))
         ]
         if (
             0 <= layer_index < len(current_frame.layers)
             and getattr(current_frame.layers[layer_index], "is_draft", False)
         ):
-            self.palette.set_colors([])
+            self.window.palette.set_colors([])
             if progress is not None:
-                total = progress_total or max(1, progress_offset + len(self.canvas.frames))
-                self.update_progress_counter(
+                total = progress_total or max(1, progress_offset + len(self.window.canvas.frames))
+                update_counter(
                     progress, total, total, "使用色の認識が完了しました"
                 )
             return
-        layer_signature = self._used_color_layer_signature(layer_index)
+        layer_signature = self._layer_signature(layer_index)
         layer_cache_key = (int(layer_index), layer_signature)
-        cached_layer = self._used_color_layer_cache.get(layer_cache_key)
+        cached_layer = self.window._used_color_layer_cache.get(layer_cache_key)
         if cached_layer is not None:
             colors, exceeded = cached_layer
-            self._apply_used_color_result(colors, exceeded)
+            self._apply_result(colors, exceeded)
             if progress is not None:
-                total = progress_total or max(1, progress_offset + len(self.canvas.frames))
-                self.update_progress_counter(
+                total = progress_total or max(1, progress_offset + len(self.window.canvas.frames))
+                update_counter(
                     progress, total, total, "使用色の認識が完了しました"
                 )
             return
         all_colors = []
         seen_colors = set()
         exceeded = False
-        frame_total = len(self.canvas.frames)
+        frame_total = len(self.window.canvas.frames)
         combined_total = progress_total or max(1, progress_offset + frame_total)
 
-        for scan_index, frame in enumerate(self.canvas.frames, 1):
+        for scan_index, frame in enumerate(self.window.canvas.frames, 1):
             if progress is not None:
-                self.update_progress_counter(
+                update_counter(
                     progress,
                     progress_offset + scan_index - 1,
                     combined_total,
@@ -218,16 +233,16 @@ class UsedColorMixin(MainWindowMembers):
                 layer = frame.layers[layer_index]
                 if layer.has_content:
                     image = layer.image
-                    key = self._used_color_cache_key(image)
-                    cached = self._used_color_cache.get(key)
+                    key = self._cache_key(image)
+                    cached = self.window._used_color_cache.get(key)
                     if cached is None:
-                        colors = self._extract_used_colors(image, 101)
+                        colors = self._extract(image, 101)
                         cached = (colors[:100], len(colors) > 100)
-                        if len(self._used_color_cache) >= 512:
-                            self._used_color_cache.pop(
-                                next(iter(self._used_color_cache))
+                        if len(self.window._used_color_cache) >= 512:
+                            self.window._used_color_cache.pop(
+                                next(iter(self.window._used_color_cache))
                             )
-                        self._used_color_cache[key] = cached
+                        self.window._used_color_cache[key] = cached
                     colors, cell_exceeded = cached
                     for rgb in colors:
                         if rgb not in seen_colors:
@@ -242,17 +257,17 @@ class UsedColorMixin(MainWindowMembers):
                 exceeded = True
 
         colors = all_colors[:100]
-        if len(self._used_color_layer_cache) >= 128:
-            self._used_color_layer_cache.pop(
-                next(iter(self._used_color_layer_cache))
+        if len(self.window._used_color_layer_cache) >= 128:
+            self.window._used_color_layer_cache.pop(
+                next(iter(self.window._used_color_layer_cache))
             )
-        self._used_color_layer_cache[layer_cache_key] = (
+        self.window._used_color_layer_cache[layer_cache_key] = (
             tuple(colors), bool(exceeded)
         )
-        self._apply_used_color_result(colors, exceeded)
+        self._apply_result(colors, exceeded)
 
         if progress is not None:
-            self.update_progress_counter(
+            update_counter(
                 progress,
                 progress_offset + frame_total,
                 combined_total,
@@ -260,7 +275,7 @@ class UsedColorMixin(MainWindowMembers):
             )
 
     def apply_palette_isolate_color(self, color):
-        self.isolate_selected_color(QColor(color))
+        self.window.colors.isolate_selected_color(QColor(color))
 
     def apply_palette_replacements(self, mapping, operation="色置換"):
         if not mapping:
@@ -270,7 +285,7 @@ class UsedColorMixin(MainWindowMembers):
                 message = "削除する使用色が選択されていません。"
             else:
                 message = "統合する使用色が選択されていません。"
-            self.statusBar().showMessage(message, 2200)
+            self.window.statusBar().showMessage(message, 2200)
             return False
 
         packed_mapping = {}
@@ -291,7 +306,7 @@ class UsedColorMixin(MainWindowMembers):
                 message = "削除できる使用色が選択されていません。"
             else:
                 message = "親以外の使用色を選択してください。"
-            self.statusBar().showMessage(message, 2200)
+            self.window.statusBar().showMessage(message, 2200)
             return False
 
         # 色ごとに画像全体を再走査せず、24bit RGBを一度だけ検索する。
@@ -310,8 +325,8 @@ class UsedColorMixin(MainWindowMembers):
         def replace_colors(context):
             """1レイヤー分の色置換。純粋な op として一括処理ランナーへ渡す。"""
             layer = context.layer
-            old_cache_key = self._used_color_cache_key(layer.image)
-            old_cached_colors = self._used_color_cache.get(old_cache_key)
+            old_cache_key = self._cache_key(layer.image)
+            old_cached_colors = self.window._used_color_cache.get(old_cache_key)
             rgba = layer.image.convertToFormat(
                 QImage.Format.Format_RGBA8888
             )
@@ -358,13 +373,13 @@ class UsedColorMixin(MainWindowMembers):
                     seen_transformed.add(new_rgb)
                     transformed_colors.append(new_rgb)
                 cache_updates[
-                    self._used_color_cache_key(produced)
+                    self._cache_key(produced)
                 ] = (transformed_colors[:100], exceeded)
             changed_by_cell[(context.frame, context.layer_index)] = cell_count
             return produced
 
-        result = self.run_over_scope(
-            self.current_frame_scope(True),
+        result = self.window.scope.run_over(
+            self.window.scope.current_frame(True),
             replace_colors,
             label=operation,
             count_pixels=lambda context, _image: changed_by_cell.get(
@@ -375,25 +390,25 @@ class UsedColorMixin(MainWindowMembers):
         changed_pixels = result.changed_pixels
 
         if not changed_pixels:
-            self.statusBar().showMessage(
+            self.window.statusBar().showMessage(
                 "選択した使用色は画像内にありませんでした。",
                 2400,
             )
             return False
 
         for cache_key in cache_removals:
-            self._used_color_cache.pop(cache_key, None)
-        self._used_color_cache.update(cache_updates)
+            self.window._used_color_cache.pop(cache_key, None)
+        self.window._used_color_cache.update(cache_updates)
 
         # 次の使用色再走査で旧RGB行が消える前に、整理情報を置換後のRGBへ
         # 移しておく。これにより置換直後もチャートへ新しい色構成を追記できる。
-        self.palette.remap_saved_color_metadata(rgb_mapping)
+        self.window.palette.remap_saved_color_metadata(rgb_mapping)
 
         # コマ構造は変わらないためタイムラインを再構築しない。画像更新と、
         # キャッシュを利用した使用色一覧の更新だけを行う（表示キャッシュの
         # 破棄と再描画は run_over_scope 側で済んでいる）。
-        self.schedule_used_color_refresh()
-        self.statusBar().showMessage(
+        self.schedule_refresh()
+        self.window.statusBar().showMessage(
             f"{changed_cells}セル・{changed_pixels:,}ピクセルへ{operation}を適用しました。",
             3000,
         )
@@ -416,7 +431,7 @@ class UsedColorMixin(MainWindowMembers):
             selected = set()
 
         if not selected:
-            self.statusBar().showMessage(
+            self.window.statusBar().showMessage(
                 "削除する使用色が選択されていません。",
                 2400,
             )
@@ -431,8 +446,8 @@ class UsedColorMixin(MainWindowMembers):
             operation="色削除",
         ):
             # 削除後に存在しない親・子選択を残さない。
-            self.palette._clear_used_color_selection()
-            self.statusBar().showMessage(
+            self.window.palette._clear_used_color_selection()
+            self.window.statusBar().showMessage(
                 f"{len(selected)}色を #FFFFFF へ統合しました。",
                 3200,
             )
@@ -445,7 +460,7 @@ class UsedColorMixin(MainWindowMembers):
             if rgb is not None and len(rgb) >= 3
         }
         if parent == (255, 255, 255):
-            self.statusBar().showMessage(
+            self.window.statusBar().showMessage(
                 "背景色は統合先にできません。",
                 2400,
             )
@@ -456,22 +471,23 @@ class UsedColorMixin(MainWindowMembers):
             if rgb != parent and rgb != (255, 255, 255)
         }
         if self.apply_palette_replacements(mapping, operation="色統合"):
-            self.palette._retain_parent_selection()
+            self.window.palette._retain_parent_selection()
 
-    def refresh_used_colors_with_counter(self, title="使用色を更新しています"):
-        self._used_color_timer.stop()
-        self._used_color_request += 1
-        total = max(1, len(self.canvas.frames))
-        progress = self.create_progress_counter(
+    def refresh_with_counter(self, title="使用色を更新しています"):
+        self.window._used_color_timer.stop()
+        self.window._used_color_request += 1
+        total = max(1, len(self.window.canvas.frames))
+        progress = create_counter(
+            self.window,
             title,
             total,
             "選択レイヤーの使用色を認識しています",
         )
         try:
-            self.refresh_used_colors(
+            self.refresh(
                 progress=progress,
                 progress_total=total,
                 progress_label="選択レイヤーの使用色を認識しています",
             )
         finally:
-            self.close_progress_counter(progress)
+            close_counter(progress)

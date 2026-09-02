@@ -6,7 +6,7 @@ panel (order, groups, visibility, masks, selection) into a plain snapshot,
 manager every panel edit wraps itself in so a single undo entry is pushed only
 when the snapshot actually changed.
 """
-from .common import *  # noqa: F401,F403
+# (nothing was used)
 from ._color_panel_members import UsedColorPanelMembers
 from .logging_setup import get_logger
 

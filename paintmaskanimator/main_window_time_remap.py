@@ -1,20 +1,36 @@
-"""Time-remap (After Effects timesheet) support for MainWindow.
+"""Time remap (After Effects timesheets); owned as ``window.time_remap``.
 
-Split out of ``main_window.py`` as a mixin. These methods parse After Effects
-time-remap text, rebuild the per-layer source bank, and apply remapped exposure
-states to the active layer. They run against a live ``MainWindow`` instance.
+Parses After Effects time-remap text, rebuilds the per-layer source bank, and
+applies the remapped exposure states to the active layer.
+
+A collaborator rather than a mixin -- see ``main_window_export.py`` for why.
 """
-from .common import *  # noqa: F401,F403
-from ._main_window_members import MainWindowMembers
-from .errors import OPERATION_ERRORS as _OPERATION_ERRORS
+from typing import TYPE_CHECKING, Any
+
+import math
+import re
+from pathlib import Path
+from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
+from .errors import OPERATION_ERRORS as _OPERATION_ERRORS, OperationError
 from .utils import blank_image
 from .widgets import TimeRemapPasteDialog
 from .logging_setup import get_logger
 
+if TYPE_CHECKING:
+    from .main_window import MainWindow
+
 log = get_logger(__name__)
 
 
-class TimeRemapMixin(MainWindowMembers):
+class TimeRemapController:
+    """Owned by ``MainWindow`` as ``window.time_remap``.
+
+    A collaborator rather than a mixin -- see main_window_export.py for why.
+    """
+
+    def __init__(self, window: "MainWindow"):
+        self.window = window
+
     @staticmethod
     def _parse_after_effects_time_remap(raw_text):
         text_value = str(raw_text or "").replace("\r", "")
@@ -63,7 +79,7 @@ class TimeRemapMixin(MainWindowMembers):
                 opacity_entries.append((frame, value))
 
         if not time_entries:
-            raise ValueError(
+            raise OperationError(
                 "Time RemapのFrame／secondsデータが見つかりません。"
             )
 
@@ -131,14 +147,14 @@ class TimeRemapMixin(MainWindowMembers):
         }
 
     @classmethod
-    def parse_time_remap_text(cls, raw_text):
+    def parse_text(cls, raw_text):
         text_value = (
             str(raw_text or "")
             .lstrip("\ufeff")
             .strip()
         )
         if not text_value:
-            raise ValueError("貼り付けデータが空です。")
+            raise OperationError("貼り付けデータが空です。")
 
         lowered = text_value.lower()
         if text_value.startswith("exchangeDigitalTimeSheet Save Data"):
@@ -159,27 +175,27 @@ class TimeRemapMixin(MainWindowMembers):
         ):
             return cls._parse_after_effects_time_remap(text_value)
 
-        raise ValueError(
+        raise OperationError(
             "Adobe After Effects、ToeiDigitalTimeSheet、XDTS形式を"
             "判別できませんでした。"
         )
 
     def _time_remap_source_bank(self, layer_index):
         stored_bank = getattr(
-            self.canvas,
+            self.window.canvas,
             "_sequence_source_bank",
             [],
         )
         stored_index = int(
             getattr(
-                self.canvas,
+                self.window.canvas,
                 "_sequence_source_bank_layer_index",
                 -1,
             )
         )
         stored_name = str(
             getattr(
-                self.canvas,
+                self.window.canvas,
                 "_sequence_source_bank_layer_name",
                 "",
             )
@@ -187,19 +203,19 @@ class TimeRemapMixin(MainWindowMembers):
 
         active_name = ""
         if (
-            self.canvas.frames
-            and 0 <= self.canvas.current_frame
-            < len(self.canvas.frames)
+            self.window.canvas.frames
+            and 0 <= self.window.canvas.current_frame
+            < len(self.window.canvas.frames)
             and 0 <= layer_index
             < len(
-                self.canvas.frames[
-                    self.canvas.current_frame
+                self.window.canvas.frames[
+                    self.window.canvas.current_frame
                 ].layers
             )
         ):
             active_name = str(
-                self.canvas.frames[
-                    self.canvas.current_frame
+                self.window.canvas.frames[
+                    self.window.canvas.current_frame
                 ].layers[layer_index].name
             )
 
@@ -213,7 +229,7 @@ class TimeRemapMixin(MainWindowMembers):
             return [image.copy() for image in stored_bank]
 
         numbered_bank = {}
-        for frame in self.canvas.frames:
+        for frame in self.window.canvas.frames:
             if layer_index >= len(frame.layers):
                 continue
             layer = frame.layers[layer_index]
@@ -236,7 +252,7 @@ class TimeRemapMixin(MainWindowMembers):
         # 番号情報のない旧プロジェクトでは、選択レイヤー内の
         # 内容キーを左から連番ソースとして採用する。
         bank = []
-        for frame in self.canvas.frames:
+        for frame in self.window.canvas.frames:
             if layer_index >= len(frame.layers):
                 continue
             layer = frame.layers[layer_index]
@@ -254,14 +270,14 @@ class TimeRemapMixin(MainWindowMembers):
         current_frame,
     ):
         """検証済みのセル番号列を1レイヤーのシートへ展開する。"""
-        self.canvas._ensure_frame_count(end_frame + 1)
-        template = self.canvas.frames[
+        self.window.canvas._ensure_frame_count(end_frame + 1)
+        template = self.window.canvas.frames[
             current_frame
         ].layers[layer_index].clone()
 
         # 対象範囲より前のキーの露出が入り込まないよう切る。
         for prior in range(start_frame - 1, -1, -1):
-            prior_layer = self.canvas.frames[prior].layers[layer_index]
+            prior_layer = self.window.canvas.frames[prior].layers[layer_index]
             exposure = max(1, int(prior_layer.exposure))
             if prior + exposure > start_frame:
                 prior_layer.exposure = max(1, start_frame - prior)
@@ -271,8 +287,8 @@ class TimeRemapMixin(MainWindowMembers):
 
         # 対象範囲をいったん明示空セルに戻す。
         for frame_index in range(start_frame, end_frame + 1):
-            layer = self.canvas.frames[frame_index].layers[layer_index]
-            self._copy_layer_display_properties(template, layer)
+            layer = self.window.canvas.frames[frame_index].layers[layer_index]
+            self.window.layers._copy_display_properties(template, layer)
             layer.image = blank_image()
             layer.has_content = False
             layer.is_blank_key = False
@@ -289,8 +305,8 @@ class TimeRemapMixin(MainWindowMembers):
             if offset < len(states) and next_state == run_state:
                 continue
             run_end = start_frame + offset - 1
-            target = self.canvas.frames[run_start].layers[layer_index]
-            self._copy_layer_display_properties(template, target)
+            target = self.window.canvas.frames[run_start].layers[layer_index]
+            self.window.layers._copy_display_properties(template, target)
             target.exposure = max(1, run_end - run_start + 1)
             if run_state is None:
                 target.image = blank_image()
@@ -308,7 +324,7 @@ class TimeRemapMixin(MainWindowMembers):
                 run_start = start_frame + offset
                 run_state = next_state
 
-    def apply_time_remap_to_active_layer(self, parsed):
+    def apply_to_active_layer(self, parsed):
         states = list(parsed.get("states", []))
         start_frame = int(parsed.get("start_frame", 0))
         end_frame = int(parsed.get("end_frame", -1))
@@ -318,27 +334,27 @@ class TimeRemapMixin(MainWindowMembers):
             or end_frame < start_frame
             or len(states) != end_frame - start_frame + 1
         ):
-            raise ValueError("解析したフレーム範囲が不正です。")
+            raise OperationError("解析したフレーム範囲が不正です。")
 
-        if not self.canvas.frames:
-            raise ValueError("タイムラインがありません。")
-        layer_index = int(self.canvas.active_layer_index)
+        if not self.window.canvas.frames:
+            raise OperationError("タイムラインがありません。")
+        layer_index = int(self.window.canvas.active_layer_index)
         current_frame = max(
             0,
             min(
-                int(self.canvas.current_frame),
-                len(self.canvas.frames) - 1,
+                int(self.window.canvas.current_frame),
+                len(self.window.canvas.frames) - 1,
             ),
         )
         if not (
             0 <= layer_index
-            < len(self.canvas.frames[current_frame].layers)
+            < len(self.window.canvas.frames[current_frame].layers)
         ):
-            raise ValueError("対象レイヤーを選択してください。")
+            raise OperationError("対象レイヤーを選択してください。")
 
         source_bank = self._time_remap_source_bank(layer_index)
         if not source_bank:
-            raise ValueError(
+            raise OperationError(
                 "選択レイヤーに連番画像がありません。\n"
                 "先に画像連番を読み込んでください。"
             )
@@ -359,7 +375,7 @@ class TimeRemapMixin(MainWindowMembers):
             )
             if len(missing) > 12:
                 preview += "…"
-            raise ValueError(
+            raise OperationError(
                 f"連番画像は{len(source_bank)}枚ですが、"
                 "存在しない絵番号が参照されています。\n"
                 f"{preview}"
@@ -390,7 +406,7 @@ class TimeRemapMixin(MainWindowMembers):
         )
 
         answer = QMessageBox.question(
-            self,
+            self.window,
             "タイムリマップを反映",
             message,
             QMessageBox.StandardButton.Yes
@@ -400,8 +416,8 @@ class TimeRemapMixin(MainWindowMembers):
         if answer != QMessageBox.StandardButton.Yes:
             return False
 
-        self.set_timeline_mode("sheet")
-        self.canvas.push_doc_undo()
+        self.window.timeline_ops.set_mode("sheet")
+        self.window.canvas.push_doc_undo()
         self._apply_time_remap_states_to_layer(
             states,
             start_frame,
@@ -411,26 +427,26 @@ class TimeRemapMixin(MainWindowMembers):
             current_frame,
         )
 
-        self.canvas.current_frame = start_frame
-        self.canvas.active_layer_index = layer_index
-        self.canvas._onion_cache.clear()
-        self.canvas._color_filter_cache.clear()
-        self.canvas._color_index_cache.clear()
-        self.canvas._silhouette_cache.clear()
-        self._used_color_cache.clear()
-        self.canvas.changed.emit()
-        self.canvas.selectionChanged.emit()
-        self.canvas.update()
-        self.schedule_used_color_refresh()
+        self.window.canvas.current_frame = start_frame
+        self.window.canvas.active_layer_index = layer_index
+        self.window.canvas._onion_cache.clear()
+        self.window.canvas._color_filter_cache.clear()
+        self.window.canvas._color_index_cache.clear()
+        self.window.canvas._silhouette_cache.clear()
+        self.window._used_color_cache.clear()
+        self.window.canvas.changed.emit()
+        self.window.canvas.selectionChanged.emit()
+        self.window.canvas.update()
+        self.window.used_color.schedule_refresh()
 
-        self.statusBar().showMessage(
+        self.window.statusBar().showMessage(
             f"{format_name}を{start_frame + 1}～"
             f"{end_frame + 1}フレームへ反映しました。",
             4200,
         )
         return True
 
-    def show_time_remap_paste_dialog(self, file_path=None):
+    def show_paste_dialog(self, file_path=None):
         clipboard_text = QApplication.clipboard().text()
         if file_path:
             try:
@@ -439,39 +455,41 @@ class TimeRemapMixin(MainWindowMembers):
                 )
             except (OSError, UnicodeError) as exc:
                 QMessageBox.warning(
-                    self,
+                    self.window,
                     "XDTS読み込み",
                     f"読み込めませんでした。\n\n{exc}",
                 )
                 return False
         dialog = TimeRemapPasteDialog(
             clipboard_text,
-            self,
+            self.window,
+            parse_text=self.parse_text,
+            canvas=self.window.canvas,
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return False
         try:
             parsed = dialog.parsed_result()
             if parsed is None:
-                raise ValueError("使用するタイムシート行がありません。")
+                raise OperationError("使用するタイムシート行がありません。")
             if (
                 str(parsed.get("format", "")).startswith("XDTS")
                 and parsed.get("sheet_columns")
             ):
-                return self.apply_xdts_layer_bindings(parsed)
-            return self.apply_time_remap_to_active_layer(parsed)
+                return self.window.importer.apply_xdts_layer_bindings(parsed)
+            return self.apply_to_active_layer(parsed)
         except _OPERATION_ERRORS as exc:
             log.warning("time-remap paste failed: %s", exc, exc_info=True)
             QMessageBox.warning(
-                self,
+                self.window,
                 "タイムリマップ貼り付け",
                 "タイムラインへ反映できませんでした。\n\n"
                 f"{exc}",
             )
             return False
 
-    def open_dropped_time_remap(self, path):
+    def open_dropped(self, path):
         remap_path = Path(path)
         if remap_path.suffix.lower() not in (".xdts", ".xtds"):
             return False
-        return bool(self.show_time_remap_paste_dialog(str(remap_path)))
+        return bool(self.show_paste_dialog(str(remap_path)))

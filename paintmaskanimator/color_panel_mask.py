@@ -5,7 +5,7 @@ tools treat as protected; these methods toggle that state for one colour or all
 of them, run the press-and-sweep drag that toggles a run of checkboxes in one
 gesture, and provide the mask context menu.
 """
-from .common import *  # noqa: F401,F403
+from PySide6.QtWidgets import QMenu
 from ._color_panel_members import UsedColorPanelMembers
 from .color_panel_widgets import CheckClickArea
 from .logging_setup import get_logger

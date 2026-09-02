@@ -36,7 +36,7 @@ def test_xdts_export_handles_missing_key_reference(qapp, tmp_path, monkeypatch):
 
     window = MainWindow()
     try:
-        window.export_xdts_dialog()
+        window.export.xdts_dialog()
     finally:
         window.close()
         window.deleteLater()

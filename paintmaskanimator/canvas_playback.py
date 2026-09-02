@@ -5,7 +5,8 @@ used during playback, advance the playback position, and composite/cache the
 image shown for each played-back frame. They run against a live ``PaintCanvas``
 instance.
 """
-from .common import *  # noqa: F401,F403
+from PySide6.QtCore import QRectF, Qt
+from PySide6.QtGui import QImage, QPainter
 from ._canvas_members import CanvasMembers
 from .logging_setup import get_logger
 from typing import Optional

@@ -1,5 +1,26 @@
-from .common import *  # noqa: F401,F403
+from PySide6.QtCore import QPoint, QPointF, QSize, QTimer, Qt, Signal
+from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QAbstractSpinBox,
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QFormLayout,
+    QHBoxLayout,
+    QLabel,
+    QListView,
+    QListWidget,
+    QListWidgetItem,
+    QPushButton,
+    QSizePolicy,
+    QSlider,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
+)
 from . import theme
+from .i18n import tr
 from .widgets import (BrushSizeSpinBox, ClickableValueLabel, HSVColorWheel, LineTaperCurvePopup, SliderValueSpinBox, SwatchEyedropButton)
 
 
@@ -94,11 +115,11 @@ class SwatchStack(QWidget):
         self._bg_btn = QPushButton(self)
         for btn in (self._sub_btn, self._main_btn, self._bg_btn):
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._main_btn.setToolTip("クリック：メイン色に切替")
-        self._sub_btn.setToolTip("クリック：サブ色に切替")
-        self._bg_btn.setToolTip(
+        self._main_btn.setToolTip(tr("クリック：メイン色に切替"))
+        self._sub_btn.setToolTip(tr("クリック：サブ色に切替"))
+        self._bg_btn.setToolTip(tr(
             "クリック：背景色で描画／右クリック：背景色を変更"
-        )
+        ))
         self._main_btn.clicked.connect(lambda: self.modeRequested.emit("main"))
         self._sub_btn.clicked.connect(lambda: self.modeRequested.emit("sub"))
         self._bg_btn.clicked.connect(
@@ -433,7 +454,7 @@ class ToolPanel(QWidget):
         v=QVBoxLayout(self)
         v.setContentsMargins(4, 4, 4, 4)
         v.setSpacing(3)
-        v.addWidget(QLabel("<b>ツールプロパティ</b>"))
+        v.addWidget(QLabel(tr("<b>ツールプロパティ</b>")))
         self.active=QLabel(); self.active.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.active.setStyleSheet(
             "padding:6px;font-weight:bold;border-radius:4px;"
@@ -443,30 +464,30 @@ class ToolPanel(QWidget):
         self.command_box=QWidget(); self.command_layout=QVBoxLayout(self.command_box)
         self.command_layout.setContentsMargins(0,2,0,2)
         self.command_layout.setSpacing(3)
-        self.command_title=QLabel("<b>ツールコマンド</b>"); self.command_layout.addWidget(self.command_title)
-        self.mesh_commit=QPushButton("変形を確定")
-        self.mesh_cancel=QPushButton("変形をキャンセル")
-        self.flip_h=QPushButton("左右反転")
-        self.flip_v=QPushButton("上下反転")
-        self.selection_transform=QPushButton("自由変形")
-        self.selection_scale=QPushButton("拡大縮小")
-        self.selection_mesh=QPushButton("メッシュ変形")
-        self.selection_clear=QPushButton("選択範囲を解除")
-        self.selection_clear.setToolTip(
+        self.command_title=QLabel(tr("<b>ツールコマンド</b>")); self.command_layout.addWidget(self.command_title)
+        self.mesh_commit=QPushButton(tr("変形を確定"))
+        self.mesh_cancel=QPushButton(tr("変形をキャンセル"))
+        self.flip_h=QPushButton(tr("左右反転"))
+        self.flip_v=QPushButton(tr("上下反転"))
+        self.selection_transform=QPushButton(tr("自由変形"))
+        self.selection_scale=QPushButton(tr("拡大縮小"))
+        self.selection_mesh=QPushButton(tr("メッシュ変形"))
+        self.selection_clear=QPushButton(tr("選択範囲を解除"))
+        self.selection_clear.setToolTip(tr(
             "選択ツール使用時に、現在の選択範囲を解除します。"
             "どのツールからでも右上の「選択解除」を使用できます。"
-        )
-        self.selection_rotate_left=QPushButton("左へ90°回転")
-        self.selection_rotate_right=QPushButton("右へ90°回転")
-        self.transform_mesh_grid_label=QLabel("メッシュ格子数")
+        ))
+        self.selection_rotate_left=QPushButton(tr("左へ90°回転"))
+        self.selection_rotate_right=QPushButton(tr("右へ90°回転"))
+        self.transform_mesh_grid_label=QLabel(tr("メッシュ格子数"))
         self.transform_mesh_grid_x=QSpinBox()
         self.transform_mesh_grid_y=QSpinBox()
         for spin in (self.transform_mesh_grid_x, self.transform_mesh_grid_y):
             spin.setRange(2, 12)
             spin.setValue(4)
-            spin.setToolTip("メッシュ変形中でも格子数を変更できます。")
-        self.transform_mesh_grid_x.setPrefix("横 ")
-        self.transform_mesh_grid_y.setPrefix("縦 ")
+            spin.setToolTip(tr("メッシュ変形中でも格子数を変更できます。"))
+        self.transform_mesh_grid_x.setPrefix(tr("横 "))
+        self.transform_mesh_grid_y.setPrefix(tr("縦 "))
         self.transform_mesh_grid_x_slider = QSlider(Qt.Orientation.Horizontal)
         self.transform_mesh_grid_x_slider.setRange(2, 12)
         self.transform_mesh_grid_x_slider.setValue(4)
@@ -503,34 +524,36 @@ class ToolPanel(QWidget):
                 self.transform_mesh_grid_y.value(),
             )
         )
-        self.selection_all_frames=QCheckBox("すべてのコマに適用")
+        self.selection_all_frames=QCheckBox(tr("すべてのコマに適用"))
         self.selection_all_frames.setChecked(False)
 
-        self.transform_quality=QCheckBox("クオリティ（Tp_mask v0.7方式）")
+        self.transform_quality=QCheckBox(tr("クオリティ（Tp_mask v0.7方式）"))
         self.transform_quality.setChecked(True)
-        self.transform_quality.setToolTip(
+        self.transform_quality.setToolTip(tr(
             "色ごとに分離して変形し、中間色を作らずに再合成します。"
             "拡大・縮小・回転で線や塗りが崩れにくくなります。"
-        )
-        self.transform_line_width_note=QLabel(
+        ))
+        self.transform_line_width_note=QLabel(tr(
             "色選択があるときは実線の太さを調整できます。"
-        )
+        ))
         self.transform_line_width_note.setWordWrap(True)
         self.transform_line_width_note.setStyleSheet(
             "color:palette(placeholder-text);padding-left:4px;padding-right:4px;"
         )
-        self.transform_line_width_label=QLabel("実線の太さ：159")
+        self.transform_line_width_label=QLabel(
+            tr("実線の太さ：{value}").format(value=159)
+        )
         self.transform_line_width=QSlider(Qt.Orientation.Horizontal)
         self.transform_line_width.setRange(1, 254)
         self.transform_line_width.setValue(96)
         self.transform_line_width.setInvertedAppearance(True)
-        self.transform_line_width.setToolTip(
+        self.transform_line_width.setToolTip(tr(
             "クオリティ変形で、使用色パネルの選択色を実線として残す太さを調整します。"
             "右へ動かすほど太くなります。"
-        )
+        ))
         self.transform_line_width.valueChanged.connect(
             lambda value: self.transform_line_width_label.setText(
-                f"実線の太さ：{255 - value}"
+                tr("実線の太さ：{value}").format(value=255 - value)
             )
         )
         self._has_transform_line_colors=False
@@ -539,17 +562,17 @@ class ToolPanel(QWidget):
         self._sync_transform_quality_options(True)
         self._refresh_transform_line_width_visibility()
 
-        self.bucket_adjacent=QCheckBox("隣接")
+        self.bucket_adjacent=QCheckBox(tr("隣接"))
         self.bucket_adjacent.setChecked(True)
-        self.bucket_adjacent.setToolTip(
+        self.bucket_adjacent.setToolTip(tr(
             "ON：クリック位置につながる同色領域だけを塗ります。"
             "OFF：レイヤー内の同じ色を一括で塗ります。"
-        )
-        self.bucket_include_sub=QCheckBox("選択した使用色を含み塗り")
+        ))
+        self.bucket_include_sub=QCheckBox(tr("選択した使用色を含み塗り"))
         self.bucket_include_sub.setChecked(False)
 
         # 隙間閉じと幅スライダーを同じ横一列へ配置する。
-        self.bucket_close_gap=QCheckBox("隙間閉じ")
+        self.bucket_close_gap=QCheckBox(tr("隙間閉じ"))
         self.bucket_close_gap.setChecked(False)
         self.bucket_gap_width=QSlider(Qt.Orientation.Horizontal)
         self.bucket_gap_width.setRange(1,20)

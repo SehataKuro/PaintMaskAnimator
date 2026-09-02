@@ -23,12 +23,10 @@ def test_time_remap_field_normalizers_reject_scalar_values():
 
 
 def test_time_remap_preview_rejects_non_mapping_parser_result(qapp):
-    class Owner(QWidget):
-        def parse_time_remap_text(self, _text):
-            return ["invalid"]
-
-    owner = Owner()
-    dialog = TimeRemapPasteDialog("invalid", owner)
+    owner = QWidget()
+    dialog = TimeRemapPasteDialog(
+        "invalid", owner, parse_text=lambda _text: ["invalid"]
+    )
     try:
         dialog._update_timesheet_preview()
         assert dialog._parsed_source is None

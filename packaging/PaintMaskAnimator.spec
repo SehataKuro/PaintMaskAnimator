@@ -31,6 +31,8 @@ a = Analysis(
     # stale version strings in every UI location that displays APP_VERSION.
     datas=[
         ("../paintmaskanimator/assets", "paintmaskanimator/assets"),
+        # Compiled translation catalogues; i18n.install() reads them from here.
+        ("../paintmaskanimator/translations", "paintmaskanimator/translations"),
         ("../pyproject.toml", "."),
         # LGPL compliance: ship the license texts with the binary.
         ("../LICENSE", "."),

@@ -6,7 +6,7 @@ moving timeline cells, exposure blocks, and the sequence-number bookkeeping that
 keeps numbered (imported) images consistent with the cells that reference them.
 They run against a live ``PaintCanvas``.
 """
-from .common import *  # noqa: F401,F403
+# (nothing was used)
 from ._canvas_members import CanvasMembers
 from .models import Layer, make_frame
 from .timeline import TimelineWidget

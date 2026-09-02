@@ -21,12 +21,30 @@ mixin must never reuse one. Type-only member declarations for attributes set in
 ``__init__`` (invisible to a checker inspecting one mixin in isolation) live in
 ``_canvas_members.py``; a genuinely undefined name still surfaces there.
 """
-from .common import *  # noqa: F401,F403
+import math
+import numpy as np
+import time
+from typing import Any
+from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, QTimer, Qt, Signal
+from PySide6.QtGui import (
+    QColor,
+    QCursor,
+    QImage,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPixmap,
+    QPolygonF,
+    QRegion,
+)
+from PySide6.QtWidgets import QPushButton, QWidget
+from .constants import OUTSIDE_MARGIN
 from . import constants
 from . import color_ops, colors, geometry, imaging
 from .document import Document
 from .toolpanel import ToolPanel
 from .utils import blank_image, workspace_size
+from .progress import close_counter, create_counter, update_counter
 from .logging_setup import get_logger
 from .canvas_brush_stabilizer import BrushStabilizerMixin
 from .canvas_image_import import ImageImportMixin
@@ -891,22 +909,15 @@ class PaintCanvas(
         )
         window: Any = self.window()
         progress = None
-        can_show_counter = all(
-            hasattr(window, name)
-            for name in (
-                "create_progress_counter",
-                "update_progress_counter",
-                "close_progress_counter",
-            )
-        )
 
-        # create_progress_counter() calls processEvents().  Mark the renderer as
-        # busy first so a repaint during popup creation uses the lightweight
-        # preview instead of recursively starting another TP_mask calculation.
+        # create_counter() calls processEvents().  Mark the renderer as busy
+        # first so a repaint during popup creation uses the lightweight preview
+        # instead of recursively starting another TP_mask calculation.
         self._tp_preview_progress_busy = True
         try:
-            if can_show_counter:
-                progress = window.create_progress_counter(
+            if window is not None:
+                progress = create_counter(
+                    window,
                     (
                         "Tp_mask 軽量プレビュー"
                         if use_proxy
@@ -918,7 +929,7 @@ class PaintCanvas(
 
             def report(value, report_total, message):
                 if progress is not None:
-                    window.update_progress_counter(
+                    update_counter(
                         progress, value, report_total, message
                     )
 
@@ -931,7 +942,7 @@ class PaintCanvas(
                 progress_callback=report,
             )
             if progress is not None:
-                window.update_progress_counter(
+                update_counter(
                     progress,
                     total,
                     total,
@@ -944,7 +955,7 @@ class PaintCanvas(
             )
         finally:
             if progress is not None:
-                window.close_progress_counter(progress)
+                close_counter(progress)
             self._tp_preview_progress_busy = False
         self.update()
 

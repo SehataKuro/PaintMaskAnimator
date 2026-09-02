@@ -6,6 +6,53 @@ PaintMaskAnimator の主な変更点を記録します。
 
 ### 追加
 
+- **UIの多言語対応（英語）を追加した。** 表示 › 言語 / Language から選択でき、
+  既定はOSのロケールに追従する。翻訳は Qt の `.ts`/`.qm` カタログ
+  （`paintmaskanimator/translations/`）で管理し、`scripts/update_translations.py`
+  で再生成する。CIは `--check` でカタログの鮮度を検証するため、`tr()` を追加した
+  まま翻訳エントリを忘れることがない。メニュー・ツールバー・ドックタイトル・
+  ショートカット一覧・バージョン情報の全 128 文字列を英訳済み。
+  ドックの `objectName` は保存済みワークスペース配置の識別子なので翻訳していない。
+
+### 変更
+
+- **`from .common import *` を全モジュールから廃止し、明示的なimportへ移行した。**
+  星インポートのために ruff/pyright が名前解決を検証できず、`F403`/`F405` を
+  無視せざるを得なかった（過去にこれが原因で実行時エラーを検出できなかった例が
+  下記 0.6.x の項にある）。47ファイル・563箇所を変換し、`F403`/`F405` の無視を
+  解除した。起動時の依存関係チェックは `dependency_check.py` に分離し、
+  エントリポイントがQtの読み込み前に実行する。`common.py` は役目を終えたため、
+  任意依存（Pillow / psd-tools）のフォールバックだけを持つ `optional_deps.py` に
+  縮小・改名した。
+- **`OPERATION_ERRORS` から `AttributeError` / `TypeError` / `KeyError` /
+  `IndexError` を除外した。** これらは実装の欠陥を示すもので、トップレベルの
+  ハンドラで握り潰すと、バグが「操作に失敗しました」というダイアログに化けて
+  テストにもCIにも現れない。ユーザーに見せる意図的な中断は新設の
+  `errors.OperationError` を送出するようにし、該当する 68 箇所を移行した。
+- **`MainWindow` のミックスイン18個のうち15個をコントローラへ移行した。**
+  ミックスインは名前空間が単一のため、15個の無関係な機能が同じ `self` に混ざり、
+  兄弟同士が同じメソッド名を静かに奪い合える状態だった。どの属性をどれが
+  提供しているのかも、型チェッカーからは見えなかった。委譲に変えると依存が
+  `self.window.…` として明示され、スタブのウィンドウを渡すだけでテストできる
+  （`test_color_switching.py` は未束縛のミックスインメソッドを偽の `self` に
+  貼り付ける必要がなくなった）。
+  `window.export` / `project` / `importer` / `timeline_ops` / `layers` /
+  `colors` / `used_color` / `line_ops` / `tween` / `onion` / `time_remap` /
+  `scope` / `color_chart_ops` / `autosave` / `workspace` の15個。
+  型スタブ `_main_window_members.py` の `Any` 宣言は 366 → 230 に減った。
+  残る `UIBuildMixin` / `InputMixin` / `DockingMixin` の3つは、ウィンドウ自身の
+  ウィジェットを構築するか、Qt がウィンドウに対して呼ぶオーバーライド
+  （`eventFilter`）を実装しているため、ミックスインのままが正しい。
+- **進捗カウンターを `progress.py` へ切り出した。** 書き出し・一括処理・トゥイーン
+  など8モジュールが共有するUI部品なのに、線ツールのモジュール
+  (`main_window_line_ops.py`) の中に置かれ、無関係なモジュールがそこへ手を
+  伸ばしていた。あわせて、キャンバスが親ウィンドウにメソッドがあるかを
+  `hasattr` で確かめていたダックタイピングの分岐も不要になり削除した。
+- **`TimeRemapPasteDialog` が解析器とキャンバスを引数で受け取るようにした。**
+  以前は `self.parent()` から名前で探しており、この結合はどのツールからも
+  見えなかった。所有側のメソッドを移動・改名すると、ダイアログは例外ではなく
+  「解析機能を取得できません」と表示するだけで静かに壊れる。
+
 - ライセンスを **Apache License 2.0** として明示した。`LICENSE`（全文）、`NOTICE`
   （帰属表示）、サードパーティ表記 `THIRD_PARTY_LICENSES.md` を追加し、配布バイナリ
   にも同梱する。商用・非商用を問わず自由に利用・改変・再配布でき、クローズドソース

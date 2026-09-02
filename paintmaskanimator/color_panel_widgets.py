@@ -6,7 +6,21 @@ sweep-drag behaviour, and the swatch row itself (``ColorSelectionArea``) with it
 drag-and-drop handling. ``UsedColorPanel`` composes these; they know nothing
 about the panel beyond the signals they emit.
 """
-from .common import *  # noqa: F401,F403
+from PySide6.QtCore import QByteArray, QPoint, QPointF, QRectF, QTimer, Qt, Signal
+from PySide6.QtGui import QColor, QCursor, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QFormLayout,
+    QHBoxLayout,
+    QLabel,
+    QSlider,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+)
 from .utils import ScreenColorPickerOverlay, _ScreenColorDragMixin
 from .logging_setup import get_logger
 

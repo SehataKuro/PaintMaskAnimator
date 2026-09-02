@@ -55,7 +55,7 @@ def test_color_replacement_applies_to_every_frame_and_undoes_once(window):
         frame.layers[0].image.copy() for frame in window.canvas.frames
     ]
 
-    assert window.apply_palette_replacements({(255, 0, 0): (0, 0, 255)})
+    assert window.used_color.apply_palette_replacements({(255, 0, 0): (0, 0, 255)})
 
     for frame in window.canvas.frames:
         assert frame.layers[0].image.pixelColor(10, 10) == QColor("#0000ff")
@@ -72,7 +72,7 @@ def test_color_replacement_applies_to_every_frame_and_undoes_once(window):
 def test_color_replacement_reports_no_match_without_touching_the_stack(window):
     paint_cell(window, 0, "#ff0000")
     depth = len(window.canvas.undo_stack)
-    assert not window.apply_palette_replacements({(1, 2, 3): (4, 5, 6)})
+    assert not window.used_color.apply_palette_replacements({(1, 2, 3): (4, 5, 6)})
     assert len(window.canvas.undo_stack) == depth
 
 
@@ -90,7 +90,7 @@ def test_dust_removal_over_all_frames_is_one_undo_entry(window):
     window.tools.dust_selected_only.setChecked(False)
     window.tools.dust_all_frames.setChecked(True)
 
-    window.remove_dust_fill_surrounding()
+    window.line_ops.remove_dust_fill_surrounding()
 
     for frame in window.canvas.frames:
         assert frame.layers[0].image.pixelColor(20, 20) == QColor("white")
@@ -116,7 +116,7 @@ def test_dust_removal_without_all_frames_touches_only_the_current_cell(window):
     window.tools.dust_all_frames.setChecked(False)
     window.canvas.current_frame = 0
 
-    window.remove_dust_fill_surrounding()
+    window.line_ops.remove_dust_fill_surrounding()
 
     assert window.canvas.frames[0].layers[0].image.pixelColor(20, 20) == QColor(
         "white"

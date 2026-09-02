@@ -7,7 +7,11 @@ polygon the transform currently covers, how a drag updates the corner points, an
 how the source image is projected -- including the reduced-size proxy used while
 dragging. They run against a live ``PaintCanvas``.
 """
-from .common import *  # noqa: F401,F403
+import math
+import numpy as np
+from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtGui import QImage, QPainter, QPolygonF
+from .constants import TP_MASK_PROXY_MAX_DIMENSION
 from ._canvas_members import CanvasMembers
 from . import geometry
 from .logging_setup import get_logger

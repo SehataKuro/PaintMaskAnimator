@@ -22,9 +22,9 @@ def test_autosave_writes_and_clears(qapp, tmp_path, monkeypatch):
     window = MainWindow()
     try:
         window.canvas.add_frame(dup=True)
-        window._autosave()
+        window.autosave.save()
 
-        autosave = window._autosave_path()
+        autosave = window.autosave.path()
         assert autosave.exists()
         assert autosave.stat().st_size > 0
 
@@ -33,7 +33,7 @@ def test_autosave_writes_and_clears(qapp, tmp_path, monkeypatch):
         _metadata, frames, _w, _h = project_io.read_project_archive(autosave)
         assert len(frames) == len(window.canvas.frames)
 
-        window._clear_autosave()
+        window.autosave.clear()
         assert not autosave.exists()
     finally:
         # Destroy the window here (not just close) and drain deferred events so
@@ -47,15 +47,15 @@ def test_autosave_writes_and_clears(qapp, tmp_path, monkeypatch):
 
 
 def test_clear_autosave_logs_unlink_failure(caplog, monkeypatch, tmp_path):
-    from paintmaskanimator.main_window_autosave import AutosaveMixin
+    from paintmaskanimator.main_window_autosave import AutosaveController
 
     snapshot = tmp_path / "autosave.pmap"
     snapshot.write_bytes(b"snapshot")
-    owner = object.__new__(AutosaveMixin)
-    monkeypatch.setattr(owner, "_autosave_path", lambda: snapshot)
+    owner = AutosaveController(window=None)
+    monkeypatch.setattr(owner, "path", lambda: snapshot)
     monkeypatch.setattr(type(snapshot), "unlink", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("locked")))
 
     with caplog.at_level(logging.WARNING, logger="paintmaskanimator.main_window_autosave"):
-        owner._clear_autosave()
+        owner.clear()
 
     assert "failed to remove autosave snapshot" in caplog.text

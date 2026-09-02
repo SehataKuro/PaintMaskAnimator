@@ -4,7 +4,9 @@ Split out of ``canvas.py`` as a mixin. These methods push document / layer /
 region snapshots onto the undo stack and apply them on undo/redo. They run
 against a live ``PaintCanvas`` instance and its ``_document`` + stacks.
 """
-from .common import *  # noqa: F401,F403
+from PySide6.QtCore import QRect
+from PySide6.QtGui import QPainter
+from .constants import MAX_UNDO, MAX_UNDO_BYTES
 from ._canvas_members import CanvasMembers
 from . import constants
 from .models import Layer

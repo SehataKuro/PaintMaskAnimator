@@ -51,6 +51,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
 
+      - name: Compile translation catalogues
+        run: python scripts/update_translations.py
+
       - name: Run tests
         run: python scripts/run_tests.py -q
 
@@ -85,6 +88,15 @@ jobs:
 
       - name: Type check (pyright)
         run: pyright
+
+      # A newly wrapped tr() string must land with its catalogue entry, or the
+      # translation simply never appears -- silently, since an unresolved lookup
+      # returns the Japanese source string.
+      - name: Check translation catalogues are current
+        run: python scripts/update_translations.py --check
+
+      - name: Compile translation catalogues
+        run: python scripts/update_translations.py
 
       - name: Run tests
         run: >

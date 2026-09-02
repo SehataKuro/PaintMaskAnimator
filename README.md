@@ -50,6 +50,15 @@ python PaintMaskAnimator.py
 python -m paintmaskanimator
 ```
 
+## 表示言語
+
+日本語（原文）と英語に対応しています。**表示 › 言語 / Language** から選択でき、
+既定ではOSのロケールに従います。切り替えは次回起動から反映されます。
+
+翻訳は `paintmaskanimator/translations/` の Qt `.ts` カタログで管理しています。
+`tr()` の文字列を追加・変更したら
+`python scripts/update_translations.py` で再生成してください（CIが鮮度を検証します）。
+
 ## 開発
 
 ```bash
@@ -69,6 +78,11 @@ QT_QPA_PLATFORM=offscreen python scripts/run_tests.py -q
 | `imaging.py`、`geometry.py`、`colors.py`、`color_ops.py` | Qt に依存しない純粋なアルゴリズム |
 | `project_io.py` | プロジェクト（`.zip`）の保存 / 読み込みシリアライズ |
 | `canvas.py`、`timeline.py`、`toolpanel.py`、`main_window.py` など | UI レイヤー（PySide6 ウィジェット） |
+| `main_window_<topic>.py` | 機能ごとのコントローラ（`window.export` など、`MainWindow` が所有） |
+| `progress.py` | 長い処理で共有する進捗カウンター |
+| `i18n.py` | 翻訳の読み込みと `tr()` |
+| `errors.py` | 例外型と、ユーザー操作ハンドラが捕捉する範囲 |
+| `dependency_check.py`、`optional_deps.py` | 必須依存の起動時チェックと、任意依存のフォールバック |
 
 リポジトリ直下の `PaintMaskAnimator.py` は薄いランチャーです。
 

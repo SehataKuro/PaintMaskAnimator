@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (  # noqa: E402
 )
 
 from paintmaskanimator.main_window import MainWindow  # noqa: E402
+from paintmaskanimator.main_window_autosave import AutosaveController  # noqa: E402
 from paintmaskanimator.onion import OnionSkinSettingsBrowser  # noqa: E402
 
 
@@ -48,14 +49,14 @@ def test_sampled_color_syncs_bottom_toolbar_and_white_selects_background(
     window = MainWindow()
     window.show()
     try:
-        window.apply_sampled_color(QColor("#2468ac"))
+        window.colors.apply_sampled_color(QColor("#2468ac"))
         swatch = window.tool_selector.color_swatch
         assert swatch._main == QColor("#2468ac")
         assert swatch._mode == "main"
         original_main = QColor(window.canvas.main_color)
         original_sub = QColor(window.canvas.sub_color)
 
-        window.apply_sampled_color(QColor("#ffffff"))
+        window.colors.apply_sampled_color(QColor("#ffffff"))
 
         assert window.canvas.main_color == original_main
         assert window.canvas.sub_color == original_sub
@@ -157,7 +158,7 @@ def test_onion_settings_content_is_ads_compatible():
 def test_docked_tab_drag_enters_manual_preview_path(qapp, tmp_path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    monkeypatch.setattr(MainWindow, "_maybe_restore_autosave", lambda self: None)
+    monkeypatch.setattr(AutosaveController, "maybe_restore", lambda self: None)
     window = MainWindow()
     window.show()
     try:
@@ -468,7 +469,7 @@ def test_detached_subview_resizes_from_side_and_top_edges(
 ):
     monkeypatch.setenv("APPDATA", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    monkeypatch.setattr(MainWindow, "_maybe_restore_autosave", lambda self: None)
+    monkeypatch.setattr(AutosaveController, "maybe_restore", lambda self: None)
     window = MainWindow()
     window.show()
     try:
@@ -516,7 +517,7 @@ def test_detached_subview_resizes_from_side_and_top_edges(
 def test_tool_width_snaps_only_after_mouse_release(qapp, tmp_path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    monkeypatch.setattr(MainWindow, "_maybe_restore_autosave", lambda self: None)
+    monkeypatch.setattr(AutosaveController, "maybe_restore", lambda self: None)
     window = MainWindow()
     window.show()
     QTest.qWait(220)
@@ -560,7 +561,7 @@ def test_tool_width_snaps_only_after_mouse_release(qapp, tmp_path, monkeypatch):
 def test_layout_resize_does_not_trigger_tool_width_snap(qapp, tmp_path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    monkeypatch.setattr(MainWindow, "_maybe_restore_autosave", lambda self: None)
+    monkeypatch.setattr(AutosaveController, "maybe_restore", lambda self: None)
     window = MainWindow()
     window.show()
     QTest.qWait(220)
@@ -590,7 +591,7 @@ def test_layout_resize_does_not_trigger_tool_width_snap(qapp, tmp_path, monkeypa
 def test_tabbed_panels_share_left_aligned_hamburger(qapp, tmp_path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    monkeypatch.setattr(MainWindow, "_maybe_restore_autosave", lambda self: None)
+    monkeypatch.setattr(AutosaveController, "maybe_restore", lambda self: None)
     window = MainWindow()
     window.show()
     try:
@@ -640,7 +641,7 @@ def test_hamburger_is_added_when_tabbed_into_area_without_one(
 ):
     monkeypatch.setenv("APPDATA", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    monkeypatch.setattr(MainWindow, "_maybe_restore_autosave", lambda self: None)
+    monkeypatch.setattr(AutosaveController, "maybe_restore", lambda self: None)
     window = MainWindow()
     window.show()
     try:
@@ -665,7 +666,7 @@ def test_hamburger_is_added_when_tabbed_into_area_without_one(
 def test_dock_tab_height_is_consistent_when_stacked(qapp, tmp_path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    monkeypatch.setattr(MainWindow, "_maybe_restore_autosave", lambda self: None)
+    monkeypatch.setattr(AutosaveController, "maybe_restore", lambda self: None)
     window = MainWindow()
     window.show()
     try:
@@ -693,7 +694,7 @@ def test_dock_tab_height_is_consistent_when_stacked(qapp, tmp_path, monkeypatch)
 def test_hamburger_sync_removes_duplicates(qapp, tmp_path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    monkeypatch.setattr(MainWindow, "_maybe_restore_autosave", lambda self: None)
+    monkeypatch.setattr(AutosaveController, "maybe_restore", lambda self: None)
     window = MainWindow()
     window.show()
     try:
@@ -722,7 +723,7 @@ def test_hamburger_sync_removes_duplicates(qapp, tmp_path, monkeypatch):
 def test_named_workspace_restores_dock_layout(qapp, tmp_path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    monkeypatch.setattr(MainWindow, "_maybe_restore_autosave", lambda self: None)
+    monkeypatch.setattr(AutosaveController, "maybe_restore", lambda self: None)
     window = MainWindow()
     window.show()
     try:
@@ -732,11 +733,11 @@ def test_named_workspace_restores_dock_layout(qapp, tmp_path, monkeypatch):
             window.color_wheel_dock, area
         )
         area.setCurrentDockWidget(window.color_wheel_dock)
-        assert window._save_workspace("カラー作業")
+        assert window.workspace.save("カラー作業")
 
         window.color_wheel_dock.closeDockWidget()
         assert not window.color_wheel_dock.isVisible()
-        assert window._apply_workspace("カラー作業", restore_geometry=False)
+        assert window.workspace.apply("カラー作業", restore_geometry=False)
         qapp.processEvents()
 
         assert window.color_wheel_dock.isVisible()
@@ -744,8 +745,8 @@ def test_named_workspace_restores_dock_layout(qapp, tmp_path, monkeypatch):
             window.color_wheel_dock.dockAreaWidget()
             is window.tools_dock.dockAreaWidget()
         )
-        assert window._delete_workspace("カラー作業")
-        assert "カラー作業" not in window._workspace_records()
+        assert window.workspace.delete("カラー作業")
+        assert "カラー作業" not in window.workspace.records()
     finally:
         window.close()
 
@@ -753,7 +754,7 @@ def test_named_workspace_restores_dock_layout(qapp, tmp_path, monkeypatch):
 def test_boundary_drop_does_not_move_tab_twice(qapp, tmp_path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    monkeypatch.setattr(MainWindow, "_maybe_restore_autosave", lambda self: None)
+    monkeypatch.setattr(AutosaveController, "maybe_restore", lambda self: None)
     window = MainWindow()
     window.show()
     try:
@@ -780,7 +781,7 @@ def test_boundary_feedback_never_performs_the_drop_itself(
 ):
     monkeypatch.setenv("APPDATA", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    monkeypatch.setattr(MainWindow, "_maybe_restore_autosave", lambda self: None)
+    monkeypatch.setattr(AutosaveController, "maybe_restore", lambda self: None)
     window = MainWindow()
     window.show()
     try:
@@ -807,7 +808,7 @@ def test_boundary_feedback_never_performs_the_drop_itself(
 def test_all_initial_panels_satisfy_docking_invariants(qapp, tmp_path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    monkeypatch.setattr(MainWindow, "_maybe_restore_autosave", lambda self: None)
+    monkeypatch.setattr(AutosaveController, "maybe_restore", lambda self: None)
     window = MainWindow()
     window.show()
     try:
@@ -820,7 +821,7 @@ def test_all_initial_panels_satisfy_docking_invariants(qapp, tmp_path, monkeypat
 def test_repeated_stack_and_split_keeps_every_panel(qapp, tmp_path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    monkeypatch.setattr(MainWindow, "_maybe_restore_autosave", lambda self: None)
+    monkeypatch.setattr(AutosaveController, "maybe_restore", lambda self: None)
     window = MainWindow()
     window.show()
     try:
@@ -853,7 +854,7 @@ def test_repeated_stack_and_split_keeps_every_panel(qapp, tmp_path, monkeypatch)
 def test_close_and_reopen_tab_preserves_shared_menu(qapp, tmp_path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    monkeypatch.setattr(MainWindow, "_maybe_restore_autosave", lambda self: None)
+    monkeypatch.setattr(AutosaveController, "maybe_restore", lambda self: None)
     window = MainWindow()
     window.show()
     try:
@@ -876,7 +877,7 @@ def test_workspace_repeated_round_trip_preserves_all_tabs(
 ):
     monkeypatch.setenv("APPDATA", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    monkeypatch.setattr(MainWindow, "_maybe_restore_autosave", lambda self: None)
+    monkeypatch.setattr(AutosaveController, "maybe_restore", lambda self: None)
     window = MainWindow()
     window.show()
     try:
@@ -890,7 +891,7 @@ def test_workspace_repeated_round_trip_preserves_all_tabs(
         for dock in grouped[1:]:
             window.dock_manager.addDockWidgetTabToArea(dock, area)
         area.setCurrentDockWidget(window.color_slider_dock)
-        assert window._save_workspace("stress")
+        assert window.workspace.save("stress")
 
         for _cycle in range(3):
             window.dock_manager.addDockWidget(
@@ -898,7 +899,7 @@ def test_workspace_repeated_round_trip_preserves_all_tabs(
                 window.color_wheel_dock,
                 window.central_dock.dockAreaWidget(),
             )
-            assert window._apply_workspace("stress", restore_geometry=False)
+            assert window.workspace.apply("stress", restore_geometry=False)
             qapp.processEvents()
             restored_area = window.tools_dock.dockAreaWidget()
             assert all(dock.dockAreaWidget() is restored_area for dock in grouped)
@@ -922,7 +923,7 @@ def test_boundary_candidate_never_targets_drag_source(
 ):
     monkeypatch.setenv("APPDATA", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    monkeypatch.setattr(MainWindow, "_maybe_restore_autosave", lambda self: None)
+    monkeypatch.setattr(AutosaveController, "maybe_restore", lambda self: None)
     window = MainWindow()
     window.show()
     try:

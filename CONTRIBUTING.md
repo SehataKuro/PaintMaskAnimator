@@ -28,7 +28,66 @@ pip install -e ".[dev,full]"
 ```bash
 ruff check paintmaskanimator
 pyright
+python scripts/update_translations.py --check
 pytest
+```
+
+## MainWindow に機能を足すとき
+
+機能は `main_window_<topic>.py` の **コントローラ**として書き、`MainWindow.__init__`
+で `self.<name> = XxxController(self)` として持たせます。コントローラは
+コンストラクタでウィンドウを受け取り、必要なものは `self.window.canvas` のように
+辿ります。
+
+```python
+class TweenController:
+    def __init__(self, window: "MainWindow"):
+        self.window = window
+
+    def enable(self, visual_row, key_column):
+        self.window.canvas.push_doc_undo()
+```
+
+**ミックスインを新しく足さないでください。** 以前は18個のミックスインが1つの
+`MainWindow` に合成されており、無関係な機能が同じ `self` を共有していました。
+兄弟同士が同じメソッド名を静かに奪い合え、どの属性をどれが提供しているのかも
+型チェッカーからは見えませんでした。
+
+例外は、Qt がウィンドウ自身に対して呼ぶもの（`eventFilter` などのオーバーライド）と、
+ウィンドウのウィジェットを組み立てるものだけです。`UIBuildMixin` /
+`InputMixin` / `DockingMixin` がこれに当たり、ミックスインのまま残しています。
+
+ダイアログやウィジェットが親を辿って機能を探す（`getattr(self.parent(), "...")`）
+書き方は避けてください。この結合はどのツールからも見えず、所有側を移動・改名すると
+例外にならず静かに壊れます。必要なものは引数で渡します。
+
+## UI文字列と翻訳
+
+UIに表示される文字列は `tr()` で囲みます。原文は日本語のままなので、囲むだけでは
+表示は一切変わりません（未翻訳の `tr()` は原文をそのまま返します）。
+
+```python
+from .i18n import tr
+
+QMessageBox.critical(self, tr("PSD書き出し"), tr("PSDを書き出せませんでした。"))
+```
+
+補間は **翻訳したあとに、名前付きで** 行ってください。訳文では語順が変わるため、
+f-string で先に埋め込むと翻訳できなくなります。
+
+```python
+tr("{count}個のキーフレームを書き出しました。").format(count=exported)
+```
+
+囲んではいけないもの: ログメッセージ、設定キー、ファイル形式の識別子、
+`QObject.setObjectName()` に渡す名前（ドックの `objectName` は保存された
+ワークスペース配置の識別子なので、翻訳すると既存のレイアウトが壊れます）。
+
+文字列を追加・変更したら、カタログを再生成してコミットしてください。CIは
+`--check` で鮮度を検証します。
+
+```bash
+python scripts/update_translations.py
 ```
 
 ## パッケージングを変更する場合

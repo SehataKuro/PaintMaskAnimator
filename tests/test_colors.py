@@ -13,7 +13,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 from paintmaskanimator import colors  # noqa: E402
 from paintmaskanimator import canvas_input_events  # noqa: E402
 from paintmaskanimator.canvas import PaintCanvas  # noqa: E402
-from paintmaskanimator.main_window_used_color import UsedColorMixin  # noqa: E402
+from paintmaskanimator.main_window_used_color import UsedColorController  # noqa: E402
 
 
 @pytest.fixture(scope="session")
@@ -168,10 +168,9 @@ def test_used_color_scan_prewarms_palette_filter_index(qapp):
     image = QImage(2, 1, QImage.Format.Format_ARGB32)
     image.setPixelColor(0, 0, QColor(255, 0, 0))
     image.setPixelColor(1, 0, QColor(0, 0, 255))
-    owner = object.__new__(UsedColorMixin)
-    owner.canvas = canvas
+    owner = UsedColorController(SimpleNamespace(canvas=canvas))
 
-    assert owner._extract_used_colors(image) == [(0, 0, 255), (255, 0, 0)]
+    assert owner._extract(image) == [(0, 0, 255), (255, 0, 0)]
     assert len(canvas._color_index_cache) == 1
     warmed_index = next(iter(canvas._color_index_cache.values()))
 

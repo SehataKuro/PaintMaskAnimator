@@ -6,7 +6,13 @@ color-reduction pipeline, and handle file drag-and-drop onto the canvas. They
 run against a live ``PaintCanvas`` instance and reuse its frame/layer state and
 the color-reduction delegating methods that remain on the widget.
 """
-from .common import *  # noqa: F401,F403
+import numpy as np
+from pathlib import Path
+from PySide6.QtCore import QPoint
+from PySide6.QtGui import QImage, QImageReader, QPainter
+from .optional_deps import PILImage
+from .constants import MAX_IMAGE_DIMENSION, MAX_SINGLE_IMAGE_PIXELS, OUTSIDE_MARGIN
+from .errors import OperationError
 from ._canvas_members import CanvasMembers
 from . import constants, imaging
 from .models import Layer
@@ -56,7 +62,7 @@ class ImageImportMixin(CanvasMembers):
                         or pil_height > MAX_IMAGE_DIMENSION
                         or pil_width * pil_height > MAX_SINGLE_IMAGE_PIXELS
                     ):
-                        raise ValueError(
+                        raise OperationError(
                             "画像サイズが上限を超えています。"
                             f" ({pil_width} × {pil_height}px)"
                         )

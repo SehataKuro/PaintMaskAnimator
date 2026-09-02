@@ -1,43 +1,59 @@
-"""Project open/save orchestration for MainWindow.
+"""Project open/save orchestration; owned by ``MainWindow`` as ``window.project``.
 
-Split out of ``main_window.py`` as a mixin. These methods drive the save/open
-file dialogs, the unsaved-changes guard, and loading a project archive back
-into the widgets (the low-level archive read/write lives in ``project_io``).
-They run against a live ``MainWindow`` instance.
+Drives the save/open file dialogs, the unsaved-changes guard, and loading a
+project archive back into the widgets. The low-level archive read/write lives in
+``project_io``; this module is the UI orchestration on top of it.
+
+A collaborator rather than a mixin -- see ``main_window_export.py`` for why.
 """
-from .common import *  # noqa: F401,F403
-from ._main_window_members import MainWindowMembers
+from typing import TYPE_CHECKING
+from pathlib import Path
+from PySide6.QtCore import QTimer
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import QFileDialog, QMessageBox
+from .constants import APP_DISPLAY_NAME
 from . import constants, project_io
 from .errors import OPERATION_ERRORS as _OPERATION_ERRORS
 from .logging_setup import get_logger
 
+if TYPE_CHECKING:
+    from .main_window import MainWindow
+
 log = get_logger(__name__)
 
 
-class ProjectIOMixin(MainWindowMembers):
-    def update_project_title(self):
-        if self.current_project_path:
-            name = Path(self.current_project_path).name
-            self.setWindowTitle(f"{APP_DISPLAY_NAME} — {name}")
+class ProjectIOController:
+    """Owned by ``MainWindow`` as ``window.project``.
+
+    A collaborator rather than a mixin -- see main_window_export.py for why.
+    """
+
+    def __init__(self, window: "MainWindow"):
+        self.window = window
+
+    def update_title(self):
+        if self.window.current_project_path:
+            name = Path(self.window.current_project_path).name
+            self.window.setWindowTitle(f"{APP_DISPLAY_NAME} — {name}")
         else:
-            self.setWindowTitle(f"{APP_DISPLAY_NAME} — 新規プロジェクト")
+            self.window.setWindowTitle(f"{APP_DISPLAY_NAME} — 新規プロジェクト")
 
-    def save_project(self):
+    def save(self):
         if (
-            not self.current_project_path
-            or Path(self.current_project_path).suffix.lower() != ".pman"
+            not self.window.current_project_path
+            or Path(self.window.current_project_path).suffix.lower() != ".pman"
         ):
-            return self.save_project_as()
-        return self.write_project(self.current_project_path)
+            return self.save_as()
+        return self.write(self.window.current_project_path)
 
-    def save_project_as(self):
+    def save_as(self):
         initial = (
-            str(Path(self.current_project_path).with_suffix(".pman"))
-            if self.current_project_path
+            str(Path(self.window.current_project_path).with_suffix(".pman"))
+            if self.window.current_project_path
             else "untitled.pman"
         )
         path, _ = QFileDialog.getSaveFileName(
-            self,
+            self.window,
             "名前を付けて保存",
             initial,
             "PaintMaskAnimator Project (*.pman)",
@@ -46,27 +62,27 @@ class ProjectIOMixin(MainWindowMembers):
             return False
         if not path.lower().endswith(".pman"):
             path = str(Path(path).with_suffix(".pman"))
-        if self.write_project(path):
-            self.current_project_path = Path(path)
-            self.update_project_title()
+        if self.write(path):
+            self.window.current_project_path = Path(path)
+            self.update_title()
             return True
         return False
 
-    def write_project(self, path):
+    def write(self, path):
         project_path = Path(path)
 
-        metadata = self.build_project_metadata()
+        metadata = self.window.build_project_metadata()
 
         try:
             project_io.write_project_archive(
                 project_path,
                 metadata,
-                self.canvas.frames,
-                self.canvas._sequence_archive,
+                self.window.canvas.frames,
+                self.window.canvas._sequence_archive,
             )
-            self.current_project_path = project_path
-            self.update_project_title()
-            self.statusBar().showMessage(
+            self.window.current_project_path = project_path
+            self.update_title()
+            self.window.statusBar().showMessage(
                 f"プロジェクトを保存しました：{project_path.name}",
                 3000,
             )
@@ -74,25 +90,25 @@ class ProjectIOMixin(MainWindowMembers):
         except _OPERATION_ERRORS as error:
             log.error("project save failed: %s", error, exc_info=True)
             QMessageBox.critical(
-                self,
+                self.window,
                 "プロジェクト保存エラー",
                 f"保存できませんでした。\n\n{error}",
             )
             return False
 
-    def open_project_dialog(self):
+    def open_dialog(self):
         path, _ = QFileDialog.getOpenFileName(
-            self,
+            self.window,
             "プロジェクトを開く",
             "",
             "PaintMaskAnimator Project (*.pman);;"
             "旧Oekaki Animation Project (*.oap)",
         )
         if path:
-            self.open_project(path)
+            self.open(path)
 
-    def confirm_save_before_dropped_project(self):
-        dialog = QMessageBox(self)
+    def confirm_save_before_dropped(self):
+        dialog = QMessageBox(self.window)
         dialog.setIcon(QMessageBox.Icon.Question)
         dialog.setWindowTitle("プロジェクトを開く")
         dialog.setText(
@@ -114,40 +130,40 @@ class ProjectIOMixin(MainWindowMembers):
         if clicked is cancel_button or clicked is None:
             return False
         if clicked is save_button:
-            return bool(self.save_project())
+            return bool(self.save())
         return clicked is discard_button
 
-    def open_dropped_project(self, path):
+    def open_dropped(self, path):
         project_path = Path(path)
         if project_path.suffix.lower() != ".pman":
             return False
-        if not self.confirm_save_before_dropped_project():
+        if not self.confirm_save_before_dropped():
             return False
-        return self.open_project(project_path)
+        return self.open(project_path)
 
-    def open_project(self, path):
+    def open(self, path):
         project_path = Path(path)
         try:
             metadata, loaded_frames, width, height = project_io.read_project_archive(project_path)
 
-            self.palette.clear_categories()
-            self._pending_palette_categories = metadata.get(
+            self.window.palette.clear_categories()
+            self.window._pending_palette_categories = metadata.get(
                 "used_color_categories", {}
             )
-            self.set_color_chart_data(metadata.get("color_chart", {}))
+            self.window.color_chart_ops.set_data(metadata.get("color_chart", {}))
 
             constants.CANVAS_WIDTH = width
             constants.CANVAS_HEIGHT = height
-            self.canvas.frames = loaded_frames
-            self.canvas._sequence_archive = metadata.pop(
+            self.window.canvas.frames = loaded_frames
+            self.window.canvas._sequence_archive = metadata.pop(
                 "_loaded_sequence_archive", {}
             )
-            self.timeline.sequence_archive = self.canvas._sequence_archive
+            self.window.timeline.sequence_archive = self.window.canvas._sequence_archive
             clip_source = metadata.get("clip_studio_source")
-            self.canvas.clip_studio_source_metadata = (
+            self.window.canvas.clip_studio_source_metadata = (
                 dict(clip_source) if isinstance(clip_source, dict) else None
             )
-            self.canvas.current_frame = max(
+            self.window.canvas.current_frame = max(
                 0,
                 min(
                     int(metadata.get("current_frame", 0)),
@@ -155,9 +171,9 @@ class ProjectIOMixin(MainWindowMembers):
                 ),
             )
             layer_count = len(
-                loaded_frames[self.canvas.current_frame].layers
+                loaded_frames[self.window.canvas.current_frame].layers
             )
-            self.canvas.active_layer_index = max(
+            self.window.canvas.active_layer_index = max(
                 0,
                 min(
                     int(metadata.get("active_layer_index", 0)),
@@ -166,36 +182,36 @@ class ProjectIOMixin(MainWindowMembers):
             )
 
             colors = metadata.get("colors", {})
-            self.canvas.main_color = QColor(
+            self.window.canvas.main_color = QColor(
                 colors.get("main", "#000000")
             )
-            self.canvas.sub_color = QColor(
+            self.window.canvas.sub_color = QColor(
                 colors.get("sub", "#FF0000")
             )
             mode = colors.get("mode", "main")
-            self.canvas.color_mode = (
+            self.window.canvas.color_mode = (
                 mode if mode in ("main", "sub", "transparent") else "main"
             )
-            self.canvas.transparent_display_color = QColor(
+            self.window.canvas.transparent_display_color = QColor(
                 colors.get("background", "#FFFFFF")
             )
 
             display = metadata.get("display", {})
-            self.canvas.silhouette_non_background = bool(
+            self.window.canvas.silhouette_non_background = bool(
                 display.get("silhouette_non_background", False)
             )
-            self.canvas.onion_skin = bool(display.get("onion_skin", False))
-            self.canvas.onion_previous_count = max(
+            self.window.canvas.onion_skin = bool(display.get("onion_skin", False))
+            self.window.canvas.onion_previous_count = max(
                 0, min(12, int(display.get("onion_previous_count", 1)))
             )
-            self.canvas.onion_next_count = max(
+            self.window.canvas.onion_next_count = max(
                 0, min(12, int(display.get("onion_next_count", 1)))
             )
-            self.canvas.onion_previous_opacity = max(
+            self.window.canvas.onion_previous_opacity = max(
                 0.01,
                 min(1.0, float(display.get("onion_previous_opacity", 0.22))),
             )
-            self.canvas.onion_next_opacity = max(
+            self.window.canvas.onion_next_opacity = max(
                 0.01,
                 min(1.0, float(display.get("onion_next_opacity", 0.22))),
             )
@@ -227,19 +243,19 @@ class ProjectIOMixin(MainWindowMembers):
                     )
                 return values[:count]
 
-            self.canvas.onion_previous_levels = (
+            self.window.canvas.onion_previous_levels = (
                 normalized_onion_levels(
                     display.get("onion_previous_levels"),
-                    self.canvas.onion_previous_count,
+                    self.window.canvas.onion_previous_count,
                 )
             )
-            self.canvas.onion_next_levels = (
+            self.window.canvas.onion_next_levels = (
                 normalized_onion_levels(
                     display.get("onion_next_levels"),
-                    self.canvas.onion_next_count,
+                    self.window.canvas.onion_next_count,
                 )
             )
-            self.canvas.onion_center_percent = max(
+            self.window.canvas.onion_center_percent = max(
                 0.0,
                 min(
                     100.0,
@@ -251,22 +267,22 @@ class ProjectIOMixin(MainWindowMembers):
                     ),
                 ),
             )
-            self.canvas.onion_previous_color = QColor(
+            self.window.canvas.onion_previous_color = QColor(
                 display.get("onion_previous_color", "#FF5C5C")
             )
-            self.canvas.onion_next_color = QColor(
+            self.window.canvas.onion_next_color = QColor(
                 display.get("onion_next_color", "#5CA0FF")
             )
-            self.canvas.onion_previous_color_enabled = bool(
+            self.window.canvas.onion_previous_color_enabled = bool(
                 display.get("onion_previous_color_enabled", False)
             )
-            self.canvas.onion_next_color_enabled = bool(
+            self.window.canvas.onion_next_color_enabled = bool(
                 display.get("onion_next_color_enabled", False)
             )
-            self.canvas.onion_selected_colors_only = bool(
+            self.window.canvas.onion_selected_colors_only = bool(
                 display.get("onion_selected_colors_only", False)
             )
-            self.canvas.onion_previous_shift_x = max(
+            self.window.canvas.onion_previous_shift_x = max(
                 -10000.0,
                 min(
                     10000.0,
@@ -278,7 +294,7 @@ class ProjectIOMixin(MainWindowMembers):
                     ),
                 ),
             )
-            self.canvas.onion_previous_shift_y = max(
+            self.window.canvas.onion_previous_shift_y = max(
                 -10000.0,
                 min(
                     10000.0,
@@ -290,7 +306,7 @@ class ProjectIOMixin(MainWindowMembers):
                     ),
                 ),
             )
-            self.canvas.onion_previous_rotation = (
+            self.window.canvas.onion_previous_rotation = (
                 (
                     float(
                         display.get(
@@ -302,7 +318,7 @@ class ProjectIOMixin(MainWindowMembers):
                 )
                 % 360.0
             ) - 180.0
-            self.canvas.onion_previous_scale = max(
+            self.window.canvas.onion_previous_scale = max(
                 1.0,
                 min(
                     199.0,
@@ -314,7 +330,7 @@ class ProjectIOMixin(MainWindowMembers):
                     ),
                 ),
             )
-            self.canvas.onion_next_shift_x = max(
+            self.window.canvas.onion_next_shift_x = max(
                 -10000.0,
                 min(
                     10000.0,
@@ -326,7 +342,7 @@ class ProjectIOMixin(MainWindowMembers):
                     ),
                 ),
             )
-            self.canvas.onion_next_shift_y = max(
+            self.window.canvas.onion_next_shift_y = max(
                 -10000.0,
                 min(
                     10000.0,
@@ -338,7 +354,7 @@ class ProjectIOMixin(MainWindowMembers):
                     ),
                 ),
             )
-            self.canvas.onion_next_rotation = (
+            self.window.canvas.onion_next_rotation = (
                 (
                     float(
                         display.get(
@@ -350,7 +366,7 @@ class ProjectIOMixin(MainWindowMembers):
                 )
                 % 360.0
             ) - 180.0
-            self.canvas.onion_next_scale = max(
+            self.window.canvas.onion_next_scale = max(
                 1.0,
                 min(
                     199.0,
@@ -362,7 +378,7 @@ class ProjectIOMixin(MainWindowMembers):
                     ),
                 ),
             )
-            self.canvas.onion_tu_tb_scale = max(
+            self.window.canvas.onion_tu_tb_scale = max(
                 0.05,
                 min(
                     20.0,
@@ -376,68 +392,68 @@ class ProjectIOMixin(MainWindowMembers):
             )
 
             pressure = metadata.get("pressure", {})
-            self.canvas.pressure_enabled = bool(
+            self.window.canvas.pressure_enabled = bool(
                 pressure.get("enabled", True)
             )
-            self.canvas.pressure_min = float(
+            self.window.canvas.pressure_min = float(
                 pressure.get("minimum", 0.05)
             )
-            self.canvas.pressure_max = float(
+            self.window.canvas.pressure_max = float(
                 pressure.get("maximum", 1.0)
             )
-            self.canvas.pressure_curve = float(
+            self.window.canvas.pressure_curve = float(
                 pressure.get("curve", 1.0)
             )
             saved_points = pressure.get("points")
             if isinstance(saved_points, list) and len(saved_points) >= 2:
-                self.canvas.pressure_curve_points = saved_points
+                self.window.canvas.pressure_curve_points = saved_points
             else:
-                exponent = self.canvas.pressure_curve
-                self.canvas.pressure_curve_points = [
+                exponent = self.window.canvas.pressure_curve
+                self.window.canvas.pressure_curve_points = [
                     [0.0, 0.0], [0.5, 0.5 ** exponent], [1.0, 1.0]
                 ]
 
-            self.timeline.fps.setValue(
+            self.window.timeline.fps.setValue(
                 max(1, min(60, int(metadata.get("fps", 24))))
             )
-            self.canvas.undo_stack.clear()
-            self.canvas.redo_stack.clear()
-            self.canvas.clear_history_branches()
-            self.canvas._color_filter_cache.clear()
-            self.canvas._silhouette_cache.clear()
-            self._used_color_cache.clear()
-            self.current_project_path = project_path
-            self.update_project_title()
-            self.tools.set_colors(
-                self.canvas.main_color,
-                self.canvas.sub_color,
-                self.canvas.color_mode,
-                self.canvas.transparent_display_color,
+            self.window.canvas.undo_stack.clear()
+            self.window.canvas.redo_stack.clear()
+            self.window.canvas.clear_history_branches()
+            self.window.canvas._color_filter_cache.clear()
+            self.window.canvas._silhouette_cache.clear()
+            self.window._used_color_cache.clear()
+            self.window.current_project_path = project_path
+            self.update_title()
+            self.window.tools.set_colors(
+                self.window.canvas.main_color,
+                self.window.canvas.sub_color,
+                self.window.canvas.color_mode,
+                self.window.canvas.transparent_display_color,
             )
-            self.a_silhouette.setChecked(
-                self.canvas.silhouette_non_background
+            self.window.a_silhouette.setChecked(
+                self.window.canvas.silhouette_non_background
             )
-            silhouette_button = self.action_panel.button("silhouette")
+            silhouette_button = self.window.action_panel.button("silhouette")
             if silhouette_button is not None:
                 silhouette_button.setChecked(
-                    self.canvas.silhouette_non_background
+                    self.window.canvas.silhouette_non_background
                 )
-            self.timeline.onion.blockSignals(True)
-            self.timeline.onion.setChecked(self.canvas.onion_skin)
-            self.timeline.onion.blockSignals(False)
+            self.window.timeline.onion.blockSignals(True)
+            self.window.timeline.onion.setChecked(self.window.canvas.onion_skin)
+            self.window.timeline.onion.blockSignals(False)
             if not any(
                 layer.sequence_number is not None
-                for frame in self.canvas.frames
+                for frame in self.window.canvas.frames
                 for layer in frame.layers
                 if layer.has_content
             ):
-                self.canvas.normalize_sequence_numbers()
-            self.canvas.apply_sequence_only_entries()
-            self.set_timeline_mode("sheet")
-            self.refresh_ui()
-            self.schedule_used_color_refresh()
-            QTimer.singleShot(0, self.fit_canvas)
-            self.statusBar().showMessage(
+                self.window.canvas.normalize_sequence_numbers()
+            self.window.canvas.apply_sequence_only_entries()
+            self.window.timeline_ops.set_mode("sheet")
+            self.window.refresh_ui()
+            self.window.used_color.schedule_refresh()
+            QTimer.singleShot(0, self.window.fit_canvas)
+            self.window.statusBar().showMessage(
                 f"プロジェクトを開きました：{project_path.name}",
                 3000,
             )
@@ -445,7 +461,7 @@ class ProjectIOMixin(MainWindowMembers):
         except _OPERATION_ERRORS as error:
             log.error("project open failed: %s", error, exc_info=True)
             QMessageBox.critical(
-                self,
+                self.window,
                 "プロジェクト読込エラー",
                 f"プロジェクトを開けませんでした。\n\n{error}",
             )

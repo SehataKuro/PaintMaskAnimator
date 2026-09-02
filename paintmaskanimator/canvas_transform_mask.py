@@ -12,7 +12,12 @@ whichever color covers most of it.  That keeps the result strictly binary while
 producing a regular staircase along rotated edges; see ``mask_transform`` for
 why the previous forward-mapping + blur approach could not.
 """
-from .common import *  # noqa: F401,F403
+import math
+import numpy as np
+from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtGui import QImage, QPainter
+from .optional_deps import PILImage, PILImageFilter
+from .constants import TP_MASK_MAX_TRANSFORM_COLORS, TP_MASK_PROXY_SUBSAMPLES
 from ._canvas_members import CanvasMembers
 from . import geometry, imaging, mask_transform
 from .utils import workspace_size

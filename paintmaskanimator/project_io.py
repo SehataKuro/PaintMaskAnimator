@@ -11,6 +11,8 @@ import tempfile
 import zipfile
 from pathlib import Path, PurePosixPath
 
+from .errors import OperationError
+
 from PySide6.QtGui import QImage
 
 from .constants import (
@@ -45,25 +47,25 @@ def read_project_archive(path):
     with zipfile.ZipFile(project_path, "r") as archive:
         archive_entries = archive.infolist()
         if len(archive_entries) > MAX_PROJECT_LAYER_CELLS + 1:
-            raise ValueError("プロジェクト内のファイル数が多すぎます。")
+            raise OperationError("プロジェクト内のファイル数が多すぎます。")
         if any(info.flag_bits & 0x1 for info in archive_entries):
-            raise ValueError("暗号化されたプロジェクトには対応していません。")
+            raise OperationError("暗号化されたプロジェクトには対応していません。")
         if sum(int(info.file_size) for info in archive_entries) > MAX_PROJECT_ARCHIVE_BYTES:
-            raise ValueError("プロジェクトの展開後サイズが大きすぎます。")
+            raise OperationError("プロジェクトの展開後サイズが大きすぎます。")
         entry_names = [info.filename for info in archive_entries]
         if len(entry_names) != len(set(entry_names)):
-            raise ValueError("プロジェクト内に重複したファイル名があります。")
+            raise OperationError("プロジェクト内に重複したファイル名があります。")
         try:
             metadata_info = archive.getinfo("project.json")
         except KeyError as error:
-            raise ValueError("project.jsonがありません。") from error
+            raise OperationError("project.jsonがありません。") from error
         if metadata_info.file_size > MAX_PROJECT_METADATA_BYTES:
-            raise ValueError("プロジェクト情報が大きすぎます。")
+            raise OperationError("プロジェクト情報が大きすぎます。")
         metadata = json.loads(
             archive.read("project.json").decode("utf-8")
         )
         if metadata.get("format") != "PaintMaskAnimatorProject":
-            raise ValueError("対応していないプロジェクト形式です。")
+            raise OperationError("対応していないプロジェクト形式です。")
 
         try:
             mask_format = int(metadata.get("mask_format", 1))
@@ -78,43 +80,43 @@ def read_project_archive(path):
         width = int(canvas_data.get("width", 1280))
         height = int(canvas_data.get("height", 720))
         if not (1 <= width <= 16384 and 1 <= height <= 16384):
-            raise ValueError("キャンバスサイズが不正です。")
+            raise OperationError("キャンバスサイズが不正です。")
 
         loaded_frames = []
         frame_entries = metadata.get("frames", [])
         if not isinstance(frame_entries, list) or not frame_entries:
-            raise ValueError("フレーム情報がありません。")
+            raise OperationError("フレーム情報がありません。")
         if len(frame_entries) > MAX_PROJECT_FRAMES:
-            raise ValueError("フレーム数が上限を超えています。")
+            raise OperationError("フレーム数が上限を超えています。")
 
         expected_layer_count = None
         layer_cell_count = 0
         for frame_data in frame_entries:
             if not isinstance(frame_data, dict):
-                raise ValueError("フレーム情報が不正です。")
+                raise OperationError("フレーム情報が不正です。")
             layer_entries = frame_data.get("layers", [])
             if not isinstance(layer_entries, list) or not layer_entries:
-                raise ValueError("レイヤー情報がありません。")
+                raise OperationError("レイヤー情報がありません。")
             if len(layer_entries) > MAX_PROJECT_LAYERS:
-                raise ValueError("レイヤー数が上限を超えています。")
+                raise OperationError("レイヤー数が上限を超えています。")
             if expected_layer_count is None:
                 expected_layer_count = len(layer_entries)
             elif len(layer_entries) != expected_layer_count:
-                raise ValueError("フレームごとのレイヤー数が一致していません。")
+                raise OperationError("フレームごとのレイヤー数が一致していません。")
             layer_cell_count += len(layer_entries)
         if layer_cell_count > MAX_PROJECT_LAYER_CELLS:
-            raise ValueError("プロジェクトのセル数が上限を超えています。")
+            raise OperationError("プロジェクトのセル数が上限を超えています。")
         if width * height * layer_cell_count > MAX_PROJECT_DECODED_PIXELS:
-            raise ValueError("プロジェクトの展開後画像サイズが大きすぎます。")
+            raise OperationError("プロジェクトの展開後画像サイズが大きすぎます。")
 
         for frame_data in frame_entries:
             loaded_layers = []
             for layer_data in frame_data.get("layers", []):
                 if not isinstance(layer_data, dict):
-                    raise ValueError("レイヤー情報が不正です。")
+                    raise OperationError("レイヤー情報が不正です。")
                 image_path = layer_data.get("image")
                 if not image_path:
-                    raise ValueError("レイヤー画像の参照がありません。")
+                    raise OperationError("レイヤー画像の参照がありません。")
                 image_path = str(image_path)
                 normalized_path = PurePosixPath(image_path)
                 if (
@@ -122,25 +124,25 @@ def read_project_archive(path):
                     or ".." in normalized_path.parts
                     or normalized_path.suffix.lower() != ".png"
                 ):
-                    raise ValueError("レイヤー画像の参照パスが不正です。")
+                    raise OperationError("レイヤー画像の参照パスが不正です。")
                 try:
                     image_info = archive.getinfo(image_path)
                 except KeyError as error:
-                    raise ValueError(
+                    raise OperationError(
                         f"レイヤー画像がありません: {image_path}"
                     ) from error
                 if image_info.file_size > MAX_PROJECT_IMAGE_BYTES:
-                    raise ValueError(
+                    raise OperationError(
                         f"レイヤー画像が大きすぎます: {image_path}"
                     )
                 image_bytes = archive.read(image_path)
                 image = QImage.fromData(image_bytes)
                 if image.isNull():
-                    raise ValueError(
+                    raise OperationError(
                         f"レイヤー画像を復元できません: {image_path}"
                     )
                 if image.width() != width or image.height() != height:
-                    raise ValueError(
+                    raise OperationError(
                         f"レイヤー画像のサイズが不正です: {image_path}"
                     )
                 image = image.convertToFormat(
@@ -159,15 +161,15 @@ def read_project_archive(path):
                 filter_rgb = layer_data.get("color_filter_rgb")
                 exposure = int(layer_data.get("exposure", 1))
                 if not (1 <= exposure <= MAX_PROJECT_FRAMES):
-                    raise ValueError("レイヤーの露出フレーム数が不正です。")
+                    raise OperationError("レイヤーの露出フレーム数が不正です。")
                 sequence_number = layer_data.get("sequence_number")
                 if sequence_number is not None:
                     sequence_number = int(sequence_number)
                     if not (1 <= sequence_number <= MAX_PROJECT_FRAMES):
-                        raise ValueError("絵番号が範囲外です。")
+                        raise OperationError("絵番号が範囲外です。")
                 opacity = float(layer_data.get("opacity", 1.0))
                 if not math.isfinite(opacity):
-                    raise ValueError("レイヤー不透明度が不正です。")
+                    raise OperationError("レイヤー不透明度が不正です。")
                 loaded_layers.append(
                     Layer(
                         str(layer_data.get("name", "Layer")),
@@ -240,20 +242,20 @@ def read_project_archive(path):
             )
         sequence_archive_data = metadata.get("sequence_archive", [])
         if not isinstance(sequence_archive_data, list):
-            raise ValueError("連番保管セル情報が不正です。")
+            raise OperationError("連番保管セル情報が不正です。")
         if layer_cell_count + len(sequence_archive_data) > MAX_PROJECT_LAYER_CELLS:
-            raise ValueError("プロジェクトのセル数が上限を超えています。")
+            raise OperationError("プロジェクトのセル数が上限を超えています。")
         if (
             width
             * height
             * (layer_cell_count + len(sequence_archive_data))
             > MAX_PROJECT_DECODED_PIXELS
         ):
-            raise ValueError("プロジェクトの展開後画像サイズが大きすぎます。")
+            raise OperationError("プロジェクトの展開後画像サイズが大きすぎます。")
         loaded_sequence_archive = {}
         for archive_data in sequence_archive_data:
             if not isinstance(archive_data, dict):
-                raise ValueError("連番保管セル情報が不正です。")
+                raise OperationError("連番保管セル情報が不正です。")
             layer_index = int(archive_data.get("layer_index", -1))
             number = int(archive_data.get("sequence_number", 0))
             if not (
@@ -261,10 +263,10 @@ def read_project_archive(path):
                 and 0 <= layer_index < expected_layer_count
                 and 1 <= number <= MAX_PROJECT_FRAMES
             ):
-                raise ValueError("連番保管セルのレイヤーまたは絵番号が不正です。")
+                raise OperationError("連番保管セルのレイヤーまたは絵番号が不正です。")
             key = (layer_index, number)
             if key in loaded_sequence_archive:
-                raise ValueError("連番保管セルの絵番号が重複しています。")
+                raise OperationError("連番保管セルの絵番号が重複しています。")
             image_path = str(archive_data.get("image", ""))
             normalized_path = PurePosixPath(image_path)
             if (
@@ -273,15 +275,15 @@ def read_project_archive(path):
                 or ".." in normalized_path.parts
                 or normalized_path.suffix.lower() != ".png"
             ):
-                raise ValueError("連番保管セル画像の参照パスが不正です。")
+                raise OperationError("連番保管セル画像の参照パスが不正です。")
             try:
                 image_info = archive.getinfo(image_path)
             except KeyError as error:
-                raise ValueError(
+                raise OperationError(
                     f"連番保管セル画像がありません: {image_path}"
                 ) from error
             if image_info.file_size > MAX_PROJECT_IMAGE_BYTES:
-                raise ValueError(
+                raise OperationError(
                     f"連番保管セル画像が大きすぎます: {image_path}"
                 )
             image = QImage.fromData(archive.read(image_path))
@@ -290,7 +292,7 @@ def read_project_archive(path):
                 or image.width() != width
                 or image.height() != height
             ):
-                raise ValueError(
+                raise OperationError(
                     f"連番保管セル画像を復元できません: {image_path}"
                 )
             image = image.convertToFormat(
@@ -301,7 +303,7 @@ def read_project_archive(path):
                 image = white_to_transparent_qimage(image)
             opacity = float(archive_data.get("opacity", 1.0))
             if not math.isfinite(opacity):
-                raise ValueError("連番保管セルの不透明度が不正です。")
+                raise OperationError("連番保管セルの不透明度が不正です。")
             filter_rgb = archive_data.get("color_filter_rgb")
             loaded_sequence_archive[key] = Layer(
                 str(archive_data.get("name", "Layer")),
@@ -361,7 +363,7 @@ def write_project_archive(
                     local_image = temp_root / image_name
                     local_image.parent.mkdir(parents=True, exist_ok=True)
                     if not layer.image.save(str(local_image), "PNG"):
-                        raise RuntimeError(
+                        raise OperationError(
                             f"画像を書き出せませんでした: {image_name}"
                         )
 
@@ -404,7 +406,7 @@ def write_project_archive(
                 local_image = temp_root / image_name
                 local_image.parent.mkdir(parents=True, exist_ok=True)
                 if not layer.image.save(str(local_image), "PNG"):
-                    raise RuntimeError(
+                    raise OperationError(
                         f"連番保管セルを書き出せませんでした: {image_name}"
                     )
                 metadata["sequence_archive"].append(

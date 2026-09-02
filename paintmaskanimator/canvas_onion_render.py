@@ -5,7 +5,9 @@ images for neighbouring frames, resolve which frames to show, and draw the
 onion range beneath the active frame. They run against a live ``PaintCanvas``
 instance and are called from its ``paintEvent``.
 """
-from .common import *  # noqa: F401,F403
+import numpy as np
+from PySide6.QtCore import QRectF, Qt
+from PySide6.QtGui import QColor, QImage, QPainter, QPen
 from ._canvas_members import CanvasMembers
 from . import imaging
 from .utils import blank_image

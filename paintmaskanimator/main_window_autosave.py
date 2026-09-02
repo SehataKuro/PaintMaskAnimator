@@ -1,42 +1,53 @@
-"""Autosave / crash-recovery behaviour for :class:`MainWindow`.
+"""Autosave / crash recovery; owned by ``MainWindow`` as ``window.autosave``.
 
-Split out of ``main_window.py`` as a mixin to shrink that module. The methods
-here run against a live ``MainWindow`` instance, so they rely on attributes and
-methods defined on the main class (``self.canvas``, ``self.timeline``,
-``self.build_project_metadata``, ``self.open_project``); the mixin only owns the
-autosave timer and the crash-recovery flow.
+Owns the autosave timer and the crash-recovery flow, writing through the
+window's ``canvas``, ``timeline`` and ``build_project_metadata``.
+
+A collaborator rather than a mixin -- see ``main_window_export.py`` for why.
 """
+from typing import TYPE_CHECKING
+
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QMessageBox
 
 from . import config, project_io
 from .logging_setup import get_logger
-from ._main_window_members import MainWindowMembers
+
+if TYPE_CHECKING:
+    from .main_window import MainWindow
 
 log = get_logger(__name__)
 
 
-class AutosaveMixin(MainWindowMembers):
+class AutosaveController:
+    """Owned by ``MainWindow`` as ``window.autosave``.
+
+    A collaborator rather than a mixin -- see main_window_export.py for why.
+    """
+
+    def __init__(self, window: "MainWindow"):
+        self.window = window
+
     """Periodic best-effort project snapshots + startup crash recovery."""
 
-    def _autosave_path(self):
+    def path(self):
         return config.config_dir() / "autosave.pmap"
 
-    def _setup_autosave(self, interval_ms=180000):
+    def start(self, interval_ms=180000):
         """Periodically snapshot the project so a crash doesn't lose work."""
-        self._autosave_timer = QTimer(self)
-        self._autosave_timer.setInterval(int(interval_ms))
-        self._autosave_timer.timeout.connect(self._autosave)
-        self._autosave_timer.start()
+        self.window._autosave_timer = QTimer(self.window)
+        self.window._autosave_timer.setInterval(int(interval_ms))
+        self.window._autosave_timer.timeout.connect(self.save)
+        self.window._autosave_timer.start()
 
-    def _autosave(self):
+    def save(self):
         # Must never raise into the event loop — autosave is best-effort.
         try:
             project_io.write_project_archive(
-                self._autosave_path(),
-                self.build_project_metadata(),
-                self.canvas.frames,
-                self.canvas._sequence_archive,
+                self.path(),
+                self.window.build_project_metadata(),
+                self.window.canvas.frames,
+                self.window.canvas._sequence_archive,
             )
         except Exception:  # noqa: BLE001 - best-effort; must never raise into the event loop
             # Autosave is best-effort and must never raise into the event loop,
@@ -44,29 +55,29 @@ class AutosaveMixin(MainWindowMembers):
             # printing it so it lands in the app log.
             log.exception("autosave failed")
 
-    def _maybe_restore_autosave(self):
+    def maybe_restore(self):
         """On startup, offer to restore a leftover autosave (likely a crash)."""
-        path = self._autosave_path()
+        path = self.path()
         try:
             if not path.exists() or path.stat().st_size == 0:
                 return
         except OSError:
             return
         answer = QMessageBox.question(
-            self,
+            self.window,
             "作業の復元",
             "前回のセッションが正常に終了しなかった可能性があります。\n"
             "自動保存された作業を復元しますか？",
         )
         if answer == QMessageBox.StandardButton.Yes:
-            self.open_project(str(path))
+            self.window.project.open(str(path))
         else:
-            self._clear_autosave()
+            self.clear()
 
-    def _clear_autosave(self):
+    def clear(self):
         try:
-            self._autosave_path().unlink(missing_ok=True)
+            self.path().unlink(missing_ok=True)
         except OSError:
             # A stale snapshot can trigger another recovery prompt on the next
             # launch, so preserve the failure details for diagnosis.
-            log.warning("failed to remove autosave snapshot: %s", self._autosave_path(), exc_info=True)
+            log.warning("failed to remove autosave snapshot: %s", self.path(), exc_info=True)

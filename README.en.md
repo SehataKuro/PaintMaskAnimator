@@ -50,10 +50,21 @@ Alternatively, run it as a module:
 python -m paintmaskanimator
 ```
 
+## Language
+
+The interface is available in Japanese (the source language) and English.
+Choose it under **View › Language**; by default the application follows the
+operating system locale. The change takes effect on the next start.
+
+Translations live in `paintmaskanimator/translations/` as Qt `.ts` catalogues.
+After adding or changing a `tr()` string, regenerate them with
+`python scripts/update_translations.py` — CI verifies they are current.
+
 ## Development
 
 ```bash
 pip install -r requirements-dev.txt
+python scripts/update_translations.py
 QT_QPA_PLATFORM=offscreen python scripts/run_tests.py -q
 ```
 
@@ -69,6 +80,11 @@ The application is organized as a Python package under [`paintmaskanimator/`](pa
 | `imaging.py`, `geometry.py`, `colors.py`, `color_ops.py` | Pure algorithms with no Qt dependency |
 | `project_io.py` | Serialization for saving and loading project (`.zip`) files |
 | `canvas.py`, `timeline.py`, `toolpanel.py`, `main_window.py`, etc. | UI layer (PySide6 widgets) |
+| `main_window_<topic>.py` | Per-feature controllers the window owns (`window.export`, …) |
+| `progress.py` | Shared progress counter for long operations |
+| `i18n.py` | Translation loading and `tr()` |
+| `errors.py` | Exception types, and what the user-action handlers catch |
+| `dependency_check.py`, `optional_deps.py` | Start-up check for required deps; fallbacks for optional ones |
 
 `PaintMaskAnimator.py` at the repository root is a lightweight launcher.
 

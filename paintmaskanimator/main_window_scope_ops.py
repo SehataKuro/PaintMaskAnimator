@@ -3,32 +3,47 @@
 ``frame_scope`` 側は UI を知らない純粋な実行器なので、進捗ダイアログ・待機
 カーソル・キャンセル・キャッシュ破棄といった「画面側の後始末」はここが引き
 受ける。各操作（ゴミ取り・色置換・変形…）は
-:meth:`ScopeOpsMixin.run_over_scope` を呼ぶだけでよく、全コマ対応を自前で
+:meth:`ScopeOpsController.run_over_scope` を呼ぶだけでよく、全コマ対応を自前で
 書き直す必要がなくなる。
 """
-from .common import *  # noqa: F401,F403
-from ._main_window_members import MainWindowMembers
+from typing import TYPE_CHECKING
+
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication
+
 from .frame_scope import FrameScope, apply_over_scope
+from .progress import close_counter, create_counter, update_counter
 from .logging_setup import get_logger
+
+if TYPE_CHECKING:
+    from .main_window import MainWindow
 
 log = get_logger(__name__)
 
 
-class ScopeOpsMixin(MainWindowMembers):
-    def current_frame_scope(self, all_frames, *, layers=None, selection_only=False):
+class ScopeOpsController:
+    """Owned by ``MainWindow`` as ``window.scope``.
+
+    A collaborator rather than a mixin -- see main_window_export.py for why.
+    """
+
+    def __init__(self, window: "MainWindow"):
+        self.window = window
+
+    def current_frame(self, all_frames, *, layers=None, selection_only=False):
         """「すべてのコマ」チェックボックスの状態からスコープを組み立てる。
 
         適用範囲の指定はいずれ1箇所へ統一する（#9 の受け入れ条件）。その移行を
         1関数に閉じておくため、各呼び出し元はこの入口だけを使う。
         """
         return FrameScope.choose(
-            self.canvas,
+            self.window.canvas,
             bool(all_frames),
             layers=layers,
             selection_only=selection_only,
         )
 
-    def run_over_scope(
+    def run_over(
         self,
         scope,
         op,
@@ -50,14 +65,15 @@ class ScopeOpsMixin(MainWindowMembers):
         def report(done, total, cell):
             if dialog_state["dialog"] is None:
                 dialog_state["total"] = max(1, int(total))
-                dialog_state["dialog"] = self.create_progress_counter(
+                dialog_state["dialog"] = create_counter(
+                    self.window,
                     title,
                     dialog_state["total"],
                     progress_label or f"{label}の対象コマを確認しています",
                     cancellable=bool(cancellable),
                 )
             frame_index = int(cell[0])
-            self.update_progress_counter(
+            update_counter(
                 dialog_state["dialog"],
                 done,
                 dialog_state["total"],
@@ -73,7 +89,7 @@ class ScopeOpsMixin(MainWindowMembers):
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
             result = apply_over_scope(
-                self.canvas,
+                self.window.canvas,
                 scope,
                 op,
                 label=label,
@@ -83,24 +99,24 @@ class ScopeOpsMixin(MainWindowMembers):
             )
         finally:
             QApplication.restoreOverrideCursor()
-            self.close_progress_counter(dialog_state["dialog"])
+            close_counter(dialog_state["dialog"])
 
         if result.changed:
-            self.invalidate_scope_caches()
+            self.invalidate_caches()
             for frame_index, layer_index in result.changed_cell_list:
-                self.canvas.cellChanged.emit(int(frame_index), int(layer_index))
-            self.canvas.changed.emit()
-            self.canvas.update()
+                self.window.canvas.cellChanged.emit(int(frame_index), int(layer_index))
+            self.window.canvas.changed.emit()
+            self.window.canvas.update()
         return result
 
-    def invalidate_scope_caches(self):
+    def invalidate_caches(self):
         """画像実体を差し替えたときに捨てる表示用キャッシュをまとめる。
 
         一括処理は ``layer.image`` を新しいオブジェクトへ差し替えるため、画像を
         キーにした派生キャッシュを残すと表示/非表示の切替で旧画像が復活する。
         破棄漏れが各所で再発しないよう、対象の一覧はここだけに置く。
         """
-        canvas = self.canvas
+        canvas = self.window.canvas
         for cache_name in (
             "_color_filter_cache",
             "_color_index_cache",

@@ -1,4 +1,45 @@
-from .common import *  # noqa: F401,F403
+import math
+from pathlib import Path
+from PySide6.QtCore import QPoint, QPointF, QRectF, QTimer, Qt, Signal
+from PySide6.QtGui import (
+    QColor,
+    QCursor,
+    QImage,
+    QKeySequence,
+    QPainter,
+    QPen,
+    QPolygonF,
+    QValidator,
+)
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QAbstractSpinBox,
+    QApplication,
+    QCheckBox,
+    QDialog,
+    QDialogButtonBox,
+    QDoubleSpinBox,
+    QFileDialog,
+    QFormLayout,
+    QHBoxLayout,
+    QHeaderView,
+    QKeySequenceEdit,
+    QLabel,
+    QLineEdit,
+    QMenu,
+    QMessageBox,
+    QPlainTextEdit,
+    QPushButton,
+    QSizePolicy,
+    QSlider,
+    QSpinBox,
+    QTabWidget,
+    QTableWidget,
+    QTableWidgetItem,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+)
 from typing import Any
 from . import theme
 from .utils import _ScreenColorDragMixin
@@ -1176,8 +1217,18 @@ class HSVColorWheel(QWidget):
 class TimeRemapPasteDialog(QDialog):
     """コピー情報をタイムシート表へ貼り付けて確認する画面。"""
 
-    def __init__(self, initial_text="", parent=None):
+    def __init__(self, initial_text="", parent=None, *, parse_text=None, canvas=None):
+        """``parse_text`` and ``canvas`` are the collaborators this dialog needs.
+
+        They used to be discovered by name off ``self.parent()``. That coupling
+        was invisible to every tool: moving or renaming the owning method left
+        the dialog silently reporting "解析機能を取得できません" instead of
+        failing. They are now passed in, so a missing collaborator is a
+        construction-site decision rather than a runtime surprise.
+        """
         super().__init__(parent)
+        self._parse_text = parse_text
+        self._canvas = canvas
         self.setWindowTitle("タイムリマップをタイムシートへ貼り付け")
         self.resize(760, 650)
         self._parsed_preview = None
@@ -1399,10 +1450,6 @@ class TimeRemapPasteDialog(QDialog):
         self.preview_status.setText("データ待機中")
         self.preview_status.setStyleSheet("color:palette(placeholder-text);")
 
-    def _parser_owner(self):
-        owner = self.parent()
-        return owner if owner is not None else None
-
     @staticmethod
     def _list_value(value):
         """Normalize an untrusted parser field to a plain list."""
@@ -1460,8 +1507,7 @@ class TimeRemapPasteDialog(QDialog):
         return str(column.get("uid", ""))
 
     def _available_layers(self):
-        owner = self._parser_owner()
-        canvas = getattr(owner, "canvas", None)
+        canvas = self._canvas
         if canvas is None:
             return []
         frames = getattr(canvas, "frames", [])
@@ -1499,9 +1545,7 @@ class TimeRemapPasteDialog(QDialog):
                 ] = match
                 used_layers.add(match)
         if not self._column_layer_bindings and bindable and layers:
-            owner = self._parser_owner()
-            canvas = getattr(owner, "canvas", None)
-            active = int(getattr(canvas, "active_layer_index", 0))
+            active = int(getattr(self._canvas, "active_layer_index", 0))
             if any(index == active for index, _name in layers):
                 self._column_layer_bindings[
                     self._column_uid(bindable[0])
@@ -1736,8 +1780,7 @@ class TimeRemapPasteDialog(QDialog):
         ):
             return
 
-        owner = self._parser_owner()
-        parser = getattr(owner, "parse_time_remap_text", None)
+        parser = self._parse_text
         if not callable(parser):
             self.preview_status.setText("解析機能を取得できません")
             self.preview_status.setStyleSheet("color:#b00020;")

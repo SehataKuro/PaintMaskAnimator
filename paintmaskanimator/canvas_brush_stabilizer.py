@@ -4,7 +4,8 @@ Split out of ``canvas.py`` as a mixin. These methods smooth raw pointer input
 into a settled brush position/pressure, drive the follow-up settle timer, and
 finish the stabilized stroke. They run against a live ``PaintCanvas`` instance.
 """
-from .common import *  # noqa: F401,F403
+import math
+from PySide6.QtCore import QPointF
 from ._canvas_members import CanvasMembers
 from .logging_setup import get_logger
 

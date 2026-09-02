@@ -1,0 +1,3 @@
+# Compiled catalogues are build output of scripts/update_translations.py; the
+# editable .ts files next to them are the source of truth and stay in git.
+*.qm

@@ -5,7 +5,9 @@ only on the pure helpers in colors.py / imaging.py and on each other, never on
 widget state. PaintCanvas keeps delegating class/static-method wrappers so its
 callers (and color_reduction.py) are unchanged.
 """
-from .common import *  # noqa: F401,F403
+import math
+import numpy as np
+from PySide6.QtGui import QImage
 from . import imaging
 from . import colors as _colors  # noqa: F401
 

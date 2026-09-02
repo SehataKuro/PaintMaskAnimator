@@ -10,6 +10,7 @@ import pytest
 from PySide6.QtGui import QColor, QImage
 
 from paintmaskanimator import constants
+from paintmaskanimator.errors import OperationError
 
 pytestmark = pytest.mark.e2e
 
@@ -66,5 +67,5 @@ def test_time_remap_reverses_the_sequence(app, sequence_paths):
 def test_time_remap_rejects_unrecognised_text(app, sequence_paths):
     app.import_image_sequence(sequence_paths)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(OperationError):
         app.apply_time_remap("これは時間表ではありません")

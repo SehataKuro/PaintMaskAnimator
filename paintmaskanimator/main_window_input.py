@@ -6,7 +6,10 @@ matching, the auxiliary hold-to-drag gestures (hand scroll, rotate, zoom) with
 their cursor bookkeeping, and the canvas hold-operation sync. Keeping it separate
 means the window shell no longer carries the event-loop hot path.
 """
-from .common import *  # noqa: F401,F403
+import math
+from PySide6.QtCore import QEvent, QPoint, QPointF, QTimer, Qt
+from PySide6.QtGui import QCursor, QKeySequence
+from PySide6.QtWidgets import QAbstractButton, QApplication, QSplitter, QTabBar, QWidget
 from ._main_window_members import MainWindowMembers
 from .widgets import ShortcutDialog
 from .errors import OPERATION_ERRORS

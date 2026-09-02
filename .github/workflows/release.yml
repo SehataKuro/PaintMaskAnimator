@@ -47,6 +47,9 @@ jobs:
           ruff check paintmaskanimator tests scripts
           pyright
 
+      - name: Compile translation catalogues
+        run: python scripts/update_translations.py
+
       - name: Run tests
         env:
           QT_QPA_PLATFORM: offscreen
@@ -102,6 +105,9 @@ jobs:
         run: |
           ruff check paintmaskanimator tests scripts
           pyright
+
+      - name: Compile translation catalogues
+        run: python scripts/update_translations.py
 
       - name: Run tests
         env:

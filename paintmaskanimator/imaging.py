@@ -10,7 +10,7 @@ from typing import Any
 import numpy as np
 from PySide6.QtGui import QImage
 
-from .common import PILImage
+from .optional_deps import PILImage
 from .constants import TP_MASK_PROXY_THRESHOLD
 
 

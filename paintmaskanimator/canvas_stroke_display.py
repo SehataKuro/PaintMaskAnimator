@@ -6,7 +6,9 @@ is no separate display buffer. What remains here is the stroke lifecycle: the
 per-stroke tile snapshot that backs ``LayerTilesUndo`` and the brush-runtime
 warm-up that avoids first-stroke jank. They run against a live ``PaintCanvas``.
 """
-from .common import *  # noqa: F401,F403
+import numpy as np
+from PySide6.QtCore import QPoint, QPointF, QRect, Qt
+from PySide6.QtGui import QColor, QImage, QPainter, QPen
 from ._canvas_members import CanvasMembers
 from . import imaging
 from .logging_setup import get_logger
