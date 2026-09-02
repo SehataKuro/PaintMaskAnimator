@@ -94,11 +94,21 @@ def register_actions(panel, window):
 ''',
 }
 
-# 初期版を一字も編集していないファイルだけ、新しい参考例へ更新します。
+# 過去の配布版から一字も編集していないファイルだけ、新しい参考例へ更新します。
+# 版ごとにハッシュが変わるため、各ファイルで複数の旧版を許容します。
 LEGACY_BUILTIN_HASHES = {
-    "builtin_silhouette.py": "f4da2226d3af2cb0e7a230f100551be3a0edb8d98b3a3a1e45a486f5157c982e",
-    "builtin_same_image_replacement.py": "d6116d312479ea89bc167c84886fedbd7f9680b5ba70f0fd25447c2b2f3d9e8b",
-    "builtin_main_line_repaint.py": "70855b6e6f7bed6562f9f25b24149a54d66aad9ec55ed7a5264fcd2fed2772d2",
+    "builtin_silhouette.py": (
+        "f4da2226d3af2cb0e7a230f100551be3a0edb8d98b3a3a1e45a486f5157c982e",
+        "8011b0822863655254bdfeb0eecde99d0d938f9ebeaba3ff050f247368cc0ebb",
+    ),
+    "builtin_same_image_replacement.py": (
+        "d6116d312479ea89bc167c84886fedbd7f9680b5ba70f0fd25447c2b2f3d9e8b",
+        "a9d08783ade7b38318a77dd5ea4a978834b0f3acaa2dea273a6dc541e17bdfa3",
+    ),
+    "builtin_main_line_repaint.py": (
+        "70855b6e6f7bed6562f9f25b24149a54d66aad9ec55ed7a5264fcd2fed2772d2",
+        "85ac381effc0bc2756560c4ec24a2e49214db8771c41b21bee3f47f9cad869ca",
+    ),
 }
 
 
@@ -155,7 +165,7 @@ class ActionPanel(QWidget):
                 try:
                     current = path.read_text(encoding="utf-8")
                     digest = hashlib.sha256(current.encode()).hexdigest()
-                    if digest == LEGACY_BUILTIN_HASHES.get(name):
+                    if digest in LEGACY_BUILTIN_HASHES.get(name, ()):
                         path.write_text(content, encoding="utf-8")
                 except (OSError, UnicodeError):
                     pass

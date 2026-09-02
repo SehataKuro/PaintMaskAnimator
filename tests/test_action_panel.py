@@ -1,3 +1,4 @@
+import hashlib
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,6 +12,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from paintmaskanimator.actionpanel import (  # noqa: E402
     BUILTIN_SCRIPTS,
+    LEGACY_BUILTIN_HASHES,
     NEW_SCRIPT_TEMPLATE,
     ActionPanel,
     ScriptEditorDialog,
@@ -142,3 +144,36 @@ def test_seed_does_not_overwrite_edited_builtin(qapp, tmp_path, monkeypatch):
     panel._seed_builtin_scripts()
 
     assert (tmp_path / name).read_text(encoding="utf-8") == edited
+
+
+def test_seed_upgrades_untouched_legacy_builtin(qapp, tmp_path, monkeypatch):
+    name = "builtin_main_line_repaint.py"
+    legacy = (
+        '"""処理を関数に分ける例: MainLineRepaint。"""\n\n\n'
+        "def register_actions(panel, window):\n"
+        "    def repaint_main_line():\n"
+        "        # 通常ボタンのコールバックには引数が渡りません。\n"
+        "        window.main_line_repaint()\n\n"
+        "    panel.add_action(\n"
+        '        "main_line_repaint",\n'
+        '        "MainLineRepaint",\n'
+        "        repaint_main_line,\n"
+        "        tooltip=(\n"
+        '            "メイン色・サブ色を線レイヤーへ分離し、"\n'
+        '            "抜けた面を周囲の最多色で埋めます。"\n'
+        "        ),\n"
+        "    )\n"
+    )
+    digest = hashlib.sha256(legacy.encode()).hexdigest()
+    assert digest in LEGACY_BUILTIN_HASHES[name]
+
+    (tmp_path / name).write_text(legacy, encoding="utf-8")
+    (tmp_path / ".builtin_seeded.json").write_text(
+        f'["{name}"]', encoding="utf-8"
+    )
+
+    monkeypatch.setattr(ActionPanel, "actions_dir", staticmethod(lambda: tmp_path))
+    panel = ActionPanel(object())
+    panel._seed_builtin_scripts()
+
+    assert (tmp_path / name).read_text(encoding="utf-8") == BUILTIN_SCRIPTS[name]
