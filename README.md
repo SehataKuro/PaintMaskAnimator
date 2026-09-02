@@ -3,6 +3,7 @@
 [English](README.en.md) | 日本語
 
 PySide6 で作られたペイント / マスクアニメーションツールです。
+略称は **PMAn**（ピーマン）。
 
 ## 関連リンク
 
@@ -16,17 +17,17 @@ PySide6 で作られたペイント / マスクアニメーションツールで
 
 ## プロジェクトの由来と開発思想
 
-このリポジトリは、[小嶋慶祐さん](https://x.com/kkeisuke220)から譲り受けた
-PaintMaskAnimator v0.5 をもとに開発しているフォークです。オリジナル版の作者は
-小嶋慶祐さんであり、本リポジトリの現メンテナーがゼロから作成したものではありません。
+PaintMaskAnimator は、[小嶋慶祐](https://x.com/kkeisuke220)が v0.5 まで単独で
+開発しました。v0.5 以降は、小嶋慶祐と上甲愛士の 2 名による共同開発として継続して
+います。
 
-オリジナル版は、次のような開発思想で制作されていたと伺っています。
+当初から一貫している開発の狙いは次のとおりです。
 
 - PaintMan に代わり得るアニメーション仕上げソフト
 - 動画作業にも対応できる描画能力
 - CLIP STUDIO PAINT のような操作感を持つタイムライン
 
-本フォークでも、この方向性を受け継ぎながら開発を続けています。
+現在もこの方向性のもとで開発を進めています。
 
 ## 必要環境
 
@@ -92,3 +93,48 @@ def register_actions(panel, window):
 [`examples/actions/hello_status.py`](examples/actions/hello_status.py) を参照して
 ください。アクションスクリプトは通常の Python コードなので、信頼できる提供元から
 のみインストールしてください。
+
+## ライセンス
+
+PaintMaskAnimator は **Apache License 2.0** のもとで配布されます。全文は
+[`LICENSE`](LICENSE) を、帰属表示は [`NOTICE`](NOTICE) を参照してください。
+
+```
+Copyright (c) 2026 PaintMaskAnimator contributors
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+```
+
+商用・非商用を問わず、利用・改変・再配布が自由に行えます。改変版をクローズド
+ソースの製品として配布することもできます。求められるのは、ライセンス表記と
+`NOTICE` の保持、および変更点の明示だけです（Apache License 2.0 第4条）。
+
+本ソフトウェアで作成した作品（画像・アニメーション・プロジェクトファイル）は
+あなたのものです。ライセンスは作品には及びません。
+
+### 商標について
+
+Apache License 2.0 は商標の使用を許諾しません（第6条）。「PaintMaskAnimator」
+および略称「PMAn」は、派生物の名称としては使用しないでください。
+
+### サードパーティライセンス
+
+本アプリは PySide6（LGPLv3）、Qt Advanced Docking System（LGPL-2.1）などを
+利用・同梱しています。**これらの LGPL 義務は本プロジェクト側にあります。**
+配布物やパッケージング（PyInstaller の設定など）を変更する場合は、必ず
+[`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md) の「LGPL compliance」節を
+確認してください。
+
+### 貢献について
+
+貢献の手順は [`CONTRIBUTING.md`](CONTRIBUTING.md) を参照してください。貢献は
+Apache License 2.0 の条件で提供されたものとみなします（同ライセンス第5条）。
+別途の同意書（CLA）は不要です。

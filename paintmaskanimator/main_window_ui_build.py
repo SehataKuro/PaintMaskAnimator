@@ -713,6 +713,10 @@ class UIBuildMixin(MainWindowMembers):
         a_check_update=QAction("更新を確認…", self)
         a_check_update.triggered.connect(self.check_for_updates_interactive)
         help_menu.addAction(a_check_update)
+        help_menu.addSeparator()
+        a_about=QAction("バージョン情報…", self)
+        a_about.triggered.connect(self.show_about_dialog)
+        help_menu.addAction(a_about)
 
         self.zoom.valueChanged.connect(self.set_zoom)
         b100.clicked.connect(self.show_canvas_at_100_percent)
@@ -975,4 +979,33 @@ class UIBuildMixin(MainWindowMembers):
         self.canvas.changed.connect(self.refresh_history_panel)
         self.canvas.cellChanged.connect(
             lambda *_args: self.refresh_history_panel()
+        )
+
+
+    def show_about_dialog(self):
+        """Show version, copyright and the license notices.
+
+        Crediting the LGPL-licensed Qt/PySide6 and Qt-Advanced-Docking-System
+        components is a distribution requirement (LGPLv3 4a/4c), not
+        decoration -- keep this reachable from the menu. See
+        THIRD_PARTY_LICENSES.md for the full compliance notes.
+        """
+        repo_url = f"https://github.com/{GITHUB_REPO}"
+        QMessageBox.about(
+            self,
+            f"{APP_NAME} について",
+            f"""<h3>{APP_DISPLAY_NAME}</h3>
+<p>Copyright &copy; 2026 PaintMaskAnimator contributors</p>
+<p>本ソフトウェアは <b>Apache License 2.0</b> のもとで配布されています。
+商用・非商用を問わず、自由に利用・改変・再配布できます。</p>
+<p>本ソフトウェアは「現状有姿」で提供され、明示黙示を問わず<b>いかなる保証もありません</b>。
+詳細はライセンス全文を参照してください。</p>
+<p>ライセンス全文: <a href="https://www.apache.org/licenses/LICENSE-2.0">Apache License 2.0</a><br>
+ソースコード: <a href="{repo_url}">{repo_url}</a></p>
+<p><b>サードパーティコンポーネント</b><br>
+Qt for Python (PySide6) &mdash; LGPLv3<br>
+Qt Advanced Docking System &mdash; LGPL-2.1<br>
+NumPy &mdash; BSD-3-Clause / Pillow &mdash; MIT-CMU / psd-tools &mdash; MIT</p>
+<p>これらの LGPL ライブラリは差し替え可能な形で同梱されています。ライセンス全文と
+対応ソースの入手先は、配布物内の <tt>THIRD_PARTY_LICENSES.md</tt> を参照してください。</p>""",
         )

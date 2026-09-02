@@ -1,0 +1,9 @@
+PaintMaskAnimator
+Copyright (c) 2026 PaintMaskAnimator contributors
+
+Licensed under the Apache License, Version 2.0. See the LICENSE file.
+
+This product depends on third-party components licensed under their own
+terms, including Qt for Python (PySide6) and the Qt Advanced Docking System,
+which are licensed under the GNU Lesser General Public License. See
+THIRD_PARTY_LICENSES.md for the complete list and the corresponding notices.

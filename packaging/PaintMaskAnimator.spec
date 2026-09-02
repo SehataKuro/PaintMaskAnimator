@@ -32,6 +32,10 @@ a = Analysis(
     datas=[
         ("../paintmaskanimator/assets", "paintmaskanimator/assets"),
         ("../pyproject.toml", "."),
+        # LGPL compliance: ship the license texts with the binary.
+        ("../LICENSE", "."),
+        ("../NOTICE", "."),
+        ("../THIRD_PARTY_LICENSES.md", "."),
     ],
     hiddenimports=hiddenimports,
     hookspath=[],
@@ -57,6 +61,14 @@ exe = EXE(
     ) else None,
 )
 
+# NOTE: keep this a one-folder build. The bundled PySide6/Qt libraries are LGPL,
+# and laying them down as separate, replaceable files is how the app satisfies
+# the relinking requirement -- via LGPLv3 4d(1), which holds whether or not this
+# project's own source stays public. A one-file bundle unpacks to a temp
+# directory on each launch, so it forfeits that route and would leave the app
+# relying on 4d(0), i.e. on the source remaining published. Integrity checks over
+# these files breach both routes. The downloadable *installer* is unaffected --
+# only the installed layout matters. See THIRD_PARTY_LICENSES.md.
 coll = COLLECT(
     exe,
     a.binaries,

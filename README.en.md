@@ -3,6 +3,7 @@
 English | [日本語](README.md)
 
 A paint and mask animation tool built with PySide6.
+Short name: **PMAn** (pronounced "piman").
 
 ## Related Links
 
@@ -16,17 +17,17 @@ Basic authentication is required to view these pages.
 
 ## Project Background and Development Philosophy
 
-This repository is a fork developed from PaintMaskAnimator v0.5, which was handed over by
-[Keisuke Kojima](https://x.com/kkeisuke220). Keisuke Kojima is the author of the original
-version; the current maintainer of this repository did not create it from scratch.
+PaintMaskAnimator was written by [Keisuke Kojima](https://x.com/kkeisuke220), who developed
+it single-handedly through v0.5. From v0.5 onward it has been developed jointly by Keisuke
+Kojima and Manato Joko.
 
-The original version was developed with the following goals in mind:
+The goals have stayed the same throughout:
 
 - An animation finishing application capable of replacing PaintMan
 - Drawing capabilities suitable for in-between animation work
 - A timeline with controls similar to CLIP STUDIO PAINT
 
-This fork continues development while carrying forward that direction.
+Development continues along that direction today.
 
 ## Requirements
 
@@ -91,3 +92,46 @@ See [`docs/actions.md`](docs/actions.md) for usage instructions, the API referen
 built-in actions, and troubleshooting information. An example is available at
 [`examples/actions/hello_status.py`](examples/actions/hello_status.py). Action scripts are regular
 Python code, so only install them from sources you trust.
+
+## License
+
+PaintMaskAnimator is licensed under the **Apache License 2.0**. See
+[`LICENSE`](LICENSE) for the full text and [`NOTICE`](NOTICE) for attribution.
+
+```
+Copyright (c) 2026 PaintMaskAnimator contributors
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+```
+
+You may use, modify and redistribute it freely, commercially or otherwise,
+including as part of a closed-source product. All that is required is that you
+retain the license and `NOTICE`, and state your changes (section 4).
+
+Artwork you create with this software (images, animations, project files) is
+yours; the license does not extend to your output.
+
+### Trademarks
+
+The Apache License 2.0 grants no trademark rights (section 6). Please do not
+use the name "PaintMaskAnimator", or the short name "PMAn", for derivative works.
+
+### Third-party licenses
+
+This application uses and bundles PySide6 (LGPLv3), Qt Advanced Docking System
+(LGPL-2.1) and others. **Those LGPL obligations fall on this project.** Before
+changing how the application is packaged, read the "LGPL compliance" section of
+[`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md).
+
+### Contributing
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md). Contributions are taken to be offered
+under the Apache License 2.0 (section 5); no separate CLA is required.
