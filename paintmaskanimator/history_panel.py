@@ -13,7 +13,13 @@ clicking a branch block switches the canvas over to that future instead.
 """
 from PySide6.QtCore import QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import QLabel, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QLabel,
+    QMessageBox,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
 from .i18n import tr
 from .undo_entries import history_label_for
 from .logging_setup import get_logger
@@ -205,16 +211,6 @@ class HistoryPanel(QWidget):
         layout.setContentsMargins(3, 3, 3, 3)
         layout.setSpacing(2)
         layout.addWidget(QLabel(tr("<b>ヒストリー</b>")))
-        note = QLabel(
-            tr("操作の履歴です。ブロックをクリックすると、その状態まで一気に戻る／"
-            "進むします。戻ってから編集し直したときの元の履歴は右隣の列に"
-            "分岐として残り、同じ地点から複数分岐したときは横に並びます。"
-            "点線のブロックをクリックでそちらへ戻せます。")
-        )
-        note.setWordWrap(True)
-        note.setStyleSheet("font-size:10px;")
-        layout.addWidget(note)
-
         self.graph = _HistoryGraph()
         self.graph.jumpRequested.connect(self.jumpRequested)
         self.graph.branchSwitchRequested.connect(self.branchSwitchRequested)
@@ -229,6 +225,22 @@ class HistoryPanel(QWidget):
             Qt.ScrollBarPolicy.ScrollBarAsNeeded
         )
         layout.addWidget(self._scroll, 1)
+
+    def help_text(self) -> str:
+        """パネル上部に常時表示していた説明。ヘルプボタンから開く。"""
+        return tr("操作の履歴です。ブロックをクリックすると、その状態まで一気に戻る／"
+            "進むします。戻ってから編集し直したときの元の履歴は右隣の列に"
+            "分岐として残り、同じ地点から複数分岐したときは横に並びます。"
+            "点線のブロックをクリックでそちらへ戻せます。")
+
+    def show_help(self) -> None:
+        """ヒストリーパネルの使い方をダイアログで表示する。"""
+        box = QMessageBox(self)
+        box.setWindowTitle(tr("ヒストリーパネルの使い方"))
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setTextFormat(Qt.TextFormat.PlainText)
+        box.setText(self.help_text())
+        box.exec()
 
     def set_canvas(self, canvas):
         self._canvas = canvas

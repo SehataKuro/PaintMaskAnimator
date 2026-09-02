@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QLabel,
     QMenu,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -159,16 +160,6 @@ class UsedColorPanel(
         layout.setContentsMargins(3, 3, 3, 3)
         layout.setSpacing(2)
         layout.addWidget(QLabel(tr("<b>使用色</b>")))
-        note = QLabel(
-            tr("使用色：クリックで選択（Shift＝範囲／Ctrl＝追加）。"
-            "［＋フォルダー］でカテゴリーを作り、色をヘッダーへドラッグして格納。"
-            "フォルダーのチェックで所属色を一括表示／非表示。"
-            "ドラッグで並べ替え、色の中央へドロップ＝その色の「子」として整理。"
-            "親子付けしても色表示は変わりません。解除は右クリックから行えます。"
-            "問題なければ［統合］で実画像へ焼き込みます。")
-        )
-        note.setWordWrap(True)
-        layout.addWidget(note)
 
         self.count_label = QLabel(tr("0色"))
         layout.addWidget(self.count_label)
@@ -500,6 +491,24 @@ class UsedColorPanel(
             name = f"{base} {suffix}"
             suffix += 1
         return name
+
+    def help_text(self) -> str:
+        """パネル上部に常時表示していた説明。ヘルプボタンから開く。"""
+        return tr("使用色：クリックで選択（Shift＝範囲／Ctrl＝追加）。"
+            "［＋フォルダー］でカテゴリーを作り、色をヘッダーへドラッグして格納。"
+            "フォルダーのチェックで所属色を一括表示／非表示。"
+            "ドラッグで並べ替え、色の中央へドロップ＝その色の「子」として整理。"
+            "親子付けしても色表示は変わりません。解除は右クリックから行えます。"
+            "問題なければ［統合］で実画像へ焼き込みます。")
+
+    def show_help(self) -> None:
+        """使用色パネルの使い方をダイアログで表示する。"""
+        box = QMessageBox(self)
+        box.setWindowTitle(tr("使用色パネルの使い方"))
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setTextFormat(Qt.TextFormat.PlainText)
+        box.setText(self.help_text())
+        box.exec()
 
     def _prompt_create_category(self):
         name, accepted = QInputDialog.getText(

@@ -672,6 +672,12 @@ class UIBuildMixin(MainWindowMembers):
         palette_area = self.dock_manager.addDockWidget(
             QtAds.BottomDockWidgetArea, self.palette_dock, drawing_area
         )
+        # タイトルバーの×の左側に「？」ヘルプボタンを置き、
+        # 常時表示していた使い方の説明をそこへ収める。
+        self.palette_help_action = QAction("?", self)
+        self.palette_help_action.setToolTip(tr("使用色パネルの使い方を表示します。"))
+        self.palette_help_action.triggered.connect(self.palette.show_help)
+        self.palette_dock.setTitleBarActions([self.palette_help_action])
 
         self.history_dock=QtAds.CDockWidget(self.dock_manager, tr("ヒストリー"))
         self.history_dock.setObjectName("historyDock")
@@ -682,6 +688,10 @@ class UIBuildMixin(MainWindowMembers):
         self.dock_manager.addDockWidget(
             QtAds.CenterDockWidgetArea, self.history_dock, palette_area
         )
+        self.history_help_action = QAction("?", self)
+        self.history_help_action.setToolTip(tr("ヒストリーパネルの使い方を表示します。"))
+        self.history_help_action.triggered.connect(self.history_panel.show_help)
+        self.history_dock.setTitleBarActions([self.history_help_action])
         # 使用色をヒストリーより前のタブとして、起動時の前面にする。
         palette_area.setCurrentDockWidget(self.palette_dock)
 
