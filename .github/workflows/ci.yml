@@ -86,6 +86,11 @@ jobs:
       - name: Lint (ruff)
         run: ruff check paintmaskanimator tests scripts
 
+      # The README release badges are static (private repo -> shields.io cannot
+      # read the version), so check they still match pyproject.
+      - name: Check README version badges
+        run: python scripts/check_version.py
+
       - name: Type check (pyright)
         run: pyright
 
