@@ -17,6 +17,7 @@ from .actionpanel import ActionPanel
 from .canvas import PaintCanvas
 from .errors import OPERATION_ERRORS
 from .color_panel import UsedColorPanel
+from .color_chart import ColorChartPanel, empty_color_chart
 from .history_panel import HistoryPanel
 from .subview import SubViewWidget
 from .color_reduction import ColorReductionDialog
@@ -29,6 +30,7 @@ from .widgets import (CanvasSizeDialog, ShortcutDialog)
 from .logging_setup import get_logger
 from .main_window_autosave import AutosaveMixin
 from .main_window_color_interaction import ColorInteractionMixin
+from .main_window_color_chart import ColorChartMixin
 from .main_window_docking import DockingMixin
 from .main_window_export import ExportMixin
 from .main_window_import import ImportMixin
@@ -55,12 +57,12 @@ _OPERATION_ERRORS = OPERATION_ERRORS
 class MainWindow(
     UIBuildMixin, WorkspaceMixin, OnionSkinMixin, ExportMixin, ImportMixin,
     InputMixin, DockingMixin, TimeRemapMixin, TimelineOpsMixin, LayerOpsMixin,
-    LineOpsMixin, TweenMixin, UsedColorMixin, ProjectIOMixin,
+    LineOpsMixin, TweenMixin, UsedColorMixin, ColorChartMixin, ProjectIOMixin,
     ColorInteractionMixin, AutosaveMixin, ScopeOpsMixin, QMainWindow
 ):
     def __init__(self):
         super().__init__();self.setWindowTitle(APP_DISPLAY_NAME);self.resize(1500,960);self.setAcceptDrops(True)
-        self.canvas=PaintCanvas();self.tool_selector=ToolSelectorPanel();self.tools=ToolPanel();self.timeline=TimelineWidget();self.palette=UsedColorPanel();self.history_panel=HistoryPanel();self.subview=SubViewWidget(self);self.timer=QTimer(self);self.timer.timeout.connect(self.advance)
+        self.canvas=PaintCanvas();self.tool_selector=ToolSelectorPanel();self.tools=ToolPanel();self.timeline=TimelineWidget();self.palette=UsedColorPanel();self.history_panel=HistoryPanel();self.subview=SubViewWidget(self);self.color_chart=ColorChartPanel(self);self.color_chart_data=empty_color_chart();self.timer=QTimer(self);self.timer.timeout.connect(self.advance)
         # palette_state のUndo/Redoでパネル状態を復元できるよう相互参照を張る。
         self.canvas._palette=self.palette
         self.history_panel.set_canvas(self.canvas)
@@ -706,6 +708,9 @@ class MainWindow(
             },
             "fps": int(self.timeline.fps.value()),
             "timeline_mode": str(self.canvas.timeline_mode),
+            "clip_studio_source": getattr(
+                self.canvas, "clip_studio_source_metadata", None
+            ),
             "current_frame": int(self.canvas.current_frame),
             "active_layer_index": int(self.canvas.active_layer_index),
             "colors": {
@@ -787,6 +792,9 @@ class MainWindow(
                 "points": getattr(self.canvas, "pressure_curve_points", [[0.0,0.0],[1.0,1.0]]),
             },
             "used_color_categories": self.palette.serialize_categories(),
+            "color_chart": self._normalize_color_chart(
+                self.color_chart_data
+            ),
             "frames": [],
         }
 
@@ -798,7 +806,7 @@ class MainWindow(
         )
         if any(
             Path(url.toLocalFile()).suffix.lower()
-            in (".pman", ".xdts", ".xtds")
+            in (".pman", ".clip", ".xdts", ".xtds")
             for url in urls
         ):
             event.acceptProposedAction()
@@ -817,12 +825,21 @@ class MainWindow(
             if Path(url.toLocalFile()).suffix.lower()
             in (".xdts", ".xtds")
         ] if event.mimeData().hasUrls() else []
+        clip_paths = [
+            url.toLocalFile()
+            for url in event.mimeData().urls()
+            if Path(url.toLocalFile()).suffix.lower() == ".clip"
+        ] if event.mimeData().hasUrls() else []
         if project_paths:
             self.open_dropped_project(project_paths[0])
             event.acceptProposedAction()
             return
         if remap_paths:
             self.open_dropped_time_remap(remap_paths[0])
+            event.acceptProposedAction()
+            return
+        if clip_paths:
+            self.import_clip_animation(clip_paths[0])
             event.acceptProposedAction()
             return
         super().dropEvent(event)
@@ -949,7 +966,7 @@ class MainWindow(
             for f in old_frames:  # pyright: ignore[reportOptionalIterable]
                 ls=[]
                 for l in f.layers:
-                    ni=blank_image();p=QPainter(ni);p.drawImage(QRectF(OUTSIDE_MARGIN, OUTSIDE_MARGIN, min(oldw, w), min(oldh, h)), l.image, QRectF(OUTSIDE_MARGIN, OUTSIDE_MARGIN, min(oldw, w), min(oldh, h)));p.end();ls.append(Layer(l.name,ni,l.visible,l.opacity,l.is_paper,l.has_content,l.alpha_locked,l.exposure,l.color_filter_enabled,tuple(l.color_filter_rgb) if l.color_filter_rgb is not None else None,bool(l.is_blank_key),l.sequence_number,bool(l.sequence_only)))
+                    ni=blank_image();p=QPainter(ni);p.drawImage(QRectF(OUTSIDE_MARGIN, OUTSIDE_MARGIN, min(oldw, w), min(oldh, h)), l.image, QRectF(OUTSIDE_MARGIN, OUTSIDE_MARGIN, min(oldw, w), min(oldh, h)));p.end();ls.append(Layer(l.name,ni,l.visible,l.opacity,l.is_paper,l.has_content,l.alpha_locked,l.exposure,l.color_filter_enabled,tuple(l.color_filter_rgb) if l.color_filter_rgb is not None else None,bool(l.is_blank_key),l.sequence_number,bool(l.sequence_only),bool(getattr(l,"is_draft",False)),getattr(l,"cell_name",None)))
                 new.append(Frame(ls,f.duration))
             self.canvas.frames=new
         else:
@@ -970,7 +987,9 @@ class MainWindow(
             self.canvas.current_frame=0
             self.canvas.active_layer_index=0
             self.palette.clear_categories()
+            self.clear_color_chart()
             self.canvas.frames=[make_frame()];self.canvas.undo_stack.clear();self.canvas.redo_stack.clear();self.canvas.clear_history_branches();self.set_timeline_mode("sheet")
+            self.canvas.clip_studio_source_metadata = None
         self.canvas.current_frame=0
         self.canvas.active_layer_index=0
         if not preserve:

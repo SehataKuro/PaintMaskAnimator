@@ -432,6 +432,11 @@ class TimelineOpsMixin(MainWindowMembers):
                 if kind == "content"
                 else None
             )
+            target.cell_name = (
+                getattr(copied, "cell_name", None)
+                if kind == "content"
+                else None
+            )
             target.sequence_only = bool(copied.sequence_only)
             target.exposure = max(1, int(exposure))
 
@@ -531,6 +536,7 @@ class TimelineOpsMixin(MainWindowMembers):
                 getattr(copied, "is_blank_key", False)
             )
             destination.sequence_number = copied.sequence_number
+            destination.cell_name = getattr(copied, "cell_name", None)
             destination.sequence_only = bool(copied.sequence_only)
             destination.exposure = max(1, old_end - new_start + 1)
             destination.visible = copied.visible
@@ -578,6 +584,7 @@ class TimelineOpsMixin(MainWindowMembers):
                         getattr(source, "is_blank_key", False)
                     )
                     destination.sequence_number = source.sequence_number
+                    destination.cell_name = getattr(source, "cell_name", None)
                     destination.sequence_only = bool(source.sequence_only)
                     destination.exposure = source.exposure
                     destination.visible = source.visible
@@ -643,6 +650,7 @@ class TimelineOpsMixin(MainWindowMembers):
         target.has_content = True
         target.is_blank_key = False
         target.sequence_number = copied.sequence_number
+        target.cell_name = getattr(copied, "cell_name", None)
         target.sequence_only = False
         target.exposure = max(1, int(copied.exposure))
         target.visible = copied.visible
@@ -683,6 +691,7 @@ class TimelineOpsMixin(MainWindowMembers):
         target.has_content = bool(copied.has_content)
         target.is_blank_key = not bool(copied.has_content)
         target.sequence_number = int(number)
+        target.cell_name = getattr(copied, "cell_name", None)
         target.sequence_only = False
         target.exposure = 1
         self.canvas.current_frame = int(column)

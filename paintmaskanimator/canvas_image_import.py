@@ -241,7 +241,7 @@ class ImageImportMixin(CanvasMembers):
 
     def dragEnterEvent(self,e):
         urls=e.mimeData().urls() if e.mimeData().hasUrls() else []
-        valid=any(Path(u.toLocalFile()).suffix.lower() in (".pman",".xdts",".xtds",".jpg",".jpeg",".png",".tga") for u in urls)
+        valid=any(Path(u.toLocalFile()).suffix.lower() in (".pman",".clip",".xdts",".xtds",".jpg",".jpeg",".png",".tga") for u in urls)
         if valid:e.acceptProposedAction()
         else:e.ignore()
 
@@ -250,6 +250,7 @@ class ImageImportMixin(CanvasMembers):
 
     def dropEvent(self,e):
         project_paths=[]
+        clip_paths=[]
         remap_paths=[]
         paths=[]
         for u in e.mimeData().urls():
@@ -257,12 +258,16 @@ class ImageImportMixin(CanvasMembers):
             suffix=Path(path).suffix.lower()
             if suffix==".pman":
                 project_paths.append(path)
+            elif suffix==".clip":
+                clip_paths.append(path)
             elif suffix in (".xdts", ".xtds"):
                 remap_paths.append(path)
             elif suffix in (".jpg",".jpeg",".png",".tga"):
                 paths.append(path)
         if project_paths:
             self.projectDropped.emit(project_paths[0])
+        elif clip_paths:
+            self.clipAnimationDropped.emit(clip_paths[0])
         elif remap_paths:
             self.timeRemapDropped.emit(remap_paths[0])
         elif paths:

@@ -36,6 +36,7 @@ class AutosaveMixin(MainWindowMembers):
                 self._autosave_path(),
                 self.build_project_metadata(),
                 self.canvas.frames,
+                self.canvas._sequence_archive,
             )
         except Exception:  # noqa: BLE001 - best-effort; must never raise into the event loop
             # Autosave is best-effort and must never raise into the event loop,

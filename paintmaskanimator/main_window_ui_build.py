@@ -57,6 +57,8 @@ class UIBuildMixin(MainWindowMembers):
         self.a_import_images_raw.triggered.connect(self.import_images_raw_dialog)
         self.a_import_psd=QAction("PSDを読み込む…",self)
         self.a_import_psd.triggered.connect(self.import_psd_dialog)
+        self.a_import_clip=QAction("CLIP STUDIOアニメーションを読み込む…",self)
+        self.a_import_clip.triggered.connect(self.import_clip_animation_dialog)
 
         self.a_save_project=QAction("上書き保存",self)
         self.a_save_project.setShortcut("Ctrl+S")
@@ -332,6 +334,7 @@ class UIBuildMixin(MainWindowMembers):
         f.addAction(self.a_import_folder)
         f.addAction(self.a_import_images_raw)
         f.addAction(self.a_import_psd)
+        f.addAction(self.a_import_clip)
         f.addSeparator()
         f.addAction(self.a_save_project)
         f.addAction(self.a_save_project_as)
@@ -399,6 +402,13 @@ class UIBuildMixin(MainWindowMembers):
         self.subview_action.setChecked(True)
         self.subview_action.triggered.connect(self._set_subview_visible)
         view_menu.addAction(self.subview_action)
+        self.color_chart_action = QAction("カラーチャート", self)
+        self.color_chart_action.setCheckable(True)
+        self.color_chart_action.setChecked(False)
+        self.color_chart_action.triggered.connect(
+            self._set_color_chart_visible
+        )
+        view_menu.addAction(self.color_chart_action)
 
     def _set_subview_visible(self, visible):
         dock = getattr(self, "subview_dock", None)
@@ -412,6 +422,13 @@ class UIBuildMixin(MainWindowMembers):
             self.subview.raise_()
         else:
             self.subview.hide()
+    def _set_color_chart_visible(self, visible):
+        dock = getattr(self, "color_chart_dock", None)
+        if dock is None:
+            return
+        dock.toggleView(bool(visible))
+        if visible:
+            dock.raise_()
     def _refresh_theme_dependent_ui(self):
         """Re-apply palette-derived styles after a theme/accent change."""
         bar: Any = self.statusBar()
@@ -619,6 +636,21 @@ class UIBuildMixin(MainWindowMembers):
         # 使用色をヒストリーより前のタブとして、起動時の前面にする。
         palette_area.setCurrentDockWidget(self.palette_dock)
 
+        self.color_chart_dock=QtAds.CDockWidget(
+            self.dock_manager, "カラーチャート"
+        )
+        self.color_chart_dock.setObjectName("colorChartDock")
+        self.color_chart_dock.setWidget(
+            self.color_chart,
+            QtAds.CDockWidget.eInsertMode.ForceNoScrollArea,
+        )
+        self.dock_manager.addDockWidget(
+            QtAds.CenterDockWidgetArea,
+            self.color_chart_dock,
+            palette_area,
+        )
+        palette_area.setCurrentDockWidget(self.palette_dock)
+
         self.subview_dock=QtAds.CDockWidget(self.dock_manager, "サブビュー")
         self.subview_dock.setObjectName("subviewDock")
         self.subview_dock.setWidget(
@@ -654,6 +686,7 @@ class UIBuildMixin(MainWindowMembers):
             self.color_slider_dock,
             self.palette_dock,
             self.history_dock,
+            self.color_chart_dock,
             self.subview_dock,
             self.timeline_dock,
         ):
@@ -683,6 +716,7 @@ class UIBuildMixin(MainWindowMembers):
             self.color_slider_dock,
             self.palette_dock,
             self.history_dock,
+            self.color_chart_dock,
             self.subview_dock,
             self.timeline_dock,
         ):
@@ -690,6 +724,12 @@ class UIBuildMixin(MainWindowMembers):
         self.subview_dock.visibilityChanged.connect(
             lambda visible: self.subview_action.setChecked(bool(visible))
         )
+        self.color_chart_dock.visibilityChanged.connect(
+            lambda visible: self.color_chart_action.setChecked(bool(visible))
+        )
+        # 旧版と同じく通常は閉じた状態。表示メニューまたはパネルメニュー
+        # から必要な時だけ開く。
+        self.color_chart_dock.closeDockWidget()
         QTimer.singleShot(
             0,
             lambda: self._resize_tool_selector_area(
@@ -706,6 +746,7 @@ class UIBuildMixin(MainWindowMembers):
         view_menu.addAction(self.color_slider_dock.toggleViewAction())
         view_menu.addAction(self.palette_dock.toggleViewAction())
         view_menu.addAction(self.history_dock.toggleViewAction())
+        view_menu.addAction(self.color_chart_dock.toggleViewAction())
         view_menu.addAction(self.subview_dock.toggleViewAction())
         view_menu.addAction(self.timeline_dock.toggleViewAction())
 
@@ -769,6 +810,12 @@ class UIBuildMixin(MainWindowMembers):
         self.tools.colorModeChanged.connect(self.set_color_mode)
         self.tools.colorChanged.connect(self.set_color_value)
         self.subview.colorPicked.connect(self.apply_sampled_color)
+        self.color_chart.colorPicked.connect(self.apply_sampled_color)
+        self.color_chart.chartChanged.connect(self.on_color_chart_edited)
+        self.color_chart.captureRequested.connect(self.capture_color_chart)
+        self.color_chart.applyRequested.connect(self.apply_color_chart)
+        self.color_chart.saveRequested.connect(self.save_color_chart_pmag)
+        self.color_chart.loadRequested.connect(self.load_color_chart_pmag)
         self.subview.set_color_provider(
             lambda: (
                 self.canvas.sub_color
@@ -934,6 +981,7 @@ class UIBuildMixin(MainWindowMembers):
         self.canvas.imagesDropped.connect(self.import_dropped_images)
         self.canvas.projectDropped.connect(self.open_dropped_project)
         self.canvas.timeRemapDropped.connect(self.open_dropped_time_remap)
+        self.canvas.clipAnimationDropped.connect(self.import_clip_animation)
         self.canvas.colorSampled.connect(self.apply_sampled_color)
         self.canvas.status_message.connect(
             lambda message: self.statusBar().showMessage(message, 2500)

@@ -6,9 +6,15 @@ current project. They run against a live ``MainWindow`` instance.
 """
 from .common import *  # noqa: F401,F403
 from typing import Any, cast
+import sqlite3
 from ._main_window_members import MainWindowMembers
 from . import constants
 from .canvas import PaintCanvas
+from .clip_animation import (
+    ClipImportError,
+    cell_sequence_numbers,
+    read_clip_animation,
+)
 from .errors import OPERATION_ERRORS as _OPERATION_ERRORS
 from .models import Layer
 from .utils import blank_image
@@ -18,6 +24,225 @@ log = get_logger(__name__)
 
 
 class ImportMixin(MainWindowMembers):
+    def import_clip_animation_dialog(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "CLIP STUDIOアニメーションを読み込む",
+            "",
+            "CLIP STUDIO PAINT (*.clip);;すべてのファイル (*)",
+        )
+        if path:
+            return self.import_clip_animation(path)
+        return False
+
+    def _clip_import_needs_confirmation(self):
+        if self.current_project_path:
+            return True
+        if len(self.canvas.frames) != 1:
+            return True
+        layers = self.canvas.frames[0].layers if self.canvas.frames else []
+        return (
+            len(layers) != 1
+            or any(layer.has_content or layer.is_blank_key for layer in layers)
+        )
+
+    def _confirm_replace_for_clip_import(self):
+        if not self._clip_import_needs_confirmation():
+            return True
+        dialog = QMessageBox(self)
+        dialog.setIcon(QMessageBox.Icon.Question)
+        dialog.setWindowTitle("CLIP STUDIOアニメーションを読み込む")
+        dialog.setText(
+            "現在のキャンバスをCLIP STUDIOアニメーションで置き換えます。\n"
+            "先に現在のプロジェクトを保存しますか？"
+        )
+        save_button = dialog.addButton(
+            "保存する", QMessageBox.ButtonRole.AcceptRole
+        )
+        discard_button = dialog.addButton(
+            "保存せず読み込む", QMessageBox.ButtonRole.DestructiveRole
+        )
+        cancel_button = dialog.addButton(
+            "キャンセル", QMessageBox.ButtonRole.RejectRole
+        )
+        dialog.setDefaultButton(save_button)
+        dialog.exec()
+        clicked = dialog.clickedButton()
+        if clicked is cancel_button or clicked is None:
+            return False
+        if clicked is save_button:
+            return bool(self.save_project())
+        return clicked is discard_button
+
+    def import_clip_animation(self, path, confirm_replace=True):
+        source = Path(path)
+        if source.suffix.lower() != ".clip":
+            return False
+        self.statusBar().showMessage(
+            f"CLIP STUDIOアニメーションを解析しています：{source.name}",
+            0,
+        )
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            parsed = read_clip_animation(source)
+        except (ClipImportError, OSError, ValueError, sqlite3.Error) as exc:
+            log.error("CLIP STUDIO animation import failed: %s", exc, exc_info=True)
+            self.statusBar().clearMessage()
+            QMessageBox.critical(
+                self,
+                "CLIP STUDIOアニメーション読み込み",
+                "読み込めませんでした。現在のドキュメントは変更されていません。"
+                f"\n\n{exc}",
+            )
+            return False
+        finally:
+            QApplication.restoreOverrideCursor()
+        if confirm_replace and not self._confirm_replace_for_clip_import():
+            self.statusBar().clearMessage()
+            return False
+
+        old_state = {
+            "width": constants.CANVAS_WIDTH,
+            "height": constants.CANVAS_HEIGHT,
+            "frames": self.canvas.frames,
+            "current_frame": self.canvas.current_frame,
+            "active_layer_index": self.canvas.active_layer_index,
+            "timeline_mode": self.canvas.timeline_mode,
+            "fps": self.timeline.fps.value(),
+            "project_path": self.current_project_path,
+            "clip_metadata": getattr(
+                self.canvas, "clip_studio_source_metadata", None
+            ),
+            "palette": self.palette.serialize_categories(),
+            "undo": list(self.canvas.undo_stack),
+            "redo": list(self.canvas.redo_stack),
+            "branches": list(self.canvas.history_branches),
+            "sequence_archive": self.canvas._sequence_archive,
+            "sequence_bank": self.canvas._sequence_source_bank,
+            "sequence_bank_index": self.canvas._sequence_source_bank_layer_index,
+            "sequence_bank_name": self.canvas._sequence_source_bank_layer_name,
+        }
+        try:
+            if self.canvas._playback_active:
+                self.timeline.play.setChecked(False)
+                self.play(False)
+            self.cancel_transform_or_tween()
+            self.canvas.clear_selection()
+            constants.CANVAS_WIDTH = int(parsed.width)
+            constants.CANVAS_HEIGHT = int(parsed.height)
+            self.canvas.frames = list(parsed.frames)
+            self.canvas.current_frame = 0
+            self.canvas.active_layer_index = 0
+            self.canvas.timeline_mode = "sheet"
+            self.timeline.set_timeline_mode("sheet")
+            self.timeline.fps.setValue(
+                max(1, min(60, int(round(parsed.fps))))
+            )
+            self.canvas.clip_studio_source_metadata = parsed.source_metadata()
+            self.canvas._sequence_source_bank = []
+            self.canvas._sequence_source_bank_layer_index = -1
+            self.canvas._sequence_source_bank_layer_name = ""
+            sequence_archive = {}
+            for layer_index, source_layer in enumerate(parsed.layers):
+                numbers = cell_sequence_numbers(source_layer)
+                placed_numbers = {
+                    int(frame.layers[layer_index].sequence_number)
+                    for frame in self.canvas.frames
+                    if (
+                        frame.layers[layer_index].has_content
+                        and frame.layers[layer_index].sequence_number is not None
+                    )
+                }
+                for tag, image in source_layer.cell_images.items():
+                    number = numbers[tag]
+                    if number in placed_numbers:
+                        continue
+                    stripped_tag = str(tag).strip()
+                    normalized_number = stripped_tag.lstrip("0") or "0"
+                    sequence_archive[(layer_index, number)] = Layer(
+                        source_layer.name,
+                        QImage(image),
+                        has_content=True,
+                        exposure=1,
+                        sequence_number=number,
+                        cell_name=(
+                            None
+                            if stripped_tag.isdecimal()
+                            and normalized_number == str(number)
+                            else str(tag)
+                        ),
+                    )
+            self.canvas._sequence_archive = sequence_archive
+            self.timeline.sequence_archive = self.canvas._sequence_archive
+            self.canvas.undo_stack.clear()
+            self.canvas.redo_stack.clear()
+            self.canvas.clear_history_branches()
+            self.canvas._onion_cache.clear()
+            self.canvas._color_filter_cache.clear()
+            self.canvas._color_index_cache.clear()
+            self.canvas._silhouette_cache.clear()
+            self._used_color_cache.clear()
+            self.palette.clear_categories()
+            self.current_project_path = None
+            self.update_project_title()
+            self.refresh_ui()
+            self.schedule_used_color_refresh()
+            QTimer.singleShot(0, self.fit_canvas)
+        except _OPERATION_ERRORS as exc:
+            constants.CANVAS_WIDTH = old_state["width"]
+            constants.CANVAS_HEIGHT = old_state["height"]
+            self.canvas.frames = old_state["frames"]
+            self.canvas.current_frame = old_state["current_frame"]
+            self.canvas.active_layer_index = old_state["active_layer_index"]
+            self.canvas.timeline_mode = old_state["timeline_mode"]
+            self.timeline.set_timeline_mode(old_state["timeline_mode"])
+            self.timeline.fps.setValue(old_state["fps"])
+            self.current_project_path = old_state["project_path"]
+            self.canvas.clip_studio_source_metadata = old_state["clip_metadata"]
+            self.palette.restore_categories(old_state["palette"])
+            self.canvas.undo_stack[:] = old_state["undo"]
+            self.canvas.redo_stack[:] = old_state["redo"]
+            self.canvas.history_branches[:] = old_state["branches"]
+            self.canvas._sequence_archive = old_state["sequence_archive"]
+            self.timeline.sequence_archive = self.canvas._sequence_archive
+            self.canvas._sequence_source_bank = old_state["sequence_bank"]
+            self.canvas._sequence_source_bank_layer_index = old_state[
+                "sequence_bank_index"
+            ]
+            self.canvas._sequence_source_bank_layer_name = old_state[
+                "sequence_bank_name"
+            ]
+            self.update_project_title()
+            self.refresh_ui()
+            log.error("CLIP import apply failed and rolled back: %s", exc, exc_info=True)
+            QMessageBox.critical(
+                self,
+                "CLIP STUDIOアニメーション読み込み",
+                "読み込み結果を反映できませんでした。"
+                "現在のドキュメントは元の状態へ戻しました。"
+                f"\n\n{exc}",
+            )
+            return False
+
+        fps_note = ""
+        if abs(float(parsed.fps) - self.timeline.fps.value()) > 1e-6:
+            fps_note = (
+                f"（元FPS {parsed.fps:g}、PMA表示 {self.timeline.fps.value()} fps）"
+            )
+        archive_note = ""
+        if self.canvas._sequence_archive:
+            archive_note = (
+                f" 未配置セル{len(self.canvas._sequence_archive)}枚は"
+                "連番に保持しました。"
+            )
+        self.statusBar().showMessage(
+            f"CLIP STUDIOから{parsed.folder_count}フォルダー・"
+            f"{parsed.frame_count}フレームを読み込みました。"
+            f"{archive_note}{fps_note}",
+            6000,
+        )
+        return True
+
     @staticmethod
     def _parse_xdts_timesheet(raw_text):
         text_value = str(raw_text or "").lstrip("\ufeff")

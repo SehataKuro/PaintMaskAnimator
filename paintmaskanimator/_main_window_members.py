@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from .actionpanel import ActionPanel
     from .canvas import PaintCanvas
     from .color_panel import UsedColorPanel
+    from .color_chart import ColorChartPanel
     from .history_panel import HistoryPanel
     from .theme import StatusBar
     from .toolpanel import ToolPanel, ToolSelectorPanel
@@ -112,6 +113,7 @@ class MainWindowMembers(_MembersBase):
         _resize_tool_selector_area: Any
         _restore_timeline_selection: Any
         _save_workspace: Any
+        _set_color_chart_visible: Any
         _setup_autosave: Any
         _setup_split_drop_overlay: Any
         _sheet_duration: Any
@@ -176,6 +178,7 @@ class MainWindowMembers(_MembersBase):
         a_import_images: Any
         a_import_images_raw: Any
         a_import_psd: Any
+        a_import_clip: Any
         a_isolate_color: Any
         a_mainline_repaint: Any
         a_new: Any
@@ -258,6 +261,10 @@ class MainWindowMembers(_MembersBase):
         color_slider_scroll: Any
         color_wheel_dock: Any
         color_wheel_scroll: Any
+        color_chart: ColorChartPanel
+        color_chart_action: Any
+        color_chart_data: Any
+        color_chart_dock: Any
         column_group: Any
         commit_transform_or_tween: Any
         commit_tween_transform: Any
@@ -269,6 +276,9 @@ class MainWindowMembers(_MembersBase):
         current_frame_scope: Any
         crop_image: Any
         current_project_path: Any
+        capture_color_chart: Any
+        apply_color_chart: Any
+        clear_color_chart: Any
         delete_layer_rows: Any
         delete_timeline_frame: Any
         dock_manager: Any
@@ -294,6 +304,8 @@ class MainWindowMembers(_MembersBase):
         import_images_dialog: Any
         import_images_raw_dialog: Any
         import_psd_dialog: Any
+        import_clip_animation: Any
+        import_clip_animation_dialog: Any
         import_xdts_dialog: Any
         invalidate_scope_caches: Any
         isolate_selected_color: Any
@@ -350,6 +362,7 @@ class MainWindowMembers(_MembersBase):
         save_png: Any
         save_project: Any
         save_project_as: Any
+        save_color_chart_pmag: Any
         save_tga: Any
         save_tga_image: Any
         schedule_used_color_refresh: Any
@@ -357,6 +370,7 @@ class MainWindowMembers(_MembersBase):
         set_accent: Any
         set_color_mode: Any
         set_color_value: Any
+        set_color_chart_data: Any
         set_mask_colors: Any
         set_onion_all_layers: Any
         set_onion_skin: Any

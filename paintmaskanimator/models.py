@@ -23,6 +23,8 @@ class Layer:
     sequence_only: bool = False
     # 下書きレイヤー: 色数削減の対象外で、読み込んだ画素をそのまま表示・保存する。
     is_draft: bool = False
+    # 外部タイムライン由来のセル名。数値セルは sequence_number と併記する。
+    cell_name: Optional[str] = None
 
     def clone(self):
         return Layer(
@@ -34,6 +36,7 @@ class Layer:
             self.sequence_number,
             bool(self.sequence_only),
             bool(self.is_draft),
+            str(self.cell_name) if self.cell_name is not None else None,
         )
 
 

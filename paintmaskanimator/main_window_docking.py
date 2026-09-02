@@ -21,31 +21,107 @@ log = get_logger(__name__)
 
 
 class _FloatingGripTracker(QObject):
-    """Anchor and drive the grip for a frameless floating container."""
+    """Anchor and drive every resize edge of a frameless floating container."""
 
-    def __init__(self, floating, grip):
+    def __init__(self, floating, grip, handles=None):
         super().__init__(floating)
         self.floating = floating
         self.grip = grip
+        self.handles = dict(handles or {})
+        self.handles["bottom_right"] = grip
         self._manual_resize = False
         self._resize_origin = QPoint()
-        self._resize_size = QSize()
+        self._resize_geometry = QRect()
+        self._resize_edges = Qt.Edge.RightEdge | Qt.Edge.BottomEdge
+        self._resize_widget = None
+
+    def position_handles(self):
+        width = max(0, self.floating.width())
+        height = max(0, self.floating.height())
+        edge = 6
+        corner = 14
+        horizontal_width = max(0, width - corner * 2)
+        vertical_height = max(0, height - corner * 2)
+        geometries = {
+            "top": QRect(corner, 0, horizontal_width, edge),
+            "bottom": QRect(
+                corner, max(0, height - edge), horizontal_width, edge
+            ),
+            "left": QRect(0, corner, edge, vertical_height),
+            "right": QRect(
+                max(0, width - edge), corner, edge, vertical_height
+            ),
+            "top_left": QRect(0, 0, corner, corner),
+            "top_right": QRect(max(0, width - corner), 0, corner, corner),
+            "bottom_left": QRect(
+                0, max(0, height - corner), corner, corner
+            ),
+        }
+        for name, geometry in geometries.items():
+            handle = self.handles.get(name)
+            if handle is not None:
+                handle.setGeometry(geometry)
+                handle.raise_()
+        self.grip.move(
+            max(0, width - self.grip.width()),
+            max(0, height - self.grip.height()),
+        )
+        self.grip.raise_()
+
+    @staticmethod
+    def _clamp_dimension(value, minimum, maximum):
+        maximum = max(minimum, maximum)
+        return max(minimum, min(maximum, value))
+
+    def _apply_manual_resize(self, delta):
+        geometry = self._resize_geometry
+        minimum = self.floating.minimumSize().expandedTo(
+            self.floating.minimumSizeHint()
+        )
+        maximum = self.floating.maximumSize()
+        x, y = geometry.x(), geometry.y()
+        width, height = geometry.width(), geometry.height()
+
+        if self._resize_edges & Qt.Edge.LeftEdge:
+            resized = self._clamp_dimension(
+                width - delta.x(), minimum.width(), maximum.width()
+            )
+            x += width - resized
+            width = resized
+        elif self._resize_edges & Qt.Edge.RightEdge:
+            width = self._clamp_dimension(
+                width + delta.x(), minimum.width(), maximum.width()
+            )
+
+        if self._resize_edges & Qt.Edge.TopEdge:
+            resized = self._clamp_dimension(
+                height - delta.y(), minimum.height(), maximum.height()
+            )
+            y += height - resized
+            height = resized
+        elif self._resize_edges & Qt.Edge.BottomEdge:
+            height = self._clamp_dimension(
+                height + delta.y(), minimum.height(), maximum.height()
+            )
+
+        self.floating.setGeometry(x, y, width, height)
 
     def eventFilter(self, watched, event):
         if watched is self.floating and event.type() in (
             QEvent.Type.Resize, QEvent.Type.Show
         ):
-            self.grip.move(
-                max(0, watched.width() - self.grip.width()),
-                max(0, watched.height() - self.grip.height()),
-            )
-            self.grip.raise_()
-        if watched is not self.grip:
+            self.position_handles()
+        if watched not in self.handles.values():
             return False
         if (
             event.type() == QEvent.Type.MouseButtonPress
             and event.button() == Qt.MouseButton.LeftButton
         ):
+            self._resize_edges = getattr(
+                watched,
+                "_paintmask_resize_edges",
+                Qt.Edge.RightEdge | Qt.Edge.BottomEdge,
+            )
             handle = (
                 self.floating.windowHandle()
                 if self.floating.isWindow() else None
@@ -53,34 +129,34 @@ class _FloatingGripTracker(QObject):
             if (
                 handle is not None
                 and handle.isTopLevel()
-                and handle.startSystemResize(
-                    Qt.Edge.RightEdge | Qt.Edge.BottomEdge
-                )
+                and handle.startSystemResize(self._resize_edges)
             ):
                 event.accept()
                 return True
             self._manual_resize = True
             self._resize_origin = event.globalPosition().toPoint()
-            self._resize_size = self.floating.size()
+            self._resize_geometry = QRect(self.floating.geometry())
+            self._resize_widget = watched
+            try:
+                watched.grabMouse()
+            except RuntimeError:
+                pass
             event.accept()
             return True
         if event.type() == QEvent.Type.MouseMove and self._manual_resize:
             delta = event.globalPosition().toPoint() - self._resize_origin
-            minimum = self.floating.minimumSize().expandedTo(
-                self.floating.minimumSizeHint()
-            )
-            maximum = self.floating.maximumSize()
-            width = max(minimum.width(), self._resize_size.width() + delta.x())
-            height = max(
-                minimum.height(), self._resize_size.height() + delta.y()
-            )
-            width = min(width, maximum.width())
-            height = min(height, maximum.height())
-            self.floating.resize(width, height)
+            self._apply_manual_resize(delta)
             event.accept()
             return True
         if event.type() == QEvent.Type.MouseButtonRelease:
+            resize_widget = self._resize_widget
             self._manual_resize = False
+            self._resize_widget = None
+            if resize_widget is not None:
+                try:
+                    resize_widget.releaseMouse()
+                except RuntimeError:
+                    pass
             event.accept()
             return True
         return False
@@ -1106,13 +1182,50 @@ class DockingMixin(MainWindowMembers):
         grip.setObjectName("floatingResizeGrip")
         grip.setFixedSize(16, 16)
         grip.setCursor(Qt.CursorShape.SizeFDiagCursor)
+        grip._paintmask_resize_edges = (
+            Qt.Edge.RightEdge | Qt.Edge.BottomEdge
+        )
         grip.raise_()
         grip.show()
+        handle_specs = {
+            "top": (Qt.Edge.TopEdge, Qt.CursorShape.SizeVerCursor),
+            "bottom": (Qt.Edge.BottomEdge, Qt.CursorShape.SizeVerCursor),
+            "left": (Qt.Edge.LeftEdge, Qt.CursorShape.SizeHorCursor),
+            "right": (Qt.Edge.RightEdge, Qt.CursorShape.SizeHorCursor),
+            "top_left": (
+                Qt.Edge.TopEdge | Qt.Edge.LeftEdge,
+                Qt.CursorShape.SizeFDiagCursor,
+            ),
+            "top_right": (
+                Qt.Edge.TopEdge | Qt.Edge.RightEdge,
+                Qt.CursorShape.SizeBDiagCursor,
+            ),
+            "bottom_left": (
+                Qt.Edge.BottomEdge | Qt.Edge.LeftEdge,
+                Qt.CursorShape.SizeBDiagCursor,
+            ),
+        }
+        resize_handles = {}
+        for name, (edges, cursor) in handle_specs.items():
+            handle = QWidget(floating)
+            handle.setObjectName(
+                "floatingResize" + "".join(
+                    part.title() for part in name.split("_")
+                )
+            )
+            handle.setCursor(cursor)
+            handle.setStyleSheet("background:transparent;")
+            handle._paintmask_resize_edges = edges
+            handle.show()
+            resize_handles[name] = handle
         floating._paintmask_resize_grip = grip
-        tracker = _FloatingGripTracker(floating, grip)
+        floating._paintmask_resize_handles = resize_handles
+        tracker = _FloatingGripTracker(floating, grip, resize_handles)
         floating._paintmask_grip_tracker = tracker
         floating.installEventFilter(tracker)
         grip.installEventFilter(tracker)
+        for handle in resize_handles.values():
+            handle.installEventFilter(tracker)
         self._position_floating_resize_grip(floating)
         QTimer.singleShot(
             0, lambda f=floating: self._position_floating_resize_grip(f)
@@ -1136,11 +1249,15 @@ class DockingMixin(MainWindowMembers):
         if grip is None:
             return
         try:
-            grip.move(
-                max(0, floating.width() - grip.width()),
-                max(0, floating.height() - grip.height()),
-            )
-            grip.raise_()
+            tracker = getattr(floating, "_paintmask_grip_tracker", None)
+            if tracker is not None:
+                tracker.position_handles()
+            else:
+                grip.move(
+                    max(0, floating.width() - grip.width()),
+                    max(0, floating.height() - grip.height()),
+                )
+                grip.raise_()
         except RuntimeError:
             return
 

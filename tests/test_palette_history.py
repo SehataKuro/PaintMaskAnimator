@@ -77,6 +77,20 @@ def test_parent_child_group_is_undoable():
     assert panel.child_to_parent.get(red) == blue
 
 
+def test_parent_child_group_does_not_emit_color_remap_preview():
+    _app()
+    panel = _panel_with_colors()
+    emitted = []
+    panel.previewGroupsChanged.connect(emitted.append)
+    red, blue = (255, 0, 0), (0, 0, 255)
+
+    panel._handle_color_drop(red, blue, "child")
+
+    assert panel.child_to_parent == {red: blue}
+    assert emitted
+    assert emitted[-1] == {}
+
+
 def test_reordering_child_outside_parent_block_detaches_it():
     _app()
     panel = _panel_with_colors()
@@ -90,7 +104,7 @@ def test_reordering_child_outside_parent_block_detaches_it():
     assert red not in panel.child_to_parent
 
 
-def test_reordering_child_within_parent_block_keeps_relationship():
+def test_reordering_child_within_parent_block_detaches_only_moved_child():
     _app()
     panel = UsedColorPanel()
     panel.set_colors([
@@ -104,9 +118,51 @@ def test_reordering_child_within_parent_block_keeps_relationship():
 
     panel._handle_color_drop(red, green, "after")
 
-    assert panel.child_to_parent.get(red) == blue
+    assert red not in panel.child_to_parent
     assert panel.child_to_parent.get(green) == blue
     assert yellow not in panel.child_to_parent
+
+
+def test_reordering_parent_moves_whole_group_without_detaching_children():
+    _app()
+    panel = UsedColorPanel()
+    panel.set_colors([
+        QColor("red"), QColor("green"), QColor("blue"), QColor("yellow")
+    ])
+    red, green = (255, 0, 0), (0, 128, 0)
+    blue, yellow = (0, 0, 255), (255, 255, 0)
+    panel._handle_color_drop(red, blue, "child")
+    panel._handle_color_drop(green, blue, "child")
+
+    panel._handle_color_drop(blue, yellow, "after")
+
+    order = [panel._rgb_key(color) for color in panel.colors]
+    assert order.index(yellow) < order.index(blue)
+    assert order.index(blue) < order.index(red)
+    assert order.index(blue) < order.index(green)
+    assert {
+        order[order.index(blue) + 1], order[order.index(blue) + 2]
+    } == {red, green}
+    assert panel.child_to_parent == {red: blue, green: blue}
+
+
+def test_reordering_parent_does_not_split_target_parent_group():
+    _app()
+    panel = UsedColorPanel()
+    panel.set_colors([
+        QColor("red"), QColor("green"), QColor("blue"), QColor("yellow")
+    ])
+    red, green = (255, 0, 0), (0, 128, 0)
+    blue, yellow = (0, 0, 255), (255, 255, 0)
+    panel._handle_color_drop(red, blue, "child")
+    panel._handle_color_drop(green, yellow, "child")
+
+    panel._handle_color_drop(blue, yellow, "after")
+
+    order = [panel._rgb_key(color) for color in panel.colors]
+    assert order.index(yellow) < order.index(green) < order.index(blue)
+    assert order.index(blue) + 1 == order.index(red)
+    assert panel.child_to_parent == {red: blue, green: yellow}
 
 
 def test_dragging_one_selected_color_groups_all_selected_colors():

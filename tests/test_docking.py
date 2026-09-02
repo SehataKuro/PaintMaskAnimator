@@ -463,6 +463,56 @@ def test_single_floating_panel_keeps_hamburger_menu(qapp, tmp_path, monkeypatch)
         window.close()
 
 
+def test_detached_subview_resizes_from_side_and_top_edges(
+    qapp, tmp_path, monkeypatch
+):
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setattr(MainWindow, "_maybe_restore_autosave", lambda self: None)
+    window = MainWindow()
+    window.show()
+    try:
+        window.subview_dock.setFloating()
+        QTest.qWait(20)
+        qapp.processEvents()
+        floating = window.subview_dock.window()
+        right_handle = floating.findChild(QWidget, "floatingResizeRight")
+        top_handle = floating.findChild(QWidget, "floatingResizeTop")
+        assert right_handle is not None
+        assert top_handle is not None
+
+        start = floating.geometry()
+        right_center = right_handle.rect().center()
+        QTest.mousePress(
+            right_handle, Qt.MouseButton.LeftButton, pos=right_center
+        )
+        QTest.mouseMove(right_handle, right_center + QPoint(45, 0), delay=10)
+        QTest.mouseRelease(
+            right_handle,
+            Qt.MouseButton.LeftButton,
+            pos=right_center + QPoint(45, 0),
+        )
+        qapp.processEvents()
+        assert floating.width() >= start.width() + 40
+
+        before_top_resize = floating.geometry()
+        top_center = top_handle.rect().center()
+        QTest.mousePress(
+            top_handle, Qt.MouseButton.LeftButton, pos=top_center
+        )
+        QTest.mouseMove(top_handle, top_center - QPoint(0, 35), delay=10)
+        QTest.mouseRelease(
+            top_handle,
+            Qt.MouseButton.LeftButton,
+            pos=top_center - QPoint(0, 35),
+        )
+        qapp.processEvents()
+        assert floating.height() >= before_top_resize.height() + 30
+        assert floating.y() <= before_top_resize.y() - 30
+    finally:
+        window.close()
+
+
 def test_tool_width_snaps_only_after_mouse_release(qapp, tmp_path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))

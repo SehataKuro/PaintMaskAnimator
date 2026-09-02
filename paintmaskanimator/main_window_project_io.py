@@ -59,7 +59,10 @@ class ProjectIOMixin(MainWindowMembers):
 
         try:
             project_io.write_project_archive(
-                project_path, metadata, self.canvas.frames
+                project_path,
+                metadata,
+                self.canvas.frames,
+                self.canvas._sequence_archive,
             )
             self.current_project_path = project_path
             self.update_project_title()
@@ -131,10 +134,19 @@ class ProjectIOMixin(MainWindowMembers):
             self._pending_palette_categories = metadata.get(
                 "used_color_categories", {}
             )
+            self.set_color_chart_data(metadata.get("color_chart", {}))
 
             constants.CANVAS_WIDTH = width
             constants.CANVAS_HEIGHT = height
             self.canvas.frames = loaded_frames
+            self.canvas._sequence_archive = metadata.pop(
+                "_loaded_sequence_archive", {}
+            )
+            self.timeline.sequence_archive = self.canvas._sequence_archive
+            clip_source = metadata.get("clip_studio_source")
+            self.canvas.clip_studio_source_metadata = (
+                dict(clip_source) if isinstance(clip_source, dict) else None
+            )
             self.canvas.current_frame = max(
                 0,
                 min(

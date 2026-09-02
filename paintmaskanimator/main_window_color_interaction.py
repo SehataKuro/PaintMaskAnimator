@@ -362,23 +362,15 @@ class ColorInteractionMixin(MainWindowMembers):
         # 以前の表示状態へ戻した時は既存キャッシュを再利用できる。
         self.canvas.update()
 
-    def set_preview_color_groups(self, mapping):
-        """親子グループの非破壊プレビュー（子→親の描画色置換）を反映する。"""
-        remap = {}
-        for child, parent in (mapping or {}).items():
-            child = tuple(int(channel) for channel in child[:3])
-            parent = tuple(int(channel) for channel in parent[:3])
-            if child == parent:
-                continue
-            remap[child] = parent
-        if remap == getattr(self.canvas, "preview_color_remap", {}):
+    def set_preview_color_groups(self, _mapping):
+        """親子付けでは色を置換せず、残っている旧プレビューも解除する。"""
+        if not getattr(self.canvas, "preview_color_remap", {}):
             return
-        self.canvas.preview_color_remap = remap
-        # プレビュー結果はフィルターキャッシュのキーに含めるため全消去しない。
+        self.canvas.preview_color_remap = {}
         self.canvas.update()
 
     def freeze_preview_color_groups(self, mapping):
-        """プレビュー中の親子を実ピクセルへ焼き込み、プレビューを解除する。"""
+        """登録した親子を実ピクセルへ統合する。"""
         rgb_mapping = {}
         for child, parent in (mapping or {}).items():
             child = tuple(int(channel) for channel in child[:3])
@@ -387,7 +379,7 @@ class ColorInteractionMixin(MainWindowMembers):
                 rgb_mapping[child] = parent
         if not rgb_mapping:
             return
-        # 先にプレビューを外す（焼き込み後は二重適用になるため）。
+        # 旧バージョン由来のプレビューが残っていても先に解除する。
         self.canvas.preview_color_remap = {}
         applied = self.apply_palette_replacements(
             rgb_mapping,
@@ -395,9 +387,6 @@ class ColorInteractionMixin(MainWindowMembers):
         )
         if applied:
             self.palette.on_groups_frozen()
-        else:
-            # 適用できなかった場合はプレビューを元に戻す。
-            self.set_preview_color_groups(mapping)
 
     def apply_sampled_color_to_mode(self, mode, color):
         self._apply_sampled_drawing_color(mode, color)
