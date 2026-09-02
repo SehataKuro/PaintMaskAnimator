@@ -753,10 +753,11 @@ def _single_channel_layer_color(layer: sqlite3.Row) -> tuple[int, int, int]:
         names = ("LayerPaletteRed", "LayerPaletteGreen", "LayerPaletteBlue")
     else:
         return (0, 0, 0)
-    return tuple(
+    red, green, blue = (
         _csp_color_byte(layer[name] if name in layer.keys() else 0)
         for name in names
     )
+    return (red, green, blue)
 
 
 def _blank_canvas(width: int, height: int) -> QImage:

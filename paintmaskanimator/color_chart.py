@@ -336,7 +336,7 @@ def move_chart_color(data, source_hit, target_hit=None):
         return chart, False
 
     target = _tile(chart, target_hit.get("group_id")) if target_hit else None
-    if target is None:
+    if target is None or target_hit is None:
         used = {item["id"] for item in chart["tiles"]}
         chart["tiles"].append({
             "id": _unique_id("", used, len(chart["tiles"]) + 1),

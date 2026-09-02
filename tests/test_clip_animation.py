@@ -536,13 +536,16 @@ def test_successful_ui_import_replaces_document_in_sheet_mode(
         assert len(window.canvas.frames) == 2
         assert window.canvas.frames[0].layers[0].cell_name == "A-7"
         assert window.canvas.frames[0].layers[0].sequence_number == 1
-        assert window.timeline.table.item(0, 0).text() == "A-7"
-        assert window.canvas.clip_studio_source_metadata["start_frame"] == 12
+        sheet_cell = window.timeline.table.item(0, 0)
+        assert sheet_cell is not None and sheet_cell.text() == "A-7"
+        metadata = window.canvas.clip_studio_source_metadata
+        assert metadata is not None and metadata["start_frame"] == 12
         archived = window.canvas._sequence_archive[(0, 2)]
         assert archived.cell_name == "B-8"
         assert archived.image.pixelColor(0, 0) == QColor("magenta")
         window.set_timeline_mode("sequence")
-        assert window.timeline.table.item(0, 1).text() == "B-8"
+        sequence_cell = window.timeline.table.item(0, 1)
+        assert sequence_cell is not None and sequence_cell.text() == "B-8"
     finally:
         window.close()
 
