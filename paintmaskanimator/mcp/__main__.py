@@ -1,12 +1,15 @@
-"""``python -m paintmaskanimator.mcp`` で MCP サーバーを起動する。
+"""``python -m paintmaskanimator.mcp`` — MCP サーバーの起動と、導入の補助。
 
-Claude Desktop などの設定に書く起動コマンドがこれ。stdio で話すので、
-標準出力へ余計なものを書かないよう GUI は一切起動しない（オフスクリーンの
-QGuiApplication だけを用意して QImage / QPainter を使えるようにする）。
+引数なしで起動すると stdio の MCP サーバーになる。標準出力はプロトコルが使うので、
+GUI は一切開かず、案内も標準エラーへ出す。
+
+``--doctor`` / ``--print-config`` / ``--install`` は導入用で、サーバーは起動しない。
+設定ファイルを手で書かずに済ませるためのもので、中身は :mod:`.setup` にある。
 """
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 
@@ -15,6 +18,10 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m paintmaskanimator.mcp",
         description="PaintMaskAnimator を MCP サーバーとして起動する。",
+        epilog=(
+            "はじめて使うときは --doctor で導入状況を確認し、"
+            "--install で Claude Desktop へ登録してください。"
+        ),
     )
     parser.add_argument(
         "project",
@@ -29,11 +36,110 @@ def _build_parser() -> argparse.ArgumentParser:
             "AI がプロジェクトを書き換えることはない。"
         ),
     )
+
+    setup_group = parser.add_argument_group("導入の補助（サーバーは起動しない）")
+    setup_group.add_argument(
+        "--doctor",
+        action="store_true",
+        help="導入がどこで止まっているかを実際に試して確認する。",
+    )
+    setup_group.add_argument(
+        "--print-config",
+        action="store_true",
+        help="Claude Desktop に貼り付ける設定 JSON を表示する。",
+    )
+    setup_group.add_argument(
+        "--print-command",
+        action="store_true",
+        help="Claude Code 用の claude mcp add コマンドを表示する。",
+    )
+    setup_group.add_argument(
+        "--install",
+        action="store_true",
+        help=(
+            "Claude Desktop の設定へ登録する。既存の設定はマージし、"
+            "上書き前に .bak を作る。"
+        ),
+    )
+    setup_group.add_argument(
+        "--uninstall",
+        action="store_true",
+        help="Claude Desktop の設定から登録を取り消す。",
+    )
+    setup_group.add_argument(
+        "--config-path",
+        help="設定ファイルの場所を明示する（既定はプラットフォーム標準の場所）。",
+    )
     return parser
+
+
+def _run_setup(args) -> int:
+    """導入用のサブコマンド。何か1つでも指定されていれば真を返す。"""
+    from . import setup
+
+    if args.doctor:
+        diagnosis = setup.diagnose(config_path=args.config_path)
+        print(diagnosis.as_text())
+        if not diagnosis.ok:
+            print("\n必要な項目が揃っていません。上の → の手順を実行してください。")
+            return 1
+        print("\nMCP サーバーを起動できます。")
+        return 0
+
+    if args.print_config:
+        print(
+            json.dumps(
+                setup.build_config(args.project, allow_write=args.allow_write),
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        print(
+            f"\n貼り付け先: {setup.claude_desktop_config_path()}",
+            file=sys.stderr,
+        )
+        return 0
+
+    if args.print_command:
+        print(setup.claude_code_command(args.project, allow_write=args.allow_write))
+        return 0
+
+    if args.uninstall:
+        report = setup.uninstall_from_claude_desktop(config_path=args.config_path)
+        if report["removed"]:
+            print(f"登録を取り消しました: {report['config_path']}")
+        else:
+            print(f"登録されていませんでした: {report['config_path']}")
+        return 0
+
+    if args.install:
+        try:
+            report = setup.install_into_claude_desktop(
+                args.project,
+                allow_write=args.allow_write,
+                config_path=args.config_path,
+            )
+        except ValueError as error:
+            print(str(error), file=sys.stderr)
+            return 1
+        action = "更新しました" if report["replaced"] else "登録しました"
+        print(f"{action}: {report['config_path']}")
+        if report["backup_path"]:
+            print(f"バックアップ: {report['backup_path']}")
+        if report["other_servers"]:
+            print("既存のサーバー設定はそのまま残しました: " + ", ".join(report["other_servers"]))
+        print("\nClaude Desktop を再起動すると反映されます。")
+        return 0
+
+    return -1
 
 
 def main(argv=None) -> int:
     args = _build_parser().parse_args(argv)
+
+    status = _run_setup(args)
+    if status >= 0:
+        return status
 
     # QImage/QPainter に必要な最小限の Qt だけを、画面なしで用意する。
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")

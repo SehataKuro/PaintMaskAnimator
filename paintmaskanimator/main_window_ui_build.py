@@ -819,6 +819,14 @@ class UIBuildMixin(MainWindowMembers):
         a_check_update.triggered.connect(self.check_for_updates_interactive)
         help_menu.addAction(a_check_update)
         help_menu.addSeparator()
+        a_mcp_setup=QAction(tr("MCP サーバー設定…"), self)
+        a_mcp_setup.setToolTip(tr(
+            "Claude などの AI クライアントから、このソフトのプロジェクトを"
+            "読ませるための設定を行います。"
+        ))
+        a_mcp_setup.triggered.connect(self.show_mcp_setup_dialog)
+        help_menu.addAction(a_mcp_setup)
+        help_menu.addSeparator()
         a_about=QAction(tr("バージョン情報…"), self)
         a_about.triggered.connect(self.show_about_dialog)
         help_menu.addAction(a_about)
@@ -1095,6 +1103,19 @@ class UIBuildMixin(MainWindowMembers):
             lambda *_args: self.used_color.refresh_history_panel()
         )
 
+
+    def show_mcp_setup_dialog(self):
+        """MCP サーバーの導入ダイアログを開く。
+
+        ダイアログ側は ``mcp`` パッケージが未導入でも開ける。「入っていない」と
+        伝えるのもこの画面の仕事なので、ここで import を守る必要はない。
+        """
+        from .mcp_dialog import McpSetupDialog
+
+        project_path = (
+            str(self.current_project_path) if self.current_project_path else None
+        )
+        McpSetupDialog(self, project_path=project_path).exec()
 
     def show_about_dialog(self):
         """Show version, copyright and the license notices.

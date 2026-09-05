@@ -20,13 +20,63 @@ API キーもネットワーク接続も持ちません。ユーザーが Claude
 アプリ側の[串刺し塗り](#串刺し塗りとの分担)が担当します。MCP 経由で毎コマ数百
 領域の座標をやりとりするのは、速度・安定性・コストのどれを見ても割に合いません。
 
-## 導入
+## 導入（かんたん）
+
+アプリのメニュー **ヘルプ › MCP サーバー設定…** を開きます。
+
+1. **導入状況** が自動で診断されます（Python・パッケージ・`mcp`・登録の有無）。
+   足りないものがあれば、その場に次の一手が出ます。
+2. 必要なら「起動時に、いま開いているプロジェクトを渡す」「AI による塗りと保存を
+   許可する」を選びます。**書き込みは既定で OFF** です。
+3. **「Claude Desktop に登録」** を押します。設定ファイルは自動で見つけ、
+   既存の設定はマージし、上書き前に `.bak` を作ります。
+4. Claude Desktop を再起動します。
+
+Claude Code をお使いなら「**Claude Code 用コマンドをコピー**」でワンライナーが
+得られます。JSON を触る必要はありません。
+
+手で設定したい場合は「設定をコピー」と「設定フォルダを開く」を使ってください。
+
+## 導入（コマンドライン）
 
 ```bash
 pip install -e ".[mcp]"
+
+python -m paintmaskanimator.mcp --doctor          # 導入状況を確認する
+python -m paintmaskanimator.mcp --install         # Claude Desktop へ登録する
+python -m paintmaskanimator.mcp --print-config    # 貼り付け用の JSON を表示
+python -m paintmaskanimator.mcp --print-command   # Claude Code 用のコマンド
+python -m paintmaskanimator.mcp --uninstall       # 登録を取り消す
 ```
 
+`--doctor` は推測ではなく、実際に別プロセスの Python を起動して
+「このパッケージを import できるか」「`mcp` が入っているか」を確かめます。
+「入れたのに Claude から見えない」の原因はほぼここで分かります。
+
 `mcp` は任意依存です。入れなくてもアプリ本体の動作には影響しません。
+
+### 設定ファイルの場所
+
+| OS | 場所 |
+|---|---|
+| macOS | `~/Library/Application Support/Claude/claude_desktop_config.json` |
+| Windows | `%APPDATA%\Claude\claude_desktop_config.json` |
+| Linux | `~/.config/Claude/claude_desktop_config.json` |
+
+Claude Desktop の **設定 › 開発者 › 設定を編集** からも開けます。
+
+### 設定を壊さないための約束
+
+ユーザーの設定ファイルを触るので、次を守っています。
+
+- 既存の設定は**マージ**する。他の MCP サーバーの項目も、`mcpServers` 以外の
+  トップレベルのキーも消さない。
+- 上書きの前に `.bak` を作る。
+- **壊れた JSON は作り直さず、中断してそう伝える。** 黙って作り直すと、
+  ユーザーの他の設定が消えるため。
+- `command` には `python` ではなく**インタプリタの絶対パス**を書く。MCP
+  クライアントはシェルの `PATH` を引き継がないことがあり、「手元では動くのに
+  Claude からは起動しない」の主因になるため。
 
 ## 起動
 

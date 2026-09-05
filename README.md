@@ -96,7 +96,8 @@ QT_QPA_PLATFORM=offscreen python scripts/run_tests.py -q
 | `dependency_check.py`、`optional_deps.py` | 必須依存の起動時チェックと、任意依存のフォールバック |
 | `bucket_fill.py` | バケツの領域判定（UI 非依存）。単発の塗りと串刺し塗りが共有する |
 | `frame_scope.py` | 全コマ一括適用のランナー（進捗・中断・Undo のまとめ） |
-| `mcp/` | MCP サーバー。AI クライアントから `.pma` を操作する（任意依存） |
+| `mcp/` | MCP サーバーと導入補助。AI クライアントから `.pma` を操作する（任意依存） |
+| `mcp_dialog.py` | 「MCP サーバー設定…」ダイアログ（診断・設定生成・登録） |
 
 リポジトリ直下の `PaintMaskAnimator.py` は薄いランチャーです。
 
@@ -128,13 +129,20 @@ AI クライアント（Claude Desktop / Claude Code など）から `.pma` プ�
 読み、コマを画像として受け取り、線で閉じた領域に色を置けます。**PMAn 側に AI は
 入りません。** 推論はクライアント側にあるので、API キーもネットワークも持ちません。
 
+導入はアプリの **ヘルプ › MCP サーバー設定…** から行えます。導入状況が診断され、
+設定の生成と Claude Desktop への登録がボタンで済みます（JSON を手で書く必要は
+ありません）。Claude Code 用のワンライナーもコピーできます。
+
+コマンドラインからも同じことができます。
+
 ```bash
 pip install -e ".[mcp]"
-python -m paintmaskanimator.mcp path/to/project.pma
+python -m paintmaskanimator.mcp --doctor     # 導入状況を確認
+python -m paintmaskanimator.mcp --install    # Claude Desktop へ登録
 ```
 
 既定は読み取り専用です。書き込みには `--allow-write` を付けます。ツール一覧・
-Claude Desktop への登録方法・制限は [`docs/mcp.md`](docs/mcp.md) を参照してください。
+制限・設定を壊さないための約束は [`docs/mcp.md`](docs/mcp.md) を参照してください。
 
 ## ライセンス
 
