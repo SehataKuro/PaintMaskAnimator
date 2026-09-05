@@ -6,6 +6,16 @@ PaintMaskAnimator の主な変更点を記録します。
 
 ### 追加
 
+- **MCP の登録先に Codex CLI を追加した。** ダイアログと CLI（`--client codex`）
+  の両方から、Claude Desktop と同じ操作で登録できる。Codex は設定が TOML
+  （`$CODEX_HOME/config.toml`、既定は OS を問わず `~/.codex/config.toml`）で、
+  `[mcp_servers.…]` の節に書く。形式も場所も Claude Desktop と違うが、その差は
+  `ClientTarget` に閉じ込めたので、画面と CLI はクライアントごとに分岐しない。
+  TOML は読み込んで書き戻すのではなく**該当する1節だけを差し替える**。全体を
+  書き直すと、`config.toml` に書かれたコメントや書式が黙って消えるため。
+  Windows のパスがそのまま書けるよう、バックスラッシュは TOML としてエスケープ
+  する（素で書くと壊れる）。
+
 - **MCP の導入をアプリ側から行えるようにした。** ヘルプ › MCP サーバー設定… で、
   導入状況の診断・設定の自動生成・Claude Desktop への登録がボタンで済む。
   設定ファイルの場所を調べ、絶対パスを書き、Windows のバックスラッシュを二重に

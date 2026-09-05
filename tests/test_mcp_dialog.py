@@ -127,3 +127,71 @@ def test_status_view_shows_what_is_missing(qapp, config, monkeypatch):
     dialog = dialog_for(qapp, config)
 
     assert "mcp パッケージ" in dialog.status_view.toPlainText()
+
+
+# ------------------------------------------------------------------ 登録先の切り替え
+
+
+def select(dialog, key):
+    dialog.client_selector.setCurrentIndex(dialog.client_selector.findData(key))
+
+
+def test_every_client_is_offered(qapp, config):
+    dialog = dialog_for(qapp, config)
+
+    keys = [
+        dialog.client_selector.itemData(index)
+        for index in range(dialog.client_selector.count())
+    ]
+
+    assert keys == list(mcp_setup.CLIENTS)
+
+
+def test_switching_to_codex_shows_toml(qapp, config):
+    dialog = dialog_for(qapp, config)
+
+    select(dialog, "codex")
+
+    text = dialog.config_view.toPlainText()
+    assert text.startswith(f"[mcp_servers.{mcp_setup.SERVER_KEY}]")
+    assert "TOML" in dialog.config_box.title()
+    assert dialog.install_button.text() == "Codex CLI に登録"
+    assert dialog.copy_command_button.text() == "Codex CLI 用コマンドをコピー"
+
+
+def test_switching_back_shows_json(qapp, config):
+    dialog = dialog_for(qapp, config)
+
+    select(dialog, "codex")
+    select(dialog, "claude-desktop")
+
+    assert json.loads(dialog.config_view.toPlainText())["mcpServers"]
+    assert "JSON" in dialog.config_box.title()
+
+
+def test_options_carry_across_the_client_switch(qapp, config):
+    dialog = dialog_for(qapp, config, project_path="/tmp/cut01.pma")
+    dialog.allow_write.setChecked(True)
+
+    select(dialog, "codex")
+
+    text = dialog.config_view.toPlainText()
+    assert "--allow-write" in text
+    assert "cut01.pma" in text
+
+
+def test_install_writes_to_the_selected_client(qapp, config, tmp_path, monkeypatch):
+    codex_config = tmp_path / "config.toml"
+    monkeypatch.setattr(mcp_setup, "codex_config_path", lambda: codex_config)
+    monkeypatch.setattr(
+        QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes
+    )
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
+    dialog = dialog_for(qapp, config)
+    select(dialog, "codex")
+
+    dialog.install()
+
+    assert codex_config.exists()
+    assert mcp_setup.SERVER_KEY in codex_config.read_text(encoding="utf-8")
+    assert not config.exists(), "選んでいない側には書かない"

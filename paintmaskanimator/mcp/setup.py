@@ -5,6 +5,10 @@ MCP サーバー自体は動いても、**設定ファイルを自力で書け�
 バックスラッシュを二重にして、絶対パスを書いて、再起動して」と頼むのは現実的では
 ない。ここはその手順をアプリ側に肩代わりさせるための部品を置く。
 
+対応するクライアントは Claude Desktop（JSON）と Codex CLI（TOML）。設定の形式も
+場所も違うが、ユーザーから見れば「登録する」の1操作なので、差は
+:class:`ClientTarget` に閉じ込めて呼び出し側からは同じに見せる。
+
 UI も ``mcp`` パッケージも要らない純粋な層なので、GUI なしで単体テストできる。
 実際に効く設定を出すために、Python が本当にこのパッケージを import できるかを
 **部分プロセスで確かめてから**構成を組み立てる（推測で書いた設定は静かに動かない）。
@@ -13,24 +17,41 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
+
+try:  # Python 3.11+
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - 3.10 のみ
+    try:
+        import tomli as tomllib  # pyright: ignore[reportMissingImports]
+    except ModuleNotFoundError:
+        # 3.10 で tomli も無い場合。読み取り検証だけを諦め、書き込みは行える。
+        tomllib = None
 
 from ..logging_setup import get_logger
 
 __all__ = [
+    "CLIENTS",
+    "DEFAULT_CLIENT",
     "SERVER_KEY",
     "Check",
+    "ClientTarget",
     "Diagnosis",
     "build_server_entry",
     "claude_code_command",
     "claude_desktop_config_path",
+    "client_target",
+    "codex_command",
+    "codex_config_path",
     "diagnose",
     "install_into_claude_desktop",
+    "install_into_codex",
     "package_root",
     "read_config",
 ]
@@ -156,6 +177,174 @@ def _quote(value: str) -> str:
     return f'"{value}"' if " " in value else value
 
 
+def codex_command(project=None, *, allow_write=False) -> str:
+    """Codex CLI の ``codex mcp add`` 用の1行コマンド。
+
+    書式は ``codex mcp add [OPTIONS] <NAME> (--url <URL> | -- <COMMAND>...)``。
+    Claude Code と同じく ``--`` の後ろが起動コマンドになる。
+    """
+    entry = build_server_entry(project, allow_write=allow_write)
+    parts = ["codex", "mcp", "add", SERVER_KEY]
+    for name, value in (entry.get("env") or {}).items():
+        parts += ["--env", f"{name}={value}"]
+    parts += ["--", entry["command"], *entry["args"]]
+    return " ".join(_quote(part) for part in parts)
+
+
+def codex_config_path() -> Path:
+    """Codex の ``config.toml``。
+
+    Codex は ``CODEX_HOME`` があればそこ、無ければ ``~/.codex`` を使う。
+    Claude Desktop と違い、Windows でも ``%APPDATA%`` ではなくホーム直下。
+    """
+    home = os.environ.get("CODEX_HOME")
+    root = Path(home) if home else Path.home() / ".codex"
+    return root / "config.toml"
+
+
+def _toml_string(value: str) -> str:
+    """TOML の基本文字列。Windows のパスに入るバックスラッシュを潰さない。"""
+    escaped = (
+        str(value)
+        .replace("\\", "\\\\")
+        .replace('"', '\\"')
+    )
+    return f'"{escaped}"'
+
+
+def build_codex_toml(project=None, *, allow_write=False, with_pythonpath=None) -> str:
+    """Codex の ``config.toml`` に入れる ``[mcp_servers.…]`` 節を組み立てる。"""
+    entry = build_server_entry(
+        project, allow_write=allow_write, with_pythonpath=with_pythonpath
+    )
+    lines = [f"[mcp_servers.{SERVER_KEY}]"]
+    lines.append(f"command = {_toml_string(entry['command'])}")
+    lines.append(
+        "args = [" + ", ".join(_toml_string(arg) for arg in entry["args"]) + "]"
+    )
+    env = entry.get("env")
+    if env:
+        pairs = ", ".join(
+            f"{name} = {_toml_string(value)}" for name, value in env.items()
+        )
+        lines.append("env = { " + pairs + " }")
+    return "\n".join(lines) + "\n"
+
+
+#: ``[mcp_servers.paintmaskanimator]`` の節見出し（引用符つきの表記も拾う）。
+_CODEX_SECTION = re.compile(
+    r'^\[mcp_servers\.(?:%s|"%s")\]\s*$' % (re.escape(SERVER_KEY), re.escape(SERVER_KEY)),
+    re.MULTILINE,
+)
+#: 次の節の見出し。差し替える範囲の終わりを見つけるのに使う。
+_ANY_SECTION = re.compile(r"^\[", re.MULTILINE)
+
+
+def _parse_toml(text: str, path):
+    """検証のためだけに読む。``tomllib`` が無い環境では検証を諦める。"""
+    if tomllib is None:  # pragma: no cover - 3.10 で tomli も無い場合
+        return None
+    try:
+        return tomllib.loads(text)
+    except Exception as error:
+        raise ValueError(
+            f"設定ファイルが壊れているため書き込みを中止しました: {path}（{error}）"
+        ) from error
+
+
+def _replace_codex_section(text: str, block: str):
+    """既存の節を差し替える。無ければ末尾に足す。
+
+    TOML 全体を書き直さずに1節だけを入れ替えるのは、**ユーザーのコメントと
+    書式を残す**ため。読み込んで書き戻す方式だと、設定ファイルに書かれた注記が
+    黙って消える。
+    """
+    match = _CODEX_SECTION.search(text)
+    if match is None:
+        separator = "" if not text or text.endswith("\n\n") else ("\n" if text.endswith("\n") else "\n\n")
+        return text + separator + block, False
+
+    start = match.start()
+    following = _ANY_SECTION.search(text, match.end())
+    end = following.start() if following else len(text)
+    return text[:start] + block + ("\n" if following else "") + text[end:], True
+
+
+def is_registered_codex(config_path=None) -> bool:
+    path = Path(config_path) if config_path is not None else codex_config_path()
+    if not path.exists():
+        return False
+    try:
+        return _CODEX_SECTION.search(path.read_text(encoding="utf-8")) is not None
+    except OSError:
+        return False
+
+
+def install_into_codex(
+    project=None,
+    *,
+    allow_write: bool = False,
+    config_path=None,
+    with_pythonpath: Optional[bool] = None,
+) -> Dict[str, Any]:
+    """Codex の ``config.toml`` へ登録する。
+
+    Claude Desktop 側と同じ約束で扱う――マージし、控えを取り、壊れていたら中断する。
+    """
+    path = Path(config_path) if config_path is not None else codex_config_path()
+
+    text = ""
+    backup: Optional[Path] = None
+    parsed: Optional[Dict[str, Any]] = None
+    if path.exists():
+        text = path.read_text(encoding="utf-8")
+        parsed = _parse_toml(text, path)
+        backup = path.with_suffix(path.suffix + ".bak")
+        shutil.copy2(path, backup)
+
+    block = build_codex_toml(
+        project, allow_write=allow_write, with_pythonpath=with_pythonpath
+    )
+    updated, replaced = _replace_codex_section(text, block)
+    _parse_toml(updated, path)  # 書く前に、自分が壊していないことを確かめる。
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(updated, encoding="utf-8")
+    os.replace(temporary, path)
+
+    others = sorted(
+        name
+        for name in ((parsed or {}).get("mcp_servers") or {})
+        if name != SERVER_KEY
+    )
+    return {
+        "config_path": str(path),
+        "backup_path": str(backup) if backup else None,
+        "replaced": replaced,
+        "other_servers": others,
+    }
+
+
+def uninstall_from_codex(*, config_path=None) -> Dict[str, Any]:
+    path = Path(config_path) if config_path is not None else codex_config_path()
+    if not path.exists():
+        return {"config_path": str(path), "removed": False}
+    text = path.read_text(encoding="utf-8")
+    match = _CODEX_SECTION.search(text)
+    if match is None:
+        return {"config_path": str(path), "removed": False}
+    backup = path.with_suffix(path.suffix + ".bak")
+    shutil.copy2(path, backup)
+    following = _ANY_SECTION.search(text, match.end())
+    end = following.start() if following else len(text)
+    updated = (text[:match.start()] + text[end:]).lstrip("\n")
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(updated, encoding="utf-8")
+    os.replace(temporary, path)
+    return {"config_path": str(path), "removed": True, "backup_path": str(backup)}
+
+
 def claude_desktop_config_path() -> Path:
     """Claude Desktop の設定ファイルの場所（プラットフォーム別）。
 
@@ -229,11 +418,14 @@ class Diagnosis:
         return "\n".join(lines)
 
 
-def diagnose(*, config_path=None) -> Diagnosis:
+def diagnose(*, config_path=None, client=None) -> Diagnosis:
     """導入がどこで止まっているかを、実際に試して確かめる。
 
     「入れたのに動かない」の原因はほぼこの4つ（固めた実行ファイル・`mcp` 未導入・
     import できない・未登録）なので、推測ではなく部分プロセスで確認する。
+
+    登録の有無は対応クライアントすべてについて報告する。どれか1つで使えれば
+    目的は達せられるので、未登録は失敗として扱わない。
     """
     checks: List[Check] = []
 
@@ -282,37 +474,48 @@ def diagnose(*, config_path=None) -> Diagnosis:
         )
     )
 
-    path = Path(config_path) if config_path is not None else claude_desktop_config_path()
-    registered = is_registered(path)
-    checks.append(
-        Check(
-            name="Claude Desktop への登録",
-            ok=registered,
-            detail=(
-                f"登録済み: {path}"
-                if registered
-                else f"未登録（{path}{'' if path.exists() else ' は未作成'}）"
-            ),
-            hint="--install を実行するか、アプリの「MCP サーバー設定…」から登録してください。",
-            # 登録は Claude Code など他のクライアントでも代替できるので、
-            # これだけを理由に「駄目」とは言わない。
-            blocking=False,
+    for key, target in CLIENTS.items():
+        # 明示された設定ファイルは、そのクライアントの分だけに効かせる。
+        path = (
+            Path(config_path)
+            if config_path is not None and key == (client or DEFAULT_CLIENT)
+            else target.config_path()
         )
-    )
+        registered = target.registered(path)
+        checks.append(
+            Check(
+                name=f"{target.label} への登録",
+                ok=registered,
+                detail=(
+                    f"登録済み: {path}"
+                    if registered
+                    else f"未登録（{path}{'' if path.exists() else ' は未作成'}）"
+                ),
+                hint=(
+                    f"--install --client {key} を実行するか、"
+                    "アプリの「MCP サーバー設定…」から登録してください。"
+                ),
+                # どれか1つのクライアントで使えれば目的は達せられる。未登録という
+                # だけで「駄目」とは言わない。
+                blocking=False,
+            )
+        )
 
-    checks.append(
-        Check(
-            name="claude コマンド",
-            ok=shutil.which("claude") is not None,
-            detail=(
-                "見つかりました（claude mcp add が使えます）"
-                if shutil.which("claude")
-                else "見つかりません"
-            ),
-            hint="Claude Code を使う場合のみ必要です。",
-            blocking=False,
+    for command, label in (("claude", "Claude Code"), ("codex", "Codex CLI")):
+        found = shutil.which(command)
+        checks.append(
+            Check(
+                name=f"{command} コマンド",
+                ok=found is not None,
+                detail=(
+                    f"見つかりました（{command} mcp add が使えます）"
+                    if found
+                    else "見つかりません"
+                ),
+                hint=f"{label} を使う場合のみ必要です。",
+                blocking=False,
+            )
         )
-    )
 
     return Diagnosis(checks)
 
@@ -398,3 +601,82 @@ def uninstall_from_claude_desktop(*, config_path=None) -> Dict[str, Any]:
     )
     os.replace(temporary, path)
     return {"config_path": str(path), "removed": True, "backup_path": str(backup)}
+
+
+# ---------------------------------------------------------------- クライアント
+
+
+@dataclass(frozen=True)
+class ClientTarget:
+    """登録先のクライアント1つ分。
+
+    Claude Desktop は JSON、Codex は TOML と形式も場所も違うが、ユーザーから見れば
+    「登録する」という同じ1操作である。差をここに閉じ込めて、ダイアログや CLI が
+    クライアントごとに分岐しなくて済むようにする。
+    """
+
+    key: str
+    label: str
+    #: 設定ファイルの記法。画面に「JSON」「TOML」と出すためだけに持つ。
+    format_name: str
+    #: このクライアントの CLI で登録するときのコマンドの説明。
+    cli_label: str
+    config_path: Callable[[], Path]
+    render: Callable[..., str]
+    cli_command: Callable[..., str]
+    install: Callable[..., Dict[str, Any]]
+    uninstall: Callable[..., Dict[str, Any]]
+    registered: Callable[[Any], bool]
+    #: 再起動が要るか。CLI で登録する Codex は不要。
+    needs_restart: bool = True
+
+
+def _render_claude_desktop(project=None, *, allow_write=False, with_pythonpath=None) -> str:
+    return json.dumps(
+        build_config(
+            project, allow_write=allow_write, with_pythonpath=with_pythonpath
+        ),
+        ensure_ascii=False,
+        indent=2,
+    )
+
+
+CLIENTS: Dict[str, ClientTarget] = {
+    "claude-desktop": ClientTarget(
+        key="claude-desktop",
+        label="Claude Desktop",
+        format_name="JSON",
+        cli_label="Claude Code",
+        config_path=claude_desktop_config_path,
+        render=_render_claude_desktop,
+        cli_command=claude_code_command,
+        install=install_into_claude_desktop,
+        uninstall=uninstall_from_claude_desktop,
+        registered=is_registered,
+    ),
+    "codex": ClientTarget(
+        key="codex",
+        label="Codex CLI",
+        format_name="TOML",
+        cli_label="Codex CLI",
+        config_path=codex_config_path,
+        render=build_codex_toml,
+        cli_command=codex_command,
+        install=install_into_codex,
+        uninstall=uninstall_from_codex,
+        registered=is_registered_codex,
+        # config.toml は起動時に読まれる。次に codex を起動すれば反映される。
+        needs_restart=False,
+    ),
+}
+
+DEFAULT_CLIENT = "claude-desktop"
+
+
+def client_target(key=None) -> ClientTarget:
+    try:
+        return CLIENTS[key or DEFAULT_CLIENT]
+    except KeyError:
+        raise ValueError(
+            f"未対応のクライアントです: {key}（{', '.join(CLIENTS)}）"
+        ) from None

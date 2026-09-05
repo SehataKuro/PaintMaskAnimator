@@ -125,9 +125,10 @@ def register_actions(panel, window):
 
 ## MCP サーバー（任意）
 
-AI クライアント（Claude Desktop / Claude Code など）から `.pma` プロジェクトを
-読み、コマを画像として受け取り、線で閉じた領域に色を置けます。**PMAn 側に AI は
-入りません。** 推論はクライアント側にあるので、API キーもネットワークも持ちません。
+AI クライアント（**Claude Desktop / Claude Code / Codex CLI**）から `.pma`
+プロジェクトを読み、コマを画像として受け取り、線で閉じた領域に色を置けます。
+**PMAn 側に AI は入りません。** 推論はクライアント側にあるので、API キーも
+ネットワークも持ちません。
 
 導入はアプリの **ヘルプ › MCP サーバー設定…** から行えます。導入状況が診断され、
 設定の生成と Claude Desktop への登録がボタンで済みます（JSON を手で書く必要は
@@ -137,8 +138,9 @@ AI クライアント（Claude Desktop / Claude Code など）から `.pma` プ�
 
 ```bash
 pip install -e ".[mcp]"
-python -m paintmaskanimator.mcp --doctor     # 導入状況を確認
-python -m paintmaskanimator.mcp --install    # Claude Desktop へ登録
+python -m paintmaskanimator.mcp --doctor                  # 導入状況を確認
+python -m paintmaskanimator.mcp --install                 # Claude Desktop へ登録
+python -m paintmaskanimator.mcp --install --client codex  # Codex CLI へ登録
 ```
 
 既定は読み取り専用です。書き込みには `--allow-write` を付けます。ツール一覧・

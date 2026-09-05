@@ -5,14 +5,17 @@ MCP サーバーが動くことと、ユーザーが導入できることは別�
 この手順を作画のユーザーに求めるのは現実的ではない。ここはその全部をボタン2つに
 畳む。
 
+登録先（Claude Desktop / Codex CLI）は形式も場所も違うが、その差は
+:class:`paintmaskanimator.mcp.setup.ClientTarget` が吸収するので、この画面は
+選ばれた登録先をそのまま呼ぶだけでよい。
+
 判定と書き込みの中身は :mod:`paintmaskanimator.mcp.setup` にあり、このファイルは
 その表示と操作だけを持つ。``mcp`` パッケージが未導入でも開ける（むしろ、未導入だと
 いうことを伝えるために開ける必要がある）。
 """
 from __future__ import annotations
 
-import json
-from typing import Any, Optional
+from typing import Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QDesktopServices, QGuiApplication
@@ -20,6 +23,7 @@ from PySide6.QtCore import QUrl
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QGroupBox,
@@ -51,9 +55,9 @@ class McpSetupDialog(QDialog):
 
         intro = QLabel(
             tr(
-                "Claude Desktop や Claude Code から、このソフトのプロジェクトを"
-                "読ませるための設定です。<b>アプリに AI は入りません。</b>"
-                "AI の実行はお使いの Claude 側で行われるため、API キーの入力は不要です。"
+                "Claude Desktop・Claude Code・Codex CLI から、このソフトの"
+                "プロジェクトを読ませるための設定です。<b>アプリに AI は入りません。</b>"
+                "AI の実行はお使いのクライアント側で行われるため、API キーの入力は不要です。"
             )
         )
         intro.setWordWrap(True)
@@ -64,7 +68,7 @@ class McpSetupDialog(QDialog):
         status_layout = QVBoxLayout(status_box)
         self.status_view = QPlainTextEdit()
         self.status_view.setReadOnly(True)
-        self.status_view.setMaximumHeight(150)
+        self.status_view.setMaximumHeight(200)
         status_layout.addWidget(self.status_view)
         recheck = QPushButton(tr("再確認"))
         recheck.clicked.connect(self.refresh)
@@ -77,6 +81,19 @@ class McpSetupDialog(QDialog):
         # --- 選択肢 -----------------------------------------------------
         options_box = QGroupBox(tr("設定内容"))
         options_layout = QVBoxLayout(options_box)
+
+        client_row = QHBoxLayout()
+        client_row.addWidget(QLabel(tr("登録先:")))
+        self.client_selector = QComboBox()
+        for key, target in mcp_setup.CLIENTS.items():
+            self.client_selector.addItem(target.label, key)
+        self.client_selector.setCurrentIndex(
+            max(0, self.client_selector.findData(mcp_setup.DEFAULT_CLIENT))
+        )
+        self.client_selector.currentIndexChanged.connect(self._client_changed)
+        client_row.addWidget(self.client_selector, 1)
+        options_layout.addLayout(client_row)
+
         self.include_project = QCheckBox(
             tr("起動時に、いま開いているプロジェクトを渡す")
         )
@@ -100,7 +117,8 @@ class McpSetupDialog(QDialog):
         layout.addWidget(options_box)
 
         # --- 設定内容 ---------------------------------------------------
-        config_box = QGroupBox(tr("設定（自動生成）"))
+        self.config_box = QGroupBox(tr("設定（自動生成）"))
+        config_box = self.config_box
         config_layout = QVBoxLayout(config_box)
         self.config_view = QPlainTextEdit()
         self.config_view.setReadOnly(True)
@@ -109,7 +127,7 @@ class McpSetupDialog(QDialog):
 
         # 主操作（登録）と、手作業に落ちる人向けの操作を段で分ける。1行に4つ
         # 並べるとボタン名が切れて「何を押せばいいか」が読めなくなる。
-        self.install_button = QPushButton(tr("Claude Desktop に登録"))
+        self.install_button = QPushButton()
         self.install_button.setDefault(True)
         self.install_button.clicked.connect(self.install)
         open_folder = QPushButton(tr("設定フォルダを開く"))
@@ -121,8 +139,9 @@ class McpSetupDialog(QDialog):
 
         copy_json = QPushButton(tr("設定をコピー"))
         copy_json.clicked.connect(self.copy_config)
-        copy_command = QPushButton(tr("Claude Code 用コマンドをコピー"))
-        copy_command.clicked.connect(self.copy_command)
+        self.copy_command_button = QPushButton()
+        self.copy_command_button.clicked.connect(self.copy_command)
+        copy_command = self.copy_command_button
         copy_row = QHBoxLayout()
         copy_row.addWidget(copy_json, 1)
         copy_row.addWidget(copy_command, 1)
@@ -138,13 +157,35 @@ class McpSetupDialog(QDialog):
 
     # ------------------------------------------------------------------
 
+    def target(self) -> mcp_setup.ClientTarget:
+        """いま選ばれている登録先。"""
+        return mcp_setup.client_target(self.client_selector.currentData())
+
+    def _client_changed(self):
+        self._sync_client_labels()
+        self.refresh_config_text()
+        self.refresh_install_state()
+
+    def _sync_client_labels(self):
+        target = self.target()
+        self.install_button.setText(
+            tr("{client} に登録").format(client=target.label)
+        )
+        self.copy_command_button.setText(
+            tr("{client} 用コマンドをコピー").format(client=target.cli_label)
+        )
+        self.config_box.setTitle(
+            tr("設定（自動生成・{format}）").format(format=target.format_name)
+        )
+
     def _project_argument(self) -> Optional[str]:
         if self.include_project.isChecked():
             return self._project_path
         return None
 
-    def config_payload(self) -> dict[str, Any]:
-        return mcp_setup.build_config(
+    def config_text(self) -> str:
+        """登録先の記法（JSON / TOML）で書いた設定。"""
+        return self.target().render(
             self._project_argument(), allow_write=self.allow_write.isChecked()
         )
 
@@ -156,18 +197,22 @@ class McpSetupDialog(QDialog):
         finally:
             QApplication.restoreOverrideCursor()
         self.status_view.setPlainText(diagnosis.as_text())
-        # 判定が駄目でも設定の表示とコピーは残す。手で直したい人の助けになる。
-        self.install_button.setEnabled(diagnosis.ok)
+        self._environment_ready = diagnosis.ok
+        self._sync_client_labels()
+        self.refresh_install_state()
         self.refresh_config_text()
 
+    def refresh_install_state(self):
+        # 判定が駄目でも設定の表示とコピーは残す。手で直したい人の助けになる。
+        self.install_button.setEnabled(getattr(self, "_environment_ready", False))
+
     def refresh_config_text(self):
-        self.config_view.setPlainText(
-            json.dumps(self.config_payload(), ensure_ascii=False, indent=2)
-        )
+        self.config_view.setPlainText(self.config_text())
 
     # ------------------------------------------------------------------
 
     def copy_config(self):
+        target = self.target()
         clipboard = QGuiApplication.clipboard()
         if clipboard is not None:
             clipboard.setText(self.config_view.toPlainText())
@@ -175,13 +220,14 @@ class McpSetupDialog(QDialog):
             self,
             tr("MCP サーバー設定"),
             tr(
-                "設定をコピーしました。\n\n{path}\n\nこのファイルの mcpServers に"
-                "貼り付けて、Claude Desktop を再起動してください。"
-            ).format(path=mcp_setup.claude_desktop_config_path()),
+                "設定をコピーしました。\n\n{path}\n\nこのファイルへ貼り付けて、"
+                "{client} を再起動してください。"
+            ).format(path=target.config_path(), client=target.label),
         )
 
     def copy_command(self):
-        command = mcp_setup.claude_code_command(
+        target = self.target()
+        command = target.cli_command(
             self._project_argument(), allow_write=self.allow_write.isChecked()
         )
         clipboard = QGuiApplication.clipboard()
@@ -195,17 +241,20 @@ class McpSetupDialog(QDialog):
         )
 
     def open_config_folder(self):
-        folder = mcp_setup.claude_desktop_config_path().parent
+        folder = self.target().config_path().parent
         folder.mkdir(parents=True, exist_ok=True)
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
 
     def install(self):
-        path = mcp_setup.claude_desktop_config_path()
-        registered = mcp_setup.is_registered(path)
+        target = self.target()
+        path = target.config_path()
+        registered = target.registered(path)
         question = (
             tr("既存の登録を新しい設定で置き換えます。よろしいですか？")
             if registered
-            else tr("Claude Desktop の設定に登録します。よろしいですか？")
+            else tr("{client} の設定に登録します。よろしいですか？").format(
+                client=target.label
+            )
         )
         answer = QMessageBox.question(
             self,
@@ -219,7 +268,7 @@ class McpSetupDialog(QDialog):
             return
 
         try:
-            report = mcp_setup.install_into_claude_desktop(
+            report = target.install(
                 self._project_argument(), allow_write=self.allow_write.isChecked()
             )
         except (OSError, ValueError) as error:
@@ -245,7 +294,15 @@ class McpSetupDialog(QDialog):
                 )
             )
         lines.append("")
-        lines.append(tr("Claude Desktop を再起動すると使えるようになります。"))
+        lines.append(
+            tr("{client} を再起動すると使えるようになります。").format(
+                client=target.label
+            )
+            if target.needs_restart
+            else tr("次に {client} を起動したときから使えます。").format(
+                client=target.label
+            )
+        )
         QMessageBox.information(
             self, tr("MCP サーバー設定"), "\n".join(lines)
         )

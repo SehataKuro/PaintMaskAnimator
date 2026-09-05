@@ -5764,95 +5764,144 @@ Layer cell {value} / {exposure} exposures</translation>
         <translation>Click the CELL names to import and choose the layer to link them to.</translation>
     </message>
     <message>
-        <location filename="../mcp_dialog.py" line="46"/>
-        <location filename="../mcp_dialog.py" line="176"/>
-        <location filename="../mcp_dialog.py" line="192"/>
-        <location filename="../mcp_dialog.py" line="212"/>
-        <location filename="../mcp_dialog.py" line="229"/>
-        <location filename="../mcp_dialog.py" line="250"/>
+        <location filename="../mcp_dialog.py" line="50"/>
+        <location filename="../mcp_dialog.py" line="221"/>
+        <location filename="../mcp_dialog.py" line="238"/>
+        <location filename="../mcp_dialog.py" line="261"/>
+        <location filename="../mcp_dialog.py" line="278"/>
+        <location filename="../mcp_dialog.py" line="307"/>
         <source>MCP サーバー設定</source>
         <translation>MCP server setup</translation>
     </message>
     <message>
-        <location filename="../mcp_dialog.py" line="54"/>
         <source>Claude Desktop や Claude Code から、このソフトのプロジェクトを読ませるための設定です。&lt;b&gt;アプリに AI は入りません。&lt;/b&gt;AI の実行はお使いの Claude 側で行われるため、API キーの入力は不要です。</source>
-        <translation>Lets Claude Desktop and Claude Code read this app&apos;s projects. &lt;b&gt;No AI is embedded in the app.&lt;/b&gt; Inference runs on your own Claude, so no API key is needed.</translation>
+        <translation type="vanished">Lets Claude Desktop and Claude Code read this app&apos;s projects. &lt;b&gt;No AI is embedded in the app.&lt;/b&gt; Inference runs on your own Claude, so no API key is needed.</translation>
     </message>
     <message>
-        <location filename="../mcp_dialog.py" line="63"/>
+        <location filename="../mcp_dialog.py" line="58"/>
+        <source>Claude Desktop・Claude Code・Codex CLI から、このソフトのプロジェクトを読ませるための設定です。&lt;b&gt;アプリに AI は入りません。&lt;/b&gt;AI の実行はお使いのクライアント側で行われるため、API キーの入力は不要です。</source>
+        <translation>Lets Claude Desktop, Claude Code and Codex CLI read this app&apos;s projects. &lt;b&gt;No AI is embedded in the app.&lt;/b&gt; Inference runs in your own client, so no API key is needed.</translation>
+    </message>
+    <message>
+        <location filename="../mcp_dialog.py" line="67"/>
         <source>導入状況</source>
         <translation>Setup status</translation>
     </message>
     <message>
-        <location filename="../mcp_dialog.py" line="69"/>
+        <location filename="../mcp_dialog.py" line="73"/>
         <source>再確認</source>
         <translation>Re-check</translation>
     </message>
     <message>
-        <location filename="../mcp_dialog.py" line="78"/>
+        <location filename="../mcp_dialog.py" line="82"/>
         <source>設定内容</source>
         <translation>Options</translation>
     </message>
     <message>
-        <location filename="../mcp_dialog.py" line="81"/>
+        <location filename="../mcp_dialog.py" line="86"/>
+        <source>登録先:</source>
+        <translation>Register with:</translation>
+    </message>
+    <message>
+        <location filename="../mcp_dialog.py" line="98"/>
         <source>起動時に、いま開いているプロジェクトを渡す</source>
         <translation>Pass the currently open project on start-up</translation>
     </message>
     <message>
-        <location filename="../mcp_dialog.py" line="87"/>
+        <location filename="../mcp_dialog.py" line="104"/>
         <source>プロジェクトを保存してから設定すると、この項目を選べます。</source>
         <translation>Save the project first to enable this option.</translation>
     </message>
     <message>
-        <location filename="../mcp_dialog.py" line="89"/>
+        <location filename="../mcp_dialog.py" line="106"/>
         <source>AI による塗りと保存を許可する</source>
         <translation>Allow the AI to paint and save</translation>
     </message>
     <message>
-        <location filename="../mcp_dialog.py" line="92"/>
+        <location filename="../mcp_dialog.py" line="109"/>
         <source>OFF のあいだ、AI はプロジェクトを読むだけで書き換えできません。ON にしても、保存は既定で別名保存になり元のファイルは上書きされません。</source>
         <translation>While off, the AI can only read the project. Even when on, saving defaults to a new file and never overwrites the original.</translation>
     </message>
     <message>
-        <location filename="../mcp_dialog.py" line="103"/>
+        <location filename="../mcp_dialog.py" line="120"/>
         <source>設定（自動生成）</source>
         <translation>Configuration (generated)</translation>
     </message>
     <message>
-        <location filename="../mcp_dialog.py" line="112"/>
-        <source>Claude Desktop に登録</source>
-        <translation>Register with Claude Desktop</translation>
+        <location filename="../mcp_dialog.py" line="172"/>
+        <source>{client} に登録</source>
+        <translation>Register with {client}</translation>
     </message>
     <message>
-        <location filename="../mcp_dialog.py" line="115"/>
+        <location filename="../mcp_dialog.py" line="175"/>
+        <source>{client} 用コマンドをコピー</source>
+        <translation>Copy {client} command</translation>
+    </message>
+    <message>
+        <location filename="../mcp_dialog.py" line="178"/>
+        <source>設定（自動生成・{format}）</source>
+        <translation>Configuration (generated, {format})</translation>
+    </message>
+    <message>
+        <location filename="../mcp_dialog.py" line="223"/>
+        <source>設定をコピーしました。
+
+{path}
+
+このファイルへ貼り付けて、{client} を再起動してください。</source>
+        <translation>Configuration copied.
+
+{path}
+
+Paste it into that file, then restart {client}.</translation>
+    </message>
+    <message>
+        <location filename="../mcp_dialog.py" line="255"/>
+        <source>{client} の設定に登録します。よろしいですか？</source>
+        <translation>Register this in the {client} configuration?</translation>
+    </message>
+    <message>
+        <location filename="../mcp_dialog.py" line="298"/>
+        <source>{client} を再起動すると使えるようになります。</source>
+        <translation>Restart {client} to start using it.</translation>
+    </message>
+    <message>
+        <location filename="../mcp_dialog.py" line="302"/>
+        <source>次に {client} を起動したときから使えます。</source>
+        <translation>It will be available the next time you start {client}.</translation>
+    </message>
+    <message>
+        <source>Claude Desktop に登録</source>
+        <translation type="vanished">Register with Claude Desktop</translation>
+    </message>
+    <message>
+        <location filename="../mcp_dialog.py" line="133"/>
         <source>設定フォルダを開く</source>
         <translation>Open configuration folder</translation>
     </message>
     <message>
-        <location filename="../mcp_dialog.py" line="122"/>
+        <location filename="../mcp_dialog.py" line="140"/>
         <source>設定をコピー</source>
         <translation>Copy configuration</translation>
     </message>
     <message>
-        <location filename="../mcp_dialog.py" line="124"/>
         <source>Claude Code 用コマンドをコピー</source>
-        <translation>Copy Claude Code command</translation>
+        <translation type="vanished">Copy Claude Code command</translation>
     </message>
     <message>
-        <location filename="../mcp_dialog.py" line="178"/>
         <source>設定をコピーしました。
 
 {path}
 
 このファイルの mcpServers に貼り付けて、Claude Desktop を再起動してください。</source>
-        <translation>Configuration copied.
+        <translation type="vanished">Configuration copied.
 
 {path}
 
 Paste it into mcpServers in that file, then restart Claude Desktop.</translation>
     </message>
     <message>
-        <location filename="../mcp_dialog.py" line="193"/>
+        <location filename="../mcp_dialog.py" line="239"/>
         <source>コマンドをコピーしました。ターミナルに貼り付けて実行してください。
 
 {command}</source>
@@ -5861,17 +5910,16 @@ Paste it into mcpServers in that file, then restart Claude Desktop.</translation
 {command}</translation>
     </message>
     <message>
-        <location filename="../mcp_dialog.py" line="206"/>
+        <location filename="../mcp_dialog.py" line="253"/>
         <source>既存の登録を新しい設定で置き換えます。よろしいですか？</source>
         <translation>Replace the existing registration with the new configuration?</translation>
     </message>
     <message>
-        <location filename="../mcp_dialog.py" line="208"/>
         <source>Claude Desktop の設定に登録します。よろしいですか？</source>
-        <translation>Register this in the Claude Desktop configuration?</translation>
+        <translation type="vanished">Register this in the Claude Desktop configuration?</translation>
     </message>
     <message>
-        <location filename="../mcp_dialog.py" line="213"/>
+        <location filename="../mcp_dialog.py" line="262"/>
         <source>{question}
 
 {path}
@@ -5884,7 +5932,7 @@ Paste it into mcpServers in that file, then restart Claude Desktop.</translation
 Other MCP server entries are kept as they are, and a backup (.bak) is written before overwriting.</translation>
     </message>
     <message>
-        <location filename="../mcp_dialog.py" line="230"/>
+        <location filename="../mcp_dialog.py" line="279"/>
         <source>登録できませんでした。
 
 {error}</source>
@@ -5893,24 +5941,23 @@ Other MCP server entries are kept as they are, and a backup (.bak) is written be
 {error}</translation>
     </message>
     <message>
-        <location filename="../mcp_dialog.py" line="235"/>
+        <location filename="../mcp_dialog.py" line="284"/>
         <source>登録しました: {path}</source>
         <translation>Registered: {path}</translation>
     </message>
     <message>
-        <location filename="../mcp_dialog.py" line="239"/>
+        <location filename="../mcp_dialog.py" line="288"/>
         <source>バックアップ: {path}</source>
         <translation>Backup: {path}</translation>
     </message>
     <message>
-        <location filename="../mcp_dialog.py" line="243"/>
+        <location filename="../mcp_dialog.py" line="292"/>
         <source>既存のサーバー設定は残しました: {names}</source>
         <translation>Kept existing server entries: {names}</translation>
     </message>
     <message>
-        <location filename="../mcp_dialog.py" line="248"/>
         <source>Claude Desktop を再起動すると使えるようになります。</source>
-        <translation>Restart Claude Desktop to start using it.</translation>
+        <translation type="vanished">Restart Claude Desktop to start using it.</translation>
     </message>
 </context>
 </TS>

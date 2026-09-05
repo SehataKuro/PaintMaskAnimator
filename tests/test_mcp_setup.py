@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -207,3 +208,162 @@ def test_frozen_build_is_reported_as_blocking(config, monkeypatch):
     python_check = next(check for check in diagnosis.checks if check.name == "Python")
     assert python_check.ok is False
     assert diagnosis.ok is False
+
+
+# ------------------------------------------------------------------ Codex
+
+
+@pytest.fixture
+def codex_config(tmp_path):
+    return tmp_path / "config.toml"
+
+
+def test_codex_config_path_follows_codex_home(monkeypatch, tmp_path):
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+    assert setup.codex_config_path() == tmp_path / "config.toml"
+
+    monkeypatch.delenv("CODEX_HOME")
+    # Claude Desktop と違い、Windows でもホーム直下（%APPDATA% ではない）。
+    assert setup.codex_config_path().parent.name == ".codex"
+
+
+def test_codex_toml_is_valid_and_carries_the_arguments(tmp_path):
+    tomllib = pytest.importorskip("tomllib")
+
+    text = setup.build_codex_toml(
+        tmp_path / "a.pma", allow_write=True, with_pythonpath=True
+    )
+    parsed = tomllib.loads(text)
+
+    entry = parsed["mcp_servers"][setup.SERVER_KEY]
+    assert entry["command"] == sys.executable
+    assert "--allow-write" in entry["args"]
+    assert entry["args"][-1] == str(tmp_path / "a.pma")
+    assert entry["env"]["PYTHONPATH"] == str(setup.package_root())
+
+
+def test_codex_toml_escapes_windows_style_paths(monkeypatch):
+    """バックスラッシュを素で書くと TOML のエスケープとして解釈されて壊れる。"""
+    tomllib = pytest.importorskip("tomllib")
+    monkeypatch.setattr(
+        setup, "_python_executable", lambda: r"C:\Python311\python.exe"
+    )
+
+    parsed = tomllib.loads(setup.build_codex_toml(with_pythonpath=False))
+
+    assert parsed["mcp_servers"][setup.SERVER_KEY]["command"] == (
+        r"C:\Python311\python.exe"
+    )
+
+
+def test_codex_install_preserves_comments_and_other_settings(codex_config):
+    tomllib = pytest.importorskip("tomllib")
+    codex_config.write_text(
+        '# 自分用の設定。触らないこと。\n'
+        'model = "gpt-5-codex"\n\n'
+        '[mcp_servers.docs]\ncommand = "npx"\n\n'
+        '[shell_environment_policy]\ninherit = "all"\n',
+        encoding="utf-8",
+    )
+
+    report = setup.install_into_codex(config_path=codex_config)
+
+    text = codex_config.read_text(encoding="utf-8")
+    assert "# 自分用の設定。触らないこと。" in text, (
+        "1節だけ差し替えるので、ユーザーのコメントは残る"
+    )
+    parsed = tomllib.loads(text)
+    assert parsed["model"] == "gpt-5-codex"
+    assert parsed["shell_environment_policy"] == {"inherit": "all"}
+    assert set(parsed["mcp_servers"]) == {"docs", setup.SERVER_KEY}
+    assert report["other_servers"] == ["docs"]
+    assert report["replaced"] is False
+
+
+def test_codex_reinstall_replaces_the_section_in_place(codex_config):
+    tomllib = pytest.importorskip("tomllib")
+    codex_config.write_text(
+        'model = "x"\n\n'
+        f'[mcp_servers.{setup.SERVER_KEY}]\ncommand = "old"\nargs = ["stale"]\n\n'
+        '[mcp_servers.docs]\ncommand = "npx"\n',
+        encoding="utf-8",
+    )
+
+    report = setup.install_into_codex(config_path=codex_config)
+
+    parsed = tomllib.loads(codex_config.read_text(encoding="utf-8"))
+    assert report["replaced"] is True
+    assert parsed["mcp_servers"][setup.SERVER_KEY]["command"] == sys.executable
+    assert parsed["mcp_servers"]["docs"] == {"command": "npx"}, (
+        "後続の節を巻き込んで消さない"
+    )
+    assert parsed["model"] == "x"
+
+
+def test_codex_install_backs_up_and_creates_when_missing(codex_config):
+    first = setup.install_into_codex(config_path=codex_config)
+    assert first["backup_path"] is None
+
+    second = setup.install_into_codex(config_path=codex_config)
+
+    assert second["backup_path"] is not None
+    assert codex_config.with_suffix(".toml.bak").exists()
+
+
+def test_codex_broken_toml_aborts_instead_of_being_rebuilt(codex_config):
+    pytest.importorskip("tomllib")
+    codex_config.write_text('model = "unterminated\n', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="壊れている"):
+        setup.install_into_codex(config_path=codex_config)
+
+    assert codex_config.read_text(encoding="utf-8") == 'model = "unterminated\n'
+
+
+def test_codex_uninstall_removes_only_our_section(codex_config):
+    tomllib = pytest.importorskip("tomllib")
+    codex_config.write_text('model = "x"\n\n[mcp_servers.docs]\ncommand = "npx"\n', "utf-8")
+    setup.install_into_codex(config_path=codex_config)
+
+    report = setup.uninstall_from_codex(config_path=codex_config)
+
+    parsed = tomllib.loads(codex_config.read_text(encoding="utf-8"))
+    assert report["removed"] is True
+    assert list(parsed["mcp_servers"]) == ["docs"]
+    assert parsed["model"] == "x"
+
+
+def test_codex_command_uses_the_double_dash_form():
+    """codex mcp add [OPTIONS] <NAME> (--url <URL> | -- <COMMAND>...)"""
+    command = setup.codex_command()
+
+    assert command.startswith(f"codex mcp add {setup.SERVER_KEY} -- ")
+    assert "-m paintmaskanimator.mcp" in command
+
+
+# ------------------------------------------------------------------ 登録先の抽象
+
+
+def test_every_client_is_reachable_through_the_same_interface(tmp_path):
+    for key, target in setup.CLIENTS.items():
+        config = tmp_path / f"{key}{Path(str(target.config_path())).suffix}"
+
+        assert target.registered(config) is False
+        target.install(config_path=config)
+        assert target.registered(config) is True, key
+        assert target.render(), key
+        assert target.cli_command().startswith(("claude ", "codex ")), key
+        target.uninstall(config_path=config)
+        assert target.registered(config) is False, key
+
+
+def test_unknown_client_is_rejected():
+    with pytest.raises(ValueError, match="未対応"):
+        setup.client_target("emacs")
+
+
+def test_diagnose_reports_every_client(codex_config, config):
+    text = setup.diagnose(config_path=config).as_text()
+
+    assert "Claude Desktop への登録" in text
+    assert "Codex CLI への登録" in text

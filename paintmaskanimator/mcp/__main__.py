@@ -9,7 +9,6 @@ GUI は一切開かず、案内も標準エラーへ出す。
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
 
@@ -67,8 +66,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Claude Desktop の設定から登録を取り消す。",
     )
     setup_group.add_argument(
+        "--client",
+        choices=["claude-desktop", "codex"],
+        default="claude-desktop",
+        help="登録先のクライアント（既定: claude-desktop）。",
+    )
+    setup_group.add_argument(
         "--config-path",
-        help="設定ファイルの場所を明示する（既定はプラットフォーム標準の場所）。",
+        help="設定ファイルの場所を明示する（既定はクライアント標準の場所）。",
     )
     return parser
 
@@ -77,8 +82,10 @@ def _run_setup(args) -> int:
     """導入用のサブコマンド。何か1つでも指定されていれば真を返す。"""
     from . import setup
 
+    target = setup.client_target(args.client)
+
     if args.doctor:
-        diagnosis = setup.diagnose(config_path=args.config_path)
+        diagnosis = setup.diagnose(config_path=args.config_path, client=args.client)
         print(diagnosis.as_text())
         if not diagnosis.ok:
             print("\n必要な項目が揃っていません。上の → の手順を実行してください。")
@@ -87,25 +94,19 @@ def _run_setup(args) -> int:
         return 0
 
     if args.print_config:
+        print(target.render(args.project, allow_write=args.allow_write))
         print(
-            json.dumps(
-                setup.build_config(args.project, allow_write=args.allow_write),
-                ensure_ascii=False,
-                indent=2,
-            )
-        )
-        print(
-            f"\n貼り付け先: {setup.claude_desktop_config_path()}",
+            f"\n貼り付け先（{target.format_name}）: {target.config_path()}",
             file=sys.stderr,
         )
         return 0
 
     if args.print_command:
-        print(setup.claude_code_command(args.project, allow_write=args.allow_write))
+        print(target.cli_command(args.project, allow_write=args.allow_write))
         return 0
 
     if args.uninstall:
-        report = setup.uninstall_from_claude_desktop(config_path=args.config_path)
+        report = target.uninstall(config_path=args.config_path)
         if report["removed"]:
             print(f"登録を取り消しました: {report['config_path']}")
         else:
@@ -114,7 +115,7 @@ def _run_setup(args) -> int:
 
     if args.install:
         try:
-            report = setup.install_into_claude_desktop(
+            report = target.install(
                 args.project,
                 allow_write=args.allow_write,
                 config_path=args.config_path,
@@ -128,7 +129,10 @@ def _run_setup(args) -> int:
             print(f"バックアップ: {report['backup_path']}")
         if report["other_servers"]:
             print("既存のサーバー設定はそのまま残しました: " + ", ".join(report["other_servers"]))
-        print("\nClaude Desktop を再起動すると反映されます。")
+        if target.needs_restart:
+            print(f"\n{target.label} を再起動すると反映されます。")
+        else:
+            print(f"\n次に {target.label} を起動したときから使えます。")
         return 0
 
     return -1

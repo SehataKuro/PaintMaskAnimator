@@ -1,8 +1,8 @@
 # MCP サーバー
 
 PaintMaskAnimator を **MCP（Model Context Protocol）サーバー**として起動すると、
-Claude Desktop や Claude Code などの AI クライアントから `.pma` プロジェクトを
-読み、コマを画像として受け取り、線で閉じた領域に色を置けます。
+**Claude Desktop / Claude Code / Codex CLI** などの AI クライアントから `.pma`
+プロジェクトを読み、コマを画像として受け取り、線で閉じた領域に色を置けます。
 
 **PMAn 側に AI は入っていません。** 推論はクライアント側にあるので、PMAn は
 API キーもネットワーク接続も持ちません。ユーザーが Claude Desktop などを
@@ -26,14 +26,16 @@ API キーもネットワーク接続も持ちません。ユーザーが Claude
 
 1. **導入状況** が自動で診断されます（Python・パッケージ・`mcp`・登録の有無）。
    足りないものがあれば、その場に次の一手が出ます。
-2. 必要なら「起動時に、いま開いているプロジェクトを渡す」「AI による塗りと保存を
+2. **登録先**（Claude Desktop / Codex CLI）を選びます。設定の形式も場所も違い
+   ますが、操作は同じです。
+3. 必要なら「起動時に、いま開いているプロジェクトを渡す」「AI による塗りと保存を
    許可する」を選びます。**書き込みは既定で OFF** です。
-3. **「Claude Desktop に登録」** を押します。設定ファイルは自動で見つけ、
+4. **「〇〇 に登録」** を押します。設定ファイルは自動で見つけ、
    既存の設定はマージし、上書き前に `.bak` を作ります。
-4. Claude Desktop を再起動します。
+5. クライアントを再起動します。
 
-Claude Code をお使いなら「**Claude Code 用コマンドをコピー**」でワンライナーが
-得られます。JSON を触る必要はありません。
+Claude Code / Codex CLI をお使いなら「**〇〇 用コマンドをコピー**」でワンライナー
+が得られます。設定ファイルを触る必要はありません。
 
 手で設定したい場合は「設定をコピー」と「設定フォルダを開く」を使ってください。
 
@@ -47,6 +49,11 @@ python -m paintmaskanimator.mcp --install         # Claude Desktop へ登録す�
 python -m paintmaskanimator.mcp --print-config    # 貼り付け用の JSON を表示
 python -m paintmaskanimator.mcp --print-command   # Claude Code 用のコマンド
 python -m paintmaskanimator.mcp --uninstall       # 登録を取り消す
+
+# 登録先は --client で切り替える（既定は claude-desktop）
+python -m paintmaskanimator.mcp --install --client codex
+python -m paintmaskanimator.mcp --print-config --client codex     # TOML を表示
+python -m paintmaskanimator.mcp --print-command --client codex    # codex mcp add
 ```
 
 `--doctor` は推測ではなく、実際に別プロセスの Python を起動して
@@ -57,6 +64,8 @@ python -m paintmaskanimator.mcp --uninstall       # 登録を取り消す
 
 ### 設定ファイルの場所
 
+**Claude Desktop**（JSON、`mcpServers`）
+
 | OS | 場所 |
 |---|---|
 | macOS | `~/Library/Application Support/Claude/claude_desktop_config.json` |
@@ -65,15 +74,34 @@ python -m paintmaskanimator.mcp --uninstall       # 登録を取り消す
 
 Claude Desktop の **設定 › 開発者 › 設定を編集** からも開けます。
 
+**Codex CLI**（TOML、`[mcp_servers.…]`）
+
+`$CODEX_HOME/config.toml`。`CODEX_HOME` が未設定なら **どの OS でも**
+`~/.codex/config.toml`（Windows でも `%APPDATA%` ではありません）。
+
+```toml
+[mcp_servers.paintmaskanimator]
+command = "/usr/bin/python3"
+args = ["-m", "paintmaskanimator.mcp", "/path/to/project.pma"]
+```
+
+CLI から入れる場合は次のとおりです。
+
+```bash
+codex mcp add paintmaskanimator -- /usr/bin/python3 -m paintmaskanimator.mcp
+```
+
 ### 設定を壊さないための約束
 
 ユーザーの設定ファイルを触るので、次を守っています。
 
-- 既存の設定は**マージ**する。他の MCP サーバーの項目も、`mcpServers` 以外の
-  トップレベルのキーも消さない。
+- 既存の設定は**マージ**する。他の MCP サーバーの項目も、無関係のトップレベルの
+  設定（`model`、`globalShortcut` など）も消さない。
 - 上書きの前に `.bak` を作る。
-- **壊れた JSON は作り直さず、中断してそう伝える。** 黙って作り直すと、
+- **壊れた設定ファイルは作り直さず、中断してそう伝える。** 黙って作り直すと、
   ユーザーの他の設定が消えるため。
+- TOML は読み込んで書き戻すのではなく、**該当する1節だけを差し替える**。
+  全体を書き直すと、`config.toml` に書かれたコメントや書式が黙って消えるため。
 - `command` には `python` ではなく**インタプリタの絶対パス**を書く。MCP
   クライアントはシェルの `PATH` を引き継がないことがあり、「手元では動くのに
   Claude からは起動しない」の主因になるため。
