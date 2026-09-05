@@ -246,27 +246,12 @@ class PaintToolsMixin(CanvasMembers):
 
     @staticmethod
     def _write_fill(pixels, region, replacement):
-        """``region`` を ``replacement`` で塗る。白は消しゴムとして alpha を抜く。
-
-        戻り値は塗った画素の ``(ys, xs)``。呼び出し側が Undo の範囲を狭めるのに使う。
-        """
-        ys, xs = np.nonzero(region)
-        replacement_is_white = bool(
-            int(replacement.red()) == 255
-            and int(replacement.green()) == 255
-            and int(replacement.blue()) == 255
+        """``region`` を ``replacement`` で塗り、塗った画素の ``(ys, xs)`` を返す。"""
+        return bucket_fill.write_region(
+            pixels,
+            region,
+            (replacement.red(), replacement.green(), replacement.blue()),
         )
-        if replacement_is_white:
-            # 白バケツは本物の消しゴム：該当領域を alpha=0 へ抜く。
-            pixels[ys, xs, :] = 0
-        else:
-            # 正規RGBをそのまま書き込む（近似色を生成しない）。
-            pixels[ys, xs, :3] = np.asarray(
-                [replacement.red(), replacement.green(), replacement.blue()],
-                dtype=np.uint8,
-            )
-            pixels[ys, xs, 3] = 255
-        return ys, xs
 
     def flood_fill(self, p):
         if self._bucket_all_frames_enabled():

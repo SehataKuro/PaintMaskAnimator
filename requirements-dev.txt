@@ -1,4 +1,4 @@
 # Development / CI dependencies.
 # Versions are the single source of truth in pyproject.toml; this file just
 # installs the package with its dev + full extras (runtime deps included).
--e .[dev,full]
+-e .[dev,full,mcp]

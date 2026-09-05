@@ -21,6 +21,7 @@ from .imaging import scanline_connected_region
 
 __all__ = [
     "BucketOptions",
+    "write_region",
     "FillResult",
     "compute_fill_region",
     "seed_category",
@@ -291,3 +292,22 @@ def compute_fill_region(
     if not np.any(final_region):
         return FillResult(REASON_EMPTY, target=category)
     return FillResult(REASON_OK, final_region, target=category)
+
+
+def write_region(pixels, region, rgb):
+    """``region`` の画素を ``rgb`` で塗る。純白は消しゴムとして alpha を抜く。
+
+    ``pixels`` は破壊的に書き換える。戻り値は塗った画素の ``(ys, xs)`` で、
+    呼び出し側が Undo の範囲を実際の変更部分まで狭めるのに使う。
+
+    白を「不透明な白」ではなく透明として扱うのは、このソフトの白バケツが
+    消しゴムだという既存の約束（Issue #15）に合わせるため。
+    """
+    ys, xs = np.nonzero(region)
+    red, green, blue = (int(value) for value in rgb)
+    if red == 255 and green == 255 and blue == 255:
+        pixels[ys, xs, :] = 0
+    else:
+        pixels[ys, xs, :3] = np.asarray([red, green, blue], dtype=np.uint8)
+        pixels[ys, xs, 3] = 255
+    return ys, xs

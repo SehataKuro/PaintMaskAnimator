@@ -26,6 +26,8 @@ dependencies = [
 
 [project.optional-dependencies]
 full = ["Pillow>=9.4", "psd-tools>=1.9"]
+# MCP サーバー（python -m paintmaskanimator.mcp）。アプリ本体には不要。
+mcp = ["mcp>=2,<3"]
 dev = [
     "pytest>=8",
     "pytest-cov>=4",
@@ -39,8 +41,12 @@ dev = [
 [project.gui-scripts]
 paintmaskanimator = "paintmaskanimator.__main__:main"
 
+[project.scripts]
+# MCP クライアントの設定に書く起動コマンド。GUI を開かないので gui-scripts ではない。
+paintmaskanimator-mcp = "paintmaskanimator.mcp.__main__:main"
+
 [tool.setuptools]
-packages = ["paintmaskanimator"]
+packages = ["paintmaskanimator", "paintmaskanimator.mcp"]
 
 [tool.setuptools.package-data]
 paintmaskanimator = ["assets/**/*", "translations/*.qm"]
