@@ -805,6 +805,14 @@ class ToolPanel(QWidget):
             tr("領域が開いている場合は塗りを開始しない")
         )
         self.bucket_require_closed.setChecked(False)
+        self.bucket_all_frames=QCheckBox(
+            tr("串刺し塗り（選択レイヤーのすべてのコマ）")
+        )
+        self.bucket_all_frames.setChecked(False)
+        self.bucket_all_frames.setToolTip(tr(
+            "クリックした座標を種として、選択レイヤーの全コマを一度に塗ります。"
+            "開始点の色が現在のコマと違うコマは、線を塗り潰さないように飛ばします。"
+        ))
 
         def sync_bucket_options(_checked=None):
             adjacent = self.bucket_adjacent.isChecked()
@@ -887,6 +895,7 @@ class ToolPanel(QWidget):
             self.bucket_gap_row,
             self.bucket_require_closed,
             self.fill_opacity_row,
+            self.bucket_all_frames,
             self.dust_mode_label,self.dust_mode,
             self.dust_size_label,self.dust_size,
             self.dust_selected_only,
@@ -1282,6 +1291,7 @@ class ToolPanel(QWidget):
         self.bucket_gap_row.setVisible(uses_bucket_region)
         self.bucket_require_closed.setVisible(uses_bucket_region)
         self.fill_opacity_row.setVisible(is_bucket or is_lasso_fill)
+        self.bucket_all_frames.setVisible(is_bucket)
 
         self.dust_mode_label.setVisible(is_dust)
         self.dust_mode.setVisible(is_dust)
