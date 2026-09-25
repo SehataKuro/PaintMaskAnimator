@@ -224,7 +224,7 @@ class InputMixin(MainWindowMembers):
                     global_point = self._mouse_global_position(event)
                     anchor = viewport.mapFromGlobal(global_point.toPoint())
                     self.timeline.adjust_timeline_zoom(
-                        1.15 if delta > 0 else 1.0 / 1.15,
+                        1.15 ** (delta / 120),
                         anchor.x(),
                         anchor.y(),
                     )
