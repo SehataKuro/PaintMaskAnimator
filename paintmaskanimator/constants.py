@@ -7,6 +7,7 @@ copies that would go stale after a resize. Always read/write them through the
 module, e.g. ``constants.CANVAS_WIDTH``.
 """
 
+import sys
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
@@ -58,6 +59,15 @@ UPDATE_BASE_URL = "https://jokomanato.com/paintmaskanimator"
 UPDATE_MANIFEST_URL = f"{UPDATE_BASE_URL}/updates.json"
 UPDATE_USERNAME = "guest"
 UPDATE_PASSWORD = "6eCKEq"  # must equal Cloudflare SITE_PASSWORD
+# 「拡大縮小（押している間）」の既定キー。macOSのQtでは "Ctrl" が⌘になるが、
+# ⌘SpaceはSpotlight、⌃Space("Meta")は入力ソース切り替えにOSが既定で使って
+# いて届かないので、⌥Spaceにする。WindowsのAlt+Spaceはウィンドウメニュー。
+HOLD_ZOOM_SHORTCUT = "Alt+Space" if sys.platform == "darwin" else "Ctrl+Space"
+# 操作説明に出す修飾キー名。macOSのQtでは Ctrl 扱いのキーは⌘、Alt は⌥で、
+# 物理的なControl＋クリックは右クリックになってしまう。
+CTRL_KEY_LABEL = "⌘" if sys.platform == "darwin" else "Ctrl"
+ALT_KEY_LABEL = "⌥" if sys.platform == "darwin" else "Alt"
+HOLD_ZOOM_KEY_LABEL = f"{ALT_KEY_LABEL if sys.platform == 'darwin' else CTRL_KEY_LABEL}＋Space"
 CANVAS_WIDTH = 1280
 CANVAS_HEIGHT = 720
 OUTSIDE_MARGIN = 0

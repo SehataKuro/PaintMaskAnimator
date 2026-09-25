@@ -93,7 +93,7 @@ class MainWindow(
     UIBuildMixin, InputMixin, DockingMixin, QMainWindow
 ):
     def __init__(self):
-        super().__init__();self.setWindowTitle(APP_DISPLAY_NAME);self.resize(1500,960);self.setAcceptDrops(True)
+        super().__init__();self.setWindowTitle(APP_DISPLAY_NAME);self._fit_window_to_screen(1500,960);self.setAcceptDrops(True)
         self.canvas=PaintCanvas();self.tool_selector=ToolSelectorPanel();self.tools=ToolPanel();self.timeline=TimelineWidget();self.palette=UsedColorPanel();self.history_panel=HistoryPanel();self.subview=SubViewWidget(self);self.color_chart=ColorChartPanel(self);self.color_chart_data=empty_color_chart();self.timer=QTimer(self);self.timer.timeout.connect(self.advance)
         # Feature controllers the window owns; see this module's docstring.
         self.export=ExportController(self)

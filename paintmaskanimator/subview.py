@@ -358,6 +358,7 @@ class _SubViewCanvas(QWidget):
     def __init__(self, owner):
         super().__init__(owner)
         self.owner = owner
+        self._wheel_percent = None
         self.setAcceptDrops(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMouseTracking(True)
@@ -559,9 +560,16 @@ class _SubViewCanvas(QWidget):
         if not delta:
             event.ignore()
             return
-        factor = 1.15 if delta > 0 else 1.0 / 1.15
-        percent = int(round(self.owner._zoom * factor * 100))
-        self.owner.zoom_slider.setValue(max(5, min(800, percent)))
+        # トラックパッドの細かいイベントでも移動量に比例させる（1ノッチ=120）。
+        # スライダーは整数%なので、端数込みの倍率を保持して次のイベントへ持ち越す。
+        current = self.owner.zoom_slider.value()
+        exact = self._wheel_percent
+        if exact is None or round(exact) != current:
+            exact = float(current)  # ボタンやドラッグなど他の経路で変わった
+        exact = max(5.0, min(800.0, exact * 1.15 ** (delta / 120)))
+        self._wheel_percent = exact
+        if round(exact) != current:
+            self.owner.zoom_slider.setValue(round(exact))
         event.accept()
 
     def _pick_color(self, position):

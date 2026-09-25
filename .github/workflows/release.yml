@@ -123,6 +123,8 @@ jobs:
           mkdir -p dmg-root
           cp -R dist/PaintMaskAnimator.app dmg-root/
           ln -s /Applications dmg-root/Applications
+          # Not notarized: ship the "Open Anyway" steps next to the app.
+          cp "packaging/macos/開けないときは.txt" dmg-root/
           hdiutil create \
             -volname "PaintMaskAnimator" \
             -srcfolder dmg-root \

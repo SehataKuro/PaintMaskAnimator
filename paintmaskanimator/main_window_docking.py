@@ -175,6 +175,36 @@ class _FloatingGripTracker(QObject):
 
 
 class DockingMixin(MainWindowMembers):
+    # 初期配置で各パネルに与える幅(px)。キャンバスは残り全部を使う。
+    DEFAULT_PANEL_WIDTHS = {
+        "toolsDock": 230,
+        "colorWheelDock": 250,
+        "subviewDock": 240,
+    }
+    # 画面が狭いときも、キャンバスにはウィンドウ幅のこの割合を最低限残す。
+    MIN_CANVAS_WIDTH_RATIO = 0.45
+
+    def _fit_window_to_screen(self, width, height):
+        """既定サイズを画面の作業領域に収めて中央に置く。
+
+        macOSは画面より大きいウィンドウをOSが縮めるが、Windowsは縮めないため
+        小さいノートPCや拡大率150%の環境ではタイトルバーやタイムラインが
+        画面外にはみ出していた。
+        """
+        screen = self.screen() or QApplication.primaryScreen()
+        if screen is None:
+            self.resize(width, height)
+            return
+        available = screen.availableGeometry()
+        # タイトルバーや枠の分を見込んで作業領域より少し小さくする。
+        width = min(width, int(available.width() * 0.95))
+        height = min(height, int(available.height() * 0.92))
+        self.resize(width, height)
+        self.move(
+            available.x() + (available.width() - width) // 2,
+            available.y() + (available.height() - height) // 2,
+        )
+
     def _finalize_startup_dock_ui(self):
         active = config.get_value("active_workspace")
         if not active or not self.workspace.apply(active):
@@ -182,7 +212,142 @@ class DockingMixin(MainWindowMembers):
             # reconstruction path used after tabs are stacked.
             state = self.dock_manager.saveState()
             self.dock_manager.restoreState(state)
+            # 表示前に組んだ配置は各パネルが最小幅(60px)に潰れて復元されるので、
+            # 表示後に実際のウィンドウサイズから幅と高さを配り直す。
+            self._pending_default_dock_layout = True
         self._sync_all_area_hamburgers()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if getattr(self, "_pending_default_dock_layout", False):
+            self._pending_default_dock_layout = False
+            # 遅延させると、その間にドックが動かされた場合にADSの再構成と
+            # 競合するので、表示と同時にレイアウトを確定させてから配る。
+            layout = self.layout()
+            if layout is not None:
+                layout.activate()
+            self._apply_default_dock_layout()
+
+    @staticmethod
+    def _splitter_slot(widget, orientation):
+        """widget を含む指定方向の最も近い QSplitter と、その直下の子を返す。"""
+        child, parent = widget, widget.parentWidget()
+        while parent is not None:
+            if isinstance(parent, QSplitter) and parent.orientation() == orientation:
+                return parent, child
+            child, parent = parent, parent.parentWidget()
+        return None, None
+
+    @staticmethod
+    def _splitter_index_of(splitter, dock):
+        for index in range(splitter.count()):
+            child = splitter.widget(index)
+            if child is dock or child.isAncestorOf(dock):
+                return index
+        return -1
+
+    def _apply_default_dock_layout(self):
+        """ワークスペース未保存時の初期配置に、実用的なパネルサイズを与える。"""
+        try:
+            self._apply_default_panel_widths()
+            self._apply_default_panel_heights()
+        except RuntimeError:
+            # 表示直後にウィンドウが閉じられた場合など。
+            log.debug("default dock layout skipped", exc_info=True)
+
+    def _apply_default_panel_widths(self):
+        splitter, _ = self._splitter_slot(
+            self.central_dock, Qt.Orientation.Horizontal
+        )
+        if splitter is None:
+            return
+        sizes = splitter.sizes()
+        total = sum(sizes)
+        canvas_index = self._splitter_index_of(splitter, self.central_dock)
+        if total <= 0 or canvas_index < 0:
+            return
+        wanted = {}
+        docks = {
+            dock.objectName(): dock
+            for dock in (self.tools_dock, self.color_wheel_dock, self.subview_dock)
+        }
+        for name, width in self.DEFAULT_PANEL_WIDTHS.items():
+            index = self._splitter_index_of(splitter, docks[name])
+            # 閉じているパネル(幅0)やキャンバスと同じ列のものは触らない。
+            if index < 0 or index == canvas_index or sizes[index] <= 0:
+                continue
+            wanted[index] = max(wanted.get(index, 0), width)
+        if not wanted:
+            return
+        # ツール選択など、ここで扱わない列は現在の幅のまま残す。
+        others = sum(
+            size for index, size in enumerate(sizes)
+            if index != canvas_index and index not in wanted
+        )
+        room = total - others - int(total * self.MIN_CANVAS_WIDTH_RATIO)
+        requested = sum(wanted.values())
+        if requested > room > 0:
+            scale = room / requested
+            wanted = {index: int(width * scale) for index, width in wanted.items()}
+        for index, width in wanted.items():
+            sizes[index] = width
+        sizes[canvas_index] = max(1, total - sum(
+            size for index, size in enumerate(sizes) if index != canvas_index
+        ))
+        splitter.setSizes(sizes)
+        self._stretch_only(splitter, canvas_index)
+
+    @staticmethod
+    def _stretch_only(splitter, index):
+        """ウィンドウの伸縮をその列だけが受け持ち、パネルの幅は保つ。
+
+        macOSは表示直後に画面に合わせてウィンドウを縮めるので、比例配分の
+        ままだと配ったばかりのパネル幅まで縮んでしまう。"""
+        for i in range(splitter.count()):
+            splitter.setStretchFactor(i, 1 if i == index else 0)
+
+    def _apply_default_panel_heights(self):
+        vertical = Qt.Orientation.Vertical
+        # タイムライン: ウィンドウ高さの約22%（150〜240px）。
+        splitter, _ = self._splitter_slot(self.timeline_dock, vertical)
+        if splitter is not None:
+            self._share_splitter(splitter, {
+                self.timeline_dock: lambda total: max(150, min(240, int(total * 0.22))),
+            }, filler=self.central_dock)
+            self._stretch_only(
+                splitter, self._splitter_index_of(splitter, self.central_dock)
+            )
+        # 左列: ツールプロパティを上に広く、アクションは下に。
+        splitter, _ = self._splitter_slot(self.tools_dock, vertical)
+        if splitter is not None:
+            self._share_splitter(splitter, {
+                self.action_panel_dock: lambda total: int(total * 0.4),
+            }, filler=self.tools_dock)
+        # 右列: カラーサークルはほぼ正方形、スライダーは中身の高さ、残りを使用色へ。
+        splitter, _ = self._splitter_slot(self.color_wheel_dock, vertical)
+        if splitter is not None:
+            wheel_width = max(1, self.color_wheel_dock.width())
+            self._share_splitter(splitter, {
+                self.color_wheel_dock: lambda total: min(int(total * 0.4), wheel_width + 40),
+                self.color_slider_dock: lambda total: min(int(total * 0.25), 150),
+            }, filler=self.palette_dock)
+
+    def _share_splitter(self, splitter, targets, filler):
+        """targets の各ドックを指定サイズにし、差分を filler のドックに渡す。"""
+        sizes = splitter.sizes()
+        total = sum(sizes)
+        filler_index = self._splitter_index_of(splitter, filler)
+        if total <= 0 or filler_index < 0:
+            return
+        for dock, size_for in targets.items():
+            index = self._splitter_index_of(splitter, dock)
+            if index < 0 or index == filler_index or sizes[index] <= 0:
+                continue
+            sizes[index] = max(1, size_for(total))
+        sizes[filler_index] = max(1, total - sum(
+            size for index, size in enumerate(sizes) if index != filler_index
+        ))
+        splitter.setSizes(sizes)
 
     def _hamburger_icon(self):
         """フォントに依存しない3本線アイコンを生成して使い回す。"""
@@ -306,14 +471,19 @@ class DockingMixin(MainWindowMembers):
                 "QToolButton::menu-indicator{image:none;width:0;}"
             )
             menu = QMenu(button)
+            # エリアはここで捕まえず、開いた時点でボタンの親から辿る。ADSが配置を
+            # 組み直すと、捕まえておいたエリアのPythonラッパーが無効になり、
+            # メニューが空になっていた。
             menu.aboutToShow.connect(
-                lambda m=menu, a=area: self._rebuild_area_dock_menu(m, a)
+                lambda m=menu, b=button:
+                self._rebuild_area_dock_menu(m, self._area_of_widget(b))
             )
             button.setMenu(menu)
             title_bar.layout().insertWidget(0, button)
             area._hamburger_button = button
             area.currentChanged.connect(
-                lambda _index, a=area: self._sync_area_hamburger(a)
+                lambda _index, b=button:
+                self._sync_area_hamburger(self._area_of_widget(b))
             )
         if title_bar.layout().indexOf(button) != 0:
             title_bar.layout().removeWidget(button)
@@ -343,6 +513,8 @@ class DockingMixin(MainWindowMembers):
         # may have already destroyed the underlying C++ CDockAreaWidget by the
         # time they fire, so any attribute access raises RuntimeError. Bail out
         # instead of crashing.
+        if area is None:
+            return
         try:
             title_bar = area.titleBar()
             title_bar.setFixedHeight(22)
@@ -363,9 +535,18 @@ class DockingMixin(MainWindowMembers):
         except RuntimeError as exc:
             log.debug("_sync_area_hamburger on deleted area: %s", exc)
 
+    @staticmethod
+    def _area_of_widget(widget):
+        parent = widget.parentWidget() if widget is not None else None
+        while parent is not None and not isinstance(parent, QtAds.CDockAreaWidget):
+            parent = parent.parentWidget()
+        return parent
+
     def _rebuild_area_dock_menu(self, menu, area):
         # aboutToShow can fire after ADS deleted the area's C++ object.
         try:
+            if area is None:
+                raise RuntimeError("hamburger button is not inside a dock area")
             dock = area.currentDockWidget()
         except RuntimeError as exc:
             log.debug("_rebuild_area_dock_menu on deleted area: %s", exc)

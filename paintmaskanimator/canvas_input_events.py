@@ -35,8 +35,14 @@ class InputEventMixin(CanvasMembers):
         super().leaveEvent(event)
 
     def wheelEvent(self,e):
-        factor = 1.15 if e.angleDelta().y() > 0 else 1 / 1.15
-        self.set_zoom_around_canvas_center(self.zoom * factor)
+        delta = e.angleDelta().y()
+        if not delta:
+            # 横スクロールや、macOSトラックパッドの移動量0の開始/終了イベント。
+            e.accept()
+            return
+        # ホイール1ノッチ(120)で1.15倍。トラックパッドは細かいイベントを大量に
+        # 送るので、1イベント1段にすると一瞬で最大倍率まで飛んでしまう。
+        self.set_zoom_around_canvas_center(self.zoom * 1.15 ** (delta / 120))
         self.viewChanged.emit(float(self.zoom), float(self.rotation))
         self.update()
         e.accept()

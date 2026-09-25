@@ -976,3 +976,56 @@ def test_boundary_candidate_never_targets_drag_source(
         assert candidate[1] is not source
     finally:
         window.close()
+
+
+@pytest.mark.parametrize("size", [(1500, 960), (1280, 680)])
+def test_first_launch_layout_gives_panels_usable_sizes(
+    qapp, tmp_path, monkeypatch, size
+):
+    """ワークスペース未保存の初回起動で、パネルが最小幅に潰れないこと。"""
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setattr(AutosaveController, "maybe_restore", lambda self: None)
+    window = MainWindow()
+    if qapp.platformName() == "offscreen":
+        # 仮想画面は800x800と小さく、OSによる縮小も起きないので指定どおりに。
+        window.resize(*size)
+    else:
+        # 実際の起動と同じく画面に収めてから表示する（収めないとmacOSが表示後に
+        # 縮め、その分がすべてキャンバスから引かれる）。
+        window._fit_window_to_screen(*size)
+    window.show()
+    try:
+        for _ in range(5):
+            qapp.processEvents()
+        # macOSは表示後に画面へ合わせてウィンドウを縮め、その分はキャンバスが
+        # 吸収するので、比率は実際のウィンドウ幅に対して緩めに見る。
+        canvas = window.central_dock.width()
+        panels = (window.tools_dock, window.color_wheel_dock, window.subview_dock)
+        for dock in panels:
+            assert dock.width() >= 150, dock.objectName()
+        assert canvas > max(dock.width() for dock in panels)
+        assert canvas >= window.width() * 0.35
+        assert window.timeline_dock.height() >= 100
+        bottom = window.timeline_dock.mapTo(
+            window, QPoint(0, window.timeline_dock.height())
+        ).y()
+        assert bottom <= window.height()
+    finally:
+        window.close()
+
+
+def test_default_window_size_fits_small_screen(qapp, tmp_path, monkeypatch):
+    """Windowsは画面より大きいウィンドウを縮めないので、自前で収める。"""
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setattr(AutosaveController, "maybe_restore", lambda self: None)
+    window = MainWindow()
+    try:
+        available = window.screen().availableGeometry()
+        window._fit_window_to_screen(5000, 5000)
+        assert window.width() <= available.width()
+        assert window.height() <= available.height()
+        assert available.contains(window.pos())
+    finally:
+        window.close()

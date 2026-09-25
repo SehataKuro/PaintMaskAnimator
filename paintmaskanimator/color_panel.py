@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from .i18n import tr
+from .constants import ALT_KEY_LABEL, CTRL_KEY_LABEL
 from .logging_setup import get_logger
 
 
@@ -183,7 +184,8 @@ class UsedColorPanel(
         selection_header.setStyleSheet("font-size:10px;")
         selection_header.setToolTip(
             tr("クリック：この色だけ選択／Shift＋クリック：範囲選択／"
-            "Ctrl＋クリック：追加・解除。チェックと選択は連動します。")
+            "{ctrl}＋クリック：追加・解除。チェックと選択は連動します。").format(
+                ctrl=CTRL_KEY_LABEL)
         )
         header.addWidget(selection_header, 0, 0, Qt.AlignmentFlag.AlignCenter)
         visibility_header = QLabel(tr("表示"))
@@ -873,10 +875,10 @@ class UsedColorPanel(
                 )
             button.setToolTip(
                 tr("クリック：この色だけ選択／Shift＋クリック：範囲選択／"
-                   "Ctrl＋クリック：選択に追加・解除。"
+                   "{ctrl}＋クリック：選択に追加・解除。"
                    "ドラッグで並べ替え、色の中央へドロップ＝その色の子として整理。"
                    "親子付けしても色表示は変わりません。"
-                   "解除はドラッグと右クリックで行えます。")
+                   "解除はドラッグと右クリックで行えます。").format(ctrl=CTRL_KEY_LABEL)
                 + group_note
             )
 
@@ -977,8 +979,9 @@ class UsedColorPanel(
             if is_background else
             (
                 tr("クリック：この色だけ選択／Shift＋クリック：範囲選択／"
-                "Ctrl＋クリック：追加・解除／上下になぞる：一括選択／"
-                "Alt＋クリック：この色だけ選択")
+                "{ctrl}＋クリック：追加・解除／上下になぞる：一括選択／"
+                "{alt}＋クリック：この色だけ選択").format(
+                    ctrl=CTRL_KEY_LABEL, alt=ALT_KEY_LABEL)
             )
         )
         if not is_background:
