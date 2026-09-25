@@ -1,5 +1,6 @@
 from pathlib import Path
 from .i18n import tr
+from .constants import CTRL_KEY_LABEL, HOLD_ZOOM_KEY_LABEL
 from PySide6.QtCore import QEvent, QItemSelectionModel, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
@@ -766,13 +767,13 @@ class TimelineWidget(QWidget):
         )
 
         c.addStretch()
-        compact_hint = QLabel(tr("Shift/Ctrl：複数選択"))
+        compact_hint = QLabel(tr("Shift/{ctrl}：複数選択").format(ctrl=CTRL_KEY_LABEL))
         self.compact_hint = compact_hint
         compact_hint.setToolTip(
             tr("ドラッグ・Shift＋クリック：複数選択／"
             "選択範囲をそのままドラッグ：まとめて移動／"
             "●・○中央：移動／左右端：伸縮／"
-            "Space：ハンド／Ctrl＋Space：拡大縮小")
+            "Space：ハンド／{zoom}：拡大縮小").format(zoom=HOLD_ZOOM_KEY_LABEL)
         )
         c.addWidget(compact_hint)
         c.addWidget(self.fps)

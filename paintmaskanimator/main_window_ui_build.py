@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from .constants import APP_DISPLAY_NAME, APP_NAME, GITHUB_REPO
+from .constants import APP_DISPLAY_NAME, APP_NAME, GITHUB_REPO, HOLD_ZOOM_SHORTCUT
 from ._main_window_members import MainWindowMembers
 import PySide6QtAds as QtAds
 from . import i18n, theme
@@ -123,8 +123,8 @@ class UIBuildMixin(MainWindowMembers):
         self.a_hold_hand.setShortcut(QKeySequence("Space"))
         self.a_hold_zoom = QAction(tr("拡大縮小（押している間）"), self)
         self.a_hold_zoom.setProperty("holdOperation", True)
-        self.a_hold_zoom.setProperty("holdShortcutText", "Ctrl+Space")
-        self.a_hold_zoom.setShortcut(QKeySequence("Ctrl+Space"))
+        self.a_hold_zoom.setProperty("holdShortcutText", HOLD_ZOOM_SHORTCUT)
+        self.a_hold_zoom.setShortcut(QKeySequence(HOLD_ZOOM_SHORTCUT))
         self.a_hold_rotate = QAction(tr("回転（押している間）"), self)
         self.a_hold_rotate.setProperty("holdOperation", True)
         self.a_hold_rotate.setProperty("holdShortcutText", "Shift+Space")

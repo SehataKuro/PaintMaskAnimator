@@ -83,3 +83,16 @@ def test_subview_trackpad_small_deltas_accumulate_past_rounding():
         app.processEvents()
 
 
+
+def test_hold_zoom_default_avoids_macos_system_shortcuts():
+    """macOSのQtでは "Ctrl" が⌘になり、⌘SpaceはSpotlightに取られる。"""
+    import sys
+
+    from paintmaskanimator.constants import CTRL_KEY_LABEL, HOLD_ZOOM_SHORTCUT
+
+    if sys.platform == "darwin":
+        assert HOLD_ZOOM_SHORTCUT == "Alt+Space"
+        assert CTRL_KEY_LABEL == "⌘"
+    else:
+        assert HOLD_ZOOM_SHORTCUT == "Ctrl+Space"
+        assert CTRL_KEY_LABEL == "Ctrl"

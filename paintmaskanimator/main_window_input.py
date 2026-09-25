@@ -11,6 +11,7 @@ from PySide6.QtCore import QEvent, QPoint, QPointF, QTimer, Qt
 from PySide6.QtGui import QCursor, QKeySequence
 from PySide6.QtWidgets import QAbstractButton, QApplication, QSplitter, QTabBar, QWidget
 from ._main_window_members import MainWindowMembers
+from .constants import HOLD_ZOOM_SHORTCUT
 from .widgets import ShortcutDialog
 from .errors import OPERATION_ERRORS
 from .logging_setup import get_logger
@@ -286,7 +287,7 @@ class InputMixin(MainWindowMembers):
     def _update_canvas_hold_operation(self):
         held = set(self._held_canvas_shortcut_tokens)
         bindings = [
-            ("zoom", self.a_hold_zoom, "Ctrl+Space"),
+            ("zoom", self.a_hold_zoom, HOLD_ZOOM_SHORTCUT),
             ("rotate", self.a_hold_rotate, "Shift+Space"),
             ("hand", self.a_hold_hand, "Space"),
             ("eyedropper", self.a_hold_eyedropper, "Alt"),
