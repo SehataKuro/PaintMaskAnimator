@@ -95,6 +95,7 @@ class MainWindowMembers(_MembersBase):
         _parse_after_effects_time_remap: Any
         _parse_toei_timesheet: Any
         _parse_xdts_timesheet: Any
+        _pending_default_dock_layout: bool
         _pending_tool_selector_snap: Any
         _pending_visible_colors: Any
         _playback_emitted_steps: Any
