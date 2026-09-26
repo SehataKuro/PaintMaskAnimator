@@ -53,7 +53,9 @@ def _generate(into: Path) -> list[Path]:
             # Seed from the committed file so human translations are preserved.
             shutil.copyfile(existing, target)
         subprocess.run(
-            [_tool("pyside6-lupdate"), *_sources(), "-source-language", "ja",
+            # -no-obsolete: a string removed from the code drops out of the
+            # catalogue instead of lingering as a "vanished" entry.
+            [_tool("pyside6-lupdate"), *_sources(), "-no-obsolete", "-source-language", "ja",
              "-target-language", code, "-ts", str(target)],
             cwd=ROOT, check=True, capture_output=True, text=True,
         )

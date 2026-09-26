@@ -1735,7 +1735,6 @@ Drop a used colour onto the middle of another to create a parent/child link.</tr
     </message>
     <message>
         <location filename="../main_window_color_chart.py" line="272"/>
-        <location filename="../main_window_import.py" line="690"/>
         <location filename="../main_window_time_remap.py" line="455"/>
         <location filename="../widgets.py" line="1431"/>
         <source>読み込めませんでした。
@@ -3884,7 +3883,7 @@ Line art: binarises the line work while preserving the white background and the 
         <location filename="../color_reduction.py" line="507"/>
         <location filename="../cut_folder_dialog.py" line="792"/>
         <location filename="../main_window.py" line="682"/>
-        <location filename="../main_window_import.py" line="91"/>
+        <location filename="../main_window_import.py" line="90"/>
         <location filename="../main_window_project_io.py" line="126"/>
         <location filename="../widgets.py" line="705"/>
         <source>キャンセル</source>
@@ -4194,47 +4193,47 @@ Restore the automatically saved work?</translation>
         <translation>Triangle (HLS)</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="55"/>
-        <location filename="../main_window_import.py" line="79"/>
+        <location filename="../main_window_import.py" line="54"/>
+        <location filename="../main_window_import.py" line="78"/>
         <source>CLIP STUDIOアニメーションを読み込む</source>
         <translation>Import a CLIP STUDIO animation</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="57"/>
+        <location filename="../main_window_import.py" line="56"/>
         <source>CLIP STUDIO PAINT (*.clip);;すべてのファイル (*)</source>
         <translation>CLIP STUDIO PAINT (*.clip);;All files (*)</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="81"/>
+        <location filename="../main_window_import.py" line="80"/>
         <source>現在のキャンバスをCLIP STUDIOアニメーションで置き換えます。
 先に現在のプロジェクトを保存しますか？</source>
         <translation>This replaces the current canvas with the CLIP STUDIO animation.
 Save the current project first?</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="85"/>
+        <location filename="../main_window_import.py" line="84"/>
         <location filename="../main_window_project_io.py" line="120"/>
         <source>保存する</source>
         <translation>Save</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="88"/>
+        <location filename="../main_window_import.py" line="87"/>
         <source>保存せず読み込む</source>
         <translation>Import without saving</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="107"/>
+        <location filename="../main_window_import.py" line="106"/>
         <source>CLIP STUDIOアニメーションを解析しています：{name}</source>
         <translation>Parsing the CLIP STUDIO animation: {name}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="118"/>
-        <location filename="../main_window_import.py" line="244"/>
+        <location filename="../main_window_import.py" line="117"/>
+        <location filename="../main_window_import.py" line="243"/>
         <source>CLIP STUDIOアニメーション読み込み</source>
         <translation>CLIP STUDIO animation import</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="119"/>
+        <location filename="../main_window_import.py" line="118"/>
         <source>読み込めませんでした。現在のドキュメントは変更されていません。
 
 {exc}</source>
@@ -4243,7 +4242,7 @@ Save the current project first?</translation>
 {exc}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="245"/>
+        <location filename="../main_window_import.py" line="244"/>
         <source>読み込み結果を反映できませんでした。現在のドキュメントは元の状態へ戻しました。
 
 {exc}</source>
@@ -4252,29 +4251,19 @@ Save the current project first?</translation>
 {exc}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="252"/>
+        <location filename="../main_window_import.py" line="251"/>
         <source>（元FPS {fps:g}、PMA表示 {value} fps）</source>
         <translation> (source FPS {fps:g}, shown as {value} fps in PMA)</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="257"/>
+        <location filename="../main_window_import.py" line="256"/>
         <source> 未配置セル{len}枚は連番に保持しました。</source>
         <translation> {len} unplaced cells were kept in the sequence.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="260"/>
+        <location filename="../main_window_import.py" line="259"/>
         <source>CLIP STUDIOから{count}フォルダー・{count2}フレームを読み込みました。{note}{note2}</source>
         <translation>Imported {count} folders and {count2} frames from CLIP STUDIO.{note}{note2}</translation>
-    </message>
-    <message>
-        <source>XDTSの先頭識別文字列が一致しません。</source>
-        <translation type="vanished">The XDTS leading identifier does not match.</translation>
-    </message>
-    <message>
-        <source>XDTSのJSONを解析できません。
-{exc}</source>
-        <translation type="vanished">Could not parse the XDTS JSON.
-{exc}</translation>
     </message>
     <message>
         <location filename="../timesheet_file.py" line="37"/>
@@ -4295,64 +4284,60 @@ Save the current project first?</translation>
         <translation>Only XDTS version 5 is supported.</translation>
     </message>
     <message>
-        <source>XDTSにタイムシート情報がありません。</source>
-        <translation type="vanished">The XDTS file has no time sheet data.</translation>
-    </message>
-    <message>
-        <location filename="../main_window_import.py" line="416"/>
+        <location filename="../main_window_import.py" line="415"/>
         <source>XDTSにセル欄（fieldId 0）がありません。</source>
         <translation>The XDTS file has no cell column (fieldId 0).</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="448"/>
+        <location filename="../main_window_import.py" line="447"/>
         <source>読み込むCELLとレイヤーの紐づけがありません。</source>
         <translation>No CELL is linked to a layer for import.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="450"/>
+        <location filename="../main_window_import.py" line="449"/>
         <location filename="../main_window_time_remap.py" line="342"/>
         <source>タイムラインがありません。</source>
         <translation>There is no timeline.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="464"/>
+        <location filename="../main_window_import.py" line="463"/>
         <source>CELL「{get}」のフレーム数が不正です。</source>
         <translation>CELL &quot;{get}&quot; has an invalid frame count.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="469"/>
+        <location filename="../main_window_import.py" line="468"/>
         <source>CELL「{get}」の紐づけ先レイヤーがありません。</source>
         <translation>CELL &quot;{get}&quot; has no layer to link to.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="474"/>
+        <location filename="../main_window_import.py" line="473"/>
         <source>レイヤー「{name}」に連番画像がありません。</source>
         <translation>Layer &quot;{name}&quot; has no image sequence.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="488"/>
+        <location filename="../main_window_import.py" line="487"/>
         <source>CELL「{get}」は存在しない絵番号を参照しています（レイヤー画像 {len}枚）。
 {preview}</source>
         <translation>CELL &quot;{get}&quot; refers to a drawing number that does not exist ({len} layer images).
 {preview}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="497"/>
+        <location filename="../main_window_import.py" line="496"/>
         <source>読み込めるCELLの紐づけがありません。</source>
         <translation>There are no CELL links that can be imported.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="500"/>
+        <location filename="../main_window_import.py" line="499"/>
         <source>・{get} → {name}</source>
         <translation>・{get} → {name}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="505"/>
+        <location filename="../main_window_import.py" line="504"/>
         <source>XDTSタイムシートを反映</source>
         <translation>Apply the XDTS time sheet</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="506"/>
+        <location filename="../main_window_import.py" line="505"/>
         <source>反映範囲：{value}～{value2}フレーム
 紐づけ：
 {links}
@@ -4365,51 +4350,51 @@ Links:
 This replaces the target range of the linked layers.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="537"/>
+        <location filename="../main_window_import.py" line="536"/>
         <source>XDTSの{len}個のCELLを{value}～{value2}フレームへ反映しました。</source>
         <translation>Applied {len} XDTS CELLs to frames {value}–{value2}.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="544"/>
+        <location filename="../main_window_import.py" line="543"/>
         <source>PSDを読み込む</source>
         <translation>Import a PSD</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="551"/>
-        <location filename="../main_window_import.py" line="615"/>
-        <location filename="../main_window_import.py" line="657"/>
+        <location filename="../main_window_import.py" line="550"/>
+        <location filename="../main_window_import.py" line="614"/>
+        <location filename="../main_window_import.py" line="656"/>
         <source>PSD読み込み</source>
         <translation>PSD import</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="552"/>
+        <location filename="../main_window_import.py" line="551"/>
         <source>PSDの読み込みには psd-tools と Pillow が必要です。
 requirements.txtをインストールしてください。</source>
         <translation>Importing PSD needs psd-tools and Pillow.
 Install them from requirements.txt.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="568"/>
+        <location filename="../main_window_import.py" line="567"/>
         <source>PSDの画像サイズが上限を超えています。 ({width} × {height}px)</source>
         <translation>The PSD image is larger than the maximum. ({width} × {height}px)</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="571"/>
+        <location filename="../main_window_import.py" line="570"/>
         <source>PSDの最上位レイヤー数が上限を超えています。</source>
         <translation>The PSD has more top-level layers than the maximum.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="584"/>
+        <location filename="../main_window_import.py" line="583"/>
         <source>PSDのレイヤー項目数が上限を超えています。</source>
         <translation>The PSD has more layer entries than the maximum.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="611"/>
+        <location filename="../main_window_import.py" line="610"/>
         <source>読み込める画像レイヤーがありません。</source>
         <translation>There are no image layers to import.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="615"/>
+        <location filename="../main_window_import.py" line="614"/>
         <source>PSDを読み込めませんでした。
 
 {exc}</source>
@@ -4418,36 +4403,26 @@ Install them from requirements.txt.</translation>
 {exc}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="654"/>
+        <location filename="../main_window_import.py" line="653"/>
         <source>PSDから{len}レイヤーを読み込みました。</source>
         <translation>Imported {len} layers from the PSD.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="656"/>
+        <location filename="../main_window_import.py" line="655"/>
         <source>
 調整レイヤーなど{skipped}項目は破棄しました。</source>
         <translation>
 {skipped} entries such as adjustment layers were discarded.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="662"/>
         <location filename="../widgets.py" line="1418"/>
         <source>タイムシートを読み込む（XDTS／TDTS）</source>
         <translation>Import a time sheet (XDTS/TDTS)</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="664"/>
         <location filename="../widgets.py" line="1420"/>
         <source>タイムシート (*.xdts *.xtds *.tdts);;すべてのファイル (*)</source>
         <translation>Time sheets (*.xdts *.xtds *.tdts);;All files (*)</translation>
-    </message>
-    <message>
-        <source>XDTSタイムシートを読み込む</source>
-        <translation type="vanished">Import an XDTS time sheet</translation>
-    </message>
-    <message>
-        <source>XDTSタイムシート (*.xdts *.xtds);;すべてのファイル (*)</source>
-        <translation type="vanished">XDTS time sheet (*.xdts *.xtds);;All files (*)</translation>
     </message>
     <message>
         <location filename="../timesheet_file.py" line="43"/>
@@ -4456,30 +4431,11 @@ Install them from requirements.txt.</translation>
         <translation>There is no time sheet data.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="678"/>
-        <source>セル欄（fieldId 0）がありません。</source>
-        <translation>There is no cell column (fieldId 0).</translation>
-    </message>
-    <message>
-        <location filename="../main_window_import.py" line="690"/>
-        <location filename="../main_window_import.py" line="777"/>
         <location filename="../main_window_time_remap.py" line="454"/>
         <location filename="../widgets.py" line="1431"/>
         <location filename="../widgets.py" line="1885"/>
         <source>XDTS読み込み</source>
         <translation>XDTS import</translation>
-    </message>
-    <message>
-        <location filename="../main_window_import.py" line="774"/>
-        <source>XDTSタイムシートを読み込みました。</source>
-        <translation>XDTS time sheet imported.</translation>
-    </message>
-    <message>
-        <location filename="../main_window_import.py" line="776"/>
-        <source>
-対応画像がない番号：{len}件（白画像で配置）</source>
-        <translation>
-Numbers with no matching image: {len} (placed as blank images)</translation>
     </message>
     <message>
         <location filename="../main_window_scope_ops.py" line="73"/>
@@ -5671,10 +5627,6 @@ Layer cell {value} / {exposure} exposures</translation>
         <translation>Import XDTS/TDTS…</translation>
     </message>
     <message>
-        <source>XDTSを読み込む…</source>
-        <translation type="vanished">Load XDTS…</translation>
-    </message>
-    <message>
         <location filename="../widgets.py" line="1251"/>
         <source>クリア</source>
         <translation>Clear</translation>
@@ -5909,10 +5861,6 @@ Layer cell {value} / {exposure} exposures</translation>
         <location filename="../cut_folder_dialog.py" line="1005"/>
         <source>タイムシートのフォルダー</source>
         <translation>Time sheet folder</translation>
-    </message>
-    <message>
-        <source>タイムシート (.xdts)</source>
-        <translation type="vanished">Time sheet (.xdts)</translation>
     </message>
     <message>
         <location filename="../cut_folder_dialog.py" line="749"/>
