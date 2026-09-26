@@ -18,10 +18,6 @@ from ._canvas_members import CanvasMembers
 from . import imaging
 from .pressure import _pressure_bezier_at
 from .logging_setup import get_logger
-from .undo_entries import (
-    LayerRegionUndo,
-    LayerUndo,
-)
 
 log = get_logger(__name__)
 
@@ -222,21 +218,18 @@ class PaintToolsMixin(CanvasMembers):
         return imaging.scanline_connected_region(*args, **kwargs)
 
     def flood_fill(self,p):
-        self.push_layer_undo()
+        # Undo は塗る範囲が決まってから、その外接矩形だけを保存する。
+        # 大きなキャンバスでレイヤー全体をコピーしないため。
         image = self.active_layer.image.convertToFormat(
             QImage.Format.Format_RGBA8888
         )
         width, height = image.width(), image.height()
         start_x, start_y = int(p.x()), int(p.y())
         if not (0 <= start_x < width and 0 <= start_y < height):
-            if self.undo_stack:
-                self.undo_stack.pop()
             return
 
         selection_mask = self.selection_mask_bool(width, height)
         if selection_mask is not None and not selection_mask[start_y, start_x]:
-            if self.undo_stack:
-                self.undo_stack.pop()
             self.status_message.emit(tr("選択範囲の外側なので塗りを開始しませんでした。"))
             return
 
@@ -263,10 +256,10 @@ class PaintToolsMixin(CanvasMembers):
             or window.tools.bucket_adjacent.isChecked()
         )
 
-        pseudo_background = (
-            (pixels[:, :, 3] == 0)
-            | np.all(pixels[:, :, :3] == 255, axis=2)
-        )
+        # RGBA を uint32 にまとめて比較する（チャンネルごとの np.all より
+        # 1桁以上速く、一時配列も小さい）。
+        packed = imaging.rgba_packed_view(pixels)
+        pseudo_background = imaging.background_mask_packed(packed)
         target_is_background = bool(
             int(target[3]) == 0
             or (
@@ -277,16 +270,10 @@ class PaintToolsMixin(CanvasMembers):
         )
         if target_is_background:
             target_mask = pseudo_background.copy()
-            same_color_mask = pseudo_background.copy()
         else:
-            target_mask = (
-                (pixels[:, :, 3] > 0)
-                & np.all(pixels[:, :, :3] == target[:3], axis=2)
-            )
-            same_color_mask = target_mask.copy()
+            target_mask = imaging.opaque_rgb_mask_packed(packed, target[:3])
         if selection_mask is not None:
             target_mask &= selection_mask
-            same_color_mask &= selection_mask
 
         def dilate(mask, iterations):
             result = mask.copy()
@@ -353,9 +340,7 @@ class PaintToolsMixin(CanvasMembers):
                 passable, (start_x, start_y)
             )
 
-            if not np.any(region):
-                if self.undo_stack:
-                    self.undo_stack.pop()
+            if not region[start_y, start_x]:
                 return
 
             require_closed = bool(
@@ -367,8 +352,6 @@ class PaintToolsMixin(CanvasMembers):
                 np.any(region[0, :]) or np.any(region[-1, :])
                 or np.any(region[:, 0]) or np.any(region[:, -1])
             ):
-                if self.undo_stack:
-                    self.undo_stack.pop()
                 self.status_message.emit(
                     tr("領域がキャンバス端まで開いているため、塗りを開始しませんでした。")
                 )
@@ -385,7 +368,7 @@ class PaintToolsMixin(CanvasMembers):
                     region |= recovered
         else:
             # 「隣接」OFFでは、クリック位置と同じRGBAを持つ全ピクセルを対象にする。
-            region = same_color_mask.copy()
+            region = target_mask
 
         final_region = region.copy()
         if include_masks:
@@ -393,16 +376,17 @@ class PaintToolsMixin(CanvasMembers):
             # 何を含むのかを塗る前に別の場所で準備する必要があり分かりにくい。
             sub = QColor(self.sub_color)
             selected_colors = {(sub.red(), sub.green(), sub.blue())}
-            rgb = pixels[:, :, :3].astype(np.int32)
             opaque_pixels = pixels[:, :, 3] > 0
             mask_family = np.zeros((height, width), dtype=bool)
             for selected_color in selected_colors:
-                target_rgb = np.array(selected_color, dtype=np.int32)
-                delta = rgb - target_rgb
-                mask_family |= (
-                    opaque_pixels
-                    & (np.sum(delta * delta, axis=2) <= 56 * 56)
-                )
+                # (h, w, 3) の int32 配列を作らず、チャンネルごとに距離を足す。
+                distance = np.zeros((height, width), dtype=np.int32)
+                for channel, value in enumerate(selected_color):
+                    delta = pixels[:, :, channel].astype(np.int32)
+                    delta -= int(value)
+                    delta *= delta
+                    distance += delta
+                mask_family |= opaque_pixels & (distance <= 56 * 56)
             if self.background_mask_rgb in selected_colors:
                 mask_family |= pseudo_background
             if selection_mask is not None:
@@ -429,34 +413,16 @@ class PaintToolsMixin(CanvasMembers):
 
         if selection_mask is not None:
             final_region &= selection_mask
-        if not np.any(final_region):
-            if self.undo_stack:
-                self.undo_stack.pop()
+        bounds = imaging.mask_bounds(final_region)
+        if bounds is None:
             return
-
-        ys, xs = np.nonzero(final_region)
-        if len(xs) == 0:
-            if self.undo_stack:
-                self.undo_stack.pop()
+        x0, y0, x1, y1 = bounds
+        fill_rect = QRect(x0, y0, x1 - x0, y1 - y0)
+        if not self.push_layer_region_undo(fill_rect):
             return
-
-        # Replace the provisional full-layer snapshot with the actual changed
-        # bounding box now that the fill region is known.
-        if self.undo_stack and isinstance(self.undo_stack[-1], LayerUndo):
-            previous = self.undo_stack[-1]
-            fill_rect = QRect(
-                int(xs.min()),
-                int(ys.min()),
-                int(xs.max() - xs.min() + 1),
-                int(ys.max() - ys.min() + 1),
-            )
-            self.undo_stack[-1] = LayerRegionUndo(
-                previous.frame,
-                previous.layer,
-                fill_rect,
-                previous.image.copy(fill_rect),
-                bool(previous.has_content),
-            )
+        # 以降の書き込みは外接矩形の中だけで行い、その部分だけをレイヤーへ戻す。
+        patch = pixels[y0:y1, x0:x1]
+        patch_region = final_region[y0:y1, x0:x1]
 
         source_rgb = np.asarray(
             [
@@ -474,10 +440,8 @@ class PaintToolsMixin(CanvasMembers):
         )
         if replacement_is_white:
             # 白バケツは本物の消しゴム：該当領域を alpha=0 へ抜く。
-            pixels[ys, xs, :] = 0
-            self.active_layer.image = image.convertToFormat(
-                QImage.Format.Format_ARGB32_Premultiplied
-            )
+            patch[patch_region] = 0
+            self._write_rgba_patch(patch, fill_rect)
             self.active_layer.has_content = True
             self.cellChanged.emit(self.current_frame, self.active_layer_index)
             self.update()
@@ -486,14 +450,14 @@ class PaintToolsMixin(CanvasMembers):
         opacity = max(0.0, min(1.0, float(getattr(self, "fill_opacity", 1.0))))
         if opacity >= 0.999999:
             # 100%は正規RGBをそのまま書き込む（近似色を生成しない）。
-            pixels[ys, xs, :3] = source_rgb
+            patch[patch_region, :3] = source_rgb
             written_colors = (
                 (int(source_rgb[0]), int(source_rgb[1]), int(source_rgb[2])),
             )
         else:
             # 100%未満だけ下地RGB（透明は白とみなす）と混色する。
-            base_rgb = pixels[ys, xs, :3].astype(np.float32)
-            base_rgb[pixels[ys, xs, 3] == 0] = 255.0
+            base_rgb = patch[patch_region, :3].astype(np.float32)
+            base_rgb[patch[patch_region, 3] == 0] = 255.0
             mixed = np.clip(
                 np.rint(
                     base_rgb * (1.0 - opacity)
@@ -504,20 +468,28 @@ class PaintToolsMixin(CanvasMembers):
             ).astype(np.uint8)
             # 混色の結果が白になった画素を消しゴム扱いにしない。
             mixed[np.all(mixed == 255, axis=1)] = 254
-            pixels[ys, xs, :3] = mixed
+            patch[patch_region, :3] = mixed
             written_colors = tuple(
                 tuple(int(channel) for channel in row)
                 for row in np.unique(mixed, axis=0)
             )
-        pixels[ys, xs, 3] = 255
+        patch[patch_region, 3] = 255
 
-        self.active_layer.image = image.convertToFormat(
-            QImage.Format.Format_ARGB32_Premultiplied
-        )
+        self._write_rgba_patch(patch, fill_rect)
         self.active_layer.has_content = True
         self._emit_actual_paint_colors(written_colors)
         self.cellChanged.emit(self.current_frame, self.active_layer_index)
         self.update()
+
+    def _write_rgba_patch(self, patch, rect):
+        """RGBA8888 の部分配列を、アクティブレイヤーの rect へそのまま書き戻す。"""
+        patch_image = imaging.rgba_array_to_qimage(patch)
+        painter = QPainter(self.active_layer.image)
+        painter.setCompositionMode(
+            QPainter.CompositionMode.CompositionMode_Source
+        )
+        painter.drawImage(rect.topLeft(), patch_image)
+        painter.end()
 
     def auto_select_region(self, point, modifiers=Qt.KeyboardModifier.NoModifier):
         """バケツと同じ連続領域判定で選択マスクを作成・加減算する。"""
