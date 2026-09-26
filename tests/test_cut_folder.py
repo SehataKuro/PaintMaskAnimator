@@ -21,6 +21,20 @@ def test_pma_standard_renders_folder_cels_and_timesheet():
     assert plan.timesheet_path == "PMA_03_c012.xdts"
 
 
+def test_ts_pool_preset_matches_the_compositing_handoff_layout():
+    # PMA_C002/{A,B}/A_0001.png, _ts/c002.xdts and an empty _pool.
+    plan = cf.plan_export(
+        cf.ts_pool_layout(),
+        {"title": "PMA", "scene": "", "episode": "", "cut": "2"},
+        [CelSource(0, "A", 1), CelSource(1, "B", 1)],
+    )
+    assert plan.ok, plan.problems
+    assert plan.folder_name == "PMA_C002"
+    assert [path for path, _ in plan.files] == ["A/A_0001.png", "B/B_0001.png"]
+    assert plan.timesheet_path == "_ts/c002.xdts"
+    assert "_pool" in plan.folders
+
+
 def test_empty_field_drops_prefix_and_suffix():
     token = block("scene", prefix="s", suffix="-")
     assert cf.format_field(token, "") == ""

@@ -251,7 +251,25 @@ def pma_standard_layout():
     )
 
 
-BUILTIN_PRESETS = {"PMA標準": pma_standard_layout}
+def ts_pool_layout():
+    """_ts・_pool: the layout used for compositing handoff.
+
+    Folder ``作品名_C002`` (no episode), cels ``A/A_0001.png``, the time sheet
+    as ``_ts/c002.xdts`` and an empty ``_pool`` for source files such as the
+    ``.clip``.
+    """
+    return CutFolderLayout(
+        folder=(block("title"), text("_"), block("cut", digits=3, prefix="C")),
+        cell_folder=(block("cell"),),
+        cell_file=(block("cell"), text("_"), block("number", digits=4)),
+        timesheet=(block("cut", digits=3, prefix="c"),),
+        timesheet_folder=(text("_ts"),),
+        extra_folders=[(text("_pool"),)],
+        image_format="png",
+    )
+
+
+BUILTIN_PRESETS = {"PMA標準": pma_standard_layout, "_ts・_pool": ts_pool_layout}
 
 
 # --- export planning ---------------------------------------------------------
