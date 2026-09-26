@@ -15,7 +15,7 @@ from .optional_deps import PILImage
 from .constants import MAX_IMAGE_DIMENSION, MAX_SINGLE_IMAGE_PIXELS, OUTSIDE_MARGIN
 from .errors import OperationError
 from ._canvas_members import CanvasMembers
-from . import constants, imaging
+from . import constants, imaging, timesheet_file
 from .models import Layer
 from .utils import blank_image, natural_path_key
 from .logging_setup import get_logger
@@ -245,7 +245,7 @@ class ImageImportMixin(CanvasMembers):
 
     def dragEnterEvent(self,e):
         urls=e.mimeData().urls() if e.mimeData().hasUrls() else []
-        valid=any(Path(u.toLocalFile()).suffix.lower() in (".pman",".clip",".xdts",".xtds",".jpg",".jpeg",".png",".tga") for u in urls)
+        valid=any(Path(u.toLocalFile()).suffix.lower() in (".pman",".clip",*timesheet_file.SUFFIXES,".jpg",".jpeg",".png",".tga") for u in urls)
         if valid:e.acceptProposedAction()
         else:e.ignore()
 
@@ -264,7 +264,7 @@ class ImageImportMixin(CanvasMembers):
                 project_paths.append(path)
             elif suffix==".clip":
                 clip_paths.append(path)
-            elif suffix in (".xdts", ".xtds"):
+            elif suffix in timesheet_file.SUFFIXES:
                 remap_paths.append(path)
             elif suffix in (".jpg",".jpeg",".png",".tga"):
                 paths.append(path)

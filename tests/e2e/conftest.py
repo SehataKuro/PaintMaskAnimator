@@ -1,7 +1,7 @@
 """E2Eシナリオ共通のフィクスチャ。
 
 各テストは実際のアプリ起動と同じ経路で MainWindow を組み立て、終了時に必ず破棄する。
-設定ファイルの読み書き先は tmp_path に隔離し、ユーザーの実環境を汚さない。
+設定ファイルの読み書き先はルートの conftest.py が tmp_path に隔離し、ユーザーの実環境を汚さない。
 
 モーダルダイアログはヘッドレスE2Eの最大の障害なので、ここで一括して制御する:
 - QMessageBox の静的呼び出しは記録して素通しする（テストから内容を検証できる）
@@ -88,13 +88,11 @@ def no_unexpected_modal_dialogs(monkeypatch):
 
 
 @pytest.fixture
-def app(qtbot, tmp_path, monkeypatch, messages):
-    """起動済みアプリを操作する AppDriver を返す。"""
-    config_dir = tmp_path / "config"
-    config_dir.mkdir()
-    monkeypatch.setenv("APPDATA", str(config_dir))
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(config_dir))
+def app(qtbot, messages):
+    """起動済みアプリを操作する AppDriver を返す。
 
+    設定フォルダーの隔離はルートの conftest.py が全テストに対して行う。
+    """
     window = MainWindow()
     qtbot.addWidget(window)
     window.show()

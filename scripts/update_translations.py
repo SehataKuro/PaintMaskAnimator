@@ -2,7 +2,9 @@
 
 ``--check`` is the CI mode: it regenerates into a temporary directory and fails
 if the committed ``.ts`` files are out of date, so a newly wrapped ``tr()``
-string cannot land without its catalogue entry.
+string cannot land without its catalogue entry. It also fails while any entry
+is still untranslated: regenerating adds the entry but leaves its translation
+empty, and an empty translation silently falls back to the Japanese source.
 
 Usage::
 
@@ -17,6 +19,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -62,6 +65,16 @@ def _comparable(path: Path) -> str:
     return _VOLATILE.sub("", path.read_text(encoding="utf-8"))
 
 
+def untranslated(path: Path) -> list[str]:
+    """Source strings in *path* whose translation is still unfinished."""
+    return [
+        message.findtext("source", "")
+        for message in ET.parse(path).getroot().iter("message")
+        if (translation := message.find("translation")) is not None
+        and translation.get("type") == "unfinished"
+    ]
+
+
 def check() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         for fresh in _generate(Path(tmp)):
@@ -75,12 +88,21 @@ def check() -> int:
                     "Run: python scripts/update_translations.py"
                 )
                 return 1
+            missing = untranslated(committed)
+            if missing:
+                print(f"{committed.relative_to(ROOT)} has {len(missing)} untranslated entries:")
+                for source in missing:
+                    print(f"  {source!r}")
+                return 1
     print("translation catalogues are up to date.")
     return 0
 
 
 def update() -> int:
     for path in _generate(TRANSLATIONS):
+        missing = untranslated(path)
+        if missing:
+            print(f"{path.relative_to(ROOT)}: {len(missing)} entries need a translation")
         subprocess.run(
             [_tool("pyside6-lrelease"), str(path), "-qm", str(path.with_suffix(".qm"))],
             check=True, capture_output=True, text=True,

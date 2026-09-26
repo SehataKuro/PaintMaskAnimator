@@ -1,0 +1,27 @@
+#!/bin/sh
+# Run CI's checks before anything leaves this machine.
+# Enable once per clone:  git config core.hooksPath .githooks
+# Skip in an emergency:   git push --no-verify
+set -e
+cd "$(git rev-parse --show-toplevel)"
+
+if [ -x .venv/bin/python ]; then
+    PY=.venv/bin/python
+elif [ -x .venv/Scripts/python.exe ]; then
+    PY=.venv/Scripts/python.exe
+else
+    PY=python3
+fi
+
+release=""
+while read -r _local_ref _local_sha remote_ref _remote_sha; do
+    case "$remote_ref" in
+        refs/tags/v*) release="${remote_ref#refs/tags/v}" ;;
+    esac
+done
+
+if [ -n "$release" ]; then
+    # A release tag starts the installer builds: run everything, tests included.
+    exec "$PY" scripts/preflight.py --release "$release"
+fi
+exec "$PY" scripts/preflight.py --quick

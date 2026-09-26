@@ -36,6 +36,7 @@ DIGIT_CHOICES = (None, 2, 3, 4, 5)
 INVALID_NAME_CHARS = '<>:"\\|?*'
 
 IMAGE_EXTENSIONS = ("png", "tga")
+TIMESHEET_EXTENSIONS = ("xdts", "tdts")
 
 
 @dataclass(frozen=True)
@@ -194,10 +195,12 @@ class CutFolderLayout:
     cell_folder: tuple = ()
     cell_file: tuple = ()
     timesheet: tuple = ()
-    #: Sub-folder of the cut folder for the XDTS; empty = directly inside.
+    #: Sub-folder of the cut folder for the time sheet; empty = directly inside.
     timesheet_folder: tuple = ()
     extra_folders: list = field(default_factory=list)
     image_format: str = "png"
+    #: ``xdts`` (exchange format) or ``tdts`` (Toei Digital Timesheet).
+    timesheet_format: str = "xdts"
 
     def to_json(self):
         return {
@@ -208,11 +211,13 @@ class CutFolderLayout:
             "timesheet_folder": template_to_json(self.timesheet_folder),
             "extra_folders": [template_to_json(t) for t in self.extra_folders],
             "image_format": self.image_format,
+            "timesheet_format": self.timesheet_format,
         }
 
     @classmethod
     def from_json(cls, data):
         image_format = str(data.get("image_format", "png")).lower()
+        timesheet_format = str(data.get("timesheet_format", "xdts")).lower()
         return cls(
             folder=template_from_json(data.get("folder")),
             cell_folder=template_from_json(data.get("cell_folder")),
@@ -224,6 +229,9 @@ class CutFolderLayout:
                 for item in data.get("extra_folders") or []
             ],
             image_format=image_format if image_format in IMAGE_EXTENSIONS else "png",
+            timesheet_format=(
+                timesheet_format if timesheet_format in TIMESHEET_EXTENSIONS else "xdts"
+            ),
         )
 
     def copy(self):
@@ -251,7 +259,26 @@ def pma_standard_layout():
     )
 
 
-BUILTIN_PRESETS = {"PMA標準": pma_standard_layout}
+def ts_pool_layout():
+    """_ts・_pool: the layout used for compositing handoff.
+
+    Folder ``作品名_C002`` (no episode), cels ``A/A_0001.png``, the time sheet
+    as ``_ts/c002.tdts`` and an empty ``_pool`` for source files such as the
+    ``.clip``.
+    """
+    return CutFolderLayout(
+        folder=(block("title"), text("_"), block("cut", digits=3, prefix="C")),
+        cell_folder=(block("cell"),),
+        cell_file=(block("cell"), text("_"), block("number", digits=4)),
+        timesheet=(block("cut", digits=3, prefix="c"),),
+        timesheet_folder=(text("_ts"),),
+        extra_folders=[(text("_pool"),)],
+        image_format="png",
+        timesheet_format="tdts",
+    )
+
+
+BUILTIN_PRESETS = {"PMA標準": pma_standard_layout, "_ts・_pool": ts_pool_layout}
 
 
 # --- export planning ---------------------------------------------------------
@@ -275,6 +302,9 @@ class ExportPlan:
     #: Every folder to create, relative to the cut folder (cell + extra).
     folders: list
     problems: list
+    timesheet_format: str = "xdts"
+    #: 作品情報 for formats whose sheet carries it (TDTS).
+    sheet_header: dict = field(default_factory=dict)
 
     @property
     def ok(self):
@@ -373,7 +403,7 @@ def plan_export(
     timesheet_name = render(layout.timesheet, base)
     if invalid_name_reason(timesheet_name) or "/" in timesheet_name:
         problems.append(("bad_name", timesheet_name, "timesheet"))
-    timesheet_path = f"{timesheet_name}.xdts"
+    timesheet_path = f"{timesheet_name}.{layout.timesheet_format}"
     sheet_folder = render(layout.timesheet_folder, base).strip("/")
     if sheet_folder:
         if any(invalid_name_reason(part) for part in _split_path(sheet_folder)):
@@ -394,6 +424,11 @@ def plan_export(
         timesheet_path=timesheet_path,
         folders=folders,
         problems=unique,
+        timesheet_format=layout.timesheet_format,
+        sheet_header={
+            name: str(values.get(name, "") or "").strip()
+            for name in ("cut", "episode", "scene")
+        },
     )
 
 

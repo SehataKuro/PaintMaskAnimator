@@ -41,7 +41,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from typing import Any
-from . import theme
+from . import theme, timesheet_file
 from .i18n import tr
 from .utils import _ScreenColorDragMixin
 from .logging_setup import get_logger
@@ -1247,7 +1247,7 @@ class TimeRemapPasteDialog(QDialog):
         paste_button = QPushButton(
             tr("クリップボードをタイムシートへ貼付")
         )
-        xdts_button = QPushButton(tr("XDTSを読み込む…"))
+        xdts_button = QPushButton(tr("XDTS／TDTSを読み込む…"))
         clear_button = QPushButton(tr("クリア"))
         paste_button.clicked.connect(self._paste_clipboard)
         xdts_button.clicked.connect(self._load_xdts_file)
@@ -1388,7 +1388,7 @@ class TimeRemapPasteDialog(QDialog):
             return None
         for url in mime_data.urls():
             path = str(url.toLocalFile() or "")
-            if Path(path).suffix.lower() in (".xdts", ".xtds"):
+            if Path(path).suffix.lower() in timesheet_file.SUFFIXES:
                 return path
         return None
 
@@ -1415,9 +1415,9 @@ class TimeRemapPasteDialog(QDialog):
     def _load_xdts_file(self):
         path, _ = QFileDialog.getOpenFileName(
             self,
-            tr("XDTSタイムシートを読み込む"),
+            tr("タイムシートを読み込む（XDTS／TDTS）"),
             "",
-            tr("XDTSタイムシート (*.xdts *.xtds);;すべてのファイル (*)"),
+            tr("タイムシート (*.xdts *.xtds *.tdts);;すべてのファイル (*)"),
         )
         if not path:
             return

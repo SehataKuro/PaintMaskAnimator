@@ -28,6 +28,7 @@ from .clip_animation import (
     cell_sequence_numbers,
     read_clip_animation,
 )
+from . import timesheet_file
 from .errors import OPERATION_ERRORS as _OPERATION_ERRORS, OperationError
 from .models import Layer, default_layer_name
 from .utils import blank_image
@@ -263,20 +264,7 @@ class ImportController:
 
     @staticmethod
     def _parse_xdts_timesheet(raw_text):
-        text_value = str(raw_text or "").lstrip("\ufeff")
-        lines = text_value.splitlines()
-        if not lines or lines[0].strip() != "exchangeDigitalTimeSheet Save Data":
-            raise OperationError(tr("XDTSの先頭識別文字列が一致しません。"))
-        try:
-            payload = json.loads("\n".join(lines[1:]))
-        except json.JSONDecodeError as exc:
-            raise OperationError(tr("XDTSのJSONを解析できません。\n{exc}").format(exc=exc)) from exc
-        if int(payload.get("version", -1)) != 5:
-            raise OperationError(tr("対応しているXDTSバージョンは5です。"))
-        time_tables = payload.get("timeTables") or []
-        if not time_tables:
-            raise OperationError(tr("XDTSにタイムシート情報がありません。"))
-        time_table = time_tables[0]
+        time_table = timesheet_file.load_time_table(raw_text)
         duration = max(1, int(time_table.get("duration", 1)))
         headers = {}
         for item in time_table.get("timeTableHeaders", []):
@@ -436,7 +424,7 @@ class ImportController:
         )
         primary = parsed_tracks[0]
         return {
-            "format": "XDTS version 5",
+            "format": timesheet_file.format_label(raw_text),
             "fps": None,
             "start_frame": 0,
             "end_frame": duration - 1,
@@ -671,24 +659,15 @@ class ImportController:
     def xdts_dialog(self):
         path, _ = QFileDialog.getOpenFileName(
             self.window,
-            tr("XDTSタイムシートを読み込む"),
+            tr("タイムシートを読み込む（XDTS／TDTS）"),
             "",
-            tr("XDTSタイムシート (*.xdts *.xtds);;すべてのファイル (*)"),
+            tr("タイムシート (*.xdts *.xtds *.tdts);;すべてのファイル (*)"),
         )
         if not path:
             return
         try:
             raw = Path(path).read_text(encoding="utf-8-sig")
-            first_line, json_text = raw.split("\n", 1)
-            if first_line.rstrip("\r") != "exchangeDigitalTimeSheet Save Data":
-                raise OperationError(tr("XDTSの先頭識別文字列が一致しません。"))
-            payload = json.loads(json_text)
-            if int(payload.get("version", -1)) != 5:
-                raise OperationError(tr("対応しているXDTSバージョンは5です。"))
-            time_tables = payload.get("timeTables") or []
-            if not time_tables:
-                raise OperationError(tr("タイムシート情報がありません。"))
-            time_table = time_tables[0]
+            time_table = timesheet_file.load_time_table(raw)
             duration = max(1, int(time_table.get("duration", 1)))
             cell_field = next(
                 (field for field in time_table.get("fields", [])
@@ -737,7 +716,12 @@ class ImportController:
             states = []
             previous = None
             for frame_number in range(duration):
-                item = values.get(frame_number, {})
+                item = values.get(frame_number)
+                if item is None:
+                    # Only changes are listed: a frame without an entry
+                    # continues the previous one.
+                    states.append(previous)
+                    continue
                 instruction = next(
                     (data for data in item.get("data", []) if int(data.get("id", -1)) == 0),
                     {},
