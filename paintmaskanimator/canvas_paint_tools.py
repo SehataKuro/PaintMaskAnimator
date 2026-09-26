@@ -15,7 +15,7 @@ from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, Qt
 from PySide6.QtGui import QColor, QImage, QPainter, QPainterPath, QPen, QPolygonF
 from .i18n import tr
 from ._canvas_members import CanvasMembers
-from . import imaging
+from . import bucket_fill, imaging
 from .pressure import _pressure_bezier_at
 from .logging_setup import get_logger
 
@@ -217,235 +217,45 @@ class PaintToolsMixin(CanvasMembers):
     def _scanline_connected_region(*args, **kwargs):
         return imaging.scanline_connected_region(*args, **kwargs)
 
-    def flood_fill(self,p):
-        # Undo は塗る範囲が決まってから、その外接矩形だけを保存する。
-        # 大きなキャンバスでレイヤー全体をコピーしないため。
-        image = self.active_layer.image.convertToFormat(
-            QImage.Format.Format_RGBA8888
-        )
-        width, height = image.width(), image.height()
-        start_x, start_y = int(p.x()), int(p.y())
-        if not (0 <= start_x < width and 0 <= start_y < height):
-            return
-
-        selection_mask = self.selection_mask_bool(width, height)
-        if selection_mask is not None and not selection_mask[start_y, start_x]:
-            self.status_message.emit(tr("選択範囲の外側なので塗りを開始しませんでした。"))
-            return
-
-        ptr = imaging.qimage_buffer(image)
-        rows = np.frombuffer(ptr, dtype=np.uint8).reshape(
-            (height, image.bytesPerLine())
-        )
-        pixels = rows[:, :width * 4].reshape((height, width, 4))
-
-        target = pixels[start_y, start_x].copy()
-        replacement = self.paint_source_color()
-
+    def _bucket_tools(self):
+        """ツールパネル。ウィンドウを持たないテスト用キャンバスでは ``None``。"""
         window: Any = self.window()
-        include_masks = bool(
-            hasattr(window, "tools")
-            and window.tools.bucket_include_sub.isChecked()
+        return getattr(window, "tools", None)
+
+    def bucket_options(self):
+        """現在のバケツ設定を UI から読み出す。"""
+        # 含み塗りの対象はサブカラー。使用色パネルでの選択に依存させると、
+        # 何を含むのかを塗る前に別の場所で準備する必要があり分かりにくい。
+        sub = QColor(self.sub_color)
+        mask_colors = ((sub.red(), sub.green(), sub.blue()),)
+        return bucket_fill.BucketOptions.from_tools(
+            self._bucket_tools(),
+            mask_colors=mask_colors,
+            background_selected=self.background_mask_rgb in mask_colors,
         )
-        close_gap = bool(
-            hasattr(window, "tools")
-            and window.tools.bucket_close_gap.isChecked()
-        )
-        adjacent_fill = bool(
-            not hasattr(window, "tools")
-            or window.tools.bucket_adjacent.isChecked()
-        )
 
-        # RGBA を uint32 にまとめて比較する（チャンネルごとの np.all より
-        # 1桁以上速く、一時配列も小さい）。
-        packed = imaging.rgba_packed_view(pixels)
-        pseudo_background = imaging.background_mask_packed(packed)
-        target_is_background = bool(
-            int(target[3]) == 0
-            or (
-                int(target[0]) == 255
-                and int(target[1]) == 255
-                and int(target[2]) == 255
-            )
-        )
-        if target_is_background:
-            target_mask = pseudo_background.copy()
-        else:
-            target_mask = imaging.opaque_rgb_mask_packed(packed, target[:3])
-        if selection_mask is not None:
-            target_mask &= selection_mask
+    def _layer_fill_pixels(self, image):
+        """RGBA8888 に変換した複製と、その画素ビューを返す。"""
+        converted = image.convertToFormat(QImage.Format.Format_RGBA8888)
+        width, height = converted.width(), converted.height()
+        rows = np.frombuffer(
+            imaging.qimage_buffer(converted), dtype=np.uint8
+        ).reshape((height, converted.bytesPerLine()))
+        return converted, rows[:, :width * 4].reshape((height, width, 4))
 
-        def dilate(mask, iterations):
-            result = mask.copy()
-            for _ in range(iterations):
-                source = result.copy()
-                result[1:, :] |= source[:-1, :]
-                result[:-1, :] |= source[1:, :]
-                result[:, 1:] |= source[:, :-1]
-                result[:, :-1] |= source[:, 1:]
-                result[1:, 1:] |= source[:-1, :-1]
-                result[:-1, :-1] |= source[1:, 1:]
-                result[1:, :-1] |= source[:-1, 1:]
-                result[:-1, 1:] |= source[1:, :-1]
-            return result
+    def _fill_patch(self, patch, patch_region, replacement):
+        """``patch`` の ``patch_region`` を塗る。書き込んだ RGB の組を返す。
 
-        def erode(mask, iterations):
-            result = mask.copy()
-            for _ in range(iterations):
-                padded = np.pad(
-                    result,
-                    ((1, 1), (1, 1)),
-                    mode="constant",
-                    constant_values=False,
-                )
-                result = (
-                    padded[0:-2, 0:-2]
-                    & padded[0:-2, 1:-1]
-                    & padded[0:-2, 2:]
-                    & padded[1:-1, 0:-2]
-                    & padded[1:-1, 1:-1]
-                    & padded[1:-1, 2:]
-                    & padded[2:, 0:-2]
-                    & padded[2:, 1:-1]
-                    & padded[2:, 2:]
-                )
-            return result
-
-        if adjacent_fill:
-            boundary = ~target_mask
-            gap_recovery_mask = None
-            if close_gap:
-                gap_radius = max(
-                    1,
-                    int(window.tools.bucket_gap_width.value())
-                    if hasattr(window, "tools")
-                    else 4,
-                )
-                virtual_boundary = erode(
-                    dilate(boundary, gap_radius),
-                    gap_radius,
-                )
-                # 仮想境界で漏れだけを止め、元画像では塗れる細い領域を
-                # 最終描画時に回収する。線そのものは target_mask 外なので
-                # 回収対象にはならない。
-                gap_recovery_mask = virtual_boundary & target_mask
-            else:
-                virtual_boundary = boundary
-
-            passable = target_mask & ~virtual_boundary
-            if selection_mask is not None:
-                passable &= selection_mask
-            passable[start_y, start_x] = bool(target_mask[start_y, start_x])
-            region = self._scanline_connected_region(
-                passable, (start_x, start_y)
-            )
-
-            if not region[start_y, start_x]:
-                return
-
-            require_closed = bool(
-                hasattr(window, "tools")
-                and window.tools.bucket_require_closed.isChecked()
-            )
-            # A selection itself acts as a closed boundary.
-            if selection_mask is None and require_closed and (
-                np.any(region[0, :]) or np.any(region[-1, :])
-                or np.any(region[:, 0]) or np.any(region[:, -1])
-            ):
-                self.status_message.emit(
-                    tr("領域がキャンバス端まで開いているため、塗りを開始しませんでした。")
-                )
-                return
-
-            if close_gap and gap_recovery_mask is not None:
-                touching = dilate(region, 1) & gap_recovery_mask
-                start_y_values, start_x_values = np.nonzero(touching)
-                if start_x_values.size:
-                    recovered = self._scanline_connected_region(
-                        gap_recovery_mask,
-                        zip(start_x_values.tolist(), start_y_values.tolist()),
-                    )
-                    region |= recovered
-        else:
-            # 「隣接」OFFでは、クリック位置と同じRGBAを持つ全ピクセルを対象にする。
-            region = target_mask
-
-        final_region = region.copy()
-        if include_masks:
-            # 含み塗りの対象はサブカラー。使用色パネルでの選択に依存させると、
-            # 何を含むのかを塗る前に別の場所で準備する必要があり分かりにくい。
-            sub = QColor(self.sub_color)
-            selected_colors = {(sub.red(), sub.green(), sub.blue())}
-            opaque_pixels = pixels[:, :, 3] > 0
-            mask_family = np.zeros((height, width), dtype=bool)
-            for selected_color in selected_colors:
-                # (h, w, 3) の int32 配列を作らず、チャンネルごとに距離を足す。
-                distance = np.zeros((height, width), dtype=np.int32)
-                for channel, value in enumerate(selected_color):
-                    delta = pixels[:, :, channel].astype(np.int32)
-                    delta -= int(value)
-                    delta *= delta
-                    distance += delta
-                mask_family |= opaque_pixels & (distance <= 56 * 56)
-            if self.background_mask_rgb in selected_colors:
-                mask_family |= pseudo_background
-            if selection_mask is not None:
-                mask_family &= selection_mask
-
-            if adjacent_fill:
-                adjacent = np.zeros_like(region)
-                adjacent[1:, :] |= region[:-1, :]
-                adjacent[:-1, :] |= region[1:, :]
-                adjacent[:, 1:] |= region[:, :-1]
-                adjacent[:, :-1] |= region[:, 1:]
-                seed_points = np.argwhere(mask_family & adjacent)
-                if seed_points.size:
-                    starts = [
-                        (int(point[1]), int(point[0]))
-                        for point in seed_points
-                    ]
-                    final_region |= self._scanline_connected_region(
-                        mask_family, starts
-                    )
-            else:
-                # 非隣接モードでは、サブカラーもレイヤー全体から一括対象にする。
-                final_region |= mask_family
-
-        if selection_mask is not None:
-            final_region &= selection_mask
-        bounds = imaging.mask_bounds(final_region)
-        if bounds is None:
-            return
-        x0, y0, x1, y1 = bounds
-        fill_rect = QRect(x0, y0, x1 - x0, y1 - y0)
-        if not self.push_layer_region_undo(fill_rect):
-            return
-        # 以降の書き込みは外接矩形の中だけで行い、その部分だけをレイヤーへ戻す。
-        patch = pixels[y0:y1, x0:x1]
-        patch_region = final_region[y0:y1, x0:x1]
-
+        白は消しゴムとして alpha を抜き、空の組を返す（使用色に登録しない）。
+        """
         source_rgb = np.asarray(
-            [
-                replacement.red(),
-                replacement.green(),
-                replacement.blue(),
-            ],
+            [replacement.red(), replacement.green(), replacement.blue()],
             dtype=np.uint8,
         )
-
-        replacement_is_white = bool(
-            int(replacement.red()) == 255
-            and int(replacement.green()) == 255
-            and int(replacement.blue()) == 255
-        )
-        if replacement_is_white:
+        if bool(np.all(source_rgb == 255)):
             # 白バケツは本物の消しゴム：該当領域を alpha=0 へ抜く。
             patch[patch_region] = 0
-            self._write_rgba_patch(patch, fill_rect)
-            self.active_layer.has_content = True
-            self.cellChanged.emit(self.current_frame, self.active_layer_index)
-            self.update()
-            return
+            return ()
 
         opacity = max(0.0, min(1.0, float(getattr(self, "fill_opacity", 1.0))))
         if opacity >= 0.999999:
@@ -474,12 +284,135 @@ class PaintToolsMixin(CanvasMembers):
                 for row in np.unique(mixed, axis=0)
             )
         patch[patch_region, 3] = 255
+        return written_colors
 
+    def flood_fill(self, p):
+        if self._bucket_all_frames_enabled():
+            self.flood_fill_over_frames(p)
+            return
+        image, pixels = self._layer_fill_pixels(self.active_layer.image)
+        start_x, start_y = int(p.x()), int(p.y())
+        selection_mask = self.selection_mask_bool(image.width(), image.height())
+        result = bucket_fill.compute_fill_region(
+            pixels, start_x, start_y, self.bucket_options(), selection_mask
+        )
+        if not result.ok:
+            message = self._bucket_failure_message(result.reason)
+            if message:
+                self.status_message.emit(message)
+            return
+
+        # Undo は塗る範囲が決まってから、その外接矩形だけを保存する。
+        # 大きなキャンバスでレイヤー全体をコピーしないため。
+        x0, y0, x1, y1 = result.bounds
+        fill_rect = QRect(x0, y0, x1 - x0, y1 - y0)
+        if not self.push_layer_region_undo(fill_rect):
+            return
+        # 以降の書き込みは外接矩形の中だけで行い、その部分だけをレイヤーへ戻す。
+        patch = pixels[y0:y1, x0:x1]
+        written_colors = self._fill_patch(
+            patch, result.mask[y0:y1, x0:x1], self.paint_source_color()
+        )
         self._write_rgba_patch(patch, fill_rect)
         self.active_layer.has_content = True
-        self._emit_actual_paint_colors(written_colors)
+        if written_colors:
+            self._emit_actual_paint_colors(written_colors)
         self.cellChanged.emit(self.current_frame, self.active_layer_index)
         self.update()
+
+    @staticmethod
+    def _bucket_failure_message(reason):
+        """塗れなかった理由のうち、ユーザーに伝える価値があるものだけ文言にする。"""
+        if reason == bucket_fill.REASON_OUTSIDE_SELECTION:
+            return tr("選択範囲の外側なので塗りを開始しませんでした。")
+        if reason == bucket_fill.REASON_OPEN_REGION:
+            return tr("領域がキャンバス端まで開いているため、塗りを開始しませんでした。")
+        return None
+
+    def _bucket_all_frames_enabled(self):
+        tools = self._bucket_tools()
+        checkbox = getattr(tools, "bucket_all_frames", None)
+        return bool(checkbox is not None and checkbox.isChecked())
+
+    def flood_fill_over_frames(self, p):
+        """串刺し塗り：同じ座標を種として、スコープ内の各コマを塗る。
+
+        コマごとに絵は動くので、同じ座標が別のコマでは線や別のパーツの上に来る
+        ことがある。開始点の色種別（背景か、どの色か）が現在コマと一致するコマ
+        だけを塗り、一致しないコマは触らない。これで線を塗り潰す事故を防ぐ。
+        取りこぼしたコマは、そのコマを表示して塗り直せばよい。
+        """
+        window: Any = self.window()
+        scope_controller = getattr(window, "scope", None)
+        if scope_controller is None:
+            return
+        start_x, start_y = int(p.x()), int(p.y())
+        options = self.bucket_options()
+        replacement = self.paint_source_color()
+        selection_mask = self.selection_mask_bool(
+            self.active_layer.image.width(), self.active_layer.image.height()
+        )
+        if not self._seed_in_bounds(start_x, start_y):
+            return
+        # 現在コマの開始点の色種別を基準にする。各コマはこれと一致したときだけ塗る。
+        _current, current_pixels = self._layer_fill_pixels(self.active_layer.image)
+        reference = bucket_fill.seed_category(current_pixels, start_x, start_y)
+
+        skipped = {"count": 0}
+        written_colors = set()
+
+        def op(context):
+            image, pixels = self._layer_fill_pixels(context.layer.image)
+            if not self._seed_in_bounds(start_x, start_y, image):
+                return None
+            if bucket_fill.seed_category(pixels, start_x, start_y) != reference:
+                skipped["count"] += 1
+                return None
+            result = bucket_fill.compute_fill_region(
+                pixels, start_x, start_y, options, selection_mask
+            )
+            if not result.ok:
+                skipped["count"] += 1
+                return None
+            x0, y0, x1, y1 = result.bounds
+            written_colors.update(self._fill_patch(
+                pixels[y0:y1, x0:x1], result.mask[y0:y1, x0:x1], replacement
+            ))
+            return image.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
+
+        scope = scope_controller.current_frame(True, selection_only=False)
+        result = scope_controller.run_over(
+            scope,
+            op,
+            label=tr("串刺し塗り"),
+            cancellable=True,
+        )
+        if result.cancelled:
+            self.status_message.emit(tr("串刺し塗りを中止しました。"))
+            return
+        if not result.changed:
+            self.status_message.emit(
+                tr("串刺し塗りの対象になるコマがありませんでした。")
+            )
+            return
+        if written_colors:
+            self._emit_actual_paint_colors(tuple(sorted(written_colors)))
+        if skipped["count"]:
+            self.status_message.emit(
+                tr("串刺し塗り：{filled} コマを塗り、{skipped} コマは対象外でした。").format(
+                    filled=result.changed_cells, skipped=skipped["count"]
+                )
+            )
+        else:
+            self.status_message.emit(
+                tr("串刺し塗り：{filled} コマを塗りました。").format(
+                    filled=result.changed_cells
+                )
+            )
+
+    def _seed_in_bounds(self, start_x, start_y, image=None):
+        image = image if image is not None else self.active_layer.image
+        return 0 <= start_x < image.width() and 0 <= start_y < image.height()
 
     def _write_rgba_patch(self, patch, rect):
         """RGBA8888 の部分配列を、アクティブレイヤーの rect へそのまま書き戻す。"""
