@@ -154,6 +154,7 @@ class MainWindowMembers(_MembersBase):
         a_cut: Any
         a_dust_all_frames: Any
         a_dust_apply: Any
+        a_export_cut_folder: Any
         a_export_mp4: Any
         a_export_png_seq: Any
         a_export_psd: Any
