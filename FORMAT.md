@@ -84,7 +84,7 @@
   "duration": 1,          // 1..MAX_PROJECT_FRAMES
   "layers": [
     {
-      "name": "Layer 1",
+      "name": "A",
       "image": "layers/layer_0000/frame_000000.png",  // 必須
       "visible": true,
       "opacity": 1.0,                 // 0.0..1.0 にクランプ

@@ -9,7 +9,7 @@ from PySide6.QtGui import QPainter
 from .constants import MAX_UNDO, MAX_UNDO_BYTES
 from ._canvas_members import CanvasMembers
 from . import constants
-from .models import Layer
+from .models import Layer, default_layer_name
 from .utils import blank_image
 from .logging_setup import get_logger
 from .undo_entries import (
@@ -313,7 +313,7 @@ class UndoMixin(CanvasMembers):
                     layer = stored_layers[frame_index]
                 else:
                     layer = Layer(
-                        f"Layer {index + 1}",
+                        default_layer_name(index),
                         blank_image(),
                         visible=True,
                         opacity=1.0,

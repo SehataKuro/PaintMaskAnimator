@@ -8,7 +8,7 @@ They run against a live ``PaintCanvas``.
 """
 # (nothing was used)
 from ._canvas_members import CanvasMembers
-from .models import Layer, make_frame
+from .models import Layer, make_frame, next_layer_name
 from .timeline import TimelineWidget
 from .utils import blank_image
 from .logging_setup import get_logger
@@ -52,7 +52,7 @@ class TimelineStructureMixin(CanvasMembers):
         # 追加レイヤーだけをUndo対象にして大量コマ時の待ち時間を抑える。
         old_active = int(self.active_layer_index)
         insert_index = len(self.layers)
-        name = f"Layer {insert_index + 1}"
+        name = next_layer_name(layer.name for layer in self.layers)
         self.push_undo(LayerRemoveUndo(insert_index, old_active))
 
         # QImageの暗黙共有を使い、空画像バッファをコマ数分確保しない。

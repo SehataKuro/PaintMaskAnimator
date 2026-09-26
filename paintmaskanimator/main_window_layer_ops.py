@@ -11,7 +11,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import QApplication, QMessageBox
 from .i18n import tr
-from .models import Layer
+from .models import Layer, default_layer_name
 from .utils import blank_image
 from .progress import close_counter, create_counter, update_counter
 from .logging_setup import get_logger
@@ -289,7 +289,7 @@ class LayerOpsController:
         index = len(layers) - 1 - row
         if not (0 <= index < len(layers)):
             return
-        name = name.strip() or f"Layer {index + 1}"
+        name = name.strip() or default_layer_name(index)
         self.window.canvas.push_doc_undo()
         for frame in self.window.canvas.frames:
             if index < len(frame.layers):
