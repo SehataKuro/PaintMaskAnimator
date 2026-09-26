@@ -47,18 +47,11 @@ def _application_version() -> str:
 
 APP_VERSION = _application_version()
 APP_DISPLAY_NAME = f"{APP_NAME} V{APP_VERSION}"
-# GitHub repository (used for release automation / links only).
+# GitHub repository: releases are distributed from here, and the in-app
+# updater reads the latest one through the public REST API (no credentials).
 GITHUB_REPO = "SehataKuro/PaintMaskAnimator"
-# Update feed. The whole /paintmaskanimator/ path (installers + manifest
-# included) sits behind the site's shared Basic-auth password, so the in-app
-# updater authenticates with the SAME shared credentials baked in below. These
-# must match the Cloudflare `SITE_USERNAME`/`SITE_PASSWORD` env vars. Note: a
-# baked-in shared password is discoverable in the distributed binary — this is
-# casual-visitor deterrence, not a strong secret.
-UPDATE_BASE_URL = "https://jokomanato.com/paintmaskanimator"
-UPDATE_MANIFEST_URL = f"{UPDATE_BASE_URL}/updates.json"
-UPDATE_USERNAME = "guest"
-UPDATE_PASSWORD = "6eCKEq"  # must equal Cloudflare SITE_PASSWORD
+RELEASES_URL = f"https://github.com/{GITHUB_REPO}/releases"
+UPDATE_RELEASE_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 # 「拡大縮小（押している間）」の既定キー。macOSのQtでは "Ctrl" が⌘になるが、
 # ⌘SpaceはSpotlight、⌃Space("Meta")は入力ソース切り替えにOSが既定で使って
 # いて届かないので、⌥Spaceにする。WindowsのAlt+Spaceはウィンドウメニュー。

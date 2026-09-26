@@ -1,43 +1,32 @@
-"""In-app updater against the public update feed on the project site.
+"""In-app updater against the project's GitHub Releases.
 
-The whole ``/paintmaskanimator/`` path — installers and the manifest at
-:data:`~paintmaskanimator.constants.UPDATE_MANIFEST_URL` included — sits behind
-the site's shared Basic-auth password. The updater authenticates automatically
-with the shared credentials baked into :mod:`~paintmaskanimator.constants`
-(``UPDATE_USERNAME``/``UPDATE_PASSWORD``), so the user never enters anything and
-no per-user GitHub token is involved. A baked-in shared password is discoverable
-in the distributed binary — this is casual-visitor deterrence, not a strong
-secret.
+The latest published release is read from the public REST API at
+:data:`~paintmaskanimator.constants.UPDATE_RELEASE_API_URL` -- drafts and
+pre-releases are excluded by that endpoint -- and the installer for the running
+platform is downloaded from the release's assets. No credentials are involved.
 
-Manifest shape (all URLs may be absolute or relative to the manifest)::
+Only the fields used here are read from the release::
 
     {
-      "version": "0.6.0",
-      "assets": {
-        "windows": {"name": "PaintMaskAnimator-Setup-0.6.0.exe",
-                    "url": "downloads/PaintMaskAnimator-Setup-0.6.0.exe"},
-        "macos":   {"name": "PaintMaskAnimator-0.6.0-macOS.dmg",
-                    "url": "downloads/PaintMaskAnimator-0.6.0-macOS.dmg"}
-      }
+      "tag_name": "v0.6.6",
+      "assets": [
+        {"name": "PaintMaskAnimator-Setup-0.6.6.exe",
+         "browser_download_url": "https://github.com/.../PaintMaskAnimator-Setup-0.6.6.exe"},
+        {"name": "PaintMaskAnimator-0.6.6-macOS.dmg",
+         "browser_download_url": "https://github.com/.../PaintMaskAnimator-0.6.6-macOS.dmg"}
+      ]
     }
 
-The pure helpers (version parsing/compare, manifest asset picking) are unit
-tested; the network functions are thin wrappers over urllib.
+The pure helpers (version parsing/compare, asset picking) are unit tested; the
+network functions are thin wrappers over urllib.
 """
-import base64
 import json
 import re
 import sys
 import urllib.error
-import urllib.parse
 import urllib.request
 
-from .constants import (
-    APP_VERSION,
-    UPDATE_MANIFEST_URL,
-    UPDATE_PASSWORD,
-    UPDATE_USERNAME,
-)
+from .constants import APP_VERSION, UPDATE_RELEASE_API_URL
 from .i18n import tr
 from .logging_setup import get_logger
 
@@ -72,7 +61,7 @@ def is_newer(latest, current):
 
 
 def current_platform_key():
-    """Return the manifest asset key for the running platform."""
+    """The installer platform of the running app: windows / macos / linux."""
     if sys.platform.startswith("win"):
         return "windows"
     if sys.platform == "darwin":
@@ -80,77 +69,49 @@ def current_platform_key():
     return "linux"
 
 
-def pick_installer_asset(manifest, platform_key=None):
-    """Choose the installer asset for ``platform_key`` from a manifest dict.
+_INSTALLER_SUFFIX = {"windows": ".exe", "macos": ".dmg"}
 
-    Returns an asset dict with at least a ``url`` (resolved to absolute against
-    :data:`UPDATE_MANIFEST_URL`), or ``None`` when nothing matches. Falls back
-    to a legacy GitHub-style ``assets`` list of ``*.exe`` entries so older
-    manifests keep working.
+
+def pick_installer_asset(release, platform_key=None):
+    """The installer asset of *release* for ``platform_key``, or ``None``.
+
+    Returns ``{"name": ..., "url": ...}``. On Windows a ``Setup`` installer is
+    preferred should a release ever carry more than one ``.exe``.
     """
-    platform_key = platform_key or current_platform_key()
-    assets = manifest.get("assets")
-
-    if isinstance(assets, dict):
-        asset = assets.get(platform_key)
-        if not asset:
-            return None
-        asset = dict(asset)
-        asset["url"] = _resolve_url(asset.get("url"))
-        return asset if asset["url"] else None
-
-    # Legacy list form (GitHub release assets): pick a Windows installer.
-    if isinstance(assets, list):
-        exes = [
-            a for a in assets
-            if str(a.get("name", "")).lower().endswith(".exe")
-        ]
-        if not exes:
-            return None
-        chosen = next(
-            (a for a in exes if "setup" in str(a.get("name", "")).lower()),
-            exes[0],
-        )
-        chosen = dict(chosen)
-        chosen["url"] = _resolve_url(chosen.get("url"))
-        return chosen if chosen["url"] else None
-
-    return None
-
-
-def _resolve_url(url, base=UPDATE_MANIFEST_URL):
-    """Resolve a possibly-relative manifest URL against the manifest location."""
-    if not url:
-        return ""
-    return urllib.parse.urljoin(base, str(url))
-
-
-def _auth_header():
-    """Build the shared Basic-auth header, or {} when no password is set.
-
-    Reads the module-level ``UPDATE_USERNAME``/``UPDATE_PASSWORD`` at call time.
-    """
-    if not UPDATE_PASSWORD:
-        return {}
-    token = base64.b64encode(f"{UPDATE_USERNAME}:{UPDATE_PASSWORD}".encode("utf-8"))
-    return {"Authorization": f"Basic {token.decode('ascii')}"}
+    suffix = _INSTALLER_SUFFIX.get(platform_key or current_platform_key())
+    assets = release.get("assets")
+    if not suffix or not isinstance(assets, list):
+        return None
+    candidates = [
+        asset for asset in assets
+        if isinstance(asset, dict)
+        and str(asset.get("name", "")).lower().endswith(suffix)
+        and asset.get("browser_download_url")
+    ]
+    if not candidates:
+        return None
+    chosen = next(
+        (a for a in candidates if "setup" in str(a["name"]).lower()),
+        candidates[0],
+    )
+    return {"name": str(chosen["name"]), "url": str(chosen["browser_download_url"])}
 
 
 def _request(url, accept):
-    headers = {"Accept": accept, "User-Agent": "PaintMaskAnimator-Updater"}
-    headers.update(_auth_header())
-    return urllib.request.Request(url, headers=headers)
+    return urllib.request.Request(
+        url, headers={"Accept": accept, "User-Agent": "PaintMaskAnimator-Updater"}
+    )
 
 
-def fetch_manifest(url=UPDATE_MANIFEST_URL):
-    """Fetch and parse the update manifest. Raises urllib errors on failure."""
-    request = _request(url, "application/json")
+def fetch_latest_release(url=UPDATE_RELEASE_API_URL):
+    """Fetch the latest release as a dict. Raises urllib errors on failure."""
+    request = _request(url, "application/vnd.github+json")
     with urllib.request.urlopen(request, timeout=_TIMEOUT) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
 def download_asset(asset, dest_path, progress=None):
-    """Download an installer asset to ``dest_path`` (no credentials needed).
+    """Download an installer asset to ``dest_path``.
 
     ``progress`` (optional) is called with (downloaded_bytes, total_bytes).
     """
@@ -170,44 +131,39 @@ def download_asset(asset, dest_path, progress=None):
     return dest_path
 
 
-def check_for_update(
-    manifest_url=UPDATE_MANIFEST_URL, current_version=APP_VERSION
-):
-    """High-level check against the public feed. Returns a dict:
+def check_for_update(release_url=UPDATE_RELEASE_API_URL, current_version=APP_VERSION):
+    """Compare the latest release with ``current_version``. Returns a dict:
 
     {"status": "up_to_date" | "update_available" | "error",
-     "latest": <version>, "manifest": <json>, "asset": <asset|None>,
+     "latest": <version>, "release": <json>, "asset": <asset|None>,
      "message": <str for error>}
     """
     try:
-        manifest = fetch_manifest(manifest_url)
+        release = fetch_latest_release(release_url)
     except urllib.error.HTTPError as error:
-        if error.code in (401, 403):
-            return {
-                "status": "error",
-                "message": tr("更新サーバーの認証に失敗しました。アプリの更新用"
-                              "パスワードがサイト側の設定と一致していない可能性があります。"),
-            }
         if error.code == 404:
+            return {"status": "error", "message": tr("公開されているリリースが見つかりませんでした。")}
+        if error.code in (403, 429):
+            # Unauthenticated API calls are limited to 60 per hour per address.
             return {
                 "status": "error",
-                "message": tr("更新情報が見つかりませんでした（updates.json 未公開）。"),
+                "message": tr("GitHubへの問い合わせが多すぎます。しばらくしてから再度お試しください。"),
             }
         return {"status": "error", "message": tr("HTTPエラー: {code}").format(code=error.code)}
     except urllib.error.URLError as error:
         return {"status": "error", "message": tr("ネットワークエラー: {reason}").format(reason=error.reason)}
-    except (ValueError, KeyError, OSError) as error:
-        # Malformed manifest JSON (ValueError/KeyError) or other I/O issues;
-        # surface the message to the UI.
+    except (ValueError, OSError) as error:
         log.warning("update check failed: %s", error, exc_info=True)
         return {"status": "error", "message": str(error)}
+    if not isinstance(release, dict):
+        return {"status": "error", "message": tr("リリース情報の形式が不正です。")}
 
-    latest = manifest.get("version") or manifest.get("tag_name") or ""
+    latest = str(release.get("tag_name") or "").lstrip("vV")
     if not is_newer(latest, current_version):
-        return {"status": "up_to_date", "latest": latest, "manifest": manifest}
+        return {"status": "up_to_date", "latest": latest, "release": release}
     return {
         "status": "update_available",
         "latest": latest,
-        "manifest": manifest,
-        "asset": pick_installer_asset(manifest),
+        "release": release,
+        "asset": pick_installer_asset(release),
     }

@@ -633,8 +633,7 @@ class MainWindow(
             self.project.update_title()
 
     def check_for_updates_interactive(self):
-        # The update feed is public (installers are hosted outside the site's
-        # viewing-page password), so no token/credential is required.
+        # Reads the public GitHub Releases API; no token/credential is required.
         QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
         try:
             result = updater.check_for_update()
@@ -661,7 +660,7 @@ class MainWindow(
             QMessageBox.information(
                 self,
                 tr("更新あり"),
-                tr("新しいバージョン {latest} が利用可能ですが、この環境向けの\nインストーラが見つかりませんでした。配布ページを確認してください。").format(latest=latest),
+                tr("新しいバージョン {latest} が利用可能ですが、この環境向けの\nインストーラが見つかりませんでした。リリースページを確認してください。\n\n{url}").format(latest=latest, url=constants.RELEASES_URL),
             )
             return
 

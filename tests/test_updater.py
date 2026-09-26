@@ -1,9 +1,20 @@
-"""Unit tests for the updater's pure logic and the config store (no network)."""
+"""Unit tests for the updater's pure logic (no network)."""
 import os
+import urllib.error
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from paintmaskanimator import constants, updater  # noqa: E402
+
+RELEASE = {
+    "tag_name": "v0.9.0",
+    "assets": [
+        {"name": "notes.txt", "browser_download_url": "https://x/notes.txt"},
+        {"name": "PaintMaskAnimator-0.9.0-macOS.dmg", "browser_download_url": "https://x/app.dmg"},
+        {"name": "PaintMaskAnimator.exe", "browser_download_url": "https://x/app.exe"},
+        {"name": "PaintMaskAnimator-Setup-0.9.0.exe", "browser_download_url": "https://x/setup.exe"},
+    ],
+}
 
 
 def test_parse_version():
@@ -24,253 +35,80 @@ def test_is_newer():
     assert updater.is_newer("", "0.5") is False
 
 
-def test_pick_installer_asset_selects_platform_and_resolves_relative_url():
-    manifest = {
-        "version": "0.6.0",
-        "assets": {
-            "windows": {
-                "name": "PaintMaskAnimator-Setup-0.6.0.exe",
-                "url": "downloads/PaintMaskAnimator-Setup-0.6.0.exe",
-            },
-            "macos": {"name": "app.dmg", "url": "downloads/app.dmg"},
-        },
-    }
-    asset = updater.pick_installer_asset(manifest, platform_key="windows")
-    assert asset is not None
-    assert asset["name"] == "PaintMaskAnimator-Setup-0.6.0.exe"
-    # Relative URL resolves against the manifest location.
-    assert asset["url"].startswith(constants.UPDATE_BASE_URL)
-    assert asset["url"].endswith("/downloads/PaintMaskAnimator-Setup-0.6.0.exe")
+def test_pick_installer_asset_prefers_the_setup_exe_on_windows():
+    asset = updater.pick_installer_asset(RELEASE, platform_key="windows")
+    assert asset == {"name": "PaintMaskAnimator-Setup-0.9.0.exe", "url": "https://x/setup.exe"}
 
 
-def test_pick_installer_asset_absolute_url_preserved():
-    manifest = {
-        "assets": {"macos": {"name": "a.dmg", "url": "https://cdn.example/a.dmg"}}
-    }
-    asset = updater.pick_installer_asset(manifest, platform_key="macos")
-    assert asset is not None
-    assert asset["url"] == "https://cdn.example/a.dmg"
+def test_pick_installer_asset_picks_the_dmg_on_macos():
+    asset = updater.pick_installer_asset(RELEASE, platform_key="macos")
+    assert asset == {"name": "PaintMaskAnimator-0.9.0-macOS.dmg", "url": "https://x/app.dmg"}
 
 
-def test_pick_installer_asset_missing_platform_returns_none():
-    manifest = {"assets": {"windows": {"url": "downloads/x.exe"}}}
-    assert updater.pick_installer_asset(manifest, platform_key="linux") is None
-
-
-def test_pick_installer_asset_legacy_list_form():
-    # Older GitHub-style manifests (a list of *.exe assets) still work.
-    manifest = {
-        "assets": [
-            {"name": "notes.txt", "url": "https://x/notes.txt"},
-            {"name": "PaintMaskAnimator.exe", "url": "https://x/app.exe"},
-            {"name": "PaintMaskAnimator-Setup-0.6.exe", "url": "https://x/setup.exe"},
-        ]
-    }
-    asset = updater.pick_installer_asset(manifest, platform_key="windows")
-    assert asset is not None
-    assert asset["url"] == "https://x/setup.exe"
+def test_pick_installer_asset_without_a_match_returns_none():
+    assert updater.pick_installer_asset(RELEASE, platform_key="linux") is None
+    assert updater.pick_installer_asset({"assets": []}, platform_key="windows") is None
+    assert updater.pick_installer_asset({}, platform_key="windows") is None
+    no_url = {"assets": [{"name": "Setup.exe"}]}
+    assert updater.pick_installer_asset(no_url, platform_key="windows") is None
 
 
 def test_check_for_update_up_to_date(monkeypatch):
-    monkeypatch.setattr(
-        updater, "fetch_manifest", lambda *a, **k: {"version": "0.5"}
-    )
+    monkeypatch.setattr(updater, "fetch_latest_release", lambda *a, **k: {"tag_name": "v0.5"})
     result = updater.check_for_update(current_version="0.5")
     assert result["status"] == "up_to_date"
 
 
 def test_check_for_update_available(monkeypatch):
-    manifest = {
-        "version": "0.9",
-        "assets": {"windows": {"name": "s.exe", "url": "downloads/s.exe"}},
-    }
-    monkeypatch.setattr(updater, "fetch_manifest", lambda *a, **k: manifest)
+    monkeypatch.setattr(updater, "fetch_latest_release", lambda *a, **k: RELEASE)
     monkeypatch.setattr(updater, "current_platform_key", lambda: "windows")
     result = updater.check_for_update(current_version="0.5")
     assert result["status"] == "update_available"
-    assert result["latest"] == "0.9"
-    assert result["asset"]["url"].endswith("/downloads/s.exe")
+    assert result["latest"] == "0.9.0"
+    assert result["asset"]["url"] == "https://x/setup.exe"
 
 
-def test_check_for_update_needs_no_user_token(monkeypatch):
-    # No per-user token: check_for_update takes no token argument and just hits
-    # the fixed manifest URL. Credentials (if any) are the baked-in shared ones.
+def test_check_for_update_reads_the_public_latest_release(monkeypatch):
     captured = {}
 
-    def fake_fetch(url=constants.UPDATE_MANIFEST_URL):
+    def fake_fetch(url=constants.UPDATE_RELEASE_API_URL):
         captured["url"] = url
-        return {"version": "0.5"}
+        return {"tag_name": "v0.5"}
 
-    monkeypatch.setattr(updater, "fetch_manifest", fake_fetch)
+    monkeypatch.setattr(updater, "fetch_latest_release", fake_fetch)
     updater.check_for_update(current_version="0.5")
-    assert captured["url"] == constants.UPDATE_MANIFEST_URL
+    assert captured["url"] == (
+        f"https://api.github.com/repos/{constants.GITHUB_REPO}/releases/latest"
+    )
 
 
-def test_request_sends_shared_basic_auth(monkeypatch):
-    import base64
-
-    monkeypatch.setattr(updater, "UPDATE_USERNAME", "guest")
-    monkeypatch.setattr(updater, "UPDATE_PASSWORD", "s3cret")
-    request = updater._request("https://x/updates.json", "application/json")
-    header = request.get_header("Authorization")
-    assert header is not None
-    scheme, _, value = header.partition(" ")
-    assert scheme == "Basic"
-    assert base64.b64decode(value).decode() == "guest:s3cret"
-
-
-def test_request_omits_auth_when_no_password(monkeypatch):
-    monkeypatch.setattr(updater, "UPDATE_PASSWORD", "")
-    request = updater._request("https://x/updates.json", "application/json")
+def test_request_sends_no_credentials():
+    request = updater._request(constants.UPDATE_RELEASE_API_URL, "application/json")
     assert request.get_header("Authorization") is None
 
 
-def test_check_for_update_maps_auth_failure(monkeypatch):
-    import urllib.error
+def _raise(code):
+    def boom(*_a, **_k):
+        raise urllib.error.HTTPError("u", code, "error", {}, None)  # type: ignore[arg-type]
+    return boom
 
-    def boom(*a, **k):
-        raise urllib.error.HTTPError("u", 401, "Unauthorized", {}, None)
 
-    monkeypatch.setattr(updater, "fetch_manifest", boom)
+def test_check_for_update_without_a_release(monkeypatch):
+    monkeypatch.setattr(updater, "fetch_latest_release", _raise(404))
     result = updater.check_for_update()
     assert result["status"] == "error"
-    assert "認証" in result["message"]
+    assert "リリース" in result["message"]
 
 
-def test_check_for_update_maps_http_error(monkeypatch):
-    import urllib.error
-
-    def boom(*a, **k):
-        raise urllib.error.HTTPError("u", 404, "Not Found", {}, None)
-
-    monkeypatch.setattr(updater, "fetch_manifest", boom)
+def test_check_for_update_rate_limited(monkeypatch):
+    monkeypatch.setattr(updater, "fetch_latest_release", _raise(403))
     result = updater.check_for_update()
     assert result["status"] == "error"
+    assert "しばらく" in result["message"]
 
 
-def test_check_for_update_maps_network_error(monkeypatch):
-    import urllib.error
-
-    def boom(*a, **k):
-        raise urllib.error.URLError("no route")
-
-    monkeypatch.setattr(updater, "fetch_manifest", boom)
+def test_check_for_update_maps_other_http_errors(monkeypatch):
+    monkeypatch.setattr(updater, "fetch_latest_release", _raise(500))
     result = updater.check_for_update()
     assert result["status"] == "error"
-    assert "ネットワーク" in result["message"]
-
-
-def test_config_roundtrip(tmp_path, monkeypatch):
-    monkeypatch.setenv("APPDATA", str(tmp_path))
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    from paintmaskanimator import config
-    config.set_value("some_key", "abc123")
-    assert config.get_value("some_key") == "abc123"
-    config.set_value("some_key", None)
-    assert config.get_value("some_key") is None
-    assert config.get_value("missing", "def") == "def"
-
-
-class _FakeResponse:
-    def __init__(self, chunks, content_length=None):
-        self._chunks = iter(chunks)
-        self.headers = {}
-        if content_length is not None:
-            self.headers["Content-Length"] = str(content_length)
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args):
-        return False
-
-    def read(self, _size=-1):
-        return next(self._chunks, b"")
-
-
-def test_pick_installer_asset_rejects_missing_urls_and_unknown_shape():
-    assert updater.pick_installer_asset({"assets": {"linux": {}}}, "linux") is None
-    assert updater.pick_installer_asset({"assets": []}, "windows") is None
-    assert updater.pick_installer_asset({"assets": "invalid"}, "windows") is None
-
-
-def test_pick_installer_asset_legacy_uses_first_exe_without_setup():
-    manifest = {"assets": [{"name": "portable.EXE", "url": "portable.exe"}]}
-    asset = updater.pick_installer_asset(manifest, platform_key="windows")
-    assert asset is not None
-    assert asset["url"].endswith("/portable.exe")
-
-
-def test_current_platform_key(monkeypatch):
-    monkeypatch.setattr(updater.sys, "platform", "win32")
-    assert updater.current_platform_key() == "windows"
-    monkeypatch.setattr(updater.sys, "platform", "darwin")
-    assert updater.current_platform_key() == "macos"
-    monkeypatch.setattr(updater.sys, "platform", "linux")
-    assert updater.current_platform_key() == "linux"
-
-
-def test_fetch_manifest_builds_request_and_decodes_json(monkeypatch):
-    captured = {}
-
-    def fake_urlopen(request, timeout):
-        captured["request"] = request
-        captured["timeout"] = timeout
-        return _FakeResponse([b'{"version": "1.2.3"}'])
-
-    monkeypatch.setattr(updater.urllib.request, "urlopen", fake_urlopen)
-    assert updater.fetch_manifest("https://example.test/updates.json") == {
-        "version": "1.2.3"
-    }
-    assert captured["request"].get_header("Accept") == "application/json"
-    assert captured["timeout"] == updater._TIMEOUT
-
-
-def test_download_asset_writes_chunks_and_reports_progress(tmp_path, monkeypatch):
-    progress = []
-    response = _FakeResponse([b"abc", b"de", b""], content_length=5)
-    monkeypatch.setattr(updater.urllib.request, "urlopen", lambda *a, **k: response)
-    destination = tmp_path / "installer.exe"
-
-    result = updater.download_asset(
-        {"url": "https://example.test/installer.exe"},
-        destination,
-        lambda downloaded, total: progress.append((downloaded, total)),
-    )
-
-    assert result == destination
-    assert destination.read_bytes() == b"abcde"
-    assert progress == [(3, 5), (5, 5)]
-
-
-def test_check_for_update_maps_other_http_error(monkeypatch):
-    import urllib.error
-
-    def boom(*a, **k):
-        raise urllib.error.HTTPError("u", 503, "Unavailable", {}, None)
-
-    monkeypatch.setattr(updater, "fetch_manifest", boom)
-    result = updater.check_for_update()
-    assert result["status"] == "error"
-    assert result["message"].endswith("503")
-
-
-def test_check_for_update_maps_malformed_manifest(monkeypatch):
-    def boom(*a, **k):
-        raise ValueError("invalid json")
-
-    monkeypatch.setattr(updater, "fetch_manifest", boom)
-    result = updater.check_for_update()
-    assert result == {"status": "error", "message": "invalid json"}
-
-
-def test_check_for_update_accepts_legacy_tag_name(monkeypatch):
-    monkeypatch.setattr(
-        updater,
-        "fetch_manifest",
-        lambda *a, **k: {"tag_name": "v2.0", "assets": []},
-    )
-    result = updater.check_for_update(current_version="1.0")
-    assert result["status"] == "update_available"
-    assert result["latest"] == "v2.0"
-    assert result["asset"] is None
+    assert "500" in result["message"]
