@@ -304,6 +304,7 @@ class PaintToolsMixin(CanvasMembers):
 
         # Undo は塗る範囲が決まってから、その外接矩形だけを保存する。
         # 大きなキャンバスでレイヤー全体をコピーしないため。
+        assert result.bounds is not None  # ok なら必ず外接矩形がある
         x0, y0, x1, y1 = result.bounds
         fill_rect = QRect(x0, y0, x1 - x0, y1 - y0)
         if not self.push_layer_region_undo(fill_rect):
@@ -374,6 +375,7 @@ class PaintToolsMixin(CanvasMembers):
             if not result.ok:
                 skipped["count"] += 1
                 return None
+            assert result.bounds is not None  # ok なら必ず外接矩形がある
             x0, y0, x1, y1 = result.bounds
             written_colors.update(self._fill_patch(
                 pixels[y0:y1, x0:x1], result.mask[y0:y1, x0:x1], replacement

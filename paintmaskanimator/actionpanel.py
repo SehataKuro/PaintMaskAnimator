@@ -552,7 +552,9 @@ class ScriptEditorDialog(QDialog):
             executable = next((str(path) for path in candidates if path.is_file()), None)
         if sys.platform == "darwin" and executable is None:
             executable = self._macos_vscode_cli()
-            if executable is None and self._open_with_macos_bundle():
+            if executable is None and self._open_with_macos_bundle(
+                self._current_path
+            ):
                 return
         if executable is None:
             QMessageBox.warning(
@@ -591,9 +593,9 @@ class ScriptEditorDialog(QDialog):
                     return str(cli)
         return None
 
-    def _open_with_macos_bundle(self):
+    def _open_with_macos_bundle(self, script_path):
         """code コマンドが見つからない場合、バンドルIDで VS Code に開かせる。"""
-        path = str(self._current_path.resolve())
+        path = str(Path(script_path).resolve())
         for _app_name, bundle_id in self._MACOS_VSCODE_APPS:
             result = subprocess.run(
                 ["open", "-b", bundle_id, path], capture_output=True
