@@ -7,7 +7,7 @@
 [English](README.en.md) | 日本語
 
 [![CI](https://github.com/SehataKuro/PaintMaskAnimator/actions/workflows/ci.yml/badge.svg)](https://github.com/SehataKuro/PaintMaskAnimator/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/release-v0.6.4-blue)](https://github.com/SehataKuro/PaintMaskAnimator/releases)
+[![Release](https://img.shields.io/badge/release-v0.6.5-blue)](https://github.com/SehataKuro/PaintMaskAnimator/releases)
 [![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![PySide6](https://img.shields.io/badge/PySide6-6.5%2B-41CD52?logo=qt&logoColor=white)](https://doc.qt.io/qtforpython/)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey)](https://jokomanato.com/paintmaskanimator/downloads/)
