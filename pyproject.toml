@@ -47,6 +47,9 @@ paintmaskanimator = ["assets/**/*", "translations/*.qm"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# A test stuck on a modal dialog or event loop otherwise hangs with no output;
+# this dumps every thread's stack so the culprit is visible.
+faulthandler_timeout = 120
 markers = [
     "e2e: 実イベントでUIを操作するエンドツーエンドのシナリオテスト",
 ]
