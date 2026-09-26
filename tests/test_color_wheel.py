@@ -92,8 +92,10 @@ def test_photoshop_style_swatch_controls():
     # 位置は入れ替わらない。
     assert panel.drawing_color_box.parent() is panel.color_wheel_box
     panel.color_wheel_box.resize(260, 400)
-    panel.color_wheel_box.layout().activate()
-    panel.color_swatch_stack.layout().activate()
+    for box in (panel.color_wheel_box, panel.color_swatch_stack):
+        layout = box.layout()
+        assert layout is not None
+        layout.activate()
     main_x, sub_x = panel.main_btn.x(), panel.sub_btn.x()
     assert main_x < sub_x
     panel.set_color_mode("sub")
