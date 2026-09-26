@@ -239,7 +239,7 @@ def build(releases_json: str, output: Path) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     parser.add_argument("--releases", required=True, type=Path,
                         help="JSON from `gh api repos/OWNER/REPO/releases --paginate`")
     parser.add_argument("--output", required=True, type=Path)

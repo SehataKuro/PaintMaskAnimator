@@ -5,6 +5,7 @@ from pathlib import Path
 
 _SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "build_release_site.py"
 _spec = importlib.util.spec_from_file_location("build_release_site", _SCRIPT)
+assert _spec is not None and _spec.loader is not None
 site = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(site)
 
