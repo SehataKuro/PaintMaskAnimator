@@ -165,3 +165,22 @@ def test_empty_leading_token_list_round_trips():
     assert editor.template() == ()
     editor.replace_token(0, Token(text="x"))  # out of range: ignored
     assert editor.template() == ()
+
+
+def test_ts_pool_preset_writes_a_tdts_into_ts(window, tmp_path, monkeypatch):
+    monkeypatch.setattr(QMessageBox, "information", lambda *_a, **_k: None)
+    _draw_cels(window, 2)
+    cels, images, _ = window.export.cut_folder_cels()
+    plan = cf.plan_export(cf.ts_pool_layout(), {"title": "PMA", "cut": "2"}, cels)
+    assert plan.ok, plan.problems
+    assert window.export.write_cut_folder(plan, tmp_path, images, "png")
+
+    root = tmp_path / "PMA_C002"
+    assert (root / "A" / "A_0001.png").is_file()
+    assert (root / "_pool").is_dir()
+    signature, body = (root / "_ts" / "c002.tdts").read_text(encoding="utf-8").split("\n", 1)
+    assert signature == "toeiDigitalTimeSheet Save Data"
+    sheet = json.loads(body)["timeSheets"][0]
+    assert sheet["header"]["cut"] == "2"
+    assert sheet["timeTables"][0]["name"] == "c002"
+    assert sheet["timeTables"][0]["timeTableHeaders"][0]["names"][0] == "A"

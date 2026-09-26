@@ -14,7 +14,6 @@ instead of appearing out of nowhere. This is the shape the remaining
 from typing import TYPE_CHECKING
 
 import csv
-import json
 import shutil
 import subprocess
 import sys
@@ -22,7 +21,7 @@ import tempfile
 from pathlib import Path
 from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMessageBox
 from .i18n import tr
-from . import cut_folder
+from . import cut_folder, timesheet_file
 from .models import default_layer_name
 from .optional_deps import PILImage, PSDImage
 from .constants import OUTSIDE_MARGIN
@@ -65,15 +64,19 @@ class ExportController:
             self.window, tr("XDTS書き出し"), tr("タイムシートを書き出しました。\n\n{path}").format(path=path)
         )
 
-    def xdts_text(self, sheet_name="PaintMaskAnimator"):
-        """The current timeline as XDTS v5 text (header line + JSON)."""
+    def sheet_tracks(self):
+        """``(layer_names, tracks, duration)`` for a time sheet.
+
+        Each track holds one instruction per frame: a セル番号, or
+        ``SYMBOL_HYPHEN`` / ``SYMBOL_NULL_CELL``.
+        """
         duration = self.window._sheet_duration()
         tracks = []
         names = []
         layer_count = len(self.window.canvas.frames[0].layers)
         for layer_index in range(layer_count):
             names.append(self.window.canvas.frames[0].layers[layer_index].name)
-            frame_data = []
+            values = []
             for column in range(duration):
                 kind, key_column, _exposure = TimelineWidget.timeline_span_at(
                     self.window.canvas.frames, layer_index, column
@@ -85,46 +88,33 @@ class ExportController:
                             layer_index,
                             column,
                         )
-                        value = "SYMBOL_NULL_CELL"
-                        frame_data.append({
-                            "frame": column,
-                            "data": [{"id": 0, "values": [value]}],
-                        })
-                        continue
-                    if column == key_column:
+                        value = timesheet_file.NULL_CELL
+                    elif column == key_column:
                         number = self.window.canvas.frames[key_column].layers[
                             layer_index
                         ].sequence_number
-                        value = str(number) if number is not None else "SYMBOL_NULL_CELL"
+                        value = str(number) if number is not None else timesheet_file.NULL_CELL
                     else:
-                        value = "SYMBOL_HYPHEN"
+                        value = timesheet_file.HYPHEN
                 elif kind == "blank":
                     value = (
-                        "SYMBOL_NULL_CELL"
-                        if column == key_column else "SYMBOL_HYPHEN"
+                        timesheet_file.NULL_CELL
+                        if column == key_column else timesheet_file.HYPHEN
                     )
                 else:
-                    value = "SYMBOL_NULL_CELL"
-                frame_data.append({
-                    "frame": column,
-                    "data": [{"id": 0, "values": [value]}],
-                })
-            tracks.append({"trackNo": layer_index, "frames": frame_data})
+                    value = timesheet_file.NULL_CELL
+                values.append(value)
+            tracks.append(values)
+        return names, tracks, duration
 
-        payload = {
-            "timeTables": [{
-                "duration": duration,
-                "name": sheet_name,
-                "timeTableHeaders": [{"fieldId": 0, "names": names}],
-                "fields": [{"fieldId": 0, "tracks": tracks}],
-            }],
-            "version": 5,
-        }
-        return (
-            "exchangeDigitalTimeSheet Save Data\n"
-            + json.dumps(payload, ensure_ascii=False, indent=2)
-            + "\n"
-        )
+    def xdts_text(self, sheet_name="PaintMaskAnimator"):
+        """The current timeline as XDTS v5 text (header line + JSON)."""
+        return self.sheet_text("xdts", sheet_name)
+
+    def sheet_text(self, fmt, sheet_name, **header):
+        """The current timeline as an XDTS or TDTS time sheet."""
+        names, tracks, duration = self.sheet_tracks()
+        return timesheet_file.sheet_text(fmt, sheet_name, names, tracks, duration, **header)
 
     def cut_folder_cels(self):
         """Distinct drawings to write: one per (layer, セル番号), first seen wins.
@@ -229,8 +219,10 @@ class ExportController:
                     saved = image.save(str(output_path), "PNG")
                 if not saved:
                     raise OSError(tr("{name}を保存できませんでした。").format(name=output_path.name))
+            sheet_name = Path(plan.timesheet_path).stem
             (target / plan.timesheet_path).write_text(
-                self.xdts_text(sheet_name=plan.folder_name), encoding="utf-8"
+                self.sheet_text(plan.timesheet_format, sheet_name, **plan.sheet_header),
+                encoding="utf-8",
             )
         except _OPERATION_ERRORS as exc:
             log.error("cut folder export failed: %s", exc, exc_info=True)

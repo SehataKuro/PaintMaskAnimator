@@ -351,23 +351,23 @@
         <translation>Eyedropper</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="51"/>
+        <location filename="../main_window_export.py" line="50"/>
         <source>XDTSタイムシートを書き出す</source>
         <translation>Export XDTS Time Sheet</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="53"/>
+        <location filename="../main_window_export.py" line="52"/>
         <source>XDTSタイムシート (*.xdts)</source>
         <translation>XDTS time sheet (*.xdts)</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="62"/>
-        <location filename="../main_window_export.py" line="65"/>
+        <location filename="../main_window_export.py" line="61"/>
+        <location filename="../main_window_export.py" line="64"/>
         <source>XDTS書き出し</source>
         <translation>XDTS export</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="65"/>
+        <location filename="../main_window_export.py" line="64"/>
         <source>タイムシートを書き出しました。
 
 {path}</source>
@@ -376,67 +376,67 @@
 {path}</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="185"/>
+        <location filename="../main_window_export.py" line="175"/>
         <source>同じ名前のファイルがあるため、フォルダーを作成できません。</source>
         <translation>Cannot create the folder because a file with the same name exists.</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="190"/>
+        <location filename="../main_window_export.py" line="180"/>
         <source>「{name}」には既存のファイルがあります。
 同じ名前のファイルは上書きします。書き出しますか？</source>
         <translation>&quot;{name}&quot; already contains files.
 Files with the same name will be overwritten. Export anyway?</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="202"/>
-        <location filename="../main_window_export.py" line="209"/>
-        <location filename="../main_window_export.py" line="239"/>
-        <location filename="../main_window_export.py" line="253"/>
+        <location filename="../main_window_export.py" line="192"/>
+        <location filename="../main_window_export.py" line="199"/>
+        <location filename="../main_window_export.py" line="231"/>
+        <location filename="../main_window_export.py" line="245"/>
         <source>カットフォルダー書き出し</source>
         <translation>Cut folder export</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="246"/>
+        <location filename="../main_window_export.py" line="238"/>
         <source>「{name}」へセル{count}枚とタイムシートを書き出しました。</source>
         <translation>Exported {count} cells and the time sheet to &quot;{name}&quot;.</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="250"/>
+        <location filename="../main_window_export.py" line="242"/>
         <source>セル番号のないキー{count}枚は書き出していません。</source>
         <translation>{count} keys without a cell number were not exported.</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="261"/>
-        <location filename="../main_window_export.py" line="319"/>
-        <location filename="../main_window_export.py" line="324"/>
+        <location filename="../main_window_export.py" line="253"/>
+        <location filename="../main_window_export.py" line="311"/>
+        <location filename="../main_window_export.py" line="316"/>
         <source>PSD書き出し</source>
         <translation>PSD export</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="262"/>
+        <location filename="../main_window_export.py" line="254"/>
         <source>PSDの書き出しには psd-tools と Pillow が必要です。
 requirements.txtをインストールしてください。</source>
         <translation>Exporting PSD needs psd-tools and Pillow.
 Install them from requirements.txt.</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="268"/>
+        <location filename="../main_window_export.py" line="260"/>
         <source>PSDを書き出す</source>
         <translation>Export PSD</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="306"/>
+        <location filename="../main_window_export.py" line="298"/>
         <source>PSD書き出しに必要な画像変換を利用できません。</source>
         <translation>The image conversion needed for PSD export is unavailable.</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="314"/>
-        <location filename="../main_window_export.py" line="442"/>
+        <location filename="../main_window_export.py" line="306"/>
+        <location filename="../main_window_export.py" line="434"/>
         <source>書き出せるキーフレームがありません。</source>
         <translation>There are no key frames to export.</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="319"/>
+        <location filename="../main_window_export.py" line="311"/>
         <source>PSDを書き出せませんでした。
 
 {exc}</source>
@@ -445,7 +445,7 @@ Install them from requirements.txt.</translation>
 {exc}</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="325"/>
+        <location filename="../main_window_export.py" line="317"/>
         <source>{keys}個のキーフレームを書き出しました。
 
 {path}</source>
@@ -454,56 +454,56 @@ Install them from requirements.txt.</translation>
 {path}</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="349"/>
+        <location filename="../main_window_export.py" line="341"/>
         <source>連番{format}＋CSVの書き出しフォルダー</source>
         <translation>Destination folder for the {format} sequence + CSV</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="365"/>
+        <location filename="../main_window_export.py" line="357"/>
         <source>この名前で作成</source>
         <translation>Create with this name</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="384"/>
+        <location filename="../main_window_export.py" line="376"/>
         <source>フォルダー名</source>
         <translation>Folder name</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="385"/>
+        <location filename="../main_window_export.py" line="377"/>
         <source>使用できるフォルダー名を指定してください。</source>
         <translation>Enter a usable folder name.</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="394"/>
+        <location filename="../main_window_export.py" line="386"/>
         <source>書き出し先</source>
         <translation>Destination</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="395"/>
+        <location filename="../main_window_export.py" line="387"/>
         <source>同じ名前のファイルが存在するため、フォルダーを作成できません。</source>
         <translation>A file with the same name exists, so the folder cannot be created.</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="189"/>
-        <location filename="../main_window_export.py" line="402"/>
+        <location filename="../main_window_export.py" line="179"/>
+        <location filename="../main_window_export.py" line="394"/>
         <source>同名フォルダー</source>
         <translation>Folder already exists</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="403"/>
+        <location filename="../main_window_export.py" line="395"/>
         <source>「{name}」には既存のファイルがあります。
 このフォルダーへ書き出しますか？</source>
         <translation>&quot;{name}&quot; already contains files.
 Export into this folder?</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="419"/>
+        <location filename="../main_window_export.py" line="411"/>
         <source>フォルダー作成エラー</source>
         <translation>Folder creation error</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="203"/>
-        <location filename="../main_window_export.py" line="420"/>
+        <location filename="../main_window_export.py" line="193"/>
+        <location filename="../main_window_export.py" line="412"/>
         <source>書き出しフォルダーを作成できません。
 
 {exc}</source>
@@ -512,46 +512,46 @@ Export into this folder?</translation>
 {exc}</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="441"/>
+        <location filename="../main_window_export.py" line="433"/>
         <source>連番書き出し</source>
         <translation>Sequence export</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="449"/>
+        <location filename="../main_window_export.py" line="441"/>
         <source>連番{format}書き出し</source>
         <translation>{format} sequence export</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="211"/>
-        <location filename="../main_window_export.py" line="451"/>
+        <location filename="../main_window_export.py" line="201"/>
+        <location filename="../main_window_export.py" line="443"/>
         <source>「{name}」へ書き出しています</source>
         <translation>Exporting to &quot;{name}&quot;</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="217"/>
-        <location filename="../main_window_export.py" line="465"/>
+        <location filename="../main_window_export.py" line="207"/>
+        <location filename="../main_window_export.py" line="457"/>
         <source>{number}枚目を書き出しています</source>
         <translation>Exporting image {number}</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="231"/>
-        <location filename="../main_window_export.py" line="483"/>
+        <location filename="../main_window_export.py" line="221"/>
+        <location filename="../main_window_export.py" line="475"/>
         <source>{name}を保存できませんでした。</source>
         <translation>Could not save {name}.</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="501"/>
+        <location filename="../main_window_export.py" line="493"/>
         <source>{number}枚目の書き出しが完了しました</source>
         <translation>Finished exporting image {number}</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="520"/>
+        <location filename="../main_window_export.py" line="512"/>
         <source>連番書き出しエラー</source>
         <translation>Sequence export error</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="240"/>
-        <location filename="../main_window_export.py" line="521"/>
+        <location filename="../main_window_export.py" line="232"/>
+        <location filename="../main_window_export.py" line="513"/>
         <source>書き出し中にエラーが発生しました。
 
 {exc}</source>
@@ -560,17 +560,17 @@ Export into this folder?</translation>
 {exc}</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="528"/>
+        <location filename="../main_window_export.py" line="520"/>
         <source>「{name}」へ{len}枚とTS.csvを書き出しました。</source>
         <translation>Exported {len} images and TS.csv to &quot;{name}&quot;.</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="533"/>
+        <location filename="../main_window_export.py" line="525"/>
         <source>連番書き出し完了</source>
         <translation>Sequence export finished</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="534"/>
+        <location filename="../main_window_export.py" line="526"/>
         <source>次の構成で書き出しました。
 
 {destination}
@@ -585,36 +585,36 @@ Export into this folder?</translation>
 └─ TS.csv</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="541"/>
+        <location filename="../main_window_export.py" line="533"/>
         <source>ffmpegが必要です。</source>
         <translation>ffmpeg is required.</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="542"/>
-        <location filename="../main_window_export.py" line="549"/>
-        <location filename="../main_window_export.py" line="571"/>
+        <location filename="../main_window_export.py" line="534"/>
+        <location filename="../main_window_export.py" line="541"/>
+        <location filename="../main_window_export.py" line="563"/>
         <location filename="../main_window_ui_build.py" line="159"/>
         <location filename="../main_window_ui_build.py" line="301"/>
         <source>MP4書き出し</source>
         <translation>Export MP4</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="551"/>
+        <location filename="../main_window_export.py" line="543"/>
         <source>動画用フレームを準備しています</source>
         <translation>Preparing the video frames</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="562"/>
+        <location filename="../main_window_export.py" line="554"/>
         <source>フレーム {index} / {total} を準備しています</source>
         <translation>Preparing frame {index} / {total}</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="573"/>
+        <location filename="../main_window_export.py" line="565"/>
         <source>FFmpegで動画へ変換しています</source>
         <translation>Encoding to video with FFmpeg</translation>
     </message>
     <message>
-        <location filename="../main_window_export.py" line="578"/>
+        <location filename="../main_window_export.py" line="570"/>
         <source>MP4エラー</source>
         <translation>MP4 error</translation>
     </message>
@@ -1447,7 +1447,7 @@ Supported formats: PNG, JPEG, TGA</translation>
         <location filename="../color_panel.py" line="517"/>
         <location filename="../color_panel.py" line="648"/>
         <location filename="../color_panel.py" line="1389"/>
-        <location filename="../main_window_export.py" line="361"/>
+        <location filename="../main_window_export.py" line="353"/>
         <source>フォルダー名：</source>
         <translation>Folder name:</translation>
     </message>
@@ -1735,8 +1735,8 @@ Drop a used colour onto the middle of another to create a parent/child link.</tr
     </message>
     <message>
         <location filename="../main_window_color_chart.py" line="272"/>
-        <location filename="../main_window_import.py" line="711"/>
-        <location filename="../main_window_time_remap.py" line="454"/>
+        <location filename="../main_window_import.py" line="690"/>
+        <location filename="../main_window_time_remap.py" line="455"/>
         <location filename="../widgets.py" line="1431"/>
         <source>読み込めませんでした。
 
@@ -3861,7 +3861,7 @@ Line art: binarises the line work while preserving the white background and the 
     </message>
     <message>
         <location filename="../color_reduction.py" line="490"/>
-        <location filename="../cut_folder_dialog.py" line="767"/>
+        <location filename="../cut_folder_dialog.py" line="775"/>
         <source>プレビュー</source>
         <translation>Preview</translation>
     </message>
@@ -3882,9 +3882,9 @@ Line art: binarises the line work while preserving the white background and the 
     </message>
     <message>
         <location filename="../color_reduction.py" line="507"/>
-        <location filename="../cut_folder_dialog.py" line="784"/>
+        <location filename="../cut_folder_dialog.py" line="792"/>
         <location filename="../main_window.py" line="682"/>
-        <location filename="../main_window_import.py" line="90"/>
+        <location filename="../main_window_import.py" line="91"/>
         <location filename="../main_window_project_io.py" line="126"/>
         <location filename="../widgets.py" line="705"/>
         <source>キャンセル</source>
@@ -4194,47 +4194,47 @@ Restore the automatically saved work?</translation>
         <translation>Triangle (HLS)</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="54"/>
-        <location filename="../main_window_import.py" line="78"/>
+        <location filename="../main_window_import.py" line="55"/>
+        <location filename="../main_window_import.py" line="79"/>
         <source>CLIP STUDIOアニメーションを読み込む</source>
         <translation>Import a CLIP STUDIO animation</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="56"/>
+        <location filename="../main_window_import.py" line="57"/>
         <source>CLIP STUDIO PAINT (*.clip);;すべてのファイル (*)</source>
         <translation>CLIP STUDIO PAINT (*.clip);;All files (*)</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="80"/>
+        <location filename="../main_window_import.py" line="81"/>
         <source>現在のキャンバスをCLIP STUDIOアニメーションで置き換えます。
 先に現在のプロジェクトを保存しますか？</source>
         <translation>This replaces the current canvas with the CLIP STUDIO animation.
 Save the current project first?</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="84"/>
+        <location filename="../main_window_import.py" line="85"/>
         <location filename="../main_window_project_io.py" line="120"/>
         <source>保存する</source>
         <translation>Save</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="87"/>
+        <location filename="../main_window_import.py" line="88"/>
         <source>保存せず読み込む</source>
         <translation>Import without saving</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="106"/>
+        <location filename="../main_window_import.py" line="107"/>
         <source>CLIP STUDIOアニメーションを解析しています：{name}</source>
         <translation>Parsing the CLIP STUDIO animation: {name}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="117"/>
-        <location filename="../main_window_import.py" line="243"/>
+        <location filename="../main_window_import.py" line="118"/>
+        <location filename="../main_window_import.py" line="244"/>
         <source>CLIP STUDIOアニメーション読み込み</source>
         <translation>CLIP STUDIO animation import</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="118"/>
+        <location filename="../main_window_import.py" line="119"/>
         <source>読み込めませんでした。現在のドキュメントは変更されていません。
 
 {exc}</source>
@@ -4243,7 +4243,7 @@ Save the current project first?</translation>
 {exc}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="244"/>
+        <location filename="../main_window_import.py" line="245"/>
         <source>読み込み結果を反映できませんでした。現在のドキュメントは元の状態へ戻しました。
 
 {exc}</source>
@@ -4252,99 +4252,107 @@ Save the current project first?</translation>
 {exc}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="251"/>
+        <location filename="../main_window_import.py" line="252"/>
         <source>（元FPS {fps:g}、PMA表示 {value} fps）</source>
         <translation> (source FPS {fps:g}, shown as {value} fps in PMA)</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="256"/>
+        <location filename="../main_window_import.py" line="257"/>
         <source> 未配置セル{len}枚は連番に保持しました。</source>
         <translation> {len} unplaced cells were kept in the sequence.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="259"/>
+        <location filename="../main_window_import.py" line="260"/>
         <source>CLIP STUDIOから{count}フォルダー・{count2}フレームを読み込みました。{note}{note2}</source>
         <translation>Imported {count} folders and {count2} frames from CLIP STUDIO.{note}{note2}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="269"/>
-        <location filename="../main_window_import.py" line="684"/>
         <source>XDTSの先頭識別文字列が一致しません。</source>
-        <translation>The XDTS leading identifier does not match.</translation>
+        <translation type="vanished">The XDTS leading identifier does not match.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="273"/>
         <source>XDTSのJSONを解析できません。
 {exc}</source>
-        <translation>Could not parse the XDTS JSON.
+        <translation type="vanished">Could not parse the XDTS JSON.
 {exc}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="275"/>
-        <location filename="../main_window_import.py" line="687"/>
+        <location filename="../timesheet_file.py" line="37"/>
+        <source>XDTS／TDTSの先頭識別文字列が一致しません。</source>
+        <extracomment>``.xtds`` is a common misspelling that some tools write.</extracomment>
+        <translation>The file does not start with an XDTS or TDTS signature.</translation>
+    </message>
+    <message>
+        <location filename="../timesheet_file.py" line="41"/>
+        <source>タイムシートのJSONを解析できません。
+{exc}</source>
+        <translation>Could not parse the time sheet JSON.
+{exc}</translation>
+    </message>
+    <message>
+        <location filename="../timesheet_file.py" line="46"/>
         <source>対応しているXDTSバージョンは5です。</source>
         <translation>Only XDTS version 5 is supported.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="278"/>
         <source>XDTSにタイムシート情報がありません。</source>
-        <translation>The XDTS file has no time sheet data.</translation>
+        <translation type="vanished">The XDTS file has no time sheet data.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="428"/>
+        <location filename="../main_window_import.py" line="416"/>
         <source>XDTSにセル欄（fieldId 0）がありません。</source>
         <translation>The XDTS file has no cell column (fieldId 0).</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="460"/>
+        <location filename="../main_window_import.py" line="448"/>
         <source>読み込むCELLとレイヤーの紐づけがありません。</source>
         <translation>No CELL is linked to a layer for import.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="462"/>
-        <location filename="../main_window_time_remap.py" line="341"/>
+        <location filename="../main_window_import.py" line="450"/>
+        <location filename="../main_window_time_remap.py" line="342"/>
         <source>タイムラインがありません。</source>
         <translation>There is no timeline.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="476"/>
+        <location filename="../main_window_import.py" line="464"/>
         <source>CELL「{get}」のフレーム数が不正です。</source>
         <translation>CELL &quot;{get}&quot; has an invalid frame count.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="481"/>
+        <location filename="../main_window_import.py" line="469"/>
         <source>CELL「{get}」の紐づけ先レイヤーがありません。</source>
         <translation>CELL &quot;{get}&quot; has no layer to link to.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="486"/>
+        <location filename="../main_window_import.py" line="474"/>
         <source>レイヤー「{name}」に連番画像がありません。</source>
         <translation>Layer &quot;{name}&quot; has no image sequence.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="500"/>
+        <location filename="../main_window_import.py" line="488"/>
         <source>CELL「{get}」は存在しない絵番号を参照しています（レイヤー画像 {len}枚）。
 {preview}</source>
         <translation>CELL &quot;{get}&quot; refers to a drawing number that does not exist ({len} layer images).
 {preview}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="509"/>
+        <location filename="../main_window_import.py" line="497"/>
         <source>読み込めるCELLの紐づけがありません。</source>
         <translation>There are no CELL links that can be imported.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="512"/>
+        <location filename="../main_window_import.py" line="500"/>
         <source>・{get} → {name}</source>
         <translation>・{get} → {name}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="517"/>
+        <location filename="../main_window_import.py" line="505"/>
         <source>XDTSタイムシートを反映</source>
         <translation>Apply the XDTS time sheet</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="518"/>
+        <location filename="../main_window_import.py" line="506"/>
         <source>反映範囲：{value}～{value2}フレーム
 紐づけ：
 {links}
@@ -4357,51 +4365,51 @@ Links:
 This replaces the target range of the linked layers.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="549"/>
+        <location filename="../main_window_import.py" line="537"/>
         <source>XDTSの{len}個のCELLを{value}～{value2}フレームへ反映しました。</source>
         <translation>Applied {len} XDTS CELLs to frames {value}–{value2}.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="556"/>
+        <location filename="../main_window_import.py" line="544"/>
         <source>PSDを読み込む</source>
         <translation>Import a PSD</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="563"/>
-        <location filename="../main_window_import.py" line="627"/>
-        <location filename="../main_window_import.py" line="669"/>
+        <location filename="../main_window_import.py" line="551"/>
+        <location filename="../main_window_import.py" line="615"/>
+        <location filename="../main_window_import.py" line="657"/>
         <source>PSD読み込み</source>
         <translation>PSD import</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="564"/>
+        <location filename="../main_window_import.py" line="552"/>
         <source>PSDの読み込みには psd-tools と Pillow が必要です。
 requirements.txtをインストールしてください。</source>
         <translation>Importing PSD needs psd-tools and Pillow.
 Install them from requirements.txt.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="580"/>
+        <location filename="../main_window_import.py" line="568"/>
         <source>PSDの画像サイズが上限を超えています。 ({width} × {height}px)</source>
         <translation>The PSD image is larger than the maximum. ({width} × {height}px)</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="583"/>
+        <location filename="../main_window_import.py" line="571"/>
         <source>PSDの最上位レイヤー数が上限を超えています。</source>
         <translation>The PSD has more top-level layers than the maximum.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="596"/>
+        <location filename="../main_window_import.py" line="584"/>
         <source>PSDのレイヤー項目数が上限を超えています。</source>
         <translation>The PSD has more layer entries than the maximum.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="623"/>
+        <location filename="../main_window_import.py" line="611"/>
         <source>読み込める画像レイヤーがありません。</source>
         <translation>There are no image layers to import.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="627"/>
+        <location filename="../main_window_import.py" line="615"/>
         <source>PSDを読み込めませんでした。
 
 {exc}</source>
@@ -4410,55 +4418,64 @@ Install them from requirements.txt.</translation>
 {exc}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="666"/>
+        <location filename="../main_window_import.py" line="654"/>
         <source>PSDから{len}レイヤーを読み込みました。</source>
         <translation>Imported {len} layers from the PSD.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="668"/>
+        <location filename="../main_window_import.py" line="656"/>
         <source>
 調整レイヤーなど{skipped}項目は破棄しました。</source>
         <translation>
 {skipped} entries such as adjustment layers were discarded.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="674"/>
+        <location filename="../main_window_import.py" line="662"/>
         <location filename="../widgets.py" line="1418"/>
-        <source>XDTSタイムシートを読み込む</source>
-        <translation>Import an XDTS time sheet</translation>
+        <source>タイムシートを読み込む（XDTS／TDTS）</source>
+        <translation>Import a time sheet (XDTS/TDTS)</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="676"/>
+        <location filename="../main_window_import.py" line="664"/>
         <location filename="../widgets.py" line="1420"/>
-        <source>XDTSタイムシート (*.xdts *.xtds);;すべてのファイル (*)</source>
-        <translation>XDTS time sheet (*.xdts *.xtds);;All files (*)</translation>
+        <source>タイムシート (*.xdts *.xtds *.tdts);;すべてのファイル (*)</source>
+        <translation>Time sheets (*.xdts *.xtds *.tdts);;All files (*)</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="690"/>
+        <source>XDTSタイムシートを読み込む</source>
+        <translation type="vanished">Import an XDTS time sheet</translation>
+    </message>
+    <message>
+        <source>XDTSタイムシート (*.xdts *.xtds);;すべてのファイル (*)</source>
+        <translation type="vanished">XDTS time sheet (*.xdts *.xtds);;All files (*)</translation>
+    </message>
+    <message>
+        <location filename="../timesheet_file.py" line="43"/>
+        <location filename="../timesheet_file.py" line="52"/>
         <source>タイムシート情報がありません。</source>
         <translation>There is no time sheet data.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="699"/>
+        <location filename="../main_window_import.py" line="678"/>
         <source>セル欄（fieldId 0）がありません。</source>
         <translation>There is no cell column (fieldId 0).</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="711"/>
-        <location filename="../main_window_import.py" line="793"/>
-        <location filename="../main_window_time_remap.py" line="453"/>
+        <location filename="../main_window_import.py" line="690"/>
+        <location filename="../main_window_import.py" line="777"/>
+        <location filename="../main_window_time_remap.py" line="454"/>
         <location filename="../widgets.py" line="1431"/>
         <location filename="../widgets.py" line="1885"/>
         <source>XDTS読み込み</source>
         <translation>XDTS import</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="790"/>
+        <location filename="../main_window_import.py" line="774"/>
         <source>XDTSタイムシートを読み込みました。</source>
         <translation>XDTS time sheet imported.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="792"/>
+        <location filename="../main_window_import.py" line="776"/>
         <source>
 対応画像がない番号：{len}件（白画像で配置）</source>
         <translation>
@@ -4475,53 +4492,53 @@ Numbers with no matching image: {len} (placed as blank images)</translation>
         <translation>Applying {label} to exposure {value}</translation>
     </message>
     <message>
-        <location filename="../main_window_time_remap.py" line="84"/>
+        <location filename="../main_window_time_remap.py" line="85"/>
         <source>Time RemapのFrame／secondsデータが見つかりません。</source>
         <translation>No Time Remap Frame/seconds data was found.</translation>
     </message>
     <message>
-        <location filename="../main_window_time_remap.py" line="158"/>
+        <location filename="../main_window_time_remap.py" line="159"/>
         <source>貼り付けデータが空です。</source>
         <translation>The pasted data is empty.</translation>
     </message>
     <message>
-        <location filename="../main_window_time_remap.py" line="180"/>
+        <location filename="../main_window_time_remap.py" line="181"/>
         <source>Adobe After Effects、ToeiDigitalTimeSheet、XDTS形式を判別できませんでした。</source>
         <translation>Could not tell whether this is Adobe After Effects, ToeiDigitalTimeSheet or XDTS.</translation>
     </message>
     <message>
-        <location filename="../main_window_time_remap.py" line="338"/>
+        <location filename="../main_window_time_remap.py" line="339"/>
         <source>解析したフレーム範囲が不正です。</source>
         <translation>The parsed frame range is invalid.</translation>
     </message>
     <message>
-        <location filename="../main_window_time_remap.py" line="354"/>
+        <location filename="../main_window_time_remap.py" line="355"/>
         <source>対象レイヤーを選択してください。</source>
         <translation>Select a target layer.</translation>
     </message>
     <message>
-        <location filename="../main_window_time_remap.py" line="359"/>
+        <location filename="../main_window_time_remap.py" line="360"/>
         <source>選択レイヤーに連番画像がありません。
 先に画像連番を読み込んでください。</source>
         <translation>The selected layer has no image sequence.
 Import an image sequence first.</translation>
     </message>
     <message>
-        <location filename="../main_window_time_remap.py" line="380"/>
+        <location filename="../main_window_time_remap.py" line="381"/>
         <source>連番画像は{len}枚ですが、存在しない絵番号が参照されています。
 {preview}</source>
         <translation>The sequence has {len} images, but a drawing number that does not exist is referenced.
 {preview}</translation>
     </message>
     <message>
-        <location filename="../main_window_time_remap.py" line="384"/>
+        <location filename="../main_window_time_remap.py" line="385"/>
         <location filename="../widgets.py" line="1693"/>
         <location filename="../widgets.py" line="1875"/>
         <source>タイムリマップ</source>
         <translation>Time remap</translation>
     </message>
     <message>
-        <location filename="../main_window_time_remap.py" line="393"/>
+        <location filename="../main_window_time_remap.py" line="394"/>
         <source>形式：{name}
 反映範囲：{value}～{value2}フレーム
 連番画像：{len}枚
@@ -4532,34 +4549,34 @@ Sequence images: {len}
 Empty frames: {count}</translation>
     </message>
     <message>
-        <location filename="../main_window_time_remap.py" line="397"/>
+        <location filename="../main_window_time_remap.py" line="398"/>
         <source>
 中割・記号ラベル：{blanks}セル</source>
         <translation>
 In-between and symbol labels: {blanks} cells</translation>
     </message>
     <message>
-        <location filename="../main_window_time_remap.py" line="405"/>
+        <location filename="../main_window_time_remap.py" line="406"/>
         <source>タイムリマップを反映</source>
         <translation>Apply the time remap</translation>
     </message>
     <message>
-        <location filename="../main_window_time_remap.py" line="438"/>
+        <location filename="../main_window_time_remap.py" line="439"/>
         <source>{name}を{value}～{value2}フレームへ反映しました。</source>
         <translation>Applied {name} to frames {value}–{value2}.</translation>
     </message>
     <message>
-        <location filename="../main_window_time_remap.py" line="468"/>
+        <location filename="../main_window_time_remap.py" line="469"/>
         <source>使用するタイムシート行がありません。</source>
         <translation>There are no time sheet rows to use.</translation>
     </message>
     <message>
-        <location filename="../main_window_time_remap.py" line="479"/>
+        <location filename="../main_window_time_remap.py" line="480"/>
         <source>タイムリマップ貼り付け</source>
         <translation>Paste a time remap</translation>
     </message>
     <message>
-        <location filename="../main_window_time_remap.py" line="480"/>
+        <location filename="../main_window_time_remap.py" line="481"/>
         <source>タイムラインへ反映できませんでした。
 
 {exc}</source>
@@ -5650,8 +5667,12 @@ Layer cell {value} / {exposure} exposures</translation>
     </message>
     <message>
         <location filename="../widgets.py" line="1250"/>
+        <source>XDTS／TDTSを読み込む…</source>
+        <translation>Import XDTS/TDTS…</translation>
+    </message>
+    <message>
         <source>XDTSを読み込む…</source>
-        <translation>Load XDTS…</translation>
+        <translation type="vanished">Load XDTS…</translation>
     </message>
     <message>
         <location filename="../widgets.py" line="1251"/>
@@ -5868,7 +5889,7 @@ Layer cell {value} / {exposure} exposures</translation>
     </message>
     <message>
         <location filename="../cut_folder_dialog.py" line="719"/>
-        <location filename="../cut_folder_dialog.py" line="991"/>
+        <location filename="../cut_folder_dialog.py" line="1002"/>
         <source>カットフォルダー</source>
         <translation>Cut folder</translation>
     </message>
@@ -5879,136 +5900,136 @@ Layer cell {value} / {exposure} exposures</translation>
     </message>
     <message>
         <location filename="../cut_folder_dialog.py" line="725"/>
-        <location filename="../cut_folder_dialog.py" line="992"/>
+        <location filename="../cut_folder_dialog.py" line="1003"/>
         <source>セル画像</source>
         <translation>Cell image</translation>
     </message>
     <message>
         <location filename="../cut_folder_dialog.py" line="735"/>
-        <location filename="../cut_folder_dialog.py" line="994"/>
+        <location filename="../cut_folder_dialog.py" line="1005"/>
         <source>タイムシートのフォルダー</source>
         <translation>Time sheet folder</translation>
     </message>
     <message>
-        <location filename="../cut_folder_dialog.py" line="737"/>
         <source>タイムシート (.xdts)</source>
-        <translation>Time sheet (.xdts)</translation>
+        <translation type="vanished">Time sheet (.xdts)</translation>
     </message>
     <message>
-        <location filename="../cut_folder_dialog.py" line="741"/>
-        <location filename="../cut_folder_dialog.py" line="995"/>
+        <location filename="../cut_folder_dialog.py" line="749"/>
+        <location filename="../cut_folder_dialog.py" line="1006"/>
         <source>空のフォルダー</source>
         <translation>Empty folder</translation>
     </message>
     <message>
-        <location filename="../cut_folder_dialog.py" line="743"/>
+        <location filename="../cut_folder_dialog.py" line="751"/>
         <source>＋ 追加</source>
         <translation>+ Add</translation>
     </message>
     <message>
-        <location filename="../cut_folder_dialog.py" line="756"/>
+        <location filename="../cut_folder_dialog.py" line="764"/>
         <source>保存先</source>
         <translation>Save to</translation>
     </message>
     <message>
-        <location filename="../cut_folder_dialog.py" line="758"/>
+        <location filename="../cut_folder_dialog.py" line="766"/>
         <source>カットフォルダーを作る場所</source>
         <translation>Where to create the cut folder</translation>
     </message>
     <message>
-        <location filename="../cut_folder_dialog.py" line="761"/>
+        <location filename="../cut_folder_dialog.py" line="769"/>
         <source>参照…</source>
         <translation>Browse…</translation>
     </message>
     <message>
-        <location filename="../cut_folder_dialog.py" line="787"/>
+        <location filename="../cut_folder_dialog.py" line="795"/>
         <source>書き出す</source>
         <translation>Export</translation>
     </message>
     <message>
-        <location filename="../cut_folder_dialog.py" line="821"/>
+        <location filename="../cut_folder_dialog.py" line="829"/>
         <source>このフォルダーを削除</source>
         <translation>Delete this folder</translation>
     </message>
     <message>
-        <location filename="../cut_folder_dialog.py" line="856"/>
+        <location filename="../cut_folder_dialog.py" line="864"/>
         <source>未入力</source>
         <translation>Not entered</translation>
     </message>
     <message>
-        <location filename="../cut_folder_dialog.py" line="913"/>
-        <location filename="../cut_folder_dialog.py" line="915"/>
+        <location filename="../cut_folder_dialog.py" line="924"/>
+        <location filename="../cut_folder_dialog.py" line="926"/>
         <source>プリセット: {name}</source>
         <translation>Preset: {name}</translation>
     </message>
     <message>
-        <location filename="../cut_folder_dialog.py" line="917"/>
+        <location filename="../cut_folder_dialog.py" line="928"/>
         <source>現在の構成をプリセットに保存…</source>
         <translation>Save the current layout as a preset…</translation>
     </message>
     <message>
-        <location filename="../cut_folder_dialog.py" line="919"/>
+        <location filename="../cut_folder_dialog.py" line="930"/>
         <source>選択中のプリセットを削除</source>
         <translation>Delete the selected preset</translation>
     </message>
     <message>
-        <location filename="../cut_folder_dialog.py" line="935"/>
-        <location filename="../cut_folder_dialog.py" line="939"/>
+        <location filename="../cut_folder_dialog.py" line="946"/>
+        <location filename="../cut_folder_dialog.py" line="950"/>
         <source>プリセットを保存</source>
         <translation>Save preset</translation>
     </message>
     <message>
-        <location filename="../cut_folder_dialog.py" line="935"/>
+        <location filename="../cut_folder_dialog.py" line="946"/>
         <source>プリセット名</source>
         <translation>Preset name</translation>
     </message>
     <message>
-        <location filename="../cut_folder_dialog.py" line="939"/>
+        <location filename="../cut_folder_dialog.py" line="950"/>
         <source>組み込みプリセットと同じ名前は使えません。</source>
         <translation>A built-in preset already uses that name.</translation>
     </message>
     <message>
-        <location filename="../cut_folder_dialog.py" line="984"/>
+        <location filename="../cut_folder_dialog.py" line="995"/>
         <source>「{name}」を入力してください。</source>
         <translation>Enter &quot;{name}&quot;.</translation>
     </message>
     <message>
-        <location filename="../cut_folder_dialog.py" line="986"/>
+        <location filename="../cut_folder_dialog.py" line="997"/>
         <source>セル画像にセル番号のブロックがありません。</source>
         <translation>The cell image name has no cell number block.</translation>
     </message>
     <message>
-        <location filename="../cut_folder_dialog.py" line="988"/>
+        <location filename="../cut_folder_dialog.py" line="999"/>
         <source>同じ名前のファイルができます：{path}</source>
         <translation>Two files would get the same name: {path}</translation>
     </message>
     <message>
-        <location filename="../cut_folder_dialog.py" line="993"/>
+        <location filename="../cut_folder_dialog.py" line="738"/>
+        <location filename="../cut_folder_dialog.py" line="1004"/>
         <source>タイムシート</source>
         <translation>Time sheet</translation>
     </message>
     <message>
-        <location filename="../cut_folder_dialog.py" line="997"/>
+        <location filename="../cut_folder_dialog.py" line="1008"/>
         <source>{where}の名前「{name}」は使えません。</source>
         <translation>The {where} name &quot;{name}&quot; cannot be used.</translation>
     </message>
     <message>
-        <location filename="../cut_folder_dialog.py" line="1011"/>
+        <location filename="../cut_folder_dialog.py" line="1022"/>
         <source>（既存のフォルダー）</source>
         <translation>(existing folder)</translation>
     </message>
     <message>
-        <location filename="../cut_folder_dialog.py" line="1045"/>
+        <location filename="../cut_folder_dialog.py" line="1056"/>
         <source>書き出せるセルがありません。</source>
         <translation>There are no cells to export.</translation>
     </message>
     <message>
-        <location filename="../cut_folder_dialog.py" line="1047"/>
+        <location filename="../cut_folder_dialog.py" line="1058"/>
         <source>保存先を指定してください。</source>
         <translation>Choose where to save.</translation>
     </message>
     <message>
-        <location filename="../cut_folder_dialog.py" line="1054"/>
+        <location filename="../cut_folder_dialog.py" line="1065"/>
         <source>保存先を選ぶ</source>
         <translation>Choose where to save</translation>
     </message>

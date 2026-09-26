@@ -22,7 +22,7 @@ def test_pma_standard_renders_folder_cels_and_timesheet():
 
 
 def test_ts_pool_preset_matches_the_compositing_handoff_layout():
-    # PMA_C002/{A,B}/A_0001.png, _ts/c002.xdts and an empty _pool.
+    # PMA_C002/{A,B}/A_0001.png, _ts/c002.tdts and an empty _pool.
     plan = cf.plan_export(
         cf.ts_pool_layout(),
         {"title": "PMA", "scene": "", "episode": "", "cut": "2"},
@@ -31,8 +31,16 @@ def test_ts_pool_preset_matches_the_compositing_handoff_layout():
     assert plan.ok, plan.problems
     assert plan.folder_name == "PMA_C002"
     assert [path for path, _ in plan.files] == ["A/A_0001.png", "B/B_0001.png"]
-    assert plan.timesheet_path == "_ts/c002.xdts"
+    assert plan.timesheet_path == "_ts/c002.tdts"
     assert "_pool" in plan.folders
+
+
+def test_timesheet_format_round_trips_and_falls_back_to_xdts():
+    layout = cf.ts_pool_layout()
+    assert cf.CutFolderLayout.from_json(layout.to_json()).timesheet_format == "tdts"
+    data = dict(layout.to_json(), timesheet_format="doc")
+    assert cf.CutFolderLayout.from_json(data).timesheet_format == "xdts"
+    assert cf.CutFolderLayout.from_json({}).timesheet_format == "xdts"
 
 
 def test_empty_field_drops_prefix_and_suffix():

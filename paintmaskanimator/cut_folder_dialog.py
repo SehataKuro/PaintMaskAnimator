@@ -734,7 +734,15 @@ class CutFolderExportDialog(QDialog):
 
         left.addWidget(QLabel(tr("タイムシートのフォルダー")))
         left.addWidget(self.timesheet_folder_editor)
-        left.addWidget(QLabel(tr("タイムシート (.xdts)")))
+        sheet_row = QHBoxLayout()
+        sheet_row.addWidget(QLabel(tr("タイムシート")))
+        sheet_row.addStretch(1)
+        self.timesheet_format_combo = QComboBox()
+        for extension in cf.TIMESHEET_EXTENSIONS:
+            self.timesheet_format_combo.addItem(f".{extension}", extension)
+        self.timesheet_format_combo.currentIndexChanged.connect(self._layout_changed)
+        sheet_row.addWidget(self.timesheet_format_combo)
+        left.addLayout(sheet_row)
         left.addWidget(self.timesheet_editor)
 
         extra_head = QHBoxLayout()
@@ -880,6 +888,7 @@ class CutFolderExportDialog(QDialog):
             timesheet_folder=self.timesheet_folder_editor.template(),
             extra_folders=[e.template() for _h, e in self.extra_editors if e.template()],
             image_format=self.format_combo.currentData(),
+            timesheet_format=self.timesheet_format_combo.currentData(),
         )
 
     def set_layout(self, layout):
@@ -892,6 +901,8 @@ class CutFolderExportDialog(QDialog):
             self.timesheet_folder_editor.set_template(layout.timesheet_folder)
             index = self.format_combo.findData(layout.image_format)
             self.format_combo.setCurrentIndex(max(0, index))
+            index = self.timesheet_format_combo.findData(layout.timesheet_format)
+            self.timesheet_format_combo.setCurrentIndex(max(0, index))
             for holder, _editor in self.extra_editors:
                 holder.deleteLater()
             self.extra_editors = []

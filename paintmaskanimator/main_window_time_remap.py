@@ -11,6 +11,7 @@ import math
 import re
 from pathlib import Path
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
+from . import timesheet_file
 from .i18n import tr
 from .errors import OPERATION_ERRORS as _OPERATION_ERRORS, OperationError
 from .utils import blank_image
@@ -158,7 +159,7 @@ class TimeRemapController:
             raise OperationError(tr("貼り付けデータが空です。"))
 
         lowered = text_value.lower()
-        if text_value.startswith("exchangeDigitalTimeSheet Save Data"):
+        if text_value.startswith((timesheet_file.XDTS_SIGNATURE, timesheet_file.TDTS_SIGNATURE)):
             return cls._parse_xdts_timesheet(text_value)
         if (
             "toeidigitaltimesheet copy data" in lowered
