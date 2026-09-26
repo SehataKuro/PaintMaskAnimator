@@ -128,8 +128,6 @@ jobs:
 
       # export-site rebuilds dist/site from scratch, so the coverage report is
       # copied in afterwards. It is then served at /paintmaskanimator/coverage.
-      # (The download page lives under downloads/, which the deploy step keeps
-      # separate from the rsynced feature map — see publish-feature-map.)
       - name: Add coverage report to site
         run: |
           mkdir -p progress-site/dist/site/coverage
@@ -185,32 +183,22 @@ jobs:
           SOURCE_SHA: ${{ github.sha }}
         run: |
           mkdir -p website/public/paintmaskanimator
-          # --delete keeps the site in sync with the generated output, but the
-          # download indexes are published by the Release workflow (not here),
-          # so they must be preserved.
+          # --delete keeps the site in sync with the generated output. It also
+          # removes what the site used to distribute (the download page under
+          # downloads/ and the updates.json / versions.json indexes): releases
+          # are now distributed from GitHub Releases only.
           rsync -a --delete \
-            --exclude 'downloads/' \
-            --exclude 'updates.json' \
-            --exclude 'versions.json' \
             generated-site/ website/public/paintmaskanimator/
-          # The static download page lives under the excluded downloads/ dir
-          # (kept separate so the JSON indexes there are never rsync-deleted),
-          # so copy it in explicitly. Installers live in R2 and are streamed by
-          # the downloads Function; the indexes come from the Release workflow.
-          mkdir -p website/public/paintmaskanimator/downloads
-          cp source/deploy/jokomanato/downloads/index.html \
-            website/public/paintmaskanimator/downloads/index.html
-          # Cloudflare Pages Functions: Basic-auth over the whole path, plus the
-          # R2-backed installer download route.
-          mkdir -p website/functions/paintmaskanimator/downloads
+          # Cloudflare Pages Function: Basic-auth over the whole path. The
+          # R2-backed installer route is gone along with the downloads.
+          rm -rf website/functions/paintmaskanimator/downloads
+          mkdir -p website/functions/paintmaskanimator
           cp source/deploy/jokomanato/functions/paintmaskanimator/_middleware.js \
             website/functions/paintmaskanimator/_middleware.js
-          cp "source/deploy/jokomanato/functions/paintmaskanimator/downloads/[[path]].js" \
-            "website/functions/paintmaskanimator/downloads/[[path]].js"
           cd website
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add public/paintmaskanimator functions/paintmaskanimator
+          git add -A public/paintmaskanimator functions/paintmaskanimator
           if git diff --cached --quiet; then
             echo "Feature map is already up to date."
             exit 0

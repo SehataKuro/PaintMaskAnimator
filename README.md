@@ -10,7 +10,7 @@
 [![Release](https://img.shields.io/badge/release-v0.6.5-blue)](https://github.com/SehataKuro/PaintMaskAnimator/releases)
 [![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![PySide6](https://img.shields.io/badge/PySide6-6.5%2B-41CD52?logo=qt&logoColor=white)](https://doc.qt.io/qtforpython/)
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey)](https://jokomanato.com/paintmaskanimator/downloads/)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey)](https://github.com/SehataKuro/PaintMaskAnimator/releases)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
 
 PySide6 で作られたペイント / マスクアニメーションツールです。
@@ -18,10 +18,10 @@ PySide6 で作られたペイント / マスクアニメーションツールで
 
 ## 関連リンク
 
-- [ダウンロードページ](https://jokomanato.com/paintmaskanimator/downloads/)
+- [ダウンロード（GitHub Releases）](https://github.com/SehataKuro/PaintMaskAnimator/releases)
 - [機能検証マップ（各コミットのテスト結果から自動更新）](https://jokomanato.com/paintmaskanimator/)
 
-ページの閲覧には Basic 認証が必要です。
+機能検証マップの閲覧には Basic 認証が必要です。
 
 - ユーザー名: `guest`
 - パスワード: `6eCKEq`

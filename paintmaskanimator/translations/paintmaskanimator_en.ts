@@ -890,8 +890,8 @@ Could not read the image size.
         <location filename="../main_window.py" line="525"/>
         <location filename="../main_window.py" line="532"/>
         <location filename="../main_window.py" line="585"/>
-        <location filename="../main_window.py" line="956"/>
-        <location filename="../main_window.py" line="987"/>
+        <location filename="../main_window.py" line="955"/>
+        <location filename="../main_window.py" line="986"/>
         <source>画像を読み込めませんでした。
 
 {error}</source>
@@ -901,13 +901,13 @@ Could not read the image size.
     </message>
     <message>
         <location filename="../main_window.py" line="541"/>
-        <location filename="../main_window.py" line="965"/>
+        <location filename="../main_window.py" line="964"/>
         <source>画像を読み込んでいます</source>
         <translation>Loading images</translation>
     </message>
     <message>
         <location filename="../main_window.py" line="552"/>
-        <location filename="../main_window.py" line="976"/>
+        <location filename="../main_window.py" line="975"/>
         <source>{label}（画像 {value}/{total}）</source>
         <translation>{label} (image {value}/{total})</translation>
     </message>
@@ -943,44 +943,48 @@ Could not read the image size.
         <translation>Placed {len} images along the timeline as a sequence{note}, and finished scanning used colours.</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="647"/>
+        <location filename="../main_window.py" line="646"/>
         <source>更新確認エラー</source>
         <translation>Update check error</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="647"/>
+        <location filename="../main_window.py" line="646"/>
         <source>不明なエラー</source>
         <translation>Unknown error</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="653"/>
+        <location filename="../main_window.py" line="652"/>
         <source>更新の確認</source>
         <translation>Check for updates</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="654"/>
+        <location filename="../main_window.py" line="653"/>
         <source>最新版を使用しています。（現在: v{VERSION}）</source>
         <translation>You are on the latest version. (current: v{VERSION})</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="663"/>
+        <location filename="../main_window.py" line="662"/>
         <source>更新あり</source>
         <translation>Update available</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="664"/>
+        <location filename="../main_window.py" line="663"/>
         <source>新しいバージョン {latest} が利用可能ですが、この環境向けの
-インストーラが見つかりませんでした。配布ページを確認してください。</source>
+インストーラが見つかりませんでした。リリースページを確認してください。
+
+{url}</source>
         <translation>Version {latest} is available, but no installer was found for this platform.
-Please check the download page.</translation>
+Please check the releases page.
+
+{url}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="670"/>
+        <location filename="../main_window.py" line="669"/>
         <source>更新があります</source>
         <translation>Update available</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="671"/>
+        <location filename="../main_window.py" line="670"/>
         <source>新しいバージョン {latest} が利用可能です。
 （現在: v{VERSION}）
 
@@ -991,22 +995,22 @@ Please check the download page.</translation>
 Download and install it?</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="682"/>
+        <location filename="../main_window.py" line="681"/>
         <source>更新をダウンロードしています…</source>
         <translation>Downloading the update…</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="684"/>
+        <location filename="../main_window.py" line="683"/>
         <source>更新のダウンロード</source>
         <translation>Update download</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="706"/>
+        <location filename="../main_window.py" line="705"/>
         <source>ダウンロード失敗</source>
         <translation>Download failed</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="706"/>
+        <location filename="../main_window.py" line="705"/>
         <source>更新を取得できませんでした。
 
 {error}</source>
@@ -1015,23 +1019,23 @@ Download and install it?</translation>
 {error}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="713"/>
+        <location filename="../main_window.py" line="712"/>
         <source>インストール</source>
         <translation>Install</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="714"/>
+        <location filename="../main_window.py" line="713"/>
         <source>ダウンロードが完了しました。インストーラを起動して
 アプリを終了します。よろしいですか？</source>
         <translation>The download finished. The installer will start and the application will quit. Continue?</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="730"/>
+        <location filename="../main_window.py" line="729"/>
         <source>起動失敗</source>
         <translation>Launch failed</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="730"/>
+        <location filename="../main_window.py" line="729"/>
         <source>インストーラを起動できませんでした。
 
 {error}</source>
@@ -1040,26 +1044,26 @@ Download and install it?</translation>
 {error}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="889"/>
+        <location filename="../main_window.py" line="888"/>
         <location filename="../main_window_ui_build.py" line="292"/>
         <source>画像を読み込む</source>
         <translation>Import Images</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="891"/>
-        <location filename="../main_window.py" line="942"/>
+        <location filename="../main_window.py" line="890"/>
+        <location filename="../main_window.py" line="941"/>
         <source>画像 (*.png *.jpg *.jpeg *.tga);;PNG (*.png);;JPEG (*.jpg *.jpeg);;TGA (*.tga)</source>
         <translation>Images (*.png *.jpg *.jpeg *.tga);;PNG (*.png);;JPEG (*.jpg *.jpeg);;TGA (*.tga)</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="904"/>
-        <location filename="../main_window.py" line="924"/>
+        <location filename="../main_window.py" line="903"/>
+        <location filename="../main_window.py" line="923"/>
         <location filename="../main_window_ui_build.py" line="293"/>
         <source>画像フォルダーを読み込む</source>
         <translation>Import Image Folder</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="925"/>
+        <location filename="../main_window.py" line="924"/>
         <source>選択したフォルダーに対応画像がありません。
 
 対応形式：PNG、JPEG、TGA</source>
@@ -1068,55 +1072,55 @@ Download and install it?</translation>
 Supported formats: PNG, JPEG, TGA</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="940"/>
+        <location filename="../main_window.py" line="939"/>
         <source>変換せず読み込む（下書きレイヤー）</source>
         <translation>Import unconverted (draft layer)</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="955"/>
-        <location filename="../main_window.py" line="963"/>
-        <location filename="../main_window.py" line="986"/>
+        <location filename="../main_window.py" line="954"/>
+        <location filename="../main_window.py" line="962"/>
+        <location filename="../main_window.py" line="985"/>
         <source>変換せず読み込む</source>
         <translation>Import unconverted</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="994"/>
+        <location filename="../main_window.py" line="993"/>
         <source>{len}枚を下書きレイヤーへ変換せず読み込みました。</source>
         <translation>Imported {len} images into a draft layer without conversion.</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="999"/>
+        <location filename="../main_window.py" line="998"/>
         <source>キャンバスサイズの変更</source>
         <translation>Resize Canvas</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1084"/>
+        <location filename="../main_window.py" line="1083"/>
         <source>ファイル・編集</source>
         <translation>File and Edit</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1086"/>
+        <location filename="../main_window.py" line="1085"/>
         <source>キャンバス操作</source>
         <translation>Canvas operations</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1087"/>
+        <location filename="../main_window.py" line="1086"/>
         <source>ツールコマンド</source>
         <translation>Tool commands</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1093"/>
+        <location filename="../main_window.py" line="1092"/>
         <source>PNG保存</source>
         <translation>Save PNG</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1114"/>
-        <location filename="../main_window.py" line="1118"/>
+        <location filename="../main_window.py" line="1113"/>
+        <location filename="../main_window.py" line="1117"/>
         <source>TGA保存</source>
         <translation>Save TGA</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1118"/>
+        <location filename="../main_window.py" line="1117"/>
         <source>TGAを保存できませんでした。Pillowの導入を確認してください。</source>
         <translation>Could not save the TGA. Check that Pillow is installed.</translation>
     </message>
@@ -1789,7 +1793,7 @@ Drop a used colour onto the middle of another to create a parent/child link.</tr
         <translation>Canvas</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1085"/>
+        <location filename="../main_window.py" line="1084"/>
         <location filename="../main_window_ui_build.py" line="613"/>
         <source>ツール</source>
         <translation>Tools</translation>
@@ -1830,7 +1834,7 @@ Drop a used colour onto the middle of another to create a parent/child link.</tr
         <translation>History</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1088"/>
+        <location filename="../main_window.py" line="1087"/>
         <location filename="../main_window_ui_build.py" line="727"/>
         <source>タイムライン</source>
         <translation>Timeline</translation>
@@ -3882,7 +3886,7 @@ Line art: binarises the line work while preserving the white background and the 
     <message>
         <location filename="../color_reduction.py" line="507"/>
         <location filename="../cut_folder_dialog.py" line="792"/>
-        <location filename="../main_window.py" line="682"/>
+        <location filename="../main_window.py" line="681"/>
         <location filename="../main_window_import.py" line="90"/>
         <location filename="../main_window_project_io.py" line="126"/>
         <location filename="../widgets.py" line="705"/>
@@ -5426,24 +5430,29 @@ Layer cell {value} / {exposure} exposures</translation>
         <translation>Palette edit</translation>
     </message>
     <message>
-        <location filename="../updater.py" line="188"/>
-        <source>更新サーバーの認証に失敗しました。アプリの更新用パスワードがサイト側の設定と一致していない可能性があります。</source>
-        <translation>Authentication with the update server failed. The update password may not match the one configured on the site.</translation>
+        <location filename="../updater.py" line="145"/>
+        <source>公開されているリリースが見つかりませんでした。</source>
+        <translation>No published release was found.</translation>
     </message>
     <message>
-        <location filename="../updater.py" line="194"/>
-        <source>更新情報が見つかりませんでした（updates.json 未公開）。</source>
-        <translation>No update information was found (updates.json is not published).</translation>
+        <location filename="../updater.py" line="150"/>
+        <source>GitHubへの問い合わせが多すぎます。しばらくしてから再度お試しください。</source>
+        <translation>Too many requests to GitHub. Please try again later.</translation>
     </message>
     <message>
-        <location filename="../updater.py" line="196"/>
+        <location filename="../updater.py" line="152"/>
         <source>HTTPエラー: {code}</source>
         <translation>HTTP error: {code}</translation>
     </message>
     <message>
-        <location filename="../updater.py" line="198"/>
+        <location filename="../updater.py" line="154"/>
         <source>ネットワークエラー: {reason}</source>
         <translation>Network error: {reason}</translation>
+    </message>
+    <message>
+        <location filename="../updater.py" line="159"/>
+        <source>リリース情報の形式が不正です。</source>
+        <translation>The release information is malformed.</translation>
     </message>
     <message>
         <location filename="../widgets.py" line="63"/>

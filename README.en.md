@@ -10,7 +10,7 @@ English | [日本語](README.md)
 [![Release](https://img.shields.io/badge/release-v0.6.5-blue)](https://github.com/SehataKuro/PaintMaskAnimator/releases)
 [![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![PySide6](https://img.shields.io/badge/PySide6-6.5%2B-41CD52?logo=qt&logoColor=white)](https://doc.qt.io/qtforpython/)
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey)](https://jokomanato.com/paintmaskanimator/downloads/)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey)](https://github.com/SehataKuro/PaintMaskAnimator/releases)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
 
 A paint and mask animation tool built with PySide6.
@@ -18,10 +18,10 @@ Short name: **PMAn** (pronounced "piman").
 
 ## Related Links
 
-- [Download page](https://jokomanato.com/paintmaskanimator/downloads/)
+- [Download (GitHub Releases)](https://github.com/SehataKuro/PaintMaskAnimator/releases)
 - [Feature verification map (automatically updated from test results for each commit)](https://jokomanato.com/paintmaskanimator/)
 
-Basic authentication is required to view these pages.
+Basic authentication is required to view the feature verification map.
 
 - Username: `guest`
 - Password: `6eCKEq`

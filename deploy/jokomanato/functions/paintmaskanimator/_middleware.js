@@ -1,6 +1,6 @@
 /**
  * Cloudflare Pages Function: HTTP Basic Auth for the ENTIRE PaintMaskAnimator
- * path — every page, plus the installer downloads and the update manifest.
+ * path — the feature verification map and the coverage report.
  *
  * Deployed into the jokomanato.com site repository at
  * `functions/paintmaskanimator/_middleware.js`; it therefore runs for every
@@ -8,9 +8,8 @@
  *
  * The shared password is read from the `SITE_PASSWORD` (and optional
  * `SITE_USERNAME`, default "guest") environment variables configured on the
- * Cloudflare Pages project — nothing secret is committed here. The in-app
- * updater authenticates with the SAME shared credentials (baked into the app's
- * constants), so `downloads/` and `updates.json` no longer need to be public.
+ * Cloudflare Pages project — nothing secret is committed here. Releases are
+ * distributed from GitHub Releases, not from this site.
  */
 function unauthorized() {
   return new Response("Authentication required.", {

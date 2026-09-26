@@ -2,8 +2,8 @@
 
 Holds lightweight preferences (theme, workspace layout, log level, action-panel
 settings). Stored under the OS user-config directory so it survives reinstalls.
-The updater uses a baked-in shared credential, so no per-user secret is kept
-here; the file is still written owner-only in case one is added later.
+No secret is kept here; the file is still written owner-only in case one is
+added later.
 """
 import json
 import os
