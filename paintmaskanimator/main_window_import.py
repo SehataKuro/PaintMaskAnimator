@@ -7,7 +7,6 @@ A collaborator rather than a mixin -- see ``main_window_export.py`` for why.
 """
 from typing import TYPE_CHECKING, Any, cast
 
-import json
 from pathlib import Path
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QImage
@@ -30,7 +29,7 @@ from .clip_animation import (
 )
 from . import timesheet_file
 from .errors import OPERATION_ERRORS as _OPERATION_ERRORS, OperationError
-from .models import Layer, default_layer_name
+from .models import Layer
 from .utils import blank_image
 from .logging_setup import get_logger
 
@@ -655,123 +654,3 @@ class ImportController:
         if skipped:
             message += tr("\n調整レイヤーなど{skipped}項目は破棄しました。").format(skipped=skipped)
         QMessageBox.information(self.window, tr("PSD読み込み"), message)
-
-    def xdts_dialog(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self.window,
-            tr("タイムシートを読み込む（XDTS／TDTS）"),
-            "",
-            tr("タイムシート (*.xdts *.xtds *.tdts);;すべてのファイル (*)"),
-        )
-        if not path:
-            return
-        try:
-            raw = Path(path).read_text(encoding="utf-8-sig")
-            time_table = timesheet_file.load_time_table(raw)
-            duration = max(1, int(time_table.get("duration", 1)))
-            cell_field = next(
-                (field for field in time_table.get("fields", [])
-                 if int(field.get("fieldId", -1)) == 0),
-                None,
-            )
-            if cell_field is None:
-                raise OperationError(tr("セル欄（fieldId 0）がありません。"))
-            tracks = sorted(
-                cell_field.get("tracks", []),
-                key=lambda track: int(track.get("trackNo", 0)),
-            )
-            header = next(
-                (item for item in time_table.get("timeTableHeaders", [])
-                 if int(item.get("fieldId", -1)) == 0),
-                {},
-            )
-            names = list(header.get("names", []))
-        except (OSError, UnicodeError, ValueError, TypeError, json.JSONDecodeError) as exc:
-            QMessageBox.critical(self.window, tr("XDTS読み込み"), tr("読み込めませんでした。\n\n{exc}").format(exc=exc))
-            return
-
-        self.window.canvas.push_doc_undo()
-        maximum_track = max(
-            (int(track.get("trackNo", 0)) for track in tracks), default=0
-        )
-        required_layers = maximum_track + 1
-        for frame in self.window.canvas.frames:
-            while len(frame.layers) < required_layers:
-                index = len(frame.layers)
-                name = names[index] if index < len(names) else default_layer_name(index)
-                frame.layers.append(Layer(name, blank_image()))
-        self.window.canvas._ensure_frame_count(duration)
-
-        missing_images = set()
-        for track in tracks:
-            layer_index = int(track.get("trackNo", 0))
-            image_bank = {}
-            for frame in self.window.canvas.frames:
-                layer = frame.layers[layer_index]
-                if layer.has_content and layer.sequence_number is not None:
-                    image_bank.setdefault(int(layer.sequence_number), layer.image.copy())
-            for frame in self.window.canvas.frames:
-                self.window.canvas._clear_timeline_layer_cell(frame.layers[layer_index])
-            values = {int(item.get("frame", 0)): item for item in track.get("frames", [])}
-            states = []
-            previous = None
-            for frame_number in range(duration):
-                item = values.get(frame_number)
-                if item is None:
-                    # Only changes are listed: a frame without an entry
-                    # continues the previous one.
-                    states.append(previous)
-                    continue
-                instruction = next(
-                    (data for data in item.get("data", []) if int(data.get("id", -1)) == 0),
-                    {},
-                )
-                raw_values = instruction.get("values", [])
-                value = str(raw_values[0]) if raw_values else "SYMBOL_NULL_CELL"
-                if value == "SYMBOL_HYPHEN":
-                    state = previous
-                elif value in ("SYMBOL_NULL_CELL", "SYMBOL_TICK_1", "SYMBOL_TICK_2"):
-                    state = None
-                else:
-                    try:
-                        state = int(value)
-                    except ValueError:
-                        state = None
-                states.append(state)
-                previous = state
-
-            run_start = 0
-            for end in range(1, duration + 1):
-                if end < duration and states[end] == states[run_start]:
-                    continue
-                state = states[run_start]
-                target = self.window.canvas.frames[run_start].layers[layer_index]
-                target.exposure = end - run_start
-                if state is None:
-                    target.image = blank_image()
-                    target.has_content = False
-                    target.is_blank_key = True
-                else:
-                    target.image = image_bank.get(state, blank_image()).copy()
-                    target.has_content = True
-                    target.is_blank_key = False
-                    target.sequence_number = state
-                    if state not in image_bank:
-                        missing_images.add((layer_index, state))
-                run_start = end
-            if layer_index < len(names):
-                for frame in self.window.canvas.frames:
-                    frame.layers[layer_index].name = names[layer_index]
-
-        self.window.canvas.current_frame = 0
-        self.window.canvas.active_layer_index = 0
-        self.window.canvas.timeline_mode = "sheet"
-        self.window.timeline.set_timeline_mode("sheet")
-        self.window.canvas._cell_structure_dirty = True
-        self.window.canvas.changed.emit()
-        self.window.canvas.selectionChanged.emit()
-        self.window.canvas.update()
-        message = tr("XDTSタイムシートを読み込みました。")
-        if missing_images:
-            message += tr("\n対応画像がない番号：{len}件（白画像で配置）").format(len=len(missing_images))
-        QMessageBox.information(self.window, tr("XDTS読み込み"), message)
