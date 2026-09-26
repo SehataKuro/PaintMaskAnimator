@@ -25,12 +25,25 @@ pip install -e ".[dev,full]"
 
 ## 提出前の確認
 
+CIと同じチェック（ruff・pyright・バージョン表記・翻訳カタログ・テスト）を
+まとめて実行します。
+
 ```bash
-ruff check paintmaskanimator
-pyright
-python scripts/update_translations.py --check
-pytest
+python scripts/preflight.py          # テストを含むすべて
+python scripts/preflight.py --quick  # テスト以外（数秒）
 ```
+
+push のたびに自動で実行するには、クローンごとに一度だけ次を実行します。
+通常の push では `--quick` を、リリースタグの push ではテストとリリース用の
+確認を含むすべてを実行します。
+
+```bash
+git config core.hooksPath .githooks
+```
+
+テストは設定フォルダーを一時フォルダーへ隔離し、想定外のモーダルダイアログが
+開いたら待たずに失敗します（ルートの `conftest.py`）。ダイアログを開くことが
+仕様のテストでは、`QMessageBox.question` などを monkeypatch してください。
 
 ## MainWindow に機能を足すとき
 
@@ -104,6 +117,30 @@ if self.shape_type.currentData() == "polygon":
 ```bash
 python scripts/update_translations.py
 ```
+
+## リリース
+
+1. `CHANGELOG.md` の「未リリース」節に、前回のリリース以降のユーザーから
+   見える変更がすべて載っていることを確認します。リリースノートはこの節から
+   作られます。
+
+   ```bash
+   git log --oneline --no-merges $(git describe --tags --abbrev=0)..HEAD
+   ```
+
+2. バージョン表記（`pyproject.toml`・README のバッジ・`CHANGELOG.md` の見出しと
+   リンク）をまとめて更新します。
+
+   ```bash
+   python scripts/bump_version.py 0.6.5
+   ```
+
+3. リリース用の確認を通してからコミットし、タグを push します。
+   リリースワークフローも同じ確認を最初に行います。
+
+   ```bash
+   python scripts/preflight.py --release 0.6.5
+   ```
 
 ## パッケージングを変更する場合
 

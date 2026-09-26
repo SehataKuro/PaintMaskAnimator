@@ -47,6 +47,9 @@ jobs:
           ruff check paintmaskanimator tests scripts
           pyright
 
+      - name: Check translation catalogues are current
+        run: python scripts/update_translations.py --check
+
       - name: Compile translation catalogues
         run: python scripts/update_translations.py
 
@@ -105,6 +108,9 @@ jobs:
         run: |
           ruff check paintmaskanimator tests scripts
           pyright
+
+      - name: Check translation catalogues are current
+        run: python scripts/update_translations.py --check
 
       - name: Compile translation catalogues
         run: python scripts/update_translations.py
