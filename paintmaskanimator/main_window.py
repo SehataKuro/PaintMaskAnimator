@@ -59,7 +59,7 @@ from .models import Frame, Layer, make_frame
 from .pressure import PressureDialog
 from .timeline import TimelineWidget
 from .toolpanel import ToolPanel, ToolSelectorPanel
-from .utils import blank_image, disable_windows_ink_feedback, workspace_size
+from .utils import blank_image, disable_windows_ink_feedback, install_app_event_filter, remove_app_event_filter, workspace_size
 from .widgets import (CanvasSizeDialog, ShortcutDialog)
 from .progress import close_counter, create_counter, update_counter
 from .logging_setup import get_logger
@@ -158,9 +158,7 @@ class MainWindow(
         self.build_actions();self.action_panel=ActionPanel(self);self.build_action_panel();self.build_menu();self.build_ui();self.connect_signals();self.refresh_ui();self.action_panel.reload_python_actions()
         self._refresh_theme_dependent_ui()
         self.colors._sync_tool_selector_swatch()
-        app = QApplication.instance()
-        if app is not None:
-            app.installEventFilter(self)
+        install_app_event_filter(self)
         self.project.update_title()
         QTimer.singleShot(0,self.fit_canvas)
         QTimer.singleShot(
@@ -1044,9 +1042,7 @@ class MainWindow(
             # A closed window must stop filtering application-wide events;
             # otherwise it keeps intercepting input for the rest of the process
             # (and leaks across tests that share one QApplication).
-            app = QApplication.instance()
-            if app is not None:
-                app.removeEventFilter(self)
+            remove_app_event_filter(self)
         except RuntimeError:
             log.debug("application was deleted during event-filter cleanup", exc_info=True)
         try:

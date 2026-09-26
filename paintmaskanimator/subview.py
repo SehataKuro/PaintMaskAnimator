@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
 from .i18n import tr
 from .optional_deps import PILImage, PSDImage
 from . import imaging
-from .utils import drag_zoom_factor, magnifier_cursor
+from .utils import drag_zoom_factor, install_app_event_filter, magnifier_cursor
 
 
 SUBVIEW_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tga", ".psd"}
@@ -132,9 +132,7 @@ class SubViewWidget(QWidget):
             lambda: self.rotation_slider.setValue(0)
         )
         self._update_navigation()
-        app = QApplication.instance()
-        if app is not None:
-            app.installEventFilter(self)
+        install_app_event_filter(self)
 
     def eventFilter(self, watched, event):
         """サブビューが前面なら、子部品のフォーカスに関係なくSpaceを捕捉する。"""

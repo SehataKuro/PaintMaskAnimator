@@ -178,3 +178,16 @@ def test_seed_upgrades_untouched_legacy_builtin(qapp, tmp_path, monkeypatch):
     panel._seed_builtin_scripts()
 
     assert (tmp_path / name).read_text(encoding="utf-8") == BUILTIN_SCRIPTS[name]
+
+
+def test_macos_vscode_cli_found_inside_app_bundle(tmp_path, monkeypatch):
+    from paintmaskanimator.actionpanel import ScriptEditorDialog
+
+    monkeypatch.setattr(
+        ScriptEditorDialog, "_macos_app_roots", staticmethod(lambda: (tmp_path,))
+    )
+    assert ScriptEditorDialog._macos_vscode_cli() is None
+    cli = tmp_path / "Visual Studio Code.app/Contents/Resources/app/bin/code"
+    cli.parent.mkdir(parents=True)
+    cli.write_text("#!/bin/sh\n")
+    assert ScriptEditorDialog._macos_vscode_cli() == str(cli)
