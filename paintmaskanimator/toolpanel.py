@@ -593,8 +593,12 @@ class ToolPanel(QWidget):
             "ON：クリック位置につながる同色領域だけを塗ります。"
             "OFF：レイヤー内の同じ色を一括で塗ります。"
         ))
-        self.bucket_include_sub=QCheckBox(tr("選択した使用色を含み塗り"))
+        self.bucket_include_sub=QCheckBox(tr("サブカラーを含み塗り"))
         self.bucket_include_sub.setChecked(False)
+        self.bucket_include_sub.setToolTip(tr(
+            "ON：塗る領域に接しているサブカラーの部分も一緒に塗ります。"
+            "色トレス線をサブカラーにしておくと、線ごと塗りつぶせます。"
+        ))
 
         # 隙間閉じと幅スライダーを同じ横一列へ配置する。
         self.bucket_close_gap=QCheckBox(tr("隙間閉じ"))

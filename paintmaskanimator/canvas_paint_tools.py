@@ -389,7 +389,10 @@ class PaintToolsMixin(CanvasMembers):
 
         final_region = region.copy()
         if include_masks:
-            selected_colors = self.selected_used_colors()
+            # 含み塗りの対象はサブカラー。使用色パネルでの選択に依存させると、
+            # 何を含むのかを塗る前に別の場所で準備する必要があり分かりにくい。
+            sub = QColor(self.sub_color)
+            selected_colors = {(sub.red(), sub.green(), sub.blue())}
             rgb = pixels[:, :, :3].astype(np.int32)
             opaque_pixels = pixels[:, :, 3] > 0
             mask_family = np.zeros((height, width), dtype=bool)
@@ -421,7 +424,7 @@ class PaintToolsMixin(CanvasMembers):
                         mask_family, starts
                     )
             else:
-                # 非隣接モードでは、選択された使用色もレイヤー全体から一括対象にする。
+                # 非隣接モードでは、サブカラーもレイヤー全体から一括対象にする。
                 final_region |= mask_family
 
         if selection_mask is not None:
