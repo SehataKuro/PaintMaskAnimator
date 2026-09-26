@@ -74,6 +74,10 @@ jobs:
         with:
           name: PaintMaskAnimator-Setup-${{ steps.ver.outputs.version }}
           path: dist_installer/*.exe
+          # Only a hand-off to publish-release, which puts the file on the GitHub
+          # Release and R2. Kept longer, every release's installers pile up
+          # against the Actions storage quota and a later upload fails.
+          retention-days: 1
 
   build-macos:
     runs-on: macos-latest
@@ -142,6 +146,10 @@ jobs:
         with:
           name: PaintMaskAnimator-${{ steps.ver.outputs.version }}-macOS
           path: PaintMaskAnimator-${{ steps.ver.outputs.version }}-macOS.dmg
+          # Only a hand-off to publish-release, which puts the file on the GitHub
+          # Release and R2. Kept longer, every release's installers pile up
+          # against the Actions storage quota and a later upload fails.
+          retention-days: 1
 
   publish-release:
     if: startsWith(github.ref, 'refs/tags/')
