@@ -1,0 +1,65 @@
+name: Release site
+
+# Builds the release site (site/ + scripts/build_release_site.py) and deploys
+# it to GitHub Pages. Nothing runs until the repository variable
+# RELEASE_SITE_ENABLED is set to "true" — the repository is still private, and
+# Pages (Settings › Pages › Source: GitHub Actions) must be enabled first.
+#
+# The Release workflow creates releases with GITHUB_TOKEN, which does not
+# trigger `release` events, so the site rebuilds when that workflow finishes.
+
+on:
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "scripts/build_release_site.py"
+      - "docs/assets/logo.png"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: >-
+      vars.RELEASE_SITE_ENABLED == 'true' &&
+      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Fetch releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh api "repos/${{ github.repository }}/releases" --paginate > releases.json
+
+      - name: Build site
+        run: python scripts/build_release_site.py --releases releases.json --output _site
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

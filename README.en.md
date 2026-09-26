@@ -6,6 +6,8 @@
 
 English | [日本語](README.md)
 
+**[Website](https://sehatakuro.github.io/PaintMaskAnimator/)** (Japanese) — downloads, release notes, past versions and help
+
 [![CI](https://github.com/SehataKuro/PaintMaskAnimator/actions/workflows/ci.yml/badge.svg)](https://github.com/SehataKuro/PaintMaskAnimator/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/badge/release-v0.6.5-blue)](https://github.com/SehataKuro/PaintMaskAnimator/releases)
 [![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
