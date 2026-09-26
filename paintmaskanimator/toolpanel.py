@@ -622,6 +622,35 @@ class ToolPanel(QWidget):
         bucket_gap_layout.addWidget(self.bucket_gap_width,1)
         bucket_gap_layout.addWidget(self.bucket_gap_width_label)
 
+        # 塗りつぶし・投げ縄塗りの不透明度。100%は選択RGBをそのまま書き込み、
+        # 100%未満だけ下地RGBと混色する（アルファは常に255、白は消しゴム）。
+        self.fill_opacity_row=QWidget()
+        fill_opacity_layout=QHBoxLayout(self.fill_opacity_row)
+        fill_opacity_layout.setContentsMargins(0,0,0,0)
+        fill_opacity_layout.setSpacing(4)
+        self.fill_opacity_title=QLabel(tr("不透明度"))
+        self.fill_opacity=QSlider(Qt.Orientation.Horizontal)
+        self.fill_opacity.setRange(1,100)
+        self.fill_opacity.setValue(100)
+        self.fill_opacity.setMinimumWidth(58)
+        self.fill_opacity_label=QLabel("100%")
+        self.fill_opacity_label.setFixedWidth(38)
+        self.fill_opacity.valueChanged.connect(
+            lambda value: self.fill_opacity_label.setText(f"{value}%")
+        )
+        fill_opacity_tooltip = tr(
+            "塗りつぶし・投げ縄塗りの不透明度。"
+            "100%は選択した色をそのまま塗ります（近似色は増えません）。"
+            "100%未満は下地の色と混ぜた色で塗ります。"
+        )
+        for widget in (
+            self.fill_opacity_title, self.fill_opacity, self.fill_opacity_label
+        ):
+            widget.setToolTip(fill_opacity_tooltip)
+        fill_opacity_layout.addWidget(self.fill_opacity_title)
+        fill_opacity_layout.addWidget(self.fill_opacity,1)
+        fill_opacity_layout.addWidget(self.fill_opacity_label)
+
         self.lasso_inside_boundary=QCheckBox(tr("境界線の内側だけを塗る"))
         self.lasso_inside_boundary.setChecked(False)
         self.lasso_main_outline_sub_fill=QCheckBox(tr("サブ色を実線、メイン色を内面にする"))
@@ -857,6 +886,7 @@ class ToolPanel(QWidget):
             self.bucket_adjacent,self.bucket_include_sub,
             self.bucket_gap_row,
             self.bucket_require_closed,
+            self.fill_opacity_row,
             self.dust_mode_label,self.dust_mode,
             self.dust_size_label,self.dust_size,
             self.dust_selected_only,
@@ -1251,6 +1281,7 @@ class ToolPanel(QWidget):
         self.bucket_include_sub.setVisible(is_bucket)
         self.bucket_gap_row.setVisible(uses_bucket_region)
         self.bucket_require_closed.setVisible(uses_bucket_region)
+        self.fill_opacity_row.setVisible(is_bucket or is_lasso_fill)
 
         self.dust_mode_label.setVisible(is_dust)
         self.dust_mode.setVisible(is_dust)

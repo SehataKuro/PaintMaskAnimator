@@ -483,23 +483,39 @@ class PaintToolsMixin(CanvasMembers):
             self.update()
             return
 
-        # 正規RGBをそのまま書き込む（近似色を生成しない）。
-        pixels[ys, xs, :3] = source_rgb
+        opacity = max(0.0, min(1.0, float(getattr(self, "fill_opacity", 1.0))))
+        if opacity >= 0.999999:
+            # 100%は正規RGBをそのまま書き込む（近似色を生成しない）。
+            pixels[ys, xs, :3] = source_rgb
+            written_colors = (
+                (int(source_rgb[0]), int(source_rgb[1]), int(source_rgb[2])),
+            )
+        else:
+            # 100%未満だけ下地RGB（透明は白とみなす）と混色する。
+            base_rgb = pixels[ys, xs, :3].astype(np.float32)
+            base_rgb[pixels[ys, xs, 3] == 0] = 255.0
+            mixed = np.clip(
+                np.rint(
+                    base_rgb * (1.0 - opacity)
+                    + source_rgb.astype(np.float32)[None, :] * opacity
+                ),
+                0,
+                255,
+            ).astype(np.uint8)
+            # 混色の結果が白になった画素を消しゴム扱いにしない。
+            mixed[np.all(mixed == 255, axis=1)] = 254
+            pixels[ys, xs, :3] = mixed
+            written_colors = tuple(
+                tuple(int(channel) for channel in row)
+                for row in np.unique(mixed, axis=0)
+            )
         pixels[ys, xs, 3] = 255
 
         self.active_layer.image = image.convertToFormat(
             QImage.Format.Format_ARGB32_Premultiplied
         )
         self.active_layer.has_content = True
-        self._emit_actual_paint_colors(
-            (
-                (
-                    int(source_rgb[0]),
-                    int(source_rgb[1]),
-                    int(source_rgb[2]),
-                ),
-            )
-        )
+        self._emit_actual_paint_colors(written_colors)
         self.cellChanged.emit(self.current_frame, self.active_layer_index)
         self.update()
 
@@ -1129,6 +1145,7 @@ class PaintToolsMixin(CanvasMembers):
             overlay,
             rect.topLeft(),
             exact_colors=exact_lasso_colors,
+            opacity=getattr(self, "fill_opacity", 1.0),
         )
 
         self.active_layer.has_content = True

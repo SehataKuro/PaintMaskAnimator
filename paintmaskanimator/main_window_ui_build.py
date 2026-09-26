@@ -870,6 +870,9 @@ class UIBuildMixin(MainWindowMembers):
             self.canvas.set_brush_stabilizer
         )
         self.tools.brush_size_spinbox.pressureRequested.connect(self.pressure)
+        self.tools.fill_opacity.valueChanged.connect(
+            lambda value: setattr(self.canvas, "fill_opacity", value / 100)
+        )
         self.tools.colorModeChanged.connect(self.colors.set_color_mode)
         self.tools.colorChanged.connect(self.colors.set_color_value)
         self.subview.colorPicked.connect(self.colors.apply_sampled_color)

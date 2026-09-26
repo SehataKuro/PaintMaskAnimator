@@ -178,6 +178,8 @@ class PaintCanvas(
         self.transform_mesh_reference_points=[]
         self.pen_size=8
         self.brush_stabilizer_strength = 0
+        # バケツ・投げ縄塗りの不透明度（0〜1）。ブラシ等は常に100%。
+        self.fill_opacity = 1.0
         self._stabilized_canvas = None
         self._last_raw_canvas = None
         self._brush_stabilizer_history = []
@@ -678,10 +680,13 @@ class PaintCanvas(
         overlay,
         top_left=None,
         exact_colors=None,
+        opacity=1.0,
     ):
-        """選択RGBをそのままレイヤーへ直書きする（常に100%不透明）。
+        """選択RGBをそのままレイヤーへ直書きする。
 
         白(#FFFFFF)は本物の消しゴムとして該当画素を alpha=0 へ抜く。
+        ``opacity`` が 1 未満のとき（バケツ・投げ縄塗りの不透明度）だけ、
+        下地RGB（透明は白とみなす）と混色し、アルファは 255 のまま書く。
         """
         if overlay is None or overlay.isNull():
             return ()
@@ -736,11 +741,39 @@ class PaintCanvas(
             exact_colors,
         )
 
+        amount = max(0.0, min(1.0, float(opacity)))
         result_rgba = np.zeros_like(overlay_rgba)
-        # 下地を参照せず正規RGBを直書きする（近似色を生成しない）。
+        # 100%は下地を参照せず正規RGBを直書きする（近似色を生成しない）。
         result_rgba[active_mask, :3] = overlay_rgba[active_mask, :3]
         result_rgba[active_mask, 3] = 255
-        written_rgb = overlay_rgba[active_mask, :3]
+        blended = amount < 0.999999
+        if blended:
+            source_white = active_mask & np.all(
+                overlay_rgba[:, :, :3] == 255, axis=2
+            )
+            blend_mask = active_mask & ~source_white
+            base_rgba = self._qimage_rgba_array(
+                destination_image.copy(
+                    destination_x, destination_y, width, height
+                )
+            )
+            base_rgb = base_rgba[:, :, :3].astype(np.float32)
+            base_rgb[base_rgba[:, :, 3] == 0] = 255.0
+            mixed = np.clip(
+                np.rint(
+                    base_rgb * (1.0 - amount)
+                    + overlay_rgba[:, :, :3].astype(np.float32) * amount
+                ),
+                0,
+                255,
+            ).astype(np.uint8)
+            result_rgba[blend_mask, :3] = mixed[blend_mask]
+            # 混色の結果がたまたま白になった画素は消しゴム扱いにしない。
+            accidental_white = blend_mask & np.all(
+                result_rgba[:, :, :3] == 255, axis=2
+            )
+            result_rgba[accidental_white, :3] = 254
+        written_rgb = result_rgba[active_mask, :3]
 
         # 白(#FFFFFF)ストロークは疑似透明ではなく本物の消しゴムとして扱う。
         # 該当画素をレイヤーへ書かず、alpha=0 へ抜く（下のレイヤーが透ける）。
@@ -782,7 +815,7 @@ class PaintCanvas(
 
         # 正規RGBを通知する。白は消しゴム扱いなので使用色に含めない。
         palette = self._paint_rgb_palette(exact_colors)
-        if palette.size:
+        if palette.size and not blended:
             return tuple(
                 rgb
                 for rgb in (
