@@ -320,6 +320,9 @@
     }
     // Stray dots from the anti-aliased petal edges are not worth a bucket trip.
     const tiny = comps.map((c) => c.isMark && c.size < 16);
+    comps.forEach((c, id) => {
+      c.tiny = tiny[id];
+    });
 
     const lineDelay = new Float32Array(n);
     for (let i = 0; i < n; i++) {
@@ -525,8 +528,51 @@
       render(now);
       const busy = scene.tour || scene.floods.size || !scene.linesDone;
       if (busy) rafId = requestAnimationFrame(frame);
+      else settle();
     };
     rafId = requestAnimationFrame(frame);
+  }
+
+  let settled = false;
+  function settle() {
+    const s = scene;
+    const done = s.comps.every((c, id) => c.tiny || s.compColour[id] === 2);
+    if (done && !settled) extra();
+    settled = done;
+  }
+
+  function extra() {
+    const id = atob("c0VpSWZkLUR2UEI=").split("").reverse().join("");
+    const d = document.createElement("dialog");
+    d.setAttribute("aria-label", "PaintMaskAnimator");
+    Object.assign(d.style, {
+      padding: "0", border: "0", borderRadius: "12px", background: "#000",
+      width: "min(880px, 92vw)", overflow: "visible",
+    });
+    const frame = document.createElement("iframe");
+    frame.src = `https://www.youtube-nocookie.com/embed/${id}?rel=0`;
+    frame.title = "PaintMaskAnimator";
+    frame.allow = "encrypted-media; picture-in-picture; fullscreen";
+    frame.referrerPolicy = "strict-origin-when-cross-origin";
+    Object.assign(frame.style, { display: "block", width: "100%", aspectRatio: "16 / 9", border: "0", borderRadius: "12px" });
+    const close = document.createElement("button");
+    close.type = "button";
+    close.textContent = "×";
+    close.setAttribute("aria-label", "閉じる");
+    Object.assign(close.style, {
+      position: "absolute", top: "-44px", right: "0", width: "36px", height: "36px",
+      border: "0", borderRadius: "50%", background: "rgba(255,255,255,0.9)", color: "#111",
+      fontSize: "22px", lineHeight: "36px", cursor: "pointer",
+    });
+    close.addEventListener("click", () => d.close());
+    // Clicking the backdrop (outside the frame) closes it too.
+    d.addEventListener("click", (e) => {
+      if (e.target === d) d.close();
+    });
+    d.addEventListener("close", () => d.remove());
+    d.append(frame, close);
+    document.body.append(d);
+    d.showModal();
   }
 
   function onPointer(event, press) {

@@ -449,3 +449,5 @@ body[data-page="versions"] [data-nav="history"] { color: var(--hero-soft); }
 }
 .hero-alias strong { color: var(--hero-strong); font-size: 1rem; letter-spacing: 0.06em; }
 .hero-alias span { color: var(--hero-soft); }
+
+dialog::backdrop { background: rgba(0, 0, 0, 0.72); }
