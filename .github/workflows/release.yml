@@ -130,15 +130,13 @@ jobs:
       - name: Build DMG
         shell: bash
         run: |
-          mkdir -p dmg-root
-          cp -R dist/PaintMaskAnimator.app dmg-root/
-          ln -s /Applications dmg-root/Applications
-          # Not notarized: ship the "Open Anyway" steps next to the app.
-          cp "packaging/macos/開けないときは.txt" dmg-root/
-          hdiutil create \
-            -volname "PaintMaskAnimator" \
-            -srcfolder dmg-root \
-            -ov -format UDZO \
+          pip install dmgbuild
+          # Window layout, background and the "Open Anyway" note (the app is
+          # not notarized) live in packaging/macos/dmg_settings.py.
+          dmgbuild \
+            -s packaging/macos/dmg_settings.py \
+            -D app=dist/PaintMaskAnimator.app \
+            "PaintMaskAnimator" \
             "PaintMaskAnimator-${{ steps.ver.outputs.version }}-macOS.dmg"
 
       - name: Upload DMG artifact
