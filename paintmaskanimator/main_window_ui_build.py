@@ -595,9 +595,8 @@ class UIBuildMixin(MainWindowMembers):
         self.history_scroll.setMinimumSize(0, 0)
         self.history_scroll.setWidget(self.history_panel)
 
-        # 描画色パネルは廃止。描画色（メイン/サブ/背景）はツールバー最下部の
-        # スウォッチへ移設した。drawing_color_box 自体は色状態の保持用として
-        # 構築されるが、ドックには表示しない。
+        # 描画色（メイン/サブ/背景）はツールバー最下部のスウォッチに加え、
+        # カラーサークルのドック上部（tools.drawing_color_box）にも大きく表示する。
         self.color_wheel_scroll = QScrollArea()
         self.color_wheel_scroll.setWidgetResizable(True)
         self.color_wheel_scroll.setMinimumSize(0, 0)
@@ -871,6 +870,9 @@ class UIBuildMixin(MainWindowMembers):
             self.canvas.set_brush_stabilizer
         )
         self.tools.brush_size_spinbox.pressureRequested.connect(self.pressure)
+        self.tools.fill_opacity.valueChanged.connect(
+            lambda value: setattr(self.canvas, "fill_opacity", value / 100)
+        )
         self.tools.colorModeChanged.connect(self.colors.set_color_mode)
         self.tools.colorChanged.connect(self.colors.set_color_value)
         self.subview.colorPicked.connect(self.colors.apply_sampled_color)
@@ -1069,7 +1071,6 @@ class UIBuildMixin(MainWindowMembers):
             self.used_color.apply_palette_replacements
         )
         self.palette.previewGroupsChanged.connect(self.colors.set_preview_color_groups)
-        self.palette.freezeGroupsRequested.connect(self.colors.freeze_preview_color_groups)
         self.palette.mergeColorsRequested.connect(self.used_color.apply_palette_merge)
         self.palette.deleteColorsRequested.connect(
             self.used_color.apply_palette_delete

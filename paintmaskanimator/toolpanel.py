@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFormLayout,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QListView,
@@ -180,12 +181,10 @@ class SwatchStack(QWidget):
         w = self.width()
         gap = 3
         bg_h = max(8, round(w * 0.5))
-        if self._mode == "sub":
-            top, second = self._sub_btn, self._main_btn
-        else:
-            top, second = self._main_btn, self._sub_btn
-        top.setGeometry(0, 0, w, w)
-        second.setGeometry(0, w + gap, w, w)
+        # メインは常に上、サブは常に下。どちらを選んでも並びは変えず、
+        # 選択中の色は枠で示す（入れ替わるとどちらがメインか分からなくなる）。
+        self._main_btn.setGeometry(0, 0, w, w)
+        self._sub_btn.setGeometry(0, w + gap, w, w)
         # The background colour is a fixed, shorter strip below the two
         # drawing colours.  Selecting it must not reorder the stack.
         self._bg_btn.setGeometry(0, 2 * (w + gap), w, bg_h)
@@ -214,10 +213,8 @@ class SwatchStack(QWidget):
         self._bg_btn.setStyleSheet(
             style(self._bg, self._mode == "transparent")
         )
-        if self._mode == "sub":
-            self._sub_btn.raise_()
-        else:
-            self._main_btn.raise_()
+        # 重ね表示でも前後関係は固定（メインが手前）。選択は枠で示す。
+        self._main_btn.raise_()
 
 
 class ToolSelectorPanel(QWidget):
@@ -596,8 +593,12 @@ class ToolPanel(QWidget):
             "ON：クリック位置につながる同色領域だけを塗ります。"
             "OFF：レイヤー内の同じ色を一括で塗ります。"
         ))
-        self.bucket_include_sub=QCheckBox(tr("選択した使用色を含み塗り"))
+        self.bucket_include_sub=QCheckBox(tr("サブカラーを含み塗り"))
         self.bucket_include_sub.setChecked(False)
+        self.bucket_include_sub.setToolTip(tr(
+            "ON：塗る領域に接しているサブカラーの部分も一緒に塗ります。"
+            "色トレス線をサブカラーにしておくと、線ごと塗りつぶせます。"
+        ))
 
         # 隙間閉じと幅スライダーを同じ横一列へ配置する。
         self.bucket_close_gap=QCheckBox(tr("隙間閉じ"))
@@ -620,6 +621,35 @@ class ToolPanel(QWidget):
         bucket_gap_layout.addWidget(self.bucket_close_gap)
         bucket_gap_layout.addWidget(self.bucket_gap_width,1)
         bucket_gap_layout.addWidget(self.bucket_gap_width_label)
+
+        # 塗りつぶし・投げ縄塗りの不透明度。100%は選択RGBをそのまま書き込み、
+        # 100%未満だけ下地RGBと混色する（アルファは常に255、白は消しゴム）。
+        self.fill_opacity_row=QWidget()
+        fill_opacity_layout=QHBoxLayout(self.fill_opacity_row)
+        fill_opacity_layout.setContentsMargins(0,0,0,0)
+        fill_opacity_layout.setSpacing(4)
+        self.fill_opacity_title=QLabel(tr("不透明度"))
+        self.fill_opacity=QSlider(Qt.Orientation.Horizontal)
+        self.fill_opacity.setRange(1,100)
+        self.fill_opacity.setValue(100)
+        self.fill_opacity.setMinimumWidth(58)
+        self.fill_opacity_label=QLabel("100%")
+        self.fill_opacity_label.setFixedWidth(38)
+        self.fill_opacity.valueChanged.connect(
+            lambda value: self.fill_opacity_label.setText(f"{value}%")
+        )
+        fill_opacity_tooltip = tr(
+            "塗りつぶし・投げ縄塗りの不透明度。"
+            "100%は選択した色をそのまま塗ります（近似色は増えません）。"
+            "100%未満は下地の色と混ぜた色で塗ります。"
+        )
+        for widget in (
+            self.fill_opacity_title, self.fill_opacity, self.fill_opacity_label
+        ):
+            widget.setToolTip(fill_opacity_tooltip)
+        fill_opacity_layout.addWidget(self.fill_opacity_title)
+        fill_opacity_layout.addWidget(self.fill_opacity,1)
+        fill_opacity_layout.addWidget(self.fill_opacity_label)
 
         self.lasso_inside_boundary=QCheckBox(tr("境界線の内側だけを塗る"))
         self.lasso_inside_boundary.setChecked(False)
@@ -856,6 +886,7 @@ class ToolPanel(QWidget):
             self.bucket_adjacent,self.bucket_include_sub,
             self.bucket_gap_row,
             self.bucket_require_closed,
+            self.fill_opacity_row,
             self.dust_mode_label,self.dust_mode,
             self.dust_size_label,self.dust_size,
             self.dust_selected_only,
@@ -908,27 +939,46 @@ class ToolPanel(QWidget):
         v.addWidget(self.brush_stabilizer_label)
         v.addWidget(self.brush_stabilizer)
 
-        # Photoshop風の前景色／背景色スタック。
+        # 描画色（メイン／サブ）。カラーサークルのドック上部に大きく表示する。
+        # 左がメイン・右がサブで位置は固定し、どちらを選んでも入れ替えない。
+        # 選択中の色は枠と見出しの強調で示す（輪郭あり投げ縄塗りなど、
+        # メインとサブを両方使う操作でどちらがどちらか迷わないようにする）。
         self.drawing_color_box = QWidget()
         color_layout = QVBoxLayout(self.drawing_color_box)
         color_layout.setContentsMargins(6, 5, 6, 5)
         color_layout.setSpacing(3)
-        swatch_row = QHBoxLayout()
-        swatch_row.setContentsMargins(0, 0, 0, 0)
-        swatch_row.setSpacing(7)
+        swatch_grid = QGridLayout()
+        swatch_grid.setContentsMargins(0, 0, 0, 0)
+        swatch_grid.setHorizontalSpacing(6)
+        swatch_grid.setVerticalSpacing(2)
         self.color_swatch_stack = QWidget()
-        self.color_swatch_stack.setFixedSize(104, 76)
-        self.sub_btn = SwatchEyedropButton(self.color_swatch_stack)
-        self.main_btn = SwatchEyedropButton(self.color_swatch_stack)
-        # No "メイン/サブ" caption text — the colour itself is the label.
-        self.sub_btn.setText("")
-        self.main_btn.setText("")
-        self.sub_btn.setGeometry(38, 25, 58, 46)
-        self.main_btn.setGeometry(7, 4, 58, 46)
-        self.main_btn.raise_()
+        self.color_swatch_stack.setLayout(swatch_grid)
+        self.main_caption = QLabel(tr("メイン"))
+        self.sub_caption = QLabel(tr("サブ"))
+        self.main_btn = SwatchEyedropButton()
+        self.sub_btn = SwatchEyedropButton()
+        self.main_hex_label = QLabel()
+        self.sub_hex_label = QLabel()
+        for column, (caption, button, hex_label) in enumerate((
+            (self.main_caption, self.main_btn, self.main_hex_label),
+            (self.sub_caption, self.sub_btn, self.sub_hex_label),
+        )):
+            caption.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            hex_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            hex_label.setStyleSheet("font-size:10px;")
+            button.setText("")
+            button.setMinimumSize(48, 40)
+            button.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+            )
+            button.setFixedHeight(46)
+            swatch_grid.addWidget(caption, 0, column)
+            swatch_grid.addWidget(button, 1, column)
+            swatch_grid.addWidget(hex_label, 2, column)
         self.main_btn.setToolTip(tr("クリック：メイン色を選択／ドラッグ：スポイト"))
         self.sub_btn.setToolTip(tr("クリック：サブ色を選択／ドラッグ：スポイト"))
-        controls = QVBoxLayout()
+        color_layout.addWidget(self.color_swatch_stack)
+        controls = QHBoxLayout()
         controls.setContentsMargins(0, 0, 0, 0)
         controls.setSpacing(3)
         self.swap_colors_button = QPushButton(tr("⇄  切り替え"))
@@ -941,12 +991,8 @@ class ToolPanel(QWidget):
         ):
             button.setFixedHeight(22)
             button.setStyleSheet("QPushButton{font-size:10px;padding:1px 5px;}")
-        controls.addWidget(self.swap_colors_button)
-        controls.addWidget(self.reset_colors_button)
-        controls.addWidget(self.transparent_btn)
-        swatch_row.addWidget(self.color_swatch_stack)
-        swatch_row.addLayout(controls, 1)
-        color_layout.addLayout(swatch_row)
+            controls.addWidget(button)
+        color_layout.addLayout(controls)
 
         # 背景色スウォッチ：メイン/サブの下に配置。クリックで背景色（透明表示色）
         # を描画色として選択、右クリックで表示色そのものを変更する。
@@ -1002,6 +1048,7 @@ class ToolPanel(QWidget):
         wheel_layout = QVBoxLayout(self.color_wheel_box)
         wheel_layout.setContentsMargins(3, 3, 3, 3)
         wheel_layout.setSpacing(2)
+        wheel_layout.addWidget(self.drawing_color_box)
         self.hsv_wheel = HSVColorWheel()
         self.hsv_wheel.colorChanged.connect(self.wheel_color_changed)
         wheel_layout.addWidget(self.hsv_wheel)
@@ -1234,6 +1281,7 @@ class ToolPanel(QWidget):
         self.bucket_include_sub.setVisible(is_bucket)
         self.bucket_gap_row.setVisible(uses_bucket_region)
         self.bucket_require_closed.setVisible(uses_bucket_region)
+        self.fill_opacity_row.setVisible(is_bucket or is_lasso_fill)
 
         self.dust_mode_label.setVisible(is_dust)
         self.dust_mode.setVisible(is_dust)
@@ -1291,10 +1339,17 @@ class ToolPanel(QWidget):
                 f"border:1px solid {palette['border']};}}"
             )
         )
-        if self.color_mode == "sub":
-            self.sub_btn.raise_()
-        else:
-            self.main_btn.raise_()
+        for caption, hex_label, color, selected in (
+            (self.main_caption, self.main_hex_label, self.main_color,
+             self.color_mode == "main"),
+            (self.sub_caption, self.sub_hex_label, self.sub_color,
+             self.color_mode == "sub"),
+        ):
+            hex_label.setText(color.name().upper())
+            caption.setStyleSheet(
+                f"font-size:11px;font-weight:700;color:{accent};"
+                if selected else "font-size:11px;"
+            )
 
     def apply_theme(self):
         """Re-apply palette-derived styling after a theme/accent change."""

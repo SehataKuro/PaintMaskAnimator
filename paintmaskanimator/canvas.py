@@ -44,7 +44,7 @@ from . import constants
 from . import color_ops, colors, geometry, imaging
 from .document import Document
 from .toolpanel import tool_label
-from .utils import blank_image, workspace_size
+from .utils import blank_image, magnifier_cursor, workspace_size
 from .progress import close_counter, create_counter, update_counter
 from .logging_setup import get_logger
 from .canvas_brush_stabilizer import BrushStabilizerMixin
@@ -76,6 +76,25 @@ from .undo_entries import (
 
 log = get_logger(__name__)
 
+
+
+#: 色索引・表示フィルタのキャッシュが保持する画素数の上限。10000×10000 の
+#: レイヤーは1枚で数百MBになるため、件数だけでなく画素数でも制限する
+#: （最低1件は保持する）。
+_CACHE_PIXEL_BUDGET = 120_000_000
+
+
+def _bounded_cache_put(cache, key, value, max_entries):
+    """key[1], key[2] を幅・高さとして、件数と画素数の上限内でキャッシュする。"""
+    pixels = int(key[1]) * int(key[2])
+    total = sum(int(k[1]) * int(k[2]) for k in cache)
+    while cache and (
+        len(cache) >= max_entries or total + pixels > _CACHE_PIXEL_BUDGET
+    ):
+        oldest = next(iter(cache))
+        total -= int(oldest[1]) * int(oldest[2])
+        cache.pop(oldest)
+    cache[key] = value
 
 class PaintCanvas(
     ImageImportMixin, OnionInteractionMixin, OnionRenderMixin, SelectionMixin,
@@ -178,6 +197,8 @@ class PaintCanvas(
         self.transform_mesh_reference_points=[]
         self.pen_size=8
         self.brush_stabilizer_strength = 0
+        # バケツ・投げ縄塗りの不透明度（0〜1）。ブラシ等は常に100%。
+        self.fill_opacity = 1.0
         self._stabilized_canvas = None
         self._last_raw_canvas = None
         self._brush_stabilizer_history = []
@@ -519,7 +540,9 @@ class PaintCanvas(
                 if self.drawing or self.middle_hand
                 else Qt.CursorShape.OpenHandCursor
             )
-        elif tool in ("zoom", "rotate"):
+        elif tool == "zoom":
+            self.setCursor(magnifier_cursor())
+        elif tool == "rotate":
             self.setCursor(Qt.CursorShape.SizeAllCursor)
         elif tool == "eyedropper":
             self.setCursor(self._eyedropper_cursor())
@@ -676,10 +699,13 @@ class PaintCanvas(
         overlay,
         top_left=None,
         exact_colors=None,
+        opacity=1.0,
     ):
-        """選択RGBをそのままレイヤーへ直書きする（常に100%不透明）。
+        """選択RGBをそのままレイヤーへ直書きする。
 
         白(#FFFFFF)は本物の消しゴムとして該当画素を alpha=0 へ抜く。
+        ``opacity`` が 1 未満のとき（バケツ・投げ縄塗りの不透明度）だけ、
+        下地RGB（透明は白とみなす）と混色し、アルファは 255 のまま書く。
         """
         if overlay is None or overlay.isNull():
             return ()
@@ -734,11 +760,39 @@ class PaintCanvas(
             exact_colors,
         )
 
+        amount = max(0.0, min(1.0, float(opacity)))
         result_rgba = np.zeros_like(overlay_rgba)
-        # 下地を参照せず正規RGBを直書きする（近似色を生成しない）。
+        # 100%は下地を参照せず正規RGBを直書きする（近似色を生成しない）。
         result_rgba[active_mask, :3] = overlay_rgba[active_mask, :3]
         result_rgba[active_mask, 3] = 255
-        written_rgb = overlay_rgba[active_mask, :3]
+        blended = amount < 0.999999
+        if blended:
+            source_white = active_mask & np.all(
+                overlay_rgba[:, :, :3] == 255, axis=2
+            )
+            blend_mask = active_mask & ~source_white
+            base_rgba = self._qimage_rgba_array(
+                destination_image.copy(
+                    destination_x, destination_y, width, height
+                )
+            )
+            base_rgb = base_rgba[:, :, :3].astype(np.float32)
+            base_rgb[base_rgba[:, :, 3] == 0] = 255.0
+            mixed = np.clip(
+                np.rint(
+                    base_rgb * (1.0 - amount)
+                    + overlay_rgba[:, :, :3].astype(np.float32) * amount
+                ),
+                0,
+                255,
+            ).astype(np.uint8)
+            result_rgba[blend_mask, :3] = mixed[blend_mask]
+            # 混色の結果がたまたま白になった画素は消しゴム扱いにしない。
+            accidental_white = blend_mask & np.all(
+                result_rgba[:, :, :3] == 255, axis=2
+            )
+            result_rgba[accidental_white, :3] = 254
+        written_rgb = result_rgba[active_mask, :3]
 
         # 白(#FFFFFF)ストロークは疑似透明ではなく本物の消しゴムとして扱う。
         # 該当画素をレイヤーへ書かず、alpha=0 へ抜く（下のレイヤーが透ける）。
@@ -780,7 +834,7 @@ class PaintCanvas(
 
         # 正規RGBを通知する。白は消しゴム扱いなので使用色に含めない。
         palette = self._paint_rgb_palette(exact_colors)
-        if palette.size:
+        if palette.size and not blended:
             return tuple(
                 rgb
                 for rgb in (
@@ -1292,24 +1346,19 @@ class PaintCanvas(
         if indexed is not None:
             return indexed
 
-        base_rgba = image.convertToFormat(QImage.Format.Format_RGBA8888)
         if width <= 0 or height <= 0:
-            return base_rgba, None, None
-        base_ptr = imaging.qimage_buffer(base_rgba)
-        base_rows = np.frombuffer(base_ptr, dtype=np.uint8).reshape(
-            (height, base_rgba.bytesPerLine())
-        )
-        base_pixels = base_rows[:, :width * 4].reshape((height, width, 4))
-        opaque = (base_pixels[:, :, 3] > 0).copy()
-        packed = (
-            (base_pixels[:, :, 0].astype(np.uint32) << 16)
-            | (base_pixels[:, :, 1].astype(np.uint32) << 8)
-            | base_pixels[:, :, 2].astype(np.uint32)
-        )
-        indexed = (base_rgba.copy(), packed, opaque)
-        if len(self._color_index_cache) >= 24:
-            self._color_index_cache.pop(next(iter(self._color_index_cache)))
-        self._color_index_cache[index_key] = indexed
+            return image, None, None
+        # ARGB32（非プレマルチプライ）は uint32 で見ると 0xAARRGGBB なので、
+        # 0xRRGGBB の索引とアルファの判定がそれぞれ1回の演算で求まる。
+        argb = image.convertToFormat(QImage.Format.Format_ARGB32)
+        values = np.frombuffer(
+            imaging.qimage_buffer(argb), dtype=np.uint32
+        ).reshape((height, argb.bytesPerLine() // 4))[:, :width]
+        packed = values & np.uint32(0x00FFFFFF)
+        opaque = values >= np.uint32(0x01000000)
+        # 先頭要素は元画像（暗黙共有なのでコピーは発生しない）。
+        indexed = (image, packed, opaque)
+        _bounded_cache_put(self._color_index_cache, index_key, indexed, 24)
         return indexed
 
     def filtered_layer_image(self, layer, apply_palette_filter=True):
@@ -1344,10 +1393,10 @@ class PaintCanvas(
         if cached is not None:
             return cached
 
-        base_rgba, packed, opaque = self._color_index_for_image(layer.image)
+        _source, packed, opaque = self._color_index_for_image(layer.image)
         if packed is None or opaque is None:
-            return base_rgba
-        rgba = base_rgba.copy()
+            return layer.image
+        rgba = layer.image.convertToFormat(QImage.Format.Format_RGBA8888)
         ptr = imaging.qimage_buffer(rgba)
         rows = np.frombuffer(ptr, dtype=np.uint8).reshape((height, rgba.bytesPerLine()))
         pixels = rows[:, :width * 4].reshape((height, width, 4))
@@ -1380,9 +1429,7 @@ class PaintCanvas(
                 pixels[:, :, 2][mask] = int(parent[2])
 
         filtered = rgba.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
-        if len(self._color_filter_cache) >= 96:
-            self._color_filter_cache.pop(next(iter(self._color_filter_cache)))
-        self._color_filter_cache[key] = filtered
+        _bounded_cache_put(self._color_filter_cache, key, filtered, 96)
         return filtered
 
     def _display_layer_image(self, layer, layer_index):

@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 from .i18n import tr
 from .optional_deps import PILImage, PSDImage
 from . import imaging
+from .utils import drag_zoom_factor, magnifier_cursor
 
 
 SUBVIEW_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tga", ".psd"}
@@ -190,7 +191,7 @@ class SubViewWidget(QWidget):
         elif self._drag_mode == "zoom" or (
             self._space_down and self._control_down
         ):
-            self.viewer.setCursor(Qt.CursorShape.SizeAllCursor)
+            self.viewer.setCursor(magnifier_cursor())
         elif self._space_down:
             self.viewer.setCursor(Qt.CursorShape.OpenHandCursor)
         elif self._drag_mode == "pick":
@@ -531,7 +532,7 @@ class _SubViewCanvas(QWidget):
             self.owner._pan += delta
             self.update()
         elif mode == "zoom":
-            factor = math.exp(-delta.y() * 0.012)
+            factor = drag_zoom_factor(delta.x())
             percent = int(round(self.owner._zoom * factor * 100))
             self.owner.zoom_slider.setValue(max(5, min(800, percent)))
         elif mode == "pick":

@@ -383,25 +383,6 @@ class ColorInteractionController:
         self.window.canvas.preview_color_remap = {}
         self.window.canvas.update()
 
-    def freeze_preview_color_groups(self, mapping):
-        """登録した親子を実ピクセルへ統合する。"""
-        rgb_mapping = {}
-        for child, parent in (mapping or {}).items():
-            child = tuple(int(channel) for channel in child[:3])
-            parent = tuple(int(channel) for channel in parent[:3])
-            if child != parent:
-                rgb_mapping[child] = parent
-        if not rgb_mapping:
-            return
-        # 旧バージョン由来のプレビューが残っていても先に解除する。
-        self.window.canvas.preview_color_remap = {}
-        applied = self.window.used_color.apply_palette_replacements(
-            rgb_mapping,
-            operation="parent_merge",
-        )
-        if applied:
-            self.window.palette.on_groups_frozen()
-
     def apply_sampled_color_to_mode(self, mode, color):
         self._apply_sampled_drawing_color(mode, color)
 

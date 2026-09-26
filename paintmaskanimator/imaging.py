@@ -138,44 +138,167 @@ def tp_uses_proxy(target_width, target_height):
     return max(int(target_width), int(target_height)) >= TP_MASK_PROXY_THRESHOLD
 
 
+def _row_runs(row):
+    """1行の True の連続区間を (開始, 終了[排他]) の配列で返す。"""
+    padded = np.empty(row.size + 2, dtype=np.int8)
+    padded[0] = 0
+    padded[-1] = 0
+    padded[1:-1] = row
+    edges = np.flatnonzero(np.diff(padded))
+    return edges[0::2], edges[1::2]
+
+
 def scanline_connected_region(passable, starts):
-    """Fast 4-connected flood fill using horizontal runs instead of per-pixel stacks."""
+    """4近傍の塗りつぶし領域を、行ごとの連続区間（ラン）単位で求める。
+
+    画素ごとにPythonで走査すると大きなキャンバスで秒単位かかるため、
+    訪れた行だけランをnumpyで切り出し、ラン同士の重なりでつなぐ。
+    """
+    passable = np.asarray(passable, dtype=bool)
     height, width = passable.shape
     region = np.zeros((height, width), dtype=bool)
     if isinstance(starts, tuple) and len(starts) == 2 and isinstance(starts[0], (int, np.integer)):
-        stack = [(int(starts[0]), int(starts[1]))]
+        seeds = np.array([[int(starts[0]), int(starts[1])]], dtype=np.int64)
     else:
-        stack = [(int(x), int(y)) for x, y in starts]
-    while stack:
-        x, y = stack.pop()
-        if (
-            x < 0 or y < 0 or x >= width or y >= height
-            or region[y, x] or not passable[y, x]
-        ):
+        seeds = np.array([(int(x), int(y)) for x, y in starts], dtype=np.int64)
+    if seeds.size == 0:
+        return region
+    seeds = seeds.reshape(-1, 2)
+    inside = (
+        (seeds[:, 0] >= 0) & (seeds[:, 1] >= 0)
+        & (seeds[:, 0] < width) & (seeds[:, 1] < height)
+    )
+    seeds = seeds[inside]
+    if seeds.size == 0:
+        return region
+
+    runs = {}
+
+    def runs_of(y):
+        cached = runs.get(y)
+        if cached is None:
+            cached = _row_runs(passable[y])
+            runs[y] = cached
+        return cached
+
+    visited = set()
+    stack = []
+    for y in np.unique(seeds[:, 1]).tolist():
+        run_starts, run_ends = runs_of(y)
+        if run_starts.size == 0:
             continue
-        left = x
-        while left > 0 and passable[y, left - 1] and not region[y, left - 1]:
-            left -= 1
-        right = x
-        while right + 1 < width and passable[y, right + 1] and not region[y, right + 1]:
-            right += 1
-        region[y, left:right + 1] = True
+        xs = seeds[seeds[:, 1] == y, 0]
+        indices = np.searchsorted(run_ends, xs, side="right")
+        valid = indices < run_starts.size
+        indices = indices[valid]
+        xs = xs[valid]
+        indices = indices[run_starts[indices] <= xs]
+        for index in np.unique(indices).tolist():
+            key = (y, index)
+            if key not in visited:
+                visited.add(key)
+                stack.append(key)
+
+    while stack:
+        y, index = stack.pop()
+        run_starts, run_ends = runs[y]
+        left = int(run_starts[index])
+        right = int(run_ends[index])
+        region[y, left:right] = True
         for next_y in (y - 1, y + 1):
             if next_y < 0 or next_y >= height:
                 continue
-            scan_x = left
-            while scan_x <= right:
-                if passable[next_y, scan_x] and not region[next_y, scan_x]:
-                    stack.append((scan_x, next_y))
-                    scan_x += 1
-                    while (
-                        scan_x <= right
-                        and passable[next_y, scan_x]
-                        and not region[next_y, scan_x]
-                    ):
-                        scan_x += 1
-                scan_x += 1
+            next_starts, next_ends = runs_of(next_y)
+            if next_starts.size == 0:
+                continue
+            # 列が重なるラン（4近傍でつながるラン）だけを辿る。
+            low = int(np.searchsorted(next_ends, left, side="right"))
+            high = int(np.searchsorted(next_starts, right, side="left"))
+            for next_index in range(low, high):
+                key = (next_y, next_index)
+                if key not in visited:
+                    visited.add(key)
+                    stack.append(key)
     return region
+
+
+#: RGBA8888 の1画素を uint32 として読んだときのアルファのビット。
+#: リトルエンディアンでは R が最下位、A が最上位のバイトになる。
+_ALPHA_BITS = np.array([0, 0, 0, 255], dtype=np.uint8).view(np.uint32)[0]
+_RGB_BITS = np.array([255, 255, 255, 0], dtype=np.uint8).view(np.uint32)[0]
+_LITTLE_ENDIAN_ALPHA = bool(_ALPHA_BITS == np.uint32(0xFF000000))
+
+
+def rgba_packed_view(pixels):
+    """(h, w, 4) の RGBA8888 配列を、コピーせず (h, w) の uint32 として見る。"""
+    pixels = np.asarray(pixels)
+    height, width = pixels.shape[:2]
+    if not pixels.flags.c_contiguous:
+        pixels = np.ascontiguousarray(pixels)
+    return pixels.reshape(height, width * 4).view(np.uint32)
+
+
+def pack_rgb(rgb):
+    """(r, g, b) を不透明の RGBA8888 uint32 値にする。"""
+    r, g, b = (int(channel) for channel in rgb[:3])
+    return np.array([r, g, b, 255], dtype=np.uint8).view(np.uint32)[0]
+
+
+#: 行ブロック単位で処理する行数。巨大な一時配列（10000×10000 で数百MB）を
+#: 確保するとページフォールトだけで数百msかかるため、小分けにする。
+_MASK_CHUNK_ROWS = 256
+
+
+def _chunked_mask(packed, compute):
+    height = packed.shape[0]
+    result = np.empty(packed.shape, dtype=bool)
+    for top in range(0, height, _MASK_CHUNK_ROWS):
+        bottom = min(height, top + _MASK_CHUNK_ROWS)
+        result[top:bottom] = compute(packed[top:bottom])
+    return result
+
+
+def background_mask_packed(packed):
+    """透明（alpha=0）または #FFFFFF の画素。バケツの背景判定と同じ。"""
+    if _LITTLE_ENDIAN_ALPHA:
+        # アルファが最上位バイトなので、alpha=0 は値が 0x01000000 未満と同値。
+        def compute(block):
+            return (block < np.uint32(0x01000000)) | (
+                (block | _ALPHA_BITS) == np.uint32(0xFFFFFFFF)
+            )
+    else:
+        def compute(block):
+            return ((block & _ALPHA_BITS) == 0) | (
+                (block & _RGB_BITS) == _RGB_BITS
+            )
+    return _chunked_mask(packed, compute)
+
+
+def opaque_rgb_mask_packed(packed, rgb):
+    """アルファが0でなく、RGB が rgb と一致する画素。"""
+    target = pack_rgb(rgb)
+    if _LITTLE_ENDIAN_ALPHA:
+        target_with_alpha = target | _ALPHA_BITS
+
+        def compute(block):
+            return ((block | _ALPHA_BITS) == target_with_alpha) & (
+                block >= np.uint32(0x01000000)
+            )
+    else:
+        def compute(block):
+            return ((block & _RGB_BITS) == (target & _RGB_BITS)) & (
+                (block & _ALPHA_BITS) != 0
+            )
+    return _chunked_mask(packed, compute)
+
+
+def mask_bounds(mask):
+    """True の外接矩形を (x0, y0, x1, y1)（x1, y1 は排他）で返す。空なら None。"""
+    rows = np.flatnonzero(mask.any(axis=1))
+    if rows.size == 0:
+        return None
+    cols = np.flatnonzero(mask[rows[0]:rows[-1] + 1].any(axis=0))
+    return int(cols[0]), int(rows[0]), int(cols[-1]) + 1, int(rows[-1]) + 1
 
 
 def bool_mask_image(mask):

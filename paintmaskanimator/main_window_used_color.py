@@ -289,7 +289,6 @@ class UsedColorController:
         "replace": "色置換",
         "delete": "色削除",
         "merge": "色統合",
-        "parent_merge": "親子統合",
     }
 
     def apply_palette_replacements(self, mapping, operation="replace"):

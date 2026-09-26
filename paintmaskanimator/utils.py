@@ -111,6 +111,43 @@ def checker_pixmap(width=48, height=28, cell=7):
     return pm
 
 
+#: 一時ズーム（ドラッグ）で 1px 動かしたときの倍率。
+DRAG_ZOOM_STEP = 1.01
+
+
+def drag_zoom_factor(dx):
+    """ドラッグズームの倍率。CLIP STUDIO PAINT と同じく右で拡大・左で縮小。"""
+    return DRAG_ZOOM_STEP ** float(dx)
+
+
+_magnifier_cursor_cache = None
+
+
+def magnifier_cursor():
+    """一時ズーム中に表示する虫眼鏡カーソル。"""
+    global _magnifier_cursor_cache
+    if _magnifier_cursor_cache is not None:
+        return _magnifier_cursor_cache
+    pixmap = QPixmap(24, 24)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    # 白い縁取りで、暗い背景でも黒い本体が見えるようにする。
+    for color, width in ((QColor("white"), 4.0), (QColor("black"), 2.0)):
+        pen = QPen(color, width)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawEllipse(QPointF(9.5, 9.5), 6.5, 6.5)
+        painter.drawLine(QPointF(14.5, 14.5), QPointF(21.0, 21.0))
+    painter.setPen(QPen(QColor("black"), 1.6))
+    painter.drawLine(QPointF(6.5, 9.5), QPointF(12.5, 9.5))
+    painter.drawLine(QPointF(9.5, 6.5), QPointF(9.5, 12.5))
+    painter.end()
+    _magnifier_cursor_cache = QCursor(pixmap, 9, 9)
+    return _magnifier_cursor_cache
+
+
 def _sample_screen_color(global_position):
     """Return the opaque screen color at a global position."""
     screen = QApplication.screenAt(global_position) or QApplication.primaryScreen()

@@ -40,8 +40,9 @@ def test_tool_selector_reflows_with_width(qapp):
         assert swatch._main_btn.size() == swatch._sub_btn.size()
         assert swatch._bg_btn.height() == swatch._main_btn.height() // 2
 
+        # サブを選んでもメインが上・サブが下のまま（位置は入れ替えない）。
         swatch.set_colors(QColor("black"), QColor("red"), "sub", QColor("white"))
-        assert (swatch._sub_btn.y(), swatch._main_btn.y()) == (0, 27)
+        assert (swatch._main_btn.y(), swatch._sub_btn.y()) == (0, 27)
         background_geometry = swatch._bg_btn.geometry()
         swatch.set_colors(
             QColor("black"), QColor("red"), "transparent", QColor("white")

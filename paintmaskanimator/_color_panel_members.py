@@ -36,7 +36,6 @@ class UsedColorPanelMembers(_MembersBase):
         clearIsolateRequested: Signal
         deleteColorsRequested: Signal
         focusColorRequested: Signal
-        freezeGroupsRequested: Signal
         historyStatePush: Signal
         isolateColorClicked: Signal
         mainColorRequested: Signal
@@ -84,7 +83,9 @@ class UsedColorPanelMembers(_MembersBase):
         _disable_other_visible_colors: Any
         _drop_group_links_for: Any
         _drop_group_links_outside_parent_blocks: Any
-        _emit_freeze: Any
+        _merge_selected_into: Any
+        _refresh_merge_button: Any
+        _mergeable_selection: Any
         _emit_mask_state: Any
         _emit_merge: Any
         _emit_preview: Any
@@ -94,7 +95,7 @@ class UsedColorPanelMembers(_MembersBase):
         _end_mask_sweep: Any
         _end_selection_sweep: Any
         _end_visibility_sweep: Any
-        freeze_button: Any
+        merge_button: Any
         _group_line_color: Any
         _group_mapping: Any
         _group_root: Any
@@ -125,7 +126,6 @@ class UsedColorPanelMembers(_MembersBase):
         _move_visibility_sweep: Any
         _normalize_groups: Any
         _normalized_colors: Any
-        on_groups_frozen: Any
         _on_selection_check_toggled: Any
         _on_swatch_hover: Any
         _ordered_non_background_rgbs: Any

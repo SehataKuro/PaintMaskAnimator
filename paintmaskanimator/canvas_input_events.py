@@ -12,7 +12,7 @@ from PySide6.QtGui import QCursor
 from .i18n import tr
 from ._canvas_members import CanvasMembers
 from .logging_setup import get_logger
-from .utils import hide_screen_color_loupe, show_screen_color_loupe
+from .utils import drag_zoom_factor, hide_screen_color_loupe, show_screen_color_loupe
 
 log = get_logger(__name__)
 
@@ -280,9 +280,10 @@ class InputEventMixin(CanvasMembers):
             self.update()
             return
         if t == "zoom":
-            delta = e.position().y() - self.last_widget.y()
-            factor = math.pow(1.01, -delta)
-            self.set_zoom_around_canvas_center(self.zoom * factor)
+            delta = e.position().x() - self.last_widget.x()
+            self.set_zoom_around_canvas_center(
+                self.zoom * drag_zoom_factor(delta)
+            )
             self.last_widget = e.position()
             self.viewChanged.emit(float(self.zoom), float(self.rotation))
             self.update()

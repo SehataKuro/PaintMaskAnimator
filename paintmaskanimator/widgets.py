@@ -42,6 +42,7 @@ from PySide6.QtWidgets import (
 )
 from typing import Any
 from . import theme, timesheet_file
+from .constants import MAX_IMAGE_DIMENSION
 from .i18n import tr
 from .utils import _ScreenColorDragMixin
 from .logging_setup import get_logger
@@ -97,8 +98,9 @@ class CanvasSizeDialog(QDialog):
     def __init__(self, width, height, title, parent=None):
         super().__init__(parent); self.setWindowTitle(title)
         l = QFormLayout(self)
-        self.w = QSpinBox(); self.w.setRange(64, 8192); self.w.setValue(width)
-        self.h = QSpinBox(); self.h.setRange(64, 8192); self.h.setValue(height)
+        # 上限は画像読み込みと同じ MAX_IMAGE_DIMENSION（10000×10000 も作れる）。
+        self.w = QSpinBox(); self.w.setRange(64, MAX_IMAGE_DIMENSION); self.w.setValue(width)
+        self.h = QSpinBox(); self.h.setRange(64, MAX_IMAGE_DIMENSION); self.h.setValue(height)
         l.addRow(tr("幅"), self.w); l.addRow(tr("高さ"), self.h)
         b = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         b.accepted.connect(self.accept); b.rejected.connect(self.reject); l.addRow(b)

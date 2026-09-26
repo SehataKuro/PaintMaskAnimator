@@ -3,7 +3,7 @@
 Split out of ``color_panel.py`` as a mixin. These methods own the group graph
 (``_color_groups``): making one colour a child of another, dropping links, the
 drag-and-drop reorder of single rows and of multi-row selections, keeping
-children laid out under their parent, and the preview / freeze / merge signals
+children laid out under their parent, and the preview / merge signals
 that publish the current grouping to the main window.
 """
 from typing import Any
@@ -369,8 +369,6 @@ class ColorGroupingMixin(UsedColorPanelMembers):
     def _refresh_all_group_displays(self):
         for rgb in list(self.source_buttons):
             self._refresh_group_display(rgb)
-        has_groups = bool(self.child_to_parent)
-        self.freeze_button.setEnabled(has_groups)
 
     def _refresh_group_display(self, rgb):
         """子色は元色のまま表示し、ボーダーを親色にして階層を示す。"""
@@ -427,25 +425,6 @@ class ColorGroupingMixin(UsedColorPanelMembers):
             self._refresh_all_group_displays()
             self._emit_preview()
 
-    def on_groups_frozen(self):
-        """統合確定後に親子関係を解除する。"""
-        self.child_to_parent = {}
-        self._refresh_all_group_displays()
-        self.previewGroupsChanged.emit({})
-
-    def _emit_freeze(self):
-        mapping = self._group_mapping()
-        if not mapping:
-            window: Any = self.window()
-            if hasattr(window, "statusBar"):
-                window.statusBar().showMessage(
-                    tr("統合する親子がありません。"
-                    "色を別の色の中へドロップして親子を作成してください。"),
-                    2800,
-                )
-            return
-        self.freezeGroupsRequested.emit(mapping)
-
     def _retain_parent_selection(self):
         old = set(self.selected_rgbs)
         self.selected_rgbs = [self.parent_rgb] if self.parent_rgb is not None else []
@@ -453,14 +432,30 @@ class ColorGroupingMixin(UsedColorPanelMembers):
             self._set_source_button_style(rgb)
         self.selectedColorsChanged.emit(set(self.selected_rgbs))
 
+    def _mergeable_selection(self):
+        return {
+            tuple(value) for value in self.selected_rgbs
+            if tuple(value) != self.background_rgb
+        }
+
+    def _refresh_merge_button(self, *_args):
+        self.merge_button.setEnabled(len(self._mergeable_selection()) >= 2)
+
     def _emit_merge(self):
-        if self.parent_rgb is None or len(self.selected_rgbs) < 2:
+        if self.parent_rgb is None or len(self._mergeable_selection()) < 2:
             window: Any = self.window()
             if hasattr(window, "statusBar"):
                 window.statusBar().showMessage(
-                    tr("統合する使用色を2色以上選択してください。最後に選んだ色が親です。"),
+                    tr("統合する使用色を2色以上選択してください。最後に選んだ色へ統合します。"),
                     2800,
                 )
             return
-        selected = set(self.selected_rgbs)
-        self.mergeColorsRequested.emit(tuple(self.parent_rgb), selected)
+        self._merge_selected_into(tuple(self.parent_rgb))
+
+    def _merge_selected_into(self, target_rgb):
+        """選択中の色を target_rgb へ統合するよう要求する。"""
+        selected = self._mergeable_selection()
+        target_rgb = tuple(target_rgb)
+        if target_rgb not in selected or len(selected) < 2:
+            return
+        self.mergeColorsRequested.emit(target_rgb, selected)

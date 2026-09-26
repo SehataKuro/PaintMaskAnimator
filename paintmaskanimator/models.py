@@ -27,8 +27,12 @@ class Layer:
     cell_name: Optional[str] = None
 
     def clone(self):
+        # QImage は暗黙共有。QImage(image) は画素をコピーせず参照を共有し、
+        # どちらかに書き込んだ時点（QPainter や bits()）で初めて複製される。
+        # 大きなキャンバスでは Undo の文書スナップショットやコマの複製で
+        # 全レイヤーを即座にコピーすると数百MB単位の確保になるため。
         return Layer(
-            self.name, self.image.copy(), self.visible, self.opacity,
+            self.name, QImage(self.image), self.visible, self.opacity,
             self.is_paper, self.has_content, self.alpha_locked, self.exposure,
             self.color_filter_enabled,
             tuple(self.color_filter_rgb) if self.color_filter_rgb is not None else None,

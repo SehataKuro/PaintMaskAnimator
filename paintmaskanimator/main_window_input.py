@@ -6,12 +6,12 @@ matching, the auxiliary hold-to-drag gestures (hand scroll, rotate, zoom) with
 their cursor bookkeeping, and the canvas hold-operation sync. Keeping it separate
 means the window shell no longer carries the event-loop hot path.
 """
-import math
 from PySide6.QtCore import QEvent, QPoint, QPointF, QTimer, Qt
 from PySide6.QtGui import QCursor, QKeySequence
 from PySide6.QtWidgets import QAbstractButton, QApplication, QSplitter, QTabBar, QWidget
 from ._main_window_members import MainWindowMembers
 from .constants import HOLD_ZOOM_SHORTCUT
+from .utils import drag_zoom_factor, magnifier_cursor
 from .widgets import ShortcutDialog
 from .errors import OPERATION_ERRORS
 from .logging_setup import get_logger
@@ -157,10 +157,8 @@ class InputMixin(MainWindowMembers):
                     log.debug("cursor target was deleted during update", exc_info=True)
         elif tool == "zoom":
             try:
-                self.timeline.setCursor(Qt.CursorShape.SizeVerCursor)
-                self.timeline.table.viewport().setCursor(
-                    Qt.CursorShape.SizeVerCursor
-                )
+                self.timeline.setCursor(magnifier_cursor())
+                self.timeline.table.viewport().setCursor(magnifier_cursor())
             except RuntimeError:
                 log.debug("timeline was deleted during cursor update", exc_info=True)
 
@@ -198,8 +196,8 @@ class InputMixin(MainWindowMembers):
                             Qt.CursorShape.ClosedHandCursor
                         )
                 elif self._ui_hold_drag_mode == "timeline_zoom":
-                    delta_y = current.y() - self._ui_hold_last_global.y()
-                    factor = math.pow(1.01, -delta_y)
+                    delta_x = current.x() - self._ui_hold_last_global.x()
+                    factor = drag_zoom_factor(delta_x)
                     viewport = self.timeline.table.viewport()
                     anchor = viewport.mapFromGlobal(
                         current.toPoint()

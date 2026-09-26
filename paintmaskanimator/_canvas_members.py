@@ -234,6 +234,7 @@ class CanvasMembers(_MembersBase):
         begin_transform_line_adjustment: Any
         binarize_alpha_for_pixel_art: Any
         brush_stabilizer_strength: Any
+        fill_opacity: Any
         build_color_reduction_palette: Any
         cancel_mesh: Any
         cancel_onion_interaction: Any
