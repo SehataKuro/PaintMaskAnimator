@@ -26,7 +26,7 @@ from .constants import (
     MAX_PROJECT_METADATA_BYTES,
 )
 from .imaging import white_to_transparent_qimage
-from .models import Frame, Layer
+from .models import Frame, Layer, default_layer_name
 from .utils import blank_image
 from .logging_setup import get_logger
 
@@ -228,7 +228,7 @@ def read_project_archive(path):
                 )
 
             if not loaded_layers:
-                loaded_layers = [Layer("Layer 1", blank_image())]
+                loaded_layers = [Layer(default_layer_name(0), blank_image())]
             loaded_frames.append(
                 Frame(
                     loaded_layers,

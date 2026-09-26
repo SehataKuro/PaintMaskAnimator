@@ -29,7 +29,7 @@ from .clip_animation import (
     read_clip_animation,
 )
 from .errors import OPERATION_ERRORS as _OPERATION_ERRORS, OperationError
-from .models import Layer
+from .models import Layer, default_layer_name
 from .utils import blank_image
 from .logging_setup import get_logger
 
@@ -719,7 +719,7 @@ class ImportController:
         for frame in self.window.canvas.frames:
             while len(frame.layers) < required_layers:
                 index = len(frame.layers)
-                name = names[index] if index < len(names) else f"Layer {index + 1}"
+                name = names[index] if index < len(names) else default_layer_name(index)
                 frame.layers.append(Layer(name, blank_image()))
         self.window.canvas._ensure_frame_count(duration)
 

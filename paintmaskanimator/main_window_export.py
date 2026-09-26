@@ -1,4 +1,4 @@
-"""Export dialogs (XDTS / PSD / key-sequence images / MP4).
+"""Export dialogs (XDTS / PSD / key-sequence images / cut folder / MP4).
 
 A *collaborator* of ``MainWindow`` rather than a mixin: the window owns one as
 ``window.export`` and the dependency runs one way only, through the ``window``
@@ -22,6 +22,8 @@ import tempfile
 from pathlib import Path
 from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMessageBox
 from .i18n import tr
+from . import cut_folder
+from .models import default_layer_name
 from .optional_deps import PILImage, PSDImage
 from .constants import OUTSIDE_MARGIN
 from . import constants
@@ -54,7 +56,17 @@ class ExportController:
             return
         if not path.lower().endswith(".xdts"):
             path += ".xdts"
+        try:
+            Path(path).write_text(self.xdts_text(), encoding="utf-8")
+        except OSError as exc:
+            QMessageBox.critical(self.window, tr("XDTS書き出し"), str(exc))
+            return
+        QMessageBox.information(
+            self.window, tr("XDTS書き出し"), tr("タイムシートを書き出しました。\n\n{path}").format(path=path)
+        )
 
+    def xdts_text(self, sheet_name="PaintMaskAnimator"):
+        """The current timeline as XDTS v5 text (header line + JSON)."""
         duration = self.window._sheet_duration()
         tracks = []
         names = []
@@ -102,25 +114,145 @@ class ExportController:
         payload = {
             "timeTables": [{
                 "duration": duration,
-                "name": "PaintMaskAnimator",
+                "name": sheet_name,
                 "timeTableHeaders": [{"fieldId": 0, "names": names}],
                 "fields": [{"fieldId": 0, "tracks": tracks}],
             }],
             "version": 5,
         }
-        try:
-            text = (
-                "exchangeDigitalTimeSheet Save Data\n"
-                + json.dumps(payload, ensure_ascii=False, indent=2)
-                + "\n"
-            )
-            Path(path).write_text(text, encoding="utf-8")
-        except OSError as exc:
-            QMessageBox.critical(self.window, tr("XDTS書き出し"), str(exc))
-            return
-        QMessageBox.information(
-            self.window, tr("XDTS書き出し"), tr("タイムシートを書き出しました。\n\n{path}").format(path=path)
+        return (
+            "exchangeDigitalTimeSheet Save Data\n"
+            + json.dumps(payload, ensure_ascii=False, indent=2)
+            + "\n"
         )
+
+    def cut_folder_cels(self):
+        """Distinct drawings to write: one per (layer, セル番号), first seen wins.
+
+        Returns ``(cels, images, skipped)`` where ``images`` maps a cel to its
+        canvas-sized image and ``skipped`` counts drawn keys that have no
+        セル番号 (the XDTS could not reference them either).
+        """
+        invalid = cut_folder.INVALID_NAME_CHARS + "/"
+        frames = self.window.canvas.frames
+        cels = []
+        images = {}
+        skipped = 0
+        if not frames:
+            return cels, images, skipped
+        for layer_index, template in enumerate(frames[0].layers):
+            name = "".join(
+                "_" if character in invalid else character
+                for character in (template.name.strip() or default_layer_name(layer_index))
+            ).strip(" .") or default_layer_name(layer_index)
+            seen = set()
+            for frame in frames:
+                if layer_index >= len(frame.layers):
+                    continue
+                layer = frame.layers[layer_index]
+                if not layer.has_content or layer.sequence_only:
+                    continue
+                if layer.sequence_number is None:
+                    skipped += 1
+                    continue
+                number = int(layer.sequence_number)
+                if number in seen:
+                    continue
+                seen.add(number)
+                cel = cut_folder.CelSource(layer_index, name, number)
+                cels.append(cel)
+                images[cel] = layer.image
+        return cels, images, skipped
+
+    def cut_folder(self):
+        from .cut_folder_dialog import CutFolderExportDialog
+
+        cels, images, skipped = self.cut_folder_cels()
+        project = self.window.current_project_path
+        hint = cut_folder.guess_cut_number(Path(project).stem) if project else ""
+        dialog = CutFolderExportDialog(cels, cut_hint=hint, parent=self.window)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        dialog.remember()
+        plan = dialog.plan()
+        parent = Path(dialog.destination.text().strip())
+        self.write_cut_folder(plan, parent, images, dialog.current_layout().image_format, skipped)
+
+    def write_cut_folder(self, plan, parent, images, image_format, skipped=0):
+        target = parent / plan.folder_name
+        try:
+            if target.exists() and not target.is_dir():
+                raise OperationError(tr("同じ名前のファイルがあるため、フォルダーを作成できません。"))
+            if target.exists() and any(target.iterdir()):
+                answer = QMessageBox.question(
+                    self.window,
+                    tr("同名フォルダー"),
+                    tr("「{name}」には既存のファイルがあります。\n同じ名前のファイルは上書きします。書き出しますか？").format(name=plan.folder_name),
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if answer != QMessageBox.StandardButton.Yes:
+                    return False
+            target.mkdir(parents=True, exist_ok=True)
+            for folder in plan.folders:
+                (target / folder).mkdir(parents=True, exist_ok=True)
+        except (OSError, OperationError) as exc:
+            QMessageBox.critical(
+                self.window,
+                tr("カットフォルダー書き出し"),
+                tr("書き出しフォルダーを作成できません。\n\n{exc}").format(exc=exc),
+            )
+            return False
+
+        progress = create_counter(
+            self.window,
+            tr("カットフォルダー書き出し"),
+            len(plan.files),
+            tr("「{name}」へ書き出しています").format(name=plan.folder_name),
+        )
+        try:
+            for number, (relative, cel) in enumerate(plan.files, 1):
+                update_counter(
+                    progress, number - 1, len(plan.files),
+                    tr("{number}枚目を書き出しています").format(number=number),
+                )
+                image = images[cel].copy(
+                    OUTSIDE_MARGIN,
+                    OUTSIDE_MARGIN,
+                    constants.CANVAS_WIDTH,
+                    constants.CANVAS_HEIGHT,
+                )
+                output_path = target / relative
+                if image_format == "tga":
+                    saved = self.window.save_tga_image(image, output_path)
+                else:
+                    saved = image.save(str(output_path), "PNG")
+                if not saved:
+                    raise OSError(tr("{name}を保存できませんでした。").format(name=output_path.name))
+            (target / plan.timesheet_path).write_text(
+                self.xdts_text(sheet_name=plan.folder_name), encoding="utf-8"
+            )
+        except _OPERATION_ERRORS as exc:
+            log.error("cut folder export failed: %s", exc, exc_info=True)
+            QMessageBox.critical(
+                self.window,
+                tr("カットフォルダー書き出し"),
+                tr("書き出し中にエラーが発生しました。\n\n{exc}").format(exc=exc),
+            )
+            return False
+        finally:
+            close_counter(progress)
+
+        message = tr("「{name}」へセル{count}枚とタイムシートを書き出しました。").format(
+            name=plan.folder_name, count=len(plan.files)
+        )
+        if skipped:
+            message += "\n" + tr("セル番号のないキー{count}枚は書き出していません。").format(count=skipped)
+        self.window.statusBar().showMessage(message.split("\n")[0], 4000)
+        QMessageBox.information(
+            self.window, tr("カットフォルダー書き出し"), f"{message}\n\n{target}"
+        )
+        return True
 
     def psd_dialog(self):
         if PSDImage is None or PILImage is None:
@@ -151,7 +283,7 @@ class ExportController:
             exported_keys = 0
             for layer_index in range(layer_count):
                 template = self.window.canvas.frames[0].layers[layer_index]
-                folder_name = str(template.name or f"Layer {layer_index + 1}")
+                folder_name = str(template.name or default_layer_name(layer_index))
                 group = psd.create_group(
                     name=folder_name,
                     opacity=max(0, min(255, int(round(template.opacity * 255)))),
@@ -200,8 +332,8 @@ class ExportController:
         for layer_index, layer in enumerate(self.window.canvas.layers):
             base_name = "".join(
                 "_" if character in invalid else character
-                for character in (layer.name.strip() or f"Layer {layer_index + 1}")
-            ).strip(" .") or f"Layer {layer_index + 1}"
+                for character in (layer.name.strip() or default_layer_name(layer_index))
+            ).strip(" .") or default_layer_name(layer_index)
             safe_name = base_name
             suffix = 2
             while safe_name.casefold() in used_names:

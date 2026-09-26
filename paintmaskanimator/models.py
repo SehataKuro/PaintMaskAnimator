@@ -49,6 +49,27 @@ class Frame:
         return Frame([x.clone() for x in self.layers], self.duration)
 
 
+def default_layer_name(index):
+    """Cel-style default name for the layer at ``index``: A..Z, AA, AB, ..."""
+    index = max(0, int(index))
+    name = ""
+    while True:
+        index, remainder = divmod(index, 26)
+        name = chr(ord("A") + remainder) + name
+        if index == 0:
+            return name
+        index -= 1
+
+
+def next_layer_name(existing):
+    """The first default name not already used by ``existing`` names."""
+    used = {str(name).strip().casefold() for name in existing}
+    index = 0
+    while default_layer_name(index).casefold() in used:
+        index += 1
+    return default_layer_name(index)
+
+
 def make_frame(layer_names=None):
-    names = layer_names or ["Layer 1"]
+    names = layer_names or [default_layer_name(0)]
     return Frame([Layer(name, blank_image()) for name in names])
