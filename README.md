@@ -13,95 +13,69 @@
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey)](https://github.com/SehataKuro/PaintMaskAnimator/releases)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
 
-PySide6 で作られたペイント / マスクアニメーションツールです。
+アニメーションの仕上げ（彩色）のためのペイント / マスクアニメーションツールです。
 略称は **PMAn**（ピーマン）。
 
-## 関連リンク
+## ダウンロード
 
-- [ダウンロード（GitHub Releases）](https://github.com/SehataKuro/PaintMaskAnimator/releases)
-- [機能検証マップ（各コミットのテスト結果から自動更新）](https://jokomanato.com/paintmaskanimator/)
+[**Releases**](https://github.com/SehataKuro/PaintMaskAnimator/releases) から最新版を
+ダウンロードしてください。
 
-機能検証マップの閲覧には Basic 認証が必要です。
+| OS | ファイル | 対応 |
+| --- | --- | --- |
+| Windows | `PaintMaskAnimator-Setup-<版>.exe` | 64 ビット版 Windows |
+| macOS | `PaintMaskAnimator-<版>-macOS.dmg` | Apple Silicon（M1 以降）。Intel Mac は非対応 |
 
-- ユーザー名: `guest`
-- パスワード: `6eCKEq`
+インストール後は、アプリ内の更新確認から新しい版を取得できます。
+0.6.5 以前を使っている場合はアプリ内の更新が届かないため、一度だけ Releases から
+入れ直してください。
 
-## プロジェクトの由来と開発思想
+### macOS で開けないとき
 
-PaintMaskAnimator は、[小嶋慶祐](https://x.com/kkeisuke220)が v0.5 まで単独で
-開発しました。v0.5 以降は、小嶋慶祐と上甲愛士の 2 名による共同開発として継続して
-います。
+Apple の公証を受けていないため、初回だけ macOS が起動を止めます。
 
-当初から一貫している開発の狙いは次のとおりです。
+1. アプリを「アプリケーション」フォルダへドラッグし、一度開いて警告を閉じます。
+2. **システム設定 › プライバシーとセキュリティ** の下の方にある
+   「"PaintMaskAnimator" は…ブロックされました」の横の **このまま開く** を押します。
 
-- PaintMan に代わり得るアニメーション仕上げソフト
-- 動画作業にも対応できる描画能力
-- CLIP STUDIO PAINT のような操作感を持つタイムライン
+ターミナルからは次のコマンドでも解除できます。
 
-現在もこの方向性のもとで開発を進めています。
+```bash
+xattr -dr com.apple.quarantine /Applications/PaintMaskAnimator.app
+```
 
-## 必要環境
+## 主な機能
 
-- Python 3.10 以上
-- PySide6、PySide6-QtAds、numpy（必須）／Pillow、psd-tools（任意。追加の読み込み・書き出し機能が有効になります）
+- フレームとレイヤーによるペイント・マスクアニメーションの編集、タイムライン、
+  オニオンスキン、トゥイーン
+- 使用色パネル：色を親子付け・タグ・フォルダーで整理し、置換・統合・減色ができる
+- カラーチャート（`.pmag`）で色の親子関係を管理し、現在の画像へ適用
+- 読み込み：画像・連番、PSD、CLIP STUDIO のアニメーション（`.clip`）、
+  タイムシート（XDTS / TDTS）、タイムリマップの貼り付け
+- 書き出し：PNG / TGA 連番＋CSV、PSD、MP4、XDTS、カットフォルダー
+  （セル画像とタイムシートをまとめて書き出し）
+- 自動保存とクラッシュからの復元、パネル配置のカスタマイズ、ライト / ダークテーマ
+- 表示言語：日本語・英語（**表示 › 言語 / Language**。既定は OS の言語）
+- Python スクリプトによるアクションの追加（下記）
+
+プロジェクトファイル（`.pman`）の形式は [`FORMAT.md`](FORMAT.md) にまとめています。
+
+## ソースから実行する
+
+Python 3.10 以上が必要です。
 
 ```bash
 pip install -r requirements.txt
+python PaintMaskAnimator.py        # または python -m paintmaskanimator
 ```
 
-## 実行
-
-```bash
-python PaintMaskAnimator.py
-```
-
-またはモジュールとして：
-
-```bash
-python -m paintmaskanimator
-```
-
-## 表示言語
-
-日本語（原文）と英語に対応しています。**表示 › 言語 / Language** から選択でき、
-既定ではOSのロケールに従います。切り替えは次回起動から反映されます。
-
-翻訳は `paintmaskanimator/translations/` の Qt `.ts` カタログで管理しています。
-`tr()` の文字列を追加・変更したら
-`python scripts/update_translations.py` で再生成してください（CIが鮮度を検証します）。
-
-## 開発
-
-```bash
-pip install -r requirements-dev.txt
-QT_QPA_PLATFORM=offscreen python scripts/run_tests.py -q
-```
-
-テストはヘッドレス（オフスクリーン Qt）で実行されます。CI は push のたびに実行されます。
-
-## プロジェクト構成
-
-アプリケーションは [`paintmaskanimator/`](paintmaskanimator/) 以下の Python パッケージです：
-
-| モジュール | 役割 |
-| --- | --- |
-| `document.py` | プロジェクト状態モデル（フレーム / レイヤー / カーソル、スナップショット） |
-| `imaging.py`、`geometry.py`、`colors.py`、`color_ops.py` | Qt に依存しない純粋なアルゴリズム |
-| `project_io.py` | プロジェクト（`.zip`）の保存 / 読み込みシリアライズ |
-| `canvas.py`、`timeline.py`、`toolpanel.py`、`main_window.py` など | UI レイヤー（PySide6 ウィジェット） |
-| `main_window_<topic>.py` | 機能ごとのコントローラ（`window.export` など、`MainWindow` が所有） |
-| `progress.py` | 長い処理で共有する進捗カウンター |
-| `i18n.py` | 翻訳の読み込みと `tr()` |
-| `errors.py` | 例外型と、ユーザー操作ハンドラが捕捉する範囲 |
-| `dependency_check.py`、`optional_deps.py` | 必須依存の起動時チェックと、任意依存のフォールバック |
-
-リポジトリ直下の `PaintMaskAnimator.py` は薄いランチャーです。
+必須の依存は PySide6、PySide6-QtAds、numpy です。Pillow と psd-tools を入れると、
+PSD などの読み込み・書き出しが有効になります。
 
 ## Python アクション
 
-アクションパネルは、Python スクリプトからカスタムボタンを追加できます。アクション
-パネルのタブ左端の **☰ → スクリプトを編集** でアプリ内エディタが開き、スクリプトの作成・
-編集・再読み込みが行えます。各スクリプトは次の関数を公開します：
+アクションパネルには、Python スクリプトでボタンを追加できます。タブ左端の
+**☰ › スクリプトを編集** でアプリ内エディタが開きます。
 
 ```python
 def register_actions(panel, window):
@@ -113,53 +87,59 @@ def register_actions(panel, window):
     )
 ```
 
-書き方・API リファレンス・組み込みアクションの一覧・トラブルシューティングは
-[`docs/actions.md`](docs/actions.md) にまとめています。サンプルは
-[`examples/actions/hello_status.py`](examples/actions/hello_status.py) を参照して
-ください。アクションスクリプトは通常の Python コードなので、信頼できる提供元から
-のみインストールしてください。
+API リファレンスと組み込みアクションの一覧は [`docs/actions.md`](docs/actions.md)、
+サンプルは [`examples/actions/hello_status.py`](examples/actions/hello_status.py) に
+あります。アクションは通常の Python コードとして実行されるので、信頼できる提供元の
+ものだけを入れてください。
+
+## 開発に参加する
+
+開発環境の準備、提出前のチェック、翻訳、リリース手順は
+[`CONTRIBUTING.md`](CONTRIBUTING.md) にまとめています。
+
+```bash
+pip install -e ".[dev,full]"
+python scripts/preflight.py
+```
+
+コードは [`paintmaskanimator/`](paintmaskanimator/) 以下の Python パッケージです。
+リポジトリ直下の `PaintMaskAnimator.py` は起動用の薄いランチャーです。
+
+| モジュール | 役割 |
+| --- | --- |
+| `document.py` | プロジェクト状態モデル（フレーム / レイヤー / カーソル） |
+| `imaging.py`、`geometry.py`、`colors.py`、`color_ops.py` | Qt に依存しないアルゴリズム |
+| `project_io.py` | プロジェクトファイルの保存・読み込み |
+| `canvas.py`、`timeline.py`、`toolpanel.py`、`main_window.py` など | UI（PySide6 ウィジェット） |
+| `main_window_<topic>.py` | 機能ごとのコントローラ（`window.export` など） |
+| `i18n.py` | 翻訳の読み込みと `tr()` |
+
+## プロジェクトの由来
+
+PaintMaskAnimator は、[小嶋慶祐](https://x.com/kkeisuke220)が v0.5 まで単独で
+開発しました。v0.5 以降は、小嶋慶祐と上甲愛士の 2 名で共同開発しています。
+
+当初から一貫している狙いは次のとおりです。
+
+- PaintMan に代わり得るアニメーション仕上げソフト
+- 動画作業にも対応できる描画能力
+- CLIP STUDIO PAINT のような操作感を持つタイムライン
 
 ## ライセンス
 
-PaintMaskAnimator は **Apache License 2.0** のもとで配布されます。全文は
-[`LICENSE`](LICENSE) を、帰属表示は [`NOTICE`](NOTICE) を参照してください。
+[Apache License 2.0](LICENSE) のもとで配布しています。帰属表示は
+[`NOTICE`](NOTICE) を参照してください。
 
-```
-Copyright (c) 2026 PaintMaskAnimator contributors
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-```
-
-商用・非商用を問わず、利用・改変・再配布が自由に行えます。改変版をクローズド
-ソースの製品として配布することもできます。求められるのは、ライセンス表記と
-`NOTICE` の保持、および変更点の明示だけです（Apache License 2.0 第4条）。
-
-本ソフトウェアで作成した作品（画像・アニメーション・プロジェクトファイル）は
-あなたのものです。ライセンスは作品には及びません。
-
-### 商標について
-
-Apache License 2.0 は商標の使用を許諾しません（第6条）。「PaintMaskAnimator」
-および略称「PMAn」は、派生物の名称としては使用しないでください。
-
-### サードパーティライセンス
-
-本アプリは PySide6（LGPLv3）、Qt Advanced Docking System（LGPL-2.1）などを
-利用・同梱しています。**これらの LGPL 義務は本プロジェクト側にあります。**
-配布物やパッケージング（PyInstaller の設定など）を変更する場合は、必ず
-[`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md) の「LGPL compliance」節を
-確認してください。
-
-### 貢献について
-
-貢献の手順は [`CONTRIBUTING.md`](CONTRIBUTING.md) を参照してください。貢献は
-Apache License 2.0 の条件で提供されたものとみなします（同ライセンス第5条）。
-別途の同意書（CLA）は不要です。
+- 商用・非商用を問わず、利用・改変・再配布ができます。改変版をクローズドソースの
+  製品として配布することもできます。求められるのは、ライセンス表記と `NOTICE` の
+  保持、変更点の明示です（第4条）。
+- 本ソフトウェアで作った作品（画像・アニメーション・プロジェクトファイル）は
+  あなたのものです。ライセンスは作品には及びません。
+- 商標の使用は許諾していません（第6条）。「PaintMaskAnimator」と「PMAn」は、
+  派生物の名称には使わないでください。
+- PySide6（LGPLv3）や Qt Advanced Docking System（LGPL-2.1）などを同梱しています。
+  配布物やパッケージングを変える場合は、
+  [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md) の「LGPL compliance」節を
+  確認してください。
+- 貢献は Apache License 2.0 の条件で提供されたものとみなします（第5条）。
+  CLA は不要です。
