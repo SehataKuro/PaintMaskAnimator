@@ -595,9 +595,8 @@ class UIBuildMixin(MainWindowMembers):
         self.history_scroll.setMinimumSize(0, 0)
         self.history_scroll.setWidget(self.history_panel)
 
-        # 描画色パネルは廃止。描画色（メイン/サブ/背景）はツールバー最下部の
-        # スウォッチへ移設した。drawing_color_box 自体は色状態の保持用として
-        # 構築されるが、ドックには表示しない。
+        # 描画色（メイン/サブ/背景）はツールバー最下部のスウォッチに加え、
+        # カラーサークルのドック上部（tools.drawing_color_box）にも大きく表示する。
         self.color_wheel_scroll = QScrollArea()
         self.color_wheel_scroll.setWidgetResizable(True)
         self.color_wheel_scroll.setMinimumSize(0, 0)

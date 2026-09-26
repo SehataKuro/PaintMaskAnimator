@@ -88,7 +88,17 @@ def test_photoshop_style_swatch_controls():
     panel.swapMainSubRequested.connect(lambda: swapped.append(True))
     panel.resetMainSubRequested.connect(lambda: reset.append(True))
 
-    assert panel.main_btn.geometry().intersects(panel.sub_btn.geometry())
+    # メインとサブはカラーサークルのドック内で左右に並び、選択しても
+    # 位置は入れ替わらない。
+    assert panel.drawing_color_box.parent() is panel.color_wheel_box
+    panel.color_wheel_box.resize(260, 400)
+    panel.color_wheel_box.layout().activate()
+    panel.color_swatch_stack.layout().activate()
+    main_x, sub_x = panel.main_btn.x(), panel.sub_btn.x()
+    assert main_x < sub_x
+    panel.set_color_mode("sub")
+    assert (panel.main_btn.x(), panel.sub_btn.x()) == (main_x, sub_x)
+    assert panel.sub_hex_label.text() == panel.sub_color.name().upper()
     panel.swap_colors_button.click()
     panel.reset_colors_button.click()
     assert swapped == [True]
