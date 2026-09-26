@@ -550,6 +550,10 @@ class ScriptEditorDialog(QDialog):
                         Path(root) / "Microsoft VS Code/Code.exe",
                     ])
             executable = next((str(path) for path in candidates if path.is_file()), None)
+        if sys.platform == "darwin" and executable is None:
+            executable = self._macos_vscode_cli()
+            if executable is None and self._open_with_macos_bundle():
+                return
         if executable is None:
             QMessageBox.warning(
                 self,
@@ -561,6 +565,42 @@ class ScriptEditorDialog(QDialog):
             subprocess.Popen([executable, "--goto", str(self._current_path.resolve())])
         except OSError as error:
             QMessageBox.warning(self, tr("VS Codeを開けません"), str(error))
+
+    #: macOS の VS Code（安定版・Insiders）のアプリ名とバンドルID。
+    _MACOS_VSCODE_APPS = (
+        ("Visual Studio Code.app", "com.microsoft.VSCode"),
+        ("Visual Studio Code - Insiders.app", "com.microsoft.VSCodeInsiders"),
+    )
+
+    @staticmethod
+    def _macos_app_roots():
+        return (Path("/Applications"), Path.home() / "Applications")
+
+    @classmethod
+    def _macos_vscode_cli(cls):
+        """アプリ内の code コマンドを探す。
+
+        macOS では「シェルコマンド: PATH 内に 'code' をインストール」を
+        実行しない限り code が PATH になく、Finder から起動したアプリは
+        シェルの PATH も引き継がないため。
+        """
+        for root in cls._macos_app_roots():
+            for app_name, _bundle_id in cls._MACOS_VSCODE_APPS:
+                cli = root / app_name / "Contents/Resources/app/bin/code"
+                if cli.is_file():
+                    return str(cli)
+        return None
+
+    def _open_with_macos_bundle(self):
+        """code コマンドが見つからない場合、バンドルIDで VS Code に開かせる。"""
+        path = str(self._current_path.resolve())
+        for _app_name, bundle_id in self._MACOS_VSCODE_APPS:
+            result = subprocess.run(
+                ["open", "-b", bundle_id, path], capture_output=True
+            )
+            if result.returncode == 0:
+                return True
+        return False
 
     def _new_script(self):
         if not self._confirm_discard():
