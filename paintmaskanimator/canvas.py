@@ -44,7 +44,7 @@ from . import constants
 from . import color_ops, colors, geometry, imaging
 from .document import Document
 from .toolpanel import tool_label
-from .utils import blank_image, workspace_size
+from .utils import blank_image, magnifier_cursor, workspace_size
 from .progress import close_counter, create_counter, update_counter
 from .logging_setup import get_logger
 from .canvas_brush_stabilizer import BrushStabilizerMixin
@@ -519,7 +519,9 @@ class PaintCanvas(
                 if self.drawing or self.middle_hand
                 else Qt.CursorShape.OpenHandCursor
             )
-        elif tool in ("zoom", "rotate"):
+        elif tool == "zoom":
+            self.setCursor(magnifier_cursor())
+        elif tool == "rotate":
             self.setCursor(Qt.CursorShape.SizeAllCursor)
         elif tool == "eyedropper":
             self.setCursor(self._eyedropper_cursor())
