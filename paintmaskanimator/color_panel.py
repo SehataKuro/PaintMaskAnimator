@@ -64,8 +64,6 @@ class UsedColorPanel(
     mergeColorsRequested = Signal(object, object)
     # 親子関係の更新時に旧色プレビューを解除する通知。
     previewGroupsChanged = Signal(object)
-    # 登録した親子を実ピクセルへ統合する要求（{子rgb: 親rgb}）。
-    freezeGroupsRequested = Signal(object)
     deleteColorsRequested = Signal(object)
     adjustLineThicknessRequested = Signal(object)
     focusColorRequested = Signal(object)
@@ -265,20 +263,23 @@ class UsedColorPanel(
         self.clear_masks_button.setFixedWidth(32)
         self.clear_masks_button.setStyleSheet("font-size:9px;padding:0px;")
 
-        self.freeze_button = QPushButton(tr("統合"))
-        self.freeze_button.setToolTip(
-            tr("登録した親子（子→親の塗り替え）を、実際の画像へ焼き込みます。"
-            "焼き込むと親子は解除され、Undoで元に戻せます。")
+        # 統合は親子付けとは独立した操作。複数選択した色を、最後に選んだ色へ
+        # 実画像上で塗り替える。親子付けは整理専用で、色は変えない。
+        self.merge_button = QPushButton(tr("統合"))
+        self.merge_button.setToolTip(
+            tr("選択した使用色（2色以上）を、最後に選んだ色へ統合します。"
+            "実際の画像を塗り替えます。Undoで元に戻せます。")
         )
-        self.freeze_button.clicked.connect(self._emit_freeze)
-        self.freeze_button.setEnabled(False)
-        self.freeze_button.setMinimumWidth(72)
-        self.freeze_button.setMaximumWidth(16777215)
-        self.freeze_button.setSizePolicy(
+        self.merge_button.clicked.connect(self._emit_merge)
+        self.merge_button.setEnabled(False)
+        self.merge_button.setMinimumWidth(72)
+        self.merge_button.setMaximumWidth(16777215)
+        self.merge_button.setSizePolicy(
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Fixed,
         )
-        self.freeze_button.setStyleSheet("font-size:10px;padding:1px;")
+        self.merge_button.setStyleSheet("font-size:10px;padding:1px;")
+        self.selectedColorsChanged.connect(self._refresh_merge_button)
 
         self.apply_button = QPushButton(tr("色置換"))
         self.apply_button.setToolTip(
@@ -298,12 +299,12 @@ class UsedColorPanel(
         )):
             button.setMinimumWidth(0)
             button_row.addWidget(button, 0, column)
-        # 親子の統合確定は色スウォッチ列（col3）に置く。
+        # 選択色の統合は色スウォッチ列（col3）に置く。
         action_buttons = QHBoxLayout()
         action_buttons.setContentsMargins(0, 0, 0, 0)
         action_buttons.setSpacing(2)
-        self.freeze_button.setMinimumWidth(0)
-        action_buttons.addWidget(self.freeze_button)
+        self.merge_button.setMinimumWidth(0)
+        action_buttons.addWidget(self.merge_button)
         button_row.addLayout(action_buttons, 0, 3)
         button_row.addWidget(self.apply_button, 0, 4)
         layout.addLayout(button_row)
@@ -500,8 +501,9 @@ class UsedColorPanel(
             "［＋フォルダー］でカテゴリーを作り、色をヘッダーへドラッグして格納。"
             "フォルダーのチェックで所属色を一括表示／非表示。"
             "ドラッグで並べ替え、色の中央へドロップ＝その色の「子」として整理。"
-            "親子付けしても色表示は変わりません。解除は右クリックから行えます。"
-            "問題なければ［統合］で実画像へ焼き込みます。")
+            "親子付けはフォルダーのような整理用で、色は変わりません。"
+            "解除は右クリックから行えます。"
+            "色を2色以上選んで［統合］を押すと、最後に選んだ色へ実画像を塗り替えます。")
 
     def show_help(self) -> None:
         """使用色パネルの使い方をダイアログで表示する。"""
@@ -1307,6 +1309,13 @@ class UsedColorPanel(
         action_delete.setToolTip(
             tr("選択した使用色を #FFFFFF へ統合します。")
         )
+        action_merge = None
+        if clicked_rgb in selected_line_colors and len(selected_line_colors) >= 2:
+            action_merge = menu.addAction(
+                tr("選択した{count}色をこの色へ統合").format(
+                    count=len(selected_line_colors)
+                )
+            )
 
         main_window: Any = self.window()
         canvas = getattr(main_window, "canvas", None)
@@ -1349,11 +1358,8 @@ class UsedColorPanel(
             action_ungroup = menu.addAction(tr("親子を解除"))
             action_ungroup.setToolTip(tr("この色に関わる親子関係を解除します。"))
         action_ungroup_all = None
-        action_freeze = None
         if self.child_to_parent:
             action_ungroup_all = menu.addAction(tr("親子をすべて解除"))
-            action_freeze = menu.addAction(tr("親子を統合（焼き込み）"))
-            action_freeze.setToolTip(tr("登録した子→親の塗り替えを実画像へ確定します。"))
         action_clear = None
         if self.selected_rgbs:
             menu.addSeparator()
@@ -1400,8 +1406,8 @@ class UsedColorPanel(
                     self._emit_preview()
         elif action_ungroup_all is not None and chosen is action_ungroup_all:
             self._clear_groups()
-        elif action_freeze is not None and chosen is action_freeze:
-            self._emit_freeze()
+        elif action_merge is not None and chosen is action_merge:
+            self._merge_selected_into(clicked_rgb)
         elif action_clear is not None and chosen is action_clear:
             self._clear_used_color_selection()
 

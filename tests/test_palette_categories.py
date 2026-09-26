@@ -27,8 +27,51 @@ def test_group_commit_uses_single_merge_button():
         ]
         assert buttons.count("統合") == 1
         assert "フリーズ" not in buttons
-        assert not hasattr(panel, "merge_button")
-        assert panel.freeze_button.text() == "統合"
+        assert not hasattr(panel, "freeze_button")
+        assert panel.merge_button.text() == "統合"
+    finally:
+        panel.close()
+        app.processEvents()
+
+
+def test_merge_button_merges_selected_colors_into_last_selected():
+    app = _app()
+    panel = _panel_with_colors()
+    red, blue, green = (255, 0, 0), (0, 0, 255), (0, 128, 0)
+    merged = []
+    panel.mergeColorsRequested.connect(
+        lambda target, sources: merged.append((target, set(sources)))
+    )
+    try:
+        assert not panel.merge_button.isEnabled()
+        panel._select_used_color(red)
+        assert not panel.merge_button.isEnabled()
+        panel._select_used_color(blue, Qt.KeyboardModifier.ControlModifier)
+        assert panel.merge_button.isEnabled()
+        panel.merge_button.click()
+        assert merged == [(blue, {red, blue})]
+        assert green not in merged[0][1]
+    finally:
+        panel.close()
+        app.processEvents()
+
+
+def test_parent_child_grouping_never_recolors():
+    """親子付けはフォルダー扱い。統合ボタンを有効にせず、色も変えない。"""
+    app = _app()
+    panel = _panel_with_colors()
+    red, blue = (255, 0, 0), (0, 0, 255)
+    merged = []
+    previews = []
+    panel.mergeColorsRequested.connect(lambda *args: merged.append(args))
+    panel.previewGroupsChanged.connect(previews.append)
+    try:
+        panel._handle_color_drop(red, blue, "child")
+        assert panel.child_to_parent == {red: blue}
+        assert not panel.merge_button.isEnabled()
+        assert merged == []
+        assert all(mapping == {} for mapping in previews)
+        assert not hasattr(panel, "freezeGroupsRequested")
     finally:
         panel.close()
         app.processEvents()
