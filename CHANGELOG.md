@@ -4,6 +4,15 @@ PaintMaskAnimator の主な変更点を記録します。
 
 ## [未リリース]
 
+### 追加
+
+- **リリース用のサイトを追加した。** `site/` のテンプレートから
+  `scripts/build_release_site.py` が GitHub Releases の一覧を読んで静的な
+  ページを組み立て、`.github/workflows/pages.yml` が GitHub Pages に公開する。
+  トップページ（ドット絵のロゴアニメーション・ダウンロード・機能紹介）、
+  更新履歴、過去のバージョン一覧、ヘルプの 4 ページ。ライト / ダークモード対応。
+  リポジトリ変数 `RELEASE_SITE_ENABLED` を `true` にするまで公開は行わない。
+
 ### 変更
 
 - **配布を GitHub Releases に一本化した。** これまでのダウンロードページ

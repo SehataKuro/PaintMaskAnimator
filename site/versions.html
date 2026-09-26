@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>過去のバージョン — PaintMaskAnimator</title>
+    <link rel="icon" href="logo.png" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body data-page="versions">
+{{ header }}
+
+    <section class="page-head">
+      <div class="container">
+        <h1>過去のバージョン</h1>
+        <p>これまでに公開したすべてのバージョンです。通常は <a href="./#download">最新版</a> をお使いください。</p>
+      </div>
+    </section>
+
+    <main class="container versions">
+      <div class="table-scroll">
+        <table class="version-table">
+          <thead>
+            <tr>
+              <th scope="col">バージョン</th>
+              <th scope="col">公開日</th>
+              <th scope="col">Windows</th>
+              <th scope="col">macOS</th>
+              <th scope="col"><span class="visually-hidden">変更内容</span></th>
+            </tr>
+          </thead>
+          <tbody>
+{{ versions }}
+          </tbody>
+        </table>
+      </div>
+      <p class="small">
+        古いバージョンでも、macOS / Windows で初回に警告が出たときの対処は <a href="help.html">ヘルプ</a> と同じです。
+        変更内容は <a href="history.html">更新履歴</a> にまとめています。
+      </p>
+    </main>
+
+{{ footer }}
+  </body>
+</html>

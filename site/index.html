@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PaintMaskAnimator — アニメ仕上げソフト</title>
+    <meta name="description" content="PaintMaskAnimator はアニメの仕上げのためのペイントツールです。色をレイヤーのように扱い、カットの全コマをまとめて塗り分けられます。Windows / macOS 対応。" />
+    <link rel="icon" href="logo.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@800&display=block&text=PaintMaskAnimor" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body data-page="home">
+{{ header }}
+
+    <section class="hero">
+      <div class="container hero-inner">
+        <h1 class="visually-hidden">PaintMaskAnimator</h1>
+        <div class="logo-stage">
+          <canvas id="logo-canvas" role="img" aria-label="PaintMaskAnimator"></canvas>
+          <noscript><p class="logo-fallback">PaintMaskAnimator</p></noscript>
+        </div>
+        <p class="hero-alias">略称 <strong>PMAn</strong><span>ピーマン</span></p>
+        <div class="hero-actions" id="download">
+{{ buttons }}
+        </div>
+        <p class="hero-note">{{ status }} · 無料 · オープンソース</p>
+        <p class="hero-sub"><a href="versions.html">過去のバージョン</a><span aria-hidden="true">·</span><a href="history.html">更新履歴</a></p>
+      </div>
+      <div class="container">
+        <figure class="screenshot">
+          <img src="images/screenshot.png" alt="PaintMaskAnimator の作業画面" width="1600" height="1000" />
+        </figure>
+      </div>
+    </section>
+
+    <section class="story" id="story">
+      <div class="container">
+        <h2 class="section-title" data-reveal>なぜ作ったのか</h2>
+        <p class="story-lead" data-reveal>アニメの仕上げには、長く PaintMan が使われてきました。けれど今では古いソフトになり、新しい環境で使い続けるのは難しくなっています。CLIP STUDIO PAINT は描画もタイムラインも優れていますが、アニメの仕上げのための道具ではないので、かゆいところに手が届きません。PaintMaskAnimator は、その不便を自分たちで解決したいと考えたアニメ業界の人間が開発しています。</p>
+        <div class="pillars-grid" data-reveal-stagger>
+          <div class="pillar" style="--pillar: var(--brand-red)">
+            <p class="pillar-from">開発の狙い 1</p>
+            <h3>PaintMan に<wbr />代わり得る<wbr />仕上げソフト</h3>
+            <p>線と色を 2 値に保ったまま、塗り分け・色替え・変形。使用色の一覧とカラーチャートで、色をまとめて管理できます。</p>
+          </div>
+          <div class="pillar" style="--pillar: var(--brand-blue)">
+            <p class="pillar-from">開発の狙い 2</p>
+            <h3>動画作業にも<wbr />対応できる描画</h3>
+            <p>筆圧・手振れ補正付きのブラシで、動画の線の修正や描き足しまで同じ画面で行えます。</p>
+          </div>
+          <div class="pillar" style="--pillar: var(--brand-green)">
+            <p class="pillar-from">開発の狙い 3</p>
+            <h3>CLIP STUDIO PAINT のような<wbr />操作感の<wbr />タイムライン</h3>
+            <p>なじみのある操作感のタイムラインで、シートと連番を切り替え、オニオンスキンで前後のセルを見ながら作業できます。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="spotlight" id="colors">
+      <div class="container spotlight-inner">
+        <div class="spotlight-text">
+          <p class="eyebrow-dark" data-reveal>ほかのペイントツールとの違い</p>
+          <h2 data-reveal>色がレイヤーになる</h2>
+          <p>仕上げの画は、線と数色の塗りでできています。PaintMaskAnimator は画像に使われている色を一色ずつ並べ、レイヤーのように表示を切り替えたり、塗る対象を決めたりできるようにしました。</p>
+          <dl class="spotlight-points">
+            <div data-step="show"><dt>色ごとに表示</dt><dd>一色だけを表示して、塗り残しや混ざった色をすぐに見つけられます。</dd></div>
+            <div data-step="mask"><dt>色ごとにマスク</dt><dd>描画対象にした色にだけ塗り、ほかの色には触れません。</dd></div>
+            <div data-step="time"><dt>時間軸を横断</dt><dd>色の設定はコマをまたいで効きます。色置換もゴミ取りも、カットの全コマにまとめて適用できます。</dd></div>
+          </dl>
+        </div>
+        <div class="colormock" data-step="mask" aria-label="使用色パネルで肌色を描画対象にすると、全コマの肌色だけが対象になる様子">
+          <div class="mock-panel">
+            <p class="mock-title">使用色</p>
+            <ul>
+              <li class="is-target"><span class="eye" aria-hidden="true"></span><span class="chip c-skin"></span><span class="hex">#F6D3B3</span><span class="tag">描画対象</span></li>
+              <li class=""><span class="eye" aria-hidden="true"></span><span class="chip c-shadow"></span><span class="hex">#E0A98A</span><span class="tag"></span></li>
+              <li class=""><span class="eye" aria-hidden="true"></span><span class="chip c-hair"></span><span class="hex">#5B4A8A</span><span class="tag"></span></li>
+              <li class=""><span class="eye" aria-hidden="true"></span><span class="chip c-cloth"></span><span class="hex">#3F7FD0</span><span class="tag"></span></li>
+              <li class=""><span class="eye" aria-hidden="true"></span><span class="chip c-line"></span><span class="hex">#1D1D1D</span><span class="tag"></span></li>
+            </ul>
+          </div>
+          <div class="mock-frames">
+            <figure class="cel"><svg viewBox="0 0 120 110" role="img" aria-label="1 コマ目"><rect width="120" height="110" fill="#fff"/><g transform="translate(0 0)"><path class="c-cloth" d="M22 110 C24 84 40 76 50 76 L70 76 C80 76 96 84 98 110 Z"/><ellipse class="c-skin" cx="58" cy="50" rx="24" ry="27"/><path class="c-shadow" d="M40 60 C46 72 64 78 78 64 C74 74 64 80 56 79 C48 78 42 70 40 60 Z"/><path class="c-hair" d="M32 48 C30 22 50 14 62 16 C80 18 88 32 84 50 C78 38 70 32 58 34 C48 34 40 40 32 48 Z"/></g></svg><figcaption>1</figcaption></figure>
+            <figure class="cel"><svg viewBox="0 0 120 110" role="img" aria-label="2 コマ目"><rect width="120" height="110" fill="#fff"/><g transform="translate(6 -3)"><path class="c-cloth" d="M22 110 C24 84 40 76 50 76 L70 76 C80 76 96 84 98 110 Z"/><ellipse class="c-skin" cx="58" cy="50" rx="24" ry="27"/><path class="c-shadow" d="M40 60 C46 72 64 78 78 64 C74 74 64 80 56 79 C48 78 42 70 40 60 Z"/><path class="c-hair" d="M32 48 C30 22 50 14 62 16 C80 18 88 32 84 50 C78 38 70 32 58 34 C48 34 40 40 32 48 Z"/></g></svg><figcaption>2</figcaption></figure>
+            <figure class="cel"><svg viewBox="0 0 120 110" role="img" aria-label="3 コマ目"><rect width="120" height="110" fill="#fff"/><g transform="translate(12 -4)"><path class="c-cloth" d="M22 110 C24 84 40 76 50 76 L70 76 C80 76 96 84 98 110 Z"/><ellipse class="c-skin" cx="58" cy="50" rx="24" ry="27"/><path class="c-shadow" d="M40 60 C46 72 64 78 78 64 C74 74 64 80 56 79 C48 78 42 70 40 60 Z"/><path class="c-hair" d="M32 48 C30 22 50 14 62 16 C80 18 88 32 84 50 C78 38 70 32 58 34 C48 34 40 40 32 48 Z"/></g></svg><figcaption>3</figcaption></figure>
+            <figure class="cel"><svg viewBox="0 0 120 110" role="img" aria-label="4 コマ目"><rect width="120" height="110" fill="#fff"/><g transform="translate(18 -2)"><path class="c-cloth" d="M22 110 C24 84 40 76 50 76 L70 76 C80 76 96 84 98 110 Z"/><ellipse class="c-skin" cx="58" cy="50" rx="24" ry="27"/><path class="c-shadow" d="M40 60 C46 72 64 78 78 64 C74 74 64 80 56 79 C48 78 42 70 40 60 Z"/><path class="c-hair" d="M32 48 C30 22 50 14 62 16 C80 18 88 32 84 50 C78 38 70 32 58 34 C48 34 40 40 32 48 Z"/></g></svg><figcaption>4</figcaption></figure>
+          </div>
+          <p class="mock-caption">
+            <span data-for="show">肌色だけを表示</span>
+            <span data-for="mask">肌色だけを描画対象に</span>
+            <span data-for="time">設定は全コマに効く</span>
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="features" id="features">
+      <div class="container">
+        <h2 class="section-title" data-reveal>主な機能</h2>
+        <div class="feature-list" data-reveal-stagger>
+          <article>
+            <h3>カットフォルダーへの書き出し</h3>
+            <p>作品名・シーン・話数・カット名を入れるだけで、セル画像とタイムシートをまとめて書き出し。フォルダー構成はプリセットとして保存できます。</p>
+          </article>
+          <article>
+            <h3>XDTS / TDTS タイムシート</h3>
+            <p>XDTS と東映デジタルタイムシート（TDTS）の読み込み・書き出しに対応。タイムリマップへの貼り付けやドロップでも取り込めます。</p>
+          </article>
+          <article>
+            <h3>CLIP STUDIO から読み込み</h3>
+            <p>CLIP STUDIO のアニメーション（.clip）から、セル画像とタイムラインのセル指定を取り込みます。元のファイルは変更しません。</p>
+          </article>
+          <article>
+            <h3>カラーチャート</h3>
+            <p>使用色の親子付けをチャートとして登録し、画像の色へまとめて適用。チャートは .pmag ファイルとして共有できます。</p>
+          </article>
+          <article>
+            <h3>分岐できるヒストリー</h3>
+            <p>Undo してから別の編集をしても、それまでの履歴は分岐として残ります。いつでも前の結果へ戻れます。</p>
+          </article>
+          <article>
+            <h3>日本語 / 英語</h3>
+            <p>メニューからパネルまで英語表示に対応。表示 › 言語 から切り替えられます。</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="requirements" id="requirements">
+      <div class="container">
+        <h2 class="section-title" data-reveal>動作環境</h2>
+        <table>
+          <tr><th>Windows</th><td>Windows 10 / 11（64 ビット）</td></tr>
+          <tr><th>macOS</th><td>Apple Silicon（M1 以降）搭載の Mac。Intel Mac には対応していません。</td></tr>
+        </table>
+        <p class="small">初回の起動で警告が表示された場合は <a href="help.html">ヘルプ</a> をご覧ください。</p>
+      </div>
+    </section>
+
+    <section class="cta">
+      <div class="container cta-inner" data-reveal>
+        <div>
+          <h2>今すぐ無料で使えます</h2>
+          <p>{{ status }}。<a href="history.html">更新履歴</a> · <a href="versions.html">過去のバージョン</a></p>
+        </div>
+        <div class="hero-actions">
+{{ buttons }}
+        </div>
+      </div>
+    </section>
+
+{{ footer }}
+    <script src="logo-anim.js" defer></script>
+    <script>
+      // 閲覧中の OS のボタンを先頭に出して強調する。
+      (function () {
+        var ua = navigator.userAgent;
+        var os = /Mac/.test(ua) && !/iPhone|iPad/.test(ua) ? "macos" : "windows";
+        document.querySelectorAll(".hero-actions").forEach(function (group) {
+          var match = group.querySelector('[data-platform="' + os + '"]');
+          if (!match) return;
+          match.classList.add("primary");
+          group.insertBefore(match, group.firstChild);
+        });
+      })();
+    </script>
+  </body>
+</html>
