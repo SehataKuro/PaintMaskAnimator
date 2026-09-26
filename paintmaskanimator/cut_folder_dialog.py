@@ -472,8 +472,10 @@ class TemplateEditor(QWidget):
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             if self.pending and not self._matches(self.pending):
                 self.commit_pending()
-            elif suggestions_open and self._suggestions.current_name():
-                self.insert_field(self._suggestions.current_name())
+            elif suggestions_open and self._suggestions is not None:
+                name = self._suggestions.current_name()
+                if name:
+                    self.insert_field(name)
             return
         if key == Qt.Key.Key_Escape:
             if suggestions_open or self.pending:

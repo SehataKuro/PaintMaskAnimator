@@ -100,6 +100,7 @@ def test_dialog_preview_and_validation(window, tmp_path):
         dialog.destination.setText(str(tmp_path))
         assert dialog.export_button.isEnabled()
         root = dialog.tree.topLevelItem(0)
+        assert root is not None
         assert root.text(0).startswith("PMA_04_c012/")
         names = [root.child(i).text(0) for i in range(root.childCount())]
         assert "A/" in names and "PMA_04_c012.xdts" in names
@@ -107,11 +108,13 @@ def test_dialog_preview_and_validation(window, tmp_path):
         dialog.timesheet_folder_editor.set_template((text("_sheet"),))
         dialog._refresh_preview()
         root = dialog.tree.topLevelItem(0)
+        assert root is not None
         names = [root.child(i).text(0) for i in range(root.childCount())]
         assert "_sheet/" in names and "PMA_04_c012.xdts" not in names
 
         dialog.remember()
         saved = config.get_value("cut_folder_export")
+        assert saved is not None
         assert saved["values"]["title"] == "PMA"
         assert "cut" not in saved["values"]
         assert saved["layout"]["timesheet_folder"] == [{"text": "_sheet"}]

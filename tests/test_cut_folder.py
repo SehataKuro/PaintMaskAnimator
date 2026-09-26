@@ -90,7 +90,8 @@ def test_regex_matches_rendered_names_and_loose_digits():
     pattern = cf.to_regex(template)
     match = pattern.fullmatch("A0012")
     assert match and match["cell"] == "A" and int(match["number"]) == 12
-    assert pattern.fullmatch("B3")["number"] == "3"
+    match = pattern.fullmatch("B3")
+    assert match and match["number"] == "3"
 
 
 def test_regex_prefix_and_repeated_field():
