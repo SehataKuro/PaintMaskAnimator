@@ -98,7 +98,12 @@ def main() -> int:
     for path, text in edits.items():
         path.write_text(text, encoding="utf-8")
         print(f"updated {path.relative_to(ROOT)}")
-    print(f"\nNext: commit, then `git tag v{version}` and push the tag.")
+    print(
+        "\nReinstall so the installed metadata matches (a test compares them):\n"
+        "  pip install -e . --no-deps\n"
+        f"Then: python scripts/preflight.py --release {version}, commit, "
+        f"`git tag v{version}` and push the tag."
+    )
     return 0
 
 
