@@ -1,4 +1,5 @@
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 from PySide6.QtCore import QEvent, QPointF, QRect, QRectF, QTimer, Qt, Signal
@@ -16,6 +17,59 @@ if TYPE_CHECKING:
     from PySide6.QtWidgets import QWidget as _DragBase
 else:
     _DragBase = object
+
+
+#: アプリ全体（QApplication）に設置した Python のイベントフィルター。
+_app_event_filters: list = []
+
+
+def install_app_event_filter(obj):
+    """QApplication にイベントフィルターを設置し、一時停止できるよう記録する。"""
+    app = QApplication.instance()
+    if app is None:
+        return
+    app.installEventFilter(obj)
+    if obj not in _app_event_filters:
+        _app_event_filters.append(obj)
+
+
+def remove_app_event_filter(obj):
+    app = QApplication.instance()
+    if app is not None:
+        app.removeEventFilter(obj)
+    if obj in _app_event_filters:
+        _app_event_filters.remove(obj)
+
+
+def _is_alive(obj):
+    import shiboken6
+
+    return shiboken6.isValid(obj)
+
+
+@contextmanager
+def app_event_filters_suspended():
+    """アプリ全体の Python イベントフィルターを一時的に外す。
+
+    PySide6 6.11 では、アプリ全体に Python のイベントフィルターがあると、
+    QtWebEngine（アクション編集の Monaco エディター）の内部オブジェクトの
+    ラッパー生成が再入してセグメンテーション違反で落ちる。フィルターの
+    中身に関係なく起きるため、WebEngine を表示している間だけ外す。
+    """
+    app = QApplication.instance()
+    suspended = [obj for obj in _app_event_filters if _is_alive(obj)]
+    if app is not None:
+        for obj in suspended:
+            app.removeEventFilter(obj)
+    try:
+        yield
+    finally:
+        app = QApplication.instance()
+        if app is not None:
+            for obj in suspended:
+                # 停止中に外された・破棄されたものは戻さない。
+                if obj in _app_event_filters and _is_alive(obj):
+                    app.installEventFilter(obj)
 
 
 def workspace_size():

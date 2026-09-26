@@ -7,11 +7,13 @@ import os
 import traceback
 
 from .i18n import tr
-from PySide6.QtCore import QObject, QUrl, Signal, Slot
+import shiboken6
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QUrl, Signal, Slot
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
 from . import config
+from .utils import app_event_filters_suspended
 import shutil
 import subprocess
 import sys
@@ -137,8 +139,18 @@ class ActionPanel(QWidget):
         layout.addStretch()
 
     def open_script_editor(self):
-        dialog = ScriptEditorDialog(self)
-        dialog.exec()
+        # WebEngine を表示している間はアプリ全体のイベントフィルターを外す
+        # （外さないと PySide6 6.11 で落ちる。app_event_filters_suspended 参照）。
+        # フィルターを戻す前に、WebEngine の内部オブジェクトごと破棄しておく。
+        with app_event_filters_suspended():
+            dialog = ScriptEditorDialog(self)
+            try:
+                dialog.exec()
+            finally:
+                shiboken6.delete(dialog)
+                QCoreApplication.sendPostedEvents(
+                    None, QEvent.Type.DeferredDelete
+                )
 
     @staticmethod
     def actions_dir():
