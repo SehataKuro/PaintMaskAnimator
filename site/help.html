@@ -13,42 +13,11 @@
     <section class="page-head">
       <div class="container">
         <h1>ヘルプ</h1>
-        <p>インストールとアップデートについて。</p>
+        <p>アップデートについて。</p>
       </div>
     </section>
 
     <main class="container help">
-      <nav class="toc">
-        <a href="#macos">macOS で「開けません」と表示される</a>
-        <a href="#windows">Windows で「PC が保護されました」と表示される</a>
-        <a href="#update">アップデート</a>
-      </nav>
-
-      <article id="macos">
-        <h2>macOS で「開けません」と表示される</h2>
-        <p>
-          PaintMaskAnimator は Apple の公証を受けていないため、初回の起動時に macOS が起動を止めます。次の手順で一度許可すると、2 回目以降は通常どおり起動できます。
-        </p>
-        <ol class="steps">
-          <li>DMG を開き、PaintMaskAnimator を「アプリケーション」フォルダへドラッグします。</li>
-          <li>アプリを開くと警告が表示されるので、「完了」で閉じます。</li>
-          <li>「システム設定」›「プライバシーとセキュリティ」を開き、下の方にある「このまま開く」をクリックします。</li>
-          <li>パスワードまたは Touch ID で確認し、もう一度「このまま開く」をクリックします。</li>
-        </ol>
-        <p>ターミナルを使う場合は、次のコマンドでも解除できます。</p>
-        <pre><code>xattr -dr com.apple.quarantine /Applications/PaintMaskAnimator.app</code></pre>
-        <p class="small">Apple Silicon（M1 以降）専用です。Intel Mac では動作しません。</p>
-      </article>
-
-      <article id="windows">
-        <h2>Windows で「PC が保護されました」と表示される</h2>
-        <p>インストーラーにコード署名がないため、Microsoft Defender SmartScreen の警告が表示されることがあります。</p>
-        <ol class="steps">
-          <li>警告画面の「詳細情報」をクリックします。</li>
-          <li>アプリ名が PaintMaskAnimator-Setup-… であることを確認し、「実行」をクリックします。</li>
-        </ol>
-      </article>
-
       <article id="update">
         <h2>アップデート</h2>
         <p>インストール済みのアプリは、起動時に新しいバージョンがあるかを確認し、あればお知らせします。</p>

@@ -31,20 +31,6 @@ Get the latest version from
 Once installed, the app's update check fetches new versions. Version 0.6.4 and
 earlier cannot receive in-app updates; reinstall once from Releases.
 
-### If macOS refuses to open it
-
-The app is not notarized by Apple, so macOS blocks the first launch.
-
-1. Drag the app into Applications, open it once and dismiss the warning.
-2. In **System Settings › Privacy & Security**, click **Open Anyway** next to
-   "PaintMaskAnimator was blocked…".
-
-Or clear the quarantine flag from Terminal:
-
-```bash
-xattr -dr com.apple.quarantine /Applications/PaintMaskAnimator.app
-```
-
 ## Features
 
 - Paint and mask animation with frames and layers, a timeline, onion skin and

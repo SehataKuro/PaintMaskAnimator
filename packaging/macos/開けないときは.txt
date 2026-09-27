@@ -1,9 +1,10 @@
 PaintMaskAnimator を macOS で開けないとき
 ==========================================
 
-PaintMaskAnimator は Apple の公証（有料の開発者登録）を受けていないため、
-初回だけ macOS が起動を止めます。次の手順で一度許可すると、以降は普通に
-起動できます。
+PaintMaskAnimator は Apple による公証（Notarization）を受けていないため、
+初回の起動時に macOS の Gatekeeper がブロックすることがあります。
+公式サイトか GitHub の Releases から入手したものであることを確かめてから、
+次の手順で一度許可してください。以降は普通に起動できます。
 
 1. PaintMaskAnimator を「Applications（アプリケーション）」へドラッグします。
 2. アプリを開くと「開いていません」という警告が出るので、「完了」で閉じます。
@@ -11,22 +12,16 @@ PaintMaskAnimator は Apple の公証（有料の開発者登録）を受けて�
    「"PaintMaskAnimator" は…ブロックされました」の横の「このまま開く」を押します。
 4. パスワードまたは Touch ID で確認し、もう一度「このまま開く」を押します。
 
-ターミナルを使う場合は、アプリをアプリケーションフォルダへ入れたあと
-次のコマンドでも解除できます。
-
-    xattr -dr com.apple.quarantine /Applications/PaintMaskAnimator.app
-
 対応機種: Apple Silicon（M1 以降）の Mac。Intel Mac には対応していません。
 
 
 If macOS refuses to open PaintMaskAnimator
 ------------------------------------------
 
-The app is not notarized by Apple, so macOS blocks the first launch.
+The app is not notarized by Apple, so Gatekeeper may block the first launch.
+Make sure you downloaded it from the official website or GitHub Releases.
 Move the app to Applications, open it once and dismiss the warning, then go to
 System Settings > Privacy & Security and click "Open Anyway" next to
-PaintMaskAnimator. Or run:
-
-    xattr -dr com.apple.quarantine /Applications/PaintMaskAnimator.app
+PaintMaskAnimator.
 
 Requires an Apple Silicon (M1 or later) Mac. Intel Macs are not supported.
