@@ -74,6 +74,8 @@ class UIBuildMixin(MainWindowMembers):
         self.a_import_psd.triggered.connect(self.importer.psd_dialog)
         self.a_import_clip=QAction(tr("CLIP STUDIOアニメーションを読み込む…"),self)
         self.a_import_clip.triggered.connect(self.importer.clip_animation_dialog)
+        self.a_open_cut_folder=QAction(tr("カットフォルダーを開く…"),self)
+        self.a_open_cut_folder.triggered.connect(self.importer.cut_folder_dialog)
 
         self.a_save_project=QAction(tr("上書き保存"),self)
         self.a_save_project.setShortcut("Ctrl+S")
@@ -144,7 +146,8 @@ class UIBuildMixin(MainWindowMembers):
 
         # File and edit actions not previously exposed in the shortcut dialog.
         for action in (
-            self.a_new, self.a_open_project, self.a_import_images,
+            self.a_new, self.a_open_project, self.a_open_cut_folder,
+            self.a_import_images,
             self.a_save_project, self.a_save_project_as,
             self.a_resize, self.a_undo, self.a_redo,
             self.a_cut, self.a_copy, self.a_paste, self.a_save, self.a_save_tga,
@@ -293,6 +296,7 @@ class UIBuildMixin(MainWindowMembers):
         self.file_edit_actions = [
             (tr("新規作成"), self.a_new),
             (tr("プロジェクトを開く"), self.a_open_project),
+            (tr("カットフォルダーを開く"), self.a_open_cut_folder),
             (tr("画像を読み込む"), self.a_import_images),
             (tr("画像フォルダーを読み込む"), self.a_import_folder),
             (tr("上書き保存"), self.a_save_project),
@@ -357,6 +361,7 @@ class UIBuildMixin(MainWindowMembers):
         f=self.menuBar().addMenu(tr("ファイル"))
         f.addAction(self.a_new)
         f.addAction(self.a_open_project)
+        f.addAction(self.a_open_cut_folder)
         f.addAction(self.a_import_images)
         f.addAction(self.a_import_folder)
         f.addAction(self.a_import_images_raw)

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 from typing import Iterable, Mapping, Optional, Sequence
 
 #: Field ids in suggestion order. The id is protocol (saved in presets); the
@@ -445,3 +446,119 @@ def guess_cut_number(name: str) -> str:
         return match.group(1)
     runs = re.findall(r"\d+", name)
     return runs[-1] if runs else ""
+
+
+# --- reading a cut folder ----------------------------------------------------
+
+#: Image suffixes a cut folder's cels may use when reading one back.
+READ_IMAGE_SUFFIXES = (".png", ".tga")
+
+_TRAILING_NUMBER = re.compile(r"(\d+)(?!.*\d)")
+
+
+@dataclass
+class CutFolderContents:
+    """What :func:`scan_cut_folder` found in a cut folder.
+
+    ``cels`` maps a cel column (the folder name, e.g. ``A``) to its drawings by
+    セル番号. Keys are case-folded so a time sheet column ``a`` finds folder
+    ``A``; ``names`` keeps each column's spelling as found on disk.
+    """
+
+    root: Path
+    timesheets: list = field(default_factory=list)
+    cels: dict = field(default_factory=dict)
+    names: dict = field(default_factory=dict)
+
+    def column(self, name):
+        """The ``{number: path}`` drawings for a time sheet column, or ``{}``."""
+        return self.cels.get(str(name).strip().casefold(), {})
+
+
+def _cel_number(stem: str) -> Optional[int]:
+    """The セル番号 of a cel file: the last run of digits in its name.
+
+    ``A0001`` / ``A_0001`` / ``0001`` / ``作品_c012_A_0003`` all end in the
+    number, whichever layout (or tool) wrote them.
+    """
+    match = _TRAILING_NUMBER.search(stem)
+    if not match:
+        return None
+    number = int(match.group(1))
+    return number if number >= 1 else None
+
+
+def _column_from_stem(stem: str) -> str:
+    """The cel column of a file lying directly in the cut folder (``A_0001``)."""
+    match = _TRAILING_NUMBER.search(stem)
+    head = stem[: match.start()] if match else stem
+    return head.rstrip("_- .")
+
+
+def _skipped_folder(name: str) -> bool:
+    # ``_ts`` / ``_pool`` and hidden folders hold sheets and source files.
+    return name.startswith(("_", "."))
+
+
+def scan_cut_folder(root) -> CutFolderContents:
+    """List the time sheets and cel drawings in a cut folder.
+
+    Cels are read from the folder's direct sub-folders (one per column, the
+    usual layout) and from images lying directly inside it. The column is the
+    sub-folder's name, and the セル番号 the trailing digits of the file name,
+    so folders written by other tools read as long as they follow that shape.
+    Time sheets are looked for in the folder itself and one level down.
+    """
+    root = Path(root)
+    contents = CutFolderContents(root=root)
+
+    def add(column, path):
+        number = _cel_number(path.stem)
+        column = column.strip()
+        if number is None or not column:
+            return
+        key = column.casefold()
+        contents.names.setdefault(key, column)
+        drawings = contents.cels.setdefault(key, {})
+        # PNG wins over TGA when both exist for the same number.
+        if number not in drawings or path.suffix.lower() == ".png":
+            drawings[number] = path
+
+    sheet_suffixes = (".xdts", ".xtds", ".tdts")
+    entries = sorted(root.iterdir(), key=lambda item: item.name.casefold())
+    for entry in entries:
+        if entry.name.startswith("."):
+            continue
+        if entry.is_file():
+            suffix = entry.suffix.lower()
+            if suffix in sheet_suffixes:
+                contents.timesheets.append(entry)
+            elif suffix in READ_IMAGE_SUFFIXES:
+                add(_column_from_stem(entry.stem), entry)
+            continue
+        if not entry.is_dir():
+            continue
+        children = sorted(entry.iterdir(), key=lambda item: item.name.casefold())
+        for child in children:
+            if not child.is_file() or child.name.startswith("."):
+                continue
+            suffix = child.suffix.lower()
+            if suffix in sheet_suffixes:
+                contents.timesheets.append(child)
+            elif suffix in READ_IMAGE_SUFFIXES and not _skipped_folder(entry.name):
+                add(entry.name, child)
+    return contents
+
+
+def exposure_keys(states):
+    """Change points of one time sheet column as ``(frame, number or None)``.
+
+    ``states`` holds the cel number shown on each frame (``None`` = empty).
+    """
+    keys = []
+    previous = object()
+    for frame, state in enumerate(states):
+        if state != previous:
+            keys.append((frame, state))
+            previous = state
+    return keys

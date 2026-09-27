@@ -169,6 +169,7 @@ class MainWindowMembers(_MembersBase):
         a_import_images_raw: Any
         a_import_psd: Any
         a_import_clip: Any
+        a_open_cut_folder: Any
         a_isolate_color: Any
         a_mainline_repaint: Any
         a_new: Any
