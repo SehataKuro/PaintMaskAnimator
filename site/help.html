@@ -27,7 +27,7 @@
       <article id="macos">
         <h2>macOS で「開けません」と表示される</h2>
         <p>
-          PaintMaskAnimator は Apple の公証を受けていないため、初回の起動時に macOS が起動を止めます。次の手順で一度許可すると、2 回目以降は通常どおり起動できます。
+          PaintMaskAnimator は Apple による公証（Notarization）を受けていないため、初回の起動時に macOS の Gatekeeper がブロックすることがあります。このサイトか GitHub の Releases から入手したものであることを確かめてから、次の手順で許可してください。一度許可すると、2 回目以降は通常どおり起動できます。
         </p>
         <ol class="steps">
           <li>DMG を開き、PaintMaskAnimator を「アプリケーション」フォルダへドラッグします。</li>
@@ -35,8 +35,6 @@
           <li>「システム設定」›「プライバシーとセキュリティ」を開き、下の方にある「このまま開く」をクリックします。</li>
           <li>パスワードまたは Touch ID で確認し、もう一度「このまま開く」をクリックします。</li>
         </ol>
-        <p>ターミナルを使う場合は、次のコマンドでも解除できます。</p>
-        <pre><code>xattr -dr com.apple.quarantine /Applications/PaintMaskAnimator.app</code></pre>
         <p class="small">Apple Silicon（M1 以降）専用です。Intel Mac では動作しません。</p>
       </article>
 

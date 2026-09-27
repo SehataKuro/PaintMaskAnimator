@@ -34,17 +34,13 @@
 
 ### macOS で開けないとき
 
-Apple の公証を受けていないため、初回だけ macOS が起動を止めます。
+Apple による公証（Notarization）を受けていないため、初回の起動時に macOS の
+Gatekeeper がブロックすることがあります。公式サイトか Releases から入手したもので
+あることを確かめてから、次の手順で許可してください。
 
 1. アプリを「アプリケーション」フォルダへドラッグし、一度開いて警告を閉じます。
 2. **システム設定 › プライバシーとセキュリティ** の下の方にある
    「"PaintMaskAnimator" は…ブロックされました」の横の **このまま開く** を押します。
-
-ターミナルからは次のコマンドでも解除できます。
-
-```bash
-xattr -dr com.apple.quarantine /Applications/PaintMaskAnimator.app
-```
 
 ## 主な機能
 
