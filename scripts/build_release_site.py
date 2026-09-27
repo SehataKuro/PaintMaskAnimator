@@ -10,6 +10,7 @@ its unauthenticated rate limit.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import html
 import json
 import re
@@ -22,6 +23,11 @@ LOGO = ROOT / "docs" / "assets" / "logo.png"
 REPO_URL = "https://github.com/SehataKuro/PaintMaskAnimator"
 
 # Same selection rule as paintmaskanimator.updater.pick_installer_asset.
+# Stylesheets and scripts get a content hash in their URL: GitHub Pages lets
+# browsers cache them for 10 minutes, so an updated page would otherwise run
+# with the previous CSS / JS.
+VERSIONED_ASSETS = ("style.css", "logo-anim.js", "scroll.js")
+
 PLATFORMS = (
     ("windows", ".exe", "Windows", "Windows 10 / 11"),
     ("macos", ".dmg", "macOS", "macOS（Apple Silicon）"),
@@ -220,6 +226,16 @@ def render_page(template: str, releases: list[dict], partials: dict[str, str] | 
     return template
 
 
+def version_assets(page: str, output: Path) -> str:
+    """Point the page's stylesheet and script references at hashed URLs."""
+    for name in VERSIONED_ASSETS:
+        path = output / name
+        if path.exists():
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()[:10]
+            page = page.replace(f'"{name}"', f'"{name}?v={digest}"')
+    return page
+
+
 def build(releases_json: str, output: Path) -> None:
     releases = load_releases(releases_json)
     if output.exists():
@@ -232,7 +248,7 @@ def build(releases_json: str, output: Path) -> None:
     }
     for template_path in SITE_DIR.glob("*.html"):
         template = template_path.read_text(encoding="utf-8")
-        page = render_page(template, releases, partials)
+        page = version_assets(render_page(template, releases, partials), output)
         (output / template_path.name).write_text(page, encoding="utf-8")
     # GitHub Pages would otherwise run Jekyll over the output.
     (output / ".nojekyll").write_text("", encoding="utf-8")
