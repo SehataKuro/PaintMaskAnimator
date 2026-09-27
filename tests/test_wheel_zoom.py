@@ -96,3 +96,29 @@ def test_hold_zoom_default_avoids_macos_system_shortcuts():
     else:
         assert HOLD_ZOOM_SHORTCUT == "Ctrl+Space"
         assert CTRL_KEY_LABEL == "Ctrl"
+
+
+def test_canvas_wheel_zooms_around_the_cursor():
+    """ホイールはカーソル位置を中心に拡大縮小し、その下の絵がずれない。"""
+    app = _app()
+    canvas = PaintCanvas()
+    try:
+        canvas.resize(400, 300)
+        canvas.zoom = 1.0
+        canvas.rotation = 15.0
+        cursor = QPointF(80, 60)
+        before = canvas.widget_to_canvas(cursor)
+        for delta in (120, 120, -120, 240):
+            event = QWheelEvent(
+                cursor, cursor, QPoint(0, 0), QPoint(0, delta),
+                Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
+                Qt.ScrollPhase.ScrollUpdate, False,
+            )
+            QApplication.sendEvent(canvas, event)
+            after = canvas.widget_to_canvas(cursor)
+            assert abs(after.x() - before.x()) < 1e-6
+            assert abs(after.y() - before.y()) < 1e-6
+        assert canvas.zoom > 1.0
+    finally:
+        canvas.close()
+        app.processEvents()

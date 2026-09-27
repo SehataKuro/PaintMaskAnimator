@@ -57,3 +57,28 @@ def test_canvas_hold_zoom_drags_horizontally_like_clip_studio():
     finally:
         canvas.close()
         app.processEvents()
+
+
+def test_drag_zoom_keeps_the_pressed_point_in_place():
+    app = _app()
+    canvas = PaintCanvas()
+    try:
+        canvas.resize(400, 300)
+        canvas.zoom = 1.0
+        canvas.temp_tool = "zoom"
+        left = Qt.MouseButton.LeftButton
+        before = canvas.widget_to_canvas(QPointF(90, 70))
+        _mouse(canvas, QMouseEvent.Type.MouseButtonPress, 90, 70, left)
+        _mouse(canvas, QMouseEvent.Type.MouseMove, 160, 70, left)
+        _mouse(canvas, QMouseEvent.Type.MouseMove, 220, 90, left)
+        assert canvas.zoom > 1.0
+        after = canvas.widget_to_canvas(QPointF(90, 70))
+        assert abs(after.x() - before.x()) < 1e-6
+        assert abs(after.y() - before.y()) < 1e-6
+        _mouse(
+            canvas, QMouseEvent.Type.MouseButtonRelease, 220, 90,
+            Qt.MouseButton.NoButton,
+        )
+    finally:
+        canvas.close()
+        app.processEvents()

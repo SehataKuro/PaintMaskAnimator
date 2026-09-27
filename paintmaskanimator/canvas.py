@@ -573,6 +573,19 @@ class PaintCanvas(
         self.zoom = new_zoom
         self.pan = screen_center - canvas_center * new_zoom
 
+    def set_zoom_around_widget_point(self, zoom, widget_pos):
+        """Change zoom keeping the canvas point under ``widget_pos`` in place.
+
+        Zooming about the cursor lets the user magnify exactly where they are
+        looking.  Rotation, flip and the camera scale are all applied about
+        the work rect, which moves rigidly with ``pan``; so zooming about any
+        point and then shifting ``pan`` by the drift of the anchor is exact.
+        """
+        anchor = QPointF(widget_pos)
+        canvas_point = self.widget_to_canvas(anchor)
+        self.set_zoom_around_canvas_center(zoom)
+        self.pan += anchor - self.canvas_to_widget(canvas_point)
+
     def center_canvas(self):
         """Place the workspace center at the center of the canvas widget."""
         width, height = workspace_size()
