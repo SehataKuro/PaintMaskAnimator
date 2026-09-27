@@ -20,15 +20,6 @@ def test_hue_ring_is_default_and_hit_testable():
     assert wheel.mode() == "HSV"
     assert wheel.hueMode() == "RING"
     assert wheel.findChildren(QSpinBox) == []
-    wheel.setColor(QColor("#12abef"))
-    wheel.color_copy_button.click()
-    assert wheel.color_code_edit.text() == "#12ABEF"
-    assert QApplication.clipboard().text() == "#12ABEF"
-    assert wheel.color_copy_button.x() + wheel.color_copy_button.width() == 198
-    assert wheel.color_code_edit.x() < wheel.color_copy_button.x()
-    wheel.color_code_edit.setText("336699")
-    wheel.color_code_edit.editingFinished.emit()
-    assert wheel.color_code_edit.text() == "#336699"
     outer, square = wheel._wheel_geometry()
     center, outer_radius, inner_radius = wheel._ring_metrics()
     ring_radius = (outer_radius + inner_radius) / 2.0
@@ -88,19 +79,33 @@ def test_photoshop_style_swatch_controls():
     panel.swapMainSubRequested.connect(lambda: swapped.append(True))
     panel.resetMainSubRequested.connect(lambda: reset.append(True))
 
-    # メインとサブはカラーサークルのドック内で左右に並び、選択しても
-    # 位置は入れ替わらない。
+    # メインとサブはツールバーと同じ重ね表示（メインが左上・サブが右下）で、
+    # 選択しても位置は入れ替わらない。
     assert panel.drawing_color_box.parent() is panel.color_wheel_box
     panel.color_wheel_box.resize(260, 400)
-    for box in (panel.color_wheel_box, panel.color_swatch_stack):
-        layout = box.layout()
-        assert layout is not None
-        layout.activate()
-    main_x, sub_x = panel.main_btn.x(), panel.sub_btn.x()
-    assert main_x < sub_x
+    panel.color_wheel_box.layout().activate()
+    main_pos, sub_pos = panel.main_btn.pos(), panel.sub_btn.pos()
+    assert main_pos.x() < sub_pos.x() and main_pos.y() < sub_pos.y()
+    assert panel.main_btn.geometry().intersects(panel.sub_btn.geometry())
     panel.set_color_mode("sub")
-    assert (panel.main_btn.x(), panel.sub_btn.x()) == (main_x, sub_x)
-    assert panel.sub_hex_label.text() == panel.sub_color.name().upper()
+    assert (panel.main_btn.pos(), panel.sub_btn.pos()) == (main_pos, sub_pos)
+    assert panel.sub_code_edit.text() == panel.sub_color.name().upper()
+    # カラーコードはメイン／サブ横の欄で入力・コピーできる。
+    changed = []
+    panel.colorChanged.connect(lambda mode, color: changed.append((mode, color.name())))
+    panel.main_code_edit.setText("336699")
+    panel.main_code_edit.editingFinished.emit()
+    assert panel.main_color.name() == "#336699"
+    assert panel.color_mode == "main"
+    assert changed == [("main", "#336699")]
+    assert panel.main_code_edit.text() == "#336699"
+    panel.sub_code_edit.setText("zz")
+    panel.sub_code_edit.editingFinished.emit()
+    assert panel.sub_code_edit.text() == panel.sub_color.name().upper()
+    panel.sub_copy_button.click()
+    assert QApplication.clipboard().text() == panel.sub_color.name().upper()
+    # 描画色はカラーサークルの下に置く。
+    assert panel.drawing_color_box.y() > panel.hsv_wheel.y()
     panel.swap_colors_button.click()
     panel.reset_colors_button.click()
     assert swapped == [True]

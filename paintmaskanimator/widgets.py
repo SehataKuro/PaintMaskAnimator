@@ -743,28 +743,8 @@ class HSVColorWheel(QWidget):
         self._cache_key = None
         self._cache_image = QImage()
         self._drag_part = None
-        self.color_code_edit = QLineEdit(self._color.name().upper(), self)
-        self.color_code_edit.setFixedSize(72, 22)
-        self.color_code_edit.setMaxLength(7)
-        self.color_code_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.color_code_edit.setToolTip(
-            tr("カラーコードを入力して Enter で色を変更")
-        )
-        self.color_code_edit.setStyleSheet(
-            "QLineEdit{font-size:10px;padding:1px 3px;}"
-        )
-        self.color_code_edit.editingFinished.connect(self._apply_color_code)
-        self.color_copy_button = QPushButton(tr("コピー"), self)
-        self.color_copy_button.setFixedSize(44, 22)
-        self.color_copy_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.color_copy_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.color_copy_button.setToolTip(tr("現在のカラーコードをコピー"))
-        self.color_copy_button.setStyleSheet(
-            "QPushButton{font-size:9px;padding:1px 2px;}"
-        )
-        self.color_copy_button.clicked.connect(self._copy_color_code)
-        self.setMinimumSize(160, 180)
-        self.setMaximumHeight(220)
+        self.setMinimumSize(160, 160)
+        self.setMaximumHeight(200)
         self.setSizePolicy(
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Fixed,
@@ -815,34 +795,11 @@ class HSVColorWheel(QWidget):
         if not color.isValid():
             return
         self._color = color
-        self._refresh_color_code()
         self.update()
-
-    def _refresh_color_code(self):
-        self.color_code_edit.setText(self._color.name().upper())
-
-    def _apply_color_code(self):
-        text = self.color_code_edit.text().strip()
-        if text and not text.startswith("#"):
-            text = "#" + text
-        color = QColor(text)
-        if not color.isValid() or len(text) not in (4, 7):
-            self._refresh_color_code()
-            return
-        self._color = color
-        self._cache_key = None
-        self._refresh_color_code()
-        self.update()
-        self.colorChanged.emit(QColor(self._color))
-
-    def _copy_color_code(self):
-        clipboard = QApplication.clipboard()
-        if clipboard is not None:
-            clipboard.setText(self._color.name().upper())
 
     def _wheel_geometry(self):
         if self._hue_mode == "RING":
-            available_height = max(1.0, self.height() - 28.0)
+            available_height = max(1.0, self.height() - 4.0)
             diameter = min(
                 max(1.0, self.width() - 4.0),
                 max(1.0, available_height - 2.0),
@@ -871,7 +828,7 @@ class HSVColorWheel(QWidget):
             18.0,
         )
         available_width = max(1.0, self.width() - 8.0)
-        available_height = max(1.0, self.height() - 54.0)
+        available_height = max(1.0, self.height() - 29.0)
         square_side = min(available_width, available_height)
         square = QRectF(
             (self.width() - square_side) / 2.0,
@@ -963,13 +920,6 @@ class HSVColorWheel(QWidget):
         )
 
     def resizeEvent(self, event):
-        bottom = max(0, self.height() - self.color_code_edit.height() - 2)
-        copy_x = max(0, self.width() - self.color_copy_button.width() - 2)
-        self.color_copy_button.move(copy_x, bottom)
-        self.color_code_edit.move(
-            max(0, copy_x - self.color_code_edit.width() - 2),
-            bottom,
-        )
         self._cache_key = None
         super().resizeEvent(event)
 
@@ -1146,7 +1096,6 @@ class HSVColorWheel(QWidget):
             return
         w_top, w_left, w_right = w_top / total, w_left / total, w_right / total
         self._color = self._triangle_color(w_top, w_left, w_right)
-        self._refresh_color_code()
         self.update()
         self.colorChanged.emit(QColor(self._color))
 
@@ -1189,7 +1138,6 @@ class HSVColorWheel(QWidget):
         self._color = QColor.fromHsv(hue, saturation, value)
         if part == "hue":
             self._cache_key = None
-        self._refresh_color_code()
         self.update()
         self.colorChanged.emit(QColor(self._color))
 

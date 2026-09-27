@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListView,
     QListWidget,
     QListWidgetItem,
@@ -443,6 +444,9 @@ class ToolSelectorPanel(QWidget):
 
 
 class ToolPanel(QWidget):
+    #: カラーサークル上部のメイン／サブ重ねスウォッチの一辺（px）。
+    COLOR_WELL_SIZE = 64
+
     toolChanged = Signal(str)
     colorModeChanged = Signal(str)
     colorChanged = Signal(str, QColor)
@@ -948,70 +952,92 @@ class ToolPanel(QWidget):
         v.addWidget(self.brush_stabilizer_label)
         v.addWidget(self.brush_stabilizer)
 
-        # 描画色（メイン／サブ）。カラーサークルのドック上部に大きく表示する。
-        # 左がメイン・右がサブで位置は固定し、どちらを選んでも入れ替えない。
-        # 選択中の色は枠と見出しの強調で示す（輪郭あり投げ縄塗りなど、
-        # メインとサブを両方使う操作でどちらがどちらか迷わないようにする）。
+        # 描画色（メイン／サブ／背景）。カラーサークルの下に、
+        # ツールバー（2列表示）と同じ重ね表示で置く：メインが左上・サブが右下。
+        # どちらを選んでも位置は入れ替えず、選択中の色は枠と見出しで示す
+        # （輪郭あり投げ縄塗りなど、両方を使う操作で迷わないようにする）。
+        # 切り替え（⇄）と初期色（◩）は Photoshop と同じくスウォッチの角に置く。
         self.drawing_color_box = QWidget()
-        color_layout = QVBoxLayout(self.drawing_color_box)
-        color_layout.setContentsMargins(6, 5, 6, 5)
-        color_layout.setSpacing(3)
-        swatch_grid = QGridLayout()
-        swatch_grid.setContentsMargins(0, 0, 0, 0)
-        swatch_grid.setHorizontalSpacing(6)
-        swatch_grid.setVerticalSpacing(2)
+        color_layout = QHBoxLayout(self.drawing_color_box)
+        color_layout.setContentsMargins(6, 6, 6, 4)
+        color_layout.setSpacing(10)
         self.color_swatch_stack = QWidget()
-        self.color_swatch_stack.setLayout(swatch_grid)
-        self.main_caption = QLabel(tr("メイン"))
-        self.sub_caption = QLabel(tr("サブ"))
-        self.main_btn = SwatchEyedropButton()
-        self.sub_btn = SwatchEyedropButton()
-        self.main_hex_label = QLabel()
-        self.sub_hex_label = QLabel()
-        for column, (caption, button, hex_label) in enumerate((
-            (self.main_caption, self.main_btn, self.main_hex_label),
-            (self.sub_caption, self.sub_btn, self.sub_hex_label),
-        )):
-            caption.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            hex_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            hex_label.setStyleSheet("font-size:10px;")
+        self.color_swatch_stack.setFixedSize(
+            self.COLOR_WELL_SIZE, self.COLOR_WELL_SIZE
+        )
+        self.main_btn = SwatchEyedropButton(self.color_swatch_stack)
+        self.sub_btn = SwatchEyedropButton(self.color_swatch_stack)
+        self.swap_colors_button = QPushButton("⇄", self.color_swatch_stack)
+        self.reset_colors_button = QPushButton(self.color_swatch_stack)
+        box = round(self.COLOR_WELL_SIZE * 0.62)
+        offset = self.COLOR_WELL_SIZE - box
+        self.main_btn.setGeometry(0, 0, box, box)
+        self.sub_btn.setGeometry(offset, offset, box, box)
+        corner = offset - 2
+        self.swap_colors_button.setGeometry(box + 2, 0, corner, corner)
+        self.reset_colors_button.setGeometry(0, box + 2, corner, corner)
+        self.reset_colors_button.setIcon(self._reset_colors_icon(corner))
+        self.reset_colors_button.setIconSize(QSize(corner - 4, corner - 4))
+        for button in (self.main_btn, self.sub_btn):
             button.setText("")
-            button.setMinimumSize(48, 40)
-            button.setSizePolicy(
-                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
-            )
-            button.setFixedHeight(46)
-            swatch_grid.addWidget(caption, 0, column)
-            swatch_grid.addWidget(button, 1, column)
-            swatch_grid.addWidget(hex_label, 2, column)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+        for button in (self.swap_colors_button, self.reset_colors_button):
+            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.main_btn.setToolTip(tr("クリック：メイン色を選択／ドラッグ：スポイト"))
         self.sub_btn.setToolTip(tr("クリック：サブ色を選択／ドラッグ：スポイト"))
-        color_layout.addWidget(self.color_swatch_stack)
-        controls = QHBoxLayout()
-        controls.setContentsMargins(0, 0, 0, 0)
-        controls.setSpacing(3)
-        self.swap_colors_button = QPushButton(tr("⇄  切り替え"))
-        self.reset_colors_button = QPushButton(tr("◩  初期色"))
-        self.transparent_btn = QPushButton(tr("透明色"))
-        for button in (
-            self.swap_colors_button,
-            self.reset_colors_button,
-            self.transparent_btn,
-        ):
-            button.setFixedHeight(22)
-            button.setStyleSheet("QPushButton{font-size:10px;padding:1px 5px;}")
-            controls.addWidget(button)
-        color_layout.addLayout(controls)
+        self.swap_colors_button.setToolTip(tr("メイン色とサブ色を切り替え"))
+        self.reset_colors_button.setToolTip(tr("初期色（黒／白）に戻す"))
+        # 重ね表示でも前後関係は固定（メインが手前）。
+        self.main_btn.raise_()
+        color_layout.addWidget(
+            self.color_swatch_stack, 0, Qt.AlignmentFlag.AlignTop
+        )
 
-        # 背景色スウォッチ：メイン/サブの下に配置。クリックで背景色（透明表示色）
-        # を描画色として選択、右クリックで表示色そのものを変更する。
-        bg_row = QHBoxLayout()
-        bg_row.setContentsMargins(0, 0, 0, 0)
-        bg_row.setSpacing(7)
+        # 右側：メイン／サブのカラーコード（入力して Enter で変更）とコピー、背景色。
+        info = QGridLayout()
+        info.setContentsMargins(0, 0, 0, 0)
+        info.setHorizontalSpacing(6)
+        info.setVerticalSpacing(3)
+        self.main_caption = QLabel(tr("メイン"))
+        self.sub_caption = QLabel(tr("サブ"))
+        self.main_code_edit = QLineEdit()
+        self.sub_code_edit = QLineEdit()
+        self.main_copy_button = QPushButton(tr("コピー"))
+        self.sub_copy_button = QPushButton(tr("コピー"))
+        for row, (mode, caption, edit, copy_button) in enumerate((
+            ("main", self.main_caption, self.main_code_edit,
+             self.main_copy_button),
+            ("sub", self.sub_caption, self.sub_code_edit,
+             self.sub_copy_button),
+        )):
+            edit.setFixedSize(68, 20)
+            edit.setMaxLength(7)
+            edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            edit.setToolTip(tr("カラーコードを入力して Enter で色を変更"))
+            edit.editingFinished.connect(
+                lambda m=mode: self._apply_color_code(m)
+            )
+            copy_button.setFixedSize(40, 20)
+            copy_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            copy_button.setCursor(Qt.CursorShape.PointingHandCursor)
+            copy_button.setToolTip(tr("現在のカラーコードをコピー"))
+            copy_button.setStyleSheet(
+                "QPushButton{font-size:9px;padding:1px 2px;}"
+            )
+            copy_button.clicked.connect(
+                lambda _checked=False, m=mode: self._copy_color_code(m)
+            )
+            info.addWidget(caption, row, 0)
+            info.addWidget(edit, row, 1)
+            info.addWidget(copy_button, row, 2)
+
+        # 背景色スウォッチ：クリックで背景色（透明表示色）を描画色として選択、
+        # 右クリックで表示色そのものを変更する。
         self.background_label = QLabel(tr("背景色"))
-        self.background_label.setStyleSheet("font-size:10px;")
         self.background_btn = SwatchEyedropButton()
-        self.background_btn.setFixedSize(58, 22)
+        self.background_btn.setFixedSize(40, 16)
+        self.background_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.background_btn.setToolTip(
             tr("クリック：背景色で描画／右クリック：背景色の表示色を変更")
         )
@@ -1024,24 +1050,19 @@ class ToolPanel(QWidget):
         self.background_btn.customContextMenuRequested.connect(
             lambda _p: self.backgroundColorRequested.emit()
         )
-        bg_row.addWidget(self.background_btn)
-        bg_row.addWidget(self.background_label)
-        bg_row.addStretch(1)
-        color_layout.addLayout(bg_row)
+        info.addWidget(self.background_label, 2, 0)
+        info.addWidget(self.background_btn, 2, 1, Qt.AlignmentFlag.AlignLeft)
+        info.setColumnStretch(3, 1)
+        info_box = QVBoxLayout()
+        info_box.setContentsMargins(0, 2, 0, 0)
+        info_box.addLayout(info)
+        info_box.addStretch(1)
+        color_layout.addLayout(info_box, 1)
+
         self.main_btn.clicked.connect(lambda: self.set_color_mode("main"))
         self.sub_btn.clicked.connect(lambda: self.set_color_mode("sub"))
         self.swap_colors_button.clicked.connect(self.swapMainSubRequested)
         self.reset_colors_button.clicked.connect(self.resetMainSubRequested)
-        self.transparent_btn.clicked.connect(
-            lambda: self.set_color_mode("transparent")
-        )
-        self.transparent_btn.setContextMenuPolicy(
-            Qt.ContextMenuPolicy.CustomContextMenu
-        )
-        self.transparent_btn.customContextMenuRequested.connect(
-            lambda _p: self.backgroundColorRequested.emit()
-        )
-        color_layout.addStretch(1)
 
         # カラーサークルドック：色相リング／HSV(四角)／HLS(三角)を切替可能。
         self.wheel_mode = HSVColorWheel.DEFAULT_MODE
@@ -1057,10 +1078,10 @@ class ToolPanel(QWidget):
         wheel_layout = QVBoxLayout(self.color_wheel_box)
         wheel_layout.setContentsMargins(3, 3, 3, 3)
         wheel_layout.setSpacing(2)
-        wheel_layout.addWidget(self.drawing_color_box)
         self.hsv_wheel = HSVColorWheel()
         self.hsv_wheel.colorChanged.connect(self.wheel_color_changed)
         wheel_layout.addWidget(self.hsv_wheel)
+        wheel_layout.addWidget(self.drawing_color_box)
         wheel_layout.addStretch(1)
 
         # カラースライダードック：RGB／HLS／CMYKを切替可能。
@@ -1327,13 +1348,12 @@ class ToolPanel(QWidget):
         accent = palette["accent"]
         hover = palette["accent_hover"]
         def style(c, selected):
-            fg = "white" if c.lightness() < 110 else "black"
             border = (
-                f"3px solid {accent}" if selected else f"2px solid {palette['border']}"
+                f"2px solid {accent}" if selected else f"1px solid {palette['border']}"
             )
             return (
-                f"QPushButton{{background:{c.name()};color:{fg};border:{border};"
-                "font-size:10px;font-weight:600;padding:2px;border-radius:4px;}"
+                f"QPushButton{{background:{c.name()};border:{border};"
+                "padding:0;border-radius:4px;}"
                 f"QPushButton:hover{{border-color:{hover};}}"
             )
         self.main_btn.setStyleSheet(style(self.main_color,self.color_mode=="main"))
@@ -1341,25 +1361,81 @@ class ToolPanel(QWidget):
         self.background_btn.setStyleSheet(
             style(self.transparent_display_color, self.color_mode == "transparent")
         )
-        self.transparent_btn.setStyleSheet(
-            "QPushButton{font-size:10px;padding:1px 5px;border-radius:4px;"
-            + (
-                f"border:2px solid {accent};}}"
-                if self.color_mode == "transparent" else
-                f"border:1px solid {palette['border']};}}"
-            )
+        corner_style = (
+            "QPushButton{font-size:12px;padding:0;border:0;"
+            f"background:transparent;color:{palette['text']};border-radius:3px;}}"
+            f"QPushButton:hover{{background:{palette['hover']};}}"
         )
+        self.swap_colors_button.setStyleSheet(corner_style)
+        self.reset_colors_button.setStyleSheet(corner_style)
+        muted = palette["text_muted"]
         for caption, hex_label, color, selected in (
-            (self.main_caption, self.main_hex_label, self.main_color,
+            (self.main_caption, self.main_code_edit, self.main_color,
              self.color_mode == "main"),
-            (self.sub_caption, self.sub_hex_label, self.sub_color,
+            (self.sub_caption, self.sub_code_edit, self.sub_color,
              self.color_mode == "sub"),
+            (self.background_label, None, self.transparent_display_color,
+             self.color_mode == "transparent"),
         ):
-            hex_label.setText(color.name().upper())
             caption.setStyleSheet(
                 f"font-size:11px;font-weight:700;color:{accent};"
-                if selected else "font-size:11px;"
+                if selected else f"font-size:11px;color:{muted};"
             )
+            if hex_label is not None:
+                if not hex_label.hasFocus():
+                    hex_label.setText(color.name().upper())
+                hex_label.setStyleSheet(
+                    "QLineEdit{font-size:11px;"
+                    "font-family:Menlo,Consolas,monospace;padding:0 2px;"
+                    + ("font-weight:700;" if selected else f"color:{muted};")
+                    + "}"
+                )
+
+    def _apply_color_code(self, mode):
+        """メイン／サブ横のカラーコード欄の入力をその色に反映する。"""
+        edit = self.main_code_edit if mode == "main" else self.sub_code_edit
+        current = self.main_color if mode == "main" else self.sub_color
+        text = edit.text().strip()
+        if text and not text.startswith("#"):
+            text = "#" + text
+        color = QColor(text)
+        if not color.isValid() or len(text) not in (4, 7):
+            edit.setText(current.name().upper())
+            return
+        if color == current and self.color_mode == mode:
+            edit.setText(current.name().upper())
+            return
+        self.color_mode = mode
+        if mode == "main":
+            self.main_color = color
+        else:
+            self.sub_color = color
+        self.refresh_swatches()
+        self.sync_sliders()
+        self.colorChanged.emit(mode, color)
+
+    def _copy_color_code(self, mode):
+        clipboard = QApplication.clipboard()
+        if clipboard is not None:
+            color = self.main_color if mode == "main" else self.sub_color
+            clipboard.setText(color.name().upper())
+
+    @staticmethod
+    def _reset_colors_icon(size):
+        """初期色アイコン：小さな黒と白の重ね四角。"""
+        pixmap = QPixmap(size * 2, size * 2)
+        pixmap.setDevicePixelRatio(2.0)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        side = max(4, round(size * 0.55))
+        off = size - side - 1
+        painter.setPen(QPen(QColor("#808080"), 1))
+        painter.setBrush(QColor("white"))
+        painter.drawRect(off, off, side, side)
+        painter.setBrush(QColor("black"))
+        painter.drawRect(1, 1, side, side)
+        painter.end()
+        return QIcon(pixmap)
 
     def apply_theme(self):
         """Re-apply palette-derived styling after a theme/accent change."""
