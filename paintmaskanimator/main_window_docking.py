@@ -206,6 +206,9 @@ class DockingMixin(MainWindowMembers):
         )
 
     def _finalize_startup_dock_ui(self):
+        # 保存済みワークスペースを当てる前の、組み立てたままの配置を
+        # ワークスペースメニューの「初期設定」として覚えておく。
+        self.workspace.remember_default(self.dock_manager.saveState())
         active = config.get_value("active_workspace")
         if not active or not self.workspace.apply(active):
             # A save/restore cycle makes the initial areas follow the same ADS

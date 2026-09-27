@@ -1029,3 +1029,32 @@ def test_default_window_size_fits_small_screen(qapp, tmp_path, monkeypatch):
         assert available.contains(window.pos())
     finally:
         window.close()
+
+
+def test_default_workspace_is_always_in_the_menu(qapp, tmp_path, monkeypatch):
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setattr(AutosaveController, "maybe_restore", lambda self: None)
+    window = MainWindow()
+    window.show()
+    try:
+        labels = [action.text() for action in window.workspace_menu.actions()]
+        assert "初期設定" in labels
+        default = next(
+            action for action in window.workspace_menu.actions()
+            if action.text() == "初期設定"
+        )
+        assert default.isEnabled() and default.isChecked()
+
+        window.color_wheel_dock.closeDockWidget()
+        assert window.workspace.save("作業")
+        assert window.workspace.apply_default()
+        qapp.processEvents()
+        assert window.color_wheel_dock.isVisible()
+        default = next(
+            action for action in window.workspace_menu.actions()
+            if action.text() == "初期設定"
+        )
+        assert default.isChecked()
+    finally:
+        window.close()
