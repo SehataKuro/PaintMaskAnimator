@@ -25,7 +25,6 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QKeySequenceEdit,
     QLabel,
-    QLineEdit,
     QMenu,
     QMessageBox,
     QPlainTextEdit,

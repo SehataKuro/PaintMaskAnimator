@@ -83,7 +83,9 @@ def test_photoshop_style_swatch_controls():
     # 選択しても位置は入れ替わらない。
     assert panel.drawing_color_box.parent() is panel.color_wheel_box
     panel.color_wheel_box.resize(260, 400)
-    panel.color_wheel_box.layout().activate()
+    layout = panel.color_wheel_box.layout()
+    assert layout is not None
+    layout.activate()
     main_pos, sub_pos = panel.main_btn.pos(), panel.sub_btn.pos()
     assert main_pos.x() < sub_pos.x() and main_pos.y() < sub_pos.y()
     assert panel.main_btn.geometry().intersects(panel.sub_btn.geometry())
