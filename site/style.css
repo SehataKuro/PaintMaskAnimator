@@ -291,11 +291,8 @@ body[data-page="help"] [data-nav="help"] { color: var(--hero-strong); font-weigh
 .release-notes strong { color: var(--ink); }
 .release-notes code, .help code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.85em; background: var(--bg-soft); padding: 0.05rem 0.3rem; border-radius: 3px; }
 
-.help { display: grid; grid-template-columns: 15rem 1fr; gap: 3rem; padding-top: 3rem; padding-bottom: 5rem; }
-.toc { position: sticky; top: 5.5rem; align-self: start; display: flex; flex-direction: column; gap: 0.75rem; font-size: 0.9rem; border-left: 2px solid var(--line); padding-left: 1rem; }
-.toc a { color: var(--muted); }
-.toc a:hover { color: var(--accent); }
-.help article { grid-column: 2; margin-bottom: 3.5rem; }
+.help { padding-top: 3rem; padding-bottom: 5rem; }
+.help article { max-width: 46rem; margin-bottom: 3.5rem; }
 .help article h2 { margin: 0 0 0.75rem; font-size: 1.4rem; color: var(--ink); }
 .steps { counter-reset: step; list-style: none; padding: 0; margin: 1.5rem 0; }
 .steps li { counter-increment: step; position: relative; padding: 0 0 1rem 2.75rem; }
@@ -334,9 +331,8 @@ body[data-page="help"] [data-nav="help"] { color: var(--hero-strong); font-weigh
 @media (max-width: 52rem) {
   .pillars-grid, .feature-list { grid-template-columns: 1fr; gap: 2rem; }
   .spotlight-inner { grid-template-columns: 1fr; gap: 2.5rem; }
-  .release, .help { grid-template-columns: 1fr; gap: 1rem; }
-  .release-meta, .toc { position: static; }
-  .help article { grid-column: 1; }
+  .release { grid-template-columns: 1fr; gap: 1rem; }
+  .release-meta { position: static; }
   .cta .hero-actions { justify-content: flex-start; }
 }
 
