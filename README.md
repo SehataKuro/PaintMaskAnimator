@@ -29,7 +29,7 @@
 | macOS | `PaintMaskAnimator-<版>-macOS.dmg` | Apple Silicon（M1 以降）。Intel Mac は非対応 |
 
 インストール後は、アプリ内の更新確認から新しい版を取得できます。
-0.6.5 以前を使っている場合はアプリ内の更新が届かないため、一度だけ Releases から
+0.6.4 以前を使っている場合はアプリ内の更新が届かないため、一度だけ Releases から
 入れ直してください。
 
 ### macOS で開けないとき

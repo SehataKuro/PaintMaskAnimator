@@ -19,7 +19,7 @@ else:
     _DragBase = object
 
 
-#: アプリ全体（QApplication）に設置した Python のイベントフィルター。
+# アプリ全体（QApplication）に設置した Python のイベントフィルター。
 _app_event_filters: list = []
 
 
