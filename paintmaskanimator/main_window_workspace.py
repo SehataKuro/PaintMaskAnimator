@@ -26,6 +26,9 @@ class WorkspaceController:
 
     def __init__(self, window: "MainWindow"):
         self.window = window
+        # 起動時に組み立てた既定の配置。保存済みワークスペースとは別に、
+        # メニューの「初期設定」からいつでも戻れるようにする。
+        self._default_state: QByteArray | None = None
 
     """Persist, apply, and manage named dock-layout workspaces."""
 
@@ -74,6 +77,28 @@ class WorkspaceController:
         self.refresh_menu()
         return True
 
+    def remember_default(self, state):
+        if state is not None and not state.isEmpty():
+            self._default_state = QByteArray(state)
+            self.refresh_menu()
+
+    def apply_default(self):
+        """起動直後と同じ既定のパネル配置に戻す。"""
+        if self._default_state is None:
+            return False
+        if not self.window.dock_manager.restoreState(self._default_state):
+            return False
+        config.set_value("active_workspace", None)
+        # 覚えておいた状態はパネルが最小幅に潰れているので、初回起動と同じく
+        # 実際のウィンドウサイズから幅と高さを配り直す。
+        layout = self.window.layout()
+        if layout is not None:
+            layout.activate()
+        self.window._apply_default_dock_layout()
+        QTimer.singleShot(0, self.window._sync_all_area_hamburgers)
+        self.refresh_menu()
+        return True
+
     def delete(self, name):
         records = self.records()
         if name not in records:
@@ -115,9 +140,16 @@ class WorkspaceController:
         save_action = menu.addAction(tr("現在の配置を保存…"))
         save_action.triggered.connect(self.prompt_save)
         records = self.records()
+        active = config.get_value("active_workspace")
+        menu.addSeparator()
+        default_action = menu.addAction(tr("初期設定"))
+        default_action.setCheckable(True)
+        default_action.setChecked(not active or active not in records)
+        default_action.setEnabled(self._default_state is not None)
+        default_action.triggered.connect(
+            lambda _checked=False: self.apply_default()
+        )
         if records:
-            menu.addSeparator()
-            active = config.get_value("active_workspace")
             for name in sorted(records):
                 action = menu.addAction(name)
                 action.setCheckable(True)

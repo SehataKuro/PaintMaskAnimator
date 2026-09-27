@@ -9,6 +9,7 @@ import sys  # noqa: E402
 from pathlib import Path  # noqa: E402
 
 from PySide6.QtCore import QTimer  # noqa: E402
+from PySide6.QtGui import QIcon  # noqa: E402
 from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
 
 from . import i18n  # noqa: E402
@@ -60,6 +61,11 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName(APP_DISPLAY_NAME)
     app.setApplicationVersion(APP_VERSION)
+    # ウィンドウ・Dock・タスクバーのアイコン。配布版は実行ファイル側にも
+    # 同じアイコンを埋め込む（scripts/make_app_icons.py）。
+    icon_path = Path(__file__).with_name("assets") / "app_icon.png"
+    if icon_path.exists():
+        app.setWindowIcon(QIcon(str(icon_path)))
     # Before any widget is built: Qt resolves tr() at call time, but menus and
     # dialogs constructed earlier would keep the source-language strings.
     i18n.install_preferred(app)

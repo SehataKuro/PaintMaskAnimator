@@ -2,6 +2,8 @@ from PySide6.QtCore import QPoint, QPointF, QSize, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QMenu,
+    QToolButton,
     QAbstractSpinBox,
     QApplication,
     QCheckBox,
@@ -21,7 +23,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from . import theme
+from . import config, theme
 from .i18n import tr
 from .widgets import (BrushSizeSpinBox, ClickableValueLabel, HSVColorWheel, LineTaperCurvePopup, SliderValueSpinBox, SwatchEyedropButton)
 
@@ -443,6 +445,122 @@ class ToolSelectorPanel(QWidget):
         self.list.setCurrentItem(item)
 
 
+class IncludeColorSlots(QWidget):
+    """バケツの含み塗りの対象色を登録しておく、数色分の枠。
+
+    枠をクリックすると現在の描画色を登録し、右クリックで消せる。登録した色は
+    設定に保存して次回も使う。1色も登録していなければサブカラーを含む
+    （以前の「サブカラーを含み塗り」と同じ動作）。
+    """
+
+    SLOT_COUNT = 3
+    CONFIG_KEY = "bucket_include_colors"
+    SLOT_SIZE = 22
+
+    # 枠へ色を登録した（含み塗りを自動でONにするため）。
+    colorRegistered = Signal()
+    changed = Signal()
+
+    def __init__(self, current_color, parent=None):
+        """``current_color`` は登録する描画色を返す関数（``None`` なら登録しない）。"""
+        super().__init__(parent)
+        self._current_color = current_color
+        self._colors: list = [None] * self.SLOT_COUNT
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(18, 0, 0, 0)
+        layout.setSpacing(4)
+        self.title = QLabel(tr("含む色"))
+        layout.addWidget(self.title)
+        self.buttons = []
+        for index in range(self.SLOT_COUNT):
+            button = QToolButton()
+            button.setFixedSize(self.SLOT_SIZE, self.SLOT_SIZE)
+            button.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            button.clicked.connect(
+                lambda _checked=False, i=index: self.register_current(i)
+            )
+            button.customContextMenuRequested.connect(
+                lambda pos, i=index: self._show_menu(i, pos)
+            )
+            layout.addWidget(button)
+            self.buttons.append(button)
+        layout.addStretch(1)
+        self._load()
+        self._refresh()
+
+    def colors(self):
+        """登録済みの RGB タプル（空きは除く）。"""
+        return tuple(color for color in self._colors if color is not None)
+
+    def set_color(self, index, rgb):
+        if not 0 <= index < self.SLOT_COUNT:
+            return
+        self._colors[index] = (
+            None if rgb is None
+            else (int(rgb[0]), int(rgb[1]), int(rgb[2]))
+        )
+        self._save()
+        self._refresh()
+        self.changed.emit()
+
+    def register_current(self, index):
+        color = self._current_color()
+        if color is None:
+            return
+        color = QColor(color)
+        self.set_color(index, (color.red(), color.green(), color.blue()))
+        self.colorRegistered.emit()
+
+    def _show_menu(self, index, pos):
+        menu = QMenu(self)
+        menu.addAction(
+            tr("現在の描画色を登録"), lambda: self.register_current(index)
+        )
+        clear = menu.addAction(tr("消去"), lambda: self.set_color(index, None))
+        clear.setEnabled(self._colors[index] is not None)
+        menu.exec(self.buttons[index].mapToGlobal(pos))
+
+    def _load(self):
+        stored = config.get_value(self.CONFIG_KEY, [])
+        if not isinstance(stored, list):
+            return
+        for index, value in enumerate(stored[: self.SLOT_COUNT]):
+            if (
+                isinstance(value, (list, tuple))
+                and len(value) == 3
+                and all(isinstance(v, int) and 0 <= v <= 255 for v in value)
+            ):
+                self._colors[index] = tuple(value)
+
+    def _save(self):
+        config.set_value(
+            self.CONFIG_KEY,
+            [list(color) if color is not None else None for color in self._colors],
+        )
+
+    def _refresh(self):
+        c = theme.palette()
+        for button, color in zip(self.buttons, self._colors):
+            if color is None:
+                button.setStyleSheet(
+                    "QToolButton{background:transparent;"
+                    f"border:1px dashed {c['text_muted']};border-radius:4px;}}"
+                    f"QToolButton:hover{{border-color:{c['accent']};}}"
+                )
+                button.setToolTip(tr(
+                    "クリックで現在の描画色を含み塗りの色に登録します。"
+                ))
+            else:
+                name = QColor(*color).name()
+                button.setStyleSheet(
+                    f"QToolButton{{background:{name};"
+                    f"border:1px solid {c['border']};border-radius:4px;}}"
+                )
+                button.setToolTip(tr(
+                    "{code}\nクリックで現在の描画色に置き換え、右クリックで消去します。"
+                ).format(code=name.upper()))
+
+
 class ToolPanel(QWidget):
     #: カラーサークル上部のメイン／サブ重ねスウォッチの一辺（px）。
     COLOR_WELL_SIZE = 64
@@ -597,12 +715,18 @@ class ToolPanel(QWidget):
             "ON：クリック位置につながる同色領域だけを塗ります。"
             "OFF：レイヤー内の同じ色を一括で塗ります。"
         ))
-        self.bucket_include_sub=QCheckBox(tr("サブカラーを含み塗り"))
+        self.bucket_include_sub=QCheckBox(tr("含み塗り"))
         self.bucket_include_sub.setChecked(False)
         self.bucket_include_sub.setToolTip(tr(
-            "ON：塗る領域に接しているサブカラーの部分も一緒に塗ります。"
-            "色トレス線をサブカラーにしておくと、線ごと塗りつぶせます。"
+            "ON：塗る領域に接している「含む色」の部分も一緒に塗ります。"
+            "色トレス線の色を登録しておくと、線ごと塗りつぶせます。"
+            "色を登録していないときはサブカラーを含みます。"
         ))
+        self.bucket_include_colors=IncludeColorSlots(self._include_slot_color)
+        # 色を登録したらすぐ使えるよう、含み塗りをONにする。
+        self.bucket_include_colors.colorRegistered.connect(
+            lambda: self.bucket_include_sub.setChecked(True)
+        )
 
         # 隙間閉じと幅スライダーを同じ横一列へ配置する。
         self.bucket_close_gap=QCheckBox(tr("隙間閉じ"))
@@ -896,6 +1020,7 @@ class ToolPanel(QWidget):
             self.lasso_inside_boundary,self.lasso_main_outline_sub_fill,
             self.lasso_outline_width_label,self.lasso_outline_width,
             self.bucket_adjacent,self.bucket_include_sub,
+            self.bucket_include_colors,
             self.bucket_gap_row,
             self.bucket_require_closed,
             self.fill_opacity_row,
@@ -1309,6 +1434,7 @@ class ToolPanel(QWidget):
         uses_bucket_region = is_bucket or tid == "auto_select"
         self.bucket_adjacent.setVisible(uses_bucket_region)
         self.bucket_include_sub.setVisible(is_bucket)
+        self.bucket_include_colors.setVisible(is_bucket)
         self.bucket_gap_row.setVisible(uses_bucket_region)
         self.bucket_require_closed.setVisible(uses_bucket_region)
         self.fill_opacity_row.setVisible(is_bucket or is_lasso_fill)
@@ -1334,6 +1460,14 @@ class ToolPanel(QWidget):
         self.brush_stabilizer_label.setVisible(tid == "brush")
         self.brush_stabilizer.setVisible(tid == "brush")
 
+
+    def _include_slot_color(self):
+        """含み塗りの枠へ登録する色。背景色モードでは背景（白）を登録する。"""
+        if self.color_mode == "transparent":
+            return QColor("white")
+        return QColor(
+            self.main_color if self.color_mode == "main" else self.sub_color
+        )
 
     def set_color_mode(self, mode):
         self.color_mode=mode; self.refresh_swatches(); self.sync_sliders(); self.colorModeChanged.emit(mode)
@@ -1597,20 +1731,21 @@ class ToolPanel(QWidget):
                 "stop:0 #ffffff, stop:1 #ffff00",
                 "stop:0 #ffffff, stop:1 #000000",
             ]
-        c = theme.palette()
         for slider, gradient in zip(self.color_sliders, gradients):
             slider.setStyleSheet(
-                "QSlider::groove:horizontal{height:14px;border:1px solid %s;"
+                "QSlider::groove:horizontal{height:14px;border:none;"
                 "border-radius:7px;"
                 "background:qlineargradient(x1:0,y1:0,x2:1,y2:0,%s);}"
                 # Keep the gradient fully visible: the filled/empty halves must
-                # not paint over it (the global theme fills sub-page with accent).
-                "QSlider::sub-page:horizontal{background:transparent;}"
-                "QSlider::add-page:horizontal{background:transparent;}"
+                # not paint over it.  The global theme gives them a background
+                # *and* a border; Qt merges declarations per property, so both
+                # must be cleared or a frame is drawn around the colour bar.
+                "QSlider::sub-page:horizontal{background:transparent;border:none;}"
+                "QSlider::add-page:horizontal{background:transparent;border:none;}"
                 # Round, ring-style handle that reveals the colour beneath it.
                 "QSlider::handle:horizontal{width:14px;height:14px;margin:-3px 0;"
                 "border:2px solid white;background:transparent;border-radius:9px;}"
-                % (c["border"], gradient)
+                % gradient
             )
 
     def slider_color_changed(self):

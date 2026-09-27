@@ -42,7 +42,9 @@ class InputEventMixin(CanvasMembers):
             return
         # ホイール1ノッチ(120)で1.15倍。トラックパッドは細かいイベントを大量に
         # 送るので、1イベント1段にすると一瞬で最大倍率まで飛んでしまう。
-        self.set_zoom_around_canvas_center(self.zoom * 1.15 ** (delta / 120))
+        self.set_zoom_around_widget_point(
+            self.zoom * 1.15 ** (delta / 120), e.position()
+        )
         self.viewChanged.emit(float(self.zoom), float(self.rotation))
         self.update()
         e.accept()
@@ -143,6 +145,8 @@ class InputEventMixin(CanvasMembers):
         if t in ("zoom", "rotate"):
             self.drawing = True
             self.last_widget = e.position()
+            # ドラッグ中は押した位置を中心に拡大縮小する。
+            self._zoom_drag_anchor = QPointF(e.position())
             self.update_tool_cursor()
             return
         if self.transform_active:
@@ -281,8 +285,9 @@ class InputEventMixin(CanvasMembers):
             return
         if t == "zoom":
             delta = e.position().x() - self.last_widget.x()
-            self.set_zoom_around_canvas_center(
-                self.zoom * drag_zoom_factor(delta)
+            self.set_zoom_around_widget_point(
+                self.zoom * drag_zoom_factor(delta),
+                getattr(self, "_zoom_drag_anchor", None) or e.position(),
             )
             self.last_widget = e.position()
             self.viewChanged.emit(float(self.zoom), float(self.rotation))
@@ -309,7 +314,10 @@ class InputEventMixin(CanvasMembers):
                 include_canvas_background=(self.temp_tool == "eyedropper"),
             )
             return
-        if t == "brush" and self.inside(p):
+        if t == "brush":
+            # キャンバス外の点も捨てずに渡す。捨てると外を通った区間が抜け、
+            # 戻ってきた点と外へ出る前の点が直線で結ばれてしまう。
+            # はみ出した部分は draw_line が画像範囲へクリップする。
             self._draw_stabilized_brush_to(p, 1.0)
         elif t == "line" and self.line_curve_stage == 1 and self.inside(p):
             self.line_end = QPointF(p)
@@ -375,11 +383,7 @@ class InputEventMixin(CanvasMembers):
 
         if t == "brush":
             raw_release = self.widget_to_canvas(e.position())
-            if (
-                self.drawing
-                and self.inside(raw_release)
-                and self.last_canvas is not None
-            ):
+            if self.drawing and self.last_canvas is not None:
                 self._finish_stabilized_brush(
                     raw_release,
                     1.0,
@@ -494,22 +498,18 @@ class InputEventMixin(CanvasMembers):
                 self.colorUsed.emit(used_color)
             e.accept()
         elif e.type()==e.Type.TabletMove and self.drawing:
-            if self.inside(p):
-                pressure = self._smooth_brush_pressure(
-                    pressure
-                )
-                self._last_brush_pressure = pressure
-                self._draw_stabilized_brush_to(
-                    p,
-                    pressure,
-                )
+            # マウスと同じく、キャンバス外の点も描画へ渡してクリップさせる。
+            pressure = self._smooth_brush_pressure(
+                pressure
+            )
+            self._last_brush_pressure = pressure
+            self._draw_stabilized_brush_to(
+                p,
+                pressure,
+            )
             e.accept()
         elif e.type()==e.Type.TabletRelease:
-            if (
-                self.drawing
-                and self.inside(p)
-                and self.last_canvas is not None
-            ):
+            if self.drawing and self.last_canvas is not None:
                 self._finish_stabilized_brush(
                     p,
                     max(

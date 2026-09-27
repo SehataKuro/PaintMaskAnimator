@@ -1496,7 +1496,7 @@ class TimelineWidget(QWidget):
         self._sequence_frame_by_cell = {}
         self.table.setRowCount(rows)
         self.table.setColumnCount(cols)
-        self.table.setHorizontalHeaderLabels([str(i + 1) if (i + 1) % 6 == 0 else "" for i in range(cols)])
+        self.table.setHorizontalHeaderLabels([str(i + 1) if i % 6 == 0 else "" for i in range(cols)])
         self.table.horizontalHeader().setVisible(True)
         self.table.horizontalHeader().setFixedHeight(25)
         self.layer_header_spacer.setFixedHeight(25)

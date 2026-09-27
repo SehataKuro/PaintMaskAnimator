@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from pathlib import Path
 from PySide6.QtCore import QTimer, Qt
-from PySide6.QtGui import QImage
+from PySide6.QtGui import QImage, QPainter
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 from .i18n import tr
 from .optional_deps import PILImage, PSDImage
@@ -23,11 +23,15 @@ import sqlite3
 from . import constants
 from .canvas import PaintCanvas
 from .clip_animation import (
+    ClipAnimationDocument,
+    ClipAnimationLayer,
+    ClipCelKey,
     ClipImportError,
+    build_pma_frames,
     cell_sequence_numbers,
     read_clip_animation,
 )
-from . import timesheet_file
+from . import cut_folder, timesheet_file
 from .errors import OPERATION_ERRORS as _OPERATION_ERRORS, OperationError
 from .models import Layer
 from .utils import blank_image
@@ -71,15 +75,19 @@ class ImportController:
         )
 
     def _confirm_replace_for_clip_import(self):
+        return self._confirm_replace_document(
+            tr("CLIP STUDIOアニメーションを読み込む"),
+            tr("現在のキャンバスをCLIP STUDIOアニメーションで置き換えます。\n"
+            "先に現在のプロジェクトを保存しますか？"),
+        )
+
+    def _confirm_replace_document(self, title, text):
         if not self._clip_import_needs_confirmation():
             return True
         dialog = QMessageBox(self.window)
         dialog.setIcon(QMessageBox.Icon.Question)
-        dialog.setWindowTitle(tr("CLIP STUDIOアニメーションを読み込む"))
-        dialog.setText(
-            tr("現在のキャンバスをCLIP STUDIOアニメーションで置き換えます。\n"
-            "先に現在のプロジェクトを保存しますか？")
-        )
+        dialog.setWindowTitle(title)
+        dialog.setText(text)
         save_button = dialog.addButton(
             tr("保存する"), QMessageBox.ButtonRole.AcceptRole
         )
@@ -123,7 +131,213 @@ class ImportController:
         if confirm_replace and not self._confirm_replace_for_clip_import():
             self.window.statusBar().clearMessage()
             return False
+        if not self._replace_document(
+            parsed,
+            title=tr("CLIP STUDIOアニメーション読み込み"),
+            source_metadata=parsed.source_metadata(),
+        ):
+            return False
 
+        fps_note = ""
+        if abs(float(parsed.fps) - self.window.timeline.fps.value()) > 1e-6:
+            fps_note = (
+                tr("（元FPS {fps:g}、PMA表示 {value} fps）").format(fps=parsed.fps, value=self.window.timeline.fps.value())
+            )
+        archive_note = ""
+        if self.window.canvas._sequence_archive:
+            archive_note = (
+                tr(" 未配置セル{len}枚は連番に保持しました。").format(len=len(self.window.canvas._sequence_archive))
+            )
+        self.window.statusBar().showMessage(
+            tr("CLIP STUDIOから{count}フォルダー・{count2}フレームを読み込みました。{note}{note2}").format(count=parsed.folder_count, count2=parsed.frame_count, note=archive_note, note2=fps_note),
+            6000,
+        )
+        return True
+
+    def cut_folder_dialog(self):
+        folder = QFileDialog.getExistingDirectory(
+            self.window, tr("カットフォルダーを開く"), ""
+        )
+        if folder:
+            return self.cut_folder(folder)
+        return False
+
+    def cut_folder(self, path, confirm_replace=True):
+        """カットフォルダー（セル画像＋XDTS／TDTS）を開いて置き換える。"""
+        title = tr("カットフォルダーを開く")
+        root = Path(path)
+        self.window.statusBar().showMessage(
+            tr("カットフォルダーを読み込んでいます：{name}").format(name=root.name), 0
+        )
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            parsed, notes = self.read_cut_folder(root)
+        except (OperationError, ClipImportError, OSError, ValueError) as exc:
+            log.error("cut folder import failed: %s", exc, exc_info=True)
+            self.window.statusBar().clearMessage()
+            QMessageBox.critical(
+                self.window,
+                title,
+                tr("読み込めませんでした。現在のドキュメントは変更されていません。\n\n{exc}").format(exc=exc),
+            )
+            return False
+        finally:
+            QApplication.restoreOverrideCursor()
+        if confirm_replace and not self._confirm_replace_document(
+            title,
+            tr("現在のキャンバスをカットフォルダーの内容で置き換えます。\n"
+            "先に現在のプロジェクトを保存しますか？"),
+        ):
+            self.window.statusBar().clearMessage()
+            return False
+        if not self._replace_document(parsed, title=title, source_metadata=None):
+            return False
+        if self.window.canvas._sequence_archive:
+            notes.append(
+                tr("タイムシートで使われていないセル{count}枚は連番に保持しました。").format(
+                    count=len(self.window.canvas._sequence_archive)
+                )
+            )
+        message = tr("「{name}」から{count}列・{frames}フレームを読み込みました。").format(
+            name=root.name, count=parsed.folder_count, frames=parsed.frame_count
+        )
+        self.window.statusBar().showMessage(message, 6000)
+        if notes:
+            QMessageBox.information(
+                self.window, title, message + "\n\n" + "\n".join(notes)
+            )
+        return True
+
+    def read_cut_folder(self, root):
+        """カットフォルダーを解析し、``(document, notes)`` を返す。
+
+        列（A・B…）はタイムシートの順に並べ、タイムシートにないセルの
+        フォルダーは後ろに足して、そのセルを連番保管セルにする。
+        ``notes`` は読み込めたが利用者に知らせたいこと。
+        """
+        root = Path(root)
+        contents = cut_folder.scan_cut_folder(root)
+        if not contents.timesheets:
+            raise OperationError(
+                tr("タイムシート（.xdts／.tdts）が見つかりません。")
+            )
+        notes = []
+        sheet_path = contents.timesheets[0]
+        if len(contents.timesheets) > 1:
+            notes.append(
+                tr("タイムシートが複数あるため「{name}」を使いました。").format(
+                    name=sheet_path.relative_to(root).as_posix()
+                )
+            )
+        sheet = self._parse_xdts_timesheet(sheet_path.read_text(encoding="utf-8-sig"))
+        duration = int(sheet["end_frame"]) + 1
+        columns = [
+            track for track in sheet["tracks"] if track.get("group") == "CELL"
+        ]
+        if not columns:
+            raise OperationError(tr("タイムシートにセルの列がありません。"))
+
+        size = None
+        resized = 0
+
+        def load(path):
+            nonlocal size, resized
+            image, error = self.window.canvas._read_image_file(path)
+            if image is None or image.isNull():
+                raise OperationError(
+                    tr("{name} を読み込めません。\n{error}").format(
+                        name=Path(path).relative_to(root).as_posix(), error=error
+                    )
+                )
+            image = image.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
+            if size is None:
+                size = image.size()
+            elif image.size() != size:
+                # セルの大きさが揃っていなければ、最初のセルの大きさの中央に置く。
+                resized += 1
+                placed = QImage(size, QImage.Format.Format_ARGB32_Premultiplied)
+                placed.fill(Qt.GlobalColor.transparent)
+                painter = QPainter(placed)
+                painter.drawImage(
+                    (size.width() - image.width()) // 2,
+                    (size.height() - image.height()) // 2,
+                    image,
+                )
+                painter.end()
+                image = placed
+            return image
+
+        def column_images(drawings):
+            return {
+                str(number): load(path)
+                for number, path in sorted(drawings.items())
+            }
+
+        layers = []
+        used = set()
+        missing = []
+        for column in columns:
+            name = str(column.get("name", "")).strip()
+            key = name.casefold()
+            if key not in contents.cels:
+                # 書き出し時にフォルダー名で使えない文字は「_」へ置き換えている。
+                key = "".join(
+                    "_" if character in cut_folder.INVALID_NAME_CHARS + "/" else character
+                    for character in name
+                ).strip(" .").casefold()
+            used.add(key)
+            images = column_images(contents.cels.get(key, {}))
+            keys = []
+            for frame, number in cut_folder.exposure_keys(column.get("states", [])):
+                tag = "" if number is None else str(number)
+                if tag and tag not in images:
+                    missing.append(f"{name}{number}")
+                    tag = ""
+                keys.append(ClipCelKey(frame, tag))
+            layers.append(ClipAnimationLayer(name, tuple(keys), images))
+        for key, drawings in contents.cels.items():
+            if key not in used:
+                layers.append(
+                    ClipAnimationLayer(contents.names[key], (), column_images(drawings))
+                )
+        if size is None:
+            raise OperationError(tr("セルの画像（PNG／TGA）が見つかりません。"))
+        if size.width() > MAX_IMAGE_DIMENSION or size.height() > MAX_IMAGE_DIMENSION:
+            raise OperationError(tr("画像サイズが上限を超えています。\n{width} × {height}px").format(
+                width=size.width(), height=size.height()
+            ))
+
+        width, height = size.width(), size.height()
+        frames = build_pma_frames(width, height, 0, duration - 1, tuple(layers))
+        document = ClipAnimationDocument(
+            source_name=root.name,
+            timeline_name=sheet_path.stem,
+            width=width,
+            height=height,
+            fps=float(self.window.timeline.fps.value()),
+            start_frame=0,
+            end_frame=duration - 1,
+            layers=tuple(layers),
+            frames=frames,
+        )
+        if missing:
+            shown = "、".join(missing[:10]) + ("…" if len(missing) > 10 else "")
+            notes.append(
+                tr("画像が見つからないセルは空セルにしました：{cells}").format(cells=shown)
+            )
+        if resized:
+            notes.append(
+                tr("大きさの違うセル{count}枚は、中央に置いて大きさを揃えました。").format(
+                    count=resized
+                )
+            )
+        return document, notes
+
+    def _replace_document(self, parsed, *, title, source_metadata):
+        """現在のドキュメントを読み込んだアニメーションで置き換える。
+
+        CLIP STUDIO とカットフォルダーの読み込みで共通。失敗したら元へ戻す。
+        """
         old_state = {
             "width": constants.CANVAS_WIDTH,
             "height": constants.CANVAS_HEIGHT,
@@ -161,7 +375,7 @@ class ImportController:
             self.window.timeline.fps.setValue(
                 max(1, min(60, int(round(parsed.fps))))
             )
-            self.window.canvas.clip_studio_source_metadata = parsed.source_metadata()
+            self.window.canvas.clip_studio_source_metadata = source_metadata
             self.window.canvas._sequence_source_bank = []
             self.window.canvas._sequence_source_bank_layer_index = -1
             self.window.canvas._sequence_source_bank_layer_name = ""
@@ -237,28 +451,13 @@ class ImportController:
             ]
             self.window.project.update_title()
             self.window.refresh_ui()
-            log.error("CLIP import apply failed and rolled back: %s", exc, exc_info=True)
+            log.error("import apply failed and rolled back: %s", exc, exc_info=True)
             QMessageBox.critical(
                 self.window,
-                tr("CLIP STUDIOアニメーション読み込み"),
+                title,
                 tr("読み込み結果を反映できませんでした。現在のドキュメントは元の状態へ戻しました。\n\n{exc}").format(exc=exc),
             )
             return False
-
-        fps_note = ""
-        if abs(float(parsed.fps) - self.window.timeline.fps.value()) > 1e-6:
-            fps_note = (
-                tr("（元FPS {fps:g}、PMA表示 {value} fps）").format(fps=parsed.fps, value=self.window.timeline.fps.value())
-            )
-        archive_note = ""
-        if self.window.canvas._sequence_archive:
-            archive_note = (
-                tr(" 未配置セル{len}枚は連番に保持しました。").format(len=len(self.window.canvas._sequence_archive))
-            )
-        self.window.statusBar().showMessage(
-            tr("CLIP STUDIOから{count}フォルダー・{count2}フレームを読み込みました。{note}{note2}").format(count=parsed.folder_count, count2=parsed.frame_count, note=archive_note, note2=fps_note),
-            6000,
-        )
         return True
 
     @staticmethod

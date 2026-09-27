@@ -61,9 +61,9 @@ class BucketOptions:
 
     #: クリック位置につながる領域だけを塗る（OFF ならレイヤー内の同色を一括）。
     adjacent: bool = True
-    #: 含み塗り（サブカラーに近い色も塗りに含める）。
+    #: 含み塗り（「含む色」に接する部分も塗りに含める）。
     include_masks: bool = False
-    #: 含み塗りの対象色（RGB のタプル列）。通常はサブカラー 1 色。
+    #: 含み塗りの対象色（RGB のタプル列）。「含む色」の登録色、未登録ならサブカラー。
     mask_colors: Tuple[Tuple[int, int, int], ...] = ()
     #: 含み塗りの対象に背景（擬似透明）が含まれるか。
     include_background_mask: bool = False

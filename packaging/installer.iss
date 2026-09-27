@@ -24,6 +24,8 @@ OutputBaseFilename={#AppName}-Setup-{#AppVersion}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile=app.ico
+UninstallDisplayIcon={app}\{#AppExeName}
 ArchitecturesInstallIn64BitMode=x64compatible
 ; Per-user install by default (no admin rights required).
 PrivilegesRequired=lowest
