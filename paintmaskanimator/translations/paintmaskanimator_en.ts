@@ -177,7 +177,7 @@
         <translation>Tool: {tool}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="629"/>
+        <location filename="../main_window.py" line="627"/>
         <location filename="../main_window_ui_build.py" line="114"/>
         <location filename="../main_window_ui_build.py" line="294"/>
         <source>新規作成</source>
@@ -813,48 +813,48 @@ Export into this folder?</translation>
         <translation>Show how to use the history panel.</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="267"/>
+        <location filename="../main_window.py" line="265"/>
         <source>JSONデータが見つかりません。</source>
         <translation>No JSON data found.</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="272"/>
+        <location filename="../main_window.py" line="270"/>
         <source>ToeiDigitalTimeSheetのJSONを解析できません。
 {exc}</source>
         <translation>Could not parse the ToeiDigitalTimeSheet JSON.
 {exc}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="277"/>
+        <location filename="../main_window.py" line="275"/>
         <source>layersデータが見つかりません。</source>
         <translation>No layers data found.</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="289"/>
+        <location filename="../main_window.py" line="287"/>
         <source>framesデータが見つかりません。</source>
         <translation>No frames data found.</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="324"/>
+        <location filename="../main_window.py" line="322"/>
         <source>有効なToeiDigitalTimeSheetフレームがありません。</source>
         <translation>No valid ToeiDigitalTimeSheet frames.</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="389"/>
+        <location filename="../main_window.py" line="387"/>
         <source>1枚目の色と透明度を確認できませんでした。
 {exc}</source>
         <translation>Could not inspect the colour and transparency of the first image.
 {exc}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="424"/>
+        <location filename="../main_window.py" line="422"/>
         <source>2値化の準備中にエラーが発生しました。
 {exc}</source>
         <translation>An error occurred while preparing binarisation.
 {exc}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="472"/>
+        <location filename="../main_window.py" line="470"/>
         <source>{Path}
 画像サイズを取得できませんでした。
 {exc}</source>
@@ -863,21 +863,21 @@ Could not read the image size.
 {exc}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="484"/>
+        <location filename="../main_window.py" line="482"/>
         <source>画像に合わせてキャンバスを {width} × {height}px に拡張しました。</source>
         <translation>Canvas expanded to {width} × {height}px to fit the image.</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="495"/>
-        <location filename="../main_window.py" line="503"/>
-        <location filename="../main_window.py" line="510"/>
+        <location filename="../main_window.py" line="493"/>
+        <location filename="../main_window.py" line="501"/>
+        <location filename="../main_window.py" line="508"/>
         <source>画像読み込み</source>
         <translation>Image import</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="496"/>
-        <location filename="../main_window.py" line="503"/>
-        <location filename="../main_window.py" line="510"/>
+        <location filename="../main_window.py" line="494"/>
+        <location filename="../main_window.py" line="501"/>
+        <location filename="../main_window.py" line="508"/>
         <source>{Path} を読み込めませんでした。
 
 {error}</source>
@@ -886,19 +886,19 @@ Could not read the image size.
 {error}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="524"/>
-        <location filename="../main_window.py" line="532"/>
-        <location filename="../main_window.py" line="539"/>
-        <location filename="../main_window.py" line="584"/>
+        <location filename="../main_window.py" line="522"/>
+        <location filename="../main_window.py" line="530"/>
+        <location filename="../main_window.py" line="537"/>
+        <location filename="../main_window.py" line="582"/>
         <source>連番画像読み込み</source>
         <translation>Image sequence import</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="525"/>
-        <location filename="../main_window.py" line="532"/>
-        <location filename="../main_window.py" line="585"/>
-        <location filename="../main_window.py" line="955"/>
-        <location filename="../main_window.py" line="986"/>
+        <location filename="../main_window.py" line="523"/>
+        <location filename="../main_window.py" line="530"/>
+        <location filename="../main_window.py" line="583"/>
+        <location filename="../main_window.py" line="953"/>
+        <location filename="../main_window.py" line="984"/>
         <source>画像を読み込めませんでした。
 
 {error}</source>
@@ -907,75 +907,75 @@ Could not read the image size.
 {error}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="541"/>
-        <location filename="../main_window.py" line="964"/>
+        <location filename="../main_window.py" line="539"/>
+        <location filename="../main_window.py" line="962"/>
         <source>画像を読み込んでいます</source>
         <translation>Loading images</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="552"/>
-        <location filename="../main_window.py" line="975"/>
+        <location filename="../main_window.py" line="550"/>
+        <location filename="../main_window.py" line="973"/>
         <source>{label}（画像 {value}/{total}）</source>
         <translation>{label} (image {value}/{total})</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="570"/>
+        <location filename="../main_window.py" line="568"/>
         <source>画像配置完了。使用色を認識しています</source>
         <translation>Images placed. Scanning used colours</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="576"/>
+        <location filename="../main_window.py" line="574"/>
         <location filename="../main_window_used_color.py" line="178"/>
         <source>使用色を認識しています</source>
         <translation>Scanning used colours</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="591"/>
+        <location filename="../main_window.py" line="589"/>
         <source>元画像へトーンカーブ適用後に2値化</source>
         <translation>binarised after applying the tone curve to the source</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="593"/>
+        <location filename="../main_window.py" line="591"/>
         <source>半透明を二値化</source>
         <translation>binarised the semi-transparent pixels</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="596"/>
+        <location filename="../main_window.py" line="594"/>
         <source>、{method}して1枚目の共通パレット{int}色を適用</source>
         <translation>, {method} and applied the {int}-colour shared palette from the first image</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="599"/>
+        <location filename="../main_window.py" line="597"/>
         <source>{len}枚の画像をタイムラインへ連番配置{note}し、使用色認識まで完了しました。</source>
         <translation>Placed {len} images along the timeline as a sequence{note}, and finished scanning used colours.</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="646"/>
+        <location filename="../main_window.py" line="644"/>
         <source>更新確認エラー</source>
         <translation>Update check error</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="646"/>
+        <location filename="../main_window.py" line="644"/>
         <source>不明なエラー</source>
         <translation>Unknown error</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="652"/>
+        <location filename="../main_window.py" line="650"/>
         <source>更新の確認</source>
         <translation>Check for updates</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="653"/>
+        <location filename="../main_window.py" line="651"/>
         <source>最新版を使用しています。（現在: v{VERSION}）</source>
         <translation>You are on the latest version. (current: v{VERSION})</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="662"/>
+        <location filename="../main_window.py" line="660"/>
         <source>更新あり</source>
         <translation>Update available</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="663"/>
+        <location filename="../main_window.py" line="661"/>
         <source>新しいバージョン {latest} が利用可能ですが、この環境向けの
 インストーラが見つかりませんでした。リリースページを確認してください。
 
@@ -986,12 +986,12 @@ Please check the releases page.
 {url}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="669"/>
+        <location filename="../main_window.py" line="667"/>
         <source>更新があります</source>
         <translation>Update available</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="670"/>
+        <location filename="../main_window.py" line="668"/>
         <source>新しいバージョン {latest} が利用可能です。
 （現在: v{VERSION}）
 
@@ -1002,22 +1002,22 @@ Please check the releases page.
 Download and install it?</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="681"/>
+        <location filename="../main_window.py" line="679"/>
         <source>更新をダウンロードしています…</source>
         <translation>Downloading the update…</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="683"/>
+        <location filename="../main_window.py" line="681"/>
         <source>更新のダウンロード</source>
         <translation>Update download</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="705"/>
+        <location filename="../main_window.py" line="703"/>
         <source>ダウンロード失敗</source>
         <translation>Download failed</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="705"/>
+        <location filename="../main_window.py" line="703"/>
         <source>更新を取得できませんでした。
 
 {error}</source>
@@ -1026,23 +1026,23 @@ Download and install it?</translation>
 {error}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="712"/>
+        <location filename="../main_window.py" line="710"/>
         <source>インストール</source>
         <translation>Install</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="713"/>
+        <location filename="../main_window.py" line="711"/>
         <source>ダウンロードが完了しました。インストーラを起動して
 アプリを終了します。よろしいですか？</source>
         <translation>The download finished. The installer will start and the application will quit. Continue?</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="729"/>
+        <location filename="../main_window.py" line="727"/>
         <source>起動失敗</source>
         <translation>Launch failed</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="729"/>
+        <location filename="../main_window.py" line="727"/>
         <source>インストーラを起動できませんでした。
 
 {error}</source>
@@ -1051,26 +1051,26 @@ Download and install it?</translation>
 {error}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="888"/>
+        <location filename="../main_window.py" line="886"/>
         <location filename="../main_window_ui_build.py" line="296"/>
         <source>画像を読み込む</source>
         <translation>Import Images</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="890"/>
-        <location filename="../main_window.py" line="941"/>
+        <location filename="../main_window.py" line="888"/>
+        <location filename="../main_window.py" line="939"/>
         <source>画像 (*.png *.jpg *.jpeg *.tga);;PNG (*.png);;JPEG (*.jpg *.jpeg);;TGA (*.tga)</source>
         <translation>Images (*.png *.jpg *.jpeg *.tga);;PNG (*.png);;JPEG (*.jpg *.jpeg);;TGA (*.tga)</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="903"/>
-        <location filename="../main_window.py" line="923"/>
+        <location filename="../main_window.py" line="901"/>
+        <location filename="../main_window.py" line="921"/>
         <location filename="../main_window_ui_build.py" line="297"/>
         <source>画像フォルダーを読み込む</source>
         <translation>Import Image Folder</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="924"/>
+        <location filename="../main_window.py" line="922"/>
         <source>選択したフォルダーに対応画像がありません。
 
 対応形式：PNG、JPEG、TGA</source>
@@ -1079,55 +1079,55 @@ Download and install it?</translation>
 Supported formats: PNG, JPEG, TGA</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="939"/>
+        <location filename="../main_window.py" line="937"/>
         <source>変換せず読み込む（下書きレイヤー）</source>
         <translation>Import unconverted (draft layer)</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="954"/>
-        <location filename="../main_window.py" line="962"/>
-        <location filename="../main_window.py" line="985"/>
+        <location filename="../main_window.py" line="952"/>
+        <location filename="../main_window.py" line="960"/>
+        <location filename="../main_window.py" line="983"/>
         <source>変換せず読み込む</source>
         <translation>Import unconverted</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="993"/>
+        <location filename="../main_window.py" line="991"/>
         <source>{len}枚を下書きレイヤーへ変換せず読み込みました。</source>
         <translation>Imported {len} images into a draft layer without conversion.</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="998"/>
+        <location filename="../main_window.py" line="996"/>
         <source>キャンバスサイズの変更</source>
         <translation>Resize Canvas</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1083"/>
+        <location filename="../main_window.py" line="1079"/>
         <source>ファイル・編集</source>
         <translation>File and Edit</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1085"/>
+        <location filename="../main_window.py" line="1081"/>
         <source>キャンバス操作</source>
         <translation>Canvas operations</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1086"/>
+        <location filename="../main_window.py" line="1082"/>
         <source>ツールコマンド</source>
         <translation>Tool commands</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1092"/>
+        <location filename="../main_window.py" line="1088"/>
         <source>PNG保存</source>
         <translation>Save PNG</translation>
     </message>
     <message>
+        <location filename="../main_window.py" line="1109"/>
         <location filename="../main_window.py" line="1113"/>
-        <location filename="../main_window.py" line="1117"/>
         <source>TGA保存</source>
         <translation>Save TGA</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1117"/>
+        <location filename="../main_window.py" line="1113"/>
         <source>TGAを保存できませんでした。Pillowの導入を確認してください。</source>
         <translation>Could not save the TGA. Check that Pillow is installed.</translation>
     </message>
@@ -1795,7 +1795,7 @@ Drop a used colour onto the middle of another to create a parent/child link.</tr
         <translation>Canvas</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1084"/>
+        <location filename="../main_window.py" line="1080"/>
         <location filename="../main_window_ui_build.py" line="617"/>
         <source>ツール</source>
         <translation>Tools</translation>
@@ -1836,7 +1836,7 @@ Drop a used colour onto the middle of another to create a parent/child link.</tr
         <translation>History</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1087"/>
+        <location filename="../main_window.py" line="1083"/>
         <location filename="../main_window_ui_build.py" line="731"/>
         <source>タイムライン</source>
         <translation>Timeline</translation>
@@ -2881,44 +2881,44 @@ Details were saved to:
         <translation>{NAME} error</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="179"/>
+        <location filename="../actionpanel.py" line="191"/>
         <source>組み込みアクション生成エラー</source>
         <translation>Built-in action generation error</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="222"/>
+        <location filename="../actionpanel.py" line="234"/>
         <source>Pythonアクション エラー</source>
         <translation>Python action error</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="256"/>
-        <location filename="../subview.py" line="244"/>
+        <location filename="../actionpanel.py" line="268"/>
+        <location filename="../subview.py" line="242"/>
         <source>読み込めません: {name}</source>
         <translation>Cannot load: {name}</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="271"/>
+        <location filename="../actionpanel.py" line="283"/>
         <source>Pythonアクション読み込みエラー</source>
         <translation>Python action load error</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="285"/>
+        <location filename="../actionpanel.py" line="297"/>
         <source>フォルダを開けません</source>
         <translation>Cannot open the folder</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="382"/>
+        <location filename="../actionpanel.py" line="394"/>
         <source>Pythonアクションの編集</source>
         <translation>Edit Python actions</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="404"/>
+        <location filename="../actionpanel.py" line="416"/>
         <source>新規</source>
         <translation>New</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="405"/>
-        <location filename="../actionpanel.py" line="583"/>
+        <location filename="../actionpanel.py" line="417"/>
+        <location filename="../actionpanel.py" line="637"/>
         <location filename="../color_panel.py" line="1308"/>
         <location filename="../timeline.py" line="666"/>
         <location filename="../timeline.py" line="1277"/>
@@ -2926,98 +2926,98 @@ Details were saved to:
         <translation>Delete</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="406"/>
+        <location filename="../actionpanel.py" line="418"/>
         <source>保存</source>
         <translation>Save</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="407"/>
+        <location filename="../actionpanel.py" line="419"/>
         <source>保存して再読み込み</source>
         <translation>Save and reload</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="408"/>
+        <location filename="../actionpanel.py" line="420"/>
         <source>VS Codeで開く</source>
         <translation>Open in VS Code</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="409"/>
+        <location filename="../actionpanel.py" line="421"/>
         <source>閉じる</source>
         <translation>Close</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="465"/>
+        <location filename="../actionpanel.py" line="477"/>
         <source>読み込めません</source>
         <translation>Cannot load it</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="492"/>
+        <location filename="../actionpanel.py" line="504"/>
         <source>未保存の変更</source>
         <translation>Unsaved changes</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="493"/>
+        <location filename="../actionpanel.py" line="505"/>
         <source>{name} の変更を保存しますか？</source>
         <translation>Save the changes to {name}?</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="512"/>
+        <location filename="../actionpanel.py" line="524"/>
         <source>保存できません</source>
         <translation>Cannot save</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="522"/>
+        <location filename="../actionpanel.py" line="534"/>
         <source>再読み込み</source>
         <translation>Reload</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="522"/>
+        <location filename="../actionpanel.py" line="534"/>
         <source>Pythonアクションを再読み込みしました。</source>
         <translation>Python actions reloaded.</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="544"/>
+        <location filename="../actionpanel.py" line="562"/>
         <source>VS Codeが見つかりません</source>
         <translation>VS Code not found</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="545"/>
+        <location filename="../actionpanel.py" line="563"/>
         <source>Visual Studio Codeをインストールするか、codeコマンドをPATHへ追加してください。</source>
         <translation>Install Visual Studio Code, or add the &quot;code&quot; command to PATH.</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="551"/>
+        <location filename="../actionpanel.py" line="569"/>
         <source>VS Codeを開けません</source>
         <translation>Cannot open VS Code</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="557"/>
+        <location filename="../actionpanel.py" line="611"/>
         <source>新規スクリプト</source>
         <translation>New script</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="557"/>
+        <location filename="../actionpanel.py" line="611"/>
         <source>ファイル名（.py）</source>
         <translation>File name (.py)</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="568"/>
-        <location filename="../actionpanel.py" line="573"/>
+        <location filename="../actionpanel.py" line="622"/>
+        <location filename="../actionpanel.py" line="627"/>
         <source>作成できません</source>
         <translation>Cannot create it</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="568"/>
+        <location filename="../actionpanel.py" line="622"/>
         <source>既に存在します: {name}</source>
         <translation>Already exists: {name}</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="583"/>
+        <location filename="../actionpanel.py" line="637"/>
         <source>{name} を削除しますか？</source>
         <translation>Delete {name}?</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="589"/>
+        <location filename="../actionpanel.py" line="643"/>
         <source>削除できません</source>
         <translation>Cannot delete it</translation>
     </message>
@@ -3087,8 +3087,8 @@ Details were saved to:
     </message>
     <message>
         <location filename="../canvas_onion_interaction.py" line="39"/>
-        <location filename="../subview.py" line="468"/>
-        <location filename="../utils.py" line="240"/>
+        <location filename="../subview.py" line="466"/>
+        <location filename="../utils.py" line="294"/>
         <source>前</source>
         <extracomment>一時ズーム（ドラッグ）で 1px 動かしたときの倍率。</extracomment>
         <translation>Previous</translation>
@@ -3096,8 +3096,8 @@ Details were saved to:
     <message>
         <location filename="../canvas_onion_interaction.py" line="39"/>
         <location filename="../cut_folder_dialog.py" line="609"/>
-        <location filename="../subview.py" line="469"/>
-        <location filename="../utils.py" line="241"/>
+        <location filename="../subview.py" line="467"/>
+        <location filename="../utils.py" line="295"/>
         <source>後</source>
         <translation>Next</translation>
     </message>
@@ -3127,42 +3127,42 @@ Details were saved to:
         <translation>Display position: left-drag to move the canvas, Shift+left-drag or right-drag to rotate. The TU/TB scale is preserved and reflected in the relative values of the previous and next onion skins. Esc cancels.</translation>
     </message>
     <message>
-        <location filename="../canvas_paint_tools.py" line="327"/>
+        <location filename="../canvas_paint_tools.py" line="328"/>
         <source>選択範囲の外側なので塗りを開始しませんでした。</source>
         <translation>The point is outside the selection, so filling did not start.</translation>
     </message>
     <message>
-        <location filename="../canvas_paint_tools.py" line="329"/>
+        <location filename="../canvas_paint_tools.py" line="330"/>
         <source>領域がキャンバス端まで開いているため、塗りを開始しませんでした。</source>
         <translation>The region is open to the canvas edge, so filling did not start.</translation>
     </message>
     <message>
-        <location filename="../canvas_paint_tools.py" line="387"/>
+        <location filename="../canvas_paint_tools.py" line="389"/>
         <source>串刺し塗り</source>
         <translation>Paint through frames</translation>
     </message>
     <message>
-        <location filename="../canvas_paint_tools.py" line="391"/>
+        <location filename="../canvas_paint_tools.py" line="393"/>
         <source>串刺し塗りを中止しました。</source>
         <translation>Painting through frames was cancelled.</translation>
     </message>
     <message>
-        <location filename="../canvas_paint_tools.py" line="395"/>
+        <location filename="../canvas_paint_tools.py" line="397"/>
         <source>串刺し塗りの対象になるコマがありませんでした。</source>
         <translation>No frame could be painted through.</translation>
     </message>
     <message>
-        <location filename="../canvas_paint_tools.py" line="402"/>
+        <location filename="../canvas_paint_tools.py" line="404"/>
         <source>串刺し塗り：{filled} コマを塗り、{skipped} コマは対象外でした。</source>
         <translation>Painted through {filled} frame(s); {skipped} frame(s) were skipped.</translation>
     </message>
     <message>
-        <location filename="../canvas_paint_tools.py" line="408"/>
+        <location filename="../canvas_paint_tools.py" line="410"/>
         <source>串刺し塗り：{filled} コマを塗りました。</source>
         <translation>Painted through {filled} frame(s).</translation>
     </message>
     <message>
-        <location filename="../canvas_paint_tools.py" line="522"/>
+        <location filename="../canvas_paint_tools.py" line="524"/>
         <source>領域がキャンバス端まで開いているため選択しませんでした。</source>
         <translation>The region is open to the canvas edge, so nothing was selected.</translation>
     </message>
@@ -3944,7 +3944,7 @@ Line art: binarises the line work while preserving the white background and the 
     <message>
         <location filename="../color_reduction.py" line="507"/>
         <location filename="../cut_folder_dialog.py" line="792"/>
-        <location filename="../main_window.py" line="681"/>
+        <location filename="../main_window.py" line="679"/>
         <location filename="../main_window_import.py" line="90"/>
         <location filename="../main_window_project_io.py" line="126"/>
         <location filename="../widgets.py" line="707"/>
@@ -5158,22 +5158,22 @@ In-between and symbol labels: {blanks} cells</translation>
         <translation>Drop an image or a folder</translation>
     </message>
     <message>
-        <location filename="../subview.py" line="220"/>
+        <location filename="../subview.py" line="218"/>
         <source>サブビュー画像を開く</source>
         <translation>Open a sub-view image</translation>
     </message>
     <message>
-        <location filename="../subview.py" line="221"/>
+        <location filename="../subview.py" line="219"/>
         <source>対応画像 (*.png *.jpg *.jpeg *.tga *.psd);;PNG (*.png);;JPEG (*.jpg *.jpeg);;TGA (*.tga);;PSD (*.psd);;すべてのファイル (*)</source>
         <translation>Supported images (*.png *.jpg *.jpeg *.tga *.psd);;PNG (*.png);;JPEG (*.jpg *.jpeg);;TGA (*.tga);;PSD (*.psd);;All files (*)</translation>
     </message>
     <message>
-        <location filename="../subview.py" line="233"/>
+        <location filename="../subview.py" line="231"/>
         <source>画像が見つかりません</source>
         <translation>Image not found</translation>
     </message>
     <message>
-        <location filename="../subview.py" line="409"/>
+        <location filename="../subview.py" line="407"/>
         <source>画像またはフォルダを
 ここにドロップ</source>
         <translation>Drop an image or

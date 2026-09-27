@@ -568,7 +568,7 @@ class ScriptEditorDialog(QDialog):
         except OSError as error:
             QMessageBox.warning(self, tr("VS Codeを開けません"), str(error))
 
-    #: macOS の VS Code（安定版・Insiders）のアプリ名とバンドルID。
+    # macOS の VS Code（安定版・Insiders）のアプリ名とバンドルID。
     _MACOS_VSCODE_APPS = (
         ("Visual Studio Code.app", "com.microsoft.VSCode"),
         ("Visual Studio Code - Insiders.app", "com.microsoft.VSCodeInsiders"),
