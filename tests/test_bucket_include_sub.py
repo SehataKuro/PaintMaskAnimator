@@ -73,3 +73,33 @@ def test_include_fill_uses_sub_color(qapp, include_sub):
             assert red_line == [255, 0, 0]
     finally:
         host.close()
+
+
+def test_registered_include_colors_replace_the_sub_color(qapp, monkeypatch):
+    """「含む色」に登録した色があれば、サブカラーではなくその色を含む。"""
+    from paintmaskanimator import config
+
+    store = {}
+    monkeypatch.setattr(config, "get_value", lambda key, default=None: store.get(key, default))
+    monkeypatch.setattr(config, "set_value", lambda key, value: store.__setitem__(key, value))
+    host, canvas = _canvas_with_tools(False)
+    try:
+        slots = host.bucket_include_colors
+        assert slots.colors() == ()
+        assert canvas.bucket_options().mask_colors == ((255, 0, 0),)
+
+        # 描画色を登録すると含み塗りがONになり、設定にも保存される。
+        host.main_color = QColor(0, 0, 255)
+        host.color_mode = "main"
+        slots.register_current(1)
+        assert host.bucket_include_sub.isChecked()
+        assert slots.colors() == ((0, 0, 255),)
+        assert store["bucket_include_colors"] == [None, [0, 0, 255], None]
+        options = canvas.bucket_options()
+        assert options.include_masks
+        assert options.mask_colors == ((0, 0, 255),)
+
+        slots.set_color(1, None)
+        assert canvas.bucket_options().mask_colors == ((255, 0, 0),)
+    finally:
+        host.close()

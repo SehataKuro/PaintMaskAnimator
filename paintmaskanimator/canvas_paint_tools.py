@@ -224,12 +224,17 @@ class PaintToolsMixin(CanvasMembers):
 
     def bucket_options(self):
         """現在のバケツ設定を UI から読み出す。"""
-        # 含み塗りの対象はサブカラー。使用色パネルでの選択に依存させると、
-        # 何を含むのかを塗る前に別の場所で準備する必要があり分かりにくい。
-        sub = QColor(self.sub_color)
-        mask_colors = ((sub.red(), sub.green(), sub.blue()),)
+        # 含み塗りの対象は、ツールパネルの「含む色」に登録した色。未登録なら
+        # サブカラー。使用色パネルでの選択に依存させると、何を含むのかを
+        # 塗る前に別の場所で準備する必要があり分かりにくい。
+        tools = self._bucket_tools()
+        slots = getattr(tools, "bucket_include_colors", None)
+        mask_colors = tuple(slots.colors()) if slots is not None else ()
+        if not mask_colors:
+            sub = QColor(self.sub_color)
+            mask_colors = ((sub.red(), sub.green(), sub.blue()),)
         return bucket_fill.BucketOptions.from_tools(
-            self._bucket_tools(),
+            tools,
             mask_colors=mask_colors,
             background_selected=self.background_mask_rgb in mask_colors,
         )
