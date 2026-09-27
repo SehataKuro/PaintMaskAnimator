@@ -1597,20 +1597,21 @@ class ToolPanel(QWidget):
                 "stop:0 #ffffff, stop:1 #ffff00",
                 "stop:0 #ffffff, stop:1 #000000",
             ]
-        c = theme.palette()
         for slider, gradient in zip(self.color_sliders, gradients):
             slider.setStyleSheet(
-                "QSlider::groove:horizontal{height:14px;border:1px solid %s;"
+                "QSlider::groove:horizontal{height:14px;border:none;"
                 "border-radius:7px;"
                 "background:qlineargradient(x1:0,y1:0,x2:1,y2:0,%s);}"
                 # Keep the gradient fully visible: the filled/empty halves must
-                # not paint over it (the global theme fills sub-page with accent).
-                "QSlider::sub-page:horizontal{background:transparent;}"
-                "QSlider::add-page:horizontal{background:transparent;}"
+                # not paint over it.  The global theme gives them a background
+                # *and* a border; Qt merges declarations per property, so both
+                # must be cleared or a frame is drawn around the colour bar.
+                "QSlider::sub-page:horizontal{background:transparent;border:none;}"
+                "QSlider::add-page:horizontal{background:transparent;border:none;}"
                 # Round, ring-style handle that reveals the colour beneath it.
                 "QSlider::handle:horizontal{width:14px;height:14px;margin:-3px 0;"
                 "border:2px solid white;background:transparent;border-radius:9px;}"
-                % (c["border"], gradient)
+                % gradient
             )
 
     def slider_color_changed(self):
