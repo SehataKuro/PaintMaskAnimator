@@ -126,7 +126,7 @@ Keisuke Kojima and Manato Joko.
 
 The goals have stayed the same throughout:
 
-- An animation finishing application capable of replacing PaintMan
+- A new option among animation finishing applications
 - Drawing capabilities suitable for in-between animation work
 - A timeline with controls similar to CLIP STUDIO PAINT
 
