@@ -31,7 +31,8 @@
           reveal.unobserve(entry.target);
         }
       },
-      { rootMargin: "0px 0px -10% 0px", threshold: 0.12 },
+      // Any overlap counts: a long release entry may never show 12% of itself.
+      { rootMargin: "0px 0px -10% 0px", threshold: 0 },
     );
     revealTargets.forEach((el) => reveal.observe(el));
   }

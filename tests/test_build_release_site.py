@@ -127,3 +127,24 @@ def test_render_page_fills_partials_that_use_values():
     partials = {"footer": '<a href="{{ repo_url }}">GitHub</a>'}
     page = site.render_page("<main></main>{{ footer }}", [], partials)
     assert page == f'<main></main><a href="{site.REPO_URL}">GitHub</a>'
+
+
+def test_build_versions_stylesheet_and_script_urls(tmp_path):
+    out = tmp_path / "_site"
+    site.build(json.dumps([_release("v0.6.5", "2026-09-27T00:00:00Z")]), out)
+
+    index = (out / "index.html").read_text(encoding="utf-8")
+    help_page = (out / "help.html").read_text(encoding="utf-8")
+    for page in (index, help_page):
+        assert 'href="style.css?v=' in page
+        assert 'src="scroll.js?v=' in page
+        assert 'href="style.css"' not in page
+    assert 'src="logo-anim.js?v=' in index
+
+
+def test_version_assets_changes_with_the_file(tmp_path):
+    (tmp_path / "style.css").write_text("a{}", encoding="utf-8")
+    first = site.version_assets('<link href="style.css">', tmp_path)
+    (tmp_path / "style.css").write_text("b{}", encoding="utf-8")
+    second = site.version_assets('<link href="style.css">', tmp_path)
+    assert first != second
