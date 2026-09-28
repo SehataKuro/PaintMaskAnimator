@@ -9,7 +9,7 @@ own -- everything is assigned onto ``self``.
 """
 from typing import Any
 from PySide6.QtCore import QSize, QTimer, Qt
-from PySide6.QtGui import QAction, QActionGroup, QGuiApplication, QKeySequence
+from PySide6.QtGui import QAction, QGuiApplication, QKeySequence
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -24,9 +24,10 @@ from PySide6.QtWidgets import (
 from .constants import APP_DISPLAY_NAME, APP_NAME, GITHUB_REPO, HOLD_ZOOM_SHORTCUT
 from ._main_window_members import MainWindowMembers
 import PySide6QtAds as QtAds
-from . import i18n, icons, theme
+from . import icons, theme
 from .i18n import tr
 from .theme import StatusBar
+from .preferences_dialog import PreferencesDialog
 from .tool_window import ToolWindow
 from .toolpanel import ToolPanel, tool_label
 from .errors import OPERATION_ERRORS
@@ -110,6 +111,11 @@ class UIBuildMixin(MainWindowMembers):
         self.a_remove_dust=QAction(tr("ゴミ取り／塗り抜け…"),self)
         self.a_remove_dust.triggered.connect(self.line_ops.remove_dust_fill_surrounding)
         self.a_shortcuts=QAction(tr("ショートカット設定…"),self);self.a_shortcuts.triggered.connect(self.shortcuts)
+        # macOS ではアプリ名のメニューへ移る（⌘,）。
+        self.a_preferences=QAction(tr("環境設定…"),self)
+        self.a_preferences.setMenuRole(QAction.MenuRole.PreferencesRole)
+        self.a_preferences.setShortcut("Ctrl+,")
+        self.a_preferences.triggered.connect(lambda: self.show_preferences())
         self.tool_actions={}
         defaults={"brush":"P","line":"U","shape":"O","bucket":"G","lasso_fill":"F","lasso":"L","rect_select":"R","auto_select":"W","eyedropper":"","dust":"D"}
         for tid,_source_label in ToolPanel.TOOLS:
@@ -315,6 +321,7 @@ class UIBuildMixin(MainWindowMembers):
             (tr("貼り付け"), self.a_paste),
             (tr("キャンバスサイズ変更"), self.a_resize),
             (tr("筆圧設定"), self.a_pressure),
+            (tr("環境設定"), self.a_preferences),
             (tr("背景以外を黒シルエット表示"), self.a_silhouette),
             (tr("選択色だけ表示"), self.a_isolate_color),
             (tr("特定色表示を解除"), self.a_clear_color_filter),
@@ -380,13 +387,16 @@ class UIBuildMixin(MainWindowMembers):
         f.addAction(self.a_export_xdts)
         f.addAction(self.a_export_psd)
         f.addAction(self.a_export_mp4)
-        e=self.menuBar().addMenu(tr("編集"));e.addAction(self.a_undo);e.addAction(self.a_redo);e.addSeparator();e.addAction(self.a_cut);e.addAction(self.a_copy);e.addAction(self.a_paste);e.addSeparator();e.addAction(self.a_silhouette);e.addAction(self.a_isolate_color);e.addAction(self.a_clear_color_filter);e.addAction(self.a_swap_main_sub);e.addAction(self.a_remove_dust);e.addSeparator();e.addAction(self.a_resize);e.addAction(self.a_shortcuts);e.addAction(self.a_pressure)
+        e=self.menuBar().addMenu(tr("編集"));e.addAction(self.a_undo);e.addAction(self.a_redo);e.addSeparator();e.addAction(self.a_cut);e.addAction(self.a_copy);e.addAction(self.a_paste);e.addSeparator();e.addAction(self.a_silhouette);e.addAction(self.a_isolate_color);e.addAction(self.a_clear_color_filter);e.addAction(self.a_swap_main_sub);e.addAction(self.a_remove_dust);e.addSeparator();e.addAction(self.a_resize);e.addAction(self.a_pressure)
         e.addSeparator()
         self.a_color_chart = QAction(tr("カラーチャート…"), self)
         self.a_color_chart.triggered.connect(
             lambda: self._set_color_chart_visible(True)
         )
         e.addAction(self.a_color_chart)
+        e.addSeparator()
+        e.addAction(self.a_shortcuts)
+        e.addAction(self.a_preferences)
         selection_menu=self.menuBar().addMenu(tr("選択範囲"))
         selection_menu.addAction(self.a_selection_clear)
         selection_menu.addSeparator()
@@ -408,85 +418,22 @@ class UIBuildMixin(MainWindowMembers):
         a.addAction(self.a_tl_next_key)
         a.addSeparator()
         a.addAction(self.a_tl_paste_time_remap)
-        self._build_view_menu()
-    def _build_view_menu(self):
-        view_menu = self.menuBar().addMenu(tr("表示"))
-        theme_menu = view_menu.addMenu(tr("テーマ"))
-        group = QActionGroup(self)
-        group.setExclusive(True)
-        self.theme_actions = {}
-        labels = {
-            theme.SYSTEM: tr("システムに合わせる"),
-            "light": tr("ライト（明るい）"),
-            "dark": tr("ダーク（暗い）"),
-        }
-        active = theme.current_theme()
-        for name in theme.available_themes():
-            action = QAction(labels.get(name, name), self)
-            action.setCheckable(True)
-            action.setChecked(name == active)
-            action.triggered.connect(lambda _=False, n=name: self.set_theme(n))
-            group.addAction(action)
-            theme_menu.addAction(action)
-            self.theme_actions[name] = action
-            if name == theme.SYSTEM:
-                theme_menu.addSeparator()
         # 「システムに合わせる」のときは、OSの外観の切り替えに追従する。
         QGuiApplication.styleHints().colorSchemeChanged.connect(
             self._on_system_color_scheme_changed
         )
-        self._build_language_menu(view_menu)
-        accent_menu = view_menu.addMenu(tr("アクセントカラー"))
-        system_accent = QAction(tr("システムに合わせる"), self)
-        system_accent.triggered.connect(
-            lambda _=False: self.colors.set_accent(theme.SYSTEM)
-        )
-        accent_menu.addAction(system_accent)
-        accent_menu.addSeparator()
-        for label, hexval in theme.accent_presets():
-            act = QAction(f"{label}", self)
-            act.triggered.connect(
-                lambda _=False, h=hexval: self.colors.set_accent(h)
-            )
-            accent_menu.addAction(act)
-        accent_menu.addSeparator()
-        custom = QAction(tr("カスタム…"), self)
-        custom.triggered.connect(self.colors.choose_accent_color)
-        accent_menu.addAction(custom)
 
     def _on_system_color_scheme_changed(self, *_args):
         if theme.current_theme() == theme.SYSTEM:
             self.set_theme(theme.SYSTEM)
 
-    def _build_language_menu(self, view_menu):
-        """Language picker. Qt resolves ``tr()`` when a widget is built, so the
-        whole UI would have to be torn down to retranslate live; the choice is
-        persisted and applied on the next start instead."""
-        menu = view_menu.addMenu(tr("言語 / Language"))
-        group = QActionGroup(self)
-        group.setExclusive(True)
-        current = i18n.preferred_language()
-        entries = [(i18n.SYSTEM, tr("システムに合わせる"))]
-        entries += list(i18n.available_languages().items())
-        self.language_actions = {}
-        for code, label in entries:
-            action = QAction(label, self)
-            action.setCheckable(True)
-            action.setChecked(code == current)
-            action.triggered.connect(lambda _=False, c=code: self._choose_language(c))
-            group.addAction(action)
-            menu.addAction(action)
-            self.language_actions[code] = action
-
-    def _choose_language(self, code):
-        if code == i18n.preferred_language():
-            return
-        i18n.set_preferred_language(code)
-        QMessageBox.information(
-            self,
-            tr("言語 / Language"),
-            tr("次回の起動から新しい言語で表示されます。"),
-        )
+    def show_preferences(self, section=None):
+        dialog = getattr(self, "preferences_dialog", None)
+        if dialog is None:
+            dialog = self.preferences_dialog = PreferencesDialog(self)
+        if section:
+            dialog.show_section(section)
+        dialog.show_and_raise()
 
     def _set_color_chart_visible(self, visible):
         window = getattr(self, "color_chart_window", None)

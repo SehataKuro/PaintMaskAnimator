@@ -36,6 +36,39 @@ class WorkspaceController:
         records = config.get_value("workspaces", {})
         return records if isinstance(records, dict) else {}
 
+    def names(self):
+        """Workspace names in the user's order (the saved dict order)."""
+        return list(self.records())
+
+    def _changed(self):
+        self.refresh_menu()
+        dialog = getattr(self.window, "preferences_dialog", None)
+        if dialog is not None:
+            dialog.reload_workspaces()
+
+    def reorder(self, names):
+        """Store the workspaces in ``names`` order; unknown names are ignored."""
+        records = self.records()
+        ordered = [n for n in names if n in records]
+        ordered += [n for n in records if n not in ordered]
+        config.set_value("workspaces", {n: records[n] for n in ordered} or None)
+        self._changed()
+
+    def rename(self, old, new):
+        """Rename in place (keeping its position); False if empty or taken."""
+        new = str(new).strip()
+        records = self.records()
+        if old not in records or not new or (new != old and new in records):
+            return False
+        config.set_value(
+            "workspaces",
+            {(new if n == old else n): r for n, r in records.items()},
+        )
+        if config.get_value("active_workspace") == old:
+            config.set_value("active_workspace", new)
+        self._changed()
+        return True
+
     def capture(self):
         return {
             "dock_state": bytes(
@@ -54,7 +87,7 @@ class WorkspaceController:
         records[name] = self.capture()
         config.set_value("workspaces", records)
         config.set_value("active_workspace", name)
-        self.refresh_menu()
+        self._changed()
         return True
 
     def apply(self, name, restore_geometry=True):
@@ -74,7 +107,7 @@ class WorkspaceController:
                 self.window.restoreGeometry(geometry)
         config.set_value("active_workspace", name)
         QTimer.singleShot(0, self.window._sync_all_area_hamburgers)
-        self.refresh_menu()
+        self._changed()
         return True
 
     def remember_default(self, state):
@@ -96,7 +129,7 @@ class WorkspaceController:
             layout.activate()
         self.window._apply_default_dock_layout()
         QTimer.singleShot(0, self.window._sync_all_area_hamburgers)
-        self.refresh_menu()
+        self._changed()
         return True
 
     def delete(self, name):
@@ -107,7 +140,7 @@ class WorkspaceController:
         config.set_value("workspaces", records or None)
         if config.get_value("active_workspace") == name:
             config.set_value("active_workspace", None)
-        self.refresh_menu()
+        self._changed()
         return True
 
     def prompt_save(self):
@@ -116,17 +149,6 @@ class WorkspaceController:
         )
         if accepted and name.strip():
             self.save(name)
-
-    def prompt_delete(self):
-        names = sorted(self.records())
-        if not names:
-            return
-        name, accepted = QInputDialog.getItem(
-            self.window, tr("ワークスペースを削除"), tr("削除するワークスペース："),
-            names, 0, False,
-        )
-        if accepted:
-            self.delete(name)
 
     def build_menu(self):
         self.window.workspace_menu = self.window.menuBar().addMenu(tr("ワークスペース"))
@@ -150,7 +172,7 @@ class WorkspaceController:
             lambda _checked=False: self.apply_default()
         )
         if records:
-            for name in sorted(records):
+            for name in records:
                 action = menu.addAction(name)
                 action.setCheckable(True)
                 action.setChecked(name == active)
@@ -158,5 +180,7 @@ class WorkspaceController:
                     lambda _checked=False, n=name: self.apply(n)
                 )
             menu.addSeparator()
-            delete_action = menu.addAction(tr("ワークスペースを削除…"))
-            delete_action.triggered.connect(self.prompt_delete)
+            manage_action = menu.addAction(tr("ワークスペースを管理…"))
+            manage_action.triggered.connect(
+                lambda _checked=False: self.window.show_preferences("workspaces")
+            )

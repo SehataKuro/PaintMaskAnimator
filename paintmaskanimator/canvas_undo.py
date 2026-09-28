@@ -33,6 +33,7 @@ __all__ = [
     "MAX_HISTORY_BRANCHES",
     "UndoMixin",
     "history_label_for",
+    "set_undo_limits",
     "trim_undo_stack",
 ]
 
@@ -61,6 +62,16 @@ class HistoryBranch:
             f"HistoryBranch(position={self.position}, "
             f"steps={len(self.entries)}, label={self.label!r})"
         )
+
+
+def set_undo_limits(max_entries, max_bytes):
+    """Change the limits :func:`trim_undo_stack` enforces (from Preferences).
+
+    Existing stacks are trimmed on their next push, not immediately.
+    """
+    global MAX_UNDO, MAX_UNDO_BYTES
+    MAX_UNDO = max(1, int(max_entries))
+    MAX_UNDO_BYTES = max(1, int(max_bytes))
 
 
 def trim_undo_stack(stack):

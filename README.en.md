@@ -44,7 +44,7 @@ earlier cannot receive in-app updates; reinstall once from Releases.
 - Export: PNG / TGA sequences + CSV, PSD, MP4, XDTS, cut folders (cell images
   and the time sheet in one folder structure)
 - Autosave with crash recovery, customisable panel layout, light / dark themes
-- Japanese and English UI (**View › 言語 / Language**; follows the OS by default)
+- Japanese and English UI (**Edit › Preferences… › General**, or the app menu on macOS; follows the OS by default)
 - Custom actions written in Python (see below)
 
 The project file format (`.pman`) is documented in [`FORMAT.md`](FORMAT.md)
