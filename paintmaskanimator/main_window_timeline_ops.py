@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QItemSelectionModel, QTimer
 from .i18n import tr
 from .utils import blank_image
+from .normalize_dialog import NormalizeNumbersDialog
 from .timeline import TimelineWidget
 from .logging_setup import get_logger
 
@@ -135,15 +136,43 @@ class TimelineOpsController:
             self.window.canvas.next_key_frame()
 
     def normalize_numbers(self, visual_rows):
-        """選択レイヤーの絵番号をシート順へ振り直す。"""
+        """確認画面で振り直す番号を見せてから、絵番号をシート順へ振り直す。"""
         if self.window.canvas.timeline_mode != "sheet":
             return
-        layer_count = len(self.window.canvas.layers)
-        layer_indices = sorted({
+        canvas = self.window.canvas
+        layer_count = len(canvas.layers)
+        selected = {
             layer_count - 1 - int(row)
             for row in visual_rows
             if 0 <= layer_count - 1 - int(row) < layer_count
-        })
+        }
+        if not selected:
+            selected = {int(canvas.active_layer_index)}
+        layers = [
+            (
+                layer_index,
+                canvas.layers[layer_index].name,
+                canvas.sequence_number_normalization(layer_index),
+            )
+            for layer_index in reversed(range(layer_count))
+        ]
+        if not any(
+            old != new
+            for _index, _name, mapping in layers
+            for old, new in mapping.items()
+        ):
+            self.window.statusBar().showMessage(
+                tr("番号はすでにタイムラインの順番どおりです。"), 2500
+            )
+            return
+        dialog = NormalizeNumbersDialog(layers, selected, self.window)
+        if dialog.exec() != NormalizeNumbersDialog.DialogCode.Accepted:
+            return
+        self.apply_normalize_numbers(dialog.target_layer_indices())
+
+    def apply_normalize_numbers(self, layer_indices):
+        """指定レイヤーの絵番号をシート順へ振り直す（確認なし）。"""
+        layer_indices = sorted({int(index) for index in layer_indices})
         if not layer_indices:
             return
         self.window.canvas.push_doc_undo()
@@ -154,7 +183,7 @@ class TimelineOpsController:
         self.window.canvas.selectionChanged.emit()
         self.window.canvas.update()
         self.window.statusBar().showMessage(
-            tr("選択レイヤーの番号をシート順に正規化しました。"), 2500
+            tr("番号をタイムラインの順番に正規化しました。"), 2500
         )
 
     def create_blank_key(
@@ -731,7 +760,14 @@ class TimelineOpsController:
                 self.window.canvas.selectionChanged.emit()
                 self.window.canvas.update()
             return
+        extended = int(column) >= len(self.window.canvas.frames)
+        if extended:
+            # ルーラーで範囲の外を指したら、そこまでコマを延ばす。
+            # 空のコマは尺に数えず、使わなければ後で切り詰められる。
+            self.window.canvas._ensure_frame_count(int(column) + 1)
         self.window.canvas.select_exposure(column, visual_row)
+        if extended:
+            self.window.refresh_ui()
         # タイムラインの別レイヤーのコマを選んだ場合も、そのレイヤーの使用色へ即時更新。
         if self.window.canvas.active_layer_index != previous_layer:
             self.window.used_color._refresh_without_delay()

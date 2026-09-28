@@ -985,6 +985,8 @@ class UIBuildMixin(MainWindowMembers):
         self.timeline.tweenCancelRequested.connect(
             self.tween.cancel_transform_or_tween
         )
+        self.timeline.tweenEditRequested.connect(self.tween.edit)
+        self.timeline.tweenReleaseRequested.connect(self.tween.release)
         self.timeline.onionPopupToggled.connect(
             self.onion.toggle_settings_popup
         )

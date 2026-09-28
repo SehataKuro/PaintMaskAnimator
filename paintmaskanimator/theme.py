@@ -97,6 +97,8 @@ PALETTES = {
         "timeline_blank_text": "#648b9b",
         "timeline_uncreated": "#f5f5f5",
         "timeline_uncreated_text": "#777d85",
+        "timeline_tween": "#f1dcef",
+        "timeline_tween_text": "#8a2f84",
     },
     "dark": {
         "window": "#22252b",
@@ -127,6 +129,8 @@ PALETTES = {
         "timeline_blank_text": "#82aeba",
         "timeline_uncreated": "#292d34",
         "timeline_uncreated_text": "#9aa2ad",
+        "timeline_tween": "#4a2747",
+        "timeline_tween_text": "#f0a8e8",
     },
 }
 

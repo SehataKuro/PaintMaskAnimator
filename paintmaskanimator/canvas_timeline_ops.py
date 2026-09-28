@@ -8,6 +8,7 @@ They run against a live ``PaintCanvas``.
 """
 # (nothing was used)
 from ._canvas_members import CanvasMembers
+from .cell_numbering import normalization_mapping
 from .models import Layer, make_frame, next_layer_name
 from .timeline import TimelineWidget
 from .utils import blank_image
@@ -97,6 +98,8 @@ class TimelineStructureMixin(CanvasMembers):
         layer.sequence_number = None
         layer.sequence_only = False
         layer.cell_name = None
+        layer.tween = None
+        layer.tween_member = None
 
     def timeline_block_at(self, column, layer_index):
         if not self.frames:
@@ -396,6 +399,12 @@ class TimelineStructureMixin(CanvasMembers):
             int(exposure),
         )
 
+    def sequence_number_normalization(self, layer_index):
+        """正規化したときの {旧番号: 新番号} を、データを変えずに返す。"""
+        return normalization_mapping(
+            self.frames, self._sequence_archive, layer_index
+        )
+
     def normalize_sequence_numbers(self, layer_index=None):
         """シートの登場順で絵番号を正規化し、連番にも反映する。"""
         if not self.frames:
@@ -405,32 +414,7 @@ class TimelineStructureMixin(CanvasMembers):
         else:
             layer_indices = (int(layer_index),)
         for target_layer_index in layer_indices:
-            sheet_numbers = []
-            for frame in self.frames:
-                layer = frame.layers[target_layer_index]
-                if (
-                    layer.has_content
-                    and not layer.sequence_only
-                    and layer.sequence_number is not None
-                    and int(layer.sequence_number) not in sheet_numbers
-                ):
-                    sheet_numbers.append(int(layer.sequence_number))
-            all_numbers = {
-                int(seq)
-                for frame in self.frames
-                if (seq := frame.layers[target_layer_index].sequence_number) is not None
-            }
-            all_numbers.update(
-                int(number)
-                for archived_layer, number in self._sequence_archive
-                if int(archived_layer) == target_layer_index
-            )
-            remaining = sorted(all_numbers - set(sheet_numbers))
-            ordered = sheet_numbers + remaining
-            mapping = {
-                old_number: new_number
-                for new_number, old_number in enumerate(ordered, 1)
-            }
+            mapping = self.sequence_number_normalization(target_layer_index)
             next_number = len(mapping) + 1
             for frame in self.frames:
                 layer = frame.layers[target_layer_index]
@@ -725,6 +709,17 @@ class TimelineStructureMixin(CanvasMembers):
 
         # 同一レイヤー内で後方へ移動するときは、元セルを抜いた分だけ座標を補正。
         source_span = max(1, int(source.exposure))
+        # セルの直後にくっついた空セル（✗）は、セルと一緒に動かす。
+        tail_blank = None
+        old_end = source_frame + source_span
+        if (
+            not source_is_blank
+            and source_layer == destination_layer
+            and old_end < len(self.frames)
+        ):
+            tail = self.frames[old_end].layers[source_layer]
+            if getattr(tail, "is_blank_key", False) and not tail.has_content:
+                tail_blank = (old_end, old_end + max(1, int(tail.exposure)))
         self._clear_timeline_layer_cell(source)
 
         # 隣接する「●ーー」の直後のキーを移動した場合、抜けた位置は
@@ -863,6 +858,11 @@ class TimelineStructureMixin(CanvasMembers):
             tuple(moving.color_filter_rgb)
             if moving.color_filter_rgb is not None else None
         )
+        new_end = destination_frame + max(1, int(moving.exposure))
+        if not source_is_blank:
+            self._follow_blanks(
+                destination_layer, destination_frame, new_end, tail_blank,
+            )
         self.current_frame = destination_frame
         self.active_layer_index = destination_layer
         self._onion_cache.clear()
@@ -870,6 +870,48 @@ class TimelineStructureMixin(CanvasMembers):
         self.selectionChanged.emit()
         self.update()
         return True
+
+    def _follow_blanks(self, layer_index, start, end, tail_blank=None):
+        """動かしたセル（start〜end の手前）に合わせて空セルを付け直す。
+
+        重なった空セルはセルの終わりまで押し出し（空セルの終わりは動かさない）、
+        元の直後にくっついていた空セルは、セルの新しい終わりから始める。
+        """
+        blank_end = None
+        for column in range(start + 1, min(end, len(self.frames))):
+            layer = self.frames[column].layers[layer_index]
+            if getattr(layer, "is_blank_key", False) and not layer.has_content:
+                blank_end = max(
+                    blank_end or 0, column + max(1, int(layer.exposure))
+                )
+                self._clear_timeline_layer_cell(layer)
+        if tail_blank is not None:
+            tail_start, tail_end = tail_blank
+            if tail_start != end:
+                tail = self.frames[tail_start].layers[layer_index]
+                if tail_start >= end and getattr(tail, "is_blank_key", False):
+                    self._clear_timeline_layer_cell(tail)
+                blank_end = max(blank_end or 0, tail_end)
+        if blank_end is None or blank_end <= end:
+            return
+        # 押し出した先から次のキーまでの間だけを空セルにする。
+        next_key = next(
+            (
+                column for column in range(end, len(self.frames))
+                if self.frames[column].layers[layer_index].has_content
+                or getattr(self.frames[column].layers[layer_index], "is_blank_key", False)
+            ),
+            None,
+        )
+        if next_key is not None and next_key == end:
+            return
+        if next_key is not None:
+            blank_end = min(blank_end, next_key)
+        self._ensure_frame_count(end + 1)
+        blank = self.frames[end].layers[layer_index]
+        self._clear_timeline_layer_cell(blank)
+        blank.is_blank_key = True
+        blank.exposure = max(1, blank_end - end)
 
 
     def _ensure_frame_count(self, count):

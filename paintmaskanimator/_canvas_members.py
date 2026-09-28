@@ -314,6 +314,7 @@ class CanvasMembers(_MembersBase):
         next_frame: Any
         next_key_frame: Any
         normalize_sequence_numbers: Any
+        sequence_number_normalization: Any
         normalize_tone_curve_points: Any
         onion_all_layers: Any
         onion_center_percent: Any
