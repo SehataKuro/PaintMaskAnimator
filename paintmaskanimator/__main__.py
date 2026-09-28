@@ -69,8 +69,9 @@ def main():
     # Before any widget is built: Qt resolves tr() at call time, but menus and
     # dialogs constructed earlier would keep the source-language strings.
     i18n.install_preferred(app)
-    from . import theme
+    from . import theme, tooltip
     theme.apply_theme(app)
+    tooltip.install(app)
     window = MainWindow()
     window.show()
     QTimer.singleShot(0, window.fit_canvas)
