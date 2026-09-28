@@ -1644,7 +1644,7 @@ class TimeRemapPasteDialog(QDialog):
         self.preview_status.setText(
             tr("{name}／使用 {count}／除外 {max}／レイヤー紐づけ {count2}").format(name=format_name, count=used_count, max=max(0, duration - used_count), count2=linked_count)
         )
-        self.preview_status.setStyleSheet("color:#176b42;")
+        self.preview_status.setStyleSheet("color:%s;" % theme.palette()["success"])
 
     def _populate_preview_table(self):
         source = self._parsed_source
@@ -1729,7 +1729,7 @@ class TimeRemapPasteDialog(QDialog):
         parser = self._parse_text
         if not callable(parser):
             self.preview_status.setText(tr("解析機能を取得できません"))
-            self.preview_status.setStyleSheet("color:#b00020;")
+            self.preview_status.setStyleSheet("color:%s;" % theme.palette()["error"])
             return
 
         try:
@@ -1748,7 +1748,7 @@ class TimeRemapPasteDialog(QDialog):
             self.preview_table.setRowCount(0)
             message = str(exc).splitlines()[0]
             self.preview_status.setText(message)
-            self.preview_status.setStyleSheet("color:#b00020;")
+            self.preview_status.setStyleSheet("color:%s;" % theme.palette()["error"])
             return
         self._parsed_source = parsed
         self._parsed_raw_text = raw_text

@@ -8,7 +8,7 @@ theme changes) against a live ``MainWindow`` instance, and hold no state of thei
 own -- everything is assigned onto ``self``.
 """
 from typing import Any
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import QSize, QTimer, Qt
 from PySide6.QtGui import QAction, QActionGroup, QKeySequence
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 from .constants import APP_DISPLAY_NAME, APP_NAME, GITHUB_REPO, HOLD_ZOOM_SHORTCUT
 from ._main_window_members import MainWindowMembers
 import PySide6QtAds as QtAds
-from . import i18n, theme
+from . import i18n, icons, theme
 from .i18n import tr
 from .theme import StatusBar
 from .toolpanel import ToolPanel, tool_label
@@ -493,6 +493,9 @@ class UIBuildMixin(MainWindowMembers):
         dock.toggleView(bool(visible))
         if visible:
             dock.raise_()
+    def _apply_canvas_bar_icons(self):
+        for button, name in getattr(self, "_canvas_bar_icons", {}).items():
+            button.setIcon(icons.icon(name))
     def _refresh_theme_dependent_ui(self):
         """Re-apply palette-derived styles after a theme/accent change."""
         bar: Any = self.statusBar()
@@ -504,6 +507,9 @@ class UIBuildMixin(MainWindowMembers):
             self.tool_selector.apply_theme()
         if hasattr(self.timeline, "apply_theme"):
             self.timeline.apply_theme()
+        self._apply_canvas_bar_icons()
+        if hasattr(self.palette, "apply_theme"):
+            self.palette.apply_theme()
         if hasattr(self, "dock_manager"):
             self._customize_docking_hover()
             # スタイルシートの付け直しでタブの min/max-height が QSS の値に
@@ -555,10 +561,30 @@ class UIBuildMixin(MainWindowMembers):
         self.rot=QSlider(Qt.Orientation.Horizontal)
         self.rot.setRange(-180,180)
         self.rot_label=QLabel("0°")
-        b100=QPushButton(tr("100%表示"))
-        bfit=QPushButton(tr("全体を表示"))
-        b0=QPushButton("0°")
-        for w in (QLabel(tr("拡大")),self.zoom,self.zoom_label,b100,bfit,QLabel(tr("回転")),self.rot,self.rot_label,b0):
+        b100=QPushButton()
+        b100.setToolTip(tr("100%表示"))
+        bfit=QPushButton()
+        bfit.setToolTip(tr("全体を表示"))
+        b0=QPushButton()
+        b0.setToolTip(tr("回転を0°に戻す"))
+        # 表示操作はアイコンボタンにして、キャンバスの下を細い1本のバーにする。
+        self._canvas_bar_icons = {b100: "zoom_actual", bfit: "fit", b0: "rotate_reset"}
+        for button in self._canvas_bar_icons:
+            button.setProperty("iconButton", True)
+            button.setFixedSize(26, 24)
+            button.setIconSize(QSize(16, 16))
+            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._apply_canvas_bar_icons()
+        for label in (self.zoom_label, self.rot_label):
+            label.setMinimumWidth(38)
+        bar.setContentsMargins(8, 2, 8, 2)
+        bar.setSpacing(4)
+        zoom_title=QLabel(tr("拡大"))
+        rot_title=QLabel(tr("回転"))
+        for w in (zoom_title,self.zoom,self.zoom_label,b100,bfit):
+            bar.addWidget(w)
+        bar.addSpacing(16)
+        for w in (rot_title,self.rot,self.rot_label,b0):
             bar.addWidget(w)
         cv.addLayout(bar)
         self.dock_manager = QtAds.CDockManager(self)

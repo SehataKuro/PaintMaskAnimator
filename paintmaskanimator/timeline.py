@@ -2,11 +2,12 @@ from pathlib import Path
 from .i18n import tr
 from .constants import CTRL_KEY_LABEL, HOLD_ZOOM_KEY_LABEL
 from PySide6.QtCore import QEvent, QItemSelectionModel, QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtGui import QBrush, QColor, QFont, QIcon, QPainter, QPen
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
     QCheckBox,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -25,66 +26,105 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from . import theme
+from . import icons, theme
+
+
+def _titled_tip(title, detail):
+    """アイコンだけのボタン用に、1行目へ操作名を置いたツールチップ。"""
+    return f"{title}\n{detail}"
 
 
 class LayerListDelegate(QStyledItemDelegate):
-    """レイヤー表示記号を固定幅で描画し、名前の位置を変えない。"""
+    """レイヤー行を描画する。表示切替の目アイコンを固定幅に置き、名前の位置を変えない。
+
+    下書きレイヤーは、行の左端の破線・鉛筆アイコン・「下書き」バッジで示し、
+    ひと目で通常のレイヤーと区別できるようにする。
+    """
 
     NAME_ROLE = Qt.ItemDataRole.UserRole + 3
     VISIBLE_ROLE = Qt.ItemDataRole.UserRole + 4
+    DRAFT_ROLE = Qt.ItemDataRole.UserRole + 6
     MARKER_WIDTH = 38
+    ICON_SIZE = 16
 
     def paint(self, painter, option, index):
         painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        c = theme.palette()
         selected = bool(option.state & QStyle.StateFlag.State_Selected)
-        background = (
-            option.palette.highlight().color()
-            if selected else option.palette.base().color()
-        )
-        foreground = (
-            option.palette.highlightedText().color()
-            if selected else option.palette.text().color()
-        )
-        painter.fillRect(option.rect, background)
-        painter.setPen(foreground)
-        painter.setFont(option.font)
+        visible = bool(index.data(self.VISIBLE_ROLE))
+        draft = bool(index.data(self.DRAFT_ROLE))
+        rect = option.rect
+        painter.fillRect(rect, QColor(c["selection"] if selected else c["surface_alt"]))
+        if selected:
+            # 選択行は薄いアクセント色の面に、左端のアクセント線で示す。
+            painter.fillRect(rect.left(), rect.top(), 3, rect.height(), QColor(c["accent"]))
+        elif draft:
+            painter.setPen(QPen(QColor(c["warning"]), 3, Qt.PenStyle.DashLine))
+            painter.drawLine(rect.left() + 1, rect.top() + 2, rect.left() + 1, rect.bottom() - 2)
 
-        marker_text = "[●]" if bool(index.data(self.VISIBLE_ROLE)) else "[-]"
-        marker_rect = QRectF(
-            option.rect.left(),
-            option.rect.top(),
-            self.MARKER_WIDTH,
-            option.rect.height(),
+        dpr = painter.device().devicePixelRatioF() if painter.device() else 1.0
+        eye = icons.pixmap(
+            "eye" if visible else "eye_off",
+            self.ICON_SIZE,
+            c["text"] if visible else c["text_muted"],
+            device_pixel_ratio=dpr,
         )
-        painter.drawText(
-            marker_rect,
-            Qt.AlignmentFlag.AlignCenter,
-            marker_text,
+        painter.drawPixmap(
+            int(rect.left() + (self.MARKER_WIDTH - self.ICON_SIZE) / 2),
+            int(rect.top() + (rect.height() - self.ICON_SIZE) / 2),
+            eye,
         )
 
         name = index.data(self.NAME_ROLE)
         if name is None:
             name = index.data(Qt.ItemDataRole.DisplayRole) or ""
-        name_rect = QRectF(
-            option.rect.left() + self.MARKER_WIDTH,
-            option.rect.top(),
-            max(0, option.rect.width() - self.MARKER_WIDTH - 4),
-            option.rect.height(),
-        )
+        name_left = rect.left() + self.MARKER_WIDTH
+        right = rect.right() - 6
+        font = QFont(option.font)
+        if draft:
+            # 右端に鉛筆アイコン付きの「下書き」バッジを置く。
+            badge_font = QFont(option.font)
+            badge_font.setPointSizeF(max(7.0, option.font.pointSizeF() * 0.78))
+            badge_font.setWeight(QFont.Weight.DemiBold)
+            painter.setFont(badge_font)
+            label = tr("下書き")
+            metrics = painter.fontMetrics()
+            badge_h = min(rect.height() - 6, metrics.height() + 4)
+            badge_w = metrics.horizontalAdvance(label) + 12 + 12
+            badge = QRectF(right - badge_w, rect.top() + (rect.height() - badge_h) / 2, badge_w, badge_h)
+            warning = QColor(c["warning"])
+            fill = QColor(warning)
+            fill.setAlpha(46)
+            painter.setPen(QPen(warning, 1))
+            painter.setBrush(fill)
+            painter.drawRoundedRect(badge, badge_h / 2, badge_h / 2)
+            pencil = icons.pixmap("draft", 10, c["warning"], c["warning"], dpr)
+            painter.drawPixmap(
+                int(badge.left() + 6), int(badge.center().y() - 5), pencil,
+            )
+            painter.setPen(warning)
+            painter.drawText(
+                badge.adjusted(18, 0, -5, 0),
+                Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                label,
+            )
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            right = badge.left() - 4
+            font.setItalic(True)
+        painter.setFont(font)
+        painter.setPen(QColor(c["text"] if visible else c["text_muted"]))
+        name_rect = QRectF(name_left, rect.top(), max(0, right - name_left), rect.height())
         painter.drawText(
             name_rect,
             Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
-            str(name),
+            painter.fontMetrics().elidedText(
+                str(name), Qt.TextElideMode.ElideRight, int(name_rect.width())
+            ),
         )
 
-        painter.setPen(QPen(option.palette.mid().color(), 1))
-        painter.drawLine(
-            option.rect.left(),
-            option.rect.bottom(),
-            option.rect.right(),
-            option.rect.bottom(),
-        )
+        painter.setPen(QPen(QColor(c["border"]), 1))
+        painter.drawLine(rect.left(), rect.bottom(), rect.right(), rect.bottom())
         painter.restore()
 
     def sizeHint(self, option, index):
@@ -128,6 +168,11 @@ class TimelineCellDelegate(QStyledItemDelegate):
         painter.setPen(foreground)
         text = index.data(Qt.ItemDataRole.DisplayRole) or ""
         painter.drawText(option.rect, Qt.AlignmentFlag.AlignCenter, str(text))
+        table = self.parent()
+        if index.row() in getattr(table, "_draft_rows", ()):
+            hatch = QColor(theme.palette()["warning"])
+            hatch.setAlpha(70)
+            painter.fillRect(option.rect, QBrush(hatch, Qt.BrushStyle.BDiagPattern))
         if option.state & QStyle.StateFlag.State_Selected:
             painter.setPen(QPen(QColor(theme.palette()["error"]), 2))
             painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -654,40 +699,40 @@ class TimelineWidget(QWidget):
         c.setContentsMargins(0,0,0,0)
         c.setSpacing(2)
 
-        self.add_blank = QPushButton(tr("+空"))
-        self.add_blank.setToolTip(
-            tr("●／○の開始セルでは直後へ同じ長さの○を挿入。"
-            "ー部分では選択位置から後半を○へ分割します。")
-        )
-        self.add_exposure = QPushButton(tr("+コマ"))
-        self.add_exposure.setToolTip(
-            tr("現在のキーフレーム／空フレームを1コマ伸ばします。")
-        )
-        self.delete=QPushButton(tr("削除"))
-        self.delete.setToolTip(tr("現在の表示コマを1コマ削除します。"))
-        self.time_remap_paste=QPushButton(tr("リマップ"))
-        self.time_remap_paste.setToolTip(
+        self.add_blank = QPushButton()
+        self.add_exposure = QPushButton()
+        self.add_exposure.setToolTip(_titled_tip(
+            tr("コマを伸ばす"),
+            tr("現在のキーフレーム／空フレームを1コマ伸ばします。"),
+        ))
+        self.delete=QPushButton()
+        self.time_remap_paste=QPushButton()
+        self.time_remap_paste.setToolTip(_titled_tip(
+            tr("リマップを貼り付け"),
             tr("AEまたはToeiDigitalTimeSheetのコピー情報を"
             "タイムシートへ貼り付けます。XDTSはタイムラインへ"
-            "ドラッグ＆ドロップできます。")
-        )
-        self.prev=QPushButton("◀F")
+            "ドラッグ＆ドロップできます。"),
+        ))
+        self.prev=QPushButton()
         self.prev.setToolTip(tr("前のフレーム（1）"))
-        self.next=QPushButton("F▶")
+        self.next=QPushButton()
         self.next.setToolTip(tr("次のフレーム（2）"))
-        self.prev_key=QPushButton("◀K")
+        self.prev_key=QPushButton()
         self.prev_key.setToolTip(tr("前のコマ（A）"))
-        self.next_key=QPushButton("K▶")
+        self.next_key=QPushButton()
         self.next_key.setToolTip(tr("次のコマ（S）"))
-        self.play=QPushButton(tr("再生"))
+        self.play=QPushButton()
         self.play.setToolTip(tr("再生／停止"))
         self.play.setCheckable(True)
 
         self.onion_all_layers=QCheckBox(tr("すべてのレイヤー"))
         self.onion_all_layers.setChecked(True)
-        self.onion=QCheckBox(tr("オニオンスキン"))
+        # オニオンスキンは設定ボタンと隣り合う切り替えチップにする。
+        self.onion=QPushButton(tr("オニオンスキン"))
+        self.onion.setCheckable(True)
         self.onion.setToolTip(tr("オニオンスキン表示のON／OFF"))
-        self.onion_settings=QPushButton(tr("設定"))
+        self.onion.setProperty("toggleChip", True)
+        self.onion_settings=QPushButton()
         self.onion_settings.setCheckable(True)
         self.onion_settings.setCursor(
             Qt.CursorShape.PointingHandCursor
@@ -696,55 +741,53 @@ class TimelineWidget(QWidget):
             tr("クリックでオニオンスキン設定を開き、"
             "再クリックで閉じます。")
         )
-        self.onion_settings.setStyleSheet(
-            "QPushButton{padding:1px 5px;font-size:10px;}"
-            "QPushButton:checked{background:#d7eef8;"
-            "border:1px solid #4a9fc5;}"
-        )
         self.duration=QSpinBox(); self.duration.setRange(1,240); self.duration.setSuffix(tr(" コマ"))
         self.duration.hide()
         self.fps=QSpinBox(); self.fps.setRange(1,60); self.fps.setValue(24); self.fps.setSuffix(" fps")
-        self.fps.setFixedSize(68,22)
+        self.fps.setFixedSize(72,24)
 
-        compact_buttons = (
-            self.add_blank,
-            self.add_exposure,
-            self.delete,
-            self.time_remap_paste,
-            self.prev,
-            self.prev_key,
-            self.play,
-            self.next_key,
-            self.next,
-        )
-        compact_widths = (
-            36, 44, 36, 48, 32, 32, 40, 32, 32,
-        )
-        for button, width in zip(
-            compact_buttons,
-            compact_widths,
-        ):
-            button.setFixedSize(width,22)
-            button.setStyleSheet(
-                "QPushButton{padding:0px 2px;font-size:10px;}"
-            )
-        self.onion_settings.setFixedHeight(22)
-        self.onion.setFixedHeight(22)
+        # 文字のボタンをアイコンにし、編集・移動・再生・オニオンの
+        # まとまりごとに区切る。
+        self._icon_buttons = {
+            self.add_blank: "frame_blank",
+            self.add_exposure: "frame_extend",
+            self.delete: "trash",
+            self.time_remap_paste: "remap",
+            self.prev: "prev_frame",
+            self.prev_key: "prev_key",
+            self.next_key: "next_key",
+            self.next: "next_frame",
+            self.onion_settings: "settings",
+        }
+        for button in self._icon_buttons:
+            button.setFixedSize(26, 24)
+            button.setIconSize(QSize(16, 16))
+            button.setProperty("iconButton", True)
+            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.play.setFixedSize(30, 24)
+        self.play.setIconSize(QSize(14, 14))
+        self.play.setProperty("accentButton", True)
+        self.play.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.onion.setFixedHeight(24)
+        self.onion.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.onion.setIconSize(QSize(15, 15))
 
-        for widget in (
-            self.add_blank,
-            self.add_exposure,
-            self.delete,
-            self.time_remap_paste,
-            self.prev,
-            self.prev_key,
-            self.play,
-            self.next_key,
-            self.next,
-            self.onion,
-            self.onion_settings,
-        ):
-            c.addWidget(widget)
+        self.mode_tabs = QTabBar()
+        self.mode_tabs.addTab(tr("シート"))
+        self.mode_tabs.addTab(tr("連番"))
+        self.mode_tabs.setCurrentIndex(0)
+        self.mode_tabs.setExpanding(False)
+        self.mode_tabs.setDrawBase(False)
+        self.mode_tabs.setToolTip(
+            tr("連番：左から順番に自動採番／"
+            "シート：タイムシートの絵番号を保持")
+        )
+        self.timeline_mode = "sheet"
+        self.mode_tabs.currentChanged.connect(
+            self._timeline_mode_tab_changed
+        )
+        self._update_timeline_mode_tab_style()
+
         self.onion_all_layers.hide()
         self.layer_opacity_text = QLabel(tr("不透明"))
         self.layer_opacity_slider = QSlider(Qt.Orientation.Horizontal)
@@ -754,17 +797,43 @@ class TimelineWidget(QWidget):
         self.layer_opacity_slider.setToolTip(
             tr("選択レイヤーの表示不透明度です。画像の色データ自体は変更しません。")
         )
-        # レイヤー不透明度は操作列の一番左に固定する。
-        c.insertWidget(0, self.layer_opacity_slider)
-        c.insertWidget(0, self.layer_opacity_text)
         self.layer_opacity_value = QLabel("100%")
         self.layer_opacity_value.setAlignment(
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
         )
-        self.layer_opacity_value.setFixedWidth(38)
+        self.layer_opacity_value.setFixedWidth(34)
         self.layer_opacity_value.setToolTip(
             tr("現在選択しているレイヤーの表示不透明度")
         )
+
+        self._toolbar_separators = []
+
+        def add_group(*widgets, spacing=1):
+            if c.count():
+                separator = QFrame()
+                separator.setFrameShape(QFrame.Shape.VLine)
+                separator.setFixedSize(9, 16)
+                self._toolbar_separators.append(separator)
+                c.addWidget(separator)
+            for widget in widgets:
+                c.addWidget(widget)
+                if spacing > 1 and widget is not widgets[-1]:
+                    c.addSpacing(spacing)
+
+        c.setSpacing(1)
+        c.addWidget(self.mode_tabs)
+        add_group(
+            self.layer_opacity_text, self.layer_opacity_slider,
+            self.layer_opacity_value, spacing=4,
+        )
+        add_group(
+            self.add_blank, self.add_exposure, self.delete,
+            self.time_remap_paste,
+        )
+        add_group(
+            self.prev, self.prev_key, self.play, self.next_key, self.next,
+        )
+        add_group(self.onion, self.onion_settings, spacing=2)
 
         c.addStretch()
         compact_hint = QLabel(tr("Shift/{ctrl}：複数選択").format(ctrl=CTRL_KEY_LABEL))
@@ -776,25 +845,10 @@ class TimelineWidget(QWidget):
             "Space：ハンド／{zoom}：拡大縮小").format(zoom=HOLD_ZOOM_KEY_LABEL)
         )
         c.addWidget(compact_hint)
+        c.addSpacing(6)
         c.addWidget(self.fps)
-        c.addWidget(self.layer_opacity_value)
+        c.setContentsMargins(2, 1, 2, 3)
         v.addLayout(c)
-        self.mode_tabs = QTabBar()
-        self.mode_tabs.addTab(tr("シート"))
-        self.mode_tabs.addTab(tr("連番"))
-        self.mode_tabs.setCurrentIndex(0)
-        self.mode_tabs.setExpanding(False)
-        self.mode_tabs.setDrawBase(True)
-        self.mode_tabs.setToolTip(
-            tr("連番：左から順番に自動採番／"
-            "シート：タイムシートの絵番号を保持")
-        )
-        self.timeline_mode = "sheet"
-        self.mode_tabs.currentChanged.connect(
-            self._timeline_mode_tab_changed
-        )
-        self._update_timeline_mode_tab_style()
-        v.addWidget(self.mode_tabs)
         body=QHBoxLayout(); body.setContentsMargins(0,0,0,0); body.setSpacing(0)
         self.setMinimumHeight(82)
         self.layer_list=QListWidget()
@@ -839,10 +893,15 @@ class TimelineWidget(QWidget):
         layer_header_layout.setSpacing(2)
         layer_header_layout.addWidget(QLabel(tr("レイヤー")))
         layer_header_layout.addStretch()
-        self.layer_add=QPushButton("＋")
-        self.layer_del=QPushButton("－")
+        self.layer_add=QPushButton()
+        self.layer_add.setToolTip(tr("レイヤーを追加"))
+        self.layer_del=QPushButton()
+        self.layer_del.setToolTip(tr("レイヤーを削除"))
         for button in (self.layer_add, self.layer_del):
-            button.setFixedSize(28,23)
+            button.setFixedSize(24,22)
+            button.setIconSize(QSize(14, 14))
+            button.setProperty("iconButton", True)
+            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             button.setContentsMargins(0,0,0,0)
         layer_header_layout.addWidget(self.layer_add)
         layer_header_layout.addWidget(self.layer_del)
@@ -943,7 +1002,24 @@ class TimelineWidget(QWidget):
         self.layer_opacity_slider.valueChanged.connect(
             self._layer_opacity_slider_changed
         )
+        self._sync_timeline_mode_controls()
         self.apply_theme()
+
+    def _apply_icons(self):
+        for button, name in self._icon_buttons.items():
+            button.setIcon(icons.icon(name))
+        c = theme.palette()
+        play_icon = QIcon()
+        for size in (14, 16, 28, 32):
+            play_icon.addPixmap(icons.pixmap("play", size, c["accent_text"]))
+            play_icon.addPixmap(
+                icons.pixmap("pause", size, c["accent_text"]),
+                QIcon.Mode.Normal, QIcon.State.On,
+            )
+        self.play.setIcon(play_icon)
+        self.onion.setIcon(icons.icon("onion"))
+        self.layer_add.setIcon(icons.icon("plus"))
+        self.layer_del.setIcon(icons.icon("minus"))
 
     def apply_theme(self):
         """Palette-aware styling for the timeline surfaces.
@@ -953,6 +1029,11 @@ class TimelineWidget(QWidget):
         so it reads well in both light and dark, with a touch more polish.
         """
         c = theme.palette()
+        self._apply_icons()
+        for separator in self._toolbar_separators:
+            separator.setStyleSheet(
+                "QFrame{color:%s;margin:0 4px;}" % c["border"]
+            )
         panel = "border:0px;margin:0px;padding:0px;background:%s;" % c["surface_alt"]
         self.layer_widget.setStyleSheet(panel)
         self.layer_header_spacer.setStyleSheet(panel)
@@ -987,6 +1068,9 @@ class TimelineWidget(QWidget):
         self.layer_opacity_value.setStyleSheet(
             "font-size:10px;color:%s;padding:0px;" % c["text_muted"]
         )
+        self.layer_opacity_text.setStyleSheet(
+            "font-size:11px;color:%s;padding:0px;" % c["text_muted"]
+        )
         self._update_timeline_mode_tab_style()
         self.table.viewport().update()
         self.layer_list.viewport().update()
@@ -1002,41 +1086,45 @@ class TimelineWidget(QWidget):
     def _sync_timeline_mode_controls(self):
         sequence_mode = self.timeline_mode == "sequence"
         self.add_exposure.setVisible(not sequence_mode)
-        self.add_blank.setToolTip(
+        self.add_blank.setToolTip(_titled_tip(
+            tr("空フレームを追加"),
             tr("選択番号の直後へ、新しい空の番号画像を追加します。")
             if sequence_mode
             else
             tr("●／○の開始セルでは直後へ同じ長さの○を挿入。"
-            "ー部分では選択位置から後半を○へ分割します。")
-        )
-        self.delete.setToolTip(
+            "ー部分では選択位置から後半を○へ分割します。"),
+        ))
+        self.delete.setToolTip(_titled_tip(
+            tr("コマを削除"),
             tr("選択番号を削除し、シート側の対応セルを未使用にします。")
             if sequence_mode
-            else tr("現在の表示コマを1コマ削除します。")
-        )
+            else tr("現在の表示コマを1コマ削除します。"),
+        ))
 
     def _update_timeline_mode_tab_style(self):
-        if self.timeline_mode == "sheet":
-            selected_background = "#E5AD18"
-            selected_border = "#9B6C00"
-            selected_foreground = "#241900"
-        else:
-            selected_background = "#2F83B8"
-            selected_border = "#155E8A"
-            selected_foreground = "#FFFFFF"
+        """シート／連番を角丸の切り替えボタン（セグメント）として描く。
+
+        選択中の色はセルと同じ系統（シート＝黄、連番＝青）にして、
+        どちらのモードかをタイムラインの色と対応させる。
+        """
         c = theme.palette()
+        if self.timeline_mode == "sheet":
+            selected_background = c["timeline_sheet_key"]
+            selected_foreground = c["timeline_sheet_key_text"]
+        else:
+            selected_background = c["timeline_key"]
+            selected_foreground = c["timeline_key_text"]
         self.mode_tabs.setStyleSheet(
-            "QTabBar::tab{background:%s;color:%s;"
-            "border:1px solid %s;border-bottom:1px solid %s;"
-            "padding:4px 18px;min-width:58px;"
-            "border-top-left-radius:6px;border-top-right-radius:6px;}"
-            % (c["surface_alt"], c["text_muted"], c["border"], c["border"])
+            "QTabBar{background:%(surface_alt)s;border:1px solid %(border)s;"
+            "border-radius:7px;}"
+            "QTabBar::tab{background:transparent;color:%(text_muted)s;"
+            "border:none;margin:2px;padding:2px 12px;min-width:34px;"
+            "border-radius:5px;font-size:11px;}"
+            "QTabBar::tab:hover:!selected{background:%(hover)s;color:%(text)s;}"
+            % c
             + "QTabBar::tab:selected{"
-            f"background:{selected_background};"
-            f"color:{selected_foreground};"
-            f"border:2px solid {selected_border};"
-            "font-weight:bold;padding:3px 17px;}"
-            "QTabBar::tab:!selected{margin-top:3px;}"
+            f"background:{selected_background};color:{selected_foreground};"
+            "font-weight:600;}"
         )
 
     def set_timeline_mode(self, mode):
@@ -1506,6 +1594,12 @@ class TimelineWidget(QWidget):
         self.layer_list.blockSignals(True)
         self.layer_list.clear()
         self._active_layer_index = int(active)
+        # 下書きレイヤーの行は、タイムラインのセルにも斜線を重ねて示す。
+        layers_top_first = list(reversed(frames[current].layers))
+        self.table._draft_rows = {
+            visual_row for visual_row, layer in enumerate(layers_top_first)
+            if bool(getattr(layer, "is_draft", False))
+        }
         for layer in reversed(frames[current].layers):
             is_draft = bool(getattr(layer, "is_draft", False))
             item = QListWidgetItem(layer.name)
@@ -1529,7 +1623,7 @@ class TimelineWidget(QWidget):
                 item.setFont(font)
             item.setToolTip(
                 (tr("下書きレイヤー（色数削減の対象外）。\n") if is_draft else "")
-                + tr("[●] 表示／[-] 非表示。左端クリックで切替、"
+                + tr("左端の目のアイコンをクリックで表示／非表示を切替、"
                      "ダブルクリックでレイヤー名を変更。")
             )
             item.setSizeHint(QSize(0, row_height))
