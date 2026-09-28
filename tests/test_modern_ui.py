@@ -6,7 +6,8 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest  # noqa: E402
-from PySide6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtGui import QColor  # noqa: E402
+from PySide6.QtWidgets import QApplication, QPushButton  # noqa: E402
 
 from paintmaskanimator import icons, theme  # noqa: E402
 from paintmaskanimator.main_window import MainWindow  # noqa: E402
@@ -74,5 +75,65 @@ def test_draft_layer_rows_are_marked_in_timeline(qapp):
         layer_index = timeline.layer_list.count() - 1 - next(iter(draft_rows))
         assert frame.layers[layer_index].is_draft
     finally:
+        window.close()
+        window.deleteLater()
+
+
+def test_titled_tooltip_splits_bold_title_from_body(qapp):
+    from paintmaskanimator import tooltip
+
+    popup = tooltip.ToolTipPopup()
+    popup.set_text(tooltip.titled("空フレームを追加", "説明<1>\n2行目"))
+    assert popup.title.text() == "空フレームを追加"
+    assert not popup.title.isHidden()
+    # The detail is escaped (no stray markup) and keeps its line break.
+    assert "&lt;1&gt;" in popup.body.text()
+    assert "<br>" in popup.body.text()
+
+
+def test_plain_tooltip_has_no_title(qapp):
+    from paintmaskanimator import tooltip
+
+    popup = tooltip.ToolTipPopup()
+    popup.set_text("再生／停止")
+    assert popup.title.isHidden()
+    assert popup.body.text() == "再生／停止"
+
+
+def test_system_theme_resolves_to_a_palette(qapp, monkeypatch):
+    monkeypatch.setattr(theme, "current_theme", lambda: theme.SYSTEM)
+    assert theme.resolved_theme() in theme.PALETTES
+    assert theme.palette()["window"]
+    assert theme.SYSTEM in theme.available_themes()
+
+
+def test_system_accent_setting_yields_a_colour(qapp, monkeypatch):
+    monkeypatch.setattr(theme, "accent_setting", lambda: theme.SYSTEM)
+    assert QColor(theme.current_accent()).isValid()
+
+
+def test_color_chart_and_onion_settings_open_as_windows(qapp):
+    window = MainWindow()
+    try:
+        window._set_color_chart_visible(True)
+        assert window.color_chart_window.isVisible()
+        assert window.color_chart.window() is window.color_chart_window
+
+        window.timeline.onion_settings.setChecked(True)
+        settings = window._onion_settings_window
+        assert settings is not None and settings.isVisible()
+        # The browser's own close button closes the whole window.
+        browser = window._onion_settings_browser
+        close_button = next(
+            button for button in browser.findChildren(QPushButton)
+            if button.text() == "設定ブラウザを閉じる"
+        )
+        close_button.click()
+        qapp.processEvents()
+        qapp.processEvents()
+        assert window._onion_settings_window is None
+        assert not window.timeline.onion_settings.isChecked()
+    finally:
+        window.color_chart_window.close()
         window.close()
         window.deleteLater()

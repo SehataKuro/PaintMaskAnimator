@@ -1,6 +1,6 @@
 """Onion skin; owned by ``MainWindow`` as ``window.onion``.
 
-Toggles onion-skin display, owns the dockable settings browser, and implements
+Toggles onion-skin display, owns the floating settings window, and implements
 the "center canvas between onion shifts" transform.
 
 A collaborator rather than a mixin -- see ``main_window_export.py`` for why.
@@ -8,12 +8,12 @@ A collaborator rather than a mixin -- see ``main_window_export.py`` for why.
 from typing import TYPE_CHECKING
 
 import math
-import PySide6QtAds as QtAds
-from PySide6.QtCore import QPointF
+from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QColor
 
 from .i18n import tr
 from .onion import OnionSkinSettingsBrowser
+from .tool_window import ToolWindow
 
 if TYPE_CHECKING:
     from .main_window import MainWindow
@@ -28,7 +28,7 @@ class OnionSkinController:
     def __init__(self, window: "MainWindow"):
         self.window = window
 
-    """Onion-skin toggles and the onion settings browser dock."""
+    """Onion-skin toggles and the onion settings window."""
 
     def set_all_layers(self, enabled):
         self.window.canvas.onion_all_layers = bool(enabled)
@@ -45,17 +45,16 @@ class OnionSkinController:
         if checked:
             self.show_settings()
         else:
-            onion_dock = self.window._onion_settings_dock
-            if onion_dock is not None:
-                onion_dock.closeDockWidget()
+            settings_window = self.window._onion_settings_window
+            if settings_window is not None:
+                settings_window.close()
         self.window.canvas.update()
 
     def show_settings(self):
         browser = self.window._onion_settings_browser
         if browser is not None:
-            if self.window._onion_settings_dock is not None:
-                self.window._onion_settings_dock.toggleView(True)
-                self.window._onion_settings_dock.raise_()
+            if self.window._onion_settings_window is not None:
+                self.window._onion_settings_window.show_and_raise()
             return
 
         browser = OnionSkinSettingsBrowser(
@@ -102,34 +101,18 @@ class OnionSkinController:
             self._settings_browser_destroyed
         )
 
-        onion_dock = QtAds.CDockWidget(
-            self.window.dock_manager, tr("オニオンスキン設定")
+        # パネルの列に差し込むのではなく、キャンバスの上に浮かぶ別ウィンドウで
+        # 開く。閉じると中身ごと破棄し、次に開くときは現在の設定から作り直す。
+        settings_window = ToolWindow(
+            self.window, tr("オニオンスキン設定"), "onion_settings", browser,
         )
-        onion_dock.setObjectName("onionSkinSettingsDock")
-        onion_dock.setFeatures(
-            QtAds.CDockWidget.DockWidgetFeature.DockWidgetClosable
-            | QtAds.CDockWidget.DockWidgetFeature.DockWidgetMovable
-            | QtAds.CDockWidget.DockWidgetFeature.DockWidgetFloatable
-            | QtAds.CDockWidget.DockWidgetFeature.DockWidgetDeleteOnClose
-            | QtAds.CDockWidget.DockWidgetFeature.DeleteContentOnClose
-        )
-        onion_dock.setWidget(
-            browser, QtAds.CDockWidget.eInsertMode.ForceNoScrollArea
-        )
-        onion_dock.topLevelChanged.connect(
-            lambda floating, current=onion_dock:
-            self.window._sync_floating_title(current, floating)
-        )
-        self.window._onion_settings_dock = onion_dock
-        palette_area = self.window.palette_dock.dockAreaWidget()
-        self.window.dock_manager.addDockWidgetTabToArea(onion_dock, palette_area)
-        self.window._add_dock_hamburger(onion_dock)
-        onion_dock.toggleView(True)
-        onion_dock.raise_()
+        settings_window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self.window._onion_settings_window = settings_window
+        settings_window.show_and_raise()
 
     def _settings_browser_destroyed(self, *_args):
         self.window._onion_settings_browser = None
-        self.window._onion_settings_dock = None
+        self.window._onion_settings_window = None
         self.window.canvas.cancel_onion_interaction(restore=False)
         if self.window.timeline.onion_settings.isChecked():
             self.window.timeline.onion_settings.blockSignals(True)

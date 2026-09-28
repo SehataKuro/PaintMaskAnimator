@@ -129,7 +129,7 @@ class MainWindow(
         self._suppress_used_color_refresh_once = False
         self._tween_command_popup = None
         self._onion_settings_browser = None
-        self._onion_settings_dock = None
+        self._onion_settings_window = None
         self._held_canvas_shortcut_tokens = set()
         self._ui_hold_drag_mode = None
         self._ui_hold_scroll_area = None

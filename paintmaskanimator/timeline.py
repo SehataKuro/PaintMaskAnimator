@@ -26,12 +26,12 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from . import icons, theme
+from . import icons, theme, tooltip
 
 
 def _titled_tip(title, detail):
-    """アイコンだけのボタン用に、1行目へ操作名を置いたツールチップ。"""
-    return f"{title}\n{detail}"
+    """アイコンだけのボタン用に、1行目へ操作名を太字で置いたツールチップ。"""
+    return tooltip.titled(title, detail)
 
 
 class LayerListDelegate(QStyledItemDelegate):
