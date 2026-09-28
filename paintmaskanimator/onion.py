@@ -704,7 +704,8 @@ class OnionSkinSettingsBrowser(QWidget):
         layout.addWidget(outline_note)
 
         close_button = QPushButton(tr("設定ブラウザを閉じる"))
-        close_button.clicked.connect(self.close)
+        # 設定は別ウィンドウに入っているので、中身ではなくウィンドウごと閉じる。
+        close_button.clicked.connect(lambda: self.window().close())
         layout.addWidget(close_button)
 
 

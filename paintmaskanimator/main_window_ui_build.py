@@ -27,6 +27,7 @@ import PySide6QtAds as QtAds
 from . import i18n, icons, theme
 from .i18n import tr
 from .theme import StatusBar
+from .tool_window import ToolWindow
 from .toolpanel import ToolPanel, tool_label
 from .errors import OPERATION_ERRORS
 from .logging_setup import get_logger
@@ -380,6 +381,12 @@ class UIBuildMixin(MainWindowMembers):
         f.addAction(self.a_export_psd)
         f.addAction(self.a_export_mp4)
         e=self.menuBar().addMenu(tr("編集"));e.addAction(self.a_undo);e.addAction(self.a_redo);e.addSeparator();e.addAction(self.a_cut);e.addAction(self.a_copy);e.addAction(self.a_paste);e.addSeparator();e.addAction(self.a_silhouette);e.addAction(self.a_isolate_color);e.addAction(self.a_clear_color_filter);e.addAction(self.a_swap_main_sub);e.addAction(self.a_remove_dust);e.addSeparator();e.addAction(self.a_resize);e.addAction(self.a_shortcuts);e.addAction(self.a_pressure)
+        e.addSeparator()
+        self.a_color_chart = QAction(tr("カラーチャート…"), self)
+        self.a_color_chart.triggered.connect(
+            lambda: self._set_color_chart_visible(True)
+        )
+        e.addAction(self.a_color_chart)
         selection_menu=self.menuBar().addMenu(tr("選択範囲"))
         selection_menu.addAction(self.a_selection_clear)
         selection_menu.addSeparator()
@@ -482,12 +489,13 @@ class UIBuildMixin(MainWindowMembers):
         )
 
     def _set_color_chart_visible(self, visible):
-        dock = getattr(self, "color_chart_dock", None)
-        if dock is None:
+        window = getattr(self, "color_chart_window", None)
+        if window is None:
             return
-        dock.toggleView(bool(visible))
         if visible:
-            dock.raise_()
+            window.show_and_raise()
+        else:
+            window.close()
     def _apply_canvas_bar_icons(self):
         for button, name in getattr(self, "_canvas_bar_icons", {}).items():
             button.setIcon(icons.icon(name))
@@ -730,20 +738,12 @@ class UIBuildMixin(MainWindowMembers):
         # 使用色をヒストリーより前のタブとして、起動時の前面にする。
         palette_area.setCurrentDockWidget(self.palette_dock)
 
-        self.color_chart_dock=QtAds.CDockWidget(
-            self.dock_manager, tr("カラーチャート")
+        # カラーチャートはたまに使う道具なので、パネルではなく「編集」メニュー
+        # から開く別ウィンドウにする（パネルの列には幅が足りず中身が切れていた）。
+        self.color_chart_window = ToolWindow(
+            self, tr("カラーチャート"), "color_chart", self.color_chart,
+            default_size=(520, 460),
         )
-        self.color_chart_dock.setObjectName("colorChartDock")
-        self.color_chart_dock.setWidget(
-            self.color_chart,
-            QtAds.CDockWidget.eInsertMode.ForceNoScrollArea,
-        )
-        self.dock_manager.addDockWidget(
-            QtAds.CenterDockWidgetArea,
-            self.color_chart_dock,
-            palette_area,
-        )
-        palette_area.setCurrentDockWidget(self.palette_dock)
 
         self.subview_dock=QtAds.CDockWidget(self.dock_manager, tr("サブビュー"))
         self.subview_dock.setObjectName("subviewDock")
@@ -780,7 +780,6 @@ class UIBuildMixin(MainWindowMembers):
             self.color_slider_dock,
             self.palette_dock,
             self.history_dock,
-            self.color_chart_dock,
             self.subview_dock,
             self.timeline_dock,
         ):
@@ -810,14 +809,10 @@ class UIBuildMixin(MainWindowMembers):
             self.color_slider_dock,
             self.palette_dock,
             self.history_dock,
-            self.color_chart_dock,
             self.subview_dock,
             self.timeline_dock,
         ):
             self._sync_floating_title(dock, dock.isFloating())
-        # 旧版と同じく通常は閉じた状態。表示メニューまたはパネルメニュー
-        # から必要な時だけ開く。
-        self.color_chart_dock.closeDockWidget()
         QTimer.singleShot(
             0,
             lambda: self._resize_tool_selector_area(
@@ -834,7 +829,6 @@ class UIBuildMixin(MainWindowMembers):
         view_menu.addAction(self.color_slider_dock.toggleViewAction())
         view_menu.addAction(self.palette_dock.toggleViewAction())
         view_menu.addAction(self.history_dock.toggleViewAction())
-        view_menu.addAction(self.color_chart_dock.toggleViewAction())
         view_menu.addAction(self.subview_dock.toggleViewAction())
         view_menu.addAction(self.timeline_dock.toggleViewAction())
 

@@ -91,7 +91,7 @@ class MainWindowMembers(_MembersBase):
         _on_canvas_cell_changed: Any
         _onion_settings_browser: Any
         _onion_settings_browser_destroyed: Any
-        _onion_settings_dock: Any
+        _onion_settings_window: Any
         _parse_after_effects_time_remap: Any
         _parse_toei_timesheet: Any
         _parse_xdts_timesheet: Any
@@ -177,6 +177,7 @@ class MainWindowMembers(_MembersBase):
         a_open_project: Any
         a_paste: Any
         a_pressure: Any
+        a_color_chart: Any
         a_prev: Any
         a_redo: Any
         a_remove_dust: Any
@@ -235,7 +236,7 @@ class MainWindowMembers(_MembersBase):
         color_wheel_scroll: Any
         color_chart: ColorChartPanel
         color_chart_data: Any
-        color_chart_dock: Any
+        color_chart_window: Any
         column_group: Any
         component_list: Any
         crop_image: Any
