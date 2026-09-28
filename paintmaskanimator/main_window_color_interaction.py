@@ -125,7 +125,7 @@ class ColorInteractionController:
         if target_frame is None:
             QMessageBox.information(
                 self.window,
-                tr("対象に注視"),
+                tr("この色を選択範囲にする"),
                 tr("現在のレイヤー内に、この色が使われているコマはありません。"),
             )
             return

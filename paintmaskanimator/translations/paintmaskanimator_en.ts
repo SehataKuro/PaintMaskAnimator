@@ -343,7 +343,7 @@
     <message>
         <location filename="../canvas.py" line="1808"/>
         <location filename="../main_window_ui_build.py" line="144"/>
-        <location filename="../main_window_ui_build.py" line="583"/>
+        <location filename="../main_window_ui_build.py" line="586"/>
         <location filename="../onion.py" line="643"/>
         <location filename="../onion.py" line="930"/>
         <location filename="../subview.py" line="117"/>
@@ -820,12 +820,12 @@ Export into this folder?</translation>
         <translation>Color Chart…</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="569"/>
+        <location filename="../main_window_ui_build.py" line="572"/>
         <source>回転を0°に戻す</source>
         <translation>Reset rotation to 0°</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="735"/>
+        <location filename="../main_window_ui_build.py" line="745"/>
         <source>ヒストリーパネルの使い方を表示します。</source>
         <translation>Show how to use the history panel.</translation>
     </message>
@@ -1451,7 +1451,7 @@ Supported formats: PNG, JPEG, TGA</translation>
     <message>
         <location filename="../color_panel.py" line="510"/>
         <location filename="../color_panel.py" line="541"/>
-        <location filename="../color_panel.py" line="1417"/>
+        <location filename="../color_panel.py" line="1421"/>
         <source>新規フォルダー</source>
         <translation>New folder</translation>
     </message>
@@ -1468,14 +1468,14 @@ Supported formats: PNG, JPEG, TGA</translation>
     <message>
         <location filename="../color_panel.py" line="540"/>
         <location filename="../color_panel.py" line="671"/>
-        <location filename="../color_panel.py" line="1416"/>
+        <location filename="../color_panel.py" line="1420"/>
         <source>使用色フォルダー</source>
         <translation>Used-colour folder</translation>
     </message>
     <message>
         <location filename="../color_panel.py" line="540"/>
         <location filename="../color_panel.py" line="671"/>
-        <location filename="../color_panel.py" line="1416"/>
+        <location filename="../color_panel.py" line="1420"/>
         <location filename="../main_window_export.py" line="353"/>
         <source>フォルダー名：</source>
         <translation>Folder name:</translation>
@@ -1603,17 +1603,42 @@ Supported formats: PNG, JPEG, TGA</translation>
         <translation>Make this the main colour</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="1331"/>
+        <location filename="../color_panel.py" line="1330"/>
+        <source>この色を消す</source>
+        <translation>Erase this colour</translation>
+    </message>
+    <message>
+        <location filename="../color_panel.py" line="1332"/>
+        <source>選択した{count}色を消す</source>
+        <translation>Erase the {count} selected colours</translation>
+    </message>
+    <message>
+        <location filename="../color_panel.py" line="1335"/>
         <source>選択した使用色を #FFFFFF へ統合します。</source>
         <translation>Merges the selected used colours into #FFFFFF.</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="1336"/>
+        <location filename="../color_panel.py" line="1340"/>
         <source>選択した{count}色をこの色へ統合</source>
         <translation>Merge the {count} selected colours into this colour</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="1354"/>
+        <location filename="../color_panel.py" line="1358"/>
+        <source>線の太さを調整</source>
+        <translation>Adjust line thickness</translation>
+    </message>
+    <message>
+        <location filename="../color_panel.py" line="1363"/>
+        <location filename="../main_window_color_interaction.py" line="128"/>
+        <source>この色を選択範囲にする</source>
+        <translation>Select this colour&apos;s area</translation>
+    </message>
+    <message>
+        <location filename="../color_panel.py" line="1391"/>
+        <source>色の選択をすべて解除</source>
+        <translation>Deselect all colours</translation>
+    </message>
+    <message>
         <location filename="../main_window_color_interaction.py" line="197"/>
         <location filename="../main_window_color_interaction.py" line="205"/>
         <location filename="../main_window_color_interaction.py" line="220"/>
@@ -1624,52 +1649,41 @@ Supported formats: PNG, JPEG, TGA</translation>
         <translation>Adjust thickness</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="1356"/>
+        <location filename="../color_panel.py" line="1360"/>
         <source>選択中の親色・子色をまとめて調整します。</source>
         <translation>Adjusts the selected parent and child colours together.</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="1359"/>
-        <location filename="../main_window_color_interaction.py" line="128"/>
-        <source>対象に注視</source>
-        <translation>Focus on the target</translation>
-    </message>
-    <message>
-        <location filename="../color_panel.py" line="1360"/>
+        <location filename="../color_panel.py" line="1364"/>
         <source>フォルダーへ移動</source>
         <translation>Move to a folder</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="1362"/>
+        <location filename="../color_panel.py" line="1366"/>
         <source>未分類</source>
         <translation>Uncategorised</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="1368"/>
+        <location filename="../color_panel.py" line="1372"/>
         <source>新規フォルダー…</source>
         <translation>New folder…</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="1379"/>
-        <location filename="../color_panel.py" line="1423"/>
+        <location filename="../color_panel.py" line="1383"/>
+        <location filename="../color_panel.py" line="1427"/>
         <source>親子を解除</source>
         <translation>Remove parenting</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="1380"/>
+        <location filename="../color_panel.py" line="1384"/>
         <source>この色に関わる親子関係を解除します。</source>
         <translation>Removes the parent/child links involving this colour.</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="1383"/>
+        <location filename="../color_panel.py" line="1387"/>
         <location filename="../color_panel_grouping.py" line="423"/>
         <source>親子をすべて解除</source>
         <translation>Remove all parenting</translation>
-    </message>
-    <message>
-        <location filename="../color_panel.py" line="1387"/>
-        <source>全選択解除</source>
-        <translation>Clear the whole selection</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="414"/>
@@ -1697,7 +1711,7 @@ Supported formats: PNG, JPEG, TGA</translation>
         <translation>Custom…</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="748"/>
+        <location filename="../main_window_ui_build.py" line="758"/>
         <location filename="../subview.py" line="50"/>
         <source>サブビュー</source>
         <translation>Sub View</translation>
@@ -1705,7 +1719,7 @@ Supported formats: PNG, JPEG, TGA</translation>
     <message>
         <location filename="../main_window_color_chart.py" line="134"/>
         <location filename="../main_window_color_chart.py" line="153"/>
-        <location filename="../main_window_ui_build.py" line="744"/>
+        <location filename="../main_window_ui_build.py" line="754"/>
         <source>カラーチャート</source>
         <translation>Colour Chart</translation>
     </message>
@@ -1790,107 +1804,107 @@ Drop a used colour onto the middle of another to create a parent/child link.</tr
         <translation>The new language will be used the next time the application starts.</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="565"/>
+        <location filename="../main_window_ui_build.py" line="568"/>
         <location filename="../subview.py" line="109"/>
         <source>100%表示</source>
         <translation>100%</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="567"/>
+        <location filename="../main_window_ui_build.py" line="570"/>
         <location filename="../subview.py" line="80"/>
         <source>全体を表示</source>
         <translation>Fit</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="582"/>
+        <location filename="../main_window_ui_build.py" line="585"/>
         <location filename="../subview.py" line="116"/>
         <source>拡大</source>
         <translation>Zoom</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="596"/>
+        <location filename="../main_window_ui_build.py" line="606"/>
         <source>キャンバス</source>
         <translation>Canvas</translation>
     </message>
     <message>
         <location filename="../main_window.py" line="1080"/>
-        <location filename="../main_window_ui_build.py" line="651"/>
+        <location filename="../main_window_ui_build.py" line="661"/>
         <source>ツール</source>
         <translation>Tools</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="668"/>
+        <location filename="../main_window_ui_build.py" line="678"/>
         <source>ツールプロパティ</source>
         <translation>Tool Properties</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="681"/>
+        <location filename="../main_window_ui_build.py" line="691"/>
         <source>アクション</source>
         <translation>Actions</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="690"/>
+        <location filename="../main_window_ui_build.py" line="700"/>
         <source>カラーサークル</source>
         <translation>Colour Wheel</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="701"/>
+        <location filename="../main_window_ui_build.py" line="711"/>
         <source>カラースライダー</source>
         <translation>Colour Sliders</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="710"/>
+        <location filename="../main_window_ui_build.py" line="720"/>
         <source>使用色</source>
         <translation>Used Colours</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="721"/>
+        <location filename="../main_window_ui_build.py" line="731"/>
         <source>使用色パネルの使い方を表示します。</source>
         <translation>Show how to use the used-colour panel.</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="725"/>
+        <location filename="../main_window_ui_build.py" line="735"/>
         <source>ヒストリー</source>
         <translation>History</translation>
     </message>
     <message>
         <location filename="../main_window.py" line="1083"/>
-        <location filename="../main_window_ui_build.py" line="757"/>
+        <location filename="../main_window_ui_build.py" line="767"/>
         <source>タイムライン</source>
         <translation>Timeline</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="823"/>
+        <location filename="../main_window_ui_build.py" line="833"/>
         <source>パネル</source>
         <translation>Panels</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="835"/>
+        <location filename="../main_window_ui_build.py" line="845"/>
         <source>ヘルプ</source>
         <translation>Help</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="836"/>
+        <location filename="../main_window_ui_build.py" line="846"/>
         <source>更新を確認…</source>
         <translation>Check for Updates…</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="840"/>
+        <location filename="../main_window_ui_build.py" line="850"/>
         <source>バージョン情報…</source>
         <translation>About…</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="913"/>
+        <location filename="../main_window_ui_build.py" line="923"/>
         <source>サブビューから {color} を取得しました</source>
         <translation>Picked {color} from the sub view</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="1130"/>
+        <location filename="../main_window_ui_build.py" line="1140"/>
         <source>{app} について</source>
         <translation>About {app}</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="1131"/>
+        <location filename="../main_window_ui_build.py" line="1141"/>
         <source>&lt;h3&gt;{app}&lt;/h3&gt;
 &lt;p&gt;Copyright &amp;copy; 2026 PaintMaskAnimator contributors&lt;/p&gt;
 &lt;p&gt;本ソフトウェアは &lt;b&gt;Apache License 2.0&lt;/b&gt; のもとで配布されています。
@@ -2945,7 +2959,6 @@ Details were saved to:
     <message>
         <location filename="../actionpanel.py" line="417"/>
         <location filename="../actionpanel.py" line="637"/>
-        <location filename="../color_panel.py" line="1329"/>
         <location filename="../timeline.py" line="1365"/>
         <source>削除</source>
         <translation>Delete</translation>

@@ -1326,7 +1326,11 @@ class UsedColorPanel(
         )
         delete_sources.discard(self.background_rgb)
 
-        action_delete = menu.addAction(tr("削除"))
+        action_delete = menu.addAction(
+            tr("この色を消す")
+            if len(delete_sources) <= 1
+            else tr("選択した{count}色を消す").format(count=len(delete_sources))
+        )
         action_delete.setToolTip(
             tr("選択した使用色を #FFFFFF へ統合します。")
         )
@@ -1351,12 +1355,12 @@ class UsedColorPanel(
         )
         action_thickness = None
         if can_adjust_thickness:
-            action_thickness = menu.addAction(tr("太さを調整"))
+            action_thickness = menu.addAction(tr("線の太さを調整"))
             action_thickness.setToolTip(
                 tr("選択中の親色・子色をまとめて調整します。")
             )
 
-        action_focus = menu.addAction(tr("対象に注視"))
+        action_focus = menu.addAction(tr("この色を選択範囲にする"))
         folder_menu = menu.addMenu(tr("フォルダーへ移動"))
         folder_actions = {}
         uncategorized_action = folder_menu.addAction(tr("未分類"))
@@ -1384,7 +1388,7 @@ class UsedColorPanel(
         action_clear = None
         if self.selected_rgbs:
             menu.addSeparator()
-            action_clear = menu.addAction(tr("全選択解除"))
+            action_clear = menu.addAction(tr("色の選択をすべて解除"))
 
         chosen = menu.exec(global_position)
         if chosen is action_main_color:
