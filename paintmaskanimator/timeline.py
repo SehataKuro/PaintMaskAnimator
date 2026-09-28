@@ -1,8 +1,19 @@
+import math
 from pathlib import Path
 from .i18n import tr
 from .constants import CTRL_KEY_LABEL, HOLD_ZOOM_KEY_LABEL
-from PySide6.QtCore import QEvent, QItemSelectionModel, QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QFont, QIcon, QPainter, QPen
+from PySide6.QtCore import QEvent, QItemSelectionModel, QPointF, QRectF, QSize, Qt, Signal
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QFont,
+    QIcon,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPixmap,
+    QPolygonF,
+)
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -27,6 +38,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from . import icons, theme, tooltip
+from .cell_numbering import changed_count, normalization_mapping
+from .tween_groups import tween_groups
 
 
 def _titled_tip(title, detail):
@@ -44,7 +57,11 @@ class LayerListDelegate(QStyledItemDelegate):
     NAME_ROLE = Qt.ItemDataRole.UserRole + 3
     VISIBLE_ROLE = Qt.ItemDataRole.UserRole + 4
     DRAFT_ROLE = Qt.ItemDataRole.UserRole + 6
-    MARKER_WIDTH = 38
+    EXPANDED_ROLE = Qt.ItemDataRole.UserRole + 7
+    BAND_HEIGHT_ROLE = Qt.ItemDataRole.UserRole + 8
+    # 左端から「＞（サムネイルの開閉）」「目（表示切替）」「名前」の順に並べる。
+    CHEVRON_WIDTH = 18
+    MARKER_WIDTH = 50
     ICON_SIZE = 16
 
     def paint(self, painter, option, index):
@@ -64,6 +81,23 @@ class LayerListDelegate(QStyledItemDelegate):
             painter.drawLine(rect.left() + 1, rect.top() + 2, rect.left() + 1, rect.bottom() - 2)
 
         dpr = painter.device().devicePixelRatioF() if painter.device() else 1.0
+        # サムネイルを開いた行でも、アイコンと名前は上の段にそろえる。
+        band_height = int(index.data(self.BAND_HEIGHT_ROLE) or rect.height())
+        band_height = min(rect.height(), max(1, band_height))
+        rect = rect.adjusted(0, 0, 0, band_height - rect.height())
+        expanded = bool(index.data(self.EXPANDED_ROLE))
+        chevron_size = 12
+        chevron = icons.pixmap(
+            "chevron_down" if expanded else "chevron_right",
+            chevron_size,
+            c["text"] if expanded else c["text_muted"],
+            device_pixel_ratio=dpr,
+        )
+        painter.drawPixmap(
+            int(rect.left() + (self.CHEVRON_WIDTH - chevron_size) / 2 + 2),
+            int(rect.top() + (rect.height() - chevron_size) / 2),
+            chevron,
+        )
         eye = icons.pixmap(
             "eye" if visible else "eye_off",
             self.ICON_SIZE,
@@ -71,7 +105,10 @@ class LayerListDelegate(QStyledItemDelegate):
             device_pixel_ratio=dpr,
         )
         painter.drawPixmap(
-            int(rect.left() + (self.MARKER_WIDTH - self.ICON_SIZE) / 2),
+            int(
+                rect.left() + self.CHEVRON_WIDTH
+                + (self.MARKER_WIDTH - self.CHEVRON_WIDTH - self.ICON_SIZE) / 2
+            ),
             int(rect.top() + (rect.height() - self.ICON_SIZE) / 2),
             eye,
         )
@@ -124,17 +161,23 @@ class LayerListDelegate(QStyledItemDelegate):
         )
 
         painter.setPen(QPen(QColor(c["border"]), 1))
-        painter.drawLine(rect.left(), rect.bottom(), rect.right(), rect.bottom())
+        bottom = option.rect.bottom()
+        painter.drawLine(rect.left(), bottom, rect.right(), bottom)
         painter.restore()
 
     def sizeHint(self, option, index):
-        return QSize(190, 28)
+        # 行の高さはタイムラインの行に合わせて項目ごとに設定される。
+        hint = index.data(Qt.ItemDataRole.SizeHintRole)
+        height = hint.height() if isinstance(hint, QSize) and hint.height() > 0 else 28
+        return QSize(190, height)
 
     def updateEditorGeometry(self, editor, option, index):
         """表示切替記号を避け、レイヤー名の領域だけを編集欄にする。"""
-        editor.setGeometry(
-            option.rect.adjusted(self.MARKER_WIDTH, 1, -4, -1)
+        band_height = int(index.data(self.BAND_HEIGHT_ROLE) or option.rect.height())
+        rect = option.rect.adjusted(
+            0, 0, 0, min(0, band_height - option.rect.height())
         )
+        editor.setGeometry(rect.adjusted(self.MARKER_WIDTH, 1, -4, -1))
 
     def eventFilter(self, editor, event):
         # MainWindow の「Enter＝変形確定」より名前編集の確定を優先する。
@@ -148,8 +191,23 @@ class LayerListDelegate(QStyledItemDelegate):
 
 
 class TimelineCellDelegate(QStyledItemDelegate):
-    """タイムラインセルの背景色をスタイルシートに上書きされず描画する。"""
+    """タイムラインのセルを、クリップ状の帯として描く。
+
+    キーの先頭は番号の箱、続くコマは色の面と横線、空セルは✗と波線、
+    右端は伸縮の取っ手で示す。トゥイーン中の区間は紫の面と矢印にし、
+    中割りのコマに点を置く。セルの文字（番号・ー・→・○・♦・◆）は
+    操作の判定に使うため、描画とは別にそのまま持たせておく。
+    """
     STATE_ROLE = Qt.ItemDataRole.UserRole + 20
+    TWEEN_SPAN_ROLE = Qt.ItemDataRole.UserRole + 22
+    LABEL_ROLE = Qt.ItemDataRole.UserRole + 23
+    # セルとセルの間の空き（データ上は未使用）を、空セルとして見せるための
+    # (区間の先頭, 長さ, ✗を描くか)。操作の判定には使わない。
+    GAP_ROLE = Qt.ItemDataRole.UserRole + 24
+    # 確定済みのトゥイーンの帯に含まれるセル（移動・伸縮はさせない）。
+    TWEEN_GROUP_ROLE = Qt.ItemDataRole.UserRole + 25
+    BAR_INSET = 3
+    GRIP_WIDTH = 3
 
     @staticmethod
     def _state_colors(state_name):
@@ -159,24 +217,349 @@ class TimelineCellDelegate(QStyledItemDelegate):
         ) else "uncreated"
         return QColor(c[f"timeline_{key}"]), QColor(c[f"timeline_{key}_text"])
 
-    def paint(self, painter, option, index):
-        state_name = index.data(self.STATE_ROLE) or "uncreated"
-        painter.save()
-        background, foreground = self._state_colors(state_name)
-        painter.fillRect(option.rect, background)
-        painter.setFont(index.data(Qt.ItemDataRole.FontRole) or option.font)
-        painter.setPen(foreground)
-        text = index.data(Qt.ItemDataRole.DisplayRole) or ""
-        painter.drawText(option.rect, Qt.AlignmentFlag.AlignCenter, str(text))
+    @staticmethod
+    def _span_colors(state_name, tween):
+        """(面の色, 箱の色, 線と文字の色) を返す。"""
+        c = theme.palette()
+        if tween:
+            ink = QColor(c["timeline_tween_text"])
+            return QColor(c["timeline_tween"]), QColor(c["timeline_tween"]), ink
+        prefix = "timeline_sheet_" if str(state_name).startswith("sheet_") else "timeline_"
+        return (
+            QColor(c[prefix + "hold"]),
+            QColor(c[prefix + "key"]),
+            QColor(c[prefix + "key_text"]),
+        )
+
+    @staticmethod
+    def _with_alpha(color, alpha):
+        color = QColor(color)
+        color.setAlpha(int(alpha))
+        return color
+
+    def _draw_grid(self, painter, rect, column):
+        c = theme.palette()
         table = self.parent()
-        if index.row() in getattr(table, "_draft_rows", ()):
-            hatch = QColor(theme.palette()["warning"])
-            hatch.setAlpha(70)
-            painter.fillRect(option.rect, QBrush(hatch, Qt.BrushStyle.BDiagPattern))
-        if option.state & QStyle.StateFlag.State_Selected:
-            painter.setPen(QPen(QColor(theme.palette()["error"]), 2))
+        fps = max(1, int(getattr(table, "_fps", 24) or 24))
+        border = QColor(c["border"])
+        second = (column + 1) % fps == 0
+        painter.setPen(QPen(
+            self._with_alpha(c["text_muted"], 150) if second else border, 1
+        ))
+        painter.drawLine(
+            QPointF(rect.right() + 0.5, rect.top()),
+            QPointF(rect.right() + 0.5, rect.bottom() + 1),
+        )
+        painter.setPen(QPen(border, 1))
+        painter.drawLine(
+            QPointF(rect.left(), rect.bottom() + 0.5),
+            QPointF(rect.right() + 1, rect.bottom() + 0.5),
+        )
+
+    @staticmethod
+    def _wave_path(x0, x1, y, amplitude=2.2, period=8.0):
+        """左右のセルでつながるよう、ビューポートの x 座標から位相を決める。"""
+        path = QPainterPath()
+        x = float(x0)
+        path.moveTo(x, y + amplitude * math.sin(2 * math.pi * x / period))
+        while x < x1:
+            x = min(float(x1), x + 1.0)
+            path.lineTo(x, y + amplitude * math.sin(2 * math.pi * x / period))
+        return path
+
+    def _draw_cross(self, painter, center, size, color):
+        painter.setPen(QPen(color, 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        half = size / 2
+        painter.drawLine(
+            QPointF(center.x() - half, center.y() - half),
+            QPointF(center.x() + half, center.y() + half),
+        )
+        painter.drawLine(
+            QPointF(center.x() - half, center.y() + half),
+            QPointF(center.x() + half, center.y() - half),
+        )
+
+    def _draw_arrow_head(self, painter, tip_x, y, direction, color):
+        size = 5.0
+        head = QPolygonF([
+            QPointF(tip_x, y),
+            QPointF(tip_x - direction * size * 1.2, y - size * 0.8),
+            QPointF(tip_x - direction * size * 1.2, y + size * 0.8),
+        ])
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(color)
+        painter.drawPolygon(head)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+
+    def _paint_gap(self, painter, rect, column, gap):
+        """空きのコマを、空セルと同じ ✗ と波線で描く（取っ手は付けない）。"""
+        start, _length, cross = gap
+        muted = QColor(theme.palette()["text_muted"])
+        table = self.parent()
+        # サムネイルを開いた行では、上の段にそろえる。
+        band_height = min(
+            rect.height(),
+            float(getattr(table, "_collapsed_row_height", rect.height())),
+        )
+        mid_y = rect.top() + band_height / 2
+        line_left = rect.left()
+        if column == start and cross:
+            box = QRectF(
+                rect.left() + 1, rect.top() + self.BAR_INSET,
+                rect.width() - 2, band_height - 2 * self.BAR_INSET,
+            )
+            self._draw_cross(
+                painter, box.center(), min(box.width(), box.height()) * 0.36, muted
+            )
+            line_left = box.right() + 1
+        line_right = rect.right() + 1
+        if line_right - line_left >= 3:
+            painter.setPen(QPen(muted, 1.4))
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRect(option.rect.adjusted(1, 1, -1, -1))
+            painter.drawPath(self._wave_path(line_left, line_right, mid_y))
+
+    def paint(self, painter, option, index):
+        c = theme.palette()
+        table = self.parent()
+        rect = QRectF(option.rect)
+        column = index.column()
+        state_name = index.data(self.STATE_ROLE) or "uncreated"
+        key_col = index.data(Qt.ItemDataRole.UserRole)
+        exposure = index.data(Qt.ItemDataRole.UserRole + 1)
+        text = str(index.data(Qt.ItemDataRole.DisplayRole) or "")
+
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.fillRect(rect, QColor(c["timeline_uncreated"]))
+        self._draw_grid(painter, rect, column)
+
+        gap = index.data(self.GAP_ROLE)
+        if key_col is None and gap:
+            self._paint_gap(painter, rect, column, gap)
+        elif key_col is not None and exposure is not None:
+            key_col = int(key_col)
+            end_col = key_col + max(1, int(exposure)) - 1
+            is_start = column == key_col
+            is_end = column == end_col
+            tween = index.data(self.TWEEN_SPAN_ROLE)
+            blank = state_name == "blank"
+            fill, box, ink = self._span_colors(state_name, tween)
+            muted = QColor(c["text_muted"])
+            # サムネイルを開いた行では、番号の箱と線を上の段に置き、
+            # 帯の面だけを行の下まで伸ばす。
+            band_height = rect.height()
+            if index.row() in getattr(table, "_expanded_rows", ()):
+                band_height = min(
+                    rect.height(),
+                    float(getattr(table, "_collapsed_row_height", rect.height())),
+                )
+            top = rect.top() + self.BAR_INSET
+            bottom = rect.top() + band_height - self.BAR_INSET
+            bar_bottom = rect.bottom() + 1 - self.BAR_INSET
+            mid_y = (top + bottom) / 2
+
+            # 帯の面。区間の途中では左右をセルの外まで伸ばし、角丸を両端だけにする。
+            if not blank:
+                bar = QRectF(
+                    rect.left() + 1 if is_start else rect.left() - 8,
+                    top,
+                    0,
+                    bar_bottom - top,
+                )
+                bar.setRight(rect.right() if is_end else rect.right() + 9)
+                painter.save()
+                painter.setClipRect(rect.adjusted(0, 0, 1, 0))
+                painter.setPen(QPen(self._with_alpha(ink, 70), 1))
+                painter.setBrush(fill)
+                painter.drawRoundedRect(bar.adjusted(0.5, 0.5, -0.5, -0.5), 4, 4)
+                painter.restore()
+
+            line_left = rect.left()
+            if is_start:
+                box_rect = QRectF(rect.left() + 1, top, rect.width() - 2, bottom - top)
+                line_left = box_rect.right() + 1
+                label = str(index.data(self.LABEL_ROLE) or "")
+                if blank and not label:
+                    self._draw_cross(
+                        painter, box_rect.center(),
+                        min(box_rect.width(), box_rect.height()) * 0.36, muted,
+                    )
+                elif blank:
+                    # 連番の空き番号：点線の箱に薄い番号。
+                    painter.setPen(QPen(muted, 1, Qt.PenStyle.DashLine))
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    painter.drawRoundedRect(box_rect.adjusted(0.5, 0.5, -0.5, -0.5), 4, 4)
+                    painter.setPen(muted)
+                    painter.drawText(box_rect, Qt.AlignmentFlag.AlignCenter, label)
+                else:
+                    painter.setPen(QPen(self._with_alpha(ink, 150), 1))
+                    painter.setBrush(box)
+                    painter.drawRoundedRect(box_rect.adjusted(0.5, 0.5, -0.5, -0.5), 4, 4)
+                    font = QFont(index.data(Qt.ItemDataRole.FontRole) or option.font)
+                    font.setBold(True)
+                    painter.setFont(font)
+                    painter.setPen(ink)
+                    painter.drawText(
+                        box_rect.adjusted(2, 0, -2, 0),
+                        Qt.AlignmentFlag.AlignCenter,
+                        painter.fontMetrics().elidedText(
+                            label, Qt.TextElideMode.ElideRight,
+                            int(box_rect.width() - 4),
+                        ),
+                    )
+
+            grip_right = rect.right() - 2
+            line_right = rect.right() + 1
+            if is_end and not is_start:
+                line_right = grip_right - self.GRIP_WIDTH - 3
+            if tween == "forward" and is_end and not is_start:
+                line_right -= 8
+
+            if line_right - line_left >= 3:
+                if blank:
+                    painter.setPen(QPen(muted, 1.4))
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    painter.drawPath(self._wave_path(line_left, line_right, mid_y))
+                elif tween:
+                    painter.setPen(QPen(ink, 1.6))
+                    reverse_head = tween == "reverse" and column == key_col + 1
+                    start_x = line_left + (7 if reverse_head else 0)
+                    if line_right > start_x:
+                        painter.drawLine(QPointF(start_x, mid_y), QPointF(line_right, mid_y))
+                else:
+                    painter.setPen(QPen(self._with_alpha(ink, 200), 2))
+                    painter.drawLine(QPointF(line_left, mid_y), QPointF(line_right, mid_y))
+
+            if tween:
+                if tween == "forward" and is_end and not is_start:
+                    self._draw_arrow_head(painter, line_right + 7, mid_y, 1, ink)
+                elif tween == "reverse" and column == key_col + 1:
+                    # 逆生成は、キーの箱の右隣から左向きの矢印にする。
+                    self._draw_arrow_head(painter, rect.left() + 1, mid_y, -1, ink)
+                if not is_start and not is_end:
+                    # 中割りのコマ。再生位置のコマは赤で塗る。
+                    current = column == getattr(table, "_playhead_column", None)
+                    painter.setPen(QPen(QColor(c["error"]) if current else ink, 1.3))
+                    painter.setBrush(QColor(c["error"]) if current else QColor(c["surface"]))
+                    radius = 3.2 if current else 2.6
+                    painter.drawEllipse(QPointF(rect.center().x(), mid_y), radius, radius)
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+
+            # 確定済みのトゥイーンの帯は伸縮できないので、取っ手を描かない。
+            if is_end and not is_start and not index.data(self.TWEEN_GROUP_ROLE):
+                grip = QRectF(
+                    grip_right - self.GRIP_WIDTH, mid_y - 6, self.GRIP_WIDTH, 12
+                )
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(muted if blank else self._with_alpha(ink, 210))
+                painter.drawRoundedRect(grip, 1.5, 1.5)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+        elif text:
+            painter.setPen(QColor(c["timeline_uncreated_text"]))
+            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, text)
+
+        if index.row() in getattr(table, "_draft_rows", ()):
+            hatch = QColor(c["warning"])
+            hatch.setAlpha(70)
+            painter.fillRect(rect, QBrush(hatch, Qt.BrushStyle.BDiagPattern))
+        if option.state & QStyle.StateFlag.State_Selected:
+            painter.setPen(QPen(QColor(c["error"]), 2))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 4, 4)
+        painter.restore()
+
+
+class TimelineRuler(QHeaderView):
+    """コマ番号の見出し。毎コマの目盛り、秒の区切り、現在コマの札を描く。
+
+    見出しの文字（6コマおきの番号）はモデルのものをそのまま使う。
+    クリック・ドラッグでそのコマへ移動する（列の選択はしない）。
+    """
+
+    frameScrubbed = Signal(int)
+
+    def _scrub(self, event):
+        count = self.count()
+        if count <= 0:
+            return
+        index = self.logicalIndexAt(int(event.position().x()))
+        if index < 0:
+            index = 0 if event.position().x() < 0 else count - 1
+        self.frameScrubbed.emit(int(index))
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._scrub(event)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if event.buttons() & Qt.MouseButton.LeftButton:
+            self._scrub(event)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def paintSection(self, painter, rect, logicalIndex):
+        c = theme.palette()
+        table = self.parent()
+        fps = max(1, int(getattr(table, "_fps", 24) or 24))
+        rect = QRectF(rect)
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.fillRect(rect, QColor(c["surface_alt"]))
+        painter.setPen(QPen(QColor(c["border"]), 1))
+        painter.drawLine(
+            QPointF(rect.left(), rect.bottom() + 0.5),
+            QPointF(rect.right() + 1, rect.bottom() + 0.5),
+        )
+        second = logicalIndex % fps == 0
+        tick = QColor(c["text_muted"] if second else c["border"])
+        tick_height = rect.height() * (0.5 if second else 0.22)
+        painter.setPen(QPen(tick, 1))
+        painter.drawLine(
+            QPointF(rect.left() + 0.5, rect.bottom() + 1 - tick_height),
+            QPointF(rect.left() + 0.5, rect.bottom() + 1),
+        )
+        font = QFont(self.font())
+        font.setPointSizeF(max(8.0, font.pointSizeF() * 0.85))
+        painter.setFont(font)
+        playhead = getattr(table, "_playhead_column", None)
+        if playhead is not None and int(playhead) == logicalIndex:
+            badge = QRectF(rect.left() + 1, rect.top() + 3, rect.width() - 2, rect.height() - 3)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(c["error"]))
+            painter.drawRoundedRect(badge, 4, 4)
+            painter.fillRect(
+                QRectF(badge.left(), badge.bottom() - 4, badge.width(), 4),
+                QColor(c["error"]),
+            )
+            painter.setPen(QColor("#ffffff"))
+            font.setBold(True)
+            painter.setFont(font)
+            painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, str(logicalIndex + 1))
+        else:
+            model = self.model()
+            label = (
+                model.headerData(logicalIndex, Qt.Orientation.Horizontal)
+                if model is not None else None
+            )
+            if label:
+                font.setBold(second)
+                painter.setFont(font)
+                painter.setPen(QColor(c["text"] if second else c["text_muted"]))
+                painter.drawText(
+                    rect.adjusted(3, 1, 0, -int(tick_height * 0.6)),
+                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                    str(label),
+                )
         painter.restore()
 
 
@@ -191,6 +574,8 @@ class TimelineTable(QTableWidget):
     tweenRequested = Signal(int, int)
     tweenMeshRequested = Signal(int, int)
     tweenCancelRequested = Signal()
+    tweenEditRequested = Signal(int, int)
+    tweenReleaseRequested = Signal(int, int)
     addFrameRequested = Signal(bool)
     extendExposureRequested = Signal(int, int, int)
 
@@ -213,11 +598,22 @@ class TimelineTable(QTableWidget):
         self._group_drag_dest = None
         self._resize_source = None
         self._resize_preview_column = None
+        # 秒の区切り線と再生ヘッドの描画に使う（TimelineWidget が書き込む）。
+        self._fps = 24
+        self._playhead_column: int | None = None
+        # サムネイルを開いた行と、その行のキーの絵（TimelineWidget が書き込む）。
+        self._collapsed_row_height = 28
+        self._expanded_rows = set()
+        self._thumb_sources = {}
+        self._thumb_cache = {}
         self.setMouseTracking(True)
         self.setSelectionBehavior(
             QAbstractItemView.SelectionBehavior.SelectItems
         )
         self.setDragDropMode(QAbstractItemView.DragDropMode.NoDragDrop)
+        ruler = TimelineRuler(Qt.Orientation.Horizontal, self)
+        self.setHorizontalHeader(ruler)
+        ruler.frameScrubbed.connect(self._ruler_scrubbed)
         self.horizontalHeader().setMouseTracking(True)
         self.horizontalHeader().installEventFilter(self)
 
@@ -242,12 +638,17 @@ class TimelineTable(QTableWidget):
                         return True
         return super().eventFilter(watched, event)
 
+    def _ruler_scrubbed(self, column):
+        # 範囲の外（まだコマのない列）も指せる。受け手がコマを延ばす。
+        column = max(0, min(int(column), self.columnCount() - 1))
+        self.headerFrameRequested.emit(column)
+
     def _edge_source_at(self, point):
         index = self.indexAt(point)
         if not index.isValid():
             return None
         item = self.item(index.row(), index.column())
-        if item is None:
+        if item is None or item.data(TimelineCellDelegate.TWEEN_GROUP_ROLE):
             return None
         key_col = item.data(Qt.ItemDataRole.UserRole)
         exposure = item.data(Qt.ItemDataRole.UserRole + 1)
@@ -357,6 +758,7 @@ class TimelineTable(QTableWidget):
             if (
                 not multi_select
                 and item
+                and not item.data(TimelineCellDelegate.TWEEN_GROUP_ROLE)
                 and (
                     item.data(TimelineCellDelegate.STATE_ROLE)
                     in ("key", "sheet_key")
@@ -407,7 +809,7 @@ class TimelineTable(QTableWidget):
             item = self.item(index.row(), index.column()) if index.isValid() else None
             self.setCursor(
                 Qt.CursorShape.OpenHandCursor
-                if item and (
+                if item and not item.data(TimelineCellDelegate.TWEEN_GROUP_ROLE) and (
                     item.data(TimelineCellDelegate.STATE_ROLE)
                     in ("key", "sheet_key")
                     or item.text() == "○"
@@ -480,7 +882,97 @@ class TimelineTable(QTableWidget):
                 rect = self.visualRect(index)
                 painter.setPen(QPen(QColor(229, 57, 53), 3))
                 painter.drawLine(rect.left(), rect.top() + 1, rect.left(), rect.bottom() - 1)
+        self._paint_thumbnails(painter)
+        self._paint_playhead(painter)
         painter.end()
+
+    def _thumbnail(self, image, width, height, ratio):
+        """縮小した絵をキャッシュする。絵が描き変わると cacheKey も変わる。"""
+        key = (image.cacheKey(), int(width), int(height), round(ratio, 2))
+        pixmap = self._thumb_cache.get(key)
+        if pixmap is None:
+            if len(self._thumb_cache) > 512:
+                self._thumb_cache.clear()
+            scaled = image.scaled(
+                max(1, int(width * ratio)), max(1, int(height * ratio)),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            pixmap = QPixmap.fromImage(scaled)
+            pixmap.setDevicePixelRatio(ratio)
+            self._thumb_cache[key] = pixmap
+        return pixmap
+
+    def _paint_thumbnails(self, painter):
+        """開いた行のキーのセルに、区間をまたいでサムネイルを描く。"""
+        if not self._thumb_sources:
+            return
+        c = theme.palette()
+        ratio = self.devicePixelRatioF()
+        viewport_width = self.viewport().width()
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        for (row, column), (image, exposure) in self._thumb_sources.items():
+            if row not in self._expanded_rows or image is None or image.isNull():
+                continue
+            left = self.columnViewportPosition(column)
+            span_width = self.columnWidth(column) * max(1, int(exposure))
+            if left > viewport_width or left + span_width < 0:
+                continue
+            top = self.rowViewportPosition(row)
+            if top < -self.rowHeight(row) or top > self.viewport().height():
+                continue
+            area_top = top + self._collapsed_row_height - 2
+            area_height = self.rowHeight(row) - self._collapsed_row_height - 3
+            # 右端の取っ手の分をあける（1コマだけのセルには取っ手がない）。
+            area_width = span_width - (14 if int(exposure) > 1 else 7)
+            if area_height < 10 or area_width < 10:
+                continue
+            aspect = image.width() / float(max(1, image.height()))
+            height = float(area_height)
+            width = height * aspect
+            if width > area_width:
+                width = float(area_width)
+                height = width / aspect
+            frame = QRectF(left + 4, area_top, width, height)
+            painter.setPen(QPen(QColor(c["border"]), 1))
+            painter.setBrush(QColor("#ffffff"))
+            painter.drawRoundedRect(frame.adjusted(-0.5, -0.5, 0.5, 0.5), 3, 3)
+            pixmap = self._thumbnail(image, width, height, ratio)
+            size = pixmap.deviceIndependentSize()
+            painter.drawPixmap(
+                QPointF(
+                    frame.left() + (frame.width() - size.width()) / 2,
+                    frame.top() + (frame.height() - size.height()) / 2,
+                ),
+                pixmap,
+            )
+        painter.restore()
+
+    def _paint_playhead(self, painter):
+        """現在のコマに、全レイヤーを貫く赤い縦線を引く。"""
+        column = self._playhead_column
+        if column is None or not (0 <= int(column) < self.columnCount()):
+            return
+        x = self.columnViewportPosition(int(column))
+        if x < -self.columnWidth(int(column)) or x > self.viewport().width():
+            return
+        # コマの中心に線を引くと番号や点に重なるので、現在のコマの列を
+        # 薄く色付けし、左右の境目に細い線を引く。
+        color = QColor(theme.palette()["error"])
+        width = self.columnWidth(int(column))
+        height = self.viewport().height()
+        tint = QColor(color)
+        tint.setAlpha(26)
+        painter.fillRect(QRectF(x, 0, width, height), tint)
+        edge = QColor(color)
+        edge.setAlpha(170)
+        painter.setPen(QPen(edge, 1))
+        painter.drawLine(QPointF(x + 0.5, 0), QPointF(x + 0.5, height))
+        painter.drawLine(
+            QPointF(x + width - 0.5, 0), QPointF(x + width - 0.5, height)
+        )
 
     def mouseReleaseEvent(self, event):
         group_cells = self._group_drag_cells
@@ -554,6 +1046,25 @@ class TimelineTable(QTableWidget):
         super().mouseReleaseEvent(event)
 
 
+    def _tween_group_item(self, index):
+        if not index.isValid():
+            return None
+        item = self.item(index.row(), index.column())
+        if item is None or not item.data(TimelineCellDelegate.TWEEN_GROUP_ROLE):
+            return None
+        return item
+
+    def mouseDoubleClickEvent(self, event):
+        index = self.indexAt(event.position().toPoint())
+        item = self._tween_group_item(index)
+        if item is not None and event.button() == Qt.MouseButton.LeftButton:
+            self.tweenEditRequested.emit(
+                int(index.row()), int(item.data(Qt.ItemDataRole.UserRole))
+            )
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
     def contextMenuEvent(self, event):
         index = self.indexAt(event.pos())
         item = (
@@ -586,6 +1097,8 @@ class TimelineTable(QTableWidget):
         action_cancel = None
         action_free = None
         action_mesh = None
+        action_tween_edit = None
+        action_tween_release = None
         recall_actions = {}
         if index.isValid():
             numbers = self._sequence_numbers_by_row.get(int(index.row()), ())
@@ -600,7 +1113,13 @@ class TimelineTable(QTableWidget):
                 TimelineTable.TWEEN_PENDING_ROLE
             )
         )
-        if (
+        if self._tween_group_item(index) is not None:
+            menu.addSeparator()
+            action_tween_edit = menu.addAction(tr("トゥイーンの形を直す"))
+            action_tween_release = menu.addAction(
+                tr("トゥイーンを解除（中割りを通常のセルにする）")
+            )
+        elif (
             item is not None
             and (
                 item.text() in ("→", "♦", "◆")
@@ -646,6 +1165,18 @@ class TimelineTable(QTableWidget):
                 int(key_column),
                 int(exposure),
             )
+        elif action_tween_edit is not None and chosen is action_tween_edit and item is not None:
+            self.tweenEditRequested.emit(
+                int(index.row()), int(item.data(Qt.ItemDataRole.UserRole))
+            )
+        elif (
+            action_tween_release is not None
+            and chosen is action_tween_release
+            and item is not None
+        ):
+            self.tweenReleaseRequested.emit(
+                int(index.row()), int(item.data(Qt.ItemDataRole.UserRole))
+            )
         elif action_cancel is not None and chosen is action_cancel:
             self.tweenCancelRequested.emit()
         elif action_free is not None and chosen is action_free and item is not None:
@@ -679,6 +1210,8 @@ class TimelineWidget(QWidget):
     tweenRequested=Signal(int,int)
     tweenMeshRequested=Signal(int,int)
     tweenCancelRequested=Signal()
+    tweenEditRequested=Signal(int,int)
+    tweenReleaseRequested=Signal(int,int)
     timeRemapPasteRequested=Signal()
     timeRemapFileDropped=Signal(str)
     extendExposureRequested=Signal(int,int,int)
@@ -692,6 +1225,8 @@ class TimelineWidget(QWidget):
         self._timeline_zoom_scale = 1.0
         self._timeline_base_cell_width = 36
         self._timeline_base_row_height = 28
+        # サムネイルを開いているレイヤー（レイヤー番号）。
+        self._expanded_layers = set()
         v=QVBoxLayout(self)
         v.setContentsMargins(2,2,2,2)
         v.setSpacing(2)
@@ -713,6 +1248,22 @@ class TimelineWidget(QWidget):
             "タイムシートへ貼り付けます。XDTSはタイムラインへ"
             "ドラッグ＆ドロップできます。"),
         ))
+        # 番号の順番とタイムラインの順番がずれたら、ずれている数をバッジで出す。
+        self.normalize_button = QPushButton(tr("順番で正規化"))
+        self.normalize_button.setToolTip(_titled_tip(
+            tr("タイムラインの順番で正規化"),
+            tr("左から最初に出てくる順に番号を振り直します。"
+               "実行前に、振り直す番号の一覧を確認できます。"),
+        ))
+        self.normalize_button.setFixedHeight(24)
+        self.normalize_button.setIconSize(QSize(15, 15))
+        self.normalize_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.normalize_badge = QLabel()
+        self.normalize_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.normalize_badge.setMinimumWidth(18)
+        self.normalize_badge.setFixedHeight(16)
+        self.normalize_badge.hide()
+        self._normalize_pending = 0
         self.prev=QPushButton()
         self.prev.setToolTip(tr("前のフレーム（1）"))
         self.next=QPushButton()
@@ -744,6 +1295,7 @@ class TimelineWidget(QWidget):
         self.duration=QSpinBox(); self.duration.setRange(1,240); self.duration.setSuffix(tr(" コマ"))
         self.duration.hide()
         self.fps=QSpinBox(); self.fps.setRange(1,60); self.fps.setValue(24); self.fps.setSuffix(" fps")
+        self.fps.valueChanged.connect(self._fps_changed)
         self.fps.setFixedSize(72,24)
 
         # 文字のボタンをアイコンにし、編集・移動・再生・オニオンの
@@ -778,6 +1330,9 @@ class TimelineWidget(QWidget):
         self.mode_tabs.setCurrentIndex(0)
         self.mode_tabs.setExpanding(False)
         self.mode_tabs.setDrawBase(False)
+        self.mode_tabs.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
+        )
         self.mode_tabs.setToolTip(
             tr("連番：左から順番に自動採番／"
             "シート：タイムシートの絵番号を保持")
@@ -830,18 +1385,32 @@ class TimelineWidget(QWidget):
             self.add_blank, self.add_exposure, self.delete,
             self.time_remap_paste,
         )
-        add_group(
-            self.prev, self.prev_key, self.play, self.next_key, self.next,
-        )
-        add_group(self.onion, self.onion_settings, spacing=2)
+        add_group(self.normalize_button, self.normalize_badge, spacing=3)
 
+        # 再生まわりは中央にまとめ、現在のコマを数字で常に見せる。
+        self.frame_counter = QLabel()
+        self.frame_counter.setToolTip(tr("現在のコマ / 全体のコマ数"))
+        self.frame_counter.setMinimumWidth(66)
+        self.frame_counter.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        )
+        self._frame_counter_values = (1, 1)
         c.addStretch()
+        for widget in (self.prev, self.prev_key, self.play, self.next_key, self.next):
+            c.addWidget(widget)
+        c.addSpacing(6)
+        c.addWidget(self.frame_counter)
+        c.addStretch()
+        c.addWidget(self.onion)
+        c.addSpacing(2)
+        c.addWidget(self.onion_settings)
+        c.addSpacing(8)
         compact_hint = QLabel(tr("Shift/{ctrl}：複数選択").format(ctrl=CTRL_KEY_LABEL))
         self.compact_hint = compact_hint
         compact_hint.setToolTip(
             tr("ドラッグ・Shift＋クリック：複数選択／"
             "選択範囲をそのままドラッグ：まとめて移動／"
-            "●・○中央：移動／左右端：伸縮／"
+            "番号・✗の箱：移動／左右端：伸縮／"
             "Space：ハンド／{zoom}：拡大縮小").format(zoom=HOLD_ZOOM_KEY_LABEL)
         )
         c.addWidget(compact_hint)
@@ -891,6 +1460,14 @@ class TimelineWidget(QWidget):
         layer_header_layout = QHBoxLayout(self.layer_header_spacer)
         layer_header_layout.setContentsMargins(2,0,2,0)
         layer_header_layout.setSpacing(2)
+        self.expand_all_button = QPushButton()
+        self.expand_all_button.setFixedSize(18, 22)
+        self.expand_all_button.setIconSize(QSize(12, 12))
+        self.expand_all_button.setProperty("iconButton", True)
+        self.expand_all_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.expand_all_button.setToolTip(tr("すべてのレイヤーのサムネイルを開く／閉じる"))
+        self.expand_all_button.clicked.connect(self._toggle_all_expanded)
+        layer_header_layout.addWidget(self.expand_all_button)
         layer_header_layout.addWidget(QLabel(tr("レイヤー")))
         layer_header_layout.addStretch()
         self.layer_add=QPushButton()
@@ -935,7 +1512,8 @@ class TimelineWidget(QWidget):
         self.table.horizontalHeader().setSectionsMovable(False)
         self.table.verticalHeader().setSectionsMovable(False)
         self.table.verticalHeader().setVisible(False)
-        self.table.setShowGrid(True)
+        # 格子線はセルの描画で引く（帯の面が格子で途切れないように）。
+        self.table.setShowGrid(False)
 
         # どちらを縦スクロールしてもレイヤー名とタイムライン行を同時に動かす。
         self.table.verticalScrollBar().valueChanged.connect(
@@ -963,6 +1541,8 @@ class TimelineWidget(QWidget):
         self.table.tweenRequested.connect(self.tweenRequested)
         self.table.tweenMeshRequested.connect(self.tweenMeshRequested)
         self.table.tweenCancelRequested.connect(self.tweenCancelRequested)
+        self.table.tweenEditRequested.connect(self.tweenEditRequested)
+        self.table.tweenReleaseRequested.connect(self.tweenReleaseRequested)
         self.table.addFrameRequested.connect(
             self.addFrameRequested
         )
@@ -987,6 +1567,7 @@ class TimelineWidget(QWidget):
             self._extend_current_exposure
         )
         self.delete.clicked.connect(self.deleteFrameRequested)
+        self.normalize_button.clicked.connect(self._request_normalize)
         self.time_remap_paste.clicked.connect(
             self.timeRemapPasteRequested
         )
@@ -1018,7 +1599,16 @@ class TimelineWidget(QWidget):
             )
         self.play.setIcon(play_icon)
         self.onion.setIcon(icons.icon("onion"))
+        self.normalize_button.setIcon(
+            icons.icon(
+                "sort_numbers",
+                theme.palette()["warning"] if self._normalize_pending else None,
+            )
+        )
         self.layer_add.setIcon(icons.icon("plus"))
+        self.expand_all_button.setIcon(icons.icon(
+            "chevron_down" if self._all_expanded() else "chevron_right"
+        ))
         self.layer_del.setIcon(icons.icon("minus"))
 
     def apply_theme(self):
@@ -1072,8 +1662,59 @@ class TimelineWidget(QWidget):
             "font-size:11px;color:%s;padding:0px;" % c["text_muted"]
         )
         self._update_timeline_mode_tab_style()
+        self._update_normalize_badge_style()
+        self.frame_counter.setStyleSheet(
+            "QLabel{font-family:Menlo,Consolas,monospace;font-size:11px;}"
+        )
+        self._set_frame_counter()
         self.table.viewport().update()
         self.layer_list.viewport().update()
+
+    def _update_normalize_badge_style(self):
+        c = theme.palette()
+        warning = QColor(c["warning"])
+        self.normalize_badge.setStyleSheet(
+            "QLabel{background:%s;color:%s;border-radius:8px;"
+            "padding:0 5px;font-size:10px;font-weight:600;}"
+            % (warning.name(), theme._contrast_text(warning.name()))
+        )
+
+    def _set_frame_counter(self, current=None, total=None):
+        old_current, old_total = self._frame_counter_values
+        current = old_current if current is None else max(1, int(current))
+        total = old_total if total is None else max(1, int(total))
+        self._frame_counter_values = (current, total)
+        width = max(3, len(str(total)))
+        c = theme.palette()
+        self.frame_counter.setText(
+            "<span style='color:%s;font-weight:600'>%s</span>"
+            "<span style='color:%s'> / %s</span>"
+            % (
+                c["error"], str(current).zfill(width),
+                c["text_muted"], str(total).zfill(width),
+            )
+        )
+
+    def set_normalize_pending(self, count):
+        """正規化で番号が変わる絵の数を、ボタン横のバッジに出す。"""
+        count = max(0, int(count))
+        if count == self._normalize_pending:
+            return
+        self._normalize_pending = count
+        self.normalize_badge.setText(str(count))
+        self.normalize_badge.setVisible(
+            bool(count) and self.timeline_mode == "sheet"
+        )
+        self.normalize_badge.setToolTip(
+            tr("タイムラインの順番とずれている番号：{count}個").format(count=count)
+        )
+        self._apply_icons()
+
+    def _request_normalize(self):
+        rows = tuple(self.selected_layer_rows())
+        if not rows and self.layer_list.currentRow() >= 0:
+            rows = (self.layer_list.currentRow(),)
+        self.normalizeNumbersRequested.emit(rows)
 
     def _timeline_mode_tab_changed(self, index):
         self.timeline_mode = (
@@ -1086,13 +1727,17 @@ class TimelineWidget(QWidget):
     def _sync_timeline_mode_controls(self):
         sequence_mode = self.timeline_mode == "sequence"
         self.add_exposure.setVisible(not sequence_mode)
+        self.normalize_button.setVisible(not sequence_mode)
+        self.normalize_badge.setVisible(
+            not sequence_mode and bool(self._normalize_pending)
+        )
         self.add_blank.setToolTip(_titled_tip(
             tr("空フレームを追加"),
             tr("選択番号の直後へ、新しい空の番号画像を追加します。")
             if sequence_mode
             else
-            tr("●／○の開始セルでは直後へ同じ長さの○を挿入。"
-            "ー部分では選択位置から後半を○へ分割します。"),
+            tr("番号・✗の先頭セルでは、直後へ同じ長さの空セル（✗）を挿入。"
+            "続きの部分では、選択位置から後ろを空セルへ分割します。"),
         ))
         self.delete.setToolTip(_titled_tip(
             tr("コマを削除"),
@@ -1138,6 +1783,62 @@ class TimelineWidget(QWidget):
         self._update_timeline_mode_tab_style()
         self._sync_timeline_mode_controls()
 
+    def expanded_row_height(self, row_height=None):
+        """サムネイルを開いた行の高さ（上の段＋サムネイルの段）。"""
+        if row_height is None:
+            row_height = self.timeline_cell_metrics()[1]
+        return int(row_height) + max(34, int(round(row_height * 1.4)))
+
+    def _layer_index_for_row(self, visual_row):
+        return self.layer_list.count() - 1 - int(visual_row)
+
+    def _all_expanded(self):
+        count = self.layer_list.count()
+        return bool(count) and all(
+            layer_index in self._expanded_layers for layer_index in range(count)
+        )
+
+    def _apply_row_heights(self):
+        """開閉の状態に合わせて、レイヤー名と表の行の高さをそろえる。"""
+        row_height = self.timeline_cell_metrics()[1]
+        expanded_height = self.expanded_row_height(row_height)
+        expanded_rows = set()
+        for visual_row in range(self.layer_list.count()):
+            expanded = self._layer_index_for_row(visual_row) in self._expanded_layers
+            height = expanded_height if expanded else row_height
+            if expanded:
+                expanded_rows.add(visual_row)
+            item = self.layer_list.item(visual_row)
+            if item is not None:
+                item.setData(LayerListDelegate.EXPANDED_ROLE, expanded)
+                item.setData(LayerListDelegate.BAND_HEIGHT_ROLE, row_height)
+                item.setSizeHint(QSize(0, height))
+            if visual_row < self.table.rowCount():
+                self.table.setRowHeight(visual_row, height)
+        self.table._collapsed_row_height = row_height
+        self.table._expanded_rows = expanded_rows
+        self.layer_list.doItemsLayout()
+        self.layer_list.viewport().update()
+        self.table.viewport().update()
+        self._apply_icons()
+
+    def toggle_layer_expanded(self, visual_row):
+        layer_index = self._layer_index_for_row(visual_row)
+        if not (0 <= layer_index < self.layer_list.count()):
+            return
+        if layer_index in self._expanded_layers:
+            self._expanded_layers.discard(layer_index)
+        else:
+            self._expanded_layers.add(layer_index)
+        self._apply_row_heights()
+
+    def _toggle_all_expanded(self):
+        if self._all_expanded():
+            self._expanded_layers.clear()
+        else:
+            self._expanded_layers = set(range(self.layer_list.count()))
+        self._apply_row_heights()
+
     def timeline_cell_metrics(self):
         scale = max(0.5, min(3.0, float(self._timeline_zoom_scale)))
         return (
@@ -1173,12 +1874,7 @@ class TimelineWidget(QWidget):
         self.table.verticalHeader().setDefaultSectionSize(new_height)
         for column in range(self.table.columnCount()):
             self.table.setColumnWidth(column, new_width)
-        for row in range(self.table.rowCount()):
-            self.table.setRowHeight(row, new_height)
-        for index in range(self.layer_list.count()):
-            item = self.layer_list.item(index)
-            if item is not None:
-                item.setSizeHint(QSize(0, new_height))
+        self._apply_row_heights()
 
         horizontal.setValue(
             int(round(horizontal_position * new_width - anchor_x))
@@ -1245,6 +1941,11 @@ class TimelineWidget(QWidget):
             max(1, int(exposure)),
         )
 
+    def _fps_changed(self, value):
+        self.table._fps = max(1, int(value))
+        self.table.viewport().update()
+        self.table.horizontalHeader().viewport().update()
+
     def _on_onion_toggled(self, checked):
         self.onionChanged.emit(bool(checked))
 
@@ -1286,7 +1987,11 @@ class TimelineWidget(QWidget):
         ):
             point = event.position().toPoint()
             item = self.layer_list.itemAt(point)
-            if item is not None and point.x() <= 46:
+            if item is not None and point.x() <= LayerListDelegate.CHEVRON_WIDTH:
+                self.toggle_layer_expanded(self.layer_list.row(item))
+                event.accept()
+                return True
+            if item is not None and point.x() <= LayerListDelegate.MARKER_WIDTH:
                 row = self.layer_list.row(item)
                 visible = bool(
                     item.data(Qt.ItemDataRole.UserRole + 4)
@@ -1315,13 +2020,19 @@ class TimelineWidget(QWidget):
         self.layer_opacity_value.setText(f"{value}%")
 
     def _scrub_header_frame(self, column):
-        if not (0 <= int(column) < self._real_frame_count):
+        # シートでは範囲外のコマへも移動できる（連番は番号の範囲内だけ）。
+        limit = (
+            self._real_frame_count
+            if self.timeline_mode == "sequence"
+            else self.table.columnCount()
+        )
+        if not (0 <= int(column) < limit):
             return
         row = self.table.currentRow()
         if row < 0:
             row = 0
         self.table.setCurrentCell(row, int(column))
-        self._select_table_cell(row, int(column))
+        self.frameSelected.emit(int(column), int(row))
 
     def _select_table_cell(self, row, column):
         if not (0 <= int(column) < self._real_frame_count):
@@ -1418,7 +2129,6 @@ class TimelineWidget(QWidget):
             for offset, items in enumerate(moved_rows):
                 target_row = final_row + offset
                 self.table.insertRow(target_row)
-                self.table.setRowHeight(target_row, 28)
                 for column, item in enumerate(items):
                     if item is not None:
                         self.table.setItem(target_row, column, item)
@@ -1427,6 +2137,7 @@ class TimelineWidget(QWidget):
                 self.table.setCurrentCell(final_row, current_column)
         finally:
             self.table.blockSignals(False)
+        self._apply_row_heights()
 
     def _layer_rows_moved(self, parent, start, end, destination, destination_row):
         block_count = end - start + 1
@@ -1519,6 +2230,37 @@ class TimelineWidget(QWidget):
 
         return None, None, 0
 
+    @classmethod
+    def timeline_gaps(cls, frames, layer_index):
+        """セルとセルの間（と先頭）の空きコマを {コマ: (先頭, 長さ, ✗を描くか)} で返す。
+
+        データ上は未使用のコマだが、書き出しでは空セルと同じ × になるので、
+        タイムラインでも空セルとして見せる。直前が空セルなら、その続きとして
+        ✗ は描かない。最後のセルより後ろの空きは対象にしない。
+        """
+        kinds = [
+            cls.timeline_span_at(frames, layer_index, column)[0]
+            for column in range(len(frames))
+        ]
+        covered = [column for column, kind in enumerate(kinds) if kind is not None]
+        if not covered:
+            return {}
+        last = covered[-1]
+        gaps = {}
+        column = 0
+        while column < last:
+            if kinds[column] is not None:
+                column += 1
+                continue
+            start = column
+            while column < last and kinds[column] is None:
+                column += 1
+            length = column - start
+            cross = not (start > 0 and kinds[start - 1] == "blank")
+            for gap_column in range(start, column):
+                gaps[gap_column] = (start, length, cross)
+        return gaps
+
     def refresh(self, frames, current, active, tween_pending=None):
         if not frames:
             return
@@ -1574,6 +2316,11 @@ class TimelineWidget(QWidget):
             real_frame_count = len(frames)
         self._real_frame_count = real_frame_count
         self.table._real_frame_count = real_frame_count
+        self.table._fps = max(1, int(self.fps.value()))
+        self.table._playhead_column = (
+            None if self.timeline_mode == "sequence" else int(current)
+        )
+        self._set_frame_counter(int(current) + 1, len(frames))
         cell_width, row_height = self.timeline_cell_metrics()
         visible_cols = max(
             1, self.table.viewport().width() // max(1, cell_width) + 4
@@ -1593,6 +2340,11 @@ class TimelineWidget(QWidget):
         self.table.verticalHeader().setDefaultSectionSize(row_height)
         self.layer_list.blockSignals(True)
         self.layer_list.clear()
+        self._expanded_layers = {
+            layer_index for layer_index in self._expanded_layers
+            if 0 <= layer_index < rows
+        }
+        self.table._thumb_sources = {}
         self._active_layer_index = int(active)
         # 下書きレイヤーの行は、タイムラインのセルにも斜線を重ねて示す。
         layers_top_first = list(reversed(frames[current].layers))
@@ -1623,7 +2375,7 @@ class TimelineWidget(QWidget):
                 item.setFont(font)
             item.setToolTip(
                 (tr("下書きレイヤー（色数削減の対象外）。\n") if is_draft else "")
-                + tr("左端の目のアイコンをクリックで表示／非表示を切替、"
+                + tr("左端の＞でサムネイルを開閉、目のアイコンで表示／非表示を切替、"
                      "ダブルクリックでレイヤー名を変更。")
             )
             item.setSizeHint(QSize(0, row_height))
@@ -1711,8 +2463,22 @@ class TimelineWidget(QWidget):
                         start=1,
                     )
                 }
+            gap_cells = (
+                {} if self.timeline_mode == "sequence"
+                else self.timeline_gaps(frames, layer_index)
+            )
+            group_cells = {}
+            if self.timeline_mode != "sequence":
+                for group_start, (group_length, group_reverse) in tween_groups(
+                    frames, layer_index
+                ).items():
+                    for group_column in range(group_start, group_start + group_length):
+                        group_cells[group_column] = (
+                            group_start, group_length, group_reverse,
+                        )
             for col in range(cols):
                 text = ""
+                label = ""
                 sequence_source = None
                 if self.timeline_mode == "sequence":
                     number = col + 1
@@ -1735,6 +2501,10 @@ class TimelineWidget(QWidget):
                     span_kind, key_col, exposure = self.timeline_span_at(
                         frames, layer_index, col
                     )
+                    if col in group_cells:
+                        # 確定済みのトゥイーンは、区間全体を 1 つのセルとして見せる。
+                        span_kind = "content"
+                        key_col, exposure = group_cells[col][0], group_cells[col][1]
                 is_handle = False
                 is_start_handle = False
                 is_pending_tween = False
@@ -1757,6 +2527,15 @@ class TimelineWidget(QWidget):
                         source_cell_name = getattr(
                             source_key_layer, "cell_name", None
                         )
+                        label = str(
+                            source_cell_name
+                            or content_key_numbers.get(key_col, "")
+                        )
+                        # 開閉のたびに集め直さずに済むよう、全行の絵を覚えておく。
+                        if source_key_layer is not None:
+                            self.table._thumb_sources[(visual_row, col)] = (
+                                source_key_layer.image, int(exposure)
+                            )
                         text = (
                             "◆"
                             if (
@@ -1788,7 +2567,22 @@ class TimelineWidget(QWidget):
                     is_start_handle = col == key_col
                 if span_kind == "sequence_blank":
                     text = str(col + 1)
+                    label = text
                 item = QTableWidgetItem(text)
+                item.setData(TimelineCellDelegate.LABEL_ROLE, label)
+                if span_kind is None and col in gap_cells:
+                    item.setData(TimelineCellDelegate.GAP_ROLE, gap_cells[col])
+                if is_pending_tween:
+                    item.setData(
+                        TimelineCellDelegate.TWEEN_SPAN_ROLE,
+                        "reverse" if pending_reverse else "forward",
+                    )
+                elif col in group_cells:
+                    item.setData(
+                        TimelineCellDelegate.TWEEN_SPAN_ROLE,
+                        "reverse" if group_cells[col][2] else "forward",
+                    )
+                    item.setData(TimelineCellDelegate.TWEEN_GROUP_ROLE, True)
                 if span_kind == "content":
                     state_name = (
                         "sheet_key"
@@ -1923,7 +2717,15 @@ class TimelineWidget(QWidget):
                     )
                 ):
                     item.setForeground(QColor(190, 40, 40))
+                if col in group_cells:
+                    item.setToolTip(
+                        tr("確定したトゥイーン（{exposure}コマ）。"
+                           "ダブルクリックで形を直す／右クリックで解除").format(
+                            exposure=group_cells[col][1]
+                        )
+                    )
                 self.table.setItem(visual_row, col, item)
+        self._apply_row_heights()
         selected_layer = frames[current].layers[active]
         self.duration.blockSignals(True)
         self.duration.setValue(max(1, selected_layer.exposure))
@@ -1960,6 +2762,16 @@ class TimelineWidget(QWidget):
         else:
             self.select_current(current, active)
         self.table.blockSignals(False)
+        self.set_normalize_pending(
+            sum(
+                changed_count(
+                    normalization_mapping(frames, self.sequence_archive, layer_index)
+                )
+                for layer_index in range(rows)
+            )
+            if self.timeline_mode == "sheet"
+            else 0
+        )
 
     @staticmethod
     def key_at_or_before(frames, layer_index, column):
@@ -1975,6 +2787,13 @@ class TimelineWidget(QWidget):
 
     def select_current(self, column, active):
         row = max(0, self.table.rowCount() - 1 - active)
+        playhead = None if self.timeline_mode == "sequence" else int(column)
+        if self.timeline_mode != "sequence":
+            self._set_frame_counter(int(column) + 1)
+        if playhead != self.table._playhead_column:
+            self.table._playhead_column = playhead
+            self.table.viewport().update()
+            self.table.horizontalHeader().viewport().update()
         if self.timeline_mode == "sequence":
             column = next(
                 (

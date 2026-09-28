@@ -1204,7 +1204,7 @@ Supported formats: PNG, JPEG, TGA</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="349"/>
-        <location filename="../timeline.py" line="1098"/>
+        <location filename="../timeline.py" line="1743"/>
         <source>コマを削除</source>
         <translation>Delete Exposure</translation>
     </message>
@@ -1221,7 +1221,7 @@ Supported formats: PNG, JPEG, TGA</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="353"/>
-        <location filename="../timeline.py" line="725"/>
+        <location filename="../timeline.py" line="1276"/>
         <source>再生／停止</source>
         <translation>Play / Stop</translation>
     </message>
@@ -1899,12 +1899,12 @@ Drop a used colour onto the middle of another to create a parent/child link.</tr
         <translation>Picked {color} from the sub view</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="1140"/>
+        <location filename="../main_window_ui_build.py" line="1142"/>
         <source>{app} について</source>
         <translation>About {app}</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="1141"/>
+        <location filename="../main_window_ui_build.py" line="1143"/>
         <source>&lt;h3&gt;{app}&lt;/h3&gt;
 &lt;p&gt;Copyright &amp;copy; 2026 PaintMaskAnimator contributors&lt;/p&gt;
 &lt;p&gt;本ソフトウェアは &lt;b&gt;Apache License 2.0&lt;/b&gt; のもとで配布されています。
@@ -2080,153 +2080,160 @@ Double-click: edit the name and tag colour</translation>
         <translation>Flip Vertically</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="128"/>
-        <location filename="../main_window_tween.py" line="144"/>
-        <location filename="../main_window_tween.py" line="305"/>
-        <location filename="../timeline.py" line="626"/>
+        <location filename="../main_window_tween.py" line="129"/>
+        <location filename="../main_window_tween.py" line="145"/>
+        <location filename="../main_window_tween.py" line="199"/>
+        <location filename="../main_window_tween.py" line="444"/>
+        <location filename="../timeline.py" line="1145"/>
         <location filename="../toolpanel.py" line="569"/>
         <location filename="../widgets.py" line="645"/>
         <source>自由変形</source>
         <translation>Free Transform</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="132"/>
+        <location filename="../main_window_tween.py" line="133"/>
         <source>◆ {mode}の逆生成：キーフレーム側を変形形状、ラストコマ側を元の初期形状として生成します。</source>
         <translation>◆ Reverse {mode}: the key frame holds the deformed shape and the last exposure the original one.</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="137"/>
+        <location filename="../main_window_tween.py" line="138"/>
         <source>♦ {mode}の通常生成：キーフレーム側を元の初期形状、ラストコマ側を変形形状として生成します。</source>
         <translation>♦ Normal {mode}: the key frame holds the original shape and the last exposure the deformed one.</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="160"/>
-        <location filename="../main_window_tween.py" line="207"/>
-        <location filename="../main_window_tween.py" line="357"/>
+        <location filename="../main_window_tween.py" line="161"/>
+        <location filename="../main_window_tween.py" line="223"/>
+        <location filename="../main_window_tween.py" line="496"/>
         <location filename="../undo_entries.py" line="239"/>
         <source>トゥイーン</source>
         <translation>Tween</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="161"/>
+        <location filename="../main_window_tween.py" line="162"/>
         <source>2コマ以上の表示区間を持つ画像キーフレームで実行してください。</source>
         <translation>Run this on an image key frame whose exposure spans two or more frames.</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="167"/>
-        <location filename="../timeline.py" line="624"/>
+        <location filename="../main_window_tween.py" line="168"/>
+        <location filename="../timeline.py" line="1143"/>
         <source>トゥイーンを有効にする</source>
         <translation>Enable tweening</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="169"/>
+        <location filename="../main_window_tween.py" line="170"/>
         <source>{exposure}コマの{name}トゥイーンを開始します。
-確定後は区間内の各コマが画像キーフレームになります。</source>
+確定後もトゥイーンとして残り、タイムラインの帯をダブルクリックすると形を直せます。</source>
         <translation>Starting a {name} tween over {exposure} exposures.
-Once committed, every exposure in the range becomes an image key frame.</translation>
+After you commit, it stays a tween; double-click its span on the timeline to adjust the shape.</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="208"/>
+        <location filename="../main_window_tween.py" line="224"/>
         <source>画像内に変形対象となる描画領域がありません。</source>
         <translation>The image has no drawn area to deform.</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="258"/>
+        <location filename="../main_window_tween.py" line="294"/>
         <source>♦ {name}トゥイーン中です。変形形状を指定し、ポップアップの「逆生成」で生成方向を選べます。</source>
         <translation>♦ {name} tween in progress. Set the deformed shape, then pick the generation direction with &quot;Reverse&quot; in the popup.</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="279"/>
+        <location filename="../main_window_tween.py" line="393"/>
+        <source>トゥイーンを解除し、中割りを通常のセルにしました。</source>
+        <translation>Released the tween; its in-betweens are now ordinary cells.</translation>
+    </message>
+    <message>
+        <location filename="../main_window_tween.py" line="418"/>
         <source>トゥイーンをキャンセルしました。</source>
         <translation>Tween cancelled.</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="358"/>
+        <location filename="../main_window_tween.py" line="497"/>
         <source>変形情報を取得できないため、トゥイーンを確定できません。</source>
         <translation>The transform data is unavailable, so the tween cannot be committed.</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="408"/>
+        <location filename="../main_window_tween.py" line="547"/>
         <source>トゥイーン確定</source>
         <translation>Commit tween</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="409"/>
+        <location filename="../main_window_tween.py" line="548"/>
         <source>TPクオリティ用の色マスクを生成できませんでした。
 Pillowが利用できることと、変形対象に色があることを確認してください。</source>
         <translation>Could not build the colour mask for TP quality.
 Check that Pillow is available and that the deformed area has colour.</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="421"/>
+        <location filename="../main_window_tween.py" line="560"/>
         <source>{name}トゥイーンを確定</source>
         <translation>Commit the {name} tween</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="423"/>
+        <location filename="../main_window_tween.py" line="562"/>
         <source>{name}トゥイーン画像を準備しています</source>
         <translation>Preparing the {name} tween images</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="431"/>
+        <location filename="../main_window_tween.py" line="570"/>
         <source>開始キーフレームを準備しています</source>
         <translation>Preparing the starting key frame</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="438"/>
+        <location filename="../main_window_tween.py" line="577"/>
         <source>{name}の補間コマ {value}/{exposure} を生成しています</source>
         <translation>Generating {name} in-between exposure {value}/{exposure}</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="493"/>
+        <location filename="../main_window_tween.py" line="632"/>
         <source>{value}コマ目の変形画像を生成できませんでした。</source>
         <translation>Could not generate the deformed image for exposure {value}.</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="514"/>
+        <location filename="../main_window_tween.py" line="653"/>
         <source>生成した画像をタイムラインへ登録しています</source>
         <translation>Registering the generated images on the timeline</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="526"/>
+        <location filename="../main_window_tween.py" line="691"/>
         <source>トゥイーン開始前のUndo情報を取得できませんでした。</source>
         <translation>Could not read the undo state from before the tween started.</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="534"/>
+        <location filename="../main_window_tween.py" line="699"/>
         <source>トゥイーンのキーフレーム化が完了しました</source>
         <translation>Finished converting the tween into key frames</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="552"/>
+        <location filename="../main_window_tween.py" line="717"/>
         <source>トゥイーン確定エラー</source>
         <translation>Tween commit error</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="589"/>
+        <location filename="../main_window_tween.py" line="754"/>
         <source>（TPクオリティ適用）</source>
         <translation> (TP quality applied)</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="593"/>
+        <location filename="../main_window_tween.py" line="758"/>
         <source>逆生成（◆側が変形／右端が初期）</source>
         <translation>Reverse (◆ side deformed, right end original)</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="595"/>
+        <location filename="../main_window_tween.py" line="760"/>
         <source>通常生成（先頭が初期／♦側が変形）</source>
         <translation>Normal (first original, ♦ side deformed)</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="598"/>
-        <source>{exposure}コマの{name}トゥイーンを{note}でキーフレーム化しました。{note2}</source>
-        <translation>Converted the {name} tween over {exposure} exposures into key frames using {note}.{note2}</translation>
+        <location filename="../main_window_tween.py" line="763"/>
+        <source>{exposure}コマの{name}トゥイーンを{note}で確定しました。{note2}帯をダブルクリックすると形を直せます。</source>
+        <translation>Committed the {name} tween over {exposure} exposures using {note}.{note2} Double-click the span to adjust the shape.</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="126"/>
-        <location filename="../main_window_tween.py" line="144"/>
-        <location filename="../main_window_tween.py" line="305"/>
-        <location filename="../timeline.py" line="627"/>
+        <location filename="../main_window_tween.py" line="127"/>
+        <location filename="../main_window_tween.py" line="145"/>
+        <location filename="../main_window_tween.py" line="199"/>
+        <location filename="../main_window_tween.py" line="444"/>
+        <location filename="../timeline.py" line="1146"/>
         <location filename="../toolpanel.py" line="571"/>
         <location filename="../widgets.py" line="645"/>
         <source>メッシュ変形</source>
@@ -2959,7 +2966,7 @@ Details were saved to:
     <message>
         <location filename="../actionpanel.py" line="417"/>
         <location filename="../actionpanel.py" line="637"/>
-        <location filename="../timeline.py" line="1365"/>
+        <location filename="../timeline.py" line="2076"/>
         <source>削除</source>
         <translation>Delete</translation>
     </message>
@@ -4709,33 +4716,38 @@ In-between and symbol labels: {blanks} cells</translation>
 {exc}</translation>
     </message>
     <message>
-        <location filename="../main_window_timeline_ops.py" line="157"/>
-        <source>選択レイヤーの番号をシート順に正規化しました。</source>
-        <translation>Normalised the numbers of the selected layer into sheet order.</translation>
+        <location filename="../main_window_timeline_ops.py" line="165"/>
+        <source>番号はすでにタイムラインの順番どおりです。</source>
+        <translation>The numbers already follow the timeline order.</translation>
     </message>
     <message>
-        <location filename="../main_window_timeline_ops.py" line="234"/>
-        <location filename="../main_window_timeline_ops.py" line="629"/>
+        <location filename="../main_window_timeline_ops.py" line="186"/>
+        <source>番号をタイムラインの順番に正規化しました。</source>
+        <translation>Normalised the numbers into timeline order.</translation>
+    </message>
+    <message>
+        <location filename="../main_window_timeline_ops.py" line="263"/>
+        <location filename="../main_window_timeline_ops.py" line="658"/>
         <source>連番画像は同じレイヤー内で入れ替えてください。</source>
         <translation>Sequence images can only be swapped within the same layer.</translation>
     </message>
     <message>
-        <location filename="../main_window_timeline_ops.py" line="318"/>
+        <location filename="../main_window_timeline_ops.py" line="347"/>
         <source>移動先がタイムライン範囲外です。</source>
         <translation>The destination is outside the timeline range.</translation>
     </message>
     <message>
-        <location filename="../main_window_timeline_ops.py" line="541"/>
+        <location filename="../main_window_timeline_ops.py" line="570"/>
         <source>左端の移動先に別のコマがあるため伸縮できません。</source>
         <translation>Another exposure occupies the left-hand destination, so it cannot be resized.</translation>
     </message>
     <message>
-        <location filename="../main_window_timeline_ops.py" line="642"/>
+        <location filename="../main_window_timeline_ops.py" line="671"/>
         <source>コマを移動できませんでした。</source>
         <translation>Could not move the exposure.</translation>
     </message>
     <message>
-        <location filename="../main_window_timeline_ops.py" line="652"/>
+        <location filename="../main_window_timeline_ops.py" line="681"/>
         <source>複製は同じレイヤー内で行ってください。</source>
         <translation>Duplicate within the same layer.</translation>
     </message>
@@ -5061,185 +5073,185 @@ In-between and symbol labels: {blanks} cells</translation>
         <translation>Anchor points: {len}</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="51"/>
+        <location filename="../project_io.py" line="52"/>
         <source>プロジェクト内のファイル数が多すぎます。</source>
         <translation>The project contains too many files.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="53"/>
+        <location filename="../project_io.py" line="54"/>
         <source>暗号化されたプロジェクトには対応していません。</source>
         <translation>Encrypted projects are not supported.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="55"/>
+        <location filename="../project_io.py" line="56"/>
         <source>プロジェクトの展開後サイズが大きすぎます。</source>
         <translation>The unpacked project is too large.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="58"/>
+        <location filename="../project_io.py" line="59"/>
         <source>プロジェクト内に重複したファイル名があります。</source>
         <translation>The project contains duplicate file names.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="62"/>
+        <location filename="../project_io.py" line="63"/>
         <source>project.jsonがありません。</source>
         <translation>project.json is missing.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="64"/>
+        <location filename="../project_io.py" line="65"/>
         <source>プロジェクト情報が大きすぎます。</source>
         <translation>The project data is too large.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="69"/>
+        <location filename="../project_io.py" line="70"/>
         <source>対応していないプロジェクト形式です。</source>
         <translation>This project format is not supported.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="84"/>
+        <location filename="../project_io.py" line="85"/>
         <source>キャンバスサイズが不正です。</source>
         <translation>The canvas size is invalid.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="89"/>
+        <location filename="../project_io.py" line="90"/>
         <source>フレーム情報がありません。</source>
         <translation>There is no frame data.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="91"/>
+        <location filename="../project_io.py" line="92"/>
         <source>フレーム数が上限を超えています。</source>
         <translation>The frame count exceeds the maximum.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="97"/>
+        <location filename="../project_io.py" line="98"/>
         <source>フレーム情報が不正です。</source>
         <translation>The frame data is invalid.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="100"/>
+        <location filename="../project_io.py" line="101"/>
         <source>レイヤー情報がありません。</source>
         <translation>There is no layer data.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="102"/>
+        <location filename="../project_io.py" line="103"/>
         <source>レイヤー数が上限を超えています。</source>
         <translation>The layer count exceeds the maximum.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="106"/>
+        <location filename="../project_io.py" line="107"/>
         <source>フレームごとのレイヤー数が一致していません。</source>
         <translation>The layer count differs between frames.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="109"/>
-        <location filename="../project_io.py" line="248"/>
+        <location filename="../project_io.py" line="110"/>
+        <location filename="../project_io.py" line="255"/>
         <source>プロジェクトのセル数が上限を超えています。</source>
         <translation>The project has more cells than the maximum.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="111"/>
-        <location filename="../project_io.py" line="255"/>
+        <location filename="../project_io.py" line="112"/>
+        <location filename="../project_io.py" line="262"/>
         <source>プロジェクトの展開後画像サイズが大きすぎます。</source>
         <translation>The unpacked project images are too large.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="117"/>
+        <location filename="../project_io.py" line="118"/>
         <source>レイヤー情報が不正です。</source>
         <translation>The layer data is invalid.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="120"/>
+        <location filename="../project_io.py" line="121"/>
         <source>レイヤー画像の参照がありません。</source>
         <translation>A layer image reference is missing.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="128"/>
+        <location filename="../project_io.py" line="129"/>
         <source>レイヤー画像の参照パスが不正です。</source>
         <translation>A layer image reference path is invalid.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="133"/>
+        <location filename="../project_io.py" line="134"/>
         <source>レイヤー画像がありません: {path}</source>
         <translation>Layer image missing: {path}</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="137"/>
+        <location filename="../project_io.py" line="138"/>
         <source>レイヤー画像が大きすぎます: {path}</source>
         <translation>Layer image too large: {path}</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="143"/>
+        <location filename="../project_io.py" line="144"/>
         <source>レイヤー画像を復元できません: {path}</source>
         <translation>Cannot restore the layer image: {path}</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="147"/>
+        <location filename="../project_io.py" line="148"/>
         <source>レイヤー画像のサイズが不正です: {path}</source>
         <translation>The layer image has an invalid size: {path}</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="165"/>
+        <location filename="../project_io.py" line="166"/>
         <source>レイヤーの露出フレーム数が不正です。</source>
         <translation>The exposure count of a layer is invalid.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="170"/>
+        <location filename="../project_io.py" line="171"/>
         <source>絵番号が範囲外です。</source>
         <translation>The drawing number is out of range.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="173"/>
+        <location filename="../project_io.py" line="174"/>
         <source>レイヤー不透明度が不正です。</source>
         <translation>The layer opacity is invalid.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="246"/>
-        <location filename="../project_io.py" line="259"/>
+        <location filename="../project_io.py" line="253"/>
+        <location filename="../project_io.py" line="266"/>
         <source>連番保管セル情報が不正です。</source>
         <translation>The stored sequence cell data is invalid.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="267"/>
+        <location filename="../project_io.py" line="274"/>
         <source>連番保管セルのレイヤーまたは絵番号が不正です。</source>
         <translation>The layer or drawing number of a stored sequence cell is invalid.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="270"/>
+        <location filename="../project_io.py" line="277"/>
         <source>連番保管セルの絵番号が重複しています。</source>
         <translation>Stored sequence cells have duplicate drawing numbers.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="279"/>
+        <location filename="../project_io.py" line="286"/>
         <source>連番保管セル画像の参照パスが不正です。</source>
         <translation>The image reference path of a stored sequence cell is invalid.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="284"/>
+        <location filename="../project_io.py" line="291"/>
         <source>連番保管セル画像がありません: {path}</source>
         <translation>Stored sequence cell image missing: {path}</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="288"/>
+        <location filename="../project_io.py" line="295"/>
         <source>連番保管セル画像が大きすぎます: {path}</source>
         <translation>Stored sequence cell image too large: {path}</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="297"/>
+        <location filename="../project_io.py" line="304"/>
         <source>連番保管セル画像を復元できません: {path}</source>
         <translation>Cannot restore the stored sequence cell image: {path}</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="307"/>
+        <location filename="../project_io.py" line="314"/>
         <source>連番保管セルの不透明度が不正です。</source>
         <translation>The opacity of a stored sequence cell is invalid.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="368"/>
+        <location filename="../project_io.py" line="375"/>
         <source>画像を書き出せませんでした: {name}</source>
         <translation>Could not export the image: {name}</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="411"/>
+        <location filename="../project_io.py" line="420"/>
         <source>連番保管セルを書き出せませんでした: {name}</source>
         <translation>Could not export the stored sequence cell: {name}</translation>
     </message>
@@ -5321,251 +5333,333 @@ a folder here</translation>
         <translation>Red</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="565"/>
+        <location filename="../timeline.py" line="1076"/>
         <source>コマを増やす</source>
         <translation>Add exposures</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="567"/>
-        <location filename="../timeline.py" line="1090"/>
+        <location filename="../timeline.py" line="1078"/>
+        <location filename="../timeline.py" line="1735"/>
         <source>空フレームを追加</source>
         <translation>Add an empty frame</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="570"/>
+        <location filename="../timeline.py" line="1081"/>
         <source>表示コマを1コマ伸ばす</source>
         <translation>Extend the exposure by one</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="593"/>
+        <location filename="../timeline.py" line="1106"/>
         <source>連番の番号を呼び出す</source>
         <translation>Recall a sequence number</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="616"/>
+        <location filename="../timeline.py" line="1135"/>
         <source>トゥイーンをキャンセル</source>
         <translation>Cancel the tween</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1094"/>
-        <source>●／○の開始セルでは直後へ同じ長さの○を挿入。ー部分では選択位置から後半を○へ分割します。</source>
-        <translation>On a ●/○ start cell, inserts a ○ of the same length right after it. On a ー run, splits the second half from the selected position into ○.</translation>
-    </message>
-    <message>
-        <location filename="../timeline.py" line="706"/>
+        <location filename="../timeline.py" line="1241"/>
         <source>現在のキーフレーム／空フレームを1コマ伸ばします。</source>
         <translation>Extends the current key frame or empty frame by one exposure.</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1101"/>
+        <location filename="../timeline.py" line="1746"/>
         <source>現在の表示コマを1コマ削除します。</source>
         <translation>Deletes one exposure from the current run.</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="712"/>
+        <location filename="../timeline.py" line="1247"/>
         <source>AEまたはToeiDigitalTimeSheetのコピー情報をタイムシートへ貼り付けます。XDTSはタイムラインへドラッグ＆ドロップできます。</source>
         <translation>Pastes copied After Effects or ToeiDigitalTimeSheet data into the time sheet. XDTS files can be dragged and dropped onto the timeline.</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="717"/>
+        <location filename="../timeline.py" line="1268"/>
         <source>前のフレーム（1）</source>
         <translation>Previous frame (1)</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="719"/>
+        <location filename="../timeline.py" line="1270"/>
         <source>次のフレーム（2）</source>
         <translation>Next frame (2)</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="721"/>
+        <location filename="../timeline.py" line="1272"/>
         <source>前のコマ（A）</source>
         <translation>Previous exposure (A)</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="723"/>
+        <location filename="../timeline.py" line="1274"/>
         <source>次のコマ（S）</source>
         <translation>Next exposure (S)</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="728"/>
+        <location filename="../normalize_dialog.py" line="38"/>
+        <location filename="../timeline.py" line="1254"/>
+        <source>タイムラインの順番で正規化</source>
+        <translation>Normalise by timeline order</translation>
+    </message>
+    <message>
+        <location filename="../normalize_dialog.py" line="52"/>
+        <source>左から最初に出てくる順に 1, 2, 3… と振り直します。同じ絵を使い回しているセルは同じ番号のままです。</source>
+        <translation>Renumbers the drawings 1, 2, 3… in the order they first appear from the left. Cells that reuse the same drawing keep sharing one number.</translation>
+    </message>
+    <message>
+        <location filename="../normalize_dialog.py" line="59"/>
+        <source>選択レイヤー</source>
+        <translation>Selected layers</translation>
+    </message>
+    <message>
+        <location filename="../normalize_dialog.py" line="60"/>
+        <location filename="../timeline.py" line="1279"/>
         <source>すべてのレイヤー</source>
         <translation>All layers</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="731"/>
+        <location filename="../normalize_dialog.py" line="95"/>
+        <source>撮影済みのカットをリテイクで直しているときは、正規化しないでください。</source>
+        <translation>Do not normalise a cut that has already been composited and is being retaken.</translation>
+    </message>
+    <message>
+        <location filename="../normalize_dialog.py" line="103"/>
+        <source>AE ですでにタイムリマップを打っているため、中割りを足したところ以外の番号が変わると、同じ番号が別の絵を指すようになります。たとえば A4 は、リテイクの前後で同じ絵であるべきです。足した絵は末尾の番号のままにしておき、タイムリマップ側で追加してください。</source>
+        <translation>The time remap is already keyed in AE, so if numbers change anywhere other than where in-betweens were added, the same number will point to a different drawing. For example, A4 must be the same drawing before and after the retake. Leave the added drawings at the end numbers and add them on the time remap side instead.</translation>
+    </message>
+    <message>
+        <location filename="../normalize_dialog.py" line="169"/>
+        <source>{count}個の番号を振り直す</source>
+        <translation>Renumber {count} drawings</translation>
+    </message>
+    <message>
+        <location filename="../normalize_dialog.py" line="172"/>
+        <source>このレイヤーの番号は、すでにタイムラインの順番どおりです。</source>
+        <translation>This layer&apos;s numbers already follow the timeline order.</translation>
+    </message>
+    <message>
+        <location filename="../normalize_dialog.py" line="175"/>
+        <source>振り直す</source>
+        <translation>Renumber</translation>
+    </message>
+    <message>
+        <location filename="../timeline.py" line="1282"/>
         <source>オニオンスキン</source>
         <translation>Onion skin</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="733"/>
+        <location filename="../timeline.py" line="1284"/>
         <source>オニオンスキン表示のON／OFF</source>
         <translation>Turn the onion skin on or off</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="741"/>
+        <location filename="../timeline.py" line="1292"/>
         <source>クリックでオニオンスキン設定を開き、再クリックで閉じます。</source>
         <translation>Click to open the onion skin settings, click again to close them.</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="744"/>
+        <location filename="../timeline.py" line="1295"/>
         <source> コマ</source>
         <translation> exposures</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="792"/>
+        <location filename="../timeline.py" line="1347"/>
         <source>不透明</source>
         <translation>Opacity</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="798"/>
+        <location filename="../timeline.py" line="1353"/>
         <source>選択レイヤーの表示不透明度です。画像の色データ自体は変更しません。</source>
         <translation>The display opacity of the selected layer. The colour data of the images is unchanged.</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="806"/>
+        <location filename="../timeline.py" line="1361"/>
         <source>現在選択しているレイヤーの表示不透明度</source>
         <translation>Display opacity of the currently selected layer</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="839"/>
+        <location filename="../timeline.py" line="1408"/>
         <source>Shift/{ctrl}：複数選択</source>
         <translation>Shift/{ctrl}: multiple selection</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="842"/>
-        <source>ドラッグ・Shift＋クリック：複数選択／選択範囲をそのままドラッグ：まとめて移動／●・○中央：移動／左右端：伸縮／Space：ハンド／{zoom}：拡大縮小</source>
-        <translation>Drag or Shift-click: multiple selection / drag the selection itself: move it together / middle of ● or ○: move / left and right edges: resize / Space: pan / {zoom}: zoom</translation>
-    </message>
-    <message>
-        <location filename="../timeline.py" line="776"/>
+        <location filename="../timeline.py" line="1328"/>
         <source>シート</source>
         <translation>Sheet</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="91"/>
+        <location filename="../timeline.py" line="128"/>
         <source>下書き</source>
         <translation>Draft</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="705"/>
+        <location filename="../timeline.py" line="1118"/>
+        <source>トゥイーンの形を直す</source>
+        <translation>Adjust the tween shape</translation>
+    </message>
+    <message>
+        <location filename="../timeline.py" line="1120"/>
+        <source>トゥイーンを解除（中割りを通常のセルにする）</source>
+        <translation>Release the tween (make the in-betweens ordinary cells)</translation>
+    </message>
+    <message>
+        <location filename="../timeline.py" line="1240"/>
         <source>コマを伸ばす</source>
         <translation>Extend exposure</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="711"/>
+        <location filename="../timeline.py" line="1246"/>
         <source>リマップを貼り付け</source>
         <translation>Paste time remap</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="777"/>
+        <location filename="../timeline.py" line="1252"/>
+        <source>順番で正規化</source>
+        <translation>Normalise order</translation>
+    </message>
+    <message>
+        <location filename="../timeline.py" line="1255"/>
+        <source>左から最初に出てくる順に番号を振り直します。実行前に、振り直す番号の一覧を確認できます。</source>
+        <translation>Renumbers the drawings in the order they first appear from the left. You can review the changes before applying them.</translation>
+    </message>
+    <message>
+        <location filename="../timeline.py" line="1329"/>
         <source>連番</source>
         <translation>Sequence</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="782"/>
+        <location filename="../timeline.py" line="1337"/>
         <source>連番：左から順番に自動採番／シート：タイムシートの絵番号を保持</source>
         <translation>Sequence: numbered automatically from the left / Sheet: keeps the drawing numbers from the time sheet</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="894"/>
+        <location filename="../timeline.py" line="1392"/>
+        <source>現在のコマ / 全体のコマ数</source>
+        <translation>Current frame / total frames</translation>
+    </message>
+    <message>
+        <location filename="../timeline.py" line="1411"/>
+        <source>ドラッグ・Shift＋クリック：複数選択／選択範囲をそのままドラッグ：まとめて移動／番号・✗の箱：移動／左右端：伸縮／Space：ハンド／{zoom}：拡大縮小</source>
+        <translation>Drag or Shift-click: multiple selection / drag the selection itself: move it together / number or ✗ box: move / left and right edges: resize / Space: pan / {zoom}: zoom</translation>
+    </message>
+    <message>
+        <location filename="../timeline.py" line="1468"/>
+        <source>すべてのレイヤーのサムネイルを開く／閉じる</source>
+        <translation>Show or hide thumbnails for all layers</translation>
+    </message>
+    <message>
+        <location filename="../timeline.py" line="1471"/>
         <source>レイヤー</source>
         <translation>Layer</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="897"/>
+        <location filename="../timeline.py" line="1474"/>
         <source>レイヤーを追加</source>
         <translation>Add layer</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="899"/>
+        <location filename="../timeline.py" line="1476"/>
         <source>レイヤーを削除</source>
         <translation>Delete layer</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1091"/>
+        <location filename="../timeline.py" line="1709"/>
+        <source>タイムラインの順番とずれている番号：{count}個</source>
+        <translation>Numbers out of timeline order: {count}</translation>
+    </message>
+    <message>
+        <location filename="../timeline.py" line="1736"/>
         <source>選択番号の直後へ、新しい空の番号画像を追加します。</source>
         <translation>Adds a new empty numbered image right after the selected number.</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1099"/>
+        <location filename="../timeline.py" line="1739"/>
+        <source>番号・✗の先頭セルでは、直後へ同じ長さの空セル（✗）を挿入。続きの部分では、選択位置から後ろを空セルへ分割します。</source>
+        <translation>On a number or ✗ start cell, inserts an empty cell (✗) of the same length right after it. On a held part, splits everything from the selected position onwards into an empty cell.</translation>
+    </message>
+    <message>
+        <location filename="../timeline.py" line="1744"/>
         <source>選択番号を削除し、シート側の対応セルを未使用にします。</source>
         <translation>Deletes the selected number and frees the matching cell on the sheet.</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1362"/>
+        <location filename="../timeline.py" line="2073"/>
         <source>複製</source>
         <translation>Duplicate</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1363"/>
+        <location filename="../timeline.py" line="2074"/>
         <source>結合</source>
         <translation>Merge</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1367"/>
+        <location filename="../timeline.py" line="2078"/>
         <source>下書きレイヤー</source>
         <translation>Draft layer</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1373"/>
+        <location filename="../timeline.py" line="2084"/>
         <source>番号の正規化</source>
         <translation>Normalise the numbers</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1625"/>
+        <location filename="../timeline.py" line="2377"/>
         <source>下書きレイヤー（色数削減の対象外）。
 </source>
         <translation>Draft layer (excluded from colour reduction).
 </translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1626"/>
-        <source>左端の目のアイコンをクリックで表示／非表示を切替、ダブルクリックでレイヤー名を変更。</source>
-        <translation>Click the eye icon on the left to show/hide; double-click to rename the layer.</translation>
+        <location filename="../timeline.py" line="2378"/>
+        <source>左端の＞でサムネイルを開閉、目のアイコンで表示／非表示を切替、ダブルクリックでレイヤー名を変更。</source>
+        <translation>Click the &gt; on the left to show/hide thumbnails and the eye icon to show/hide the layer; double-click to rename the layer.</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1865"/>
+        <location filename="../timeline.py" line="2659"/>
         <source>逆生成トゥイーン中。この右端は元の初期形状です。右クリックでキャンセルできます。</source>
         <translation>Reverse tween in progress. This right end holds the original shape. Right-click to cancel.</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1871"/>
+        <location filename="../timeline.py" line="2665"/>
         <source>トゥイーン変形中。右クリックでキャンセルできます。</source>
         <translation>Tween deformation in progress. Right-click to cancel.</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1877"/>
+        <location filename="../timeline.py" line="2671"/>
         <source>右端をドラッグして後方向の表示コマ数を変更／右クリックでトゥイーンを有効化</source>
         <translation>Drag the right edge to change how many exposures follow / right-click to enable tweening</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1881"/>
+        <location filename="../timeline.py" line="2675"/>
         <source>空フレームの右端をドラッグして表示コマ数を変更</source>
         <translation>Drag the right edge of the empty frame to change the exposure count</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1885"/>
+        <location filename="../timeline.py" line="2679"/>
         <source>逆生成トゥイーン中。キーフレーム側が操作中の変形形状、右端側が元の初期形状になります。右クリックでキャンセルできます。</source>
         <translation>Reverse tween in progress. The key frame side holds the shape you are editing and the right end the original one. Right-click to cancel.</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1905"/>
+        <location filename="../timeline.py" line="2699"/>
         <source>CLIP STUDIOセル名：{name}
 </source>
         <translation>CLIP STUDIO cell name: {name}
 </translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1909"/>
+        <location filename="../timeline.py" line="2703"/>
         <source>中央をドラッグして移動／左端をドラッグして前方向へ伸縮
 レイヤーセル {value} / {exposure}コマ</source>
         <translation>Drag the middle to move / drag the left edge to extend backwards
 Layer cell {value} / {exposure} exposures</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1913"/>
+        <location filename="../timeline.py" line="2707"/>
         <source>空フレームの先頭です。描画すると自動的にキーフレーム化します。</source>
         <translation>This is the start of an empty frame. Drawing here turns it into a key frame automatically.</translation>
+    </message>
+    <message>
+        <location filename="../timeline.py" line="2722"/>
+        <source>確定したトゥイーン（{exposure}コマ）。ダブルクリックで形を直す／右クリックで解除</source>
+        <translation>Committed tween ({exposure} exposures). Double-click to adjust the shape / right-click to release</translation>
     </message>
     <message>
         <location filename="../undo_entries.py" line="234"/>

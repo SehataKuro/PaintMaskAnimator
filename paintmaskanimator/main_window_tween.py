@@ -17,6 +17,7 @@ from .widgets import TweenCommandPopup
 from .progress import close_counter, create_counter, update_counter
 from .logging_setup import get_logger
 from .undo_entries import DocUndo
+from . import tween_groups
 
 if TYPE_CHECKING:
     from .main_window import MainWindow
@@ -166,7 +167,7 @@ class TweenController:
             self.window,
             tr("トゥイーンを有効にする"),
             (
-                tr("{exposure}コマの{name}トゥイーンを開始します。\n確定後は区間内の各コマが画像キーフレームになります。").format(exposure=exposure, name=mode_name)
+                tr("{exposure}コマの{name}トゥイーンを開始します。\n確定後もトゥイーンとして残り、タイムラインの帯をダブルクリックすると形を直せます。").format(exposure=exposure, name=mode_name)
             ),
             QMessageBox.StandardButton.Ok
             | QMessageBox.StandardButton.Cancel,
@@ -181,7 +182,21 @@ class TweenController:
         # 自由変形が画像を一時的に消去する前の文書全体を保存する。
         # Ctrl+Zではこの状態へ戻すため、元画像が消えることはない。
         tween_undo_snapshot = self.window.canvas.document_snapshot()
+        self._start(
+            layer_index, key_column, exposure, mode, tween_undo_snapshot,
+        )
 
+    def _start(
+        self, layer_index, key_column, exposure, mode, tween_undo_snapshot,
+        reverse=False, shape=None, reedit=None,
+    ):
+        """キーのコマで変形を始め、トゥイーンの編集中にする。
+
+        ``shape`` に保存してあった (変形前の点, 変形後の点) を渡すと、その
+        変形から始める（あとから直すとき）。``reedit`` はキャンセル時に戻す
+        状態など。
+        """
+        mode_name = tr("メッシュ変形") if mode == "mesh" else tr("自由変形")
         self.window.canvas.current_frame = key_column
         self.window.canvas.active_layer_index = layer_index
         self.window.canvas.tween_pending = None
@@ -202,6 +217,7 @@ class TweenController:
         self.window.tools.select_tool("rect_select")
 
         if not self.window.canvas.auto_select_used_area():
+            self._restore_reedit(reedit)
             QMessageBox.warning(
                 self.window,
                 tr("トゥイーン"),
@@ -211,7 +227,28 @@ class TweenController:
 
         self.window.line_ops.start_wire_transform(mode)
         if not self.window.canvas.transform_active:
+            self._restore_reedit(reedit)
             return
+
+        start_points = [
+            QPointF(point) for point in self.window.canvas.transform_points
+        ]
+        if shape is not None:
+            # キーの絵を描き足して基準の点が少しずれても形が崩れないよう、
+            # 保存した「変形前→変形後」の差を今の点に足す。
+            saved_start, saved_final = shape
+            if len(saved_start) == len(saved_final) == len(start_points):
+                self.window.canvas.transform_points = [
+                    QPointF(
+                        point.x() + final.x() - start.x(),
+                        point.y() + final.y() - start.y(),
+                    )
+                    for point, start, final in zip(
+                        start_points, saved_start, saved_final
+                    )
+                ]
+                self.window.canvas._invalidate_tp_preview_cache()
+                self.window.canvas.update()
 
         end_column = key_column + exposure - 1
         self.window.canvas.tween_pending = {
@@ -244,10 +281,9 @@ class TweenController:
                     [],
                 )
             ],
-            "start_points": [
-                QPointF(point) for point in self.window.canvas.transform_points
-            ],
-            "reverse_generation": False,
+            "start_points": start_points,
+            "reverse_generation": bool(reverse),
+            "reedit": reedit,
         }
         self.window.tools.set_tween_active(True)
         self.window.palette.setProperty("tweenActive", True)
@@ -259,6 +295,104 @@ class TweenController:
             5000,
         )
 
+    def _restore_reedit(self, reedit):
+        """編集し直しを始められなかったら、確定済みのトゥイーンへ戻す。"""
+        if reedit is None:
+            return
+        self.window.canvas.apply_undo_entry(DocUndo(reedit["snapshot"]))
+        self.window.refresh_ui()
+
+    def _member_numbers(self, layer_index, key_column, exposure, previous):
+        """中割りのセルの番号。直し直しなら前の番号、なければ末尾に足す。"""
+        count = max(0, int(exposure) - 1)
+        if previous and len(previous) == count:
+            return [int(number) for number in previous]
+        used = {
+            int(frame.layers[layer_index].sequence_number)
+            for frame in self.window.canvas.frames
+            if frame.layers[layer_index].sequence_number is not None
+        }
+        used.update(
+            int(number)
+            for archived_layer, number in self.window.canvas._sequence_archive
+            if int(archived_layer) == layer_index
+        )
+        next_number = max(used, default=0) + 1
+        return list(range(next_number, next_number + count))
+
+    def edit(self, visual_row, key_column):
+        """確定済みのトゥイーンを、保存した変形の形から編集し直す。"""
+        canvas = self.window.canvas
+        if not canvas.frames:
+            return
+        layer_count = len(canvas.layers)
+        layer_index = layer_count - 1 - int(visual_row)
+        key_column = int(key_column)
+        length = tween_groups.group_length(canvas.frames, layer_index, key_column)
+        if not length:
+            return
+        if canvas.transform_active:
+            self.cancel_transform_or_tween()
+        key = canvas.frames[key_column].layers[layer_index]
+        spec = dict(key.tween or {})
+        reverse = bool(spec.get("reverse", False))
+        members = [
+            canvas.frames[key_column + offset].layers[layer_index]
+            for offset in range(1, length)
+        ]
+        reedit = {
+            "snapshot": canvas.document_snapshot(),
+            "id": spec.get("id"),
+            "numbers": [member.sequence_number for member in members],
+        }
+        if any(number is None for number in reedit["numbers"]):
+            reedit["numbers"] = None
+        # 元の形の絵（通常生成は先頭、逆生成は末尾）をキーへ戻し、
+        # 区間を 1 枚のキーにまとめてから変形を始める。
+        original = (members[-1] if reverse else key).image.copy()
+        key.image = original
+        key.exposure = length
+        key.tween = None
+        for member in members:
+            canvas._clear_timeline_layer_cell(member)
+        mode = "mesh" if spec.get("mode") == "mesh" else "free"
+        if mode == "mesh":
+            self.window.tools.transform_mesh_grid_x.setValue(
+                int(spec.get("mesh_cols", 4))
+            )
+            self.window.tools.transform_mesh_grid_y.setValue(
+                int(spec.get("mesh_rows", 4))
+            )
+        canvas._cell_structure_dirty = True
+        self._start(
+            layer_index, key_column, length, mode, reedit["snapshot"],
+            reverse=reverse,
+            shape=(
+                tween_groups.points_from_data(spec.get("start_points", [])),
+                tween_groups.points_from_data(spec.get("final_points", [])),
+            ),
+            reedit=reedit,
+        )
+
+    def release(self, visual_row, key_column):
+        """トゥイーンの帯をやめ、中割りを通常のセルとして扱う。"""
+        canvas = self.window.canvas
+        layer_index = len(canvas.layers) - 1 - int(visual_row)
+        key_column = int(key_column)
+        length = tween_groups.group_length(canvas.frames, layer_index, key_column)
+        if not length:
+            return
+        canvas.push_doc_undo()
+        canvas.frames[key_column].layers[layer_index].tween = None
+        for offset in range(1, length):
+            canvas.frames[key_column + offset].layers[layer_index].tween_member = None
+        canvas._cell_structure_dirty = True
+        canvas.changed.emit()
+        canvas.update()
+        self.window.statusBar().showMessage(
+            tr("トゥイーンを解除し、中割りを通常のセルにしました。"), 2500
+        )
+
     def commit_transform_or_tween(self):
         if getattr(self.window.canvas, "tween_pending", None):
             self.commit_transform()
@@ -266,9 +400,14 @@ class TweenController:
             self.window.canvas.commit_selection_transform()
 
     def cancel_transform_or_tween(self):
-        had_tween = bool(getattr(self.window.canvas, "tween_pending", None))
+        pending = getattr(self.window.canvas, "tween_pending", None)
+        had_tween = bool(pending)
+        reedit = pending.get("reedit") if isinstance(pending, dict) else None
         if self.window.canvas.transform_active:
             self.window.canvas.cancel_selection_transform()
+        if reedit is not None:
+            # 編集し直しをやめたら、確定済みのトゥイーンをそのまま戻す。
+            self.window.canvas.apply_undo_entry(DocUndo(reedit["snapshot"]))
         self.window.canvas.tween_pending = None
         self.window.tools.set_tween_active(False)
         self.window.palette.setProperty("tweenActive", False)
@@ -514,12 +653,38 @@ class TweenController:
                 tr("生成した画像をタイムラインへ登録しています"),
             )
             self.window.canvas._ensure_frame_count(end_column + 1)
+            reedit = pending.get("reedit") or {}
+            tween_id = reedit.get("id") or tween_groups.new_id()
+            member_numbers = self._member_numbers(
+                layer_index, key_column, exposure, reedit.get("numbers"),
+            )
             for offset, image in enumerate(generated_images):
                 frame_index = key_column + offset
                 layer = self.window.canvas.frames[frame_index].layers[layer_index]
                 layer.image = image
                 layer.has_content = True
+                layer.is_blank_key = False
                 layer.exposure = 1
+                if offset == 0:
+                    layer.tween = tween_groups.make_spec(
+                        tween_id, exposure, transform_mode, reverse_generation,
+                        start_points, final_points,
+                        self.window.canvas.transform_mesh_cols,
+                        self.window.canvas.transform_mesh_rows,
+                        getattr(
+                            self.window.canvas,
+                            "transform_mesh_reference_points", [],
+                        ),
+                    )
+                    layer.tween_member = None
+                else:
+                    # 中割りは番号を持つ通常の絵として書き出される。
+                    # 直し直しでは、元の番号をそのまま使う（リテイク対策）。
+                    layer.sequence_number = member_numbers[offset - 1]
+                    layer.sequence_only = False
+                    layer.cell_name = None
+                    layer.tween = None
+                    layer.tween_member = tween_id
 
             if undo_snapshot is None:
                 raise OperationError(
@@ -595,6 +760,6 @@ class TweenController:
             else tr("通常生成（先頭が初期／♦側が変形）")
         )
         self.window.statusBar().showMessage(
-            tr("{exposure}コマの{name}トゥイーンを{note}でキーフレーム化しました。{note2}").format(exposure=exposure, name=mode_name, note=direction_note, note2=quality_note),
+            tr("{exposure}コマの{name}トゥイーンを{note}で確定しました。{note2}帯をダブルクリックすると形を直せます。").format(exposure=exposure, name=mode_name, note=direction_note, note2=quality_note),
             4200,
         )

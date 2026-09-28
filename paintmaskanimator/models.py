@@ -1,3 +1,4 @@
+import copy
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -25,6 +26,10 @@ class Layer:
     is_draft: bool = False
     # 外部タイムライン由来のセル名。数値セルは sequence_number と併記する。
     cell_name: Optional[str] = None
+    # あとから直せるトゥイーン。キーのセルに設定（id・長さ・変形の形）を持ち、
+    # 中割りのセルは tween_member に同じ id を持つ（tween_groups.py）。
+    tween: Optional[dict] = None
+    tween_member: Optional[str] = None
 
     def clone(self):
         # QImage は暗黙共有。QImage(image) は画素をコピーせず参照を共有し、
@@ -41,6 +46,8 @@ class Layer:
             bool(self.sequence_only),
             bool(self.is_draft),
             str(self.cell_name) if self.cell_name is not None else None,
+            copy.deepcopy(self.tween) if self.tween is not None else None,
+            self.tween_member,
         )
 
 

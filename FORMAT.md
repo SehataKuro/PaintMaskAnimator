@@ -95,6 +95,8 @@
       "sequence_number": null,        // null か 1..MAX_PROJECT_FRAMES（絵番号）
       "sequence_only": false,
       "is_draft": false,              // 下書き（白→透明移行の対象外）
+      "tween": null,                  // null かトゥイーンの設定（キーのセルだけ、下記）
+      "tween_member": null,           // null かトゥイーンの id（中割りのセル）
       "color_filter_enabled": false,
       "color_filter_rgb": null        // null か [R,G,B]
     }
@@ -105,6 +107,24 @@
 - レイヤーが空になった場合、ローダは空白レイヤー1枚で補完する。
 - `is_blank_key` 未指定時の推定: `has_content == false` かつ `exposure > 1`
   なら `true`。
+- `tween` / `tween_member`（任意）: あとから直せるトゥイーン。中割りの絵は
+  通常のセルと同じく各コマの PNG に入っていて、再生や書き出しにはこの 2 つは
+  不要。キーのセルの `tween` は次の形で、中割りのセル（キーの直後から
+  `length - 1` コマ、それぞれ `exposure == 1`）の `tween_member` に同じ `id` を持つ。
+  並びが崩れていたり値が不正だったりする場合は、通常のセルとして扱う。
+
+  ```jsonc
+  {
+    "id": "3f2a…",          // 区間を見分けるための文字列
+    "length": 6,            // キーを含むコマ数（2 以上）
+    "mode": "free",         // "free"（自由変形）か "mesh"（メッシュ変形）
+    "reverse": false,       // 逆生成（キー側が変形後、末尾が元の形）
+    "start_points": [[x, y], …],   // 変形前の制御点（キャンバス座標）
+    "final_points": [[x, y], …],   // 変形後の制御点
+    "mesh_cols": 4, "mesh_rows": 4,
+    "mesh_reference_points": [[x, y], …]
+  }
+  ```
 
 ---
 

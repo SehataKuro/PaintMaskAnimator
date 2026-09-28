@@ -27,6 +27,7 @@ from .constants import (
 )
 from .imaging import white_to_transparent_qimage
 from .models import Frame, Layer, default_layer_name
+from .tween_groups import sanitize_spec
 from .utils import blank_image
 from .logging_setup import get_logger
 
@@ -224,6 +225,12 @@ def read_project_archive(path):
                             if layer_data.get("cell_name") is not None
                             else None
                         ),
+                        sanitize_spec(layer_data.get("tween")),
+                        (
+                            str(layer_data.get("tween_member"))
+                            if layer_data.get("tween_member") is not None
+                            else None
+                        ),
                     )
                 )
 
@@ -384,6 +391,8 @@ def write_project_archive(
                             "sequence_only": bool(layer.sequence_only),
                             "is_draft": bool(getattr(layer, "is_draft", False)),
                             "cell_name": getattr(layer, "cell_name", None),
+                            "tween": getattr(layer, "tween", None),
+                            "tween_member": getattr(layer, "tween_member", None),
                             "color_filter_enabled": bool(
                                 layer.color_filter_enabled
                             ),
