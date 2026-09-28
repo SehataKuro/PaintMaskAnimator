@@ -65,7 +65,6 @@ class MainWindowMembers(_MembersBase):
         _build_color_slider_menu: Any
         _build_color_wheel_menu: Any
         _build_default_dock_menu: Any
-        _build_view_menu: Any
         _close_tween_command_popup: Any
         _closing: Any
         _commit_split_drop: Any
@@ -194,6 +193,10 @@ class MainWindowMembers(_MembersBase):
         a_selection_mesh: Any
         a_selection_scale: Any
         a_selection_transform: Any
+        a_preferences: Any
+        apply_pressure_settings: Any
+        insert_layout_paper: Any
+        preferences_dialog: Any
         a_shortcuts: Any
         a_silhouette: Any
         a_swap_main_sub: Any
@@ -296,10 +299,10 @@ class MainWindowMembers(_MembersBase):
         set_zoom: Any
         shortcuts: Any
         show_canvas_at_100_percent: Any
+        show_preferences: Any
         status: Any
         status_bar: StatusBar
         sync_canvas_view_controls: Any
-        theme_actions: Any
         timeline: TimelineWidget
         timeline_actions: Any
         timeline_dock: Any

@@ -4,11 +4,15 @@ from PySide6.QtCore import QPointF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
+    QPushButton,
+    QRadioButton,
     QSlider,
     QVBoxLayout,
     QWidget,
@@ -151,6 +155,17 @@ class PressureCurveWidget(QWidget):
 
     def __init__(self, curve=1.0, parent=None):
         super().__init__(parent)
+        self._points = self._parse(curve)
+        self._active_index = None
+        self.setMinimumSize(260, 170)
+        self.setMouseTracking(True)
+        self.setToolTip(
+            tr("左クリック：アンカーポイント追加／ドラッグ：移動／"
+            "右クリック：中間アンカーポイント削除／曲線：3次ベジエ補間")
+        )
+
+    @staticmethod
+    def _parse(curve):
         if isinstance(curve, (list, tuple)) and len(curve) >= 2:
             points = []
             for point in curve:
@@ -160,24 +175,24 @@ class PressureCurveWidget(QWidget):
                 except (TypeError, ValueError, IndexError, KeyError) as exc:
                     log.debug("skipping malformed pressure-curve point %r: %s", point, exc)
                     continue
-            self._points = sorted(points, key=lambda value: value[0])
+            points = sorted(points, key=lambda value: value[0])
         else:
             exponent = max(0.20, min(4.0, float(curve)))
-            self._points = [(0.0, 0.0), (0.5, 0.5 ** exponent), (1.0, 1.0)]
-        if len(self._points) < 2:
-            self._points = [(0.0, 0.0), (1.0, 1.0)]
-        self._points[0] = (0.0, self._points[0][1])
-        self._points[-1] = (1.0, self._points[-1][1])
-        self._active_index = None
-        self.setMinimumSize(260, 170)
-        self.setMouseTracking(True)
-        self.setToolTip(
-            tr("左クリック：アンカーポイント追加／ドラッグ：移動／"
-            "右クリック：中間アンカーポイント削除／曲線：3次ベジエ補間")
-        )
+            points = [(0.0, 0.0), (0.5, 0.5 ** exponent), (1.0, 1.0)]
+        if len(points) < 2:
+            points = [(0.0, 0.0), (1.0, 1.0)]
+        points[0] = (0.0, points[0][1])
+        points[-1] = (1.0, points[-1][1])
+        return points
 
     def points(self):
         return [[float(x), float(y)] for x, y in self._points]
+
+    def set_points(self, curve):
+        """Replace the curve without emitting ``curveChanged``."""
+        self._points = self._parse(curve)
+        self._active_index = None
+        self.update()
 
     def exponent(self):
         # 旧形式との互換用。保存・描画では points() を使用する。
@@ -300,60 +315,171 @@ class PressureCurveWidget(QWidget):
         painter.end()
 
 
-class PressureDialog(QDialog):
-    def __init__(self, enabled, minimum, maximum, curve, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle(tr("筆圧設定"))
-        self.resize(430, 390)
-        layout = QVBoxLayout(self)
-        self.enabled = QCheckBox(tr("筆圧をブラシサイズに反映"))
-        self.enabled.setChecked(enabled)
-        layout.addWidget(self.enabled)
+class PressureEditor(QWidget):
+    """On/off, minimum, maximum and curve of one pressure setting.
 
-        pressure_note = QLabel(
+    ``changed`` fires on every user edit; :meth:`set_settings` does not fire it.
+    """
+
+    changed = Signal()
+
+    def __init__(self, settings=None, parent=None):
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.enabled = QCheckBox(tr("筆圧をブラシサイズに反映"))
+        self.enabled.setToolTip(
             tr("筆圧はブラシサイズだけに反映されます。"
             "描画不透明度・色・アルファ値には一切影響しません。")
         )
-        pressure_note.setWordWrap(True)
-        pressure_note.setStyleSheet(
-            "color:#a33;font-weight:bold;"
-        )
-        layout.addWidget(pressure_note)
+        layout.addWidget(self.enabled)
 
         form = QFormLayout()
         self.minimum = QSlider(Qt.Orientation.Horizontal)
         self.minimum.setRange(1, 100)
-        self.minimum.setValue(max(1, min(100, int(round(float(minimum) * 100)))))
-        self.minimum_label = QLabel(f"{self.minimum.value()}%")
-        min_row = QWidget(); min_layout = QHBoxLayout(min_row)
-        min_layout.setContentsMargins(0, 0, 0, 0)
-        min_layout.addWidget(self.minimum, 1); min_layout.addWidget(self.minimum_label)
-        self.minimum.valueChanged.connect(lambda v: self.minimum_label.setText(f"{v}%"))
-
+        self.minimum_label = QLabel()
         self.maximum = QSlider(Qt.Orientation.Horizontal)
         self.maximum.setRange(10, 300)
-        self.maximum.setValue(max(10, min(300, int(round(float(maximum) * 100)))))
-        self.maximum_label = QLabel(f"{self.maximum.value()}%")
-        max_row = QWidget(); max_layout = QHBoxLayout(max_row)
-        max_layout.setContentsMargins(0, 0, 0, 0)
-        max_layout.addWidget(self.maximum, 1); max_layout.addWidget(self.maximum_label)
-        self.maximum.valueChanged.connect(lambda v: self.maximum_label.setText(f"{v}%"))
-
-        form.addRow(tr("最小サイズ"), min_row)
-        form.addRow(tr("最大倍率"), max_row)
+        self.maximum_label = QLabel()
+        for title, slider, label in (
+            (tr("最小サイズ"), self.minimum, self.minimum_label),
+            (tr("最大倍率"), self.maximum, self.maximum_label),
+        ):
+            label.setMinimumWidth(40)
+            row = QWidget()
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.addWidget(slider, 1)
+            row_layout.addWidget(label)
+            slider.valueChanged.connect(lambda v, lab=label: lab.setText(f"{v}%"))
+            form.addRow(title, row)
         layout.addLayout(form)
         layout.addWidget(QLabel(tr("筆圧カーブ")))
-        self.curve = PressureCurveWidget(curve)
+        self.curve = PressureCurveWidget()
         layout.addWidget(self.curve, 1)
-        self.curve_value = QLabel(tr("アンカーポイント: {len}").format(len=len(self.curve.points())))
-        self.curve.curveChanged.connect(
-            lambda points: self.curve_value.setText(tr("アンカーポイント: {len}").format(len=len(points)))
-        )
-        layout.addWidget(self.curve_value)
 
-        b = QDialogButtonBox(
+        self.set_settings(settings or {})
+        self.enabled.toggled.connect(self._emit_changed)
+        self.minimum.valueChanged.connect(self._emit_changed)
+        self.maximum.valueChanged.connect(self._emit_changed)
+        self.curve.curveChanged.connect(self._emit_changed)
+
+    def _emit_changed(self, *_args):
+        self.changed.emit()
+
+    def settings(self):
+        return {
+            "enabled": self.enabled.isChecked(),
+            "minimum": self.minimum.value() / 100.0,
+            "maximum": self.maximum.value() / 100.0,
+            "points": self.curve.points(),
+        }
+
+    def set_settings(self, settings):
+        widgets = (self.enabled, self.minimum, self.maximum, self.curve)
+        for widget in widgets:
+            widget.blockSignals(True)
+        try:
+            self.enabled.setChecked(bool(settings.get("enabled", True)))
+            minimum = int(round(float(settings.get("minimum", 0.1)) * 100))
+            maximum = int(round(float(settings.get("maximum", 1.0)) * 100))
+            self.minimum.setValue(max(1, min(100, minimum)))
+            self.maximum.setValue(max(10, min(300, maximum)))
+            self.curve.set_points(settings.get("points") or 1.0)
+        finally:
+            for widget in widgets:
+                widget.blockSignals(False)
+        self.minimum_label.setText(f"{self.minimum.value()}%")
+        self.maximum_label.setText(f"{self.maximum.value()}%")
+
+
+class PressureDialog(QDialog):
+    """The brush's pressure: follow the global preset, or its own setting.
+
+    ``presets`` is the list of preset names and ``preset_settings`` looks one
+    up, so the dialog can preview the chosen preset while it is selected.
+    """
+
+    editPresetsRequested = Signal()
+
+    def __init__(
+        self,
+        uses_global,
+        active_preset,
+        presets,
+        preset_settings,
+        brush_settings,
+        parent=None,
+    ):
+        super().__init__(parent)
+        self.setWindowTitle(tr("ブラシの筆圧"))
+        self.resize(440, 470)
+        self._preset_settings = preset_settings
+        self._brush_settings = dict(brush_settings)
+        layout = QVBoxLayout(self)
+
+        self.use_global = QRadioButton(tr("全体の設定を使う"))
+        self.use_brush = QRadioButton(tr("このブラシの設定を使う"))
+        self.preset = QComboBox()
+        self.preset.addItems(list(presets))
+        index = self.preset.findText(active_preset)
+        self.preset.setCurrentIndex(max(0, index))
+        edit_presets = QPushButton(tr("プリセットを編集…"))
+        edit_presets.clicked.connect(self._edit_presets)
+        preset_row = QHBoxLayout()
+        preset_row.setContentsMargins(22, 0, 0, 0)
+        preset_row.addWidget(QLabel(tr("プリセット")))
+        preset_row.addWidget(self.preset, 1)
+        preset_row.addWidget(edit_presets)
+        layout.addWidget(self.use_global)
+        layout.addLayout(preset_row)
+        layout.addWidget(self.use_brush)
+
+        self.editor = PressureEditor(self._brush_settings)
+        self.editor.changed.connect(self._remember_brush_settings)
+        # 全体の設定を使う間は、プリセットの中身を見せるだけなので薄く出す。
+        self._editor_opacity = QGraphicsOpacityEffect(self.editor)
+        self.editor.setGraphicsEffect(self._editor_opacity)
+        layout.addWidget(self.editor, 1)
+
+        (self.use_global if uses_global else self.use_brush).setChecked(True)
+        self.use_global.toggled.connect(self._sync_mode)
+        self.preset.currentIndexChanged.connect(self._sync_mode)
+        self._sync_mode()
+
+        buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
             | QDialogButtonBox.StandardButton.Cancel
         )
-        b.accepted.connect(self.accept); b.rejected.connect(self.reject)
-        layout.addWidget(b)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _remember_brush_settings(self):
+        if self.use_brush.isChecked():
+            self._brush_settings = self.editor.settings()
+
+    def _sync_mode(self, *_args):
+        """Global: show the chosen preset read-only. Brush: edit its own."""
+        uses_global = self.use_global.isChecked()
+        self.preset.setEnabled(uses_global)
+        self.editor.setEnabled(not uses_global)
+        self._editor_opacity.setOpacity(0.45 if uses_global else 1.0)
+        if uses_global:
+            shown = self._preset_settings(self.preset.currentText())
+        else:
+            shown = self._brush_settings
+        self.editor.set_settings(shown or {})
+
+    def _edit_presets(self):
+        self.reject()
+        self.editPresetsRequested.emit()
+
+    def uses_global(self):
+        return self.use_global.isChecked()
+
+    def active_preset(self):
+        return self.preset.currentText()
+
+    def brush_settings(self):
+        return dict(self._brush_settings)

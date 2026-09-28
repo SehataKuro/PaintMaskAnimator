@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QMessageBox
 
-from . import config, project_io
+from . import config, preferences, project_io
 from .i18n import tr
 from .logging_setup import get_logger
 
@@ -34,12 +34,20 @@ class AutosaveController:
     def path(self):
         return config.config_dir() / "autosave.pmap"
 
-    def start(self, interval_ms=180000):
+    def start(self):
         """Periodically snapshot the project so a crash doesn't lose work."""
         self.window._autosave_timer = QTimer(self.window)
-        self.window._autosave_timer.setInterval(int(interval_ms))
         self.window._autosave_timer.timeout.connect(self.save)
-        self.window._autosave_timer.start()
+        self.apply_preferences()
+
+    def apply_preferences(self):
+        """(Re)start or stop the timer from the autosave preferences."""
+        timer = self.window._autosave_timer
+        timer.setInterval(preferences.autosave_interval_minutes() * 60 * 1000)
+        if preferences.autosave_enabled():
+            timer.start()
+        else:
+            timer.stop()
 
     def save(self):
         # Must never raise into the event loop — autosave is best-effort.
