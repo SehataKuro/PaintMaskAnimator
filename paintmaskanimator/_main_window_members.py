@@ -234,7 +234,6 @@ class MainWindowMembers(_MembersBase):
         color_wheel_dock: Any
         color_wheel_scroll: Any
         color_chart: ColorChartPanel
-        color_chart_action: Any
         color_chart_data: Any
         color_chart_dock: Any
         column_group: Any

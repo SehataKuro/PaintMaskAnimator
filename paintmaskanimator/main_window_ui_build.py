@@ -430,19 +430,6 @@ class UIBuildMixin(MainWindowMembers):
         custom = QAction(tr("カスタム…"), self)
         custom.triggered.connect(self.colors.choose_accent_color)
         accent_menu.addAction(custom)
-        view_menu.addSeparator()
-        self.subview_action = QAction(tr("サブビュー"), self)
-        self.subview_action.setCheckable(True)
-        self.subview_action.setChecked(True)
-        self.subview_action.triggered.connect(self._set_subview_visible)
-        view_menu.addAction(self.subview_action)
-        self.color_chart_action = QAction(tr("カラーチャート"), self)
-        self.color_chart_action.setCheckable(True)
-        self.color_chart_action.setChecked(False)
-        self.color_chart_action.triggered.connect(
-            self._set_color_chart_visible
-        )
-        view_menu.addAction(self.color_chart_action)
 
     def _build_language_menu(self, view_menu):
         """Language picker. Qt resolves ``tr()`` when a widget is built, so the
@@ -474,18 +461,6 @@ class UIBuildMixin(MainWindowMembers):
             tr("次回の起動から新しい言語で表示されます。"),
         )
 
-    def _set_subview_visible(self, visible):
-        dock = getattr(self, "subview_dock", None)
-        if dock is not None:
-            dock.toggleView(bool(visible))
-            if visible:
-                dock.raise_()
-            return
-        if visible:
-            self.subview.show()
-            self.subview.raise_()
-        else:
-            self.subview.hide()
     def _set_color_chart_visible(self, visible):
         dock = getattr(self, "color_chart_dock", None)
         if dock is None:
@@ -820,12 +795,6 @@ class UIBuildMixin(MainWindowMembers):
             self.timeline_dock,
         ):
             self._sync_floating_title(dock, dock.isFloating())
-        self.subview_dock.visibilityChanged.connect(
-            lambda visible: self.subview_action.setChecked(bool(visible))
-        )
-        self.color_chart_dock.visibilityChanged.connect(
-            lambda visible: self.color_chart_action.setChecked(bool(visible))
-        )
         # 旧版と同じく通常は閉じた状態。表示メニューまたはパネルメニュー
         # から必要な時だけ開く。
         self.color_chart_dock.closeDockWidget()

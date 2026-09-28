@@ -343,7 +343,7 @@
     <message>
         <location filename="../canvas.py" line="1808"/>
         <location filename="../main_window_ui_build.py" line="143"/>
-        <location filename="../main_window_ui_build.py" line="580"/>
+        <location filename="../main_window_ui_build.py" line="555"/>
         <location filename="../onion.py" line="643"/>
         <location filename="../onion.py" line="929"/>
         <location filename="../subview.py" line="117"/>
@@ -815,12 +815,12 @@ Export into this folder?</translation>
         <translation>Timeline: Rename Layer</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="566"/>
+        <location filename="../main_window_ui_build.py" line="541"/>
         <source>回転を0°に戻す</source>
         <translation>Reset rotation to 0°</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="732"/>
+        <location filename="../main_window_ui_build.py" line="707"/>
         <source>ヒストリーパネルの使い方を表示します。</source>
         <translation>Show how to use the history panel.</translation>
     </message>
@@ -1692,8 +1692,7 @@ Supported formats: PNG, JPEG, TGA</translation>
         <translation>Custom…</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="434"/>
-        <location filename="../main_window_ui_build.py" line="753"/>
+        <location filename="../main_window_ui_build.py" line="728"/>
         <location filename="../subview.py" line="50"/>
         <source>サブビュー</source>
         <translation>Sub View</translation>
@@ -1701,8 +1700,7 @@ Supported formats: PNG, JPEG, TGA</translation>
     <message>
         <location filename="../main_window_color_chart.py" line="134"/>
         <location filename="../main_window_color_chart.py" line="153"/>
-        <location filename="../main_window_ui_build.py" line="439"/>
-        <location filename="../main_window_ui_build.py" line="739"/>
+        <location filename="../main_window_ui_build.py" line="714"/>
         <source>カラーチャート</source>
         <translation>Colour Chart</translation>
     </message>
@@ -1769,123 +1767,123 @@ Drop a used colour onto the middle of another to create a parent/child link.</tr
         <translation>PMAG loaded: {Path}</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="451"/>
-        <location filename="../main_window_ui_build.py" line="473"/>
+        <location filename="../main_window_ui_build.py" line="438"/>
+        <location filename="../main_window_ui_build.py" line="460"/>
         <source>言語 / Language</source>
         <translation>Language</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="455"/>
+        <location filename="../main_window_ui_build.py" line="442"/>
         <source>システムに合わせる</source>
         <translation>Follow system</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="474"/>
+        <location filename="../main_window_ui_build.py" line="461"/>
         <source>次回の起動から新しい言語で表示されます。</source>
         <translation>The new language will be used the next time the application starts.</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="562"/>
+        <location filename="../main_window_ui_build.py" line="537"/>
         <location filename="../subview.py" line="109"/>
         <source>100%表示</source>
         <translation>100%</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="564"/>
+        <location filename="../main_window_ui_build.py" line="539"/>
         <location filename="../subview.py" line="80"/>
         <source>全体を表示</source>
         <translation>Fit</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="579"/>
+        <location filename="../main_window_ui_build.py" line="554"/>
         <location filename="../subview.py" line="116"/>
         <source>拡大</source>
         <translation>Zoom</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="593"/>
+        <location filename="../main_window_ui_build.py" line="568"/>
         <source>キャンバス</source>
         <translation>Canvas</translation>
     </message>
     <message>
         <location filename="../main_window.py" line="1080"/>
-        <location filename="../main_window_ui_build.py" line="648"/>
+        <location filename="../main_window_ui_build.py" line="623"/>
         <source>ツール</source>
         <translation>Tools</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="665"/>
+        <location filename="../main_window_ui_build.py" line="640"/>
         <source>ツールプロパティ</source>
         <translation>Tool Properties</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="678"/>
+        <location filename="../main_window_ui_build.py" line="653"/>
         <source>アクション</source>
         <translation>Actions</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="687"/>
+        <location filename="../main_window_ui_build.py" line="662"/>
         <source>カラーサークル</source>
         <translation>Colour Wheel</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="698"/>
+        <location filename="../main_window_ui_build.py" line="673"/>
         <source>カラースライダー</source>
         <translation>Colour Sliders</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="707"/>
+        <location filename="../main_window_ui_build.py" line="682"/>
         <source>使用色</source>
         <translation>Used Colours</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="718"/>
+        <location filename="../main_window_ui_build.py" line="693"/>
         <source>使用色パネルの使い方を表示します。</source>
         <translation>Show how to use the used-colour panel.</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="722"/>
+        <location filename="../main_window_ui_build.py" line="697"/>
         <source>ヒストリー</source>
         <translation>History</translation>
     </message>
     <message>
         <location filename="../main_window.py" line="1083"/>
-        <location filename="../main_window_ui_build.py" line="762"/>
+        <location filename="../main_window_ui_build.py" line="737"/>
         <source>タイムライン</source>
         <translation>Timeline</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="839"/>
+        <location filename="../main_window_ui_build.py" line="808"/>
         <source>パネル</source>
         <translation>Panels</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="852"/>
+        <location filename="../main_window_ui_build.py" line="821"/>
         <source>ヘルプ</source>
         <translation>Help</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="853"/>
+        <location filename="../main_window_ui_build.py" line="822"/>
         <source>更新を確認…</source>
         <translation>Check for Updates…</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="857"/>
+        <location filename="../main_window_ui_build.py" line="826"/>
         <source>バージョン情報…</source>
         <translation>About…</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="930"/>
+        <location filename="../main_window_ui_build.py" line="899"/>
         <source>サブビューから {color} を取得しました</source>
         <translation>Picked {color} from the sub view</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="1147"/>
+        <location filename="../main_window_ui_build.py" line="1116"/>
         <source>{app} について</source>
         <translation>About {app}</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="1148"/>
+        <location filename="../main_window_ui_build.py" line="1117"/>
         <source>&lt;h3&gt;{app}&lt;/h3&gt;
 &lt;p&gt;Copyright &amp;copy; 2026 PaintMaskAnimator contributors&lt;/p&gt;
 &lt;p&gt;本ソフトウェアは &lt;b&gt;Apache License 2.0&lt;/b&gt; のもとで配布されています。
