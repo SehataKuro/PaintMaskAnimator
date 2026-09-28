@@ -54,6 +54,14 @@ def _show_unhandled_exception(exc_type, exc_value, exc_tb):
         print(details)
 
 
+def _apply_startup_preferences():
+    """Apply the Preferences that must be in place before the window exists."""
+    from . import constants, preferences
+    from .preferences_dialog import apply_undo_preferences
+    constants.CANVAS_WIDTH, constants.CANVAS_HEIGHT = preferences.new_canvas_size()
+    apply_undo_preferences()
+
+
 def main():
     from .logging_setup import configure_logging
     configure_logging()
@@ -72,6 +80,7 @@ def main():
     from . import theme, tooltip
     theme.apply_theme(app)
     tooltip.install(app)
+    _apply_startup_preferences()
     window = MainWindow()
     window.show()
     QTimer.singleShot(0, window.fit_canvas)

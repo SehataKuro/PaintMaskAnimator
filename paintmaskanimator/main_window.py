@@ -46,7 +46,7 @@ from PySide6.QtWidgets import (
 from .i18n import tr
 from .optional_deps import PILImage
 from .constants import APP_DISPLAY_NAME, OUTSIDE_MARGIN
-from . import constants, imaging, project_io, theme, updater
+from . import constants, imaging, layout_paper, preferences, pressure_settings, project_io, theme, updater
 from .actionpanel import ActionPanel
 from .canvas import PaintCanvas
 from .errors import OPERATION_ERRORS, OperationError
@@ -60,6 +60,7 @@ from .pressure import PressureDialog
 from .timeline import TimelineWidget
 from .toolpanel import ToolPanel, ToolSelectorPanel
 from .utils import blank_image, disable_windows_ink_feedback, install_app_event_filter, remove_app_event_filter, workspace_size
+from .new_document_dialog import NewDocumentDialog
 from .widgets import (CanvasSizeDialog, ShortcutDialog)
 from .progress import close_counter, create_counter, update_counter
 from .logging_setup import get_logger
@@ -168,6 +169,7 @@ class MainWindow(
                 self.canvas,
             ),
         )
+        self.apply_pressure_settings()
         self.autosave.start()
         QTimer.singleShot(0, self.autosave.maybe_restore)
     def status(self, message, level="info", timeout=4000):
@@ -189,9 +191,6 @@ class MainWindow(
         if app is not None:
             theme.apply_theme(app, name, persist=True)
         self._refresh_theme_dependent_ui()
-        if hasattr(self, "theme_actions"):
-            for key, action in self.theme_actions.items():
-                action.setChecked(key == theme.current_theme())
 
     def _on_canvas_cell_changed(self, frame_index, layer_index):
         self.canvas.sync_numbered_image_from_cell(
@@ -624,11 +623,28 @@ class MainWindow(
         w,h=workspace_size();availw=max(100,self.canvas.width()-40);availh=max(100,self.canvas.height()-40);z=min(availw/w,availh/h);self.canvas.zoom=z;self.canvas.pan=QPointF((self.canvas.width()-w*z)/2,(self.canvas.height()-h*z)/2);self.zoom.blockSignals(True);self.zoom.setValue(int(z*100));self.zoom.blockSignals(False);self.zoom_label.setText(f"{z*100:.0f}%");self.canvas.update()
 
     def new_doc(self):
-        d=CanvasSizeDialog(constants.CANVAS_WIDTH,constants.CANVAS_HEIGHT,tr("新規作成"),self)
+        d=NewDocumentDialog(*preferences.new_canvas_size(),self)
         if d.exec():
             self.replace_doc(*d.values())
+            layout_paper.set_last_used(d.paper_id())
+            if d.paper_id() is not None:
+                self.insert_layout_paper(layout_paper.paper(d.paper_id()))
             self.current_project_path = None
             self.project.update_title()
+
+    def insert_layout_paper(self, entry):
+        """Put a layout paper under every layer of a fresh document, as a draft."""
+        image = layout_paper.load_image(entry) if entry else None
+        if image is None:
+            self.status(tr("レイアウト用紙の画像を読み込めませんでした。"), "warning")
+            return
+        for frame in self.canvas.frames:
+            layer = Layer(layout_paper.layer_name(), blank_image(), is_draft=True)
+            self.canvas._place_imported_image(image, layer.image)
+            layer.has_content = True
+            frame.layers.insert(0, layer)
+        self.canvas.active_layer_index = 1
+        self.refresh_ui()
 
     def check_for_updates_interactive(self):
         # Reads the public GitHub Releases API; no token/credential is required.
@@ -1067,13 +1083,33 @@ class MainWindow(
         event.accept()
 
     def pressure(self):
-        d=PressureDialog(self.canvas.pressure_enabled,self.canvas.pressure_min,self.canvas.pressure_max,getattr(self.canvas,"pressure_curve_points",self.canvas.pressure_curve),self)
+        d = PressureDialog(
+            pressure_settings.brush_uses_global(),
+            pressure_settings.active_preset_name(),
+            pressure_settings.preset_names(),
+            pressure_settings.preset,
+            pressure_settings.brush_settings(),
+            self,
+        )
+        d.editPresetsRequested.connect(
+            lambda: self.show_preferences("pressure")
+        )
         if d.exec():
-            self.canvas.pressure_enabled = d.enabled.isChecked()
-            self.canvas.pressure_min = d.minimum.value() / 100.0
-            self.canvas.pressure_max = d.maximum.value() / 100.0
-            self.canvas.pressure_curve_points = d.curve.points()
-            self.canvas.pressure_curve = 1.0
+            pressure_settings.set_brush_uses_global(d.uses_global())
+            pressure_settings.set_active_preset(d.active_preset())
+            pressure_settings.set_brush_settings(d.brush_settings())
+            self.apply_pressure_settings()
+            if hasattr(self, "preferences_dialog"):
+                self.preferences_dialog.reload_pressure_presets()
+
+    def apply_pressure_settings(self):
+        """Point the canvas at the pressure setting the brush uses now."""
+        settings = pressure_settings.effective_settings()
+        self.canvas.pressure_enabled = settings["enabled"]
+        self.canvas.pressure_min = settings["minimum"]
+        self.canvas.pressure_max = settings["maximum"]
+        self.canvas.pressure_curve_points = settings["points"]
+        self.canvas.pressure_curve = 1.0
     def shortcuts(self):
         categories = [
             (tr("ファイル・編集"), self.file_edit_actions),

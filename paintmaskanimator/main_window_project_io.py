@@ -392,28 +392,8 @@ class ProjectIOController:
                 ),
             )
 
-            pressure = metadata.get("pressure", {})
-            self.window.canvas.pressure_enabled = bool(
-                pressure.get("enabled", True)
-            )
-            self.window.canvas.pressure_min = float(
-                pressure.get("minimum", 0.05)
-            )
-            self.window.canvas.pressure_max = float(
-                pressure.get("maximum", 1.0)
-            )
-            self.window.canvas.pressure_curve = float(
-                pressure.get("curve", 1.0)
-            )
-            saved_points = pressure.get("points")
-            if isinstance(saved_points, list) and len(saved_points) >= 2:
-                self.window.canvas.pressure_curve_points = saved_points
-            else:
-                exponent = self.window.canvas.pressure_curve
-                self.window.canvas.pressure_curve_points = [
-                    [0.0, 0.0], [0.5, 0.5 ** exponent], [1.0, 1.0]
-                ]
-
+            # 筆圧は描く人とペンの設定なので、ファイルに入っていても使わない
+            # （環境設定のプリセットとブラシの設定を使う）。
             self.window.timeline.fps.setValue(
                 max(1, min(60, int(metadata.get("fps", 24))))
             )
