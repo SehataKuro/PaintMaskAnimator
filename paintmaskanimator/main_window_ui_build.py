@@ -9,7 +9,7 @@ own -- everything is assigned onto ``self``.
 """
 from typing import Any
 from PySide6.QtCore import QSize, QTimer, Qt
-from PySide6.QtGui import QAction, QActionGroup, QKeySequence
+from PySide6.QtGui import QAction, QActionGroup, QGuiApplication, QKeySequence
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -408,7 +408,11 @@ class UIBuildMixin(MainWindowMembers):
         group = QActionGroup(self)
         group.setExclusive(True)
         self.theme_actions = {}
-        labels = {"light": tr("ライト（明るい）"), "dark": tr("ダーク（暗い）")}
+        labels = {
+            theme.SYSTEM: tr("システムに合わせる"),
+            "light": tr("ライト（明るい）"),
+            "dark": tr("ダーク（暗い）"),
+        }
         active = theme.current_theme()
         for name in theme.available_themes():
             action = QAction(labels.get(name, name), self)
@@ -418,8 +422,20 @@ class UIBuildMixin(MainWindowMembers):
             group.addAction(action)
             theme_menu.addAction(action)
             self.theme_actions[name] = action
+            if name == theme.SYSTEM:
+                theme_menu.addSeparator()
+        # 「システムに合わせる」のときは、OSの外観の切り替えに追従する。
+        QGuiApplication.styleHints().colorSchemeChanged.connect(
+            self._on_system_color_scheme_changed
+        )
         self._build_language_menu(view_menu)
         accent_menu = view_menu.addMenu(tr("アクセントカラー"))
+        system_accent = QAction(tr("システムに合わせる"), self)
+        system_accent.triggered.connect(
+            lambda _=False: self.colors.set_accent(theme.SYSTEM)
+        )
+        accent_menu.addAction(system_accent)
+        accent_menu.addSeparator()
         for label, hexval in theme.accent_presets():
             act = QAction(f"{label}", self)
             act.triggered.connect(
@@ -430,6 +446,10 @@ class UIBuildMixin(MainWindowMembers):
         custom = QAction(tr("カスタム…"), self)
         custom.triggered.connect(self.colors.choose_accent_color)
         accent_menu.addAction(custom)
+
+    def _on_system_color_scheme_changed(self, *_args):
+        if theme.current_theme() == theme.SYSTEM:
+            self.set_theme(theme.SYSTEM)
 
     def _build_language_menu(self, view_menu):
         """Language picker. Qt resolves ``tr()`` when a widget is built, so the

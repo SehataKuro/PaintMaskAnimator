@@ -13,8 +13,10 @@ This module owns two things:
 
 The chosen theme is persisted through :mod:`.config` so it survives restarts.
 """
+import sys
+
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QColor, QPalette
+from PySide6.QtGui import QColor, QGuiApplication, QPalette
 from PySide6.QtWidgets import (
     QStatusBar, QLabel, QHBoxLayout, QWidget, QFrame, QSizePolicy,
 )
@@ -25,10 +27,23 @@ from .logging_setup import get_logger
 
 log = get_logger(__name__)
 
+IS_MAC = sys.platform == "darwin"
+
 CONFIG_KEY = "ui_theme"
 ACCENT_KEY = "ui_accent"
+# Palette used when nothing else applies.
 DEFAULT_THEME = "light"
 DEFAULT_ACCENT = "#2f6fed"
+# "system" follows the OS appearance / accent colour. It is the default on
+# macOS, where apps are expected to follow System Settings; elsewhere the
+# previous fixed defaults are kept so existing users see no change.
+SYSTEM = "system"
+DEFAULT_THEME_SETTING = SYSTEM if IS_MAC else DEFAULT_THEME
+DEFAULT_ACCENT_SETTING = SYSTEM if IS_MAC else DEFAULT_ACCENT
+
+# The OS accent colour, read from the platform palette before the app installs
+# its own palette (after that, QApplication.palette() returns ours).
+_system_accent = None
 
 # Named accent presets offered in the "表示 > アクセントカラー" menu. The
 # custom picker can still choose any colour; these are just quick presets.
@@ -116,8 +131,66 @@ PALETTES = {
 }
 
 
+# macOS: neutral greys closer to the system's own window, sidebar and
+# separator colours, so the app sits naturally next to native apps.
+MAC_OVERRIDES = {
+    "light": {
+        "window": "#ececec",
+        "surface": "#ffffff",
+        "surface_alt": "#f5f5f5",
+        "border": "#d6d6d6",
+        "text": "#1d1d1f",
+        "text_muted": "#6e6e73",
+        "hover": "#e2e2e4",
+        "statusbar": "#ececec",
+    },
+    "dark": {
+        "window": "#1e1e1e",
+        "surface": "#2b2b2b",
+        "surface_alt": "#323232",
+        "border": "#3f3f3f",
+        "text": "#e8e8ea",
+        "text_muted": "#98989d",
+        "hover": "#3a3a3c",
+        "statusbar": "#1e1e1e",
+    },
+}
+
+
 def available_themes():
-    return tuple(PALETTES.keys())
+    """Theme settings offered in the menu: follow the OS, or a fixed palette."""
+    return (SYSTEM,) + tuple(PALETTES.keys())
+
+
+def system_theme():
+    """``"dark"`` or ``"light"`` from the OS appearance (light if unknown)."""
+    app = QGuiApplication.instance()
+    if app is None:
+        return DEFAULT_THEME
+    scheme = QGuiApplication.styleHints().colorScheme()
+    return "dark" if scheme == Qt.ColorScheme.Dark else "light"
+
+
+def resolved_theme(name=None):
+    """The palette name actually used for a theme setting."""
+    if name is None:
+        name = current_theme()
+    if name == SYSTEM:
+        return system_theme()
+    return name if name in PALETTES else DEFAULT_THEME
+
+
+def system_accent():
+    """The OS accent colour, or ``DEFAULT_ACCENT`` when it is unavailable."""
+    global _system_accent
+    if _system_accent is None:
+        app = QGuiApplication.instance()
+        if app is None:
+            return DEFAULT_ACCENT
+        role = getattr(QPalette.ColorRole, "Accent", QPalette.ColorRole.Highlight)
+        color = QGuiApplication.palette().color(role)
+        _system_accent = color.name() if color.isValid() else DEFAULT_ACCENT
+    return _system_accent
 
 
 def _mix(a, b, ratio):
@@ -153,10 +226,10 @@ def palette(name=None):
     A copy is returned with the user's accent colour blended in, so callers
     always read a consistent, up-to-date accent.
     """
-    if name is None:
-        name = current_theme()
-    base = PALETTES.get(name, PALETTES[DEFAULT_THEME])
-    c = dict(base)
+    name = resolved_theme(name)
+    c = dict(PALETTES.get(name, PALETTES[DEFAULT_THEME]))
+    if IS_MAC:
+        c.update(MAC_OVERRIDES.get(name, {}))
     accent = str(current_accent())
     c["accent"] = accent
     c["accent_text"] = _contrast_text(accent)
@@ -170,13 +243,22 @@ def palette(name=None):
 
 
 def current_theme():
-    name = config.get_value(CONFIG_KEY, DEFAULT_THEME)
-    return name if name in PALETTES else DEFAULT_THEME
+    """The stored theme setting: ``"system"``, ``"light"`` or ``"dark"``."""
+    name = config.get_value(CONFIG_KEY, DEFAULT_THEME_SETTING)
+    return name if name in available_themes() else DEFAULT_THEME_SETTING
+
+
+def accent_setting():
+    """The stored accent setting: ``"system"`` or a hex colour."""
+    value = config.get_value(ACCENT_KEY, DEFAULT_ACCENT_SETTING)
+    if value == SYSTEM or QColor(value).isValid():
+        return value
+    return DEFAULT_ACCENT_SETTING
 
 
 def current_accent():
-    value = config.get_value(ACCENT_KEY, DEFAULT_ACCENT)
-    return value if QColor(value).isValid() else DEFAULT_ACCENT
+    value = accent_setting()
+    return system_accent() if value == SYSTEM else value
 
 
 def accent():
@@ -194,11 +276,12 @@ def build_stylesheet(name):
     QWidget {{
         color: {c['text']};
     }}
+    /* Fallback for tooltips the custom popup (tooltip.py) does not handle.
+       A native tooltip window is rectangular, so no rounded corners here. */
     QToolTip {{
         background-color: {c['surface']};
         color: {c['text']};
         border: 1px solid {c['border']};
-        border-radius: 6px;
         padding: 5px 8px;
     }}
 
@@ -480,6 +563,49 @@ def build_stylesheet(name):
     QSplitter::handle {{ background-color: {c['border']}; }}
     QSplitter::handle:hover {{ background-color: {c['accent']}; }}
     QMessageBox, QFileDialog, QColorDialog, QInputDialog {{ background-color: {c['window']}; }}
+    QLineEdit:focus, QPlainTextEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus {{
+        border-color: {c['accent']};
+    }}
+    """ + (_mac_stylesheet(c) if IS_MAC else "")
+
+
+def _mac_stylesheet(c):
+    """macOS additions: menus, scroll bars and controls closer to AppKit."""
+    return f"""
+    /* Context menus: rounded panel, inset rounded highlight, compact rows. */
+    QMenu {{
+        border-radius: 10px;
+        padding: 5px;
+    }}
+    QMenu::item {{
+        padding: 4px 18px 4px 12px;
+        border-radius: 5px;
+    }}
+    QMenu::separator {{ margin: 5px 10px; }}
+    /* Thin overlay-style scroll bars with no visible track. */
+    QScrollBar:vertical {{ width: 10px; background: transparent; }}
+    QScrollBar:horizontal {{ height: 10px; background: transparent; }}
+    QScrollBar::handle:vertical {{
+        background: {_mix(c['text_muted'], c['window'], 0.55)};
+        border: 2px solid transparent;
+        border-radius: 5px;
+        min-height: 28px;
+        margin: 1px;
+    }}
+    QScrollBar::handle:horizontal {{
+        background: {_mix(c['text_muted'], c['window'], 0.55)};
+        border-radius: 5px;
+        min-width: 28px;
+        margin: 1px;
+    }}
+    QScrollBar::handle:hover {{ background: {c['text_muted']}; }}
+    /* Push buttons: AppKit-like height and radius. */
+    QPushButton {{
+        border-radius: 6px;
+        padding: 4px 12px;
+    }}
+    QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {{ border-radius: 6px; }}
+    QGroupBox {{ border-radius: 9px; }}
     """
 
 
@@ -529,10 +655,12 @@ def apply_theme(app, name=None, persist=False):
     """Apply the theme to the ``QApplication`` and optionally persist it."""
     if name is None:
         name = current_theme()
-    if name not in PALETTES:
+    if name not in available_themes():
         name = DEFAULT_THEME
     if persist:
         config.set_value(CONFIG_KEY, name)
+    # Read the OS accent while the platform palette is still in place.
+    system_accent()
     # Fusion honours QPalette consistently across platforms, which the native
     # Windows style does not — required for a complete dark theme.
     try:
@@ -541,14 +669,14 @@ def apply_theme(app, name=None, persist=False):
         log.debug("could not apply Fusion style, using platform default: %s", exc)
     app.setPalette(build_qpalette(name))
     app.setStyleSheet(build_stylesheet(name))
-    app.setProperty("ui_theme", name)
+    app.setProperty("ui_theme", resolved_theme(name))
     return name
 
 
 def set_accent(app, color, persist=True):
-    """Persist a new accent colour and re-apply the current theme's styles."""
+    """Persist a new accent colour (or ``"system"``) and re-apply the styles."""
     hexval = QColor(color).name() if not isinstance(color, str) else color
-    if not QColor(hexval).isValid():
+    if hexval != SYSTEM and not QColor(hexval).isValid():
         return current_accent()
     if persist:
         config.set_value(ACCENT_KEY, hexval)
