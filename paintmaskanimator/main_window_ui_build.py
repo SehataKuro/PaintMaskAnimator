@@ -506,6 +506,9 @@ class UIBuildMixin(MainWindowMembers):
             self.timeline.apply_theme()
         if hasattr(self, "dock_manager"):
             self._customize_docking_hover()
+            # スタイルシートの付け直しでタブの min/max-height が QSS の値に
+            # 戻るため、固定の高さを付け直す。
+            self._sync_all_area_hamburgers()
     def build_ui(self):
         QtAds.CDockManager.setConfigFlag(
             QtAds.CDockManager.eConfigFlag.AlwaysShowTabs, True
@@ -559,6 +562,13 @@ class UIBuildMixin(MainWindowMembers):
             bar.addWidget(w)
         cv.addLayout(bar)
         self.dock_manager = QtAds.CDockManager(self)
+        # ADS の既定（FollowPalette）はパレットが変わるたびに組み込みの
+        # スタイルシートを読み込み直し、テーマ切り替えの後に
+        # _customize_docking_hover() のスタイルを上書きしてしまう。
+        # 配色はこちらで付けるので、自動の読み込み直しを止める。
+        self.dock_manager.setColorSchemeMode(
+            QtAds.CDockManager.ColorSchemeMode.Light
+        )
         self._customize_docking_hover()
         self._setup_split_drop_overlay()
         self.dock_manager.floatingWidgetCreated.connect(

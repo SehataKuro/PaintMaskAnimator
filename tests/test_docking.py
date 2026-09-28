@@ -1058,3 +1058,79 @@ def test_default_workspace_is_always_in_the_menu(qapp, tmp_path, monkeypatch):
         assert default.isChecked()
     finally:
         window.close()
+
+
+
+def _active_dock_tab_images(window, qapp):
+    """Return window-grab crops of every fully visible active dock tab."""
+    for _ in range(3):
+        qapp.processEvents()
+    image = window.grab().toImage()
+    crops = {}
+    for dock in _panel_docks(window):
+        tab = dock.tabWidget()
+        if (
+            tab.isActiveTab()
+            and tab.visibleRegion().boundingRect() == tab.rect()
+        ):
+            rect = QRect(tab.mapTo(window, QPoint(0, 0)), tab.size())
+            crops[dock.objectName()] = image.copy(rect)
+    return crops
+
+
+def test_theme_switch_keeps_dock_tab_style(qapp, tmp_path, monkeypatch):
+    """ADS はパレットが変わると既定のスタイルシートを読み込み直し、選択中の
+    タブのスタイルを消していた。切り替え後も、そのテーマで起動したときと
+    同じ見た目であること。"""
+    from paintmaskanimator import config, theme
+
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setattr(AutosaveController, "maybe_restore", lambda self: None)
+    store = {}
+    monkeypatch.setattr(
+        config, "get_value", lambda key, default=None: store.get(key, default)
+    )
+    monkeypatch.setattr(config, "set_value", store.__setitem__)
+    saved_palette = qapp.palette()
+
+    # ADS が反応するのはパレットの変更。アプリ全体の setStyle/setStyleSheet は
+    # それまでのテストが残したウィジェットをすべて磨き直して数分かかるため、
+    # ここではパレットだけを切り替える。
+    def apply_palette_only(app, name=None, persist=False):
+        if persist:
+            config.set_value(theme.CONFIG_KEY, name)
+        app.setPalette(theme.build_qpalette(name))
+        return name
+
+    monkeypatch.setattr(theme, "apply_theme", apply_palette_only)
+
+    def open_window(name):
+        store[theme.CONFIG_KEY] = name
+        theme.apply_theme(qapp, name)
+        window = MainWindow()
+        window.resize(1200, 800)
+        window.show()
+        qapp.processEvents()
+        return window
+
+    try:
+        started_dark = open_window("dark")
+        expected = _active_dock_tab_images(started_dark, qapp)
+        started_dark.close()
+
+        window = open_window("light")
+        try:
+            window.set_theme("dark")
+            # ADS の読み込み直しはイベントループで起きる。
+            actual = _active_dock_tab_images(window, qapp)
+        finally:
+            window.close()
+
+        assert store[theme.CONFIG_KEY] == "dark"
+        assert expected
+        assert actual.keys() == expected.keys()
+        for name, tab_image in actual.items():
+            assert tab_image == expected[name], name
+    finally:
+        qapp.setPalette(saved_palette)
