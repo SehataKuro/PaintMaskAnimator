@@ -198,7 +198,8 @@ def build_stylesheet(name):
         background-color: {c['surface']};
         color: {c['text']};
         border: 1px solid {c['border']};
-        padding: 4px 6px;
+        border-radius: 6px;
+        padding: 5px 8px;
     }}
 
     /* Menu bar & menus */
@@ -217,7 +218,8 @@ def build_stylesheet(name):
     QMenu {{
         background-color: {c['surface']};
         border: 1px solid {c['border']};
-        padding: 4px;
+        border-radius: 8px;
+        padding: 5px;
     }}
     QMenu::item {{
         padding: 6px 22px;
@@ -247,6 +249,47 @@ def build_stylesheet(name):
         color: {c['accent_text']};
     }}
     QPushButton:default:hover {{ background-color: {c['accent_hover']}; }}
+
+    /* Icon-only buttons (setProperty("iconButton", True)): no chrome until
+       hovered, a soft accent wash when checked. */
+    QPushButton[iconButton="true"], QToolButton[iconButton="true"] {{
+        background: transparent;
+        border: 1px solid transparent;
+        border-radius: 6px;
+        padding: 0;
+    }}
+    QPushButton[iconButton="true"]:hover, QToolButton[iconButton="true"]:hover {{
+        background-color: {c['hover']};
+    }}
+    QPushButton[iconButton="true"]:pressed, QToolButton[iconButton="true"]:pressed,
+    QPushButton[iconButton="true"]:checked, QToolButton[iconButton="true"]:checked {{
+        background-color: {c['selection']};
+        border-color: {c['accent']};
+    }}
+    /* Primary round action (e.g. timeline play). */
+    QPushButton[accentButton="true"] {{
+        background-color: {c['accent']};
+        border: none;
+        border-radius: 12px;
+        padding: 0;
+    }}
+    QPushButton[accentButton="true"]:hover {{ background-color: {c['accent_hover']}; }}
+    QPushButton[accentButton="true"]:checked {{ background-color: {c['accent_hover']}; }}
+    /* On/off chip (e.g. onion skin). */
+    QPushButton[toggleChip="true"] {{
+        background: transparent;
+        border: 1px solid {c['border']};
+        border-radius: 12px;
+        padding: 0 10px 0 8px;
+        color: {c['text_muted']};
+    }}
+    QPushButton[toggleChip="true"]:hover {{ background-color: {c['hover']}; color: {c['text']}; }}
+    QPushButton[toggleChip="true"]:checked {{
+        background-color: {c['selection']};
+        border-color: {c['accent']};
+        color: {c['text']};
+        font-weight: 600;
+    }}
 
     /* Text entry */
     QLineEdit, QPlainTextEdit, QSpinBox, QDoubleSpinBox, QComboBox {{
@@ -412,18 +455,18 @@ def build_stylesheet(name):
 
     /* Tabs */
     QTabBar::tab {{
-        background: {c['surface_alt']};
-        border: 1px solid {c['border']};
+        background: transparent;
+        color: {c['text_muted']};
+        border: none;
+        border-bottom: 2px solid transparent;
         padding: 5px 12px;
         margin-right: 2px;
-        border-top-left-radius: 6px;
-        border-top-right-radius: 6px;
     }}
     QTabBar::tab:selected {{
-        background: {c['surface']};
-        border-bottom-color: {c['surface']};
+        color: {c['text']};
+        border-bottom-color: {c['accent']};
     }}
-    QTabBar::tab:hover {{ background: {c['hover']}; }}
+    QTabBar::tab:hover:!selected {{ color: {c['text']}; background: {c['hover']}; }}
 
     /* Keep Fusion's native checkbox/radio glyphs. Styling their indicator
        background in QSS hides the check mark on Windows. */
@@ -431,6 +474,8 @@ def build_stylesheet(name):
     QTabWidget::pane {{
         background: {c['surface']};
         border: 1px solid {c['border']};
+        border-radius: 6px;
+        top: -1px;
     }}
     QSplitter::handle {{ background-color: {c['border']}; }}
     QSplitter::handle:hover {{ background-color: {c['accent']}; }}
@@ -570,6 +615,7 @@ class StatusBar(QStatusBar):
 
         self._current_level = "info"
         self._apply_level("info")
+        self._sync_idle()
 
     # -- public API --------------------------------------------------------
     def show_message(self, message, level="info", timeout=4000):
@@ -579,6 +625,7 @@ class StatusBar(QStatusBar):
         self._current_level = level
         self._apply_level(level)
         self._text.setText(message or "")
+        self._sync_idle()
         self._clear_timer.stop()
         if timeout and timeout > 0:
             self._clear_timer.start(int(timeout))
@@ -588,6 +635,7 @@ class StatusBar(QStatusBar):
         self._text.clear()
         self._current_level = "info"
         self._apply_level("info")
+        self._sync_idle()
 
     def refresh_palette(self):
         """Re-read colours after a theme switch."""
@@ -605,15 +653,22 @@ class StatusBar(QStatusBar):
         else:
             if not self._clear_timer.isActive():
                 self._text.clear()
+        self._sync_idle()
+
+    def _sync_idle(self):
+        # With no message, hide the stripe and icon so the bar stays quiet.
+        has_text = bool(self._text.text())
+        self._stripe.setVisible(has_text)
+        self._icon.setVisible(has_text)
 
     def _apply_level(self, level):
+        from . import icons  # icons imports this module for the palette
+
         c = palette()
         color = c.get(level, c["info"])
-        self._stripe.setStyleSheet(f"background-color: {color};")
-        self._icon.setText(_SEVERITY_ICON.get(level, ""))
-        self._icon.setStyleSheet(
-            f"color: {color}; font-weight: bold; font-size: 13px;"
-        )
+        self._stripe.setStyleSheet(f"background-color: {color}; border-radius: 2px;")
+        dpr = self.devicePixelRatioF()
+        self._icon.setPixmap(icons.pixmap(level, 14, color, color, dpr))
         weight = "600" if level in ("warning", "error") else "500"
         self._text.setStyleSheet(
             f"color: {c['text'] if level == 'info' else color}; "

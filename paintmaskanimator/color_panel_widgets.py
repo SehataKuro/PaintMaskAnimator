@@ -460,7 +460,7 @@ class ReplacementColorPopup(QDialog):
 
 
 class ColorVisibilityCheckBox(QCheckBox):
-    """固定幅 [●]/[-] と、複数行をなぞる表示ON/OFFに対応。"""
+    """固定幅の目のアイコンと、複数行をなぞる表示ON/OFFに対応。"""
     altClicked = Signal()
     sweepStarted = Signal(bool)
     sweepMoved = Signal(QPoint)
@@ -551,18 +551,22 @@ class MaskColorCheckBox(QCheckBox):
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, False)
 
     def paintEvent(self, event):
+        # ON は塗りつぶした的、OFF は細い輪だけにして、状態を形と色の両方で示す。
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
-        color = (
-            self.palette().text().color()
-            if self.isEnabled() else self.palette().mid().color()
-        )
-        painter.setPen(color)
-        painter.drawText(
-            self.rect(),
-            Qt.AlignmentFlag.AlignCenter,
-            "[●]" if self.isChecked() else "[-]",
-        )
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        center = QPointF(self.rect().center()) + QPointF(0.5, 0.5)
+        if self.isChecked() and self.isEnabled():
+            accent = self.palette().highlight().color()
+            painter.setPen(QPen(accent, 1.6))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawEllipse(center, 6.5, 6.5)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(accent)
+            painter.drawEllipse(center, 3.5, 3.5)
+        else:
+            painter.setPen(QPen(self.palette().mid().color(), 1.4))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawEllipse(center, 6.5, 6.5)
         painter.end()
 
     def nextCheckState(self):

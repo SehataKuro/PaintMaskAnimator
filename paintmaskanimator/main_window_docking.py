@@ -7,8 +7,9 @@ snapping. They run against a live ``MainWindow`` instance and its
 ``dock_manager``.
 """
 from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, QSize, QTimer, Qt
-from PySide6.QtGui import QColor, QCursor, QIcon, QPainter, QPen, QPixmap
+from PySide6.QtGui import QCursor, QIcon
 from PySide6.QtWidgets import (
+    QAbstractButton,
     QApplication,
     QLabel,
     QMenu,
@@ -25,7 +26,7 @@ import sys
 import PySide6QtAds as QtAds
 from PySide6.QtCore import QEasingCurve, QEventLoop, QObject, QPropertyAnimation
 from PySide6.QtWidgets import QGraphicsOpacityEffect
-from . import config, theme
+from . import config, icons, theme
 from .widgets import HSVColorWheel
 from .logging_setup import get_logger
 
@@ -353,22 +354,8 @@ class DockingMixin(MainWindowMembers):
         splitter.setSizes(sizes)
 
     def _hamburger_icon(self):
-        """フォントに依存しない3本線アイコンを生成して使い回す。"""
-        cached = getattr(self, "_hamburger_icon_cache", None)
-        if cached is not None:
-            return cached
-        pixmap = QPixmap(24, 24)
-        pixmap.fill(Qt.GlobalColor.transparent)
-        painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
-        pen = QPen(QColor("#53606a"), 2.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
-        painter.setPen(pen)
-        for y in (7, 12, 17):
-            painter.drawLine(5, y, 19, y)
-        painter.end()
-        icon = QIcon(pixmap)
-        self._hamburger_icon_cache = icon
-        return icon
+        """パネルメニューの3本線アイコン（テーマの控えめな文字色）。"""
+        return icons.icon("menu", theme.palette()["text_muted"])
 
     def _add_dock_hamburger_old(self, dock, specific_builder=None):
         """ドックのタブ左端にハンバーガーメニューボタンを設置する。
@@ -617,25 +604,33 @@ class DockingMixin(MainWindowMembers):
     def _customize_docking_hover(self):
         """Apply richer hover feedback while keeping ADS drop geometry intact."""
         c = theme.palette()
+        # タブは枠で囲まず、選択中だけ文字を濃くして下線を引く。
         self.dock_manager.setStyleSheet(
             "ads--CDockAreaWidget{border:0;background:%(window)s;}"
             "ads--CDockAreaWidget:hover{border:0;}"
-            "ads--CDockAreaTitleBar{background:%(surface_alt)s;"
-            "border-bottom:1px solid %(border)s;min-height:22px;max-height:22px;}"
-            "ads--CDockAreaTitleBar:hover{background:%(hover)s;border-bottom-color:%(border)s;}"
-            "ads--CDockWidgetTab{background:%(surface_alt)s;color:%(text_muted)s;"
-            "border:1px solid transparent;border-radius:5px 5px 0 0;"
-            "padding:0 9px;min-height:20px;max-height:20px;}"
-            "ads--CDockWidgetTab:hover{background:%(hover)s;color:%(text)s;"
-            "border-color:transparent;}"
-            "ads--CDockWidgetTab[activeTab=\"true\"]{background:%(surface)s;"
-            "color:%(text)s;border-color:%(border)s;border-bottom-color:%(surface)s;}"
-            "ads--CDockWidgetTab[activeTab=\"true\"]:hover{background:%(surface)s;"
-            "color:%(text)s;border-color:%(accent)s;}"
+            "ads--CDockAreaTitleBar{background:%(window)s;"
+            "border-bottom:1px solid %(border)s;min-height:24px;max-height:24px;}"
+            "ads--CDockAreaTitleBar:hover{background:%(window)s;border-bottom-color:%(border)s;}"
+            "ads--CDockWidgetTab{background:transparent;color:%(text_muted)s;"
+            "border:none;border-bottom:2px solid transparent;"
+            "padding:0 8px;min-height:22px;max-height:22px;}"
+            "ads--CDockWidgetTab:hover{color:%(text)s;"
+            "border-bottom-color:%(border)s;}"
+            "ads--CDockWidgetTab[activeTab=\"true\"]{background:transparent;"
+            "color:%(text)s;border-bottom-color:%(accent)s;}"
+            "ads--CDockWidgetTab[activeTab=\"true\"]:hover{background:transparent;"
+            "color:%(text)s;border-bottom-color:%(accent)s;}"
+            "ads--CDockWidgetTab QLabel{font-weight:500;}"
+            "ads--CDockWidgetTab[activeTab=\"true\"] QLabel{font-weight:600;}"
+            "ads--CTitleBarButton{background:transparent;border:none;"
+            "border-radius:4px;padding:2px;}"
+            "ads--CTitleBarButton:hover{background:%(hover)s;}"
+            "QToolButton#dockHamburger:hover{background:%(hover)s;border-radius:4px;}"
             "ads--CDockSplitter::handle{background:%(border)s;}"
-            "ads--CDockSplitter::handle:hover{background:%(text_muted)s;}"
+            "ads--CDockSplitter::handle:hover{background:%(accent)s;}"
             % c
         )
+        self._apply_dock_chrome_icons()
 
         # Keep the standard ADS target calculation and drop-area preview, but
         # make its central cross glyph fully transparent.
@@ -649,6 +644,24 @@ class DockingMixin(MainWindowMembers):
         for cross in self.dock_manager.findChildren(QtAds.CDockOverlayCross):
             cross.setWindowOpacity(0.0)
             self._expand_docking_hit_zones(cross)
+
+    def _apply_dock_chrome_icons(self):
+        """ドックの見出しボタン（≡・×など）をテーマ色の線アイコンにそろえる。"""
+        muted = theme.palette()["text_muted"]
+        close_icon = icons.icon("close", muted)
+        provider = QtAds.CDockManager.iconProvider()
+        provider.registerCustomIcon(QtAds.DockAreaCloseIcon, close_icon)
+        provider.registerCustomIcon(QtAds.TabCloseIcon, close_icon)
+        provider.registerCustomIcon(QtAds.DockAreaMenuIcon, icons.icon("chevron_down", muted))
+        for name, icon in (
+            ("dockAreaCloseButton", close_icon),
+            ("floatingCloseButton", close_icon),
+            ("tabsMenuButton", icons.icon("chevron_down", muted)),
+            ("dockHamburger", self._hamburger_icon()),
+        ):
+            for button in self.dock_manager.findChildren(QAbstractButton, name):
+                button.setIcon(icon)
+                button.setIconSize(QSize(12, 12))
 
     def _expand_docking_hit_zones(self, cross):
         """Divide the complete hovered panel into five ADS drop targets."""
@@ -1334,14 +1347,17 @@ class DockingMixin(MainWindowMembers):
             if close_button is None:
                 close_button = QToolButton(title_bar)
                 close_button.setObjectName("floatingCloseButton")
-                close_button.setText("×")
+                close_button.setIcon(
+                    icons.icon("close", theme.palette()["text_muted"])
+                )
+                close_button.setIconSize(QSize(12, 12))
                 close_button.setToolTip(tr("パネルを閉じる"))
                 close_button.setAutoRaise(True)
                 close_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
                 close_button.setFixedSize(18, 18)
                 close_button.setStyleSheet(
                     "QToolButton{border:none;background:transparent;"
-                    "padding:0;margin:0;font-size:16px;}"
+                    "padding:0;margin:0;border-radius:4px;}"
                     "QToolButton:hover{background:rgba(220,60,60,120);}"
                 )
                 close_button.clicked.connect(

@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from . import icons
 from .i18n import tr
 from .constants import ALT_KEY_LABEL, CTRL_KEY_LABEL
 from .logging_setup import get_logger
@@ -158,14 +159,21 @@ class UsedColorPanel(
         layout = QVBoxLayout(self)
         layout.setContentsMargins(3, 3, 3, 3)
         layout.setSpacing(2)
-        layout.addWidget(QLabel(tr("<b>使用色</b>")))
-
+        # パネル名はドックのタブに出ているので、色数とフォルダー作成を1行に置く。
+        top_row = QHBoxLayout()
+        top_row.setContentsMargins(2, 0, 0, 2)
+        top_row.setSpacing(4)
         self.count_label = QLabel(tr("0色"))
-        layout.addWidget(self.count_label)
-        self.category_button = QPushButton(tr("＋ フォルダー"))
+        self.count_label.setStyleSheet("font-weight:600;")
+        top_row.addWidget(self.count_label)
+        top_row.addStretch(1)
+        self.category_button = QPushButton(tr("フォルダー"))
+        self.category_button.setIcon(icons.icon("folder_plus"))
+        self.category_button.setFixedHeight(24)
         self.category_button.setToolTip(tr("使用色をまとめるフォルダーを作成します。"))
         self.category_button.clicked.connect(self._prompt_create_category)
-        layout.addWidget(self.category_button)
+        top_row.addWidget(self.category_button)
+        layout.addLayout(top_row)
 
         header_widget = QWidget()
         header = QGridLayout(header_widget)
@@ -179,7 +187,7 @@ class UsedColorPanel(
         header.setColumnMinimumWidth(2, 32)
         selection_header = QLabel(tr("選択"))
         selection_header.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        selection_header.setStyleSheet("font-size:10px;")
+        selection_header.setStyleSheet("font-size:10px;color:palette(placeholder-text);")
         selection_header.setToolTip(
             tr("クリック：この色だけ選択／Shift＋クリック：範囲選択／"
             "{ctrl}＋クリック：追加・解除。チェックと選択は連動します。").format(
@@ -188,22 +196,26 @@ class UsedColorPanel(
         header.addWidget(selection_header, 0, 0, Qt.AlignmentFlag.AlignCenter)
         visibility_header = QLabel(tr("表示"))
         visibility_header.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        visibility_header.setStyleSheet("font-size:10px;")
+        visibility_header.setStyleSheet("font-size:10px;color:palette(placeholder-text);")
         visibility_header.setToolTip(tr("各行の薄い背景セル全体を右クリックして表示メニューを開けます。"))
         header.addWidget(visibility_header, 0, 1, Qt.AlignmentFlag.AlignCenter)
         mask_header = QLabel(tr("描画対象"))
         mask_header.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        mask_header.setStyleSheet("font-size:10px;")
+        mask_header.setStyleSheet("font-size:10px;color:palette(placeholder-text);")
         mask_header.setToolTip(
             tr("ONにした色の上へ描けます。各行の薄い背景セル全体を"
             "右クリックして描画対象メニューを開けます。")
         )
         header.addWidget(mask_header, 0, 2, Qt.AlignmentFlag.AlignCenter)
-        color_header = QLabel(tr("色（ドラッグで並べ替え／親子付け）"))
-        color_header.setStyleSheet("font-size:10px;")
+        # 列見出しは短くし、操作の説明はツールチップへ回す（以前は隣の列と重なって切れていた）。
+        color_header = QLabel(tr("色"))
+        color_header.setStyleSheet(
+            "font-size:10px;padding-left:6px;color:palette(placeholder-text);"
+        )
+        color_header.setToolTip(tr("ドラッグで並べ替え／親子付け"))
         header.addWidget(color_header, 0, 3)
         replacement_header = QLabel(tr("置換色"))
-        replacement_header.setStyleSheet("font-size:10px;")
+        replacement_header.setStyleSheet("font-size:10px;color:palette(placeholder-text);")
         replacement_header.setAlignment(Qt.AlignmentFlag.AlignCenter)
         header.addWidget(replacement_header, 0, 4)
         header.setColumnMinimumWidth(3, 144)
@@ -245,7 +257,8 @@ class UsedColorPanel(
         self.clear_selection_button.setToolTip(tr("選択をすべて解除します。"))
         self.clear_selection_button.clicked.connect(self._clear_used_color_selection)
         self.clear_selection_button.setFixedWidth(32)
-        self.clear_selection_button.setStyleSheet("font-size:9px;padding:0px;")
+        self.clear_selection_button.setStyleSheet("font-size:10px;padding:0px;")
+        self.clear_selection_button.setFixedHeight(22)
 
         self.show_all_button = QPushButton(tr("全表示"))
         self.show_all_button.setToolTip(
@@ -253,7 +266,8 @@ class UsedColorPanel(
         )
         self.show_all_button.clicked.connect(self._show_all_colors)
         self.show_all_button.setFixedWidth(32)
-        self.show_all_button.setStyleSheet("font-size:9px;padding:0px;")
+        self.show_all_button.setStyleSheet("font-size:10px;padding:0px;")
+        self.show_all_button.setFixedHeight(22)
 
         self.clear_masks_button = QPushButton(tr("全体"))
         self.clear_masks_button.setToolTip(
@@ -261,7 +275,8 @@ class UsedColorPanel(
         )
         self.clear_masks_button.clicked.connect(self._set_all_masks_on)
         self.clear_masks_button.setFixedWidth(32)
-        self.clear_masks_button.setStyleSheet("font-size:9px;padding:0px;")
+        self.clear_masks_button.setStyleSheet("font-size:10px;padding:0px;")
+        self.clear_masks_button.setFixedHeight(22)
 
         # 統合は親子付けとは独立した操作。複数選択した色を、最後に選んだ色へ
         # 実画像上で塗り替える。親子付けは整理専用で、色は変えない。
@@ -278,7 +293,8 @@ class UsedColorPanel(
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Fixed,
         )
-        self.merge_button.setStyleSheet("font-size:10px;padding:1px;")
+        self.merge_button.setStyleSheet("font-size:11px;padding:1px;")
+        self.merge_button.setFixedHeight(22)
         self.selectedColorsChanged.connect(self._refresh_merge_button)
 
         self.apply_button = QPushButton(tr("色置換"))
@@ -290,7 +306,8 @@ class UsedColorPanel(
         self.apply_button.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
-        self.apply_button.setStyleSheet("font-size:10px;padding:1px;")
+        self.apply_button.setStyleSheet("font-size:11px;padding:1px;")
+        self.apply_button.setFixedHeight(22)
 
         for column, button in enumerate((
             self.clear_selection_button,
@@ -309,6 +326,10 @@ class UsedColorPanel(
         button_row.addWidget(self.apply_button, 0, 4)
         layout.addLayout(button_row)
         self.visibleColorsChanged.connect(self._refresh_category_headers)
+
+    def apply_theme(self):
+        """Re-apply palette-derived icons after a theme/accent change."""
+        self.category_button.setIcon(icons.icon("folder_plus"))
 
     @staticmethod
     def _rgb_key(color):

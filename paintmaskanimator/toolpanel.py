@@ -1,5 +1,5 @@
-from PySide6.QtCore import QPoint, QPointF, QSize, QTimer, Qt, Signal
-from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
+from PySide6.QtCore import QPoint, QSize, QTimer, Qt, Signal
+from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QMenu,
@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from . import config, theme
+from . import config, icons, theme
 from .i18n import tr
 from .widgets import (BrushSizeSpinBox, ClickableValueLabel, HSVColorWheel, LineTaperCurvePopup, SliderValueSpinBox, SwatchEyedropButton)
 
@@ -58,62 +58,8 @@ def tool_label(tool_id: str) -> str:
 
 
 def _tool_icon(tool_id):
-    """Return a compact, theme-independent pictogram for a drawing tool."""
-    pixmap = QPixmap(32, 32)
-    pixmap.fill(Qt.GlobalColor.transparent)
-    painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-    foreground = QColor("#37474f")
-    accent = QColor("#00897b")
-    painter.setPen(QPen(foreground, 2.2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-    painter.setBrush(Qt.BrushStyle.NoBrush)
-    if tool_id == "brush":
-        painter.drawLine(9, 23, 21, 8)
-        painter.setBrush(accent)
-        painter.drawEllipse(6, 21, 7, 5)
-    elif tool_id == "line":
-        painter.drawLine(7, 24, 25, 7)
-        painter.drawEllipse(5, 22, 4, 4)
-        painter.drawEllipse(23, 5, 4, 4)
-    elif tool_id == "shape":
-        polygon = QPolygonF([QPointF(16, 6), QPointF(26, 16), QPointF(16, 26), QPointF(6, 16)])
-        painter.drawPolygon(polygon)
-    elif tool_id == "bucket":
-        painter.save()
-        painter.translate(16, 15)
-        painter.rotate(-35)
-        painter.drawRect(-7, -7, 14, 14)
-        painter.restore()
-        painter.setPen(QPen(accent, 2.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-        painter.drawLine(19, 24, 25, 24)
-    elif tool_id in ("lasso", "lasso_fill"):
-        path = QPainterPath(QPointF(8, 10))
-        path.cubicTo(16, 4, 27, 9, 24, 17)
-        path.cubicTo(21, 25, 8, 25, 7, 17)
-        path.cubicTo(6, 13, 9, 10, 13, 11)
-        if tool_id == "lasso_fill":
-            painter.setBrush(accent)
-        painter.drawPath(path)
-        painter.drawLine(13, 11, 18, 26)
-    elif tool_id == "rect_select":
-        painter.setPen(QPen(foreground, 2, Qt.PenStyle.DashLine))
-        painter.drawRect(7, 7, 18, 18)
-    elif tool_id == "auto_select":
-        painter.drawLine(9, 24, 20, 10)
-        for x1, y1, x2, y2 in ((20, 6, 20, 3), (24, 8, 27, 6), (25, 12, 29, 12), (17, 7, 15, 4)):
-            painter.drawLine(x1, y1, x2, y2)
-    elif tool_id == "eyedropper":
-        painter.drawLine(9, 24, 23, 9)
-        painter.drawEllipse(19, 6, 7, 7)
-        painter.setPen(QPen(accent, 2.5))
-        painter.drawLine(7, 25, 11, 25)
-    elif tool_id == "dust":
-        painter.setBrush(accent)
-        painter.drawEllipse(8, 9, 5, 5)
-        painter.drawEllipse(19, 8, 4, 4)
-        painter.drawEllipse(14, 19, 6, 6)
-    painter.end()
-    return QIcon(pixmap)
+    """Return the drawing tool's line icon in the active theme's colours."""
+    return icons.icon(tool_id)
 
 
 class SwatchStack(QWidget):
@@ -229,7 +175,7 @@ class ToolSelectorPanel(QWidget):
     TOOLS = TOOL_DEFINITIONS
 
     CELL_SIZE = 30
-    ICON_SIZE = 24
+    ICON_SIZE = 20
     PANEL_MARGIN = 2
     # QListView's wrapping check is strict at an exact N * gridSize boundary.
     # One shared pixel (not one per cell) keeps the final cell on the row.
@@ -339,6 +285,8 @@ class ToolSelectorPanel(QWidget):
     def apply_theme(self):
         """Re-apply palette-derived styling after a theme/accent change."""
         self._apply_list_theme()
+        for tool_id, item in self.items.items():
+            item.setIcon(_tool_icon(tool_id))
         self.color_swatch._restyle()
 
     def set_swatch_colors(self, main, sub, mode, background=None):
@@ -601,11 +549,13 @@ class ToolPanel(QWidget):
         v=QVBoxLayout(self)
         v.setContentsMargins(4, 4, 4, 4)
         v.setSpacing(3)
-        v.addWidget(QLabel(tr("<b>ツールプロパティ</b>")))
-        self.active=QLabel(); self.active.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.active.setStyleSheet(
-            "padding:6px;font-weight:bold;border-radius:4px;"
-        ); v.addWidget(self.active)
+        # パネル名はドックのタブに出ているので、ここでは使用中のツール名だけを
+        # 見出しとして出す（以前はアクセント色の帯で、画面の中で一番目立っていた）。
+        self.active=QLabel()
+        self.active.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        )
+        v.addWidget(self.active)
 
         # Context commands: only commands required by the selected tool are shown.
         self.command_box=QWidget(); self.command_layout=QVBoxLayout(self.command_box)
@@ -1059,7 +1009,14 @@ class ToolPanel(QWidget):
         self.size_slider.valueChanged.connect(
             lambda value: self.brush_size_spinbox.setValue(value / 2.0)
         )
-        v.addWidget(self.size_slider); v.addWidget(self.brush_size_spinbox)
+        # スライダーと数値欄を1行にまとめ、縦の場所を空ける。
+        self.brush_size_spinbox.setFixedWidth(64)
+        size_row = QHBoxLayout()
+        size_row.setContentsMargins(0, 0, 0, 0)
+        size_row.setSpacing(6)
+        size_row.addWidget(self.size_slider, 1)
+        size_row.addWidget(self.brush_size_spinbox)
+        v.addLayout(size_row)
 
         self.brush_stabilizer_label = QLabel(tr("手振れ補正：0"))
         self.brush_stabilizer = QSlider(Qt.Orientation.Horizontal)
@@ -1344,7 +1301,7 @@ class ToolPanel(QWidget):
 
     def select_tool(self, tid):
         self.active_tool=tid
-        self.active.setText(tr("使用中：{tool}").format(tool=tool_label(tid)))
+        self.active.setText(tool_label(tid))
         self.toolChanged.emit(tid)
 
         is_selection = tid in ("lasso", "rect_select", "auto_select")
@@ -1579,8 +1536,8 @@ class ToolPanel(QWidget):
             "border:1px solid %s;border-radius:6px;}" % (c["surface_alt"], c["border"])
         )
         self.active.setStyleSheet(
-            "background:%s;color:%s;padding:6px;font-weight:bold;"
-            "border-radius:4px;" % (c["accent"], c["accent_text"])
+            "color:%s;font-size:14px;font-weight:600;padding:2px 2px 6px 2px;"
+            "border-bottom:1px solid %s;margin-bottom:2px;" % (c["text"], c["border"])
         )
         self.refresh_swatches()
         self.update_slider_gradients()
