@@ -156,7 +156,10 @@ def remove_preset(name):
 
 
 def global_settings():
-    return preset(active_preset_name())
+    settings = preset(active_preset_name())
+    # active_preset_name() always names one of presets(), so this is never None.
+    assert settings is not None
+    return settings
 
 
 def brush_settings():

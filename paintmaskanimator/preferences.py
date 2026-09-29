@@ -69,6 +69,8 @@ def set_undo_max_memory_mb(megabytes):
 def new_canvas_size():
     """Return the ``(width, height)`` used for a new document."""
     stored = config.get_value(NEW_CANVAS_SIZE_KEY)
+    if stored is None:
+        return DEFAULT_CANVAS_SIZE
     try:
         width, height = (int(v) for v in stored)
     except (TypeError, ValueError):

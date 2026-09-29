@@ -257,9 +257,9 @@ class PreferencesDialog(QDialog):
                 "コピーして保管します。"
             )),
         )
-        page.layout().setFieldGrowthPolicy(
-            QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
-        )
+        form = page.layout()
+        assert isinstance(form, QFormLayout)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
         return page
 
     def _size_spin(self, value):

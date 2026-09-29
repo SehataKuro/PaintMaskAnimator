@@ -203,7 +203,8 @@ def test_preferences_pressure_page_edits_the_active_preset(window):
     dialog._add_pressure_preset()
     assert ps.active_preset_name() == "新しいプリセット"
     dialog.pressure_editor.maximum.setValue(200)
-    assert ps.preset("標準")["maximum"] == 1.0
+    standard = ps.preset("標準")
+    assert standard is not None and standard["maximum"] == 1.0
     assert window.canvas.pressure_max == 2.0
 
     dialog.pressure_preset.setCurrentText("標準")
@@ -262,12 +263,14 @@ def test_layout_papers_are_copied_and_managed(qapp, tmp_path):
 
     source = _paper_png(tmp_path)
     entry = layout_paper.add_paper(source)
+    assert entry is not None
     source.unlink()
     assert layout_paper.papers() == [entry]
     assert entry["name"] == "layout_A4"
     assert layout_paper.image_size(entry) == (320, 200)
     layout_paper.rename_paper(entry["id"], "A4 横")
-    assert layout_paper.paper(entry["id"])["name"] == "A4 横"
+    renamed = layout_paper.paper(entry["id"])
+    assert renamed is not None and renamed["name"] == "A4 横"
     layout_paper.remove_paper(entry["id"])
     assert layout_paper.papers() == []
     assert not layout_paper.image_path(entry).exists()
@@ -281,6 +284,7 @@ def test_new_document_dialog_fits_canvas_to_paper(qapp, tmp_path):
     from paintmaskanimator.new_document_dialog import NewDocumentDialog
 
     entry = layout_paper.add_paper(_paper_png(tmp_path))
+    assert entry is not None
     dialog = NewDocumentDialog(1280, 720)
     assert dialog.paper_id() is None
     assert dialog.w.isEnabled() and not dialog.fit_to_paper.isEnabled()
