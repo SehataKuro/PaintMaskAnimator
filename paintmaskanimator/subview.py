@@ -136,8 +136,11 @@ class SubViewWidget(QWidget):
 
     def eventFilter(self, watched, event):
         """サブビューが前面なら、子部品のフォーカスに関係なくSpaceを捕捉する。"""
-        app = QApplication.instance()
-        active = app.activeWindow() if app is not None else None
+        active = (
+            QApplication.activeWindow()
+            if QApplication.instance() is not None
+            else None
+        )
         belongs_to_subview = bool(
             isinstance(watched, QWidget)
             and (watched is self or self.isAncestorOf(watched))

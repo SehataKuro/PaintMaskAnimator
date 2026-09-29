@@ -67,15 +67,9 @@ fail_under = 37.0
 include = ["paintmaskanimator", "scripts", "tests"]
 pythonVersion = "3.10"
 typeCheckingMode = "basic"
-# PySide6/Qt's stubs surface many dynamic-attribute and Optional-narrowing
-# false positives across this legacy GUI code. Downgrade the high-volume,
-# Qt-driven rules to warnings so the CI gate still fails on *new* real bugs
-# (undefined names, bad calls in typed code) while we tighten incrementally.
-reportAttributeAccessIssue = "warning"
-reportArgumentType = "warning"
-# reportOptionalMemberAccess is clean and back at error level; the rest are
-# tightened the same way once their remaining sites are typed.
-reportCallIssue = "warning"
+# Every "basic" rule runs at error level. Qt objects that pyright cannot see
+# through (ADS widgets, test fakes) are typed ``Any`` at the call site, and
+# mixin members are declared in ``_main_window_members.py``.
 
 [tool.ruff]
 line-length = 100

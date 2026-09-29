@@ -41,7 +41,7 @@ def sequence_paths(tmp_path):
         )
         image.fill(QColor(*rgb))
         path = tmp_path / f"cut_{index:04d}.png"
-        assert image.save(str(path), "PNG")
+        assert image.save(str(path))
         paths.append(path)
     return paths
 

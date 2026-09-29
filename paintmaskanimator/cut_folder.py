@@ -58,7 +58,7 @@ class Token:
     def to_json(self):
         if not self.is_field:
             return {"text": self.text}
-        data = {"field": self.field}
+        data: dict[str, object] = {"field": self.field}
         if self.digits is not None:
             data["digits"] = int(self.digits)
         if self.case != "keep":
@@ -106,7 +106,7 @@ def explode(template: Sequence[Token]):
     return out
 
 
-def compact(template: Sequence[Token]):
+def compact(template: Iterable[Token]):
     """Merge adjacent literal tokens (the stored form)."""
     out = []
     for token in template:
@@ -143,7 +143,7 @@ def render(template: Sequence[Token], values: Mapping[str, object]) -> str:
     parts = []
     for token in template:
         if token.is_field:
-            parts.append(format_field(token, values.get(token.field)))
+            parts.append(format_field(token, values.get(token.field or "")))
         else:
             parts.append(token.text or "")
     return "".join(parts)

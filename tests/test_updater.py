@@ -65,7 +65,9 @@ def test_check_for_update_available(monkeypatch):
     result = updater.check_for_update(current_version="0.5")
     assert result["status"] == "update_available"
     assert result["latest"] == "0.9.0"
-    assert result["asset"]["url"] == "https://x/setup.exe"
+    asset = result["asset"]
+    assert isinstance(asset, dict)
+    assert asset["url"] == "https://x/setup.exe"
 
 
 def test_check_for_update_reads_the_public_latest_release(monkeypatch):

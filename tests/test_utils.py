@@ -1,4 +1,5 @@
 import os
+from typing import Any
 
 import pytest
 
@@ -74,6 +75,9 @@ class _Base:
 
 
 class _Picker(utils._ScreenColorDragMixin, _Base):
+    # テスト用の _Signal で本物の Signal を置き換える。
+    colorPicked: Any
+
     def __init__(self):
         _Base.__init__(self)
         self.colorPicked = _Signal()

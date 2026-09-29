@@ -1,5 +1,6 @@
 import hashlib
 import os
+from typing import Any
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -126,7 +127,7 @@ def test_open_in_vscode_uses_goto(tmp_path, monkeypatch):
     monkeypatch.setattr("shutil.which", lambda command: "Code.exe")
     monkeypatch.setattr("subprocess.Popen", lambda command: launched.append(command))
 
-    dialog = SimpleNamespace(_current_path=script, _dirty=False)
+    dialog: Any = SimpleNamespace(_current_path=script, _dirty=False)
     ScriptEditorDialog._open_in_vscode(dialog)
 
     assert launched == [["Code.exe", "--goto", str(script.resolve())]]

@@ -1,5 +1,6 @@
 """Functional test for autosave write/clear (config dir redirected to tmp)."""
 import os
+from typing import Any
 import logging
 
 import pytest
@@ -51,7 +52,8 @@ def test_clear_autosave_logs_unlink_failure(caplog, monkeypatch, tmp_path):
 
     snapshot = tmp_path / "autosave.pmap"
     snapshot.write_bytes(b"snapshot")
-    owner = AutosaveController(window=None)
+    no_window: Any = None
+    owner = AutosaveController(window=no_window)
     monkeypatch.setattr(owner, "path", lambda: snapshot)
     monkeypatch.setattr(type(snapshot), "unlink", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("locked")))
 

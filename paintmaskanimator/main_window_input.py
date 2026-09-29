@@ -6,6 +6,8 @@ matching, the auxiliary hold-to-drag gestures (hand scroll, rotate, zoom) with
 their cursor bookkeeping, and the canvas hold-operation sync. Keeping it separate
 means the window shell no longer carries the event-loop hot path.
 """
+from typing import Any
+
 from PySide6.QtCore import QEvent, QPoint, QPointF, QTimer, Qt
 from PySide6.QtGui import QCursor, QKeySequence
 from PySide6.QtWidgets import QAbstractButton, QApplication, QSplitter, QTabBar, QWidget
@@ -400,10 +402,11 @@ class InputMixin(MainWindowMembers):
             and isinstance(watched, QWidget)
         ):
             candidate = watched
-            floating = None
+            # ADS の CFloatingDockContainer / CDockWidgetTab は型名で見分けるので Any。
+            floating: Any = None
             blocked_by_button = False
             tab_drag = False
-            dock_tab = None
+            dock_tab: Any = None
             on_dock_title_bar = False
             while candidate is not None:
                 if isinstance(candidate, QAbstractButton):

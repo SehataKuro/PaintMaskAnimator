@@ -63,7 +63,7 @@ def test_image_import_falls_back_to_qt_reader_without_pillow(
     monkeypatch.setattr(cii, "PILImage", None)
 
     png = tmp_path / "sample.png"
-    _solid_qimage(QColor(1, 2, 3, 255)).save(str(png), "PNG")
+    _solid_qimage(QColor(1, 2, 3, 255)).save(str(png))
 
     canvas = PaintCanvas()
     try:

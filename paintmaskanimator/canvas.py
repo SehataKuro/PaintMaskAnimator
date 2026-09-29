@@ -120,7 +120,7 @@ class PaintCanvas(
         self._sequence_source_bank=[]
         self._sequence_source_bank_layer_index=-1
         self._sequence_source_bank_layer_name=""
-        self.clip_studio_source_metadata=None
+        self.clip_studio_source_metadata: dict | None = None
         # シートから外した絵番号を、右クリックで再配置するため保持する。
         self._sequence_archive={}
         self.timeline_mode="sheet"

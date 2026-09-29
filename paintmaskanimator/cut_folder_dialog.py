@@ -937,11 +937,11 @@ class CutFolderExportDialog(QDialog):
         self.preset_combo.blockSignals(False)
 
     def _preset_activated(self, row):
-        kind, name = self.preset_combo.itemData(row) or (None, None)
+        kind, preset_name = self.preset_combo.itemData(row) or (None, None)
         if kind == "builtin":
-            self.set_layout(cf.BUILTIN_PRESETS[name]())
+            self.set_layout(cf.BUILTIN_PRESETS[str(preset_name)]())
         elif kind == "user":
-            self.set_layout(cf.CutFolderLayout.from_json(self.user_presets[name]))
+            self.set_layout(cf.CutFolderLayout.from_json(self.user_presets[str(preset_name)]))
         elif kind == "save":
             name, ok = QInputDialog.getText(self, tr("プリセットを保存"), tr("プリセット名"))
             name = name.strip()
@@ -956,7 +956,7 @@ class CutFolderExportDialog(QDialog):
         elif kind == "delete":
             current = self._current_preset
             if current and current[0] == "user":
-                self.user_presets.pop(current[1], None)
+                self.user_presets.pop(str(current[1]), None)
                 self._save_presets()
                 self._rebuild_preset_combo("PMA標準")
                 self.set_layout(cf.pma_standard_layout())

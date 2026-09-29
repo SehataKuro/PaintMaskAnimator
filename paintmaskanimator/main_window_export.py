@@ -555,7 +555,6 @@ class ExportController:
                     )
                     image.save(
                         str(Path(td) / f"f_{output_index:06}.png"),
-                        "PNG",
                     )
             close_counter(progress)
             encoding = create_counter(

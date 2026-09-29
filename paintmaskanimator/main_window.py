@@ -23,10 +23,8 @@ window, the ``PaintCanvas`` <-> timeline glue, playback, and document lifecycle
 mixins live in ``_main_window_members.py``; the shared error set is
 ``errors.OPERATION_ERRORS`` (aliased ``_OPERATION_ERRORS``).
 """
-import json
 import math
 import numpy as np
-import re
 import subprocess
 import sys
 import tempfile
@@ -49,7 +47,7 @@ from .constants import APP_DISPLAY_NAME, OUTSIDE_MARGIN
 from . import constants, imaging, layout_paper, preferences, pressure_settings, project_io, theme, updater
 from .actionpanel import ActionPanel
 from .canvas import PaintCanvas
-from .errors import OPERATION_ERRORS, OperationError
+from .errors import OPERATION_ERRORS
 from .color_panel import UsedColorPanel
 from .color_chart import ColorChartPanel, empty_color_chart
 from .history_panel import HistoryPanel
@@ -254,101 +252,6 @@ class MainWindow(
         self.timeline.duration.setValue(max(1, layer.exposure))
         self.timeline.duration.blockSignals(False)
         self.timeline._sync_layer_opacity_slider(layer.opacity)
-
-
-    @staticmethod
-    def _parse_toei_timesheet(raw_text):
-        text_value = str(raw_text or "").strip()
-        json_start = text_value.find("{")
-        if json_start < 0:
-            raise OperationError(tr("JSONデータが見つかりません。"))
-        try:
-            payload = json.loads(text_value[json_start:])
-        except json.JSONDecodeError as exc:
-            raise OperationError(
-                tr("ToeiDigitalTimeSheetのJSONを解析できません。\n{exc}").format(exc=exc)
-            ) from exc
-
-        layers = payload.get("layers")
-        if not isinstance(layers, list) or not layers:
-            raise OperationError(tr("layersデータが見つかりません。"))
-
-        selected_layer = None
-        for layer in layers:
-            frames = (
-                layer.get("frames")
-                if isinstance(layer, dict) else None
-            )
-            if isinstance(frames, list) and frames:
-                selected_layer = layer
-                break
-        if selected_layer is None:
-            raise OperationError(tr("framesデータが見つかりません。"))
-
-        parsed_entries = {}
-        for entry in selected_layer.get("frames", []):
-            if not isinstance(entry, dict):
-                continue
-            try:
-                frame = int(entry.get("frame"))  # pyright: ignore[reportArgumentType]  # None/str caught below
-            except (TypeError, ValueError):
-                continue
-            if frame < 0:
-                continue
-
-            values = []
-            data_items = entry.get("data", [])
-            if isinstance(data_items, list):
-                for data_item in data_items:
-                    if not isinstance(data_item, dict):
-                        continue
-                    item_values = data_item.get("values", [])
-                    if isinstance(item_values, list):
-                        values.extend(item_values)
-                    elif item_values not in (None, ""):
-                        values.append(item_values)
-
-            token = None
-            for value in values:
-                candidate = str(value).strip()
-                if candidate:
-                    token = candidate
-                    break
-            parsed_entries[frame] = token
-
-        if not parsed_entries:
-            raise OperationError(
-                tr("有効なToeiDigitalTimeSheetフレームがありません。")
-            )
-
-        start_frame = min(parsed_entries)
-        end_frame = max(parsed_entries)
-        current_state = None
-        states = []
-        blank_label_count = 0
-
-        for frame in range(start_frame, end_frame + 1):
-            if frame in parsed_entries:
-                token = parsed_entries[frame]
-                if token is None:
-                    # 値なしセルは直前セルの状態を保持。
-                    pass
-                elif re.fullmatch(r"[0-9]+", token):
-                    current_state = max(1, int(token))
-                else:
-                    # 中割トラックラベル／記号セルは空フレーム。
-                    current_state = None
-                    blank_label_count += 1
-            states.append(current_state)
-
-        return {
-            "format": "ToeiDigitalTimeSheet",
-            "fps": None,
-            "start_frame": start_frame,
-            "end_frame": end_frame,
-            "states": states,
-            "blank_label_count": blank_label_count,
-        }
 
 
     def prepare_color_reduction(self, paths):
@@ -731,7 +634,7 @@ class MainWindow(
             return
         try:
             import os
-            if sys.platform.startswith("win"):
+            if sys.platform == "win32":
                 os.startfile(str(dest))  # noqa: SLF001 - Windows installer launch
             elif sys.platform == "darwin":
                 subprocess.Popen(["open", str(dest)])

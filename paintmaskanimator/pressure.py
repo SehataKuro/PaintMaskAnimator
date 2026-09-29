@@ -153,7 +153,7 @@ class PressureCurveWidget(QWidget):
     """アンカーポイントを追加・移動・削除できる筆圧ベジエカーブ。"""
     curveChanged = Signal(object)
 
-    def __init__(self, curve=1.0, parent=None):
+    def __init__(self, curve: float | list | tuple = 1.0, parent=None):
         super().__init__(parent)
         self._points = self._parse(curve)
         self._active_index = None
@@ -165,8 +165,9 @@ class PressureCurveWidget(QWidget):
         )
 
     @staticmethod
-    def _parse(curve):
-        if isinstance(curve, (list, tuple)) and len(curve) >= 2:
+    def _parse(curve: float | list | tuple):
+        if isinstance(curve, (list, tuple)):
+            # 点が2つ未満なら、下の直線へのフォールバックに任せる。
             points = []
             for point in curve:
                 try:

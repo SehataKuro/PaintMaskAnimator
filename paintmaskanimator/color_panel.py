@@ -747,14 +747,17 @@ class UsedColorPanel(
 
     def remap_saved_color_metadata(self, mapping):
         """色置換後も親子・タグ・フォルダー情報を新RGBへ引き継ぐ。"""
+        def rgb3(value) -> tuple[int, int, int]:
+            return (int(value[0]), int(value[1]), int(value[2]))
+
         normalized = {
-            tuple(int(channel) for channel in source[:3]):
-            tuple(int(channel) for channel in destination[:3])
+            rgb3(source): rgb3(destination)
             for source, destination in dict(mapping or {}).items()
         }
 
         def remap(rgb):
-            return normalized.get(tuple(rgb), tuple(rgb))
+            key = rgb3(rgb)
+            return normalized.get(key, key)
 
         groups = {}
         for child, parent in self.child_to_parent.items():
