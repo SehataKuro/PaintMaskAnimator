@@ -125,9 +125,9 @@ class AppDriver:
 
     def new_document(self) -> None:
         """「新規作成」をサイズ指定ダイアログごと承認して実行する。"""
-        from paintmaskanimator.widgets import CanvasSizeDialog
+        from paintmaskanimator.new_document_dialog import NewDocumentDialog
 
-        with self.accept_dialog(CanvasSizeDialog):
+        with self.accept_dialog(NewDocumentDialog):
             self.window.new_doc()
         self.process_events()
 

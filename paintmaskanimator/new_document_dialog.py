@@ -66,7 +66,7 @@ class NewDocumentDialog(QDialog):
         paper_size = self._sizes.get(self.paper.currentData())
         self.fit_to_paper.setEnabled(paper_size is not None)
         fitted = paper_size is not None and self.fit_to_paper.isChecked()
-        if fitted:
+        if fitted and paper_size is not None:
             if self.w.isEnabled():
                 self._manual_size = (self.w.value(), self.h.value())
             self.w.setValue(paper_size[0])
