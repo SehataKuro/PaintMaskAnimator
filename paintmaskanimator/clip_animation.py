@@ -739,7 +739,7 @@ def _row_number(row: sqlite3.Row, name: str, default: int = 0) -> int:
     return default if value is None else int(value)
 
 
-def _csp_color_byte(value: object) -> int:
+def _csp_color_byte(value: int | float | str | None) -> int:
     if value is None:
         return 0
     component = max(0, int(value))
