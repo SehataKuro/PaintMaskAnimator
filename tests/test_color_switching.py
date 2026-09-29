@@ -5,6 +5,7 @@ all these tests need -- no real ``MainWindow``, and no grafting of unbound mixin
 methods onto a fake ``self``.
 """
 from types import SimpleNamespace
+from typing import Any
 
 from PySide6.QtGui import QColor
 
@@ -33,7 +34,7 @@ class _Palette:
         self.selected.append(QColor(color))
 
 
-def _stub_window(**overrides):
+def _stub_window(**overrides) -> Any:
     window = SimpleNamespace(
         canvas=SimpleNamespace(
             main_color=QColor("#112233"),

@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QApplication, QPushButton  # noqa: E402
 
 from paintmaskanimator import icons, theme  # noqa: E402
 from paintmaskanimator.main_window import MainWindow  # noqa: E402
+from paintmaskanimator.timeline import LayerListDelegate  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -64,7 +65,7 @@ def test_draft_layer_rows_are_marked_in_timeline(qapp):
         timeline = window.timeline
         drafts = [
             timeline.layer_list.item(row).data(
-                timeline.layer_list.itemDelegate().DRAFT_ROLE
+                LayerListDelegate.DRAFT_ROLE
             )
             for row in range(timeline.layer_list.count())
         ]

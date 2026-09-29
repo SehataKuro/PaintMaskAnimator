@@ -1,5 +1,6 @@
 """バケツの「サブカラーを含み塗り」は、使用色パネルの選択ではなくサブカラーを含む。"""
 import os
+from typing import Any
 
 import numpy as np
 import pytest
@@ -29,7 +30,7 @@ def _canvas_with_tools(include_sub):
     from paintmaskanimator.toolpanel import ToolPanel
 
     # flood_fill はトップレベルウィンドウの tools からバケツの設定を読む。
-    host = ToolPanel()
+    host: Any = ToolPanel()
     host.tools = host
     host.bucket_include_sub.setChecked(include_sub)
     canvas = PaintCanvas()

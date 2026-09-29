@@ -44,6 +44,7 @@ if TYPE_CHECKING:
     from .color_panel import UsedColorPanel
     from .color_chart import ColorChartPanel
     from .history_panel import HistoryPanel
+    from .subview import SubViewWidget
     from .theme import StatusBar
     from .toolpanel import ToolPanel, ToolSelectorPanel
     from .timeline import TimelineWidget
@@ -62,6 +63,7 @@ class MainWindowMembers(_MembersBase):
         _attach_dock_hamburger: Any
         _autosave_timer: Any
         _auxiliary_cursor_targets: Any
+        _build_action_panel_menu: Any
         _build_color_slider_menu: Any
         _build_color_wheel_menu: Any
         _build_default_dock_menu: Any
@@ -77,6 +79,7 @@ class MainWindowMembers(_MembersBase):
         _expand_docking_hit_zones: Any
         _finalize_startup_dock_ui: Any
         _finish_auxiliary_hold_drag: Any
+        _finish_manual_tab_drop: Any
         _hamburger_icon: Any
         _hamburger_icon_cache: Any
         _hand_scroll_area_for_widget: Any
@@ -84,6 +87,7 @@ class MainWindowMembers(_MembersBase):
         _held_canvas_shortcut_tokens: Any
         _hide_split_drop_feedback: Any
         _layer_indices_from_rows: Any
+        _manual_tab_drag_timer: QTimer
         _mouse_global_position: Any
         _navigate_sequence_number: Any
         _normalize_shortcut_token: Any
@@ -92,8 +96,6 @@ class MainWindowMembers(_MembersBase):
         _onion_settings_browser_destroyed: Any
         _onion_settings_window: Any
         _parse_after_effects_time_remap: Any
-        _parse_toei_timesheet: Any
-        _parse_xdts_timesheet: Any
         _pending_default_dock_layout: bool
         _pending_tool_selector_snap: Any
         _pending_visible_colors: Any
@@ -120,6 +122,7 @@ class MainWindowMembers(_MembersBase):
         _split_drop_skeletons: Any
         _split_drop_source_area: Any
         _split_drop_timer: Any
+        _start_manual_tab_drag_polling: Any
         _start_split_drop_monitor: Any
         _suppress_used_color_refresh_once: Any
         _sync_all_area_hamburgers: Any
@@ -138,6 +141,7 @@ class MainWindowMembers(_MembersBase):
         _ui_hold_start_scroll: Any
         _update_auxiliary_hold_cursors: Any
         _update_canvas_hold_operation: Any
+        _update_manual_tab_drop: Any
         _update_split_drop_target: Any
         _used_color_cache: Any
         _used_color_layer_cache: Any
@@ -248,6 +252,8 @@ class MainWindowMembers(_MembersBase):
         # Collaborator objects the window owns; unlike the mixin methods below,
         # these carry their real type, so their call sites are fully checked.
         export: ExportController
+        subview: SubViewWidget
+        subview_dock: Any
         workspace: WorkspaceController
         autosave: AutosaveController
         colors: ColorInteractionController

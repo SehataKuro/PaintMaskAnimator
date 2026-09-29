@@ -44,7 +44,7 @@ class ToolWindow(QDialog):
 
     def _save_geometry(self):
         stored = dict(config.get_value(_GEOMETRY_KEY, {}) or {})
-        stored[self._key] = bytes(self.saveGeometry().toBase64()).decode("ascii")
+        stored[self._key] = bytes(self.saveGeometry().toBase64().data()).decode("ascii")
         config.set_value(_GEOMETRY_KEY, stored)
 
     def _place_beside_parent(self):

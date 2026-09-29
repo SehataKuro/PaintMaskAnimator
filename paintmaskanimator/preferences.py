@@ -25,8 +25,9 @@ CANVAS_SIZE_RANGE = (64, constants.MAX_IMAGE_DIMENSION)
 
 
 def _clamped_int(key, default, bounds):
+    raw = config.get_value(key, default)
     try:
-        value = int(config.get_value(key, default))
+        value = int(raw) if raw is not None else default
     except (TypeError, ValueError):
         value = default
     return max(bounds[0], min(bounds[1], value))

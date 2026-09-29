@@ -547,7 +547,8 @@ class PaintToolsMixin(CanvasMembers):
             return True
 
         # 輪郭の計算は MainWindow から line_ops へ移っている。
-        contour_owner: Any = self.window().line_ops
+        window: Any = self.window()
+        contour_owner = window.line_ops
         contours = contour_owner._mask_contours(combined)
         contour = contour_owner._largest_contour(contours)
         if not contour:

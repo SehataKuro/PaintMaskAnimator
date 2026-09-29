@@ -6,6 +6,7 @@ import pytest
 from paintmaskanimator import timesheet_file as tf
 from paintmaskanimator.errors import OperationError
 from paintmaskanimator.main_window_import import ImportController
+from paintmaskanimator.main_window_time_remap import TimeRemapController
 
 N, H = tf.NULL_CELL, tf.HYPHEN
 # A: 1 for 3 frames, 2 for 2, then empty. B: empty, then 1 to the end.
@@ -65,3 +66,16 @@ def test_parser_holds_a_cell_through_frames_without_an_entry(fmt):
 def test_unknown_signature_is_rejected():
     with pytest.raises(OperationError):
         tf.load_time_table("somethingElse\n{}")
+
+
+@pytest.mark.parametrize("fmt", tf.FORMATS)
+def test_time_remap_paste_parses_pasted_sheet_text(fmt):
+    text = tf.sheet_text(fmt, "c002", ["A", "B"], TRACKS, 7)
+    assert TimeRemapController.parse_text(text) == (
+        ImportController._parse_xdts_timesheet(text)
+    )
+
+
+def test_time_remap_paste_reaches_toei_parser():
+    with pytest.raises(OperationError):
+        TimeRemapController.parse_text("ToeiDigitalTimeSheet Copy Data\n{}")

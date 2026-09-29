@@ -120,7 +120,7 @@ def _write_png(path, color, size=(16, 16)):
     path.parent.mkdir(parents=True, exist_ok=True)
     image = QImage(size[0], size[1], QImage.Format.Format_ARGB32)
     image.fill(color)
-    assert image.save(str(path), "PNG")
+    assert image.save(str(path))
 
 
 def test_scan_reads_other_tools_naming_and_skips_underscore_folders(tmp_path):

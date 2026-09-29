@@ -96,7 +96,7 @@ def preset_names():
 def active_preset_name():
     names = preset_names()
     name = config.get_value(ACTIVE_KEY)
-    return name if name in names else names[0]
+    return name if isinstance(name, str) and name in names else names[0]
 
 
 def set_active_preset(name):

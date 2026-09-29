@@ -605,6 +605,8 @@ class TimelineTable(QTableWidget):
         self._collapsed_row_height = 28
         self._expanded_rows = set()
         self._thumb_sources = {}
+        # 下書きレイヤーの行（TimelineWidget が書き込む）。
+        self._draft_rows: set[int] = set()
         self._thumb_cache = {}
         self.setMouseTracking(True)
         self.setSelectionBehavior(

@@ -32,6 +32,9 @@ from .logging_setup import get_logger
 
 log = get_logger(__name__)
 
+# 枠なしフロートウィンドウのリサイズ用ハンドルに、どの辺を動かすかを持たせる属性名。
+_RESIZE_EDGES_ATTR = "_paintmask_resize_edges"
+
 
 class _FloatingGripTracker(QObject):
     """Anchor and drive every resize edge of a frameless floating container."""
@@ -132,7 +135,7 @@ class _FloatingGripTracker(QObject):
         ):
             self._resize_edges = getattr(
                 watched,
-                "_paintmask_resize_edges",
+                _RESIZE_EDGES_ATTR,
                 Qt.Edge.RightEdge | Qt.Edge.BottomEdge,
             )
             handle = (
@@ -1394,8 +1397,8 @@ class DockingMixin(MainWindowMembers):
         grip.setObjectName("floatingResizeGrip")
         grip.setFixedSize(16, 16)
         grip.setCursor(Qt.CursorShape.SizeFDiagCursor)
-        grip._paintmask_resize_edges = (
-            Qt.Edge.RightEdge | Qt.Edge.BottomEdge
+        setattr(
+            grip, _RESIZE_EDGES_ATTR, Qt.Edge.RightEdge | Qt.Edge.BottomEdge
         )
         grip.raise_()
         grip.show()
@@ -1427,7 +1430,7 @@ class DockingMixin(MainWindowMembers):
             )
             handle.setCursor(cursor)
             handle.setStyleSheet("background:transparent;")
-            handle._paintmask_resize_edges = edges
+            setattr(handle, _RESIZE_EDGES_ATTR, edges)
             handle.show()
             resize_handles[name] = handle
         floating._paintmask_resize_grip = grip

@@ -1,5 +1,6 @@
 """Unit tests for the extracted pure color/palette/tone-curve helpers."""
 import os
+from typing import Any
 from types import SimpleNamespace
 
 import numpy as np
@@ -168,7 +169,8 @@ def test_used_color_scan_prewarms_palette_filter_index(qapp):
     image = QImage(2, 1, QImage.Format.Format_ARGB32)
     image.setPixelColor(0, 0, QColor(255, 0, 0))
     image.setPixelColor(1, 0, QColor(0, 0, 255))
-    owner = UsedColorController(SimpleNamespace(canvas=canvas))
+    window: Any = SimpleNamespace(canvas=canvas)
+    owner = UsedColorController(window)
 
     assert owner._extract(image) == [(0, 0, 255), (255, 0, 0)]
     assert len(canvas._color_index_cache) == 1

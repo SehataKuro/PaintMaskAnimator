@@ -519,7 +519,7 @@ class ColorChartCanvas(QWidget):
         self.chart = empty_color_chart()
         self.groups = []
         self.zoom = 1.0
-        self.scroll_area = None
+        self.scroll_area: QScrollArea | None = None
         self._color_hits = []
         self._header_hits = []
         self._drag_mode = ""

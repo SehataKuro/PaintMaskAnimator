@@ -90,7 +90,7 @@ class _ReorderableList(QListWidget):
 class PreferencesDialog(QDialog):
     def __init__(self, window):
         super().__init__(window)
-        self.window = window
+        self.main_window = window
         self.setWindowTitle(tr("環境設定"))
         self.setModal(False)
         self.resize(620, 520)
@@ -164,7 +164,7 @@ class PreferencesDialog(QDialog):
         self.autosave_interval.setEnabled(enabled)
         preferences.set_autosave_enabled(enabled)
         preferences.set_autosave_interval_minutes(self.autosave_interval.value())
-        self.window.autosave.apply_preferences()
+        self.main_window.autosave.apply_preferences()
 
     # -- 外観 ---------------------------------------------------------------
     def _build_appearance_page(self):
@@ -189,7 +189,7 @@ class PreferencesDialog(QDialog):
         )
 
     def _theme_changed(self):
-        self.window.set_theme(self.theme.currentData())
+        self.main_window.set_theme(self.theme.currentData())
 
     def _fill_accent_choices(self):
         self.accent.blockSignals(True)
@@ -215,7 +215,7 @@ class PreferencesDialog(QDialog):
                 self._fill_accent_choices()
                 return
             value = color.name()
-        self.window.colors.set_accent(value)
+        self.main_window.colors.set_accent(value)
         self._fill_accent_choices()
 
     # -- 新規キャンバス -------------------------------------------------------
@@ -390,13 +390,13 @@ class PreferencesDialog(QDialog):
     def _pressure_preset_chosen(self):
         pressure_settings.set_active_preset(self.pressure_preset.currentText())
         self.pressure_editor.set_settings(pressure_settings.global_settings())
-        self.window.apply_pressure_settings()
+        self.main_window.apply_pressure_settings()
 
     def _pressure_edited(self):
         pressure_settings.update_preset(
             self.pressure_preset.currentText(), self.pressure_editor.settings()
         )
-        self.window.apply_pressure_settings()
+        self.main_window.apply_pressure_settings()
 
     def _add_pressure_preset(self):
         name = pressure_settings.add_preset(
@@ -404,7 +404,7 @@ class PreferencesDialog(QDialog):
         )
         pressure_settings.set_active_preset(name)
         self.reload_pressure_presets()
-        self.window.apply_pressure_settings()
+        self.main_window.apply_pressure_settings()
 
     def _rename_pressure_preset(self):
         old = self.pressure_preset.currentText()
@@ -425,7 +425,7 @@ class PreferencesDialog(QDialog):
     def _remove_pressure_preset(self):
         if pressure_settings.remove_preset(self.pressure_preset.currentText()):
             self.reload_pressure_presets()
-            self.window.apply_pressure_settings()
+            self.main_window.apply_pressure_settings()
 
     # -- ワークスペース -----------------------------------------------------
     def _build_workspaces_page(self):
@@ -472,7 +472,7 @@ class PreferencesDialog(QDialog):
         return page
 
     def reload_workspaces(self):
-        workspace = self.window.workspace
+        workspace = self.main_window.workspace
         selected = self._selected_workspace()
         active = config.get_value("active_workspace")
         self.workspaces.blockSignals(True)
@@ -507,7 +507,7 @@ class PreferencesDialog(QDialog):
             button.setEnabled(selected)
 
     def _workspaces_dragged(self, *_args):
-        self.window.workspace.reorder(self._listed_workspaces())
+        self.main_window.workspace.reorder(self._listed_workspaces())
 
     def _move_workspace(self, step):
         row = self.workspaces.currentRow()
@@ -516,7 +516,7 @@ class PreferencesDialog(QDialog):
         if row < 0 or not 0 <= target < len(names):
             return
         names[row], names[target] = names[target], names[row]
-        self.window.workspace.reorder(names)
+        self.main_window.workspace.reorder(names)
         self.workspaces.setCurrentRow(target)
 
     def _rename_workspace(self):
@@ -528,7 +528,7 @@ class PreferencesDialog(QDialog):
         )
         if not ok or name.strip() == old:
             return
-        if not self.window.workspace.rename(old, name):
+        if not self.main_window.workspace.rename(old, name):
             QMessageBox.warning(
                 self,
                 tr("名前を変更"),
@@ -538,7 +538,7 @@ class PreferencesDialog(QDialog):
     def _overwrite_workspace(self):
         name = self._selected_workspace()
         if name is not None:
-            self.window.workspace.save(name)
+            self.main_window.workspace.save(name)
 
     def _delete_workspace(self):
         name = self._selected_workspace()
@@ -550,7 +550,7 @@ class PreferencesDialog(QDialog):
             tr("ワークスペース「{name}」を削除しますか？").format(name=name),
         )
         if answer == QMessageBox.StandardButton.Yes:
-            self.window.workspace.delete(name)
+            self.main_window.workspace.delete(name)
 
     # -- パフォーマンス -------------------------------------------------------
     def _build_performance_page(self):
