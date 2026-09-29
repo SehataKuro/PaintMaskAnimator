@@ -5,6 +5,7 @@ import zlib
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+import numpy as np
 import pytest
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtWidgets import QApplication, QMessageBox
@@ -17,6 +18,7 @@ from paintmaskanimator.clip_animation import (
     ClipContainer,
     ClipImportError,
     build_pma_frames,
+    _composite,
     _decode_offscreen,
     parse_image_cel_curve,
     read_clip_animation,
@@ -627,3 +629,230 @@ def test_cell_name_roundtrips_in_pman(tmp_path):
     assert restored.cell_name == "未配置A"
     assert restored.sequence_number == 2
     assert restored.image.pixelColor(0, 0) == QColor("yellow")
+
+
+_LAYER_COLUMNS = (
+    "MainId", "LayerUuid", "LayerName", "LayerFirstChildIndex",
+    "LayerNextIndex", "LayerRenderMipmap", "AnimationFolder", "LayerFolder",
+    "LayerVisibility", "LayerOpacity", "LayerComposite", "LayerClip",
+    "LayerLayerMaskMipmap",
+)
+
+
+def _layered_clip_file(tmp_path, cels):
+    """Build a 2x2 .clip whose animation folder holds the given cel trees.
+
+    ``cels`` maps a cel name to a list of layer dicts (top to bottom). A dict
+    with ``children`` is a folder; otherwise ``raster`` is a raster body.
+    """
+
+    database_path = tmp_path / "layered.sqlite"
+    connection = sqlite3.connect(database_path)
+    connection.executescript(
+        """
+        CREATE TABLE Canvas (MainId INTEGER, CanvasWidth REAL, CanvasHeight REAL);
+        CREATE TABLE TimeLine (
+            MainId INTEGER, BankId INTEGER, FrameRate REAL,
+            StartFrame REAL, EndFrame REAL, TimeLineName TEXT
+        );
+        CREATE TABLE AnimationCutBank (
+            MainId INTEGER, FirstTimeLine INTEGER, Enable INTEGER
+        );
+        CREATE TABLE Track (
+            MainId INTEGER, BankId INTEGER, TrackKind INTEGER,
+            TrackActionMixer BLOB, LayerUuidWithTrack BLOB
+        );
+        CREATE TABLE Mipmap (MainId INTEGER, BaseMipmapInfo INTEGER);
+        CREATE TABLE MipmapInfo (MainId INTEGER, Offscreen INTEGER);
+        CREATE TABLE Offscreen (MainId INTEGER, BlockData BLOB, Attribute BLOB);
+        """
+    )
+    connection.execute(
+        "CREATE TABLE Layer ("
+        + ", ".join(
+            f"{name} {'BLOB' if name == 'LayerUuid' else 'TEXT' if name == 'LayerName' else 'INTEGER'}"
+            for name in _LAYER_COLUMNS
+        )
+        + ")"
+    )
+    connection.execute("INSERT INTO Canvas VALUES (1, 2, 2)")
+    connection.execute("INSERT INTO TimeLine VALUES (1, 7, 24, 0, 0, 'TL')")
+    connection.execute("INSERT INTO AnimationCutBank VALUES (1, 1, 1)")
+    externals = []
+    next_id = [2]
+
+    def add_raster(body, packing_type=(1, 4)):
+        raster_id = next_id[0]
+        next_id[0] += 1
+        identifier = f"extrnlid_{raster_id}".encode()
+        connection.execute("INSERT INTO Mipmap VALUES (?, ?)", (raster_id, raster_id))
+        connection.execute("INSERT INTO MipmapInfo VALUES (?, ?)", (raster_id, raster_id))
+        connection.execute(
+            "INSERT INTO Offscreen VALUES (?, ?, ?)",
+            (raster_id, identifier, _offscreen_attribute(packing_type=packing_type)),
+        )
+        externals.append(_external(identifier, body))
+        return raster_id
+
+    def add_layers(specs):
+        ids = []
+        for spec in specs:
+            layer_id = next_id[0]
+            next_id[0] += 1
+            ids.append((layer_id, spec))
+        for index, (layer_id, spec) in enumerate(ids):
+            next_sibling = ids[index + 1][0] if index + 1 < len(ids) else 0
+            first_child = add_layers(spec["children"]) if "children" in spec else 0
+            render = add_raster(spec["raster"]) if "raster" in spec else None
+            mask = (
+                add_raster(spec["mask"], packing_type=(1, 0))
+                if "mask" in spec
+                else None
+            )
+            values = {
+                "MainId": layer_id,
+                "LayerUuid": f"uuid-{layer_id:011d}".encode(),
+                "LayerName": spec["name"],
+                "LayerFirstChildIndex": first_child,
+                "LayerNextIndex": next_sibling,
+                "LayerRenderMipmap": render,
+                "AnimationFolder": 0,
+                "LayerFolder": 1 if "children" in spec else 0,
+                "LayerVisibility": spec.get("visibility", 1),
+                "LayerOpacity": spec.get("opacity", 256),
+                "LayerComposite": spec.get("composite", 0),
+                "LayerClip": spec.get("clip", 0),
+                "LayerLayerMaskMipmap": mask,
+            }
+            connection.execute(
+                f"INSERT INTO Layer VALUES ({', '.join('?' for _ in _LAYER_COLUMNS)})",
+                tuple(values[name] for name in _LAYER_COLUMNS),
+            )
+        return ids[0][0] if ids else 0
+
+    first_cel = add_layers(
+        [{"name": name, "children": children} for name, children in cels.items()]
+    )
+    folder: dict[str, object] = {name: 0 for name in _LAYER_COLUMNS}
+    folder.update(
+        MainId=1,
+        LayerUuid=b"A" * 16,
+        LayerName="動画",
+        LayerFirstChildIndex=first_cel,
+        AnimationFolder=1,
+        LayerFolder=1,
+        LayerVisibility=1,
+        LayerOpacity=256,
+    )
+    connection.execute(
+        f"INSERT INTO Layer VALUES ({', '.join('?' for _ in _LAYER_COLUMNS)})",
+        tuple(folder[name] for name in _LAYER_COLUMNS),
+    )
+    mixer_id = b"extrnlid_mixer"
+    connection.execute(
+        "INSERT INTO Track VALUES (1, 7, 2000, ?, ?)", (mixer_id, b"A" * 16)
+    )
+    connection.commit()
+    connection.close()
+    first_name = next(iter(cels))
+    compressed_mixer = zlib.compress(_binc(((0.0, first_name),)))
+    mixer_body = len(compressed_mixer).to_bytes(4, "little") + compressed_mixer
+    data = b"CSFCHUNK" + b"\0" * 16
+    data += _chunk(b"SQLi", database_path.read_bytes())
+    data += _chunk(b"Exta", _external(mixer_id, mixer_body))
+    for external in externals:
+        data += _chunk(b"Exta", external)
+    path = tmp_path / "layered.clip"
+    path.write_bytes(data)
+    return path
+
+
+def _pixel(color, alpha=255):
+    red, green, blue = color
+    return QColor(red, green, blue, alpha)
+
+
+def test_composite_multiply_uses_backdrop_where_both_layers_overlap():
+    backdrop = np.array([[[0.5, 0.5, 0.5, 1.0]]], dtype=np.float32)
+    source = np.array([[[0.5, 0.5, 0.5, 1.0]]], dtype=np.float32)
+    result = _composite(backdrop, source, 2)
+    assert np.allclose(result, [[[0.25, 0.25, 0.25, 1.0]]])
+
+
+def test_composite_on_empty_backdrop_keeps_source_for_any_mode():
+    backdrop = np.zeros((1, 1, 4), dtype=np.float32)
+    source = np.array([[[0.2, 0.1, 0.0, 0.4]]], dtype=np.float32)
+    for mode in (0, 2, 8, 14, 21, 25):
+        assert np.allclose(_composite(backdrop, source, mode), source)
+
+
+def test_cel_folder_applies_clipping_blend_mode_mask_and_visibility(tmp_path):
+    path = _layered_clip_file(
+        tmp_path,
+        {
+            "1": [
+                {
+                    "name": "影",
+                    "raster": _raster_body((128, 128, 128)),
+                    "composite": 2,
+                    "clip": 1,
+                },
+                {"name": "塗り", "raster": _raster_body((200, 100, 40), {0, 1})},
+                # Mask enabled (bit 2) but the layer itself is hidden (bit 1).
+                {"name": "非表示", "raster": _raster_body((0, 255, 0)), "visibility": 2},
+                {
+                    "name": "線",
+                    "raster": _raster_body((0, 0, 0)),
+                    "mask": _alpha_raster_body({256 + 1}),
+                    "visibility": 3,
+                },
+            ]
+        },
+    )
+    image = read_clip_animation(path).frames[0].layers[0].image
+    shaded = image.pixelColor(0, 0)
+    assert (shaded.red(), shaded.green(), shaded.blue(), shaded.alpha()) == (100, 50, 20, 255)
+    assert image.pixelColor(1, 0) == shaded
+    # The shadow is clipped to the paint, and the line is masked out here.
+    assert image.pixelColor(0, 1).alpha() == 0
+    assert image.pixelColor(1, 1) == _pixel((0, 0, 0))
+
+
+def test_pass_through_folder_blends_with_layers_below_it(tmp_path):
+    path = _layered_clip_file(
+        tmp_path,
+        {
+            "1": [
+                {
+                    "name": "影フォルダー",
+                    "composite": 30,
+                    "children": [
+                        {
+                            "name": "影",
+                            "raster": _raster_body((128, 128, 128)),
+                            "composite": 2,
+                        }
+                    ],
+                },
+                {"name": "塗り", "raster": _raster_body((200, 100, 40))},
+            ],
+            "2": [
+                {
+                    "name": "通常フォルダー",
+                    "children": [
+                        {
+                            "name": "影",
+                            "raster": _raster_body((128, 128, 128)),
+                            "composite": 2,
+                        }
+                    ],
+                },
+                {"name": "塗り", "raster": _raster_body((200, 100, 40))},
+            ],
+        },
+    )
+    layer = read_clip_animation(path).layers[0]
+    through = layer.cell_images["1"].pixelColor(0, 0)
+    assert (through.red(), through.green(), through.blue()) == (100, 50, 20)
+    # A normal (isolated) folder multiplies onto nothing, so the grey shows.
+    assert layer.cell_images["2"].pixelColor(0, 0) == _pixel((128, 128, 128))
