@@ -35,6 +35,7 @@ from .constants import (
     MAX_PROJECT_LAYER_CELLS,
     MAX_PROJECT_LAYERS,
 )
+from .imaging import qimage_rgba_array, rgba_array_to_qimage
 from .models import Frame, Layer
 
 
@@ -769,6 +770,39 @@ def _blank_canvas(width: int, height: int) -> QImage:
     return image
 
 
+def _offscreen_for_mipmap(
+    connection: sqlite3.Connection,
+    container: ClipContainer,
+    mipmap_id: int,
+    layer_name: object,
+) -> tuple[bytes, Optional[bytes]]:
+    """Follow Mipmap -> MipmapInfo -> Offscreen and return its raster data."""
+
+    mipmap = connection.execute(
+        "SELECT BaseMipmapInfo FROM Mipmap WHERE MainId = ?", (mipmap_id,)
+    ).fetchone()
+    if mipmap is None or not mipmap[0]:
+        raise ClipImportError(tr("セル「{LayerName}」のMipmap情報がありません。").format(LayerName=layer_name))
+    mipmap_info = connection.execute(
+        "SELECT Offscreen FROM MipmapInfo WHERE MainId = ?", (mipmap[0],)
+    ).fetchone()
+    if mipmap_info is None or not mipmap_info[0]:
+        raise ClipImportError(tr("セル「{LayerName}」のOffscreen情報がありません。").format(LayerName=layer_name))
+    offscreen = connection.execute(
+        "SELECT BlockData, Attribute FROM Offscreen WHERE MainId = ?",
+        (mipmap_info[0],),
+    ).fetchone()
+    if offscreen is None or not offscreen[0] or not offscreen[1]:
+        raise ClipImportError(tr("セル「{LayerName}」の画像データがありません。").format(LayerName=layer_name))
+    block_identifier = _identifier_bytes(offscreen[0])
+    external_body = (
+        container.read_external(block_identifier)
+        if block_identifier in container.external_objects
+        else None
+    )
+    return bytes(offscreen[1]), external_body
+
+
 def _render_cached_layer(
     connection: sqlite3.Connection,
     container: ClipContainer,
@@ -776,35 +810,18 @@ def _render_cached_layer(
     canvas_width: int,
     canvas_height: int,
 ) -> QImage:
+    """Place a leaf layer's rendered mipmap on the canvas, before opacity."""
+
     mipmap_id = layer["LayerRenderMipmap"]
     if not mipmap_id:
         raise ClipImportError(
             tr("セル「{LayerName}」の表示合成画像が.clip内にありません。").format(LayerName=layer['LayerName'])
         )
-    mipmap = connection.execute(
-        "SELECT BaseMipmapInfo FROM Mipmap WHERE MainId = ?", (mipmap_id,)
-    ).fetchone()
-    if mipmap is None or not mipmap[0]:
-        raise ClipImportError(tr("セル「{LayerName}」のMipmap情報がありません。").format(LayerName=layer['LayerName']))
-    mipmap_info = connection.execute(
-        "SELECT Offscreen FROM MipmapInfo WHERE MainId = ?", (mipmap[0],)
-    ).fetchone()
-    if mipmap_info is None or not mipmap_info[0]:
-        raise ClipImportError(tr("セル「{LayerName}」のOffscreen情報がありません。").format(LayerName=layer['LayerName']))
-    offscreen = connection.execute(
-        "SELECT BlockData, Attribute FROM Offscreen WHERE MainId = ?",
-        (mipmap_info[0],),
-    ).fetchone()
-    if offscreen is None or not offscreen[0] or not offscreen[1]:
-        raise ClipImportError(tr("セル「{LayerName}」の画像データがありません。").format(LayerName=layer['LayerName']))
-    block_identifier = _identifier_bytes(offscreen[0])
-    external_body = (
-        container.read_external(block_identifier)
-        if block_identifier in container.external_objects
-        else None
+    attribute, external_body = _offscreen_for_mipmap(
+        connection, container, mipmap_id, layer["LayerName"]
     )
     raster = _decode_offscreen(
-        bytes(offscreen[1]),
+        attribute,
         external_body,
         _single_channel_layer_color(layer),
     )
@@ -815,10 +832,8 @@ def _render_cached_layer(
     y = _row_number(layer, "LayerOffsetY") + _row_number(
         layer, "LayerRenderOffscrOffsetY"
     )
-    opacity_raw = _row_number(layer, "LayerOpacity", 256)
     painter = QPainter(result)
     try:
-        painter.setOpacity(max(0.0, min(1.0, opacity_raw / 256.0)))
         painter.drawImage(QPoint(x, y), raster)
     finally:
         painter.end()
@@ -843,71 +858,434 @@ def _child_layer_rows(
     return children
 
 
-def _render_layer(
-    connection: sqlite3.Connection,
-    container: ClipContainer,
-    layer: sqlite3.Row,
-    canvas_width: int,
-    canvas_height: int,
-    layers_by_id: Optional[dict[int, sqlite3.Row]] = None,
-    render_stack: Optional[set[int]] = None,
-) -> QImage:
-    """Render a cel, flattening folders from all visible child layers.
+# CLIP STUDIO's ``LayerComposite`` values.  The numbering follows the PSD
+# blend-mode table in ``dobrokot/clip_to_psd``.
+_BLEND_NORMAL = 0
+_BLEND_DARKEN = 1
+_BLEND_MULTIPLY = 2
+_BLEND_COLOR_BURN = 3
+_BLEND_LINEAR_BURN = 4
+_BLEND_SUBTRACT = 5
+_BLEND_DARKER_COLOR = 6
+_BLEND_LIGHTEN = 7
+_BLEND_SCREEN = 8
+_BLEND_COLOR_DODGE = 9
+_BLEND_GLOW_DODGE = 10
+_BLEND_ADD = 11
+_BLEND_ADD_GLOW = 12
+_BLEND_LIGHTER_COLOR = 13
+_BLEND_OVERLAY = 14
+_BLEND_SOFT_LIGHT = 15
+_BLEND_HARD_LIGHT = 16
+_BLEND_VIVID_LIGHT = 17
+_BLEND_LINEAR_LIGHT = 18
+_BLEND_PIN_LIGHT = 19
+_BLEND_HARD_MIX = 20
+_BLEND_DIFFERENCE = 21
+_BLEND_EXCLUSION = 22
+_BLEND_HUE = 23
+_BLEND_SATURATION = 24
+_BLEND_COLOR = 25
+_BLEND_LUMINOSITY = 26
+_BLEND_PASS_THROUGH = 30
+_BLEND_DIVIDE = 36
 
-    CLIP STUDIO can omit a folder cache or leave one that represents only part
-    of the folder. Child layers are therefore authoritative whenever the cel
-    is a folder; only leaf layers use their cached rendered mipmap.
+
+def _safe_divide(numerator, denominator, fallback):
+    with np.errstate(divide="ignore", invalid="ignore"):
+        result = numerator / denominator
+    return np.where(denominator > 0, result, fallback)
+
+
+def _luminosity(color: np.ndarray) -> np.ndarray:
+    return (
+        color[..., 0:1] * 0.3 + color[..., 1:2] * 0.59 + color[..., 2:3] * 0.11
+    )
+
+
+def _set_luminosity(color: np.ndarray, luminosity: np.ndarray) -> np.ndarray:
+    color = color + (luminosity - _luminosity(color))
+    lum = _luminosity(color)
+    low = color.min(axis=-1, keepdims=True)
+    high = color.max(axis=-1, keepdims=True)
+    color = np.where(
+        low < 0, lum + (color - lum) * _safe_divide(lum, lum - low, 0.0), color
+    )
+    color = np.where(
+        high > 1,
+        lum + (color - lum) * _safe_divide(1 - lum, high - lum, 0.0),
+        color,
+    )
+    return color
+
+
+def _saturation(color: np.ndarray) -> np.ndarray:
+    return color.max(axis=-1, keepdims=True) - color.min(axis=-1, keepdims=True)
+
+
+def _set_saturation(color: np.ndarray, saturation: np.ndarray) -> np.ndarray:
+    low = color.min(axis=-1, keepdims=True)
+    return _safe_divide((color - low) * saturation, _saturation(color), 0.0)
+
+
+def _color_burn(backdrop, source):
+    return np.where(
+        backdrop >= 1,
+        1.0,
+        1 - np.minimum(1.0, _safe_divide(1 - backdrop, source, np.inf)),
+    )
+
+
+def _color_dodge(backdrop, source):
+    return np.where(
+        backdrop <= 0,
+        0.0,
+        np.minimum(1.0, _safe_divide(backdrop, 1 - source, np.inf)),
+    )
+
+
+def _hard_light(backdrop, source):
+    doubled = source * 2
+    return np.where(
+        source <= 0.5,
+        backdrop * doubled,
+        backdrop + (doubled - 1) - backdrop * (doubled - 1),
+    )
+
+
+def _soft_light(backdrop, source):
+    darken = np.where(
+        backdrop <= 0.25,
+        ((16 * backdrop - 12) * backdrop + 4) * backdrop,
+        np.sqrt(backdrop),
+    )
+    return np.where(
+        source <= 0.5,
+        backdrop - (1 - 2 * source) * backdrop * (1 - backdrop),
+        backdrop + (2 * source - 1) * (darken - backdrop),
+    )
+
+
+def _blend_colors(mode: int, backdrop: np.ndarray, source: np.ndarray) -> np.ndarray:
+    """Return B(Cb, Cs) for straight (non-premultiplied) RGB in 0..1."""
+
+    if mode == _BLEND_DARKEN:
+        return np.minimum(backdrop, source)
+    if mode == _BLEND_MULTIPLY:
+        return backdrop * source
+    if mode == _BLEND_COLOR_BURN:
+        return _color_burn(backdrop, source)
+    if mode == _BLEND_LINEAR_BURN:
+        return np.maximum(0.0, backdrop + source - 1)
+    if mode == _BLEND_SUBTRACT:
+        return np.maximum(0.0, backdrop - source)
+    if mode == _BLEND_DARKER_COLOR:
+        return np.where(
+            _luminosity(source) < _luminosity(backdrop), source, backdrop
+        )
+    if mode == _BLEND_LIGHTEN:
+        return np.maximum(backdrop, source)
+    if mode == _BLEND_SCREEN:
+        return backdrop + source - backdrop * source
+    # Glow dodge and add (glow) also skip CLIP's transparency shape; only
+    # their colour formula is reproduced here.
+    if mode in (_BLEND_COLOR_DODGE, _BLEND_GLOW_DODGE):
+        return _color_dodge(backdrop, source)
+    if mode in (_BLEND_ADD, _BLEND_ADD_GLOW):
+        return np.minimum(1.0, backdrop + source)
+    if mode == _BLEND_LIGHTER_COLOR:
+        return np.where(
+            _luminosity(source) > _luminosity(backdrop), source, backdrop
+        )
+    if mode == _BLEND_OVERLAY:
+        return _hard_light(source, backdrop)
+    if mode == _BLEND_SOFT_LIGHT:
+        return _soft_light(backdrop, source)
+    if mode == _BLEND_HARD_LIGHT:
+        return _hard_light(backdrop, source)
+    if mode == _BLEND_VIVID_LIGHT:
+        return np.where(
+            source <= 0.5,
+            _color_burn(backdrop, source * 2),
+            _color_dodge(backdrop, source * 2 - 1),
+        )
+    if mode == _BLEND_LINEAR_LIGHT:
+        return np.clip(backdrop + source * 2 - 1, 0.0, 1.0)
+    if mode == _BLEND_PIN_LIGHT:
+        return np.where(
+            source <= 0.5,
+            np.minimum(backdrop, source * 2),
+            np.maximum(backdrop, source * 2 - 1),
+        )
+    if mode == _BLEND_HARD_MIX:
+        return np.where(backdrop + source >= 1, 1.0, 0.0)
+    if mode == _BLEND_DIFFERENCE:
+        return np.abs(backdrop - source)
+    if mode == _BLEND_EXCLUSION:
+        return backdrop + source - 2 * backdrop * source
+    if mode == _BLEND_HUE:
+        return _set_luminosity(
+            _set_saturation(source, _saturation(backdrop)),
+            _luminosity(backdrop),
+        )
+    if mode == _BLEND_SATURATION:
+        return _set_luminosity(
+            _set_saturation(backdrop, _saturation(source)),
+            _luminosity(backdrop),
+        )
+    if mode == _BLEND_COLOR:
+        return _set_luminosity(source, _luminosity(backdrop))
+    if mode == _BLEND_LUMINOSITY:
+        return _set_luminosity(backdrop, _luminosity(source))
+    if mode == _BLEND_DIVIDE:
+        return np.where(
+            source > 0,
+            np.minimum(1.0, _safe_divide(backdrop, source, 1.0)),
+            np.where(backdrop > 0, 1.0, 0.0),
+        )
+    # Normal, pass-through and unknown values fall back to plain "over".
+    return source
+
+
+def _composite(
+    backdrop: np.ndarray,
+    source: np.ndarray,
+    mode: int,
+    *,
+    atop: bool = False,
+) -> np.ndarray:
+    """Blend premultiplied RGBA ``source`` onto ``backdrop``.
+
+    Uses the W3C compositing model: ``B(Cb, Cs)`` replaces the source colour
+    where both layers overlap.  ``atop`` keeps the backdrop's alpha, which is
+    how a layer clipped to the layer below is drawn.
     """
 
-    has_children = layers_by_id is not None and bool(
-        _row_number(layer, "LayerFirstChildIndex")
+    backdrop_alpha = backdrop[..., 3:4]
+    source_alpha = source[..., 3:4]
+    backdrop_color = backdrop[..., :3]
+    source_color = source[..., :3]
+    if mode == _BLEND_NORMAL or mode == _BLEND_PASS_THROUGH:
+        mixed = source_color * backdrop_alpha
+    else:
+        straight_backdrop = _safe_divide(backdrop_color, backdrop_alpha, 0.0)
+        straight_source = _safe_divide(source_color, source_alpha, 0.0)
+        blended = np.nan_to_num(
+            _blend_colors(mode, straight_backdrop, straight_source),
+            nan=0.0,
+            posinf=1.0,
+            neginf=0.0,
+        )
+        mixed = source_alpha * backdrop_alpha * np.clip(blended, 0.0, 1.0)
+    if atop:
+        color = mixed + backdrop_color * (1 - source_alpha)
+        alpha = backdrop_alpha
+    else:
+        color = (
+            source_color * (1 - backdrop_alpha)
+            + backdrop_color * (1 - source_alpha)
+            + mixed
+        )
+        alpha = source_alpha + backdrop_alpha * (1 - source_alpha)
+    result = np.empty_like(backdrop)
+    result[..., :3] = np.clip(color, 0.0, alpha)
+    result[..., 3:4] = alpha
+    return result
+
+
+def _image_to_premultiplied(image: QImage) -> np.ndarray:
+    rgba = qimage_rgba_array(image).astype(np.float32) / 255.0
+    rgba[..., :3] *= rgba[..., 3:4]
+    return rgba
+
+
+def _premultiplied_to_image(pixels: np.ndarray) -> QImage:
+    alpha = pixels[..., 3:4]
+    straight = np.empty_like(pixels)
+    straight[..., :3] = _safe_divide(pixels[..., :3], alpha, 0.0)
+    straight[..., 3:4] = alpha
+    return rgba_array_to_qimage(
+        np.clip(np.rint(straight * 255.0), 0, 255).astype(np.uint8)
     )
-    if not has_children:
-        return _render_cached_layer(
-            connection, container, layer, canvas_width, canvas_height
+
+
+def _shift_pixels(pixels: np.ndarray, dx: int, dy: int) -> np.ndarray:
+    if dx == 0 and dy == 0:
+        return pixels
+    height, width = pixels.shape[:2]
+    result = np.zeros_like(pixels)
+    if abs(dx) >= width or abs(dy) >= height:
+        return result
+    result[max(0, dy):height + min(0, dy), max(0, dx):width + min(0, dx)] = pixels[
+        max(0, -dy):height + min(0, -dy), max(0, -dx):width + min(0, -dx)
+    ]
+    return result
+
+
+class _CelRenderer:
+    """Flatten one CLIP cel (a leaf layer or a folder tree) into one image.
+
+    PMA keeps one flat image per cel, so folder structure, blend modes,
+    clipping and layer masks are resolved here instead of being imported.
+    """
+
+    def __init__(
+        self,
+        connection: sqlite3.Connection,
+        container: ClipContainer,
+        layers_by_id: dict[int, sqlite3.Row],
+        width: int,
+        height: int,
+    ):
+        self.connection = connection
+        self.container = container
+        self.layers_by_id = layers_by_id
+        self.width = width
+        self.height = height
+
+    def render(self, cel: sqlite3.Row) -> QImage:
+        # The cel itself is drawn on an empty canvas, so its own blend mode
+        # and clipping flag have nothing to act on. Its visibility only means
+        # "the current frame" inside CLIP and is ignored as well.
+        pixels = self._content(cel, frozenset()) * self._opacity(cel)
+        return _premultiplied_to_image(pixels)
+
+    def _blank(self) -> np.ndarray:
+        return np.zeros((self.height, self.width, 4), dtype=np.float32)
+
+    @staticmethod
+    def _visible(layer: sqlite3.Row) -> bool:
+        return bool(_row_number(layer, "LayerVisibility", 1) & 1)
+
+    @staticmethod
+    def _opacity(layer: sqlite3.Row) -> float:
+        return max(0.0, min(1.0, _row_number(layer, "LayerOpacity", 256) / 256.0))
+
+    @staticmethod
+    def _is_folder(layer: sqlite3.Row) -> bool:
+        return bool(
+            _row_number(layer, "LayerFirstChildIndex")
+            or _row_number(layer, "LayerFolder")
         )
 
-    layer_id = _row_number(layer, "MainId")
-    stack = set() if render_stack is None else set(render_stack)
-    if layer_id in stack:
-        raise ClipImportError(tr("セル内のレイヤー構造が循環しています。"))
-    stack.add(layer_id)
-    children = _child_layer_rows(layers_by_id, layer)
+    def _children(
+        self, layer: sqlite3.Row, stack: frozenset[int]
+    ) -> tuple[list[sqlite3.Row], frozenset[int]]:
+        layer_id = _row_number(layer, "MainId")
+        if layer_id in stack:
+            raise ClipImportError(tr("セル内のレイヤー構造が循環しています。"))
+        return _child_layer_rows(self.layers_by_id, layer), stack | {layer_id}
 
-    # LayerFirstChildIndex follows CLIP STUDIO's palette order (top to
-    # bottom). Paint bottom to top to reproduce the visible composite.
-    composite = _blank_canvas(canvas_width, canvas_height)
-    painter = QPainter(composite)
-    try:
-        for child in reversed(children):
-            if not _row_number(child, "LayerVisibility", 1):
-                continue
-            child_image = _render_layer(
-                connection,
-                container,
-                child,
-                canvas_width,
-                canvas_height,
-                layers_by_id,
-                stack,
+    def _content(self, layer: sqlite3.Row, stack: frozenset[int]) -> np.ndarray:
+        """Pixels of one layer on its own, with its mask but before opacity."""
+
+        if self._is_folder(layer):
+            # CLIP STUDIO can omit a folder cache or leave one that represents
+            # only part of the folder, so folders are always rebuilt from
+            # their children.
+            children, child_stack = self._children(layer, stack)
+            pixels = _shift_pixels(
+                self._composite_children(children, self._blank(), child_stack),
+                _row_number(layer, "LayerOffsetX"),
+                _row_number(layer, "LayerOffsetY"),
             )
-            painter.drawImage(QPoint(0, 0), child_image)
-    finally:
-        painter.end()
+        else:
+            pixels = _image_to_premultiplied(
+                _render_cached_layer(
+                    self.connection, self.container, layer, self.width, self.height
+                )
+            )
+        mask = self._mask(layer)
+        if mask is not None:
+            pixels *= mask[..., None]
+        return pixels
 
-    opacity_raw = _row_number(layer, "LayerOpacity", 256)
-    offset_x = _row_number(layer, "LayerOffsetX")
-    offset_y = _row_number(layer, "LayerOffsetY")
-    if opacity_raw == 256 and offset_x == 0 and offset_y == 0:
-        return composite
-    result = _blank_canvas(canvas_width, canvas_height)
-    painter = QPainter(result)
-    try:
-        painter.setOpacity(max(0.0, min(1.0, opacity_raw / 256.0)))
-        painter.drawImage(QPoint(offset_x, offset_y), composite)
-    finally:
-        painter.end()
-    return result
+    def _composite_children(
+        self,
+        children: list[sqlite3.Row],
+        backdrop: np.ndarray,
+        stack: frozenset[int],
+    ) -> np.ndarray:
+        # Children are listed top to bottom. A clipped layer belongs to the
+        # nearest unclipped layer below it; that base and its clipped layers
+        # are combined first and then blended with the base's mode/opacity.
+        groups: list[tuple[sqlite3.Row, list[sqlite3.Row]]] = []
+        for child in reversed(children):
+            if _row_number(child, "LayerClip") and groups:
+                groups[-1][1].append(child)
+            else:
+                groups.append((child, []))
+        result = backdrop
+        for base, clipped in groups:
+            if not self._visible(base):
+                continue
+            mode = _row_number(base, "LayerComposite")
+            if mode == _BLEND_PASS_THROUGH and not clipped and self._is_folder(base):
+                result = self._pass_through(base, result, stack)
+                continue
+            group = self._content(base, stack)
+            for layer in clipped:
+                if not self._visible(layer):
+                    continue
+                group = _composite(
+                    group,
+                    self._content(layer, stack) * self._opacity(layer),
+                    _row_number(layer, "LayerComposite"),
+                    atop=True,
+                )
+            result = _composite(result, group * self._opacity(base), mode)
+        return result
+
+    def _pass_through(
+        self, folder: sqlite3.Row, backdrop: np.ndarray, stack: frozenset[int]
+    ) -> np.ndarray:
+        """Draw a pass-through folder's children straight onto the backdrop."""
+
+        children, child_stack = self._children(folder, stack)
+        mixed = self._composite_children(children, backdrop.copy(), child_stack)
+        weight = self._opacity(folder)
+        mask = self._mask(folder)
+        if mask is None and weight >= 1.0:
+            return mixed
+        amount = weight if mask is None else mask[..., None] * weight
+        return backdrop + (mixed - backdrop) * amount
+
+    def _mask(self, layer: sqlite3.Row) -> Optional[np.ndarray]:
+        """Return the layer mask on the canvas (1 = visible), if enabled."""
+
+        mipmap_id = _row_number(layer, "LayerLayerMaskMipmap")
+        if not mipmap_id or not (_row_number(layer, "LayerVisibility", 1) & 2):
+            return None
+        attribute, external_body = _offscreen_for_mipmap(
+            self.connection, self.container, mipmap_id, layer["LayerName"]
+        )
+        info = _parse_offscreen_attributes(attribute)
+        rgba = qimage_rgba_array(_decode_offscreen(attribute, external_body))
+        channel = 3 if (info.packing[1], info.packing[2]) == (1, 0) else 0
+        values = rgba[..., channel].astype(np.float32) / 255.0
+        mask = np.full(
+            (self.height, self.width),
+            1.0 if info.default_white else 0.0,
+            dtype=np.float32,
+        )
+        x = (
+            _row_number(layer, "LayerMaskOffsetX")
+            + _row_number(layer, "LayerOffsetX")
+            + _row_number(layer, "LayerMaskOffscrOffsetX")
+        )
+        y = (
+            _row_number(layer, "LayerMaskOffsetY")
+            + _row_number(layer, "LayerOffsetY")
+            + _row_number(layer, "LayerMaskOffscrOffsetY")
+        )
+        left, top = max(0, x), max(0, y)
+        right = min(self.width, x + values.shape[1])
+        bottom = min(self.height, y + values.shape[0])
+        if left < right and top < bottom:
+            mask[top:bottom, left:right] = values[
+                top - y:bottom - y, left - x:right - x
+            ]
+        return mask
 
 
 def _numeric_cell_name(name: str) -> Optional[int]:
@@ -1176,6 +1554,7 @@ def read_clip_animation(path: str | os.PathLike[str]) -> ClipAnimationDocument:
             "FROM Track WHERE BankId = ? AND TrackKind = 2000 ORDER BY MainId",
             (int(timeline["BankId"]),),
         ).fetchall()
+        renderer = _CelRenderer(connection, container, layers_by_id, width, height)
         parsed_layers: list[ClipAnimationLayer] = []
         for track in tracks:
             if track["LayerUuidWithTrack"] is None:
@@ -1234,14 +1613,7 @@ def read_clip_animation(path: str | os.PathLike[str]) -> ClipAnimationDocument:
             # Render every cel, including unused and negative-pre-roll-only
             # cels, so they survive as PMA sequence entries.
             for tag, child in children.items():
-                images[tag] = _render_layer(
-                    connection,
-                    container,
-                    child,
-                    width,
-                    height,
-                    layers_by_id,
-                )
+                images[tag] = renderer.render(child)
             parsed_layers.append(
                 ClipAnimationLayer(
                     str(folder["LayerName"] or f"Animation {len(parsed_layers) + 1}"),
