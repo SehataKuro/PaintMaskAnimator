@@ -59,6 +59,7 @@ class SubViewWidget(QWidget):
         self._control_down = False
         self._drag_mode = None
         self._press_pos = QPointF()
+        self._zoom_anchor = QPointF()
         self._last_pos = QPointF()
         self._moved = False
         self._color_provider = None
@@ -356,6 +357,10 @@ class SubViewWidget(QWidget):
                 return
 
 
+_PAN_BUTTONS = (Qt.MouseButton.RightButton, Qt.MouseButton.MiddleButton)
+_HANDLED_BUTTONS = (Qt.MouseButton.LeftButton, *_PAN_BUTTONS)
+
+
 class _SubViewCanvas(QWidget):
     def __init__(self, owner):
         super().__init__(owner)
@@ -491,14 +496,14 @@ class _SubViewCanvas(QWidget):
 
     def mousePressEvent(self, event):
         self.setFocus(Qt.FocusReason.MouseFocusReason)
-        if event.button() not in (
-            Qt.MouseButton.LeftButton, Qt.MouseButton.MiddleButton
-        ):
+        if event.button() not in _HANDLED_BUTTONS:
             return
         self.owner._press_pos = event.position()
         self.owner._last_pos = event.position()
         self.owner._moved = False
-        if event.button() == Qt.MouseButton.MiddleButton:
+        self.owner._zoom_anchor = QPointF(event.position())
+        if event.button() in _PAN_BUTTONS:
+            # 右ドラッグ（中ボタンも）で画像を動かす。左クリックはスポイト。
             self.owner._drag_mode = "pan"
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
         elif self.owner._space_down:
@@ -535,7 +540,10 @@ class _SubViewCanvas(QWidget):
         elif mode == "zoom":
             factor = drag_zoom_factor(delta.x())
             percent = int(round(self.owner._zoom * factor * 100))
-            self.owner.zoom_slider.setValue(max(5, min(800, percent)))
+            # ドラッグを始めた位置を中心に拡大縮小する。
+            self.zoom_to_percent(
+                max(5, min(800, percent)), self.owner._zoom_anchor
+            )
         elif mode == "pick":
             self.owner._pick_position = QPointF(event.position())
             sampled = self._color_at(event.position())
@@ -545,9 +553,7 @@ class _SubViewCanvas(QWidget):
         event.accept()
 
     def mouseReleaseEvent(self, event):
-        if event.button() not in (
-            Qt.MouseButton.LeftButton, Qt.MouseButton.MiddleButton
-        ):
+        if event.button() not in _HANDLED_BUTTONS:
             return
         if self.owner._drag_mode == "pick":
             self._pick_color(event.position())
@@ -571,8 +577,24 @@ class _SubViewCanvas(QWidget):
         exact = max(5.0, min(800.0, exact * 1.15 ** (delta / 120)))
         self._wheel_percent = exact
         if round(exact) != current:
-            self.owner.zoom_slider.setValue(round(exact))
+            self.zoom_to_percent(round(exact), event.position())
         event.accept()
+
+    def zoom_to_percent(self, percent, anchor=None):
+        """倍率を変える。``anchor``（ウィジェット座標）の下の画素は動かさない。"""
+        image = self.owner._image
+        if anchor is None or image.isNull():
+            self.owner.zoom_slider.setValue(int(percent))
+            return
+        anchor = QPointF(anchor)
+        inverse, invertible = self._image_transform().inverted()
+        self.owner.zoom_slider.setValue(int(percent))
+        if not invertible:
+            return
+        image_point = inverse.map(anchor)
+        moved_to = self._image_transform().map(image_point)
+        self.owner._pan += anchor - moved_to
+        self.update()
 
     def _pick_color(self, position):
         color = self._color_at(position)
