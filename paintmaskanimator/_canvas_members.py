@@ -473,3 +473,7 @@ class CanvasMembers(_MembersBase):
         flood_fill_over_frames: Any
         skewer_fill_pending: Any
         skip_skewer_fill_frame: Any
+        _bucket_drag: Any
+        begin_bucket_drag: Any
+        continue_bucket_drag: Any
+        finish_bucket_drag: Any

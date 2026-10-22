@@ -7,6 +7,7 @@ previews and their commits, and lasso polygon filling. Undo entries are pushed
 through ``PaintCanvas.push_undo`` as usual; they run against a live
 ``PaintCanvas``.
 """
+import dataclasses
 import math
 import numpy as np
 from typing import Any
@@ -15,6 +16,7 @@ from PySide6.QtGui import QColor, QImage, QPainter, QPainterPath, QPen, QPolygon
 from .i18n import tr
 from ._canvas_members import CanvasMembers
 from . import bucket_fill, imaging
+from .undo_entries import LayerRegionUndo
 from .pressure import _pressure_bezier_at
 from .logging_setup import get_logger
 
@@ -22,6 +24,9 @@ log = get_logger(__name__)
 
 
 class PaintToolsMixin(CanvasMembers):
+    # バケツのドラッグ塗りの途中経過（押している間だけ持つ）。
+    _bucket_drag: Any = None
+
     def pressure_size_scale(self, pressure):
         """筆圧から線幅倍率だけを返す。不透明度には使用しない。"""
         if not self.pressure_enabled:
@@ -296,25 +301,37 @@ class PaintToolsMixin(CanvasMembers):
             return
         # 串刺し塗りの指定待ち中にチェックを外したら、途中の串刺し塗りは捨てる。
         self.abort_skewer_fill()
+        self._bucket_fill_at(p, push_undo=True)
+
+    def _bucket_fill_at(self, p, push_undo=True, quiet=False, require_closed=False):
+        """``p`` を種に1か所塗る。``(塗ったマスク, 塗らずに済ませた領域)`` を返す。
+
+        塗れなければ塗ったマスクは None。``push_undo`` が偽なら Undo を積まない
+        （ドラッグ塗りが最後にまとめて積む）。``require_closed`` が真なら、
+        端まで開いた領域は塗らず、その領域を2つ目に返す。
+        """
         image, pixels = self._layer_fill_pixels(self.active_layer.image)
         start_x, start_y = int(p.x()), int(p.y())
         selection_mask = self.selection_mask_bool(image.width(), image.height())
+        options = self.bucket_options()
+        if require_closed and not options.require_closed:
+            options = dataclasses.replace(options, require_closed=True)
         result = bucket_fill.compute_fill_region(
-            pixels, start_x, start_y, self.bucket_options(), selection_mask
+            pixels, start_x, start_y, options, selection_mask
         )
         if not result.ok:
-            message = self._bucket_failure_message(result.reason)
+            message = None if quiet else self._bucket_failure_message(result.reason)
             if message:
                 self.status_message.emit(message)
-            return
+            return None, result.region
 
         # Undo は塗る範囲が決まってから、その外接矩形だけを保存する。
         # 大きなキャンバスでレイヤー全体をコピーしないため。
         assert result.bounds is not None  # ok なら必ず外接矩形がある
         x0, y0, x1, y1 = result.bounds
         fill_rect = QRect(x0, y0, x1 - x0, y1 - y0)
-        if not self.push_layer_region_undo(fill_rect):
-            return
+        if push_undo and not self.push_layer_region_undo(fill_rect):
+            return None, None
         # 以降の書き込みは外接矩形の中だけで行い、その部分だけをレイヤーへ戻す。
         patch = pixels[y0:y1, x0:x1]
         written_colors = self._fill_patch(
@@ -326,6 +343,109 @@ class PaintToolsMixin(CanvasMembers):
             self._emit_actual_paint_colors(written_colors)
         self.cellChanged.emit(self.current_frame, self.active_layer_index)
         self.update()
+        return result.mask, None
+
+    # ------------------------------------------------------------------
+    # ドラッグ塗り：なぞった軌跡が通った囲まれた部分を、それぞれ塗る。
+    # ------------------------------------------------------------------
+    def begin_bucket_drag(self, p):
+        """バケツを押した。最初の1か所を塗り、なぞりの準備をする。"""
+        self.finish_bucket_drag()
+        layer = self.active_layer
+        # 画像は暗黙共有なので、ここでは複製しない（塗った時点で分かれる）。
+        before = QImage(layer.image)
+        _converted, original = self._layer_fill_pixels(before)
+        width, height = before.width(), before.height()
+        x, y = int(p.x()), int(p.y())
+        if not (0 <= x < width and 0 <= y < height):
+            self._bucket_drag = None
+            return
+        options = self.bucket_options()
+        category = bucket_fill.seed_category(original, x, y)
+        # なぞった先で塗り始めてよい画素。線の上を通っても線を塗らないよう、
+        # 「すべての色」では最初にクリックした色の種類、それ以外は対象色の画素に限る。
+        eligible = bucket_fill.fill_target_mask(
+            original, options.target_color, category
+        )
+        self._bucket_drag = {
+            "frame": int(self.current_frame),
+            "layer": int(self.active_layer_index),
+            "before": before,
+            "has_content": bool(layer.has_content),
+            "eligible": eligible,
+            # 試した場所（塗れなかった点も含む）と、実際に塗った範囲。
+            "tried": np.zeros((height, width), dtype=bool),
+            "painted": np.zeros((height, width), dtype=bool),
+            "last": QPointF(p),
+        }
+        # 最初の1か所はクリックと同じ（開いた領域も設定どおりに塗る）。
+        self._bucket_drag_fill(p, first=True)
+
+    def continue_bucket_drag(self, p):
+        """なぞった区間上の、まだ塗っていない囲まれた部分を塗る。"""
+        drag = self._bucket_drag
+        if drag is None:
+            return
+        start = drag["last"]
+        distance = math.hypot(p.x() - start.x(), p.y() - start.y())
+        steps = max(1, int(math.ceil(distance)))
+        for step in range(1, steps + 1):
+            t = step / steps
+            self._bucket_drag_fill(
+                QPointF(
+                    start.x() + (p.x() - start.x()) * t,
+                    start.y() + (p.y() - start.y()) * t,
+                ),
+                first=False,
+            )
+        drag["last"] = QPointF(p)
+
+    def _bucket_drag_fill(self, p, first):
+        drag = self._bucket_drag
+        x, y = int(p.x()), int(p.y())
+        tried = drag["tried"]
+        height, width = tried.shape
+        if not (0 <= x < width and 0 <= y < height):
+            return
+        if tried[y, x] or not drag["eligible"][y, x]:
+            return
+        # なぞって通った先は「囲まれた部分」だけを塗る。外の背景までは塗らない。
+        mask, skipped = self._bucket_fill_at(
+            QPointF(x, y), push_undo=False, quiet=not first, require_closed=not first,
+        )
+        # 塗れなかった点・開いていた領域も、同じ場所で何度も判定しない。
+        tried[y, x] = True
+        if skipped is not None:
+            tried |= skipped
+        if mask is not None:
+            tried |= mask
+            drag["painted"] |= mask
+
+    def finish_bucket_drag(self):
+        """ドラッグで塗った分を、Undo 1回で戻せるようにまとめて積む。"""
+        drag = self._bucket_drag
+        self._bucket_drag = None
+        if drag is None:
+            return
+        if not self._bucket_drag_target_exists(drag):
+            return
+        ys, xs = np.nonzero(drag["painted"])
+        if not xs.size:
+            return
+        rect = QRect(
+            int(xs.min()), int(ys.min()),
+            int(xs.max() - xs.min() + 1), int(ys.max() - ys.min() + 1),
+        )
+        self.push_undo(LayerRegionUndo(
+            drag["frame"], drag["layer"], rect,
+            drag["before"].copy(rect), drag["has_content"],
+        ))
+
+    def _bucket_drag_target_exists(self, drag):
+        return (
+            0 <= drag["frame"] < len(self.frames)
+            and 0 <= drag["layer"] < len(self.frames[drag["frame"]].layers)
+        )
 
     @staticmethod
     def _bucket_failure_message(reason):
@@ -334,6 +454,8 @@ class PaintToolsMixin(CanvasMembers):
             return tr("選択範囲の外側なので塗りを開始しませんでした。")
         if reason == bucket_fill.REASON_OPEN_REGION:
             return tr("領域がキャンバス端まで開いているため、塗りを開始しませんでした。")
+        if reason == bucket_fill.REASON_NOT_TARGET:
+            return tr("クリックした場所は「対象色」で塗る対象にしていない色です。")
         return None
 
     def _bucket_all_frames_enabled(self):

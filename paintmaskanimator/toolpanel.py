@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from . import config, icons, theme
+from . import bucket_fill, config, icons, theme
 from .i18n import tr
 from .utils import on_double_click
 from .widgets import (BrushSizeSpinBox, ClickableValueLabel, HSVColorWheel, LineTaperCurvePopup, SliderValueSpinBox, SwatchEyedropButton)
@@ -668,6 +668,34 @@ class ToolPanel(QWidget):
         self._sync_transform_quality_options(True)
         self._refresh_transform_line_width_visibility()
 
+        # 対象色：どの画素をたどって塗るか（CLIP STUDIO の「対象色」と同じ選択肢）。
+        self.bucket_target_color = QComboBox()
+        for label, value in (
+            (tr("すべての色を対象"), bucket_fill.TARGET_ALL),
+            (tr("透明部分のみ"), bucket_fill.TARGET_TRANSPARENT),
+            (tr("透明に囲まれた部分"), bucket_fill.TARGET_SURROUNDED_BY_TRANSPARENT),
+            (tr("黒部分のみ"), bucket_fill.TARGET_BLACK),
+            (tr("黒に囲まれた部分"), bucket_fill.TARGET_SURROUNDED_BY_BLACK),
+            (tr("白と透明部分のみ"), bucket_fill.TARGET_WHITE_TRANSPARENT),
+            (tr("白と透明に囲まれた部分"), bucket_fill.TARGET_SURROUNDED_BY_WHITE_TRANSPARENT),
+            (tr("薄い半透明を透明扱い"), bucket_fill.TARGET_FAINT_AS_TRANSPARENT),
+            (tr("透明以外と内部の透明"), bucket_fill.TARGET_OPAQUE_AND_INNER_TRANSPARENT),
+            (tr("透明以外は閉領域にも"), bucket_fill.TARGET_TRANSPARENT_AND_CLOSED_OPAQUE),
+        ):
+            self.bucket_target_color.addItem(label, value)
+        self.bucket_target_color.setToolTip(tr(
+            "どの画素をたどって塗るかを選びます。"
+            "「すべての色を対象」はクリックした色の領域を塗ります。"
+            "「〜のみ」はその画素だけ、「〜に囲まれた部分」はそれ以外の画素を、"
+            "クリック位置からつながる範囲で塗ります。"
+        ))
+        self.bucket_target_row = QWidget()
+        bucket_target_layout = QHBoxLayout(self.bucket_target_row)
+        bucket_target_layout.setContentsMargins(0, 0, 0, 0)
+        bucket_target_layout.setSpacing(4)
+        bucket_target_layout.addWidget(QLabel(tr("対象色")))
+        bucket_target_layout.addWidget(self.bucket_target_color, 1)
+
         self.bucket_adjacent=QCheckBox(tr("隣接"))
         self.bucket_adjacent.setChecked(True)
         self.bucket_adjacent.setToolTip(tr(
@@ -979,6 +1007,7 @@ class ToolPanel(QWidget):
             self.shape_outline_width_label,self.shape_outline_width,
             self.lasso_inside_boundary,self.lasso_main_outline_sub_fill,
             self.lasso_outline_width_label,self.lasso_outline_width,
+            self.bucket_target_row,
             self.bucket_adjacent,self.bucket_include_sub,
             self.bucket_include_colors,
             self.bucket_gap_row,
@@ -1410,6 +1439,7 @@ class ToolPanel(QWidget):
             is_lasso_fill and self.lasso_main_outline_sub_fill.isChecked()
         )
         uses_bucket_region = is_bucket or tid == "auto_select"
+        self.bucket_target_row.setVisible(is_bucket)
         self.bucket_adjacent.setVisible(uses_bucket_region)
         self.bucket_include_sub.setVisible(is_bucket)
         self.bucket_include_colors.setVisible(is_bucket)
