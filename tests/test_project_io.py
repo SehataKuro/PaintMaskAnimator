@@ -286,3 +286,40 @@ def test_png_cache_drops_cells_no_longer_saved(qapp, tmp_path):
     project_io.write_project_archive(path, _metadata(), frames[:1], None, cache)
     assert 0 < len(cache) <= before
     assert len(cache) <= len(frames[0].layers)
+
+
+def test_parallel_save_and_open_keep_every_cell_distinct(qapp, tmp_path):
+    """PNG の書き出し・読み込みはスレッドで並列に行うが、セルが入れ替わらない。"""
+    from PySide6.QtGui import QColor, QPainter
+
+    frames = [make_frame() for _ in range(12)]
+    expected = {}
+    for frame_index, frame in enumerate(frames):
+        for layer_index, layer in enumerate(frame.layers):
+            if layer.is_paper:
+                continue
+            color = QColor(10 + frame_index * 20, 30 + layer_index * 40, 200)
+            painter = QPainter(layer.image)
+            painter.fillRect(frame_index * 3, layer_index * 3, 3, 3, color)
+            painter.end()
+            layer.has_content = True
+            expected[(frame_index, layer_index)] = color
+    metadata = _metadata()
+    metadata["mask_format"] = project_io.CURRENT_MASK_FORMAT
+    path = tmp_path / "many.pman"
+    project_io.write_project_archive(path, metadata, frames, None, project_io.PngCache())
+
+    _meta, loaded, _w, _h = project_io.read_project_archive(path, project_io.PngCache())
+    for (frame_index, layer_index), color in expected.items():
+        image = loaded[frame_index].layers[layer_index].image
+        assert image.pixelColor(frame_index * 3 + 1, layer_index * 3 + 1) == color
+        # 他のセルの印は入っていない。
+        other = (frame_index + 1) % len(frames)
+        assert image.pixelColor(other * 3 + 1, layer_index * 3 + 1).alpha() == 0
+
+
+def test_parallel_map_keeps_order():
+    assert project_io.parallel_map(lambda value: value * 2, range(50)) == [
+        value * 2 for value in range(50)
+    ]
+    assert project_io.parallel_map(str, []) == []
