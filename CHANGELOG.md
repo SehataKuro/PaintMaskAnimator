@@ -4,6 +4,8 @@ PaintMaskAnimator の主な変更点を記録します。
 
 ## [未リリース]
 
+## [0.6.7] - 2026-10-22
+
 ### 追加
 
 - **Alt＋ホイールでタイムラインを拡大縮小できるようにした。**
@@ -578,6 +580,7 @@ PaintMaskAnimator の主な変更点を記録します。
 - プロジェクトの保存・読込、画像処理、減色、オートセーブ、クラッシュ復元、アプリ内更新機能を追加。
 - Windows と macOS 向けの配布パッケージ、CI、自動テストを整備。
 
+[0.6.7]: https://github.com/SehataKuro/PaintMaskAnimator/releases/tag/v0.6.7
 [0.6.6]: https://github.com/SehataKuro/PaintMaskAnimator/releases/tag/v0.6.6
 [0.6.5]: https://github.com/SehataKuro/PaintMaskAnimator/releases/tag/v0.6.5
 [0.6.4]: https://github.com/SehataKuro/PaintMaskAnimator/releases/tag/v0.6.4
