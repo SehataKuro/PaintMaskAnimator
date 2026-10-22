@@ -292,3 +292,33 @@ def test_blank_fully_covered_by_the_moved_cell_disappears(window):
     canvas.frames[6].layers[0].exposure = 1
     assert canvas.move_timeline_cell(0, 0, 1, 0)
     assert _spans(canvas.frames)[:2] == [(1, 1, 6), (9, 2, 4)]
+
+
+def test_moving_cells_keeps_pixels_shared_and_undo_restores_them(window):
+    """セルの移動は画素を複製しない（重さの原因だった）が、Undo で元に戻る。"""
+    from PySide6.QtGui import QColor, QPainter
+
+    canvas = window.canvas
+    for column in (0, 3, 9):
+        image = canvas.frames[column].layers[0].image
+        painter = QPainter(image)
+        painter.fillRect(0, 0, 4, 4, QColor(column * 20, 10, 200))
+        painter.end()
+    keys = {
+        column: canvas.frames[column].layers[0].image.cacheKey()
+        for column in (0, 3, 9)
+    }
+    # 2 の先頭（3）へ 1 を落とすと、以降のキーが右へ1つずつ送られる。
+    assert canvas.move_timeline_cell(9, 0, 3, 0)
+    moved = {
+        column: canvas.frames[column].layers[0].image.cacheKey()
+        for column, frame in enumerate(canvas.frames)
+        if frame.layers[0].has_content
+    }
+    assert set(keys.values()) <= set(moved.values()), "移動しても画素はそのまま共有する"
+
+    canvas.undo()
+    for column, key in keys.items():
+        image = canvas.frames[column].layers[0].image
+        assert image.cacheKey() == key
+        assert image.pixelColor(1, 1) == QColor(column * 20, 10, 200)

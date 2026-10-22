@@ -231,7 +231,10 @@ def test_png_cache_reencodes_only_changed_cells(qapp, tmp_path, monkeypatch):
     from PySide6.QtGui import QColor, QPainter
 
     frames = [make_frame(), make_frame()]
-    cell_count = sum(len(frame.layers) for frame in frames)
+    # 空のセルは同じ透明画像を共有するので、エンコードは画像の種類ごとに1回。
+    cell_count = len({
+        layer.image.cacheKey() for frame in frames for layer in frame.layers
+    })
     cache = project_io.PngCache()
     calls = _count_png_encodes(monkeypatch)
     path = tmp_path / "cached.pman"

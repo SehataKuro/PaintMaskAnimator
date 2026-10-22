@@ -805,7 +805,8 @@ class TimelineStructureMixin(CanvasMembers):
                             destination_layer
                         ]
                         copied = src.clone()
-                        dst.image = copied.image.copy()
+                        # 画素は変わらないので複製しない（暗黙共有で十分）。
+                        dst.image = copied.image
                         dst.has_content = bool(
                             copied.has_content
                         )
@@ -837,7 +838,7 @@ class TimelineStructureMixin(CanvasMembers):
 
         destination = self.frames[destination_frame].layers[destination_layer]
         destination.image = (
-            moving.image.copy()
+            moving.image
             if not source_is_blank
             else blank_image()
         )

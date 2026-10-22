@@ -275,3 +275,14 @@ def test_desktop_picker_overlay_spans_screens_and_picks_on_left_click(
 def test_disable_windows_ink_is_noop_off_windows(monkeypatch):
     monkeypatch.setattr(utils.sys, "platform", "linux")
     utils.disable_windows_ink_feedback(object())
+
+
+def test_blank_images_share_a_template_but_write_independently(qapp):
+    first = utils.blank_image()
+    second = utils.blank_image()
+    assert first.cacheKey() == second.cacheKey(), "同じ雛形を共有する"
+    first.setPixelColor(0, 0, QColor("red"))
+    assert second.pixelColor(0, 0).alpha() == 0, "書き込んだ方だけが複製される"
+    assert utils.blank_image().pixelColor(0, 0).alpha() == 0, "雛形は汚れない"
+    white = utils.blank_image(Qt.GlobalColor.white)
+    assert white.pixelColor(0, 0) == QColor("white")
