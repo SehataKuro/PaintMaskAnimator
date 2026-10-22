@@ -57,3 +57,67 @@ def test_click_picks_color_from_linked_image(tmp_path):
     finally:
         view.close()
         app.processEvents()
+
+
+def _shown_view(tmp_path, app, size=(40, 30)):
+    path = tmp_path / "ref.png"
+    image = QImage(*size, QImage.Format.Format_ARGB32)
+    image.fill(QColor("white"))
+    assert image.save(str(path))
+    view = SubViewWidget()
+    assert view.load_path(path)
+    view.resize(400, 300)
+    view.show()
+    app.processEvents()
+    return view
+
+
+def test_right_drag_pans_and_left_click_still_picks(tmp_path):
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtTest import QTest
+
+    app = _app()
+    view = _shown_view(tmp_path, app)
+    picked = []
+    view.colorPicked.connect(picked.append)
+    try:
+        viewer = view.viewer
+        start = QPoint(200, 150)
+        QTest.mousePress(viewer, Qt.MouseButton.RightButton, pos=start)
+        QTest.mouseMove(viewer, QPoint(230, 170))
+        QTest.mouseRelease(viewer, Qt.MouseButton.RightButton, pos=QPoint(230, 170))
+        assert view._pan == QPointF(30, 20), "右ドラッグで画像を動かす"
+        assert picked == [], "右ドラッグではスポイトしない"
+
+        center = viewer._image_rect().center().toPoint()
+        QTest.mouseClick(viewer, Qt.MouseButton.LeftButton, pos=center)
+        assert picked == [QColor("white")], "左クリックはスポイト"
+    finally:
+        view.close()
+        app.processEvents()
+
+
+def test_wheel_zoom_keeps_the_pixel_under_the_cursor(tmp_path):
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtGui import QWheelEvent
+
+    app = _app()
+    view = _shown_view(tmp_path, app)
+    try:
+        viewer = view.viewer
+        cursor = QPointF(120, 90)  # 中心からずらした位置
+        inverse, _ok = viewer._image_transform().inverted()
+        before = inverse.map(cursor)
+        event = QWheelEvent(
+            cursor, viewer.mapToGlobal(cursor), QPoint(0, 0), QPoint(0, 240),
+            Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
+            Qt.ScrollPhase.NoScrollPhase, False,
+        )
+        QApplication.sendEvent(viewer, event)
+        assert view.zoom_slider.value() > 100
+        after = viewer._image_transform().map(before)
+        assert abs(after.x() - cursor.x()) < 0.5
+        assert abs(after.y() - cursor.y()) < 0.5
+    finally:
+        view.close()
+        app.processEvents()
