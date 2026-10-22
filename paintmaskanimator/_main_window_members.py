@@ -193,7 +193,9 @@ class MainWindowMembers(_MembersBase):
         a_select_sub: Any
         a_select_transparent: Any
         a_selection_all_frames: Any
+        a_selection_all: Any
         a_selection_clear: Any
+        a_selection_invert: Any
         a_selection_mesh: Any
         a_selection_scale: Any
         a_selection_transform: Any

@@ -201,7 +201,17 @@ class UIBuildMixin(MainWindowMembers):
             tr("選択範囲：メッシュ変形"), lambda: self.line_ops.start_wire_transform("mesh")
         )
         self.a_selection_clear = self.make_shortcut_action(
-            tr("選択範囲を解除"), self.canvas.clear_selection, "Ctrl+Shift+A"
+            tr("選択範囲を解除"), self.canvas.clear_selection, "Ctrl+D"
+        )
+        # これまでの Ctrl+Shift+A でも解除できるよう、2つ目のキーとして残す。
+        self.a_selection_clear.setShortcuts([
+            QKeySequence("Ctrl+D"), QKeySequence("Ctrl+Shift+A"),
+        ])
+        self.a_selection_all = self.make_shortcut_action(
+            tr("すべてを選択"), self.canvas.select_all, "Ctrl+A"
+        )
+        self.a_selection_invert = self.make_shortcut_action(
+            tr("選択範囲を反転"), self.canvas.invert_selection, "Ctrl+Shift+I"
         )
         self.a_transform_rotate_left = self.make_shortcut_action(
             tr("変形：左へ90°回転"),
@@ -338,7 +348,9 @@ class UIBuildMixin(MainWindowMembers):
             (tr("選択範囲：自由変形"), self.a_selection_transform),
             (tr("選択範囲：拡大縮小"), self.a_selection_scale),
             (tr("選択範囲：メッシュ変形"), self.a_selection_mesh),
+            (tr("すべてを選択"), self.a_selection_all),
             (tr("選択範囲を解除"), self.a_selection_clear),
+            (tr("選択範囲を反転"), self.a_selection_invert),
             (tr("変形：左へ90°回転"), self.a_transform_rotate_left),
             (tr("変形：右へ90°回転"), self.a_transform_rotate_right),
             (tr("メッシュ変形：格子数を変更"), self.a_transform_mesh_grid),
@@ -398,7 +410,9 @@ class UIBuildMixin(MainWindowMembers):
         e.addAction(self.a_shortcuts)
         e.addAction(self.a_preferences)
         selection_menu=self.menuBar().addMenu(tr("選択範囲"))
+        selection_menu.addAction(self.a_selection_all)
         selection_menu.addAction(self.a_selection_clear)
+        selection_menu.addAction(self.a_selection_invert)
         selection_menu.addSeparator()
         selection_menu.addAction(self.a_selection_transform)
         selection_menu.addAction(self.a_selection_scale)

@@ -16,7 +16,7 @@ from .i18n import tr
 from .optional_deps import PILImage, PILImageFilter
 from .constants import OUTSIDE_MARGIN
 from ._canvas_members import CanvasMembers
-from . import imaging
+from . import constants, imaging
 from .progress import close_counter, create_counter, update_counter
 from .logging_setup import get_logger
 from .undo_entries import LayerBatchUndo, LayerUndo
@@ -133,6 +133,83 @@ class SelectionMixin(CanvasMembers):
     def clear_selection(self):
         self._clear_selection_state()
         self.selectionCleared.emit()
+
+    def set_selection_mask(self, mask):
+        """真偽マスク（レイヤー全体の大きさ）をそのまま選択範囲にする。
+
+        空なら選択を解除する。輪郭が取れなければ何もしないで False。
+        """
+        if not np.any(mask):
+            self.clear_selection()
+            return True
+        # 輪郭の計算は MainWindow から line_ops へ移っている。
+        window: Any = self.window()
+        contour_owner = window.line_ops
+        contours = contour_owner._mask_contours(mask)
+        contour = contour_owner._largest_contour(contours)
+        if not contour:
+            return False
+        ys, xs = np.nonzero(mask)
+        self.selection_polygon = contour
+        self.selection_mask_override = mask
+        self.selection_outline_polygons = contours
+        self.selection_mask_rect = QRectF(
+            int(xs.min()), int(ys.min()),
+            int(xs.max() - xs.min() + 1),
+            int(ys.max() - ys.min() + 1),
+        )
+        self._selection_fade_started = time.monotonic()
+        self.lasso = []
+        self.rect_start = None
+        self.rect_end = None
+        self.selectionChanged.emit()
+        self.update()
+        return True
+
+    def _canvas_area_rect(self):
+        """レイヤー画像のうち、キャンバス（外側の余白を除く）にあたる矩形。"""
+        return QRect(
+            OUTSIDE_MARGIN, OUTSIDE_MARGIN,
+            constants.CANVAS_WIDTH, constants.CANVAS_HEIGHT,
+        ).intersected(self.active_layer.image.rect())
+
+    def select_all(self):
+        """キャンバス全体を選択する（Ctrl+A）。"""
+        if not self.frames or not self.layers:
+            return False
+        if self.transform_active:
+            return False
+        area = self._canvas_area_rect()
+        if area.isEmpty():
+            return False
+        self._clear_selection_state()
+        self.selection_polygon = [
+            QPointF(area.left(), area.top()),
+            QPointF(area.left() + area.width(), area.top()),
+            QPointF(area.left() + area.width(), area.top() + area.height()),
+            QPointF(area.left(), area.top() + area.height()),
+        ]
+        self._selection_fade_started = time.monotonic()
+        self.selectionChanged.emit()
+        self.update()
+        return True
+
+    def invert_selection(self):
+        """選択範囲を反転する（Ctrl+Shift+I）。選択が無ければ何もしない。"""
+        if not self.selection_polygon or self.transform_active:
+            return False
+        image = self.active_layer.image
+        width, height = image.width(), image.height()
+        current = self.selection_mask_bool(width, height)
+        if current is None:
+            return False
+        # 外側の余白は選択の対象にしないので、反転もキャンバスの中だけで行う。
+        area = self._canvas_area_rect()
+        inverted = np.zeros((height, width), dtype=bool)
+        y0, y1 = area.top(), area.top() + area.height()
+        x0, x1 = area.left(), area.left() + area.width()
+        inverted[y0:y1, x0:x1] = ~current[y0:y1, x0:x1]
+        return self.set_selection_mask(inverted)
 
     def clear_selection_preserving_used_colors(self):
         """内部処理用。使用色の選択を維持したまま画像選択だけ解除する。"""

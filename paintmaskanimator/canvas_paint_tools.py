@@ -9,7 +9,6 @@ through ``PaintCanvas.push_undo`` as usual; they run against a live
 """
 import math
 import numpy as np
-import time
 from typing import Any
 from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, Qt
 from PySide6.QtGui import QColor, QImage, QPainter, QPainterPath, QPen, QPolygonF
@@ -467,33 +466,7 @@ class PaintToolsMixin(CanvasMembers):
         else:
             combined = region
 
-        if not np.any(combined):
-            self.clear_selection()
-            return True
-
-        # 輪郭の計算は MainWindow から line_ops へ移っている。
-        window: Any = self.window()
-        contour_owner = window.line_ops
-        contours = contour_owner._mask_contours(combined)
-        contour = contour_owner._largest_contour(contours)
-        if not contour:
-            return False
-        ys, xs = np.nonzero(combined)
-        self.selection_polygon = contour
-        self.selection_mask_override = combined
-        self.selection_outline_polygons = contours
-        self.selection_mask_rect = QRectF(
-            int(xs.min()), int(ys.min()),
-            int(xs.max() - xs.min() + 1),
-            int(ys.max() - ys.min() + 1),
-        )
-        self._selection_fade_started = time.monotonic()
-        self.lasso = []
-        self.rect_start = None
-        self.rect_end = None
-        self.selectionChanged.emit()
-        self.update()
-        return True
+        return self.set_selection_mask(combined)
 
 
     def _line_preview_path(self):
