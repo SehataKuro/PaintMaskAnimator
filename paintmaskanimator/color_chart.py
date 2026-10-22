@@ -15,7 +15,6 @@ from pathlib import Path
 from PySide6.QtCore import QEvent, QMimeData, QPointF, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QDrag, QPainter, QPen
 from PySide6.QtWidgets import (
-    QColorDialog,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -36,6 +35,7 @@ from PySide6.QtWidgets import (
 
 from .errors import OperationError
 from .i18n import tr
+from .color_picker_dialog import ColorPickerDialog
 
 
 PMAG_FORMAT = "PaintMaskGroup"
@@ -430,7 +430,7 @@ class ColorTagDialog(QDialog):
         layout.addWidget(buttons)
 
     def _choose_color(self):
-        color = QColorDialog.getColor(self._color, self, tr("タグ色"))
+        color = ColorPickerDialog.get_color(self._color, self, tr("タグ色"))
         if color.isValid():
             self._color = color
             self._refresh_color_button()

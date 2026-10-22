@@ -11,9 +11,10 @@ from typing import TYPE_CHECKING
 import numpy as np
 from PySide6.QtCore import QRectF
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QApplication, QColorDialog, QDialog, QMessageBox
+from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
 from . import theme
 from .i18n import tr
+from .color_picker_dialog import ColorPickerDialog
 from .widgets import TransformLineThicknessDialog
 from .logging_setup import get_logger
 
@@ -59,7 +60,7 @@ class ColorInteractionController:
 
     def choose_accent_color(self):
         current = QColor(theme.current_accent())
-        color = QColorDialog.getColor(
+        color = ColorPickerDialog.get_color(
             current, self.window, tr("アクセントカラーを選択")
         )
         if color.isValid():
@@ -462,7 +463,7 @@ class ColorInteractionController:
         setattr(self.window.canvas,mode+"_color",QColor(color));self.set_color_mode(mode)
 
     def choose_background_color(self):
-        color = QColorDialog.getColor(
+        color = ColorPickerDialog.get_color(
             self.window.canvas.transparent_display_color,
             self.window,
             tr("背景色の表示色を選択"),
@@ -479,10 +480,15 @@ class ColorInteractionController:
             "transparent",
             self.window.canvas.transparent_display_color,
         )
+        # ツールバーの色見本も背景色に合わせる（ここだけ同期が抜けていた）。
+        self._sync_tool_selector_swatch()
         self.window.canvas.update()
 
     def choose_color(self,mode):
-        base=self.window.canvas.main_color if mode=="main" else self.window.canvas.sub_color;c=QColorDialog.getColor(base,self.window,tr("色を選択"))
+        """メイン色／サブ色をカラーピッカーで設定する（色見本のダブルクリック）。"""
+        base=self.window.canvas.main_color if mode=="main" else self.window.canvas.sub_color
+        title=tr("メイン色を選択") if mode=="main" else tr("サブ色を選択")
+        c=ColorPickerDialog.get_color(base,self.window,title)
         if c.isValid():setattr(self.window.canvas,mode+"_color",c);self.set_color_mode(mode)
 
     def set_color_mode(self,mode):self.window.canvas.color_mode=mode;self.window.tools.set_colors(self.window.canvas.main_color,self.window.canvas.sub_color,mode,self.window.canvas.transparent_display_color);self._sync_tool_selector_swatch()
