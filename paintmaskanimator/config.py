@@ -8,6 +8,7 @@ added later.
 import copy
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any
 
@@ -48,15 +49,34 @@ def _config_paths():
 # 反映される。
 _created_dirs = set()
 _paths_by_env = {}
-_cache = {"key": None, "data": {}}
+_cache = {"key": None, "data": {}, "path": None, "checked": 0.0}
+# 更新時刻の確認（stat）も描画のたびだと積もるので、この秒数に1回までにする。
+# このアプリ自身の保存はすぐに反映する（save_config がキャッシュを捨てる）。
+_CHECK_INTERVAL = 0.5
+
+
+def _now():
+    return time.monotonic()
 
 
 def _cached_config():
     path = config_path()
+    now = _now()
+    if (
+        _cache["key"] is not None
+        and _cache["path"] == path
+        and now - _cache["checked"] < _CHECK_INTERVAL
+    ):
+        return _cache["data"]
+    _cache["path"] = path
+    _cache["checked"] = now
     try:
         stat = path.stat()
     except OSError:
-        return {}
+        # ファイルがまだ無い（初回起動など）状態も覚えて、確認を間引く。
+        _cache["key"] = (str(path), None, None)
+        _cache["data"] = {}
+        return _cache["data"]
     key = (str(path), stat.st_mtime_ns, stat.st_size)
     if _cache["key"] != key:
         try:

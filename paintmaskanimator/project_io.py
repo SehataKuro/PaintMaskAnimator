@@ -7,6 +7,8 @@ widget<->metadata mapping and the UI feedback.
 """
 import json
 import math
+import os
+from concurrent.futures import ThreadPoolExecutor
 import zipfile
 from pathlib import Path, PurePosixPath
 
@@ -14,7 +16,7 @@ from .i18n import tr
 from .errors import OperationError
 
 from PySide6.QtCore import QBuffer, QByteArray, QIODevice
-from PySide6.QtGui import QImage
+from PySide6.QtGui import QImage, QImageReader
 
 from .constants import (
     MAX_PROJECT_ARCHIVE_BYTES,
@@ -59,21 +61,49 @@ class PngCache:
     def remember(self, image, data):
         self._entries[int(image.cacheKey())] = bytes(data)
 
-    def encode(self, image, used_keys=None):
-        """``image`` の PNG を返す。キャッシュに無ければエンコードして覚える。"""
-        key = int(image.cacheKey())
-        if used_keys is not None:
-            used_keys.add(key)
-        data = self._entries.get(key)
-        if data is None:
-            data = encode_png(image)
+    def encode_many(self, images, used_keys=None):
+        """``images`` の PNG を ``{cacheKey: bytes | None}`` で返す。
+
+        キャッシュに無いものだけを、複数のスレッドで同時にエンコードする。
+        QImage.save は実行中 GIL を手放すので、コア数に近い倍率で速くなる
+        （1920x1080 で1枚約60ms かかり、全セルの書き出しが数十秒になっていた）。
+        """
+        result = {}
+        missing = {}
+        for image in images:
+            key = int(image.cacheKey())
+            if used_keys is not None:
+                used_keys.add(key)
+            data = self._entries.get(key)
+            if data is not None:
+                result[key] = data
+            elif key not in missing:
+                missing[key] = image
+        for key, data in zip(missing, parallel_map(encode_png, missing.values())):
+            result[key] = data
             if data is not None:
                 self._entries[key] = data
-        return data
+        return result
 
     def retain_only(self, keys):
         for key in [key for key in self._entries if key not in keys]:
             del self._entries[key]
+
+
+def parallel_map(function, items):
+    """``map`` を複数スレッドで行う（順番は保つ）。数が少なければそのまま回す。
+
+    QImage のエンコード・デコードのように、GIL を手放す Qt の処理に使う。
+    """
+    items = list(items)
+    workers = min(_MAX_WORKERS, os.cpu_count() or 1, len(items))
+    if workers <= 1:
+        return [function(item) for item in items]
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        return list(executor.map(function, items))
+
+
+_MAX_WORKERS = 8
 
 
 def encode_png(image):
@@ -87,6 +117,61 @@ def encode_png(image):
     finally:
         buffer.close()
     return bytes(data.data())
+
+
+def _decode_png(data):
+    """PNG を読み、キャンバスと同じ形式（乗算済み ARGB）にする。失敗なら null。
+
+    QImage.fromData は読み込み中も GIL を握ったままなので、スレッドに分けても
+    速くならない。QImageReader.read は GIL を手放すので、こちらを使う。
+    """
+    buffer = QBuffer()
+    buffer.setData(QByteArray(data))
+    buffer.open(QIODevice.OpenModeFlag.ReadOnly)
+    try:
+        image = QImageReader(buffer, b"png").read()
+    finally:
+        buffer.close()
+    if image.isNull():
+        return image
+    return image.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
+
+
+def _prefetch_pngs(archive, entries):
+    """``entries``（project.json の各セル）の PNG を先にまとめて並列に読む。
+
+    ``{パス: (PNG のバイト列, 画像)}`` を返す。参照が不正なものはここでは
+    読まずに飛ばし、本体のループで従来どおりのエラーにする。
+    """
+    paths = []
+    seen = set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        image_path = str(entry.get("image") or "")
+        normalized = PurePosixPath(image_path)
+        if (
+            not image_path
+            or image_path in seen
+            or normalized.is_absolute()
+            or ".." in normalized.parts
+            or normalized.suffix.lower() != ".png"
+        ):
+            continue
+        try:
+            info = archive.getinfo(image_path)
+        except KeyError:
+            continue
+        if info.file_size > MAX_PROJECT_IMAGE_BYTES:
+            continue
+        seen.add(image_path)
+        paths.append(image_path)
+    blobs = [archive.read(image_path) for image_path in paths]
+    images = parallel_map(_decode_png, blobs)
+    return {
+        image_path: (data, image)
+        for image_path, data, image in zip(paths, blobs, images)
+    }
 
 
 def read_project_archive(path, png_cache=None):
@@ -168,6 +253,14 @@ def read_project_archive(path, png_cache=None):
         if width * height * layer_cell_count > MAX_PROJECT_DECODED_PIXELS:
             raise OperationError(tr("プロジェクトの展開後画像サイズが大きすぎます。"))
 
+        prefetched = _prefetch_pngs(
+            archive,
+            (
+                layer_data
+                for frame_data in frame_entries
+                for layer_data in frame_data.get("layers", [])
+            ),
+        )
         for frame_data in frame_entries:
             loaded_layers = []
             for layer_data in frame_data.get("layers", []):
@@ -194,8 +287,13 @@ def read_project_archive(path, png_cache=None):
                     raise OperationError(
                         tr("レイヤー画像が大きすぎます: {path}").format(path=image_path)
                     )
-                image_bytes = archive.read(image_path)
-                image = QImage.fromData(image_bytes)
+                if image_path in prefetched:
+                    image_bytes, image = prefetched[image_path]
+                    # セルごとに別の QImage にする（画素は書き込むまで共有される）。
+                    image = QImage(image)
+                else:
+                    image_bytes = archive.read(image_path)
+                    image = _decode_png(image_bytes)
                 if image.isNull():
                     raise OperationError(
                         tr("レイヤー画像を復元できません: {path}").format(path=image_path)
@@ -204,9 +302,6 @@ def read_project_archive(path, png_cache=None):
                     raise OperationError(
                         tr("レイヤー画像のサイズが不正です: {path}").format(path=image_path)
                     )
-                image = image.convertToFormat(
-                    QImage.Format.Format_ARGB32_Premultiplied
-                )
                 is_draft = bool(layer_data.get("is_draft", False))
                 # 下書きレイヤーは読み込んだ画素をそのまま保持するため、
                 # 用紙レイヤーと同様に白→透明の移行対象から除外する。
@@ -320,6 +415,7 @@ def read_project_archive(path, png_cache=None):
         ):
             raise OperationError(tr("プロジェクトの展開後画像サイズが大きすぎます。"))
         loaded_sequence_archive = {}
+        prefetched = _prefetch_pngs(archive, sequence_archive_data)
         for archive_data in sequence_archive_data:
             if not isinstance(archive_data, dict):
                 raise OperationError(tr("連番保管セル情報が不正です。"))
@@ -353,8 +449,12 @@ def read_project_archive(path, png_cache=None):
                 raise OperationError(
                     tr("連番保管セル画像が大きすぎます: {path}").format(path=image_path)
                 )
-            image_bytes = archive.read(image_path)
-            image = QImage.fromData(image_bytes)
+            if image_path in prefetched:
+                image_bytes, image = prefetched[image_path]
+                image = QImage(image)
+            else:
+                image_bytes = archive.read(image_path)
+                image = _decode_png(image_bytes)
             if (
                 image.isNull()
                 or image.width() != width
@@ -363,9 +463,6 @@ def read_project_archive(path, png_cache=None):
                 raise OperationError(
                     tr("連番保管セル画像を復元できません: {path}").format(path=image_path)
                 )
-            image = image.convertToFormat(
-                QImage.Format.Format_ARGB32_Premultiplied
-            )
             is_draft = bool(archive_data.get("is_draft", False))
             if needs_white_migration and not is_draft:
                 image = white_to_transparent_qimage(image)
@@ -436,13 +533,11 @@ def write_project_archive(
             compresslevel=6,
         ) as archive:
 
+            # まず書き出すセルを集め、PNG はあとでまとめて並列にエンコードする。
+            pending_pngs = []
+
             def write_png(image_name, image, message):
-                data = cache.encode(image, used_keys)
-                if data is None:
-                    raise OperationError(message.format(name=image_name))
-                archive.writestr(
-                    image_name, data, compress_type=zipfile.ZIP_STORED
-                )
+                pending_pngs.append((image_name, image, message))
 
             for frame_index, frame in enumerate(frames):
                 frame_data = {
@@ -524,6 +619,17 @@ def write_project_archive(
                             else None
                         ),
                     }
+                )
+
+            encoded = cache.encode_many(
+                (image for _name, image, _message in pending_pngs), used_keys
+            )
+            for image_name, image, message in pending_pngs:
+                data = encoded.get(int(image.cacheKey()))
+                if data is None:
+                    raise OperationError(message.format(name=image_name))
+                archive.writestr(
+                    image_name, data, compress_type=zipfile.ZIP_STORED
                 )
 
             archive.writestr(

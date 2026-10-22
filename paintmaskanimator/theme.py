@@ -224,6 +224,11 @@ def _contrast_text(background):
     return "#ffffff" if white_ratio >= black_ratio else "#000000"
 
 
+# テーマ×アクセントごとの配色。タイムラインはセル1つ描くたびに palette() を
+# 引くので、混色の計算を毎回やり直さない。
+_palette_cache = {}
+
+
 def palette(name=None):
     """Return the colour dict for ``name`` (or the active theme).
 
@@ -231,10 +236,18 @@ def palette(name=None):
     always read a consistent, up-to-date accent.
     """
     name = resolved_theme(name)
+    accent = str(current_accent())
+    cached = _palette_cache.get((name, accent))
+    if cached is None:
+        cached = _build_palette(name, accent)
+        _palette_cache[(name, accent)] = cached
+    return dict(cached)
+
+
+def _build_palette(name, accent):
     c = dict(PALETTES.get(name, PALETTES[DEFAULT_THEME]))
     if IS_MAC:
         c.update(MAC_OVERRIDES.get(name, {}))
-    accent = str(current_accent())
     c["accent"] = accent
     c["accent_text"] = _contrast_text(accent)
     # Hover = accent nudged toward the window colour so it reads as "pressed".
