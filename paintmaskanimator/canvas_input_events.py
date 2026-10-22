@@ -207,9 +207,14 @@ class InputEventMixin(CanvasMembers):
                 self.colorUsed.emit(used_color)
         elif t == "bucket":
             # 串刺し塗りは既存のセルにだけ塗る。保持セルを新しいキーに分けない。
-            if not self._bucket_all_frames_enabled():
+            if self._bucket_all_frames_enabled():
+                self.flood_fill(QPoint(int(p.x()), int(p.y())))
+            else:
                 self.ensure_editable_key()
-            self.flood_fill(QPoint(int(p.x()), int(p.y())))
+                # 押した所を塗り、そのままなぞると通った囲まれた部分も塗る。
+                self.abort_skewer_fill()
+                self.begin_bucket_drag(QPointF(p))
+                self.drawing = True
         elif t == "auto_select":
             self.auto_select_region(
                 QPoint(int(p.x()), int(p.y())),
@@ -342,6 +347,8 @@ class InputEventMixin(CanvasMembers):
         elif t == "mesh" and self.mesh_active >= 0:
             self.mesh_points[self.mesh_active] = p
             self.update()
+        elif t == "bucket" and self._bucket_drag is not None:
+            self.continue_bucket_drag(QPointF(p))
 
     def mouseDoubleClickEvent(self, e):
         if e.button() == Qt.MouseButton.LeftButton and self.effective_tool() == "rotate":
@@ -379,6 +386,8 @@ class InputEventMixin(CanvasMembers):
             return
 
         t = self.effective_tool()
+        # ドラッグ塗りは、途中で Space などに切り替わっても離したときに閉じる。
+        self.finish_bucket_drag()
         if t == "eyedropper":
             hide_screen_color_loupe(self)
         if self.transform_active and self.drawing:

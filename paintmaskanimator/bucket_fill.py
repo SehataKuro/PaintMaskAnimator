@@ -357,7 +357,9 @@ def compute_fill_region(
             or np.any(region[:, 0])
             or np.any(region[:, -1])
         ):
-            return FillResult(REASON_OPEN_REGION, target=category)
+            # 塗らないが、どこまで開いていたかは返す（ドラッグ塗りが同じ領域を
+            # 何度も判定しないため）。ok は偽のまま。
+            return FillResult(REASON_OPEN_REGION, region=region, target=category)
 
         if options.close_gap and gap_recovery_mask is not None:
             touching = dilate(region, 1) & gap_recovery_mask
