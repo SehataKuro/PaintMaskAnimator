@@ -462,3 +462,13 @@ class CanvasMembers(_MembersBase):
         widget_to_canvas: Any
         work_rect: Any
         zoom: Any
+        _bucket_all_frames_enabled: Any
+        _bucket_failure_message: Any
+        _fill_patch: Any
+        _layer_fill_pixels: Any
+        _seed_in_bounds: Any
+        abort_skewer_fill: Any
+        bucket_options: Any
+        flood_fill_over_frames: Any
+        skewer_fill_pending: Any
+        skip_skewer_fill_frame: Any

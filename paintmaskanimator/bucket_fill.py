@@ -29,6 +29,7 @@ __all__ = [
     "BucketOptions",
     "FillResult",
     "compute_fill_region",
+    "track_fill_region",
     "seed_category",
     "dilate",
     "erode",
@@ -111,6 +112,9 @@ class FillResult:
     target: Optional[Tuple[int, int, int]] = field(default=None)
     #: ``region`` の外接矩形 ``(x0, y0, x1, y1)``（x1, y1 は排他）。
     bounds: Optional[Tuple[int, int, int, int]] = None
+    #: :func:`track_fill_region` が前のコマの領域との重なり（IoU）を入れる。
+    #: 追跡でない塗り（クリックした種から塗った場合）は ``None``。
+    score: Optional[float] = None
 
     @property
     def ok(self) -> bool:
@@ -299,3 +303,84 @@ def compute_fill_region(
     if bounds is None:
         return FillResult(REASON_EMPTY, target=category)
     return FillResult(REASON_OK, final_region, target=category, bounds=bounds)
+
+
+#: 追跡で試す開始点の数の上限（1回ごとに領域判定が1回走る）。
+TRACK_MAX_TRIES = 6
+#: 前のコマの領域との重なり（IoU）がこれ未満なら、同じ図形とはみなさない。
+TRACK_MIN_IOU = 0.25
+#: これ以上重なっていれば、残りの候補を試さずに採用する。
+TRACK_GOOD_IOU = 0.6
+#: 前のコマの領域との面積比がこの倍率を超えたら別物（背景への漏れなど）とみなす。
+TRACK_MAX_AREA_RATIO = 3.0
+
+
+def track_fill_region(
+    pixels,
+    previous,
+    reference,
+    options: BucketOptions,
+    selection_mask=None,
+) -> FillResult:
+    """前のコマで塗った領域 ``previous`` を手がかりに、このコマで同じ図形を塗る。
+
+    串刺し塗りで同じ座標を種にし続けると、絵が動いたコマでは種が図形の外へ出て
+    背景を塗り始める。ここでは前のコマの領域と重なる位置から種を選び直し、
+    できた領域が「前のコマの領域と十分に重なり、面積も大きく変わらない」ときだけ
+    同じ図形として採用する。背景へ漏れた領域は面積が跳ね上がるので弾かれる。
+
+    :param previous: 前のコマ（追跡の1つ手前）で塗った画素の真偽マスク。
+    :param reference: 塗り始めたコマの開始点の色種別（:func:`seed_category`）。
+    :returns: 見つからなければ ``REASON_EMPTY`` の結果。
+    """
+    previous_area = int(np.count_nonzero(previous))
+    if previous_area == 0:
+        return FillResult(REASON_EMPTY, target=reference)
+    packed = rgba_packed_view(pixels)
+    if reference is None:
+        eligible = background_mask_packed(packed)
+    else:
+        eligible = opaque_rgb_mask_packed(packed, reference)
+    eligible &= previous
+    if selection_mask is not None:
+        eligible &= selection_mask
+
+    # 前のコマの領域の重心に近い点から試す。図形が少し動いただけなら、
+    # たいてい最初の1回で見つかる。
+    previous_ys, previous_xs = np.nonzero(previous)
+    center_y = float(previous_ys.mean())
+    center_x = float(previous_xs.mean())
+
+    best: Optional[FillResult] = None
+    best_iou = 0.0
+    for _attempt in range(TRACK_MAX_TRIES):
+        ys, xs = np.nonzero(eligible)
+        if ys.size == 0:
+            break
+        nearest = int(np.argmin((ys - center_y) ** 2 + (xs - center_x) ** 2))
+        start_x, start_y = int(xs[nearest]), int(ys[nearest])
+        result = compute_fill_region(
+            pixels, start_x, start_y, options, selection_mask
+        )
+        if not result.ok:
+            # 同じ領域から何度も試さないよう、その連続部分ごと候補から外す。
+            eligible &= ~scanline_connected_region(
+                eligible.copy(), (start_x, start_y)
+            )
+            continue
+        region = result.mask
+        eligible &= ~region
+        area = int(np.count_nonzero(region))
+        ratio = area / previous_area
+        if ratio > TRACK_MAX_AREA_RATIO or ratio < 1.0 / TRACK_MAX_AREA_RATIO:
+            continue
+        overlap = int(np.count_nonzero(region & previous))
+        iou = overlap / max(1, area + previous_area - overlap)
+        if iou > best_iou:
+            best, best_iou = result, iou
+            if iou >= TRACK_GOOD_IOU:
+                break
+    if best is None or best_iou < TRACK_MIN_IOU:
+        return FillResult(REASON_EMPTY, target=reference, score=best_iou)
+    best.score = best_iou
+    return best

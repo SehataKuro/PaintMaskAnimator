@@ -295,6 +295,8 @@ class PaintToolsMixin(CanvasMembers):
         if self._bucket_all_frames_enabled():
             self.flood_fill_over_frames(p)
             return
+        # 串刺し塗りの指定待ち中にチェックを外したら、途中の串刺し塗りは捨てる。
+        self.abort_skewer_fill()
         image, pixels = self._layer_fill_pixels(self.active_layer.image)
         start_x, start_y = int(p.x()), int(p.y())
         selection_mask = self.selection_mask_bool(image.width(), image.height())
@@ -339,83 +341,6 @@ class PaintToolsMixin(CanvasMembers):
         tools = self._bucket_tools()
         checkbox = getattr(tools, "bucket_all_frames", None)
         return bool(checkbox is not None and checkbox.isChecked())
-
-    def flood_fill_over_frames(self, p):
-        """串刺し塗り：同じ座標を種として、スコープ内の各コマを塗る。
-
-        コマごとに絵は動くので、同じ座標が別のコマでは線や別のパーツの上に来る
-        ことがある。開始点の色種別（背景か、どの色か）が現在コマと一致するコマ
-        だけを塗り、一致しないコマは触らない。これで線を塗り潰す事故を防ぐ。
-        取りこぼしたコマは、そのコマを表示して塗り直せばよい。
-        """
-        window: Any = self.window()
-        scope_controller = getattr(window, "scope", None)
-        if scope_controller is None:
-            return
-        start_x, start_y = int(p.x()), int(p.y())
-        options = self.bucket_options()
-        replacement = self.paint_source_color()
-        selection_mask = self.selection_mask_bool(
-            self.active_layer.image.width(), self.active_layer.image.height()
-        )
-        if not self._seed_in_bounds(start_x, start_y):
-            return
-        # 現在コマの開始点の色種別を基準にする。各コマはこれと一致したときだけ塗る。
-        _current, current_pixels = self._layer_fill_pixels(self.active_layer.image)
-        reference = bucket_fill.seed_category(current_pixels, start_x, start_y)
-
-        skipped = {"count": 0}
-        written_colors = set()
-
-        def op(context):
-            image, pixels = self._layer_fill_pixels(context.layer.image)
-            if not self._seed_in_bounds(start_x, start_y, image):
-                return None
-            if bucket_fill.seed_category(pixels, start_x, start_y) != reference:
-                skipped["count"] += 1
-                return None
-            result = bucket_fill.compute_fill_region(
-                pixels, start_x, start_y, options, selection_mask
-            )
-            if not result.ok:
-                skipped["count"] += 1
-                return None
-            assert result.bounds is not None  # ok なら必ず外接矩形がある
-            x0, y0, x1, y1 = result.bounds
-            written_colors.update(self._fill_patch(
-                pixels[y0:y1, x0:x1], result.mask[y0:y1, x0:x1], replacement
-            ))
-            return image.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
-
-        scope = scope_controller.current_frame(True, selection_only=False)
-        result = scope_controller.run_over(
-            scope,
-            op,
-            label=tr("串刺し塗り"),
-            cancellable=True,
-        )
-        if result.cancelled:
-            self.status_message.emit(tr("串刺し塗りを中止しました。"))
-            return
-        if not result.changed:
-            self.status_message.emit(
-                tr("串刺し塗りの対象になるコマがありませんでした。")
-            )
-            return
-        if written_colors:
-            self._emit_actual_paint_colors(tuple(sorted(written_colors)))
-        if skipped["count"]:
-            self.status_message.emit(
-                tr("串刺し塗り：{filled} コマを塗り、{skipped} コマは対象外でした。").format(
-                    filled=result.changed_cells, skipped=skipped["count"]
-                )
-            )
-        else:
-            self.status_message.emit(
-                tr("串刺し塗り：{filled} コマを塗りました。").format(
-                    filled=result.changed_cells
-                )
-            )
 
     def _seed_in_bounds(self, start_x, start_y, image=None):
         image = image if image is not None else self.active_layer.image
