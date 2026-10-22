@@ -740,6 +740,42 @@ class SelectionMixin(CanvasMembers):
         else:p.fillRect(rect,QColor(0,0,0,255))
         p.end();self.cellChanged.emit(self.current_frame,self.active_layer_index);self.update()
 
+    def delete_selection_contents(self):
+        """選択範囲の中を消す（透明にする）。選択が無ければ何もしない。"""
+        if not self.selection_polygon or self.transform_active:
+            return False
+        self.ensure_editable_key()
+        image = self.active_layer.image
+        width, height = image.width(), image.height()
+        mask = self.selection_mask_bool(width, height)
+        if mask is None or not mask.any():
+            return False
+        ys, xs = np.nonzero(mask)
+        rect = QRect(
+            int(xs.min()), int(ys.min()),
+            int(xs.max() - xs.min() + 1), int(ys.max() - ys.min() + 1),
+        )
+        if not self.push_layer_region_undo(rect):
+            return False
+        # 自動選択や反転の選択はマスクで持っているので、多角形ではなくマスクで消す。
+        clear = QImage(rect.width(), rect.height(), QImage.Format.Format_ARGB32)
+        clear.fill(Qt.GlobalColor.transparent)
+        keep = imaging.bool_mask_image(
+            ~mask[rect.top():rect.bottom() + 1, rect.left():rect.right() + 1]
+        )
+        painter = QPainter(clear)
+        painter.drawImage(0, 0, image, rect.x(), rect.y(), rect.width(), rect.height())
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_DestinationIn)
+        painter.drawImage(0, 0, keep)
+        painter.end()
+        painter = QPainter(image)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+        painter.drawImage(rect.topLeft(), clear)
+        painter.end()
+        self.cellChanged.emit(self.current_frame, self.active_layer_index)
+        self.update()
+        return True
+
     def paste_clipboard(self):
         image=QApplication.clipboard().image()
         if image.isNull(): return

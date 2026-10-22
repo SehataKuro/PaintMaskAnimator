@@ -1447,6 +1447,18 @@ class ToolPanel(QWidget):
             self.main_color if self.color_mode == "main" else self.sub_color
         )
 
+    def step_brush_size(self, direction):
+        """[ / ] でブラシサイズを1段（約15%、最低0.5px）変える。"""
+        spin = self.brush_size_spinbox
+        current = float(spin.value())
+        if direction > 0:
+            target = max(current + 0.5, current * 1.15)
+        else:
+            target = min(current - 0.5, current / 1.15)
+        # 数値欄の刻み（0.5px）にそろえる。
+        target = round(target * 2) / 2
+        spin.setValue(max(spin.minimum(), min(spin.maximum(), target)))
+
     def set_color_mode(self, mode):
         self.color_mode=mode; self.refresh_swatches(); self.sync_sliders(); self.colorModeChanged.emit(mode)
 
