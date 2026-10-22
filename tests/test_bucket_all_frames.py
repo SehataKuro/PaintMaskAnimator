@@ -7,7 +7,8 @@
 from __future__ import annotations
 
 import pytest
-from PySide6.QtCore import QPoint
+from PySide6.QtCore import QPoint, QPointF, Qt
+from PySide6.QtTest import QTest
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication
 
@@ -93,25 +94,6 @@ def test_unchecked_checkbox_touches_only_the_current_cell(window):
     )
 
 
-def test_frames_whose_seed_sits_on_a_line_are_skipped(window):
-    prepare(window, 2)
-    # 2コマ目だけ枠をずらし、種の座標がちょうど線の上に来るようにする。
-    outlined_cell(window, 1, origin=(8, 4))
-
-    window.canvas.flood_fill(QPoint(8, 8))
-
-    assert window.canvas.frames[0].layers[0].image.pixelColor(8, 8) == QColor(
-        "#3355ff"
-    )
-    assert window.canvas.frames[1].layers[0].image.pixelColor(8, 8) == QColor(
-        "black"
-    ), "線の上に落ちたコマは塗らずに飛ばす"
-
-    entry = window.canvas.undo_stack[-1]
-    assert isinstance(entry, ScopedBatchUndo)
-    assert len(entry.cells) == 1
-
-
 def test_frames_already_holding_another_colour_are_skipped(window):
     prepare(window, 2)
     # 2コマ目は種の位置が既に別の色。基準（白＝背景）と一致しないので対象外。
@@ -137,37 +119,6 @@ def test_white_fill_erases_across_frames(window):
         )
 
 
-def test_reports_when_no_frame_matches(window):
-    prepare(window, 2)
-    # 枠のない白紙にして「開いている領域は塗らない」を有効にすると、
-    # どのコマも塗れる領域を持たない。
-    for frame in window.canvas.frames:
-        frame.layers[0].image.fill(QColor("white"))
-    window.tools.bucket_require_closed.setChecked(True)
-    depth = len(window.canvas.undo_stack)
-    messages = []
-    window.canvas.status_message.connect(messages.append)
-
-    window.canvas.flood_fill(QPoint(8, 8))
-
-    assert len(window.canvas.undo_stack) == depth, "何も変えないなら Undo も積まない"
-    assert any("対象になるコマがありません" in message for message in messages)
-
-
-def test_skipped_frames_are_reported_in_the_status_message(window):
-    prepare(window, 2)
-    outlined_cell(window, 1, origin=(8, 4))
-    messages = []
-    window.canvas.status_message.connect(messages.append)
-
-    window.canvas.flood_fill(QPoint(8, 8))
-
-    assert any(
-        "1 コマを塗り" in message and "1 コマは対象外" in message
-        for message in messages
-    )
-
-
 def test_fill_opacity_applies_to_every_frame(window):
     prepare(window, 2)
     window.canvas.fill_opacity = 0.5
@@ -180,3 +131,129 @@ def test_fill_opacity_applies_to_every_frame(window):
     assert colors[0] == colors[1], "どのコマも単発のバケツと同じ混色になる"
     assert colors[0] not in (QColor("#3355ff"), QColor("white"))
     assert colors[0].alpha() == 255
+
+
+def test_low_confidence_frame_waits_for_a_click_and_esc_skips_it(window):
+    prepare(window, 2)
+    # 2コマ目だけ枠を大きくずらし、前のコマの領域からは追いかけきれなくする。
+    outlined_cell(window, 1, origin=(8, 4))
+    depth = len(window.canvas.undo_stack)
+    messages = []
+    window.canvas.status_message.connect(messages.append)
+
+    window.canvas.flood_fill(QPoint(8, 8))
+
+    assert window.canvas.skewer_fill_pending(), "自信のないコマで止まって指定を待つ"
+    assert window.canvas.current_frame == 1, "待っているコマを表示する"
+    assert len(window.canvas.undo_stack) == depth, "全コマ決まるまで塗らない"
+    assert any("コマ 2" in message for message in messages)
+
+    assert window.canvas.skip_skewer_fill_frame()
+
+    assert not window.canvas.skewer_fill_pending()
+    assert window.canvas.current_frame == 0, "塗り終えたら元のコマへ戻る"
+    assert window.canvas.frames[0].layers[0].image.pixelColor(8, 8) == QColor(
+        "#3355ff"
+    )
+    assert window.canvas.frames[1].layers[0].image.pixelColor(8, 8) == QColor(
+        "black"
+    ), "飛ばしたコマは触らない"
+    entry = window.canvas.undo_stack[-1]
+    assert isinstance(entry, ScopedBatchUndo)
+    assert len(entry.cells) == 1
+    assert any(
+        "1 コマを塗り" in message and "1 コマは対象外" in message
+        for message in messages
+    )
+
+
+def test_click_on_the_waiting_frame_fills_it_and_continues(window):
+    prepare(window, 3)
+    outlined_cell(window, 1, origin=(8, 4))
+    outlined_cell(window, 2, origin=(8, 4))
+
+    window.canvas.flood_fill(QPoint(8, 8))
+    assert window.canvas.skewer_fill_pending()
+    # 2コマ目の枠の内側をクリックして指定する。3コマ目はそこから追いかける。
+    window.canvas.flood_fill(QPoint(11, 8))
+
+    assert not window.canvas.skewer_fill_pending()
+    assert window.canvas.frames[0].layers[0].image.pixelColor(8, 8) == QColor("#3355ff")
+    for frame_index in (1, 2):
+        image = window.canvas.frames[frame_index].layers[0].image
+        assert image.pixelColor(11, 8) == QColor("#3355ff")
+        assert image.pixelColor(8, 8) == QColor("black"), "線は塗らない"
+        assert image.pixelColor(2, 2) == QColor("white"), "外の背景は塗らない"
+    entry = window.canvas.undo_stack[-1]
+    assert isinstance(entry, ScopedBatchUndo)
+    assert len(entry.cells) == 3, "Undo 1回で全コマ戻る"
+
+
+def test_tracks_a_moving_shape_instead_of_leaking_into_the_background(window):
+    window.canvas._ensure_frame_count(4)
+    for frame_index in range(4):
+        outlined_cell(window, frame_index, origin=(4 + 3 * frame_index, 4), size=20)
+    window.canvas.set_tool("bucket")
+    window.canvas.color_mode = "main"
+    window.canvas.main_color = QColor("#3355ff")
+    window.tools.bucket_all_frames.setChecked(True)
+
+    # 1コマ目の左寄りをクリックする。4コマ目ではこの座標は枠の外の背景になる。
+    window.canvas.flood_fill(QPoint(6, 14))
+
+    assert not window.canvas.skewer_fill_pending()
+    for frame_index in range(4):
+        image = window.canvas.frames[frame_index].layers[0].image
+        inside = 4 + 3 * frame_index + 10
+        assert image.pixelColor(inside, 14) == QColor("#3355ff")
+        assert image.pixelColor(1, 1) == QColor("white"), "背景にはみ出さない"
+    assert window.canvas.frames[3].layers[0].image.pixelColor(6, 14) == QColor(
+        "white"
+    )
+
+
+def test_clicking_a_held_cell_does_not_create_a_new_cell(window):
+    prepare(window, 1)
+    window.canvas._ensure_frame_count(2)
+    window.canvas.frames[0].layers[0].exposure = 2
+    window.canvas.current_frame = 1
+    assert not window.canvas.frames[1].layers[0].has_content
+
+    canvas = window.canvas
+    canvas.resize(400, 300)
+    widget_point = canvas.canvas_to_widget(QPointF(8.5, 8.5)).toPoint()
+    QTest.mouseClick(canvas, Qt.MouseButton.LeftButton, pos=widget_point)
+
+    assert not canvas.frames[1].layers[0].has_content, "保持セルを新しいキーにしない"
+    assert canvas.frames[0].layers[0].exposure == 2
+    assert canvas.frames[0].layers[0].image.pixelColor(8, 8) == QColor("#3355ff")
+
+
+def test_reports_when_the_clicked_region_cannot_be_filled(window):
+    prepare(window, 2)
+    for frame in window.canvas.frames:
+        frame.layers[0].image.fill(QColor("white"))
+    window.tools.bucket_require_closed.setChecked(True)
+    depth = len(window.canvas.undo_stack)
+    messages = []
+    window.canvas.status_message.connect(messages.append)
+
+    window.canvas.flood_fill(QPoint(8, 8))
+
+    assert len(window.canvas.undo_stack) == depth, "何も変えないなら Undo も積まない"
+    assert not window.canvas.skewer_fill_pending()
+    assert any("開いている" in message for message in messages)
+
+
+def test_switching_tools_discards_a_waiting_skewer_fill(window):
+    prepare(window, 2)
+    outlined_cell(window, 1, origin=(8, 4))
+    depth = len(window.canvas.undo_stack)
+    window.canvas.flood_fill(QPoint(8, 8))
+    assert window.canvas.skewer_fill_pending()
+
+    window.canvas.set_tool("brush")
+
+    assert not window.canvas.skewer_fill_pending()
+    assert len(window.canvas.undo_stack) == depth
+    assert window.canvas.frames[0].layers[0].image.pixelColor(8, 8) == QColor("white")

@@ -888,8 +888,9 @@ class ToolPanel(QWidget):
         )
         self.bucket_all_frames.setChecked(False)
         self.bucket_all_frames.setToolTip(tr(
-            "クリックした座標を種として、選択レイヤーの全コマを一度に塗ります。"
-            "開始点の色が現在のコマと違うコマは、線を塗り潰さないように飛ばします。"
+            "クリックした図形を、選択レイヤーの各コマで追いかけて一度に塗ります。"
+            "追いかけきれないコマでは止まるので、塗る場所をクリックしてください"
+            "（Esc でそのコマを飛ばします）。"
         ))
 
         def sync_bucket_options(_checked=None):

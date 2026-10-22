@@ -50,6 +50,10 @@ class InputEventMixin(CanvasMembers):
         e.accept()
 
     def keyPressEvent(self,e):
+        if self.skewer_fill_pending() and e.key() == Qt.Key.Key_Escape:
+            self.skip_skewer_fill_frame()
+            e.accept()
+            return
         if (
             self._onion_interaction_mode is not None
             and e.key() == Qt.Key.Key_Escape
@@ -202,7 +206,9 @@ class InputEventMixin(CanvasMembers):
             if not self.is_pseudo_transparent_color(used_color):
                 self.colorUsed.emit(used_color)
         elif t == "bucket":
-            self.ensure_editable_key()
+            # 串刺し塗りは既存のセルにだけ塗る。保持セルを新しいキーに分けない。
+            if not self._bucket_all_frames_enabled():
+                self.ensure_editable_key()
             self.flood_fill(QPoint(int(p.x()), int(p.y())))
         elif t == "auto_select":
             self.auto_select_region(

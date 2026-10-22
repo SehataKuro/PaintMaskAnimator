@@ -54,6 +54,7 @@ from .canvas_key_frame import KeyFrameMixin
 from .canvas_onion_interaction import OnionInteractionMixin
 from .canvas_onion_render import OnionRenderMixin
 from .canvas_paint_tools import PaintToolsMixin
+from .canvas_skewer_fill import SkewerFillMixin
 from .canvas_playback import PlaybackMixin
 from .canvas_selection import SelectionMixin
 from .canvas_stroke_display import StrokeDisplayMixin
@@ -98,7 +99,7 @@ def _bounded_cache_put(cache, key, value, max_entries):
 
 class PaintCanvas(
     ImageImportMixin, OnionInteractionMixin, OnionRenderMixin, SelectionMixin,
-    TransformMaskMixin, TransformGeometryMixin, PaintToolsMixin,
+    TransformMaskMixin, TransformGeometryMixin, SkewerFillMixin, PaintToolsMixin,
     TimelineStructureMixin, BrushStabilizerMixin, StrokeDisplayMixin,
     InputEventMixin, UndoMixin, PlaybackMixin,
     KeyFrameMixin, QWidget
@@ -472,6 +473,7 @@ class PaintCanvas(
 
     def set_tool(self, t):
         if t != self.tool:
+            self.abort_skewer_fill()
             self._stop_brush_follow_timer()
             self.line_start = None
             self.line_end = None
@@ -1615,7 +1617,9 @@ class PaintCanvas(
                 p.setOpacity(1 if quality_ready else .85)
                 p.drawImage(wr, transform_preview)
                 p.setOpacity(1)
+        self.paint_skewer_guide(p, wr)
         p.setPen(QPen(QColor(15,15,15),1));p.drawRect(cr);p.restore()
+        self.paint_skewer_banner(p)
         # ライン／図形の確定前プレビュー
         if self.line_start is not None and self.line_end is not None:
             preview_color = self.opaque_paint_color()
