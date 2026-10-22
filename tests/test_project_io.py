@@ -213,3 +213,73 @@ def test_failed_write_preserves_existing_project(qapp, tmp_path, monkeypatch):
 
     assert path.read_bytes() == original
     assert not path.with_suffix(".pmap.tmp").exists()
+
+
+def _count_png_encodes(monkeypatch):
+    calls = {"count": 0}
+    original = project_io.encode_png
+
+    def counting(image):
+        calls["count"] += 1
+        return original(image)
+
+    monkeypatch.setattr(project_io, "encode_png", counting)
+    return calls
+
+
+def test_png_cache_reencodes_only_changed_cells(qapp, tmp_path, monkeypatch):
+    from PySide6.QtGui import QColor, QPainter
+
+    frames = [make_frame(), make_frame()]
+    cell_count = sum(len(frame.layers) for frame in frames)
+    cache = project_io.PngCache()
+    calls = _count_png_encodes(monkeypatch)
+    path = tmp_path / "cached.pman"
+
+    project_io.write_project_archive(path, _metadata(), frames, None, cache)
+    assert calls["count"] == cell_count
+
+    # 何も変えずに保存し直すと、エンコードは1回も走らない。
+    project_io.write_project_archive(path, _metadata(), frames, None, cache)
+    assert calls["count"] == cell_count
+
+    # 描き換えたセルだけがエンコードし直され、その内容が保存される。
+    painter = QPainter(frames[1].layers[0].image)
+    painter.fillRect(0, 0, 3, 3, QColor("#ff0000"))
+    painter.end()
+    project_io.write_project_archive(path, _metadata(), frames, None, cache)
+    assert calls["count"] == cell_count + 1
+    _meta, loaded, _w, _h = project_io.read_project_archive(path)
+    assert loaded[1].layers[0].image.pixelColor(1, 1) == QColor("#ff0000")
+    assert loaded[0].layers[0].image.pixelColor(1, 1) != QColor("#ff0000")
+
+
+def test_png_cache_is_seeded_on_read(qapp, tmp_path, monkeypatch):
+    frames = [make_frame(), make_frame()]
+    path = tmp_path / "seed.pman"
+    metadata = _metadata()
+    # 旧形式（白→透明の移行対象）でなければ、読み込んだ画素はPNGそのまま。
+    metadata["mask_format"] = project_io.CURRENT_MASK_FORMAT
+    project_io.write_project_archive(path, metadata, frames)
+
+    cache = project_io.PngCache()
+    _meta, loaded, _w, _h = project_io.read_project_archive(path, cache)
+    calls = _count_png_encodes(monkeypatch)
+    # 開いた直後の保存は、読み込んだPNGをそのまま使う。
+    project_io.write_project_archive(
+        tmp_path / "copy.pman", _metadata(), loaded, None, cache
+    )
+    assert calls["count"] == 0
+    _meta, reloaded, _w, _h = project_io.read_project_archive(tmp_path / "copy.pman")
+    assert reloaded[0].layers[0].image == loaded[0].layers[0].image
+
+
+def test_png_cache_drops_cells_no_longer_saved(qapp, tmp_path):
+    frames = [make_frame(), make_frame()]
+    cache = project_io.PngCache()
+    path = tmp_path / "prune.pman"
+    project_io.write_project_archive(path, _metadata(), frames, None, cache)
+    before = len(cache)
+    project_io.write_project_archive(path, _metadata(), frames[:1], None, cache)
+    assert 0 < len(cache) <= before
+    assert len(cache) <= len(frames[0].layers)

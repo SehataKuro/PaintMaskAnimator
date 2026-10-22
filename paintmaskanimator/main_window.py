@@ -154,6 +154,8 @@ class MainWindow(
         self._split_drop_press_pos = None
         self._dock_menu_builders = {}
         self.current_project_path = None
+        # 保存・自動保存で、変更のないセルのPNGを使い回す。
+        self.png_cache = project_io.PngCache()
         self.build_actions();self.action_panel=ActionPanel(self);self.build_action_panel();self.build_menu();self.build_ui();self.connect_signals();self.refresh_ui();self.action_panel.reload_python_actions()
         self._refresh_theme_dependent_ui()
         self.colors._sync_tool_selector_swatch()

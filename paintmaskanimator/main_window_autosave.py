@@ -57,6 +57,7 @@ class AutosaveController:
                 self.window.build_project_metadata(),
                 self.window.canvas.frames,
                 self.window.canvas._sequence_archive,
+                self.window.png_cache,
             )
         except Exception:  # noqa: BLE001 - best-effort; must never raise into the event loop
             # Autosave is best-effort and must never raise into the event loop,
