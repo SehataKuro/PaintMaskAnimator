@@ -335,6 +335,8 @@ class PaintToolsMixin(CanvasMembers):
             return tr("選択範囲の外側なので塗りを開始しませんでした。")
         if reason == bucket_fill.REASON_OPEN_REGION:
             return tr("領域がキャンバス端まで開いているため、塗りを開始しませんでした。")
+        if reason == bucket_fill.REASON_NOT_TARGET:
+            return tr("クリックした場所は「対象色」で塗る対象にしていない色です。")
         return None
 
     def _bucket_all_frames_enabled(self):

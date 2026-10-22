@@ -257,3 +257,33 @@ def test_switching_tools_discards_a_waiting_skewer_fill(window):
     assert not window.canvas.skewer_fill_pending()
     assert len(window.canvas.undo_stack) == depth
     assert window.canvas.frames[0].layers[0].image.pixelColor(8, 8) == QColor("white")
+
+
+def test_target_colour_applies_while_tracking(window):
+    """対象色「黒に囲まれた部分」でも、動く図形を追いかけて色の違う部分ごと塗る。"""
+    from paintmaskanimator import bucket_fill
+
+    window.canvas._ensure_frame_count(3)
+    for frame_index in range(3):
+        layer = outlined_cell(window, frame_index, origin=(4 + 3 * frame_index, 4), size=20)
+        # 枠の右半分を別の色にしておく（「すべての色」なら左半分しか塗れない）。
+        for x in range(4 + 3 * frame_index + 10, 4 + 3 * frame_index + 19):
+            for y in range(5, 23):
+                layer.image.setPixelColor(x, y, QColor("#ffd0a0"))
+    window.canvas.set_tool("bucket")
+    window.canvas.color_mode = "main"
+    window.canvas.main_color = QColor("#3355ff")
+    window.tools.bucket_all_frames.setChecked(True)
+    combo = window.tools.bucket_target_color
+    combo.setCurrentIndex(combo.findData(bucket_fill.TARGET_SURROUNDED_BY_BLACK))
+
+    window.canvas.flood_fill(QPoint(7, 14))
+
+    assert not window.canvas.skewer_fill_pending()
+    for frame_index in range(3):
+        image = window.canvas.frames[frame_index].layers[0].image
+        left = 4 + 3 * frame_index + 3
+        right = 4 + 3 * frame_index + 15
+        assert image.pixelColor(left, 14) == QColor("#3355ff")
+        assert image.pixelColor(right, 14) == QColor("#3355ff"), "別の色の部分も塗る"
+        assert image.pixelColor(1, 1) == QColor("white"), "枠の外は塗らない"

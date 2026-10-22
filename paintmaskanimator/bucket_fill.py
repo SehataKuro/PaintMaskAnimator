@@ -29,7 +29,9 @@ __all__ = [
     "BucketOptions",
     "FillResult",
     "compute_fill_region",
+    "fill_target_mask",
     "track_fill_region",
+    "TARGET_COLORS",
     "seed_category",
     "dilate",
     "erode",
@@ -50,6 +52,50 @@ REASON_OUTSIDE_SELECTION = "outside_selection"
 REASON_EMPTY = "empty"
 #: 「開いている領域は塗らない」設定で、領域がキャンバス端に達していた。
 REASON_OPEN_REGION = "open_region"
+#: 「対象色」の設定で、クリックした画素が塗る対象ではなかった。
+REASON_NOT_TARGET = "not_target"
+
+# 対象色（CLIP STUDIO の「対象色」に合わせた選択肢）。
+#: クリックした色の領域（これまでどおり）。
+TARGET_ALL = "all"
+#: 透明な画素だけをたどる。
+TARGET_TRANSPARENT = "transparent"
+#: 透明以外の画素をたどる（透明に囲まれた部分）。
+TARGET_SURROUNDED_BY_TRANSPARENT = "surrounded_by_transparent"
+#: 黒い画素だけをたどる。
+TARGET_BLACK = "black"
+#: 黒以外の画素をたどる（黒い線に囲まれた部分）。
+TARGET_SURROUNDED_BY_BLACK = "surrounded_by_black"
+#: 白と透明の画素だけをたどる。
+TARGET_WHITE_TRANSPARENT = "white_transparent"
+#: 白と透明以外の画素をたどる。
+TARGET_SURROUNDED_BY_WHITE_TRANSPARENT = "surrounded_by_white_transparent"
+#: 透明だけをたどるが、ごく薄い半透明も透明とみなす。
+TARGET_FAINT_AS_TRANSPARENT = "faint_as_transparent"
+#: 透明以外をたどり、その内側に閉じ込められた透明の穴も塗る。
+TARGET_OPAQUE_AND_INNER_TRANSPARENT = "opaque_and_inner_transparent"
+#: 透明をたどり、その中に閉じ込められた透明以外の島も塗る。
+TARGET_TRANSPARENT_AND_CLOSED_OPAQUE = "transparent_and_closed_opaque"
+
+TARGET_COLORS = (
+    TARGET_ALL,
+    TARGET_TRANSPARENT,
+    TARGET_SURROUNDED_BY_TRANSPARENT,
+    TARGET_BLACK,
+    TARGET_SURROUNDED_BY_BLACK,
+    TARGET_WHITE_TRANSPARENT,
+    TARGET_SURROUNDED_BY_WHITE_TRANSPARENT,
+    TARGET_FAINT_AS_TRANSPARENT,
+    TARGET_OPAQUE_AND_INNER_TRANSPARENT,
+    TARGET_TRANSPARENT_AND_CLOSED_OPAQUE,
+)
+
+#: 「黒」とみなす RGB の上限（各チャンネル）。線のアンチエイリアスの濃い部分も含める。
+BLACK_MAX = 48
+#: 「白」とみなす RGB の下限（各チャンネル）。
+WHITE_MIN = 240
+#: 「薄い半透明」とみなすアルファの上限（約20%）。
+FAINT_ALPHA_MAX = 50
 
 
 @dataclass(frozen=True)
@@ -74,6 +120,8 @@ class BucketOptions:
     gap_width: int = 4
     #: 領域がキャンバス端まで開いている場合は塗らない。
     require_closed: bool = False
+    #: どの画素をたどって塗るか（``TARGET_*``）。
+    target_color: str = TARGET_ALL
 
     @classmethod
     def from_tools(cls, tools, *, mask_colors=(), background_selected=False):
@@ -95,7 +143,14 @@ class BucketOptions:
             close_gap=bool(tools.bucket_close_gap.isChecked()),
             gap_width=max(1, int(tools.bucket_gap_width.value())),
             require_closed=bool(tools.bucket_require_closed.isChecked()),
+            target_color=_target_from_tools(tools),
         )
+
+
+def _target_from_tools(tools):
+    combo = getattr(tools, "bucket_target_color", None)
+    value = combo.currentData() if combo is not None else None
+    return value if value in TARGET_COLORS else TARGET_ALL
 
 
 @dataclass
@@ -188,6 +243,53 @@ def seed_category(pixels, start_x, start_y):
     return (int(pixel[0]), int(pixel[1]), int(pixel[2]))
 
 
+def fill_target_mask(pixels, target_color, category, packed=None):
+    """``target_color`` の設定で、たどってよい画素の真偽マスクを返す。
+
+    ``TARGET_ALL`` は従来どおり、開始点の色種別 ``category``（背景なら None）と
+    同じ画素。それ以外は開始点の色に関係なく、設定で決まる画素。
+    """
+    if packed is None:
+        packed = rgba_packed_view(pixels)
+    if target_color == TARGET_ALL:
+        if category is None:
+            return background_mask_packed(packed)
+        return opaque_rgb_mask_packed(packed, category)
+    alpha = pixels[:, :, 3]
+    rgb = pixels[:, :, :3]
+    transparent = alpha == 0
+    if target_color == TARGET_FAINT_AS_TRANSPARENT:
+        return alpha <= FAINT_ALPHA_MAX
+    if target_color in (TARGET_TRANSPARENT, TARGET_TRANSPARENT_AND_CLOSED_OPAQUE):
+        return transparent
+    if target_color in (
+        TARGET_SURROUNDED_BY_TRANSPARENT, TARGET_OPAQUE_AND_INNER_TRANSPARENT,
+    ):
+        return ~transparent
+    if target_color in (TARGET_BLACK, TARGET_SURROUNDED_BY_BLACK):
+        black = ~transparent & (rgb.max(axis=2) <= BLACK_MAX)
+        return black if target_color == TARGET_BLACK else ~black
+    white_or_clear = transparent | (rgb.min(axis=2) >= WHITE_MIN)
+    if target_color == TARGET_WHITE_TRANSPARENT:
+        return white_or_clear
+    return ~white_or_clear
+
+
+def _enclosed_by(region):
+    """``region`` の外側（キャンバス端につながる部分）以外の、region でない画素。"""
+    outside_candidates = ~region
+    edge = np.zeros_like(region)
+    edge[0, :] = edge[-1, :] = True
+    edge[:, 0] = edge[:, -1] = True
+    ys, xs = np.nonzero(outside_candidates & edge)
+    if not xs.size:
+        return outside_candidates
+    outside = scanline_connected_region(
+        outside_candidates, zip(xs.tolist(), ys.tolist())
+    )
+    return outside_candidates & ~outside
+
+
 def compute_fill_region(
     pixels,
     start_x,
@@ -212,10 +314,17 @@ def compute_fill_region(
     packed = rgba_packed_view(pixels)
     pseudo_background = background_mask_packed(packed)
 
-    if category is None:
-        target_mask = pseudo_background.copy()
+    target_color = options.target_color
+    if target_color == TARGET_ALL:
+        target_mask = (
+            pseudo_background.copy()
+            if category is None
+            else opaque_rgb_mask_packed(packed, category)
+        )
     else:
-        target_mask = opaque_rgb_mask_packed(packed, category)
+        target_mask = fill_target_mask(pixels, target_color, category, packed)
+        if not target_mask[start_y, start_x]:
+            return FillResult(REASON_NOT_TARGET, target=category)
     if selection_mask is not None:
         target_mask &= selection_mask
 
@@ -259,8 +368,14 @@ def compute_fill_region(
                     zip(start_x_values.tolist(), start_y_values.tolist()),
                 )
                 region |= recovered
+
+        # 閉じ込められた穴・島も一緒に塗る対象色。
+        if target_color == TARGET_OPAQUE_AND_INNER_TRANSPARENT:
+            region |= _enclosed_by(region) & (pixels[:, :, 3] == 0)
+        elif target_color == TARGET_TRANSPARENT_AND_CLOSED_OPAQUE:
+            region |= _enclosed_by(region) & (pixels[:, :, 3] != 0)
     else:
-        # 「隣接」OFFでは、クリック位置と同じRGBAを持つ全ピクセルを対象にする。
+        # 「隣接」OFFでは、対象色の画素（既定はクリック位置と同じ色）を一括で塗る。
         region = target_mask
 
     final_region = region.copy()
@@ -336,11 +451,8 @@ def track_fill_region(
     previous_area = int(np.count_nonzero(previous))
     if previous_area == 0:
         return FillResult(REASON_EMPTY, target=reference)
-    packed = rgba_packed_view(pixels)
-    if reference is None:
-        eligible = background_mask_packed(packed)
-    else:
-        eligible = opaque_rgb_mask_packed(packed, reference)
+    # 種の候補は、対象色の設定でたどれる画素（既定は開始点と同じ色）に限る。
+    eligible = fill_target_mask(pixels, options.target_color, reference)
     eligible &= previous
     if selection_mask is not None:
         eligible &= selection_mask
