@@ -11,17 +11,13 @@ from PySide6.QtGui import QColor, QCursor, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
-    QComboBox,
-    QDialog,
-    QFormLayout,
     QHBoxLayout,
     QLabel,
-    QSlider,
     QToolButton,
-    QVBoxLayout,
     QWidget,
 )
 from .i18n import tr
+from .color_picker_dialog import ColorPickerDialog
 from .utils import ScreenColorPickerOverlay, _ScreenColorDragMixin
 from .logging_setup import get_logger
 
@@ -342,121 +338,26 @@ class ScreenEyedropButton(_ScreenColorDragMixin, QToolButton):
         QToolButton.hideEvent(self, event)
 
 
-class ReplacementColorPopup(QDialog):
-    """置換色をRGB／HSVスライダーで編集するポップアップ。"""
+class ReplacementColorPopup(ColorPickerDialog):
+    """置換色を編集するカラーピッカー（AE 風）。編集はそのまま置換色へ反映する。
 
-    colorChanged = Signal(QColor)
+    開いたまま他の操作もできるよう、モーダルにはしない。キャンセルしたら
+    開いたときの色へ戻す。
+    """
 
     def __init__(self, color, source_rgb=None, parent=None):
-        super().__init__(
-            parent,
-            Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint,
-        )
-        self._color = QColor(color)
-        if not self._color.isValid():
-            self._color = QColor("black")
-        self._updating = False
-        self.setWindowTitle(tr("置換色"))
-        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
-        self.setMinimumWidth(280)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(9, 9, 9, 9)
-        layout.setSpacing(5)
         title = tr("置換色")
         if source_rgb is not None:
             title = tr("置換色　元色 #{hex}").format(
                 hex="{:02X}{:02X}{:02X}".format(*source_rgb)
             )
-        layout.addWidget(QLabel(f"<b>{title}</b>"))
-        self.preview = QLabel()
-        self.preview.setFixedHeight(28)
-        self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.preview)
-        self.mode = QComboBox()
-        self.mode.addItems(["RGB", "HSV"])
-        self.mode.currentTextChanged.connect(self._rebuild_sliders)
-        layout.addWidget(self.mode)
-        self.slider_widget = QWidget()
-        self.slider_layout = QFormLayout(self.slider_widget)
-        self.slider_layout.setContentsMargins(0, 0, 0, 0)
-        self.slider_layout.setSpacing(4)
-        layout.addWidget(self.slider_widget)
-        self.sliders = []
-        self.value_labels = []
-        self._rebuild_sliders("RGB")
+        super().__init__(color, parent, title)
+        self.setModal(False)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
 
-    def _clear_slider_layout(self):
-        while self.slider_layout.rowCount():
-            self.slider_layout.removeRow(0)
-        self.sliders.clear()
-        self.value_labels.clear()
-
-    def _rebuild_sliders(self, mode):
-        self._clear_slider_layout()
-        specs = (
-            [("R", 0, 255), ("G", 0, 255), ("B", 0, 255)]
-            if mode == "RGB"
-            else [("H", 0, 359), ("S", 0, 255), ("V", 0, 255)]
-        )
-        for name, minimum, maximum in specs:
-            slider = QSlider(Qt.Orientation.Horizontal)
-            slider.setRange(minimum, maximum)
-            label = QLabel("0")
-            label.setFixedWidth(34)
-            label.setAlignment(
-                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-            )
-            row = QWidget()
-            row_layout = QHBoxLayout(row)
-            row_layout.setContentsMargins(0, 0, 0, 0)
-            row_layout.setSpacing(4)
-            row_layout.addWidget(slider, 1)
-            row_layout.addWidget(label)
-            slider.valueChanged.connect(
-                lambda value, target=label: target.setText(str(value))
-            )
-            slider.valueChanged.connect(self._sliders_changed)
-            self.slider_layout.addRow(name, row)
-            self.sliders.append(slider)
-            self.value_labels.append(label)
-        self._sync_from_color()
-
-    def _sync_from_color(self):
-        if self.mode.currentText() == "RGB":
-            values = self._color.getRgb()[:3]  # pyright: ignore[reportIndexIssue]
-        else:
-            hue, saturation, value, _alpha = self._color.getHsv()  # pyright: ignore[reportGeneralTypeIssues]
-            values = (max(0, hue), saturation, value)
-        self._updating = True
-        try:
-            for slider, label, value in zip(
-                self.sliders, self.value_labels, values
-            ):
-                slider.setValue(int(value))
-                label.setText(str(slider.value()))
-        finally:
-            self._updating = False
-        self._refresh_preview()
-
-    def _sliders_changed(self):
-        if self._updating or len(self.sliders) != 3:
-            return
-        values = [slider.value() for slider in self.sliders]
-        self._color = (
-            QColor(*values)
-            if self.mode.currentText() == "RGB"
-            else QColor.fromHsv(*values)
-        )
-        self._refresh_preview()
-        self.colorChanged.emit(QColor(self._color))
-
-    def _refresh_preview(self):
-        foreground = "#111" if self._color.lightness() >= 150 else "#fff"
-        self.preview.setText(self._color.name(QColor.NameFormat.HexRgb).upper())
-        self.preview.setStyleSheet(
-            f"background:{self._color.name()};color:{foreground};"
-            "border:1px solid #777;padding:3px;"
-        )
+    def reject(self):
+        self.colorChanged.emit(self.original_color())
+        super().reject()
 
 
 class ColorVisibilityCheckBox(QCheckBox):

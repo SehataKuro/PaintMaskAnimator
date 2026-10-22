@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 from . import config, icons, theme
 from .i18n import tr
+from .utils import on_double_click
 from .widgets import (BrushSizeSpinBox, ClickableValueLabel, HSVColorWheel, LineTaperCurvePopup, SliderValueSpinBox, SwatchEyedropButton)
 
 
@@ -72,6 +73,7 @@ class SwatchStack(QWidget):
     """
     modeRequested = Signal(str)
     backgroundColorRequested = Signal()
+    colorEditRequested = Signal(str)
 
     def __init__(self, width=52, parent=None):
         super().__init__(parent)
@@ -101,6 +103,9 @@ class SwatchStack(QWidget):
         self._bg_btn.customContextMenuRequested.connect(
             lambda _p: self.backgroundColorRequested.emit()
         )
+        on_double_click(self._main_btn, lambda: self.colorEditRequested.emit("main"))
+        on_double_click(self._sub_btn, lambda: self.colorEditRequested.emit("sub"))
+        on_double_click(self._bg_btn, self.backgroundColorRequested.emit)
         self.relayout(width)
 
     def relayout(self, width, columns=None):
@@ -172,6 +177,7 @@ class ToolSelectorPanel(QWidget):
     snapWidthRequested = Signal(int)
     colorModeRequested = Signal(str)
     backgroundColorRequested = Signal()
+    colorEditRequested = Signal(str)
     TOOLS = TOOL_DEFINITIONS
 
     CELL_SIZE = 30
@@ -229,6 +235,7 @@ class ToolSelectorPanel(QWidget):
         self.color_swatch.backgroundColorRequested.connect(
             self.backgroundColorRequested
         )
+        self.color_swatch.colorEditRequested.connect(self.colorEditRequested)
         self._swatch_holder = QWidget()
         swatch_row = QHBoxLayout(self._swatch_holder)
         swatch_row.setContentsMargins(0, 4, 0, 2)
@@ -532,6 +539,8 @@ class ToolPanel(QWidget):
     isolateColorRequested = Signal()
     removeDustRequested = Signal()
     backgroundColorRequested = Signal()
+    #: 色見本・カラーサークルのダブルクリックで、その色の編集を求める（main / sub）。
+    colorEditRequested = Signal(str)
     clearColorFilterRequested = Signal()
     TOOLS = TOOL_DEFINITIONS
 
@@ -1144,6 +1153,10 @@ class ToolPanel(QWidget):
 
         self.main_btn.clicked.connect(lambda: self.set_color_mode("main"))
         self.sub_btn.clicked.connect(lambda: self.set_color_mode("sub"))
+        # ダブルクリックでその色をカラーピッカーで設定する。
+        on_double_click(self.main_btn, lambda: self.colorEditRequested.emit("main"))
+        on_double_click(self.sub_btn, lambda: self.colorEditRequested.emit("sub"))
+        on_double_click(self.background_btn, self.backgroundColorRequested.emit)
         self.swap_colors_button.clicked.connect(self.swapMainSubRequested)
         self.reset_colors_button.clicked.connect(self.resetMainSubRequested)
 
@@ -1163,6 +1176,13 @@ class ToolPanel(QWidget):
         wheel_layout.setSpacing(2)
         self.hsv_wheel = HSVColorWheel()
         self.hsv_wheel.colorChanged.connect(self.wheel_color_changed)
+        # カラーサークルのダブルクリックは、いま編集している色（メイン／サブ）を設定する。
+        on_double_click(
+            self.hsv_wheel,
+            lambda: self.colorEditRequested.emit(
+                "sub" if self.color_mode == "sub" else "main"
+            ),
+        )
         wheel_layout.addWidget(self.hsv_wheel)
         wheel_layout.addWidget(self.drawing_color_box)
         wheel_layout.addStretch(1)

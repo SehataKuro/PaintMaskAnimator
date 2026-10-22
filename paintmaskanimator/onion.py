@@ -4,7 +4,6 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QCheckBox,
-    QColorDialog,
     QDoubleSpinBox,
     QFormLayout,
     QHBoxLayout,
@@ -19,6 +18,7 @@ from PySide6.QtWidgets import (
 )
 from . import theme
 from .i18n import tr
+from .color_picker_dialog import ColorPickerDialog
 from .logging_setup import get_logger
 
 log = get_logger(__name__)
@@ -1137,7 +1137,7 @@ class OnionSkinSettingsBrowser(QWidget):
             if which == "previous"
             else self.next_color
         )
-        color = QColorDialog.getColor(
+        color = ColorPickerDialog.get_color(
             current,
             self,
             tr("オニオンスキンの表示色"),

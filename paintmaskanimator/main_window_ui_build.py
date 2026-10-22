@@ -879,6 +879,7 @@ class UIBuildMixin(MainWindowMembers):
         self.tool_selector.backgroundColorRequested.connect(
             self.colors.choose_background_color
         )
+        self.tool_selector.colorEditRequested.connect(self.colors.choose_color)
         self.tools.colorModeChanged.connect(
             lambda _m=None: self.colors._sync_tool_selector_swatch()
         )
@@ -938,6 +939,7 @@ class UIBuildMixin(MainWindowMembers):
         self.tools.resetMainSubRequested.connect(self.line_ops.reset_main_sub)
         self.tools.removeDustRequested.connect(self.line_ops.remove_dust_fill_surrounding)
         self.tools.backgroundColorRequested.connect(self.colors.choose_background_color)
+        self.tools.colorEditRequested.connect(self.colors.choose_color)
 
         self.timeline.frameSelected.connect(self.timeline_ops.select_exposure)
         self.timeline.addFrameRequested.connect(

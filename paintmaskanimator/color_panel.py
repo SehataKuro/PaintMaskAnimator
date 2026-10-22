@@ -11,7 +11,7 @@ mixins live in ``_color_panel_members.py``.
 """
 from typing import Any
 from PySide6.QtCore import QPoint, Qt, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QCursor
 from PySide6.QtWidgets import (
     QApplication,
     QGridLayout,
@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 )
 from . import icons
 from .i18n import tr
+from .utils import on_double_click
 from .constants import ALT_KEY_LABEL, CTRL_KEY_LABEL
 from .logging_setup import get_logger
 
@@ -383,7 +384,8 @@ class UsedColorPanel(
         self._replacement_popup = None
         self._replacement_popup_rgb = None
         if popup is not None:
-            popup.close()
+            # 閉じるだけなら編集した色を残す（キャンセル扱いで元に戻さない）。
+            popup.accept()
             popup.deleteLater()
 
     def _replacement_popup_destroyed(self, popup):
@@ -391,8 +393,20 @@ class UsedColorPanel(
             self._replacement_popup = None
             self._replacement_popup_rgb = None
 
+    def open_replacement_editor(self, source_rgb):
+        """置換色のカラーピッカーを開く（開いていれば閉じずにそのまま）。"""
+        if (
+            self._replacement_popup is not None
+            and self._replacement_popup.isVisible()
+            and self._replacement_popup_rgb == source_rgb
+        ):
+            self._replacement_popup.raise_()
+            self._replacement_popup.activateWindow()
+            return
+        self._toggle_replacement_editor(source_rgb, QCursor.pos())
+
     def _toggle_replacement_editor(self, source_rgb, global_position):
-        """左クリックでRGB／HSV編集を開き、再度の左クリックで閉じる。"""
+        """左クリックでカラーピッカーを開き、再度の左クリックで閉じる。"""
         if source_rgb == self.background_rgb:
             return
         if (
@@ -970,6 +984,11 @@ class UsedColorPanel(
         wrapper.hoverChanged.connect(
             lambda hovered, rgb=source_rgb: self._on_swatch_hover(rgb, hovered)
         )
+        if not is_background:
+            # ダブルクリックで、この色の置換色をカラーピッカーで設定する。
+            on_double_click(
+                wrapper, lambda rgb=source_rgb: self.open_replacement_editor(rgb)
+            )
         wrapper_layout = QHBoxLayout(wrapper)
         # 右余白は0にしてスウォッチを選択列いっぱいへ広げる。
         wrapper_layout.setContentsMargins(2, 3, 0, 3)
@@ -1144,7 +1163,7 @@ class UsedColorPanel(
                 QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
             )
             replacement.setToolTip(
-                tr("左クリック：RGB／HSV編集。右クリック：画面全体のスポイトへ切替。"
+                tr("左クリック：色を編集。右クリック：画面全体のスポイトへ切替。"
                 "スポイト中は左クリックで確定、Escで解除。")
             )
             replacement.colorPicked.connect(

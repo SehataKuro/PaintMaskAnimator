@@ -2,7 +2,7 @@ import sys
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
-from PySide6.QtCore import QEvent, QPointF, QRect, QRectF, QTimer, Qt, Signal
+from PySide6.QtCore import QEvent, QObject, QPointF, QRect, QRectF, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QCursor, QImage, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import QApplication, QWidget
 from .i18n import tr
@@ -136,6 +136,30 @@ def disable_windows_ink_feedback(*widgets):
     except (OSError, AttributeError, ImportError) as exc:
         # Windowsのバージョンや環境が未対応でも起動は継続する。
         log.debug("Windows Ink feedback tweak unavailable: %s", exc)
+
+
+class _DoubleClickFilter(QObject):
+    def __init__(self, callback, parent):
+        super().__init__(parent)
+        self._callback = callback
+
+    def eventFilter(self, watched, event):
+        if (
+            event.type() == QEvent.Type.MouseButtonDblClick
+            and event.button() == Qt.MouseButton.LeftButton
+        ):
+            self._callback()
+            return True
+        return super().eventFilter(watched, event)
+
+
+def on_double_click(widget, callback):
+    """``widget`` を左ダブルクリックしたら ``callback()`` を呼ぶ。
+
+    QPushButton などダブルクリックのシグナルを持たない部品に付ける。
+    1回目のクリックは通常どおり ``clicked`` として届く。
+    """
+    widget.installEventFilter(_DoubleClickFilter(callback, widget))
 
 
 class _BlankTemplate:

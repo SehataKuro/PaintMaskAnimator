@@ -13,7 +13,6 @@ from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
-    QColorDialog,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -35,6 +34,7 @@ from PySide6.QtWidgets import (
 from . import config, i18n, layout_paper, preferences, pressure_settings, theme
 from .canvas_undo import set_undo_limits
 from .i18n import tr
+from .color_picker_dialog import ColorPickerDialog
 from .pressure import PressureEditor
 
 _CUSTOM_ACCENT = "custom"
@@ -208,7 +208,7 @@ class PreferencesDialog(QDialog):
     def _accent_chosen(self):
         value = self.accent.currentData()
         if value == _CUSTOM_ACCENT:
-            color = QColorDialog.getColor(
+            color = ColorPickerDialog.get_color(
                 QColor(theme.current_accent()), self, tr("アクセントカラーを選択")
             )
             if not color.isValid():
