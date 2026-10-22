@@ -58,7 +58,7 @@ class UIBuildMixin(MainWindowMembers):
         self.a_new=QAction(tr("新規作成…"),self);self.a_new.setShortcut("Ctrl+N");self.a_new.triggered.connect(self.new_doc)
         self.a_resize=QAction(tr("キャンバスサイズの変更…"),self);self.a_resize.triggered.connect(self.resize_doc)
         self.a_undo=QAction(tr("元に戻す"),self);self.a_undo.setShortcut("Ctrl+Z");self.a_undo.triggered.connect(self.used_color.undo)
-        self.a_redo=QAction(tr("やり直す"),self);self.a_redo.setShortcut("Ctrl+Y");self.a_redo.triggered.connect(self.used_color.redo)
+        self.a_redo=QAction(tr("やり直す"),self);self.a_redo.setShortcuts([QKeySequence("Ctrl+Y"),QKeySequence("Ctrl+Shift+Z")]);self.a_redo.triggered.connect(self.used_color.redo)
         self.a_copy=QAction(tr("コピー"),self);self.a_copy.setShortcut("Ctrl+C");self.a_copy.triggered.connect(self.canvas.copy_selection)
         self.a_cut=QAction(tr("切り取り"),self);self.a_cut.setShortcut("Ctrl+X");self.a_cut.triggered.connect(self.canvas.cut_selection)
         self.a_paste=QAction(tr("貼り付け"),self);self.a_paste.setShortcut("Ctrl+V");self.a_paste.triggered.connect(self.canvas.paste_clipboard)
@@ -117,7 +117,7 @@ class UIBuildMixin(MainWindowMembers):
         self.a_preferences.setShortcut("Ctrl+,")
         self.a_preferences.triggered.connect(lambda: self.show_preferences())
         self.tool_actions={}
-        defaults={"brush":"P","line":"U","shape":"O","bucket":"G","lasso_fill":"F","lasso":"L","rect_select":"R","auto_select":"W","eyedropper":"","dust":"D"}
+        defaults={"brush":"P","line":"U","shape":"O","bucket":"G","lasso_fill":"F","lasso":"L","rect_select":"R","auto_select":"W","eyedropper":"I","dust":"D"}
         for tid,_source_label in ToolPanel.TOOLS:
             a=QAction(tr("ツール：{tool}").format(tool=tool_label(tid)),self);a.setShortcut(defaults.get(tid,""));a.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut);a.triggered.connect(lambda _=False,t=tid:self.tools.select_tool(t));self.addAction(a);self.tool_actions[tid]=a
         self.general_actions=[(tr("新規作成"),self.a_new),(tr("プロジェクトを開く"),self.a_open_project),(tr("上書き保存"),self.a_save_project),(tr("元に戻す"),self.a_undo),(tr("やり直す"),self.a_redo),(tr("前のフレーム"),self.a_prev),(tr("次のフレーム"),self.a_next)]
@@ -192,7 +192,8 @@ class UIBuildMixin(MainWindowMembers):
             "MainLineRepaint", self.line_ops.main_line_repaint
         )
         self.a_selection_transform = self.make_shortcut_action(
-            tr("選択範囲：自由変形"), lambda: self.line_ops.start_wire_transform("free")
+            tr("選択範囲：自由変形"), lambda: self.line_ops.start_wire_transform("free"),
+            "Ctrl+T",
         )
         self.a_selection_scale = self.make_shortcut_action(
             tr("選択範囲：拡大縮小"), lambda: self.line_ops.start_wire_transform("scale")
@@ -201,7 +202,43 @@ class UIBuildMixin(MainWindowMembers):
             tr("選択範囲：メッシュ変形"), lambda: self.line_ops.start_wire_transform("mesh")
         )
         self.a_selection_clear = self.make_shortcut_action(
-            tr("選択範囲を解除"), self.canvas.clear_selection, "Ctrl+Shift+A"
+            tr("選択範囲を解除"), self.canvas.clear_selection, "Ctrl+D"
+        )
+        # これまでの Ctrl+Shift+A でも解除できるよう、2つ目のキーとして残す。
+        self.a_selection_clear.setShortcuts([
+            QKeySequence("Ctrl+D"), QKeySequence("Ctrl+Shift+A"),
+        ])
+        self.a_selection_all = self.make_shortcut_action(
+            tr("すべてを選択"), self.canvas.select_all, "Ctrl+A"
+        )
+        self.a_selection_invert = self.make_shortcut_action(
+            tr("選択範囲を反転"), self.canvas.invert_selection, "Ctrl+Shift+I"
+        )
+        self.a_selection_delete = self.make_shortcut_action(
+            tr("選択範囲の中を消去"), self.canvas.delete_selection_contents, "Delete"
+        )
+        # Mac のキーボードの delete キーは Backspace として届く。
+        self.a_selection_delete.setShortcuts([
+            QKeySequence("Delete"), QKeySequence("Backspace"),
+        ])
+        self.a_view_zoom_in = self.make_shortcut_action(
+            tr("表示：拡大"), lambda: self.step_canvas_zoom(1.25), "Ctrl+="
+        )
+        # 「Ctrl+＋」は配列によって Ctrl+= や Ctrl+Shift+= で届くので両方受ける。
+        self.a_view_zoom_in.setShortcuts([
+            QKeySequence("Ctrl+="), QKeySequence("Ctrl++"),
+        ])
+        self.a_view_zoom_out = self.make_shortcut_action(
+            tr("表示：縮小"), lambda: self.step_canvas_zoom(1 / 1.25), "Ctrl+-"
+        )
+        self.a_view_fit = self.make_shortcut_action(
+            tr("表示：全体を表示"), self.fit_canvas, "Ctrl+0"
+        )
+        self.a_brush_smaller = self.make_shortcut_action(
+            tr("ブラシサイズを小さく"), lambda: self.tools.step_brush_size(-1), "["
+        )
+        self.a_brush_larger = self.make_shortcut_action(
+            tr("ブラシサイズを大きく"), lambda: self.tools.step_brush_size(1), "]"
         )
         self.a_transform_rotate_left = self.make_shortcut_action(
             tr("変形：左へ90°回転"),
@@ -253,10 +290,12 @@ class UIBuildMixin(MainWindowMembers):
         self.a_tl_add_exposure = self.make_shortcut_action(
             tr("タイムライン：コマ数を1つ増やす"),
             self.timeline._extend_current_exposure,
+            "E",
         )
         self.a_tl_delete_frame = self.make_shortcut_action(
             tr("タイムライン：コマを削除"),
             self.timeline_ops.delete_frame,
+            "Shift+E",
         )
         self.a_tl_previous = self.make_shortcut_action(
             tr("タイムライン：前のフレーム"),
@@ -291,6 +330,7 @@ class UIBuildMixin(MainWindowMembers):
         self.a_tl_layer_add = self.make_shortcut_action(
             tr("タイムライン：レイヤー追加"),
             self.canvas.add_layer,
+            "Ctrl+Shift+N",
         )
         self.a_tl_layer_delete = self.make_shortcut_action(
             tr("タイムライン：レイヤー削除"),
@@ -338,7 +378,15 @@ class UIBuildMixin(MainWindowMembers):
             (tr("選択範囲：自由変形"), self.a_selection_transform),
             (tr("選択範囲：拡大縮小"), self.a_selection_scale),
             (tr("選択範囲：メッシュ変形"), self.a_selection_mesh),
+            (tr("すべてを選択"), self.a_selection_all),
             (tr("選択範囲を解除"), self.a_selection_clear),
+            (tr("選択範囲を反転"), self.a_selection_invert),
+            (tr("選択範囲の中を消去"), self.a_selection_delete),
+            (tr("表示：拡大"), self.a_view_zoom_in),
+            (tr("表示：縮小"), self.a_view_zoom_out),
+            (tr("表示：全体を表示"), self.a_view_fit),
+            (tr("ブラシサイズを小さく"), self.a_brush_smaller),
+            (tr("ブラシサイズを大きく"), self.a_brush_larger),
             (tr("変形：左へ90°回転"), self.a_transform_rotate_left),
             (tr("変形：右へ90°回転"), self.a_transform_rotate_right),
             (tr("メッシュ変形：格子数を変更"), self.a_transform_mesh_grid),
@@ -398,7 +446,10 @@ class UIBuildMixin(MainWindowMembers):
         e.addAction(self.a_shortcuts)
         e.addAction(self.a_preferences)
         selection_menu=self.menuBar().addMenu(tr("選択範囲"))
+        selection_menu.addAction(self.a_selection_all)
         selection_menu.addAction(self.a_selection_clear)
+        selection_menu.addAction(self.a_selection_invert)
+        selection_menu.addAction(self.a_selection_delete)
         selection_menu.addSeparator()
         selection_menu.addAction(self.a_selection_transform)
         selection_menu.addAction(self.a_selection_scale)

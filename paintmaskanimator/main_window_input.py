@@ -6,6 +6,7 @@ matching, the auxiliary hold-to-drag gestures (hand scroll, rotate, zoom) with
 their cursor bookkeeping, and the canvas hold-operation sync. Keeping it separate
 means the window shell no longer carries the event-loop hot path.
 """
+import time
 from typing import Any
 
 from PySide6.QtCore import QEvent, QPoint, QPointF, QTimer, Qt
@@ -321,7 +322,42 @@ class InputMixin(MainWindowMembers):
         else:
             self._update_auxiliary_hold_cursors()
 
+    #: Space をこの秒数より短く押して離したら、ハンドではなく再生／停止にする。
+    SPACE_TAP_SECONDS = 0.3
+
+    def _space_tap_interrupted(self):
+        """Space を押している間に別の操作をしたら、短押し（再生）とみなさない。"""
+        self._space_tap_started = None
+
+    def _handle_space_tap(self, token, pressed):
+        """Space の短押しを再生／停止に、長押しをハンド（画面の移動）にする。
+
+        ハンドは押した瞬間から効くので、押してすぐドラッグすれば画面が動く。
+        ドラッグもせず他のキーも押さずに短く離したときだけ再生／停止する。
+        """
+        if pressed:
+            if token == "Space":
+                others = self._held_canvas_shortcut_tokens - {"Space"}
+                # Shift＋Space（回転）などの組み合わせは短押しにしない。
+                self._space_tap_started = None if others else time.monotonic()
+            else:
+                self._space_tap_interrupted()
+            return
+        if token != "Space":
+            return
+        started = self._space_tap_started
+        self._space_tap_started = None
+        if started is None:
+            return
+        if time.monotonic() - started < self.SPACE_TAP_SECONDS:
+            self.a_tl_play.trigger()
+
     def eventFilter(self, watched, event):
+        if (
+            self._space_tap_started is not None
+            and event.type() in (QEvent.Type.MouseButtonPress, QEvent.Type.Wheel)
+        ):
+            self._space_tap_interrupted()
         if isinstance(watched, QWidget) and event.type() in (
             QEvent.Type.ContextMenu,
             QEvent.Type.MouseButtonPress,
@@ -598,6 +634,7 @@ class InputMixin(MainWindowMembers):
             if getattr(event, "isAutoRepeat", lambda: False)():
                 return super().eventFilter(watched, event)
             token = self._event_key_token(event)
+            self._handle_space_tap(token, event.type() == QEvent.Type.KeyPress)
             if event.type() == QEvent.Type.KeyPress:
                 if token:
                     self._held_canvas_shortcut_tokens.add(token)

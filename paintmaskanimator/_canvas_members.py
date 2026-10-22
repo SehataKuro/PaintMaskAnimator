@@ -384,6 +384,7 @@ class CanvasMembers(_MembersBase):
         selected_used_color_rgbs: Any
         selected_used_colors: Any
         selection_bounds: Any
+        set_selection_mask: Any
         set_zoom_around_canvas_center: Any
         set_zoom_around_widget_point: Any
         center_canvas: Any

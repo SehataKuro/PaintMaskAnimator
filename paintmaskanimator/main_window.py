@@ -130,6 +130,7 @@ class MainWindow(
         self._onion_settings_browser = None
         self._onion_settings_window = None
         self._held_canvas_shortcut_tokens = set()
+        self._space_tap_started = None
         self._ui_hold_drag_mode = None
         self._ui_hold_scroll_area = None
         self._ui_hold_grab_widget = None
@@ -510,6 +511,12 @@ class MainWindow(
         self.rot.blockSignals(True); self.rot.setValue(rotation_degrees); self.rot.blockSignals(False)
         self.zoom_label.setText(f"{zoom_percent}%")
         self.rot_label.setText(f"{rotation_degrees}°")
+
+    def step_canvas_zoom(self, factor):
+        """Ctrl+＋／Ctrl+− で、表示の中心を保ったまま拡大縮小する。"""
+        self.canvas.set_zoom_around_canvas_center(self.canvas.zoom * float(factor))
+        self.sync_canvas_view_controls(self.canvas.zoom, self.canvas.rotation)
+        self.canvas.update()
 
     def set_zoom(self,v):
         self.canvas.set_zoom_around_canvas_center(v / 100)

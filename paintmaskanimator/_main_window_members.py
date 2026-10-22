@@ -85,6 +85,7 @@ class MainWindowMembers(_MembersBase):
         _hand_scroll_area_for_widget: Any
         _handle_auxiliary_hold_event: Any
         _held_canvas_shortcut_tokens: Any
+        _space_tap_started: Any
         _hide_split_drop_feedback: Any
         _layer_indices_from_rows: Any
         _manual_tab_drag_timer: QTimer
@@ -193,7 +194,15 @@ class MainWindowMembers(_MembersBase):
         a_select_sub: Any
         a_select_transparent: Any
         a_selection_all_frames: Any
+        a_selection_all: Any
+        a_brush_larger: Any
+        a_brush_smaller: Any
         a_selection_clear: Any
+        a_selection_delete: Any
+        a_view_fit: Any
+        a_view_zoom_in: Any
+        a_view_zoom_out: Any
+        a_selection_invert: Any
         a_selection_mesh: Any
         a_selection_scale: Any
         a_selection_transform: Any
@@ -307,6 +316,7 @@ class MainWindowMembers(_MembersBase):
         show_canvas_at_100_percent: Any
         show_preferences: Any
         status: Any
+        step_canvas_zoom: Any
         status_bar: StatusBar
         sync_canvas_view_controls: Any
         timeline: TimelineWidget
