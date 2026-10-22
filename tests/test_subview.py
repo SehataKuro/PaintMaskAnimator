@@ -61,7 +61,7 @@ def test_click_picks_color_from_linked_image(tmp_path):
 
 def _shown_view(tmp_path, app, size=(40, 30)):
     path = tmp_path / "ref.png"
-    image = QImage(*size, QImage.Format.Format_ARGB32)
+    image = QImage(size[0], size[1], QImage.Format.Format_ARGB32)
     image.fill(QColor("white"))
     assert image.save(str(path))
     view = SubViewWidget()
