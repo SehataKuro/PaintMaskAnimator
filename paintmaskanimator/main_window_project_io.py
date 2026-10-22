@@ -80,6 +80,7 @@ class ProjectIOController:
                 metadata,
                 self.window.canvas.frames,
                 self.window.canvas._sequence_archive,
+                self.window.png_cache,
             )
             self.window.current_project_path = project_path
             self.update_title()
@@ -145,7 +146,9 @@ class ProjectIOController:
     def open(self, path):
         project_path = Path(path)
         try:
-            metadata, loaded_frames, width, height = project_io.read_project_archive(project_path)
+            metadata, loaded_frames, width, height = project_io.read_project_archive(
+                project_path, self.window.png_cache
+            )
 
             self.window.palette.clear_categories()
             self.window._pending_palette_categories = metadata.get(

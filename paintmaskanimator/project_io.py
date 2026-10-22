@@ -7,13 +7,13 @@ widget<->metadata mapping and the UI feedback.
 """
 import json
 import math
-import tempfile
 import zipfile
 from pathlib import Path, PurePosixPath
 
 from .i18n import tr
 from .errors import OperationError
 
+from PySide6.QtCore import QBuffer, QByteArray, QIODevice
 from PySide6.QtGui import QImage
 
 from .constants import (
@@ -39,12 +39,69 @@ CURRENT_MASK_FORMAT = 2
 log = get_logger(__name__)
 
 
-def read_project_archive(path):
+class PngCache:
+    """変更のないセルの PNG を保存のたびに再エンコードしないためのキャッシュ。
+
+    キーは ``QImage.cacheKey()``。QImage は画素を書き換えると（QPainter や
+    ``bits()`` 経由でも）キーが変わるので、キーが同じなら前回のPNGをそのまま
+    使える。保存のたびに今回使ったセルだけを残し、消えたセルの分は捨てる。
+    """
+
+    def __init__(self):
+        self._entries = {}
+
+    def __len__(self):
+        return len(self._entries)
+
+    def clear(self):
+        self._entries.clear()
+
+    def remember(self, image, data):
+        self._entries[int(image.cacheKey())] = bytes(data)
+
+    def encode(self, image, used_keys=None):
+        """``image`` の PNG を返す。キャッシュに無ければエンコードして覚える。"""
+        key = int(image.cacheKey())
+        if used_keys is not None:
+            used_keys.add(key)
+        data = self._entries.get(key)
+        if data is None:
+            data = encode_png(image)
+            if data is not None:
+                self._entries[key] = data
+        return data
+
+    def retain_only(self, keys):
+        for key in [key for key in self._entries if key not in keys]:
+            del self._entries[key]
+
+
+def encode_png(image):
+    """QImage を PNG のバイト列にする。失敗したら None。"""
+    data = QByteArray()
+    buffer = QBuffer(data)
+    buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+    try:
+        if not image.save(buffer, "PNG"):
+            return None
+    finally:
+        buffer.close()
+    return bytes(data.data())
+
+
+def read_project_archive(path, png_cache=None):
     """Open and validate a project archive.
 
     Returns (metadata, frames, width, height). Raises ValueError on any
     malformed/oversized/unsafe archive (the caller shows the UI error).
+
+    ``png_cache`` (a ``PngCache``) is reset and seeded with each cell's PNG
+    bytes from the archive, so the first save after opening only re-encodes
+    the cells that were edited.
     """
+    # 途中で読み込みに失敗したときに今のキャッシュを壊さないよう、
+    # 成功してから差し替える。
+    seeded = []
     project_path = Path(path)
     with zipfile.ZipFile(project_path, "r") as archive:
         archive_entries = archive.infolist()
@@ -159,6 +216,8 @@ def read_project_archive(path):
                     and not is_draft
                 ):
                     image = white_to_transparent_qimage(image)
+                elif png_cache is not None:
+                    seeded.append((image, image_bytes))
 
                 filter_rgb = layer_data.get("color_filter_rgb")
                 exposure = int(layer_data.get("exposure", 1))
@@ -294,7 +353,8 @@ def read_project_archive(path):
                 raise OperationError(
                     tr("連番保管セル画像が大きすぎます: {path}").format(path=image_path)
                 )
-            image = QImage.fromData(archive.read(image_path))
+            image_bytes = archive.read(image_path)
+            image = QImage.fromData(image_bytes)
             if (
                 image.isNull()
                 or image.width() != width
@@ -309,6 +369,8 @@ def read_project_archive(path):
             is_draft = bool(archive_data.get("is_draft", False))
             if needs_white_migration and not is_draft:
                 image = white_to_transparent_qimage(image)
+            elif png_cache is not None:
+                seeded.append((image, image_bytes))
             opacity = float(archive_data.get("opacity", 1.0))
             if not math.isfinite(opacity):
                 raise OperationError(tr("連番保管セルの不透明度が不正です。"))
@@ -339,25 +401,49 @@ def read_project_archive(path):
                 ),
             )
         metadata["_loaded_sequence_archive"] = loaded_sequence_archive
+    if png_cache is not None:
+        png_cache.clear()
+        for image, image_bytes in seeded:
+            png_cache.remember(image, image_bytes)
     return metadata, loaded_frames, width, height
 
 
 def write_project_archive(
-    project_path, metadata, frames, sequence_archive=None
+    project_path, metadata, frames, sequence_archive=None, png_cache=None
 ):
     """Serialize frames + metadata into the project archive at ``project_path``.
 
     Fills ``metadata["frames"]`` from the Frame/Layer domain objects, writes one
     PNG per layer-cell plus project.json into a zip, and atomically replaces the
     destination. Raises on error (the caller shows the UI message).
+
+    With ``png_cache`` (a ``PngCache``), cells unchanged since the last save or
+    open reuse their PNG bytes instead of being re-encoded. PNG entries are
+    stored without zip compression: they are already deflated, so compressing
+    them again only costs time.
     """
     project_path = Path(project_path)
     metadata.pop("_loaded_sequence_archive", None)
     project_path.parent.mkdir(parents=True, exist_ok=True)
     temporary_path = project_path.with_suffix(project_path.suffix + ".tmp")
+    cache = png_cache if png_cache is not None else PngCache()
+    used_keys = set()
     try:
-        with tempfile.TemporaryDirectory() as temp_directory:
-            temp_root = Path(temp_directory)
+        with zipfile.ZipFile(
+            temporary_path,
+            "w",
+            compression=zipfile.ZIP_DEFLATED,
+            compresslevel=6,
+        ) as archive:
+
+            def write_png(image_name, image, message):
+                data = cache.encode(image, used_keys)
+                if data is None:
+                    raise OperationError(message.format(name=image_name))
+                archive.writestr(
+                    image_name, data, compress_type=zipfile.ZIP_STORED
+                )
+
             for frame_index, frame in enumerate(frames):
                 frame_data = {
                     "duration": int(frame.duration),
@@ -368,12 +454,11 @@ def write_project_archive(
                         f"layers/layer_{layer_index:04d}/"
                         f"frame_{frame_index:06d}.png"
                     )
-                    local_image = temp_root / image_name
-                    local_image.parent.mkdir(parents=True, exist_ok=True)
-                    if not layer.image.save(str(local_image), "PNG"):
-                        raise OperationError(
-                            tr("画像を書き出せませんでした: {name}").format(name=image_name)
-                        )
+                    write_png(
+                        image_name,
+                        layer.image,
+                        tr("画像を書き出せませんでした: {name}"),
+                    )
 
                     frame_data["layers"].append(
                         {
@@ -413,12 +498,11 @@ def write_project_archive(
                     f"sequence_archive/layer_{int(layer_index):04d}/"
                     f"cell_{int(number):06d}.png"
                 )
-                local_image = temp_root / image_name
-                local_image.parent.mkdir(parents=True, exist_ok=True)
-                if not layer.image.save(str(local_image), "PNG"):
-                    raise OperationError(
-                        tr("連番保管セルを書き出せませんでした: {name}").format(name=image_name)
-                    )
+                write_png(
+                    image_name,
+                    layer.image,
+                    tr("連番保管セルを書き出せませんでした: {name}"),
+                )
                 metadata["sequence_archive"].append(
                     {
                         "layer_index": int(layer_index),
@@ -442,25 +526,14 @@ def write_project_archive(
                     }
                 )
 
-            with zipfile.ZipFile(
-                temporary_path,
-                "w",
-                compression=zipfile.ZIP_DEFLATED,
-                compresslevel=6,
-            ) as archive:
-                archive.writestr(
-                    "project.json",
-                    json.dumps(
-                        metadata,
-                        ensure_ascii=False,
-                        indent=2,
-                    ).encode("utf-8"),
-                )
-                for local_file in temp_root.rglob("*.png"):
-                    archive.write(
-                        local_file,
-                        local_file.relative_to(temp_root).as_posix(),
-                    )
+            archive.writestr(
+                "project.json",
+                json.dumps(
+                    metadata,
+                    ensure_ascii=False,
+                    indent=2,
+                ).encode("utf-8"),
+            )
 
         temporary_path.replace(project_path)
     except Exception:
@@ -471,3 +544,5 @@ def write_project_archive(
         except OSError as exc:
             log.debug("could not remove temp project file: %s", exc)
         raise
+    # 消えたセル・描き換えたセルの古いPNGを持ち続けない。
+    cache.retain_only(used_keys)

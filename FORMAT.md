@@ -14,7 +14,8 @@
 
 ## 1. コンテナ
 
-- `.pman` は **ZIP アーカイブ**（`ZIP_DEFLATED`, compresslevel 6 で書き出し）。
+- `.pman` は **ZIP アーカイブ**。`project.json` は `ZIP_DEFLATED`（compresslevel 6）、
+  PNG はすでに圧縮済みなので `ZIP_STORED`（無圧縮）で書き出す。読み込みはどちらの方式でも受け付ける。
 - **暗号化 ZIP は非対応**（読み込み時に拒否する）。
 - エントリ構成:
   - `project.json` — UTF-8 の JSON メタデータ（必須、1個）。
