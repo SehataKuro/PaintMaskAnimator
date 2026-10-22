@@ -217,9 +217,15 @@ class InputMixin(MainWindowMembers):
                 event.accept()
                 return True
 
-        if event_type == QEvent.Type.Wheel and tool == "zoom":
+        # ズームツール保持中、またはAltを押しながらのホイールでタイムラインを拡大縮小する。
+        if event_type == QEvent.Type.Wheel and (
+            tool == "zoom"
+            or event.modifiers() & Qt.KeyboardModifier.AltModifier
+        ):
             if self._widget_in_timeline(watched):
-                delta = event.angleDelta().y()
+                angle = event.angleDelta()
+                # Alt＋ホイールを横スクロールに読み替える環境では、縦の量が横に入る。
+                delta = angle.y() or angle.x()
                 if delta:
                     viewport = self.timeline.table.viewport()
                     global_point = self._mouse_global_position(event)

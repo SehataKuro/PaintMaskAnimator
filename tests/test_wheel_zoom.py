@@ -122,3 +122,30 @@ def test_canvas_wheel_zooms_around_the_cursor():
     finally:
         canvas.close()
         app.processEvents()
+
+
+def test_alt_wheel_on_timeline_zooms_timeline(tmp_path, monkeypatch):
+    """Alt＋ホイールはタイムラインの拡大縮小になる（横スクロールにしない）。"""
+    from paintmaskanimator.main_window import MainWindow
+
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    app = _app()
+    window = MainWindow()
+    try:
+        app.installEventFilter(window)
+        viewport = window.timeline.table.viewport()
+        start = window.timeline._timeline_zoom_scale
+        for dy, dx in ((120, 0), (0, 120)):  # 環境によってはAltで縦量が横に入る
+            pos = QPointF(10, 10)
+            event = QWheelEvent(
+                pos, viewport.mapToGlobal(pos), QPoint(0, 0), QPoint(dx, dy),
+                Qt.MouseButton.NoButton, Qt.KeyboardModifier.AltModifier,
+                Qt.ScrollPhase.NoScrollPhase, False,
+            )
+            QApplication.sendEvent(viewport, event)
+        assert abs(window.timeline._timeline_zoom_scale - start * 1.15 ** 2) < 1e-6
+    finally:
+        app.removeEventFilter(window)
+        window.deleteLater()
+        app.processEvents()
