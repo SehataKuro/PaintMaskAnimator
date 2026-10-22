@@ -138,8 +138,24 @@ def disable_windows_ink_feedback(*widgets):
         log.debug("Windows Ink feedback tweak unavailable: %s", exc)
 
 
+class _BlankTemplate:
+    size: "tuple[int, int] | None" = None
+    image: "QImage | None" = None
+
+
 def blank_image(fill: Any = Qt.GlobalColor.transparent):
     w, h = workspace_size()
+    if fill == Qt.GlobalColor.transparent:
+        # 透明な空画像は1枚の雛形を暗黙共有で配る。QImage は書き込んだ時点
+        # （QPainter や bits()）で複製されるので、雛形は汚れない。セルを空けるたびに
+        # 作業領域全体を確保して塗りつぶすと、大きなキャンバスで重くなるため。
+        template = _BlankTemplate.image
+        if template is None or _BlankTemplate.size != (w, h):
+            template = QImage(w, h, QImage.Format.Format_ARGB32_Premultiplied)
+            template.fill(fill)
+            _BlankTemplate.size = (w, h)
+            _BlankTemplate.image = template
+        return QImage(template)
     im = QImage(w, h, QImage.Format.Format_ARGB32_Premultiplied)
     im.fill(fill)
     return im
