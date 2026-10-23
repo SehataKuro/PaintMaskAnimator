@@ -339,25 +339,21 @@ class ScreenEyedropButton(_ScreenColorDragMixin, QToolButton):
 
 
 class ReplacementColorPopup(ColorPickerDialog):
-    """置換色を編集するカラーピッカー（AE 風）。編集はそのまま置換色へ反映する。
+    """置換色を編集するカラーピッカー（AE 風）。
 
-    開いたまま他の操作もできるよう、モーダルにはしない。キャンセルしたら
-    開いたときの色へ戻す。
+    開いたまま他の操作もできるよう、モーダルにはしない。「プレビュー」が
+    ON の間は編集をそのまま置換色へ反映し、キャンセルしたら開いたときの色へ戻す。
     """
 
-    def __init__(self, color, source_rgb=None, parent=None):
+    def __init__(self, color, source_rgb=None, parent=None, preview=None):
         title = tr("置換色")
         if source_rgb is not None:
             title = tr("置換色　元色 #{hex}").format(
                 hex="{:02X}{:02X}{:02X}".format(*source_rgb)
             )
-        super().__init__(color, parent, title)
+        super().__init__(color, parent, title, preview)
         self.setModal(False)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
-
-    def reject(self):
-        self.colorChanged.emit(self.original_color())
-        super().reject()
 
 
 class ColorVisibilityCheckBox(QCheckBox):

@@ -335,3 +335,4 @@ class MainWindowMembers(_MembersBase):
         workspace_menu: Any
         zoom: Any
         zoom_label: Any
+        recent_menu: Any

@@ -467,12 +467,11 @@ class ColorInteractionController:
             self.window.canvas.transparent_display_color,
             self.window,
             tr("背景色の表示色を選択"),
+            preview=self._show_background_display_color,
         )
         if not color.isValid():
             return
-        self.window.canvas.transparent_display_color = QColor(color)
-        self.window.canvas.checker_light = QColor(color)
-        self.window.canvas.checker_dark = QColor(color)
+        self._show_background_display_color(color)
         self.window.canvas.color_mode = "transparent"
         self.window.tools.set_colors(
             self.window.canvas.main_color,
@@ -484,12 +483,31 @@ class ColorInteractionController:
         self._sync_tool_selector_swatch()
         self.window.canvas.update()
 
+    def _show_background_display_color(self, color):
+        """背景色の表示色をキャンバス・使用色・色見本に反映する（描画色は変えない）。"""
+        canvas = self.window.canvas
+        canvas.transparent_display_color = QColor(color)
+        canvas.checker_light = QColor(color)
+        canvas.checker_dark = QColor(color)
+        self.window.palette.set_background_display_color(color)
+        self.set_color_mode(canvas.color_mode)
+        canvas.update()
+
     def choose_color(self,mode):
         """メイン色／サブ色をカラーピッカーで設定する（色見本のダブルクリック）。"""
-        base=self.window.canvas.main_color if mode=="main" else self.window.canvas.sub_color
-        title=tr("メイン色を選択") if mode=="main" else tr("サブ色を選択")
-        c=ColorPickerDialog.get_color(base,self.window,title)
-        if c.isValid():setattr(self.window.canvas,mode+"_color",c);self.set_color_mode(mode)
+        canvas = self.window.canvas
+        base = canvas.main_color if mode == "main" else canvas.sub_color
+        title = tr("メイン色を選択") if mode == "main" else tr("サブ色を選択")
+
+        def preview(color):
+            # プレビュー中は色だけを仮に変え、描画色のモードは決めるまで変えない。
+            setattr(canvas, mode + "_color", QColor(color))
+            self.set_color_mode(canvas.color_mode)
+
+        c = ColorPickerDialog.get_color(base, self.window, title, preview=preview)
+        if c.isValid():
+            setattr(canvas, mode + "_color", c)
+            self.set_color_mode(mode)
 
     def set_color_mode(self,mode):self.window.canvas.color_mode=mode;self.window.tools.set_colors(self.window.canvas.main_color,self.window.canvas.sub_color,mode,self.window.canvas.transparent_display_color);self._sync_tool_selector_swatch()
 

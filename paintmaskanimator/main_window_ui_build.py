@@ -417,6 +417,10 @@ class UIBuildMixin(MainWindowMembers):
         f=self.menuBar().addMenu(tr("ファイル"))
         f.addAction(self.a_new)
         f.addAction(self.a_open_project)
+        self.recent_menu = f.addMenu(tr("最近使用したファイル"))
+        self.recent_menu.aboutToShow.connect(
+            lambda: self.project.fill_recent_menu(self.recent_menu)
+        )
         f.addAction(self.a_open_cut_folder)
         f.addAction(self.a_import_images)
         f.addAction(self.a_import_folder)

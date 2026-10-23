@@ -13,7 +13,7 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 from .i18n import tr
 from .constants import APP_DISPLAY_NAME
-from . import constants, project_io
+from . import config, constants, project_io
 from .errors import OPERATION_ERRORS as _OPERATION_ERRORS
 from .logging_setup import get_logger
 
@@ -21,6 +21,10 @@ if TYPE_CHECKING:
     from .main_window import MainWindow
 
 log = get_logger(__name__)
+
+#: 「最近使用したファイル」を残す設定のキーと、残す件数。
+RECENT_PROJECTS_KEY = "recent_projects"
+RECENT_PROJECTS_LIMIT = 10
 
 
 class ProjectIOController:
@@ -31,6 +35,65 @@ class ProjectIOController:
 
     def __init__(self, window: "MainWindow"):
         self.window = window
+
+    # ------------------------------------------------------------------
+    # 最近使用したファイル
+    # ------------------------------------------------------------------
+    def recent_projects(self):
+        """新しい順のパス一覧（文字列）。"""
+        value = config.get_value(RECENT_PROJECTS_KEY, [])
+        if not isinstance(value, list):
+            return []
+        return [str(item) for item in value if isinstance(item, str) and item]
+
+    def remember_recent(self, path):
+        """開いた・保存したプロジェクトを一覧の先頭に入れる。"""
+        try:
+            text = str(Path(path).resolve())
+        except OSError:
+            text = str(path)
+        paths = [text] + [item for item in self.recent_projects() if item != text]
+        config.set_value(RECENT_PROJECTS_KEY, paths[:RECENT_PROJECTS_LIMIT])
+
+    def forget_recent(self, path):
+        paths = [item for item in self.recent_projects() if item != str(path)]
+        config.set_value(RECENT_PROJECTS_KEY, paths)
+
+    def clear_recent(self):
+        config.set_value(RECENT_PROJECTS_KEY, [])
+
+    def fill_recent_menu(self, menu):
+        """ファイル › 最近使用したファイル の中身を、開くたびに作り直す。"""
+        menu.clear()
+        paths = self.recent_projects()
+        if not paths:
+            empty = menu.addAction(tr("（なし）"))
+            empty.setEnabled(False)
+            return
+        for index, text in enumerate(paths, 1):
+            path = Path(text)
+            label = f"&{index % 10}  {path.name}" if index <= 10 else path.name
+            action = menu.addAction(label)
+            action.setToolTip(text)
+            action.setStatusTip(text)
+            action.triggered.connect(
+                lambda _checked=False, target=text: self.open_recent(target)
+            )
+        menu.addSeparator()
+        menu.addAction(tr("一覧を消去"), self.clear_recent)
+
+    def open_recent(self, path):
+        if not Path(path).exists():
+            self.forget_recent(path)
+            QMessageBox.warning(
+                self.window,
+                tr("最近使用したファイル"),
+                tr("ファイルが見つかりませんでした。一覧から外します。\n\n{path}").format(
+                    path=path
+                ),
+            )
+            return False
+        return self.open(path)
 
     def update_title(self):
         if self.window.current_project_path:
@@ -84,6 +147,7 @@ class ProjectIOController:
             )
             self.window.current_project_path = project_path
             self.update_title()
+            self.remember_recent(project_path)
             self.window.statusBar().showMessage(
                 tr("プロジェクトを保存しました：{name}").format(name=project_path.name),
                 3000,
@@ -198,6 +262,9 @@ class ProjectIOController:
             )
             self.window.canvas.transparent_display_color = QColor(
                 colors.get("background", "#FFFFFF")
+            )
+            self.window.palette.set_background_display_color(
+                self.window.canvas.transparent_display_color
             )
 
             display = metadata.get("display", {})
@@ -437,6 +504,7 @@ class ProjectIOController:
             self.window.refresh_ui()
             self.window.used_color.schedule_refresh()
             QTimer.singleShot(0, self.window.fit_canvas)
+            self.remember_recent(project_path)
             self.window.statusBar().showMessage(
                 tr("プロジェクトを開きました：{name}").format(name=project_path.name),
                 3000,

@@ -20,6 +20,7 @@ from __future__ import annotations
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QImage, QLinearGradient, QPainter, QPen
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QDialogButtonBox,
     QGridLayout,
@@ -183,8 +184,16 @@ class ColorPickerDialog(QDialog):
 
     colorChanged = Signal(QColor)
 
-    def __init__(self, color=None, parent=None, title=None):
+    def __init__(self, color=None, parent=None, title=None, preview=None):
+        """``preview`` を渡すと「プレビュー」チェックボックスを出す。
+
+        チェックが入っている間は、編集のたびに ``preview(色)`` を呼んで
+        その場に反映する。キャンセルしたら ``preview(元の色)`` で戻し、
+        チェックを外して OK したときは ``preview(決めた色)`` を1回だけ呼ぶ。
+        """
         super().__init__(parent)
+        self._preview = preview
+        self._previewed = False
         initial = QColor(color) if color is not None else QColor("white")
         if not initial.isValid():
             initial = QColor("white")
@@ -279,17 +288,32 @@ class ColorPickerDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
 
+        self.preview_check = QCheckBox(tr("プレビュー"))
+        self.preview_check.setToolTip(
+            tr("ON：選んでいる色をその場で反映します（キャンセルで元に戻ります）。")
+        )
+        self.preview_check.setChecked(True)
+        self.preview_check.setVisible(preview is not None)
+        self.preview_check.toggled.connect(self._preview_toggled)
+        bottom = QHBoxLayout()
+        bottom.addWidget(self.preview_check)
+        bottom.addStretch(1)
+        bottom.addWidget(buttons)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 10)
         layout.addLayout(body)
-        layout.addWidget(buttons)
+        layout.addLayout(bottom)
         self._sync_widgets()
 
     # ------------------------------------------------------------------
     @staticmethod
-    def get_color(initial=None, parent=None, title=None):
-        """``QColorDialog.getColor`` の置き換え。キャンセルなら無効な色を返す。"""
-        dialog = ColorPickerDialog(initial, parent, title)
+    def get_color(initial=None, parent=None, title=None, preview=None):
+        """``QColorDialog.getColor`` の置き換え。キャンセルなら無効な色を返す。
+
+        ``preview`` は「プレビュー」チェックボックス用（:meth:`__init__` を参照）。
+        """
+        dialog = ColorPickerDialog(initial, parent, title, preview)
         accepted = dialog.exec() == QDialog.DialogCode.Accepted
         color = dialog.color()
         dialog.deleteLater()
@@ -370,6 +394,30 @@ class ColorPickerDialog(QDialog):
     def _changed(self, keep=()):
         self._sync_widgets(keep)
         self.colorChanged.emit(self.color())
+        if self._preview is not None and self.preview_check.isChecked():
+            self._apply_preview(self.color())
+
+    def _apply_preview(self, color):
+        if self._preview is None:
+            return
+        self._previewed = True
+        self._preview(QColor(color))
+
+    def _preview_toggled(self, checked):
+        if self._preview is None:
+            return
+        if checked:
+            self._apply_preview(self.color())
+        elif self._previewed:
+            # プレビューをやめたら、決めるまでは元の色に戻しておく。
+            self._apply_preview(self._original)
+
+    def accept(self):
+        if self._preview is not None and (
+            self._previewed or not self.preview_check.isChecked()
+        ):
+            self._apply_preview(self.color())
+        super().accept()
 
     def _sync_widgets(self, keep=()):
         """数値欄・面・見本を今の色に合わせる。``keep`` は入力中の欄。"""
@@ -417,4 +465,6 @@ class ColorPickerDialog(QDialog):
         if overlay is not None:
             self._screen_picker = None
             overlay.cancel()
+        if self._preview is not None and self._previewed:
+            self._apply_preview(self._original)
         super().reject()
