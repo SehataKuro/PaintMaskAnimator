@@ -260,6 +260,10 @@ class ShortcutDialog(QDialog):
         for action, sequence, is_hold, normalized in pending:
             if is_hold:
                 action.setProperty("holdShortcutText", normalized)
+            elif sequence == action.shortcut():
+                # 変えていない欄は触らない。setShortcut すると Ctrl+Shift+Z などの
+                # 2つ目のキーが消えてしまうため。
+                continue
             action.setShortcut(sequence)
         self.accept()
 
