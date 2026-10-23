@@ -7,7 +7,6 @@ previews and their commits, and lasso polygon filling. Undo entries are pushed
 through ``PaintCanvas.push_undo`` as usual; they run against a live
 ``PaintCanvas``.
 """
-import dataclasses
 import math
 import numpy as np
 from typing import Any
@@ -21,6 +20,11 @@ from .pressure import _pressure_bezier_at
 from .logging_setup import get_logger
 
 log = get_logger(__name__)
+
+
+#: ドラッグ塗りで、端に接した領域を「外の背景ではない」とみなす大きさの上限
+#: （画像全体に対する割合）。最初にクリックした部分の3倍までもよしとする。
+BUCKET_DRAG_EDGE_AREA = 0.1
 
 
 class PaintToolsMixin(CanvasMembers):
@@ -303,27 +307,26 @@ class PaintToolsMixin(CanvasMembers):
         self.abort_skewer_fill()
         self._bucket_fill_at(p, push_undo=True)
 
-    def _bucket_fill_at(self, p, push_undo=True, quiet=False, require_closed=False):
+    def _bucket_fill_at(self, p, push_undo=True, quiet=False, accept=None):
         """``p`` を種に1か所塗る。``(塗ったマスク, 塗らずに済ませた領域)`` を返す。
 
         塗れなければ塗ったマスクは None。``push_undo`` が偽なら Undo を積まない
-        （ドラッグ塗りが最後にまとめて積む）。``require_closed`` が真なら、
-        端まで開いた領域は塗らず、その領域を2つ目に返す。
+        （ドラッグ塗りが最後にまとめて積む）。``accept`` を渡すと、塗る前に
+        ``accept(結果)`` で塗ってよいかを決め、偽ならその領域を2つ目に返す。
         """
         image, pixels = self._layer_fill_pixels(self.active_layer.image)
         start_x, start_y = int(p.x()), int(p.y())
         selection_mask = self.selection_mask_bool(image.width(), image.height())
-        options = self.bucket_options()
-        if require_closed and not options.require_closed:
-            options = dataclasses.replace(options, require_closed=True)
         result = bucket_fill.compute_fill_region(
-            pixels, start_x, start_y, options, selection_mask
+            pixels, start_x, start_y, self.bucket_options(), selection_mask
         )
         if not result.ok:
             message = None if quiet else self._bucket_failure_message(result.reason)
             if message:
                 self.status_message.emit(message)
             return None, result.region
+        if accept is not None and not accept(result):
+            return None, result.mask
 
         # Undo は塗る範囲が決まってから、その外接矩形だけを保存する。
         # 大きなキャンバスでレイヤー全体をコピーしないため。
@@ -409,17 +412,38 @@ class PaintToolsMixin(CanvasMembers):
             return
         if tried[y, x] or not drag["eligible"][y, x]:
             return
-        # なぞって通った先は「囲まれた部分」だけを塗る。外の背景までは塗らない。
         mask, skipped = self._bucket_fill_at(
-            QPointF(x, y), push_undo=False, quiet=not first, require_closed=not first,
+            QPointF(x, y), push_undo=False, quiet=not first,
+            accept=None if first else self._bucket_drag_accepts,
         )
-        # 塗れなかった点・開いていた領域も、同じ場所で何度も判定しない。
+        # 塗れなかった点・塗らなかった領域も、同じ場所で何度も判定しない。
         tried[y, x] = True
         if skipped is not None:
             tried |= skipped
         if mask is not None:
             tried |= mask
             drag["painted"] |= mask
+            if first:
+                drag["first_area"] = int(np.count_nonzero(mask))
+
+    def _bucket_drag_accepts(self, result):
+        """なぞった先の領域を塗るか。外の背景だけは塗らない。
+
+        余白の無いキャンバスでは、フレームの端で閉じた部分（端まで線を引いた所）も
+        外の背景も「端に接した領域」になる。外の背景はふつう画面の大半を占めるので、
+        端に接していて大きすぎる領域だけを外の背景とみなして塗らない。
+        """
+        region = result.mask
+        touches_edge = bool(
+            region[0].any() or region[-1].any()
+            or region[:, 0].any() or region[:, -1].any()
+        )
+        if not touches_edge:
+            return True
+        area = int(np.count_nonzero(region))
+        first_area = int(self._bucket_drag.get("first_area", 0)) if self._bucket_drag else 0
+        limit = max(3 * first_area, int(region.size * BUCKET_DRAG_EDGE_AREA))
+        return area <= limit
 
     def finish_bucket_drag(self):
         """ドラッグで塗った分を、Undo 1回で戻せるようにまとめて積む。"""

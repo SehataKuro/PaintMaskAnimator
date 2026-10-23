@@ -323,3 +323,35 @@ def test_enter_accepts_the_guess_on_an_uncertain_frame(window):
     image = window.canvas.frames[1].layers[0].image
     assert image.pixelColor(10, 10) == QColor("#3355ff"), "推測した範囲で塗る"
     assert image.pixelColor(4, 4) == QColor("black")
+
+
+def test_tracks_an_area_closed_by_the_frame_edge(window):
+    """下端まで線を引いて閉じた部分が、コマごとに大きく動いても追いかける。"""
+    from PySide6.QtGui import QPainter, QPen
+
+    from paintmaskanimator import constants
+
+    bottom = constants.CANVAS_HEIGHT - 1
+    window.canvas._ensure_frame_count(4)
+    for frame_index in range(4):
+        layer = window.canvas.frames[frame_index].layers[0]
+        layer.image.fill(QColor("white"))
+        left = 40 + frame_index * 120
+        painter = QPainter(layer.image)
+        painter.setPen(QPen(QColor("black"), 3))
+        painter.drawLine(left, bottom, left + 60, bottom - 90)
+        painter.drawLine(left + 60, bottom - 90, left + 120, bottom)
+        painter.end()
+        layer.has_content = True
+    window.canvas.set_tool("bucket")
+    window.canvas.color_mode = "main"
+    window.canvas.main_color = QColor("#3355ff")
+    window.tools.bucket_all_frames.setChecked(True)
+
+    window.canvas.flood_fill(QPoint(100, bottom - 20))
+
+    assert not window.canvas.skewer_fill_pending()
+    for frame_index in range(4):
+        image = window.canvas.frames[frame_index].layers[0].image
+        assert image.pixelColor(100 + frame_index * 120, bottom - 20) == QColor("#3355ff")
+        assert image.pixelColor(200 + frame_index * 120, 100) == QColor("white"), "背景へ出ない"
