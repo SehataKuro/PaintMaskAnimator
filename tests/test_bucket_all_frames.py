@@ -135,8 +135,8 @@ def test_fill_opacity_applies_to_every_frame(window):
 
 def test_low_confidence_frame_waits_for_a_click_and_esc_skips_it(window):
     prepare(window, 2)
-    # 2コマ目だけ枠を大きくずらし、前のコマの領域からは追いかけきれなくする。
-    outlined_cell(window, 1, origin=(8, 4))
+    # 2コマ目だけ枠をずっと大きくし、同じ図形とはみなせなくする（面積が3倍超）。
+    outlined_cell(window, 1, origin=(8, 4), size=20)
     depth = len(window.canvas.undo_stack)
     messages = []
     window.canvas.status_message.connect(messages.append)
@@ -169,8 +169,8 @@ def test_low_confidence_frame_waits_for_a_click_and_esc_skips_it(window):
 
 def test_click_on_the_waiting_frame_fills_it_and_continues(window):
     prepare(window, 3)
-    outlined_cell(window, 1, origin=(8, 4))
-    outlined_cell(window, 2, origin=(8, 4))
+    outlined_cell(window, 1, origin=(8, 4), size=20)
+    outlined_cell(window, 2, origin=(8, 4), size=20)
 
     window.canvas.flood_fill(QPoint(8, 8))
     assert window.canvas.skewer_fill_pending()
@@ -247,7 +247,7 @@ def test_reports_when_the_clicked_region_cannot_be_filled(window):
 
 def test_switching_tools_discards_a_waiting_skewer_fill(window):
     prepare(window, 2)
-    outlined_cell(window, 1, origin=(8, 4))
+    outlined_cell(window, 1, origin=(8, 4), size=20)
     depth = len(window.canvas.undo_stack)
     window.canvas.flood_fill(QPoint(8, 8))
     assert window.canvas.skewer_fill_pending()
@@ -287,3 +287,39 @@ def test_target_colour_applies_while_tracking(window):
         assert image.pixelColor(left, 14) == QColor("#3355ff")
         assert image.pixelColor(right, 14) == QColor("#3355ff"), "別の色の部分も塗る"
         assert image.pixelColor(1, 1) == QColor("white"), "枠の外は塗らない"
+
+
+def test_tracks_a_shape_that_moves_further_than_its_width(window):
+    """図形の幅の何倍も動いても、線画のずれを推定して追いかける。"""
+    window.canvas._ensure_frame_count(4)
+    for frame_index in range(4):
+        outlined_cell(window, frame_index, origin=(4 + 40 * frame_index, 30), size=14)
+    window.canvas.set_tool("bucket")
+    window.canvas.color_mode = "main"
+    window.canvas.main_color = QColor("#3355ff")
+    window.tools.bucket_all_frames.setChecked(True)
+
+    window.canvas.flood_fill(QPoint(10, 36))
+
+    assert not window.canvas.skewer_fill_pending()
+    for frame_index in range(4):
+        image = window.canvas.frames[frame_index].layers[0].image
+        assert image.pixelColor(4 + 40 * frame_index + 7, 37) == QColor("#3355ff")
+        assert image.pixelColor(1, 1) == QColor("white")
+
+
+def test_enter_accepts_the_guess_on_an_uncertain_frame(window):
+    """自信のないコマでは推測を見せ、Enter（変形を確定のキー）でそのまま採用する。"""
+    prepare(window, 2)
+    # 2コマ目は少し大きい枠：同じ図形の可能性はあるが、自信は持てない。
+    outlined_cell(window, 1, origin=(4, 4), size=12)
+    window.canvas.flood_fill(QPoint(8, 8))
+    assert window.canvas.skewer_fill_pending()
+    assert window.canvas.skewer_fill_has_guess(), "推測した範囲を見せる"
+
+    window.a_transform_commit.trigger()
+
+    assert not window.canvas.skewer_fill_pending()
+    image = window.canvas.frames[1].layers[0].image
+    assert image.pixelColor(10, 10) == QColor("#3355ff"), "推測した範囲で塗る"
+    assert image.pixelColor(4, 4) == QColor("black")

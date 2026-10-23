@@ -394,6 +394,11 @@ class TweenController:
         )
 
     def commit_transform_or_tween(self):
+        # Enter は串刺し塗りの「推測した範囲で塗る」にも使う（変形中でなければ）。
+        canvas = self.window.canvas
+        if not canvas.transform_active and canvas.skewer_fill_has_guess():
+            canvas.accept_skewer_guess()
+            return
         if getattr(self.window.canvas, "tween_pending", None):
             self.commit_transform()
         else:

@@ -2375,7 +2375,7 @@ Double-click: edit the name and tag colour</translation>
         <location filename="../main_window_tween.py" line="129"/>
         <location filename="../main_window_tween.py" line="145"/>
         <location filename="../main_window_tween.py" line="199"/>
-        <location filename="../main_window_tween.py" line="444"/>
+        <location filename="../main_window_tween.py" line="449"/>
         <location filename="../timeline.py" line="1147"/>
         <location filename="../toolpanel.py" line="578"/>
         <location filename="../widgets.py" line="649"/>
@@ -2395,7 +2395,7 @@ Double-click: edit the name and tag colour</translation>
     <message>
         <location filename="../main_window_tween.py" line="161"/>
         <location filename="../main_window_tween.py" line="223"/>
-        <location filename="../main_window_tween.py" line="496"/>
+        <location filename="../main_window_tween.py" line="501"/>
         <location filename="../undo_entries.py" line="239"/>
         <source>トゥイーン</source>
         <translation>Tween</translation>
@@ -2434,89 +2434,89 @@ After you commit, it stays a tween; double-click its span on the timeline to adj
         <translation>Released the tween; its in-betweens are now ordinary cells.</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="418"/>
+        <location filename="../main_window_tween.py" line="423"/>
         <source>トゥイーンをキャンセルしました。</source>
         <translation>Tween cancelled.</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="497"/>
+        <location filename="../main_window_tween.py" line="502"/>
         <source>変形情報を取得できないため、トゥイーンを確定できません。</source>
         <translation>The transform data is unavailable, so the tween cannot be committed.</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="547"/>
+        <location filename="../main_window_tween.py" line="552"/>
         <source>トゥイーン確定</source>
         <translation>Commit tween</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="548"/>
+        <location filename="../main_window_tween.py" line="553"/>
         <source>TPクオリティ用の色マスクを生成できませんでした。
 Pillowが利用できることと、変形対象に色があることを確認してください。</source>
         <translation>Could not build the colour mask for TP quality.
 Check that Pillow is available and that the deformed area has colour.</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="560"/>
+        <location filename="../main_window_tween.py" line="565"/>
         <source>{name}トゥイーンを確定</source>
         <translation>Commit the {name} tween</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="562"/>
+        <location filename="../main_window_tween.py" line="567"/>
         <source>{name}トゥイーン画像を準備しています</source>
         <translation>Preparing the {name} tween images</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="570"/>
+        <location filename="../main_window_tween.py" line="575"/>
         <source>開始キーフレームを準備しています</source>
         <translation>Preparing the starting key frame</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="577"/>
+        <location filename="../main_window_tween.py" line="582"/>
         <source>{name}の補間コマ {value}/{exposure} を生成しています</source>
         <translation>Generating {name} in-between exposure {value}/{exposure}</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="632"/>
+        <location filename="../main_window_tween.py" line="637"/>
         <source>{value}コマ目の変形画像を生成できませんでした。</source>
         <translation>Could not generate the deformed image for exposure {value}.</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="653"/>
+        <location filename="../main_window_tween.py" line="658"/>
         <source>生成した画像をタイムラインへ登録しています</source>
         <translation>Registering the generated images on the timeline</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="691"/>
+        <location filename="../main_window_tween.py" line="696"/>
         <source>トゥイーン開始前のUndo情報を取得できませんでした。</source>
         <translation>Could not read the undo state from before the tween started.</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="699"/>
+        <location filename="../main_window_tween.py" line="704"/>
         <source>トゥイーンのキーフレーム化が完了しました</source>
         <translation>Finished converting the tween into key frames</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="717"/>
+        <location filename="../main_window_tween.py" line="722"/>
         <source>トゥイーン確定エラー</source>
         <translation>Tween commit error</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="754"/>
+        <location filename="../main_window_tween.py" line="759"/>
         <source>（TPクオリティ適用）</source>
         <translation> (TP quality applied)</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="758"/>
+        <location filename="../main_window_tween.py" line="763"/>
         <source>逆生成（◆側が変形／右端が初期）</source>
         <translation>Reverse (◆ side deformed, right end original)</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="760"/>
+        <location filename="../main_window_tween.py" line="765"/>
         <source>通常生成（先頭が初期／♦側が変形）</source>
         <translation>Normal (first original, ♦ side deformed)</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="763"/>
+        <location filename="../main_window_tween.py" line="768"/>
         <source>{exposure}コマの{name}トゥイーンを{note}で確定しました。{note2}帯をダブルクリックすると形を直せます。</source>
         <translation>Committed the {name} tween over {exposure} exposures using {note}.{note2} Double-click the span to adjust the shape.</translation>
     </message>
@@ -2524,7 +2524,7 @@ Check that Pillow is available and that the deformed area has colour.</translati
         <location filename="../main_window_tween.py" line="127"/>
         <location filename="../main_window_tween.py" line="145"/>
         <location filename="../main_window_tween.py" line="199"/>
-        <location filename="../main_window_tween.py" line="444"/>
+        <location filename="../main_window_tween.py" line="449"/>
         <location filename="../timeline.py" line="1148"/>
         <location filename="../toolpanel.py" line="580"/>
         <location filename="../widgets.py" line="649"/>
@@ -3481,7 +3481,7 @@ Details were saved to:
         <translation>Loading finished</translation>
     </message>
     <message>
-        <location filename="../canvas_input_events.py" line="424"/>
+        <location filename="../canvas_input_events.py" line="428"/>
         <source>マウスを動かしてカーブを調整し、クリックで確定します。Escで取消。</source>
         <translation>Move the mouse to adjust the curve, then click to confirm. Esc cancels.</translation>
     </message>
@@ -3542,57 +3542,63 @@ Details were saved to:
         <translation>The clicked pixel is not a colour the Target colour setting fills.</translation>
     </message>
     <message>
-        <location filename="../canvas_skewer_fill.py" line="173"/>
-        <location filename="../canvas_skewer_fill.py" line="364"/>
+        <location filename="../canvas_skewer_fill.py" line="180"/>
+        <location filename="../canvas_skewer_fill.py" line="420"/>
         <source>串刺し塗り</source>
         <translation>Paint through frames</translation>
     </message>
     <message>
-        <location filename="../canvas_skewer_fill.py" line="183"/>
-        <location filename="../canvas_skewer_fill.py" line="369"/>
+        <location filename="../canvas_skewer_fill.py" line="190"/>
+        <location filename="../canvas_skewer_fill.py" line="425"/>
         <source>串刺し塗りを中止しました。</source>
         <translation>Painting through frames was cancelled.</translation>
     </message>
     <message>
-        <location filename="../canvas_skewer_fill.py" line="114"/>
-        <location filename="../canvas_skewer_fill.py" line="373"/>
+        <location filename="../canvas_skewer_fill.py" line="121"/>
+        <location filename="../canvas_skewer_fill.py" line="429"/>
         <source>串刺し塗りの対象になるコマがありませんでした。</source>
         <translation>No frame could be painted through.</translation>
     </message>
     <message>
-        <location filename="../canvas_skewer_fill.py" line="98"/>
+        <location filename="../canvas_skewer_fill.py" line="105"/>
         <source>串刺し塗り：このコマには塗れる絵がありません。</source>
         <translation>Skewer fill: this frame has no drawing to fill.</translation>
     </message>
     <message>
-        <location filename="../canvas_skewer_fill.py" line="147"/>
-        <location filename="../canvas_skewer_fill.py" line="279"/>
-        <location filename="../canvas_skewer_fill.py" line="341"/>
+        <location filename="../canvas_skewer_fill.py" line="155"/>
+        <location filename="../canvas_skewer_fill.py" line="312"/>
+        <location filename="../canvas_skewer_fill.py" line="334"/>
+        <location filename="../canvas_skewer_fill.py" line="397"/>
         <source>絵が変わったため、串刺し塗りを取り消しました。</source>
         <translation>The drawing changed, so the skewer fill was cancelled.</translation>
     </message>
     <message>
-        <location filename="../canvas_skewer_fill.py" line="161"/>
+        <location filename="../canvas_skewer_fill.py" line="168"/>
         <source>串刺し塗りを取り消しました。</source>
         <translation>Skewer fill cancelled.</translation>
     </message>
     <message>
-        <location filename="../canvas_skewer_fill.py" line="188"/>
+        <location filename="../canvas_skewer_fill.py" line="195"/>
         <source>コマ {value} の塗る範囲を探しています</source>
         <translation>Finding the fill area in frame {value}</translation>
     </message>
     <message>
-        <location filename="../canvas_skewer_fill.py" line="271"/>
+        <location filename="../canvas_skewer_fill.py" line="293"/>
+        <source>串刺し塗り：コマ {value} は自信がありません。推測した範囲を青で表示しています（Enter：この範囲で塗る／クリック：塗る場所を指定／Esc：このコマを飛ばす）。</source>
+        <translation>Skewer fill: not sure about frame {value}. The guessed area is shown in blue (Enter: fill it / click: choose where to fill / Esc: skip this frame).</translation>
+    </message>
+    <message>
+        <location filename="../canvas_skewer_fill.py" line="298"/>
         <source>串刺し塗り：コマ {value} は追いかけきれませんでした。塗る場所をクリックしてください（Esc：このコマを飛ばす）。</source>
         <translation>Skewer fill: couldn&apos;t track the shape in frame {value}. Click where to fill (Esc: skip this frame).</translation>
     </message>
     <message>
-        <location filename="../canvas_skewer_fill.py" line="380"/>
+        <location filename="../canvas_skewer_fill.py" line="436"/>
         <source>串刺し塗り：{filled} コマを塗り、{skipped} コマは対象外でした。</source>
         <translation>Painted through {filled} frame(s); {skipped} frame(s) were skipped.</translation>
     </message>
     <message>
-        <location filename="../canvas_skewer_fill.py" line="386"/>
+        <location filename="../canvas_skewer_fill.py" line="442"/>
         <source>串刺し塗り：{filled} コマを塗りました。</source>
         <translation>Painted through {filled} frame(s).</translation>
     </message>
