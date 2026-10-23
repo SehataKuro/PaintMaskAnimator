@@ -24,7 +24,15 @@ PaintMaskAnimator への貢献を歓迎します。
 python -m venv .venv
 .venv/Scripts/activate
 pip install -e ".[dev,full]"
+pip install ./native   # Rust の部品（Rust のツールチェーンが必要）
 ```
+
+`native/` は重い画像計算の Rust 実装です（[設計方針](docs/design-principles.md)の
+「将来は Rust へ置き換えていく」）。入れなくても numpy 版で動きますが、配布物には
+必ず入れます。Rust 側を直したら、もう一度 `pip install ./native` するか、
+`native/` で `maturin develop --release` を実行します。Rust 版と numpy 版の結果は
+`tests/test_native.py` で突き合わせています。環境変数 `PMA_NO_NATIVE=1` で
+Rust の部品を使わずに動かせます。
 
 ## 提出前の確認
 

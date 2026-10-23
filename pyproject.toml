@@ -67,6 +67,8 @@ fail_under = 37.0
 include = ["paintmaskanimator", "scripts", "tests"]
 pythonVersion = "3.10"
 typeCheckingMode = "basic"
+# Rust の部品（native/）の型。部品をビルドしていない環境でも型を確かめられる。
+stubPath = "native"
 # Every "basic" rule runs at error level. Qt objects that pyright cannot see
 # through (ADS widgets, test fakes) are typed ``Any`` at the call site, and
 # mixin members are declared in ``_main_window_members.py``.

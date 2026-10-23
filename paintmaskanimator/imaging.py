@@ -12,6 +12,7 @@ from PySide6.QtGui import QImage
 
 from .optional_deps import PILImage
 from .constants import TP_MASK_PROXY_THRESHOLD
+from . import native
 
 
 def qimage_buffer(image: QImage, *, const: bool = False) -> Any:
@@ -148,8 +149,24 @@ def _row_runs(row):
     return edges[0::2], edges[1::2]
 
 
+def _seed_list(starts):
+    if isinstance(starts, tuple) and len(starts) == 2 and isinstance(starts[0], (int, np.integer)):
+        return [(int(starts[0]), int(starts[1]))]
+    return [(int(x), int(y)) for x, y in starts]
+
+
 def scanline_connected_region(passable, starts):
-    """4近傍の塗りつぶし領域を、行ごとの連続区間（ラン）単位で求める。
+    """4近傍の塗りつぶし領域。Rust の部品があればそちらで、無ければ numpy で求める。"""
+    passable = np.asarray(passable, dtype=bool)
+    seeds = _seed_list(starts)
+    region = native.flood_fill(passable, seeds)
+    if region is not None:
+        return region
+    return scanline_connected_region_numpy(passable, seeds)
+
+
+def scanline_connected_region_numpy(passable, starts):
+    """4近傍の塗りつぶし領域を、行ごとの連続区間（ラン）単位で求める（numpy 版）。
 
     画素ごとにPythonで走査すると大きなキャンバスで秒単位かかるため、
     訪れた行だけランをnumpyで切り出し、ラン同士の重なりでつなぐ。
@@ -157,10 +174,7 @@ def scanline_connected_region(passable, starts):
     passable = np.asarray(passable, dtype=bool)
     height, width = passable.shape
     region = np.zeros((height, width), dtype=bool)
-    if isinstance(starts, tuple) and len(starts) == 2 and isinstance(starts[0], (int, np.integer)):
-        seeds = np.array([[int(starts[0]), int(starts[1])]], dtype=np.int64)
-    else:
-        seeds = np.array([(int(x), int(y)) for x, y in starts], dtype=np.int64)
+    seeds = np.array(_seed_list(starts), dtype=np.int64)
     if seeds.size == 0:
         return region
     seeds = seeds.reshape(-1, 2)
