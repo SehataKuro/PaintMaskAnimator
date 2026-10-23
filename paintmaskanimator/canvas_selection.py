@@ -724,21 +724,31 @@ class SelectionMixin(CanvasMembers):
         return QRectF(min(xs),min(ys),max(xs)-min(xs),max(ys)-min(ys)).toAlignedRect()
 
     def copy_selection(self):
+        """選択範囲の形どおりに切り抜いてコピーする（外側は透明）。"""
         rect=self.selection_bounds().intersected(self.active_layer.image.rect())
-        if rect.isEmpty(): return
-        QApplication.clipboard().setImage(self.active_layer.image.copy(rect))
+        if rect.isEmpty(): return False
+        # 外接矩形をそのまま写すと、自動選択・反転・投げ縄の外側の画素まで入る。
+        QApplication.clipboard().setImage(self._masked_selection_source(rect))
+        return True
 
     def cut_selection(self):
-        rect=self.selection_bounds().intersected(self.active_layer.image.rect())
-        if rect.isEmpty(): return
-        self.push_layer_region_undo(rect)
-        QApplication.clipboard().setImage(self.active_layer.image.copy(rect))
-        p=QPainter(self.active_layer.image)
-        p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Clear)
+        """コピーしてから、選択範囲の中だけを消す（Undo 1回で戻る）。
+
+        以前は消すときに多角形しか見ていなかったので、マスクで持つ選択
+        （自動選択・反転）では消える範囲が選択の形とずれていた。
+        """
+        if not self.copy_selection():
+            return False
         if self.selection_polygon:
-            p.setPen(Qt.PenStyle.NoPen);p.setBrush(QColor(0,0,0,255));p.drawPolygon(QPolygonF(self.selection_polygon))
-        else:p.fillRect(rect,QColor(0,0,0,255))
-        p.end();self.cellChanged.emit(self.current_frame,self.active_layer_index);self.update()
+            return self.delete_selection_contents()
+        # 選択が無いときは、これまでどおりレイヤー全体を切り取る。
+        rect = self.active_layer.image.rect()
+        if not self.push_layer_region_undo(rect):
+            return False
+        self.active_layer.image.fill(Qt.GlobalColor.transparent)
+        self.cellChanged.emit(self.current_frame, self.active_layer_index)
+        self.update()
+        return True
 
     def delete_selection_contents(self):
         """選択範囲の中を消す（透明にする）。選択が無ければ何もしない。"""
