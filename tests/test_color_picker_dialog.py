@@ -98,7 +98,7 @@ def window(qapp, tmp_path, monkeypatch):
 def test_double_clicking_swatches_opens_the_picker(window, monkeypatch):
     requests = []
 
-    def fake_get_color(initial=None, parent=None, title=None):
+    def fake_get_color(initial=None, parent=None, title=None, preview=None):
         requests.append(title)
         return QColor("#10a020")
 

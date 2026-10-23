@@ -1137,19 +1137,23 @@ class OnionSkinSettingsBrowser(QWidget):
             if which == "previous"
             else self.next_color
         )
+        def apply(color):
+            if which == "previous":
+                self.previous_color = QColor(color)
+            else:
+                self.next_color = QColor(color)
+            self._refresh_color_buttons()
+            self.settingsChanged.emit()
+
         color = ColorPickerDialog.get_color(
             current,
             self,
             tr("オニオンスキンの表示色"),
+            preview=apply,
         )
         if not color.isValid():
             return
-        if which == "previous":
-            self.previous_color = QColor(color)
-        else:
-            self.next_color = QColor(color)
-        self._refresh_color_buttons()
-        self.settingsChanged.emit()
+        apply(color)
 
     def _reset_shift(self, which):
         reset_both = (

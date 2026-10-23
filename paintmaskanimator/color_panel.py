@@ -92,6 +92,9 @@ class UsedColorPanel(
         )
         self.setMinimumHeight(0)
         self.background_rgb: tuple[int, int, int] = (255, 255, 255)
+        # 背景色の行に見せる色。画素としての背景は白／透明のままだが、
+        # キャンバスでは「背景色の表示色」で見えているので、それに合わせる。
+        self.background_display_color = QColor(*self.background_rgb)
         self.colors = []
         self.enabled_colors = {self.background_rgb: True}
         self.mask_rgbs = {self.background_rgb}
@@ -337,6 +340,18 @@ class UsedColorPanel(
         qc = QColor(color)
         return (qc.red(), qc.green(), qc.blue())
 
+    def _background_display_hex(self):
+        return self.background_display_color.name(QColor.NameFormat.HexRgb).upper()
+
+    def set_background_display_color(self, color):
+        """背景色の表示色が変わったら、背景色の行の見本も同じ色にする。"""
+        color = QColor(color)
+        if not color.isValid() or color == self.background_display_color:
+            return
+        self.background_display_color = color
+        if self.background_rgb in self.source_buttons:
+            self._set_source_button_style(self.background_rgb)
+
     @staticmethod
     def _text_color(rgb):
         luminance = 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]
@@ -432,13 +447,13 @@ class UsedColorPanel(
                 color = QColor(*source_rgb)
             self._set_replacement_color(source_rgb, color)
 
-        popup = ReplacementColorPopup(QColor(color), source_rgb, self)
+        popup = ReplacementColorPopup(
+            QColor(color), source_rgb, self,
+            preview=lambda changed, rgb=source_rgb:
+            self._set_replacement_color(rgb, changed),
+        )
         self._replacement_popup = popup
         self._replacement_popup_rgb = source_rgb
-        popup.colorChanged.connect(
-            lambda changed, rgb=source_rgb:
-            self._set_replacement_color(rgb, changed)
-        )
         popup.destroyed.connect(
             lambda _obj=None, current=popup:
             self._replacement_popup_destroyed(current)
@@ -861,7 +876,8 @@ class UsedColorPanel(
         is_background = rgb == self.background_rgb
         is_child = rgb in self.child_to_parent
         hex_text = (
-            tr("背景色 #FFFFFF") if is_background
+            tr("背景色 {hex}").format(hex=self._background_display_hex())
+            if is_background
             else "#{:02X}{:02X}{:02X}".format(*rgb)
         )
         if is_child:
@@ -888,8 +904,14 @@ class UsedColorPanel(
 
         # 子色のボタン見た目（元色＋親色ボーダー）は _refresh_group_display が持つ。
         if rgb not in self.child_to_parent:
-            color = QColor(*rgb)
-            text_color = self._text_color(rgb)
+            if rgb == self.background_rgb:
+                color = QColor(self.background_display_color)
+                text_color = self._text_color(
+                    (color.red(), color.green(), color.blue())
+                )
+            else:
+                color = QColor(*rgb)
+                text_color = self._text_color(rgb)
             button.setStyleSheet(
                 "QToolButton{"
                 f"background:{color.name()};color:{text_color};"
@@ -904,7 +926,9 @@ class UsedColorPanel(
 
         if rgb == self.background_rgb:
             button.setToolTip(
-                tr("背景色 #FFFFFF。並べ替えや親子付けの対象にはできません。")
+                tr("背景色 {hex}。並べ替えや親子付けの対象にはできません。").format(
+                    hex=self._background_display_hex()
+                )
             )
         else:
             group_note = ""

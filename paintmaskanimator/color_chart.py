@@ -430,10 +430,15 @@ class ColorTagDialog(QDialog):
         layout.addWidget(buttons)
 
     def _choose_color(self):
-        color = ColorPickerDialog.get_color(self._color, self, tr("タグ色"))
-        if color.isValid():
-            self._color = color
+        def apply(color):
+            self._color = QColor(color)
             self._refresh_color_button()
+
+        color = ColorPickerDialog.get_color(
+            self._color, self, tr("タグ色"), preview=apply
+        )
+        if color.isValid():
+            apply(color)
 
     def _refresh_color_button(self):
         value = self._color.name(QColor.NameFormat.HexRgb).upper()
