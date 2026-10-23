@@ -34,6 +34,8 @@ TRACK_CONFIDENT_IOU = 0.5
 
 # 手動指定を待っているコマで、前のコマの塗り範囲を示す色。
 _GUIDE_RGBA = (255, 64, 160, 90)
+# 追跡が「たぶんここ」と推測した範囲を示す色（Enter で採用できる）。
+_GUESS_RGBA = (40, 140, 255, 110)
 
 Cell = Tuple[int, int]
 
@@ -53,6 +55,8 @@ class SkewerFillSession:
     queues: List[List[Cell]]
     # 方向ごとの「直前に塗れたコマの領域」。
     previous: List[np.ndarray]
+    # 方向ごとの「直前に塗れたコマの画素」。コマ間のずれの推定に使う。
+    previous_pixels: List[Optional[np.ndarray]]
     # 走査対象のセル一覧。途中でタイムラインが変わっていないかの確認用。
     cells: List[Cell]
     direction: int = 0
@@ -66,8 +70,11 @@ class SkewerFillSession:
     skipped: int = 0
     # 手動指定を待っているセル ``(frame, layer)``。
     pending: Optional[Cell] = None
-    # 手動指定を待つコマに重ねる、前のコマの塗り範囲。
+    # 手動指定を待つコマに重ねる、推測（無ければ前のコマの塗り範囲）。
     guide: Optional[QImage] = None
+    # 自信はないが追跡が推測した範囲と、そのコマの画素。Enter で採用する。
+    guess: Optional[bucket_fill.FillResult] = None
+    guess_pixels: Optional[np.ndarray] = None
 
 
 class SkewerFillMixin(CanvasMembers):
@@ -125,6 +132,7 @@ class SkewerFillMixin(CanvasMembers):
             origin_frame=int(self.current_frame),
             queues=[cells[pivot + 1:], list(reversed(cells[:pivot]))],
             previous=[start_result.mask, start_result.mask],
+            previous_pixels=[pixels.copy()] * 2,
             cells=list(cells),
         )
         self._skewer_remember(session, pivot_image, start_result)
@@ -147,8 +155,7 @@ class SkewerFillMixin(CanvasMembers):
             self.abort_skewer_fill(tr("絵が変わったため、串刺し塗りを取り消しました。"))
             return True
         session.skipped += 1
-        session.pending = None
-        session.guide = None
+        self._skewer_clear_pending(session)
         self._skewer_advance()
         return True
 
@@ -194,13 +201,14 @@ class SkewerFillMixin(CanvasMembers):
                     if id(image) in session.regions:
                         queue.pop(0)
                         continue
-                    result = self._skewer_locate(session, image)
+                    result, pixels = self._skewer_locate(session, image)
                     if result is not None and result.ok and (
                         result.score is None
                         or result.score >= TRACK_CONFIDENT_IOU
                     ):
                         self._skewer_remember(session, image, result)
                         session.previous[session.direction] = result.mask
+                        session.previous_pixels[session.direction] = pixels
                         queue.pop(0)
                         continue
                     if result is None:
@@ -209,7 +217,11 @@ class SkewerFillMixin(CanvasMembers):
                         queue.pop(0)
                         continue
                     # 自信がないので、このコマはユーザーに指定してもらう。
+                    # 推測があれば見せて、Enter だけで採用できるようにする。
                     queue.pop(0)
+                    if result.ok:
+                        session.guess = result
+                        session.guess_pixels = pixels
                     self._skewer_wait_for(session, (frame_index, layer_index))
                     return
                 session.direction += 1
@@ -218,16 +230,22 @@ class SkewerFillMixin(CanvasMembers):
         self._skewer_apply()
 
     def _skewer_locate(self, session, image):
-        """追跡で塗る範囲を探す。``None`` は「追跡しない設定で塗れなかった」。"""
-        _converted, pixels = self._layer_fill_pixels(image)
+        """追跡で塗る範囲を探す。``(結果, そのコマの画素)`` を返す。
+
+        結果が ``None`` なのは「追跡しない設定で塗れなかった」とき。
+        """
+        _converted, view = self._layer_fill_pixels(image)
+        # 次のコマとのずれの推定に使うので、画像に縛られない複製にしておく。
+        pixels = view.copy()
         previous = session.previous[session.direction]
         if pixels.shape[:2] != previous.shape:
-            return None
+            return None, pixels
         if session.options.adjacent:
             return bucket_fill.track_fill_region(
                 pixels, previous, session.reference, session.options,
                 session.selection_mask,
-            )
+                previous_pixels=session.previous_pixels[session.direction],
+            ), pixels
         # 「隣接」OFF はレイヤー内の同色を一括で塗るので、位置を追う必要がない。
         reference = session.reference
         if reference is None:
@@ -237,12 +255,12 @@ class SkewerFillMixin(CanvasMembers):
             target &= pixels[:, :, 3] > 0
         points = np.argwhere(target)
         if not points.size:
-            return None
+            return None, pixels
         start_y, start_x = (int(value) for value in points[0])
         result = bucket_fill.compute_fill_region(
             pixels, start_x, start_y, session.options, session.selection_mask
         )
-        return result if result.ok else None
+        return (result if result.ok else None), pixels
 
     def _skewer_remember(self, session, image, result):
         assert result.bounds is not None  # ok なら必ず外接矩形がある
@@ -255,9 +273,12 @@ class SkewerFillMixin(CanvasMembers):
     def _skewer_wait_for(self, session, cell):
         frame_index, layer_index = cell
         session.pending = cell
-        session.guide = self._skewer_guide_image(
-            session.previous[session.direction]
-        )
+        if session.guess is not None:
+            session.guide = self._skewer_guide_image(session.guess.mask, _GUESS_RGBA)
+        else:
+            session.guide = self._skewer_guide_image(
+                session.previous[session.direction]
+            )
         self.current_frame = int(frame_index)
         self.active_layer_index = int(layer_index)
         self.selectionChanged.emit()
@@ -267,10 +288,44 @@ class SkewerFillMixin(CanvasMembers):
     @staticmethod
     def _skewer_pending_message(session):
         assert session.pending is not None
+        if session.guess is not None:
+            return tr(
+                "串刺し塗り：コマ {value} は自信がありません。推測した範囲を青で"
+                "表示しています（Enter：この範囲で塗る／クリック：塗る場所を指定"
+                "／Esc：このコマを飛ばす）。"
+            ).format(value=session.pending[0] + 1)
         return tr(
             "串刺し塗り：コマ {value} は追いかけきれませんでした。"
             "塗る場所をクリックしてください（Esc：このコマを飛ばす）。"
         ).format(value=session.pending[0] + 1)
+
+    def skewer_fill_has_guess(self):
+        session = self._skewer_session
+        return bool(session is not None and session.pending is not None and session.guess)
+
+    def accept_skewer_guess(self):
+        """手動指定を待っているコマで、追跡の推測をそのまま採用する（Enter）。"""
+        session = self._skewer_session
+        if session is None or session.pending is None or session.guess is None:
+            return False
+        if not self._skewer_session_valid(session):
+            self.abort_skewer_fill(tr("絵が変わったため、串刺し塗りを取り消しました。"))
+            return True
+        frame_index, layer_index = session.pending
+        image = self.frames[frame_index].layers[layer_index].image
+        self._skewer_remember(session, image, session.guess)
+        session.previous[session.direction] = session.guess.mask
+        session.previous_pixels[session.direction] = session.guess_pixels
+        self._skewer_clear_pending(session)
+        self._skewer_advance()
+        return True
+
+    @staticmethod
+    def _skewer_clear_pending(session):
+        session.pending = None
+        session.guide = None
+        session.guess = None
+        session.guess_pixels = None
 
     def _skewer_resume_with_click(self, p):
         session = self._skewer_session
@@ -293,7 +348,8 @@ class SkewerFillMixin(CanvasMembers):
         start_x, start_y = int(p.x()), int(p.y())
         if not self._seed_in_bounds(start_x, start_y, pending_image):
             return
-        _converted, pixels = self._layer_fill_pixels(pending_image)
+        _converted, view = self._layer_fill_pixels(pending_image)
+        pixels = view.copy()
         result = bucket_fill.compute_fill_region(
             pixels, start_x, start_y, session.options, session.selection_mask
         )
@@ -304,8 +360,8 @@ class SkewerFillMixin(CanvasMembers):
             return
         self._skewer_remember(session, pending_image, result)
         session.previous[session.direction] = result.mask
-        session.pending = None
-        session.guide = None
+        session.previous_pixels[session.direction] = pixels
+        self._skewer_clear_pending(session)
         self._skewer_advance()
 
     def _skewer_session_valid(self, session):
@@ -392,9 +448,9 @@ class SkewerFillMixin(CanvasMembers):
     # 表示
     # ------------------------------------------------------------------
     @staticmethod
-    def _skewer_guide_image(mask):
+    def _skewer_guide_image(mask, color=_GUIDE_RGBA):
         rgba = np.zeros(mask.shape + (4,), dtype=np.uint8)
-        rgba[mask] = _GUIDE_RGBA
+        rgba[mask] = color
         return imaging.rgba_array_to_qimage(rgba)
 
     def paint_skewer_guide(self, painter: QPainter, work_rect):

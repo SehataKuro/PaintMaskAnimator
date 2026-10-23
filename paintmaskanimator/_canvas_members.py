@@ -469,6 +469,8 @@ class CanvasMembers(_MembersBase):
         _layer_fill_pixels: Any
         _seed_in_bounds: Any
         abort_skewer_fill: Any
+        accept_skewer_guess: Any
+        skewer_fill_has_guess: Any
         bucket_options: Any
         flood_fill_over_frames: Any
         skewer_fill_pending: Any

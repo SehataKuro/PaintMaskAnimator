@@ -440,11 +440,11 @@ def compute_fill_region(
 
 
 #: 追跡で試す開始点の数の上限（1回ごとに領域判定が1回走る）。
-TRACK_MAX_TRIES = 6
-#: 前のコマの領域との重なり（IoU）がこれ未満なら、同じ図形とはみなさない。
-TRACK_MIN_IOU = 0.25
+TRACK_MAX_TRIES = 8
+#: 前のコマの領域との重なり（IoU）がこれ未満なら、推測としても出さない。
+TRACK_MIN_IOU = 0.1
 #: これ以上重なっていれば、残りの候補を試さずに採用する。
-TRACK_GOOD_IOU = 0.6
+TRACK_GOOD_IOU = 0.75
 #: 前のコマの領域との面積比がこの倍率を超えたら別物（背景への漏れなど）とみなす。
 TRACK_MAX_AREA_RATIO = 3.0
 
@@ -455,39 +455,63 @@ def track_fill_region(
     reference,
     options: BucketOptions,
     selection_mask=None,
+    previous_pixels=None,
 ) -> FillResult:
     """前のコマで塗った領域 ``previous`` を手がかりに、このコマで同じ図形を塗る。
 
-    串刺し塗りで同じ座標を種にし続けると、絵が動いたコマでは種が図形の外へ出て
-    背景を塗り始める。ここでは前のコマの領域と重なる位置から種を選び直し、
-    できた領域が「前のコマの領域と十分に重なり、面積も大きく変わらない」ときだけ
-    同じ図形として採用する。背景へ漏れた領域は面積が跳ね上がるので弾かれる。
+    1. ``previous_pixels``（前のコマの画素）があれば、塗った範囲のまわりの線画を
+       比べて、図形がどれだけ動いたかを推定し（:mod:`fill_tracking`）、前の範囲を
+       そのぶん動かす。図形がその幅ほど動いても重なりが保てる。
+    2. 動かした範囲（と、推定が外れたときのために元の位置）と重なる閉じた領域を
+       候補にして、塗ってみる。
+    3. 重なり（IoU）が一番大きく、面積も大きく変わらない領域を選ぶ。背景へ漏れた
+       領域は面積が跳ね上がるので弾かれる。
 
     :param previous: 前のコマ（追跡の1つ手前）で塗った画素の真偽マスク。
     :param reference: 塗り始めたコマの開始点の色種別（:func:`seed_category`）。
-    :returns: 見つからなければ ``REASON_EMPTY`` の結果。
+    :param previous_pixels: ``previous`` を作ったコマの RGBA 配列。省略時はずれを推定しない。
+    :returns: 結果の ``score`` に重なりを入れる。自信がなくても候補があれば ok で返し、
+        採用するかは呼び出し側が ``score`` で決める。候補が無ければ ``REASON_EMPTY``。
     """
+    from . import fill_tracking
+
     previous_area = int(np.count_nonzero(previous))
     if previous_area == 0:
         return FillResult(REASON_EMPTY, target=reference)
     # 種の候補は、対象色の設定でたどれる画素（既定は開始点と同じ色）に限る。
-    eligible = fill_target_mask(pixels, options.target_color, reference)
-    eligible &= previous
+    target = fill_target_mask(pixels, options.target_color, reference)
     if selection_mask is not None:
-        eligible &= selection_mask
+        target &= selection_mask
 
-    # 前のコマの領域の重心に近い点から試す。図形が少し動いただけなら、
-    # たいてい最初の1回で見つかる。
-    previous_ys, previous_xs = np.nonzero(previous)
-    center_y = float(previous_ys.mean())
-    center_x = float(previous_xs.mean())
+    references = [previous]
+    if previous_pixels is not None and previous_pixels.shape == pixels.shape:
+        previous_lines = ~fill_target_mask(
+            previous_pixels, options.target_color, reference
+        )
+        shifts = fill_tracking.estimate_shifts(previous_lines, ~target, previous)
+        # 動かした位置を先に試す。推定が外れたときのために元の位置も残す。
+        moved = [
+            fill_tracking.shift_mask(previous, dy, dx)
+            for dy, dx in shifts if dy or dx
+        ]
+        references = moved + references
+
+    eligible = np.zeros(target.shape, dtype=bool)
+    for reference_mask in references:
+        eligible |= target & reference_mask
+    # 動かした範囲がキャンバスの外へ出てしまったときは、元の範囲の重心を使う。
+    lead = references[0] if references[0].any() else previous
+    center_y, center_x = (float(value) for value in np.argwhere(lead).mean(axis=0))
+    reference_areas = [int(np.count_nonzero(mask)) for mask in references]
 
     best: Optional[FillResult] = None
     best_iou = 0.0
     for _attempt in range(TRACK_MAX_TRIES):
-        ys, xs = np.nonzero(eligible)
-        if ys.size == 0:
+        points = np.argwhere(eligible)
+        if not len(points):
             break
+        ys, xs = points[:, 0], points[:, 1]
+        # 動かした範囲の重心に近い点から試す。
         nearest = int(np.argmin((ys - center_y) ** 2 + (xs - center_x) ** 2))
         start_x, start_y = int(xs[nearest]), int(ys[nearest])
         result = compute_fill_region(
@@ -505,8 +529,10 @@ def track_fill_region(
         ratio = area / previous_area
         if ratio > TRACK_MAX_AREA_RATIO or ratio < 1.0 / TRACK_MAX_AREA_RATIO:
             continue
-        overlap = int(np.count_nonzero(region & previous))
-        iou = overlap / max(1, area + previous_area - overlap)
+        iou = 0.0
+        for reference_mask, reference_area in zip(references, reference_areas):
+            overlap = int(np.count_nonzero(region & reference_mask))
+            iou = max(iou, overlap / max(1, area + reference_area - overlap))
         if iou > best_iou:
             best, best_iou = result, iou
             if iou >= TRACK_GOOD_IOU:

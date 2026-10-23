@@ -54,6 +54,10 @@ class InputEventMixin(CanvasMembers):
             self.skip_skewer_fill_frame()
             e.accept()
             return
+        if self.skewer_fill_has_guess() and e.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self.accept_skewer_guess()
+            e.accept()
+            return
         if (
             self._onion_interaction_mode is not None
             and e.key() == Qt.Key.Key_Escape
