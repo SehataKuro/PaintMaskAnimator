@@ -15,7 +15,8 @@ PROJECT_VERSION = tomllib.loads(
 
 hiddenimports = []
 # Optional deps: bundle them if present in the build environment.
-for optional in ("PIL", "psd_tools", "PySide6QtAds"):
+# pma_native は Rust の部品（native/）。無ければ numpy 版で動く。
+for optional in ("PIL", "psd_tools", "PySide6QtAds", "pma_native"):
     try:
         __import__(optional)
         hiddenimports += collect_submodules(optional)

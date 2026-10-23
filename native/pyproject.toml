@@ -1,0 +1,14 @@
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "pma-native"
+version = "0.1.0"
+description = "PaintMaskAnimator の重い画像計算（Rust 実装）"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+
+[tool.maturin]
+module-name = "pma_native"
+features = ["pyo3/extension-module"]

@@ -50,6 +50,22 @@ basis on which it is combined with the Apache-2.0 licensed application.
 - License: **MIT**
 - Homepage: <https://github.com/psd-tools/psd-tools>
 
+## Rust crates in the native module (pma_native)
+
+The optional native module (`native/`, Rust) statically links the crates below
+into its binary. Build-only crates (procedural macros such as `syn`, `quote`,
+`proc-macro2`, `heck`) are not part of the distributed binary.
+
+| Crate | License | Homepage |
+|---|---|---|
+| pyo3, pyo3-ffi | MIT OR Apache-2.0 | <https://github.com/PyO3/pyo3> |
+| libc | MIT OR Apache-2.0 | <https://github.com/rust-lang/libc> |
+| once_cell | MIT OR Apache-2.0 | <https://github.com/matklad/once_cell> |
+
+PaintMaskAnimator uses them under the Apache License 2.0, the same license as
+the application. Check `cargo tree -e normal --manifest-path native/Cargo.toml`
+when the module's dependencies change, and keep this table in sync.
+
 ## clip_to_psd / clipfile-rs (派生コード)
 
 `paintmaskanimator/clip_animation.py` の CLIP STUDIO コンテナ・ラスタータイル・

@@ -39,6 +39,13 @@ jobs:
           pip install -r requirements-dev.txt
           pip install Pillow psd-tools
 
+      # Rust の部品（native/）をビルドして入れる。配布物では必ず使うので、
+      # 入らなければここで止める（無くても動くが、遅い numpy 版になる）。
+      - name: Build native module (Rust)
+        run: |
+          pip install ./native
+          python -c "import pma_native; print('pma_native', pma_native.__version__)"
+
       - name: Validate release version
         run: python scripts/check_version.py "${{ steps.ver.outputs.version }}"
 
@@ -104,6 +111,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
           pip install Pillow psd-tools
+
+      # Rust の部品（native/）をビルドして入れる。配布物では必ず使うので、
+      # 入らなければここで止める（無くても動くが、遅い numpy 版になる）。
+      - name: Build native module (Rust)
+        run: |
+          pip install ./native
+          python -c "import pma_native; print('pma_native', pma_native.__version__)"
 
       - name: Validate release version
         run: python scripts/check_version.py "${{ steps.ver.outputs.version }}"

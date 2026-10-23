@@ -17,6 +17,7 @@ from typing import Optional, Tuple
 
 import numpy as np
 
+from . import native
 from .imaging import (
     background_mask_packed,
     mask_bounds,
@@ -187,7 +188,15 @@ class FillResult:
 
 
 def dilate(mask, iterations):
-    """8 近傍で ``iterations`` 回膨張させる。"""
+    """8 近傍で ``iterations`` 回膨張させる（Rust の部品があればそちらで）。"""
+    result = native.dilate(mask, iterations)
+    if result is not None:
+        return result
+    return dilate_numpy(mask, iterations)
+
+
+def dilate_numpy(mask, iterations):
+    """8 近傍で ``iterations`` 回膨張させる（numpy 版）。"""
     result = mask.copy()
     for _ in range(iterations):
         source = result.copy()
@@ -203,7 +212,15 @@ def dilate(mask, iterations):
 
 
 def erode(mask, iterations):
-    """8 近傍で ``iterations`` 回収縮させる。"""
+    """8 近傍で ``iterations`` 回収縮させる（Rust の部品があればそちらで）。"""
+    result = native.erode(mask, iterations)
+    if result is not None:
+        return result
+    return erode_numpy(mask, iterations)
+
+
+def erode_numpy(mask, iterations):
+    """8 近傍で ``iterations`` 回収縮させる（numpy 版）。"""
     result = mask.copy()
     for _ in range(iterations):
         padded = np.pad(
