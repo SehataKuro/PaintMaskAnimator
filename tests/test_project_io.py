@@ -323,3 +323,44 @@ def test_parallel_map_keeps_order():
         value * 2 for value in range(50)
     ]
     assert project_io.parallel_map(str, []) == []
+
+
+def test_blank_cells_share_one_image_and_do_not_hit_pixel_limit(qapp, tmp_path, monkeypatch):
+    """空のセルは中身が同じなので、展開後の画素数の上限は1枚分しか数えない。"""
+    frames = [make_frame() for _ in range(6)]
+    metadata = _metadata()
+    metadata["mask_format"] = project_io.CURRENT_MASK_FORMAT
+    path = tmp_path / "blank.pman"
+    project_io.write_project_archive(path, metadata, frames)
+
+    cells = sum(len(frame.layers) for frame in frames)
+    pixels = constants.CANVAS_WIDTH * constants.CANVAS_HEIGHT
+    # 全セル分では超えるが、中身の種類（空・用紙）の分には収まる上限。
+    monkeypatch.setattr(project_io, "MAX_PROJECT_DECODED_PIXELS", pixels * 3)
+    assert cells > 3
+
+    _meta, loaded, _w, _h = project_io.read_project_archive(path)
+    keys = {
+        layer.image.cacheKey()
+        for frame in loaded
+        for layer in frame.layers
+    }
+    assert len(keys) <= 3
+
+
+def test_distinct_cells_still_hit_pixel_limit(qapp, tmp_path, monkeypatch):
+    from PySide6.QtGui import QColor, QPainter
+
+    frames = [make_frame() for _ in range(4)]
+    for index, frame in enumerate(frames):
+        layer = next(layer for layer in frame.layers if not layer.is_paper)
+        painter = QPainter(layer.image)
+        painter.fillRect(index, 0, 1, 1, QColor("#ff0000"))
+        painter.end()
+    path = tmp_path / "distinct.pman"
+    project_io.write_project_archive(path, _metadata(), frames)
+
+    pixels = constants.CANVAS_WIDTH * constants.CANVAS_HEIGHT
+    monkeypatch.setattr(project_io, "MAX_PROJECT_DECODED_PIXELS", pixels * 3)
+    with pytest.raises(OperationError):
+        project_io.read_project_archive(path)

@@ -1457,7 +1457,7 @@ Supported formats: PNG, JPEG, TGA</translation>
     </message>
     <message>
         <location filename="../color_panel.py" line="218"/>
-        <location filename="../color_panel_widgets.py" line="349"/>
+        <location filename="../color_panel_widgets.py" line="388"/>
         <source>置換色</source>
         <translation>Replacement colour</translation>
     </message>
@@ -3458,7 +3458,7 @@ Details were saved to:
     <message>
         <location filename="../canvas_onion_interaction.py" line="39"/>
         <location filename="../subview.py" line="474"/>
-        <location filename="../utils.py" line="334"/>
+        <location filename="../utils.py" line="369"/>
         <source>前</source>
         <extracomment>一時ズーム（ドラッグ）で 1px 動かしたときの倍率。</extracomment>
         <translation>Previous</translation>
@@ -3467,7 +3467,7 @@ Details were saved to:
         <location filename="../canvas_onion_interaction.py" line="39"/>
         <location filename="../cut_folder_dialog.py" line="609"/>
         <location filename="../subview.py" line="475"/>
-        <location filename="../utils.py" line="335"/>
+        <location filename="../utils.py" line="370"/>
         <source>後</source>
         <translation>Next</translation>
     </message>
@@ -4208,23 +4208,23 @@ Details were saved to:
         <translation>Toggle visibility in bulk</translation>
     </message>
     <message>
-        <location filename="../color_panel_widgets.py" line="63"/>
-        <location filename="../color_panel_widgets.py" line="91"/>
+        <location filename="../color_panel_widgets.py" line="67"/>
+        <location filename="../color_panel_widgets.py" line="95"/>
         <source>フォルダーを折りたたむ</source>
         <translation>Collapse the folder</translation>
     </message>
     <message>
-        <location filename="../color_panel_widgets.py" line="66"/>
+        <location filename="../color_panel_widgets.py" line="70"/>
         <source>フォルダー内の色を一括表示／非表示</source>
         <translation>Show or hide every colour in the folder</translation>
     </message>
     <message>
-        <location filename="../color_panel_widgets.py" line="91"/>
+        <location filename="../color_panel_widgets.py" line="95"/>
         <source>フォルダーを展開</source>
         <translation>Expand the folder</translation>
     </message>
     <message>
-        <location filename="../color_panel_widgets.py" line="351"/>
+        <location filename="../color_panel_widgets.py" line="390"/>
         <source>置換色&#x3000;元色 #{hex}</source>
         <translation>Replacement colour&#x3000;source #{hex}</translation>
     </message>
@@ -5480,185 +5480,184 @@ In-between and symbol labels: {blanks} cells</translation>
         <translation>Preset</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="194"/>
+        <location filename="../project_io.py" line="203"/>
         <source>プロジェクト内のファイル数が多すぎます。</source>
         <translation>The project contains too many files.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="196"/>
+        <location filename="../project_io.py" line="205"/>
         <source>暗号化されたプロジェクトには対応していません。</source>
         <translation>Encrypted projects are not supported.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="198"/>
+        <location filename="../project_io.py" line="207"/>
         <source>プロジェクトの展開後サイズが大きすぎます。</source>
         <translation>The unpacked project is too large.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="201"/>
+        <location filename="../project_io.py" line="210"/>
         <source>プロジェクト内に重複したファイル名があります。</source>
         <translation>The project contains duplicate file names.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="205"/>
+        <location filename="../project_io.py" line="214"/>
         <source>project.jsonがありません。</source>
         <translation>project.json is missing.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="207"/>
+        <location filename="../project_io.py" line="216"/>
         <source>プロジェクト情報が大きすぎます。</source>
         <translation>The project data is too large.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="212"/>
+        <location filename="../project_io.py" line="221"/>
         <source>対応していないプロジェクト形式です。</source>
         <translation>This project format is not supported.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="227"/>
+        <location filename="../project_io.py" line="236"/>
         <source>キャンバスサイズが不正です。</source>
         <translation>The canvas size is invalid.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="232"/>
+        <location filename="../project_io.py" line="241"/>
         <source>フレーム情報がありません。</source>
         <translation>There is no frame data.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="234"/>
+        <location filename="../project_io.py" line="243"/>
         <source>フレーム数が上限を超えています。</source>
         <translation>The frame count exceeds the maximum.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="240"/>
+        <location filename="../project_io.py" line="249"/>
         <source>フレーム情報が不正です。</source>
         <translation>The frame data is invalid.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="243"/>
+        <location filename="../project_io.py" line="252"/>
         <source>レイヤー情報がありません。</source>
         <translation>There is no layer data.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="245"/>
+        <location filename="../project_io.py" line="254"/>
         <source>レイヤー数が上限を超えています。</source>
         <translation>The layer count exceeds the maximum.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="249"/>
+        <location filename="../project_io.py" line="258"/>
         <source>フレームごとのレイヤー数が一致していません。</source>
         <translation>The layer count differs between frames.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="252"/>
-        <location filename="../project_io.py" line="409"/>
+        <location filename="../project_io.py" line="261"/>
+        <location filename="../project_io.py" line="429"/>
         <source>プロジェクトのセル数が上限を超えています。</source>
         <translation>The project has more cells than the maximum.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="254"/>
-        <location filename="../project_io.py" line="416"/>
+        <location filename="../project_io.py" line="178"/>
         <source>プロジェクトの展開後画像サイズが大きすぎます。</source>
         <translation>The unpacked project images are too large.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="268"/>
+        <location filename="../project_io.py" line="288"/>
         <source>レイヤー情報が不正です。</source>
         <translation>The layer data is invalid.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="271"/>
+        <location filename="../project_io.py" line="291"/>
         <source>レイヤー画像の参照がありません。</source>
         <translation>A layer image reference is missing.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="279"/>
+        <location filename="../project_io.py" line="299"/>
         <source>レイヤー画像の参照パスが不正です。</source>
         <translation>A layer image reference path is invalid.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="284"/>
+        <location filename="../project_io.py" line="304"/>
         <source>レイヤー画像がありません: {path}</source>
         <translation>Layer image missing: {path}</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="288"/>
+        <location filename="../project_io.py" line="308"/>
         <source>レイヤー画像が大きすぎます: {path}</source>
         <translation>Layer image too large: {path}</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="299"/>
+        <location filename="../project_io.py" line="319"/>
         <source>レイヤー画像を復元できません: {path}</source>
         <translation>Cannot restore the layer image: {path}</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="303"/>
+        <location filename="../project_io.py" line="323"/>
         <source>レイヤー画像のサイズが不正です: {path}</source>
         <translation>The layer image has an invalid size: {path}</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="320"/>
+        <location filename="../project_io.py" line="340"/>
         <source>レイヤーの露出フレーム数が不正です。</source>
         <translation>The exposure count of a layer is invalid.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="325"/>
+        <location filename="../project_io.py" line="345"/>
         <source>絵番号が範囲外です。</source>
         <translation>The drawing number is out of range.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="328"/>
+        <location filename="../project_io.py" line="348"/>
         <source>レイヤー不透明度が不正です。</source>
         <translation>The layer opacity is invalid.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="407"/>
-        <location filename="../project_io.py" line="421"/>
+        <location filename="../project_io.py" line="427"/>
+        <location filename="../project_io.py" line="436"/>
         <source>連番保管セル情報が不正です。</source>
         <translation>The stored sequence cell data is invalid.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="429"/>
+        <location filename="../project_io.py" line="444"/>
         <source>連番保管セルのレイヤーまたは絵番号が不正です。</source>
         <translation>The layer or drawing number of a stored sequence cell is invalid.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="432"/>
+        <location filename="../project_io.py" line="447"/>
         <source>連番保管セルの絵番号が重複しています。</source>
         <translation>Stored sequence cells have duplicate drawing numbers.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="441"/>
+        <location filename="../project_io.py" line="456"/>
         <source>連番保管セル画像の参照パスが不正です。</source>
         <translation>The image reference path of a stored sequence cell is invalid.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="446"/>
+        <location filename="../project_io.py" line="461"/>
         <source>連番保管セル画像がありません: {path}</source>
         <translation>Stored sequence cell image missing: {path}</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="450"/>
+        <location filename="../project_io.py" line="465"/>
         <source>連番保管セル画像が大きすぎます: {path}</source>
         <translation>Stored sequence cell image too large: {path}</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="464"/>
+        <location filename="../project_io.py" line="479"/>
         <source>連番保管セル画像を復元できません: {path}</source>
         <translation>Cannot restore the stored sequence cell image: {path}</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="473"/>
+        <location filename="../project_io.py" line="488"/>
         <source>連番保管セルの不透明度が不正です。</source>
         <translation>The opacity of a stored sequence cell is invalid.</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="555"/>
+        <location filename="../project_io.py" line="570"/>
         <source>画像を書き出せませんでした: {name}</source>
         <translation>Could not export the image: {name}</translation>
     </message>
     <message>
-        <location filename="../project_io.py" line="599"/>
+        <location filename="../project_io.py" line="614"/>
         <source>連番保管セルを書き出せませんでした: {name}</source>
         <translation>Could not export the stored sequence cell: {name}</translation>
     </message>

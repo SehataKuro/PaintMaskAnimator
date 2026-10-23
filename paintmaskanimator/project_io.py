@@ -137,11 +137,17 @@ def _decode_png(data):
     return image.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
 
 
-def _prefetch_pngs(archive, entries):
+def _prefetch_pngs(archive, entries, width, height, decoded):
     """``entries``（project.json の各セル）の PNG を先にまとめて並列に読む。
 
     ``{パス: (PNG のバイト列, 画像)}`` を返す。参照が不正なものはここでは
     読まずに飛ばし、本体のループで従来どおりのエラーにする。
+
+    中身が同じ PNG（空のセルなど）は1回だけデコードし、画像を暗黙共有する。
+    編集中も空のセルは1枚の雛形を共有しているので、読み込みで枚数分の画素を
+    確保すると、保存できたプロジェクトが開けなくなる。展開後の画素数の上限も
+    この中身の種類数で数える。``decoded``（{PNG のバイト列: 画像}）は
+    呼び出しをまたいで共有する。
     """
     paths = []
     seen = set()
@@ -167,10 +173,13 @@ def _prefetch_pngs(archive, entries):
         seen.add(image_path)
         paths.append(image_path)
     blobs = [archive.read(image_path) for image_path in paths]
-    images = parallel_map(_decode_png, blobs)
+    pending = list(dict.fromkeys(data for data in blobs if data not in decoded))
+    if (len(decoded) + len(pending)) * width * height > MAX_PROJECT_DECODED_PIXELS:
+        raise OperationError(tr("プロジェクトの展開後画像サイズが大きすぎます。"))
+    decoded.update(zip(pending, parallel_map(_decode_png, pending)))
     return {
-        image_path: (data, image)
-        for image_path, data, image in zip(paths, blobs, images)
+        image_path: (data, decoded[data])
+        for image_path, data in zip(paths, blobs)
     }
 
 
@@ -250,8 +259,16 @@ def read_project_archive(path, png_cache=None):
             layer_cell_count += len(layer_entries)
         if layer_cell_count > MAX_PROJECT_LAYER_CELLS:
             raise OperationError(tr("プロジェクトのセル数が上限を超えています。"))
-        if width * height * layer_cell_count > MAX_PROJECT_DECODED_PIXELS:
-            raise OperationError(tr("プロジェクトの展開後画像サイズが大きすぎます。"))
+
+        decoded = {}
+        # 旧形式の白→透明の変換も、共有している画像ごとに1回だけ行う。
+        migrated = {}
+
+        def migrate_white(image):
+            key = image.cacheKey()
+            if key not in migrated:
+                migrated[key] = white_to_transparent_qimage(image)
+            return QImage(migrated[key])
 
         prefetched = _prefetch_pngs(
             archive,
@@ -260,6 +277,9 @@ def read_project_archive(path, png_cache=None):
                 for frame_data in frame_entries
                 for layer_data in frame_data.get("layers", [])
             ),
+            width,
+            height,
+            decoded,
         )
         for frame_data in frame_entries:
             loaded_layers = []
@@ -310,7 +330,7 @@ def read_project_archive(path, png_cache=None):
                     and not bool(layer_data.get("is_paper", False))
                     and not is_draft
                 ):
-                    image = white_to_transparent_qimage(image)
+                    image = migrate_white(image)
                 elif png_cache is not None:
                     seeded.append((image, image_bytes))
 
@@ -407,15 +427,10 @@ def read_project_archive(path, png_cache=None):
             raise OperationError(tr("連番保管セル情報が不正です。"))
         if layer_cell_count + len(sequence_archive_data) > MAX_PROJECT_LAYER_CELLS:
             raise OperationError(tr("プロジェクトのセル数が上限を超えています。"))
-        if (
-            width
-            * height
-            * (layer_cell_count + len(sequence_archive_data))
-            > MAX_PROJECT_DECODED_PIXELS
-        ):
-            raise OperationError(tr("プロジェクトの展開後画像サイズが大きすぎます。"))
         loaded_sequence_archive = {}
-        prefetched = _prefetch_pngs(archive, sequence_archive_data)
+        prefetched = _prefetch_pngs(
+            archive, sequence_archive_data, width, height, decoded
+        )
         for archive_data in sequence_archive_data:
             if not isinstance(archive_data, dict):
                 raise OperationError(tr("連番保管セル情報が不正です。"))
@@ -465,7 +480,7 @@ def read_project_archive(path, png_cache=None):
                 )
             is_draft = bool(archive_data.get("is_draft", False))
             if needs_white_migration and not is_draft:
-                image = white_to_transparent_qimage(image)
+                image = migrate_white(image)
             elif png_cache is not None:
                 seeded.append((image, image_bytes))
             opacity = float(archive_data.get("opacity", 1.0))
