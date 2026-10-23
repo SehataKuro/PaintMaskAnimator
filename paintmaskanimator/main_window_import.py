@@ -674,10 +674,7 @@ class ImportController:
             referenced = sorted({
                 int(state) for state in states if state is not None
             })
-            missing = [
-                number for number in referenced
-                if number < 1 or number > len(source_bank)
-            ]
+            missing = self.window.time_remap.missing_numbers(source_bank, referenced)
             if missing:
                 preview = ", ".join(str(value) for value in missing[:12])
                 if len(missing) > 12:
@@ -720,6 +717,7 @@ class ImportController:
                 source_bank,
                 current_frame,
             )
+            self.window.time_remap.keep_unplaced_in_archive(layer_index, source_bank)
         self.window.canvas.current_frame = start_frame
         self.window.canvas.active_layer_index = prepared[0][1]
         self.window.canvas._onion_cache.clear()

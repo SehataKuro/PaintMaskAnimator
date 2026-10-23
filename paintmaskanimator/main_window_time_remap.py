@@ -16,6 +16,7 @@ from . import timesheet_file
 from .i18n import tr
 from .main_window_import import ImportController
 from .errors import OPERATION_ERRORS as _OPERATION_ERRORS, OperationError
+from .models import Layer
 from .utils import blank_image
 from .widgets import TimeRemapPasteDialog
 from .logging_setup import get_logger
@@ -339,11 +340,24 @@ class TimeRemapController:
                 and int(number) not in numbered_bank
             ):
                 numbered_bank[int(number)] = layer.image.copy()
-        if numbered_bank and set(numbered_bank) == set(
-            range(1, max(numbered_bank) + 1)
-        ):
+        # シートに並べていない絵（連番保管セル）も、同じ絵番号で使えるようにする。
+        # これを数えないと番号に抜けができ、下の「左から数える」方式へ落ちて
+        # 絵と番号がずれていた。
+        for (archive_layer, number), layer in getattr(
+            self.window.canvas, "_sequence_archive", {}
+        ).items():
+            if (
+                int(archive_layer) == layer_index
+                and int(number) >= 1
+                and int(number) not in numbered_bank
+                and layer.has_content
+            ):
+                numbered_bank[int(number)] = layer.image.copy()
+        if numbered_bank:
+            # 本当に抜けている番号は None にしておき、参照されたら
+            # 「存在しない絵番号」として止める（勝手に詰めない）。
             return [
-                numbered_bank[number]
+                numbered_bank.get(number)
                 for number in range(1, max(numbered_bank) + 1)
             ]
 
@@ -357,6 +371,43 @@ class TimeRemapController:
             if layer.has_content and not layer.image.isNull():
                 bank.append(layer.image.copy())
         return bank
+
+    @staticmethod
+    def missing_numbers(source_bank, numbers):
+        """``source_bank`` に絵が無い番号（範囲外・抜け）を返す。"""
+        return [
+            number for number in numbers
+            if number < 1
+            or number > len(source_bank)
+            or source_bank[number - 1] is None
+        ]
+
+    def keep_unplaced_in_archive(self, layer_index, source_bank):
+        """シートで使わなかった絵番号を連番保管セルに残す（使った番号は外す）。"""
+        canvas = self.window.canvas
+        placed = {
+            int(frame.layers[layer_index].sequence_number)
+            for frame in canvas.frames
+            if layer_index < len(frame.layers)
+            and frame.layers[layer_index].has_content
+            and frame.layers[layer_index].sequence_number is not None
+        }
+        name = ""
+        if canvas.frames and layer_index < len(canvas.frames[0].layers):
+            name = canvas.frames[0].layers[layer_index].name
+        archive = canvas._sequence_archive
+        for number, image in enumerate(source_bank, 1):
+            if image is None:
+                continue
+            key = (int(layer_index), number)
+            if number in placed:
+                archive.pop(key, None)
+            elif key not in archive:
+                archive[key] = Layer(
+                    name, image.copy(), has_content=True, exposure=1,
+                    sequence_number=number,
+                )
+        self.window.timeline.sequence_archive = archive
 
     def _apply_time_remap_states_to_layer(
         self,
@@ -462,11 +513,7 @@ class TimeRemapController:
             for state in states
             if state is not None
         })
-        missing = [
-            index
-            for index in referenced
-            if index < 1 or index > len(source_bank)
-        ]
+        missing = self.missing_numbers(source_bank, referenced)
         if missing:
             preview = ", ".join(
                 str(value) for value in missing[:12]
@@ -518,6 +565,7 @@ class TimeRemapController:
             source_bank,
             current_frame,
         )
+        self.keep_unplaced_in_archive(layer_index, source_bank)
 
         self.window.canvas.current_frame = start_frame
         self.window.canvas.active_layer_index = layer_index
