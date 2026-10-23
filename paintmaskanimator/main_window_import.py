@@ -632,7 +632,7 @@ class ImportController:
             "sheet_columns": sheet_columns,
         }
 
-    def apply_xdts_layer_bindings(self, parsed):
+    def apply_xdts_layer_bindings(self, parsed, confirm=True):
         columns = {
             str(column.get("uid", "")): column
             for column in parsed.get("sheet_columns", [])
@@ -674,10 +674,7 @@ class ImportController:
             referenced = sorted({
                 int(state) for state in states if state is not None
             })
-            missing = [
-                number for number in referenced
-                if number < 1 or number > len(source_bank)
-            ]
+            missing = self.window.time_remap.missing_numbers(source_bank, referenced)
             if missing:
                 preview = ", ".join(str(value) for value in missing[:12])
                 if len(missing) > 12:
@@ -698,16 +695,17 @@ class ImportController:
             tr("・{get} → {name}").format(get=column.get('name', 'CELL'), name=current_layers[layer_index].name)
             for column, layer_index, _states, _bank in prepared
         )
-        answer = QMessageBox.question(
-            self.window,
-            tr("XDTSタイムシートを反映"),
-            tr("反映範囲：{value}～{value2}フレーム\n紐づけ：\n{links}\n\n紐づけたレイヤーの対象範囲を置き換えます。").format(value=start_frame + 1, value2=end_frame + 1, links=links),
-            QMessageBox.StandardButton.Yes
-            | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes,
-        )
-        if answer != QMessageBox.StandardButton.Yes:
-            return False
+        if confirm:
+            answer = QMessageBox.question(
+                self.window,
+                tr("XDTSタイムシートを反映"),
+                tr("反映範囲：{value}～{value2}フレーム\n紐づけ：\n{links}\n\n紐づけたレイヤーの対象範囲を置き換えます。").format(value=start_frame + 1, value2=end_frame + 1, links=links),
+                QMessageBox.StandardButton.Yes
+                | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return False
 
         self.window.timeline_ops.set_mode("sheet")
         self.window.canvas.push_doc_undo()
@@ -720,6 +718,7 @@ class ImportController:
                 source_bank,
                 current_frame,
             )
+            self.window.time_remap.keep_unplaced_in_archive(layer_index, source_bank)
         self.window.canvas.current_frame = start_frame
         self.window.canvas.active_layer_index = prepared[0][1]
         self.window.canvas._onion_cache.clear()

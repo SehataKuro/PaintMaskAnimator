@@ -16,8 +16,13 @@ from . import timesheet_file
 from .i18n import tr
 from .main_window_import import ImportController
 from .errors import OPERATION_ERRORS as _OPERATION_ERRORS, OperationError
+from .models import Layer
 from .utils import blank_image
-from .widgets import TimeRemapPasteDialog
+from .widgets import (
+    TimeRemapPasteDialog,
+    default_layer_bindings,
+    sheet_columns_from_parsed,
+)
 from .logging_setup import get_logger
 
 if TYPE_CHECKING:
@@ -339,11 +344,24 @@ class TimeRemapController:
                 and int(number) not in numbered_bank
             ):
                 numbered_bank[int(number)] = layer.image.copy()
-        if numbered_bank and set(numbered_bank) == set(
-            range(1, max(numbered_bank) + 1)
-        ):
+        # シートに並べていない絵（連番保管セル）も、同じ絵番号で使えるようにする。
+        # これを数えないと番号に抜けができ、下の「左から数える」方式へ落ちて
+        # 絵と番号がずれていた。
+        for (archive_layer, number), layer in getattr(
+            self.window.canvas, "_sequence_archive", {}
+        ).items():
+            if (
+                int(archive_layer) == layer_index
+                and int(number) >= 1
+                and int(number) not in numbered_bank
+                and layer.has_content
+            ):
+                numbered_bank[int(number)] = layer.image.copy()
+        if numbered_bank:
+            # 本当に抜けている番号は None にしておき、参照されたら
+            # 「存在しない絵番号」として止める（勝手に詰めない）。
             return [
-                numbered_bank[number]
+                numbered_bank.get(number)
                 for number in range(1, max(numbered_bank) + 1)
             ]
 
@@ -357,6 +375,43 @@ class TimeRemapController:
             if layer.has_content and not layer.image.isNull():
                 bank.append(layer.image.copy())
         return bank
+
+    @staticmethod
+    def missing_numbers(source_bank, numbers):
+        """``source_bank`` に絵が無い番号（範囲外・抜け）を返す。"""
+        return [
+            number for number in numbers
+            if number < 1
+            or number > len(source_bank)
+            or source_bank[number - 1] is None
+        ]
+
+    def keep_unplaced_in_archive(self, layer_index, source_bank):
+        """シートで使わなかった絵番号を連番保管セルに残す（使った番号は外す）。"""
+        canvas = self.window.canvas
+        placed = {
+            int(frame.layers[layer_index].sequence_number)
+            for frame in canvas.frames
+            if layer_index < len(frame.layers)
+            and frame.layers[layer_index].has_content
+            and frame.layers[layer_index].sequence_number is not None
+        }
+        name = ""
+        if canvas.frames and layer_index < len(canvas.frames[0].layers):
+            name = canvas.frames[0].layers[layer_index].name
+        archive = canvas._sequence_archive
+        for number, image in enumerate(source_bank, 1):
+            if image is None:
+                continue
+            key = (int(layer_index), number)
+            if number in placed:
+                archive.pop(key, None)
+            elif key not in archive:
+                archive[key] = Layer(
+                    name, image.copy(), has_content=True, exposure=1,
+                    sequence_number=number,
+                )
+        self.window.timeline.sequence_archive = archive
 
     def _apply_time_remap_states_to_layer(
         self,
@@ -422,7 +477,7 @@ class TimeRemapController:
                 run_start = start_frame + offset
                 run_state = next_state
 
-    def apply_to_active_layer(self, parsed):
+    def apply_to_active_layer(self, parsed, confirm=True):
         states = list(parsed.get("states", []))
         start_frame = int(parsed.get("start_frame", 0))
         end_frame = int(parsed.get("end_frame", -1))
@@ -462,11 +517,7 @@ class TimeRemapController:
             for state in states
             if state is not None
         })
-        missing = [
-            index
-            for index in referenced
-            if index < 1 or index > len(source_bank)
-        ]
+        missing = self.missing_numbers(source_bank, referenced)
         if missing:
             preview = ", ".join(
                 str(value) for value in missing[:12]
@@ -497,16 +548,17 @@ class TimeRemapController:
             "\n\n選択レイヤーの対象範囲を置き換えます。"
         )
 
-        answer = QMessageBox.question(
-            self.window,
-            tr("タイムリマップを反映"),
-            message,
-            QMessageBox.StandardButton.Yes
-            | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes,
-        )
-        if answer != QMessageBox.StandardButton.Yes:
-            return False
+        if confirm:
+            answer = QMessageBox.question(
+                self.window,
+                tr("タイムリマップを反映"),
+                message,
+                QMessageBox.StandardButton.Yes
+                | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return False
 
         self.window.timeline_ops.set_mode("sheet")
         self.window.canvas.push_doc_undo()
@@ -518,6 +570,7 @@ class TimeRemapController:
             source_bank,
             current_frame,
         )
+        self.keep_unplaced_in_archive(layer_index, source_bank)
 
         self.window.canvas.current_frame = start_frame
         self.window.canvas.active_layer_index = layer_index
@@ -577,6 +630,66 @@ class TimeRemapController:
                 tr("タイムラインへ反映できませんでした。\n\n{exc}").format(exc=exc),
             )
             return False
+
+    def paste_on_timeline(self):
+        """タイムラインで貼り付けたとき、クリップボードのタイムシートをそのまま反映する。
+
+        戻り値は、タイムシートとして扱った（反映した／エラーを知らせた）なら True、
+        タイムシートの文字列でなければ False（呼び出し側は通常の貼り付けをする）。
+        確認は出さない。Undo 1回で元に戻る。
+        """
+        text = QApplication.clipboard().text()
+        if not text.strip():
+            return False
+        try:
+            parsed = self.parse_text(text)
+        except _OPERATION_ERRORS:
+            return False
+        canvas = self.window.canvas
+        try:
+            columns = sheet_columns_from_parsed(parsed)
+            if not columns:
+                raise OperationError(tr("使用するタイムシート行がありません。"))
+            if str(parsed.get("format", "")).startswith("XDTS") and parsed.get(
+                "sheet_columns"
+            ):
+                frame_index = max(0, min(int(canvas.current_frame), len(canvas.frames) - 1))
+                layers = [
+                    (index, str(layer.name))
+                    for index, layer in enumerate(canvas.frames[frame_index].layers)
+                ]
+                bindings = default_layer_bindings(
+                    columns, layers, int(canvas.active_layer_index)
+                )
+                if not bindings:
+                    # 紐づけ先を決められないときは、ダイアログで選んでもらう。
+                    self.show_paste_dialog()
+                    return True
+                result = dict(parsed, layer_bindings=bindings)
+                self.window.importer.apply_xdts_layer_bindings(result, confirm=False)
+                return True
+            primary = next((column for column in columns if column.get("states")), None)
+            if primary is None:
+                raise OperationError(tr("使用するタイムシート行がありません。"))
+            states = list(primary.get("states", []))
+            start_frame = int(parsed.get("start_frame", 0))
+            result = dict(
+                parsed,
+                states=states,
+                start_frame=start_frame,
+                end_frame=start_frame + len(states) - 1,
+                blank_label_count=int(primary.get("blank_label_count", 0)),
+            )
+            self.apply_to_active_layer(result, confirm=False)
+            return True
+        except _OPERATION_ERRORS as exc:
+            log.warning("time-remap paste on timeline failed: %s", exc, exc_info=True)
+            QMessageBox.warning(
+                self.window,
+                tr("タイムリマップ貼り付け"),
+                tr("タイムラインへ反映できませんでした。\n\n{exc}").format(exc=exc),
+            )
+            return True
 
     def open_dropped(self, path):
         remap_path = Path(path)

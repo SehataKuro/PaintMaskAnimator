@@ -68,6 +68,7 @@ def test_background_preview_then_cancel_restores_the_canvas(window, monkeypatch)
     original = QColor(window.canvas.transparent_display_color)
 
     def fake_get_color(initial=None, parent=None, title=None, preview=None):
+        assert preview is not None
         preview(QColor("#204080"))
         assert window.canvas.transparent_display_color == QColor("#204080")
         assert window.palette.background_display_color == QColor("#204080")
@@ -84,6 +85,7 @@ def test_main_colour_preview_does_not_switch_mode_until_ok(window, monkeypatch):
     window.colors.set_color_mode("main")
 
     def fake_get_color(initial=None, parent=None, title=None, preview=None):
+        assert preview is not None
         preview(QColor("#abcdef"))
         assert window.canvas.sub_color == QColor("#abcdef")
         assert window.canvas.color_mode == "main", "プレビュー中は描画色のモードを変えない"

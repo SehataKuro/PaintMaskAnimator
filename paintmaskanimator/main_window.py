@@ -63,6 +63,7 @@ from .widgets import (CanvasSizeDialog, ShortcutDialog)
 from .progress import close_counter, create_counter, update_counter
 from .logging_setup import get_logger
 from .main_window_autosave import AutosaveController
+from .main_window_shortcuts import ShortcutStore
 from .main_window_color_interaction import ColorInteractionController
 from .main_window_color_chart import ColorChartController
 from .main_window_docking import DockingMixin
@@ -158,6 +159,10 @@ class MainWindow(
         # 保存・自動保存で、変更のないセルのPNGを使い回す。
         self.png_cache = project_io.PngCache()
         self.build_actions();self.action_panel=ActionPanel(self);self.build_action_panel();self.build_menu();self.build_ui();self.connect_signals();self.refresh_ui();self.action_panel.reload_python_actions()
+        # 保存したショートカットを、既定を覚えてから反映する。
+        self.shortcut_store = ShortcutStore(self)
+        self.shortcut_store.register_actions()
+        self.shortcut_store.load()
         self._refresh_theme_dependent_ui()
         self.colors._sync_tool_selector_swatch()
         install_app_event_filter(self)
@@ -511,6 +516,21 @@ class MainWindow(
         self.rot.blockSignals(True); self.rot.setValue(rotation_degrees); self.rot.blockSignals(False)
         self.zoom_label.setText(f"{zoom_percent}%")
         self.rot_label.setText(f"{rotation_degrees}°")
+
+    def paste_from_clipboard(self):
+        """Ctrl+V。タイムラインの上ならタイムシートをそのまま反映、それ以外は画像を貼る。"""
+        if self._pointer_or_focus_on_timeline() and self.time_remap.paste_on_timeline():
+            return
+        self.canvas.paste_clipboard()
+
+    def _pointer_or_focus_on_timeline(self):
+        timeline = self.timeline
+        if not timeline.isVisible():
+            return False
+        focus = QApplication.focusWidget()
+        if focus is not None and (focus is timeline or timeline.isAncestorOf(focus)):
+            return True
+        return timeline.rect().contains(timeline.mapFromGlobal(QCursor.pos()))
 
     def step_canvas_zoom(self, factor):
         """Ctrl+＋／Ctrl+− で、表示の中心を保ったまま拡大縮小する。"""
@@ -1030,7 +1050,8 @@ class MainWindow(
             (tr("ツールコマンド"), self.tool_command_actions),
             (tr("タイムライン"), self.timeline_actions),
         ]
-        ShortcutDialog(categories, self).exec()
+        if ShortcutDialog(categories, self).exec():
+            self.shortcut_store.save()
     def crop_image(self,fi):return self.canvas.composite(fi,True).copy(OUTSIDE_MARGIN,OUTSIDE_MARGIN,constants.CANVAS_WIDTH,constants.CANVAS_HEIGHT)
     def save_png(self):
         path,_=QFileDialog.getSaveFileName(self,tr("PNG保存"),"frame.png","PNG (*.png)");
