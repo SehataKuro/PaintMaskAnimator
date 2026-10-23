@@ -8,6 +8,7 @@ instance.
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QImage, QPainter
 from ._canvas_members import CanvasMembers
+from .utils import workspace_size
 from .logging_setup import get_logger
 from typing import Optional
 
@@ -77,20 +78,25 @@ class PlaybackMixin(CanvasMembers):
         self.update()
 
     def _playback_cache_dimensions(self, target_rect):
-        source_width = max(1, int(round(target_rect.width())))
-        source_height = max(1, int(round(target_rect.height())))
+        """再生用キャッシュの大きさ（実際の画面の画素数）。
 
-        # 大画像でも再生用キャッシュは表示領域程度までに制限する。
-        max_width = max(480, min(1920, int(self.width() * 1.25)))
-        max_height = max(320, min(1080, int(self.height() * 1.25)))
+        以前は見えている大きさ（論理ピクセル）で作り、さらに 1920×1080 で
+        頭打ちにしていたので、Retina では半分の解像度になり、再生中だけ
+        ぼやけていた。画面の倍率を掛けた画素数で作り、元の絵より大きくは
+        しない（それ以上は表示のときに拡大すればよい）。
+        """
+        ratio = max(1.0, float(self.devicePixelRatioF()))
+        source_width, source_height = workspace_size()
+        width = max(1, int(round(target_rect.width() * ratio)))
+        height = max(1, int(round(target_rect.height() * ratio)))
         scale = min(
             1.0,
-            max_width / float(source_width),
-            max_height / float(source_height),
+            source_width / float(width),
+            source_height / float(height),
         )
         return (
-            max(1, int(round(source_width * scale))),
-            max(1, int(round(source_height * scale))),
+            max(1, int(round(width * scale))),
+            max(1, int(round(height * scale))),
         )
 
     def playback_frame_image(self, frame_index, target_rect):

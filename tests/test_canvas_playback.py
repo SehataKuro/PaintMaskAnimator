@@ -47,6 +47,10 @@ class _Playback(PlaybackMixin):
         self.updates = 0
         self.resolutions = []
         self.display_calls = []
+        self.pixel_ratio = 1.0
+
+    def devicePixelRatioF(self):
+        return self.pixel_ratio
 
     def update(self):
         self.updates += 1
@@ -109,10 +113,24 @@ def test_advance_ignores_empty_document_and_clamps_steps():
 
 
 def test_cache_dimensions_preserve_small_and_scale_large_targets():
+    from paintmaskanimator.utils import workspace_size
+
     playback = _Playback()
     assert playback._playback_cache_dimensions(QRectF(0, 0, 100, 50)) == (100, 50)
-    assert playback._playback_cache_dimensions(QRectF(0, 0, 4000, 2000)) == (1000, 500)
     assert playback._playback_cache_dimensions(QRectF(0, 0, 0, 0)) == (1, 1)
+    # 元の絵（作業領域）より大きくはしない。比率は保つ。
+    source_width, source_height = workspace_size()
+    width, height = playback._playback_cache_dimensions(
+        QRectF(0, 0, source_width * 4, source_height * 4)
+    )
+    assert (width, height) == (source_width, source_height)
+
+
+def test_cache_dimensions_follow_the_screen_pixel_ratio():
+    """Retina（倍率2）では、実際の画面の画素数で作る（再生中にぼやけない）。"""
+    playback = _Playback()
+    playback.pixel_ratio = 2.0
+    assert playback._playback_cache_dimensions(QRectF(0, 0, 300, 200)) == (600, 400)
 
 
 def test_frame_image_rejects_invalid_index_and_skips_layers(qapp):
