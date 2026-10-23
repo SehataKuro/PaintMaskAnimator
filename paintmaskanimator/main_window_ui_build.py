@@ -61,7 +61,7 @@ class UIBuildMixin(MainWindowMembers):
         self.a_redo=QAction(tr("やり直す"),self);self.a_redo.setShortcuts([QKeySequence("Ctrl+Y"),QKeySequence("Ctrl+Shift+Z")]);self.a_redo.triggered.connect(self.used_color.redo)
         self.a_copy=QAction(tr("コピー"),self);self.a_copy.setShortcut("Ctrl+C");self.a_copy.triggered.connect(self.canvas.copy_selection)
         self.a_cut=QAction(tr("切り取り"),self);self.a_cut.setShortcut("Ctrl+X");self.a_cut.triggered.connect(self.canvas.cut_selection)
-        self.a_paste=QAction(tr("貼り付け"),self);self.a_paste.setShortcut("Ctrl+V");self.a_paste.triggered.connect(self.canvas.paste_clipboard)
+        self.a_paste=QAction(tr("貼り付け"),self);self.a_paste.setShortcut("Ctrl+V");self.a_paste.triggered.connect(self.paste_from_clipboard)
         self.a_open_project=QAction(tr("プロジェクトを開く…"),self)
         self.a_open_project.setShortcut("Ctrl+O")
         self.a_open_project.triggered.connect(self.project.open_dialog)

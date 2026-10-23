@@ -18,7 +18,11 @@ from .main_window_import import ImportController
 from .errors import OPERATION_ERRORS as _OPERATION_ERRORS, OperationError
 from .models import Layer
 from .utils import blank_image
-from .widgets import TimeRemapPasteDialog
+from .widgets import (
+    TimeRemapPasteDialog,
+    default_layer_bindings,
+    sheet_columns_from_parsed,
+)
 from .logging_setup import get_logger
 
 if TYPE_CHECKING:
@@ -473,7 +477,7 @@ class TimeRemapController:
                 run_start = start_frame + offset
                 run_state = next_state
 
-    def apply_to_active_layer(self, parsed):
+    def apply_to_active_layer(self, parsed, confirm=True):
         states = list(parsed.get("states", []))
         start_frame = int(parsed.get("start_frame", 0))
         end_frame = int(parsed.get("end_frame", -1))
@@ -544,16 +548,17 @@ class TimeRemapController:
             "\n\n選択レイヤーの対象範囲を置き換えます。"
         )
 
-        answer = QMessageBox.question(
-            self.window,
-            tr("タイムリマップを反映"),
-            message,
-            QMessageBox.StandardButton.Yes
-            | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes,
-        )
-        if answer != QMessageBox.StandardButton.Yes:
-            return False
+        if confirm:
+            answer = QMessageBox.question(
+                self.window,
+                tr("タイムリマップを反映"),
+                message,
+                QMessageBox.StandardButton.Yes
+                | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return False
 
         self.window.timeline_ops.set_mode("sheet")
         self.window.canvas.push_doc_undo()
@@ -625,6 +630,66 @@ class TimeRemapController:
                 tr("タイムラインへ反映できませんでした。\n\n{exc}").format(exc=exc),
             )
             return False
+
+    def paste_on_timeline(self):
+        """タイムラインで貼り付けたとき、クリップボードのタイムシートをそのまま反映する。
+
+        戻り値は、タイムシートとして扱った（反映した／エラーを知らせた）なら True、
+        タイムシートの文字列でなければ False（呼び出し側は通常の貼り付けをする）。
+        確認は出さない。Undo 1回で元に戻る。
+        """
+        text = QApplication.clipboard().text()
+        if not text.strip():
+            return False
+        try:
+            parsed = self.parse_text(text)
+        except _OPERATION_ERRORS:
+            return False
+        canvas = self.window.canvas
+        try:
+            columns = sheet_columns_from_parsed(parsed)
+            if not columns:
+                raise OperationError(tr("使用するタイムシート行がありません。"))
+            if str(parsed.get("format", "")).startswith("XDTS") and parsed.get(
+                "sheet_columns"
+            ):
+                frame_index = max(0, min(int(canvas.current_frame), len(canvas.frames) - 1))
+                layers = [
+                    (index, str(layer.name))
+                    for index, layer in enumerate(canvas.frames[frame_index].layers)
+                ]
+                bindings = default_layer_bindings(
+                    columns, layers, int(canvas.active_layer_index)
+                )
+                if not bindings:
+                    # 紐づけ先を決められないときは、ダイアログで選んでもらう。
+                    self.show_paste_dialog()
+                    return True
+                result = dict(parsed, layer_bindings=bindings)
+                self.window.importer.apply_xdts_layer_bindings(result, confirm=False)
+                return True
+            primary = next((column for column in columns if column.get("states")), None)
+            if primary is None:
+                raise OperationError(tr("使用するタイムシート行がありません。"))
+            states = list(primary.get("states", []))
+            start_frame = int(parsed.get("start_frame", 0))
+            result = dict(
+                parsed,
+                states=states,
+                start_frame=start_frame,
+                end_frame=start_frame + len(states) - 1,
+                blank_label_count=int(primary.get("blank_label_count", 0)),
+            )
+            self.apply_to_active_layer(result, confirm=False)
+            return True
+        except _OPERATION_ERRORS as exc:
+            log.warning("time-remap paste on timeline failed: %s", exc, exc_info=True)
+            QMessageBox.warning(
+                self.window,
+                tr("タイムリマップ貼り付け"),
+                tr("タイムラインへ反映できませんでした。\n\n{exc}").format(exc=exc),
+            )
+            return True
 
     def open_dropped(self, path):
         remap_path = Path(path)

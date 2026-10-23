@@ -1162,6 +1162,93 @@ class HSVColorWheel(QWidget):
         super().mouseReleaseEvent(event)
 
 
+def _list_value(value):
+    """Normalize an untrusted parser field to a plain list."""
+    return list(value) if isinstance(value, (list, tuple)) else []
+
+
+def sheet_columns_from_parsed(parsed) -> "list[dict[str, Any]]":
+    """解析したタイムシートを、レイヤーへ紐づけられる「列」の一覧にする。
+
+    XDTS は列をそのまま、東映の複数トラックはトラックごと、1列だけの形式
+    （After Effects など）は1列として返す。貼り付けダイアログと、タイムライン
+    への直接の貼り付けで共通。
+    """
+    if parsed is None:
+        return []
+    columns = [
+        dict(item) for item in _list_value(parsed.get("sheet_columns"))
+        if isinstance(item, dict)
+    ]
+    if columns:
+        return columns
+    tracks = [
+        dict(item) for item in _list_value(parsed.get("tracks"))
+        if isinstance(item, dict)
+    ]
+    if tracks:
+        return [
+            dict(
+                track,
+                uid=f"cell:{int(track.get('track_no', index))}",
+                field_id=0,
+                group="CELL",
+                bindable=True,
+                display_values=[
+                    "×" if state is None else str(int(state))
+                    for state in _list_value(track.get("states"))
+                ],
+            )
+            for index, track in enumerate(tracks)
+        ]
+    states = _list_value(parsed.get("states"))
+    if not states:
+        return []
+    return [{
+        "uid": "cell:0",
+        "field_id": 0,
+        "track_no": 0,
+        "group": "CELL",
+        "name": str(parsed.get("track_name", tr("セル"))),
+        "states": states,
+        "display_values": [
+            "×" if state is None else str(int(state))
+            for state in states
+        ],
+        "bindable": True,
+        "blank_label_count": int(parsed.get("blank_label_count", 0)),
+    }]
+
+
+def default_layer_bindings(columns, layers, active_layer_index):
+    """列→レイヤーの既定の紐づけ ``{列uid: レイヤー番号}``。
+
+    列名と同じ名前のレイヤーへ紐づける。1つも合わなければ、最初の列を
+    選択中のレイヤーへ紐づける。``layers`` は ``[(レイヤー番号, 名前), …]``。
+    """
+    bindings = {}
+    bindable = [column for column in columns if bool(column.get("bindable", False))]
+    used_layers = set()
+    for column in bindable:
+        name = str(column.get("name", "")).strip().casefold()
+        match = next(
+            (
+                index for index, layer_name in layers
+                if index not in used_layers
+                and layer_name.strip().casefold() == name
+            ),
+            None,
+        )
+        if match is not None:
+            bindings[str(column.get("uid", ""))] = match
+            used_layers.add(match)
+    if not bindings and bindable and any(
+        index == active_layer_index for index, _name in layers
+    ):
+        bindings[str(bindable[0].get("uid", ""))] = active_layer_index
+    return bindings
+
+
 class TimeRemapPasteDialog(QDialog):
     """コピー情報をタイムシート表へ貼り付けて確認する画面。"""
 
@@ -1409,46 +1496,7 @@ class TimeRemapPasteDialog(QDialog):
         return [dict(item) for item in cls._list_value(value) if isinstance(item, dict)]
 
     def _sheet_columns(self):
-        if self._parsed_source is None:
-            return []
-        columns = self._mapping_list(self._parsed_source.get("sheet_columns"))
-        if columns:
-            return columns
-        tracks = self._mapping_list(self._parsed_source.get("tracks"))
-        if tracks:
-            return [
-                dict(
-                    track,
-                    uid=f"cell:{int(track.get('track_no', index))}",
-                    field_id=0,
-                    group="CELL",
-                    bindable=True,
-                    display_values=[
-                        "×" if state is None else str(int(state))
-                        for state in self._list_value(track.get("states"))
-                    ],
-                )
-                for index, track in enumerate(tracks)
-            ]
-        states = self._list_value(self._parsed_source.get("states"))
-        if not states:
-            return []
-        return [{
-            "uid": "cell:0",
-            "field_id": 0,
-            "track_no": 0,
-            "group": "CELL",
-            "name": str(self._parsed_source.get("track_name", tr("セル"))),
-            "states": states,
-            "display_values": [
-                "×" if state is None else str(int(state))
-                for state in states
-            ],
-            "bindable": True,
-            "blank_label_count": int(
-                self._parsed_source.get("blank_label_count", 0)
-            ),
-        }]
+        return sheet_columns_from_parsed(self._parsed_source)
 
     @staticmethod
     def _column_uid(column):
@@ -1471,33 +1519,11 @@ class TimeRemapPasteDialog(QDialog):
 
     def _initialize_layer_bindings(self):
         self._column_layer_bindings.clear()
-        layers = self._available_layers()
-        bindable = [
-            column for column in self._sheet_columns()
-            if bool(column.get("bindable", False))
-        ]
-        used_layers = set()
-        for column in bindable:
-            name = str(column.get("name", "")).strip().casefold()
-            match = next(
-                (
-                    index for index, layer_name in layers
-                    if index not in used_layers
-                    and layer_name.strip().casefold() == name
-                ),
-                None,
-            )
-            if match is not None:
-                self._column_layer_bindings[
-                    self._column_uid(column)
-                ] = match
-                used_layers.add(match)
-        if not self._column_layer_bindings and bindable and layers:
-            active = int(getattr(self._canvas, "active_layer_index", 0))
-            if any(index == active for index, _name in layers):
-                self._column_layer_bindings[
-                    self._column_uid(bindable[0])
-                ] = active
+        self._column_layer_bindings.update(default_layer_bindings(
+            self._sheet_columns(),
+            self._available_layers(),
+            int(getattr(self._canvas, "active_layer_index", 0)),
+        ))
 
     def _save_current_included_rows(self):
         if self.preview_table.rowCount() <= 0:

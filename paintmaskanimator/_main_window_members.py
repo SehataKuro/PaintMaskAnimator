@@ -336,3 +336,4 @@ class MainWindowMembers(_MembersBase):
         zoom: Any
         zoom_label: Any
         recent_menu: Any
+        paste_from_clipboard: Any

@@ -512,6 +512,21 @@ class MainWindow(
         self.zoom_label.setText(f"{zoom_percent}%")
         self.rot_label.setText(f"{rotation_degrees}°")
 
+    def paste_from_clipboard(self):
+        """Ctrl+V。タイムラインの上ならタイムシートをそのまま反映、それ以外は画像を貼る。"""
+        if self._pointer_or_focus_on_timeline() and self.time_remap.paste_on_timeline():
+            return
+        self.canvas.paste_clipboard()
+
+    def _pointer_or_focus_on_timeline(self):
+        timeline = self.timeline
+        if not timeline.isVisible():
+            return False
+        focus = QApplication.focusWidget()
+        if focus is not None and (focus is timeline or timeline.isAncestorOf(focus)):
+            return True
+        return timeline.rect().contains(timeline.mapFromGlobal(QCursor.pos()))
+
     def step_canvas_zoom(self, factor):
         """Ctrl+＋／Ctrl+− で、表示の中心を保ったまま拡大縮小する。"""
         self.canvas.set_zoom_around_canvas_center(self.canvas.zoom * float(factor))

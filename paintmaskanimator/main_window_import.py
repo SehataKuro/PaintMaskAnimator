@@ -632,7 +632,7 @@ class ImportController:
             "sheet_columns": sheet_columns,
         }
 
-    def apply_xdts_layer_bindings(self, parsed):
+    def apply_xdts_layer_bindings(self, parsed, confirm=True):
         columns = {
             str(column.get("uid", "")): column
             for column in parsed.get("sheet_columns", [])
@@ -695,16 +695,17 @@ class ImportController:
             tr("・{get} → {name}").format(get=column.get('name', 'CELL'), name=current_layers[layer_index].name)
             for column, layer_index, _states, _bank in prepared
         )
-        answer = QMessageBox.question(
-            self.window,
-            tr("XDTSタイムシートを反映"),
-            tr("反映範囲：{value}～{value2}フレーム\n紐づけ：\n{links}\n\n紐づけたレイヤーの対象範囲を置き換えます。").format(value=start_frame + 1, value2=end_frame + 1, links=links),
-            QMessageBox.StandardButton.Yes
-            | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes,
-        )
-        if answer != QMessageBox.StandardButton.Yes:
-            return False
+        if confirm:
+            answer = QMessageBox.question(
+                self.window,
+                tr("XDTSタイムシートを反映"),
+                tr("反映範囲：{value}～{value2}フレーム\n紐づけ：\n{links}\n\n紐づけたレイヤーの対象範囲を置き換えます。").format(value=start_frame + 1, value2=end_frame + 1, links=links),
+                QMessageBox.StandardButton.Yes
+                | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return False
 
         self.window.timeline_ops.set_mode("sheet")
         self.window.canvas.push_doc_undo()
