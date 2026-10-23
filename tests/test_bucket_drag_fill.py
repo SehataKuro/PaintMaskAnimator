@@ -120,3 +120,32 @@ def test_skewer_mode_keeps_click_only(window):
     drag(canvas, [(50, 50), (90, 50)])
     assert pixel(window, 50, 50) == BLUE
     assert pixel(window, 90, 50) == QColor("white"), "串刺し塗りではなぞりで塗らない"
+
+
+def test_dragging_fills_areas_closed_by_the_frame_edge(window):
+    """フレームの端まで線を引いて閉じた部分も、なぞれば塗る（外の背景は塗らない）。"""
+    from PySide6.QtGui import QPainter, QPen
+
+    canvas = window.canvas
+    canvas.ensure_editable_key()
+    image = canvas.active_layer.image
+    image.fill(QColor("white"))
+    painter = QPainter(image)
+    painter.setPen(QPen(QColor("black"), 3))
+    for left in (40, 140, 240):  # 上端に3つの「山」。上はフレームの端で閉じる
+        painter.drawLine(left, 0, left + 40, 60)
+        painter.drawLine(left + 40, 60, left + 80, 0)
+    painter.end()
+    canvas.active_layer.has_content = True
+    canvas.set_tool("bucket")
+    canvas.color_mode = "main"
+    canvas.main_color = BLUE
+    window.tools.bucket_all_frames.setChecked(False)
+    canvas.zoom = 2.0
+    canvas.center_canvas()
+
+    drag(canvas, [(80, 10), (130, 30), (180, 10), (230, 30), (280, 10)])
+
+    for x in (80, 180, 280):
+        assert pixel(window, x, 10) == BLUE, "端で閉じた部分は塗る"
+    assert pixel(window, 130, 200) == QColor("white"), "外の背景は塗らない"
