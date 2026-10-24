@@ -48,3 +48,38 @@ def no_unhandled_modal_dialogs(monkeypatch):
         )
 
     monkeypatch.setattr(QDialog, "exec", _fail_exec)
+
+
+@pytest.fixture(autouse=True)
+def destroy_leftover_main_windows():
+    """Destroy every ``MainWindow`` a test leaves behind.
+
+    Tests only ``close()`` their windows, which hides them but keeps them alive
+    for the whole session. Each one keeps its timers and sub-view filtering
+    application-wide events, and windows a test forgot to close also keep
+    their own filter. Every event then runs through dozens of stale filters,
+    so later window tests (``test_docking.py``) slow to a crawl -- over a
+    minute per test after the files before it -- and look hung.
+    """
+    yield
+    import sys
+
+    main_window = sys.modules.get("paintmaskanimator.main_window")
+    if main_window is None:
+        return
+    from PySide6.QtCore import QCoreApplication, QEvent
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    if app is None:
+        return
+    windows = [
+        widget for widget in QApplication.topLevelWidgets()
+        if isinstance(widget, main_window.MainWindow)
+    ]
+    for window in windows:
+        window.close()
+        window.deleteLater()
+    if windows:
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        app.processEvents()

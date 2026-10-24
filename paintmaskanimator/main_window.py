@@ -971,6 +971,7 @@ class MainWindow(
             # otherwise it keeps intercepting input for the rest of the process
             # (and leaks across tests that share one QApplication).
             remove_app_event_filter(self)
+            remove_app_event_filter(self.subview)
         except RuntimeError:
             log.debug("application was deleted during event-filter cleanup", exc_info=True)
         try:
