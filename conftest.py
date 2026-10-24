@@ -77,8 +77,19 @@ def destroy_leftover_main_windows():
         widget for widget in QApplication.topLevelWidgets()
         if isinstance(widget, main_window.MainWindow)
     ]
+    from paintmaskanimator.utils import remove_app_event_filter
+
     for window in windows:
+        # close() で止まるのはメインウィンドウ自身のフィルターとタイマーだけ。
+        # サブビューのフィルターは残るので、ここで外す（遅くなる原因はこれ）。
         window.close()
+        remove_app_event_filter(window.subview)
+    if sys.platform == "win32":
+        # Windows では、ドッキング（QtAds）の窓を持つメインウィンドウをここで
+        # 強制的に破棄すると access violation で落ちる（CI の Windows で再現）。
+        # フィルターは外したので、破棄はせずに残しておく。
+        return
+    for window in windows:
         window.deleteLater()
     if windows:
         QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
