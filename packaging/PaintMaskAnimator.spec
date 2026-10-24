@@ -46,6 +46,111 @@ a = Analysis(
     excludes=["tkinter"],
     noarchive=False,
 )
+
+
+# --- 配布物の容量削減 -------------------------------------------------------
+# PyInstaller の Qt フックは、QtQml を読み込むだけで QML 一式と、それが使う
+# Qt のライブラリ（Quick3D、Charts、Multimedia など）をまとめて入れてしまう。
+# このアプリが使うのは Widgets と、アクション編集の Monaco 用の WebEngine
+# （Widgets 版）だけなので、使わないものを外す。
+import os
+import re
+from PyInstaller.depend import bindepend
+
+
+def _norm(dest):
+    return dest.replace("\\", "/")
+
+
+# WebEngine の画面の言語（右クリックメニューなど）。アプリの言語だけ残す。
+WEBENGINE_LOCALES = {"en-US.pak", "ja.pak"}
+# Qt 自身の翻訳（i18n.py が qtbase_<言語> を読む）。アプリの言語だけ残す。
+QT_TRANSLATION_LANGS = ("_en", "_ja")
+# Monaco の言語ワーカー。エディターは Python だけなので、TypeScript・CSS・
+# HTML・JSON 用は要らない（エディター本体の editor.worker は残す）。
+MONACO_UNUSED_WORKERS = re.compile(r"^(ts|css|html|json)\.worker\b")
+# 使わない Qt のプラグイン。QML のデバッグ、PDF の画像読み込み（QtPdf を連れて
+# くる）、仮想キーボード（QtQuick 版）、位置情報。
+UNUSED_QT_PLUGINS = re.compile(
+    r"^(lib)?(qmldbg_\w+|qpdf|qtvirtualkeyboardplugin|qtposition_\w+)\.(dylib|dll|so)$"
+)
+
+
+def _drop_file(dest):
+    d = _norm(dest)
+    base = os.path.basename(d)
+    if d.startswith(("PySide6/Qt/qml/", "PySide6/qml/")):
+        return True
+    if "/plugins/" in d and UNUSED_QT_PLUGINS.match(base):
+        return True
+    if os.path.basename(os.path.dirname(d)) == "qtwebengine_locales":
+        return base not in WEBENGINE_LOCALES
+    # 開発者ツールは開かない。
+    if base == "qtwebengine_devtools_resources.pak":
+        return True
+    if d.startswith(("PySide6/Qt/translations/", "PySide6/translations/")) \
+            and base.endswith(".qm"):
+        return not base[:-3].endswith(QT_TRANSLATION_LANGS)
+    # vs/ 直下の同名ファイルは、エディター本体が起動時に読み込む小さな登録用の
+    # ファイルなので残す。中身は vs/assets/ と vs/language/ の下にある。
+    if d.startswith(("paintmaskanimator/assets/monaco/vs/assets/",
+                     "paintmaskanimator/assets/monaco/vs/language/")):
+        return bool(MONACO_UNUSED_WORKERS.match(base))
+    return False
+
+
+def _qt_lib_key(dest):
+    """Qt のライブラリなら名前（小文字）、そうでなければ None。"""
+    d = _norm(dest)
+    m = re.match(r"PySide6/Qt/lib/(Qt\w+)\.framework/", d)  # macOS
+    if m:
+        return m.group(1).lower()
+    base = os.path.basename(d)
+    if re.fullmatch(r"Qt6\w+\.dll", base, re.IGNORECASE) and d.count("/") == 1:
+        return base.lower()  # Windows: PySide6/Qt6Core.dll
+    return None
+
+
+def _trim(binaries, datas):
+    binaries = [e for e in binaries if not _drop_file(e[0])]
+    datas = [e for e in datas if not _drop_file(e[0])]
+
+    # 残ったモジュール・プラグインから実際にたどれる Qt のライブラリだけ残す。
+    by_key = {}
+    for entry in binaries:
+        key = _qt_lib_key(entry[0])
+        if key is not None:
+            by_key.setdefault(key, []).append(entry)
+    keep = set()
+    pending = [e for e in binaries if _qt_lib_key(e[0]) is None]
+    while pending:
+        entry = pending.pop()
+        try:
+            imports = bindepend.get_imports(entry[1])
+        except Exception:
+            continue
+        for name, _path in imports:
+            key = os.path.basename(_norm(name)).lower()
+            if key in by_key and key not in keep:
+                keep.add(key)
+                pending += by_key[key]
+
+    def wanted(entry):
+        key = _qt_lib_key(entry[0])
+        return key is None or key in keep
+
+    # 依存をたどれなかったら、何も入らない壊れた配布物になる。ここで止める。
+    for core in ("qtwebenginecore", "qt6webenginecore.dll"):
+        if core in by_key and core not in keep:
+            raise SystemExit(f"[spec] {core} was not reached; refusing to trim Qt libraries")
+
+    dropped = sorted(k for k in by_key if k not in keep)
+    print(f"[spec] dropping {len(dropped)} unused Qt libraries: {', '.join(dropped)}")
+    return [e for e in binaries if wanted(e)], [e for e in datas if wanted(e)]
+
+
+a.binaries, a.datas = _trim(a.binaries, a.datas)
+
 pyz = PYZ(a.pure)
 
 exe = EXE(
