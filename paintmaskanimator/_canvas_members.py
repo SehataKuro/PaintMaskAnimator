@@ -464,6 +464,7 @@ class CanvasMembers(_MembersBase):
         work_rect: Any
         zoom: Any
         _bucket_all_frames_enabled: Any
+        _bucket_tools: Any
         _bucket_failure_message: Any
         _fill_patch: Any
         _layer_fill_pixels: Any
@@ -475,6 +476,7 @@ class CanvasMembers(_MembersBase):
         flood_fill_over_frames: Any
         skewer_fill_pending: Any
         skip_skewer_fill_frame: Any
+        skip_skewer_fill_direction: Any
         _bucket_drag: Any
         begin_bucket_drag: Any
         continue_bucket_drag: Any

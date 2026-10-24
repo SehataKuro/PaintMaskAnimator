@@ -51,7 +51,10 @@ class InputEventMixin(CanvasMembers):
 
     def keyPressEvent(self,e):
         if self.skewer_fill_pending() and e.key() == Qt.Key.Key_Escape:
-            self.skip_skewer_fill_frame()
+            if e.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                self.skip_skewer_fill_direction()
+            else:
+                self.skip_skewer_fill_frame()
             e.accept()
             return
         if self.skewer_fill_has_guess() and e.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):

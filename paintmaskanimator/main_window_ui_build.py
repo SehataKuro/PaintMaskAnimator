@@ -110,6 +110,18 @@ class UIBuildMixin(MainWindowMembers):
         self.a_silhouette.triggered.connect(self.line_ops.toggle_silhouette)
         self.a_remove_dust=QAction(tr("ゴミ取り／塗り抜け…"),self)
         self.a_remove_dust.triggered.connect(self.line_ops.remove_dust_fill_surrounding)
+        self.a_copy_paint=QAction(tr("見本から塗り写す…"),self)
+        self.a_copy_paint.setStatusTip(tr(
+            "見本にしたセルの塗りを、同じレイヤーのほかのセルへ写して塗ります。"
+        ))
+        self.a_copy_paint.triggered.connect(self.copy_paint.open)
+        self.a_auto_paint=QAction(tr("色分けの線で自動塗り…"),self)
+        self.a_auto_paint.setStatusTip(tr(
+            "黒と赤・緑・青の線を境界にして、見本のセルから同じレイヤーのほかのセルを塗ります。"
+        ))
+        self.a_auto_paint.triggered.connect(self.auto_paint.open)
+        self.a_reference_check=QAction(tr("見本との違いチェック…"),self)
+        self.a_reference_check.triggered.connect(self.reference_check.run)
         self.a_shortcuts=QAction(tr("ショートカット設定…"),self);self.a_shortcuts.triggered.connect(self.shortcuts)
         # macOS ではアプリ名のメニューへ移る（⌘,）。
         self.a_preferences=QAction(tr("環境設定…"),self)
@@ -366,6 +378,9 @@ class UIBuildMixin(MainWindowMembers):
             (tr("選択色だけ表示"), self.a_isolate_color),
             (tr("特定色表示を解除"), self.a_clear_color_filter),
             (tr("ゴミ取り"), self.a_remove_dust),
+            (tr("見本から塗り写す"), self.a_copy_paint),
+            (tr("色分けの線で自動塗り"), self.a_auto_paint),
+            (tr("見本との違いチェック"), self.a_reference_check),
         ]
         self.tool_command_actions = [
             (tr("描画色：メインを選択"), self.a_select_main),
@@ -449,6 +464,12 @@ class UIBuildMixin(MainWindowMembers):
         e.addSeparator()
         e.addAction(self.a_shortcuts)
         e.addAction(self.a_preferences)
+        # 自動で塗る道具と、その仕上がりの確認。
+        auto_menu=self.menuBar().addMenu(tr("自動塗り"))
+        auto_menu.addAction(self.a_copy_paint)
+        auto_menu.addAction(self.a_auto_paint)
+        auto_menu.addSeparator()
+        auto_menu.addAction(self.a_reference_check)
         selection_menu=self.menuBar().addMenu(tr("選択範囲"))
         selection_menu.addAction(self.a_selection_all)
         selection_menu.addAction(self.a_selection_clear)

@@ -336,6 +336,8 @@ class UsedColorController:
         cache_updates = {}
         cache_removals = set()
         changed_by_cell = {}
+        # 選択範囲があれば、その中だけを置き換える（髪の赤は残して頬の赤だけ、など）。
+        selection = self.window.canvas.selection_mask_bool()
 
         def replace_colors(context):
             """1レイヤー分の色置換。純粋な op として一括処理ランナーへ渡す。"""
@@ -366,6 +368,8 @@ class UsedColorController:
                 & (source_values[safe_indices] == packed)
                 & (pixels[:, :, 3] != 0)
             )
+            if selection is not None and selection.shape == matches.shape:
+                matches &= selection
             cell_count = int(np.count_nonzero(matches))
             if not cell_count:
                 return None
@@ -406,7 +410,9 @@ class UsedColorController:
 
         if not changed_pixels:
             self.window.statusBar().showMessage(
-                tr("選択した使用色は画像内にありませんでした。"),
+                tr("選択範囲の中に、選択した使用色はありませんでした。")
+                if selection is not None
+                else tr("選択した使用色は画像内にありませんでした。"),
                 2400,
             )
             return False
@@ -423,8 +429,14 @@ class UsedColorController:
         # キャッシュを利用した使用色一覧の更新だけを行う（表示キャッシュの
         # 破棄と再描画は run_over_scope 側で済んでいる）。
         self.schedule_refresh()
+        if selection is not None:
+            message = tr(
+                "選択範囲の中で、{cells}セル・{pixels:,}ピクセルへ{label}を適用しました。"
+            )
+        else:
+            message = tr("{cells}セル・{pixels:,}ピクセルへ{label}を適用しました。")
         self.window.statusBar().showMessage(
-            tr("{cells}セル・{pixels:,}ピクセルへ{label}を適用しました。").format(cells=changed_cells, pixels=changed_pixels, label=operation_label),
+            message.format(cells=changed_cells, pixels=changed_pixels, label=operation_label),
             3000,
         )
         return True

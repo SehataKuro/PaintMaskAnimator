@@ -60,10 +60,15 @@ class SkewerFillSession:
     # 走査対象のセル一覧。途中でタイムラインが変わっていないかの確認用。
     cells: List[Cell]
     direction: int = 0
-    # ``id(image)`` → ``(外接矩形, 切り出したマスク)``。
-    regions: Dict[int, Tuple[Tuple[int, int, int, int], np.ndarray]] = field(
-        default_factory=dict
-    )
+    # ``id(image)`` → ``(外接矩形, 切り出したマスク, ((置換色, 切り出した島), ...))``。
+    regions: Dict[
+        int,
+        Tuple[
+            Tuple[int, int, int, int],
+            np.ndarray,
+            Tuple[Tuple[Tuple[int, int, int], np.ndarray], ...],
+        ],
+    ] = field(default_factory=dict)
     # ``id(image)`` → ``(image, 計画したときの cacheKey)``。途中で描き換えられて
     # いないかの確認用。
     images: Dict[int, Tuple[QImage, int]] = field(default_factory=dict)
@@ -155,6 +160,25 @@ class SkewerFillMixin(CanvasMembers):
             self.abort_skewer_fill(tr("絵が変わったため、串刺し塗りを取り消しました。"))
             return True
         session.skipped += 1
+        self._skewer_clear_pending(session)
+        self._skewer_advance()
+        return True
+
+    def skip_skewer_fill_direction(self):
+        """手動指定を待っているコマと、同じ向きの残りのコマを塗らずに飛ばす（Shift+Esc）。
+
+        図形が画面から消えたあとは、どのコマも前に塗れたコマと比べることになり、
+        1コマずつ飛ばしても止まり続ける。そのときに残りをまとめて飛ばす。
+        """
+        session = self._skewer_session
+        if session is None or session.pending is None:
+            return False
+        if not self._skewer_session_valid(session):
+            self.abort_skewer_fill(tr("絵が変わったため、串刺し塗りを取り消しました。"))
+            return True
+        queue = session.queues[session.direction]
+        session.skipped += 1 + len(queue)
+        queue.clear()
         self._skewer_clear_pending(session)
         self._skewer_advance()
         return True
@@ -266,7 +290,11 @@ class SkewerFillMixin(CanvasMembers):
         assert result.bounds is not None  # ok なら必ず外接矩形がある
         x0, y0, x1, y1 = result.bounds
         session.regions[id(image)] = (
-            result.bounds, result.mask[y0:y1, x0:x1].copy()
+            result.bounds,
+            result.mask[y0:y1, x0:x1].copy(),
+            tuple(
+                (rgb, island[y0:y1, x0:x1].copy()) for rgb, island in result.islands
+            ),
         )
         session.images[id(image)] = (image, int(image.cacheKey()))
 
@@ -292,11 +320,12 @@ class SkewerFillMixin(CanvasMembers):
             return tr(
                 "串刺し塗り：コマ {value} は自信がありません。推測した範囲を青で"
                 "表示しています（Enter：この範囲で塗る／クリック：塗る場所を指定"
-                "／Esc：このコマを飛ばす）。"
+                "／Esc：このコマを飛ばす／Shift+Esc：この向きの残りを飛ばす）。"
             ).format(value=session.pending[0] + 1)
         return tr(
             "串刺し塗り：コマ {value} は追いかけきれませんでした。"
-            "塗る場所をクリックしてください（Esc：このコマを飛ばす）。"
+            "塗る場所をクリックしてください（Esc：このコマを飛ばす"
+            "／Shift+Esc：この向きの残りを飛ばす）。"
         ).format(value=session.pending[0] + 1)
 
     def skewer_fill_has_guess(self):
@@ -403,12 +432,13 @@ class SkewerFillMixin(CanvasMembers):
             planned = session.regions.get(id(context.layer.image))
             if planned is None:
                 return None
-            bounds, mask = planned
+            bounds, mask, islands = planned
             image, pixels = self._layer_fill_pixels(context.layer.image)
             x0, y0, x1, y1 = bounds
-            written_colors.update(self._fill_patch(
-                pixels[y0:y1, x0:x1], mask, session.replacement
-            ))
+            patch = pixels[y0:y1, x0:x1]
+            written_colors.update(self._fill_patch(patch, mask, session.replacement))
+            for rgb, island in islands:
+                written_colors.update(self._fill_patch(patch, island, QColor(*rgb)))
             return image.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
 
         if 0 <= session.origin_frame < len(self.frames):

@@ -80,6 +80,9 @@ from .main_window_tween import TweenController
 from .main_window_ui_build import UIBuildMixin
 from .main_window_used_color import UsedColorController
 from .main_window_scope_ops import ScopeOpsController
+from .main_window_reference_check import ReferenceCheckController
+from .main_window_copy_paint import CopyPaintController
+from .main_window_auto_paint import AutoPaintController
 from .main_window_workspace import WorkspaceController
 
 log = get_logger(__name__)
@@ -109,6 +112,9 @@ class MainWindow(
         self.tween=TweenController(self)
         self.time_remap=TimeRemapController(self)
         self.scope=ScopeOpsController(self)
+        self.reference_check=ReferenceCheckController(self)
+        self.copy_paint=CopyPaintController(self)
+        self.auto_paint=AutoPaintController(self)
         self.project=ProjectIOController(self)
         self.importer=ImportController(self)
         # palette_state のUndo/Redoでパネル状態を復元できるよう相互参照を張る。
