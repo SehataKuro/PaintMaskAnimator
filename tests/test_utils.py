@@ -286,3 +286,16 @@ def test_blank_images_share_a_template_but_write_independently(qapp):
     assert utils.blank_image().pixelColor(0, 0).alpha() == 0, "雛形は汚れない"
     white = utils.blank_image(Qt.GlobalColor.white)
     assert white.pixelColor(0, 0) == QColor("white")
+
+
+def test_loupe_ui_color_follows_picked_brightness():
+    assert utils.loupe_ui_color(QColor("#000000")) == QColor("#ffffff")
+    assert utils.loupe_ui_color(QColor("#202a80")) == QColor("#ffffff")
+    assert utils.loupe_ui_color(QColor("#ffffff")) != QColor("#ffffff")
+    assert utils.loupe_ui_color(QColor("#ffff40")) != QColor("#ffffff")
+    assert utils.loupe_ui_color(QColor()) == QColor("#ffffff")
+
+
+def test_loupe_window_is_click_through(qapp):
+    loupe = utils.ScreenColorLoupe()
+    assert loupe.windowFlags() & Qt.WindowType.WindowTransparentForInput

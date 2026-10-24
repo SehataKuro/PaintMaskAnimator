@@ -36,6 +36,7 @@ __all__ = [
     "seed_category",
     "dilate",
     "erode",
+    "extend_line_ends",
     "REASON_OK",
     "REASON_OUT_OF_BOUNDS",
     "REASON_OUTSIDE_SELECTION",
@@ -119,6 +120,10 @@ class BucketOptions:
     close_gap: bool = False
     #: 隙間閉じの半径（px）。
     gap_width: int = 4
+    #: キャンバス端の手前で途切れた線を、端まで仮想的に延長してから塗る。
+    extend_lines: bool = False
+    #: 線を延長する最大の長さ（px）。端からこれより遠い線の端は延長しない。
+    extend_length: int = 150
     #: 領域がキャンバス端まで開いている場合は塗らない。
     require_closed: bool = False
     #: どの画素をたどって塗るか（``TARGET_*``）。
@@ -143,9 +148,23 @@ class BucketOptions:
             include_background_mask=bool(background_selected),
             close_gap=bool(tools.bucket_close_gap.isChecked()),
             gap_width=max(1, int(tools.bucket_gap_width.value())),
+            extend_lines=bool(_checked(tools, "bucket_extend_lines")),
+            extend_length=_extend_length_from_tools(tools),
             require_closed=bool(tools.bucket_require_closed.isChecked()),
             target_color=_target_from_tools(tools),
         )
+
+
+def _checked(tools, name):
+    widget = getattr(tools, name, None)
+    return widget is not None and widget.isChecked()
+
+
+def _extend_length_from_tools(tools):
+    widget = getattr(tools, "bucket_extend_length", None)
+    if widget is None:
+        return BucketOptions.extend_length
+    return max(1, int(widget.value()))
 
 
 def _target_from_tools(tools):
@@ -238,6 +257,182 @@ def erode_numpy(mask, iterations):
             & padded[2:, 2:]
         )
     return result
+
+
+#: 線の向きを測るために、端からたどる骨格の画素数。
+EXTEND_TRACE_LENGTH = 12
+#: これより短い骨格（点・ごく短いハネ）は向きが定まらないので延長しない。
+EXTEND_MIN_TRACE = 6
+#: 細線化の最大反復回数。線の太さのおよそ半分あれば足りる。
+EXTEND_THIN_ITERATIONS = 8
+
+
+def _thin(mask, max_iterations):
+    """Zhang-Suen の細線化。``max_iterations`` で打ち切る。
+
+    太い塊は細り切らないが、延長に使うのは細い線の端点だけなので問題ない。
+    """
+    image = mask.copy()
+    for _ in range(max_iterations):
+        changed = False
+        for step in (0, 1):
+            p = np.pad(image, 1, mode="constant", constant_values=False)
+            # P2..P9：上から時計回り。
+            ring = (
+                p[:-2, 1:-1], p[:-2, 2:], p[1:-1, 2:], p[2:, 2:],
+                p[2:, 1:-1], p[2:, :-2], p[1:-1, :-2], p[:-2, :-2],
+            )
+            count = np.zeros(image.shape, dtype=np.uint8)
+            for neighbor in ring:
+                count += neighbor
+            transitions = np.zeros(image.shape, dtype=np.uint8)
+            for index, neighbor in enumerate(ring):
+                transitions += ~neighbor & ring[(index + 1) % 8]
+            p2, p4, p6, p8 = ring[0], ring[2], ring[4], ring[6]
+            if step == 0:
+                keep = (p2 & p4 & p6) | (p4 & p6 & p8)
+            else:
+                keep = (p2 & p4 & p8) | (p2 & p6 & p8)
+            remove = (
+                image & (count >= 2) & (count <= 6) & (transitions == 1) & ~keep
+            )
+            if remove.any():
+                image &= ~remove
+                changed = True
+        if not changed:
+            break
+    return image
+
+
+def _trace_from_end(skeleton, x, y, length):
+    """骨格の端点 ``(x, y)`` から線に沿って ``length`` 画素たどった座標列。
+
+    分岐に当たったらそこで止める。細線化の階段部分では次の候補が隣り合って
+    2つ出るので、そのときは遠い（斜め）方へ進む。
+    """
+    height, width = skeleton.shape
+    path = [(x, y)]
+    visited = {(x, y)}
+    while len(path) < length:
+        cx, cy = path[-1]
+        candidates = [
+            (nx, ny)
+            for ny in range(cy - 1, cy + 2)
+            for nx in range(cx - 1, cx + 2)
+            if 0 <= nx < width and 0 <= ny < height
+            and (nx, ny) not in visited and skeleton[ny, nx]
+        ]
+        if not candidates:
+            break
+        if len(candidates) > 1 and any(
+            max(abs(ax - bx), abs(ay - by)) > 1
+            for ax, ay in candidates for bx, by in candidates
+        ):
+            break
+        visited.update(candidates)
+        path.append(max(
+            candidates, key=lambda c: (c[0] - cx) ** 2 + (c[1] - cy) ** 2
+        ))
+    return path
+
+
+def _cast_ray(boundary, x, y, dx, dy, max_length):
+    """端点から ``(dx, dy)`` 方向へ線を延ばした画素。届かなければ ``None``。
+
+    自分の線の内側にいる間の境界は無視し、いったん外へ出てから別の境界に
+    当たるか、キャンバスの外へ出たら止める。1 ステップで主軸方向へ 1 画素
+    進むので、延長線は 8 連結になり 4 近傍の塗りを確実に止める。
+    """
+    height, width = boundary.shape
+    major = max(abs(dx), abs(dy))
+    step_x, step_y = dx / major, dy / major
+    pixels = []
+    left_own_line = False
+    for t in range(1, max_length * 2 + 1):
+        px = int(round(x + step_x * t))
+        py = int(round(y + step_y * t))
+        if not (0 <= px < width and 0 <= py < height):
+            return pixels
+        if boundary[py, px]:
+            if left_own_line:
+                return pixels
+            continue
+        left_own_line = True
+        pixels.append((px, py))
+        if len(pixels) > max_length:
+            return None
+    return None
+
+
+def extend_line_ends(boundary, max_length):
+    """キャンバス端の手前で途切れた線を、端まで延ばした画素の真偽マスク。
+
+    作画では画面に映る範囲（スタンダードフレーム）の外まで素材を用意するが、
+    フレームの外では線を端まで引かないことが多い。そのまま塗ると線の切れ目から
+    隣の領域へ漏れるので、端点の向きのまま線を延ばした仮想の境界を返す。
+
+    延ばすのは「その向きでキャンバス端まで ``max_length`` 以内」の端点だけで、
+    途中で別の線に当たればそこで止める。絵の内側の端点（髪のハネなど）は
+    延長しないので、ふつうの塗りには影響しない。
+
+    :param boundary: 塗りを止める画素（線など）の真偽マスク。
+    :returns: 延長線の画素。``boundary`` の画素は含まない。
+    """
+    height, width = boundary.shape
+    extension = np.zeros((height, width), dtype=bool)
+    max_length = max(1, int(max_length))
+    # 端から max_length 以内の帯だけを細線化する（全体を細線化すると大きな
+    # キャンバスで遅い）。向きを測るために少し内側まで含める。
+    band = max_length + EXTEND_TRACE_LENGTH + EXTEND_THIN_ITERATIONS + 2
+    strips = (
+        (0, min(height, band), 0, width),
+        (max(0, height - band), height, 0, width),
+        (0, height, 0, min(width, band)),
+        (0, height, max(0, width - band), width),
+    )
+    for y0, y1, x0, x1 in strips:
+        part = boundary[y0:y1, x0:x1]
+        if not part.any():
+            continue
+        skeleton = _thin(part, EXTEND_THIN_ITERATIONS)
+        padded = np.pad(skeleton, 1, mode="constant", constant_values=False)
+        neighbors = np.zeros(skeleton.shape, dtype=np.uint8)
+        for oy in range(3):
+            for ox in range(3):
+                if ox != 1 or oy != 1:
+                    neighbors += padded[
+                        oy:oy + skeleton.shape[0], ox:ox + skeleton.shape[1]
+                    ]
+        end_ys, end_xs = np.nonzero(skeleton & (neighbors == 1))
+        for local_x, local_y in zip(end_xs.tolist(), end_ys.tolist()):
+            x, y = local_x + x0, local_y + y0
+            if min(x, y, width - 1 - x, height - 1 - y) > max_length:
+                continue
+            path = _trace_from_end(
+                skeleton, local_x, local_y, EXTEND_TRACE_LENGTH
+            )
+            if len(path) < EXTEND_MIN_TRACE:
+                continue
+            dx = float(path[0][0] - path[-1][0])
+            dy = float(path[0][1] - path[-1][1])
+            if dx == 0.0 and dy == 0.0:
+                continue
+            # その向きで端まで max_length 以内の端点だけを延ばす。届く前に
+            # 別の線へ当たった場合はそこで止める。
+            norm = (dx * dx + dy * dy) ** 0.5
+            ux, uy = dx / norm, dy / norm
+            to_edge = min(
+                (width - 1 - x) / ux if ux > 0 else (x / -ux if ux < 0 else np.inf),
+                (height - 1 - y) / uy if uy > 0 else (y / -uy if uy < 0 else np.inf),
+            )
+            if to_edge > max_length:
+                continue
+            ray = _cast_ray(boundary, x, y, dx, dy, max_length)
+            if ray is None:
+                continue
+            for px, py in ray:
+                extension[py, px] = True
+    return extension
 
 
 def background_mask(pixels):
@@ -348,6 +543,12 @@ def compute_fill_region(
     if options.adjacent:
         boundary = ~target_mask
         gap_recovery_mask = None
+        if options.extend_lines:
+            # 延長線は対象色の上に引く仮想の線なので、塗った後に回収する。
+            extension = extend_line_ends(boundary, options.extend_length)
+            if extension.any():
+                boundary = boundary | extension
+                gap_recovery_mask = extension
         if options.close_gap:
             gap_radius = max(1, int(options.gap_width))
             virtual_boundary = erode(dilate(boundary, gap_radius), gap_radius)
@@ -378,7 +579,7 @@ def compute_fill_region(
             # 何度も判定しないため）。ok は偽のまま。
             return FillResult(REASON_OPEN_REGION, region=region, target=category)
 
-        if options.close_gap and gap_recovery_mask is not None:
+        if gap_recovery_mask is not None:
             touching = dilate(region, 1) & gap_recovery_mask
             start_y_values, start_x_values = np.nonzero(touching)
             if start_x_values.size:

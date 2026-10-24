@@ -18,7 +18,11 @@ from PySide6.QtWidgets import (
 )
 from .i18n import tr
 from .color_picker_dialog import ColorPickerDialog
-from .utils import ScreenColorPickerOverlay, _ScreenColorDragMixin
+from .utils import (
+    ScreenColorPickerOverlay,
+    _ScreenColorDragMixin,
+    show_screen_color_loupe,
+)
 from .logging_setup import get_logger
 
 from PySide6.QtCore import QMimeData
@@ -311,6 +315,7 @@ class ScreenEyedropButton(_ScreenColorDragMixin, QToolButton):
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.RightButton:
             self._right_picker_candidate = True
+            self._screen_pick_press_global = event.globalPosition().toPoint()
             event.accept()
             return
         # A plain left click belongs to the RGB / HSV editor. Bypass the mixin
@@ -318,14 +323,43 @@ class ScreenEyedropButton(_ScreenColorDragMixin, QToolButton):
         QToolButton.mousePressEvent(self, event)
 
     def mouseMoveEvent(self, event):
+        if self._screen_pick_active and self._screen_picker_overlay is None:
+            show_screen_color_loupe(self, event.globalPosition().toPoint())
+            event.accept()
+            return
+        if (
+            self._right_picker_candidate
+            and self._screen_pick_press_global is not None
+            and event.buttons() & Qt.MouseButton.RightButton
+        ):
+            distance = (
+                event.globalPosition().toPoint() - self._screen_pick_press_global
+            ).manhattanLength()
+            if distance >= QApplication.startDragDistance():
+                # Right-drag picks directly and confirms on release, like the
+                # other colour buttons; a plain right click opens the overlay.
+                self._right_picker_candidate = False
+                self._begin_screen_pick(Qt.MouseButton.RightButton)
+                show_screen_color_loupe(self, event.globalPosition().toPoint())
+                event.accept()
+                return
         QToolButton.mouseMoveEvent(self, event)
 
     def mouseReleaseEvent(self, event):
+        if (
+            self._screen_pick_active
+            and self._screen_picker_overlay is None
+            and event.button() == self._screen_pick_button
+        ):
+            self._finish_screen_pick(event.globalPosition().toPoint())
+            event.accept()
+            return
         if (
             event.button() == Qt.MouseButton.RightButton
             and self._right_picker_candidate
         ):
             self._right_picker_candidate = False
+            self._screen_pick_press_global = None
             self._begin_global_screen_pick()
             event.accept()
             return
@@ -335,6 +369,11 @@ class ScreenEyedropButton(_ScreenColorDragMixin, QToolButton):
         overlay = self._screen_picker_overlay
         if overlay is not None:
             overlay.cancel()
+        elif self._screen_pick_active:
+            self._screen_pick_active = False
+            self._screen_pick_button = Qt.MouseButton.NoButton
+            self._cancel_screen_pick_cursor()
+        self._right_picker_candidate = False
         QToolButton.hideEvent(self, event)
 
 

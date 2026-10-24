@@ -263,15 +263,49 @@ def _sample_screen_color(global_position):
     return color
 
 
+_LOUPE_LIGHT = QColor("#ffffff")
+_LOUPE_DARK = QColor("#1e1e1e")
+
+
+def _relative_luminance(color):
+    def channel(value):
+        value /= 255.0
+        return value / 12.92 if value <= 0.03928 else ((value + 0.055) / 1.055) ** 2.4
+
+    return (
+        0.2126 * channel(color.red())
+        + 0.7152 * channel(color.green())
+        + 0.0722 * channel(color.blue())
+    )
+
+
+def loupe_ui_color(background):
+    """Return the white or dark UI colour that reads best over ``background``.
+
+    White lines and labels vanish when the eyedropper hovers over a bright
+    colour, so the loupe switches to dark ones there.
+    """
+    if background is None or not QColor(background).isValid():
+        return QColor(_LOUPE_LIGHT)
+    luminance = _relative_luminance(QColor(background))
+    # Pick whichever of the two has the higher WCAG contrast ratio.
+    light_contrast = 1.05 / (luminance + 0.05)
+    dark_contrast = (luminance + 0.05) / (_relative_luminance(_LOUPE_DARK) + 0.05)
+    return QColor(_LOUPE_LIGHT if light_contrast >= dark_contrast else _LOUPE_DARK)
+
+
 class ScreenColorLoupe(QWidget):
     """Click-through screen magnifier shared by every eyedropper path."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        # WindowTransparentForInput makes the native window click-through too,
+        # so a loupe under the pointer never swallows the eyedropper's drag.
         self.setWindowFlags(
             Qt.WindowType.Tool
             | Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.WindowTransparentForInput
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
@@ -318,7 +352,12 @@ class ScreenColorLoupe(QWidget):
             painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, False)
             painter.drawImage(circle, self._sample)
         painter.setClipping(False)
-        painter.setPen(QPen(QColor("white"), 2))
+        before = self._before if self._before.isValid() else QColor("#000000")
+        after = self._after if self._after.isValid() else QColor("#000000")
+        # The ring and crosshair sit over the colour being picked, so they
+        # follow its brightness; each swatch label follows its own swatch.
+        ui_color = loupe_ui_color(after)
+        painter.setPen(QPen(ui_color, 2))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawEllipse(circle)
         center = circle.center()
@@ -326,13 +365,14 @@ class ScreenColorLoupe(QWidget):
         painter.drawLine(QPointF(center.x(), center.y() - 8), QPointF(center.x(), center.y() + 8))
         before_rect = QRectF(12, 106, 42, 22)
         after_rect = QRectF(58, 106, 42, 22)
-        painter.fillRect(before_rect, self._before if self._before.isValid() else QColor("#000000"))
-        painter.fillRect(after_rect, self._after if self._after.isValid() else QColor("#000000"))
-        painter.setPen(QPen(QColor("white"), 1))
-        painter.drawRect(before_rect)
-        painter.drawRect(after_rect)
-        painter.drawText(before_rect, Qt.AlignmentFlag.AlignCenter, tr("前"))
-        painter.drawText(after_rect, Qt.AlignmentFlag.AlignCenter, tr("後"))
+        for rect, color, label in (
+            (before_rect, before, tr("前")),
+            (after_rect, after, tr("後")),
+        ):
+            painter.fillRect(rect, color)
+            painter.setPen(QPen(loupe_ui_color(color), 1))
+            painter.drawRect(rect)
+            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, label)
 
 
 def show_screen_color_loupe(owner, global_position, before_color=None):
@@ -415,6 +455,14 @@ class ScreenColorPickerOverlay(QWidget):
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             self._left_pressed = True
+            # Hold the pointer while dragging so the loupe keeps following it
+            # even when the window manager would route moves elsewhere.
+            self.grabMouse()
+            show_screen_color_loupe(
+                self,
+                event.globalPosition().toPoint(),
+                self._before_color,
+            )
             event.accept()
             return
         if event.button() == Qt.MouseButton.RightButton:
@@ -425,6 +473,7 @@ class ScreenColorPickerOverlay(QWidget):
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton and self._left_pressed:
             self._left_pressed = False
+            self.releaseMouse()
             self.finish(event.globalPosition().toPoint())
             event.accept()
             return

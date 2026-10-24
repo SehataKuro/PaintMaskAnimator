@@ -737,6 +737,36 @@ class ToolPanel(QWidget):
         bucket_gap_layout.addWidget(self.bucket_gap_width,1)
         bucket_gap_layout.addWidget(self.bucket_gap_width_label)
 
+        # 線の延長と長さスライダーを同じ横一列へ配置する。
+        self.bucket_extend_lines=QCheckBox(tr("線の延長"))
+        self.bucket_extend_lines.setChecked(False)
+        self.bucket_extend_lines.setToolTip(tr(
+            "キャンバス端の手前で途切れた線を、線の向きのまま端まで延ばしたものとして塗ります。"
+            "スタンダードフレームの外側で線を端まで引いていない素材でも、"
+            "線の切れ目から隣へ漏れずに塗れます。"
+            "端からスライダーの長さより遠い線の端は延長しません。"
+        ))
+        self.bucket_extend_length=QSlider(Qt.Orientation.Horizontal)
+        self.bucket_extend_length.setRange(10,1000)
+        self.bucket_extend_length.setValue(bucket_fill.BucketOptions.extend_length)
+        self.bucket_extend_length.setMinimumWidth(58)
+        self.bucket_extend_length_label=QLabel(
+            f"{self.bucket_extend_length.value()} px"
+        )
+        self.bucket_extend_length_label.setFixedWidth(46)
+        self.bucket_extend_length.valueChanged.connect(
+            lambda value: self.bucket_extend_length_label.setText(
+                f"{value} px"
+            )
+        )
+        self.bucket_extend_row=QWidget()
+        bucket_extend_layout=QHBoxLayout(self.bucket_extend_row)
+        bucket_extend_layout.setContentsMargins(0,0,0,0)
+        bucket_extend_layout.setSpacing(4)
+        bucket_extend_layout.addWidget(self.bucket_extend_lines)
+        bucket_extend_layout.addWidget(self.bucket_extend_length,1)
+        bucket_extend_layout.addWidget(self.bucket_extend_length_label)
+
         # 塗りつぶし・投げ縄塗りの不透明度。100%は選択RGBをそのまま書き込み、
         # 100%未満だけ下地RGBと混色する（アルファは常に255、白は消しゴム）。
         self.fill_opacity_row=QWidget()
@@ -940,9 +970,14 @@ class ToolPanel(QWidget):
             self.bucket_require_closed.setEnabled(adjacent)
             self.bucket_gap_width.setEnabled(close_gap)
             self.bucket_gap_width_label.setEnabled(close_gap)
+            extend_lines = adjacent and self.bucket_extend_lines.isChecked()
+            self.bucket_extend_lines.setEnabled(adjacent)
+            self.bucket_extend_length.setEnabled(extend_lines)
+            self.bucket_extend_length_label.setEnabled(extend_lines)
 
         self.bucket_adjacent.toggled.connect(sync_bucket_options)
         self.bucket_close_gap.toggled.connect(sync_bucket_options)
+        self.bucket_extend_lines.toggled.connect(sync_bucket_options)
         sync_bucket_options()
 
         self.dust_mode_label=QLabel(tr("処理モード"))
@@ -1011,6 +1046,7 @@ class ToolPanel(QWidget):
             self.bucket_adjacent,self.bucket_include_sub,
             self.bucket_include_colors,
             self.bucket_gap_row,
+            self.bucket_extend_row,
             self.bucket_require_closed,
             self.fill_opacity_row,
             self.bucket_all_frames,
@@ -1444,6 +1480,7 @@ class ToolPanel(QWidget):
         self.bucket_include_sub.setVisible(is_bucket)
         self.bucket_include_colors.setVisible(is_bucket)
         self.bucket_gap_row.setVisible(uses_bucket_region)
+        self.bucket_extend_row.setVisible(is_bucket)
         self.bucket_require_closed.setVisible(uses_bucket_region)
         self.fill_opacity_row.setVisible(is_bucket or is_lasso_fill)
         self.bucket_all_frames.setVisible(is_bucket)

@@ -204,3 +204,31 @@ def test_replacement_button_opens_editor_on_left_and_eyedropper_on_right():
     finally:
         button.close()
         app.processEvents()
+
+
+def test_replacement_button_right_drag_picks_on_release(monkeypatch):
+    from PySide6.QtCore import QPoint
+    from paintmaskanimator import utils
+
+    app = _app()
+    button = ScreenEyedropButton()
+    button.resize(80, 26)
+    button.show()
+    app.processEvents()
+    picked = []
+    overlay_starts = []
+    button.colorPicked.connect(picked.append)
+    button._begin_global_screen_pick = lambda: overlay_starts.append(True)
+    monkeypatch.setattr(utils, "_sample_screen_color", lambda _point: QColor("red"))
+    monkeypatch.setattr(QApplication, "startDragDistance", lambda: 4)
+    try:
+        QTest.mousePress(button, Qt.MouseButton.RightButton, pos=QPoint(5, 5))
+        QTest.mouseMove(button, QPoint(30, 5))
+        assert button._screen_pick_active
+        QTest.mouseRelease(button, Qt.MouseButton.RightButton, pos=QPoint(30, 5))
+        assert picked == [QColor("red")]
+        assert overlay_starts == []
+        assert not button._screen_pick_active
+    finally:
+        button.close()
+        app.processEvents()
