@@ -1331,33 +1331,33 @@ Supported formats: PNG, JPEG, TGA</translation>
         <translation>Resize Canvas</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1056"/>
+        <location filename="../main_window.py" line="1064"/>
         <source>ファイル・編集</source>
         <translation>File and Edit</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1058"/>
+        <location filename="../main_window.py" line="1066"/>
         <source>キャンバス操作</source>
         <translation>Canvas operations</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1059"/>
+        <location filename="../main_window.py" line="1067"/>
         <source>ツールコマンド</source>
         <translation>Tool commands</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1066"/>
+        <location filename="../main_window.py" line="1075"/>
         <source>PNG保存</source>
         <translation>Save PNG</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1087"/>
-        <location filename="../main_window.py" line="1091"/>
+        <location filename="../main_window.py" line="1096"/>
+        <location filename="../main_window.py" line="1100"/>
         <source>TGA保存</source>
         <translation>Save TGA</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1091"/>
+        <location filename="../main_window.py" line="1100"/>
         <source>TGAを保存できませんでした。Pillowの導入を確認してください。</source>
         <translation>Could not save the TGA. Check that Pillow is installed.</translation>
     </message>
@@ -2257,7 +2257,7 @@ Drop a used colour onto the middle of another to create a parent/child link.</tr
         <translation>Canvas</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1057"/>
+        <location filename="../main_window.py" line="1065"/>
         <location filename="../main_window_ui_build.py" line="707"/>
         <source>ツール</source>
         <translation>Tools</translation>
@@ -2268,6 +2268,7 @@ Drop a used colour onto the middle of another to create a parent/child link.</tr
         <translation>Tool Properties</translation>
     </message>
     <message>
+        <location filename="../main_window.py" line="1068"/>
         <location filename="../main_window_ui_build.py" line="737"/>
         <source>アクション</source>
         <translation>Actions</translation>
@@ -2298,7 +2299,7 @@ Drop a used colour onto the middle of another to create a parent/child link.</tr
         <translation>History</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1060"/>
+        <location filename="../main_window.py" line="1069"/>
         <location filename="../main_window_ui_build.py" line="813"/>
         <source>タイムライン</source>
         <translation>Timeline</translation>
@@ -3438,44 +3439,44 @@ Details were saved to:
         <translation>{NAME} error</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="191"/>
+        <location filename="../actionpanel.py" line="198"/>
         <source>組み込みアクション生成エラー</source>
         <translation>Built-in action generation error</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="234"/>
+        <location filename="../actionpanel.py" line="246"/>
         <source>Pythonアクション エラー</source>
         <translation>Python action error</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="268"/>
+        <location filename="../actionpanel.py" line="317"/>
         <location filename="../subview.py" line="246"/>
         <source>読み込めません: {name}</source>
         <translation>Cannot load: {name}</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="283"/>
+        <location filename="../actionpanel.py" line="336"/>
         <source>Pythonアクション読み込みエラー</source>
         <translation>Python action load error</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="297"/>
+        <location filename="../actionpanel.py" line="350"/>
         <source>フォルダを開けません</source>
         <translation>Cannot open the folder</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="394"/>
+        <location filename="../actionpanel.py" line="447"/>
         <source>Pythonアクションの編集</source>
         <translation>Edit Python actions</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="416"/>
+        <location filename="../actionpanel.py" line="469"/>
         <source>新規</source>
         <translation>New</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="417"/>
-        <location filename="../actionpanel.py" line="637"/>
+        <location filename="../actionpanel.py" line="470"/>
+        <location filename="../actionpanel.py" line="690"/>
         <location filename="../preferences_dialog.py" line="245"/>
         <location filename="../preferences_dialog.py" line="367"/>
         <location filename="../timeline.py" line="2078"/>
@@ -3483,98 +3484,98 @@ Details were saved to:
         <translation>Delete</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="418"/>
+        <location filename="../actionpanel.py" line="471"/>
         <source>保存</source>
         <translation>Save</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="419"/>
+        <location filename="../actionpanel.py" line="472"/>
         <source>保存して再読み込み</source>
         <translation>Save and reload</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="420"/>
+        <location filename="../actionpanel.py" line="473"/>
         <source>VS Codeで開く</source>
         <translation>Open in VS Code</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="421"/>
+        <location filename="../actionpanel.py" line="474"/>
         <source>閉じる</source>
         <translation>Close</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="477"/>
+        <location filename="../actionpanel.py" line="530"/>
         <source>読み込めません</source>
         <translation>Cannot load it</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="504"/>
+        <location filename="../actionpanel.py" line="557"/>
         <source>未保存の変更</source>
         <translation>Unsaved changes</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="505"/>
+        <location filename="../actionpanel.py" line="558"/>
         <source>{name} の変更を保存しますか？</source>
         <translation>Save the changes to {name}?</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="524"/>
+        <location filename="../actionpanel.py" line="577"/>
         <source>保存できません</source>
         <translation>Cannot save</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="534"/>
+        <location filename="../actionpanel.py" line="587"/>
         <source>再読み込み</source>
         <translation>Reload</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="534"/>
+        <location filename="../actionpanel.py" line="587"/>
         <source>Pythonアクションを再読み込みしました。</source>
         <translation>Python actions reloaded.</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="562"/>
+        <location filename="../actionpanel.py" line="615"/>
         <source>VS Codeが見つかりません</source>
         <translation>VS Code not found</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="563"/>
+        <location filename="../actionpanel.py" line="616"/>
         <source>Visual Studio Codeをインストールするか、codeコマンドをPATHへ追加してください。</source>
         <translation>Install Visual Studio Code, or add the &quot;code&quot; command to PATH.</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="569"/>
+        <location filename="../actionpanel.py" line="622"/>
         <source>VS Codeを開けません</source>
         <translation>Cannot open VS Code</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="611"/>
+        <location filename="../actionpanel.py" line="664"/>
         <source>新規スクリプト</source>
         <translation>New script</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="611"/>
+        <location filename="../actionpanel.py" line="664"/>
         <source>ファイル名（.py）</source>
         <translation>File name (.py)</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="622"/>
-        <location filename="../actionpanel.py" line="627"/>
+        <location filename="../actionpanel.py" line="675"/>
+        <location filename="../actionpanel.py" line="680"/>
         <source>作成できません</source>
         <translation>Cannot create it</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="622"/>
+        <location filename="../actionpanel.py" line="675"/>
         <source>既に存在します: {name}</source>
         <translation>Already exists: {name}</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="637"/>
+        <location filename="../actionpanel.py" line="690"/>
         <source>{name} を削除しますか？</source>
         <translation>Delete {name}?</translation>
     </message>
     <message>
-        <location filename="../actionpanel.py" line="643"/>
+        <location filename="../actionpanel.py" line="696"/>
         <source>削除できません</source>
         <translation>Cannot delete it</translation>
     </message>

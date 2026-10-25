@@ -1052,11 +1052,20 @@ class MainWindow(
         self.canvas.pressure_curve_points = settings["points"]
         self.canvas.pressure_curve = 1.0
     def shortcuts(self):
+        # アクションパネルのボタン。メニューの操作と同じもの（黒シルエットなど）は
+        # ここにまとめ、ほかのタブからは外して同じ操作が2か所に出ないようにする。
+        panel_actions = self.action_panel.shortcut_entries()
+        in_panel = {id(action) for _name, action in panel_actions}
+
+        def without_panel(entries):
+            return [(name, action) for name, action in entries if id(action) not in in_panel]
+
         categories = [
-            (tr("ファイル・編集"), self.file_edit_actions),
+            (tr("ファイル・編集"), without_panel(self.file_edit_actions)),
             (tr("ツール"), self.tool_action_list),
             (tr("キャンバス操作"), self.canvas_operation_actions),
-            (tr("ツールコマンド"), self.tool_command_actions),
+            (tr("ツールコマンド"), without_panel(self.tool_command_actions)),
+            (tr("アクション"), panel_actions),
             (tr("タイムライン"), self.timeline_actions),
         ]
         if ShortcutDialog(categories, self).exec():

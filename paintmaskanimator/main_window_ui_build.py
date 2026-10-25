@@ -106,7 +106,7 @@ class UIBuildMixin(MainWindowMembers):
         self.a_isolate_color.triggered.connect(self.colors.isolate_selected_color)
         self.a_clear_color_filter=QAction(tr("特定色表示を解除"),self)
         self.a_clear_color_filter.triggered.connect(self.colors.clear_selected_color_filter)
-        self.a_silhouette=QAction(tr("背景以外を黒シルエット表示"),self); self.a_silhouette.setCheckable(True)
+        self.a_silhouette=QAction(tr("背景以外を黒シルエット表示"),self); self.a_silhouette.setCheckable(True); self.a_silhouette.setShortcut("Ctrl+B")
         self.a_silhouette.triggered.connect(self.line_ops.toggle_silhouette)
         self.a_remove_dust=QAction(tr("ゴミ取り／塗り抜け…"),self)
         self.a_remove_dust.triggered.connect(self.line_ops.remove_dust_fill_surrounding)
