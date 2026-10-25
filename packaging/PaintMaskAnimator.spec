@@ -202,5 +202,26 @@ if _sys.platform == "darwin":
             "CFBundleShortVersionString": PROJECT_VERSION,
             "CFBundleVersion": PROJECT_VERSION,
             "NSHighResolutionCapable": True,
+            # .pman をダブルクリックで開く。中身は zip だが、zip として
+            # 展開されないよう public.data にだけ準ずる独自の種類にする。
+            "UTExportedTypeDeclarations": [{
+                "UTTypeIdentifier": "com.sehatakuro.paintmaskanimator.project",
+                "UTTypeDescription": "PaintMaskAnimator Project",
+                "UTTypeConformsTo": ["public.data", "public.content"],
+                "UTTypeTagSpecification": {"public.filename-extension": ["pman"]},
+            }],
+            "CFBundleDocumentTypes": [{
+                "CFBundleTypeName": "PaintMaskAnimator Project",
+                "CFBundleTypeRole": "Editor",
+                "LSHandlerRank": "Owner",
+                "LSItemContentTypes": ["com.sehatakuro.paintmaskanimator.project"],
+            }],
         },
+    )
+
+    # Finder のアイコンを保存時のサムネイルにする Quick Look の拡張。
+    _sys.path.insert(0, os.path.join(os.path.dirname(SPEC), "macos"))
+    import build_thumbnail_extension
+    build_thumbnail_extension.build(
+        os.path.join(DISTPATH, "PaintMaskAnimator.app"), PROJECT_VERSION
     )

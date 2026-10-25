@@ -68,6 +68,11 @@ jobs:
       - name: Build exe (PyInstaller)
         run: pyinstaller packaging/PaintMaskAnimator.spec --noconfirm
 
+      # エクスプローラーで .pman のアイコンを保存時のサムネイルにする部品。
+      # installer.iss が {app} に入れて登録する。
+      - name: Build thumbnail handler (Rust)
+        run: cargo build --release --manifest-path packaging/windows/pman_thumbnail/Cargo.toml
+
       - name: Install Inno Setup
         run: choco install innosetup -y
 

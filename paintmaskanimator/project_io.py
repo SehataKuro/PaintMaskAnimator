@@ -15,7 +15,7 @@ from pathlib import Path, PurePosixPath
 from .i18n import tr
 from .errors import OperationError
 
-from PySide6.QtCore import QBuffer, QByteArray, QIODevice
+from PySide6.QtCore import QBuffer, QByteArray, QIODevice, Qt
 from PySide6.QtGui import QImage, QImageReader
 
 from .constants import (
@@ -39,6 +39,11 @@ from .logging_setup import get_logger
 CURRENT_MASK_FORMAT = 2
 
 log = get_logger(__name__)
+
+# ファイルのアイコンに使う縮小画像。Finder（Quick Look の拡張）とエクスプローラー
+# （サムネイルの拡張）が zip を解かずに読めるよう、無圧縮でアーカイブの先頭に置く。
+THUMBNAIL_NAME = "thumbnail.png"
+THUMBNAIL_SIZE = 512
 
 
 class PngCache:
@@ -200,7 +205,8 @@ def read_project_archive(path, png_cache=None):
     with zipfile.ZipFile(project_path, "r") as archive:
         archive_entries = archive.infolist()
         # セルの画像と、保持した初期状態（あれば）で、セル1つにつき最大2ファイル。
-        if len(archive_entries) > 2 * MAX_PROJECT_LAYER_CELLS + 1:
+        # ほかに project.json とサムネイル。
+        if len(archive_entries) > 2 * MAX_PROJECT_LAYER_CELLS + 2:
             raise OperationError(tr("プロジェクト内のファイル数が多すぎます。"))
         if any(info.flag_bits & 0x1 for info in archive_entries):
             raise OperationError(tr("暗号化されたプロジェクトには対応していません。"))
@@ -557,8 +563,27 @@ def read_project_archive(path, png_cache=None):
     return metadata, loaded_frames, width, height
 
 
+def _thumbnail_png(image):
+    """``image`` を長辺 ``THUMBNAIL_SIZE`` 以下に縮めた PNG のバイト列。"""
+    if image is None or image.isNull():
+        return None
+    if max(image.width(), image.height()) > THUMBNAIL_SIZE:
+        image = image.scaled(
+            THUMBNAIL_SIZE, THUMBNAIL_SIZE,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+    data = QByteArray()
+    buffer = QBuffer(data)
+    buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+    ok = image.save(buffer, "PNG")
+    buffer.close()
+    return bytes(data.data()) if ok else None
+
+
 def write_project_archive(
-    project_path, metadata, frames, sequence_archive=None, png_cache=None
+    project_path, metadata, frames, sequence_archive=None, png_cache=None,
+    thumbnail=None,
 ):
     """Serialize frames + metadata into the project archive at ``project_path``.
 
@@ -570,6 +595,9 @@ def write_project_archive(
     open reuse their PNG bytes instead of being re-encoded. PNG entries are
     stored without zip compression: they are already deflated, so compressing
     them again only costs time.
+
+    ``thumbnail`` (a QImage, e.g. the current frame) is shrunk and stored as
+    the first entry so the OS file-icon extensions can find it cheaply.
     """
     project_path = Path(project_path)
     metadata.pop("_loaded_sequence_archive", None)
@@ -584,6 +612,11 @@ def write_project_archive(
             compression=zipfile.ZIP_DEFLATED,
             compresslevel=6,
         ) as archive:
+            thumbnail_png = _thumbnail_png(thumbnail)
+            if thumbnail_png is not None:
+                archive.writestr(
+                    THUMBNAIL_NAME, thumbnail_png, compress_type=zipfile.ZIP_STORED
+                )
 
             # まず書き出すセルを集め、PNG はあとでまとめて並列にエンコードする。
             pending_pngs = []
