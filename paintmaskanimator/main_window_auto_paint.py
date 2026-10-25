@@ -50,6 +50,16 @@ class AutoPaintController:
             cell_label(canvas.frames[frame].layers[layer], frame) for frame, layer in cells
         ]
         layer_name = canvas.frames[cells[0][0]].layers[layer_index].name
+        kept = self.window.initial_state.count(cells)
+        line_note = (
+            tr("このレイヤーは{count}セルで色塗り前の初期状態を保持しています。見本以外の"
+               "セルは、初期状態の線で部分を分けて塗ります（今の塗りは、塗る所だけ上書き"
+               "します）。").format(count=kept)
+            if kept else
+            tr("色塗り前の初期状態を保持していないので、今の絵の線で部分を分けます。"
+               "塗りかけの色があると迷いやすいので、塗る前に「今の絵を初期状態として保持」"
+               "をおすすめします。")
+        )
         dialog = CopyPaintDialog(
             self.window, layer_name, cells, labels, current,
             title=tr("色分けの線で自動塗り"),
@@ -58,7 +68,7 @@ class AutoPaintController:
                 "見本から隣のセルへ順に、同じ場所の色で塗ります。色トレス線も、見本で塗ってあれば"
                 "その色に、線のまま残してあれば残します。一通り塗ったら、迷った所の"
                 "少ないセルを見本に加えて自動で塗り直します。ほかのレイヤーには触れません。"
-            ),
+            ) + "\n\n" + line_note,
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
@@ -68,11 +78,22 @@ class AutoPaintController:
         """``cells[reference_index]`` を見本に塗る。何か塗れたら真。"""
         canvas = self.window.canvas
         status = self.window.statusBar()
-        pixels = [
-            np.ascontiguousarray(qimage_rgba_array(canvas.frames[frame].layers[layer].image))
-            for frame, layer in cells
-        ]
-        plan = self._plan(pixels, reference_index)
+        pixels = []
+        hints = []
+        for index, (frame, layer) in enumerate(cells):
+            cell = canvas.frames[frame].layers[layer]
+            current = np.ascontiguousarray(qimage_rgba_array(cell.image))
+            # 見本は人が塗った今の絵。ほかは色塗り前の初期状態があれば、その線だけで
+            # 部分を分け、決められなかった所だけ今の絵（塗りかけ）に従う。
+            if index != reference_index and cell.initial_image is not None:
+                initial = np.ascontiguousarray(qimage_rgba_array(cell.initial_image))
+                pixels.append(auto_paint.line_only(initial))
+                hints.append(current)
+            else:
+                pixels.append(current)
+                hints.append(None)
+        plan = self._plan(pixels, reference_index,
+                          hints if any(hint is not None for hint in hints) else None)
         if plan is None:
             status.showMessage(tr("自動塗りを中止しました。"), 2400)
             return False
@@ -136,7 +157,7 @@ class AutoPaintController:
                 entries.append((frame, layer, finding))
         return entries
 
-    def _plan(self, pixels, reference_index) -> Optional[auto_paint.AutoPlan]:
+    def _plan(self, pixels, reference_index, hints=None) -> Optional[auto_paint.AutoPlan]:
         dialog = create_counter(self.window, tr("色分けの線で自動塗り"), 1, cancellable=True)
 
         def progress(done, total):
@@ -147,6 +168,8 @@ class AutoPaintController:
             return True
 
         try:
-            return auto_paint.plan_auto_paint(pixels, reference_index, progress=progress)
+            return auto_paint.plan_auto_paint(
+                pixels, reference_index, progress=progress, hints=hints,
+            )
         finally:
             close_counter(dialog)

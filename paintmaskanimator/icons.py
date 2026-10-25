@@ -146,6 +146,11 @@ _PATHS = {
         '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/>'
         '<path d="M9 8.5 10.5 7.5v6"/>'
     ),
+    "compare": (
+        '<rect x="3.5" y="5" width="17" height="14" rx="1.5"/><path d="M12 3v18"/>'
+        '<path d="M12 5h7a1.5 1.5 0 0 1 1.5 1.5v11A1.5 1.5 0 0 1 19 19h-7Z" '
+        'fill="ACCENT" stroke="none" opacity=".45"/>'
+    ),
     "rotate_reset": (
         '<path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3"/><path d="M4.5 4.5v4h4"/>'
     ),

@@ -42,6 +42,7 @@ if TYPE_CHECKING:
     from .main_window_reference_check import ReferenceCheckController
     from .main_window_copy_paint import CopyPaintController
     from .main_window_auto_paint import AutoPaintController
+    from .main_window_initial_state import InitialStateController
     from .main_window_project_io import ProjectIOController
     from .main_window_import import ImportController
     from .color_panel import UsedColorPanel
@@ -191,6 +192,8 @@ class MainWindowMembers(_MembersBase):
         a_reference_check: Any
         a_copy_paint: Any
         a_auto_paint: Any
+        a_keep_initial_state: Any
+        a_clear_initial_state: Any
         a_resize: Any
         a_save: Any
         a_save_project: Any
@@ -284,6 +287,8 @@ class MainWindowMembers(_MembersBase):
         reference_check: ReferenceCheckController
         copy_paint: CopyPaintController
         auto_paint: AutoPaintController
+        initial_state: InitialStateController
+        compare_initial_button: Any
         project: ProjectIOController
         importer: ImportController
         exposure_images: Any

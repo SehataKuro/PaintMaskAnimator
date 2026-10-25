@@ -117,9 +117,18 @@ class UIBuildMixin(MainWindowMembers):
         self.a_copy_paint.triggered.connect(self.copy_paint.open)
         self.a_auto_paint=QAction(tr("色分けの線で自動塗り…"),self)
         self.a_auto_paint.setStatusTip(tr(
-            "黒と赤・緑・青の線を境界にして、見本のセルから同じレイヤーのほかのセルを塗ります。"
+            "黒と赤・緑・青などの色トレス線を境界にして、見本のセルから同じレイヤーのほかのセルを"
+            "塗ります。"
         ))
         self.a_auto_paint.triggered.connect(self.auto_paint.open)
+        self.a_keep_initial_state=QAction(tr("今の絵を初期状態として保持"),self)
+        self.a_keep_initial_state.setStatusTip(tr(
+            "全レイヤーの今の絵を、色塗り前の初期状態として保持します。自動塗りは初期状態の"
+            "線で部分を分けるので、精度が上がります。"
+        ))
+        self.a_keep_initial_state.triggered.connect(lambda: self.initial_state.keep())
+        self.a_clear_initial_state=QAction(tr("保持した初期状態を消す"),self)
+        self.a_clear_initial_state.triggered.connect(self.initial_state.clear)
         self.a_reference_check=QAction(tr("見本との違いチェック…"),self)
         self.a_reference_check.triggered.connect(self.reference_check.run)
         self.a_shortcuts=QAction(tr("ショートカット設定…"),self);self.a_shortcuts.triggered.connect(self.shortcuts)
@@ -380,6 +389,8 @@ class UIBuildMixin(MainWindowMembers):
             (tr("ゴミ取り"), self.a_remove_dust),
             (tr("見本から塗り写す"), self.a_copy_paint),
             (tr("色分けの線で自動塗り"), self.a_auto_paint),
+            (tr("今の絵を初期状態として保持"), self.a_keep_initial_state),
+            (tr("保持した初期状態を消す"), self.a_clear_initial_state),
             (tr("見本との違いチェック"), self.a_reference_check),
         ]
         self.tool_command_actions = [
@@ -468,6 +479,9 @@ class UIBuildMixin(MainWindowMembers):
         auto_menu=self.menuBar().addMenu(tr("自動塗り"))
         auto_menu.addAction(self.a_copy_paint)
         auto_menu.addAction(self.a_auto_paint)
+        auto_menu.addSeparator()
+        auto_menu.addAction(self.a_keep_initial_state)
+        auto_menu.addAction(self.a_clear_initial_state)
         auto_menu.addSeparator()
         auto_menu.addAction(self.a_reference_check)
         selection_menu=self.menuBar().addMenu(tr("選択範囲"))
@@ -593,8 +607,17 @@ class UIBuildMixin(MainWindowMembers):
         bfit.setToolTip(tr("全体を表示"))
         b0=QPushButton()
         b0.setToolTip(tr("回転を0°に戻す"))
+        self.compare_initial_button=QPushButton()
+        self.compare_initial_button.setCheckable(True)
+        self.compare_initial_button.setToolTip(tr(
+            "色塗り前の初期状態と比べる（押すと初期状態を表示、もう一度押すと今の絵に戻る）"
+        ))
+        self.compare_initial_button.toggled.connect(self.initial_state.set_compare)
         # 表示操作はアイコンボタンにして、キャンバスの下を細い1本のバーにする。
-        self._canvas_bar_icons = {b100: "zoom_actual", bfit: "fit", b0: "rotate_reset"}
+        self._canvas_bar_icons = {
+            b100: "zoom_actual", bfit: "fit", self.compare_initial_button: "compare",
+            b0: "rotate_reset",
+        }
         for button in self._canvas_bar_icons:
             button.setProperty("iconButton", True)
             button.setFixedSize(26, 24)
@@ -607,7 +630,7 @@ class UIBuildMixin(MainWindowMembers):
         bar.setSpacing(4)
         zoom_title=QLabel(tr("拡大"))
         rot_title=QLabel(tr("回転"))
-        for w in (zoom_title,self.zoom,self.zoom_label,b100,bfit):
+        for w in (zoom_title,self.zoom,self.zoom_label,b100,bfit,self.compare_initial_button):
             bar.addWidget(w)
         bar.addSpacing(16)
         for w in (rot_title,self.rot,self.rot_label,b0):

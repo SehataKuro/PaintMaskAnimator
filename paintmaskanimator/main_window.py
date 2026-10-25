@@ -83,6 +83,7 @@ from .main_window_scope_ops import ScopeOpsController
 from .main_window_reference_check import ReferenceCheckController
 from .main_window_copy_paint import CopyPaintController
 from .main_window_auto_paint import AutoPaintController
+from .main_window_initial_state import InitialStateController
 from .main_window_workspace import WorkspaceController
 
 log = get_logger(__name__)
@@ -115,6 +116,7 @@ class MainWindow(
         self.reference_check=ReferenceCheckController(self)
         self.copy_paint=CopyPaintController(self)
         self.auto_paint=AutoPaintController(self)
+        self.initial_state=InitialStateController(self)
         self.project=ProjectIOController(self)
         self.importer=ImportController(self)
         # palette_state のUndo/Redoでパネル状態を復元できるよう相互参照を張る。

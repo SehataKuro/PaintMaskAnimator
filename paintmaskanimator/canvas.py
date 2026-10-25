@@ -255,6 +255,8 @@ class PaintCanvas(
         # 画像ごとのRGBインデックスを保持し、表示チェックのたびの再計算を避ける。
         self._color_index_cache = {}
         self.silhouette_non_background = False
+        # 比較表示：今の絵の代わりに、保持した色塗り前の初期状態を描く。
+        self.show_initial_state = False
         self._silhouette_cache = {}
         self._onion_cache = {}
         self.drawing=False; self.last_canvas=QPointF(); self.last_widget=QPointF(); self.lasso=[]; self.middle_hand=False
@@ -1509,7 +1511,10 @@ class PaintCanvas(
             layer = self.frames[key_frame].layers[layer_index]
             if not layer.visible:
                 continue
-            draw_image = self._display_layer_image(layer, layer_index)
+            if self.show_initial_state and layer.initial_image is not None:
+                draw_image = layer.initial_image
+            else:
+                draw_image = self._display_layer_image(layer, layer_index)
             if draw_image is None:
                 continue
             if self.flip_horizontal:

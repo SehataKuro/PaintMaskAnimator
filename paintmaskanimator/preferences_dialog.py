@@ -148,9 +148,20 @@ class PreferencesDialog(QDialog):
         self.autosave_interval.setEnabled(self.autosave_enabled.isChecked())
         self.autosave_interval.valueChanged.connect(self._autosave_changed)
 
+        self.keep_initial_state = QCheckBox(
+            tr("カットフォルダーの読み込みは常に色塗り前の初期状態として保存する")
+        )
+        self.keep_initial_state.setChecked(preferences.keep_initial_state_on_cut_folder())
+        self.keep_initial_state.toggled.connect(
+            preferences.set_keep_initial_state_on_cut_folder
+        )
+
         return _page(
             (tr("言語 / Language"), self.language),
             _hint(tr("言語は次回の起動から切り替わります。")),
+            (tr("初期状態"), self.keep_initial_state),
+            _hint(tr("初期状態として保存すると自動色塗りの精度が上がります。外すと、読み込み"
+                     "のたびに保存するか尋ねます。")),
             (tr("自動保存"), self.autosave_enabled),
             ("", self.autosave_interval),
             _hint(tr("アプリが異常終了したとき、次の起動で自動保存から作業を復元できます。")),

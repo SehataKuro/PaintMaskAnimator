@@ -199,7 +199,8 @@ def read_project_archive(path, png_cache=None):
     project_path = Path(path)
     with zipfile.ZipFile(project_path, "r") as archive:
         archive_entries = archive.infolist()
-        if len(archive_entries) > MAX_PROJECT_LAYER_CELLS + 1:
+        # セルの画像と、保持した初期状態（あれば）で、セル1つにつき最大2ファイル。
+        if len(archive_entries) > 2 * MAX_PROJECT_LAYER_CELLS + 1:
             raise OperationError(tr("プロジェクト内のファイル数が多すぎます。"))
         if any(info.flag_bits & 0x1 for info in archive_entries):
             raise OperationError(tr("暗号化されたプロジェクトには対応していません。"))
@@ -281,6 +282,41 @@ def read_project_archive(path, png_cache=None):
             height,
             decoded,
         )
+        def load_initial(layer_data):
+            """保持した色塗り前の初期状態。無ければ None。"""
+            line_path = layer_data.get("initial")
+            if not line_path:
+                return None
+            line_path = str(line_path)
+            normalized = PurePosixPath(line_path)
+            if (
+                normalized.is_absolute()
+                or ".." in normalized.parts
+                or normalized.suffix.lower() != ".png"
+            ):
+                raise OperationError(tr("初期状態の画像の参照パスが不正です。"))
+            try:
+                line_info = archive.getinfo(line_path)
+            except KeyError as error:
+                raise OperationError(
+                    tr("初期状態の画像がありません: {path}").format(path=line_path)
+                ) from error
+            if line_info.file_size > MAX_PROJECT_IMAGE_BYTES:
+                raise OperationError(tr("初期状態の画像が大きすぎます: {path}").format(path=line_path))
+            line_bytes = archive.read(line_path)
+            line_image = _decode_png(line_bytes)
+            if (
+                line_image.isNull()
+                or line_image.width() != width
+                or line_image.height() != height
+            ):
+                raise OperationError(
+                    tr("初期状態の画像を復元できません: {path}").format(path=line_path)
+                )
+            if png_cache is not None:
+                seeded.append((line_image, line_bytes))
+            return line_image
+
         for frame_data in frame_entries:
             loaded_layers = []
             for layer_data in frame_data.get("layers", []):
@@ -405,6 +441,7 @@ def read_project_archive(path, png_cache=None):
                             if layer_data.get("tween_member") is not None
                             else None
                         ),
+                        load_initial(layer_data),
                     )
                 )
 
@@ -570,10 +607,23 @@ def write_project_archive(
                         tr("画像を書き出せませんでした: {name}"),
                     )
 
+                    initial_name = None
+                    if getattr(layer, "initial_image", None) is not None:
+                        initial_name = (
+                            f"initial/layer_{layer_index:04d}/"
+                            f"frame_{frame_index:06d}.png"
+                        )
+                        write_png(
+                            initial_name,
+                            layer.initial_image,
+                            tr("初期状態の画像を書き出せませんでした: {name}"),
+                        )
+
                     frame_data["layers"].append(
                         {
                             "name": layer.name,
                             "image": image_name,
+                            "initial": initial_name,
                             "visible": bool(layer.visible),
                             "opacity": float(layer.opacity),
                             "is_paper": bool(layer.is_paper),

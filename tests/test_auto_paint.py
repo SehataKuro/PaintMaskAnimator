@@ -6,7 +6,7 @@ import pytest
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication
 
-from paintmaskanimator import auto_paint, imaging, reference_check
+from paintmaskanimator import auto_paint, imaging, project_io, reference_check
 from paintmaskanimator.main_window import MainWindow
 from paintmaskanimator.undo_entries import ScopedBatchUndo
 
@@ -269,11 +269,67 @@ def test_auto_paint_lists_spots_to_check(window):
     dialog.close()
 
 
+def overpainted(dx):
+    """右半分を、青の線ごと服の色で塗りかけてしまった絵。"""
+    pixels = figure(dx)
+    pixels[11:55, 31 + dx:59 + dx] = (*DRESS, 255)
+    return pixels
+
+
+@pytest.mark.parametrize("keep_initial", [True, False])
+def test_initial_state_lets_auto_paint_fix_overpainted_areas(window, keep_initial):
+    canvas = window.canvas
+    put_cells(window, [figure(0, painted=True), figure(2)])
+    if keep_initial:
+        window.initial_state.keep(confirm=False)  # 塗る前の線だけの絵を保持
+    put_cells(window, [figure(0, painted=True), overpainted(2)])
+
+    assert window.auto_paint.run(window.copy_paint.cells(), 0)
+
+    image = canvas.frames[1].layers[0].image
+    if keep_initial:
+        assert image.pixelColor(47, 20) == QColor(*LEAF), "初期状態の線で部分を分けて塗り直す"
+        assert image.pixelColor(47, 45) == QColor(*DRESS)
+    else:
+        assert image.pixelColor(47, 20) == QColor(*DRESS), "線が消えていると分けられない"
+
+
+def test_initial_state_is_saved_with_the_project(window, tmp_path):
+    put_cells(window, [figure(0), figure(2)])
+    assert window.initial_state.keep(confirm=False) == 2
+    put_cells(window, [figure(0, painted=True), figure(2)])
+    path = tmp_path / "kept.pman"
+    assert window.project.write(path)
+
+    _metadata, frames, _width, _height = project_io.read_project_archive(path)
+    initial = frames[0].layers[0].initial_image
+    assert initial is not None
+    assert initial.pixelColor(20, 40).alpha() == 0, "保持したのは塗る前の絵"
+    assert frames[0].layers[0].image.pixelColor(20, 40) == QColor(*SKIN)
+    assert frames[1].layers[0].initial_image is not None
+
+
+def test_compare_button_shows_the_initial_state(window):
+    canvas = window.canvas
+    put_cells(window, [figure(0), figure(2)])
+    window.compare_initial_button.setChecked(True)
+    assert not canvas.show_initial_state, "保持していなければ比べられない"
+    assert not window.compare_initial_button.isChecked()
+
+    window.initial_state.keep(confirm=False)
+    window.compare_initial_button.setChecked(True)
+    assert canvas.show_initial_state
+    window.compare_initial_button.setChecked(False)
+    assert not canvas.show_initial_state
+
+
 def test_auto_menu_holds_auto_paint(window):
     for action in window.menuBar().actions():
         if action.text() == "自動塗り":
             menu = action.menu()
             assert menu is not None
             assert window.a_auto_paint in menu.actions()
+            assert window.a_keep_initial_state in menu.actions()
+            assert window.a_clear_initial_state in menu.actions()
             return
     raise AssertionError("自動塗り")
