@@ -1,8 +1,9 @@
 """色分けの線を手がかりに、見本のセルから同じレイヤーのほかのセルを自動で塗る。
 
 原画では、黒の主線と、原色の赤・緑・青の色トレス線（範囲線・斜線・影の境目など）
-が色分けの境界になる。そこで各セルを、この4色の線で区切られた「部分」（同じ色で
-つながった画素）に分け、部分ごとに、もう塗り終えた隣のセルの同じ場所の色を写す。
+が色分けの境界になる。黄・水色・赤紫（原色2つを重ねた色）の線も同じに扱う。
+そこで各セルを、これらの線で区切られた「部分」（同じ色でつながった画素）に分け、
+部分ごとに、もう塗り終えた隣のセルの同じ場所の色を写す。
 
 * 見本から前後へ1セルずつ進み、塗り終えたセルを次のセルの手本にする。隣どうしは
   動きが小さいので、遠い見本と直接比べるより取り違えが少ない。
@@ -21,6 +22,12 @@
   その色にする。
 * 一通り塗ったら、迷った所の少ないセルを見本に加えて、残りのセルを塗り直す。
   手本が増えるので、向きの変わる所でも反対側から手がかりが得られる。
+* 細い部分は1〜2画素のずれで手本の線に重なりやすいので、色がそろわなければ
+  位置を少しだけ動かして試す。
+* 手本に無い形（開いた口、新しく見えてきたフリルなど）は、前のセルのその場所の
+  色で塗ると間違えるので、塗らずに「新しく出てきた部分」として知らせる。
+* 手がかりの無い色トレス線（見本に写っていない所の線）は残し、「決められなかった
+  線」として知らせる。
 
 画面も Qt も知らない純粋な処理で、書き込むのは呼び出し側（``main_window_auto_paint``）。
 """
@@ -34,8 +41,10 @@ from . import bucket_fill, fill_tracking, reference_check
 Rgb = Tuple[int, int, int]
 Bounds = Tuple[int, int, int, int]
 
-#: 色トレス線とみなす原色。各チャンネルがこれだけ離れていてよい。
+#: 色トレス線とみなす原色。強いチャンネルは 255 からこれだけ離れていてよい。
 PRIMARY_TOLERANCE = 40
+#: 弱いチャンネルは 0 からこれだけ離れていてよい（黄の線 ``#FFFF32`` など）。
+PRIMARY_LOW_TOLERANCE = 60
 #: これより小さい部分は扱わない（線のふちの数画素など）。
 MIN_REGION_PIXELS = 3
 #: まだ塗っていない部分は、手本の色がこの割合以上そろっていれば塗る。
@@ -47,6 +56,8 @@ REPAINT_SHARE = 0.8
 LINE_SHARE = 0.75
 #: 色トレス線は、手本でもこの割合以上が線の色なら残す。
 KEEP_LINE_SHARE = 0.5
+#: 「手本でも線」とみなす距離。中割りの線は1〜2画素ずれる。
+KEEP_LINE_RADIUS = 2
 #: ずらした先のうち、手本で線でない画素がこの割合以上あること。
 MIN_SAMPLED_SHARE = 0.5
 #: 重ねた先の手本の部分と、大きさがこれ以上違えば塗らない。
@@ -74,6 +85,14 @@ GAP_RADIUS = 2
 GAP_VALUE = 1
 #: 塗り残しを一覧に載せる大きさ（これより小さい隙間は数えるだけ）。
 REPORT_MIN_PIXELS = 30
+#: 細い部分の色がそろわないとき、位置をこの画素数まで動かして試す。
+REFINE_RADIUS = 2
+#: 手本で重なった部分がこの倍より大きく、
+NEW_PART_RATIO = 6.0
+#: 部分を囲む線のうち手本にもある割合がこれ未満なら、手本に無い新しい形とみなす。
+NEW_PART_OUTLINE = 0.35
+#: 決められなかった色トレス線を一覧に載せる大きさ。
+LINE_REPORT_MIN_PIXELS = 20
 #: 「塗り間違いかも」とするのは、手本の色がこの割合以上そろっているとき。
 SUSPECT_SHARE = 0.9
 #: これより小さな部分は「塗り間違いかも」にしない（髪のハイライトなどの小さな形は、
@@ -102,8 +121,12 @@ class CellPaint:
     line_pixels: int = 0
     #: 調べた部分の数（迷った割合を出すのに使う）。
     checked: int = 0
-    #: 人が確かめたほうがよい所（塗り残し・塗り間違いかも）。
+    #: 人が確かめたほうがよい所（塗り残し・塗り間違いかも・新しく出てきた部分・
+    #: 決められなかった線）。
     notes: List[reference_check.Finding] = field(default_factory=list)
+    #: 決められずに残した色トレス線 ``(外接矩形, マスク)``。次のセルの手本になったとき、
+    #: 「手本でも線のまま」を「残すと決めた」と取り違えないために使う。
+    undecided: List[Tuple[Bounds, np.ndarray]] = field(default_factory=list)
 
     @property
     def unsure_share(self) -> float:
@@ -127,16 +150,18 @@ class AutoPlan:
         return sum(1 for cell in self.cells.values() if cell.paints)
 
 
-def primary_line_mask(pixels, tolerance=PRIMARY_TOLERANCE) -> np.ndarray:
-    """原色の赤・緑・青の画素（色トレス線）。"""
+def primary_line_mask(pixels, tolerance=PRIMARY_TOLERANCE,
+                      low_tolerance=PRIMARY_LOW_TOLERANCE) -> np.ndarray:
+    """色トレス線の画素：原色の赤・緑・青と、2つを重ねた黄・水色・赤紫。
+
+    どのチャンネルも「強い」か「弱い」のどちらかで、強いチャンネルが1つか2つの色。
+    """
     rgb = pixels[:, :, :3].astype(np.int16)
     opaque = pixels[:, :, 3] > 0
     high = rgb >= 255 - tolerance
-    low = rgb <= tolerance
-    red = high[:, :, 0] & low[:, :, 1] & low[:, :, 2]
-    green = low[:, :, 0] & high[:, :, 1] & low[:, :, 2]
-    blue = low[:, :, 0] & low[:, :, 1] & high[:, :, 2]
-    return opaque & (red | green | blue)
+    low = rgb <= low_tolerance
+    strong = high.sum(axis=2)
+    return opaque & np.all(high | low, axis=2) & (strong >= 1) & (strong <= 2)
 
 
 def _is_primary(rgb) -> bool:
@@ -145,7 +170,7 @@ def _is_primary(rgb) -> bool:
 
 
 def boundary_mask(pixels) -> np.ndarray:
-    """色分けの境界：黒の主線と、原色の色トレス線。"""
+    """色分けの境界：黒の主線と、色トレス線。"""
     return fill_tracking.line_art(pixels) | primary_line_mask(pixels)
 
 
@@ -173,7 +198,14 @@ class _Cell:
         # 中割りの線は1画素ずれることが多いので、ずれを求めるときは1画素太らせた
         # 線にも重なりを認める（ぴったり重なるよりは少なく数える）。
         self.wide_boundary = bucket_fill.dilate(self.boundary, 1)
-        self.wide_primary = bucket_fill.dilate(self.primary, 1)
+        self.wide_primary = bucket_fill.dilate(self.primary, KEEP_LINE_RADIUS)
+        #: 決められずに残した色トレス線（このセルが手本のとき）。
+        self.undecided = np.zeros(self.values.shape, dtype=bool)
+
+    def mark_undecided(self, items) -> "_Cell":
+        for (x0, y0, x1, y1), mask in items:
+            self.undecided[y0:y1, x0:x1] |= mask
+        return self
 
 
 def _majority(values) -> Tuple[Optional[int], float]:
@@ -241,6 +273,8 @@ def _line_paints(target: _Cell, guide: _Cell, local, bounds, shift, painted, val
     sy, sx, inside = _shifted(target, local, bounds, shift)
     on_line = inside & guide.wide_primary[sy, sx]
     if on_line.sum() >= inside.sum() * KEEP_LINE_SHARE:
+        if (on_line & guide.undecided[sy, sx]).sum() * 2 > on_line.sum():
+            return None  # 手本でも決められずに残した線。手がかりにならない
         return []  # 手本でも線のまま（影の境目など）
     values = guide.values[sy, sx]
     colored = inside & ~guide.black[sy, sx] & ~guide.primary[sy, sx] & (values != 0)
@@ -373,16 +407,68 @@ def _local_shift(target: _Cell, guide: _Cell, bounds, context=CONTEXT, margin=SE
     return (int(dys[peak_y]) * step, int(dxs[peak_x]) * step), share
 
 
+def _refine(target: _Cell, guide: _Cell, local, bounds, shift):
+    """``shift`` のまわり ``REFINE_RADIUS`` 画素で、色が一番そろうずれ。
+
+    :returns: ``(ずれ, 色の値, そろっている割合)``。
+    """
+    value, share = _sample(target, guide, local, bounds, shift)
+    best: Tuple[Tuple[int, int], Optional[int], float] = (shift, value, share)
+    for dy in range(-REFINE_RADIUS, REFINE_RADIUS + 1):
+        for dx in range(-REFINE_RADIUS, REFINE_RADIUS + 1):
+            if dy == 0 and dx == 0:
+                continue
+            moved = (shift[0] + dy, shift[1] + dx)
+            value, share = _sample(target, guide, local, bounds, moved)
+            if value is not None and share > best[2]:
+                best = (moved, value, share)
+    return best
+
+
+def _is_new_part(target: _Cell, guide: _Cell, index, local, bounds, shift) -> bool:
+    """手本に無い形か（開いた口、新しく見えてきたフリルなど）。
+
+    手本で重なった部分がずっと大きく（口なら顔全体の肌）、部分を囲む線も手本に
+    ほとんど無いとき。塗り残しの隙間なら、囲む線は手本にもある。
+    """
+    sy, sx, inside = _shifted(target, local, bounds, shift)
+    keep = inside & ~guide.black[sy, sx]
+    if not keep.any():
+        return False
+    labels = guide.regions.labels[sy[keep], sx[keep]]
+    found, counts = np.unique(labels, return_counts=True)
+    size = float(guide.regions.sizes[int(found[int(np.argmax(counts))])])
+    if size <= float(target.regions.sizes[index]) * NEW_PART_RATIO:
+        return False
+    height, width = target.values.shape
+    x0, y0, x1, y1 = bounds
+    ax0, ay0 = max(0, x0 - 2), max(0, y0 - 2)
+    ax1, ay1 = min(width, x1 + 2), min(height, y1 + 2)
+    area = np.zeros((ay1 - ay0, ax1 - ax0), dtype=bool)
+    area[y0 - ay0:y1 - ay0, x0 - ax0:x1 - ax0] = local
+    ring = bucket_fill.dilate(area, 2) & ~area & target.boundary[ay0:ay1, ax0:ax1]
+    ys, xs = np.nonzero(ring)
+    if not ys.size:
+        return False
+    ry = np.clip(ys + ay0 + shift[0], 0, height - 1)
+    rx = np.clip(xs + ax0 + shift[1], 0, width - 1)
+    return float(guide.wide_boundary[ry, rx].mean()) < NEW_PART_OUTLINE
+
+
 def _region_outcome(target: _Cell, guide: _Cell, index, value, rgb, local, bounds, margin):
     """部分1つを ``guide`` で決める。``(種類, 色)``。
 
     種類は ``"paint"``（その色で塗る）、``"keep"``（今のままでよい）、
-    ``"suspect"``（違う色で塗ってあるが、形が合わず塗り替えない）、``"unsure"``。
+    ``"suspect"``（違う色で塗ってあるが、形が合わず塗り替えない）、
+    ``"new"``（手本に無い形なので塗らない）、``"unsure"``。
     """
     shift, overlap = _local_shift(target, guide, bounds, margin=margin)
     if overlap < MIN_LINE_OVERLAP:
         return "unsure", None
     sampled, share = _sample(target, guide, local, bounds, shift)
+    if rgb is None and (sampled is None or share < FILL_SHARE):
+        # 細い部分は1〜2画素のずれで手本の線に重なりやすい。少し動かして試す。
+        shift, sampled, share = _refine(target, guide, local, bounds, shift)
     if sampled is None:
         return "unsure", None
     if sampled == value:
@@ -400,6 +486,8 @@ def _region_outcome(target: _Cell, guide: _Cell, index, value, rgb, local, bound
         return "keep", None  # 手本では透明（塗らない所）。塗ってある色も消さない。
     if reference_check._is_line(new_rgb) or _is_primary(new_rgb):
         return "keep", None  # 線の色では塗らない
+    if rgb is None and _is_new_part(target, guide, index, local, bounds, shift):
+        return "new", None
     return "paint", new_rgb
 
 
@@ -446,17 +534,28 @@ def paint_cell(pixels, guides: List[_Cell], *, finishes=None, learned=None,
         if target.primary[y0:y1, x0:x1][local].any():
             lines.append((local, bounds, value))
             continue
-        outcome, suspect = None, None
+        outcome, suspect, new_part = None, None, False
         for guide in guides:
             kind, new_rgb = _region_outcome(target, guide, index, value, rgb, local, bounds,
                                             margin)
             if kind == "suspect":
                 suspect = suspect or new_rgb
+            elif kind == "new":
+                new_part = True
             elif kind != "unsure":
                 outcome = (kind, new_rgb)
                 break
+        size = int(regions.sizes[index])
+        if new_part and (outcome is None or outcome[0] != "paint"):
+            # どの手本でも塗れず、手本に無い形と分かった（手本で透明だった場合も、
+            # 前のセルで同じく決められなかっただけなので知らせる）。
+            if size >= REPORT_MIN_PIXELS:
+                result.notes.append(reference_check.Finding(
+                    reference_check.KIND_NEW_PART, None, size, bounds=bounds,
+                    mask=local.copy(),
+                ))
+            continue
         if outcome is None:
-            size = int(regions.sizes[index])
             if suspect is not None and size >= SUSPECT_MIN_PIXELS:
                 result.notes.append(reference_check.Finding(
                     reference_check.KIND_SUSPECT, rgb, size, bounds=bounds,
@@ -497,6 +596,14 @@ def paint_cell(pixels, guides: List[_Cell], *, finishes=None, learned=None,
             if paints is not None:
                 answers.append(paints)
         if not answers:
+            # 手がかりが無い（見本に写っていない所の線など）。残して知らせる。
+            result.undecided.append((bounds, local))
+            size = int(local.sum())
+            if size >= LINE_REPORT_MIN_PIXELS:
+                result.notes.append(reference_check.Finding(
+                    reference_check.KIND_UNDECIDED_LINE, reference_check._to_rgb(value), size,
+                    bounds=bounds, mask=local.copy(),
+                ))
             continue
         keep = sum(1 for paints in answers if not paints)
         if keep * 2 > len(answers) or (keep * 2 == len(answers) and not answers[0]):
@@ -579,11 +686,17 @@ def plan_auto_paint(
         current = {reference_index: cells[reference_index]}
         made: Dict[Tuple[str, int], _Cell] = {}
         sources = {"now": current, "before": previous}
+        # 決められずに残した線：この回の分と、前の回の分。
+        undecided_before = {index: paint.undecided for index, paint in plan.cells.items()}
+        undecided_now: Dict[int, list] = {}
 
-        def guide(source, index, made=made, sources=sources):
+        def guide(source, index, made=made, sources=sources,
+                  undecided_now=undecided_now, undecided_before=undecided_before):
             key = (source, index)
             if key not in made:
-                made[key] = _Cell(sources[source][index])
+                cell = _Cell(sources[source][index])
+                undecided = (undecided_now if source == "now" else undecided_before)
+                made[key] = cell.mark_undecided(undecided.get(index, []))
             return made[key]
 
         teacher = guide("now", reference_index)
@@ -611,6 +724,7 @@ def plan_auto_paint(
                                learned=learned, teacher=teacher, margin=margin)
             plan.cells[index] = paint
             current[index] = apply_paint(cells[index], paint)
+            undecided_now[index] = paint.undecided
         previous = current
         confident = {
             index for index, paint in plan.cells.items()

@@ -130,6 +130,10 @@ class ReferenceCheckDialog(QDialog):
             return tr("見本に無い色があります")
         if finding.kind == reference_check.KIND_UNPAINTED:
             return tr("塗り残し（決めきれず塗っていません）")
+        if finding.kind == reference_check.KIND_NEW_PART:
+            return tr("新しく出てきた部分（手本に無い形なので塗っていません）")
+        if finding.kind == reference_check.KIND_UNDECIDED_LINE:
+            return tr("色を決められなかった色トレス線（線のまま残しています）")
         if finding.kind == reference_check.KIND_SUSPECT:
             return tr("塗り間違いかも：前後のセルでは {color}").format(
                 color=_color_label(finding.expected)

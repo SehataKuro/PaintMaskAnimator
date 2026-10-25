@@ -37,6 +37,10 @@ KIND_MISMATCH = "mismatch"
 KIND_UNPAINTED = "unpainted"
 #: 自動塗りで、前後のセルと違う色で塗ってあった部分（塗り替えてはいない）。
 KIND_SUSPECT = "suspect"
+#: 自動塗りで、手本に無い形（開いた口など）なので塗らなかった部分。
+KIND_NEW_PART = "new_part"
+#: 自動塗りで、残すか塗るかを決める手がかりの無かった色トレス線。
+KIND_UNDECIDED_LINE = "undecided_line"
 
 #: 透明を表す値（:func:`fill_tracking._labels` と同じ）。
 _TRANSPARENT = 0

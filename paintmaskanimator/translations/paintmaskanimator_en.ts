@@ -6868,7 +6868,7 @@ Layer cell {value} / {exposure} exposures</translation>
     </message>
     <message>
         <location filename="../main_window_reference_check.py" line="83"/>
-        <location filename="../main_window_reference_check.py" line="202"/>
+        <location filename="../main_window_reference_check.py" line="206"/>
         <location filename="../main_window_ui_build.py" line="383"/>
         <source>見本との違いチェック</source>
         <translation>Check Against Reference</translation>
@@ -6925,47 +6925,57 @@ Layer cell {value} / {exposure} exposures</translation>
     </message>
     <message>
         <location filename="../main_window_reference_check.py" line="134"/>
+        <source>新しく出てきた部分（手本に無い形なので塗っていません）</source>
+        <translation>New part (not painted: no matching shape in the guide)</translation>
+    </message>
+    <message>
+        <location filename="../main_window_reference_check.py" line="136"/>
+        <source>色を決められなかった色トレス線（線のまま残しています）</source>
+        <translation>Colour-trace line with no clear colour (kept as a line)</translation>
+    </message>
+    <message>
+        <location filename="../main_window_reference_check.py" line="138"/>
         <source>塗り間違いかも：前後のセルでは {color}</source>
         <translation>Possibly wrong colour: {color} in the neighbouring cels</translation>
     </message>
     <message>
-        <location filename="../main_window_reference_check.py" line="137"/>
+        <location filename="../main_window_reference_check.py" line="141"/>
         <source>前後のコマでは {color}</source>
         <translation>Neighbouring frames use {color}</translation>
     </message>
     <message>
-        <location filename="../main_window_reference_check.py" line="171"/>
+        <location filename="../main_window_reference_check.py" line="175"/>
         <source>見本にするセル（塗ってあるコマ）を表示してから実行してください。</source>
         <extracomment>見本にはあるが、ほとんどのセルに無い色：(色, 無いセルの数, 比べたセルの数)。</extracomment>
         <translation>Show the cel to use as the reference (a painted frame) first.</translation>
     </message>
     <message>
-        <location filename="../main_window_reference_check.py" line="174"/>
+        <location filename="../main_window_reference_check.py" line="178"/>
         <source>比べるセルがありません。</source>
         <translation>There are no cels to compare.</translation>
     </message>
     <message>
-        <location filename="../main_window_reference_check.py" line="178"/>
+        <location filename="../main_window_reference_check.py" line="182"/>
         <source>チェックを中止しました。</source>
         <translation>The check was cancelled.</translation>
     </message>
     <message>
-        <location filename="../main_window_reference_check.py" line="181"/>
+        <location filename="../main_window_reference_check.py" line="185"/>
         <source>見本との違い・塗り間違いは見つかりませんでした。</source>
         <translation>No differences from the reference or painting mistakes were found.</translation>
     </message>
     <message>
-        <location filename="../main_window_reference_check.py" line="184"/>
+        <location filename="../main_window_reference_check.py" line="188"/>
         <source>{count}件の候補が見つかりました。</source>
         <translation>Found {count} candidate(s).</translation>
     </message>
     <message>
-        <location filename="../main_window_reference_check.py" line="210"/>
+        <location filename="../main_window_reference_check.py" line="214"/>
         <source>色を数えています</source>
         <translation>Counting colours</translation>
     </message>
     <message>
-        <location filename="../main_window_reference_check.py" line="225"/>
+        <location filename="../main_window_reference_check.py" line="229"/>
         <source>前後のコマと比べています</source>
         <translation>Comparing with neighbouring frames</translation>
     </message>
@@ -6977,15 +6987,10 @@ Layer cell {value} / {exposure} exposures</translation>
     <message>
         <location filename="../main_window_auto_paint.py" line="55"/>
         <location filename="../main_window_auto_paint.py" line="99"/>
-        <location filename="../main_window_auto_paint.py" line="139"/>
+        <location filename="../main_window_auto_paint.py" line="140"/>
         <location filename="../main_window_ui_build.py" line="382"/>
         <source>色分けの線で自動塗り</source>
         <translation>Auto Paint by Colour Lines</translation>
-    </message>
-    <message>
-        <location filename="../main_window_auto_paint.py" line="57"/>
-        <source>黒の主線と、赤・緑・青の色トレス線を色分けの境界にして、見本から隣のセルへ順に、同じ場所の色で塗ります。色トレス線も、見本で塗ってあればその色に、線のまま残してあれば残します。一通り塗ったら、迷った所の少ないセルを見本に加えて自動で塗り直します。ほかのレイヤーには触れません。</source>
-        <translation>Black lines and red, green and blue colour-trace lines separate the areas. Starting from the reference, each neighbouring cel in turn is painted with the colour of the same area. A colour-trace line is painted over if the reference paints it, and kept if the reference keeps it. After the first pass, cels with few uncertain areas are added as references and the rest are painted again automatically. Other layers are not touched.</translation>
     </message>
     <message>
         <location filename="../main_window_auto_paint.py" line="114"/>
@@ -6998,15 +7003,15 @@ Layer cell {value} / {exposure} exposures</translation>
         <translation>Auto Paint: Spots to Check</translation>
     </message>
     <message>
-        <location filename="../main_window_auto_paint.py" line="120"/>
-        <source>塗り残し（場所や色を決めきれなかった部分）と、前後のセルと違う色で塗ってあった部分（塗り替えていません）です。行を選ぶと、そのコマへ移って場所を選択します。</source>
-        <translation>Areas left unpainted because their position or colour was unclear, and areas already painted in a colour that differs from the neighbouring cels (not repainted). Select a row to go to that frame and select the spot.</translation>
-    </message>
-    <message>
         <location filename="../main_window_auto_paint.py" line="77"/>
         <location filename="../main_window_auto_paint.py" line="103"/>
         <source>自動塗りを中止しました。</source>
         <translation>Auto paint cancelled.</translation>
+    </message>
+    <message>
+        <location filename="../main_window_auto_paint.py" line="57"/>
+        <source>黒の主線と、赤・緑・青（と黄・水色・赤紫）の色トレス線を色分けの境界にして、見本から隣のセルへ順に、同じ場所の色で塗ります。色トレス線も、見本で塗ってあればその色に、線のまま残してあれば残します。一通り塗ったら、迷った所の少ないセルを見本に加えて自動で塗り直します。ほかのレイヤーには触れません。</source>
+        <translation>Black lines and red, green and blue (also yellow, cyan and magenta) colour-trace lines separate the areas. Starting from the reference, each neighbouring cel in turn is painted with the colour of the same area. A colour-trace line is painted over if the reference paints it, and kept if the reference keeps it. After the first pass, cels with few uncertain areas are added as references and the rest are painted again automatically. Other layers are not touched.</translation>
     </message>
     <message>
         <location filename="../main_window_auto_paint.py" line="81"/>
@@ -7024,7 +7029,12 @@ Layer cell {value} / {exposure} exposures</translation>
         <translation> Repainted {rounds} more time(s) using {added} reference cels.</translation>
     </message>
     <message>
-        <location filename="../main_window_auto_paint.py" line="145"/>
+        <location filename="../main_window_auto_paint.py" line="120"/>
+        <source>塗り残し（場所や色を決めきれなかった部分）、新しく出てきた部分（開いた口など、手本に無い形）、色を決められなかった色トレス線と、前後のセルと違う色で塗ってあった部分（塗り替えていません）です。行を選ぶと、そのコマへ移って場所を選択します。</source>
+        <translation>Unpainted areas (where the place or colour could not be decided), new parts (shapes not in the guide, such as an opening mouth), colour-trace lines with no clear colour, and areas painted a different colour from the neighbouring cels (not repainted). Select a row to go to that frame and select the spot.</translation>
+    </message>
+    <message>
+        <location filename="../main_window_auto_paint.py" line="146"/>
         <source>セルを順に塗っています</source>
         <translation>Painting cels in turn</translation>
     </message>

@@ -183,6 +183,41 @@ def test_notes_unpainted_and_suspect_spots():
     assert color_at(after, 20, 42) == LEAF, "塗り間違いかもしれない所は塗り替えない"
 
 
+def test_yellow_cyan_and_magenta_lines_are_boundaries():
+    pixels = np.zeros((4, 6, 4), dtype=np.uint8)
+    for x, rgb in enumerate([(255, 255, 50), (0, 255, 255), (255, 0, 255),
+                             (255, 255, 255), SKIN, (0, 0, 0)]):
+        pixels[:, x] = (*rgb, 255)
+    mask = auto_paint.primary_line_mask(pixels)
+    assert mask[0, :3].all(), "黄・水色・赤紫の線も色分けの線"
+    assert not mask[0, 3:].any(), "白・肌・黒は色分けの線ではない"
+
+
+def test_new_part_is_listed_and_left_unpainted():
+    # 肌の中に、見本に無い小さな囲み（開いた口など）が出てきた。
+    target = with_box(figure(2), 16, 36, 10)
+    plan = auto_paint.plan_auto_paint([figure(0, painted=True), target], 0)
+    assert plan is not None
+    kinds = {finding.kind: finding for finding in plan.cells[1].notes}
+    assert reference_check.KIND_NEW_PART in kinds
+    after = auto_paint.apply_paint(target, plan.cells[1])
+    assert color_at(after, 20, 40) is None, "新しく出てきた部分は塗らない"
+    assert color_at(after, 14, 20) == SKIN
+
+
+def test_colour_line_without_answer_is_listed_and_kept():
+    reference = figure(0, painted=True)
+    reference[34:55, 31:59] = 0  # 見本でも右下は塗っていない
+    target = figure(2)
+    target[50, 36:58] = (*GREEN, 255)
+    plan = auto_paint.plan_auto_paint([reference, target], 0)
+    assert plan is not None
+    kinds = {finding.kind for finding in plan.cells[1].notes}
+    assert reference_check.KIND_UNDECIDED_LINE in kinds
+    after = auto_paint.apply_paint(target, plan.cells[1])
+    assert color_at(after, 45, 50) == GREEN, "決められない線はそのまま残す"
+
+
 def put_cells(window, cells):
     """アクティブレイヤーの各コマへ絵を置く。"""
     canvas = window.canvas
