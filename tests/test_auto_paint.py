@@ -230,6 +230,94 @@ def put_cells(window, cells):
         layer.has_content = True
 
 
+def two_rooms(dx, divider_gap=False, wall_gap=False, painted=False):
+    """黒い枠を縦線で左右の部屋に分けた絵。``dx`` だけ右へ動く。
+
+    ``divider_gap`` なら仕切りに、``wall_gap`` なら左の壁に切れ目がある（元の線画で
+    よくある、線の切れ目）。``painted`` なら見本の塗り：左は肌、右は葉。
+    """
+    pixels = np.zeros((160, 240, 4), dtype=np.uint8)
+    x0, y0, x1, y1 = 20 + dx, 20, 200 + dx, 140
+    if painted:
+        pixels[y0:y1, x0:110 + dx] = (*SKIN, 255)
+        pixels[y0:y1, 110 + dx:x1] = (*LEAF, 255)
+    black = (0, 0, 0, 255)
+    pixels[y0, x0:x1] = pixels[y1 - 1, x0:x1] = black
+    pixels[y0:y1, x0] = pixels[y0:y1, x1 - 1] = pixels[y0:y1, 110 + dx] = black
+    if divider_gap:
+        pixels[76:84, 110 + dx] = 0
+    if wall_gap:
+        pixels[76:84, x0] = 0
+    # 動きを決める手がかりになる、部屋の中のかぎ形の印。
+    for mx, my in ((40, 40), (80, 100), (60, 70), (140, 45), (170, 110), (150, 80)):
+        pixels[my, mx + dx:mx + dx + 6] = black
+        pixels[my:my + 6, mx + dx + 5] = black
+    return pixels
+
+
+def test_rooms_joined_by_a_gap_are_painted_separately():
+    target = two_rooms(3, divider_gap=True)
+    cells = [two_rooms(0, painted=True), target]
+    plan = auto_paint.plan_auto_paint(cells, 0, hints=[None, target],
+                                      lines=[two_rooms(0), target])
+    assert plan is not None
+    after = auto_paint.apply_paint(target, plan.cells[1])
+    assert color_at(after, 60, 50) == SKIN
+    assert color_at(after, 160, 50) == LEAF, "切れ目でつながっても、手本の色で塗り分ける"
+    assert color_at(after, 160, 130) == LEAF
+
+
+def test_room_open_to_the_outside_through_a_gap_is_painted():
+    target = two_rooms(3, wall_gap=True)
+    cells = [two_rooms(0, painted=True), target]
+    plan = auto_paint.plan_auto_paint(cells, 0, hints=[None, target],
+                                      lines=[two_rooms(0), target])
+    assert plan is not None
+    after = auto_paint.apply_paint(target, plan.cells[1])
+    assert color_at(after, 60, 50) == SKIN, "壁の切れ目で絵の外とつながっても塗る"
+    assert color_at(after, 160, 50) == LEAF
+    assert color_at(after, 10, 80) is None, "本当の絵の外は塗らない"
+    assert color_at(after, 220, 80) is None
+
+
+def boxed(dx, inside=None):
+    """``figure`` の左の部分に、見本には無い小さな四角を描き足した絵。
+
+    ``inside`` なら、その四角の中を人が手で塗ってある。
+    """
+    pixels = figure(dx)
+    x0, x1 = 13 + dx, 25 + dx
+    pixels[38, x0:x1] = pixels[51, x0:x1] = (0, 0, 0, 255)
+    pixels[38:52, x0] = pixels[38:52, x1 - 1] = (0, 0, 0, 255)
+    if inside is not None:
+        pixels[39:51, x0 + 1:x1 - 1] = (*inside, 255)
+    return pixels
+
+
+def test_hand_painted_parts_are_kept_as_answers():
+    lines = figure(2)
+    hint = figure(2)
+    hint[11:33, 33:61] = (*DRESS, 255)  # 見本では葉の部分を、人が服の色で塗った
+    plan = auto_paint.plan_auto_paint([figure(0, painted=True), lines], 0,
+                                      hints=[None, hint], lines=[figure(0), lines])
+    assert plan is not None
+    after = auto_paint.apply_paint(lines, plan.cells[1])
+    assert color_at(after, 47, 20) == DRESS, "手で塗った色は塗り替えない"
+    assert color_at(after, 52, 50) == DRESS
+    assert color_at(after, 17, 20) == SKIN
+
+
+def test_hand_painted_cell_guides_its_neighbours():
+    cells = [figure(0, painted=True), boxed(2), boxed(4)]
+    hints = [None, boxed(2), boxed(4, inside=BLUSH)]
+    plan = auto_paint.plan_auto_paint(cells, 0, hints=hints,
+                                      lines=[figure(0), boxed(2), boxed(4)])
+    assert plan is not None
+    after = auto_paint.apply_paint(cells[1], plan.cells[1])
+    assert color_at(after, 20, 45) == BLUSH, "見本に無い四角は、手で塗った隣のセルから写す"
+    assert color_at(after, 15, 20) == SKIN
+
+
 def test_auto_paint_paints_only_the_layer_and_undoes_once(window):
     canvas = window.canvas
     canvas.add_layer()
