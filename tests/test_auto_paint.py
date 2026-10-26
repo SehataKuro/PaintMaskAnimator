@@ -421,3 +421,100 @@ def test_auto_menu_holds_auto_paint(window):
             assert window.a_clear_initial_state in menu.actions()
             return
     raise AssertionError("自動塗り")
+
+
+# 仕上げでは、原画のしるし（原色の色トレス線と、原色でない色で描き足した印）を
+# 残してはいけない。けれど、まわりの色で塗りつぶしてもいけない。
+CHARM = (255, 90, 195)
+CHARM_PAINT = (230, 160, 158)
+
+
+def figure_with_charm(dx, painted=False):
+    """髪の中にピンクのしるし（チャームの点線）を足した絵。見本ではチャームの色。"""
+    pixels = figure(dx, painted)
+    x0 = 10 + dx
+    for index in range(4):
+        pixels[14 + index * 2, x0 + 30:x0 + 33] = (
+            *(CHARM_PAINT if painted else CHARM), 255,
+        )
+    return pixels
+
+
+def test_mark_mask_finds_marks_but_not_paint_colours():
+    pixels = figure_with_charm(0, painted=True)
+    mask = auto_paint.mark_mask(pixels)
+    assert mask[14, 41], "ピンクのしるしの色（原色ではない）"
+    assert not mask[20, 15], "広く塗った肌はしるしではない"
+    assert not mask[10, 20], "黒の主線はしるしではない"
+    assert not auto_paint.mark_mask(figure(0))[20, 30], "原色の色トレス線は色トレス線のまま"
+
+
+def test_line_only_keeps_marks_in_another_colour():
+    """元の線画として保持する絵に、原色でないしるしも残す（消すと塗りつぶされる）。"""
+    kept = auto_paint.line_only(figure_with_charm(0))
+    assert color_at(kept, 41, 14) == CHARM, "ピンクのしるしを捨ててはいけない"
+    assert color_at(kept, 30, 20) == RED, "原色の色トレス線はこれまでどおり残す"
+    assert color_at(kept, 10, 20) == (0, 0, 0)
+
+
+def test_a_mark_in_another_colour_is_not_painted_over():
+    cells = [figure_with_charm(0, painted=True), figure_with_charm(2), figure_with_charm(4)]
+    plan = auto_paint.plan_auto_paint(cells, 0)
+    assert plan is not None
+    for index, dx in ((1, 2), (2, 4)):
+        after = auto_paint.apply_paint(cells[index], plan.cells[index])
+        charm = [color_at(after, 40 + dx + x, 14 + y * 2) for y in range(4) for x in range(3)]
+        assert CHARM not in charm, "しるしの色は仕上げに残さない"
+        assert charm.count(CHARM_PAINT) >= 8, "まわりの髪の色で塗りつぶしてはいけない"
+
+
+def figure_with_red_edge(dx, painted=False):
+    """シルエットの外側に沿った赤の色トレス線。見本では肌の色で塗りつぶしてある。"""
+    pixels = figure(dx, painted)
+    x0 = 10 + dx
+    pixels[10, x0 + 5:x0 + 15] = (*SKIN, 255) if painted else (*RED, 255)
+    return pixels
+
+
+def test_a_colour_trace_line_on_the_silhouette_is_replaced():
+    cells = [figure_with_red_edge(0, painted=True), figure_with_red_edge(2),
+             figure_with_red_edge(4)]
+    plan = auto_paint.plan_auto_paint(cells, 0)
+    assert plan is not None
+    for index, dx in ((1, 2), (2, 4)):
+        after = auto_paint.apply_paint(cells[index], plan.cells[index])
+        edge = [color_at(after, 15 + dx + x, 10) for x in range(10)]
+        assert RED not in edge, "色トレス線は置き換える前提で置かれている"
+        assert edge.count(SKIN) >= 8, "となりの部分の色で置き換える"
+
+
+def test_an_undecidable_colour_trace_line_takes_the_neighbour_colour():
+    """手本から決められない色トレス線も、残さずとなりの部分の色にする。
+
+    シルエットの外側に沿った線は、ずらした先の半分が絵の外なので、手本から色を
+    決められない。残すと原色の赤がそのまま仕上げに出てしまう。
+    """
+    target = np.zeros((40, 40, 4), dtype=np.uint8)
+    target[10:30, 10:30] = (*SKIN, 255)
+    target[10, 10:30] = (*RED, 255)
+    paint = auto_paint.paint_from_guide(target, np.zeros((40, 40, 4), dtype=np.uint8))
+    after = auto_paint.apply_paint(target, paint)
+    assert color_at(after, 20, 10) == SKIN
+
+
+def figure_with_hole(dx, painted=False):
+    """肌の中に、黒い印で囲まれた1画素の穴がある絵。"""
+    pixels = figure(dx, painted)
+    x0 = 10 + dx
+    pixels[39:42, x0 + 9:x0 + 12] = (0, 0, 0, 255)
+    pixels[40, x0 + 10] = (0, 0, 0, 0)
+    return pixels
+
+
+def test_a_one_pixel_hole_is_filled_from_around_it():
+    cells = [figure_with_hole(0, painted=True), figure_with_hole(2), figure_with_hole(4)]
+    plan = auto_paint.plan_auto_paint(cells, 0)
+    assert plan is not None
+    for index, dx in ((1, 2), (2, 4)):
+        after = auto_paint.apply_paint(cells[index], plan.cells[index])
+        assert color_at(after, 20 + dx, 40) == SKIN, "1画素の穴から背景が透けてはいけない"
