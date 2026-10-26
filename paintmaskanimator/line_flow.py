@@ -136,7 +136,7 @@ def estimate_flow(target_lines, guide_lines) -> Flow:
         guide = bucket_fill.dilate(_pool(guide_lines, scale, rows, cols), 1)
         counts = _block_sum(target, rows, cols).astype(np.float64)
         size = BLOCK // scale
-        level_h, level_w = int(target.shape[0]), int(target.shape[1])
+        level_h, level_w = rows * size, cols * size
         ys, xs = np.mgrid[0:level_h, 0:level_w]
         base_y = np.repeat(np.repeat(np.round(flow_y / scale).astype(np.int64), size, 0), size, 1)
         base_x = np.repeat(np.repeat(np.round(flow_x / scale).astype(np.int64), size, 0), size, 1)
