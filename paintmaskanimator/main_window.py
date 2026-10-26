@@ -72,6 +72,7 @@ from .main_window_import import ImportController
 from .main_window_input import InputMixin
 from .main_window_layer_ops import LayerOpsController
 from .main_window_line_ops import LineOpsController
+from .main_window_auto_fill import AutoFillController
 from .main_window_onion import OnionSkinController
 from .main_window_project_io import ProjectIOController
 from .main_window_time_remap import TimeRemapController
@@ -102,6 +103,7 @@ class MainWindow(
         self.colors=ColorInteractionController(self)
         self.used_color=UsedColorController(self)
         self.line_ops=LineOpsController(self)
+        self.auto_fill=AutoFillController(self)
         self.timeline_ops=TimelineOpsController(self)
         self.layers=LayerOpsController(self)
         self.color_chart_ops=ColorChartController(self)

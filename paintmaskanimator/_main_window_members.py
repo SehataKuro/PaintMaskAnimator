@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from .main_window_color_interaction import ColorInteractionController
     from .main_window_used_color import UsedColorController
     from .main_window_line_ops import LineOpsController
+    from .main_window_auto_fill import AutoFillController
     from .main_window_timeline_ops import TimelineOpsController
     from .main_window_layer_ops import LayerOpsController
     from .main_window_color_chart import ColorChartController
@@ -268,6 +269,7 @@ class MainWindowMembers(_MembersBase):
         colors: ColorInteractionController
         used_color: UsedColorController
         line_ops: LineOpsController
+        auto_fill: AutoFillController
         timeline_ops: TimelineOpsController
         layers: LayerOpsController
         color_chart_ops: ColorChartController

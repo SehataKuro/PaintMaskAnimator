@@ -110,6 +110,9 @@ class UIBuildMixin(MainWindowMembers):
         self.a_silhouette.triggered.connect(self.line_ops.toggle_silhouette)
         self.a_remove_dust=QAction(tr("ゴミ取り／塗り抜け…"),self)
         self.a_remove_dust.triggered.connect(self.line_ops.remove_dust_fill_surrounding)
+        self.a_auto_fill=QAction(tr("前のセルの色で自動塗り"),self)
+        self.a_auto_fill.setToolTip(tr("前のセルの塗りを手がかりに、このセルのまだ塗っていない部分を塗ります。"))
+        self.a_auto_fill.triggered.connect(self.auto_fill.fill_from_previous_cell)
         self.a_shortcuts=QAction(tr("ショートカット設定…"),self);self.a_shortcuts.triggered.connect(self.shortcuts)
         # macOS ではアプリ名のメニューへ移る（⌘,）。
         self.a_preferences=QAction(tr("環境設定…"),self)
@@ -161,7 +164,7 @@ class UIBuildMixin(MainWindowMembers):
             self.a_export_png_seq, self.a_export_tga_seq, self.a_export_cut_folder,
             self.a_prev, self.a_next,
             self.a_pressure, self.a_isolate_color, self.a_clear_color_filter,
-            self.a_silhouette, self.a_remove_dust,
+            self.a_silhouette, self.a_remove_dust, self.a_auto_fill,
         ):
             action.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
 
@@ -366,6 +369,7 @@ class UIBuildMixin(MainWindowMembers):
             (tr("選択色だけ表示"), self.a_isolate_color),
             (tr("特定色表示を解除"), self.a_clear_color_filter),
             (tr("ゴミ取り"), self.a_remove_dust),
+            (tr("前のセルの色で自動塗り"), self.a_auto_fill),
         ]
         self.tool_command_actions = [
             (tr("描画色：メインを選択"), self.a_select_main),
@@ -439,7 +443,7 @@ class UIBuildMixin(MainWindowMembers):
         f.addAction(self.a_export_xdts)
         f.addAction(self.a_export_psd)
         f.addAction(self.a_export_mp4)
-        e=self.menuBar().addMenu(tr("編集"));e.addAction(self.a_undo);e.addAction(self.a_redo);e.addSeparator();e.addAction(self.a_cut);e.addAction(self.a_copy);e.addAction(self.a_paste);e.addSeparator();e.addAction(self.a_silhouette);e.addAction(self.a_isolate_color);e.addAction(self.a_clear_color_filter);e.addAction(self.a_swap_main_sub);e.addAction(self.a_remove_dust);e.addSeparator();e.addAction(self.a_resize);e.addAction(self.a_pressure)
+        e=self.menuBar().addMenu(tr("編集"));e.addAction(self.a_undo);e.addAction(self.a_redo);e.addSeparator();e.addAction(self.a_cut);e.addAction(self.a_copy);e.addAction(self.a_paste);e.addSeparator();e.addAction(self.a_silhouette);e.addAction(self.a_isolate_color);e.addAction(self.a_clear_color_filter);e.addAction(self.a_swap_main_sub);e.addAction(self.a_remove_dust);e.addAction(self.a_auto_fill);e.addSeparator();e.addAction(self.a_resize);e.addAction(self.a_pressure)
         e.addSeparator()
         self.a_color_chart = QAction(tr("カラーチャート…"), self)
         self.a_color_chart.triggered.connect(
