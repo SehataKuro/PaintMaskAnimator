@@ -390,3 +390,23 @@ def test_tracking_works_with_line_extension(window):
         image = window.canvas.frames[frame_index].layers[0].image
         assert image.pixelColor(130 + frame_index * 90, height - 100) == QColor("#3355ff")
         assert image.pixelColor(constants.CANVAS_WIDTH - 20, 20) == QColor("white"), "背景へ漏れない"
+
+
+def test_tracks_a_region_split_in_two_without_stopping(window):
+    """シワの線で2つに分かれたコマでも止まらず、分かれた両方を塗る。"""
+    prepare(window, 3, size=20)
+    black = QColor("black")
+    for frame_index in (1, 2):
+        image = window.canvas.frames[frame_index].layers[0].image
+        for y in range(4, 24):
+            image.setPixelColor(14, y, black)
+
+    window.canvas.flood_fill(QPoint(8, 8))
+
+    assert not window.canvas.skewer_fill_pending(), "分かれても同じ図形とみなす"
+    for frame_index in (1, 2):
+        image = window.canvas.frames[frame_index].layers[0].image
+        assert image.pixelColor(8, 14) == QColor("#3355ff")
+        assert image.pixelColor(19, 14) == QColor("#3355ff")
+        assert image.pixelColor(14, 14) == black, "線は塗らない"
+        assert image.pixelColor(1, 1) == QColor("white")

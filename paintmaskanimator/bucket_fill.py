@@ -648,6 +648,9 @@ TRACK_MIN_IOU = 0.1
 TRACK_GOOD_IOU = 0.75
 #: 前のコマの領域との面積比がこの倍率を超えたら別物（背景への漏れなど）とみなす。
 TRACK_MAX_AREA_RATIO = 3.0
+#: 候補の面積のうち、前のコマの範囲に収まっている割合がこれ以上なら、
+#: 前のコマの領域が分かれた一部とみなしてまとめて塗る。
+TRACK_INCLUDE_RATIO = 0.7
 
 
 def track_fill_region(
@@ -657,20 +660,27 @@ def track_fill_region(
     options: BucketOptions,
     selection_mask=None,
     previous_pixels=None,
+    previous_lines=None,
 ) -> FillResult:
     """前のコマで塗った領域 ``previous`` を手がかりに、このコマで同じ図形を塗る。
 
     1. ``previous_pixels``（前のコマの画素）があれば、塗った範囲のまわりの線画を
        比べて、図形がどれだけ動いたかを推定し（:mod:`fill_tracking`）、前の範囲を
-       そのぶん動かす。図形がその幅ほど動いても重なりが保てる。
+       そのぶん動かす。区画ごとにずらした範囲（回転や一部だけの動き用）も作る。
     2. 動かした範囲（と、推定が外れたときのために元の位置）と重なる閉じた領域を
        候補にして、塗ってみる。
     3. 重なり（IoU）が一番大きく、面積も大きく変わらない領域を選ぶ。背景へ漏れた
        領域は面積が跳ね上がるので弾かれる。
+    4. シワや重なりで前のコマの1つの領域が今のコマでは何個かに分かれていると、
+       どの1つも重なりが小さい。そこで、ほとんどが前の範囲に収まっている
+       （前の範囲に「含まれる」）候補をまとめた範囲も比べ、重なりが大きければ
+       そちらを採る。
 
     :param previous: 前のコマ（追跡の1つ手前）で塗った画素の真偽マスク。
     :param reference: 塗り始めたコマの開始点の色種別（:func:`seed_category`）。
     :param previous_pixels: ``previous`` を作ったコマの RGBA 配列。省略時はずれを推定しない。
+    :param previous_lines: 前のコマの線画（塗りを止める画素）の真偽マスク。
+        省略時は ``previous_pixels`` から対象色の設定で求める。
     :returns: 結果の ``score`` に重なりを入れる。自信がなくても候補があれば ok で返し、
         採用するかは呼び出し側が ``score`` で決める。候補が無ければ ``REASON_EMPTY``。
     """
@@ -685,17 +695,27 @@ def track_fill_region(
         target &= selection_mask
 
     references = [previous]
-    if previous_pixels is not None and previous_pixels.shape == pixels.shape:
+    if (
+        previous_lines is None
+        and previous_pixels is not None
+        and previous_pixels.shape == pixels.shape
+    ):
         previous_lines = ~fill_target_mask(
             previous_pixels, options.target_color, reference
         )
-        shifts = fill_tracking.estimate_shifts(previous_lines, ~target, previous)
+    if previous_lines is not None and previous_lines.shape == previous.shape:
+        current_lines = ~target
+        shifts = fill_tracking.estimate_shifts(previous_lines, current_lines, previous)
         # 動かした位置を先に試す。推定が外れたときのために元の位置も残す。
         moved = [
             fill_tracking.shift_mask(previous, dy, dx)
             for dy, dx in shifts if dy or dx
         ]
-        references = moved + references
+        warped = fill_tracking.warp_region(
+            previous_lines, current_lines, previous,
+            shifts[0] if shifts else (0, 0),
+        )
+        references = ([warped] if warped is not None else []) + moved + references
 
     eligible = np.zeros(target.shape, dtype=bool)
     for reference_mask in references:
@@ -705,6 +725,12 @@ def track_fill_region(
     center_y, center_x = (float(value) for value in np.argwhere(lead).mean(axis=0))
     reference_areas = [int(np.count_nonzero(mask)) for mask in references]
 
+    def iou_with(mask, area, index):
+        overlap = int(np.count_nonzero(mask & references[index]))
+        return overlap / max(1, area + reference_areas[index] - overlap)
+
+    # (結果, 面積, 手がかりごとの重なりの画素数)
+    candidates = []
     best: Optional[FillResult] = None
     best_iou = 0.0
     for _attempt in range(TRACK_MAX_TRIES):
@@ -728,16 +754,43 @@ def track_fill_region(
         eligible &= ~region
         area = int(np.count_nonzero(region))
         ratio = area / previous_area
-        if ratio > TRACK_MAX_AREA_RATIO or ratio < 1.0 / TRACK_MAX_AREA_RATIO:
+        if ratio > TRACK_MAX_AREA_RATIO:
             continue
-        iou = 0.0
-        for reference_mask, reference_area in zip(references, reference_areas):
-            overlap = int(np.count_nonzero(region & reference_mask))
-            iou = max(iou, overlap / max(1, area + reference_area - overlap))
+        overlaps = [
+            int(np.count_nonzero(region & reference_mask))
+            for reference_mask in references
+        ]
+        candidates.append((result, area, overlaps))
+        if ratio < 1.0 / TRACK_MAX_AREA_RATIO:
+            # 1つだけでは小さすぎるが、分かれた一部としてはまとめる候補に残す。
+            continue
+        iou = max(
+            overlap / max(1, area + reference_area - overlap)
+            for overlap, reference_area in zip(overlaps, reference_areas)
+        )
         if iou > best_iou:
             best, best_iou = result, iou
             if iou >= TRACK_GOOD_IOU:
                 break
+
+    # 分かれた領域をまとめた範囲。手がかり（動かし方）ごとに作って比べる。
+    if best_iou < TRACK_GOOD_IOU:
+        for index in range(len(references)):
+            members = [
+                result for result, area, overlaps in candidates
+                if overlaps[index] >= area * TRACK_INCLUDE_RATIO
+            ]
+            if len(members) < 2:
+                continue
+            union = np.zeros(target.shape, dtype=bool)
+            for result in members:
+                union |= result.mask
+            iou = iou_with(union, int(np.count_nonzero(union)), index)
+            if iou > best_iou:
+                best_iou = iou
+                best = FillResult(
+                    REASON_OK, union, target=reference, bounds=mask_bounds(union)
+                )
     if best is None or best_iou < TRACK_MIN_IOU:
         return FillResult(REASON_EMPTY, target=reference, score=best_iou)
     best.score = best_iou
