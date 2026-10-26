@@ -61,7 +61,12 @@ def destroy_leftover_main_windows():
     so later window tests (``test_docking.py``) slow to a crawl -- over a
     minute per test after the files before it -- and look hung.
     """
+    _tidy_up_leftover_main_windows()
     yield
+    _tidy_up_leftover_main_windows()
+
+
+def _tidy_up_leftover_main_windows():
     import sys
 
     main_window = sys.modules.get("paintmaskanimator.main_window")
@@ -85,9 +90,14 @@ def destroy_leftover_main_windows():
         window.close()
         remove_app_event_filter(window.subview)
     if sys.platform == "win32":
-        # Windows では、ドッキング（QtAds）の窓を持つメインウィンドウをここで
-        # 強制的に破棄すると access violation で落ちる（CI の Windows で再現）。
-        # フィルターは外したので、破棄はせずに残しておく。
+        # Windows では、ドッキング（QtAds）の窓を持つメインウィンドウを破棄すると
+        # access violation やヒープ破壊で落ちる（CI の Windows で再現）。
+        # テストの多くは片付けに ``window.deleteLater()`` を呼ぶが、その破棄は
+        # 次にイベントを回したところ――たいていは別のテストの最中――で起こる。
+        # そこで、積まれた破棄の予定を取り消して、窓は残しておく。
+        # フィルターは外したので、残っていても遅くはならない。
+        for window in windows:
+            QCoreApplication.removePostedEvents(window, QEvent.Type.DeferredDelete)
         return
     for window in windows:
         window.deleteLater()
