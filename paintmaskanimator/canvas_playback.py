@@ -113,6 +113,7 @@ class PlaybackMixin(CanvasMembers):
             int(self.active_layer_index),
             bool(self.flip_horizontal),
             bool(self.silhouette_non_background),
+            self.view_preview.key(),
         )
         cached = self._playback_frame_cache.get(cache_key)
         if cached is not None:
@@ -162,8 +163,9 @@ class PlaybackMixin(CanvasMembers):
             if not layer.visible:
                 continue
 
-            draw_image = self._display_layer_image(
-                layer, layer_index
+            draw_image = self.view_layer_image(
+                layer, layer_index,
+                self._display_layer_image(layer, layer_index),
             )
             if self.flip_horizontal:
                 draw_image = draw_image.mirrored(True, False)

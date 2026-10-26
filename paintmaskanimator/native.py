@@ -70,3 +70,27 @@ def erode(mask, iterations):
     return _as_mask(
         _native.erode(_as_bytes(mask), width, height, int(iterations)), height, width
     )
+
+
+#: :func:`label_regions` で番号を付けない画素の値。
+INVALID_CODE = 0xFFFFFFFF
+
+
+def label_regions(codes):
+    """同じ値で4近傍につながった画素に1からの番号を付ける。使えなければ None。
+
+    :param codes: uint32 の2次元配列。:data:`INVALID_CODE` の画素は番号 0。
+    :returns: ``(番号の int32 配列, 領域の数)``。
+    """
+    if not available():
+        return None
+    assert _native is not None
+    if not hasattr(_native, "label_regions"):
+        # 古い部品が入っている環境（開発中など）では numpy 版を使う。
+        return None
+    height, width = codes.shape
+    data, count = _native.label_regions(
+        np.ascontiguousarray(codes, dtype=np.uint32).tobytes(), width, height
+    )
+    labels = np.frombuffer(data, dtype=np.uint32).reshape(height, width)
+    return labels.astype(np.int32), int(count)

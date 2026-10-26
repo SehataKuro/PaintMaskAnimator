@@ -106,9 +106,13 @@ def register_actions(panel, window):
 
 | ファイル | ラベル | 内容 |
 | --- | --- | --- |
-| `builtin_silhouette.py` | 背景以外を黒シルエット表示 | チェック可能。背景以外を黒シルエット表示（`window.a_silhouette`）。 |
 | `builtin_same_image_replacement.py` | 同一画像から色置換 | 同じタイムライン位置の上レイヤーと画素配置を比較し、一致した色対応を実画像へ適用。 |
 | `builtin_main_line_repaint.py` | MainLineRepaint | メイン色・サブ色を線レイヤーへ分離し、抜けた面を周囲の最多色で埋める。 |
+
+以前の組み込みアクション「背景以外を黒シルエット表示」（`builtin_silhouette.py`）は、
+キャンバスの下のバーのブラックチェックのボタンへ移しました。一字も編集していない
+`builtin_silhouette.py` は起動時にアクションフォルダから消え、編集したものは
+ユーザーのスクリプトとして残ります。
 
 組み込みスクリプトはユーザー定義アクションのお手本にもなります。エディタで
 開いて書き方を確認できます。

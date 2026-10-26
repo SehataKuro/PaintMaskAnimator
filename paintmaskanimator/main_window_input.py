@@ -618,6 +618,7 @@ class InputMixin(MainWindowMembers):
             QEvent.Type.WindowDeactivate,
         ):
             self._held_canvas_shortcut_tokens.clear()
+            self.tool_hold.release_all()
             try:
                 self.color_chart.tile_canvas.clear_hold_keys()
             except RuntimeError:
@@ -626,6 +627,13 @@ class InputMixin(MainWindowMembers):
             self._update_canvas_hold_operation()
             return super().eventFilter(watched, event)
 
+        if (
+            event.type() == QEvent.Type.ShortcutOverride
+            and not getattr(event, "isAutoRepeat", lambda: False)()
+        ):
+            # ツールの一時切り替え：ショートカットになるキーには KeyPress が
+            # 届かないので、押したことはここで覚える。
+            self.tool_hold.key_pressed(self._event_key_token(event))
         if event.type() in (QEvent.Type.KeyPress, QEvent.Type.KeyRelease):
             # ショートカット編集ダイアログ内では、入力したキーをキャンバス操作に使わない。
             modal = QApplication.activeModalWidget()
@@ -634,6 +642,8 @@ class InputMixin(MainWindowMembers):
             if getattr(event, "isAutoRepeat", lambda: False)():
                 return super().eventFilter(watched, event)
             token = self._event_key_token(event)
+            if event.type() == QEvent.Type.KeyRelease:
+                self.tool_hold.key_released(token)
             self._handle_space_tap(token, event.type() == QEvent.Type.KeyPress)
             if event.type() == QEvent.Type.KeyPress:
                 if token:

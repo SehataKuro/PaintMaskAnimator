@@ -10,6 +10,7 @@ from PySide6.QtGui import QColor, QImage  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from paintmaskanimator.canvas_playback import PlaybackMixin  # noqa: E402
+from paintmaskanimator.view_preview import ViewPreview  # noqa: E402
 
 
 @pytest.fixture(scope="session")
@@ -40,6 +41,7 @@ class _Playback(PlaybackMixin):
         self.active_layer_index = 0
         self.flip_horizontal = False
         self.silhouette_non_background = False
+        self.view_preview = ViewPreview()
         self._playback_active = False
         self._playback_resolved_keys = []
         self._playback_frame_cache = {}
@@ -68,6 +70,9 @@ class _Playback(PlaybackMixin):
     def _display_layer_image(self, layer, layer_index):
         self.display_calls.append((layer, layer_index))
         return layer.image
+
+    def view_layer_image(self, layer, layer_index, image):
+        return image
 
 
 def test_key_map_handles_empty_and_ragged_layers():

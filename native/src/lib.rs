@@ -185,6 +185,65 @@ pub fn erode(mask: &[u8], width: usize, height: usize, iterations: usize) -> Vec
     bits.unpack()
 }
 
+/// 隣り合う画素の値が同じなら同じ領域とみなし、4 近傍でつながった領域に
+/// 1 から始まる番号を付ける。`codes` が `INVALID_CODE` の画素は番号 0。
+///
+/// 番号は、各領域の最初の画素（行優先の順）が現れた順に振る。numpy 版
+/// （`view_preview.label_regions`）と同じ番号になる。
+pub const INVALID_CODE: u32 = u32::MAX;
+
+pub fn label_regions(codes: &[u32], width: usize, height: usize) -> (Vec<u32>, u32) {
+    let total = width * height;
+    let mut parent: Vec<usize> = (0..total).collect();
+    fn find(parent: &mut [usize], mut index: usize) -> usize {
+        while parent[index] != index {
+            parent[index] = parent[parent[index]];
+            index = parent[index];
+        }
+        index
+    }
+    fn union(parent: &mut [usize], a: usize, b: usize) {
+        let (ra, rb) = (find(parent, a), find(parent, b));
+        // 小さい添字（先に現れた画素）を根にする。
+        if ra < rb {
+            parent[rb] = ra;
+        } else if rb < ra {
+            parent[ra] = rb;
+        }
+    }
+    for y in 0..height {
+        for x in 0..width {
+            let index = y * width + x;
+            let code = codes[index];
+            if code == INVALID_CODE {
+                continue;
+            }
+            if x > 0 && codes[index - 1] == code {
+                union(&mut parent, index, index - 1);
+            }
+            if y > 0 && codes[index - width] == code {
+                union(&mut parent, index, index - width);
+            }
+        }
+    }
+    let mut labels = vec![0u32; total];
+    let mut count = 0u32;
+    for index in 0..total {
+        if codes[index] == INVALID_CODE {
+            continue;
+        }
+        let root = find(&mut parent, index);
+        if root == index {
+            count += 1;
+            labels[index] = count;
+        } else {
+            // 根は自分より前の画素なので、もう番号が付いている。
+            labels[index] = labels[root];
+        }
+    }
+    (labels, count)
+}
+
 fn check_size(data: &[u8], width: usize, height: usize) -> PyResult<()> {
     if data.len() != width * height {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(
@@ -236,11 +295,29 @@ fn py_erode<'py>(
     Ok(PyBytes::new(py, &result))
 }
 
+#[pyfunction(name = "label_regions")]
+fn py_label_regions<'py>(
+    py: Python<'py>,
+    codes: &[u8],
+    width: usize,
+    height: usize,
+) -> PyResult<(Bound<'py, PyBytes>, u32)> {
+    check_size(codes, width * 4, height)?;
+    let values: Vec<u32> = codes
+        .chunks_exact(4)
+        .map(|chunk| u32::from_ne_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+        .collect();
+    let (labels, count) = py.detach(|| label_regions(&values, width, height));
+    let bytes: Vec<u8> = labels.iter().flat_map(|value| value.to_ne_bytes()).collect();
+    Ok((PyBytes::new(py, &bytes), count))
+}
+
 #[pymodule]
 fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(py_flood_fill, module)?)?;
     module.add_function(wrap_pyfunction!(py_dilate, module)?)?;
     module.add_function(wrap_pyfunction!(py_erode, module)?)?;
+    module.add_function(wrap_pyfunction!(py_label_regions, module)?)?;
     module.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
 }
@@ -248,6 +325,16 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn labels_follow_first_appearance() {
+        let x = INVALID_CODE;
+        // 3x3。左上の 1 と右下の 1 はつながっていないので別の領域。
+        let codes = [1, 1, x, 2, x, 1, 2, 2, 1];
+        let (labels, count) = label_regions(&codes, 3, 3);
+        assert_eq!(count, 3);
+        assert_eq!(labels, vec![1, 1, 0, 2, 0, 3, 2, 2, 3]);
+    }
 
     #[test]
     fn flood_stops_at_walls() {

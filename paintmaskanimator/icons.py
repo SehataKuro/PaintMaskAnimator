@@ -151,6 +151,22 @@ _PATHS = {
         '<path d="M12 5h7a1.5 1.5 0 0 1 1.5 1.5v11A1.5 1.5 0 0 1 19 19h-7Z" '
         'fill="ACCENT" stroke="none" opacity=".45"/>'
     ),
+    # ブラックチェック：人の形を塗りつぶしたシルエット。
+    "black_check": (
+        '<circle cx="12" cy="7.5" r="3.2" fill="currentColor"/>'
+        '<path d="M5.5 20.5c.4-4.4 3-7 6.5-7s6.1 2.6 6.5 7Z" fill="currentColor"/>'
+    ),
+    # 隣接色分け：隣り合う区画を違う色で塗り分けた地図。
+    "map_colors": (
+        '<path d="M3.5 6.5 9 4.5l6 2 5.5-2v13l-5.5 2-6-2-5.5 2Z"/>'
+        '<path d="M9 4.5v13M15 6.5v13"/>'
+        '<path d="M9 4.5l6 2v13l-6-2Z" fill="ACCENT" stroke="none" opacity=".55"/>'
+    ),
+    # 露光量：半分を塗った絞り（AE の露光量の調整と同じ見立て）。
+    "exposure": (
+        '<circle cx="12" cy="12" r="8"/>'
+        '<path d="M12 4a8 8 0 0 1 0 16Z" fill="currentColor"/>'
+    ),
     "rotate_reset": (
         '<path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3"/><path d="M4.5 4.5v4h4"/>'
     ),

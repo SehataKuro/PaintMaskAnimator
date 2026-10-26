@@ -15,3 +15,10 @@ def dilate(mask: bytes, width: int, height: int, iterations: int) -> bytes:
 
 def erode(mask: bytes, width: int, height: int, iterations: int) -> bytes:
     """8近傍で ``iterations`` 回収縮させる（範囲外は偽）。"""
+
+def label_regions(codes: bytes, width: int, height: int) -> tuple[bytes, int]:
+    """同じ値で4近傍につながった画素に1からの番号を付ける（uint32 の並び）。
+
+    ``codes`` は uint32 の並びで、``0xFFFFFFFF`` の画素は番号 0。
+    番号は各領域の最初の画素（行優先）が現れた順。``(番号, 領域の数)`` を返す。
+    """

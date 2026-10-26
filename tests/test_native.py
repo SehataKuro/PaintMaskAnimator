@@ -54,3 +54,15 @@ def test_can_be_turned_off(monkeypatch):
     assert native.flood_fill(np.ones((2, 2), bool), [(0, 0)]) is None
     region = imaging.scanline_connected_region(np.ones((2, 2), bool), (0, 0))
     assert region.all(), "Rust を使わないときは numpy 版で計算する"
+
+
+@needs_native
+def test_label_regions_matches_numpy():
+    from paintmaskanimator import view_preview
+
+    for rng, valid in random_masks(seed=23, count=80):
+        codes = rng.integers(0, 3, valid.shape).astype(np.int32)
+        labels, count = view_preview.label_regions(codes, valid)
+        expected, expected_count = view_preview.label_regions_numpy(codes, valid)
+        assert count == expected_count
+        assert (labels == expected).all()
