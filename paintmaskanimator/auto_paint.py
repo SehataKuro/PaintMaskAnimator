@@ -383,7 +383,7 @@ def _finish_paints(target: _Cell, local, bounds, painted, value, finishes):
         return None
     _neighbours, host, around = _line_neighbours(target, local, bounds, painted)
     finish = finishes.get((value, host))
-    if finish is None or np.isin(around, (host, finish)).mean() < FINISH_ENCLOSED:
+    if finish is None or np.isin(around, np.array([host, finish])).mean() < FINISH_ENCLOSED:
         return None
     return _paints_by_value(local, bounds, np.full(int(local.sum()), finish))
 
