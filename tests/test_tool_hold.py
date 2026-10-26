@@ -118,16 +118,11 @@ def test_keyboard_zoom_keeps_the_point_under_the_cursor(window, monkeypatch):
     assert abs(before.x() - after.x()) < 1e-6 and abs(before.y() - after.y()) < 1e-6
 
 
-def test_keyboard_zoom_uses_the_view_centre_when_the_cursor_is_elsewhere(window, monkeypatch):
+def test_keyboard_zoom_keeps_the_cursor_point_even_outside_the_canvas(window, monkeypatch):
     canvas = window.canvas
-    monkeypatch.setattr(
-        QCursor, "pos", staticmethod(lambda: canvas.mapToGlobal(QPoint(-50, -50)))
-    )
-    calls = []
-    original = canvas.set_zoom_around_canvas_center
-    monkeypatch.setattr(
-        canvas, "set_zoom_around_canvas_center",
-        lambda zoom: (calls.append(zoom), original(zoom)),
-    )
-    window.step_canvas_zoom(1.5)
-    assert calls, "カーソルがキャンバスの外なら表示の中心で拡大する"
+    anchor = QPoint(canvas.width() + 120, -40)  # キャンバスの外（右上のパネルの辺り）
+    monkeypatch.setattr(QCursor, "pos", staticmethod(lambda: canvas.mapToGlobal(anchor)))
+    before = canvas.widget_to_canvas(QPointF(anchor))
+    window.step_canvas_zoom(0.5)
+    after = canvas.widget_to_canvas(QPointF(anchor))
+    assert abs(before.x() - after.x()) < 1e-6 and abs(before.y() - after.y()) < 1e-6
