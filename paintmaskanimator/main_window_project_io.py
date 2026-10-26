@@ -144,6 +144,7 @@ class ProjectIOController:
                 self.window.canvas.frames,
                 self.window.canvas._sequence_archive,
                 self.window.png_cache,
+                thumbnail=self.window.crop_image(self.window.canvas.current_frame),
             )
             self.window.current_project_path = project_path
             self.update_title()

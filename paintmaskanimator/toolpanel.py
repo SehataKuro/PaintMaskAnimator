@@ -714,6 +714,13 @@ class ToolPanel(QWidget):
         self.bucket_include_colors.colorRegistered.connect(
             lambda: self.bucket_include_sub.setChecked(True)
         )
+        self.bucket_island_replace=QCheckBox(tr("囲まれた色を置換色で塗る"))
+        self.bucket_island_replace.setChecked(False)
+        self.bucket_island_replace.setToolTip(tr(
+            "塗った範囲に囲まれた線や点のうち、使用色パネルで置換色を登録してある色を、"
+            "その置換色で塗ります。頬の範囲線の中を塗るときに、中の斜線も"
+            "決まった色にできます。"
+        ))
 
         # 隙間閉じと幅スライダーを同じ横一列へ配置する。
         self.bucket_close_gap=QCheckBox(tr("隙間閉じ"))
@@ -957,7 +964,7 @@ class ToolPanel(QWidget):
         self.bucket_all_frames.setToolTip(tr(
             "クリックした図形を、選択レイヤーの各コマで追いかけて一度に塗ります。"
             "追いかけきれないコマでは止まるので、塗る場所をクリックしてください"
-            "（Esc でそのコマを飛ばします）。"
+            "（Esc でそのコマを、Shift+Esc でその向きの残りのコマを飛ばします）。"
         ))
 
         def sync_bucket_options(_checked=None):
@@ -1045,6 +1052,7 @@ class ToolPanel(QWidget):
             self.bucket_target_row,
             self.bucket_adjacent,self.bucket_include_sub,
             self.bucket_include_colors,
+            self.bucket_island_replace,
             self.bucket_gap_row,
             self.bucket_extend_row,
             self.bucket_require_closed,
@@ -1479,6 +1487,7 @@ class ToolPanel(QWidget):
         self.bucket_adjacent.setVisible(uses_bucket_region)
         self.bucket_include_sub.setVisible(is_bucket)
         self.bucket_include_colors.setVisible(is_bucket)
+        self.bucket_island_replace.setVisible(is_bucket)
         self.bucket_gap_row.setVisible(uses_bucket_region)
         self.bucket_extend_row.setVisible(is_bucket)
         self.bucket_require_closed.setVisible(uses_bucket_region)

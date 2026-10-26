@@ -92,3 +92,80 @@ def test_ok_without_changes_keeps_second_keys(make_window):
         dialog.deleteLater()
     assert "Ctrl+Shift+Z" in keys(window.a_redo)
     assert "Ctrl+Shift+A" in keys(window.a_selection_clear)
+
+
+def _write_panel_script(window, body):
+    script = window.action_panel.actions_dir() / "my_shortcut_action.py"
+    script.write_text(body, encoding="utf-8")
+    return script
+
+
+_PANEL_SCRIPT = (
+    "def register_actions(panel, window):\n"
+    "    window.panel_runs = getattr(window, 'panel_runs', 0)\n"
+    "    def run():\n"
+    "        window.panel_runs += 1\n"
+    "    panel.add_action('my.run', 'マイアクション', run)\n"
+)
+
+
+def test_panel_actions_get_a_shortcut_that_survives_reloads(make_window):
+    window = make_window()
+    _write_panel_script(window, _PANEL_SCRIPT)
+    window.action_panel.reload_python_actions()
+
+    entries = dict(window.action_panel.shortcut_entries())
+    action = entries["マイアクション"]
+    action.trigger()
+    assert window.panel_runs == 1, "ショートカットからボタンと同じ処理が動く"
+
+    action.setShortcut(QKeySequence("F9"))
+    window.shortcut_store.save()
+    assert config.get_value(SHORTCUTS_KEY)["actions"] == {"panel:my.run": {"keys": ["F9"]}}
+
+    # スクリプトを読み込み直しても、起動し直しても残る。
+    window.action_panel.reload_python_actions()
+    assert keys(dict(window.action_panel.shortcut_entries())["マイアクション"]) == ["F9"]
+    again = make_window()
+    assert keys(dict(again.action_panel.shortcut_entries())["マイアクション"]) == ["F9"]
+
+
+def test_shortcut_of_a_panel_action_that_failed_to_load_is_kept(make_window):
+    config.set_value(SHORTCUTS_KEY, {"version": 1, "actions": {"panel:gone": {"keys": ["F8"]}}})
+    window = make_window()
+    window.a_tl_play.setShortcut(QKeySequence("P"))
+    window.shortcut_store.save()
+    saved = config.get_value(SHORTCUTS_KEY)["actions"]
+    assert saved["panel:gone"] == {"keys": ["F8"]}
+
+
+def test_black_check_is_listed_once_under_actions(make_window, monkeypatch):
+    window = make_window()
+    captured = {}
+
+    class FakeDialog:
+        def __init__(self, categories, parent=None):
+            captured["categories"] = categories
+
+        def exec(self):
+            return False
+
+    monkeypatch.setattr("paintmaskanimator.main_window.ShortcutDialog", FakeDialog)
+    window.shortcuts()
+    categories = dict(captured["categories"])
+    action_tab = [action for _name, action in categories["アクション"]]
+    assert window.a_silhouette in action_tab
+    assert window.a_mainline_repaint in action_tab
+    others = [
+        action
+        for title, entries in captured["categories"]
+        if title != "アクション"
+        for _name, action in entries
+    ]
+    assert window.a_silhouette not in others
+    assert window.a_mainline_repaint not in others
+
+
+def test_black_check_defaults_to_ctrl_b(make_window):
+    window = make_window()
+    assert keys(window.a_silhouette) == ["Ctrl+B"]

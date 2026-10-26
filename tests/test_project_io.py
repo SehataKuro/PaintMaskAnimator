@@ -364,3 +364,43 @@ def test_distinct_cells_still_hit_pixel_limit(qapp, tmp_path, monkeypatch):
     monkeypatch.setattr(project_io, "MAX_PROJECT_DECODED_PIXELS", pixels * 3)
     with pytest.raises(OperationError):
         project_io.read_project_archive(path)
+
+
+def test_thumbnail_is_first_stored_entry(qapp, tmp_path):
+    """The OS icon extensions read thumbnail.png straight from offset 0."""
+    import struct
+    import zipfile
+
+    from PySide6.QtGui import QColor, QImage
+
+    image = QImage(1600, 900, QImage.Format.Format_ARGB32)
+    image.fill(QColor("crimson"))
+    path = tmp_path / "proj.pman"
+    project_io.write_project_archive(path, _metadata(), [make_frame()], thumbnail=image)
+
+    with zipfile.ZipFile(path) as archive:
+        first = archive.infolist()[0]
+        assert first.filename == project_io.THUMBNAIL_NAME
+        assert first.compress_type == zipfile.ZIP_STORED
+        thumbnail = QImage.fromData(archive.read(first.filename))
+    assert (thumbnail.width(), thumbnail.height()) == (512, 288)
+
+    # What the Swift / Rust readers check in the local file header.
+    header = path.read_bytes()[:30]
+    signature, _version, flags, method = struct.unpack_from("<IHHH", header)
+    assert signature == 0x04034B50 and method == 0 and not flags & 0x8
+    size, name_length = struct.unpack_from("<I", header, 18)[0], struct.unpack_from("<H", header, 26)[0]
+    assert size == first.file_size and name_length == len(project_io.THUMBNAIL_NAME)
+
+    # Readers that predate the thumbnail ignore the extra entry.
+    _metadata_read, frames, _w, _h = project_io.read_project_archive(path)
+    assert len(frames) == 1
+
+
+def test_no_thumbnail_without_image(qapp, tmp_path):
+    import zipfile
+
+    path = tmp_path / "proj.pman"
+    project_io.write_project_archive(path, _metadata(), [make_frame()])
+    with zipfile.ZipFile(path) as archive:
+        assert project_io.THUMBNAIL_NAME not in archive.namelist()

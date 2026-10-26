@@ -245,7 +245,29 @@ class PaintToolsMixin(CanvasMembers):
             tools,
             mask_colors=mask_colors,
             background_selected=self.background_mask_rgb in mask_colors,
+            island_replacements=self._island_replacements(),
         )
+
+    def _island_replacements(self):
+        """使用色パネルに登録した置換色 ``((元の RGB, 置換色の RGB), ...)``。"""
+        window: Any = self.window()
+        palette = getattr(window, "palette", None)
+        replacements = getattr(palette, "replacements", None) or {}
+        return tuple(
+            (tuple(int(value) for value in source[:3]),
+             (color.red(), color.green(), color.blue()))
+            for source, color in replacements.items()
+        )
+
+    def _fill_islands(self, patch, islands, bounds):
+        """囲まれた島を、それぞれの置換色で ``patch``（外接矩形の部分）へ塗る。"""
+        x0, y0, x1, y1 = bounds
+        written = set()
+        for rgb, mask in islands:
+            local = mask[y0:y1, x0:x1]
+            if local.any():
+                written.update(self._fill_patch(patch, local, QColor(*rgb)))
+        return written
 
     def _layer_fill_pixels(self, image):
         """RGBA8888 に変換した複製と、その画素ビューを返す。"""
@@ -337,9 +359,11 @@ class PaintToolsMixin(CanvasMembers):
             return None, None
         # 以降の書き込みは外接矩形の中だけで行い、その部分だけをレイヤーへ戻す。
         patch = pixels[y0:y1, x0:x1]
-        written_colors = self._fill_patch(
+        written_colors = set(self._fill_patch(
             patch, result.mask[y0:y1, x0:x1], self.paint_source_color()
-        )
+        ))
+        written_colors.update(self._fill_islands(patch, result.islands, result.bounds))
+        written_colors = tuple(sorted(written_colors))
         self._write_rgba_patch(patch, fill_rect)
         self.active_layer.has_content = True
         if written_colors:

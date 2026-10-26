@@ -32,6 +32,8 @@ __all__ = [
     "compute_fill_region",
     "fill_target_mask",
     "track_fill_region",
+    "enclosed_islands",
+    "guess_target_categories",
     "TARGET_COLORS",
     "seed_category",
     "dilate",
@@ -128,9 +130,17 @@ class BucketOptions:
     require_closed: bool = False
     #: どの画素をたどって塗るか（``TARGET_*``）。
     target_color: str = TARGET_ALL
+    #: 塗った範囲に囲まれた島（色トレスの斜線など）を塗り替える色。
+    #: ``((元の RGB, 塗り替える RGB), ...)``。使用色パネルの置換色から作る。
+    island_replacements: Tuple[
+        Tuple[Tuple[int, int, int], Tuple[int, int, int]], ...
+    ] = ()
 
     @classmethod
-    def from_tools(cls, tools, *, mask_colors=(), background_selected=False):
+    def from_tools(
+        cls, tools, *, mask_colors=(), background_selected=False,
+        island_replacements=(),
+    ):
         """ツールパネルのウィジェットから設定を読み出す。
 
         ``tools`` が ``None``（ウィンドウを持たないテスト用のキャンバスなど）の
@@ -152,6 +162,10 @@ class BucketOptions:
             extend_length=_extend_length_from_tools(tools),
             require_closed=bool(tools.bucket_require_closed.isChecked()),
             target_color=_target_from_tools(tools),
+            island_replacements=(
+                tuple(island_replacements)
+                if _checked(tools, "bucket_island_replace") else ()
+            ),
         )
 
 
@@ -190,6 +204,12 @@ class FillResult:
     #: :func:`track_fill_region` が前のコマの領域との重なり（IoU）を入れる。
     #: 追跡でない塗り（クリックした種から塗った場合）は ``None``。
     score: Optional[float] = None
+    #: 囲まれた島の塗り替え ``((塗り替える RGB, マスク), ...)``。
+    #: ``BucketOptions.island_replacements`` が空なら空。
+    islands: Tuple[Tuple[Tuple[int, int, int], np.ndarray], ...] = ()
+    #: :func:`track_fill_region` で ``score`` を出したときの、動かした前のコマの領域。
+    #: 塗る範囲を広げた呼び出し側が、同じ位置で重なりを測り直すのに使う。
+    matched: Optional[np.ndarray] = None
 
     @property
     def ok(self) -> bool:
@@ -637,7 +657,85 @@ def compute_fill_region(
     bounds = mask_bounds(final_region)
     if bounds is None:
         return FillResult(REASON_EMPTY, target=category)
-    return FillResult(REASON_OK, final_region, target=category, bounds=bounds)
+    islands = ()
+    if options.island_replacements:
+        islands = enclosed_islands(
+            pixels, final_region, options.island_replacements, selection_mask
+        )
+        # 島は塗る範囲の縁からはみ出すことがある。書き込み・Undo の矩形に含める。
+        for _rgb, island in islands:
+            island_bounds = mask_bounds(island)
+            assert island_bounds is not None  # 空の島は enclosed_islands が返さない
+            ix0, iy0, ix1, iy1 = island_bounds
+            bounds = (
+                min(bounds[0], ix0), min(bounds[1], iy0),
+                max(bounds[2], ix1), max(bounds[3], iy1),
+            )
+    return FillResult(
+        REASON_OK, final_region, target=category, bounds=bounds, islands=islands
+    )
+
+
+#: 島とみなすのに、まわりのうち塗った範囲が占める割合の下限。
+#: 頬の斜線は端が黒線や範囲線に触れることがあるので、すべてとは求めない。
+ISLAND_MIN_SHARE = 0.6
+
+
+def enclosed_islands(
+    pixels, region, replacements, selection_mask=None,
+    min_share=ISLAND_MIN_SHARE,
+):
+    """``region`` に囲まれた、置換色のある色の島を探す。
+
+    頬の範囲線の中を塗ったとき、中の赤い斜線を別の色にしたい。斜線は塗る範囲の
+    外（違う色）なので、塗りだけでは残る。置換色を登録してある色のつながった
+    部分のうち、まわり（1画素外側）の ``min_share`` 以上が塗る範囲のものを島とする。
+
+    :param replacements: ``((元の RGB, 塗り替える RGB), ...)``。
+    :returns: ``((塗り替える RGB, マスク), ...)``。
+    """
+    bounds = mask_bounds(region)
+    if bounds is None or not replacements:
+        return ()
+    height, width = region.shape
+    x0, y0, x1, y1 = bounds
+    # 島は塗る範囲に囲まれているので、外接矩形の少し外までを見れば足りる。
+    x0, y0 = max(0, x0 - 1), max(0, y0 - 1)
+    x1, y1 = min(width, x1 + 1), min(height, y1 + 1)
+    local_region = region[y0:y1, x0:x1]
+    local_pixels = pixels[y0:y1, x0:x1]
+    packed = rgba_packed_view(local_pixels)
+    near = dilate(local_region, 1) & ~local_region
+    islands = []
+    for source, destination in replacements:
+        source = tuple(int(value) for value in source[:3])
+        destination = tuple(int(value) for value in destination[:3])
+        if source == destination:
+            continue
+        candidates = opaque_rgb_mask_packed(packed, source) & near
+        if selection_mask is not None:
+            candidates &= selection_mask[y0:y1, x0:x1]
+        if not candidates.any():
+            continue
+        color = opaque_rgb_mask_packed(packed, source)
+        chosen = np.zeros_like(local_region)
+        remaining = candidates.copy()
+        while remaining.any():
+            start_y, start_x = (int(value) for value in np.argwhere(remaining)[0])
+            part = scanline_connected_region(color, (start_x, start_y))
+            remaining &= ~part
+            border = dilate(part, 1) & ~part
+            total = int(np.count_nonzero(border))
+            inside = int(np.count_nonzero(border & local_region))
+            if total and inside / total >= min_share:
+                chosen |= part
+        if selection_mask is not None:
+            chosen &= selection_mask[y0:y1, x0:x1]
+        if chosen.any():
+            mask = np.zeros_like(region)
+            mask[y0:y1, x0:x1] = chosen
+            islands.append((destination, mask))
+    return tuple(islands)
 
 
 #: 追跡で試す開始点の数の上限（1回ごとに領域判定が1回走る）。
@@ -651,6 +749,17 @@ TRACK_MAX_AREA_RATIO = 3.0
 #: 候補の面積のうち、前のコマの範囲に収まっている割合がこれ以上なら、
 #: 前のコマの領域が分かれた一部とみなしてまとめて塗る。
 TRACK_INCLUDE_RATIO = 0.7
+#: これ以下の面積（px）の図形は、重なりで見つからなければ、まわりの色の並びでも探す
+#: （:func:`fill_tracking.context_similarity`）。点や星の中心など。
+TRACK_SMALL_AREA = 2500
+#: 小さい図形を探すとき、動かした位置からどこまで離れた画素を種にするか（px）。
+TRACK_SMALL_REACH = 6
+#: 小さい図形を探すとき、ずれの候補1つあたりに試す種の数の上限。
+TRACK_SMALL_SEEDS = 6
+#: まわりの色の並びで見つけた図形は、重なりで見つけたものより取り違えやすい
+#: （似た形の別の部分を拾うことがある）。重なりと同じ物差しで扱えるよう、
+#: 似ている度合いからこれだけ引いて ``score`` にする。
+TRACK_CONTEXT_PENALTY = 0.1
 
 
 def track_fill_region(
@@ -764,11 +873,15 @@ def track_fill_region(
         if ratio < 1.0 / TRACK_MAX_AREA_RATIO:
             # 1つだけでは小さすぎるが、分かれた一部としてはまとめる候補に残す。
             continue
-        iou = max(
-            overlap / max(1, area + reference_area - overlap)
-            for overlap, reference_area in zip(overlaps, reference_areas)
-        )
+        iou, matched = 0.0, None
+        for reference_mask, reference_area, overlap in zip(
+            references, reference_areas, overlaps
+        ):
+            value = overlap / max(1, area + reference_area - overlap)
+            if value > iou:
+                iou, matched = value, reference_mask
         if iou > best_iou:
+            result.matched = matched
             best, best_iou = result, iou
             if iou >= TRACK_GOOD_IOU:
                 break
@@ -789,9 +902,138 @@ def track_fill_region(
             if iou > best_iou:
                 best_iou = iou
                 best = FillResult(
-                    REASON_OK, union, target=reference, bounds=mask_bounds(union)
+                    REASON_OK, union, target=reference, bounds=mask_bounds(union),
+                    islands=tuple(
+                        island for result in members for island in result.islands
+                    ),
+                    matched=references[index],
                 )
+    if (
+        previous_pixels is not None
+        and previous_pixels.shape == pixels.shape
+        and previous_area <= TRACK_SMALL_AREA
+        and best_iou < TRACK_GOOD_IOU
+    ):
+        rescued = _track_small_region(
+            pixels, previous, previous_pixels, target, options, selection_mask
+        )
+        if rescued is not None and rescued.score is not None and rescued.score > best_iou:
+            best, best_iou = rescued, float(rescued.score)
     if best is None or best_iou < TRACK_MIN_IOU:
         return FillResult(REASON_EMPTY, target=reference, score=best_iou)
     best.score = best_iou
     return best
+
+
+def _shift_candidates(previous_pixels, pixels, previous):
+    """前のコマから今のコマへの、ずれの候補（重複なし、``(0, 0)`` を含む）。
+
+    主線の縁の重なりと、まわりの色の並びの2通りで推定する。
+    """
+    from . import fill_tracking
+
+    shifts = fill_tracking.estimate_shifts(
+        fill_tracking.line_art(previous_pixels),
+        fill_tracking.line_art(pixels),
+        previous,
+    )
+    shifts += fill_tracking.estimate_color_shifts(previous_pixels, pixels, previous)
+    shifts.append((0, 0))
+    return list(dict.fromkeys(shifts))
+
+
+def _track_small_region(pixels, previous, previous_pixels, target, options, selection_mask):
+    """小さい図形を、まわりの色の並びが一番似ている閉じた領域として探す。
+
+    ``score`` には :func:`fill_tracking.context_similarity` の値から
+    :data:`TRACK_CONTEXT_PENALTY` を引いた値を入れる。
+    """
+    from . import fill_tracking
+
+    previous_area = int(np.count_nonzero(previous))
+    height, width = previous.shape
+    tried = np.zeros_like(target)
+    best: Optional[FillResult] = None
+    best_score = 0.0
+    for dy, dx in _shift_candidates(previous_pixels, pixels, previous):
+        moved = fill_tracking.shift_mask(previous, dy, dx)
+        bounds = mask_bounds(moved)
+        if bounds is None:
+            continue
+        x0, y0, x1, y1 = bounds
+        reach = TRACK_SMALL_REACH
+        x0, y0 = max(0, x0 - reach), max(0, y0 - reach)
+        x1, y1 = min(width, x1 + reach), min(height, y1 + reach)
+        near = (
+            dilate(moved[y0:y1, x0:x1], reach)
+            & target[y0:y1, x0:x1]
+            & ~tried[y0:y1, x0:x1]
+        )
+        points = np.argwhere(near)
+        if not len(points):
+            continue
+        center_y, center_x = np.argwhere(moved).mean(axis=0)
+        order = np.argsort(
+            (points[:, 0] + y0 - center_y) ** 2 + (points[:, 1] + x0 - center_x) ** 2
+        )
+        seeds = 0
+        for index in order:
+            start_y, start_x = int(points[index][0]) + y0, int(points[index][1]) + x0
+            if tried[start_y, start_x]:
+                continue
+            seeds += 1
+            result = compute_fill_region(
+                pixels, start_x, start_y, options, selection_mask
+            )
+            if not result.ok:
+                tried[start_y, start_x] = True
+            else:
+                tried |= result.mask
+                ratio = int(np.count_nonzero(result.mask)) / max(1, previous_area)
+                if 1.0 / TRACK_MAX_AREA_RATIO <= ratio <= TRACK_MAX_AREA_RATIO:
+                    score = fill_tracking.context_similarity(
+                        previous_pixels, previous, pixels, result.mask
+                    )
+                    if score > best_score:
+                        result.matched = moved
+                        best, best_score = result, score
+            if seeds >= TRACK_SMALL_SEEDS:
+                break
+    if best is not None:
+        best.score = max(0.0, best_score - TRACK_CONTEXT_PENALTY)
+    return best
+
+
+def guess_target_categories(pixels, previous, previous_pixels, count=2):
+    """``previous`` の図形が今のコマで何色の上にあるか、候補を多い順に返す。
+
+    見本のコマで塗った図形を、まだ塗っていない（あるいは違う色で塗った）コマへ
+    塗り写すときに、そのコマでたどる色（:func:`seed_category` と同じ形、背景は
+    ``None``）を決めるのに使う。ずれの候補ごとに動かした範囲の下の色（主線を除く）を
+    数え、一番多い色の割合を票として足す。
+    """
+    from . import fill_tracking
+
+    lines = fill_tracking.line_art(pixels)
+    votes = {}
+    for dy, dx in _shift_candidates(previous_pixels, pixels, previous):
+        moved = fill_tracking.shift_mask(previous, dy, dx) & ~lines
+        sample = pixels[moved]
+        if not len(sample):
+            continue
+        background = (sample[:, 3] == 0) | np.all(sample[:, :3] == 255, axis=1)
+        keys = np.where(
+            background,
+            -1,
+            (sample[:, 0].astype(np.int64) << 16)
+            | (sample[:, 1].astype(np.int64) << 8)
+            | sample[:, 2].astype(np.int64),
+        )
+        values, counts = np.unique(keys, return_counts=True)
+        top = int(np.argmax(counts))
+        votes[int(values[top])] = votes.get(int(values[top]), 0.0) + counts[top] / len(keys)
+    ranked = sorted(votes, key=lambda key: -votes[key])[:count]
+    return [
+        None if key < 0 else ((key >> 16) & 255, (key >> 8) & 255, key & 255)
+        for key in ranked
+    ]

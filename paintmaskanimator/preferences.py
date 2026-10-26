@@ -13,6 +13,7 @@ AUTOSAVE_INTERVAL_KEY = "autosave_interval_minutes"
 UNDO_STEPS_KEY = "undo_max_steps"
 UNDO_MEMORY_KEY = "undo_max_memory_mb"
 NEW_CANVAS_SIZE_KEY = "new_canvas_size"
+KEEP_INITIAL_STATE_KEY = "keep_initial_state_on_cut_folder"
 
 DEFAULT_AUTOSAVE_INTERVAL = 3
 AUTOSAVE_INTERVAL_RANGE = (1, 60)
@@ -39,6 +40,15 @@ def autosave_enabled():
 
 def set_autosave_enabled(enabled):
     config.set_value(AUTOSAVE_ENABLED_KEY, bool(enabled))
+
+
+def keep_initial_state_on_cut_folder():
+    """カットフォルダーを読み込んだら、尋ねずに色塗り前の初期状態として保持するか。"""
+    return bool(config.get_value(KEEP_INITIAL_STATE_KEY, False))
+
+
+def set_keep_initial_state_on_cut_folder(enabled):
+    config.set_value(KEEP_INITIAL_STATE_KEY, bool(enabled))
 
 
 def autosave_interval_minutes():

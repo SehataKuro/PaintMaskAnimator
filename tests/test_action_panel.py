@@ -81,6 +81,10 @@ def test_python_action_registration(qapp, tmp_path, monkeypatch):
     )
 
     class Window:
+        # 組み込みアクションが共有するメニューの操作（ここでは無し）。
+        a_silhouette = None
+        a_mainline_repaint = None
+
         def __init__(self):
             self.calls = 0
 
@@ -192,3 +196,27 @@ def test_macos_vscode_cli_found_inside_app_bundle(tmp_path, monkeypatch):
     cli.parent.mkdir(parents=True)
     cli.write_text("#!/bin/sh\n")
     assert ScriptEditorDialog._macos_vscode_cli() == str(cli)
+
+
+def test_builtin_scripts_only_use_arguments_old_apps_know():
+    # アクションのフォルダーは古いバージョンのアプリとも共有される。
+    for source in BUILTIN_SCRIPTS.values():
+        assert "shortcut_action" not in source
+
+
+def test_seed_reverts_builtins_written_with_shortcut_action(qapp, tmp_path, monkeypatch):
+    name = "builtin_silhouette.py"
+    newer = BUILTIN_SCRIPTS[name].replace(
+        "        checkable=True,\n    )",
+        "        checkable=True,\n"
+        "        # 既にあるメニューの操作と同じものなら、それを渡すとショートカットを共有します。\n"
+        "        shortcut_action=window.a_silhouette,\n    )",
+    )
+    assert hashlib.sha256(newer.encode()).hexdigest() in LEGACY_BUILTIN_HASHES[name]
+    (tmp_path / name).write_text(newer, encoding="utf-8")
+    (tmp_path / ".builtin_seeded.json").write_text(f'["{name}"]', encoding="utf-8")
+
+    monkeypatch.setattr(ActionPanel, "actions_dir", staticmethod(lambda: tmp_path))
+    ActionPanel(object())._seed_builtin_scripts()
+
+    assert (tmp_path / name).read_text(encoding="utf-8") == BUILTIN_SCRIPTS[name]

@@ -206,6 +206,8 @@ class ImportController:
             QMessageBox.information(
                 self.window, title, message + "\n\n" + "\n".join(notes)
             )
+        # 読み込んだままの絵を、色塗り前の初期状態として保持するか（自動塗りの精度が上がる）。
+        self.window.initial_state.offer_after_import()
         return True
 
     def read_cut_folder(self, root):
