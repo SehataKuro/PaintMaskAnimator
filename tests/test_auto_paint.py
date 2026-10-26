@@ -327,7 +327,7 @@ def test_auto_paint_paints_only_the_layer_and_undoes_once(window):
     put_cells(window, [figure(0, painted=True), figure(2), figure(4)])
     before = [frame.layers[other].image.copy() for frame in canvas.frames]
 
-    cells = window.copy_paint.cells()
+    cells = window.auto_paint.cells()
     assert window.auto_paint.run(cells, 0)
 
     assert canvas.frames[1].layers[0].image.pixelColor(47, 20) == QColor(*LEAF)
@@ -346,11 +346,11 @@ def test_auto_paint_lists_spots_to_check(window):
     target = with_box(figure(2), 15, 36, 14, fill=LEAF)
     put_cells(window, [reference, target])
 
-    assert window.auto_paint.run(window.copy_paint.cells(), 0)
+    assert window.auto_paint.run(window.auto_paint.cells(), 0)
 
     dialog = window.reference_check.dialog
     assert dialog is not None
-    assert dialog.windowTitle() == "自動塗りの確かめたい所"
+    assert dialog.windowTitle() == "自動で塗った、確かめたい所"
     assert dialog.tree.topLevelItemCount() >= 1
     dialog.tree.setCurrentItem(dialog.tree.topLevelItem(0))
     assert canvas.current_frame == 1
@@ -372,7 +372,7 @@ def test_initial_state_lets_auto_paint_fix_overpainted_areas(window, keep_initia
         window.initial_state.keep(confirm=False)  # 塗る前の線だけの絵を保持
     put_cells(window, [figure(0, painted=True), overpainted(2)])
 
-    assert window.auto_paint.run(window.copy_paint.cells(), 0)
+    assert window.auto_paint.run(window.auto_paint.cells(), 0)
 
     image = canvas.frames[1].layers[0].image
     if keep_initial:

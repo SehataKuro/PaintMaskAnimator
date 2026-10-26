@@ -1,7 +1,6 @@
 """見本を使った塗りの道具のテスト。
 
 * 囲まれた色を置換色で塗るバケツ（``bucket_fill.enclosed_islands``）
-* 見本から塗り写す（``copy_paint`` と、メニューから実行する画面）
 * 串刺し塗りで、Shift+Esc でその向きの残りを飛ばす操作
 * 選択範囲の中だけの色置換
 * 小さな部分の追跡に使う手がかり（``fill_tracking``）
@@ -13,12 +12,10 @@ import numpy as np
 import pytest
 from PySide6.QtCore import QPoint
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QApplication, QDialog
+from PySide6.QtWidgets import QApplication
 
-from paintmaskanimator import bucket_fill, copy_paint, fill_tracking, imaging, reference_check
+from paintmaskanimator import bucket_fill, fill_tracking, imaging, reference_check
 from paintmaskanimator.main_window import MainWindow
-from paintmaskanimator.main_window_copy_paint import CopyPaintDialog
-from paintmaskanimator.undo_entries import ScopedBatchUndo
 
 
 @pytest.fixture(scope="module")
@@ -195,79 +192,6 @@ def outlined(x, color=None, size=60):
     return pixels
 
 
-def test_plan_copy_follows_a_moving_part_onto_unpainted_cells():
-    cells = [outlined(20, LEAF), outlined(24), outlined(28)]
-
-    plan = copy_paint.plan_copy(cells, 0, bucket_fill.BucketOptions())
-
-    assert plan is not None and plan.parts == 1
-    assert sorted(plan.paints) == [1, 2]
-    for index, x in ((1, 24), (2, 28)):
-        (rgb, (x0, y0, x1, y1), mask), = plan.paints[index]
-        assert rgb == LEAF
-        assert (x0, y0, x1, y1) == (x + 1, 41, x + 59, 99), "枠の内側だけ"
-        assert mask.all()
-
-
-def test_plan_copy_leaves_colours_every_cell_already_has():
-    cells = [outlined(20, SKIN), outlined(24, SKIN), outlined(28, SKIN)]
-    plan = copy_paint.plan_copy(cells, 0, bucket_fill.BucketOptions())
-    assert plan is not None and plan.parts == 0 and not plan.paints
-
-
-def test_plan_copy_stops_where_the_part_cannot_be_found():
-    cells = [outlined(20, LEAF), clear()]
-    plan = copy_paint.plan_copy(cells, 0, bucket_fill.BucketOptions())
-    assert plan is not None and not plan.paints
-    assert plan.missed == {1: 1}
-
-
-def test_plan_copy_stops_following_a_part_that_left_the_frame():
-    # 2セル続けて見つからなければ、その先で似た図形が出てきても拾わない。
-    cells = [outlined(20, LEAF), clear(), clear(), outlined(20)]
-
-    plan = copy_paint.plan_copy(cells, 0, bucket_fill.BucketOptions())
-
-    assert plan is not None and not plan.paints
-    assert plan.missed == {1: 1, 2: 1, 3: 1}
-
-
-def test_plan_copy_picks_a_part_up_again_after_one_miss():
-    cells = [outlined(20, LEAF), clear(), outlined(20)]
-    plan = copy_paint.plan_copy(cells, 0, bucket_fill.BucketOptions())
-    assert plan is not None and sorted(plan.paints) == [2]
-
-
-def cheek(x, painted):
-    """肌の上の頬。範囲線（緑）で囲み、中に赤い斜線。見本は頬色と斜線の仕上げ色。"""
-    pixels = clear()
-    opaque(pixels, 0, 0, 200, 160, SKIN)
-    opaque(pixels, x, 40, x + 62, 102, (0, 0, 0))
-    opaque(pixels, x + 1, 41, x + 61, 101, SKIN)
-    opaque(pixels, x + 10, 50, x + 52, 92, BLUSH if painted else RANGE_LINE)
-    opaque(pixels, x + 12, 52, x + 50, 90, BLUSH if painted else SKIN)
-    opaque(pixels, x + 28, 60, x + 32, 80, HATCH_DONE if painted else HATCH_MARK)
-    return pixels
-
-
-def test_plan_copy_paints_over_range_lines_and_recolours_marks():
-    cells = [cheek(20, True), cheek(23, False), cheek(26, False)]
-
-    plan = copy_paint.plan_copy(cells, 0, bucket_fill.BucketOptions())
-
-    assert plan is not None
-    assert {rgb for rgb, _b, _m in plan.paints[1]} == {BLUSH, HATCH_DONE}
-    painted = np.zeros(cells[1].shape[:2], dtype=bool)
-    hatch = np.zeros_like(painted)
-    for rgb, (x0, y0, x1, y1), mask in plan.paints[1]:
-        target = hatch if rgb == HATCH_DONE else painted
-        target[y0:y1, x0:x1] |= mask
-    assert painted[51, 34], "範囲線も頬の色で塗る"
-    assert painted[70, 40], "範囲線の中の肌を頬の色で塗る"
-    assert hatch[70, 52] and not painted[70, 52], "斜線は見本の仕上げ色"
-    assert not painted[45, 30], "範囲線の外の肌は塗らない"
-
-
 def stack_cells(window, frames):
     """アクティブレイヤーの各コマへ絵を置く。"""
     canvas = window.canvas
@@ -284,9 +208,10 @@ def stack_cells(window, frames):
 def test_copy_paint_is_not_a_tool_any_more(window):
     assert "copy_fill" not in window.tool_selector.items
     assert not hasattr(window.tools, "bucket_copy_reference")
+    assert not hasattr(window, "copy_paint"), "「見本から塗り写す」は「自動で塗る」に統合した"
 
 
-def test_auto_menu_holds_copy_paint_and_the_reference_check(window):
+def test_auto_menu_holds_one_way_to_paint_and_the_reference_check(window):
     def menu_actions(title):
         for action in window.menuBar().actions():
             if action.text() == title:
@@ -296,56 +221,10 @@ def test_auto_menu_holds_copy_paint_and_the_reference_check(window):
         raise AssertionError(title)
 
     auto = menu_actions("自動塗り")
-    assert window.a_copy_paint in auto
+    assert window.a_auto_paint in auto
     assert window.a_reference_check in auto
+    assert window.a_auto_paint.text() == "自動で塗る…", "塗る道具は1つだけになった"
     assert window.a_reference_check not in menu_actions("編集")
-
-
-def test_copy_paint_paints_only_the_layer_and_undoes_once(window):
-    canvas = window.canvas
-    canvas.add_layer()
-    other = canvas.active_layer_index
-    stack_cells(window, [outlined(20), outlined(24), outlined(28)])
-    canvas.active_layer_index = 0
-    stack_cells(window, [outlined(20, LEAF), outlined(24), outlined(28)])
-    before = [frame.layers[other].image.copy() for frame in canvas.frames]
-    canvas.fill_opacity = 0.5  # 塗り写しは見本の色そのままで塗る
-
-    cells = window.copy_paint.cells()
-    assert window.copy_paint.run(cells, 0)
-
-    for frame_index, x in ((1, 24), (2, 28)):
-        image = canvas.frames[frame_index].layers[0].image
-        assert image.pixelColor(x + 30, 70) == QColor(*LEAF)
-        assert image.pixelColor(x - 5, 70).alpha() == 0, "枠の外は塗らない"
-    for frame, original in zip(canvas.frames, before):
-        assert frame.layers[other].image == original, "ほかのレイヤーには触れない"
-    entry = canvas.undo_stack[-1]
-    assert isinstance(entry, ScopedBatchUndo)
-    assert len(entry.cells) == 2
-
-    canvas.undo()
-    assert canvas.frames[1].layers[0].image.pixelColor(54, 70).alpha() == 0
-
-
-def test_copy_paint_dialog_starts_on_the_current_cell(window, monkeypatch):
-    canvas = window.canvas
-    stack_cells(window, [outlined(20), outlined(24, LEAF), outlined(28)])
-    canvas.current_frame = 1
-    seen = {}
-
-    def fake_exec(dialog):
-        seen["cell"] = dialog.chosen()
-        seen["run"] = dialog.run_button.text()
-        return QDialog.DialogCode.Rejected
-
-    monkeypatch.setattr(CopyPaintDialog, "exec", fake_exec)
-    depth = len(canvas.undo_stack)
-
-    window.copy_paint.open()
-
-    assert seen == {"cell": (1, 0), "run": "実行"}
-    assert len(canvas.undo_stack) == depth, "キャンセルなら何も塗らない"
 
 
 # ----------------------------------------------------------------------
