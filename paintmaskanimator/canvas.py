@@ -44,6 +44,7 @@ from .constants import OUTSIDE_MARGIN
 from . import constants
 from . import color_ops, colors, geometry, imaging, preferences, view_preview
 from .document import Document
+from .brush_raster import stamp_outline
 from .toolpanel import tool_label
 from .utils import blank_image, magnifier_cursor, workspace_size
 from .progress import close_counter, create_counter, update_counter
@@ -197,6 +198,7 @@ class PaintCanvas(
         self.transform_mesh_rows=4
         self.transform_mesh_grid=4  # legacy compatibility
         self.transform_mesh_reference_points=[]
+        self._brush_resize_anchor = None
         self.pen_size=8
         self.brush_stabilizer_strength = 0
         # バケツ・投げ縄塗りの不透明度（0〜1）。ブラシ等は常に100%。
@@ -1856,25 +1858,17 @@ class PaintCanvas(
             and self._brush_cursor_inside
             and self.rect().contains(self._brush_cursor_widget_pos.toPoint())
         ):
-            diameter = max(1.0, float(self.pen_size) * max(self.zoom, 0.01))
-            center = QPointF(self._brush_cursor_widget_pos)
-            ring = QRectF(
-                center.x() - diameter / 2.0,
-                center.y() - diameter / 2.0,
-                diameter,
-                diameter,
-            )
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-            # 白を Difference 合成すると、円の下にある色がネガ反転する。
+            center = self.widget_to_canvas(self._brush_cursor_widget_pos)
+            outline = stamp_outline(center, max(0.5, float(self.pen_size)))
             p.save()
-            p.setCompositionMode(
-                QPainter.CompositionMode.CompositionMode_Difference
-            )
-            cursor_pen = QPen(QColor(255, 255, 255, 255), 1.0)
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+            p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Difference)
+            cursor_pen = QPen(QColor("white"), 1.0)
             cursor_pen.setCosmetic(True)
             p.setPen(cursor_pen)
-            p.drawEllipse(ring)
+            for polygon in outline.toSubpathPolygons():
+                p.drawPolygon(QPolygonF([self.canvas_to_widget(polygon.at(i)) for i in range(polygon.size())]))
             p.restore()
 
         # Hold-to-use canvas operations are not entries in ToolPanel.TOOLS.

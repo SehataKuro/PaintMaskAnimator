@@ -33,6 +33,7 @@ else:
 
 class CanvasMembers(_MembersBase):
     if TYPE_CHECKING:
+        _brush_resize_anchor: tuple[float, float] | None
         cellChanged: Signal
         changed: Signal
         clipAnimationDropped: Signal

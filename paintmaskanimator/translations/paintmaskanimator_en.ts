@@ -3829,18 +3829,18 @@ Details were saved to:
         <translation>Display position: left-drag to move the canvas, Shift+left-drag or right-drag to rotate. The TU/TB scale is preserved and reflected in the relative values of the previous and next onion skins. Esc cancels.</translation>
     </message>
     <message>
-        <location filename="../canvas_paint_tools.py" line="578"/>
+        <location filename="../canvas_paint_tools.py" line="580"/>
         <source>選択範囲の外側なので塗りを開始しませんでした。</source>
         <extracomment>ドラッグ塗りで、端に接した領域を「外の背景ではない」とみなす大きさの上限 （画像全体に対する割合）。最初にクリックした部分の3倍までもよしとする。</extracomment>
         <translation>The point is outside the selection, so filling did not start.</translation>
     </message>
     <message>
-        <location filename="../canvas_paint_tools.py" line="580"/>
+        <location filename="../canvas_paint_tools.py" line="582"/>
         <source>領域がキャンバス端まで開いているため、塗りを開始しませんでした。</source>
         <translation>The region is open to the canvas edge, so filling did not start.</translation>
     </message>
     <message>
-        <location filename="../canvas_paint_tools.py" line="582"/>
+        <location filename="../canvas_paint_tools.py" line="584"/>
         <source>クリックした場所は「対象色」で塗る対象にしていない色です。</source>
         <translation>The clicked pixel is not a colour the Target colour setting fills.</translation>
     </message>
@@ -3907,7 +3907,7 @@ Details were saved to:
         <translation>Painted through {filled} frame(s).</translation>
     </message>
     <message>
-        <location filename="../canvas_paint_tools.py" line="699"/>
+        <location filename="../canvas_paint_tools.py" line="701"/>
         <source>領域がキャンバス端まで開いているため選択しませんでした。</source>
         <translation>The region is open to the canvas edge, so nothing was selected.</translation>
     </message>
@@ -4689,15 +4689,120 @@ Line art: binarises the line work while preserving the white background and the 
         <translation>Import as is</translation>
     </message>
     <message>
+        <location filename="../auto_paint_dialog.py" line="138"/>
+        <source>見本を選ぶ</source>
+        <translation>Choose references</translation>
+    </message>
+    <message>
+        <location filename="../auto_paint_dialog.py" line="145"/>
+        <source>レイヤー {name} · {count}セル</source>
+        <translation>Layer {name} · {count} cels</translation>
+    </message>
+    <message>
+        <location filename="../auto_paint_dialog.py" line="148"/>
+        <source>完成したセルをクリックして選択。見本は何枚でも追加できます。</source>
+        <translation>Click finished cels to select them. You can add as many references as you need.</translation>
+    </message>
+    <message>
+        <location filename="../auto_paint_dialog.py" line="156"/>
+        <source>セル・コマ番号で検索</source>
+        <translation>Search by cel or frame number</translation>
+    </message>
+    <message>
+        <location filename="../auto_paint_dialog.py" line="159"/>
+        <source>先頭へ</source>
+        <translation>First</translation>
+    </message>
+    <message>
+        <location filename="../auto_paint_dialog.py" line="159"/>
+        <source>末尾へ</source>
+        <translation>Last</translation>
+    </message>
+    <message>
+        <location filename="../auto_paint_dialog.py" line="177"/>
+        <source>セル {number}</source>
+        <translation>Cel {number}</translation>
+    </message>
+    <message>
+        <location filename="../auto_paint_dialog.py" line="191"/>
+        <source>表示サイズ</source>
+        <translation>Thumbnail size</translation>
+    </message>
+    <message>
+        <location filename="../auto_paint_dialog.py" line="196"/>
+        <source>サムネイルの大きさ</source>
+        <translation>Thumbnail size</translation>
+    </message>
+    <message>
+        <location filename="../auto_paint_dialog.py" line="222"/>
+        <source>すべて解除</source>
+        <translation>Clear all</translation>
+    </message>
+    <message>
+        <location filename="../auto_paint_dialog.py" line="227"/>
+        <source>選んだ見本</source>
+        <translation>Selected references</translation>
+    </message>
+    <message>
+        <location filename="../auto_paint_dialog.py" line="234"/>
+        <source>選んだ見本から外す</source>
+        <translation>Remove selected reference</translation>
+    </message>
+    <message>
+        <location filename="../auto_paint_dialog.py" line="245"/>
+        <source>処理について</source>
+        <translation>About this process</translation>
+    </message>
+    <message>
+        <location filename="../auto_paint_dialog.py" line="261"/>
         <location filename="../color_reduction.py" line="507"/>
         <location filename="../cut_folder_dialog.py" line="792"/>
         <location filename="../main_window.py" line="647"/>
-        <location filename="../main_window_auto_paint.py" line="63"/>
         <location filename="../main_window_import.py" line="98"/>
         <location filename="../main_window_project_io.py" line="192"/>
         <location filename="../widgets.py" line="710"/>
         <source>キャンセル</source>
         <translation>Cancel</translation>
+    </message>
+    <message>
+        <location filename="../auto_paint_dialog.py" line="262"/>
+        <source>この見本で塗る</source>
+        <translation>Paint with these references</translation>
+    </message>
+    <message>
+        <location filename="../auto_paint_dialog.py" line="306"/>
+        <source>選んだ見本 {count}枚</source>
+        <translation>Selected references: {count}</translation>
+    </message>
+    <message>
+        <location filename="../auto_paint_dialog.py" line="311"/>
+        <source>完成した見本を1枚以上選んでください。</source>
+        <translation>Select at least one finished reference.</translation>
+    </message>
+    <message>
+        <location filename="../auto_paint_dialog.py" line="313"/>
+        <source>塗るセルを1枚以上残してください。</source>
+        <translation>Leave at least one cel to paint.</translation>
+    </message>
+    <message>
+        <location filename="../auto_paint_dialog.py" line="315"/>
+        <source>見本 {references}枚 · 塗るセル {targets}枚</source>
+        <translation>{references} references · {targets} cels to paint</translation>
+    </message>
+    <message>
+        <location filename="../auto_paint_dialog.py" line="335"/>
+        <source>見本から外す</source>
+        <translation>Remove as reference</translation>
+    </message>
+    <message>
+        <location filename="../auto_paint_dialog.py" line="335"/>
+        <source>見本に追加</source>
+        <translation>Add as reference</translation>
+    </message>
+    <message>
+        <location filename="../auto_paint_dialog.py" line="360"/>
+        <source>表示 {visible} / {total}セル</source>
+        <translation>Showing {visible} / {total} cels</translation>
     </message>
     <message>
         <location filename="../color_reduction.py" line="567"/>
@@ -6339,6 +6444,7 @@ a folder here</translation>
         <translation>Show or hide thumbnails for all layers</translation>
     </message>
     <message>
+        <location filename="../auto_paint_dialog.py" line="179"/>
         <location filename="../main_window_auto_paint.py" line="36"/>
         <source>コマ {frame}</source>
         <translation>Frame {frame}</translation>
@@ -6349,20 +6455,14 @@ a folder here</translation>
         <translation>Frame {frame} (cel {number})</translation>
     </message>
     <message>
-        <location filename="../main_window_auto_paint.py" line="50"/>
         <location filename="../timeline.py" line="1473"/>
         <source>レイヤー</source>
         <translation>Layer</translation>
     </message>
     <message>
-        <location filename="../main_window_auto_paint.py" line="55"/>
+        <location filename="../auto_paint_dialog.py" line="165"/>
         <source>見本にするセル</source>
         <translation>Reference cel</translation>
-    </message>
-    <message>
-        <location filename="../main_window_auto_paint.py" line="64"/>
-        <source>実行</source>
-        <translation>Run</translation>
     </message>
     <message>
         <location filename="../timeline.py" line="1476"/>
@@ -7101,7 +7201,7 @@ Layer cell {value} / {exposure} exposures</translation>
     </message>
     <message>
         <location filename="../main_window_reference_check.py" line="83"/>
-        <location filename="../main_window_reference_check.py" line="206"/>
+        <location filename="../main_window_reference_check.py" line="209"/>
         <location filename="../main_window_ui_build.py" line="411"/>
         <source>見本との違いチェック</source>
         <translation>Check Against Reference</translation>
@@ -7142,144 +7242,149 @@ Layer cell {value} / {exposure} exposures</translation>
         <translation>Pixels</translation>
     </message>
     <message>
-        <location filename="../main_window_reference_check.py" line="128"/>
+        <location filename="../main_window_reference_check.py" line="131"/>
         <source>見本の色がありません</source>
         <translation>A reference colour is missing</translation>
     </message>
     <message>
-        <location filename="../main_window_reference_check.py" line="130"/>
+        <location filename="../main_window_reference_check.py" line="133"/>
         <source>見本に無い色があります</source>
         <translation>Has a colour not in the reference</translation>
     </message>
     <message>
-        <location filename="../main_window_reference_check.py" line="132"/>
+        <location filename="../main_window_reference_check.py" line="135"/>
         <source>塗り残し（決めきれず塗っていません）</source>
         <translation>Left unpainted (could not decide)</translation>
     </message>
     <message>
-        <location filename="../main_window_reference_check.py" line="134"/>
+        <location filename="../main_window_reference_check.py" line="137"/>
         <source>新しく出てきた部分（手本に無い形なので塗っていません）</source>
         <translation>New part (not painted: no matching shape in the guide)</translation>
     </message>
     <message>
-        <location filename="../main_window_reference_check.py" line="136"/>
+        <location filename="../main_window_reference_check.py" line="139"/>
         <source>色を決められなかった色トレス線（線のまま残しています）</source>
         <translation>Colour-trace line with no clear colour (kept as a line)</translation>
     </message>
     <message>
-        <location filename="../main_window_reference_check.py" line="138"/>
+        <location filename="../main_window_reference_check.py" line="141"/>
         <source>塗り間違いかも：前後のセルでは {color}</source>
         <translation>Possibly wrong colour: {color} in the neighbouring cels</translation>
     </message>
     <message>
-        <location filename="../main_window_reference_check.py" line="141"/>
+        <location filename="../main_window_reference_check.py" line="144"/>
         <source>前後のコマでは {color}</source>
         <translation>Neighbouring frames use {color}</translation>
     </message>
     <message>
-        <location filename="../main_window_reference_check.py" line="175"/>
+        <location filename="../main_window_reference_check.py" line="178"/>
         <source>見本にするセル（塗ってあるコマ）を表示してから実行してください。</source>
         <extracomment>見本にはあるが、ほとんどのセルに無い色：(色, 無いセルの数, 比べたセルの数)。</extracomment>
         <translation>Show the cel to use as the reference (a painted frame) first.</translation>
     </message>
     <message>
-        <location filename="../main_window_reference_check.py" line="178"/>
+        <location filename="../main_window_reference_check.py" line="181"/>
         <source>比べるセルがありません。</source>
         <translation>There are no cels to compare.</translation>
     </message>
     <message>
-        <location filename="../main_window_reference_check.py" line="182"/>
+        <location filename="../main_window_reference_check.py" line="185"/>
         <source>チェックを中止しました。</source>
         <translation>The check was cancelled.</translation>
     </message>
     <message>
-        <location filename="../main_window_reference_check.py" line="185"/>
+        <location filename="../main_window_reference_check.py" line="188"/>
         <source>見本との違い・塗り間違いは見つかりませんでした。</source>
         <translation>No differences from the reference or painting mistakes were found.</translation>
     </message>
     <message>
-        <location filename="../main_window_reference_check.py" line="188"/>
+        <location filename="../main_window_reference_check.py" line="191"/>
         <source>{count}件の候補が見つかりました。</source>
         <translation>Found {count} candidate(s).</translation>
     </message>
     <message>
-        <location filename="../main_window_reference_check.py" line="214"/>
+        <location filename="../main_window_reference_check.py" line="217"/>
         <source>色を数えています</source>
         <translation>Counting colours</translation>
     </message>
     <message>
-        <location filename="../main_window_reference_check.py" line="229"/>
+        <location filename="../main_window_reference_check.py" line="232"/>
         <source>前後のコマと比べています</source>
         <translation>Comparing with neighbouring frames</translation>
     </message>
     <message>
-        <location filename="../main_window_auto_paint.py" line="95"/>
+        <location filename="../main_window_auto_paint.py" line="61"/>
         <source>塗れるセルが2つ以上ありません。</source>
         <translation>This layer needs at least two cels with drawings.</translation>
     </message>
     <message>
-        <location filename="../main_window_auto_paint.py" line="198"/>
+        <location filename="../main_window_auto_paint.py" line="173"/>
         <source>確かめたい所が{count}か所あります。</source>
         <translation> {count} spots to check.</translation>
     </message>
     <message>
-        <location filename="../main_window_auto_paint.py" line="46"/>
-        <location filename="../main_window_auto_paint.py" line="183"/>
-        <location filename="../main_window_auto_paint.py" line="225"/>
+        <location filename="../auto_paint_dialog.py" line="131"/>
+        <location filename="../main_window_auto_paint.py" line="158"/>
+        <location filename="../main_window_auto_paint.py" line="207"/>
         <location filename="../main_window_ui_build.py" line="408"/>
         <source>自動で塗る</source>
         <translation>Auto Paint</translation>
     </message>
     <message>
-        <location filename="../main_window_auto_paint.py" line="108"/>
+        <location filename="../main_window_auto_paint.py" line="74"/>
         <source>このレイヤーは{count}セルで色塗り前の初期状態を保持しています。見本以外のセルは、初期状態の線で部分を分けて塗ります（今の塗りは、塗る所だけ上書きします）。</source>
         <translation>This layer keeps the initial state before painting for {count} cels. Cels other than the reference are separated into areas by the lines of the initial state (the current paint is overwritten only where it paints).</translation>
     </message>
     <message>
-        <location filename="../main_window_auto_paint.py" line="112"/>
+        <location filename="../main_window_auto_paint.py" line="78"/>
         <source>色塗り前の初期状態を保持していないので、今の絵の線で部分を分けます。塗りかけの色があると迷いやすいので、塗る前に「今の絵を初期状態として保持」をおすすめします。</source>
         <translation>No initial state before painting is kept, so areas are separated by the lines of the current drawing. Half-finished colours can mislead it, so “Keep Current Drawing as Initial State” before painting is recommended.</translation>
     </message>
     <message>
-        <location filename="../main_window_auto_paint.py" line="119"/>
+        <location filename="../main_window_auto_paint.py" line="85"/>
         <source>黒の主線と、赤・緑・青（と黄・水色・赤紫）の色トレス線を色分けの境界にして、見本から隣のセルへ順に、同じ場所の色で塗ります。色トレス線も、見本で塗ってあればその色に、線のまま残してあれば残します。一通り塗ったら、迷った所の少ないセルを見本に加えて自動で塗り直します。ほかのレイヤーには触れません。</source>
         <translation>Black lines and red, green and blue (also yellow, cyan and magenta) colour-trace lines separate the areas. Starting from the reference, each neighbouring cel in turn is painted with the colour of the same area. A colour-trace line is painted over if the reference paints it, and kept if the reference keeps it. After the first pass, cels with few uncertain areas are added as references and the rest are painted again automatically. Other layers are not touched.</translation>
     </message>
     <message>
-        <location filename="../main_window_auto_paint.py" line="161"/>
-        <location filename="../main_window_auto_paint.py" line="187"/>
+        <location filename="../main_window_auto_paint.py" line="136"/>
+        <location filename="../main_window_auto_paint.py" line="162"/>
         <source>自動で塗るのを中止しました。</source>
         <translation>Auto paint cancelled.</translation>
     </message>
     <message>
-        <location filename="../main_window_auto_paint.py" line="165"/>
+        <location filename="../main_window_auto_paint.py" line="140"/>
         <source>自動で塗る：塗るところはありませんでした。</source>
         <translation>Auto paint: nothing to paint.</translation>
     </message>
     <message>
-        <location filename="../main_window_auto_paint.py" line="192"/>
+        <location filename="../main_window_auto_paint.py" line="167"/>
         <source>自動で塗る：{cells}セルを塗りました。</source>
         <translation>Auto paint: painted {cells} cels.</translation>
     </message>
     <message>
-        <location filename="../main_window_auto_paint.py" line="194"/>
+        <location filename="../main_window_auto_paint.py" line="169"/>
         <source>見本を{added}セルに増やして{rounds}回塗り直しました。</source>
         <translation> Repainted {rounds} more time(s) using {added} reference cels.</translation>
     </message>
     <message>
-        <location filename="../main_window_auto_paint.py" line="202"/>
+        <location filename="../main_window_auto_paint.py" line="177"/>
         <source>自動で塗った、確かめたい所</source>
         <translation>Auto Paint: Spots to Check</translation>
     </message>
     <message>
-        <location filename="../main_window_auto_paint.py" line="204"/>
+        <location filename="../main_window_auto_paint.py" line="179"/>
         <source>塗り残し（場所や色を決めきれなかった部分）、新しく出てきた部分（開いた口など、手本に無い形）、色を決められなかった色トレス線と、前後のセルと違う色で塗ってあった部分（塗り替えていません）です。行を選ぶと、そのコマへ移って場所を選択します。</source>
         <translation>Unpainted areas (where the place or colour could not be decided), new parts (shapes not in the guide, such as an opening mouth), colour-trace lines with no clear colour, and areas painted a different colour from the neighbouring cels (not repainted). Select a row to go to that frame and select the spot.</translation>
     </message>
     <message>
-        <location filename="../main_window_auto_paint.py" line="231"/>
-        <source>セルを順に塗っています</source>
-        <translation>Painting cels in turn</translation>
+        <location filename="../main_window_auto_paint.py" line="214"/>
+        <source>自動塗りの計算が終わりました</source>
+        <translation>Auto-paint calculation completed</translation>
+    </message>
+    <message>
+        <location filename="../main_window_auto_paint.py" line="217"/>
+        <source>{round}回目：対象{count}セルを塗っています</source>
+        <translation>Pass {round}: painting {count} target cels</translation>
     </message>
     <message>
         <location filename="../main_window_view_preview.py" line="26"/>

@@ -305,6 +305,8 @@ class InputMixin(MainWindowMembers):
             if required and required.issubset(held):
                 matches.append((len(required), -priority, tool))
         new_tool = max(matches)[2] if matches else None
+        if {"Ctrl", "Alt"}.issubset(held) and self.canvas.tool in ("brush", "line"):
+            new_tool = None
         if self.canvas.temp_tool != new_tool:
             self.canvas.temp_tool = new_tool
             self.canvas.drawing = False
@@ -617,6 +619,7 @@ class InputMixin(MainWindowMembers):
             QEvent.Type.ApplicationDeactivate,
             QEvent.Type.WindowDeactivate,
         ):
+            self.canvas._brush_resize_anchor = None
             self._held_canvas_shortcut_tokens.clear()
             self.tool_hold.release_all()
             try:

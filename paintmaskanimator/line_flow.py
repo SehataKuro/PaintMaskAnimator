@@ -8,14 +8,15 @@
 2. 解像度を上げながら、そのずれのまわりだけを探し直す。
 
 線が無い区画は、となりの区画の答えに従う。重なりは「動かしたあとの手本の線
-（1画素太らせる）に、こちらの線がどれだけ重なったか」で数える。numpy だけを使う。
+（1画素太らせる）に、こちらの線がどれだけ重なったか」で数える。
+候補ごとの一致数は Rust の部品があればそちらで求め、無いときは numpy で求める。
 """
 from dataclasses import dataclass
 from typing import Tuple
 
 import numpy as np
 
-from . import bucket_fill
+from . import bucket_fill, native
 
 #: 区画の大きさ（画素）。
 BLOCK = 32
@@ -108,6 +109,40 @@ def _shifted(mask, dy, dx):
     return out
 
 
+def _scores_numpy(target, guide, rows, cols, reach, base_y=None, base_x=None):
+    """候補ごとの区画の一致画素数（Rust と同じ定義の参照実装）。"""
+    shifts = [(dy, dx) for dy in range(-reach, reach + 1)
+              for dx in range(-reach, reach + 1)]
+    scores = np.empty((len(shifts), rows, cols))
+    if base_y is None:
+        for index, (dy, dx) in enumerate(shifts):
+            scores[index] = _block_sum(target & _shifted(guide, dy, dx), rows, cols)
+        return scores
+    size = target.shape[0] // rows
+    height, width = target.shape
+    ys, xs = np.mgrid[0:height, 0:width]
+    base_y = np.repeat(np.repeat(base_y, size, 0), size, 1)
+    base_x = np.repeat(np.repeat(base_x, size, 0), size, 1)
+    for index, (dy, dx) in enumerate(shifts):
+        gy, gx = ys + base_y + dy, xs + base_x + dx
+        inside = (gy >= 0) & (gy < height) & (gx >= 0) & (gx < width)
+        hit = np.zeros_like(target)
+        hit[inside] = guide[gy[inside], gx[inside]]
+        scores[index] = _block_sum(target & hit, rows, cols)
+    return scores
+
+
+def _scores(target, guide, rows, cols, reach, base_y=None, base_x=None):
+    zero = np.zeros((rows, cols), dtype=np.int64) if base_y is None else None
+    found = native.line_flow_scores(
+        target, guide, target.shape[0] // rows,
+        zero if base_y is None else base_y, zero if base_x is None else base_x, reach,
+    )
+    if found is not None:
+        return found
+    return _scores_numpy(target, guide, rows, cols, reach, base_y, base_x)
+
+
 def estimate_flow(target_lines, guide_lines) -> Flow:
     """``target_lines`` の各区画が、``guide_lines`` のどこにあるか（真偽マスク同士）。"""
     height, width = target_lines.shape
@@ -120,9 +155,7 @@ def estimate_flow(target_lines, guide_lines) -> Flow:
     counts = _block_sum(target, rows, cols).astype(np.float64)
     reach = REACH // scale
     shifts = [(dy, dx) for dy in range(-reach, reach + 1) for dx in range(-reach, reach + 1)]
-    scores = np.empty((len(shifts), rows, cols))
-    for index, (dy, dx) in enumerate(shifts):
-        scores[index] = _block_sum(target & _shifted(guide, dy, dx), rows, cols)
+    scores = _scores(target, guide, rows, cols, reach)
     penalty = np.array([MOTION_PENALTY * scale * np.hypot(dy, dx) for dy, dx in shifts])
     ratio = _with_neighbours(scores) / np.maximum(_with_neighbours(counts[None]), 1.0)
     best = np.argmax(ratio - penalty[:, None, None], axis=0)
@@ -135,21 +168,11 @@ def estimate_flow(target_lines, guide_lines) -> Flow:
         target = _pool(target_lines, scale, rows, cols)
         guide = bucket_fill.dilate(_pool(guide_lines, scale, rows, cols), 1)
         counts = _block_sum(target, rows, cols).astype(np.float64)
-        size = BLOCK // scale
-        level_h, level_w = rows * size, cols * size
-        ys, xs = np.mgrid[0:level_h, 0:level_w]
-        base_y = np.repeat(np.repeat(np.round(flow_y / scale).astype(np.int64), size, 0), size, 1)
-        base_x = np.repeat(np.repeat(np.round(flow_x / scale).astype(np.int64), size, 0), size, 1)
+        base_y = np.round(flow_y / scale).astype(np.int64)
+        base_x = np.round(flow_x / scale).astype(np.int64)
         deltas = [(dy, dx) for dy in range(-REFINE_REACH, REFINE_REACH + 1)
                   for dx in range(-REFINE_REACH, REFINE_REACH + 1)]
-        scores = np.empty((len(deltas), rows, cols))
-        for index, (dy, dx) in enumerate(deltas):
-            gy = ys + base_y + dy
-            gx = xs + base_x + dx
-            inside = (gy >= 0) & (gy < level_h) & (gx >= 0) & (gx < level_w)
-            hit = np.zeros_like(target)
-            hit[inside] = guide[gy[inside], gx[inside]]
-            scores[index] = _block_sum(target & hit, rows, cols)
+        scores = _scores(target, guide, rows, cols, REFINE_REACH, base_y, base_x)
         own = scores / np.maximum(counts, 1.0)
         ratio = _with_neighbours(scores) / np.maximum(_with_neighbours(counts[None]), 1.0)
         penalty = np.array([MOTION_PENALTY * scale * np.hypot(dy, dx) for dy, dx in deltas])

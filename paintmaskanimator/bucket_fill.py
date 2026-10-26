@@ -313,6 +313,11 @@ EXTEND_THIN_ITERATIONS = 8
 
 
 def _thin(mask, max_iterations):
+    result = native.thin(mask, max_iterations)
+    return _thin_numpy(mask, max_iterations) if result is None else result
+
+
+def _thin_numpy(mask, max_iterations):
     """Zhang-Suen の細線化。``max_iterations`` で打ち切る。
 
     太い塊は細り切らないが、延長に使うのは細い線の端点だけなので問題ない。
@@ -409,7 +414,7 @@ def _cast_ray(boundary, x, y, dx, dy, max_length):
     return None
 
 
-def extend_line_ends(boundary, max_length):
+def extend_line_ends(boundary, max_length, cache=None):
     """キャンバス端の手前で途切れた線を、端まで延ばした画素の真偽マスク。
 
     作画では画面に映る範囲（スタンダードフレーム）の外まで素材を用意するが、
@@ -421,6 +426,7 @@ def extend_line_ends(boundary, max_length):
     延長しないので、ふつうの塗りには影響しない。
 
     :param boundary: 塗りを止める画素（線など）の真偽マスク。
+    :param cache: ドラッグ中だけ保持する細線化のキャッシュ。衝突判定は再利用しない。
     :returns: 延長線の画素。``boundary`` の画素は含まない。
     """
     height, width = boundary.shape
@@ -439,7 +445,17 @@ def extend_line_ends(boundary, max_length):
         part = boundary[y0:y1, x0:x1]
         if not part.any():
             continue
-        skeleton = _thin(part, EXTEND_THIN_ITERATIONS)
+        key = (y0, y1, x0, x1, EXTEND_THIN_ITERATIONS)
+        cached = cache.get(key) if cache is not None else None
+        if cached is not None and np.array_equal(cached[0], part):
+            skeleton = cached[1]
+        else:
+            skeleton = _thin(part, EXTEND_THIN_ITERATIONS)
+            if cache is not None:
+                # ドラッグ中だけ保持する。線や参照が変わった帯は必ず計算し直す。
+                if key not in cache and len(cache) >= 4:
+                    cache.clear()
+                cache[key] = (part.copy(), skeleton)
         padded = np.pad(skeleton, 1, mode="constant", constant_values=False)
         neighbors = np.zeros(skeleton.shape, dtype=np.uint8)
         for oy in range(3):
@@ -553,11 +569,14 @@ def compute_fill_region(
     start_y,
     options: BucketOptions,
     selection_mask=None,
+    *,
+    line_cache=None,
 ) -> FillResult:
     """``(start_x, start_y)`` から塗る画素の真偽マスクを求める。
 
     :param pixels: ``(height, width, 4)`` の RGBA8888 配列。読み取りのみ。
     :param selection_mask: 選択範囲の真偽マスク。``None`` なら制限なし。
+    :param line_cache: 同じドラッグ内で共有する線端下処理のキャッシュ。
     """
     height, width = pixels.shape[:2]
     if not (0 <= start_x < width and 0 <= start_y < height):
@@ -590,7 +609,7 @@ def compute_fill_region(
         gap_recovery_mask = None
         if options.extend_lines:
             # 延長線は対象色の上に引く仮想の線なので、塗った後に回収する。
-            extension = extend_line_ends(boundary, options.extend_length)
+            extension = extend_line_ends(boundary, options.extend_length, cache=line_cache)
             if extension.any():
                 boundary = boundary | extension
                 gap_recovery_mask = extension

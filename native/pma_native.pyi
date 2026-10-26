@@ -5,6 +5,15 @@
 
 __version__: str
 
+def thin(mask: bytes, width: int, height: int, iterations: int) -> bytes:
+    """Zhang-Suen 細線化。線端の判定に使い、描画画像自体は変えない。"""
+
+def line_flow_scores(
+    target: bytes, guide: bytes, width: int, height: int, block: int,
+    base_y: bytes, base_x: bytes, reach: int,
+) -> bytes:
+    """区画のずれごとの一致数（候補・行・列順の uint32）。base は int64。"""
+
 def flood_fill(
     passable: bytes, width: int, height: int, seeds: list[tuple[int, int]]
 ) -> bytes:

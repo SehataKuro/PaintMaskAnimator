@@ -115,3 +115,41 @@ def test_tool_panel_options_reach_the_fill(qapp):
     finally:
         panel.deleteLater()
         qapp.processEvents()
+
+
+def test_line_cache_reuses_unchanged_strips_and_rechecks_changed_geometry(monkeypatch):
+    pixels = skirt(width=500, height=600, gap=20)
+    boundary = ~bucket_fill.fill_target_mask(pixels, bucket_fill.TARGET_ALL, None)
+    calls = []
+    original = bucket_fill._thin
+    def record(mask, iterations):
+        calls.append(mask.shape)
+        return original(mask, iterations)
+    monkeypatch.setattr(bucket_fill, "_thin", record)
+    cache = {}
+    expected = bucket_fill.extend_line_ends(boundary, 50)
+    cached = bucket_fill.extend_line_ends(boundary, 50, cache=cache)
+    np.testing.assert_array_equal(cached, expected)
+    calls.clear()
+    np.testing.assert_array_equal(bucket_fill.extend_line_ends(boundary, 50, cache=cache), expected)
+    assert not calls, "Unchanged strips must not be thinned again"
+    # Simulate a fill altering a strip, as with layer/canvas references.
+    changed = boundary.copy()
+    changed[-60:-20, 150:200] = True
+    expected = bucket_fill.extend_line_ends(changed, 50)
+    calls.clear()
+    actual = bucket_fill.extend_line_ends(changed, 50, cache=cache)
+    assert calls, "Changed geometry must invalidate the cached skeleton"
+    np.testing.assert_array_equal(actual, expected)
+
+
+def test_line_cache_does_not_cache_rays_against_an_old_boundary():
+    pixels = skirt(width=500, height=600, gap=20)
+    boundary = ~bucket_fill.fill_target_mask(pixels, bucket_fill.TARGET_ALL, None)
+    cache = {}
+    bucket_fill.extend_line_ends(boundary, 50, cache=cache)
+    # Fresh ray casts use the current boundary, even when the skeleton is reusable.
+    changed = boundary.copy()
+    changed[280:320, 120:180] = True
+    np.testing.assert_array_equal(bucket_fill.extend_line_ends(changed, 50, cache=cache),
+                                  bucket_fill.extend_line_ends(changed, 50))

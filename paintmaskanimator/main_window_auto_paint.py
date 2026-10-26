@@ -13,9 +13,9 @@ from typing import TYPE_CHECKING, List, Optional, Tuple
 
 import numpy as np
 from PySide6.QtGui import QImage
-from PySide6.QtWidgets import (
-    QComboBox, QDialog, QDialogButtonBox, QFormLayout, QLabel, QVBoxLayout,
-)
+from PySide6.QtWidgets import QDialog
+
+from .auto_paint_dialog import AutoPaintDialog
 
 from . import auto_paint
 from .frame_scope import FrameScope, resolve_cells
@@ -35,40 +35,6 @@ def cell_label(layer, frame_index) -> str:
     if number is None:
         return tr("コマ {frame}").format(frame=frame_index + 1)
     return tr("コマ {frame}（セル {number}）").format(frame=frame_index + 1, number=number)
-
-
-class AutoPaintDialog(QDialog):
-    """見本にするセルを選ぶだけの、小さな設定画面。"""
-
-    def __init__(self, parent, layer_name: str, cells: List[Cell], labels: List[str],
-                 current: int, note: str = ""):
-        super().__init__(parent)
-        self.setWindowTitle(tr("自動で塗る"))
-        self.cells = cells
-        layout = QVBoxLayout(self)
-        form = QFormLayout()
-        form.addRow(tr("レイヤー"), QLabel(layer_name))
-        self.reference = QComboBox()
-        for label in labels:
-            self.reference.addItem(label)
-        self.reference.setCurrentIndex(current)
-        form.addRow(tr("見本にするセル"), self.reference)
-        layout.addLayout(form)
-        hint = QLabel(note)
-        hint.setWordWrap(True)
-        layout.addWidget(hint)
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
-        cancel = buttons.button(QDialogButtonBox.StandardButton.Cancel)
-        if cancel is not None:
-            cancel.setText(tr("キャンセル"))
-        self.run_button = buttons.addButton(tr("実行"), QDialogButtonBox.ButtonRole.AcceptRole)
-        self.run_button.setDefault(True)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-
-    def chosen(self) -> Cell:
-        return self.cells[self.reference.currentIndex()]
 
 
 class AutoPaintController:
@@ -121,18 +87,25 @@ class AutoPaintController:
                 "その色に、線のまま残してあれば残します。一通り塗ったら、迷った所の"
                 "少ないセルを見本に加えて自動で塗り直します。ほかのレイヤーには触れません。"
             ) + "\n\n" + line_note,
+            images=[canvas.frames[frame].layers[layer].image for frame, layer in cells],
+            numbers=[canvas.frames[frame].layers[layer].sequence_number for frame, layer in cells],
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        self.run(cells, cells.index(dialog.chosen()))
+        chosen = [cells.index(cell) for cell in dialog.chosen()]
+        self.run(cells, chosen[0], reference_indices=chosen)
 
-    def run(self, cells: List[Cell], reference_index: int) -> bool:
+    def run(self, cells: List[Cell], reference_index: int,
+            second_reference_index: Optional[int] = None, *,
+            reference_indices: Optional[List[int]] = None) -> bool:
         """``cells[reference_index]`` を見本に塗る。何か塗れたら真。"""
         canvas = self.window.canvas
         status = self.window.statusBar()
         pixels = []
         hints = []
         lines = []
+        references = {reference_index, second_reference_index}
+        references.update(reference_indices or [])
         for index, (frame, layer) in enumerate(cells):
             cell = canvas.frames[frame].layers[layer]
             current = np.ascontiguousarray(qimage_rgba_array(cell.image))
@@ -145,7 +118,7 @@ class AutoPaintController:
             # 部分を分け、今の絵で手で塗ってある部分はその色を答え（前後のセルの手本）
             # にする。セル同士の動きも、初期状態の線（見本では塗りつぶした色トレス線も
             # 残っている）で求める。
-            if index != reference_index and initial is not None:
+            if index not in references and initial is not None:
                 pixels.append(initial)
                 hints.append(current)
             else:
@@ -156,6 +129,8 @@ class AutoPaintController:
             pixels, reference_index,
             hints if any(hint is not None for hint in hints) else None,
             lines if any(line is not None for line in lines) else None,
+            second_reference_index=second_reference_index,
+            reference_indices=reference_indices,
         )
         if plan is None:
             status.showMessage(tr("自動で塗るのを中止しました。"), 2400)
@@ -221,19 +196,35 @@ class AutoPaintController:
         return entries
 
     def _plan(self, pixels, reference_index, hints=None,
-              lines=None) -> Optional[auto_paint.AutoPlan]:
-        dialog = create_counter(self.window, tr("自動で塗る"), 1, cancellable=True)
+              lines=None, second_reference_index=None,
+              reference_indices=None) -> Optional[auto_paint.AutoPlan]:
+        references = {reference_index}
+        references.update(reference_indices or [])
+        if second_reference_index is not None:
+            references.add(second_reference_index)
+        count = sum(index not in references and image.shape == pixels[reference_index].shape
+                    for index, image in enumerate(pixels))
+        dialog = create_counter(self.window, tr("自動で塗る"), max(1, count), cancellable=True)
 
         def progress(done, total):
             if dialog.wasCanceled():
                 return False
-            dialog.setMaximum(max(1, total))
-            update_counter(dialog, done, max(1, total), tr("セルを順に塗っています"))
+            if done >= total:
+                value = count
+                label = tr("自動塗りの計算が終わりました")
+            else:
+                value = done % max(1, count)
+                label = tr("{round}回目：対象{count}セルを塗っています").format(
+                    round=done // max(1, count) + 1, count=count,
+                )
+            update_counter(dialog, value, max(1, count), label)
             return True
 
         try:
             return auto_paint.plan_auto_paint(
                 pixels, reference_index, progress=progress, hints=hints, lines=lines,
+                second_reference_index=second_reference_index,
+                reference_indices=reference_indices,
             )
         finally:
             close_counter(dialog)

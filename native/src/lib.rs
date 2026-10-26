@@ -10,6 +10,9 @@
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 
+mod line_flow;
+mod thin;
+
 /// 4 近傍で、`seeds` からつながる `passable` の領域を求める（行ごとのランで辿る）。
 ///
 /// `passable` の外にある種・範囲外の種は無視する。
@@ -245,7 +248,7 @@ pub fn label_regions(codes: &[u32], width: usize, height: usize) -> (Vec<u32>, u
 }
 
 fn check_size(data: &[u8], width: usize, height: usize) -> PyResult<()> {
-    if data.len() != width * height {
+    if width.checked_mul(height) != Some(data.len()) {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(
             "mask has {} bytes, expected {} x {}",
             data.len(),
@@ -318,8 +321,60 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(py_dilate, module)?)?;
     module.add_function(wrap_pyfunction!(py_erode, module)?)?;
     module.add_function(wrap_pyfunction!(py_label_regions, module)?)?;
+    module.add_function(wrap_pyfunction!(py_line_flow_scores, module)?)?;
+    module.add_function(wrap_pyfunction!(py_thin, module)?)?;
     module.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
+}
+
+#[pyfunction(name = "thin")]
+fn py_thin<'py>(
+    py: Python<'py>, mask: &[u8], width: usize, height: usize, iterations: usize,
+) -> PyResult<Bound<'py, PyBytes>> {
+    check_size(mask, width, height)?;
+    // 細線化では上下左右に1画素ずつの余白を作る。
+    if width.checked_add(2).and_then(|w| height.checked_add(2).and_then(|h| w.checked_mul(h))).is_none() {
+        return Err(pyo3::exceptions::PyValueError::new_err("mask dimensions are too large"));
+    }
+    let result = py.detach(|| thin::thin(mask, width, height, iterations));
+    Ok(PyBytes::new(py, &result))
+}
+
+#[pyfunction(name = "line_flow_scores")]
+#[allow(clippy::too_many_arguments)]
+fn py_line_flow_scores<'py>(
+    py: Python<'py>,
+    target: &[u8],
+    guide: &[u8],
+    width: usize,
+    height: usize,
+    block: usize,
+    base_y: &[u8],
+    base_x: &[u8],
+    reach: usize,
+) -> PyResult<Bound<'py, PyBytes>> {
+    check_size(target, width, height)?;
+    check_size(guide, width, height)?;
+    if block == 0 || block > 32 || width.checked_rem(block) != Some(0) || height.checked_rem(block) != Some(0) || reach > 128 {
+        return Err(pyo3::exceptions::PyValueError::new_err("invalid flow grid or search reach"));
+    }
+    let blocks = (width / block) * (height / block);
+    check_size(base_y, blocks, 8)?;
+    check_size(base_x, blocks, 8)?;
+    let side = 2 * reach + 1;
+    if blocks.checked_mul(side * side * 4).is_none() {
+        return Err(pyo3::exceptions::PyValueError::new_err("flow grid is too large"));
+    }
+    let decode = |data: &[u8]| -> Vec<i64> {
+        data.chunks_exact(8).map(|chunk| i64::from_ne_bytes(chunk.try_into().unwrap())).collect()
+    };
+    let base_y = decode(base_y);
+    let base_x = decode(base_x);
+    let bytes: Vec<u8> = py.detach(|| {
+        line_flow::score_shifts(target, guide, (width, height), block, &base_y, &base_x, reach)
+            .iter().flat_map(|value| value.to_ne_bytes()).collect()
+    });
+    Ok(PyBytes::new(py, &bytes))
 }
 
 #[cfg(test)]

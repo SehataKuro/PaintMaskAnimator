@@ -149,3 +149,30 @@ def test_dragging_fills_areas_closed_by_the_frame_edge(window):
     for x in (80, 180, 280):
         assert pixel(window, x, 10) == BLUE, "端で閉じた部分は塗る"
     assert pixel(window, 130, 200) == QColor("white"), "外の背景は塗らない"
+
+
+@pytest.mark.parametrize("reference", ["layer", "canvas", "initial"])
+def test_drag_cache_keeps_the_same_pixels_for_every_reference(window, monkeypatch, reference):
+    from paintmaskanimator import bucket_fill
+    original_image = three_boxes(window).copy()
+    canvas = window.canvas
+    canvas.active_layer.initial_image = original_image.copy()
+    combo = window.tools.bucket_reference
+    combo.setCurrentIndex(combo.findData(reference))
+    canvas.fill_opacity = 0.5
+    points = [(50, 50), (70, 50), (90, 50), (110, 50), (130, 50)]
+    def stroke():
+        canvas.active_layer.image = original_image.copy()
+        canvas.begin_bucket_drag(QPointF(*points[0]))
+        for point in points[1:]:
+            canvas.continue_bucket_drag(QPointF(*point))
+        canvas.finish_bucket_drag()
+        return canvas.active_layer.image.copy()
+    cached = stroke()
+    original_extension = bucket_fill.extend_line_ends
+    monkeypatch.setattr(bucket_fill, "extend_line_ends",
+                        lambda boundary, length, cache=None: original_extension(boundary, length))
+    uncached = stroke()
+    assert cached == uncached
+    assert pixel(window, 40, 50) == QColor("black")
+    assert pixel(window, 70, 50) == QColor("white")

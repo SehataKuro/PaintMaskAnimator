@@ -17,6 +17,7 @@ from ._canvas_members import CanvasMembers
 from . import bucket_fill, imaging
 from .undo_entries import LayerRegionUndo
 from .pressure import _pressure_bezier_at
+from .brush_raster import paint_segment
 from .logging_setup import get_logger
 
 log = get_logger(__name__)
@@ -141,16 +142,7 @@ class PaintToolsMixin(CanvasMembers):
             raster_b.x() - rect.x(),
             raster_b.y() - rect.y(),
         )
-        painter.setPen(
-            QPen(
-                source_color,
-                draw_width,
-                Qt.PenStyle.SolidLine,
-                Qt.PenCapStyle.RoundCap,
-                Qt.PenJoinStyle.RoundJoin,
-            )
-        )
-        painter.drawLine(local_a, local_b)
+        paint_segment(painter, local_a, local_b, source_color, draw_width)
         painter.end()
 
         sub_only = bool(
@@ -395,7 +387,7 @@ class PaintToolsMixin(CanvasMembers):
         self.abort_skewer_fill()
         self._bucket_fill_at(p, push_undo=True)
 
-    def _bucket_fill_at(self, p, push_undo=True, quiet=False, accept=None):
+    def _bucket_fill_at(self, p, push_undo=True, quiet=False, accept=None, line_cache=None):
         """``p`` を種に1か所塗る。``(塗ったマスク, 塗らずに済ませた領域)`` を返す。
 
         塗れなければ塗ったマスクは None。``push_undo`` が偽なら Undo を積まない
@@ -411,7 +403,7 @@ class PaintToolsMixin(CanvasMembers):
             options, self.current_frame, self.active_layer_index, image, pixels
         )
         result = bucket_fill.compute_fill_region(
-            reference_pixels, start_x, start_y, options, selection_mask
+            reference_pixels, start_x, start_y, options, selection_mask, line_cache=line_cache,
         )
         if not result.ok:
             message = None if quiet else self._bucket_failure_message(result.reason)
@@ -480,6 +472,7 @@ class PaintToolsMixin(CanvasMembers):
             "tried": np.zeros((height, width), dtype=bool),
             "painted": np.zeros((height, width), dtype=bool),
             "last": QPointF(p),
+            "line_cache": {},
         }
         # 最初の1か所はクリックと同じ（開いた領域も設定どおりに塗る）。
         self._bucket_drag_fill(p, first=True)
@@ -515,6 +508,7 @@ class PaintToolsMixin(CanvasMembers):
         mask, skipped = self._bucket_fill_at(
             QPointF(x, y), push_undo=False, quiet=not first,
             accept=None if first else self._bucket_drag_accepts,
+            line_cache=drag["line_cache"],
         )
         # 塗れなかった点・塗らなかった領域も、同じ場所で何度も判定しない。
         tried[y, x] = True

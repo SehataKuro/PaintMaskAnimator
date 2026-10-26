@@ -66,3 +66,23 @@ def test_label_regions_matches_numpy():
         expected, expected_count = view_preview.label_regions_numpy(codes, valid)
         assert count == expected_count
         assert (labels == expected).all()
+
+
+@needs_native
+@pytest.mark.parametrize("iterations", [0, 1, 2, 12])
+def test_native_thinning_matches_numpy(iterations):
+    if not hasattr(native._native, "thin"):
+        pytest.skip("Native thinning is not installed")
+    for _rng, mask in random_masks(seed=iterations + 47, count=60):
+        np.testing.assert_array_equal(bucket_fill._thin(mask, iterations),
+                                      bucket_fill._thin_numpy(mask, iterations))
+    for shape in ((1, 1), (1, 20), (20, 1), (25, 31)):
+        mask = np.ones(shape, dtype=bool)
+        np.testing.assert_array_equal(bucket_fill._thin(mask, iterations),
+                                      bucket_fill._thin_numpy(mask, iterations))
+
+
+def test_thinning_falls_back_with_an_old_native_module(monkeypatch):
+    monkeypatch.setattr(native, "_native", object())
+    mask = np.eye(5, dtype=bool)
+    np.testing.assert_array_equal(bucket_fill._thin(mask, 12), mask)

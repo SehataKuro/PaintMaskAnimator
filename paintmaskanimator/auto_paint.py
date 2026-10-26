@@ -116,8 +116,8 @@ WEAK_OVERLAP = 0.5
 OPEN_SHARE = 0.5
 #: 元の線画から塗るとき、線の切れ目で2つ以上の部分（顔と髪など）がつながって1つに
 #: なっていることがある。動きで重ねた手本の色が、それぞれこの割合以上の色に分かれ、
-#: 合わせてほぼ全部（``SPLIT_TOTAL``）なら、画素ごとに重なった色で塗り分ける。
-SPLIT_SHARE = 0.15
+#: 合わせてほぼ全部（``CONFLICT_TOTAL``）なら、境界を創作せず色を決めきれない部分とする。
+CONFLICT_SHARE = 0.15
 #: 部分を囲む線が、動きで重ねた手本の線にこの割合も重ならなければ、動きで決めない。
 FLOW_OUTLINE = 0.45
 #: 囲む線を確かめるのは、この大きさ（画素）までの部分。大きな部分は囲む線が長く、
@@ -125,17 +125,9 @@ FLOW_OUTLINE = 0.45
 FLOW_OUTLINE_MAX_PIXELS = 6000
 #: 部分だけをずらしたほうが、囲む線がこれだけ多く重なるなら、まわりと違う動きとみなす。
 FLOW_OUTLINE_GAIN = 0.2
-#: 絵の外とつながった部分を塗るとき：はみ出しとして除く細さ（画素）、塊の大きさの
-#: 下限（画素）、塊のまわりのうちこちらの線である割合の下限。
-OUTSIDE_RADIUS = 3
-OUTSIDE_MIN_PIXELS = 300
-OUTSIDE_OUTLINE = 0.45
-SPLIT_TOTAL = 0.9
-#: 塗り分けを考える部分の大きさの下限（画素）。小さな部分は1色で決める。
-SPLIT_MIN_PIXELS = 2000
-#: 塗り分ける境目のうち、こちらの線から ``SPLIT_CUT_REACH`` 画素以内にある割合の下限。
-SPLIT_CUT_REACH = 3
-SPLIT_CUT_LINE = 0.5
+CONFLICT_TOTAL = 0.9
+#: 複数色の競合を判定する部分の大きさの下限（画素）。小さな部分は1色で決める。
+CONFLICT_MIN_PIXELS = 2000
 #: 形で探す範囲、似ているとみなす重なりの割合、ほかの色の候補との差、大きさの範囲（倍）。
 SHAPE_REACH = 64
 SHAPE_MATCH = 0.6
@@ -310,6 +302,11 @@ class _Cell:
         self.primary = primary_line_mask(pixels)
         self.boundary = self.black | self.primary
         self.gaps = gap_mask(self.boundary, self.primary)
+        # 通常のバケツと同じく、画面端で途切れた線を仮想延長して区切る。
+        # 元の実線・TP線は動かさず、透明画素だけを仮想境界にする。
+        self.gaps |= bucket_fill.extend_line_ends(
+            self.boundary, bucket_fill.BucketOptions.extend_length,
+        ) & (self.values == 0)
         region_values = self.values
         if self.gaps.any():
             region_values = self.values.copy()
@@ -791,11 +788,11 @@ def _flow_decision(target: _Cell, votes, index, local, bounds, near=True):
     sampled = ranked[0][0]
     share = ranked[0][1] / weight
     second = ranked[1][1] / weight if len(ranked) > 1 else 0.0
-    if near and share < FILL_SHARE and int(target.regions.sizes[index]) >= SPLIT_MIN_PIXELS:
-        colours = [value for value, amount in ranked if amount >= weight * SPLIT_SHARE]
-        if (len(colours) >= 2 and sum(total[value] for value in colours) >= weight * SPLIT_TOTAL
+    if near and share < FILL_SHARE and int(target.regions.sizes[index]) >= CONFLICT_MIN_PIXELS:
+        colours = [value for value, amount in ranked if amount >= weight * CONFLICT_SHARE]
+        if (len(colours) >= 2 and sum(total[value] for value in colours) >= weight * CONFLICT_TOTAL
                 and all(_paintable(value) for value in colours)):
-            return "split", colours
+            return "ambiguous", colours
     # 大きな部分は、端の方が動きの違うとなりの部分へずれて重なりやすい。一番の色が
     # 二番よりずっと多ければ決めてよい。
     if share < FILL_SHARE and not (
@@ -878,115 +875,35 @@ def _own_outline(target: _Cell, guide: _Cell, local, bounds) -> float:
 
 
 def _flow_outside(target: _Cell, guide: _Cell, flow: line_flow.Flow, local, bounds):
-    """絵の外 ``local`` のうち、線の切れ目から絵の外とつながっただけの部分を塗る。
+    """画面端に接する、対象セルの線で区切った領域を一色で塗る。
 
-    動き ``flow`` で手本へ重ねて、手本で塗ってある画素の色を写す。細い所（動きの
-    ずれで輪郭の外側にはみ出した所）は除き、残った塊のうち大きく、まわりの多くを
-    こちらの線が囲む塊だけを塗る。
-    :returns: ``CellPaint.paints`` と同じ ``[(色, 範囲, マスク)]``。
+    見本は色の投票にだけ使う。見本のシルエットでマスクを切り抜いたり、
+    細い所を収縮で削ったりしない。背景の大部分が透明なら塗らない。
     """
-    x0, y0, x1, y1 = bounds
+    x0, y0, _x1, _y1 = bounds
     ys, xs = np.nonzero(local)
     dy, dx = flow.at(ys + y0, xs + x0)
-    height, width = target.values.shape
-    gy = np.clip(np.round(ys + y0 + dy).astype(np.int64), 0, height - 1)
-    gx = np.clip(np.round(xs + x0 + dx).astype(np.int64), 0, width - 1)
-    sampled = guide.values[gy, gx]
-    usable = (sampled != 0) & ~guide.boundary[gy, gx] & ~guide.open[gy, gx]
-    if int(usable.sum()) < OUTSIDE_MIN_PIXELS:
+    height, width = guide.values.shape
+    gy = np.round(ys + y0 + dy).astype(np.int64)
+    gx = np.round(xs + x0 + dx).astype(np.int64)
+    inside = (gy >= 0) & (gy < height) & (gx >= 0) & (gx < width)
+    gy, gx = np.clip(gy, 0, height - 1), np.clip(gx, 0, width - 1)
+    usable = inside & ~guide.boundary[gy, gx] & ~guide.open[gy, gx]
+    if usable.sum() < local.sum() * MIN_SAMPLED_SHARE:
         return []
-    colour = np.zeros(local.shape, dtype=np.int64)
-    colour[ys[usable], xs[usable]] = sampled[usable]
-    mask = colour != 0
-    mask &= bucket_fill.dilate(bucket_fill.erode(mask, OUTSIDE_RADIUS), OUTSIDE_RADIUS)
-    labels, _count = reference_check.label_regions(np.where(mask, colour, 0))
-    found, counts = np.unique(labels[mask], return_counts=True)
-    lines = target.boundary[y0:y1, x0:x1]
-    paints = []
-    for label in found[counts >= OUTSIDE_MIN_PIXELS].tolist():
-        chunk = labels == label
-        value = int(colour[chunk][0])
-        if not _paintable(value):
-            continue
-        cy, cx = np.nonzero(chunk)
-        cy0, cy1 = max(0, int(cy.min()) - 2), min(chunk.shape[0], int(cy.max()) + 3)
-        cx0, cx1 = max(0, int(cx.min()) - 2), min(chunk.shape[1], int(cx.max()) + 3)
-        part = chunk[cy0:cy1, cx0:cx1]
-        ring = bucket_fill.dilate(part, 2) & ~part
-        if float(lines[cy0:cy1, cx0:cx1][ring].mean()) < OUTSIDE_OUTLINE:
-            continue
-        paints.append((_opaque_rgb(value),
-                       (x0 + cx0, y0 + cy0, x0 + cx1, y0 + cy1), part))
-    return paints
+    value, share = _majority(guide.values[gy[usable], gx[usable]])
+    if value is None or not _paintable(value) or share < FILL_SHARE:
+        return []
+    if _flow_outline(target, guide, flow, local, bounds) < FLOW_OUTLINE:
+        return []
+    paint_bounds, mask = _region_mask(target, local, bounds, 0)
+    return [(_opaque_rgb(value), paint_bounds, mask)]
 
 
 def _paintable(value) -> bool:
     rgb = reference_check._to_rgb(value)
     return rgb is not None and not reference_check._is_line(rgb) and not _is_primary(rgb)
 
-
-def _flow_split(target: _Cell, guide: _Cell, flow: line_flow.Flow, local, bounds, value,
-                colours):
-    """部分を、動きで重ねた手本の色 ``colours`` で画素ごとに塗り分ける。
-
-    手本で線や別の色に重なった画素は、近い画素の色に合わせる。
-    :returns: ``CellPaint.paints`` と同じ ``[(色, 範囲, マスク)]``。
-    """
-    x0, y0 = bounds[0], bounds[1]
-    ys, xs = np.nonzero(local)
-    dy, dx = flow.at(ys + y0, xs + x0)
-    height, width = target.values.shape
-    gy = np.clip(np.round(ys + y0 + dy).astype(np.int64), 0, height - 1)
-    gx = np.clip(np.round(xs + x0 + dx).astype(np.int64), 0, width - 1)
-    sampled = guide.values[gy, gx]
-    masks = []
-    for colour in colours:
-        mask = np.zeros_like(local)
-        hit = sampled == colour
-        mask[ys[hit], xs[hit]] = True
-        masks.append(mask)
-    claimed = np.logical_or.reduce(masks)
-    # 決まっていない画素は、となりから少しずつ広げて決める（先の色を優先）。
-    for _ in range(max(local.shape)):
-        if not (local & ~claimed).any():
-            break
-        grown = False
-        for mask in masks:
-            more = bucket_fill.dilate(mask, 1) & local & ~claimed
-            if more.any():
-                mask |= more
-                claimed |= more
-                grown = True
-        if not grown:
-            break
-    masks[0] |= local & ~claimed
-    # 線の切れ目でつながった部分なら、色の境目はこちらの線に沿う。何も無い所を
-    # 横切るなら、手などが前を通っただけ（隣のセルの色が分かれて見えるだけ）。
-    cut = np.zeros_like(local)
-    for first, mask in enumerate(masks):
-        for other in masks[first + 1:]:
-            cut |= mask & bucket_fill.dilate(other, 1)
-    if cut.any():
-        near = bucket_fill.dilate(target.boundary[y0:y0 + local.shape[0], x0:x0 + local.shape[1]],
-                                  SPLIT_CUT_REACH)
-        if float(near[cut].mean()) < SPLIT_CUT_LINE:
-            return []
-    paint_bounds, whole = _region_mask(target, local, bounds, value)
-    px0, py0 = paint_bounds[0], paint_bounds[1]
-    oy, ox = y0 - py0, x0 - px0
-    paints = []
-    taken = np.zeros_like(whole)
-    for colour, mask in zip(colours, masks):
-        placed = np.zeros_like(whole)
-        placed[oy:oy + local.shape[0], ox:ox + local.shape[1]] = mask
-        taken |= placed
-        paints.append([colour, placed])
-    rest = whole & ~taken
-    for entry in paints:
-        more = bucket_fill.dilate(entry[1], GAP_RADIUS) & rest
-        entry[1] = entry[1] | more
-        rest &= ~more
-    return [(_opaque_rgb(colour), paint_bounds, mask) for colour, mask in paints if mask.any()]
 
 
 def _region_outcome(target: _Cell, guide: _Cell, index, value, rgb, local, bounds, margin):
@@ -1186,7 +1103,7 @@ def paint_cell(pixels, guides: List[_Cell], *, finishes=None, learned=None,
             lines.append((local, bounds, value))
             continue
         outcome, suspect, new_part = None, None, False
-        split_paints: List[Tuple[Rgb, Bounds, np.ndarray]] = []
+        ambiguous = False
         if hint is not None and rgb is None:
             # 人が手で塗った部分は確かな答え。そのまま残し、次のセルの手本にもする。
             hand = _hand_color(target, hint, local, bounds)
@@ -1223,12 +1140,11 @@ def paint_cell(pixels, guides: List[_Cell], *, finishes=None, learned=None,
                     kind, decided = _flow_decision(target, [(guide, flow, *found)], index,
                                                    local, bounds, near=guide is guides[0])
                     new_rgb = None
-                    if kind == "split":
-                        split_paints = _flow_split(target, guide, flow, local, bounds, value,
-                                                   cast(List[int], decided))
-                        kind = "split" if split_paints else "unsure"
-                    else:
-                        new_rgb = cast(Optional[Rgb], decided)
+                    if kind == "ambiguous":
+                        # 対象セルでは一つの領域。見本の色分けで勝手な境界を作らない。
+                        ambiguous = True
+                        continue
+                    new_rgb = cast(Optional[Rgb], decided)
             if kind is None or kind == "unsure":
                 kind, new_rgb = _region_outcome(target, guide, index, value, rgb, local,
                                                 bounds, margin)
@@ -1240,15 +1156,17 @@ def paint_cell(pixels, guides: List[_Cell], *, finishes=None, learned=None,
                 outcome = (kind, new_rgb)
                 break
         size = int(regions.sizes[index])
-        if outcome is None and rgb is None and suspect is None and guides and target.from_lines:
+        if (outcome is None and not ambiguous and rgb is None and suspect is None
+                and guides and target.from_lines):
             matched = _shape_match(target, guides[0], index, local, bounds)
             if matched is not None:
                 outcome = ("paint", matched)
-        if outcome is None and rgb is None and suspect is None and hint is not None:
+        if (outcome is None and not ambiguous and rgb is None and suspect is None
+                and hint is not None):
             kept = _hint_color(hint, local, bounds)
             if kept is not None:
                 outcome = ("paint", kept)
-        if new_part and (outcome is None or outcome[0] not in ("paint", "split")):
+        if new_part and (outcome is None or outcome[0] != "paint"):
             # どの手本でも塗れず、手本に無い形と分かった（手本で透明だった場合も、
             # 前のセルで同じく決められなかっただけなので知らせる）。
             if size >= REPORT_MIN_PIXELS:
@@ -1276,10 +1194,7 @@ def paint_cell(pixels, guides: List[_Cell], *, finishes=None, learned=None,
                     ))
             continue
         kind, new_rgb = outcome
-        if kind == "split":
-            result.paints.extend(split_paints)
-            result.filled += 1
-        elif kind == "paint" and new_rgb is not None:
+        if kind == "paint" and new_rgb is not None:
             paint_bounds, mask = _region_mask(target, local, bounds, value)
             result.paints.append((new_rgb, paint_bounds, mask))
             result.filled += 1
@@ -1372,13 +1287,18 @@ def _finishes(learned) -> Dict[Tuple[int, int], int]:
     return finishes
 
 
-def _order(count, reference_index):
+def _order(count, reference_index, second_reference_index=None, reference_indices=None):
     """見本から近い順に。``(セル, 見本の側の隣)``。"""
-    order = sorted(
-        (abs(index - reference_index), index) for index in range(count) if index != reference_index
-    )
+    references = {reference_index}
+    references.update(reference_indices or [])
+    if second_reference_index is not None:
+        references.add(second_reference_index)
+    nearest = {index: min(references, key=lambda ref: (abs(index - ref), ref))
+               for index in range(count) if index not in references}
+    order = sorted((abs(index - ref), index) for index, ref in nearest.items())
     return [
-        (index, index - 1 if index > reference_index else index + 1) for _distance, index in order
+        (index, index - 1 if index > nearest[index] else index + 1)
+        for _distance, index in order
     ]
 
 
@@ -1386,6 +1306,8 @@ def plan_auto_paint(
     cells: List[np.ndarray],
     reference_index: int,
     *,
+    second_reference_index: Optional[int] = None,
+    reference_indices: Optional[List[int]] = None,
     progress: Optional[Callable[[int, int], bool]] = None,
     margin: int = SEARCH_MARGIN,
     max_rounds: int = MAX_ROUNDS,
@@ -1393,6 +1315,9 @@ def plan_auto_paint(
     lines: Optional[List[Optional[np.ndarray]]] = None,
 ) -> Optional[AutoPlan]:
     """``cells[reference_index]`` を見本に、前後へ1セルずつ塗り進める。
+
+    ``reference_indices`` の見本も確定見本として保ち、近い見本から
+    1セルずつ塗り進める。見本自身は ``plan.cells`` に含めず、塗り替えない。
 
     一通り塗ったら、迷った部分の少ないセルを見本に加えて、見本以外のセルを
     もう一度塗る（``max_rounds`` 回まで、加えるセルが無くなったら終わり）。
@@ -1404,12 +1329,22 @@ def plan_auto_paint(
     :param lines: セルごとの元の線画（動きの推定に使う）。無いセルは ``cells`` の線を使う。
         見本は色トレス線を塗りつぶしてあることが多いので、元の線画があると動きが確かになる。
     """
+    fixed = {reference_index}
+    fixed.update(reference_indices or [])
+    if second_reference_index is not None:
+        fixed.add(second_reference_index)
+    for index in fixed:
+        if not 0 <= index < len(cells):
+            raise ValueError("Reference is outside the cell list")
+        if cells[index].shape != cells[reference_index].shape:
+            raise ValueError("Reference cells must have the same dimensions")
     plan = AutoPlan()
     shape = cells[reference_index].shape
     usable = {index for index, pixels in enumerate(cells) if pixels.shape == shape}
-    work = [item for item in _order(len(cells), reference_index) if item[0] in usable]
-    previous = {reference_index: cells[reference_index]}
-    references = {reference_index}
+    work = [item for item in _order(len(cells), reference_index, reference_indices=fixed)
+            if item[0] in usable]
+    previous = {index: cells[index] for index in fixed}
+    references = set(fixed)
     learned: Dict[Tuple[int, int], Dict[int, int]] = {}
     # 区画ごとの動きは線だけで決まるので、セルの組ごとに一度だけ求めて使い回す。
     # 塗るセルの部分分けも、入力が変わらないので回をまたいで使い回す。
@@ -1439,7 +1374,7 @@ def plan_auto_paint(
     # 人が手で塗ったセル：手で塗った部分だけを塗った手本（ほかは決めていない所）。
     hand_cells: Dict[int, _Cell] = {}
     for index, hint in enumerate(hints or []):
-        if hint is None or index == reference_index or index not in usable:
+        if hint is None or index in fixed or index not in usable:
             continue
         hand = _hand_paint(cells[index], hint)
         if not hand.paints:
@@ -1464,7 +1399,7 @@ def plan_auto_paint(
     done = 0
     for _round in range(max_rounds):
         plan.rounds += 1
-        current = {reference_index: cells[reference_index]}
+        current = {index: cells[index] for index in fixed}
         made: Dict[Tuple[str, int], _Cell] = {}
         sources = {"now": current, "before": previous}
         # 決められずに残した線：この回の分と、前の回の分。
@@ -1483,11 +1418,13 @@ def plan_auto_paint(
                 made[key].index = index
             return made[key]
 
-        teacher = guide("now", reference_index)
+        teachers = {index: guide("now", index) for index in sorted(fixed)}
         for index, toward in work:
             if progress is not None and not progress(done, total):
                 return None
             done += 1
+            nearest = min(fixed, key=lambda ref: (abs(index - ref), ref))
+            teacher = teachers[nearest]
             guides = [guide("now", toward)] if toward in current else []
             # 前の回の塗り：反対側の隣と、近くの見本（両側）。
             side = 2 * index - toward
@@ -1497,12 +1434,12 @@ def plan_auto_paint(
                 if near:
                     extra.append(min(near, key=lambda ref: abs(ref - index)))
             for other in dict.fromkeys(extra):
-                if other == reference_index:
-                    if abs(index - reference_index) <= TEACHER_REACH:
-                        guides.append(teacher)
+                if other in fixed:
+                    if abs(index - other) <= TEACHER_REACH and teachers[other] not in guides:
+                        guides.append(teachers[other])
                 elif other != toward:
                     guides.append(guide("before", other))
-            if teacher not in guides and abs(index - reference_index) <= TEACHER_REACH:
+            if teacher not in guides and abs(index - nearest) <= TEACHER_REACH:
                 guides.append(teacher)
             hint = hints[index] if hints is not None else None
             hand_guides, hand_first = hand_guides_for(index)

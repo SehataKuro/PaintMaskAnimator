@@ -116,7 +116,10 @@ class ReferenceCheckDialog(QDialog):
             self.tree.addTopLevelItem(item)
         for column in range(4):
             self.tree.resizeColumnToContents(column)
-        self.tree.currentItemChanged.connect(self._on_current)
+        # 表示時にQtが先頭行を現在項目にしても、キャンバスの選択を変更しない。
+        # 場所へ移るのはユーザーが行をクリック／明示的に実行したときだけ。
+        self.tree.itemClicked.connect(self._on_current)
+        self.tree.itemActivated.connect(self._on_current)
         layout.addWidget(self.tree)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(self.close)

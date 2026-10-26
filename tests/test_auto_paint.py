@@ -6,7 +6,7 @@ import pytest
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication
 
-from paintmaskanimator import auto_paint, fill_tracking, imaging, project_io, reference_check
+from paintmaskanimator import auto_paint, fill_tracking, imaging, line_flow, bucket_fill, project_io, reference_check
 from paintmaskanimator.main_window import MainWindow
 from paintmaskanimator.undo_entries import ScopedBatchUndo
 
@@ -352,7 +352,11 @@ def test_auto_paint_lists_spots_to_check(window):
     assert dialog is not None
     assert dialog.windowTitle() == "自動で塗った、確かめたい所"
     assert dialog.tree.topLevelItemCount() >= 1
+    assert canvas.current_frame == 0
+    assert canvas.selection_mask_bool() is None
     dialog.tree.setCurrentItem(dialog.tree.topLevelItem(0))
+    assert canvas.current_frame == 0, "Focusing a row must not select pixels"
+    dialog.tree.itemClicked.emit(dialog.tree.topLevelItem(0), 0)
     assert canvas.current_frame == 1
     dialog.close()
 
@@ -565,3 +569,315 @@ def test_a_closed_gap_in_a_colour_trace_line_is_filled():
             filled[(int(y) + y0, int(x) + x0)] = rgb
     assert filled.get((10, 11)) == SKIN and filled.get((10, 12)) == SKIN
     assert len(filled) == 22, "切れ目の画素をすべて埋める"
+
+
+def outside_room_with_a_fold():
+    """An open wall and a narrow fold like the skirt tips in the supplied project."""
+    raw = np.zeros((90, 90, 4), dtype=np.uint8)
+    black = (0, 0, 0, 255)
+    raw[10, 10:71] = raw[70, 10:71] = black
+    raw[10:71, 10] = raw[10:71, 70] = black
+    raw[20:61, 40] = black
+    for y in range(20, 61):
+        raw[y, 40 + (60 - y) // 2] = black
+    raw[20, 40:61] = black
+    raw[30:39, 40] = raw[30:39, 10] = 0
+    guide = raw.copy()
+    guide[11:70, 11:70] = (*SKIN, 255)
+    guide[raw[:, :, 3] > 0] = raw[raw[:, :, 3] > 0]
+    return raw, guide
+
+
+def paint_outside_with_no_motion(raw, guide):
+    target = auto_paint._Cell(raw)
+    teacher = auto_paint._Cell(guide)
+    flow = line_flow.Flow(np.zeros((1, 1)), np.zeros((1, 1)), np.ones((1, 1)),
+                          np.ones((1, 1)), raw.shape[:2])
+    paint = auto_paint.paint_cell(raw, [teacher], hint=raw,
+                                 flow_for=lambda _teacher: flow, target=target)
+    return auto_paint.apply_paint(raw, paint)
+
+
+def test_outside_fill_restores_the_narrow_tip_of_a_fold():
+    raw, guide = outside_room_with_a_fold()
+    after = paint_outside_with_no_motion(raw, guide)
+    expected = (guide[:, :, 3] > 0) & (raw[:, :, 3] == 0)
+    assert np.all(after[expected] == guide[expected]), "Do not shave off the fold tip"
+    assert np.array_equal(after[raw[:, :, 3] > 0], raw[raw[:, :, 3] > 0])
+    assert not after[:10, :, 3].any(), "Keep the exterior transparent"
+    assert not after[:, :10, 3].any()
+
+
+@pytest.mark.parametrize("tip", [(*LEAF, 255), (0, 0, 0, 0)])
+def test_outside_fill_does_not_invent_the_colour_of_a_tip(tip):
+    raw, guide = outside_room_with_a_fold()
+    # The fold tip has a different colour, or is intentionally transparent.
+    for y in range(49, 60):
+        for x in range(41, 40 + (60 - y) // 2):
+            guide[y, x] = tip
+    after = paint_outside_with_no_motion(raw, guide)
+    # The guide has no right to introduce a new boundary inside this target region.
+    target = auto_paint._Cell(raw)
+    index = int(target.regions.labels[56, 41])
+    region = target.regions.mask(index)
+    assert np.unique(fill_tracking._labels(after)[region]).size == 1
+    assert color_at(after, 41, 56) != LEAF
+    assert color_at(after, 20, 50) == SKIN
+
+
+@pytest.mark.parametrize("first, second", [(0, 4), (4, 0)])
+def test_two_references_paint_inward_and_are_never_repainted(first, second):
+    last = figure(8, painted=True)
+    last[np.all(last[:, :, :3] == SKIN, axis=2) & (last[:, :, 3] > 0)] = (*BLUSH, 255)
+    cells = [figure(0, painted=True), figure(2), figure(4), figure(6), last]
+    originals = [cell.copy() for cell in cells]
+    plan = auto_paint.plan_auto_paint(cells, first, second_reference_index=second, max_rounds=1)
+    assert plan is not None
+    assert set(plan.cells) == {1, 2, 3}
+    assert 0 in plan.references and 4 in plan.references
+    assert color_at(auto_paint.apply_paint(cells[1], plan.cells[1]), 17, 40) == SKIN
+    assert color_at(auto_paint.apply_paint(cells[3], plan.cells[3]), 21, 40) == BLUSH
+    assert all(np.array_equal(cell, original) for cell, original in zip(cells, originals))
+
+
+def test_second_reference_supplies_a_part_absent_from_the_first():
+    cells = [figure(0, painted=True), figure(2), figure(4),
+             with_box(figure(6), 21, 35, 12),
+             with_box(figure(8, painted=True), 23, 35, 12, fill=BLUSH)]
+    plan = auto_paint.plan_auto_paint(cells, 0, second_reference_index=4)
+    assert plan is not None
+    after = auto_paint.apply_paint(cells[3], plan.cells[3])
+    assert color_at(after, 26, 40) == BLUSH
+    assert 0 not in plan.cells and 4 not in plan.cells
+
+
+def test_two_reference_controller_keeps_both_painted_images_and_undoes(window):
+    put_cells(window, [figure(0), figure(2), figure(4), figure(6)])
+    window.initial_state.keep(confirm=False)
+    put_cells(window, [figure(0, painted=True), figure(2), figure(4), figure(6, painted=True)])
+    canvas = window.canvas
+    first = canvas.frames[0].layers[0].image.copy()
+    last = canvas.frames[3].layers[0].image.copy()
+    assert window.auto_paint.run(window.auto_paint.cells(), 0, 3)
+    assert canvas.frames[0].layers[0].image == first
+    assert canvas.frames[3].layers[0].image == last
+    assert canvas.frames[2].layers[0].image.pixelColor(49, 20) == QColor(*LEAF)
+    assert len(canvas.undo_stack[-1].cells) == 2
+    canvas.undo()
+    assert canvas.frames[2].layers[0].image.pixelColor(49, 20).alpha() == 0
+    assert canvas.frames[3].layers[0].image == last
+
+
+def test_reference_picker_supports_three_and_requires_a_cell_to_paint(qapp):
+    from PySide6.QtCore import Qt
+    from paintmaskanimator.main_window_auto_paint import AutoPaintDialog
+    cells = [(index, 0) for index in range(4)]
+    images = [imaging.rgba_array_to_qimage(figure(index * 2, painted=True))
+              for index in range(4)]
+    dialog = AutoPaintDialog(None, "A", cells, [str(i + 1) for i in range(4)],
+                             0, images=images)
+    try:
+        assert dialog.chosen() == [cells[0]]
+        assert not dialog.references.item(0).icon().isNull()
+        dialog.references.item(3).setCheckState(Qt.CheckState.Checked)
+        assert dialog.chosen() == [cells[0], cells[3]]
+        assert dialog.selected_refs.item(1).text() == "4"
+        dialog.references.item(1).setCheckState(Qt.CheckState.Checked)
+        assert dialog.chosen() == [cells[0], cells[1], cells[3]]
+        assert dialog.selected_refs.item(2).text() == "4"
+        assert dialog.run_button.isEnabled()
+        dialog.references.item(2).setCheckState(Qt.CheckState.Checked)
+        assert not dialog.run_button.isEnabled(), "Leave a cel to paint"
+        for index in range(4):
+            dialog.references.item(index).setCheckState(Qt.CheckState.Unchecked)
+        assert not dialog.run_button.isEnabled()
+    finally:
+        dialog.deleteLater()
+
+
+def test_three_references_are_all_used_and_preserved():
+    cells = [figure(index * 2, painted=index in (0, 3, 6)) for index in range(7)]
+    for index, color in ((3, BLUSH), (6, LEAF)):
+        image = cells[index]
+        image[np.all(image[:, :, :3] == SKIN, axis=2) & (image[:, :, 3] > 0)] = (*color, 255)
+    originals = [image.copy() for image in cells]
+    plan = auto_paint.plan_auto_paint(cells, 0, reference_indices=[0, 3, 6], max_rounds=1)
+    assert plan is not None
+    assert set(plan.cells) == {1, 2, 4, 5}
+    for index, color in ((1, SKIN), (2, BLUSH), (4, BLUSH), (5, LEAF)):
+        after = auto_paint.apply_paint(cells[index], plan.cells[index])
+        assert color_at(after, 15 + index * 2, 40) == color
+    assert all(np.array_equal(image, original) for image, original in zip(cells, originals))
+
+
+def test_three_reference_controller_keeps_every_reference(window):
+    cells = [figure(index * 2, painted=index in (0, 2, 4)) for index in range(5)]
+    put_cells(window, cells)
+    canvas = window.canvas
+    originals = {index: canvas.frames[index].layers[0].image.copy() for index in (0, 2, 4)}
+    assert window.auto_paint.run(window.auto_paint.cells(), 0, reference_indices=[0, 2, 4])
+    for index, image in originals.items():
+        assert canvas.frames[index].layers[0].image == image
+    assert len(canvas.undo_stack[-1].cells) == 2
+    canvas.undo()
+    assert canvas.frames[1].layers[0].image.pixelColor(47, 20).alpha() == 0
+
+
+def test_progress_shows_target_cels_per_round_instead_of_three_times_the_count(window, monkeypatch):
+    from paintmaskanimator import main_window_auto_paint as ui
+    reports = []
+    class Counter:
+        def wasCanceled(self):
+            return False
+    counter = Counter()
+    monkeypatch.setattr(ui, "create_counter", lambda *args, **kwargs: counter)
+    monkeypatch.setattr(ui, "close_counter", lambda dialog: None)
+    monkeypatch.setattr(ui, "update_counter",
+                        lambda dialog, value, total, label: reports.append((value, total, label)))
+    def make_plan(pixels, reference, **kwargs):
+        progress = kwargs["progress"]
+        for done in (0, 3, 4, 9):
+            assert progress(done, 9)
+        return auto_paint.AutoPlan()
+    monkeypatch.setattr(auto_paint, "plan_auto_paint", make_plan)
+    window.auto_paint._plan([figure(0)] * 5, 0, reference_indices=[0, 4])
+    assert [(value, total) for value, total, label in reports] == [(0, 3), (0, 3), (1, 3), (3, 3)]
+    assert "1回目" in reports[0][2]
+    assert "2回目" in reports[1][2]
+    assert "対象3セル" in reports[2][2]
+
+
+def test_auto_paint_keeps_the_existing_selection_and_frame_when_results_open(window, qapp):
+    reference = figure(0, painted=True)
+    target = with_box(figure(2), 15, 36, 14, fill=LEAF)
+    put_cells(window, [reference, target])
+    canvas = window.canvas
+    canvas.current_frame = 0
+    selected = np.zeros((canvas.frames[0].layers[0].image.height(),
+                         canvas.frames[0].layers[0].image.width()), dtype=bool)
+    selected[2:6, 3:7] = True
+    assert canvas.set_selection_mask(selected)
+    assert window.auto_paint.run(window.auto_paint.cells(), 0)
+    qapp.processEvents()
+    assert canvas.current_frame == 0
+    assert np.array_equal(canvas.selection_mask_bool(), selected)
+    window.reference_check.dialog.close()
+
+
+def skirt_at_canvas_edge():
+    raw = np.zeros((120, 120, 4), dtype=np.uint8)
+    # Outer walls and a fold stop just short of the lower canvas edge.
+    raw[10, 20:101] = (0, 0, 0, 255)
+    raw[10:116, 20] = raw[10:116, 100] = (0, 0, 0, 255)
+    raw[45:116, 60] = (*RED, 255)
+    guide = raw.copy()
+    guide[11:, 21:60] = (*SKIN, 255)
+    guide[11:45, 60:100] = (*SKIN, 255)
+    guide[45:, 61:100] = (*SKIN, 255)
+    return raw, guide
+
+
+def test_auto_paint_region_matches_an_ordinary_bucket_and_keeps_both_line_types():
+    raw, guide = skirt_at_canvas_edge()
+    after = paint_outside_with_no_motion(raw, guide)
+    bucket = bucket_fill.compute_fill_region(
+        raw, 30, 70, bucket_fill.BucketOptions(extend_lines=True),
+    )
+    assert bucket.ok
+    assert bucket.region is not None
+    assert np.all(after[bucket.region, 3] == 255), "Fill the entire bucket region, including edges"
+    assert np.all(after[bucket.region, :3] == SKIN)
+    black = auto_paint.boundary_mask(raw) & ~auto_paint.primary_line_mask(raw)
+    assert np.array_equal(after[black], raw[black]), "Never move or overwrite a solid line"
+    # The TP line separates two bucket regions even though their finished colours can match.
+    assert bucket.region[70, 59] and not bucket.region[70, 61]
+    assert not after[:, :20, 3].any(), "Do not copy the guide silhouette into the exterior"
+
+
+def test_a_guide_must_not_cut_a_new_boundary_inside_a_target_region():
+    raw = np.zeros((100, 120, 4), dtype=np.uint8)
+    raw[10, 10:111] = raw[90, 10:111] = (0, 0, 0, 255)
+    raw[10:91, 10] = raw[10:91, 110] = (0, 0, 0, 255)
+    guide = raw.copy()
+    guide[11:90, 11:60] = (*SKIN, 255)
+    guide[11:90, 60:110] = (*LEAF, 255)
+    after = paint_outside_with_no_motion(raw, guide)
+    assert not after[11:90, 11:110, 3].any(), "Unclear colour: report it rather than invent a cut"
+
+
+@pytest.fixture
+def reference_picker(qapp):
+    from paintmaskanimator.auto_paint_dialog import AutoPaintDialog
+    cells = [(i * 3, 0) for i in range(6)]
+    labels = [f"コマ {i * 3 + 1}（セル {i + 1}）" for i in range(6)]
+    images = [imaging.rgba_array_to_qimage(figure(i, painted=True)) for i in range(6)]
+    dialog = AutoPaintDialog(None, "A", cells, labels, 0, images=images)
+    dialog.show()
+    qapp.processEvents()
+    yield dialog
+    dialog.close()
+    dialog.deleteLater()
+    qapp.processEvents()
+
+
+def test_clicking_the_thumbnail_toggles_a_reference_without_ctrl(reference_picker, qapp):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    dialog = reference_picker
+    item = dialog.references.item(2)
+    point = dialog.references.visualItemRect(item).center()
+    QTest.mouseClick(dialog.references.viewport(), Qt.MouseButton.LeftButton, pos=point)
+    qapp.processEvents()
+    assert dialog.chosen() == [dialog.cells[0], dialog.cells[2]]
+    assert dialog.preview_title.text() == dialog.labels[2]
+    assert "2" in dialog.selection_status.text()
+    QTest.mouseClick(dialog.references.viewport(), Qt.MouseButton.LeftButton, pos=point)
+    assert dialog.chosen() == [dialog.cells[0]]
+
+
+def test_reference_search_keeps_hidden_choices_and_selected_list_reveals_them(reference_picker):
+    from PySide6.QtCore import Qt
+    dialog = reference_picker
+    dialog.references.item(5).setCheckState(Qt.CheckState.Checked)
+    dialog.search.setText("16")
+    assert dialog.references.item(0).isHidden()
+    assert not dialog.references.item(5).isHidden()
+    assert dialog.chosen() == [dialog.cells[0], dialog.cells[5]]
+    dialog.selected_refs.itemClicked.emit(dialog.selected_refs.item(0))
+    assert dialog.search.text() == ""
+    assert dialog.references.currentRow() == 0
+    assert dialog.chosen() == [dialog.cells[0], dialog.cells[5]]
+    dialog.selected_refs.setCurrentRow(1)
+    dialog.remove_button.click()
+    assert dialog.chosen() == [dialog.cells[0]]
+    dialog.clear_button.click()
+    assert not dialog.chosen()
+    assert not dialog.run_button.isEnabled()
+
+
+def test_picker_keyboard_zoom_and_jump_do_not_reset_choices(reference_picker):
+    from PySide6.QtCore import QItemSelectionModel, Qt
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QPushButton
+    dialog = reference_picker
+    dialog.references.setCurrentRow(1, QItemSelectionModel.SelectionFlag.NoUpdate)
+    QTest.keyClick(dialog.references, Qt.Key.Key_Space)
+    assert dialog.chosen() == [dialog.cells[0], dialog.cells[1]]
+    dialog.card_size.setValue(220)
+    dialog.findChild(QPushButton, "reference-last").click()
+    assert dialog.references.currentRow() == 5
+    assert dialog.chosen() == [dialog.cells[0], dialog.cells[1]]
+    assert dialog.preview_title.text() == dialog.labels[5]
+    dialog.toggle_reference.click()
+    assert dialog.chosen() == [dialog.cells[0], dialog.cells[1], dialog.cells[5]]
+
+
+def test_enter_in_reference_search_does_not_start_painting(reference_picker):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    dialog = reference_picker
+    dialog.search.setFocus()
+    dialog.search.setText("16")
+    QTest.keyClick(dialog.search, Qt.Key.Key_Return)
+    assert dialog.isVisible()
+    assert dialog.chosen() == [dialog.cells[0]]

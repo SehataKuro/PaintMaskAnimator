@@ -439,7 +439,11 @@ def test_reference_check_lists_findings_and_jumps_to_them(window):
     kinds = [entry[2].kind for entry in dialog.entries]
     assert reference_check.KIND_MISMATCH in kinds
     row = kinds.index(reference_check.KIND_MISMATCH)
+    assert canvas.current_frame == 0
+    assert canvas.selection_mask_bool() is None
     dialog.tree.setCurrentItem(dialog.tree.topLevelItem(row))
+    assert canvas.current_frame == 0
+    dialog.tree.itemClicked.emit(dialog.tree.topLevelItem(row), 0)
     assert canvas.current_frame == 1
     selection = canvas.selection_mask_bool()
     assert selection is not None and selection[50, 50]

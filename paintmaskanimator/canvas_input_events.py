@@ -112,6 +112,14 @@ class InputEventMixin(CanvasMembers):
             self.widget_to_canvas(e.position())
         )
         self.update_tool_cursor()
+        resize_modifiers = Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier
+        if (e.button() == Qt.MouseButton.LeftButton
+                and e.modifiers() & resize_modifiers == resize_modifiers
+                and self.tool in ("brush", "line") and not self.drawing
+                and self._onion_interaction_mode is None and not self.transform_active):
+            self._brush_resize_anchor = (e.position().x(), float(self.pen_size))
+            e.accept()
+            return
         if e.button() == Qt.MouseButton.MiddleButton:
             self.middle_hand = True
             self.drawing = True
@@ -246,6 +254,17 @@ class InputEventMixin(CanvasMembers):
             self.update()
 
     def mouseMoveEvent(self,e):
+        if self._brush_resize_anchor is not None:
+            anchor_x, size = self._brush_resize_anchor
+            value = max(0.5, min(400.0, round((size + (e.position().x() - anchor_x) * 0.1) * 2) / 2))
+            panel = self._active_tool_panel()
+            if panel is not None:
+                panel.brush_size_spinbox.setValue(value)
+            else:
+                self.set_pen_size(value)
+            self.update()
+            e.accept()
+            return
         old_cursor = QPointF(self._brush_cursor_widget_pos)
         self._brush_cursor_widget_pos = QPointF(e.position())
         self._brush_cursor_inside = self.inside(
@@ -367,6 +386,11 @@ class InputEventMixin(CanvasMembers):
         super().mouseDoubleClickEvent(e)
 
     def mouseReleaseEvent(self,e):
+        if self._brush_resize_anchor is not None and e.button() == Qt.MouseButton.LeftButton:
+            self.mouseMoveEvent(e)
+            self._brush_resize_anchor = None
+            e.accept()
+            return
         if e.button() == Qt.MouseButton.MiddleButton:
             self.middle_hand = False
             self.drawing = False

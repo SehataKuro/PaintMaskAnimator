@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
-from paintmaskanimator import line_flow
+from paintmaskanimator import line_flow, native
 
 
 def scatter(shape, seed=1):
@@ -61,3 +62,62 @@ def test_blocks_without_lines_follow_their_neighbours():
     dy, dx = flow.at(np.array([96]), np.array([128]))
     assert near(dy[0], -4)
     assert near(dx[0], -4)
+
+
+needs_flow_native = pytest.mark.skipif(
+    not native.available() or not hasattr(native._native, "line_flow_scores"),
+    reason="Rust line-flow component is not installed",
+)
+
+
+@needs_flow_native
+@pytest.mark.parametrize("block, reach", [(1, 0), (2, 2), (4, 12), (8, 2), (16, 2), (32, 2)])
+def test_native_candidate_scores_match_numpy_exactly(block, reach):
+    rng = np.random.default_rng(27 + block)
+    rows, cols = 3, 4
+    shape = rows * block, cols * block
+    for density in (0.0, 0.05, 0.5, 1.0):
+        target = rng.random(shape) < density
+        guide = rng.random(shape) < density
+        base_y = rng.integers(-10, 11, (rows, cols), dtype=np.int64)
+        base_x = rng.integers(-10, 11, (rows, cols), dtype=np.int64)
+        expected = line_flow._scores_numpy(target, guide, rows, cols, reach, base_y, base_x)
+        actual = native.line_flow_scores(target, guide, block, base_y, base_x, reach)
+        np.testing.assert_array_equal(actual, expected)
+        # The coarse search has zero base offsets.
+        zero = np.zeros((rows, cols), dtype=np.int64)
+        expected = line_flow._scores_numpy(target, guide, rows, cols, reach)
+        actual = native.line_flow_scores(target, guide, block, zero, zero, reach)
+        np.testing.assert_array_equal(actual, expected)
+
+
+@needs_flow_native
+@pytest.mark.parametrize("shape, seed", [((1, 1), 1), ((35, 67), 2), ((192, 256), 3),
+                                        ((193, 321), 5)])
+def test_native_full_flow_matches_numpy_exactly(shape, seed, monkeypatch):
+    rng = np.random.default_rng(seed)
+    guide = rng.random(shape) < 0.08
+    target = moved(guide, 3, -5) if min(shape) > 5 else guide.copy()
+    actual = line_flow.estimate_flow(target, guide)
+    monkeypatch.setenv("PMA_NO_NATIVE", "1")
+    expected = line_flow.estimate_flow(target, guide)
+    for name in ("dy", "dx", "score", "lines"):
+        np.testing.assert_array_equal(getattr(actual, name), getattr(expected, name))
+
+
+def test_old_native_component_uses_the_numpy_fallback(monkeypatch):
+    monkeypatch.setattr(native, "_native", object())
+    mask = np.zeros((4, 4), dtype=bool)
+    assert native.line_flow_scores(mask, mask, 4, np.zeros((1, 1)), np.zeros((1, 1)), 2) is None
+
+
+@needs_flow_native
+def test_native_rejects_invalid_flow_buffers():
+    import pma_native
+    offsets = np.zeros((1, 1), dtype=np.int64).tobytes()
+    with pytest.raises(ValueError):
+        pma_native.line_flow_scores(b"", b"", 4, 4, 4, offsets, offsets, 2)
+    with pytest.raises(ValueError):
+        pma_native.line_flow_scores(bytes(16), bytes(16), 4, 4, 0, offsets, offsets, 2)
+    with pytest.raises(ValueError):
+        pma_native.line_flow_scores(bytes(16), bytes(16), 4, 4, 4, b"", offsets, 2)

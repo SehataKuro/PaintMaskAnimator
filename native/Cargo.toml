@@ -1,6 +1,6 @@
 [package]
 name = "pma_native"
-version = "0.1.0"
+version = "0.3.0"
 edition = "2021"
 description = "PaintMaskAnimator の重い画像計算（Rust 実装）"
 license = "Apache-2.0"

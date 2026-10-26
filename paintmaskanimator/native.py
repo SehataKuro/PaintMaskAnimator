@@ -29,8 +29,34 @@ def available() -> bool:
     return _native is not None and os.environ.get("PMA_NO_NATIVE") != "1"
 
 
+def line_flow_scores(target, guide, block, base_y, base_x, reach):
+    """位置合わせの一致数。古い部品しか入っていなければ numpy へ戻す。"""
+    if not available() or not hasattr(_native, "line_flow_scores"):
+        return None
+    assert _native is not None
+    height, width = target.shape
+    result = _native.line_flow_scores(
+        _as_bytes(target), _as_bytes(guide), width, height, int(block),
+        np.ascontiguousarray(base_y, dtype=np.int64).tobytes(),
+        np.ascontiguousarray(base_x, dtype=np.int64).tobytes(), int(reach),
+    )
+    side = 2 * reach + 1
+    return np.frombuffer(result, dtype=np.uint32).reshape(
+        side * side, height // block, width // block,
+    ).astype(np.float64)
+
+
 def _as_bytes(mask):
     return np.ascontiguousarray(mask, dtype=bool).tobytes()
+
+
+def thin(mask, iterations):
+    """線端検出用の細線化。古い部品・部品なしでは numpy へ戻す。"""
+    if not available() or not hasattr(_native, "thin"):
+        return None
+    assert _native is not None
+    height, width = mask.shape
+    return _as_mask(_native.thin(_as_bytes(mask), width, height, int(iterations)), height, width)
 
 
 def _as_mask(data, height, width):

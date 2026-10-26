@@ -126,3 +126,27 @@ def test_keyboard_zoom_keeps_the_cursor_point_even_outside_the_canvas(window, mo
     window.step_canvas_zoom(0.5)
     after = canvas.widget_to_canvas(QPointF(anchor))
     assert abs(before.x() - after.x()) < 1e-6 and abs(before.y() - after.y()) < 1e-6
+
+
+def test_ctrl_alt_resize_takes_priority_over_eyedropper(window):
+    canvas = window.canvas
+    canvas.set_tool("brush")
+    spin = window.tools.brush_size_spinbox
+    spin.setValue(1.5)
+    QTest.keyPress(canvas, Qt.Key.Key_Control)
+    QTest.keyPress(canvas, Qt.Key.Key_Alt, Qt.KeyboardModifier.ControlModifier)
+    assert canvas.effective_tool() == "brush"
+    modifiers = Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier
+    QTest.mousePress(canvas, Qt.MouseButton.LeftButton, modifiers, QPoint(100, 100))
+    QTest.mouseMove(canvas, QPoint(120, 100))
+    QTest.mouseRelease(canvas, Qt.MouseButton.LeftButton, modifiers, QPoint(120, 100))
+    assert spin.value() == 3.5
+    assert canvas.pen_size == spin.value()
+    assert not canvas.drawing
+    QTest.keyRelease(canvas, Qt.Key.Key_Alt, Qt.KeyboardModifier.ControlModifier)
+    QTest.keyRelease(canvas, Qt.Key.Key_Control)
+    QTest.keyClick(canvas, Qt.Key.Key_BracketLeft)
+    assert spin.value() < 3.5
+    smaller = spin.value()
+    QTest.keyClick(canvas, Qt.Key.Key_BracketRight)
+    assert spin.value() > smaller
