@@ -9,6 +9,8 @@ After Effects のコンポジションパネルにある「露光量の調整」
 * **チャンネル**: 赤・緑・青のどれか1つをグレーで、またはアルファを白黒で見せる。
 * **隣接色分け**: 同じ色でつながった部分を1つの領域とみなし、隣り合う領域が
   必ず違う色になるよう、見分けやすい仮の色で塗り分ける（地図の塗り分けと同じ）。
+  元の色が同じ領域は、主線で分かれていても同じ仮の色になるので、
+  どこが同じ色なのかがそのまま読める。
   ノーマルとほんの少し違う影色の点のような、目では区別しにくい塗り漏れが
   はっきり浮き上がる。主線（黒に近い色）は元の色のまま残す。
 
@@ -208,31 +210,48 @@ def region_neighbors(labels, count, gap=MAP_NEIGHBOR_GAP):
     return np.stack((merged // (count + 1), merged % (count + 1)), axis=1)
 
 
-def assign_map_colors(count, neighbors, areas, palette_size=None):
+def assign_map_colors(count, neighbors, areas, palette_size=None, groups=None):
     """隣り合う領域が違う番号になるよう、各領域に色の番号を割り当てる。
 
     大きい領域から順に、隣でまだ使っていない一番若い番号を選ぶ（貪欲法）。
     使える番号が尽きたら、隣で使っている回数が一番少ない番号にする。
 
     :param areas: 領域ごとの面積（``areas[番号]``、0 番は使わない）。
+    :param groups: 領域ごとの組の番号（``groups[番号]``）。同じ組の領域には
+        同じ色の番号を割り当てる（元の色が同じ領域をまとめるため）。
+        ``None`` なら領域ごとに別々に割り当てる。
     :returns: ``colors[番号]`` が色の番号の配列。0 番は -1。
     """
     if palette_size is None:
         palette_size = len(MAP_PALETTE)
-    adjacency = [[] for _ in range(count + 1)]
+    areas = np.asarray(areas, dtype=np.int64)
+    if groups is None:
+        group_of = np.arange(count + 1, dtype=np.int64)
+        group_count = count
+    else:
+        group_of = np.asarray(groups, dtype=np.int64)
+        group_count = int(group_of[1:].max()) if count else 0
+    # 組どうしの隣り合いに言い換える（同じ組どうしは色をそろえるので無視）。
+    adjacency = [set() for _ in range(group_count + 1)]
     for a, b in neighbors.tolist():
-        adjacency[a].append(b)
-        adjacency[b].append(a)
-    colors = np.full(count + 1, -1, dtype=np.int32)
-    order = np.argsort(-np.asarray(areas[1:]), kind="stable") + 1
-    for region in order.tolist():
+        ga, gb = int(group_of[a]), int(group_of[b])
+        if ga != gb:
+            adjacency[ga].add(gb)
+            adjacency[gb].add(ga)
+    # 組の面積（合計）が大きい順に決める。
+    group_areas = np.bincount(group_of[1:], weights=areas[1:], minlength=group_count + 1)
+    group_colors = np.full(group_count + 1, -1, dtype=np.int32)
+    order = np.argsort(-group_areas[1:], kind="stable") + 1
+    for group in order.tolist():
         used = [0] * palette_size
-        for other in adjacency[region]:
-            color = colors[other]
+        for other in adjacency[group]:
+            color = group_colors[other]
             if color >= 0:
                 used[color] += 1
         free = [index for index, value in enumerate(used) if value == 0]
-        colors[region] = free[0] if free else int(np.argmin(used))
+        group_colors[group] = free[0] if free else int(np.argmin(used))
+    colors = group_colors[group_of]
+    colors[0] = -1
     return colors
 
 
@@ -262,7 +281,13 @@ def map_color_pixels(pixels, gap=MAP_NEIGHBOR_GAP, palette=MAP_PALETTE):
     labels, count = label_regions(codes, valid)
     areas = np.bincount(labels.reshape(-1), minlength=count + 1)
     neighbors = region_neighbors(labels, count, gap)
-    colors = assign_map_colors(count, neighbors, areas, len(palette))
+    # 元の色が同じ領域は同じ組にして、同じ仮の色で塗る。
+    region_codes = np.zeros(count + 1, dtype=np.int64)
+    region_codes[labels[valid]] = codes[valid]
+    groups = np.zeros(count + 1, dtype=np.int64)
+    if count:
+        groups[1:] = np.unique(region_codes[1:], return_inverse=True)[1].reshape(-1).astype(np.int64) + 1
+    colors = assign_map_colors(count, neighbors, areas, len(palette), groups)
     table = np.asarray(palette, dtype=np.uint8)
     pixels[valid, :3] = table[colors[labels[valid]]]
     return pixels
@@ -273,6 +298,7 @@ __all__ = [
     "ViewPreview",
     "adjust_pixels",
     "background_color",
+    "assign_map_colors",
     "exposure_lut",
     "label_regions",
     "label_regions_numpy",
