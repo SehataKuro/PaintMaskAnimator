@@ -1126,21 +1126,21 @@ Export into this folder?</translation>
         <translation>No valid ToeiDigitalTimeSheet frames.</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="307"/>
+        <location filename="../main_window.py" line="309"/>
         <source>1枚目の色と透明度を確認できませんでした。
 {exc}</source>
         <translation>Could not inspect the colour and transparency of the first image.
 {exc}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="342"/>
+        <location filename="../main_window.py" line="344"/>
         <source>2値化の準備中にエラーが発生しました。
 {exc}</source>
         <translation>An error occurred while preparing binarisation.
 {exc}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="390"/>
+        <location filename="../main_window.py" line="392"/>
         <source>{Path}
 画像サイズを取得できませんでした。
 {exc}</source>
@@ -1149,21 +1149,21 @@ Could not read the image size.
 {exc}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="402"/>
+        <location filename="../main_window.py" line="404"/>
         <source>画像に合わせてキャンバスを {width} × {height}px に拡張しました。</source>
         <translation>Canvas expanded to {width} × {height}px to fit the image.</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="413"/>
-        <location filename="../main_window.py" line="421"/>
-        <location filename="../main_window.py" line="428"/>
+        <location filename="../main_window.py" line="415"/>
+        <location filename="../main_window.py" line="423"/>
+        <location filename="../main_window.py" line="430"/>
         <source>画像読み込み</source>
         <translation>Image import</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="414"/>
-        <location filename="../main_window.py" line="421"/>
-        <location filename="../main_window.py" line="428"/>
+        <location filename="../main_window.py" line="416"/>
+        <location filename="../main_window.py" line="423"/>
+        <location filename="../main_window.py" line="430"/>
         <source>{Path} を読み込めませんでした。
 
 {error}</source>
@@ -1172,19 +1172,19 @@ Could not read the image size.
 {error}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="442"/>
-        <location filename="../main_window.py" line="450"/>
-        <location filename="../main_window.py" line="457"/>
-        <location filename="../main_window.py" line="502"/>
+        <location filename="../main_window.py" line="444"/>
+        <location filename="../main_window.py" line="452"/>
+        <location filename="../main_window.py" line="459"/>
+        <location filename="../main_window.py" line="504"/>
         <source>連番画像読み込み</source>
         <translation>Image sequence import</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="443"/>
-        <location filename="../main_window.py" line="450"/>
-        <location filename="../main_window.py" line="503"/>
-        <location filename="../main_window.py" line="911"/>
-        <location filename="../main_window.py" line="942"/>
+        <location filename="../main_window.py" line="445"/>
+        <location filename="../main_window.py" line="452"/>
+        <location filename="../main_window.py" line="505"/>
+        <location filename="../main_window.py" line="922"/>
+        <location filename="../main_window.py" line="953"/>
         <source>画像を読み込めませんでした。
 
 {error}</source>
@@ -1193,80 +1193,80 @@ Could not read the image size.
 {error}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="459"/>
-        <location filename="../main_window.py" line="920"/>
+        <location filename="../main_window.py" line="461"/>
+        <location filename="../main_window.py" line="931"/>
         <source>画像を読み込んでいます</source>
         <translation>Loading images</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="470"/>
-        <location filename="../main_window.py" line="931"/>
+        <location filename="../main_window.py" line="472"/>
+        <location filename="../main_window.py" line="942"/>
         <source>{label}（画像 {value}/{total}）</source>
         <translation>{label} (image {value}/{total})</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="488"/>
+        <location filename="../main_window.py" line="490"/>
         <source>画像配置完了。使用色を認識しています</source>
         <translation>Images placed. Scanning used colours</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="494"/>
+        <location filename="../main_window.py" line="496"/>
         <location filename="../main_window_used_color.py" line="178"/>
         <source>使用色を認識しています</source>
         <translation>Scanning used colours</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="509"/>
+        <location filename="../main_window.py" line="511"/>
         <source>元画像へトーンカーブ適用後に2値化</source>
         <translation>binarised after applying the tone curve to the source</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="511"/>
+        <location filename="../main_window.py" line="513"/>
         <source>半透明を二値化</source>
         <translation>binarised the semi-transparent pixels</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="514"/>
+        <location filename="../main_window.py" line="516"/>
         <source>、{method}して1枚目の共通パレット{int}色を適用</source>
         <translation>, {method} and applied the {int}-colour shared palette from the first image</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="517"/>
+        <location filename="../main_window.py" line="519"/>
         <source>{len}枚の画像をタイムラインへ連番配置{note}し、使用色認識まで完了しました。</source>
         <translation>Placed {len} images along the timeline as a sequence{note}, and finished scanning used colours.</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="581"/>
+        <location filename="../main_window.py" line="592"/>
         <source>レイアウト用紙の画像を読み込めませんでした。</source>
         <translation>Could not load the layout paper image.</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="602"/>
+        <location filename="../main_window.py" line="613"/>
         <source>更新確認エラー</source>
         <translation>Update check error</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="602"/>
+        <location filename="../main_window.py" line="613"/>
         <source>不明なエラー</source>
         <translation>Unknown error</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="608"/>
+        <location filename="../main_window.py" line="619"/>
         <source>更新の確認</source>
         <translation>Check for updates</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="609"/>
+        <location filename="../main_window.py" line="620"/>
         <source>最新版を使用しています。（現在: v{VERSION}）</source>
         <translation>You are on the latest version. (current: v{VERSION})</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="618"/>
+        <location filename="../main_window.py" line="629"/>
         <source>更新あり</source>
         <translation>Update available</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="619"/>
+        <location filename="../main_window.py" line="630"/>
         <source>新しいバージョン {latest} が利用可能ですが、この環境向けの
 インストーラが見つかりませんでした。リリースページを確認してください。
 
@@ -1277,12 +1277,12 @@ Please check the releases page.
 {url}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="625"/>
+        <location filename="../main_window.py" line="636"/>
         <source>更新があります</source>
         <translation>Update available</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="626"/>
+        <location filename="../main_window.py" line="637"/>
         <source>新しいバージョン {latest} が利用可能です。
 （現在: v{VERSION}）
 
@@ -1293,22 +1293,22 @@ Please check the releases page.
 Download and install it?</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="637"/>
+        <location filename="../main_window.py" line="648"/>
         <source>更新をダウンロードしています…</source>
         <translation>Downloading the update…</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="639"/>
+        <location filename="../main_window.py" line="650"/>
         <source>更新のダウンロード</source>
         <translation>Update download</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="661"/>
+        <location filename="../main_window.py" line="672"/>
         <source>ダウンロード失敗</source>
         <translation>Download failed</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="661"/>
+        <location filename="../main_window.py" line="672"/>
         <source>更新を取得できませんでした。
 
 {error}</source>
@@ -1317,23 +1317,23 @@ Download and install it?</translation>
 {error}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="668"/>
+        <location filename="../main_window.py" line="679"/>
         <source>インストール</source>
         <translation>Install</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="669"/>
+        <location filename="../main_window.py" line="680"/>
         <source>ダウンロードが完了しました。インストーラを起動して
 アプリを終了します。よろしいですか？</source>
         <translation>The download finished. The installer will start and the application will quit. Continue?</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="685"/>
+        <location filename="../main_window.py" line="696"/>
         <source>起動失敗</source>
         <translation>Launch failed</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="685"/>
+        <location filename="../main_window.py" line="696"/>
         <source>インストーラを起動できませんでした。
 
 {error}</source>
@@ -1342,26 +1342,26 @@ Download and install it?</translation>
 {error}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="844"/>
+        <location filename="../main_window.py" line="855"/>
         <location filename="../main_window_ui_build.py" line="385"/>
         <source>画像を読み込む</source>
         <translation>Import Images</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="846"/>
-        <location filename="../main_window.py" line="897"/>
+        <location filename="../main_window.py" line="857"/>
+        <location filename="../main_window.py" line="908"/>
         <source>画像 (*.png *.jpg *.jpeg *.tga);;PNG (*.png);;JPEG (*.jpg *.jpeg);;TGA (*.tga)</source>
         <translation>Images (*.png *.jpg *.jpeg *.tga);;PNG (*.png);;JPEG (*.jpg *.jpeg);;TGA (*.tga)</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="859"/>
-        <location filename="../main_window.py" line="879"/>
+        <location filename="../main_window.py" line="870"/>
+        <location filename="../main_window.py" line="890"/>
         <location filename="../main_window_ui_build.py" line="386"/>
         <source>画像フォルダーを読み込む</source>
         <translation>Import Image Folder</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="880"/>
+        <location filename="../main_window.py" line="891"/>
         <source>選択したフォルダーに対応画像がありません。
 
 対応形式：PNG、JPEG、TGA</source>
@@ -1370,55 +1370,55 @@ Download and install it?</translation>
 Supported formats: PNG, JPEG, TGA</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="895"/>
+        <location filename="../main_window.py" line="906"/>
         <source>変換せず読み込む（下書きレイヤー）</source>
         <translation>Import unconverted (draft layer)</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="910"/>
-        <location filename="../main_window.py" line="918"/>
-        <location filename="../main_window.py" line="941"/>
+        <location filename="../main_window.py" line="921"/>
+        <location filename="../main_window.py" line="929"/>
+        <location filename="../main_window.py" line="952"/>
         <source>変換せず読み込む</source>
         <translation>Import unconverted</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="949"/>
+        <location filename="../main_window.py" line="960"/>
         <source>{len}枚を下書きレイヤーへ変換せず読み込みました。</source>
         <translation>Imported {len} images into a draft layer without conversion.</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="954"/>
+        <location filename="../main_window.py" line="965"/>
         <source>キャンバスサイズの変更</source>
         <translation>Resize Canvas</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1066"/>
+        <location filename="../main_window.py" line="1077"/>
         <source>ファイル・編集</source>
         <translation>File and Edit</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1068"/>
+        <location filename="../main_window.py" line="1079"/>
         <source>キャンバス操作</source>
         <translation>Canvas operations</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1069"/>
+        <location filename="../main_window.py" line="1080"/>
         <source>ツールコマンド</source>
         <translation>Tool commands</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1077"/>
+        <location filename="../main_window.py" line="1088"/>
         <source>PNG保存</source>
         <translation>Save PNG</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1098"/>
-        <location filename="../main_window.py" line="1102"/>
+        <location filename="../main_window.py" line="1109"/>
+        <location filename="../main_window.py" line="1113"/>
         <source>TGA保存</source>
         <translation>Save TGA</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1102"/>
+        <location filename="../main_window.py" line="1113"/>
         <source>TGAを保存できませんでした。Pillowの導入を確認してください。</source>
         <translation>Could not save the TGA. Check that Pillow is installed.</translation>
     </message>
@@ -1784,9 +1784,9 @@ Supported formats: PNG, JPEG, TGA</translation>
     </message>
     <message>
         <location filename="../color_panel.py" line="695"/>
-        <location filename="../preferences_dialog.py" line="305"/>
-        <location filename="../preferences_dialog.py" line="427"/>
-        <location filename="../preferences_dialog.py" line="514"/>
+        <location filename="../preferences_dialog.py" line="331"/>
+        <location filename="../preferences_dialog.py" line="453"/>
+        <location filename="../preferences_dialog.py" line="540"/>
         <source>名前を変更…</source>
         <translation>Rename…</translation>
     </message>
@@ -1965,12 +1965,12 @@ Supported formats: PNG, JPEG, TGA</translation>
         <translation>Remove all parenting</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="200"/>
+        <location filename="../preferences_dialog.py" line="226"/>
         <source>テーマ</source>
         <translation>Theme</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="187"/>
+        <location filename="../preferences_dialog.py" line="213"/>
         <source>ライト（明るい）</source>
         <translation>Light</translation>
     </message>
@@ -2020,102 +2020,122 @@ Supported formats: PNG, JPEG, TGA</translation>
         <translation>Always save cut folder imports as the initial state before painting</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="163"/>
+        <location filename="../preferences_dialog.py" line="162"/>
+        <source>ツールのキーを長押ししたら、離したときに元のツールへ戻す</source>
+        <translation>Return to the previous tool when a held tool key is released</translation>
+    </message>
+    <message>
+        <location filename="../preferences_dialog.py" line="169"/>
+        <source> ms 以上押したら</source>
+        <translation> ms or longer</translation>
+    </message>
+    <message>
+        <location filename="../preferences_dialog.py" line="176"/>
         <source>言語は次回の起動から切り替わります。</source>
         <translation>The language changes the next time you start the app.</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="164"/>
+        <location filename="../preferences_dialog.py" line="177"/>
         <source>初期状態</source>
         <translation>Initial state</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="165"/>
+        <location filename="../preferences_dialog.py" line="178"/>
         <source>初期状態として保存すると自動色塗りの精度が上がります。外すと、読み込みのたびに保存するか尋ねます。</source>
         <translation>Saving the initial state makes auto paint more accurate. When this is off, you are asked each time you import.</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="167"/>
+        <location filename="../preferences_dialog.py" line="180"/>
         <source>自動保存</source>
         <translation>Autosave</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="169"/>
+        <location filename="../preferences_dialog.py" line="182"/>
         <source>アプリが異常終了したとき、次の起動で自動保存から作業を復元できます。</source>
         <translation>If the app quits unexpectedly, you can restore your work from the autosave the next time it starts.</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="188"/>
+        <location filename="../preferences_dialog.py" line="183"/>
+        <source>ツールの一時切り替え</source>
+        <translation>Temporary tool switch</translation>
+    </message>
+    <message>
+        <location filename="../preferences_dialog.py" line="186"/>
+        <source>ツールのキー（P・G など）を押すとすぐ切り替わり、この長さ以上押してから離すと元のツールへ戻ります。0 ms にすると押している間だけ切り替わり、離せば必ず元のツールに戻ります（完全な一時切り替え）。短く押して切り替えたままにしたいときは 300〜500 ms ほどにします。</source>
+        <translation>Pressing a tool key (P, G, …) switches tools at once; releasing it after holding it this long returns to the previous tool. At 0 ms the tool is switched only while the key is held and always returns on release (a pure temporary switch). To keep the new tool after a short tap, use about 300–500 ms.</translation>
+    </message>
+    <message>
+        <location filename="../preferences_dialog.py" line="214"/>
         <source>ダーク（暗い）</source>
         <translation>Dark</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="201"/>
+        <location filename="../preferences_dialog.py" line="227"/>
         <source>アクセントカラー</source>
         <translation>Accent Colour</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="216"/>
+        <location filename="../preferences_dialog.py" line="242"/>
         <source>カスタム（{color}）</source>
         <translation>Custom ({color})</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="217"/>
+        <location filename="../preferences_dialog.py" line="243"/>
         <source>カスタム…</source>
         <translation>Custom…</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="244"/>
+        <location filename="../preferences_dialog.py" line="270"/>
         <source>{number} 番目の色（クリックで変更）</source>
         <translation>Colour {number} (click to change)</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="250"/>
+        <location filename="../preferences_dialog.py" line="276"/>
         <source>既定に戻す</source>
         <translation>Restore Defaults</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="260"/>
+        <location filename="../preferences_dialog.py" line="286"/>
         <source>隣接色分けの色</source>
         <translation>Neighbour colouring colours</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="263"/>
+        <location filename="../preferences_dialog.py" line="289"/>
         <source>キャンバスの下の「隣接色分け」で、隣り合う部分を塗り分ける仮の色です。大きい部分から順に、隣でまだ使っていない色を 1 番から選ぶので、前の番号の色ほど多く使われます。見分けやすいよう、互いに離れた色にしてください。主線（黒）と背景（白）に近い色は避けると見やすくなります。</source>
         <translation>Temporary colours that the Neighbour colouring button under the canvas uses to tell adjoining areas apart. Starting with the largest areas, each area takes the first colour not already used next to it, so earlier colours are used more often. Pick colours that are far apart; colours close to the main line (black) or the background (white) are harder to see.</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="282"/>
+        <location filename="../preferences_dialog.py" line="308"/>
         <source>隣接色分けの色を選択</source>
         <translation>Choose a Neighbour Colouring Colour</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="303"/>
+        <location filename="../preferences_dialog.py" line="329"/>
         <source>追加…</source>
         <translation>Add…</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="325"/>
+        <location filename="../preferences_dialog.py" line="351"/>
         <source>起動したときと、ファイル › 新規作成… で使う大きさです。</source>
         <translation>The size used at startup and for File › New….</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="328"/>
+        <location filename="../preferences_dialog.py" line="354"/>
         <source>ファイル › 新規作成… で選ぶと、一番下の下書きレイヤーとして入り、キャンバスサイズを用紙に合わせられます。画像は環境設定の中にコピーして保管します。</source>
         <translation>Choose one in File › New… to add it as the bottom draft layer and size the canvas to it. The images are copied into the app&apos;s settings folder.</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="382"/>
+        <location filename="../preferences_dialog.py" line="408"/>
         <source>レイアウト用紙の画像を追加</source>
         <translation>Add Layout Paper Images</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="384"/>
+        <location filename="../preferences_dialog.py" line="410"/>
         <source>画像 (*.png *.jpg *.jpeg *.tga)</source>
         <translation>Images (*.png *.jpg *.jpeg *.tga)</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="399"/>
+        <location filename="../preferences_dialog.py" line="425"/>
         <source>次の画像は読み込めませんでした。
 
 {names}</source>
@@ -2124,116 +2144,116 @@ Supported formats: PNG, JPEG, TGA</translation>
 {names}</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="408"/>
-        <location filename="../preferences_dialog.py" line="485"/>
-        <location filename="../preferences_dialog.py" line="492"/>
-        <location filename="../preferences_dialog.py" line="600"/>
-        <location filename="../preferences_dialog.py" line="607"/>
+        <location filename="../preferences_dialog.py" line="434"/>
+        <location filename="../preferences_dialog.py" line="511"/>
+        <location filename="../preferences_dialog.py" line="518"/>
+        <location filename="../preferences_dialog.py" line="626"/>
+        <location filename="../preferences_dialog.py" line="633"/>
         <source>名前を変更</source>
         <translation>Rename</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="408"/>
+        <location filename="../preferences_dialog.py" line="434"/>
         <source>用紙の名前</source>
         <translation>Paper name</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="424"/>
+        <location filename="../preferences_dialog.py" line="450"/>
         <source>追加</source>
         <translation>Add</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="425"/>
+        <location filename="../preferences_dialog.py" line="451"/>
         <source>今のプリセットを元に、新しいプリセットを作ります。</source>
         <translation>Create a new preset from the current one.</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="445"/>
+        <location filename="../preferences_dialog.py" line="471"/>
         <source>使うプリセット</source>
         <translation>Preset in use</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="448"/>
+        <location filename="../preferences_dialog.py" line="474"/>
         <source>ブラシが「全体の設定を使う」のとき、ここで選んだプリセットで描きます。ブラシだけの設定は、ツールプロパティの 筆圧… で切り替えます。</source>
         <translation>When the brush is set to “Use the global setting”, it draws with the preset chosen here. To give the brush its own setting, use Pressure… in Tool Properties.</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="476"/>
+        <location filename="../preferences_dialog.py" line="502"/>
         <source>新しいプリセット</source>
         <translation>New Preset</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="485"/>
+        <location filename="../preferences_dialog.py" line="511"/>
         <source>プリセットの名前</source>
         <translation>Preset name</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="493"/>
+        <location filename="../preferences_dialog.py" line="519"/>
         <source>その名前は使えません。空欄か、ほかのプリセットと同じ名前です。</source>
         <translation>That name can&apos;t be used. It is empty or already used by another preset.</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="510"/>
+        <location filename="../preferences_dialog.py" line="536"/>
         <source>上へ</source>
         <translation>Move Up</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="512"/>
+        <location filename="../preferences_dialog.py" line="538"/>
         <source>下へ</source>
         <translation>Move Down</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="516"/>
+        <location filename="../preferences_dialog.py" line="542"/>
         <source>現在の配置で上書き</source>
         <translation>Overwrite with Current Layout</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="518"/>
+        <location filename="../preferences_dialog.py" line="544"/>
         <source>選んだワークスペースを、今のパネルの配置で保存し直します。</source>
         <translation>Save the selected workspace again with the current panel layout.</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="521"/>
+        <location filename="../preferences_dialog.py" line="547"/>
         <source>削除…</source>
         <translation>Delete…</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="541"/>
+        <location filename="../preferences_dialog.py" line="567"/>
         <source>ワークスペース メニューに、この順で並びます。ドラッグでも並べ替えられます。新しいワークスペースは ワークスペース › 現在の配置を保存… で作ります。</source>
         <translation>Workspaces appear in the Workspace menu in this order. You can also drag to reorder. Create a new one with Workspace › Save Current Layout….</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="554"/>
+        <location filename="../preferences_dialog.py" line="580"/>
         <source>{name}（使用中）</source>
         <translation>{name} (in use)</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="608"/>
+        <location filename="../preferences_dialog.py" line="634"/>
         <source>その名前は使えません。空欄か、ほかのワークスペースと同じ名前です。</source>
         <translation>That name can&apos;t be used. It is empty or already used by another workspace.</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="623"/>
+        <location filename="../preferences_dialog.py" line="649"/>
         <source>ワークスペース「{name}」を削除しますか？</source>
         <translation>Delete the workspace “{name}”?</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="632"/>
+        <location filename="../preferences_dialog.py" line="658"/>
         <source> 回</source>
         <translation> steps</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="642"/>
+        <location filename="../preferences_dialog.py" line="668"/>
         <source>取り消せる回数</source>
         <translation>Undo steps</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="643"/>
+        <location filename="../preferences_dialog.py" line="669"/>
         <source>取り消し履歴のメモリ</source>
         <translation>Undo memory</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="645"/>
+        <location filename="../preferences_dialog.py" line="671"/>
         <source>どちらかの上限に達すると、古い履歴から消えます。大きなキャンバスでは、回数より先にメモリの上限に達します。減らしたときは、次に操作したときに古い履歴が消えます。</source>
         <translation>When either limit is reached, the oldest history is removed first. On large canvases the memory limit is reached before the step limit. After lowering a limit, the old history is removed on your next edit.</translation>
     </message>
@@ -2313,14 +2333,14 @@ Drop a used colour onto the middle of another to create a parent/child link.</tr
         <translation>PMAG loaded: {Path}</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="162"/>
+        <location filename="../preferences_dialog.py" line="175"/>
         <source>言語 / Language</source>
         <translation>Language</translation>
     </message>
     <message>
         <location filename="../preferences_dialog.py" line="137"/>
-        <location filename="../preferences_dialog.py" line="186"/>
-        <location filename="../preferences_dialog.py" line="210"/>
+        <location filename="../preferences_dialog.py" line="212"/>
+        <location filename="../preferences_dialog.py" line="236"/>
         <source>システムに合わせる</source>
         <translation>Follow system</translation>
     </message>
@@ -2348,7 +2368,7 @@ Drop a used colour onto the middle of another to create a parent/child link.</tr
         <translation>Canvas</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1067"/>
+        <location filename="../main_window.py" line="1078"/>
         <location filename="../main_window_ui_build.py" line="767"/>
         <source>ツール</source>
         <translation>Tools</translation>
@@ -2359,7 +2379,7 @@ Drop a used colour onto the middle of another to create a parent/child link.</tr
         <translation>Tool Properties</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1070"/>
+        <location filename="../main_window.py" line="1081"/>
         <location filename="../main_window_ui_build.py" line="797"/>
         <source>アクション</source>
         <translation>Actions</translation>
@@ -2390,7 +2410,7 @@ Drop a used colour onto the middle of another to create a parent/child link.</tr
         <translation>History</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1071"/>
+        <location filename="../main_window.py" line="1082"/>
         <location filename="../main_window_ui_build.py" line="873"/>
         <source>タイムライン</source>
         <translation>Timeline</translation>
@@ -3568,8 +3588,8 @@ Details were saved to:
     <message>
         <location filename="../actionpanel.py" line="474"/>
         <location filename="../actionpanel.py" line="694"/>
-        <location filename="../preferences_dialog.py" line="307"/>
-        <location filename="../preferences_dialog.py" line="429"/>
+        <location filename="../preferences_dialog.py" line="333"/>
+        <location filename="../preferences_dialog.py" line="455"/>
         <location filename="../timeline.py" line="2078"/>
         <source>削除</source>
         <translation>Delete</translation>
@@ -4639,7 +4659,7 @@ Line art: binarises the line work while preserving the white background and the 
     <message>
         <location filename="../color_reduction.py" line="507"/>
         <location filename="../cut_folder_dialog.py" line="792"/>
-        <location filename="../main_window.py" line="637"/>
+        <location filename="../main_window.py" line="648"/>
         <location filename="../main_window_copy_paint.py" line="64"/>
         <location filename="../main_window_import.py" line="98"/>
         <location filename="../main_window_project_io.py" line="192"/>
@@ -4800,7 +4820,7 @@ Restore the automatically saved work?</translation>
     </message>
     <message>
         <location filename="../main_window_color_interaction.py" line="64"/>
-        <location filename="../preferences_dialog.py" line="225"/>
+        <location filename="../preferences_dialog.py" line="251"/>
         <source>アクセントカラーを選択</source>
         <translation>Choose the accent colour</translation>
     </message>
@@ -5539,12 +5559,12 @@ In-between and symbol labels: {blanks} cells</translation>
     </message>
     <message>
         <location filename="../main_window_workspace.py" line="148"/>
-        <location filename="../preferences_dialog.py" line="600"/>
+        <location filename="../preferences_dialog.py" line="626"/>
         <source>ワークスペース名：</source>
         <translation>Workspace name:</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="622"/>
+        <location filename="../preferences_dialog.py" line="648"/>
         <source>ワークスペースを削除</source>
         <translation>Delete a workspace</translation>
     </message>
@@ -6544,14 +6564,14 @@ Layer cell {value} / {exposure} exposures</translation>
     </message>
     <message>
         <location filename="../new_document_dialog.py" line="51"/>
-        <location filename="../preferences_dialog.py" line="323"/>
+        <location filename="../preferences_dialog.py" line="349"/>
         <location filename="../widgets.py" line="103"/>
         <source>幅</source>
         <translation>Width</translation>
     </message>
     <message>
         <location filename="../new_document_dialog.py" line="52"/>
-        <location filename="../preferences_dialog.py" line="324"/>
+        <location filename="../preferences_dialog.py" line="350"/>
         <location filename="../widgets.py" line="103"/>
         <source>高さ</source>
         <translation>Height</translation>
@@ -7080,8 +7100,8 @@ Layer cell {value} / {exposure} exposures</translation>
     <message>
         <location filename="../layout_paper.py" line="111"/>
         <location filename="../new_document_dialog.py" line="49"/>
-        <location filename="../preferences_dialog.py" line="326"/>
-        <location filename="../preferences_dialog.py" line="398"/>
+        <location filename="../preferences_dialog.py" line="352"/>
+        <location filename="../preferences_dialog.py" line="424"/>
         <source>レイアウト用紙</source>
         <translation>Layout Paper</translation>
     </message>

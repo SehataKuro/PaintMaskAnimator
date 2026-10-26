@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     from .main_window_used_color import UsedColorController
     from .main_window_line_ops import LineOpsController
     from .main_window_view_preview import ViewPreviewController
+    from .main_window_tool_hold import ToolHoldController
     from .main_window_timeline_ops import TimelineOpsController
     from .main_window_layer_ops import LayerOpsController
     from .main_window_color_chart import ColorChartController
@@ -290,6 +291,7 @@ class MainWindowMembers(_MembersBase):
         used_color: UsedColorController
         line_ops: LineOpsController
         view_preview: ViewPreviewController
+        tool_hold: ToolHoldController
         timeline_ops: TimelineOpsController
         layers: LayerOpsController
         color_chart_ops: ColorChartController

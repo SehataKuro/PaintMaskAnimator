@@ -158,6 +158,19 @@ class PreferencesDialog(QDialog):
             preferences.set_keep_initial_state_on_cut_folder
         )
 
+        self.tool_hold_enabled = QCheckBox(
+            tr("ツールのキーを長押ししたら、離したときに元のツールへ戻す")
+        )
+        self.tool_hold_enabled.setChecked(preferences.tool_hold_enabled())
+        self.tool_hold_enabled.toggled.connect(self._tool_hold_changed)
+        self.tool_hold_ms = QSpinBox()
+        self.tool_hold_ms.setRange(*preferences.TOOL_HOLD_MS_RANGE)
+        self.tool_hold_ms.setSingleStep(50)
+        self.tool_hold_ms.setSuffix(tr(" ms 以上押したら"))
+        self.tool_hold_ms.setValue(preferences.tool_hold_ms())
+        self.tool_hold_ms.setEnabled(self.tool_hold_enabled.isChecked())
+        self.tool_hold_ms.valueChanged.connect(self._tool_hold_changed)
+
         return _page(
             (tr("言語 / Language"), self.language),
             _hint(tr("言語は次回の起動から切り替わります。")),
@@ -167,7 +180,20 @@ class PreferencesDialog(QDialog):
             (tr("自動保存"), self.autosave_enabled),
             ("", self.autosave_interval),
             _hint(tr("アプリが異常終了したとき、次の起動で自動保存から作業を復元できます。")),
+            (tr("ツールの一時切り替え"), self.tool_hold_enabled),
+            ("", self.tool_hold_ms),
+            _hint(tr(
+                "ツールのキー（P・G など）を押すとすぐ切り替わり、この長さ以上押してから"
+                "離すと元のツールへ戻ります。0 ms にすると押している間だけ切り替わり、"
+                "離せば必ず元のツールに戻ります（完全な一時切り替え）。短く押して"
+                "切り替えたままにしたいときは 300〜500 ms ほどにします。"
+            )),
         )
+
+    def _tool_hold_changed(self):
+        preferences.set_tool_hold_enabled(self.tool_hold_enabled.isChecked())
+        preferences.set_tool_hold_ms(self.tool_hold_ms.value())
+        self.tool_hold_ms.setEnabled(self.tool_hold_enabled.isChecked())
 
     def _language_changed(self):
         i18n.set_preferred_language(self.language.currentData())
