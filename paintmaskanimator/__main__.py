@@ -89,6 +89,8 @@ def main():
     window.show()
     file_opener.attach(window)
     QTimer.singleShot(0, window.fit_canvas)
+    # 新しい版があればメニューバーで知らせる（起動の少しあとに裏で確かめる）。
+    window.update_notice.start()
     return app.exec()
 
 

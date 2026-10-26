@@ -74,6 +74,7 @@ from .main_window_layer_ops import LayerOpsController
 from .main_window_line_ops import LineOpsController
 from .main_window_view_preview import ViewPreviewController
 from .main_window_tool_hold import ToolHoldController
+from .main_window_update_notice import UpdateNoticeController
 from .main_window_onion import OnionSkinController
 from .main_window_project_io import ProjectIOController
 from .main_window_time_remap import TimeRemapController
@@ -110,6 +111,7 @@ class MainWindow(
         self.line_ops=LineOpsController(self)
         self.view_preview=ViewPreviewController(self)
         self.tool_hold=ToolHoldController(self)
+        self.update_notice=UpdateNoticeController(self)
         self.timeline_ops=TimelineOpsController(self)
         self.layers=LayerOpsController(self)
         self.color_chart_ops=ColorChartController(self)
@@ -545,17 +547,14 @@ class MainWindow(
         return timeline.rect().contains(timeline.mapFromGlobal(QCursor.pos()))
 
     def step_canvas_zoom(self, factor):
-        """Ctrl+＋／Ctrl+− で拡大縮小する。
+        """Ctrl+＋／Ctrl+− で、マウスカーソルの位置を中心に拡大縮小する。
 
-        マウスカーソルがキャンバスの上にあればカーソルの位置を、なければ表示の
-        中心を保つ（ホイールと同じく、見ている所をそのまま拡大できるように）。
+        ホイールと同じく、見ている所をそのまま拡大できるように。カーソルが
+        キャンバスの外（パネルの上など）にあっても、その位置を中心にする。
         """
         zoom = self.canvas.zoom * float(factor)
         cursor = self.canvas.mapFromGlobal(QCursor.pos())
-        if self.canvas.rect().contains(cursor):
-            self.canvas.set_zoom_around_widget_point(zoom, QPointF(cursor))
-        else:
-            self.canvas.set_zoom_around_canvas_center(zoom)
+        self.canvas.set_zoom_around_widget_point(zoom, QPointF(cursor))
         self.sync_canvas_view_controls(self.canvas.zoom, self.canvas.rotation)
         self.canvas.update()
 
@@ -606,6 +605,8 @@ class MainWindow(
             result = updater.check_for_update()
         finally:
             QApplication.restoreOverrideCursor()
+        # メニューバーのお知らせも、確かめた結果に合わせる。
+        self.update_notice.apply_result(result)
 
         status = result.get("status")
         if status == "error":

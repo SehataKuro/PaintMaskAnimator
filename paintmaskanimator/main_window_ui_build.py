@@ -571,6 +571,8 @@ class UIBuildMixin(MainWindowMembers):
         if hasattr(self.timeline, "apply_theme"):
             self.timeline.apply_theme()
         self._apply_canvas_bar_icons()
+        if hasattr(self, "update_notice"):
+            self.update_notice.refresh_style()
         if hasattr(self.palette, "apply_theme"):
             self.palette.apply_theme()
         if hasattr(self, "dock_manager"):
