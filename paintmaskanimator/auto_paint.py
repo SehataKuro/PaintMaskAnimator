@@ -50,8 +50,11 @@ PRIMARY_LOW_TOLERANCE = 60
 MIN_REGION_PIXELS = 3
 #: 塗り終えたあとに残った透明の穴は、この大きさ（画素）まで、まわりの色で埋める。
 TINY_HOLE_PIXELS = 4
-#: 穴を埋めるのは、まわりの色がこの割合以上そろっているとき。
-TINY_HOLE_SHARE = 0.9
+#: 穴を埋めるのは、となりの色がこの割合以上そろっているとき。
+TINY_HOLE_SHARE = 0.6
+#: これだけ小さい穴は、となりで一番多い色がどれだけ少なくても埋める。2つの塗りの
+#: 境目にできた1画素は、どちらの色にしても見た目は変わらないが、透けると必ず目立つ。
+TINY_HOLE_ANY_PIXELS = 2
 #: 原画のしるしの色（原色でない色トレス線）とみなす、1つの色の画素数の上限
 #: （キャンバス全体に対する割合）。
 MARK_MAX_SHARE = 0.02
@@ -1048,13 +1051,40 @@ def _region_mask(target: _Cell, local, bounds, value):
     return (gx0, gy0, gx1, gy1), mask
 
 
+def _neighbour_color(target: _Cell, painted, local, window):
+    """穴に接している色の値のうち一番多いもの、その割合、それが線の色か。
+
+    接している画素だけを見る。少し離れた窓で多数決を取ると、2つの塗りの境目に
+    できた穴では、関わりのない色まで数に入ってしまう。接している所がぜんぶ線なら
+    線の色を返す（主線の中にできた1画素の穴は、背景が透けるより線の色が正しい）。
+    """
+    wy0, wx0, wy1, wx1 = window
+    values = painted[wy0:wy1, wx0:wx1]
+    ring = bucket_fill.dilate(local, 1) & ~local
+    every = values[ring & ~target.boundary[wy0:wy1, wx0:wx1]]
+    every = every[every != 0]
+    if every.size:
+        host, share = _majority(every)
+        return host, share, False
+    every = values[ring]
+    host, share = _majority(every[every != 0])
+    return host, share, True
+
+
 def _tiny_holes(target: _Cell, painted):
-    """塗り終えたあとに残った、ごく小さな透明の穴を、まわりの色で埋める塗り。
+    """塗り終えたあとに残った透明の画素を、となりの色で埋める塗り。
 
     線のきわや頬の中には、数画素だけ透明の穴が残る。部分として扱うには小さすぎて
     手本と比べられなかった画素や、部分分けのために閉じた切れ目の画素などで、
-    仕上げでは背景が透けて見えてしまう。まわりがほぼ1色なら、その色で埋めてよい
-    （まわりが2色以上の穴は、部分の境目なので埋めない）。
+    仕上げでは背景が透けて見えてしまう。埋めるのは次の2つ。
+
+    * ``TINY_HOLE_PIXELS`` までの小さな穴。``TINY_HOLE_ANY_PIXELS`` 以下なら、
+      となりで一番多い色がどれだけ少なくても埋める（1画素の点は、どちらの塗りの
+      色にしても見た目は変わらないが、透けると必ず目立つ）。
+    * 部分分けのために閉じた色トレス線の切れ目（``_Cell.gaps``）。こちらで足した
+      画素で、絵の一部ではないので、大きさによらず埋める。
+
+    大きな塗り残しは埋めず、これまでどおり「確かめたい所」で知らせる。
 
     :param painted: ほかの部分と色トレス線を塗ったあとの、画素ごとの色の値。
     """
@@ -1067,25 +1097,32 @@ def _tiny_holes(target: _Cell, painted):
     ids = labels[ys, xs]
     order = np.argsort(ids, kind="stable")
     ys, xs, ids = ys[order], xs[order], ids[order]
-    found_ids, starts, sizes = np.unique(ids, return_index=True, return_counts=True)
+    _found, starts, sizes = np.unique(ids, return_index=True, return_counts=True)
     paints = []
     for start, size in zip(starts.tolist(), sizes.tolist()):
-        if size > TINY_HOLE_PIXELS:
-            continue  # 大きな塗り残しは、塗らずに知らせてある
         hy, hx = ys[start:start + size], xs[start:start + size]
+        # 切れ目をふさいだ画素でできた穴は、大きさによらず埋める。
+        gap = bool(target.gaps[hy, hx].mean() >= 0.5)
+        if size > TINY_HOLE_PIXELS and not gap:
+            continue  # 大きな塗り残しは、塗らずに知らせてある
         y0, y1 = int(hy.min()), int(hy.max()) + 1
         x0, x1 = int(hx.min()), int(hx.max()) + 1
-        wy0, wx0 = max(0, y0 - LINE_NEIGHBOUR), max(0, x0 - LINE_NEIGHBOUR)
-        wy1, wx1 = min(height, y1 + LINE_NEIGHBOUR), min(width, x1 + LINE_NEIGHBOUR)
-        window = painted[wy0:wy1, wx0:wx1]
-        # 線の色はまわりの色に数えない（穴は線のきわにできる）。
-        every = window[(window != 0) & ~target.boundary[wy0:wy1, wx0:wx1]]
-        host, share = _majority(every)
-        if host is None or share < TINY_HOLE_SHARE:
+        wy0, wx0 = max(0, y0 - 1), max(0, x0 - 1)
+        wy1, wx1 = min(height, y1 + 1), min(width, x1 + 1)
+        local = np.zeros((wy1 - wy0, wx1 - wx0), dtype=bool)
+        local[hy - wy0, hx - wx0] = True
+        host, share, on_line = _neighbour_color(
+            target, painted, local, (wy0, wx0, wy1, wx1),
+        )
+        if host is None:
+            continue
+        if share < TINY_HOLE_SHARE and size > TINY_HOLE_ANY_PIXELS and not gap:
             continue
         rgb = reference_check._to_rgb(host)
-        if rgb is None or reference_check._is_line(rgb) or _is_primary(rgb):
+        if rgb is None or _is_primary(rgb):
             continue
+        if reference_check._is_line(rgb) and not on_line:
+            continue  # 線の色で塗るのは、線の中にできた穴だけ
         mask = np.zeros((y1 - y0, x1 - x0), dtype=bool)
         mask[hy - y0, hx - x0] = True
         paints.append((rgb, (x0, y0, x1, y1), mask))

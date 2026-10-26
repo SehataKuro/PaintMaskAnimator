@@ -6,7 +6,7 @@ import pytest
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication
 
-from paintmaskanimator import auto_paint, imaging, project_io, reference_check
+from paintmaskanimator import auto_paint, fill_tracking, imaging, project_io, reference_check
 from paintmaskanimator.main_window import MainWindow
 from paintmaskanimator.undo_entries import ScopedBatchUndo
 
@@ -511,10 +511,57 @@ def figure_with_hole(dx, painted=False):
     return pixels
 
 
-def test_a_one_pixel_hole_is_filled_from_around_it():
+def test_a_one_pixel_hole_inside_the_line_takes_the_line_colour():
+    """主線の中にできた穴は、線の色で埋める（背景が透けるほうがまずい）。"""
     cells = [figure_with_hole(0, painted=True), figure_with_hole(2), figure_with_hole(4)]
     plan = auto_paint.plan_auto_paint(cells, 0)
     assert plan is not None
     for index, dx in ((1, 2), (2, 4)):
         after = auto_paint.apply_paint(cells[index], plan.cells[index])
-        assert color_at(after, 20 + dx, 40) == SKIN, "1画素の穴から背景が透けてはいけない"
+        assert color_at(after, 20 + dx, 40) == (0, 0, 0), "1画素の穴から背景が透けてはいけない"
+
+
+def two_colours_with_a_hole():
+    """左が肌、右が頬。境目に1画素の穴が開いた絵。"""
+    pixels = np.zeros((20, 20, 4), dtype=np.uint8)
+    pixels[:, :10] = (*SKIN, 255)
+    pixels[:, 10:] = (*BLUSH, 255)
+    pixels[10, 9] = 0
+    return pixels
+
+
+def test_a_one_pixel_hole_between_two_colours_is_filled():
+    """2つの塗りの境目にできた1画素は、どちらの色でもよいので埋める。
+
+    まわりの色がそろっているかを少し離れた窓で見ると、境目の穴はいつまでも
+    埋まらない（頬の中に緑の点が残る）。
+    """
+    pixels = two_colours_with_a_hole()
+    cell = auto_paint._Cell(pixels)
+    paints = auto_paint._tiny_holes(cell, fill_tracking._labels(pixels))
+
+    assert len(paints) == 1
+    rgb, bounds, mask = paints[0]
+    assert rgb in (SKIN, BLUSH), "透明のままにしない"
+    assert bounds == (9, 10, 10, 11) and mask.all()
+
+
+def test_a_closed_gap_in_a_colour_trace_line_is_filled():
+    """部分分けのために閉じた切れ目の画素も、こちらで足した画素なので埋める。"""
+    pixels = np.zeros((24, 24, 4), dtype=np.uint8)
+    pixels[:, :] = (*SKIN, 255)
+    # 2画素だけ離れた色トレス線。あいだは切れ目として閉じられ、どの部分にも
+    # 入らないまま透明で残る（4画素より長いので、小さな穴としては拾えない）。
+    pixels[5:16, 10] = pixels[5:16, 13] = (*RED, 255)
+    pixels[5:16, 11:13] = 0
+    cell = auto_paint._Cell(pixels)
+    assert cell.gaps[10, 11] and cell.gaps[10, 12], "切れ目は閉じたものとして扱う"
+
+    paints = auto_paint._tiny_holes(cell, fill_tracking._labels(pixels))
+
+    filled = {}
+    for rgb, (x0, y0, _x1, _y1), mask in paints:
+        for y, x in zip(*np.nonzero(mask)):
+            filled[(int(y) + y0, int(x) + x0)] = rgb
+    assert filled.get((10, 11)) == SKIN and filled.get((10, 12)) == SKIN
+    assert len(filled) == 22, "切れ目の画素をすべて埋める"
