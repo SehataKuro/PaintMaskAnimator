@@ -317,6 +317,7 @@ fn py_label_regions<'py>(
 
 #[pymodule]
 fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_function(wrap_pyfunction!(py_unique_colors, module)?)?;
     module.add_function(wrap_pyfunction!(py_flood_fill, module)?)?;
     module.add_function(wrap_pyfunction!(py_dilate, module)?)?;
     module.add_function(wrap_pyfunction!(py_erode, module)?)?;
@@ -325,6 +326,41 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(py_thin, module)?)?;
     module.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
+}
+
+/// Bound palette memory even for photographic layers. Keep the same smallest
+/// sorted colors as numpy.unique(...)[..limit], without sorting every pixel.
+#[pyfunction(name = "unique_colors")]
+fn py_unique_colors(py: Python<'_>, pixels: &[u8], limit: usize) -> PyResult<Vec<u32>> {
+    if pixels.len() % 4 != 0 {
+        return Err(pyo3::exceptions::PyValueError::new_err("expected packed u32 pixels"));
+    }
+    Ok(py.detach(|| {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        // RGB has a fixed 24-bit domain: a 2 MiB bitmap avoids a tree lookup
+        // for every repeated pixel in flat animation artwork.
+        let mut seen = vec![0u64; (1 << 24) / 64];
+        for chunk in pixels.chunks_exact(4) {
+            let value = u32::from_ne_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+            if value > 0xffffff {
+                return Err(pyo3::exceptions::PyValueError::new_err("expected 24-bit RGB"));
+            }
+            seen[value as usize / 64] |= 1u64 << (value % 64);
+        }
+        let mut colors = Vec::new();
+        for (index, mut word) in seen.into_iter().enumerate() {
+            while word != 0 {
+                colors.push((index * 64 + word.trailing_zeros() as usize) as u32);
+                if colors.len() == limit {
+                    return Ok(colors);
+                }
+                word &= word - 1;
+            }
+        }
+        Ok(colors)
+    })?)
 }
 
 #[pyfunction(name = "thin")]

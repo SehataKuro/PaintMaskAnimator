@@ -29,6 +29,16 @@ def available() -> bool:
     return _native is not None and os.environ.get("PMA_NO_NATIVE") != "1"
 
 
+def unique_colors(pixels, limit):
+    """Return the smallest sorted packed RGB colors, or None on older builds."""
+    if not available() or not hasattr(_native, "unique_colors"):
+        return None
+    assert _native is not None
+    return _native.unique_colors(
+        np.ascontiguousarray(pixels, dtype=np.uint32).tobytes(), int(limit)
+    )
+
+
 def line_flow_scores(target, guide, block, base_y, base_x, reach):
     """位置合わせの一致数。古い部品しか入っていなければ numpy へ戻す。"""
     if not available() or not hasattr(_native, "line_flow_scores"):

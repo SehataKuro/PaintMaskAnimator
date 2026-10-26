@@ -416,7 +416,7 @@ class PaintCanvas(
             )
         if isinstance(entry, ScopedBatchUndo):
             current = [
-                (fi, li, self.frames[fi].layers[li].image.copy(),
+                (fi, li, QImage(self.frames[fi].layers[li].image),
                  bool(self.frames[fi].layers[li].has_content))
                 for fi, li, _img, _hc in entry.cells
                 if _cell_exists(fi, li)
@@ -425,7 +425,7 @@ class PaintCanvas(
         if isinstance(entry, LayerBatchUndo):
             li = entry.layer
             current = [
-                (fi, self.frames[fi].layers[li].image.copy(),
+                (fi, QImage(self.frames[fi].layers[li].image),
                  self.frames[fi].layers[li].has_content)
                 for fi, _img, _hc in entry.cells
                 if _cell_exists(fi, li)
@@ -456,7 +456,7 @@ class PaintCanvas(
                     layer = self.frames[fi].layers[li]
                     current.append((
                         fi,
-                        layer.image.copy(),
+                        QImage(layer.image),
                         bool(layer.has_content),
                         int(layer.exposure),
                     ))
@@ -474,7 +474,7 @@ class PaintCanvas(
             return LayerUndo(
                 entry.frame,
                 entry.layer,
-                layer.image.copy(),
+                QImage(layer.image),
                 layer.has_content,
             )
         log.warning("unknown undo entry type: %r", type(entry).__name__)

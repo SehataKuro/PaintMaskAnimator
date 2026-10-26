@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 from PySide6.QtGui import QColor, QImage
-from . import imaging
+from . import imaging, native
 from .i18n import tr
 from .progress import close_counter, create_counter, update_counter
 from .logging_setup import get_logger
@@ -46,14 +46,14 @@ class UsedColorController:
         if not self.window.canvas.undo_stack:
             return
         self.window.canvas.undo()
-        self._refresh_without_delay()
+        self.schedule_refresh()
         self.refresh_history_panel()
 
     def redo(self):
         if not self.window.canvas.redo_stack:
             return
         self.window.canvas.redo()
-        self._refresh_without_delay()
+        self.schedule_refresh()
         self.refresh_history_panel()
 
     def push_palette_history(self, before, label):
@@ -79,7 +79,7 @@ class UsedColorController:
                 self.window.canvas.redo()
         else:
             return
-        self._refresh_without_delay()
+        self.schedule_refresh()
         self.refresh_history_panel()
 
     def switch_history_branch(self, branch_index, redo_steps=0):
@@ -102,7 +102,7 @@ class UsedColorController:
             if not self.window.canvas.redo_stack:
                 break
             self.window.canvas.redo()
-        self._refresh_without_delay()
+        self.schedule_refresh()
         self.refresh_history_panel()
 
     def refresh_history_panel(self):
@@ -152,7 +152,9 @@ class UsedColorController:
         visible_pixels = packed[opaque]
         if visible_pixels.size == 0:
             return []
-        unique = np.unique(visible_pixels)
+        unique = native.unique_colors(visible_pixels, limit)
+        if unique is None:
+            unique = np.unique(visible_pixels)
         if len(unique) > limit:
             unique = unique[:limit]
         return [

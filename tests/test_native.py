@@ -13,6 +13,32 @@ needs_native = pytest.mark.skipif(
 WIDTHS = [1, 2, 31, 63, 64, 65, 127, 128, 129, 200]
 
 
+@needs_native
+@pytest.mark.parametrize("limit", [0, 1, 3, 101, 300])
+def test_unique_colors_matches_numpy(limit):
+    rng = np.random.default_rng(18)
+    for pixels in (
+        np.array([], dtype=np.uint32),
+        np.zeros(200, dtype=np.uint32),
+        rng.integers(0, 256, 10000, dtype=np.uint32),
+        np.array([0xffffff, 0, 0xffffff, 0, 1], dtype=np.uint32),
+    ):
+        assert native.unique_colors(pixels, limit) == np.unique(pixels)[:limit].tolist()
+
+
+def test_unique_colors_falls_back_for_old_native(monkeypatch):
+    monkeypatch.setattr(native, "_native", object())
+    assert native.unique_colors(np.array([1], dtype=np.uint32), 101) is None
+
+
+@needs_native
+def test_unique_colors_rejects_invalid_input():
+    with pytest.raises(ValueError, match="packed u32"):
+        native._native.unique_colors(b"abc", 101)
+    with pytest.raises(ValueError, match="24-bit RGB"):
+        native._native.unique_colors(np.array([0xffffffff], dtype=np.uint32).tobytes(), 101)
+
+
 def random_masks(seed=7, count=120):
     rng = np.random.default_rng(seed)
     for index in range(count):

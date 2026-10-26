@@ -31,3 +31,4 @@ def label_regions(codes: bytes, width: int, height: int) -> tuple[bytes, int]:
     ``codes`` は uint32 の並びで、``0xFFFFFFFF`` の画素は番号 0。
     番号は各領域の最初の画素（行優先）が現れた順。``(番号, 領域の数)`` を返す。
     """
+def unique_colors(pixels: bytes, limit: int) -> list[int]: ...

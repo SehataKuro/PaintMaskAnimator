@@ -84,3 +84,40 @@ def test_undo_stack_always_keeps_one_entry_however_large(monkeypatch):
     stack = [LayerUndo(0, 0, QImage(64, 64, QImage.Format.Format_ARGB32), True)]
     canvas_undo.trim_undo_stack(stack)
     assert len(stack) == 1
+
+
+def test_full_layer_inverse_shares_pixels_but_survives_later_painting():
+    _app()
+    canvas = PaintCanvas()
+    canvas.active_layer.image.fill(QColor("red"))
+    entry = LayerUndo(0, 0, QImage(canvas.active_layer.image), True)
+    inverse = canvas.current_state_for(entry)
+    assert inverse.image.cacheKey() == canvas.active_layer.image.cacheKey()
+    painter = QPainter(canvas.active_layer.image)
+    painter.fillRect(QRect(0, 0, 2, 2), QColor("blue"))
+    painter.end()
+    assert inverse.image.pixelColor(0, 0) == QColor("red")
+    assert canvas.active_layer.image.pixelColor(0, 0) == QColor("blue")
+
+
+def test_controller_defers_palette_scan_until_after_repeated_undo_redo():
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+    from paintmaskanimator.main_window_used_color import UsedColorController
+
+    canvas = Mock(undo_stack=[object()], redo_stack=[object()])
+    timer = Mock()
+    window = SimpleNamespace(
+        canvas=canvas, _used_color_timer=timer, _used_color_request=0,
+        history_panel=Mock(),
+    )
+    controller = UsedColorController(window)
+    controller.refresh = Mock()
+    controller.undo()
+    controller.undo()
+    controller.redo()
+    assert canvas.undo.call_count == 2
+    assert canvas.redo.call_count == 1
+    assert timer.start.call_count == 3
+    assert window._used_color_request == 3
+    controller.refresh.assert_not_called()

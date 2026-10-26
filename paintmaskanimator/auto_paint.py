@@ -2,7 +2,7 @@
 
 原画では、黒の主線と、原色の赤・緑・青の色トレス線（範囲線・斜線・影の境目など）
 が色分けの境界になる。黄・水色・赤紫（原色2つを重ねた色）の線も同じに扱う。
-そこで各セルを、これらの線で区切られた「部分」（同じ色でつながった画素）に分け、
+そこで対象セルを、これらの線で区切られた「部分」に分け、
 部分ごとに、もう塗り終えた隣のセルの同じ場所の色を写す。
 
 * 見本から前後へ1セルずつ進み、塗り終えたセルを次のセルの手本にする。隣どうしは
@@ -65,7 +65,7 @@ FILL_SHARE = 0.75
 #: もう塗ってある部分は、手本の色がこの割合以上そろっていれば塗り替える。
 REPAINT_SHARE = 0.8
 #: 色トレス線は、手本の色がこの割合以上そろっていれば1本まるごとその色にする。
-#: そろわなければ画素ごとに手本の色を写す。
+#: そろわなければ線のまま未決定として残す。
 LINE_SHARE = 0.75
 #: 色トレス線は、手本でもこの割合以上が線の色なら残す。
 KEEP_LINE_SHARE = 0.5
@@ -292,26 +292,51 @@ def gap_mask(boundary, primary, radius=GAP_RADIUS) -> np.ndarray:
     return closed & ~boundary & bucket_fill.dilate(primary, radius + 1)
 
 
+class _TargetRegions(reference_check.CellRegions):
+    """対象の線だけで範囲を固定する。既存の塗り色は境界にしない。"""
+
+    def __init__(self, pixels, values, barriers, gaps):
+        topology = np.where(barriers, values, 0).astype(values.dtype)
+        topology[gaps] = GAP_VALUE
+        super().__init__(pixels, values=topology)
+        self.source_values = values
+        self._colors = {}
+
+    def value(self, index):
+        if index not in self._colors:
+            value = super().value(index)
+            if value == 0:
+                x0, y0, x1, y1 = self.bounds(index)
+                sample = self.source_values[y0:y1, x0:x1][self.local_mask(index)]
+                # 一色の既存塗りは塗り替え判定に使う。色むらは面を分割しない。
+                value = int(sample[0]) if np.all(sample == sample[0]) else 0
+            self._colors[index] = value
+        return self._colors[index]
+
+
 class _Cell:
     """1セル分の、部分分けと境界。"""
 
-    def __init__(self, pixels):
+    def __init__(self, pixels, *, target=False):
         self.pixels = pixels
         self.values = fill_tracking._labels(pixels)
         self.black = fill_tracking.line_art(pixels)
         self.primary = primary_line_mask(pixels)
+        self._mark: Optional[np.ndarray] = None
         self.boundary = self.black | self.primary
         self.gaps = gap_mask(self.boundary, self.primary)
         # 通常のバケツと同じく、画面端で途切れた線を仮想延長して区切る。
-        # 元の実線・TP線は動かさず、透明画素だけを仮想境界にする。
+        # 元の実線・TP線は動かさない。対象の仮想境界は塗り色に依存させない。
         self.gaps |= bucket_fill.extend_line_ends(
             self.boundary, bucket_fill.BucketOptions.extend_length,
-        ) & (self.values == 0)
+        ) & (~self.boundary if target else self.values == 0)
         region_values = self.values
         if self.gaps.any():
             region_values = self.values.copy()
             region_values[self.gaps] = GAP_VALUE
-        self.regions = reference_check.CellRegions(pixels, values=region_values)
+        self.regions = (_TargetRegions(
+            pixels, self.values, self.boundary | self.mark, self.gaps,
+        ) if target else reference_check.CellRegions(pixels, values=region_values))
         # 中割りの線は1画素ずれることが多いので、ずれを求めるときは1画素太らせた
         # 線にも重なりを認める（ぴったり重なるよりは少なく数える）。
         self.wide_boundary = bucket_fill.dilate(self.boundary, 1)
@@ -325,7 +350,6 @@ class _Cell:
         #: 塗り進める並びでの位置（動きの推定を使い回すのに使う）。
         self.index: Optional[int] = None
         self.initial: Optional[_Cell] = None
-        self._mark: Optional[np.ndarray] = None
 
     @property
     def mark(self) -> np.ndarray:
@@ -394,8 +418,8 @@ def _line_paints(target: _Cell, guide: _Cell, local, bounds, shift, painted, val
                  finishes, learned):
     """色トレス線1本を、手本で同じ場所の色にする塗り。手本でも線なら空。
 
-    線は細く、中割りでは1画素ずれやすいので、一色にそろわなければ画素ごとに
-    手本の色を写す（頬の範囲線なら、内側は頬の色、外側は肌の色になる）。
+    線の形は対象から決める。手本の色がそろわなければ未決定として残し、
+    手本の境界で線を画素単位に切り分けない。
 
     使う色は、このセルで線のとなりにある色（``painted`` は部分を塗ったあとの色の
     値）か、手本で線の幅ほどの小さな部分の色（斜線の仕上げ色など）に限る。
@@ -428,13 +452,10 @@ def _line_paints(target: _Cell, guide: _Cell, local, bounds, shift, painted, val
                 counts = learned.setdefault((value, host), {})
                 counts[color] = counts.get(color, 0) + count
     allowed = neighbours | small
-    chosen = np.full(values.shape, majority, dtype=values.dtype)
-    if share < LINE_SHARE:
-        chosen[colored] = values[colored]
-    if majority not in allowed:
-        majority = 0
-    chosen[~np.isin(chosen, list(allowed))] = majority
-    return _paints_by_value(local, bounds, chosen)
+    # 見本は色を決めるためだけに使い、見本の色境界を対象へ写さない。
+    if share < LINE_SHARE or majority not in allowed:
+        return None
+    return [(_opaque_rgb(majority), bounds, local.copy())]
 
 
 def _finish_paints(target: _Cell, local, bounds, painted, value, finishes):
@@ -1138,7 +1159,7 @@ def paint_cell(pixels, guides: List[_Cell], *, finishes=None, learned=None,
     """
     finishes = {} if finishes is None else finishes
     learned = {} if learned is None else learned
-    target = _Cell(pixels) if target is None else target
+    target = _Cell(pixels, target=True) if target is None else target
     target.from_lines = hint is not None
     result = CellPaint()
     trace_decided = _trace_first(target, guides, result, margin)
@@ -1415,7 +1436,7 @@ def plan_auto_paint(
 
     def target_for(index):
         if index not in targets:
-            targets[index] = _Cell(cells[index])
+            targets[index] = _Cell(cells[index], target=True)
         return targets[index]
 
     def boundary(index):
