@@ -19,6 +19,7 @@ import subprocess
 import sys
 from pathlib import Path
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
@@ -102,6 +103,8 @@ LEGACY_BUILTIN_HASHES = {
     "builtin_silhouette.py": (
         "f4da2226d3af2cb0e7a230f100551be3a0edb8d98b3a3a1e45a486f5157c982e",
         "8011b0822863655254bdfeb0eecde99d0d938f9ebeaba3ff050f247368cc0ebb",
+        # 開発中に一度だけ配った shortcut_action 付きの版。古いアプリでは読めない。
+        "24ff57e109610307e9247a43bab5e32ea83e4d12520c96be897a79909f98321d",
     ),
     "builtin_same_image_replacement.py": (
         "d6116d312479ea89bc167c84886fedbd7f9680b5ba70f0fd25447c2b2f3d9e8b",
@@ -110,7 +113,16 @@ LEGACY_BUILTIN_HASHES = {
     "builtin_main_line_repaint.py": (
         "70855b6e6f7bed6562f9f25b24149a54d66aad9ec55ed7a5264fcd2fed2772d2",
         "85ac381effc0bc2756560c4ec24a2e49214db8771c41b21bee3f47f9cad869ca",
+        "dacf04ee000490af993430ce64a8f1d84e2a79af6dddd5fc445cc933e02d6941",
     ),
+}
+
+# 組み込みアクションのうち、メニューにある操作と同じもの。ショートカットは
+# メニュー側のものを共有する。アクションのフォルダーは古いバージョンのアプリとも
+# 共有されるので、スクリプトに新しい引数を書かずにアプリ側で ID から結び付ける。
+BUILTIN_SHORTCUT_ACTIONS = {
+    "silhouette": "a_silhouette",
+    "main_line_repaint": "a_mainline_repaint",
 }
 
 
@@ -128,6 +140,8 @@ class ActionPanel(QWidget):
         self.main_window = main_window
         self._buttons = {}
         self._sources = {}
+        # ボタンごとのショートカット用 QAction（label, action, 自前で作ったか）。
+        self._shortcut_actions = {}
         self._loading_source = "builtin"
 
         layout = QVBoxLayout(self)
@@ -204,12 +218,18 @@ class ActionPanel(QWidget):
 
     def add_action(
         self, action_id, label, callback, *, tooltip="", checkable=False,
-        source=None,
+        source=None, shortcut_action=None,
     ):
         """Add an action button and return it.
 
         ``callback`` receives the checked state for checkable buttons and no
         arguments for regular buttons.
+
+        Each button gets a ``QAction`` so it can have a keyboard shortcut
+        (ショートカット設定の「アクション」). Pass ``shortcut_action`` when the
+        button does the same thing as an existing menu action: that action's
+        shortcut is used instead of a separate one. Built-in actions are linked
+        this way by ID (``BUILTIN_SHORTCUT_ACTIONS``).
         """
         action_id = str(action_id).strip()
         if not action_id or not callable(callback):
@@ -239,7 +259,37 @@ class ActionPanel(QWidget):
         self.action_layout.addWidget(button)
         self._buttons[action_id] = button
         self._sources[action_id] = source
+        if shortcut_action is None and action_id in BUILTIN_SHORTCUT_ACTIONS:
+            shortcut_action = getattr(
+                self.main_window, BUILTIN_SHORTCUT_ACTIONS[action_id], None
+            )
+        if isinstance(shortcut_action, QAction):
+            if checkable and shortcut_action.isCheckable():
+                # メニューやショートカットで切り替えたときもボタンの状態を合わせる。
+                button.setChecked(shortcut_action.isChecked())
+                shortcut_action.toggled.connect(button.setChecked)
+            self._shortcut_actions[action_id] = (str(label), shortcut_action, False)
+        else:
+            action = QAction(str(label), self)
+            action.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
+            action.triggered.connect(button.click)
+            # パネルが隠れていても効くよう、メインウィンドウに付ける。
+            owner = self.main_window if isinstance(self.main_window, QWidget) else self
+            owner.addAction(action)
+            self._shortcut_actions[action_id] = (str(label), action, True)
         return button
+
+    def shortcut_entries(self):
+        """ショートカット設定に並べる ``(表示名, QAction)``（パネルの並び順）。"""
+        return [(label, action) for label, action, _own in self._shortcut_actions.values()]
+
+    def own_shortcut_actions(self):
+        """パネルが自分で作った QAction を ``{action_id: QAction}`` で返す。"""
+        return {
+            action_id: action
+            for action_id, (_label, action, own) in self._shortcut_actions.items()
+            if own
+        }
 
     def button(self, action_id):
         return self._buttons.get(action_id)
@@ -252,6 +302,13 @@ class ActionPanel(QWidget):
             self._sources.pop(action_id, None)
             self.action_layout.removeWidget(button)
             button.deleteLater()
+            _label, action, own = self._shortcut_actions.pop(action_id, ("", None, False))
+            if own and action is not None:
+                for widget in (self.main_window, self):
+                    if isinstance(widget, QWidget):
+                        widget.removeAction(action)
+                action.deleteLater()
+            # メニュー側の toggled → button.setChecked はボタンの破棄で自然に切れる。
 
     def reload_python_actions(self):
         self._seed_builtin_scripts()
@@ -277,6 +334,10 @@ class ActionPanel(QWidget):
                 errors.append(f"{path.name}: {error}")
             finally:
                 self._loading_source = "builtin"
+        # 読み込み直したボタンにも、保存してあるショートカットを付け直す。
+        store = getattr(self.main_window, "shortcut_store", None)
+        if store is not None:
+            store.register_panel_actions()
         if errors:
             QMessageBox.warning(
                 self,

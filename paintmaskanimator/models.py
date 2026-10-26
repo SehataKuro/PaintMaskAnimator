@@ -30,6 +30,10 @@ class Layer:
     # 中割りのセルは tween_member に同じ id を持つ（tween_groups.py）。
     tween: Optional[dict] = None
     tween_member: Optional[str] = None
+    # 色塗り前の初期状態（カットフォルダーから読み込んだままの絵など）。自動塗りは
+    # ここから黒の主線と色トレス線を取り出して部分を分ける。塗りかけの色や、仕上げ色で
+    # 塗りつぶした色トレス線に惑わされないように保持する。比較表示にも使う。
+    initial_image: Optional[QImage] = None
 
     def clone(self):
         # QImage は暗黙共有。QImage(image) は画素をコピーせず参照を共有し、
@@ -48,6 +52,7 @@ class Layer:
             str(self.cell_name) if self.cell_name is not None else None,
             copy.deepcopy(self.tween) if self.tween is not None else None,
             self.tween_member,
+            QImage(self.initial_image) if self.initial_image is not None else None,
         )
 
 

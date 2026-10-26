@@ -31,6 +31,8 @@ def isolated_config(monkeypatch):
     monkeypatch.setattr(config, "get_value", lambda key, default=None: store.get(key, default))
     monkeypatch.setattr(config, "set_value", lambda key, value: store.__setitem__(key, value))
     monkeypatch.setattr(QMessageBox, "information", lambda *_a, **_k: None)
+    # 読み込みのあとの「初期状態として保存しますか？」は、既定では「保存しない」。
+    monkeypatch.setattr(QMessageBox, "exec", lambda _self: 0)
     return store
 
 
@@ -168,3 +170,41 @@ def test_folder_without_timesheet_is_rejected(window, tmp_path, monkeypatch):
     assert not window.importer.cut_folder(tmp_path, confirm_replace=False)
     assert errors
     assert window.canvas.frames is before
+
+
+def _one_cel_folder(tmp_path):
+    _write_png(tmp_path / "A" / "A0001.png", QColor("red"))
+    sheet = timesheet_file.xdts_text("c001", ["A"], [["1"]], 1)
+    (tmp_path / "c001.xdts").write_text(sheet, encoding="utf-8")
+
+
+def test_import_asks_to_keep_the_initial_state(window, tmp_path, monkeypatch, isolated_config):
+    _one_cel_folder(tmp_path)
+    asked = []
+
+    def answer(box):
+        asked.append(box.text())
+        box.checkBox().setChecked(True)  # 「常に初期状態として保存する」
+        keep = next(button for button in box.buttons() if button.text() == "保存する")
+        keep.click()
+        return 0
+
+    monkeypatch.setattr(QMessageBox, "exec", answer)
+    assert window.importer.cut_folder(tmp_path, confirm_replace=False)
+    assert asked and "初期状態" in asked[0]
+    layer = window.canvas.frames[0].layers[0]
+    assert layer.initial_image is not None
+    assert QColor(layer.initial_image.pixel(5, 5)) == QColor("red")
+    assert isolated_config["keep_initial_state_on_cut_folder"] is True
+
+    # 「常に保存する」にしたあとは、尋ねずに保持する。
+    asked.clear()
+    assert window.importer.cut_folder(tmp_path, confirm_replace=False)
+    assert not asked
+    assert window.canvas.frames[0].layers[0].initial_image is not None
+
+
+def test_import_without_keeping_leaves_no_initial_state(window, tmp_path):
+    _one_cel_folder(tmp_path)
+    assert window.importer.cut_folder(tmp_path, confirm_replace=False)
+    assert window.canvas.frames[0].layers[0].initial_image is None

@@ -1,0 +1,31 @@
+[package]
+name = "pman_thumbnail"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Explorer thumbnail handler that shows a .pman project's saved thumbnail"
+license = "Apache-2.0"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+windows-core = "0.62"
+
+[dependencies.windows]
+version = "0.62"
+features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Graphics_Imaging",
+    "Win32_System_Com",
+    "Win32_System_LibraryLoader",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_PropertiesSystem",
+]
+
+[profile.release]
+# A panic must never unwind into Explorer's (or dllhost's) COM call.
+panic = "abort"
+opt-level = "s"
+lto = true

@@ -80,6 +80,10 @@ from .main_window_tween import TweenController
 from .main_window_ui_build import UIBuildMixin
 from .main_window_used_color import UsedColorController
 from .main_window_scope_ops import ScopeOpsController
+from .main_window_reference_check import ReferenceCheckController
+from .main_window_copy_paint import CopyPaintController
+from .main_window_auto_paint import AutoPaintController
+from .main_window_initial_state import InitialStateController
 from .main_window_workspace import WorkspaceController
 
 log = get_logger(__name__)
@@ -109,6 +113,10 @@ class MainWindow(
         self.tween=TweenController(self)
         self.time_remap=TimeRemapController(self)
         self.scope=ScopeOpsController(self)
+        self.reference_check=ReferenceCheckController(self)
+        self.copy_paint=CopyPaintController(self)
+        self.auto_paint=AutoPaintController(self)
+        self.initial_state=InitialStateController(self)
         self.project=ProjectIOController(self)
         self.importer=ImportController(self)
         # palette_state のUndo/Redoでパネル状態を復元できるよう相互参照を張る。
@@ -1044,11 +1052,20 @@ class MainWindow(
         self.canvas.pressure_curve_points = settings["points"]
         self.canvas.pressure_curve = 1.0
     def shortcuts(self):
+        # アクションパネルのボタン。メニューの操作と同じもの（黒シルエットなど）は
+        # ここにまとめ、ほかのタブからは外して同じ操作が2か所に出ないようにする。
+        panel_actions = self.action_panel.shortcut_entries()
+        in_panel = {id(action) for _name, action in panel_actions}
+
+        def without_panel(entries):
+            return [(name, action) for name, action in entries if id(action) not in in_panel]
+
         categories = [
-            (tr("ファイル・編集"), self.file_edit_actions),
+            (tr("ファイル・編集"), without_panel(self.file_edit_actions)),
             (tr("ツール"), self.tool_action_list),
             (tr("キャンバス操作"), self.canvas_operation_actions),
-            (tr("ツールコマンド"), self.tool_command_actions),
+            (tr("ツールコマンド"), without_panel(self.tool_command_actions)),
+            (tr("アクション"), panel_actions),
             (tr("タイムライン"), self.timeline_actions),
         ]
         if ShortcutDialog(categories, self).exec():
