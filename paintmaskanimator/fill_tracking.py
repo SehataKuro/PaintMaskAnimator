@@ -304,7 +304,14 @@ def line_art(pixels):
     塗る対象の色に関係なく、コマ間で同じものを指す手がかりになる。透明の部分を
     塗るときに「透明でない画素」を線とみなすと、髪の塗りまで線になって比べられない。
     """
-    return (pixels[:, :, 3] > 0) & (pixels[:, :, :3].max(axis=2) <= LINE_MAX)
+    # チャンネルごとに比べる。`max(axis=2)` は飛び飛びの並びを畳むので、同じ結果でも
+    # キャンバス1枚ぶん遅い。
+    red, green, blue = pixels[:, :, 0], pixels[:, :, 1], pixels[:, :, 2]
+    dark = red <= LINE_MAX
+    dark &= green <= LINE_MAX
+    dark &= blue <= LINE_MAX
+    dark &= pixels[:, :, 3] > 0
+    return dark
 
 
 def _labels(pixels):

@@ -136,16 +136,24 @@ def _bounds(mask) -> Optional[Bounds]:
 
 
 def label_regions(values):
-    """同じ値が4近傍でつながった部分に番号を振る。``(番号の配列, 部分の数)``。
+    """同じ値が4近傍でつながった部分に番号を振る。``(番号の配列, 部分の数)``。"""
+    labels, count, _runs = _label_runs(values)
+    return labels, count
+
+
+def _label_runs(values):
+    """:func:`label_regions` と、ランごとの ``(行, 始まり, 終わり, 番号)``。
 
     行ごとに同じ値の連続区間（ラン）へ分け、上下の行で重なって値が同じランを
     つなぐ。ランは各行を左から隙間なく覆うので、番号の配列はランの番号を長さ分
-    並べるだけで作れる。
+    並べるだけで作れる。大きさや外接矩形も、画素ごとではなくランごとに数えれば
+    足りる（ランは画素よりずっと少ない）。
     """
     values = np.asarray(values)
     height, width = values.shape
     if height == 0 or width == 0:
-        return np.zeros((height, width), dtype=np.int32), 0
+        empty = np.zeros(0, dtype=np.int64)
+        return np.zeros((height, width), dtype=np.int32), 0, (empty, empty, empty, empty)
     change = np.ones((height, width), dtype=bool)
     change[:, 1:] = values[:, 1:] != values[:, :-1]
     run_y, run_x = np.nonzero(change)
@@ -186,8 +194,9 @@ def label_regions(values):
                 lower += 1
     roots = np.fromiter((find(index) for index in range(count)), dtype=np.int64, count=count)
     _unique, compact = np.unique(roots, return_inverse=True)
-    labels = np.repeat(compact.astype(np.int32), run_end - run_x).reshape(height, width)
-    return labels, int(_unique.size)
+    run_label = compact.astype(np.int32).reshape(count)
+    labels = np.repeat(run_label, run_end - run_x).reshape(height, width)
+    return labels, int(_unique.size), (run_y, run_x, run_end, run_label)
 
 
 #: 前後のコマで対応する部分の面積比の上限（どちら向きにも）。
@@ -206,19 +215,20 @@ class CellRegions:
         self.values = fill_tracking._labels(pixels) if values is None else values
         self.lines = fill_tracking.line_art(pixels)
         self.height, self.width = self.values.shape
-        self.labels, count = label_regions(self.values)
-        flat = self.labels.ravel()
-        self.sizes = np.bincount(flat, minlength=count)
-        ys = np.repeat(np.arange(self.height), self.width)
-        xs = np.tile(np.arange(self.width), self.height)
+        self.labels, count, runs = _label_runs(self.values)
+        # 大きさと外接矩形は、画素ごとではなくランごとに数える。
+        run_y, run_x, run_end, run_label = runs
+        self.sizes = np.bincount(
+            run_label, weights=run_end - run_x, minlength=count,
+        ).astype(np.int64)
         self.y0 = np.full(count, self.height)
         self.y1 = np.zeros(count, dtype=np.int64)
         self.x0 = np.full(count, self.width)
         self.x1 = np.zeros(count, dtype=np.int64)
-        np.minimum.at(self.y0, flat, ys)
-        np.maximum.at(self.y1, flat, ys)
-        np.minimum.at(self.x0, flat, xs)
-        np.maximum.at(self.x1, flat, xs)
+        np.minimum.at(self.y0, run_label, run_y)
+        np.maximum.at(self.y1, run_label, run_y)
+        np.minimum.at(self.x0, run_label, run_x)
+        np.maximum.at(self.x1, run_label, run_end - 1)
         self.on_edge = set(np.unique(np.concatenate([
             self.labels[0], self.labels[-1], self.labels[:, 0], self.labels[:, -1]
         ])).tolist())

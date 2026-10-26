@@ -218,12 +218,22 @@ def primary_line_mask(pixels, tolerance=PRIMARY_TOLERANCE,
 
     どのチャンネルも「強い」か「弱い」のどちらかで、強いチャンネルが1つか2つの色。
     """
-    rgb = pixels[:, :, :3].astype(np.int16)
-    opaque = pixels[:, :, 3] > 0
-    high = rgb >= 255 - tolerance
-    low = rgb <= low_tolerance
-    strong = high.sum(axis=2)
-    return opaque & np.all(high | low, axis=2) & (strong >= 1) & (strong <= 2)
+    # チャンネルごとに比べる（uint8 のまま。int16 に直すとキャンバス3枚ぶんの
+    # 複製と、飛び飛びの並びの畳み込みが要る）。
+    floor = np.uint8(255 - tolerance)
+    ceiling = np.uint8(low_tolerance)
+    red, green, blue = pixels[:, :, 0], pixels[:, :, 1], pixels[:, :, 2]
+    high_red, high_green, high_blue = red >= floor, green >= floor, blue >= floor
+    strong = high_red.astype(np.uint8)
+    strong += high_green
+    strong += high_blue
+    either = high_red | (red <= ceiling)
+    either &= high_green | (green <= ceiling)
+    either &= high_blue | (blue <= ceiling)
+    either &= pixels[:, :, 3] > 0
+    either &= strong >= 1
+    either &= strong <= 2
+    return either
 
 
 def _is_primary(rgb) -> bool:
@@ -1084,7 +1094,8 @@ def _tiny_holes(target: _Cell, painted):
 
 def paint_cell(pixels, guides: List[_Cell], *, finishes=None, learned=None,
                teacher: Optional[_Cell] = None, margin=SEARCH_MARGIN,
-               hint=None, flow_for=None, hand_guides=(), hand_first=0) -> CellPaint:
+               hint=None, flow_for=None, hand_guides=(), hand_first=0,
+               target: Optional[_Cell] = None) -> CellPaint:
     """塗り終えたセル ``guides`` を手本に、``pixels`` を塗る範囲と色を決める。
 
     部分ごとに ``guides`` を順に試し、最初に決まった手本に従う。仕上げ色を覚える
@@ -1099,10 +1110,12 @@ def paint_cell(pixels, guides: List[_Cell], *, finishes=None, learned=None,
         決めていない所にした手本）。近い順。動きで重ねて、はっきり1色のときだけ使う。
     :param hand_first: ``hand_guides`` のうち、``guides`` の一番目より先に試す数
         （すぐ隣のセル）。ほかは一番目の手本の次に試す。
+    :param target: ``pixels`` の部分分け。見本を増やして塗り直すとき、入力は同じ
+        なので作り直さずに渡す（部分分けはセル1枚ぶんの計算で一番重い）。
     """
     finishes = {} if finishes is None else finishes
     learned = {} if learned is None else learned
-    target = _Cell(pixels)
+    target = _Cell(pixels) if target is None else target
     target.from_lines = hint is not None
     result = CellPaint()
     # 手本を試す順：すぐ隣の手塗りのセル、一番目の手本、ほかの手塗りのセル、残りの手本。
@@ -1237,6 +1250,7 @@ def paint_cell(pixels, guides: List[_Cell], *, finishes=None, learned=None,
     # 取り違えが目立つので、決められた手本みんなで「残す／塗る」を多数決にする
     # （同数なら先の手本に従う）。塗るときの色は、塗ると答えた最初の手本に従う。
     painted = fill_tracking._labels(apply_paint(pixels, result))
+    line_start = len(result.paints)
     for local, bounds, value in lines:
         paints = _finish_paints(target, local, bounds, painted, value, finishes)
         if paints is not None:
@@ -1282,8 +1296,11 @@ def paint_cell(pixels, guides: List[_Cell], *, finishes=None, learned=None,
         paints = next(paints for paints in answers if paints)
         result.paints.extend(paints)
         result.line_pixels += sum(int(mask.sum()) for _rgb, _bounds, mask in paints)
-    # 小さすぎて手本と比べられなかった穴は、塗り終えたまわりの色で埋める。
-    result.paints.extend(_tiny_holes(target, fill_tracking._labels(apply_paint(pixels, result))))
+    # 小さすぎて手本と比べられなかった穴は、塗り終えたまわりの色で埋める。色トレス線の
+    # ぶんだけ ``painted`` へ書き足す（もう一度セル全体に塗り直すより軽い）。
+    for rgb, (x0, y0, x1, y1), mask in result.paints[line_start:]:
+        painted[y0:y1, x0:x1][mask] = reference_check._pack(rgb)
+    result.paints.extend(_tiny_holes(target, painted))
     return result
 
 
@@ -1358,8 +1375,15 @@ def plan_auto_paint(
     references = {reference_index}
     learned: Dict[Tuple[int, int], Dict[int, int]] = {}
     # 区画ごとの動きは線だけで決まるので、セルの組ごとに一度だけ求めて使い回す。
+    # 塗るセルの部分分けも、入力が変わらないので回をまたいで使い回す。
+    targets: Dict[int, _Cell] = {}
     boundaries: Dict[int, np.ndarray] = {}
     flows: Dict[Tuple[int, int], line_flow.Flow] = {}
+
+    def target_for(index):
+        if index not in targets:
+            targets[index] = _Cell(cells[index])
+        return targets[index]
 
     def boundary(index):
         if index not in boundaries:
@@ -1451,6 +1475,7 @@ def plan_auto_paint(
                 hand_first=hand_first,
                 flow_for=(lambda guide_cell, index=index: flow_between(index, guide_cell))
                 if hint is not None else None,
+                target=target_for(index),
             )
             plan.cells[index] = paint
             current[index] = apply_paint(cells[index], paint)
