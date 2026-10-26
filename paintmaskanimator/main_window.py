@@ -84,7 +84,6 @@ from .main_window_ui_build import UIBuildMixin
 from .main_window_used_color import UsedColorController
 from .main_window_scope_ops import ScopeOpsController
 from .main_window_reference_check import ReferenceCheckController
-from .main_window_copy_paint import CopyPaintController
 from .main_window_auto_paint import AutoPaintController
 from .main_window_initial_state import InitialStateController
 from .main_window_workspace import WorkspaceController
@@ -120,7 +119,6 @@ class MainWindow(
         self.time_remap=TimeRemapController(self)
         self.scope=ScopeOpsController(self)
         self.reference_check=ReferenceCheckController(self)
-        self.copy_paint=CopyPaintController(self)
         self.auto_paint=AutoPaintController(self)
         self.initial_state=InitialStateController(self)
         self.project=ProjectIOController(self)

@@ -43,7 +43,6 @@ if TYPE_CHECKING:
     from .main_window_time_remap import TimeRemapController
     from .main_window_scope_ops import ScopeOpsController
     from .main_window_reference_check import ReferenceCheckController
-    from .main_window_copy_paint import CopyPaintController
     from .main_window_auto_paint import AutoPaintController
     from .main_window_initial_state import InitialStateController
     from .main_window_project_io import ProjectIOController
@@ -193,7 +192,6 @@ class MainWindowMembers(_MembersBase):
         a_redo: Any
         a_remove_dust: Any
         a_reference_check: Any
-        a_copy_paint: Any
         a_auto_paint: Any
         a_keep_initial_state: Any
         a_clear_initial_state: Any
@@ -302,7 +300,6 @@ class MainWindowMembers(_MembersBase):
         time_remap: TimeRemapController
         scope: ScopeOpsController
         reference_check: ReferenceCheckController
-        copy_paint: CopyPaintController
         auto_paint: AutoPaintController
         initial_state: InitialStateController
         compare_initial_button: Any

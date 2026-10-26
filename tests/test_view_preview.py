@@ -44,13 +44,23 @@ def test_map_colors_separate_nearly_identical_neighbours():
     assert tuple(pixels[2, 2, :3]) == (255, 255, 255), "背景（白）はそのまま"
 
 
-def test_map_colors_separate_regions_across_a_line_and_keep_the_line():
+def test_map_colors_keep_the_line_between_regions_of_the_same_color():
     pixels = canvas_pixels()
     pixels[5:35, 5:55, :3] = NORMAL
     pixels[5:35, 29:31, :3] = 0  # 主線で2つに分かれた同じ色
     view_preview.map_color_pixels(pixels)
-    assert tuple(pixels[20, 10, :3]) != tuple(pixels[20, 50, :3])
+    assert tuple(pixels[20, 10, :3]) == tuple(pixels[20, 50, :3]),         "元の色が同じなら、分かれていても同じ仮の色"
     assert tuple(pixels[20, 30, :3]) == (0, 0, 0), "主線は元の色のまま"
+
+
+def test_map_colors_reuse_one_color_for_every_area_of_the_same_color():
+    pixels = canvas_pixels()
+    pixels[5:35, 5:55, :3] = NORMAL
+    pixels[10:15, 10:20, :3] = SHADOW  # 隢れた影の島を２つ
+    pixels[25:30, 40:50, :3] = SHADOW
+    view_preview.map_color_pixels(pixels)
+    assert tuple(pixels[12, 15, :3]) == tuple(pixels[27, 45, :3])
+    assert tuple(pixels[12, 15, :3]) != tuple(pixels[20, 30, :3])
 
 
 def test_map_colors_make_a_speck_stand_out():

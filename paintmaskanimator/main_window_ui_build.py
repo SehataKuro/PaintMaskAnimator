@@ -125,12 +125,7 @@ class UIBuildMixin(MainWindowMembers):
         self.a_channel_alpha.triggered.connect(lambda: self.view_preview.set_channel("alpha"))
         self.a_remove_dust=QAction(tr("ゴミ取り／塗り抜け…"),self)
         self.a_remove_dust.triggered.connect(self.line_ops.remove_dust_fill_surrounding)
-        self.a_copy_paint=QAction(tr("見本から塗り写す…"),self)
-        self.a_copy_paint.setStatusTip(tr(
-            "見本にしたセルの塗りを、同じレイヤーのほかのセルへ写して塗ります。"
-        ))
-        self.a_copy_paint.triggered.connect(self.copy_paint.open)
-        self.a_auto_paint=QAction(tr("色分けの線で自動塗り…"),self)
+        self.a_auto_paint=QAction(tr("自動で塗る…"),self)
         self.a_auto_paint.setStatusTip(tr(
             "黒と赤・緑・青などの色トレス線を境界にして、見本のセルから同じレイヤーのほかのセルを"
             "塗ります。"
@@ -410,8 +405,7 @@ class UIBuildMixin(MainWindowMembers):
             (tr("選択色だけ表示"), self.a_isolate_color),
             (tr("特定色表示を解除"), self.a_clear_color_filter),
             (tr("ゴミ取り"), self.a_remove_dust),
-            (tr("見本から塗り写す"), self.a_copy_paint),
-            (tr("色分けの線で自動塗り"), self.a_auto_paint),
+            (tr("自動で塗る"), self.a_auto_paint),
             (tr("今の絵を初期状態として保持"), self.a_keep_initial_state),
             (tr("保持した初期状態を消す"), self.a_clear_initial_state),
             (tr("見本との違いチェック"), self.a_reference_check),
@@ -500,7 +494,6 @@ class UIBuildMixin(MainWindowMembers):
         e.addAction(self.a_preferences)
         # 自動で塗る道具と、その仕上がりの確認。
         auto_menu=self.menuBar().addMenu(tr("自動塗り"))
-        auto_menu.addAction(self.a_copy_paint)
         auto_menu.addAction(self.a_auto_paint)
         auto_menu.addSeparator()
         auto_menu.addAction(self.a_keep_initial_state)
@@ -647,7 +640,8 @@ class UIBuildMixin(MainWindowMembers):
         self.map_colors_button.setCheckable(True)
         self.map_colors_button.setToolTip(tr(
             "隣接色分け：隣り合う部分を見分けやすい仮の色で塗り分けて表示する"
-            "（近い色の塗り漏れが見つかる）。アクティブレイヤーだけに掛かる"
+            "（近い色の塗り漏れが見つかる。元の色が同じ部分は同じ色）。"
+            "アクティブレイヤーだけに掛かる"
         ))
         self.map_colors_button.toggled.connect(self.view_preview.set_map_colors)
         self.channel_combo=QComboBox()

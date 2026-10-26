@@ -45,8 +45,18 @@ Bounds = Tuple[int, int, int, int]
 PRIMARY_TOLERANCE = 40
 #: 弱いチャンネルは 0 からこれだけ離れていてよい（黄の線 ``#FFFF32`` など）。
 PRIMARY_LOW_TOLERANCE = 60
-#: これより小さい部分は扱わない（線のふちの数画素など）。
+#: これより小さい部分は手本と比べない（線のふちの数画素など）。透明のままの穴は、
+#: まわりが1色なら最後にその色で埋める（:func:`_tiny_holes`）。
 MIN_REGION_PIXELS = 3
+#: 塗り終えたあとに残った透明の穴は、この大きさ（画素）まで、まわりの色で埋める。
+TINY_HOLE_PIXELS = 4
+#: 穴を埋めるのは、まわりの色がこの割合以上そろっているとき。
+TINY_HOLE_SHARE = 0.9
+#: 原画のしるしの色（原色でない色トレス線）とみなす、1つの色の画素数の上限
+#: （キャンバス全体に対する割合）。
+MARK_MAX_SHARE = 0.02
+#: しるしの色は細い：これだけ収縮させて残る所があれば、塗り色とみなす。
+MARK_THICKNESS = 2
 #: まだ塗っていない部分は、手本の色がこの割合以上そろっていれば塗る。
 FILL_SHARE = 0.75
 #: もう塗ってある部分は、手本の色がこの割合以上そろっていれば塗り替える。
@@ -222,8 +232,10 @@ def _is_primary(rgb) -> bool:
 
 
 def line_only(pixels):
-    """黒の主線と色トレス線だけを残した絵（ほかは透明）。元の線画として保持する。"""
-    keep = fill_tracking.line_art(pixels) | primary_line_mask(pixels)
+    """黒の主線・色トレス線・しるしの色だけを残した絵（ほかは透明）。元の線画として保持する。"""
+    black = fill_tracking.line_art(pixels)
+    primary = primary_line_mask(pixels)
+    keep = black | primary | mark_mask(pixels, black, primary)
     out = np.zeros_like(pixels)
     out[keep] = pixels[keep]
     return out
@@ -232,6 +244,41 @@ def line_only(pixels):
 def boundary_mask(pixels) -> np.ndarray:
     """色分けの境界：黒の主線と、色トレス線。"""
     return fill_tracking.line_art(pixels) | primary_line_mask(pixels)
+
+
+def mark_mask(pixels, black=None, primary=None, max_share=MARK_MAX_SHARE,
+              thickness=MARK_THICKNESS) -> np.ndarray:
+    """原画のしるしの色の画素：原色ではないのに、細い線としてだけ置かれている色。
+
+    頭のチャームのピンクのように、原色でない色で描き足されたしるしがある。
+    わざわざ違う色で描いてあるのは「まわりと色が違う」という指示なので、まわりの色で
+    塗りつぶしてはいけない。色トレス線と同じに扱い、手本で同じ場所が何色かを見て決める。
+
+    塗り色（髪や肌のような広い面）と見分けるため、その色がこのセルのどこにも太い塊
+    として現れず（``thickness`` 画素ぶん収縮させると消える）、面積も ``max_share``
+    までのときだけ、しるしとみなす。
+    """
+    black = fill_tracking.line_art(pixels) if black is None else black
+    primary = primary_line_mask(pixels) if primary is None else primary
+    candidate = (pixels[:, :, 3] > 0) & ~black & ~primary
+    out = np.zeros(candidate.shape, dtype=bool)
+    if not candidate.any():
+        return out
+    values = fill_tracking._labels(pixels)
+    limit = candidate.size * max_share
+    found, counts = np.unique(values[candidate], return_counts=True)
+    for value, count in zip(found.tolist(), counts.tolist()):
+        if count > limit:
+            continue  # 広い面はしるしではない
+        same = candidate & (values == value)
+        bounds = fill_tracking.mask_bounds(same)
+        if bounds is None:
+            continue
+        x0, y0, x1, y1 = bounds
+        if bucket_fill.erode(same[y0:y1, x0:x1], thickness).any():
+            continue  # 太い所がある（塗り色）
+        out |= same
+    return out
 
 
 def gap_mask(boundary, primary, radius=GAP_RADIUS) -> np.ndarray:
@@ -267,6 +314,14 @@ class _Cell:
         self.from_lines = False
         #: 塗り進める並びでの位置（動きの推定を使い回すのに使う）。
         self.index: Optional[int] = None
+        self._mark: Optional[np.ndarray] = None
+
+    @property
+    def mark(self) -> np.ndarray:
+        """原画のしるしの色（:func:`mark_mask`）。塗るセルでだけ使うので、要るときに作る。"""
+        if self._mark is None:
+            self._mark = mark_mask(self.pixels, self.black, self.primary)
+        return self._mark
 
     def mark_undecided(self, items, unpainted=()) -> "_Cell":
         for (x0, y0, x1, y1), mask in items:
@@ -983,6 +1038,50 @@ def _region_mask(target: _Cell, local, bounds, value):
     return (gx0, gy0, gx1, gy1), mask
 
 
+def _tiny_holes(target: _Cell, painted):
+    """塗り終えたあとに残った、ごく小さな透明の穴を、まわりの色で埋める塗り。
+
+    線のきわや頬の中には、数画素だけ透明の穴が残る。部分として扱うには小さすぎて
+    手本と比べられなかった画素や、部分分けのために閉じた切れ目の画素などで、
+    仕上げでは背景が透けて見えてしまう。まわりがほぼ1色なら、その色で埋めてよい
+    （まわりが2色以上の穴は、部分の境目なので埋めない）。
+
+    :param painted: ほかの部分と色トレス線を塗ったあとの、画素ごとの色の値。
+    """
+    height, width = painted.shape
+    holes = (painted == 0) & ~target.boundary & ~target.mark
+    if not holes.any():
+        return []
+    labels, _count = reference_check.label_regions(holes.astype(np.uint8))
+    ys, xs = np.nonzero(holes)
+    ids = labels[ys, xs]
+    order = np.argsort(ids, kind="stable")
+    ys, xs, ids = ys[order], xs[order], ids[order]
+    found_ids, starts, sizes = np.unique(ids, return_index=True, return_counts=True)
+    paints = []
+    for start, size in zip(starts.tolist(), sizes.tolist()):
+        if size > TINY_HOLE_PIXELS:
+            continue  # 大きな塗り残しは、塗らずに知らせてある
+        hy, hx = ys[start:start + size], xs[start:start + size]
+        y0, y1 = int(hy.min()), int(hy.max()) + 1
+        x0, x1 = int(hx.min()), int(hx.max()) + 1
+        wy0, wx0 = max(0, y0 - LINE_NEIGHBOUR), max(0, x0 - LINE_NEIGHBOUR)
+        wy1, wx1 = min(height, y1 + LINE_NEIGHBOUR), min(width, x1 + LINE_NEIGHBOUR)
+        window = painted[wy0:wy1, wx0:wx1]
+        # 線の色はまわりの色に数えない（穴は線のきわにできる）。
+        every = window[(window != 0) & ~target.boundary[wy0:wy1, wx0:wx1]]
+        host, share = _majority(every)
+        if host is None or share < TINY_HOLE_SHARE:
+            continue
+        rgb = reference_check._to_rgb(host)
+        if rgb is None or reference_check._is_line(rgb) or _is_primary(rgb):
+            continue
+        mask = np.zeros((y1 - y0, x1 - x0), dtype=bool)
+        mask[hy - y0, hx - x0] = True
+        paints.append((rgb, (x0, y0, x1, y1), mask))
+    return paints
+
+
 def paint_cell(pixels, guides: List[_Cell], *, finishes=None, learned=None,
                teacher: Optional[_Cell] = None, margin=SEARCH_MARGIN,
                hint=None, flow_for=None, hand_guides=(), hand_first=0) -> CellPaint:
@@ -1031,7 +1130,9 @@ def paint_cell(pixels, guides: List[_Cell], *, finishes=None, learned=None,
         if rgb is not None and reference_check._is_line(rgb):
             continue  # 黒の主線はそのまま
         result.checked += 1
-        if target.primary[y0:y1, x0:x1][local].any():
+        if (target.primary[y0:y1, x0:x1][local].any()
+                or target.mark[y0:y1, x0:x1][local].any()):
+            # 色トレス線と、原色でないしるしの色。どちらも手本の色に置き換える。
             lines.append((local, bounds, value))
             continue
         outcome, suspect, new_part = None, None, False
@@ -1154,8 +1255,20 @@ def paint_cell(pixels, guides: List[_Cell], *, finishes=None, learned=None,
             if paints is not None:
                 answers.append(paints)
         if not answers:
-            # 手がかりが無い（見本に写っていない所の線など）。残して知らせる。
-            result.undecided.append((bounds, local))
+            # 手がかりが無い（見本に写っていない所の線など）。色トレス線は置き換える
+            # 前提で置いてあるので、最後の手段として、このセルで線のとなりにある色で
+            # 塗る。残すと原色の線がそのまま仕上げに出てしまう（シルエットの外側に
+            # 沿った線は、ずらした先の半分が絵の外で、手本から決められない）。
+            _neighbours, host, _around = _line_neighbours(target, local, bounds, painted)
+            fallback = (
+                _paints_by_value(local, bounds, np.full(int(local.sum()), host))
+                if host is not None else []
+            )
+            if fallback:
+                result.paints.extend(fallback)
+                result.line_pixels += sum(int(mask.sum()) for _rgb, _b, mask in fallback)
+            else:
+                result.undecided.append((bounds, local))
             size = int(local.sum())
             if size >= LINE_REPORT_MIN_PIXELS:
                 result.notes.append(reference_check.Finding(
@@ -1169,6 +1282,8 @@ def paint_cell(pixels, guides: List[_Cell], *, finishes=None, learned=None,
         paints = next(paints for paints in answers if paints)
         result.paints.extend(paints)
         result.line_pixels += sum(int(mask.sum()) for _rgb, _bounds, mask in paints)
+    # 小さすぎて手本と比べられなかった穴は、塗り終えたまわりの色で埋める。
+    result.paints.extend(_tiny_holes(target, fill_tracking._labels(apply_paint(pixels, result))))
     return result
 
 
@@ -1366,6 +1481,7 @@ __all__ = [
     "boundary_mask",
     "gap_mask",
     "line_only",
+    "mark_mask",
     "paint_cell",
     "paint_from_guide",
     "plan_auto_paint",
