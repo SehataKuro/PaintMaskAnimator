@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QSignalBlocker
 
-from . import view_preview
+from . import preferences, view_preview
 from .i18n import tr
 
 if TYPE_CHECKING:
@@ -52,6 +52,11 @@ class ViewPreviewController:
 
     def toggle_map_colors(self):
         self.set_map_colors(not self._settings.map_colors)
+
+    def set_palette(self, colors):
+        """隣接色分けの仮の色を変えて保存する（環境設定から）。"""
+        preferences.set_map_palette(colors)
+        self.window.canvas.set_view_preview(palette=preferences.map_palette())
 
     # ------------------------------------------------------------------
     # チャンネル

@@ -6,7 +6,7 @@ into an unusable state (a zero-second autosave, a 0-step undo). Theme, accent
 and language keep living in :mod:`theme` / :mod:`i18n`; this module holds the
 settings that used to be hard-coded constants.
 """
-from . import config, constants
+from . import config, constants, view_preview
 
 AUTOSAVE_ENABLED_KEY = "autosave_enabled"
 AUTOSAVE_INTERVAL_KEY = "autosave_interval_minutes"
@@ -14,6 +14,7 @@ UNDO_STEPS_KEY = "undo_max_steps"
 UNDO_MEMORY_KEY = "undo_max_memory_mb"
 NEW_CANVAS_SIZE_KEY = "new_canvas_size"
 KEEP_INITIAL_STATE_KEY = "keep_initial_state_on_cut_folder"
+MAP_PALETTE_KEY = "map_color_palette"
 
 DEFAULT_AUTOSAVE_INTERVAL = 3
 AUTOSAVE_INTERVAL_RANGE = (1, 60)
@@ -92,3 +93,39 @@ def new_canvas_size():
 
 def set_new_canvas_size(width, height):
     config.set_value(NEW_CANVAS_SIZE_KEY, [int(width), int(height)])
+
+
+def _rgb_from_hex(value):
+    text = str(value).strip().lstrip("#")
+    if len(text) != 6:
+        raise ValueError(value)
+    return tuple(int(text[index:index + 2], 16) for index in (0, 2, 4))
+
+
+def map_palette():
+    """隣接色分けの仮の色（RGB のタプルを :data:`view_preview.MAP_PALETTE` と同じ数）。
+
+    保存されていない色・読めない色は、その番号の既定の色にする。
+    """
+    defaults = view_preview.MAP_PALETTE
+    stored = config.get_value(MAP_PALETTE_KEY)
+    if not isinstance(stored, list):
+        return defaults
+    colors = []
+    for index, default in enumerate(defaults):
+        try:
+            colors.append(_rgb_from_hex(stored[index]))
+        except (IndexError, TypeError, ValueError):
+            colors.append(default)
+    return tuple(colors)
+
+
+def set_map_palette(colors):
+    """隣接色分けの仮の色を保存する。既定と同じなら設定から消す。"""
+    colors = tuple(tuple(int(channel) for channel in rgb[:3]) for rgb in colors)
+    if colors == view_preview.MAP_PALETTE:
+        config.set_value(MAP_PALETTE_KEY, None)
+        return
+    config.set_value(
+        MAP_PALETTE_KEY, ["#{:02x}{:02x}{:02x}".format(*rgb) for rgb in colors]
+    )

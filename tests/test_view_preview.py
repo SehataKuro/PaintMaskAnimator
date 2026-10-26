@@ -155,3 +155,42 @@ def test_black_check_button_follows_the_menu_and_shortcut(window):
     assert not window.canvas.silhouette_non_background
     assert not window.a_silhouette.isChecked()
     assert window.action_panel.button("silhouette") is None, "アクションパネルには出さない"
+
+
+def test_map_palette_preference_falls_back_per_colour(qapp, tmp_path, monkeypatch):
+    from paintmaskanimator import config, preferences
+
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    assert preferences.map_palette() == view_preview.MAP_PALETTE
+    config.set_value(preferences.MAP_PALETTE_KEY, ["#010203", "壊れた値"])
+    palette = preferences.map_palette()
+    assert palette[0] == (1, 2, 3)
+    assert palette[1:] == view_preview.MAP_PALETTE[1:], "読めない色・無い色は既定の色"
+    preferences.set_map_palette(view_preview.MAP_PALETTE)
+    assert config.get_value(preferences.MAP_PALETTE_KEY) is None
+
+
+def test_map_colors_use_the_given_palette():
+    pixels = canvas_pixels()
+    pixels[5:35, 5:55, :3] = NORMAL
+    view_preview.map_color_pixels(pixels, palette=((1, 2, 3), (4, 5, 6)))
+    assert tuple(pixels[20, 20, :3]) == (1, 2, 3)
+
+
+def test_preferences_page_changes_the_palette(window, monkeypatch):
+    from paintmaskanimator import preferences
+    from paintmaskanimator.preferences_dialog import ColorPickerDialog, PreferencesDialog
+
+    monkeypatch.setattr(
+        ColorPickerDialog, "get_color", staticmethod(lambda *args, **kwargs: QColor(1, 2, 3))
+    )
+    dialog = PreferencesDialog(window)
+    try:
+        dialog.map_palette_buttons[2].click()
+        assert preferences.map_palette()[2] == (1, 2, 3)
+        assert window.canvas.view_preview.palette[2] == (1, 2, 3)
+        dialog._reset_map_palette()
+        assert window.canvas.view_preview.palette == view_preview.MAP_PALETTE
+    finally:
+        dialog.deleteLater()

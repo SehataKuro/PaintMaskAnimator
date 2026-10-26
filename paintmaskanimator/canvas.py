@@ -42,7 +42,7 @@ from PySide6.QtWidgets import QPushButton, QWidget
 from .i18n import tr
 from .constants import OUTSIDE_MARGIN
 from . import constants
-from . import color_ops, colors, geometry, imaging, view_preview
+from . import color_ops, colors, geometry, imaging, preferences, view_preview
 from .document import Document
 from .toolpanel import tool_label
 from .utils import blank_image, magnifier_cursor, workspace_size
@@ -260,7 +260,7 @@ class PaintCanvas(
         self.show_initial_state = False
         self._silhouette_cache = {}
         # 露光量・チャンネル・隣接色分けの表示プレビュー（画面だけ。書き出しには掛けない）。
-        self.view_preview = view_preview.ViewPreview()
+        self.view_preview = view_preview.ViewPreview(palette=preferences.map_palette())
         self._view_preview_cache = {}
         self._onion_cache = {}
         self.drawing=False; self.last_canvas=QPointF(); self.last_widget=QPointF(); self.lasso=[]; self.middle_hand=False
@@ -1517,7 +1517,7 @@ class PaintCanvas(
         ).reshape((height, rgba.bytesPerLine()))
         pixels = rows[:, :width * 4].reshape((height, width, 4))
         if map_colors:
-            view_preview.map_color_pixels(pixels)
+            view_preview.map_color_pixels(pixels, palette=preview.palette)
         view_preview.adjust_pixels(pixels, preview)
         result = rgba.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
         _bounded_cache_put(self._view_preview_cache, key, result, 32)

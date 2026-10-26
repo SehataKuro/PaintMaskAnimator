@@ -68,6 +68,8 @@ class ViewPreview:
     channel: str = CHANNEL_RGB
     #: 隣接色分け（アクティブレイヤーだけに掛ける）。
     map_colors: bool = False
+    #: 隣接色分けの仮の色（環境設定で変えられる）。
+    palette: Tuple[Tuple[int, int, int], ...] = MAP_PALETTE
 
     @property
     def active(self) -> bool:
@@ -79,7 +81,10 @@ class ViewPreview:
         return abs(self.exposure) > 1e-9 or self.channel != CHANNEL_RGB
 
     def key(self):
-        return (round(float(self.exposure), 3), self.channel, bool(self.map_colors))
+        return (
+            round(float(self.exposure), 3), self.channel, bool(self.map_colors),
+            self.palette if self.map_colors else None,
+        )
 
 
 def clamp_exposure(value) -> float:
@@ -231,11 +236,15 @@ def assign_map_colors(count, neighbors, areas, palette_size=None):
     return colors
 
 
-def map_color_pixels(pixels, gap=MAP_NEIGHBOR_GAP):
+def map_color_pixels(pixels, gap=MAP_NEIGHBOR_GAP, palette=MAP_PALETTE):
     """隣り合う領域が違う色になるよう、``pixels`` を仮の色で塗り分ける（その場で）。
 
     不透明で、白（擬似透明）でも主線（黒に近い色）でもない画素が対象。
+
+    :param palette: 仮の色（RGB のタプル列）。先頭の色ほど多く使われる。
     """
+    if not palette:
+        palette = MAP_PALETTE
     rgb = pixels[:, :, :3]
     codes = (
         rgb[:, :, 0].astype(np.int32) << 16
@@ -253,9 +262,9 @@ def map_color_pixels(pixels, gap=MAP_NEIGHBOR_GAP):
     labels, count = label_regions(codes, valid)
     areas = np.bincount(labels.reshape(-1), minlength=count + 1)
     neighbors = region_neighbors(labels, count, gap)
-    colors = assign_map_colors(count, neighbors, areas)
-    palette = np.asarray(MAP_PALETTE, dtype=np.uint8)
-    pixels[valid, :3] = palette[colors[labels[valid]]]
+    colors = assign_map_colors(count, neighbors, areas, len(palette))
+    table = np.asarray(palette, dtype=np.uint8)
+    pixels[valid, :3] = table[colors[labels[valid]]]
     return pixels
 
 

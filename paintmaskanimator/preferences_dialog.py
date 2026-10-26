@@ -12,6 +12,7 @@ from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QGridLayout,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -31,7 +32,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import config, i18n, layout_paper, preferences, pressure_settings, theme
+from . import config, i18n, layout_paper, preferences, pressure_settings, theme, view_preview
 from .canvas_undo import set_undo_limits
 from .i18n import tr
 from .color_picker_dialog import ColorPickerDialog
@@ -106,6 +107,7 @@ class PreferencesDialog(QDialog):
             ("appearance", tr("外観"), self._build_appearance_page()),
             ("canvas", tr("新規キャンバス"), self._build_canvas_page()),
             ("pressure", tr("筆圧"), self._build_pressure_page()),
+            ("view_check", tr("表示チェック"), self._build_view_check_page()),
             ("workspaces", tr("ワークスペース"), self._build_workspaces_page()),
             ("performance", tr("パフォーマンス"), self._build_performance_page()),
         ):
@@ -228,6 +230,66 @@ class PreferencesDialog(QDialog):
             value = color.name()
         self.main_window.colors.set_accent(value)
         self._fill_accent_choices()
+
+    # -- 表示チェック ---------------------------------------------------------
+    def _build_view_check_page(self):
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setSpacing(6)
+        self.map_palette_buttons = []
+        columns = 6
+        for index in range(len(view_preview.MAP_PALETTE)):
+            button = QPushButton()
+            button.setFixedSize(40, 28)
+            button.setToolTip(tr("{number} 番目の色（クリックで変更）").format(number=index + 1))
+            button.clicked.connect(lambda _checked=False, i=index: self._choose_map_color(i))
+            grid.addWidget(button, index // columns, index % columns)
+            self.map_palette_buttons.append(button)
+        palette_box = QWidget()
+        palette_box.setLayout(grid)
+        reset = QPushButton(tr("既定に戻す"))
+        reset.clicked.connect(self._reset_map_palette)
+        reset_row = QHBoxLayout()
+        reset_row.setContentsMargins(0, 0, 0, 0)
+        reset_row.addWidget(reset)
+        reset_row.addStretch()
+        reset_box = QWidget()
+        reset_box.setLayout(reset_row)
+        self._show_map_palette()
+        return _page(
+            (tr("隣接色分けの色"), palette_box),
+            ("", reset_box),
+            _hint(tr(
+                "キャンバスの下の「隣接色分け」で、隣り合う部分を塗り分ける仮の色です。"
+                "大きい部分から順に、隣でまだ使っていない色を 1 番から選ぶので、"
+                "前の番号の色ほど多く使われます。見分けやすいよう、互いに離れた色に"
+                "してください。主線（黒）と背景（白）に近い色は避けると見やすくなります。"
+            )),
+        )
+
+    def _show_map_palette(self):
+        for button, rgb in zip(self.map_palette_buttons, preferences.map_palette()):
+            color = QColor(*rgb)
+            button.setStyleSheet(
+                "QPushButton {{ background-color: {0}; border: 1px solid palette(mid);"
+                " border-radius: 4px; }}".format(color.name())
+            )
+            button.setAccessibleName(color.name())
+
+    def _choose_map_color(self, index):
+        colors = list(preferences.map_palette())
+        color = ColorPickerDialog.get_color(
+            QColor(*colors[index]), self, tr("隣接色分けの色を選択")
+        )
+        if not color.isValid():
+            return
+        colors[index] = (color.red(), color.green(), color.blue())
+        self.main_window.view_preview.set_palette(colors)
+        self._show_map_palette()
+
+    def _reset_map_palette(self):
+        self.main_window.view_preview.set_palette(view_preview.MAP_PALETTE)
+        self._show_map_palette()
 
     # -- 新規キャンバス -------------------------------------------------------
     def _build_canvas_page(self):
