@@ -1112,6 +1112,9 @@ class UIBuildMixin(MainWindowMembers):
         self.timeline.deleteFrameRequested.connect(
             self.timeline_ops.delete_frame
         )
+        self.timeline.first.clicked.connect(lambda: self.timeline_ops.jump_boundary(False))
+        self.timeline.last.clicked.connect(lambda: self.timeline_ops.jump_boundary(True))
+        self.timeline.table.horizontalHeader().rangeResized.connect(self.timeline_ops.resize_range)
         self.timeline.previousRequested.connect(self.timeline_ops.previous_frame)
         self.timeline.nextRequested.connect(self.timeline_ops.next_frame)
         self.timeline.previousKeyRequested.connect(self.timeline_ops.previous_key)

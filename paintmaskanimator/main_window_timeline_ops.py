@@ -111,6 +111,45 @@ class TimelineOpsController:
         self.window.canvas.selectionChanged.emit()
         self.window.canvas.update()
 
+    def jump_boundary(self, end=False):
+        canvas = self.window.canvas
+        if canvas.timeline_mode == "sequence":
+            self._navigate_sequence_number(1000000 if end else -1000000, wrap=False)
+        else:
+            canvas.current_frame = len(canvas.frames) - 1 if end else 0
+            canvas.selectionChanged.emit()
+            canvas.update()
+
+    def resize_range(self, edge, column):
+        canvas = self.window.canvas
+        if canvas.timeline_mode != "sheet":
+            return
+        count = len(canvas.frames)
+        target = max(1, int(column)) if edge == "end" else min(count - 1, max(0, int(column)))
+        if (edge == "end" and target == count) or (edge == "start" and target == 0):
+            return
+        canvas.push_doc_undo()
+        if edge == "end":
+            canvas._ensure_frame_count(target)
+            canvas.frames = canvas.frames[:target]
+        else:
+            for index in range(len(canvas.frames[0].layers)):
+                key = TimelineWidget.key_at_or_before(canvas.frames, index, target)
+                if key is not None and key < target:
+                    layer = canvas.frames[key].layers[index].clone()
+                    layer.exposure = max(1, key + layer.exposure - target)
+                    canvas.frames[target].layers[index] = layer
+            canvas.frames = canvas.frames[target:]
+            canvas.current_frame = max(0, canvas.current_frame - target)
+        for index, frame in enumerate(canvas.frames):
+            for layer in frame.layers:
+                layer.exposure = min(layer.exposure, len(canvas.frames) - index)
+        canvas.current_frame = min(canvas.current_frame, len(canvas.frames) - 1)
+        canvas._cell_structure_dirty = True
+        canvas.changed.emit()
+        canvas.selectionChanged.emit()
+        canvas.update()
+
     def previous_frame(self):
         if self.window.canvas.timeline_mode == "sequence":
             self._navigate_sequence_number(-1, wrap=False)
@@ -760,14 +799,8 @@ class TimelineOpsController:
                 self.window.canvas.selectionChanged.emit()
                 self.window.canvas.update()
             return
-        extended = int(column) >= len(self.window.canvas.frames)
-        if extended:
-            # ルーラーで範囲の外を指したら、そこまでコマを延ばす。
-            # 空のコマは尺に数えず、使わなければ後で切り詰められる。
-            self.window.canvas._ensure_frame_count(int(column) + 1)
+        column = max(0, min(int(column), len(self.window.canvas.frames) - 1))
         self.window.canvas.select_exposure(column, visual_row)
-        if extended:
-            self.window.refresh_ui()
         # タイムラインの別レイヤーのコマを選んだ場合も、そのレイヤーの使用色へ即時更新。
         if self.window.canvas.active_layer_index != previous_layer:
             self.window.used_color._refresh_without_delay()

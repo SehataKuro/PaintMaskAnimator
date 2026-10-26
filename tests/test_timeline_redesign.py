@@ -219,13 +219,14 @@ def test_gaps_between_cells_are_drawn_as_blanks(window):
     assert not frames[8].layers[0].is_blank_key
 
 
-def test_ruler_can_seek_past_the_last_frame(window, qapp):
+def test_ruler_seek_clamps_without_changing_duration(window, qapp):
     timeline = window.timeline
     frame_count = len(window.canvas.frames)
     timeline.table._ruler_scrubbed(frame_count + 3)
     qapp.processEvents()
-    assert window.canvas.current_frame == frame_count + 3
-    assert timeline.table._playhead_column == frame_count + 3
+    assert window.canvas.current_frame == frame_count - 1
+    assert timeline.table._playhead_column == frame_count - 1
+    assert len(window.canvas.frames) == frame_count
     # 延ばしたコマは尺に数えない。
     assert window._sheet_duration() == 12
 
@@ -322,3 +323,45 @@ def test_moving_cells_keeps_pixels_shared_and_undo_restores_them(window):
         image = canvas.frames[column].layers[0].image
         assert image.cacheKey() == key
         assert image.pixelColor(1, 1) == QColor(column * 20, 10, 200)
+
+
+def test_transport_boundary_buttons(window):
+    window.timeline.last.click()
+    assert window.canvas.current_frame == 11
+    window.timeline.first.click()
+    assert window.canvas.current_frame == 0
+
+
+def test_range_resize_and_undo(window):
+    canvas = window.canvas
+    window.timeline_ops.resize_range("end", 18)
+    assert len(canvas.frames) == 18
+    assert window._sheet_duration() == 18
+    window.timeline_ops.resize_range("end", 10)
+    assert len(canvas.frames) == 10
+    assert canvas.frames[9].layers[0].exposure == 1
+    window.timeline_ops.resize_range("start", 4)
+    assert len(canvas.frames) == 6
+    assert canvas.frames[0].layers[0].sequence_number == 2
+    assert canvas.frames[0].layers[0].exposure == 3
+    canvas.undo()
+    assert len(canvas.frames) == 10
+    canvas.undo()
+    assert len(canvas.frames) == 18
+    canvas.undo()
+    assert len(canvas.frames) == 12
+
+
+def test_range_handle_drag_changes_duration(window, qapp):
+    from PySide6.QtCore import QPoint
+    from PySide6.QtTest import QTest
+
+    header = window.timeline.table.horizontalHeader()
+    window.show()
+    qapp.processEvents()
+    size = header.sectionSize(0)
+    right = header.sectionViewportPosition(11) + header.sectionSize(11)
+    QTest.mousePress(header.viewport(), Qt.MouseButton.LeftButton, pos=QPoint(right - 2, 8))
+    QTest.mouseMove(header.viewport(), QPoint(right + 2 * size, 8))
+    QTest.mouseRelease(header.viewport(), Qt.MouseButton.LeftButton, pos=QPoint(right + 2 * size, 8))
+    assert len(window.canvas.frames) == 14

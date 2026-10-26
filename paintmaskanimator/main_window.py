@@ -1114,7 +1114,7 @@ class MainWindow(
             QMessageBox.warning(self,tr("TGA保存"),tr("TGAを保存できませんでした。Pillowの導入を確認してください。"))
 
     def _sheet_duration(self):
-        duration = 1
+        duration = max(1, len(self.canvas.frames))
         for column, frame in enumerate(self.canvas.frames):
             for layer in frame.layers:
                 if layer.sequence_only:

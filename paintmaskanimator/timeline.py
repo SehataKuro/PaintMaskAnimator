@@ -477,6 +477,33 @@ class TimelineRuler(QHeaderView):
     """
 
     frameScrubbed = Signal(int)
+    rangeResized = Signal(str, int)
+    _range_drag = None
+
+    def _edge_at(self, x):
+        if getattr(self.parent(), '_sequence_mode', False):
+            return None
+        count = max(1, self.parent()._real_frame_count)
+        right = self.sectionViewportPosition(count - 1) + self.sectionSize(count - 1)
+        if abs(x - right) <= 6:
+            return 'end'
+        if abs(x - self.sectionViewportPosition(0)) <= 6:
+            return 'start'
+        return None
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if getattr(self.parent(), '_sequence_mode', False):
+            return
+        count = max(1, self.parent()._real_frame_count)
+        left = self.sectionViewportPosition(0) + 2
+        right = self.sectionViewportPosition(count - 1) + self.sectionSize(count - 1) - 2
+        painter = QPainter(self.viewport())
+        painter.setPen(QPen(QColor(theme.palette()['text_muted']), 3))
+        painter.drawLine(left, 1, right, 1)
+        for x in (left, right):
+            painter.drawLine(x, 0, x, self.height() - 1)
+        painter.end()
 
     def _scrub(self, event):
         count = self.count()
@@ -489,12 +516,18 @@ class TimelineRuler(QHeaderView):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            self._scrub(event)
+            self._range_drag = self._edge_at(event.position().x())
+            if self._range_drag is None:
+                self._scrub(event)
             event.accept()
             return
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
+        self.setCursor(Qt.CursorShape.SizeHorCursor if self._range_drag or self._edge_at(event.position().x()) else Qt.CursorShape.ArrowCursor)
+        if self._range_drag:
+            event.accept()
+            return
         if event.buttons() & Qt.MouseButton.LeftButton:
             self._scrub(event)
             event.accept()
@@ -503,6 +536,11 @@ class TimelineRuler(QHeaderView):
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
+            if self._range_drag:
+                edge = self._range_drag
+                self._range_drag = None
+                column = max(0, round((event.position().x() + self.offset()) / max(1, self.sectionSize(0))))
+                self.rangeResized.emit(edge, column)
             event.accept()
             return
         super().mouseReleaseEvent(event)
@@ -641,8 +679,8 @@ class TimelineTable(QTableWidget):
         return super().eventFilter(watched, event)
 
     def _ruler_scrubbed(self, column):
-        # 範囲の外（まだコマのない列）も指せる。受け手がコマを延ばす。
-        column = max(0, min(int(column), self.columnCount() - 1))
+        # シークでは尺を変更しない。
+        column = max(0, min(int(column), self._real_frame_count - 1))
         self.headerFrameRequested.emit(column)
 
     def _edge_source_at(self, point):
@@ -1266,6 +1304,13 @@ class TimelineWidget(QWidget):
         self.normalize_badge.setFixedHeight(16)
         self.normalize_badge.hide()
         self._normalize_pending = 0
+        self.first = QPushButton("|◀")
+        self.first.setToolTip(tr("先頭へ（Home）"))
+        self.last = QPushButton("▶|")
+        self.last.setToolTip(tr("末尾へ（End）"))
+        for button in (self.first, self.last):
+            button.setFixedSize(30, 24)
+            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.prev=QPushButton()
         self.prev.setToolTip(tr("前のフレーム（1）"))
         self.next=QPushButton()
@@ -1398,7 +1443,7 @@ class TimelineWidget(QWidget):
         )
         self._frame_counter_values = (1, 1)
         c.addStretch()
-        for widget in (self.prev, self.prev_key, self.play, self.next_key, self.next):
+        for widget in (self.first, self.prev, self.prev_key, self.play, self.next_key, self.next, self.last):
             c.addWidget(widget)
         c.addSpacing(6)
         c.addWidget(self.frame_counter)
@@ -2318,6 +2363,7 @@ class TimelineWidget(QWidget):
             real_frame_count = len(frames)
         self._real_frame_count = real_frame_count
         self.table._real_frame_count = real_frame_count
+        self.table._sequence_mode = self.timeline_mode == "sequence"
         self.table._fps = max(1, int(self.fps.value()))
         self.table._playhead_column = (
             None if self.timeline_mode == "sequence" else int(current)
