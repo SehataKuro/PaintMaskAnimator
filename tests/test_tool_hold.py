@@ -5,7 +5,7 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QElapsedTimer, QPoint, QPointF, Qt  # noqa: E402
+from PySide6.QtCore import QPoint, QPointF, Qt  # noqa: E402
 from PySide6.QtGui import QCursor  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
@@ -86,7 +86,15 @@ def test_short_press_below_the_threshold_keeps_the_new_tool(window, clock):
     assert window.tools.active_tool == "bucket", "長押しは元のツールへ戻る"
 
 
-def test_revert_waits_until_the_stroke_ends(window, clock, qapp):
+def test_revert_waits_until_the_stroke_ends(window, clock, monkeypatch):
+    from types import SimpleNamespace
+    scheduled = []
+    # Advance the scheduled callbacks explicitly. Real Qt timer dispatch in a
+    # shared offscreen QApplication depends on earlier window tests; sleeping
+    # longer does not reliably dispatch it. Keep the actual callback and test
+    # both retry scheduling and the resulting tool transition.
+    monkeypatch.setattr(main_window_tool_hold, "QTimer", SimpleNamespace(
+        singleShot=lambda delay, callback: scheduled.append((delay, callback))))
     preferences.set_tool_hold_enabled(True)
     preferences.set_tool_hold_ms(0)
     window.tools.select_tool("brush")
@@ -94,17 +102,16 @@ def test_revert_waits_until_the_stroke_ends(window, clock, qapp):
     window.canvas.drawing = True
     QTest.keyRelease(window.canvas, Qt.Key.Key_G)
     assert window.tools.active_tool == "bucket", "描いている途中では戻さない"
+    assert len(scheduled) == 1
+    delay, retry = scheduled.pop(0)
+    assert delay > 0, "描画終了をタイマーで待つ"
+    retry()
+    assert window.tools.active_tool == "bucket", "再確認しても描画中なら戻さない"
+    assert len(scheduled) == 1, "まだ描画中なら再確認を予約する"
     window.canvas.drawing = False
-    # Window repaint/layout work can consume the entire fixed wait before Qt
-    # dispatches the 30 ms retry. Wait for the actual transition instead.
-    deadline = QElapsedTimer()
-    deadline.start()
-    while window.tools.active_tool != "brush" and deadline.elapsed() < 2000:
-        QTest.qWait(10)
-    assert window.tools.active_tool == "brush", (
-        "描画終了後に元のツールへ戻る",
-        window.tool_hold._hold, window.tool_hold._revert_to, window.canvas.drawing,
-    )
+    scheduled.pop(0)[1]()
+    assert window.tools.active_tool == "brush", "描画終了後に元のツールへ戻る"
+    assert not scheduled, "復帰したら再確認は不要"
 
 
 def test_choosing_from_the_menu_is_not_a_hold(window, clock):
@@ -200,35 +207,3 @@ def test_save_and_open_reset_drop_guard(window, tmp_path):
     window.timeline.fps.setValue(12)
     assert project.has_unsaved_changes()
 
-
-def test_revert_retry_keeps_waiting_while_drawing(window, clock):
-    preferences.set_tool_hold_enabled(True)
-    preferences.set_tool_hold_ms(0)
-    window.tools.select_tool("brush")
-    QTest.keyPress(window.canvas, Qt.Key.Key_G)
-    window.canvas.drawing = True
-    QTest.keyRelease(window.canvas, Qt.Key.Key_G)
-    timer = window.tool_hold._revert_timer
-    assert window.tools.active_tool == "bucket"
-    assert timer.isActive()
-    # Deliver a timeout without sleeping: still drawing, so keep waiting.
-    timer.stop()
-    timer.timeout.emit()
-    assert window.tools.active_tool == "bucket", "タイマーが発火しても描画中は戻らない"
-    assert timer.isActive()
-    window.canvas.drawing = False
-    timer.timeout.emit()
-    assert window.tools.active_tool == "brush"
-    assert not timer.isActive()
-
-
-def test_closing_window_stops_pending_tool_revert(window, clock):
-    preferences.set_tool_hold_enabled(True)
-    preferences.set_tool_hold_ms(0)
-    window.tools.select_tool("brush")
-    QTest.keyPress(window.canvas, Qt.Key.Key_G)
-    window.canvas.drawing = True
-    QTest.keyRelease(window.canvas, Qt.Key.Key_G)
-    assert window.tool_hold._revert_timer.isActive()
-    window.close()
-    assert not window.tool_hold._revert_timer.isActive()

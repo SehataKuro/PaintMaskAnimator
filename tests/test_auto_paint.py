@@ -492,18 +492,15 @@ def test_a_colour_trace_line_on_the_silhouette_is_replaced():
         assert edge.count(SKIN) >= 8, "となりの部分の色で置き換える"
 
 
-def test_an_undecidable_colour_trace_line_takes_the_neighbour_colour():
-    """手本から決められない色トレス線も、残さずとなりの部分の色にする。
-
-    シルエットの外側に沿った線は、ずらした先の半分が絵の外なので、手本から色を
-    決められない。残すと原色の赤がそのまま仕上げに出てしまう。
-    """
+def test_an_undecidable_colour_trace_line_is_preserved():
+    """No evidence in the reference means the original trace must remain."""
     target = np.zeros((40, 40, 4), dtype=np.uint8)
     target[10:30, 10:30] = (*SKIN, 255)
     target[10, 10:30] = (*RED, 255)
     paint = auto_paint.paint_from_guide(target, np.zeros((40, 40, 4), dtype=np.uint8))
     after = auto_paint.apply_paint(target, paint)
-    assert color_at(after, 20, 10) == SKIN
+    assert color_at(after, 20, 10) == RED
+    assert paint.undecided
 
 
 def figure_with_hole(dx, painted=False):
@@ -881,3 +878,30 @@ def test_enter_in_reference_search_does_not_start_painting(reference_picker):
     QTest.keyClick(dialog.search, Qt.Key.Key_Return)
     assert dialog.isVisible()
     assert dialog.chosen() == [dialog.cells[0]]
+
+
+def test_initial_trace_replacement_paints_the_matching_side_first():
+    initial = auto_paint.line_only(figure(0))
+    target = auto_paint.line_only(figure(2))
+    guide = auto_paint._Cell(figure(0, painted=True))
+    guide.initial = auto_paint._Cell(initial)
+    result = auto_paint.CellPaint()
+    decided = auto_paint._trace_first(auto_paint._Cell(target), [guide], result, 48)
+    after = auto_paint.apply_paint(target, result)
+    assert decided
+    assert color_at(after, 32, 40) == SKIN
+    assert color_at(after, 17, 40) == SKIN
+    assert color_at(after, 47, 20) is None
+    assert color_at(after, 47, 33) == BLUE
+
+
+def test_plan_uses_the_reference_initial_trace_for_inclusive_fill():
+    target = auto_paint.line_only(figure(2))
+    plan = auto_paint.plan_auto_paint(
+        [figure(0, painted=True), target], 0,
+        lines=[auto_paint.line_only(figure(0)), target],
+    )
+    after = auto_paint.apply_paint(target, plan.cells[1])
+    assert color_at(after, 32, 40) == SKIN
+    assert color_at(after, 17, 40) == SKIN
+    assert color_at(after, 47, 20) == LEAF

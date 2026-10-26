@@ -324,6 +324,7 @@ class _Cell:
         self.from_lines = False
         #: 塗り進める並びでの位置（動きの推定を使い回すのに使う）。
         self.index: Optional[int] = None
+        self.initial: Optional[_Cell] = None
         self._mark: Optional[np.ndarray] = None
 
     @property
@@ -1046,6 +1047,74 @@ def _tiny_holes(target: _Cell, painted):
     return paints
 
 
+def _trace_first(target, guides, result, margin):
+    """見本の初期線の置換色を調べ、同色になった隣接領域へ含み塗りする。"""
+    decided = set()
+    regions = target.regions
+    for index in np.nonzero(regions.sizes >= MIN_REGION_PIXELS)[0].tolist():
+        bounds = regions.bounds(index)
+        x0, y0, x1, y1 = bounds
+        local = regions.local_mask(index)
+        if not target.primary[y0:y1, x0:x1][local].any():
+            continue
+        answers = []
+        for guide in guides:
+            initial = guide.initial
+            if initial is None:
+                continue
+            shift, overlap = _local_shift(target, initial, bounds, margin=margin)
+            if overlap < MIN_COLOR_LINE_OVERLAP:
+                continue
+            sy, sx, inside = _shifted(target, local, bounds, shift)
+            matched = inside & (initial.values[sy, sx] == regions.value(index))
+            if matched.sum() < local.sum() * LINE_SHARE:
+                continue
+            color, share = _majority(guide.values[sy[matched], sx[matched]])
+            if color is None or share < HINT_SHARE or not _paintable(color):
+                continue
+            adjacent = bucket_fill.dilate(
+                regions.labels == index, 1,
+            ) & (regions.labels != index)
+            sides = []
+            for side in np.unique(regions.labels[adjacent]).tolist():
+                if side in regions.on_edge or regions.value(side) != 0:
+                    continue
+                mask = regions.local_mask(side)
+                box = regions.bounds(side)
+                gy, gx, valid = _shifted(target, mask, box, shift)
+                if valid.sum() < mask.sum() * HINT_SHARE:
+                    continue
+                labels = initial.regions.labels[gy[valid], gx[valid]]
+                label, fraction = _majority(labels)
+                if label is None or fraction < HINT_SHARE:
+                    continue
+                if initial.regions.value(label) != 0:
+                    continue
+                if not (mask.sum() / MAX_AREA_RATIO <= initial.regions.sizes[label]
+                        <= mask.sum() * MAX_AREA_RATIO):
+                    continue
+                ib = initial.regions.bounds(label)
+                im = initial.regions.local_mask(label)
+                value, fraction = _majority(guide.values[ib[1]:ib[3], ib[0]:ib[2]][im])
+                if value == color and fraction >= HINT_SHARE:
+                    sides.append(side)
+            answers.append((color, tuple(sides)))
+        if not answers or any(answer != answers[0] for answer in answers[1:]):
+            continue
+        color, sides = answers[0]
+        result.paints.append((_opaque_rgb(color), bounds, local))
+        result.line_pixels += int(local.sum())
+        decided.add(index)
+        for side in sides:
+            if side in decided:
+                continue
+            result.paints.append((_opaque_rgb(color), regions.bounds(side),
+                                  regions.local_mask(side)))
+            result.filled += 1
+            decided.add(side)
+    return decided
+
+
 def paint_cell(pixels, guides: List[_Cell], *, finishes=None, learned=None,
                teacher: Optional[_Cell] = None, margin=SEARCH_MARGIN,
                hint=None, flow_for=None, hand_guides=(), hand_first=0,
@@ -1072,6 +1141,7 @@ def paint_cell(pixels, guides: List[_Cell], *, finishes=None, learned=None,
     target = _Cell(pixels) if target is None else target
     target.from_lines = hint is not None
     result = CellPaint()
+    trace_decided = _trace_first(target, guides, result, margin)
     # 手本を試す順：すぐ隣の手塗りのセル、一番目の手本、ほかの手塗りのセル、残りの手本。
     hand_set = set(hand_guides)
     order = list(hand_guides[:hand_first]) + guides[:1] + list(hand_guides[hand_first:]) \
@@ -1079,6 +1149,9 @@ def paint_cell(pixels, guides: List[_Cell], *, finishes=None, learned=None,
     regions = target.regions
     lines = []
     for index in np.nonzero(regions.sizes >= MIN_REGION_PIXELS)[0].tolist():
+        if index in trace_decided:
+            result.checked += 1
+            continue
         value = regions.value(index)
         if value == GAP_VALUE:
             continue
@@ -1221,20 +1294,8 @@ def paint_cell(pixels, guides: List[_Cell], *, finishes=None, learned=None,
             if paints is not None:
                 answers.append(paints)
         if not answers:
-            # 手がかりが無い（見本に写っていない所の線など）。色トレス線は置き換える
-            # 前提で置いてあるので、最後の手段として、このセルで線のとなりにある色で
-            # 塗る。残すと原色の線がそのまま仕上げに出てしまう（シルエットの外側に
-            # 沿った線は、ずらした先の半分が絵の外で、手本から決められない）。
-            _neighbours, host, _around = _line_neighbours(target, local, bounds, painted)
-            fallback = (
-                _paints_by_value(local, bounds, np.full(int(local.sum()), host))
-                if host is not None else []
-            )
-            if fallback:
-                result.paints.extend(fallback)
-                result.line_pixels += sum(int(mask.sum()) for _rgb, _b, mask in fallback)
-            else:
-                result.undecided.append((bounds, local))
+            # 見本から決められない線は、周辺色で推測せず初期状態のまま残す。
+            result.undecided.append((bounds, local))
             size = int(local.sum())
             if size >= LINE_REPORT_MIN_PIXELS:
                 result.notes.append(reference_check.Finding(
@@ -1416,6 +1477,8 @@ def plan_auto_paint(
                 if index not in fixed_guides:
                     fixed_guides[index] = _Cell(cells[index])
                     fixed_guides[index].index = index
+                    if lines is not None and lines[index] is not None:
+                        fixed_guides[index].initial = _Cell(lines[index])
                 return fixed_guides[index]
             if key not in made:
                 cell = _Cell(sources[source][index])
