@@ -720,9 +720,11 @@ def test_three_reference_controller_keeps_every_reference(window):
     assert canvas.frames[1].layers[0].image.pixelColor(47, 20).alpha() == 0
 
 
-def test_progress_shows_target_cels_per_round_instead_of_three_times_the_count(window, monkeypatch):
+def test_progress_combines_three_rounds_and_estimates_remaining_time(window, monkeypatch):
     from paintmaskanimator import main_window_auto_paint as ui
     reports = []
+    times = iter((100.0, 130.0, 140.0, 190.0))
+    monkeypatch.setattr(ui, "monotonic", lambda: next(times))
     class Counter:
         def wasCanceled(self):
             return False
@@ -738,10 +740,14 @@ def test_progress_shows_target_cels_per_round_instead_of_three_times_the_count(w
         return auto_paint.AutoPlan()
     monkeypatch.setattr(auto_paint, "plan_auto_paint", make_plan)
     window.auto_paint._plan([figure(0)] * 5, 0, reference_indices=[0, 4])
-    assert [(value, total) for value, total, label in reports] == [(0, 3), (0, 3), (1, 3), (3, 3)]
+    assert [(value, total) for value, total, label in reports] == [(0, 9), (3, 9), (4, 9), (9, 9)]
     assert "1回目" in reports[0][2]
     assert "2回目" in reports[1][2]
     assert "対象3セル" in reports[2][2]
+    assert "残り時間を計算中" in reports[0][2]
+    assert "全体 33％・残り約1分00秒" in reports[1][2]
+    assert "全体 44％・残り約0分50秒" in reports[2][2]
+    assert "全体 100％・残り約0分00秒" in reports[3][2]
 
 
 def test_auto_paint_keeps_the_existing_selection_and_frame_when_results_open(window, qapp):

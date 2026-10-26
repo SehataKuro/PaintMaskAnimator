@@ -9,6 +9,8 @@
 
 A collaborator rather than a mixin -- see main_window_export.py for why.
 """
+import math
+from time import monotonic
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
 import numpy as np
@@ -204,20 +206,36 @@ class AutoPaintController:
             references.add(second_reference_index)
         count = sum(index not in references and image.shape == pixels[reference_index].shape
                     for index, image in enumerate(pixels))
-        dialog = create_counter(self.window, tr("自動で塗る"), max(1, count), cancellable=True)
+        total_steps = max(1, count * auto_paint.MAX_ROUNDS)
+        started = monotonic()
+        dialog = create_counter(
+            self.window, tr("自動で塗る"), total_steps,
+            label=tr("全体 0％・残り時間を計算中"), cancellable=True,
+        )
 
         def progress(done, total):
             if dialog.wasCanceled():
                 return False
+            total = max(1, total)
+            value = max(0, min(done, total))
+            percent = value * 100 // total
             if done >= total:
-                value = count
                 label = tr("自動塗りの計算が終わりました")
             else:
-                value = done % max(1, count)
                 label = tr("{round}回目：対象{count}セルを塗っています").format(
                     round=done // max(1, count) + 1, count=count,
                 )
-            update_counter(dialog, value, max(1, count), label)
+            if value:
+                remaining = math.ceil(max(0.0, monotonic() - started) / value * (total - value))
+                minutes, seconds = divmod(remaining, 60)
+                timing = tr("全体 {percent}％・残り約{minutes}分{seconds:02d}秒").format(
+                    percent=percent, minutes=minutes, seconds=seconds,
+                )
+            else:
+                timing = tr("全体 0％・残り時間を計算中")
+            label = f"{label}\n{timing}"
+            self.window.statusBar().showMessage(label.replace("\n", "　"))
+            update_counter(dialog, value, total, label)
             return True
 
         try:
@@ -228,3 +246,4 @@ class AutoPaintController:
             )
         finally:
             close_counter(dialog)
+            self.window.statusBar().clearMessage()

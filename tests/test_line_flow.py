@@ -64,6 +64,30 @@ def test_blocks_without_lines_follow_their_neighbours():
     assert near(dx[0], -4)
 
 
+@pytest.mark.parametrize("shape", [(0,), (), (13, 19), (150003,)])
+def test_batched_interpolation_matches_the_original_formula_exactly(shape):
+    rng = np.random.default_rng(46)
+    dy, dx = rng.normal(size=(2, 5, 7))
+    flow = line_flow.Flow(dy, dx, np.ones_like(dy), np.ones_like(dy), (160, 224))
+    ys = rng.integers(-32, 200, size=shape)
+    xs = rng.integers(-32, 260, size=shape)
+
+    def original(grid):
+        fy = np.clip((ys + 0.5) / line_flow.BLOCK - 0.5, 0, grid.shape[0] - 1)
+        fx = np.clip((xs + 0.5) / line_flow.BLOCK - 0.5, 0, grid.shape[1] - 1)
+        y0, x0 = np.floor(fy).astype(np.int64), np.floor(fx).astype(np.int64)
+        y1 = np.minimum(y0 + 1, grid.shape[0] - 1)
+        x1 = np.minimum(x0 + 1, grid.shape[1] - 1)
+        wy, wx = fy - y0, fx - x0
+        top = grid[y0, x0] * (1 - wx) + grid[y0, x1] * wx
+        bottom = grid[y1, x0] * (1 - wx) + grid[y1, x1] * wx
+        return top * (1 - wy) + bottom * wy
+
+    actual_y, actual_x = flow.at(ys, xs)
+    np.testing.assert_array_equal(actual_y, original(dy))
+    np.testing.assert_array_equal(actual_x, original(dx))
+
+
 needs_flow_native = pytest.mark.skipif(
     not native.available() or not hasattr(native._native, "line_flow_scores"),
     reason="Rust line-flow component is not installed",

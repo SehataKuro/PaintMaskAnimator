@@ -47,7 +47,18 @@ class Flow:
 
     def at(self, ys, xs):
         """画素 ``(ys, xs)`` のずれ。区画の中心のあいだを直線でつないで滑らかにする。"""
-        return _bilinear(self.dy, ys, xs), _bilinear(self.dx, ys, xs)
+        ys, xs = np.broadcast_arrays(ys, xs)
+        dy = np.empty(ys.shape, dtype=np.float64)
+        dx = np.empty(xs.shape, dtype=np.float64)
+        # 大きな背景領域でも一時配列をキャッシュに収め、縦横の補間位置を共有する。
+        flat_y, flat_x = ys.ravel(), xs.ravel()
+        out_y, out_x = dy.ravel(), dx.ravel()
+        for start in range(0, ys.size, 65536):
+            end = start + 65536
+            weights = _bilinear_weights(self.dy.shape, flat_y[start:end], flat_x[start:end])
+            out_y[start:end] = _interpolate(self.dy, weights)
+            out_x[start:end] = _interpolate(self.dx, weights)
+        return dy, dx
 
     def score_at(self, ys, xs):
         by = np.clip(ys // BLOCK, 0, self.score.shape[0] - 1)
@@ -57,7 +68,11 @@ class Flow:
 
 def _bilinear(grid, ys, xs):
     """区画の中心に置いた値 ``grid`` を、画素 ``(ys, xs)`` で直線補間する。"""
-    rows, cols = grid.shape
+    return _interpolate(grid, _bilinear_weights(grid.shape, ys, xs))
+
+
+def _bilinear_weights(shape, ys, xs):
+    rows, cols = shape
     fy = np.clip((ys + 0.5) / BLOCK - 0.5, 0, rows - 1)
     fx = np.clip((xs + 0.5) / BLOCK - 0.5, 0, cols - 1)
     y0 = np.floor(fy).astype(np.int64)
@@ -66,6 +81,11 @@ def _bilinear(grid, ys, xs):
     x1 = np.minimum(x0 + 1, cols - 1)
     wy = fy - y0
     wx = fx - x0
+    return y0, x0, y1, x1, wy, wx
+
+
+def _interpolate(grid, weights):
+    y0, x0, y1, x1, wy, wx = weights
     top = grid[y0, x0] * (1 - wx) + grid[y0, x1] * wx
     bottom = grid[y1, x0] * (1 - wx) + grid[y1, x1] * wx
     return top * (1 - wy) + bottom * wy

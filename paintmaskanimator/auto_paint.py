@@ -648,12 +648,12 @@ def _hand_color(target: _Cell, hint, local, bounds) -> Optional[Rgb]:
     return rgb
 
 
-def _hand_paint(pixels, hint) -> CellPaint:
+def _hand_paint(pixels, hint, *, target=None) -> CellPaint:
     """元の線画 ``pixels`` のうち、今の絵 ``hint`` で人が塗ってある部分。
 
     確かでない透明な部分は ``unpainted`` に入れる（手本にしたとき、決めていない所）。
     """
-    target = _Cell(pixels)
+    target = _Cell(pixels) if target is None else target
     regions = target.regions
     result = CellPaint()
     for index in np.nonzero(regions.sizes >= MIN_REGION_PIXELS)[0].tolist():
@@ -1093,11 +1093,15 @@ def _trace_first(target, guides, result, margin):
             color, share = _majority(guide.values[sy[matched], sx[matched]])
             if color is None or share < HINT_SHARE or not _paintable(color):
                 continue
-            adjacent = bucket_fill.dilate(
-                regions.labels == index, 1,
-            ) & (regions.labels != index)
+            # この線の周囲だけを調べる。線ごとにキャンバス全体を走査しない。
+            height, width = regions.labels.shape
+            ax0, ay0 = max(0, x0 - 1), max(0, y0 - 1)
+            ax1, ay1 = min(width, x1 + 1), min(height, y1 + 1)
+            labels = regions.labels[ay0:ay1, ax0:ax1]
+            same = labels == index
+            adjacent = bucket_fill.dilate(same, 1) & ~same
             sides = []
-            for side in np.unique(regions.labels[adjacent]).tolist():
+            for side in np.unique(labels[adjacent]).tolist():
                 if side in regions.on_edge or regions.value(side) != 0:
                     continue
                 mask = regions.local_mask(side)
@@ -1458,7 +1462,7 @@ def plan_auto_paint(
     for index, hint in enumerate(hints or []):
         if hint is None or index in fixed or index not in usable:
             continue
-        hand = _hand_paint(cells[index], hint)
+        hand = _hand_paint(cells[index], hint, target=target_for(index))
         if not hand.paints:
             continue
         hand_cell = _Cell(apply_paint(cells[index], hand)).mark_undecided([], hand.unpainted)
