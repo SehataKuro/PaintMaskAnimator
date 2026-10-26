@@ -11,6 +11,8 @@ from typing import Any
 from PySide6.QtCore import QSize, QTimer, Qt
 from PySide6.QtGui import QAction, QGuiApplication, QKeySequence
 from PySide6.QtWidgets import (
+    QComboBox,
+    QDoubleSpinBox,
     QHBoxLayout,
     QLabel,
     QMessageBox,
@@ -24,8 +26,9 @@ from PySide6.QtWidgets import (
 from .constants import APP_DISPLAY_NAME, APP_NAME, GITHUB_REPO, HOLD_ZOOM_SHORTCUT
 from ._main_window_members import MainWindowMembers
 import PySide6QtAds as QtAds
-from . import icons, theme
+from . import icons, theme, view_preview
 from .i18n import tr
+from .main_window_view_preview import channel_labels
 from .theme import StatusBar
 from .preferences_dialog import PreferencesDialog
 from .tool_window import ToolWindow
@@ -108,6 +111,18 @@ class UIBuildMixin(MainWindowMembers):
         self.a_clear_color_filter.triggered.connect(self.colors.clear_selected_color_filter)
         self.a_silhouette=QAction(tr("背景以外を黒シルエット表示"),self); self.a_silhouette.setCheckable(True); self.a_silhouette.setShortcut("Ctrl+B")
         self.a_silhouette.triggered.connect(self.line_ops.toggle_silhouette)
+        self.a_preview_map=QAction(tr("隣接色分けで表示"),self); self.a_preview_map.setCheckable(True)
+        self.a_preview_map.triggered.connect(self.view_preview.set_map_colors)
+        self.a_exposure_toggle=QAction(tr("露光量の調整を切り替え"),self)
+        self.a_exposure_toggle.triggered.connect(self.view_preview.toggle_exposure)
+        self.a_channel_red=QAction(tr("赤チャンネルを表示"),self)
+        self.a_channel_red.triggered.connect(lambda: self.view_preview.set_channel("red"))
+        self.a_channel_green=QAction(tr("緑チャンネルを表示"),self)
+        self.a_channel_green.triggered.connect(lambda: self.view_preview.set_channel("green"))
+        self.a_channel_blue=QAction(tr("青チャンネルを表示"),self)
+        self.a_channel_blue.triggered.connect(lambda: self.view_preview.set_channel("blue"))
+        self.a_channel_alpha=QAction(tr("アルファチャンネルを表示"),self)
+        self.a_channel_alpha.triggered.connect(lambda: self.view_preview.set_channel("alpha"))
         self.a_remove_dust=QAction(tr("ゴミ取り／塗り抜け…"),self)
         self.a_remove_dust.triggered.connect(self.line_ops.remove_dust_fill_surrounding)
         self.a_copy_paint=QAction(tr("見本から塗り写す…"),self)
@@ -182,7 +197,9 @@ class UIBuildMixin(MainWindowMembers):
             self.a_export_png_seq, self.a_export_tga_seq, self.a_export_cut_folder,
             self.a_prev, self.a_next,
             self.a_pressure, self.a_isolate_color, self.a_clear_color_filter,
-            self.a_silhouette, self.a_remove_dust,
+            self.a_silhouette, self.a_remove_dust, self.a_preview_map,
+            self.a_exposure_toggle, self.a_channel_red, self.a_channel_green,
+            self.a_channel_blue, self.a_channel_alpha,
         ):
             action.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
 
@@ -384,6 +401,12 @@ class UIBuildMixin(MainWindowMembers):
             (tr("筆圧設定"), self.a_pressure),
             (tr("環境設定"), self.a_preferences),
             (tr("背景以外を黒シルエット表示"), self.a_silhouette),
+            (tr("隣接色分けで表示"), self.a_preview_map),
+            (tr("露光量の調整を切り替え"), self.a_exposure_toggle),
+            (tr("赤チャンネルを表示"), self.a_channel_red),
+            (tr("緑チャンネルを表示"), self.a_channel_green),
+            (tr("青チャンネルを表示"), self.a_channel_blue),
+            (tr("アルファチャンネルを表示"), self.a_channel_alpha),
             (tr("選択色だけ表示"), self.a_isolate_color),
             (tr("特定色表示を解除"), self.a_clear_color_filter),
             (tr("ゴミ取り"), self.a_remove_dust),
@@ -465,7 +488,7 @@ class UIBuildMixin(MainWindowMembers):
         f.addAction(self.a_export_xdts)
         f.addAction(self.a_export_psd)
         f.addAction(self.a_export_mp4)
-        e=self.menuBar().addMenu(tr("編集"));e.addAction(self.a_undo);e.addAction(self.a_redo);e.addSeparator();e.addAction(self.a_cut);e.addAction(self.a_copy);e.addAction(self.a_paste);e.addSeparator();e.addAction(self.a_silhouette);e.addAction(self.a_isolate_color);e.addAction(self.a_clear_color_filter);e.addAction(self.a_swap_main_sub);e.addAction(self.a_remove_dust);e.addSeparator();e.addAction(self.a_resize);e.addAction(self.a_pressure)
+        e=self.menuBar().addMenu(tr("編集"));e.addAction(self.a_undo);e.addAction(self.a_redo);e.addSeparator();e.addAction(self.a_cut);e.addAction(self.a_copy);e.addAction(self.a_paste);e.addSeparator();e.addAction(self.a_silhouette);e.addAction(self.a_preview_map);e.addAction(self.a_isolate_color);e.addAction(self.a_clear_color_filter);e.addAction(self.a_swap_main_sub);e.addAction(self.a_remove_dust);e.addSeparator();e.addAction(self.a_resize);e.addAction(self.a_pressure)
         e.addSeparator()
         self.a_color_chart = QAction(tr("カラーチャート…"), self)
         self.a_color_chart.triggered.connect(
@@ -613,10 +636,41 @@ class UIBuildMixin(MainWindowMembers):
             "色塗り前の初期状態と比べる（押すと初期状態を表示、もう一度押すと今の絵に戻る）"
         ))
         self.compare_initial_button.toggled.connect(self.initial_state.set_compare)
+        # 見え方のチェック（画面だけを変え、書き出しには影響しない）。
+        self.black_check_button=QPushButton()
+        self.black_check_button.setCheckable(True)
+        self.black_check_button.setToolTip(tr("ブラックチェック（背景以外を黒シルエット表示）"))
+        self.black_check_button.toggled.connect(self.line_ops.toggle_silhouette)
+        self.map_colors_button=QPushButton()
+        self.map_colors_button.setCheckable(True)
+        self.map_colors_button.setToolTip(tr(
+            "隣接色分け：隣り合う部分を見分けやすい仮の色で塗り分けて表示する"
+            "（近い色の塗り漏れが見つかる）。アクティブレイヤーだけに掛かる"
+        ))
+        self.map_colors_button.toggled.connect(self.view_preview.set_map_colors)
+        self.channel_combo=QComboBox()
+        for value, label in channel_labels():
+            self.channel_combo.addItem(label, value)
+        self.channel_combo.setToolTip(tr("表示するチャンネル"))
+        self.channel_combo.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.channel_combo.currentIndexChanged.connect(self.view_preview._channel_chosen)
+        self.exposure_button=QPushButton()
+        self.exposure_button.setCheckable(True)
+        self.exposure_button.setToolTip(tr(
+            "露光量の調整：押すと 0 に戻す。もう一度押すと直前の値に戻す"
+        ))
+        self.exposure_button.clicked.connect(self.view_preview.toggle_exposure)
+        self.exposure_spin=QDoubleSpinBox()
+        self.exposure_spin.setRange(view_preview.EXPOSURE_MIN, view_preview.EXPOSURE_MAX)
+        self.exposure_spin.setSingleStep(0.1)
+        self.exposure_spin.setDecimals(1)
+        self.exposure_spin.setToolTip(tr("露光量（段）。表示だけを明るく・暗くする"))
+        self.exposure_spin.valueChanged.connect(self.view_preview.set_exposure)
         # 表示操作はアイコンボタンにして、キャンバスの下を細い1本のバーにする。
         self._canvas_bar_icons = {
             b100: "zoom_actual", bfit: "fit", self.compare_initial_button: "compare",
-            b0: "rotate_reset",
+            b0: "rotate_reset", self.black_check_button: "black_check",
+            self.map_colors_button: "map_colors", self.exposure_button: "exposure",
         }
         for button in self._canvas_bar_icons:
             button.setProperty("iconButton", True)
@@ -634,6 +688,12 @@ class UIBuildMixin(MainWindowMembers):
             bar.addWidget(w)
         bar.addSpacing(16)
         for w in (rot_title,self.rot,self.rot_label,b0):
+            bar.addWidget(w)
+        bar.addSpacing(16)
+        for w in (
+            self.black_check_button, self.map_colors_button, self.channel_combo,
+            self.exposure_button, self.exposure_spin,
+        ):
             bar.addWidget(w)
         cv.addLayout(bar)
         self.dock_manager = QtAds.CDockManager(self)

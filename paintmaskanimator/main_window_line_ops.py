@@ -225,6 +225,9 @@ class LineOpsController:
             self.window.a_silhouette.setChecked(checked)
             self.window.a_silhouette.blockSignals(False)
 
+        self.window.view_preview.sync_black_check(checked)
+
+        # 編集して残っている古い組み込みアクションのボタンがあれば、それも合わせる。
         silhouette_button = self.window.action_panel.button("silhouette")
         if silhouette_button is not None:
             silhouette_button.blockSignals(True)

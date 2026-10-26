@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from .main_window_color_interaction import ColorInteractionController
     from .main_window_used_color import UsedColorController
     from .main_window_line_ops import LineOpsController
+    from .main_window_view_preview import ViewPreviewController
     from .main_window_timeline_ops import TimelineOpsController
     from .main_window_layer_ops import LayerOpsController
     from .main_window_color_chart import ColorChartController
@@ -221,6 +222,17 @@ class MainWindowMembers(_MembersBase):
         preferences_dialog: Any
         a_shortcuts: Any
         a_silhouette: Any
+        a_preview_map: Any
+        a_exposure_toggle: Any
+        a_channel_red: Any
+        a_channel_green: Any
+        a_channel_blue: Any
+        a_channel_alpha: Any
+        black_check_button: Any
+        map_colors_button: Any
+        channel_combo: Any
+        exposure_button: Any
+        exposure_spin: Any
         a_swap_main_sub: Any
         a_tl_add_exposure: Any
         a_tl_delete_frame: Any
@@ -277,6 +289,7 @@ class MainWindowMembers(_MembersBase):
         colors: ColorInteractionController
         used_color: UsedColorController
         line_ops: LineOpsController
+        view_preview: ViewPreviewController
         timeline_ops: TimelineOpsController
         layers: LayerOpsController
         color_chart_ops: ColorChartController

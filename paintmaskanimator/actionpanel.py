@@ -39,25 +39,6 @@ from PySide6.QtWidgets import (
 # or delete them like any other action. These files also serve as copyable API
 # examples, so callbacks are deliberately named and commented.
 BUILTIN_SCRIPTS = {
-    "builtin_silhouette.py": '''"""チェック式アクションの例: 背景以外を黒シルエット表示。"""
-
-
-def register_actions(panel, window):
-    # checkable=True のコールバックには、ボタンの新しい状態が渡ります。
-    def set_silhouette(checked):
-        action = window.a_silhouette
-        # QAction.trigger() は状態を反転するので、必要な場合だけ呼びます。
-        if action.isChecked() != checked:
-            action.trigger()
-
-    panel.add_action(
-        "silhouette",  # 他のスクリプトと重複しないID
-        "背景以外を黒シルエット表示",
-        set_silhouette,
-        tooltip="背景以外の色を黒で表示します。もう一度押すと解除します。",
-        checkable=True,
-    )
-''',
     "builtin_same_image_replacement.py": '''"""通常のアクションの例: 同一画像から色置換。"""
 
 
@@ -100,12 +81,6 @@ def register_actions(panel, window):
 # 過去の配布版から一字も編集していないファイルだけ、新しい参考例へ更新します。
 # 版ごとにハッシュが変わるため、各ファイルで複数の旧版を許容します。
 LEGACY_BUILTIN_HASHES = {
-    "builtin_silhouette.py": (
-        "f4da2226d3af2cb0e7a230f100551be3a0edb8d98b3a3a1e45a486f5157c982e",
-        "8011b0822863655254bdfeb0eecde99d0d938f9ebeaba3ff050f247368cc0ebb",
-        # 開発中に一度だけ配った shortcut_action 付きの版。古いアプリでは読めない。
-        "24ff57e109610307e9247a43bab5e32ea83e4d12520c96be897a79909f98321d",
-    ),
     "builtin_same_image_replacement.py": (
         "d6116d312479ea89bc167c84886fedbd7f9680b5ba70f0fd25447c2b2f3d9e8b",
         "a9d08783ade7b38318a77dd5ea4a978834b0f3acaa2dea273a6dc541e17bdfa3",
@@ -114,6 +89,18 @@ LEGACY_BUILTIN_HASHES = {
         "70855b6e6f7bed6562f9f25b24149a54d66aad9ec55ed7a5264fcd2fed2772d2",
         "85ac381effc0bc2756560c4ec24a2e49214db8771c41b21bee3f47f9cad869ca",
         "dacf04ee000490af993430ce64a8f1d84e2a79af6dddd5fc445cc933e02d6941",
+    ),
+}
+
+# 配るのをやめた組み込みアクション。一字も編集していないものだけ、アクションの
+# フォルダーから消す（編集したものはユーザーのスクリプトとして残す）。
+# ブラックチェック（背景以外を黒シルエット表示）はキャンバスの下のボタンへ移した。
+RETIRED_BUILTIN_HASHES = {
+    "builtin_silhouette.py": (
+        "f4da2226d3af2cb0e7a230f100551be3a0edb8d98b3a3a1e45a486f5157c982e",
+        "8011b0822863655254bdfeb0eecde99d0d938f9ebeaba3ff050f247368cc0ebb",
+        # 開発中に一度だけ配った shortcut_action 付きの版。
+        "24ff57e109610307e9247a43bab5e32ea83e4d12520c96be897a79909f98321d",
     ),
 }
 
@@ -185,6 +172,15 @@ class ActionPanel(QWidget):
         except Exception:  # noqa: BLE001 - missing or corrupt marker: reseed all
             seeded = set()
         changed = False
+        for name, hashes in RETIRED_BUILTIN_HASHES.items():
+            path = actions_dir / name
+            try:
+                # Windows では改行が書き換わって保存されるので、テキストとして読んで比べる。
+                current = path.read_text(encoding="utf-8")
+                if hashlib.sha256(current.encode()).hexdigest() in hashes:
+                    path.unlink()
+            except (OSError, UnicodeError):
+                pass
         for name, content in BUILTIN_SCRIPTS.items():
             if name in seeded:
                 path = actions_dir / name

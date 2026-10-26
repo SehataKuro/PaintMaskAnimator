@@ -204,19 +204,27 @@ def test_builtin_scripts_only_use_arguments_old_apps_know():
         assert "shortcut_action" not in source
 
 
-def test_seed_reverts_builtins_written_with_shortcut_action(qapp, tmp_path, monkeypatch):
-    name = "builtin_silhouette.py"
-    newer = BUILTIN_SCRIPTS[name].replace(
-        "        checkable=True,\n    )",
-        "        checkable=True,\n"
-        "        # 既にあるメニューの操作と同じものなら、それを渡すとショートカットを共有します。\n"
-        "        shortcut_action=window.a_silhouette,\n    )",
-    )
-    assert hashlib.sha256(newer.encode()).hexdigest() in LEGACY_BUILTIN_HASHES[name]
-    (tmp_path / name).write_text(newer, encoding="utf-8")
-    (tmp_path / ".builtin_seeded.json").write_text(f'["{name}"]', encoding="utf-8")
+def test_seed_removes_retired_builtins_only_when_unedited(qapp, tmp_path, monkeypatch):
+    """配るのをやめた組み込み（ブラックチェック）は、編集していなければ消す。"""
+    import paintmaskanimator.actionpanel as actionpanel
 
+    original = "def register_actions(panel, window):\n    pass\n"
+    digest = hashlib.sha256(original.encode()).hexdigest()
+    monkeypatch.setattr(actionpanel, "RETIRED_BUILTIN_HASHES", {
+        "retired_a.py": (digest,), "retired_b.py": (digest,),
+    })
+    (tmp_path / "retired_a.py").write_text(original, encoding="utf-8")
+    (tmp_path / "retired_b.py").write_text(original + "# 自分で直した\n", encoding="utf-8")
     monkeypatch.setattr(ActionPanel, "actions_dir", staticmethod(lambda: tmp_path))
+
     ActionPanel(object())._seed_builtin_scripts()
 
-    assert (tmp_path / name).read_text(encoding="utf-8") == BUILTIN_SCRIPTS[name]
+    assert not (tmp_path / "retired_a.py").exists()
+    assert (tmp_path / "retired_b.py").exists(), "編集したスクリプトは残す"
+
+
+def test_black_check_is_no_longer_a_builtin_action():
+    from paintmaskanimator.actionpanel import RETIRED_BUILTIN_HASHES
+
+    assert "builtin_silhouette.py" not in BUILTIN_SCRIPTS
+    assert "builtin_silhouette.py" in RETIRED_BUILTIN_HASHES

@@ -139,7 +139,9 @@ def test_shortcut_of_a_panel_action_that_failed_to_load_is_kept(make_window):
     assert saved["panel:gone"] == {"keys": ["F8"]}
 
 
-def test_black_check_is_listed_once_under_actions(make_window, monkeypatch):
+def test_black_check_is_listed_once_with_the_view_checks(make_window, monkeypatch):
+    """ブラックチェックはアクションパネルから外し、キャンバス下のバーと同じ表示の
+    チェックとして「ファイル・編集」に1回だけ出す。MainLineRepaint はアクションのまま。"""
     window = make_window()
     captured = {}
 
@@ -152,18 +154,17 @@ def test_black_check_is_listed_once_under_actions(make_window, monkeypatch):
 
     monkeypatch.setattr("paintmaskanimator.main_window.ShortcutDialog", FakeDialog)
     window.shortcuts()
-    categories = dict(captured["categories"])
-    action_tab = [action for _name, action in categories["アクション"]]
-    assert window.a_silhouette in action_tab
-    assert window.a_mainline_repaint in action_tab
-    others = [
-        action
-        for title, entries in captured["categories"]
-        if title != "アクション"
-        for _name, action in entries
+    entries = [
+        (title, action)
+        for title, items in captured["categories"]
+        for _name, action in items
     ]
-    assert window.a_silhouette not in others
-    assert window.a_mainline_repaint not in others
+    black_check = [title for title, action in entries if action is window.a_silhouette]
+    assert black_check == ["ファイル・編集"]
+    for action in (window.a_preview_map, window.a_exposure_toggle, window.a_channel_alpha):
+        assert [title for title, other in entries if other is action] == ["ファイル・編集"]
+    repaint = [title for title, action in entries if action is window.a_mainline_repaint]
+    assert repaint == ["アクション"]
 
 
 def test_black_check_defaults_to_ctrl_b(make_window):

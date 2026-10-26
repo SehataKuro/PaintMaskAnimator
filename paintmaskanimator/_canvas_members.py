@@ -167,6 +167,7 @@ class CanvasMembers(_MembersBase):
         _shift_timeline_layer_left: Any
         _shift_timeline_layer_right: Any
         _silhouette_cache: Any
+        _view_preview_cache: Any
         _smooth_brush_pressure: Any
         _snap_overlay_to_exact_rgbs: Any
         _stabilized_brush_point: Any
@@ -410,6 +411,8 @@ class CanvasMembers(_MembersBase):
         shape_end: Any
         shape_start: Any
         silhouette_layer_image: Any
+        view_layer_image: Any
+        view_preview: Any
         silhouette_non_background: Any
         stroke_before: Any
         sub_color: Any

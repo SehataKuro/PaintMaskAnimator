@@ -21,6 +21,7 @@ mixin must never reuse one. Type-only member declarations for attributes set in
 ``__init__`` (invisible to a checker inspecting one mixin in isolation) live in
 ``_canvas_members.py``; a genuinely undefined name still surfaces there.
 """
+import dataclasses
 import math
 import numpy as np
 import time
@@ -41,7 +42,7 @@ from PySide6.QtWidgets import QPushButton, QWidget
 from .i18n import tr
 from .constants import OUTSIDE_MARGIN
 from . import constants
-from . import color_ops, colors, geometry, imaging
+from . import color_ops, colors, geometry, imaging, view_preview
 from .document import Document
 from .toolpanel import tool_label
 from .utils import blank_image, magnifier_cursor, workspace_size
@@ -258,6 +259,9 @@ class PaintCanvas(
         # 比較表示：今の絵の代わりに、保持した色塗り前の初期状態を描く。
         self.show_initial_state = False
         self._silhouette_cache = {}
+        # 露光量・チャンネル・隣接色分けの表示プレビュー（画面だけ。書き出しには掛けない）。
+        self.view_preview = view_preview.ViewPreview()
+        self._view_preview_cache = {}
         self._onion_cache = {}
         self.drawing=False; self.last_canvas=QPointF(); self.last_widget=QPointF(); self.lasso=[]; self.middle_hand=False
         self._brush_cursor_widget_pos = QPointF(-1000, -1000)
@@ -1477,6 +1481,68 @@ class PaintCanvas(
             apply_palette_filter,
         )
 
+    def view_layer_image(self, layer, layer_index, image):
+        """``image`` に表示プレビュー（露光量・チャンネル・隣接色分け）を掛けた複製。
+
+        画面に描くときだけ使う。:meth:`composite` は書き出しやサムネイルにも
+        使われるので、ここは通さない。隣接色分けはアクティブレイヤーだけに掛け、
+        描いている最中は掛けない（筆を動かすたびに領域を数え直さないため）。
+        """
+        preview = self.view_preview
+        if image is None or image.isNull() or not preview.active:
+            return image
+        if getattr(layer, "is_draft", False):
+            return image
+        map_colors = (
+            preview.map_colors
+            and layer_index == self.active_layer_index
+            and not layer.is_paper
+            and not self.drawing
+        )
+        if not map_colors and not preview.adjusts_pixels:
+            return image
+        try:
+            image_key = int(image.cacheKey())
+        except (AttributeError, RuntimeError, TypeError) as exc:
+            log.debug("cacheKey() unavailable, using id() fallback: %s", exc)
+            image_key = id(image)
+        key = (image_key, image.width(), image.height(), preview.key(), map_colors)
+        cached = self._view_preview_cache.get(key)
+        if cached is not None:
+            return cached
+        rgba = image.convertToFormat(QImage.Format.Format_RGBA8888)
+        width, height = rgba.width(), rgba.height()
+        rows = np.frombuffer(
+            imaging.qimage_buffer(rgba), dtype=np.uint8
+        ).reshape((height, rgba.bytesPerLine()))
+        pixels = rows[:, :width * 4].reshape((height, width, 4))
+        if map_colors:
+            view_preview.map_color_pixels(pixels)
+        view_preview.adjust_pixels(pixels, preview)
+        result = rgba.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
+        _bounded_cache_put(self._view_preview_cache, key, result, 32)
+        return result
+
+    def view_background_color(self):
+        """キャンバスの背景（擬似透明）の表示色に、表示プレビューを掛けた色。"""
+        color = QColor(self.transparent_display_color)
+        if not self.view_preview.adjusts_pixels:
+            return color
+        red, green, blue = view_preview.background_color(
+            (color.red(), color.green(), color.blue()), self.view_preview
+        )
+        return QColor(red, green, blue)
+
+    def set_view_preview(self, **changes):
+        """表示プレビューの設定を変えて描き直す（``exposure=1.0`` など）。"""
+        if "exposure" in changes:
+            changes["exposure"] = view_preview.clamp_exposure(changes["exposure"])
+        updated = dataclasses.replace(self.view_preview, **changes)
+        if updated == self.view_preview:
+            return
+        self.view_preview = updated
+        self.update()
+
     def composite(self, fi, white=True):
         result = blank_image(QColor("white") if white else Qt.GlobalColor.transparent)
         painter = QPainter(result)
@@ -1515,6 +1581,7 @@ class PaintCanvas(
                 draw_image = layer.initial_image
             else:
                 draw_image = self._display_layer_image(layer, layer_index)
+            draw_image = self.view_layer_image(layer, layer_index, draw_image)
             if draw_image is None:
                 continue
             if self.flip_horizontal:
@@ -1553,7 +1620,7 @@ class PaintCanvas(
         p.fillRect(self.rect(),QColor(42,42,42)); wr=self.work_rect(); cr=self.canvas_rect()
         p.save(); c=wr.center(); p.translate(c); p.rotate(self.rotation); p.scale(max(0.0001,float(self.onion_tu_tb_scale)),max(0.0001,float(self.onion_tu_tb_scale))); p.translate(-c)
         p.fillRect(wr,QColor(72,72,72))
-        p.fillRect(cr, self.transparent_display_color)
+        p.fillRect(cr, self.view_background_color())
         p.setOpacity(1)
         # 再生中は表示領域サイズの合成キャッシュを使用し、
         # 大画像をレイヤーごとに毎フレーム再縮小しない。

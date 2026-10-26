@@ -1,0 +1,157 @@
+"""キャンバスの表示プレビュー（露光量・チャンネル・隣接色分け）のテスト。"""
+from __future__ import annotations
+
+import numpy as np
+import pytest
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import QApplication
+
+from paintmaskanimator import view_preview
+from paintmaskanimator.view_preview import ViewPreview
+
+NORMAL = (232, 196, 172)
+SHADOW = (229, 193, 170)  # ノーマルとほとんど同じ影色
+
+
+def canvas_pixels(height=40, width=60):
+    return np.full((height, width, 4), 255, dtype=np.uint8)
+
+
+def test_exposure_scales_by_stops_and_clips():
+    lut = view_preview.exposure_lut(1.0)
+    assert lut[100] == 200 and lut[200] == 255
+    assert view_preview.exposure_lut(-1.0)[200] == 100
+    assert (view_preview.exposure_lut(0.0) == np.arange(256)).all()
+
+
+def test_channels_show_one_channel_as_gray():
+    pixels = np.array([[[10, 20, 30, 255], [0, 0, 0, 0]]], dtype=np.uint8)
+    green = view_preview.adjust_pixels(pixels.copy(), ViewPreview(channel="green"))
+    assert tuple(green[0, 0]) == (20, 20, 20, 255)
+    alpha = view_preview.adjust_pixels(pixels.copy(), ViewPreview(channel="alpha"))
+    assert tuple(alpha[0, 0]) == (255, 255, 255, 255)
+    assert alpha[0, 1, 3] == 0, "透明はそのまま（黒い背景が見える）"
+    assert view_preview.background_color((255, 255, 255), ViewPreview(channel="alpha")) == (0, 0, 0)
+    assert view_preview.background_color((200, 100, 50), ViewPreview(channel="red")) == (200, 200, 200)
+
+
+def test_map_colors_separate_nearly_identical_neighbours():
+    pixels = canvas_pixels()
+    pixels[5:35, 5:30, :3] = NORMAL
+    pixels[5:35, 30:55, :3] = SHADOW  # 直接接している
+    view_preview.map_color_pixels(pixels)
+    assert tuple(pixels[20, 10, :3]) != tuple(pixels[20, 50, :3])
+    assert tuple(pixels[2, 2, :3]) == (255, 255, 255), "背景（白）はそのまま"
+
+
+def test_map_colors_separate_regions_across_a_line_and_keep_the_line():
+    pixels = canvas_pixels()
+    pixels[5:35, 5:55, :3] = NORMAL
+    pixels[5:35, 29:31, :3] = 0  # 主線で2つに分かれた同じ色
+    view_preview.map_color_pixels(pixels)
+    assert tuple(pixels[20, 10, :3]) != tuple(pixels[20, 50, :3])
+    assert tuple(pixels[20, 30, :3]) == (0, 0, 0), "主線は元の色のまま"
+
+
+def test_map_colors_make_a_speck_stand_out():
+    pixels = canvas_pixels()
+    pixels[5:35, 5:55, :3] = NORMAL
+    pixels[20, 30, :3] = SHADOW  # 塗り漏れの1点
+    view_preview.map_color_pixels(pixels)
+    assert tuple(pixels[20, 30, :3]) != tuple(pixels[20, 31, :3])
+    assert tuple(pixels[20, 30, :3]) in view_preview.MAP_PALETTE
+
+
+def test_label_regions_numpy_numbers_in_first_appearance_order():
+    codes = np.array([[1, 1, 0, 2], [3, 1, 0, 2], [3, 3, 1, 1]], dtype=np.int32)
+    valid = codes != 0
+    labels, count = view_preview.label_regions_numpy(codes, valid)
+    assert count == 4
+    assert labels.tolist() == [[1, 1, 0, 2], [3, 1, 0, 2], [3, 3, 4, 4]]
+
+
+# ----------------------------------------------------------------------
+# キャンバスとバー
+# ----------------------------------------------------------------------
+@pytest.fixture(scope="module")
+def qapp():
+    return QApplication.instance() or QApplication([])
+
+
+@pytest.fixture
+def window(qapp, tmp_path, monkeypatch):
+    from paintmaskanimator.main_window import MainWindow
+
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    window = MainWindow()
+    try:
+        yield window
+    finally:
+        window.deleteLater()
+
+
+def painted_layer(window):
+    layer = window.canvas.frames[0].layers[window.canvas.active_layer_index]
+    layer.image.fill(QColor(*NORMAL))
+    for y in range(10, 20):
+        for x in range(10, 20):
+            layer.image.setPixelColor(x, y, QColor(*SHADOW))
+    layer.has_content = True
+    return layer
+
+
+def test_preview_changes_only_the_screen_not_exports(window):
+    canvas = window.canvas
+    layer = painted_layer(window)
+    before = window.crop_image(0)
+
+    window.exposure_spin.setValue(-2.0)
+    window.channel_combo.setCurrentIndex(window.channel_combo.findData("red"))
+    window.map_colors_button.click()
+
+    shown = canvas.view_layer_image(layer, canvas.active_layer_index, layer.image)
+    assert shown is not layer.image
+    assert QColor(shown.pixel(15, 15)) != QColor(*SHADOW)
+    assert layer.image.pixelColor(15, 15) == QColor(*SHADOW), "画素データは変えない"
+    assert window.crop_image(0) == before, "書き出し・サムネイルには掛けない"
+
+
+def test_map_colors_wait_until_the_stroke_ends(window):
+    canvas = window.canvas
+    layer = painted_layer(window)
+    window.map_colors_button.click()
+    canvas.drawing = True
+    try:
+        assert canvas.view_layer_image(layer, canvas.active_layer_index, layer.image) is layer.image
+    finally:
+        canvas.drawing = False
+    assert canvas.view_layer_image(layer, canvas.active_layer_index, layer.image) is not layer.image
+
+
+def test_exposure_button_toggles_between_zero_and_the_last_value(window):
+    window.exposure_spin.setValue(1.5)
+    window.exposure_button.click()
+    assert window.canvas.view_preview.exposure == 0.0
+    assert window.exposure_spin.value() == 0.0
+    window.exposure_button.click()
+    assert window.canvas.view_preview.exposure == 1.5
+    assert window.exposure_button.isChecked()
+
+
+def test_channel_actions_toggle_back_to_rgb(window):
+    window.a_channel_blue.trigger()
+    assert window.canvas.view_preview.channel == "blue"
+    assert window.channel_combo.currentData() == "blue"
+    window.a_channel_blue.trigger()
+    assert window.canvas.view_preview.channel == "rgb"
+
+
+def test_black_check_button_follows_the_menu_and_shortcut(window):
+    window.a_silhouette.trigger()
+    assert window.canvas.silhouette_non_background
+    assert window.black_check_button.isChecked()
+    window.black_check_button.click()
+    assert not window.canvas.silhouette_non_background
+    assert not window.a_silhouette.isChecked()
+    assert window.action_panel.button("silhouette") is None, "アクションパネルには出さない"
