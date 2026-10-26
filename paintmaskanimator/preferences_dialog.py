@@ -158,6 +158,10 @@ class PreferencesDialog(QDialog):
             preferences.set_keep_initial_state_on_cut_folder
         )
 
+        self.check_updates = QCheckBox(tr("起動したら新しいバージョンを確かめる"))
+        self.check_updates.setChecked(preferences.check_updates_automatically())
+        self.check_updates.toggled.connect(preferences.set_check_updates_automatically)
+
         self.tool_hold_enabled = QCheckBox(
             tr("ツールのキーを長押ししたら、離したときに元のツールへ戻す")
         )
@@ -180,6 +184,11 @@ class PreferencesDialog(QDialog):
             (tr("自動保存"), self.autosave_enabled),
             ("", self.autosave_interval),
             _hint(tr("アプリが異常終了したとき、次の起動で自動保存から作業を復元できます。")),
+            (tr("更新"), self.check_updates),
+            _hint(tr(
+                "新しいバージョンがあると、メニューバーの右端（macOS では画面上部の"
+                "メニューの最後）でお知らせします。ヘルプ › 更新を確認… はいつでも使えます。"
+            )),
             (tr("ツールの一時切り替え"), self.tool_hold_enabled),
             ("", self.tool_hold_ms),
             _hint(tr(

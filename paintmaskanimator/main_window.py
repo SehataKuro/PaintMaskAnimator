@@ -74,6 +74,7 @@ from .main_window_layer_ops import LayerOpsController
 from .main_window_line_ops import LineOpsController
 from .main_window_view_preview import ViewPreviewController
 from .main_window_tool_hold import ToolHoldController
+from .main_window_update_notice import UpdateNoticeController
 from .main_window_onion import OnionSkinController
 from .main_window_project_io import ProjectIOController
 from .main_window_time_remap import TimeRemapController
@@ -110,6 +111,7 @@ class MainWindow(
         self.line_ops=LineOpsController(self)
         self.view_preview=ViewPreviewController(self)
         self.tool_hold=ToolHoldController(self)
+        self.update_notice=UpdateNoticeController(self)
         self.timeline_ops=TimelineOpsController(self)
         self.layers=LayerOpsController(self)
         self.color_chart_ops=ColorChartController(self)
@@ -603,6 +605,8 @@ class MainWindow(
             result = updater.check_for_update()
         finally:
             QApplication.restoreOverrideCursor()
+        # メニューバーのお知らせも、確かめた結果に合わせる。
+        self.update_notice.apply_result(result)
 
         status = result.get("status")
         if status == "error":

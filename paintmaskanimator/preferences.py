@@ -17,6 +17,8 @@ KEEP_INITIAL_STATE_KEY = "keep_initial_state_on_cut_folder"
 MAP_PALETTE_KEY = "map_color_palette"
 TOOL_HOLD_ENABLED_KEY = "tool_hold_switch_enabled"
 TOOL_HOLD_MS_KEY = "tool_hold_switch_ms"
+AUTO_UPDATE_CHECK_KEY = "check_updates_automatically"
+SKIPPED_UPDATE_KEY = "skipped_update_version"
 
 DEFAULT_AUTOSAVE_INTERVAL = 3
 AUTOSAVE_INTERVAL_RANGE = (1, 60)
@@ -151,3 +153,21 @@ def tool_hold_ms():
 
 def set_tool_hold_ms(milliseconds):
     config.set_value(TOOL_HOLD_MS_KEY, int(milliseconds))
+
+
+def check_updates_automatically():
+    """起動したあと裏で新しい版を確かめ、メニューバーで知らせるか。"""
+    return bool(config.get_value(AUTO_UPDATE_CHECK_KEY, True))
+
+
+def set_check_updates_automatically(enabled):
+    config.set_value(AUTO_UPDATE_CHECK_KEY, bool(enabled))
+
+
+def skipped_update_version():
+    """「この版は知らせない」にした版（無ければ空）。"""
+    return str(config.get_value(SKIPPED_UPDATE_KEY, "") or "")
+
+
+def set_skipped_update_version(version):
+    config.set_value(SKIPPED_UPDATE_KEY, str(version or "") or None)
