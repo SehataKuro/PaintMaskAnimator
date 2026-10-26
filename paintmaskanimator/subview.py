@@ -104,7 +104,7 @@ class SubViewWidget(QWidget):
         controls = QHBoxLayout()
         controls.setContentsMargins(5, 3, 5, 4)
         self.zoom_slider = QSlider(Qt.Orientation.Horizontal)
-        self.zoom_slider.setRange(5, 800)
+        self.zoom_slider.setRange(5, 1600)
         self.zoom_slider.setValue(100)
         self.zoom_label = QLabel("100%")
         self.zoom_100_button = QPushButton(tr("100%表示"))
@@ -329,7 +329,7 @@ class SubViewWidget(QWidget):
         self.viewer.update()
 
     def set_zoom_percent(self, value):
-        self._zoom = max(0.05, min(8.0, int(value) / 100.0))
+        self._zoom = max(0.05, min(16.0, int(value) / 100.0))
         self.zoom_label.setText(f"{int(value)}%")
         self.viewer.update()
 
@@ -542,7 +542,7 @@ class _SubViewCanvas(QWidget):
             percent = int(round(self.owner._zoom * factor * 100))
             # ドラッグを始めた位置を中心に拡大縮小する。
             self.zoom_to_percent(
-                max(5, min(800, percent)), self.owner._zoom_anchor
+                max(5, min(1600, percent)), self.owner._zoom_anchor
             )
         elif mode == "pick":
             self.owner._pick_position = QPointF(event.position())
@@ -574,7 +574,7 @@ class _SubViewCanvas(QWidget):
         exact = self._wheel_percent
         if exact is None or round(exact) != current:
             exact = float(current)  # ボタンやドラッグなど他の経路で変わった
-        exact = max(5.0, min(800.0, exact * 1.15 ** (delta / 120)))
+        exact = max(5.0, min(1600.0, exact * 1.15 ** (delta / 120)))
         self._wheel_percent = exact
         if round(exact) != current:
             self.zoom_to_percent(round(exact), event.position())

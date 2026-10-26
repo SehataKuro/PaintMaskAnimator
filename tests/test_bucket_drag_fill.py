@@ -176,3 +176,24 @@ def test_drag_cache_keeps_the_same_pixels_for_every_reference(window, monkeypatc
     assert cached == uncached
     assert pixel(window, 40, 50) == QColor("black")
     assert pixel(window, 70, 50) == QColor("white")
+
+
+def test_drag_reuses_conversion_and_invalidates_after_external_edit(window, monkeypatch):
+    three_boxes(window)
+    canvas = window.canvas
+    original = canvas._layer_fill_pixels
+    calls = []
+    def convert(image):
+        calls.append(image.cacheKey())
+        return original(image)
+    monkeypatch.setattr(canvas, "_layer_fill_pixels", convert)
+    canvas.begin_bucket_drag(QPointF(50, 50))
+    canvas.continue_bucket_drag(QPointF(90, 50))
+    assert len(calls) == 1
+    canvas.active_layer.image.setPixelColor(200, 200, QColor("red"))
+    canvas.continue_bucket_drag(QPointF(130, 50))
+    canvas.finish_bucket_drag()
+    assert len(calls) == 2
+    for x in (50, 90, 130):
+        assert pixel(window, x, 50) == BLUE
+    assert pixel(window, 200, 200) == QColor("red")

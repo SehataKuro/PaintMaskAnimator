@@ -5,7 +5,7 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QPoint, QPointF, Qt  # noqa: E402
+from PySide6.QtCore import QElapsedTimer, QPoint, QPointF, Qt  # noqa: E402
 from PySide6.QtGui import QCursor  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
@@ -95,8 +95,13 @@ def test_revert_waits_until_the_stroke_ends(window, clock, qapp):
     QTest.keyRelease(window.canvas, Qt.Key.Key_G)
     assert window.tools.active_tool == "bucket", "描いている途中では戻さない"
     window.canvas.drawing = False
-    QTest.qWait(80)
-    assert window.tools.active_tool == "brush"
+    # Window repaint/layout work can consume the entire fixed wait before Qt
+    # dispatches the 30 ms retry. Wait for the actual transition instead.
+    deadline = QElapsedTimer()
+    deadline.start()
+    while window.tools.active_tool != "brush" and deadline.elapsed() < 2000:
+        QTest.qWait(10)
+    assert window.tools.active_tool == "brush", "描画終了後に元のツールへ戻る"
 
 
 def test_choosing_from_the_menu_is_not_a_hold(window, clock):
@@ -150,3 +155,67 @@ def test_ctrl_alt_resize_takes_priority_over_eyedropper(window):
     smaller = spin.value()
     QTest.keyClick(canvas, Qt.Key.Key_BracketRight)
     assert spin.value() > smaller
+
+
+def test_untouched_drop_does_not_prompt(window, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+    def unexpected_dialog(*args):
+        pytest.fail("Unedited projects must open without a save prompt")
+    monkeypatch.setattr(QMessageBox, "exec", unexpected_dialog)
+    monkeypatch.setattr(window.project, "open", lambda path: True)
+    window.canvas.zoom = 2
+    window.canvas.main_color = window.canvas.sub_color
+    window.canvas.set_pen_size(22)
+    assert not window.project.has_unsaved_changes()
+    assert window.project.open_dropped("next.pman")
+
+
+def test_edited_drop_can_cancel_without_opening(window, monkeypatch):
+    from PySide6.QtGui import QColor
+    from PySide6.QtWidgets import QMessageBox
+    prompts = []
+    monkeypatch.setattr(QMessageBox, "exec", lambda dialog: prompts.append(dialog.text()))
+    monkeypatch.setattr(window.project, "open", lambda path: pytest.fail("Cancelled drop must not open"))
+    window.canvas.active_layer.image.setPixelColor(5, 5, QColor("red"))
+    assert window.project.has_unsaved_changes()
+    assert not window.project.open_dropped("next.pman")
+    assert len(prompts) == 1
+
+
+def test_save_and_open_reset_drop_guard(window, tmp_path):
+    from PySide6.QtGui import QColor
+    project = window.project
+    path = tmp_path / "saved.pman"
+    window.canvas.active_layer.image.setPixelColor(5, 5, QColor("red"))
+    assert project.has_unsaved_changes()
+    assert project.write(path)
+    assert not project.has_unsaved_changes()
+    window.canvas.active_layer.name = "renamed"
+    assert project.has_unsaved_changes()
+    assert project.open(path)
+    assert not project.has_unsaved_changes()
+    window.timeline.fps.setValue(12)
+    assert project.has_unsaved_changes()
+
+
+def test_revert_retry_keeps_waiting_while_drawing(window, clock, monkeypatch):
+    from types import SimpleNamespace
+    scheduled = []
+    monkeypatch.setattr(main_window_tool_hold, "QTimer", SimpleNamespace(
+        singleShot=lambda delay, callback: scheduled.append((delay, callback))))
+    preferences.set_tool_hold_enabled(True)
+    preferences.set_tool_hold_ms(0)
+    window.tools.select_tool("brush")
+    QTest.keyPress(window.canvas, Qt.Key.Key_G)
+    window.canvas.drawing = True
+    QTest.keyRelease(window.canvas, Qt.Key.Key_G)
+    assert window.tools.active_tool == "bucket"
+    delay, retry = scheduled.pop(0)
+    assert delay > 0
+    retry()
+    assert window.tools.active_tool == "bucket", "タイマーが発火しても描画中は戻らない"
+    assert len(scheduled) == 1
+    window.canvas.drawing = False
+    scheduled.pop(0)[1]()
+    assert window.tools.active_tool == "brush"
+    assert not scheduled

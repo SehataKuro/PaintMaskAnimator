@@ -188,6 +188,7 @@ class MainWindow(
             ),
         )
         self.apply_pressure_settings()
+        self.project.mark_saved()
         self.autosave.start()
         QTimer.singleShot(0, self.autosave.maybe_restore)
     def status(self, message, level="info", timeout=4000):
@@ -581,6 +582,7 @@ class MainWindow(
                 self.insert_layout_paper(layout_paper.paper(d.paper_id()))
             self.current_project_path = None
             self.project.update_title()
+            self.project.mark_saved()
 
     def insert_layout_paper(self, entry):
         """Put a layout paper under every layer of a fresh document, as a draft."""

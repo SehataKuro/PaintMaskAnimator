@@ -71,3 +71,15 @@ def test_ctrl_alt_drag_changes_size_without_painting(canvas):
     mouse(canvas, QMouseEvent.Type.MouseButtonRelease, QPointF(-1000, 20), modifiers)
     assert canvas.pen_size == .5
     assert not canvas.active_layer.has_content
+
+
+def test_outline_cache_preserves_exact_subpixel_phase():
+    from paintmaskanimator.brush_raster import _local_outline
+    _local_outline.cache_clear()
+    first = stamp_outline(QPointF(20.25, 20.5), 1.5)
+    second = stamp_outline(QPointF(21.25, 20.5), 1.5)
+    assert _local_outline.cache_info().hits == 1
+    first.translate(1, 0)
+    assert first == second
+    stamp_outline(QPointF(21.5, 20.5), 1.5)
+    assert _local_outline.cache_info().misses == 2

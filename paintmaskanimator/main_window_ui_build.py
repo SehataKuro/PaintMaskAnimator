@@ -613,7 +613,7 @@ class UIBuildMixin(MainWindowMembers):
         cv.addWidget(self.canvas,1)
         bar=QHBoxLayout()
         self.zoom=QSlider(Qt.Orientation.Horizontal)
-        self.zoom.setRange(5,800)
+        self.zoom.setRange(5,1600)
         self.zoom.setValue(100)
         self.zoom_label=QLabel("100%")
         self.rot=QSlider(Qt.Orientation.Horizontal)

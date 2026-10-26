@@ -1,5 +1,6 @@
 """Shared non-antialiased brush geometry for painting and cursor previews."""
 import math
+from functools import lru_cache
 
 import numpy as np
 from PySide6.QtCore import QPointF, QRect
@@ -34,7 +35,17 @@ def stamp_mask(center, width):
 
 
 def stamp_outline(center, width):
-    image, rect = stamp_mask(center, width)
+    # Integer translation does not change raster coverage. Cache the exact
+    # subpixel phase; rounding it would change the preview at fractional sizes.
+    x, y = math.floor(center.x()), math.floor(center.y())
+    path = QPainterPath(_local_outline(center.x() - x, center.y() - y, width))
+    path.translate(x, y)
+    return path
+
+
+@lru_cache(maxsize=64)
+def _local_outline(phase_x, phase_y, width):
+    image, rect = stamp_mask(QPointF(phase_x, phase_y), width)
     alpha = np.frombuffer(image.constBits(), np.uint8).reshape(image.height(), image.bytesPerLine())[:, 3::4]
     path = QPainterPath()
     for y, row in enumerate(alpha):

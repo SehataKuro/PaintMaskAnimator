@@ -264,6 +264,7 @@ class PaintCanvas(
         # 露光量・チャンネル・隣接色分けの表示プレビュー（画面だけ。書き出しには掛けない）。
         self.view_preview = view_preview.ViewPreview(palette=preferences.map_palette())
         self._view_preview_cache = {}
+        self._view_map_color_mappings = {}
         self._onion_cache = {}
         self.drawing=False; self.last_canvas=QPointF(); self.last_widget=QPointF(); self.lasso=[]; self.middle_hand=False
         self._brush_cursor_widget_pos = QPointF(-1000, -1000)
@@ -576,7 +577,7 @@ class PaintCanvas(
     def set_zoom_around_canvas_center(self, zoom):
         """Change zoom without moving the canvas center on screen."""
         old_zoom = max(0.0001, float(self.zoom))
-        new_zoom = max(0.05, min(8.0, float(zoom)))
+        new_zoom = max(0.05, min(16.0, float(zoom)))
         width, height = workspace_size()
         canvas_center = QPointF(width / 2.0, height / 2.0)
         screen_center = self.pan + canvas_center * old_zoom
@@ -1519,7 +1520,8 @@ class PaintCanvas(
         ).reshape((height, rgba.bytesPerLine()))
         pixels = rows[:, :width * 4].reshape((height, width, 4))
         if map_colors:
-            view_preview.map_color_pixels(pixels, palette=preview.palette)
+            mapping = self._view_map_color_mappings.setdefault(preview.palette, {})
+            view_preview.map_color_pixels(pixels, palette=preview.palette, color_mapping=mapping)
         view_preview.adjust_pixels(pixels, preview)
         result = rgba.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
         _bounded_cache_put(self._view_preview_cache, key, result, 32)

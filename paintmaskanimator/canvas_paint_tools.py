@@ -289,6 +289,15 @@ class PaintToolsMixin(CanvasMembers):
         )
         if image is layer_image:
             return layer_image, layer_pixels
+        drag = self._bucket_drag
+        if drag is not None:
+            key = image.cacheKey()
+            cached = drag["reference_pixels"].get(key)
+            if cached is None:
+                cached = self._layer_fill_pixels(image)
+                drag["reference_pixels"].clear()
+                drag["reference_pixels"][key] = cached
+            return cached
         return self._layer_fill_pixels(image)
 
     def _bucket_reference_image(self, options, frame, layer_index, fallback):
@@ -394,7 +403,14 @@ class PaintToolsMixin(CanvasMembers):
         （ドラッグ塗りが最後にまとめて積む）。``accept`` を渡すと、塗る前に
         ``accept(結果)`` で塗ってよいかを決め、偽ならその領域を2つ目に返す。
         """
-        image, pixels = self._layer_fill_pixels(self.active_layer.image)
+        drag = self._bucket_drag
+        active = self.active_layer.image
+        if (drag is not None and drag["frame"] == self.current_frame
+                and drag["layer"] == self.active_layer_index
+                and drag["pixels_key"] == active.cacheKey()):
+            image, pixels = drag["pixels"]
+        else:
+            image, pixels = self._layer_fill_pixels(active)
         start_x, start_y = int(p.x()), int(p.y())
         selection_mask = self.selection_mask_bool(image.width(), image.height())
         options = self.bucket_options()
@@ -428,6 +444,9 @@ class PaintToolsMixin(CanvasMembers):
         written_colors.update(self._fill_islands(patch, result.islands, result.bounds))
         written_colors = tuple(sorted(written_colors))
         self._write_rgba_patch(patch, fill_rect)
+        if drag is not None:
+            drag["pixels"] = (image, pixels)
+            drag["pixels_key"] = self.active_layer.image.cacheKey()
         self.active_layer.has_content = True
         if written_colors:
             self._emit_actual_paint_colors(written_colors)
@@ -473,6 +492,9 @@ class PaintToolsMixin(CanvasMembers):
             "painted": np.zeros((height, width), dtype=bool),
             "last": QPointF(p),
             "line_cache": {},
+            "pixels": (converted, layer_pixels),
+            "pixels_key": layer.image.cacheKey(),
+            "reference_pixels": {},
         }
         # 最初の1か所はクリックと同じ（開いた領域も設定どおりに塗る）。
         self._bucket_drag_fill(p, first=True)

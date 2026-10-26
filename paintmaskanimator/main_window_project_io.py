@@ -6,6 +6,8 @@ project archive back into the widgets. The low-level archive read/write lives in
 
 A collaborator rather than a mixin -- see ``main_window_export.py`` for why.
 """
+import copy
+from dataclasses import fields
 from typing import TYPE_CHECKING
 from pathlib import Path
 from PySide6.QtCore import QTimer
@@ -35,6 +37,7 @@ class ProjectIOController:
 
     def __init__(self, window: "MainWindow"):
         self.window = window
+        self._saved_signature = None
 
     # ------------------------------------------------------------------
     # 最近使用したファイル
@@ -149,6 +152,7 @@ class ProjectIOController:
             self.window.current_project_path = project_path
             self.update_title()
             self.remember_recent(project_path)
+            self.mark_saved()
             self.window.statusBar().showMessage(
                 tr("プロジェクトを保存しました：{name}").format(name=project_path.name),
                 3000,
@@ -174,7 +178,33 @@ class ProjectIOController:
         if path:
             self.open(path)
 
+    def _content_signature(self):
+        """Track document content without encoding or scanning image pixels."""
+        def layer_signature(layer):
+            return tuple(
+                value.cacheKey() if hasattr(value, "cacheKey") else copy.deepcopy(value)
+                for field in fields(layer)
+                for value in (getattr(layer, field.name),)
+            )
+        canvas = self.window.canvas
+        frames = tuple((frame.duration, tuple(layer_signature(layer) for layer in frame.layers))
+                       for frame in canvas.frames)
+        archive = tuple((key, layer_signature(layer))
+                        for key, layer in sorted(canvas._sequence_archive.items()))
+        metadata = self.window.build_project_metadata()
+        for key in ("current_frame", "active_layer_index", "colors", "display", "pressure", "timeline_mode"):
+            metadata.pop(key, None)
+        return frames, archive, copy.deepcopy(metadata)
+
+    def mark_saved(self):
+        self._saved_signature = self._content_signature()
+
+    def has_unsaved_changes(self):
+        return self._saved_signature != self._content_signature()
+
     def confirm_save_before_dropped(self):
+        if not self.has_unsaved_changes():
+            return True
         dialog = QMessageBox(self.window)
         dialog.setIcon(QMessageBox.Icon.Question)
         dialog.setWindowTitle(tr("プロジェクトを開く"))
@@ -506,6 +536,7 @@ class ProjectIOController:
             self.window.used_color.schedule_refresh()
             QTimer.singleShot(0, self.window.fit_canvas)
             self.remember_recent(project_path)
+            self.mark_saved()
             self.window.statusBar().showMessage(
                 tr("プロジェクトを開きました：{name}").format(name=project_path.name),
                 3000,

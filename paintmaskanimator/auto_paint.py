@@ -1395,6 +1395,7 @@ def plan_auto_paint(
         return ([hand_cells[other] for other in near],
                 sum(1 for other in near if abs(other - index) == 1))
 
+    fixed_guides = {}
     total = len(work) * max_rounds
     done = 0
     for _round in range(max_rounds):
@@ -1411,6 +1412,11 @@ def plan_auto_paint(
         def guide(source, index, made=made, sources=sources,
                   undecided_now=undecided_now, undecided_before=undecided_before):
             key = (source, index)
+            if index in fixed:
+                if index not in fixed_guides:
+                    fixed_guides[index] = _Cell(cells[index])
+                    fixed_guides[index].index = index
+                return fixed_guides[index]
             if key not in made:
                 cell = _Cell(sources[source][index])
                 undecided = (undecided_now if source == "now" else undecided_before)

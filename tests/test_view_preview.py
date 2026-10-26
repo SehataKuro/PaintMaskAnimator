@@ -72,6 +72,31 @@ def test_map_colors_make_a_speck_stand_out():
     assert tuple(pixels[20, 30, :3]) in view_preview.MAP_PALETTE
 
 
+def test_map_colors_keep_assignments_when_frame_areas_and_colors_change():
+    mapping = {}
+    first = canvas_pixels()
+    first[5:35, 5:55, :3] = NORMAL
+    first[10:15, 10:15, :3] = SHADOW
+    view_preview.map_color_pixels(first, color_mapping=mapping)
+    normal_color = first[20, 20, :3].copy()
+    shadow_color = first[12, 12, :3].copy()
+
+    second = canvas_pixels()
+    second[5:35, 5:55, :3] = SHADOW
+    second[10:15, 10:15, :3] = NORMAL
+    second[25:30, 40:45, :3] = (100, 150, 200)
+    view_preview.map_color_pixels(second, color_mapping=mapping)
+    np.testing.assert_array_equal(second[12, 12, :3], normal_color)
+    np.testing.assert_array_equal(second[20, 20, :3], shadow_color)
+    assert not np.array_equal(second[27, 42, :3], shadow_color)
+
+    # 色が一度画面から消えても、再登場時には割り当てを維持する。
+    third = canvas_pixels()
+    third[5:35, 5:55, :3] = NORMAL
+    view_preview.map_color_pixels(third, color_mapping=mapping)
+    np.testing.assert_array_equal(third[20, 20, :3], normal_color)
+
+
 def test_label_regions_numpy_numbers_in_first_appearance_order():
     codes = np.array([[1, 1, 0, 2], [3, 1, 0, 2], [3, 3, 1, 1]], dtype=np.int32)
     valid = codes != 0
@@ -137,6 +162,21 @@ def test_map_colors_wait_until_the_stroke_ends(window):
     finally:
         canvas.drawing = False
     assert canvas.view_layer_image(layer, canvas.active_layer_index, layer.image) is not layer.image
+
+
+def test_canvas_map_colors_keep_the_same_rgb_when_switching_images(window):
+    canvas = window.canvas
+    layer = painted_layer(window)
+    canvas.set_view_preview(map_colors=True)
+    first_image = layer.image.copy()
+    first = canvas.view_layer_image(layer, canvas.active_layer_index, first_image)
+    second_image = first_image.copy()
+    second_image.fill(QColor(*SHADOW))
+    second_image.setPixelColor(15, 15, QColor(*NORMAL))
+    second = canvas.view_layer_image(layer, canvas.active_layer_index, second_image)
+    assert second.pixelColor(15, 15) == first.pixelColor(0, 0)
+    assert second.pixelColor(0, 0) == first.pixelColor(15, 15)
+    assert canvas.view_layer_image(layer, canvas.active_layer_index, first_image) == first
 
 
 def test_exposure_button_toggles_between_zero_and_the_last_value(window):

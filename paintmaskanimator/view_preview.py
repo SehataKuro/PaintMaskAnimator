@@ -255,12 +255,14 @@ def assign_map_colors(count, neighbors, areas, palette_size=None, groups=None):
     return colors
 
 
-def map_color_pixels(pixels, gap=MAP_NEIGHBOR_GAP, palette=MAP_PALETTE):
+def map_color_pixels(pixels, gap=MAP_NEIGHBOR_GAP, palette=MAP_PALETTE, color_mapping=None):
     """隣り合う領域が違う色になるよう、``pixels`` を仮の色で塗り分ける（その場で）。
 
     不透明で、白（擬似透明）でも主線（黒に近い色）でもない画素が対象。
 
     :param palette: 仮の色（RGB のタプル列）。先頭の色ほど多く使われる。
+    :param color_mapping: 元の RGB 値からパレット番号への対応表。コマ間で共有すると、
+        一度割り当てた色を維持する。新しい色の対応だけを追加する。
     """
     if not palette:
         palette = MAP_PALETTE
@@ -287,7 +289,36 @@ def map_color_pixels(pixels, gap=MAP_NEIGHBOR_GAP, palette=MAP_PALETTE):
     groups = np.zeros(count + 1, dtype=np.int64)
     if count:
         groups[1:] = np.unique(region_codes[1:], return_inverse=True)[1].reshape(-1).astype(np.int64) + 1
-    colors = assign_map_colors(count, neighbors, areas, len(palette), groups)
+    if color_mapping is None:
+        colors = assign_map_colors(count, neighbors, areas, len(palette), groups)
+    else:
+        # 面積や隣接関係が変わっても、既存の色は割り当て直さない。
+        unique_codes = np.unique(region_codes[1:])
+        group_count = len(unique_codes)
+        adjacency = [set() for _ in range(group_count + 1)]
+        for a, b in neighbors.tolist():
+            ga, gb = int(groups[a]), int(groups[b])
+            if ga != gb:
+                adjacency[ga].add(gb)
+                adjacency[gb].add(ga)
+        group_colors = np.full(group_count + 1, -1, dtype=np.int32)
+        for group, code in enumerate(unique_codes, 1):
+            if int(code) in color_mapping:
+                group_colors[group] = color_mapping[int(code)]
+        group_areas = np.bincount(groups[1:], weights=areas[1:], minlength=group_count + 1)
+        for group in (np.argsort(-group_areas[1:], kind="stable") + 1).tolist():
+            if group_colors[group] >= 0:
+                continue
+            used = np.zeros(len(palette), dtype=np.int64)
+            for other in adjacency[group]:
+                if group_colors[other] >= 0:
+                    used[group_colors[other]] += 1
+            # 同じ隣接条件なら、過去に使った色の少ない番号を優先する。
+            usage = np.bincount(list(color_mapping.values()), minlength=len(palette))
+            chosen = min(range(len(palette)), key=lambda index: (used[index], usage[index], index))
+            group_colors[group] = chosen
+            color_mapping[int(unique_codes[group - 1])] = chosen
+        colors = group_colors[groups]
     table = np.asarray(palette, dtype=np.uint8)
     pixels[valid, :3] = table[colors[labels[valid]]]
     return pixels
