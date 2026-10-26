@@ -35,6 +35,10 @@ __all__ = [
     "enclosed_islands",
     "guess_target_categories",
     "TARGET_COLORS",
+    "REFERENCE_LAYER",
+    "REFERENCE_CANVAS",
+    "REFERENCE_INITIAL",
+    "REFERENCES",
     "seed_category",
     "dilate",
     "erode",
@@ -101,6 +105,18 @@ WHITE_MIN = 240
 #: 「薄い半透明」とみなすアルファの上限（約20%）。
 FAINT_ALPHA_MAX = 50
 
+# 参照レイヤー（どの絵を見て領域を決めるか）。塗る先はいつもアクティブレイヤーで、
+# 「どこを塗るか」の判定だけを、ここで選んだ絵から行う。
+#: 選択したレイヤーのみ（これまでどおり）。
+REFERENCE_LAYER = "layer"
+#: キャンバス全体（表示しているレイヤーを合成した絵）。
+REFERENCE_CANVAS = "canvas"
+#: 色塗り前の初期状態（保持していなければ今の絵）。
+REFERENCE_INITIAL = "initial"
+
+#: 参照レイヤーの選択肢。
+REFERENCES = (REFERENCE_LAYER, REFERENCE_CANVAS, REFERENCE_INITIAL)
+
 
 @dataclass(frozen=True)
 class BucketOptions:
@@ -130,6 +146,8 @@ class BucketOptions:
     require_closed: bool = False
     #: どの画素をたどって塗るか（``TARGET_*``）。
     target_color: str = TARGET_ALL
+    #: どの絵を見て領域を決めるか（``REFERENCE_*``）。塗る先は変わらない。
+    reference: str = REFERENCE_LAYER
     #: 塗った範囲に囲まれた島（色トレスの斜線など）を塗り替える色。
     #: ``((元の RGB, 塗り替える RGB), ...)``。使用色パネルの置換色から作る。
     island_replacements: Tuple[
@@ -162,6 +180,7 @@ class BucketOptions:
             extend_length=_extend_length_from_tools(tools),
             require_closed=bool(tools.bucket_require_closed.isChecked()),
             target_color=_target_from_tools(tools),
+            reference=_reference_from_tools(tools),
             island_replacements=(
                 tuple(island_replacements)
                 if _checked(tools, "bucket_island_replace") else ()
@@ -185,6 +204,12 @@ def _target_from_tools(tools):
     combo = getattr(tools, "bucket_target_color", None)
     value = combo.currentData() if combo is not None else None
     return value if value in TARGET_COLORS else TARGET_ALL
+
+
+def _reference_from_tools(tools):
+    combo = getattr(tools, "bucket_reference", None)
+    value = combo.currentData() if combo is not None else None
+    return value if value in REFERENCES else REFERENCE_LAYER
 
 
 @dataclass

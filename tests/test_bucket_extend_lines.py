@@ -98,6 +98,10 @@ def test_tool_panel_options_reach_the_fill(qapp):
 
     panel = ToolPanel()
     try:
+        # 線の延長は既定で入っている。
+        assert bucket_fill.BucketOptions.from_tools(panel).extend_lines
+        assert panel.bucket_extend_length.isEnabled()
+        panel.bucket_extend_lines.setChecked(False)
         assert not bucket_fill.BucketOptions.from_tools(panel).extend_lines
         assert not panel.bucket_extend_length.isEnabled()
         panel.bucket_extend_lines.setChecked(True)

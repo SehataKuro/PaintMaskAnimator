@@ -668,6 +668,30 @@ class ToolPanel(QWidget):
         self._sync_transform_quality_options(True)
         self._refresh_transform_line_width_visibility()
 
+        # 参照：どの絵を見て塗る範囲を決めるか。塗る先はアクティブレイヤーのまま。
+        self.bucket_reference = QComboBox()
+        for label, value in (
+            (tr("選択したレイヤーのみ"), bucket_fill.REFERENCE_LAYER),
+            (tr("キャンバス全体"), bucket_fill.REFERENCE_CANVAS),
+            (tr("色塗り前の初期状態"), bucket_fill.REFERENCE_INITIAL),
+        ):
+            self.bucket_reference.addItem(label, value)
+        self.bucket_reference.setToolTip(tr(
+            "どの絵を見て塗る範囲を決めるかを選びます。塗る先はいつも選択中の"
+            "レイヤーです。\n"
+            "「選択したレイヤーのみ」はそのレイヤーの絵だけで判定します。\n"
+            "「キャンバス全体」は表示しているレイヤーを合成した絵で判定するので、"
+            "線が別のレイヤーにあっても、その線で区切られた部分を塗れます。\n"
+            "「色塗り前の初期状態」は保持した塗る前の絵で判定するので、"
+            "塗りかけの色に邪魔されません（保持していなければ今の絵で判定します）。"
+        ))
+        self.bucket_reference_row = QWidget()
+        bucket_reference_layout = QHBoxLayout(self.bucket_reference_row)
+        bucket_reference_layout.setContentsMargins(0, 0, 0, 0)
+        bucket_reference_layout.setSpacing(4)
+        bucket_reference_layout.addWidget(QLabel(tr("参照")))
+        bucket_reference_layout.addWidget(self.bucket_reference, 1)
+
         # 対象色：どの画素をたどって塗るか（CLIP STUDIO の「対象色」と同じ選択肢）。
         self.bucket_target_color = QComboBox()
         for label, value in (
@@ -746,7 +770,8 @@ class ToolPanel(QWidget):
 
         # 線の延長と長さスライダーを同じ横一列へ配置する。
         self.bucket_extend_lines=QCheckBox(tr("線の延長"))
-        self.bucket_extend_lines.setChecked(False)
+        # 端まで引かれていない線の素材が多いので、既定で入れておく。
+        self.bucket_extend_lines.setChecked(True)
         self.bucket_extend_lines.setToolTip(tr(
             "キャンバス端の手前で途切れた線を、線の向きのまま端まで延ばしたものとして塗ります。"
             "スタンダードフレームの外側で線を端まで引いていない素材でも、"
@@ -1049,6 +1074,7 @@ class ToolPanel(QWidget):
             self.shape_outline_width_label,self.shape_outline_width,
             self.lasso_inside_boundary,self.lasso_main_outline_sub_fill,
             self.lasso_outline_width_label,self.lasso_outline_width,
+            self.bucket_reference_row,
             self.bucket_target_row,
             self.bucket_adjacent,self.bucket_include_sub,
             self.bucket_include_colors,
@@ -1483,6 +1509,7 @@ class ToolPanel(QWidget):
             is_lasso_fill and self.lasso_main_outline_sub_fill.isChecked()
         )
         uses_bucket_region = is_bucket or tid == "auto_select"
+        self.bucket_reference_row.setVisible(is_bucket)
         self.bucket_target_row.setVisible(is_bucket)
         self.bucket_adjacent.setVisible(uses_bucket_region)
         self.bucket_include_sub.setVisible(is_bucket)

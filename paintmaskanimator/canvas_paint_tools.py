@@ -278,6 +278,72 @@ class PaintToolsMixin(CanvasMembers):
         ).reshape((height, converted.bytesPerLine()))
         return converted, rows[:, :width * 4].reshape((height, width, 4))
 
+    # ------------------------------------------------------------------
+    # 参照レイヤー：どの絵を見て塗る範囲を決めるか。
+    # ------------------------------------------------------------------
+    def bucket_reference_pixels(self, options, frame, layer_index,
+                                layer_image, layer_pixels):
+        """判定に使う ``(保持用の QImage, RGBA8888 の画素)`` を返す。
+
+        塗る先はいつもアクティブレイヤーなので、ここで返すのは「どこを塗るか」を
+        決めるための絵だけ。参照が「選択したレイヤーのみ」なら、呼び出し側が
+        すでに持っている画素をそのまま返す（余分な変換をしない）。
+
+        画素は返した QImage のバッファを指すので、使い終わるまで QImage を
+        手放さないように両方を返す。
+        """
+        image = self._bucket_reference_image(
+            options, frame, layer_index, layer_image
+        )
+        if image is layer_image:
+            return layer_image, layer_pixels
+        return self._layer_fill_pixels(image)
+
+    def _bucket_reference_image(self, options, frame, layer_index, fallback):
+        """参照レイヤーの設定に合う絵を返す。無ければ ``fallback`` のまま。"""
+        reference = getattr(
+            options, "reference", bucket_fill.REFERENCE_LAYER
+        )
+        if reference == bucket_fill.REFERENCE_CANVAS:
+            return self._bucket_canvas_reference(frame, fallback)
+        if reference == bucket_fill.REFERENCE_INITIAL:
+            key_frame = self.resolve_key_frame(frame, layer_index)
+            if key_frame is None:
+                return fallback
+            initial = self.frames[key_frame].layers[layer_index].initial_image
+            # 初期状態を保持していないセルは、今の絵で判定するしかない。
+            if initial is None or initial.size() != fallback.size():
+                return fallback
+            return initial
+        return fallback
+
+    def _bucket_canvas_reference(self, frame, fallback):
+        """表示しているレイヤーを重ねた絵。別のレイヤーの線でも区切れるように。
+
+        用紙レイヤーは外す。キャンバス一面の不透明な色で覆われると、透明を
+        たどる対象色が働かなくなるため。表示プレビューを通さない生の絵を重ねる。
+        """
+        if not (0 <= frame < len(self.frames)):
+            return fallback
+        result = QImage(
+            fallback.size(), QImage.Format.Format_ARGB32_Premultiplied
+        )
+        result.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(result)
+        for layer_index in range(len(self.frames[frame].layers)):
+            key_frame = self.resolve_key_frame(frame, layer_index)
+            if key_frame is None:
+                continue
+            layer = self.frames[key_frame].layers[layer_index]
+            if not layer.visible or layer.is_paper:
+                continue
+            if layer.image is None or layer.image.isNull():
+                continue
+            painter.setOpacity(layer.opacity)
+            painter.drawImage(0, 0, layer.image)
+        painter.end()
+        return result
+
     def _fill_patch(self, patch, patch_region, replacement):
         """``patch`` の ``patch_region`` を塗る。書き込んだ RGB の組を返す。
 
@@ -339,8 +405,13 @@ class PaintToolsMixin(CanvasMembers):
         image, pixels = self._layer_fill_pixels(self.active_layer.image)
         start_x, start_y = int(p.x()), int(p.y())
         selection_mask = self.selection_mask_bool(image.width(), image.height())
+        options = self.bucket_options()
+        # 判定は参照レイヤーの絵で行い、書き込みはアクティブレイヤーへ。
+        _reference_image, reference_pixels = self.bucket_reference_pixels(
+            options, self.current_frame, self.active_layer_index, image, pixels
+        )
         result = bucket_fill.compute_fill_region(
-            pixels, start_x, start_y, self.bucket_options(), selection_mask
+            reference_pixels, start_x, start_y, options, selection_mask
         )
         if not result.ok:
             message = None if quiet else self._bucket_failure_message(result.reason)
@@ -381,13 +452,18 @@ class PaintToolsMixin(CanvasMembers):
         layer = self.active_layer
         # 画像は暗黙共有なので、ここでは複製しない（塗った時点で分かれる）。
         before = QImage(layer.image)
-        _converted, original = self._layer_fill_pixels(before)
+        converted, layer_pixels = self._layer_fill_pixels(before)
         width, height = before.width(), before.height()
         x, y = int(p.x()), int(p.y())
         if not (0 <= x < width and 0 <= y < height):
             self._bucket_drag = None
             return
         options = self.bucket_options()
+        # なぞる先の判定も、1か所塗るときと同じ絵を見る。
+        _reference_image, original = self.bucket_reference_pixels(
+            options, self.current_frame, self.active_layer_index,
+            converted, layer_pixels,
+        )
         category = bucket_fill.seed_category(original, x, y)
         # なぞった先で塗り始めてよい画素。線の上を通っても線を塗らないよう、
         # 「すべての色」では最初にクリックした色の種類、それ以外は対象色の画素に限る。

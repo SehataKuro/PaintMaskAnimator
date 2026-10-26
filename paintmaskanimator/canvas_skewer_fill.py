@@ -116,7 +116,11 @@ class SkewerFillMixin(CanvasMembers):
         selection_mask = self.selection_mask_bool(
             pivot_image.width(), pivot_image.height()
         )
-        _converted, pixels = self._layer_fill_pixels(pivot_image)
+        _converted, layer_pixels = self._layer_fill_pixels(pivot_image)
+        # 判定は参照レイヤーの絵で行う（塗る先は変わらない）。
+        _reference, pixels = self.bucket_reference_pixels(
+            options, key_frame, layer_index, _converted, layer_pixels
+        )
         start_result = bucket_fill.compute_fill_region(
             pixels, start_x, start_y, options, selection_mask
         )
@@ -225,7 +229,12 @@ class SkewerFillMixin(CanvasMembers):
                     if id(image) in session.regions:
                         queue.pop(0)
                         continue
-                    result, pixels = self._skewer_locate(session, image)
+                    result, pixels = self._skewer_locate(
+                        session,
+                        self._skewer_reference_image(
+                            session, frame_index, layer_index, image
+                        ),
+                    )
                     if result is not None and result.ok and (
                         result.score is None
                         or result.score >= TRACK_CONFIDENT_IOU
@@ -252,6 +261,12 @@ class SkewerFillMixin(CanvasMembers):
         finally:
             close_counter(dialog)
         self._skewer_apply()
+
+    def _skewer_reference_image(self, session, frame_index, layer_index, image):
+        """``frame_index`` のコマで判定に使う絵。参照レイヤーの設定に従う。"""
+        return self._bucket_reference_image(
+            session.options, frame_index, layer_index, image
+        )
 
     def _skewer_locate(self, session, image):
         """追跡で塗る範囲を探す。``(結果, そのコマの画素)`` を返す。
@@ -377,7 +392,11 @@ class SkewerFillMixin(CanvasMembers):
         start_x, start_y = int(p.x()), int(p.y())
         if not self._seed_in_bounds(start_x, start_y, pending_image):
             return
-        _converted, view = self._layer_fill_pixels(pending_image)
+        _converted, view = self._layer_fill_pixels(
+            self._skewer_reference_image(
+                session, frame_index, layer_index, pending_image
+            )
+        )
         pixels = view.copy()
         result = bucket_fill.compute_fill_region(
             pixels, start_x, start_y, session.options, session.selection_mask

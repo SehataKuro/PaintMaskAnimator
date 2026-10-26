@@ -471,6 +471,8 @@ class CanvasMembers(_MembersBase):
         _bucket_failure_message: Any
         _fill_patch: Any
         _layer_fill_pixels: Any
+        bucket_reference_pixels: Any
+        _bucket_reference_image: Any
         _seed_in_bounds: Any
         abort_skewer_fill: Any
         accept_skewer_guess: Any
