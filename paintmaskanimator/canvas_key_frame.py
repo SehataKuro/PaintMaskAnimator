@@ -222,7 +222,15 @@ class KeyFrameMixin(CanvasMembers):
         return None
 
     def ensure_editable_key(self):
-        """未使用／○／保持セルを独立した●キーフレームへ変換する。"""
+        """保持セルでは露出元を編集し、未使用／○は内容キーへ変換する。"""
+        block = self.timeline_block_at(
+            self.current_frame, self.active_layer_index,
+        )
+        if block is not None and self.current_frame > block[1]:
+            # 保持区間は同じセル。編集対象とUndoの保存先を露出元へ揃え、
+            # 加筆のたびに別のセルや番号が作られるのを防ぐ。
+            self.current_frame = int(block[1])
+            self.selectionChanged.emit()
         layer = self.active_layer
         if layer.has_content:
             if layer.sequence_number is not None:
@@ -251,9 +259,6 @@ class KeyFrameMixin(CanvasMembers):
             source_layer = self.frames[start].layers[layer_index]
             copied = source_layer.clone()
             old_end = start + exposure - 1
-
-            if current > start:
-                source_layer.exposure = max(1, current - start)
 
             layer.visible = bool(copied.visible)
             layer.opacity = float(copied.opacity)

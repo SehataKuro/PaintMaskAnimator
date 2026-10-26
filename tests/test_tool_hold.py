@@ -101,7 +101,10 @@ def test_revert_waits_until_the_stroke_ends(window, clock, qapp):
     deadline.start()
     while window.tools.active_tool != "brush" and deadline.elapsed() < 2000:
         QTest.qWait(10)
-    assert window.tools.active_tool == "brush", "描画終了後に元のツールへ戻る"
+    assert window.tools.active_tool == "brush", (
+        "描画終了後に元のツールへ戻る",
+        window.tool_hold._hold, window.tool_hold._revert_to, window.canvas.drawing,
+    )
 
 
 def test_choosing_from_the_menu_is_not_a_hold(window, clock):
