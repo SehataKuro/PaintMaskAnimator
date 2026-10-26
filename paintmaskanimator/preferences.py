@@ -19,6 +19,28 @@ TOOL_HOLD_ENABLED_KEY = "tool_hold_switch_enabled"
 TOOL_HOLD_MS_KEY = "tool_hold_switch_ms"
 AUTO_UPDATE_CHECK_KEY = "check_updates_automatically"
 SKIPPED_UPDATE_KEY = "skipped_update_version"
+BACKGROUND_CHECKER_ENABLED_KEY = "background_checker_enabled"
+BACKGROUND_CHECKER_COLOR_KEY = "background_checker_color"
+
+
+def background_checker_enabled():
+    return bool(config.get_value(BACKGROUND_CHECKER_ENABLED_KEY, False))
+
+
+def set_background_checker_enabled(enabled):
+    config.set_value(BACKGROUND_CHECKER_ENABLED_KEY, bool(enabled))
+
+
+def background_checker_color():
+    try:
+        return _rgb_from_hex(config.get_value(BACKGROUND_CHECKER_COLOR_KEY, "#ffffff"))
+    except (TypeError, ValueError):
+        return (255, 255, 255)
+
+
+def set_background_checker_color(color):
+    rgb = _rgb_from_hex(color)
+    config.set_value(BACKGROUND_CHECKER_COLOR_KEY, "#{:02x}{:02x}{:02x}".format(*rgb))
 
 DEFAULT_AUTOSAVE_INTERVAL = 3
 AUTOSAVE_INTERVAL_RANGE = (1, 60)

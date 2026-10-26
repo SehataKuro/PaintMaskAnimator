@@ -187,7 +187,7 @@ class InputEventMixin(CanvasMembers):
             )
             self.sample_color(
                 p,
-                include_canvas_background=(self.temp_tool == "eyedropper"),
+                include_canvas_background=True,
             )
             return
         if t == "line":
@@ -348,7 +348,7 @@ class InputEventMixin(CanvasMembers):
             )
             self.sample_color(
                 p,
-                include_canvas_background=(self.temp_tool == "eyedropper"),
+                include_canvas_background=True,
             )
             return
         if t == "brush":

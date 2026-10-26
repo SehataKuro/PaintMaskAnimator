@@ -47,6 +47,10 @@ class ToolHoldController:
         self._hold: Optional[_Hold] = None
         self._last_key: Optional[tuple] = None
         self._revert_to: Optional[tuple] = None
+        self._revert_timer = QTimer(window)
+        self._revert_timer.setSingleShot(True)
+        self._revert_timer.setInterval(_WAIT_FOR_STROKE_MS)
+        self._revert_timer.timeout.connect(self._try_revert)
 
     def key_pressed(self, token):
         """キーが押された（ショートカットになる前の ShortcutOverride で呼ぶ）。"""
@@ -104,8 +108,9 @@ class ToolHoldController:
             return
         if self.window.canvas.drawing:
             # 描き終わってから戻す（描いている途中でツールを変えない）。
-            QTimer.singleShot(_WAIT_FOR_STROKE_MS, self._try_revert)
+            self._revert_timer.start()
             return
+        self._revert_timer.stop()
         self._revert_to = None
         tool, previous = pending
         # その間に別のツールを選んでいたら、そちらを優先する。

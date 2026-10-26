@@ -231,10 +231,39 @@ class PreferencesDialog(QDialog):
         self._fill_accent_choices()
         self.accent.activated.connect(self._accent_chosen)
 
+        self.background_checker = QCheckBox(tr("指定した背景色を市松模様で表示する"))
+        self.background_checker.setChecked(preferences.background_checker_enabled())
+        self.background_checker.toggled.connect(self._background_checker_changed)
+        self.background_checker_color = QPushButton()
+        self._refresh_background_checker_color()
+        self.background_checker_color.clicked.connect(self._choose_background_checker_color)
+
         return _page(
             (tr("テーマ"), self.theme),
             (tr("アクセントカラー"), self.accent),
+            (tr("背景の表示"), self.background_checker),
+            (tr("市松模様にする背景色"), self.background_checker_color),
+            _hint(tr("背景の表示色が指定色と一致するときに適用します。画像や書き出しには影響しません。")),
         )
+
+    def _refresh_background_checker_color(self):
+        color = QColor(*preferences.background_checker_color())
+        self.background_checker_color.setText(color.name().upper())
+        self.background_checker_color.setIcon(_swatch(color))
+
+    def _background_checker_changed(self, enabled):
+        preferences.set_background_checker_enabled(enabled)
+        self.main_window.canvas.update()
+
+    def _choose_background_checker_color(self):
+        color = ColorPickerDialog.get_color(
+            QColor(*preferences.background_checker_color()), self,
+            tr("市松模様にする背景色を選択"),
+        )
+        if color.isValid():
+            preferences.set_background_checker_color(color.name())
+            self._refresh_background_checker_color()
+            self.main_window.canvas.update()
 
     def _theme_changed(self):
         self.main_window.set_theme(self.theme.currentData())

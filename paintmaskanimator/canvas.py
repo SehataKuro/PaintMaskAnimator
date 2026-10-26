@@ -1268,7 +1268,7 @@ class PaintCanvas(
         return imaging.pil_rgba_to_qimage(image)
 
 
-    def sample_color(self, p, include_canvas_background=False):
+    def sample_color(self, p, include_canvas_background=True):
         x, y = int(p.x()), int(p.y())
         width, height = workspace_size()
         if not (0 <= x < width and 0 <= y < height):
@@ -1306,9 +1306,8 @@ class PaintCanvas(
         if color is None or color.alpha() == 0:
             if not include_canvas_background:
                 return
-            color = QColor(self.transparent_display_color)
-            if not color.isValid():
-                return
+            # Emit the background sentinel, independent of its view colour.
+            color = QColor("white")
         color.setAlpha(255)
         sampled_background = (
             color.red(), color.green(), color.blue()
@@ -1537,6 +1536,24 @@ class PaintCanvas(
         )
         return QColor(red, green, blue)
 
+    def paint_view_background(self, painter, rect):
+        """Draw the view-only checker when the configured background matches."""
+        from PySide6.QtGui import QBrush
+
+        color = self.transparent_display_color
+        if (not preferences.background_checker_enabled()
+                or (color.red(), color.green(), color.blue())
+                != preferences.background_checker_color()):
+            painter.fillRect(rect, self.view_background_color())
+            return
+        tile = QPixmap(16, 16)
+        tile.fill(QColor(240, 240, 240))
+        tile_painter = QPainter(tile)
+        tile_painter.fillRect(0, 0, 8, 8, QColor(192, 192, 192))
+        tile_painter.fillRect(8, 8, 8, 8, QColor(192, 192, 192))
+        tile_painter.end()
+        painter.fillRect(rect, QBrush(tile))
+
     def set_view_preview(self, **changes):
         """表示プレビューの設定を変えて描き直す（``exposure=1.0`` など）。"""
         if "exposure" in changes:
@@ -1624,7 +1641,7 @@ class PaintCanvas(
         p.fillRect(self.rect(),QColor(42,42,42)); wr=self.work_rect(); cr=self.canvas_rect()
         p.save(); c=wr.center(); p.translate(c); p.rotate(self.rotation); p.scale(max(0.0001,float(self.onion_tu_tb_scale)),max(0.0001,float(self.onion_tu_tb_scale))); p.translate(-c)
         p.fillRect(wr,QColor(72,72,72))
-        p.fillRect(cr, self.view_background_color())
+        self.paint_view_background(p, cr)
         p.setOpacity(1)
         # 再生中は表示領域サイズの合成キャッシュを使用し、
         # 大画像をレイヤーごとに毎フレーム再縮小しない。

@@ -1018,6 +1018,7 @@ class MainWindow(
             log.debug("application was deleted during event-filter cleanup", exc_info=True)
         try:
             self.timer.stop()
+            self.tool_hold._revert_timer.stop()
             self._used_color_timer.stop()
             self._visible_color_timer.stop()
             if getattr(self, "_autosave_timer", None) is not None:

@@ -201,24 +201,34 @@ def test_save_and_open_reset_drop_guard(window, tmp_path):
     assert project.has_unsaved_changes()
 
 
-def test_revert_retry_keeps_waiting_while_drawing(window, clock, monkeypatch):
-    from types import SimpleNamespace
-    scheduled = []
-    monkeypatch.setattr(main_window_tool_hold, "QTimer", SimpleNamespace(
-        singleShot=lambda delay, callback: scheduled.append((delay, callback))))
+def test_revert_retry_keeps_waiting_while_drawing(window, clock):
     preferences.set_tool_hold_enabled(True)
     preferences.set_tool_hold_ms(0)
     window.tools.select_tool("brush")
     QTest.keyPress(window.canvas, Qt.Key.Key_G)
     window.canvas.drawing = True
     QTest.keyRelease(window.canvas, Qt.Key.Key_G)
+    timer = window.tool_hold._revert_timer
     assert window.tools.active_tool == "bucket"
-    delay, retry = scheduled.pop(0)
-    assert delay > 0
-    retry()
+    assert timer.isActive()
+    # Deliver a timeout without sleeping: still drawing, so keep waiting.
+    timer.stop()
+    timer.timeout.emit()
     assert window.tools.active_tool == "bucket", "タイマーが発火しても描画中は戻らない"
-    assert len(scheduled) == 1
+    assert timer.isActive()
     window.canvas.drawing = False
-    scheduled.pop(0)[1]()
+    timer.timeout.emit()
     assert window.tools.active_tool == "brush"
-    assert not scheduled
+    assert not timer.isActive()
+
+
+def test_closing_window_stops_pending_tool_revert(window, clock):
+    preferences.set_tool_hold_enabled(True)
+    preferences.set_tool_hold_ms(0)
+    window.tools.select_tool("brush")
+    QTest.keyPress(window.canvas, Qt.Key.Key_G)
+    window.canvas.drawing = True
+    QTest.keyRelease(window.canvas, Qt.Key.Key_G)
+    assert window.tool_hold._revert_timer.isActive()
+    window.close()
+    assert not window.tool_hold._revert_timer.isActive()
