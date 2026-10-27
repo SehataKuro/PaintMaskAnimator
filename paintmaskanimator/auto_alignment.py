@@ -1,5 +1,5 @@
 """位置合わせを依存段階ごとにまとめ、結果を再利用する。"""
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
 from dataclasses import dataclass
@@ -7,7 +7,7 @@ from hashlib import blake2b
 import logging
 import os
 from time import perf_counter
-from typing import Callable, TypeVar
+from typing import Any, Callable, TypeVar
 
 import numpy as np
 
@@ -63,6 +63,64 @@ class AlignmentCache:
         self.regions = None
         self.region_error = None
         self._samples = None
+        from .auto_motion import MotionMemory
+        self.motion = MotionMemory()
+        self.motion_certified = 0
+        self.shared_support_hits = 0
+        self._supports = {}
+        self._shared = OrderedDict()
+        self.support_checks = self.motion_trials = 0
+        self._support_enabled = self._certify_enabled = True
+        self._resident = None
+        from .auto_routing import PipelinePolicy
+        self.policy = PipelinePolicy()
+
+    def register_motion(self, target, source, flow, x0=0, y0=0):
+        self.motion.register((boundary_key(target), boundary_key(source)), flow, x0, y0)
+
+    def _learn_motion(self, pending):
+        if not self._support_enabled and not self._certify_enabled:
+            return
+        for key, (target, guide, bounds, _margin) in pending.items():
+            if key in self.results:
+                self.motion.learn((boundary_key(target), boundary_key(guide)), bounds, self.results[key])
+                result = self.results[key]
+                if self._support_enabled and getattr(result[0], 'gap', 0) > 2e-5 and min(
+                        abs(result[1] - threshold) for threshold in (0.3, 0.4, 0.5, 0.6)) > 2e-5:
+                    support = self._support_key(target, bounds, _margin)
+                    if support is not None:
+                        self._shared[(boundary_key(guide), support)] = result
+                        while len(self._shared) > 16384:
+                            self._shared.popitem(last=False)
+        if self.support_checks >= 256 and self.shared_support_hits * 100 < self.support_checks:
+            self._support_enabled = False
+            self._shared.clear()
+            self._supports.clear()
+        if self.motion_trials >= 128 and self.motion_certified * 16 < self.motion_trials:
+            self._certify_enabled = False
+
+    def _support_key(self, target, bounds, margin):
+        from . import auto_paint as ap
+        key = boundary_key(target), tuple(bounds), margin
+        if key in self._supports:
+            return self._supports[key]
+        height, width = target.values.shape
+        x0, y0, x1, y1 = bounds
+        tx0, ty0 = max(0, x0-ap.CONTEXT), max(0, y0-ap.CONTEXT)
+        tx1, ty1 = min(width, x1+ap.CONTEXT), min(height, y1+ap.CONTEXT)
+        wx0, wy0 = max(0, tx0-margin), max(0, ty0-margin)
+        wx1, wy1 = min(width, tx1+margin), min(height, ty1+margin)
+        step = max(1, int(np.ceil(max(wx1-wx0, wy1-wy0)/ap._MAX_WINDOW)))
+        limit = margin // step
+        if min((wx1-wx0+step-1)//step, (wy1-wy0+step-1)//step) <= 2*limit:
+            self._supports[key] = None
+            return None
+        sx, sy = tx0+(wx0-tx0)%step, ty0+(wy0-ty0)%step
+        ys, xs = np.nonzero(target.boundary[sy:ty1:step, sx:tx1:step])
+        points = np.ascontiguousarray((ys*step+sy)*width + xs*step+sx, dtype=np.int64)
+        result = (target.values.shape, step, limit, blake2b(points, digest_size=16).digest())
+        self._supports[key] = result
+        return result
 
     def enable_regions(self, pixels):
         if (self.gpu in ("off", "0") or
@@ -73,7 +131,7 @@ class AlignmentCache:
         if self._load_gpu():
             from .auto_gpu_regions import RegionGPU
             try:
-                self.regions = RegionGPU(self._cupy)
+                self.regions = RegionGPU(self._cupy, mode=self.gpu)
             except Exception as error:
                 self.region_error = str(error)
                 log.warning("GPU region initialization failed; continuing on CPU: %s", self.region_error)
@@ -84,6 +142,16 @@ class AlignmentCache:
             self._executor = None
         if self.regions is not None:
             self.regions.close()
+        self._shared.clear()
+        if self._resident is not None:
+            # 結果をCPUのタプルへ戻してから、GPUの小さな結果バッファも解放する。
+            self.results.update({key: (tuple(result[0]), result[1])
+                                 for key, result in self.results.items()})
+            try:
+                self._resident.close()
+            except Exception as error:
+                self.gpu_error = str(error)
+                log.warning("GPU alignment cleanup failed: %s", self.gpu_error)
 
     def sample_region(self, guide, filled, shift=(0, 0), *, ignore=0, require=0, by_label=False):
         from . import native
@@ -113,6 +181,22 @@ class AlignmentCache:
                 pending[key] = (target, guide, bounds, margin)
         if not pending:
             return
+        for key, (target, guide, bounds, margin) in list(pending.items()):
+            if not self._support_enabled:
+                break
+            self.support_checks += 1
+            support = self._support_key(target, bounds, margin)
+            shared = self._shared.get((boundary_key(guide), support)) if support is not None else None
+            if shared is not None:
+                self.results[key] = shared
+                self.shared_support_hits += 1
+                del pending[key]
+        if not pending:
+            return
+
+        hints = {key: self.motion.predict((boundary_key(target), boundary_key(guide)), bounds) if self._certify_enabled else None
+                 for key, (target, guide, bounds, _margin) in pending.items()}
+        self.motion_trials += sum(hint is not None for hint in hints.values())
 
         use_gpu = (self.gpu not in ("off", "0") and not self._gpu_failed and len(pending) >= 4
                    and (self.gpu != "auto" or self.expected_cells >= 4))
@@ -120,13 +204,22 @@ class AlignmentCache:
             problems = {}
             groups = defaultdict(list)
             for key, (target, guide, bounds, margin) in pending.items():
-                problem = ap._prepare_local_shift(target, guide, bounds, margin=margin)
+                problem = ap._prepare_local_shift(target, guide, bounds, margin=margin, lazy=True)
                 if problem is None:
                     self.results[key] = ((0, 0), 0.0)
                     self.cpu_solves += 1
                     continue
+                problem['share_motion'] = self._support_enabled
+                from .auto_motion import certify
+                certified = certify(problem, hints[key])
+                if certified is not None:
+                    self.results[key] = certified
+                    self.motion_certified += 1
+                    continue
                 problems[key] = problem
                 rows, cols = problem["size"]
+                if min(rows, cols) <= 2 * problem['limit']:
+                    continue  # 小窓の循環相関はCPUの従来寸法で厳密に保持する。
                 bucket = ((rows + 63) // 64 * 64, (cols + 63) // 64 * 64, problem["limit"])
                 groups[bucket].append((key, problem))
             for bucket, items in groups.items():
@@ -145,23 +238,36 @@ class AlignmentCache:
                     self.cpu_solves += 1
                 self.cpu_batches += 1
             self.batched_solves += len(pending)
+            self._learn_motion(pending)
             return
 
-        def solve(request):
+        def solve(item):
+            key, request = item
             target, guide, bounds, margin = request
-            return ap._local_shift(target, guide, bounds, margin=margin)
+            problem = ap._prepare_local_shift(target, guide, bounds, margin=margin)
+            if problem is None:
+                return ((0, 0), 0.0), False
+            problem['share_motion'] = self._support_enabled
+            if hints[key] is not None:
+                from .auto_motion import certify
+                certified = certify(problem, hints[key])
+                if certified is not None:
+                    return certified, True
+            return ap._solve_local_shift(problem), False
 
         if len(pending) < 4:
-            results = map(solve, pending.values())
+            results = map(solve, pending.items())
         else:
             if self._executor is None:
                 self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="alignment")
-            results = self._executor.map(solve, pending.values())
+            results = self._executor.map(solve, pending.items())
             self.cpu_batches += 1
-        for key, result in zip(pending, results):
+        for key, (result, certified) in zip(pending, results):
             self.results[key] = result
-            self.cpu_solves += 1
+            self.cpu_solves += not certified
+            self.motion_certified += certified
             self.batched_solves += 1
+        self._learn_motion(pending)
 
     def resolve(self, calls: list[Callable[[], _Answer]]) -> list[_Answer]:
         """必要な探索を一括実行する。callsは再実行されるため確定結果の書き込みを含めない。"""
@@ -308,59 +414,64 @@ class AlignmentCache:
     def _windows_gpu(self, bucket, batch):
         cp = self._cupy
         assert cp is not None
-        rows, cols, limit = bucket
-        count = len(batch)
-        capacity = _batch_capacity(rows, cols)
-        # 端数のバッチも同じサイズで実行し、件数が変わるたびのプラン作成を防ぐ。
-        packed = np.zeros((2 * capacity, rows, cols), dtype=np.float32)
-        for index, (_key, problem) in enumerate(batch):
-            height, width = problem["before"].shape
-            packed[index, :height, :width] = problem["after"]
-            packed[index + capacity, :height, :width] = problem["before"]
-        spectra = cp.fft.rfft2(cp.asarray(packed), axes=(-2, -1))
-        correlation = cp.fft.irfft2(
-            spectra[:capacity] * cp.conj(spectra[capacity:]), s=(rows, cols), axes=(-2, -1),
-        )
-        ys = cp.asarray(np.r_[0:limit + 1, rows - limit:rows])
-        xs = cp.asarray(np.r_[0:limit + 1, cols - limit:cols])
-        # GPUには画像をまとめて渡し、必要な候補位置の小さな表だけを戻す。
-        return cp.asnumpy(correlation[:count, ys[:, None], xs])
+        if self._resident is None:
+            from .auto_gpu_alignment import ResidentAlignment
+            self._resident = ResidentAlignment(cp)
+        return self._resident.windows(bucket, batch, _batch_capacity(*bucket[:2]))
+
+    def _compact_gpu(self, bucket, batch) -> tuple[np.ndarray, Any]:
+        from . import auto_paint as ap
+        windows = self._windows_gpu(bucket, batch)
+        if isinstance(windows, np.ndarray):
+            # CPU配列を返す検証用バックエンドも同じ縮約規則を使う。
+            rows = []
+            for (_key, problem), window in zip(batch, windows):
+                shift, overlap = ap._finish_local_shift(problem, window)
+                scores = window / problem['total'] - ap.MOTION_PENALTY * problem['step'] * (
+                    np.abs(problem['dys'])[:, None] + np.abs(problem['dxs'])[None, :])
+                best = np.partition(scores.ravel(), -2)[-2:]
+                rows.append((*shift, overlap, best[-1] - best[-2]))
+            return np.asarray(rows), None
+        assert self._resident is not None
+        return self._resident.reduce(batch, windows)
 
     def _batch(self, bucket, batch):
         from . import auto_paint as ap
         if self._gpu_failed or self._buckets.get(bucket) is False:
             return
+        policy_key = ('alignment', bucket, len(batch).bit_length())
+        route = self.policy.choose(policy_key)
+        if bucket not in self._buckets and route is False:
+            return
         try:
-            if bucket not in self._buckets:
+            if bucket not in self._buckets and route is None:
                 # 最初のグループはCPUで解いて検証・計測する。初期化と転送を済ませて
                 # 再計測し、実際に速いサイズだけを以後GPUへ回す。
                 started = perf_counter()
-                cpu = [ap._solve_local_shift(problem) for _key, problem in batch]
+                if self._executor is None:
+                    self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="alignment")
+                cpu = list(self._executor.map(ap._solve_local_shift, [p for _key, p in batch]))
                 cpu_seconds = perf_counter() - started
-                self._windows_gpu(bucket, batch)
                 started = perf_counter()
-                windows = self._windows_gpu(bucket, batch)
-                gpu_seconds = perf_counter() - started
+                self._compact_gpu(bucket, batch)
+                cold_seconds = perf_counter() - started
+                started = perf_counter()
+                compact, _device = self._compact_gpu(bucket, batch)
+                warm_seconds = perf_counter() - started
+                gpu_seconds = warm_seconds + max(0.0, cold_seconds - warm_seconds) / max(1, self.expected_cells)
                 same_shifts = all(
-                    ap._finish_local_shift(problem, window)[0] == expected[0]
-                    for (_key, problem), window, expected in zip(batch, windows, cpu)
+                    (int(row[0]), int(row[1])) == expected[0]
+                    for row, expected in zip(compact, cpu)
                 )
-                self._buckets[bucket] = same_shifts and gpu_seconds < cpu_seconds * 0.85
+                self.policy.record(policy_key, cpu_seconds, gpu_seconds, valid=same_shifts)
                 for (key, _problem), result in zip(batch, cpu):
                     self.results[key] = result
                 self.cpu_solves += len(batch)
                 return
-            windows = self._windows_gpu(bucket, batch)
-            for (key, problem), window in zip(batch, windows):
-                result = ap._finish_local_shift(problem, window)
-                # 丸め誤差で同点の順位や閾値を変えない。際どい判断はCPUへ戻す。
-                scores = window / problem["total"] - ap.MOTION_PENALTY * problem["step"] * (
-                    np.abs(problem["dys"])[:, None] + np.abs(problem["dxs"])[None, :]
-                )
-                gap = float("inf")
-                if scores.size > 1:
-                    best = np.partition(scores.ravel(), -2)[-2:]
-                    gap = best[-1] - best[-2]
+            compact, device = self._compact_gpu(bucket, batch)
+            for index, ((key, problem), row) in enumerate(zip(batch, compact)):
+                result = ((int(row[0]), int(row[1])), float(row[2]))
+                gap = float(row[3])
                 near_threshold = min(abs(result[1] - threshold)
                                      for threshold in (ap.MIN_LINE_OVERLAP, ap.MIN_COLOR_LINE_OVERLAP,
                                                        0.3, 0.5, 0.6)) < 2e-5
@@ -369,6 +480,10 @@ class AlignmentCache:
                     self.cpu_solves += 1
                 else:
                     self.gpu_solves += 1
+                    if device is not None:
+                        from .auto_gpu_alignment import DeviceShift
+                        result = (DeviceShift(*result[0], device[index, :2]), result[1])
+                        result[0].gap = gap
                 self.results[key] = result
         except Exception as error:
             self._gpu_failed = True

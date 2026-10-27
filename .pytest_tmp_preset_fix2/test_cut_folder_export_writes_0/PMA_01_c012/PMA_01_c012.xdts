@@ -1,0 +1,52 @@
+exchangeDigitalTimeSheet Save Data
+{
+  "timeTables": [
+    {
+      "duration": 2,
+      "name": "PMA_01_c012",
+      "timeTableHeaders": [
+        {
+          "fieldId": 0,
+          "names": [
+            "A"
+          ]
+        }
+      ],
+      "fields": [
+        {
+          "fieldId": 0,
+          "tracks": [
+            {
+              "trackNo": 0,
+              "frames": [
+                {
+                  "frame": 0,
+                  "data": [
+                    {
+                      "id": 0,
+                      "values": [
+                        "1"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "frame": 1,
+                  "data": [
+                    {
+                      "id": 0,
+                      "values": [
+                        "2"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "version": 5
+}

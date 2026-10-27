@@ -147,6 +147,8 @@ class PartTracker:
         left, right = target.boundary[y0:y1, x0:x1], source.boundary[y0:y1, x0:x1]
         pair = _FlowPair(line_flow.estimate_flow(left, right), line_flow.estimate_flow(right, left),
                          x0, y0)
+        self.alignment.register_motion(target, source, pair.forward, x0, y0)
+        self.alignment.register_motion(source, target, pair.backward, x0, y0)
         self.flow_solves += 1
         self.pairs[key] = pair
         if len(self.pairs) > MAX_FLOW_PAIRS:
@@ -168,6 +170,13 @@ class PartTracker:
     def _color(self, index, target, filled, guide):
         rgb = self._flow_color(index, target, filled, guide)
         return rgb if rgb is not None else self._tiled_color(index, target, filled, guide)
+
+    def prime_motion(self, index, target, guides):
+        """通常の領域照合より先に、隣接セル間の共有変形場を用意する。"""
+        adjacent = [guide for guide in guides if guide.initial is not None
+                    and guide.index is not None and abs(guide.index - index) == 1]
+        if adjacent:
+            self._path(index, target, adjacent[0])
 
     def _flow_color(self, index, target, filled, guide):
         from . import auto_paint as ap

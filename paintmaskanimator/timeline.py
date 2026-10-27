@@ -2029,11 +2029,20 @@ class TimelineWidget(QWidget):
     def eventFilter(self, watched, event):
         if (
             watched is self.layer_list.viewport()
-            and event.type() == QEvent.Type.MouseButtonPress
+            and event.type() in (
+                QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonDblClick,
+            )
             and event.button() == Qt.MouseButton.LeftButton
         ):
             point = event.position().toPoint()
             item = self.layer_list.itemAt(point)
+            if (
+                item is not None
+                and point.x() <= LayerListDelegate.MARKER_WIDTH
+                and event.type() == QEvent.Type.MouseButtonDblClick
+            ):
+                event.accept()
+                return True
             if item is not None and point.x() <= LayerListDelegate.CHEVRON_WIDTH:
                 self.toggle_layer_expanded(self.layer_list.row(item))
                 event.accept()
@@ -2045,7 +2054,6 @@ class TimelineWidget(QWidget):
                 )
                 visible = not visible
                 item.setData(Qt.ItemDataRole.UserRole + 4, visible)
-                self.layer_list.setCurrentItem(item)
                 self.layer_list.viewport().update()
                 self.layerVisibilityChanged.emit(row, visible)
                 event.accept()

@@ -89,6 +89,33 @@ def test_timesheet_folder_puts_the_sheet_in_a_subfolder(window, tmp_path, monkey
     assert (tmp_path / "PMA_01_c003" / "_ts" / "PMA_01_c003.xdts").is_file()
 
 
+@pytest.mark.parametrize("kind", ["builtin", "user"])
+def test_dialog_preset_switch_remembers_selection(qapp, isolated_config, kind):
+    preset_name = "_ts・_pool" if kind == "builtin" else "Custom"
+    layout = cf.ts_pool_layout()
+    isolated_config["cut_folder_export"] = {
+        "presets": {"Custom": layout.to_json()},
+    }
+    dialog = CutFolderExportDialog([])
+    try:
+        row = next(
+            row for row in range(dialog.preset_combo.count())
+            if dialog.preset_combo.itemData(row)
+            and tuple(dialog.preset_combo.itemData(row)) == (kind, preset_name)
+        )
+        dialog.preset_combo.setCurrentIndex(row)
+        dialog.preset_combo.activated.emit(row)
+
+        assert dialog._current_preset == (kind, preset_name)
+        assert dialog.current_layout().to_json() == layout.to_json()
+        dialog.remember()
+        assert isolated_config["cut_folder_export"]["preset"] == preset_name
+    finally:
+        dialog.close()
+        dialog.deleteLater()
+        qapp.processEvents()
+
+
 def test_dialog_preview_and_validation(window, tmp_path):
     _draw_cels(window, 2)
     cels, _images, _ = window.export.cut_folder_cels()

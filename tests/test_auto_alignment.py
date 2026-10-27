@@ -35,7 +35,7 @@ def test_gpu_region_initialization_error_keeps_cpu_available(monkeypatch):
     cache = auto_alignment.AlignmentCache(gpu="on")
     monkeypatch.setattr(cache, '_load_gpu', lambda: True)
 
-    def fail(*args):
+    def fail(*args, **kwargs):
         raise RuntimeError('device unavailable during initialization')
 
     monkeypatch.setattr(auto_gpu_regions, 'RegionGPU', fail)
@@ -45,6 +45,19 @@ def test_gpu_region_initialization_error_keeps_cpu_available(monkeypatch):
     target, guide = pair()
     assert cache.shift(target, guide, (80, 80, 112, 112), 24)[0] == (3, -2)
     cache.close()
+
+
+def test_gpu_cleanup_error_does_not_discard_cpu_results():
+    cache = auto_alignment.AlignmentCache(gpu='off')
+
+    def fail():
+        raise RuntimeError('lost device while releasing memory')
+
+    cache._resident = SimpleNamespace(close=fail)
+    cache.results['known'] = ((1, -2), .9)
+    cache.close()
+    assert cache.results['known'] == ((1, -2), .9)
+    assert 'lost device' in cache.gpu_error
 
 
 def cell(mask):
@@ -82,18 +95,19 @@ def test_alignment_workers_really_overlap_and_keep_request_order(monkeypatch):
     barrier = Barrier(4, timeout=5)
     threads = set()
 
-    def solve(target, guide, bounds, margin):
+    def solve(problem):
         threads.add(get_ident())
         barrier.wait()
-        return (bounds[0], margin), 0.9
+        bounds_x = problem['device_spec'][6]
+        return (bounds_x, 24), 0.9
 
-    monkeypatch.setattr(auto_paint, "_local_shift", solve)
+    monkeypatch.setattr(auto_paint, "_solve_local_shift", solve)
     requests = [(target, guide, (x, 0, x + 20, 20), 24) for x in range(4)]
     cache = auto_alignment.AlignmentCache(gpu="off")
     try:
         cache.solve_many(requests)
         assert len(threads) == 4
-        assert [cache.shift(*request) for request in requests] == [((x, 24), 0.9) for x in range(4)]
+        assert [cache.shift(*request) for request in requests] == [((44 + x, 24), 0.9) for x in range(4)]
     finally:
         cache.close()
 
@@ -129,7 +143,7 @@ def test_parallel_worker_errors_propagate_and_can_be_closed(monkeypatch):
     def fail(*args, **kwargs):
         raise RuntimeError("alignment failure")
 
-    monkeypatch.setattr(auto_paint, "_local_shift", fail)
+    monkeypatch.setattr(auto_paint, "_solve_local_shift", fail)
     try:
         with pytest.raises(RuntimeError, match="alignment failure"):
             cache.solve_many([(target, guide, (x, 0, x + 20, 20), 24) for x in range(4)])
@@ -236,7 +250,7 @@ def test_autotuning_leaves_slower_batches_on_cpu(monkeypatch):
     target, guide = pair()
     problem = auto_paint._prepare_local_shift(target, guide, (80, 80, 112, 112), margin=24)
     cache = auto_alignment.AlignmentCache(gpu="on")
-    times = iter((0.0, 1.0, 2.0, 4.0))
+    times = iter((0.0, 1.0, 2.0, 4.0, 5.0, 7.0))
     monkeypatch.setattr(auto_alignment, "perf_counter", lambda: next(times))
     calls = []
 
@@ -247,7 +261,7 @@ def test_autotuning_leaves_slower_batches_on_cpu(monkeypatch):
     monkeypatch.setattr(cache, "_windows_gpu", windows)
     bucket = (256, 256, 24)
     cache._batch(bucket, [(0, problem)])
-    assert cache._buckets[bucket] is False
+    assert cache.policy.choose(('alignment', bucket, 1)) is False
     assert cache.results[0] == auto_paint._solve_local_shift(problem)
     cache._batch(bucket, [(1, problem)])
     assert len(calls) == 2
@@ -279,13 +293,19 @@ def test_batched_gpu_padding_and_transfer_preserve_alignment(monkeypatch, tmp_pa
     if not cache._load_gpu():
         pytest.skip("CUDA GPU not available")
     target, guide = pair()
+    # GPUの生ポインタは行優先で扱う。入力の配列配置に結果を依存させない。
+    for item in (target, guide):
+        item.boundary = np.asfortranarray(item.boundary)
+        item.wide_boundary = np.asfortranarray(item.wide_boundary)
     batch = []
     for index in range(12):
         bounds = (80 + index, 80, 112 + index + index % 4, 112 + index % 3)
-        problem = auto_paint._prepare_local_shift(target, guide, bounds, margin=24)
+        problem = auto_paint._prepare_local_shift(target, guide, bounds, margin=24, lazy=True)
         batch.append((index, problem))
     bucket = (320, 320, 24)
     windows = cache._windows_gpu(bucket, batch)
+    assert all('after' not in problem for _key, problem in batch)
+    windows = cache._cupy.asnumpy(windows)
     expected = [auto_paint._solve_local_shift(problem) for _key, problem in batch]
     for (_key, problem), window, answer in zip(batch, windows, expected):
         actual = auto_paint._finish_local_shift(problem, window)
@@ -296,6 +316,9 @@ def test_batched_gpu_padding_and_transfer_preserve_alignment(monkeypatch, tmp_pa
     assert cache.gpu_solves > 0
     for index, answer in enumerate(expected):
         assert cache.results[index][0] == answer[0]
+    cache.close()
+    assert cache._resident.pool.used_bytes() == 0
+    assert cache._resident.pool.total_bytes() == 0
 
 @pytest.mark.parametrize('shape,margin', [((17, 23), 3), ((31, 42), 12), ((96, 127), 24)])
 def test_short_fft_padding_matches_full_linear_correlation(shape, margin):

@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QToolButton,
     QWidget,
 )
+from . import icons, theme
 from .i18n import tr
 from .color_picker_dialog import ColorPickerDialog
 from .utils import (
@@ -157,48 +158,17 @@ class ColorCategoryHeader(QWidget):
 
 
 def _draw_eye_icon(painter, rect, color, is_open):
-    """モダンなアウトライン風の目アイコンを描く。開＝表示、閉＝非表示。"""
-    painter.save()
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-
-    # アイコン領域を正方形へ寄せ、上下左右に少し余白を取る。
-    size = min(rect.width(), rect.height())
-    box = QRectF(0, 0, size, size)
-    box.moveCenter(QPointF(rect.center()))
-    box.adjust(3.0, 5.0, -3.0, -5.0)
-
-    pen = QPen(color)
-    pen.setWidthF(1.6)
-    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-    painter.setPen(pen)
-    painter.setBrush(Qt.BrushStyle.NoBrush)
-
-    cx = box.center().x()
-    cy = box.center().y()
-    half_w = box.width() / 2.0
-    lid = box.height() / 2.0
-
-    # 上まぶた・下まぶたを2本の対称な弧で描くアーモンド形。
-    outline = QPainterPath()
-    outline.moveTo(cx - half_w, cy)
-    outline.quadTo(cx, cy - lid, cx + half_w, cy)
-    outline.quadTo(cx, cy + lid, cx - half_w, cy)
-    painter.drawPath(outline)
-
-    if is_open:
-        # 瞳孔は塗りつぶしの円で表現する。
-        pupil_r = min(half_w, lid) * 0.55
-        painter.setBrush(color)
-        painter.drawEllipse(QPointF(cx, cy), pupil_r, pupil_r)
-    else:
-        # 非表示時は斜線を重ねて「閉じている」ことを示す。
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawLine(
-            QPointF(box.left(), box.bottom()),
-            QPointF(box.right(), box.top()),
-        )
-    painter.restore()
+    """タイムラインと同じ16pxの表示切替アイコンを中央に描く。"""
+    dpr = painter.device().devicePixelRatioF() if painter.device() else 1.0
+    pixmap = icons.pixmap(
+        "eye" if is_open else "eye_off", 16, color.name(),
+        device_pixel_ratio=dpr,
+    )
+    painter.drawPixmap(
+        int(rect.left() + (rect.width() - 16) / 2),
+        int(rect.top() + (rect.height() - 16) / 2),
+        pixmap,
+    )
 
 
 class SourceColorButton(_ScreenColorDragMixin, QToolButton):
@@ -414,14 +384,11 @@ class ColorVisibilityCheckBox(QCheckBox):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        if self.isChecked():
-            color = (
-                self.palette().text().color()
-                if self.isEnabled() else self.palette().mid().color()
-            )
-        else:
-            # 非表示の目は控えめなグレーで、状態差を色でも伝える。
-            color = self.palette().mid().color()
+        colors = theme.palette()
+        color = QColor(
+            colors["text"] if self.isChecked() and self.isEnabled()
+            else colors["text_muted"]
+        )
         _draw_eye_icon(painter, self.rect(), color, self.isChecked())
         painter.end()
 

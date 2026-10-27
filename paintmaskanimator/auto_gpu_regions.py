@@ -1,6 +1,7 @@
 """自動塗りの連結成分と、ラン圧縮した見本の採色をGPUで処理する。"""
 from collections import OrderedDict, defaultdict
 from contextlib import contextmanager
+from hashlib import blake2b
 from threading import RLock
 from time import perf_counter
 from typing import Any
@@ -111,7 +112,7 @@ def mask_runs(filled):
 class RegionGPU:
     """計画内だけのGPUキャッシュ。採色結果のみCPUへ戻し、不変の見本を再利用する。"""
 
-    def __init__(self, cp, *, max_bytes=128 * 1024 * 1024, capacity=16):
+    def __init__(self, cp, *, max_bytes=128 * 1024 * 1024, capacity=16, mode="on"):
         self.cp = cp
         self.device = cp.cuda.Device().id
         self.pool = cp.cuda.MemoryPool()
@@ -127,6 +128,11 @@ class RegionGPU:
         self.guide_uploads = 0
         self.result_capacity = 4096
         self._pinned = 0
+        from .auto_routing import PipelinePolicy
+        self.mode = mode
+        self.policy = PipelinePolicy()
+        self.cpu_samples = self.cpu_indices = 0
+        self.device_shift_samples = 0
         self.kernels = {name: cp.RawKernel(_SOURCE, name) for name in (
             "count_runs", "winners", "matched_runs", "finish_samples",
         )}
@@ -150,6 +156,19 @@ class RegionGPU:
         """4近傍の連結成分と外接矩形。背景番号0は種として使わない。"""
         if self.failed or passable.size == 0:
             return None
+        policy_key = ('bucket', passable.size.bit_length(),
+                      int(np.count_nonzero(passable[:, 1:] != passable[:, :-1])).bit_length())
+        route = self.policy.choose(policy_key) if self.mode == 'auto' else True
+        cpu_result, cpu_seconds = None, 0.0
+        if route is not True:
+            from .bucket_fill import _RegionIndex
+            started = perf_counter()
+            cpu = _RegionIndex(passable)
+            cpu_result = cpu.labels, cpu.x0, cpu.y0, cpu.x1, cpu.y1
+            cpu_seconds = perf_counter() - started
+            if route is False:
+                self.cpu_indices += 1
+                return cpu_result
         try:
             with self.lock, self.cp.cuda.Device(self.device), self.cp.cuda.using_allocator(self.pool.malloc):
                 from cupyx.scipy.ndimage import label
@@ -172,7 +191,13 @@ class RegionGPU:
                 cp.maximum.at(y1, kinds, ys + 1)
                 result = tuple(cp.asnumpy(array) for array in (labels, x0, y0, x1, y1))
                 self.index_count += 1
-                self.index_seconds += perf_counter() - started
+                elapsed = perf_counter() - started
+                self.index_seconds += elapsed
+                if route is None:
+                    use_gpu = self.policy.record(policy_key, cpu_seconds, elapsed)
+                    if not use_gpu:
+                        self.cpu_indices += 1
+                        return cpu_result
                 return result
         except Exception as error:
             self._failure(error)
@@ -214,11 +239,14 @@ class RegionGPU:
 
     @staticmethod
     def key(guide, filled, shift, ignore, require, by_label):
-        return guide, id(filled), tuple(shift), ignore, require, by_label
+        mask_key = getattr(filled, "_gpu_sample_key", None)
+        if mask_key is None:
+            mask_key = blake2b(mask_runs(filled), digest_size=16).digest()
+            filled._gpu_sample_key = mask_key
+        return guide, mask_key, tuple(shift), ignore, require, by_label
 
     def cached(self, key):
-        result = self.results.get(key)
-        return result[1] if result is not None else None
+        return self.results.get(key)
 
     @contextmanager
     def phase(self):
@@ -239,14 +267,12 @@ class RegionGPU:
             return
         try:
             with self.lock, self.cp.cuda.Device(self.device), self.cp.cuda.using_allocator(self.pool.malloc):
-                started = perf_counter()
                 groups = defaultdict(list)
                 for key, request in requests.items():
                     groups[(request[0], request[-1])].append((key, request))
                 for (guide, by_label), items in groups.items():
-                    device = self._guide(guide)
-                    nk = len(device[6]) if by_label else len(device[7])
-                    capacity = min(64, max(1, 16 * 1024 * 1024 // (4 * (nk + len(device[6])))))
+                    nl = len(guide.regions.sizes)
+                    capacity = min(64, max(1, 16 * 1024 * 1024 // (8 * nl)))
                     batches, batch, run_count = [], [], 0
                     for item in items:
                         count = len(mask_runs(item[1][1]))
@@ -258,15 +284,44 @@ class RegionGPU:
                     if batch:
                         batches.append(batch)
                     for batch in batches:
-                        answers = self._sample_batch(guide, device, batch, by_label)
-                        for (key, request), answer in zip(batch, answers):
-                            # マスクも保持し、id再利用で別の要求と衝突するのを防ぐ。
-                            self.results[key] = (request[1], answer)
+                        work = sum(len(mask_runs(item[1][1])) for item in batch)
+                        policy_key = ('sample', len(batch).bit_length(), work.bit_length(), by_label,
+                                      guide in self.guides)
+                        route = self.policy.choose(policy_key) if self.mode == 'auto' else True
+                        cpu_answers, cpu_seconds = None, 0.0
+                        if route is not True:
+                            from . import native
+                            started = perf_counter()
+                            cpu_answers = [native.sample_region(r[0], r[1], r[2], ignore=r[3],
+                                                                 require=r[4], by_label=r[5])
+                                           for _key, r in batch]
+                            cpu_seconds = perf_counter() - started
+                            if any(answer is None for answer in cpu_answers):
+                                cpu_answers, route = None, True
+                        if route is False:
+                            answers = cpu_answers
+                            self.cpu_samples += len(batch)
+                        else:
+                            started = perf_counter()
+                            device = self._guide(guide)
+                            answers = self._sample_batch(guide, device, batch, by_label)
+                            elapsed = perf_counter() - started
+                            self.sample_seconds += elapsed
+                            self.sample_count += len(batch)
+                            self.sample_batches += 1
+                            if route is None:
+                                valid = answers == cpu_answers
+                                self.policy.record(policy_key, cpu_seconds, elapsed, valid=valid)
+                                if not valid:
+                                    self._failure(RuntimeError('GPU sampling differs from CPU'))
+                                answers = cpu_answers
+                                self.cpu_samples += len(batch)
+                        assert answers is not None
+                        for (key, _request), answer in zip(batch, answers):
+                            # 大きなマスクをキャッシュに保持せず、圧縮ランの指紋で照合する。
+                            self.results[key] = answer
                             while not self._pinned and len(self.results) > max(self.result_capacity, len(requests)):
                                 self.results.popitem(last=False)
-                        self.sample_count += len(batch)
-                        self.sample_batches += 1
-                self.sample_seconds += perf_counter() - started
         except Exception as error:
             self._failure(error)
 
@@ -279,7 +334,15 @@ class RegionGPU:
         offsets = np.r_[0, np.cumsum([len(mask) for mask in masks])].astype(np.int32)
         runs = cp.asarray(np.concatenate(masks))
         jobs = cp.asarray(np.repeat(np.arange(len(batch), dtype=np.int32), np.diff(offsets)))
-        params = cp.asarray(np.array([(r[2][0], r[2][1], r[3], r[4]) for _key, r in batch], dtype=np.int32))
+        params = cp.asarray(np.array([
+            (0, 0, r[3], r[4]) if hasattr(r[2], 'device') else (r[2][0], r[2][1], r[3], r[4])
+            for _key, r in batch], dtype=np.int32))
+        device_jobs = [(index, r[2].device) for index, (_key, r) in enumerate(batch)
+                       if hasattr(r[2], 'device')]
+        if device_jobs:
+            indices = cp.asarray(np.array([index for index, _shift in device_jobs], dtype=np.int32))
+            params[indices, :2] = cp.stack([shift for _index, shift in device_jobs]).astype(cp.int32)
+            self.device_shift_samples += len(device_jobs)
         nj, nr, nk, nl = len(batch), len(runs), len(palette), len(sizes)
         counts = cp.zeros((nj, nk), dtype=cp.int32)
         output = cp.zeros((nj, 9), dtype=cp.int64)

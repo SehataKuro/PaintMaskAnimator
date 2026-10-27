@@ -365,3 +365,50 @@ def test_range_handle_drag_changes_duration(window, qapp):
     QTest.mouseMove(header.viewport(), QPoint(right + 2 * size, 8))
     QTest.mouseRelease(header.viewport(), Qt.MouseButton.LeftButton, pos=QPoint(right + 2 * size, 8))
     assert len(window.canvas.frames) == 14
+
+
+
+def test_eye_clicks_preserve_layer_selection_and_do_not_rename(qapp):
+    from PySide6.QtCore import QPoint
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QLineEdit, QListWidgetItem
+    from paintmaskanimator.timeline import TimelineWidget
+
+    timeline = TimelineWidget()
+    for name in ("First", "Second"):
+        item = QListWidgetItem(name)
+        item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
+        item.setData(LayerListDelegate.VISIBLE_ROLE, True)
+        timeline.layer_list.addItem(item)
+    timeline.layer_list.setCurrentRow(0)
+    timeline.resize(900, 220)
+    timeline.show()
+    qapp.processEvents()
+    changes = []
+    timeline.layerVisibilityChanged.connect(lambda row, visible: changes.append((row, visible)))
+    item = timeline.layer_list.item(1)
+    rect = timeline.layer_list.visualItemRect(item)
+    point = QPoint(32, rect.center().y())
+    try:
+        QTest.mouseClick(timeline.layer_list.viewport(), Qt.MouseButton.LeftButton, pos=point)
+        assert changes == [(1, False)]
+        assert timeline.layer_list.currentRow() == 0
+        QTest.mouseDClick(timeline.layer_list.viewport(), Qt.MouseButton.LeftButton, pos=point)
+        qapp.processEvents()
+        assert timeline.layer_list.currentRow() == 0
+        assert not timeline.layer_list.findChildren(QLineEdit)
+        # Double-clicking the name still opens the editor.
+        QTest.mouseClick(
+            timeline.layer_list.viewport(), Qt.MouseButton.LeftButton,
+            pos=QPoint(90, rect.center().y()),
+        )
+        QTest.mouseDClick(
+            timeline.layer_list.viewport(), Qt.MouseButton.LeftButton,
+            pos=QPoint(90, rect.center().y()),
+        )
+        qapp.processEvents()
+        assert timeline.layer_list.findChildren(QLineEdit)
+    finally:
+        timeline.close()
+        timeline.deleteLater()
+        qapp.processEvents()

@@ -549,7 +549,22 @@ def _local_shift(target: _Cell, guide: _Cell, bounds, context=CONTEXT, margin=SE
     return ((0, 0), 0.0) if problem is None else _solve_local_shift(problem)
 
 
-def _prepare_local_shift(target, guide, bounds, context=CONTEXT, margin=SEARCH_MARGIN):
+class _ShiftProblem(dict):
+    """GPUで作る見本の窓は、CPUへ戻す必要が生じたときだけ構築する。"""
+
+    def __getitem__(self, key):
+        if key == 'after' and key not in self:
+            _target, guide, wx0, wy0, *_crop = dict.__getitem__(self, 'device_spec')
+            step = dict.__getitem__(self, 'step')
+            height, width = dict.__getitem__(self, 'before').shape
+            roi = np.s_[wy0:wy0+height*step:step, wx0:wx0+width*step:step]
+            exact = guide.boundary[roi].astype(np.float32)
+            near = guide.wide_boundary[roi].astype(np.float32)
+            self[key] = exact * (1.0 - NEAR_LINE_WEIGHT) + near * NEAR_LINE_WEIGHT
+        return super().__getitem__(key)
+
+
+def _prepare_local_shift(target, guide, bounds, context=CONTEXT, margin=SEARCH_MARGIN, *, lazy=False):
     height, width = target.values.shape
     x0, y0, x1, y1 = bounds
     tx0, ty0 = max(0, x0 - context), max(0, y0 - context)
@@ -561,11 +576,8 @@ def _prepare_local_shift(target, guide, bounds, context=CONTEXT, margin=SEARCH_M
     before[ty0 - wy0:ty1 - wy0, tx0 - wx0:tx1 - wx0] = target.boundary[ty0:ty1, tx0:tx1]
     before = before[::step, ::step]
     # ぴったり重なる線は1、1画素ずれて重なる線は ``NEAR_LINE_WEIGHT`` に数える。
-    exact = guide.boundary[wy0:wy1:step, wx0:wx1:step].astype(np.float32)
-    near_line = guide.wide_boundary[wy0:wy1:step, wx0:wx1:step].astype(np.float32)
-    after = exact * (1.0 - NEAR_LINE_WEIGHT) + near_line * NEAR_LINE_WEIGHT
     total = float(before.sum())
-    if total == 0 or not after.any():
+    if total == 0 or not guide.wide_boundary[wy0:wy1:step, wx0:wx1:step].any():
         return None
     limit = margin // step
     size = _correlation_size(before, limit)
@@ -573,8 +585,12 @@ def _prepare_local_shift(target, guide, bounds, context=CONTEXT, margin=SEARCH_M
     xs = np.r_[0:limit + 1, size[1] - limit:size[1]]
     dys = np.where(ys >= size[0] // 2, ys - size[0], ys)
     dxs = np.where(xs >= size[1] // 2, xs - size[1], xs)
-    return dict(before=before, after=after, size=size, total=total, step=step,
-                limit=limit, ys=ys, xs=xs, dys=dys, dxs=dxs)
+    problem = _ShiftProblem(before=before, size=size, total=total, step=step,
+                limit=limit, ys=ys, xs=xs, dys=dys, dxs=dxs,
+                device_spec=(target, guide, wx0, wy0, tx0, ty0, tx1, ty1))
+    if not lazy:
+        problem['after']
+    return problem
 
 
 @lru_cache(maxsize=1024)
@@ -625,7 +641,15 @@ def _finish_local_shift(problem, window):
 
 
 def _solve_local_shift(problem):
-    return _finish_local_shift(problem, _local_shift_window(problem))
+    window = _local_shift_window(problem)
+    shift, overlap = _finish_local_shift(problem, window)
+    if not problem.get('share_motion', False):
+        return shift, overlap
+    from .auto_motion import LocalShift
+    scores = window / problem['total'] - MOTION_PENALTY * problem['step'] * (
+        np.abs(problem['dys'])[:, None] + np.abs(problem['dxs'])[None, :])
+    best = np.partition(scores.ravel(), -2)[-2:] if scores.size > 1 else np.array([-np.inf, 0.0])
+    return LocalShift(*shift, best[-1] - best[-2]), overlap
 
 
 def _refine(target: _Cell, guide: _Cell, local, bounds, shift):
@@ -1733,6 +1757,8 @@ def _plan_auto_paint(
                         target_for(index), bucket_options, alignment=alignment,
                         reference_regions=reference_regions,
                     )
+                if len(bucket_work[index].collect()) >= 16:
+                    tracker.prime_motion(index, target_for(index), guides)
                 paint = auto_bucket.paint_cell(
                     cells[index], guides, bucket_options, target=target_for(index), margin=margin,
                     work=bucket_work[index],
@@ -1781,9 +1807,18 @@ def _plan_auto_paint(
             alignment_hits=alignment.hits, cpu_alignments=alignment.cpu_solves,
             alignment_batches=alignment.cpu_batches,
             batched_alignments=alignment.batched_solves,
+            shared_motion_certified=alignment.motion_certified,
+            shared_motion_regions=alignment.shared_support_hits,
+            shared_motion_trials=alignment.motion_trials,
+            shared_support_checks=alignment.support_checks,
+            gpu_alignment_uploads=0 if alignment._resident is None else alignment._resident.uploads,
+            gpu_alignment_return_bytes=0 if alignment._resident is None else alignment._resident.returned_bytes,
             gpu_region_samples=0 if alignment.regions is None else alignment.regions.sample_count,
             gpu_sample_batches=0 if alignment.regions is None else alignment.regions.sample_batches,
             gpu_guide_uploads=0 if alignment.regions is None else alignment.regions.guide_uploads,
+            routed_cpu_samples=0 if alignment.regions is None else alignment.regions.cpu_samples,
+            routed_cpu_indices=0 if alignment.regions is None else alignment.regions.cpu_indices,
+            gpu_resident_shift_samples=0 if alignment.regions is None else alignment.regions.device_shift_samples,
             gpu_bucket_indices=0 if alignment.regions is None else alignment.regions.index_count,
             gpu_region_error=alignment.region_error if alignment.regions is None else alignment.regions.error,
             gpu_sample_seconds=0.0 if alignment.regions is None else alignment.regions.sample_seconds,

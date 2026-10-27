@@ -95,6 +95,54 @@ def test_empty_mask_and_multi_request_prefixes(backend):
         assert backend.cached(key) == oracle(*request)
 
 
+def test_gpu_sampling_uses_the_resident_alignment_result(backend):
+    from paintmaskanimator.auto_gpu_alignment import DeviceShift
+    guide, filled = specimen()
+    shift = DeviceShift(3, -5, backend.cp.asarray([3., -5.]))
+    request = guide, filled, shift, 0, 0, False
+    key = backend.key(*request)
+    backend.sample_many({key: request})
+    assert backend.cached(key) == oracle(*request)
+    assert backend.device_shift_samples == 1
+
+
+def test_cpu_route_does_not_launch_gpu_sample_kernels(backend, monkeypatch):
+    from paintmaskanimator.auto_gpu_regions import mask_runs
+    guide, filled = specimen()
+    request = guide, filled, (0, 0), 0, 0, False
+    expected = oracle(*request)
+    backend.mode = 'auto'
+    key = ('sample', 1, len(mask_runs(filled)).bit_length(), False, False)
+    backend.policy.record(key, 1., 2.)
+    monkeypatch.setattr(native, 'sample_region', lambda *args, **kwargs: expected)
+
+    def fail(*args, **kwargs):
+        pytest.fail('CPU route must not launch a GPU kernel')
+
+    monkeypatch.setattr(backend, '_sample_batch', fail)
+    cache_key = backend.key(*request)
+    backend.sample_many({cache_key: request})
+    assert backend.cached(cache_key) == expected
+    assert backend.cpu_samples == 1 and backend.sample_count == 0
+
+
+def test_cpu_route_does_not_launch_gpu_bucket_labeling(backend, monkeypatch):
+    import cupyx.scipy.ndimage as ndi
+    mask = np.random.default_rng(19).random((20, 24)) < .5
+    key = ('bucket', mask.size.bit_length(),
+           int(np.count_nonzero(mask[:, 1:] != mask[:, :-1])).bit_length())
+    backend.mode = 'auto'
+    backend.policy.record(key, 1., 2.)
+
+    def fail(*args, **kwargs):
+        pytest.fail('CPU route must not launch GPU labeling')
+
+    monkeypatch.setattr(ndi, 'label', fail)
+    result = backend.index(mask)
+    np.testing.assert_array_equal(result[0], bucket_fill._RegionIndex(mask).labels)
+    assert backend.cpu_indices == 1 and backend.index_count == 0
+
+
 def test_resolve_keeps_dependencies_until_all_calls_finish(backend):
     guide, filled = specimen()
     backend.result_capacity = 1

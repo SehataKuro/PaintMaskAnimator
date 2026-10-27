@@ -962,7 +962,7 @@ class CutFolderExportDialog(QDialog):
                 self.set_layout(cf.pma_standard_layout())
                 return
         if kind in ("builtin", "user"):
-            self._current_preset = (kind, name)
+            self._current_preset = (kind, preset_name)
         else:
             self._rebuild_preset_combo(self._current_preset[1] if self._current_preset else None)
 
