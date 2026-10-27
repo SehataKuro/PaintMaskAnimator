@@ -26,6 +26,7 @@ dependencies = [
 
 [project.optional-dependencies]
 full = ["Pillow>=9.4", "psd-tools>=1.9"]
+gpu = ["cupy-cuda13x[ctk]>=14.2,<15; platform_system == 'Windows' or platform_system == 'Linux'"]
 dev = [
     "pytest>=8",
     "pytest-cov>=4",

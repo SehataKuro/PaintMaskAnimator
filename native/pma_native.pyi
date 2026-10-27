@@ -5,6 +5,23 @@
 
 __version__: str
 
+class GuideSampler:
+    def __init__(self, values: bytes, labels: bytes, flags: bytes, sizes: bytes,
+                 width: int, height: int) -> None: ...
+    def sample(self, runs: bytes, dy: int, dx: int, ignore: int, require: int,
+               by_label: bool) -> tuple[int, int, int | None, int, int, bool, bool, int, int]: ...
+
+def connect_runs(starts: bytes, ends: bytes, kinds: bytes, rows: bytes) -> tuple[bytes, int]: ...
+
+def label_runs(data: bytes, width: int, height: int, itemsize: int
+               ) -> tuple[bytes, int, bytes, bytes, bytes, bytes]: ...
+
+def refine_face(
+    values: bytes, labels: bytes, usable: bytes, excluded: bytes, sizes: bytes,
+    points: bytes, width: int, height: int, radius: int,
+    thresholds: tuple[float, float, float, float],
+) -> list[tuple[int, float]]: ...
+
 def thin(mask: bytes, width: int, height: int, iterations: int) -> bytes:
     """Zhang-Suen 細線化。線端の判定に使い、描画画像自体は変えない。"""
 

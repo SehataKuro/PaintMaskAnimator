@@ -60,6 +60,91 @@ def _as_bytes(mask):
     return np.ascontiguousarray(mask, dtype=bool).tobytes()
 
 
+def connect_runs(starts, ends, kinds, rows):
+    """同色の上下ランを結合する。部品なし・旧版ではNumPy経路へ戻す。"""
+    if not available() or not hasattr(_native, "connect_runs"):
+        return None
+    assert _native is not None
+    data, count = _native.connect_runs(*(
+        np.ascontiguousarray(values, dtype=np.uint64).tobytes()
+        for values in (starts, ends, kinds, rows)
+    ))
+    return np.frombuffer(data, dtype=np.int32).copy(), count
+
+
+def label_runs(values):
+    """連結領域の走査・結合・番号画像の作成をRustでまとめて行う。"""
+    # 大画像は転送・番号画像の複製が支配的になるため、NumPyの走査と
+    # connect_runsのRust結合を併用する方が速い（実データで確認）。
+    if (not available() or not hasattr(_native, "label_runs")
+            or values.dtype.kind not in "biu" or not values.dtype.isnative
+            or values.size > 65536):
+        return None
+    assert _native is not None
+    height, width = values.shape
+    labels, count, ys, xs, ends, runs = _native.label_runs(
+        np.ascontiguousarray(values).tobytes(), width, height, values.dtype.itemsize,
+    )
+    return (np.frombuffer(labels, dtype=np.int32).reshape(height, width).copy(), count,
+            (np.frombuffer(ys, dtype=np.int64).copy(), np.frombuffer(xs, dtype=np.int64).copy(),
+             np.frombuffer(ends, dtype=np.int64).copy(), np.frombuffer(runs, dtype=np.int32).copy()))
+
+
+def refine_face(guide, filled, shift, bounds, radius, thresholds):
+    """必要な小矩形だけを渡し、ずれの探索・採色・面積比確認を一括実行する。"""
+    if not available() or not hasattr(_native, "refine_face"):
+        return None
+    assert _native is not None
+    ax0, ay0, ax1, ay1 = bounds
+    ys, xs = np.nonzero(filled.local)
+    points = np.column_stack((ys + filled.bounds[1] + shift[0] - ay0,
+                              xs + filled.bounds[0] + shift[1] - ax0))
+    roi = np.s_[ay0:ay1, ax0:ax1]
+    return _native.refine_face(
+        np.ascontiguousarray(guide.values[roi], dtype=np.uint64).tobytes(),
+        np.ascontiguousarray(guide.regions.labels[roi], dtype=np.uint32).tobytes(),
+        _as_bytes(~guide.initial.boundary[roi]),
+        _as_bytes(guide.open[roi] | guide.undecided[roi]),
+        np.ascontiguousarray(guide.regions.sizes, dtype=np.uint64).tobytes(),
+        np.ascontiguousarray(points, dtype=np.int64).tobytes(),
+        ax1 - ax0, ay1 - ay0, radius, thresholds,
+    )
+
+
+def sample_region(guide, filled, shift=(0, 0), *, ignore=0, require=0, by_label=False):
+    """不変の見本をラン圧縮して保持し、面の重なりと色をRustで数える。"""
+    if not available() or not hasattr(_native, "GuideSampler"):
+        return None
+    assert _native is not None
+    immutable = getattr(guide, "_native_immutable", False)
+    sampler = getattr(guide, "_native_sampler", None) if immutable else None
+    if sampler is None:
+        initial = guide.initial if guide.initial is not None else guide
+        flags = guide.boundary.astype(np.uint8)
+        flags |= initial.boundary.astype(np.uint8) * 2
+        flags |= (guide.open | guide.undecided).astype(np.uint8) * 4
+        confirmed = getattr(guide, "confirmed", None)
+        flags |= 8 if confirmed is None else confirmed.astype(np.uint8) * 8
+        sampler = _native.GuideSampler(
+            np.ascontiguousarray(guide.values, dtype=np.uint64).tobytes(),
+            np.ascontiguousarray(guide.regions.labels, dtype=np.uint32).tobytes(),
+            flags.tobytes(),
+            np.ascontiguousarray(guide.regions.sizes, dtype=np.uint64).tobytes(),
+            guide.values.shape[1], guide.values.shape[0],
+        )
+        if immutable:
+            guide._native_sampler = sampler
+    runs = getattr(filled, "_native_runs", None)
+    if runs is None:
+        padded = np.pad(filled.local, ((0, 0), (1, 1)))
+        ys, xs = np.nonzero(padded[:, 1:] != padded[:, :-1])
+        points = np.column_stack((ys[::2] + filled.bounds[1], xs[::2] + filled.bounds[0],
+                                  xs[1::2] + filled.bounds[0]))
+        runs = np.ascontiguousarray(points, dtype=np.int64).tobytes()
+        filled._native_runs = runs
+    return sampler.sample(runs, int(shift[0]), int(shift[1]), ignore, require, by_label)
+
+
 def thin(mask, iterations):
     """線端検出用の細線化。古い部品・部品なしでは numpy へ戻す。"""
     if not available() or not hasattr(_native, "thin"):

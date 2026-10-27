@@ -154,6 +154,10 @@ def _label_runs(values):
     if height == 0 or width == 0:
         empty = np.zeros(0, dtype=np.int64)
         return np.zeros((height, width), dtype=np.int32), 0, (empty, empty, empty, empty)
+    from . import native
+    labeled = native.label_runs(values)
+    if labeled is not None:
+        return labeled
     change = np.ones((height, width), dtype=bool)
     change[:, 1:] = values[:, 1:] != values[:, :-1]
     run_y, run_x = np.nonzero(change)
@@ -165,6 +169,13 @@ def _label_runs(values):
     run_end[last_in_row] = width
     run_value = values[run_y, run_x]
     row_start = np.searchsorted(run_y, np.arange(height + 1))
+
+    connected = (native.connect_runs(run_x, run_end, run_value, row_start)
+                 if values.dtype.kind in "biu" else None)
+    if connected is not None:
+        run_label, regions = connected
+        labels = np.repeat(run_label, run_end - run_x).reshape(height, width)
+        return labels, regions, (run_y, run_x, run_end, run_label)
 
     parent = list(range(count))
 
@@ -218,6 +229,8 @@ class CellRegions:
         self.labels, count, runs = _label_runs(self.values)
         # 大きさと外接矩形は、画素ごとではなくランごとに数える。
         run_y, run_x, run_end, run_label = runs
+        self._region_values = np.empty(count, dtype=self.values.dtype)
+        self._region_values[run_label] = self.values[run_y, run_x]
         self.sizes = np.bincount(
             run_label, weights=run_end - run_x, minlength=count,
         ).astype(np.int64)
@@ -250,8 +263,7 @@ class CellRegions:
         return out
 
     def value(self, index) -> int:
-        x0, y0, x1, y1 = self.bounds(index)
-        return int(self.values[y0:y1, x0:x1][self.local_mask(index)][0])
+        return int(self._region_values[index])
 
     def region_under(self, mask):
         """``mask`` の下（主線を除く）で一番多い部分の番号と、その割合。"""

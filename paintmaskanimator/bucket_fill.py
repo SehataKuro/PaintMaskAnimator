@@ -28,6 +28,7 @@ from .imaging import (
 
 __all__ = [
     "BucketOptions",
+    "BucketSession",
     "FillResult",
     "compute_fill_region",
     "fill_target_mask",
@@ -563,6 +564,222 @@ def _enclosed_by(region):
     return outside_candidates & ~outside
 
 
+@dataclass
+class CompactFill:
+    """バケツ結果を外接矩形の中だけで保持する。画像全体のマスクを保存しない。"""
+
+    reason: str
+    target: Optional[Tuple[int, int, int]]
+    bounds: Optional[Tuple[int, int, int, int]]
+    local: Optional[np.ndarray]
+    islands: tuple
+    result_bounds: Optional[Tuple[int, int, int, int]]
+    _sample_mask_key: object = field(default=None, repr=False, compare=False)
+
+    @classmethod
+    def from_result(cls, result):
+        bounds = result.bounds
+        if bounds is None and result.region is not None:
+            bounds = mask_bounds(result.region)
+        local = None
+        islands = []
+        if bounds is not None:
+            x0, y0, x1, y1 = bounds
+            local = result.region[y0:y1, x0:x1].copy()
+            for color, mask in result.islands:
+                box = mask_bounds(mask)
+                ix0, iy0, ix1, iy1 = box
+                islands.append((color, box, mask[iy0:iy1, ix0:ix1].copy()))
+        return cls(result.reason, result.target, bounds, local, tuple(islands), result.bounds)
+
+    @property
+    def ok(self):
+        return self.reason == REASON_OK
+
+    @property
+    def nbytes(self):
+        return (0 if self.local is None else self.local.nbytes) + sum(
+            local.nbytes for _color, _box, local in self.islands
+        )
+
+    def materialize(self, shape):
+        region = None
+        if self.local is not None:
+            region = np.zeros(shape, dtype=bool)
+            x0, y0, x1, y1 = self.bounds
+            region[y0:y1, x0:x1] = self.local
+        islands = []
+        for color, (x0, y0, x1, y1), local in self.islands:
+            mask = np.zeros(shape, dtype=bool)
+            mask[y0:y1, x0:x1] = local
+            islands.append((color, mask))
+        return FillResult(self.reason, region, target=self.target, bounds=self.result_bounds,
+                          islands=tuple(islands))
+
+
+class _RegionIndex:
+    def __init__(self, passable):
+        from .reference_check import _label_runs
+        self.labels, count, (ys, xs, ends, labels) = _label_runs(passable)
+        height, width = passable.shape
+        self.x0, self.y0 = np.full(count, width), np.full(count, height)
+        self.x1, self.y1 = np.zeros(count, dtype=int), np.zeros(count, dtype=int)
+        np.minimum.at(self.x0, labels, xs)
+        np.minimum.at(self.y0, labels, ys)
+        np.maximum.at(self.x1, labels, ends)
+        np.maximum.at(self.y1, labels, ys + 1)
+
+    def region(self, x, y):
+        label = self.labels[y, x]
+        x0, y0, x1, y1 = self.x0[label], self.y0[label], self.x1[label], self.y1[label]
+        region = np.zeros(self.labels.shape, dtype=bool)
+        region[y0:y1, x0:x1] = self.labels[y0:y1, x0:x1] == label
+        return region
+
+
+class BucketSession:
+    """変更しない参照画像で、複数回クリックするときの共通前処理。
+
+    領域探索は通常のバケツと共通。画像を変更したら新しいセッションを作る。
+    """
+
+    def __init__(self, pixels, options, *, indexed=False):
+        self.pixels = pixels
+        self.options = options
+        self._background = None
+        self._prepared = {}
+        self._lines = {}
+        self.indexed = indexed
+        self._indices = {}
+        self._results = {}
+        self._result_bytes = 0
+
+    @property
+    def background(self):
+        if self._background is None:
+            self._background = background_mask_packed(rgba_packed_view(self.pixels))
+        return self._background
+
+    @property
+    def nbytes(self):
+        """共有キャッシュの上限判定用。重複する配列も保守的に数える。"""
+        total = self.pixels.nbytes + (0 if self._background is None else self._background.nbytes)
+        total += sum(array.nbytes for prepared in self._prepared.values()
+                     for array in prepared if array is not None)
+        total += sum(array.nbytes for index in self._indices.values()
+                     for array in (index.labels, index.x0, index.y0, index.x1, index.y1))
+        total += sum(array.nbytes for pair in self._lines.values() for array in pair)
+        total += sum(result.nbytes + len(getattr(result, "_native_runs", b""))
+                     for result in self._results.values())
+        return total
+
+    def prepare(self, category):
+        if category not in self._prepared:
+            # 多色の原画でも、画像全体の配列を色数ぶん保持し続けない。
+            if len(self._prepared) >= 4:
+                oldest = next(iter(self._prepared))
+                del self._prepared[oldest]
+                self._indices.pop(oldest, None)
+                # 領域番号は索引ごとに異なるので、その索引の結果も捨てる。
+                self._results.clear()
+                self._result_bytes = 0
+            self._prepared[category] = _prepare_bucket(
+                self.pixels, category, self.options, self.background, None, self._lines,
+            )
+        return self._prepared[category]
+
+    def compute(self, x, y):
+        return compute_fill_region(self.pixels, x, y, self.options, session=self)
+
+    def index(self, category, passable):
+        if category not in self._indices:
+            self._indices[category] = _RegionIndex(passable)
+        return self._indices[category]
+
+    def compact(self, x, y):
+        height, width = self.pixels.shape[:2]
+        if not (0 <= x < width and 0 <= y < height):
+            return CompactFill.from_result(self.compute(x, y))
+        category = seed_category(self.pixels, x, y)
+        _target, passable, _gaps = self.prepare(category)
+        if self.indexed and passable is not None and passable[y, x]:
+            key = (category, int(self.index(category, passable).labels[y, x]))
+        else:
+            key = (category, x, y)
+        if key not in self._results:
+            result = self._compact_indexed(x, y, category, passable, _gaps)
+            if result is None:
+                result = CompactFill.from_result(self.compute(x, y))
+            if self._result_bytes + result.nbytes > 32 * 1024 * 1024:
+                self._results.clear()
+                self._result_bytes = 0
+            self._results[key] = result
+            self._result_bytes += result.nbytes
+        return self._results[key]
+
+    def _compact_indexed(self, x, y, category, passable, gaps):
+        # 単色・隣接の通常領域は、索引の矩形から直接作る。小面のたびに
+        # キャンバス全体のマスクを作ってコピーし直す必要はない。
+        options = self.options
+        if (not self.indexed or not options.adjacent or options.target_color != TARGET_ALL
+                or options.include_masks or options.island_replacements
+                or passable is None or not passable[y, x]):
+            return None
+        index = self.index(category, passable)
+        label = index.labels[y, x]
+        x0, y0, x1, y1 = (int(values[label]) for values in
+                          (index.x0, index.y0, index.x1, index.y1))
+        local = index.labels[y0:y1, x0:x1] == label
+        height, width = passable.shape
+        bounds = (x0, y0, x1, y1)
+        if options.require_closed and (x0 == 0 or y0 == 0 or x1 == width or y1 == height):
+            return CompactFill(REASON_OPEN_REGION, category, bounds, local, (), None)
+        if gaps is not None:
+            ax0, ay0 = max(0, x0 - 1), max(0, y0 - 1)
+            ax1, ay1 = min(width, x1 + 1), min(height, y1 + 1)
+            nearby = gaps[ay0:ay1, ax0:ax1]
+            if nearby.any():
+                area = index.labels[ay0:ay1, ax0:ax1] == label
+                if (dilate(area, 1) & nearby).any():
+                    return None  # 仮想境界の回収が必要な面は共通バケツへ戻す。
+        return CompactFill(REASON_OK, category, bounds, local, (), bounds)
+
+
+def _prepare_bucket(pixels, category, options, pseudo_background, selection_mask, line_cache):
+    packed = rgba_packed_view(pixels)
+    if options.target_color == TARGET_ALL:
+        target_mask = (
+            pseudo_background.copy() if category is None
+            else opaque_rgb_mask_packed(packed, category)
+        )
+    else:
+        target_mask = fill_target_mask(pixels, options.target_color, category, packed)
+    if selection_mask is not None:
+        target_mask &= selection_mask
+    gap_recovery_mask = None
+    passable = None
+    if options.adjacent:
+        boundary = ~target_mask
+        if options.extend_lines:
+            extension = extend_line_ends(boundary, options.extend_length, cache=line_cache)
+            if extension.any():
+                boundary = boundary | extension
+                gap_recovery_mask = extension
+        if options.close_gap:
+            gap_radius = max(1, int(options.gap_width))
+            virtual_boundary = erode(dilate(boundary, gap_radius), gap_radius)
+            # 収縮はキャンバス外を空白として扱うため、端まで延長した線も
+            # 削ってしまう。元の境界を残して端からの漏れを防ぐ。
+            virtual_boundary |= boundary
+            gap_recovery_mask = virtual_boundary & target_mask
+        else:
+            virtual_boundary = boundary
+        passable = target_mask & ~virtual_boundary
+        if selection_mask is not None:
+            passable &= selection_mask
+    return target_mask, passable, gap_recovery_mask
+
+
 def compute_fill_region(
     pixels,
     start_x,
@@ -571,12 +788,14 @@ def compute_fill_region(
     selection_mask=None,
     *,
     line_cache=None,
+    session=None,
 ) -> FillResult:
     """``(start_x, start_y)`` から塗る画素の真偽マスクを求める。
 
     :param pixels: ``(height, width, 4)`` の RGBA8888 配列。読み取りのみ。
     :param selection_mask: 選択範囲の真偽マスク。``None`` なら制限なし。
     :param line_cache: 同じドラッグ内で共有する線端下処理のキャッシュ。
+    :param session: 変更しない同じ画像・設定で前処理を再利用する場合に指定する。
     """
     height, width = pixels.shape[:2]
     if not (0 <= start_x < width and 0 <= start_y < height):
@@ -587,47 +806,31 @@ def compute_fill_region(
     category = seed_category(pixels, start_x, start_y)
     # RGBA を uint32 にまとめて比較する（チャンネルごとの np.all より
     # 1桁以上速く、一時配列も小さい）。
-    packed = rgba_packed_view(pixels)
-    pseudo_background = background_mask_packed(packed)
-
-    target_color = options.target_color
-    if target_color == TARGET_ALL:
-        target_mask = (
-            pseudo_background.copy()
-            if category is None
-            else opaque_rgb_mask_packed(packed, category)
-        )
+    if session is not None:
+        if session.pixels is not pixels or session.options != options or selection_mask is not None:
+            raise ValueError("BucketSession requires its original image, options and no selection")
+        pseudo_background = session.background
+        target_mask, passable, gap_recovery_mask = session.prepare(category)
     else:
-        target_mask = fill_target_mask(pixels, target_color, category, packed)
-        if not target_mask[start_y, start_x]:
-            return FillResult(REASON_NOT_TARGET, target=category)
-    if selection_mask is not None:
-        target_mask &= selection_mask
+        pseudo_background = background_mask_packed(rgba_packed_view(pixels))
+        target_mask, passable, gap_recovery_mask = _prepare_bucket(
+            pixels, category, options, pseudo_background, selection_mask, line_cache,
+        )
+    target_color = options.target_color
+    if not target_mask[start_y, start_x]:
+        return FillResult(REASON_NOT_TARGET, target=category)
 
     if options.adjacent:
-        boundary = ~target_mask
-        gap_recovery_mask = None
-        if options.extend_lines:
-            # 延長線は対象色の上に引く仮想の線なので、塗った後に回収する。
-            extension = extend_line_ends(boundary, options.extend_length, cache=line_cache)
-            if extension.any():
-                boundary = boundary | extension
-                gap_recovery_mask = extension
-        if options.close_gap:
-            gap_radius = max(1, int(options.gap_width))
-            virtual_boundary = erode(dilate(boundary, gap_radius), gap_radius)
-            # 仮想境界で漏れだけを止め、元画像では塗れる細い領域を
-            # 最終描画時に回収する。線そのものは target_mask 外なので
-            # 回収対象にはならない。
-            gap_recovery_mask = virtual_boundary & target_mask
-        else:
-            virtual_boundary = boundary
-
-        passable = target_mask & ~virtual_boundary
-        if selection_mask is not None:
-            passable &= selection_mask
-        passable[start_y, start_x] = bool(target_mask[start_y, start_x])
-        region = scanline_connected_region(passable, (start_x, start_y))
+        # 仮想境界上をクリックした場合だけ、その画素を探索開始点として回収する。
+        # 共通前処理の配列は書き換えず、次のクリックにも同じ境界を使う。
+        indexed_region = None
+        if session is not None and session.indexed and passable[start_y, start_x]:
+            indexed_region = session.index(category, passable).region(start_x, start_y)
+        elif not passable[start_y, start_x]:
+            passable = passable.copy()
+            passable[start_y, start_x] = True
+        region = (indexed_region if indexed_region is not None
+                  else scanline_connected_region(passable, (start_x, start_y)))
 
         if not region[start_y, start_x]:
             return FillResult(REASON_EMPTY, target=category)
@@ -644,12 +847,18 @@ def compute_fill_region(
             return FillResult(REASON_OPEN_REGION, region=region, target=category)
 
         if gap_recovery_mask is not None:
-            touching = dilate(region, 1) & gap_recovery_mask
+            # 接点は領域の外接矩形の1画素外までに限られる。小さな面のたびに
+            # キャンバス全体を膨張・座標列挙しない。回収の探索先は元の全体マスク。
+            rx0, ry0, rx1, ry1 = mask_bounds(region)
+            gx0, gy0 = max(0, rx0 - 1), max(0, ry0 - 1)
+            gx1, gy1 = min(width, rx1 + 1), min(height, ry1 + 1)
+            touching = dilate(region[gy0:gy1, gx0:gx1], 1)
+            touching &= gap_recovery_mask[gy0:gy1, gx0:gx1]
             start_y_values, start_x_values = np.nonzero(touching)
             if start_x_values.size:
                 recovered = scanline_connected_region(
                     gap_recovery_mask,
-                    zip(start_x_values.tolist(), start_y_values.tolist()),
+                    zip((start_x_values + gx0).tolist(), (start_y_values + gy0).tolist()),
                 )
                 region |= recovered
 

@@ -12,6 +12,7 @@ use pyo3::types::PyBytes;
 
 mod line_flow;
 mod thin;
+mod auto_paint;
 
 /// 4 近傍で、`seeds` からつながる `passable` の領域を求める（行ごとのランで辿る）。
 ///
@@ -317,6 +318,10 @@ fn py_label_regions<'py>(
 
 #[pymodule]
 fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_class::<auto_paint::GuideSampler>()?;
+    module.add_function(wrap_pyfunction!(auto_paint::label_runs, module)?)?;
+    module.add_function(wrap_pyfunction!(auto_paint::connect_runs, module)?)?;
+    module.add_function(wrap_pyfunction!(auto_paint::refine_face, module)?)?;
     module.add_function(wrap_pyfunction!(py_unique_colors, module)?)?;
     module.add_function(wrap_pyfunction!(py_flood_fill, module)?)?;
     module.add_function(wrap_pyfunction!(py_dilate, module)?)?;

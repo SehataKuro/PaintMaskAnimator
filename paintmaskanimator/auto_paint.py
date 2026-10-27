@@ -32,6 +32,8 @@
 画面も Qt も知らない純粋な処理で、書き込むのは呼び出し側（``main_window_auto_paint``）。
 """
 from dataclasses import dataclass, field
+from functools import lru_cache
+from contextlib import ExitStack
 from typing import Callable, Dict, List, Optional, Tuple, cast
 
 import numpy as np
@@ -167,6 +169,8 @@ class CellPaint:
     """1セル分の塗り替え。``(色, 外接矩形, 矩形の中のマスク)`` の並び。"""
 
     paints: List[Tuple[Rgb, Bounds, np.ndarray]] = field(default_factory=list)
+    #: 通常バケツで実行した位置と色。塗り範囲の再現・原因確認に使う。
+    clicks: List[Tuple[int, int, Rgb]] = field(default_factory=list)
     #: 塗った部分の数、塗るか決められなかった部分の数。
     filled: int = 0
     unsure: int = 0
@@ -201,6 +205,11 @@ class AutoPlan:
     finishes: Dict[Tuple[Rgb, Rgb], Rgb] = field(default_factory=dict)
     #: 塗った回数（見本を増やして塗り直した回数 + 1）。
     rounds: int = 0
+    #: 高速化の検証用。保存するプロジェクトの内容には含めない。
+    optimization_stats: dict = field(default_factory=dict)
+    #: 選択した見本の元TP色 -> 仕上げ色と画素数。自動結果からは追加しない。
+    trace_palette: dict = field(default_factory=dict)
+    trace_face_rules: set = field(default_factory=set)
 
     @property
     def painted_cells(self) -> int:
@@ -350,6 +359,10 @@ class _Cell:
         #: 塗り進める並びでの位置（動きの推定を使い回すのに使う）。
         self.index: Optional[int] = None
         self.initial: Optional[_Cell] = None
+        #: 自動結果を部位の手本にするとき、今回色を決めた画素だけを記録する。
+        self.confirmed: Optional[np.ndarray] = None
+        # 計画作成中、全フラグの設定後にだけRustの圧縮見本を再利用する。
+        self._native_immutable = False
 
     @property
     def mark(self) -> np.ndarray:
@@ -369,6 +382,12 @@ class _Cell:
 def _majority(values) -> Tuple[Optional[int], float]:
     if not values.size:
         return None, 0.0
+    if values.size >= 128:
+        # 一色の面ではソートを省く。過半数があれば最多色は一意に決まる。
+        candidate = values.flat[0]
+        count = int(np.count_nonzero(values == candidate))
+        if count * 2 > values.size:
+            return int(candidate), float(count) / float(values.size)
     found, counts = np.unique(values, return_counts=True)
     best = int(np.argmax(counts))
     return int(found[best]), float(counts[best]) / float(values.size)
@@ -526,6 +545,11 @@ def _local_shift(target: _Cell, guide: _Cell, bounds, context=CONTEXT, margin=SE
     小さな部分は自分の縁だけでは場所を決めにくいので、まわりの線もいっしょに
     重ねる。線が一番多く重なるずれ ``(dy, dx)`` と、重なった割合を返す。
     """
+    problem = _prepare_local_shift(target, guide, bounds, context, margin)
+    return ((0, 0), 0.0) if problem is None else _solve_local_shift(problem)
+
+
+def _prepare_local_shift(target, guide, bounds, context=CONTEXT, margin=SEARCH_MARGIN):
     height, width = target.values.shape
     x0, y0, x1, y1 = bounds
     tx0, ty0 = max(0, x0 - context), max(0, y0 - context)
@@ -542,24 +566,57 @@ def _local_shift(target: _Cell, guide: _Cell, bounds, context=CONTEXT, margin=SE
     after = exact * (1.0 - NEAR_LINE_WEIGHT) + near_line * NEAR_LINE_WEIGHT
     total = float(before.sum())
     if total == 0 or not after.any():
-        return (0, 0), 0.0
+        return None
     rows, cols = before.shape
-    size = (2 * rows, 2 * cols)
-    correlation = np.fft.irfft2(
-        np.fft.rfft2(after, size) * np.conj(np.fft.rfft2(before, size)), size
-    )
     limit = margin // step
+    size = (_fft_size(rows + limit), _fft_size(cols + limit))
     ys = np.r_[0:limit + 1, size[0] - limit:size[0]]
     xs = np.r_[0:limit + 1, size[1] - limit:size[1]]
-    near = correlation[np.ix_(ys, xs)] / total
-    # 隣のセルどうしの動きは小さいので、大きく動くずれほど割り引く。似た形の線が
-    # 離れた所にあっても（髪の筋、斜線など）、そちらへ飛びにくくなる。
     dys = np.where(ys >= size[0] // 2, ys - size[0], ys)
     dxs = np.where(xs >= size[1] // 2, xs - size[1], xs)
+    return dict(before=before, after=after, size=size, total=total, step=step,
+                limit=limit, ys=ys, xs=xs, dys=dys, dxs=dxs)
+
+
+@lru_cache(maxsize=1024)
+def _fft_size(length):
+    """線形相関を保ったまま、小さな素因数だけのFFT寸法へ広げる。"""
+    candidate = length
+    while True:
+        remainder = candidate
+        for factor in (2, 3, 5):
+            while remainder % factor == 0:
+                remainder //= factor
+        if remainder == 1:
+            return candidate
+        candidate += 1
+
+
+def _local_shift_window(problem):
+    before, after = problem["before"], problem["after"]
+    # 調べるのは±limitだけなので、その幅のゼロ余白で循環相関の回り込みを
+    # 防げる。画像の倍まで広げて、使わない遠方のずれを計算しない。
+    fast_size = tuple(_fft_size(length + problem["limit"]) for length in before.shape)
+    correlation = np.fft.irfft2(
+        np.fft.rfft2(after, fast_size) * np.conj(np.fft.rfft2(before, fast_size)), fast_size
+    )
+    return correlation[np.ix_(problem["dys"] % fast_size[0], problem["dxs"] % fast_size[1])]
+
+
+def _finish_local_shift(problem, window):
+    total, step = problem["total"], problem["step"]
+    dys, dxs = problem["dys"], problem["dxs"]
+    near = window / total
+    # 隣のセルどうしの動きは小さいので、大きく動くずれほど割り引く。似た形の線が
+    # 離れた所にあっても（髪の筋、斜線など）、そちらへ飛びにくくなる。
     near = near - MOTION_PENALTY * step * (np.abs(dys)[:, None] + np.abs(dxs)[None, :])
     peak_y, peak_x = np.unravel_index(int(np.argmax(near)), near.shape)
-    share = float(correlation[ys[peak_y], xs[peak_x]]) / total
+    share = float(window[peak_y, peak_x]) / total
     return (int(dys[peak_y]) * step, int(dxs[peak_x]) * step), share
+
+
+def _solve_local_shift(problem):
+    return _finish_local_shift(problem, _local_shift_window(problem))
 
 
 def _refine(target: _Cell, guide: _Cell, local, bounds, shift):
@@ -1389,6 +1446,28 @@ def _order(count, reference_index, second_reference_index=None, reference_indice
 
 
 def plan_auto_paint(
+    cells: List[np.ndarray], reference_index: int, *,
+    second_reference_index: Optional[int] = None,
+    reference_indices: Optional[List[int]] = None,
+    progress: Optional[Callable[[int, int], bool]] = None,
+    margin: int = SEARCH_MARGIN, max_rounds: int = MAX_ROUNDS,
+    hints: Optional[List[Optional[np.ndarray]]] = None,
+    lines: Optional[List[Optional[np.ndarray]]] = None,
+    bucket_options: Optional[bucket_fill.BucketOptions] = None,
+    gpu: str = "auto", preparation_workers: int = 2, reuse_reference_regions: bool = True,
+) -> Optional[AutoPlan]:
+    """見本から順に塗る。先行準備は色の引き継ぎ順序を変えず、終了時に回収する。"""
+    with ExitStack() as resources:
+        return _plan_auto_paint(
+            cells, reference_index, second_reference_index=second_reference_index,
+            reference_indices=reference_indices, progress=progress, margin=margin,
+            max_rounds=max_rounds, hints=hints, lines=lines, bucket_options=bucket_options,
+            gpu=gpu, preparation_workers=preparation_workers,
+            reuse_reference_regions=reuse_reference_regions, _resources=resources,
+        )
+
+
+def _plan_auto_paint(
     cells: List[np.ndarray],
     reference_index: int,
     *,
@@ -1399,6 +1478,11 @@ def plan_auto_paint(
     max_rounds: int = MAX_ROUNDS,
     hints: Optional[List[Optional[np.ndarray]]] = None,
     lines: Optional[List[Optional[np.ndarray]]] = None,
+    bucket_options: Optional[bucket_fill.BucketOptions] = None,
+    gpu: str = "auto",
+    preparation_workers: int = 2,
+    reuse_reference_regions: bool = True,
+    _resources: ExitStack,
 ) -> Optional[AutoPlan]:
     """``cells[reference_index]`` を見本に、前後へ1セルずつ塗り進める。
 
@@ -1414,6 +1498,8 @@ def plan_auto_paint(
     :param hints: ``cells`` が元の線画のとき、セルごとの今の絵（塗りかけ）。無いセルは None。
     :param lines: セルごとの元の線画（動きの推定に使う）。無いセルは ``cells`` の線を使う。
         見本は色トレス線を塗りつぶしてあることが多いので、元の線画があると動きが確かになる。
+    :param bucket_options: 通常のバケツ設定。指定時は見本から色とクリック位置だけを選び、
+        範囲は通常のバケツで決める。塗りかけを確定見本として扱わない。
     """
     fixed = {reference_index}
     fixed.update(reference_indices or [])
@@ -1437,11 +1523,48 @@ def plan_auto_paint(
     targets: Dict[int, _Cell] = {}
     boundaries: Dict[int, np.ndarray] = {}
     flows: Dict[Tuple[int, int], line_flow.Flow] = {}
+    bucket_work = {}
+    alignment = None
+    preparation = None
+    reference_regions = None
+    if bucket_options is not None:
+        from .auto_alignment import AlignmentCache
+        from .auto_preparation import Preparation, ReferenceRegions
+        alignment = AlignmentCache(gpu=gpu, expected_cells=len(work))
+        if reuse_reference_regions:
+            reference_regions = ReferenceRegions()
 
     def target_for(index):
         if index not in targets:
-            targets[index] = _Cell(cells[index], target=True)
+            ready = preparation.take(index) if preparation is not None else None
+            if ready is None:
+                targets[index] = _Cell(cells[index], target=True)
+                targets[index]._native_immutable = True
+            else:
+                targets[index], bucket_work[index] = ready
+            if preparation is not None:
+                preparation.schedule(bucket_work)
         return targets[index]
+
+    if (bucket_options is not None and preparation_workers > 0 and max_rounds > 0 and len(work) >= 4
+            and shape[0] * shape[1] >= 256 * 256):
+        from . import auto_bucket
+
+        def prepare_target(index):
+            target = targets.get(index)
+            if target is None:
+                target = _Cell(cells[index], target=True)
+                target._native_immutable = True
+            prepared = auto_bucket.BucketWork(
+                target, bucket_options, alignment=alignment, reference_regions=reference_regions,
+            )
+            prepared.collect()
+            return target, prepared
+
+        preparation = _resources.enter_context(Preparation(
+            (index for index, _toward in work), prepare_target, preparation_workers,
+        ))
+        preparation.schedule(bucket_work)
 
     def boundary(index):
         if index not in boundaries:
@@ -1460,6 +1583,8 @@ def plan_auto_paint(
     # 人が手で塗ったセル：手で塗った部分だけを塗った手本（ほかは決めていない所）。
     hand_cells: Dict[int, _Cell] = {}
     for index, hint in enumerate(hints or []):
+        if bucket_options is not None:
+            break  # 過去の自動塗りを手塗りと区別できないため、確定見本にはしない。
         if hint is None or index in fixed or index not in usable:
             continue
         hand = _hand_paint(cells[index], hint, target=target_for(index))
@@ -1482,6 +1607,18 @@ def plan_auto_paint(
                 sum(1 for other in near if abs(other - index) == 1))
 
     fixed_guides = {}
+    trace_palette = None
+    trace_contexts = None
+    tracker = None
+    if bucket_options is not None:
+        from .auto_part_tracking import PartTracker
+
+        def tracking_geometry(index):
+            if index in fixed_guides:
+                return fixed_guides[index].initial or fixed_guides[index]
+            return target_for(index)
+
+        tracker = PartTracker(shape[:2], tracking_geometry, alignment=alignment)
     total = len(work) * max_rounds
     done = 0
     for _round in range(max_rounds):
@@ -1494,9 +1631,11 @@ def plan_auto_paint(
             index: (paint.undecided, paint.unpainted) for index, paint in plan.cells.items()
         }
         undecided_now: Dict[int, tuple] = {}
+        part_paints = {"now": {}, "before": dict(plan.cells)}
 
         def guide(source, index, made=made, sources=sources,
-                  undecided_now=undecided_now, undecided_before=undecided_before):
+                  undecided_now=undecided_now, undecided_before=undecided_before,
+                  part_paints=part_paints):
             key = (source, index)
             if index in fixed:
                 if index not in fixed_guides:
@@ -1504,18 +1643,45 @@ def plan_auto_paint(
                     fixed_guides[index].index = index
                     if lines is not None and lines[index] is not None:
                         fixed_guides[index].initial = _Cell(lines[index])
+                        fixed_guides[index].initial._native_immutable = True
+                    fixed_guides[index]._native_immutable = True
                 return fixed_guides[index]
             if key not in made:
                 cell = _Cell(sources[source][index])
+                if bucket_options is not None and lines is not None and lines[index] is not None:
+                    cell.initial = target_for(index)
                 undecided = (undecided_now if source == "now" else undecided_before)
                 made[key] = cell.mark_undecided(*undecided.get(index, ([], [])))
                 made[key].index = index
+                if bucket_options is not None:
+                    confirmed = np.zeros(cell.values.shape, dtype=bool)
+                    cell.confirmed = confirmed
+                    part = part_paints[source].get(index)
+                    if part is not None:
+                        for _rgb, (x0, y0, x1, y1), mask in part.paints:
+                            confirmed[y0:y1, x0:x1] |= mask
+                made[key]._native_immutable = True
             return made[key]
 
         teachers = {index: guide("now", index) for index in sorted(fixed)}
+        if bucket_options is not None and trace_palette is None:
+            from . import auto_trace
+            trace_palette = auto_trace.finish_palette(teachers.values())
+            trace_contexts = tuple(auto_trace.palette(item) for item in teachers.values())
+            plan.trace_palette = trace_palette
+            plan.trace_face_rules = auto_trace.enclosed_face_rules(teachers.values(), trace_palette)
+            assert tracker is not None
+            for fixed_index, fixed_guide in teachers.items():
+                tracker.remember_fixed(fixed_index, fixed_guide)
         for index, toward in work:
             if progress is not None and not progress(done, total):
                 return None
+            if preparation is not None:
+                preparation.schedule(bucket_work)
+                ready = preparation.take(index)
+                if ready is not None:
+                    targets[index], bucket_work[index] = ready
+                preparation.schedule(bucket_work)
             done += 1
             nearest = min(fixed, key=lambda ref: (abs(index - ref), ref))
             teacher = teachers[nearest]
@@ -1537,17 +1703,52 @@ def plan_auto_paint(
                 guides.append(teacher)
             hint = hints[index] if hints is not None else None
             hand_guides, hand_first = hand_guides_for(index)
-            paint = paint_cell(
-                cells[index], guides, finishes=_finishes(learned), learned=learned,
-                teacher=teacher, margin=margin, hint=hint, hand_guides=hand_guides,
-                hand_first=hand_first,
-                flow_for=(lambda guide_cell, index=index: flow_between(index, guide_cell))
-                if hint is not None else None,
-                target=target_for(index),
-            )
+            if bucket_options is not None:
+                from . import auto_bucket
+                assert tracker is not None
+
+                def tracked_guide(donor_index, current=current, guide=guide):
+                    return guide("now" if donor_index in current else "before", donor_index)
+                part_indices = sorted(
+                    (other for other in set(current) | set(previous)
+                     if other not in fixed and other != index and abs(other - index) <= 4
+                     and all(item.index != other for item in guides)),
+                    key=lambda other: (abs(other - index), other),
+                )[:2]
+                part_guides = [guide("now" if other in current else "before", other)
+                               for other in part_indices]
+                if index not in bucket_work:
+                    bucket_work[index] = auto_bucket.BucketWork(
+                        target_for(index), bucket_options, alignment=alignment,
+                        reference_regions=reference_regions,
+                    )
+                paint = auto_bucket.paint_cell(
+                    cells[index], guides, bucket_options, target=target_for(index), margin=margin,
+                    work=bucket_work[index],
+                    trace_guides=list(teachers.values()),
+                    trace_palette=trace_palette, part_guides=part_guides,
+                    trace_face_rules=plan.trace_face_rules,
+                    trace_contexts=trace_contexts,
+                    tracked_color=lambda filled, index=index, tracker=tracker,
+                    guide_for=tracked_guide: tracker.color(
+                        index, target_for(index), filled, guide_for,
+                    ),
+                )
+            else:
+                paint = paint_cell(
+                    cells[index], guides, finishes=_finishes(learned), learned=learned,
+                    teacher=teacher, margin=margin, hint=hint, hand_guides=hand_guides,
+                    hand_first=hand_first,
+                    flow_for=(lambda guide_cell, index=index: flow_between(index, guide_cell))
+                    if hint is not None else None,
+                    target=target_for(index),
+                )
             plan.cells[index] = paint
+            part_paints["now"][index] = paint
             current[index] = apply_paint(cells[index], paint)
             undecided_now[index] = (paint.undecided, paint.unpainted)
+            if tracker is not None:
+                tracker.remember(index, paint)
         previous = current
         confident = {
             index for index, paint in plan.cells.items()
@@ -1564,6 +1765,22 @@ def plan_auto_paint(
     }
     if progress is not None:
         progress(total, total)
+    if alignment is not None:
+        plan.optimization_stats = dict(
+            alignment_hits=alignment.hits, cpu_alignments=alignment.cpu_solves,
+            gpu_alignments=alignment.gpu_solves, gpu_error=alignment.gpu_error,
+            reused_decisions=sum(item.reused_decisions for item in bucket_work.values()),
+            color_decisions=sum(item.decision_solves for item in bucket_work.values()),
+            prepared_cells=0 if preparation is None else preparation.prepared,
+            preparation_workers=0 if preparation is None else preparation.workers,
+            reference_cache_hits=0 if reference_regions is None else reference_regions.hits,
+            reference_sessions=0 if reference_regions is None else reference_regions.created,
+            reference_region_hits=0 if reference_regions is None else reference_regions.region_hits,
+        )
+        if tracker is not None:
+            plan.optimization_stats.update(tracked_parts=tracker.matches,
+                                           long_memory_parts=tracker.long_matches,
+                                           deformation_pairs=tracker.flow_solves)
     return plan
 
 

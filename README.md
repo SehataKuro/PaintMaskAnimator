@@ -60,6 +60,9 @@ python PaintMaskAnimator.py        # または python -m paintmaskanimator
 必須の依存は PySide6、PySide6-QtAds、numpy です。Pillow と psd-tools を入れると、
 PSD などの読み込み・書き出しが有効になります。
 
+自動塗りの任意のGPU支援と速度の計測方法は、
+[自動塗りの処理と計測](docs/auto-paint-performance.md)を参照してください。
+
 ## Python アクション
 
 アクションパネルには、Python スクリプトでボタンを追加できます。タブ左端の

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from paintmaskanimator import bucket_fill
 
@@ -68,6 +69,26 @@ def test_extension_pixels_are_filled_so_no_hairline_is_left():
 
     result = bucket_fill.compute_fill_region(pixels, 100, 80, options)
     assert (result.mask & extension).any(), "延長線の上も塗り、細い塗り残しを作らない"
+
+
+@pytest.mark.parametrize("turns", range(4))
+@pytest.mark.parametrize("use_session", [False, True])
+def test_gap_closing_preserves_extensions_at_every_canvas_edge(turns, use_session):
+    pixels = np.ascontiguousarray(np.rot90(skirt(), turns))
+    seed = np.zeros((160, 200), dtype=bool)
+    seed[80, 100] = True
+    y, x = np.argwhere(np.rot90(seed, turns))[0]
+    options = bucket_fill.BucketOptions(
+        extend_lines=True, extend_length=50, close_gap=True, gap_width=4,
+    )
+    session = bucket_fill.BucketSession(pixels, options) if use_session else None
+    result = bucket_fill.compute_fill_region(pixels, int(x), int(y), options, session=session)
+    assert result.ok
+    mask = np.rot90(result.mask, -turns)
+    assert not mask[5, 5], "隙間閉じで延長線が消えて外へ漏れない"
+    assert not mask[155, 10]
+    assert not mask[155, 190]
+    assert mask[159, 100], "端まで塗れる"
 
 
 def test_line_ends_farther_than_the_length_are_not_extended():

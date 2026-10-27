@@ -10,6 +10,7 @@
 A collaborator rather than a mixin -- see main_window_export.py for why.
 """
 import math
+from dataclasses import replace
 from time import monotonic
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
@@ -19,7 +20,7 @@ from PySide6.QtWidgets import QDialog
 
 from .auto_paint_dialog import AutoPaintDialog
 
-from . import auto_paint
+from . import auto_paint, bucket_fill
 from .frame_scope import FrameScope, resolve_cells
 from .i18n import tr
 from .imaging import qimage_rgba_array
@@ -85,8 +86,9 @@ class AutoPaintController:
             self.window, layer_name, cells, labels, current,
             note=tr(
                 "黒の主線と、赤・緑・青（と黄・水色・赤紫）の色トレス線を色分けの境界にして、"
-                "見本から隣のセルへ順に、同じ場所の色で塗ります。色トレス線も、見本で塗ってあれば"
-                "その色に、線のまま残してあれば残します。一通り塗ったら、迷った所の"
+                "見本から対応する面の色を選び、通常のバケツと同じ設定で塗ります。"
+                "対応する面や色を決められない所は、そのまま残します。"
+                "一通り塗ったら、迷った所の"
                 "少ないセルを見本に加えて自動で塗り直します。ほかのレイヤーには触れません。"
             ) + "\n\n" + line_note,
             images=[canvas.frames[frame].layers[layer].image for frame, layer in cells],
@@ -243,6 +245,10 @@ class AutoPaintController:
                 pixels, reference_index, progress=progress, hints=hints, lines=lines,
                 second_reference_index=second_reference_index,
                 reference_indices=reference_indices,
+                bucket_options=replace(
+                    self.window.canvas.bucket_options(), adjacent=True,
+                    reference=bucket_fill.REFERENCE_INITIAL,
+                ),
             )
         finally:
             close_counter(dialog)
