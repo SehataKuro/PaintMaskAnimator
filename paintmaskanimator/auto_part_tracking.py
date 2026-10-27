@@ -252,6 +252,7 @@ class PartTracker:
         samples, labels = [], set()
         size = int(filled.local.sum())
         tile_size = 64 if size < 262144 else 96
+        tiles = []
         for ty in range(y0, y1, tile_size):
             for tx in range(x0, x1, tile_size):
                 sub = filled.local[ty - y0:ty - y0 + tile_size, tx - x0:tx - x0 + tile_size]
@@ -264,65 +265,39 @@ class PartTracker:
                 if len(oy) < 4:
                     continue
                 initial = (tx, ty, tx + sub.shape[1], ty + sub.shape[0])
-                bounds, dy, dx, valid = initial, 0, 0, True
-                for left, right in steps:
-                    clipped = (max(0, bounds[0]), max(0, bounds[1]),
-                               min(width, bounds[2]), min(height, bounds[3]))
-                    if clipped[2] <= clipped[0] or clipped[3] <= clipped[1]:
-                        valid = False
-                        break
-                    shift, score = self.alignment.shift(left, right, clipped, 48)
-                    if score < 0.5:
-                        valid = False
-                        break
-                    dy, dx = dy + shift[0], dx + shift[1]
-                    bounds = (initial[0] + dx, initial[1] + dy,
-                              initial[2] + dx, initial[3] + dy)
-                if not valid:
-                    continue
-                back_y, back_x = 0, 0
-                for left, right in reversed(steps):
-                    clipped = (max(0, bounds[0]), max(0, bounds[1]),
-                               min(width, bounds[2]), min(height, bounds[3]))
-                    if clipped[2] <= clipped[0] or clipped[3] <= clipped[1]:
-                        valid = False
-                        break
-                    shift, score = self.alignment.shift(right, left, clipped, 48)
-                    if score < 0.5:
-                        valid = False
-                        break
-                    back_y, back_x = back_y + shift[0], back_x + shift[1]
-                    bounds = (bounds[0] + shift[1], bounds[1] + shift[0],
-                              bounds[2] + shift[1], bounds[3] + shift[0])
-                if not valid:
-                    continue
-                sy, sx = oy + ty + dy, ox + tx + dx
-                at = (sy >= 0) & (sy < height) & (sx >= 0) & (sx < width)
-                hit = np.zeros(at.shape, dtype=bool)
-                hit[at] = source.wide_boundary[sy[at], sx[at]]
-                syc, sxc = np.clip(sy, 0, height - 1), np.clip(sx, 0, width - 1)
-                hit &= np.where(_near_black(target, oy + ty, ox + tx),
-                                _near_black(source, syc, sxc), source.wide_primary[syc, sxc])
-                if hit.mean() < 0.5:
-                    continue
-                ys, xs = np.nonzero(sub)
-                ys, xs = ys + ty, xs + tx
-                sy, sx = ys + dy, xs + dx
-                known = (sy >= 0) & (sy < height) & (sx >= 0) & (sx < width)
-                sy, sx = np.clip(sy, 0, height - 1), np.clip(sx, 0, width - 1)
-                known &= _in_mask(sy + back_y, sx + back_x, x0, y0, filled.local)
-                known &= ~source.boundary[sy, sx] & ~guide.open[sy, sx] & ~guide.undecided[sy, sx]
-                known &= (guide.values[sy, sx] != 0) & ~guide.black[sy, sx] & ~guide.primary[sy, sx]
-                if guide.confirmed is not None:
-                    known &= guide.confirmed[sy, sx]
-                if known.sum() < len(ys) * 0.5:
-                    continue
-                values = guide.values[sy[known], sx[known]]
-                value, share = ap._majority(values)
-                if value is None or share < 0.9 or not ap._paintable(value):
-                    continue
-                samples.append(values)
-                labels.update(np.unique(guide.regions.labels[sy[known], sx[known]]).tolist())
+                tiles.append((tx, ty, sub, oy, ox, initial))
+        paths = self.alignment.track_many(steps, [tile[-1] for tile in tiles], self.shape)
+        for (tx, ty, sub, oy, ox, _initial), path in zip(tiles, paths):
+            if path is None:
+                continue
+            dy, dx, back_y, back_x = path
+            sy, sx = oy + ty + dy, ox + tx + dx
+            at = (sy >= 0) & (sy < height) & (sx >= 0) & (sx < width)
+            hit = np.zeros(at.shape, dtype=bool)
+            hit[at] = source.wide_boundary[sy[at], sx[at]]
+            syc, sxc = np.clip(sy, 0, height - 1), np.clip(sx, 0, width - 1)
+            hit &= np.where(_near_black(target, oy + ty, ox + tx),
+                            _near_black(source, syc, sxc), source.wide_primary[syc, sxc])
+            if hit.mean() < 0.5:
+                continue
+            ys, xs = np.nonzero(sub)
+            ys, xs = ys + ty, xs + tx
+            sy, sx = ys + dy, xs + dx
+            known = (sy >= 0) & (sy < height) & (sx >= 0) & (sx < width)
+            sy, sx = np.clip(sy, 0, height - 1), np.clip(sx, 0, width - 1)
+            known &= _in_mask(sy + back_y, sx + back_x, x0, y0, filled.local)
+            known &= ~source.boundary[sy, sx] & ~guide.open[sy, sx] & ~guide.undecided[sy, sx]
+            known &= (guide.values[sy, sx] != 0) & ~guide.black[sy, sx] & ~guide.primary[sy, sx]
+            if guide.confirmed is not None:
+                known &= guide.confirmed[sy, sx]
+            if known.sum() < len(ys) * 0.5:
+                continue
+            values = guide.values[sy[known], sx[known]]
+            value, share = ap._majority(values)
+            if value is None or share < 0.9 or not ap._paintable(value):
+                continue
+            samples.append(values)
+            labels.update(np.unique(guide.regions.labels[sy[known], sx[known]]).tolist())
         if not samples or sum(len(values) for values in samples) < size * 0.5:
             return None
         values = np.concatenate(samples)

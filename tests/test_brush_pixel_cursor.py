@@ -1,6 +1,6 @@
 """Pixel cursor and click/resize gestures share the brush rasterizer."""
 import pytest
-from PySide6.QtCore import QPointF, Qt
+from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QMouseEvent
 from PySide6.QtWidgets import QApplication
 
@@ -83,3 +83,33 @@ def test_outline_cache_preserves_exact_subpixel_phase():
     assert first == second
     stamp_outline(QPointF(21.5, 20.5), 1.5)
     assert _local_outline.cache_info().misses == 2
+
+
+@pytest.mark.parametrize('zoom', [10, 20])
+@pytest.mark.parametrize('rotation', [0, 45, 90])
+@pytest.mark.parametrize('size', [0.5, 1, 1.5, 8])
+def test_hover_damage_contains_snapped_pixel_outlines(canvas, monkeypatch, zoom, rotation, size):
+    canvas.zoom = zoom
+    canvas.rotation = rotation
+    canvas.set_pen_size(size)
+    old = canvas.canvas_to_widget(QPointF(20.05, 20.05))
+    new = canvas.canvas_to_widget(QPointF(23.95, 23.95))
+    canvas._brush_cursor_widget_pos = old
+    updates = []
+    monkeypatch.setattr(canvas, 'update', lambda *args: updates.append(args))
+    event = QMouseEvent(
+        QMouseEvent.Type.MouseMove, new, new,
+        Qt.MouseButton.NoButton, Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    canvas.mouseMoveEvent(event)
+    damage = next(args[0] for args in updates if args)
+    for position in (old, new):
+        outline = stamp_outline(canvas.widget_to_canvas(position), size)
+        for polygon in outline.toSubpathPolygons():
+            for point in polygon:
+                widget_point = canvas.canvas_to_widget(point)
+                # Include the cosmetic cursor pen as well as its geometry.
+                assert QRectF(damage).contains(QRectF(
+                    widget_point.x() - 0.5, widget_point.y() - 0.5, 1, 1,
+                ))

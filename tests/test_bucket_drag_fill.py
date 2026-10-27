@@ -22,6 +22,8 @@ def window(qapp, tmp_path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     window = MainWindow()
+    # 軌跡・参照先の検証では、塗り残し拾いを切って線を残す従来の範囲を使う。
+    window.tools.bucket_island_fill.setChecked(False)
     window.resize(1200, 800)
     window.show()
     qapp.processEvents()

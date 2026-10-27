@@ -129,6 +129,8 @@ class BucketOptions:
 
     #: クリック位置につながる領域だけを塗る（OFF ならレイヤー内の同色を一括）。
     adjacent: bool = True
+    #: 小さな塗り残しとの間に許す線の幅（px）。0 なら拾わない。
+    island_gap: int = 0
     #: 含み塗り（「含む色」に接する部分も塗りに含める）。
     include_masks: bool = False
     #: 含み塗りの対象色（RGB のタプル列）。「含む色」の登録色、未登録ならサブカラー。
@@ -172,6 +174,10 @@ class BucketOptions:
             )
         return cls(
             adjacent=bool(tools.bucket_adjacent.isChecked()),
+            island_gap=(
+                max(1, int(tools.bucket_island_fill_width.value()))
+                if _checked(tools, "bucket_island_fill") else 0
+            ),
             include_masks=bool(tools.bucket_include_sub.isChecked()),
             mask_colors=tuple(mask_colors),
             include_background_mask=bool(background_selected),
@@ -618,7 +624,11 @@ class CompactFill:
 
 
 class _RegionIndex:
-    def __init__(self, passable):
+    def __init__(self, passable, gpu_regions=None):
+        gpu_result = gpu_regions.index(passable) if gpu_regions is not None else None
+        if gpu_result is not None:
+            self.labels, self.x0, self.y0, self.x1, self.y1 = gpu_result
+            return
         from .reference_check import _label_runs
         self.labels, count, (ys, xs, ends, labels) = _label_runs(passable)
         height, width = passable.shape
@@ -643,7 +653,7 @@ class BucketSession:
     領域探索は通常のバケツと共通。画像を変更したら新しいセッションを作る。
     """
 
-    def __init__(self, pixels, options, *, indexed=False):
+    def __init__(self, pixels, options, *, indexed=False, gpu_regions=None):
         self.pixels = pixels
         self.options = options
         self._background = None
@@ -653,6 +663,7 @@ class BucketSession:
         self._indices = {}
         self._results = {}
         self._result_bytes = 0
+        self.gpu_regions = gpu_regions
 
     @property
     def background(self):
@@ -693,7 +704,7 @@ class BucketSession:
 
     def index(self, category, passable):
         if category not in self._indices:
-            self._indices[category] = _RegionIndex(passable)
+            self._indices[category] = _RegionIndex(passable, self.gpu_regions)
         return self._indices[category]
 
     def compact(self, x, y):
@@ -722,7 +733,7 @@ class BucketSession:
         # キャンバス全体のマスクを作ってコピーし直す必要はない。
         options = self.options
         if (not self.indexed or not options.adjacent or options.target_color != TARGET_ALL
-                or options.include_masks or options.island_replacements
+                or options.include_masks or options.island_replacements or options.island_gap
                 or passable is None or not passable[y, x]):
             return None
         index = self.index(category, passable)
@@ -743,6 +754,36 @@ class BucketSession:
                 if (dilate(area, 1) & nearby).any():
                     return None  # 仮想境界の回収が必要な面は共通バケツへ戻す。
         return CompactFill(REASON_OK, category, bounds, local, (), bounds)
+
+
+def collect_small_islands(region, target_mask, gap):
+    """元の面の近傍にある64px以下の独立した塗り残しだけを拾う。
+
+    間の線は塗らず、大きな別の面・画像端へ開いた背景は対象にしない。
+    拾った島からさらに探索を続けないので、別の面へ連鎖しない。
+    """
+    if gap <= 0 or not region.any():
+        return region
+    nearby = dilate(region, int(gap) + 1) & target_mask & ~region
+    if not nearby.any():
+        return region
+    index = _RegionIndex(target_mask)
+    labels = index.labels
+    sizes = np.bincount(labels[target_mask])
+    candidates = np.unique(labels[nearby])
+    main_labels = np.unique(labels[region & target_mask])
+    height, width = region.shape
+    limit = min(64, int(region.sum()) - 1)
+    result = region.copy()
+    for label in candidates:
+        if label in main_labels or sizes[label] > limit:
+            continue
+        x0, y0, x1, y1 = (int(values[label]) for values in
+                          (index.x0, index.y0, index.x1, index.y1))
+        if x0 == 0 or y0 == 0 or x1 == width or y1 == height:
+            continue
+        result[y0:y1, x0:x1] |= labels[y0:y1, x0:x1] == label
+    return result
 
 
 def _prepare_bucket(pixels, category, options, pseudo_background, selection_mask, line_cache):
@@ -905,6 +946,8 @@ def compute_fill_region(
             # 非隣接モードでは、含み塗りの対象色もレイヤー全体から一括対象にする。
             final_region |= mask_family
 
+    if options.adjacent and options.island_gap > 0:
+        final_region = collect_small_islands(final_region, target_mask, options.island_gap)
     if selection_mask is not None:
         final_region &= selection_mask
     bounds = mask_bounds(final_region)

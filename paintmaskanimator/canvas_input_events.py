@@ -5,10 +5,10 @@ turn mouse/tablet/keyboard input into painting, panning, zooming, and tool
 shortcuts. They run against a live ``PaintCanvas`` instance; because the mixin
 precedes ``QWidget`` in the MRO, these overrides win over the base class.
 """
-import math
 from typing import Any
 from PySide6.QtCore import QPoint, QPointF, QRectF, Qt
-from PySide6.QtGui import QCursor
+from PySide6.QtGui import QCursor, QPolygonF
+from .brush_raster import stamp_outline
 from .i18n import tr
 from ._canvas_members import CanvasMembers
 from .logging_setup import get_logger
@@ -280,24 +280,23 @@ class InputEventMixin(CanvasMembers):
                 # not leave a visibly jittered trail behind it.
                 self.update()
             else:
-                cursor_radius = max(
-                    8,
-                    int(math.ceil(
-                        float(self.pen_size) * max(self.zoom, 0.01) / 2.0
-                    )) + 4,
-                )
-                damage = QRectF(old_cursor, old_cursor).adjusted(
-                    -cursor_radius, -cursor_radius,
-                    cursor_radius, cursor_radius,
-                ).united(
-                    QRectF(
-                        self._brush_cursor_widget_pos,
-                        self._brush_cursor_widget_pos,
-                    ).adjusted(
-                        -cursor_radius, -cursor_radius,
-                        cursor_radius, cursor_radius,
-                    )
-                )
+                # Raster snapping can put the outline almost a whole canvas
+                # pixel away from the pointer. Use its actual transformed
+                # bounds so high zoom and rotation cannot leave stale edges.
+                damage = QRectF()
+                for position in (old_cursor, self._brush_cursor_widget_pos):
+                    bounds = stamp_outline(
+                        self.widget_to_canvas(position),
+                        max(0.5, float(self.pen_size)),
+                    ).boundingRect()
+                    mapped = QPolygonF([
+                        self.canvas_to_widget(corner)
+                        for corner in (
+                            bounds.topLeft(), bounds.topRight(),
+                            bounds.bottomRight(), bounds.bottomLeft(),
+                        )
+                    ]).boundingRect()
+                    damage = damage.united(mapped.adjusted(-2, -2, 2, 2))
                 self.update(damage.toAlignedRect())
         p = self.widget_to_canvas(e.position())
 

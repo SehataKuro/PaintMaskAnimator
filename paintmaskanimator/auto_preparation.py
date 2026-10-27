@@ -52,7 +52,7 @@ class Preparation(Generic[T]):
 class ReferenceRegions:
     """同じ画素と設定のBucketSessionを共有する。1計画内・最大192MiB。"""
 
-    def __init__(self, *, capacity=4, max_bytes=192 * 1024 * 1024):
+    def __init__(self, *, capacity=4, max_bytes=192 * 1024 * 1024, gpu_regions=None):
         self.sessions = OrderedDict()
         self.capacity = capacity
         self.max_bytes = max_bytes
@@ -61,6 +61,7 @@ class ReferenceRegions:
         self.regions = OrderedDict()
         self.region_hits = 0
         self.max_region_bytes = 32 * 1024 * 1024
+        self.gpu_regions = gpu_regions
 
     @staticmethod
     def key(geometry, options):
@@ -89,7 +90,8 @@ class ReferenceRegions:
             session = self.sessions.pop(key)
         else:
             self.created += 1
-            session = bucket_fill.BucketSession(geometry.pixels, options, indexed=True)
+            session = bucket_fill.BucketSession(geometry.pixels, options, indexed=True,
+                                                gpu_regions=self.gpu_regions)
         self.sessions[key] = session
         self.trim()
         return session

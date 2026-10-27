@@ -747,6 +747,26 @@ class ToolPanel(QWidget):
         ))
 
         # 隙間閉じと幅スライダーを同じ横一列へ配置する。
+        self.bucket_island_fill=QCheckBox(tr("塗り残し拾い"))
+        self.bucket_island_fill.setChecked(True)
+        self.bucket_island_fill.setToolTip(tr("指定した幅の線を挟んだ、同じ対象色の小さな塗り残し（64画素以下）も塗ります。線は残します。自動塗りにも適用します。"))
+        self.bucket_island_fill_width=QSlider(Qt.Orientation.Horizontal)
+        self.bucket_island_fill_width.setRange(1,20)
+        self.bucket_island_fill_width.setValue(1)
+        self.bucket_island_fill_width.setMinimumWidth(58)
+        self.bucket_island_fill_width_label=QLabel("1 px")
+        self.bucket_island_fill_width_label.setFixedWidth(34)
+        self.bucket_island_fill_width.valueChanged.connect(
+            lambda value: self.bucket_island_fill_width_label.setText(f"{value} px")
+        )
+        self.bucket_island_fill_row=QWidget()
+        bucket_island_fill_layout=QHBoxLayout(self.bucket_island_fill_row)
+        bucket_island_fill_layout.setContentsMargins(0,0,0,0)
+        bucket_island_fill_layout.setSpacing(4)
+        bucket_island_fill_layout.addWidget(self.bucket_island_fill)
+        bucket_island_fill_layout.addWidget(self.bucket_island_fill_width,1)
+        bucket_island_fill_layout.addWidget(self.bucket_island_fill_width_label)
+
         self.bucket_close_gap=QCheckBox(tr("隙間閉じ"))
         self.bucket_close_gap.setChecked(False)
         self.bucket_gap_width=QSlider(Qt.Orientation.Horizontal)
@@ -993,6 +1013,8 @@ class ToolPanel(QWidget):
         ))
 
         def sync_bucket_options(_checked=None):
+            self.bucket_island_fill_width.setEnabled(self.bucket_island_fill.isChecked())
+            self.bucket_island_fill_width_label.setEnabled(self.bucket_island_fill.isChecked())
             adjacent = self.bucket_adjacent.isChecked()
             close_gap = (
                 adjacent
@@ -1008,6 +1030,7 @@ class ToolPanel(QWidget):
             self.bucket_extend_length_label.setEnabled(extend_lines)
 
         self.bucket_adjacent.toggled.connect(sync_bucket_options)
+        self.bucket_island_fill.toggled.connect(sync_bucket_options)
         self.bucket_close_gap.toggled.connect(sync_bucket_options)
         self.bucket_extend_lines.toggled.connect(sync_bucket_options)
         sync_bucket_options()
@@ -1080,6 +1103,7 @@ class ToolPanel(QWidget):
             self.bucket_include_colors,
             self.bucket_island_replace,
             self.bucket_gap_row,
+            self.bucket_island_fill_row,
             self.bucket_extend_row,
             self.bucket_require_closed,
             self.fill_opacity_row,
@@ -1516,6 +1540,7 @@ class ToolPanel(QWidget):
         self.bucket_include_colors.setVisible(is_bucket)
         self.bucket_island_replace.setVisible(is_bucket)
         self.bucket_gap_row.setVisible(uses_bucket_region)
+        self.bucket_island_fill_row.setVisible(uses_bucket_region)
         self.bucket_extend_row.setVisible(is_bucket)
         self.bucket_require_closed.setVisible(uses_bucket_region)
         self.fill_opacity_row.setVisible(is_bucket or is_lasso_fill)

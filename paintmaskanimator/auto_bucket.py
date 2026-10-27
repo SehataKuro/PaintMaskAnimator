@@ -64,7 +64,9 @@ class BucketWork:
         self.target = target
         # 面の含み塗りでTP線まで同色にしない。手動バケツの設定は変更しない。
         self.options = replace(options, adjacent=True, target_color=bucket_fill.TARGET_ALL,
-                               include_masks=False, island_replacements=())
+                               include_masks=False, island_replacements=(), island_gap=0)
+        # 色の照合は元の面で行い、書き込む直前に小さな塗り残しを拾う。
+        self.island_gap = max(0, int(options.island_gap))
         self.alignment = alignment if alignment is not None else AlignmentCache(gpu="off")
         self.entries = None
         self.matches = {}
@@ -73,11 +75,17 @@ class BucketWork:
         self.decision_solves = 0
         self.reference_regions = reference_regions
 
+    def _sample(self, *args, **kwargs):
+        return getattr(self.alignment, "sample_region", native.sample_region)(*args, **kwargs)
+
     def _reference(self, geometry, x, y, sessions):
         if self.reference_regions is not None and getattr(geometry, "_native_immutable", False):
             return self.reference_regions.compact(geometry, x, y, self.options, active=sessions)
         if geometry not in sessions:
-            sessions[geometry] = bucket_fill.BucketSession(geometry.pixels, self.options, indexed=True)
+            sessions[geometry] = bucket_fill.BucketSession(
+                geometry.pixels, self.options, indexed=True,
+                gpu_regions=getattr(self.alignment, "regions", None),
+            )
         result = sessions[geometry].compact(x, y)
         return result
 
@@ -87,7 +95,8 @@ class BucketWork:
         from . import auto_paint as ap
         target = self.target
         visited = np.zeros(target.values.shape, dtype=bool)
-        session = bucket_fill.BucketSession(target.pixels, self.options, indexed=True)
+        session = bucket_fill.BucketSession(target.pixels, self.options, indexed=True,
+                                            gpu_regions=getattr(self.alignment, "regions", None))
         entries = []
         regions = target.regions
         trace_labels = np.unique(regions.labels[target.primary])
@@ -128,7 +137,7 @@ class BucketWork:
             reference = self.matches[key]
             if reference is None:
                 continue
-            sampled = native.sample_region(guide, reference)
+            sampled = self._sample(guide, reference)
             if sampled is not None:
                 from . import auto_paint as ap
                 _inside, total, value, count, _other, _bad, unknown, _y, _x = sampled
@@ -192,7 +201,7 @@ class BucketWork:
         shift, score = self.alignment.shift(self.target, guide.initial, filled.bounds, margin)
         if score < (0.4 if large else 0.6):
             return None
-        sampled = native.sample_region(guide, filled, shift, ignore=2 | 4, require=8)
+        sampled = self._sample(guide, filled, shift, ignore=2 | 4, require=8)
         if sampled is not None:
             _inside, known, value, count, other, _bad, _any, _y, _x = sampled
             if (known < size * (0.8 if large else 0.65) or value is None or not known
@@ -289,7 +298,7 @@ class BucketWork:
         large = size >= 8192
         if score < (0.3 if large else ap.MIN_LINE_OVERLAP):
             return None
-        sampled = native.sample_region(guide, filled, shift, ignore=2)
+        sampled = self._sample(guide, filled, shift, ignore=2)
         if sampled is not None:
             _inside, usable, value, count, other, bad, _any, _y, _x = sampled
             if (usable < size * FACE_SAMPLE_SHARE or not usable or value is None
@@ -331,7 +340,7 @@ class BucketWork:
             return None
         is_trace = filled.target is not None and ap._is_primary(filled.target)
         if not is_trace:
-            sampled = native.sample_region(geometry, filled, shift, ignore=1 if original_lines else 0,
+            sampled = self._sample(geometry, filled, shift, ignore=1 if original_lines else 0,
                                            by_label=True)
             if sampled is not None:
                 inside, usable, index, count, other_size, _bad, _any, sy, sx = sampled
@@ -419,7 +428,6 @@ def paint_cell(pixels, guides, options, *, target, margin, work=None, trace_guid
         work = BucketWork(target, options)
     result = ap.CellPaint()
     entries = work.collect()
-    work.alignment.prefetch(target, guides, [entry[3].bounds for entry in entries], margin)
     sessions = {}
     def record(entry, choices, *, trace=False):
         x, y, value, filled = entry
@@ -450,15 +458,33 @@ def paint_cell(pixels, guides, options, *, target, margin, work=None, trace_guid
 
     traces = []
     pending_faces = []
+    choose_color = work.choose_color
+    part_color = work.part_color
+    face_entries = [(ordinal, entry) for ordinal, entry in enumerate(entries)
+                    if entry[3].target is None or not ap._is_primary(entry[3].target)]
+    face_requests = [(ordinal, entry, guide) for ordinal, entry in face_entries for guide in guides]
+    face_choices = iter(work.alignment.resolve([
+        lambda ordinal=ordinal, entry=entry, guide=guide:
+            choose_color(guide, ordinal, entry, margin, sessions)
+        for ordinal, entry, guide in face_requests
+    ]))
+    face_colors = {ordinal: [next(face_choices) for guide in guides]
+                   for ordinal, _entry in face_entries}
+    part_requests = [(ordinal, entry) for ordinal, entry in face_entries
+                     if not any(rgb is not None for rgb in face_colors[ordinal])]
+    part_choices = work.alignment.resolve([
+        lambda entry=entry: [part_color(guide, entry[3], margin) for guide in part_guides]
+        for _ordinal, entry in part_requests
+    ])
+    part_colors = {ordinal: choices for (ordinal, _entry), choices in zip(part_requests, part_choices)}
     for ordinal, entry in enumerate(entries):
         rgb = entry[3].target
         if rgb is not None and ap._is_primary(rgb):
             traces.append((ordinal, entry))
         else:
-            choices = [work.choose_color(guide, ordinal, entry, margin, sessions)
-                       for guide in guides]
+            choices = face_colors[ordinal]
             if not any(rgb is not None for rgb in choices):
-                choices = [work.part_color(guide, entry[3], margin) for guide in part_guides]
+                choices = part_colors[ordinal]
             if not any(rgb is not None for rgb in choices) and tracked_color is not None:
                 choices = [tracked_color(entry[3])]
             if not any(rgb is not None for rgb in choices):
@@ -479,20 +505,33 @@ def paint_cell(pixels, guides, options, *, target, margin, work=None, trace_guid
     faces = {}
     face_samples = {}
     line_finishes = {}
+    trace_requests = []
     for ordinal, entry in traces:
         filled = entry[3]
         hosts = auto_trace.large_face_colors(target, filled, painted, cache=faces)
         allowed = auto_trace.candidates(filled.target, hosts, palettes)
-        direct = []
         all_candidates = auto_trace.candidates(filled.target, hosts, palettes, minimum=1)
         finish_colors = {value: count for value, count in trace_palette.get(filled.target, {}).items()
                          if value not in hosts}
-        if len(allowed) != 1 or len(all_candidates) != 1:
-            direct = [work.choose_color(guide, ordinal, entry, margin, sessions) for guide in guides]
-            for guide in guides:
-                direct.append(auto_trace.local_finish(
-                    target, guide, filled, margin, work.alignment, finish_colors or allowed,
-                ))
+        ambiguous = len(allowed) != 1 or len(all_candidates) != 1
+        trace_requests.append((ordinal, entry, hosts, allowed, finish_colors, ambiguous))
+
+    def trace_colors(request):
+        ordinal, entry, _hosts, allowed, finish_colors, ambiguous = request
+        if not ambiguous:
+            return []
+        direct = [work.choose_color(guide, ordinal, entry, margin, sessions) for guide in guides]
+        direct.extend(auto_trace.local_finish(
+            target, guide, entry[3], margin, work.alignment, finish_colors or allowed,
+        ) for guide in guides)
+        return direct
+
+    trace_choices = work.alignment.resolve([
+        lambda request=request: trace_colors(request) for request in trace_requests
+    ])
+    for request, direct in zip(trace_requests, trace_choices):
+        ordinal, entry, hosts, _allowed, finish_colors, _ambiguous = request
+        filled = entry[3]
         direct.append(auto_trace.small_face_finish(
             target, filled, painted, finish_colors, cache=face_samples,
         ))
@@ -505,4 +544,14 @@ def paint_cell(pixels, guides, options, *, target, margin, work=None, trace_guid
     for entry in pending_faces:
         rgb = auto_trace.enclosed_face_color(target, entry[3], line_finishes, trace_face_rules)
         record(entry, [rgb])
+    if work.island_gap:
+        # 自動塗りが確定したクリックを共通バケツで再現し、同じ島を拾う。
+        result.paints = []
+        session = bucket_fill.BucketSession(
+            target.pixels, replace(work.options, island_gap=work.island_gap), indexed=True,
+        )
+        for x, y, rgb in result.clicks:
+            filled = session.compact(x, y)
+            if filled.ok:
+                result.paints.extend(_paints(filled, rgb))
     return result

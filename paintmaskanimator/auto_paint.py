@@ -567,9 +567,8 @@ def _prepare_local_shift(target, guide, bounds, context=CONTEXT, margin=SEARCH_M
     total = float(before.sum())
     if total == 0 or not after.any():
         return None
-    rows, cols = before.shape
     limit = margin // step
-    size = (_fft_size(rows + limit), _fft_size(cols + limit))
+    size = _correlation_size(before, limit)
     ys = np.r_[0:limit + 1, size[0] - limit:size[0]]
     xs = np.r_[0:limit + 1, size[1] - limit:size[1]]
     dys = np.where(ys >= size[0] // 2, ys - size[0], ys)
@@ -594,13 +593,23 @@ def _fft_size(length):
 
 def _local_shift_window(problem):
     before, after = problem["before"], problem["after"]
-    # 調べるのは±limitだけなので、その幅のゼロ余白で循環相関の回り込みを
-    # 防げる。画像の倍まで広げて、使わない遠方のずれを計算しない。
-    fast_size = tuple(_fft_size(length + problem["limit"]) for length in before.shape)
+    fast_size = problem.get("size") or _correlation_size(before, problem["limit"])
     correlation = np.fft.irfft2(
         np.fft.rfft2(after, fast_size) * np.conj(np.fft.rfft2(before, fast_size)), fast_size
     )
     return correlation[np.ix_(problem["dys"] % fast_size[0], problem["dxs"] % fast_size[1])]
+
+
+def _correlation_size(before, limit):
+    """線のある範囲と探索幅から、相関の回り込みを防ぐ最小余白を求める。"""
+    result = []
+    for length, occupied in zip(before.shape, (before.any(axis=1), before.any(axis=0))):
+        positions = np.flatnonzero(occupied)
+        padding = limit
+        if positions.size and length > 2 * limit:
+            padding = max(0, limit - int(positions[0]), int(positions[-1]) + limit + 1 - length)
+        result.append(_fft_size(length + padding))
+    return tuple(result)
 
 
 def _finish_local_shift(problem, window):
@@ -1531,8 +1540,10 @@ def _plan_auto_paint(
         from .auto_alignment import AlignmentCache
         from .auto_preparation import Preparation, ReferenceRegions
         alignment = AlignmentCache(gpu=gpu, expected_cells=len(work))
+        _resources.callback(alignment.close)
+        alignment.enable_regions(shape[0] * shape[1])
         if reuse_reference_regions:
-            reference_regions = ReferenceRegions()
+            reference_regions = ReferenceRegions(gpu_regions=alignment.regions)
 
     def target_for(index):
         if index not in targets:
@@ -1768,6 +1779,15 @@ def _plan_auto_paint(
     if alignment is not None:
         plan.optimization_stats = dict(
             alignment_hits=alignment.hits, cpu_alignments=alignment.cpu_solves,
+            alignment_batches=alignment.cpu_batches,
+            batched_alignments=alignment.batched_solves,
+            gpu_region_samples=0 if alignment.regions is None else alignment.regions.sample_count,
+            gpu_sample_batches=0 if alignment.regions is None else alignment.regions.sample_batches,
+            gpu_guide_uploads=0 if alignment.regions is None else alignment.regions.guide_uploads,
+            gpu_bucket_indices=0 if alignment.regions is None else alignment.regions.index_count,
+            gpu_region_error=alignment.region_error if alignment.regions is None else alignment.regions.error,
+            gpu_sample_seconds=0.0 if alignment.regions is None else alignment.regions.sample_seconds,
+            gpu_bucket_seconds=0.0 if alignment.regions is None else alignment.regions.index_seconds,
             gpu_alignments=alignment.gpu_solves, gpu_error=alignment.gpu_error,
             reused_decisions=sum(item.reused_decisions for item in bucket_work.values()),
             color_decisions=sum(item.decision_solves for item in bucket_work.values()),
