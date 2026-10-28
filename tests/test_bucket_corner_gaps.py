@@ -108,7 +108,7 @@ def test_gap_disabled_and_input_masks_unchanged():
 
 @pytest.mark.parametrize("name", CASES)
 @pytest.mark.parametrize("scale", [2, 3])
-def test_scaled_line_width(name, scale):
+def test_scaled_gap_width(name, scale):
     main, target, expected = [
         a.repeat(scale, axis=0).repeat(scale, axis=1) for a in CASES[name]()
     ]
