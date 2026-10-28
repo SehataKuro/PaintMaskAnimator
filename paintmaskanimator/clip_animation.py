@@ -157,19 +157,7 @@ def _render_cached_layer(
 def _child_layer_rows(
     layers_by_id: dict[int, dict], layer: dict
 ) -> list[dict]:
-    child_id = _row_number(layer, "LayerFirstChildIndex")
-    children: list[dict] = []
-    visited: set[int] = set()
-    while child_id:
-        if child_id in visited:
-            raise ClipImportError(tr("セル内のレイヤー構造が循環しています。"))
-        visited.add(child_id)
-        child = layers_by_id.get(child_id)
-        if child is None:
-            raise ClipImportError(tr("セル内の子レイヤーが見つかりません。"))
-        children.append(child)
-        child_id = _row_number(child, "LayerNextIndex")
-    return children
+    return [layers_by_id[child_id] for child_id in layer["children"]]
 
 
 # CLIP STUDIO's ``LayerComposite`` values.  The numbering follows the PSD
@@ -718,23 +706,14 @@ def build_pma_frames(
 def _direct_children(
     layers_by_id: dict[int, dict], folder: dict
 ) -> dict[str, dict]:
-    child_id = _row_number(folder, "LayerFirstChildIndex")
     result: dict[str, dict] = {}
-    visited: set[int] = set()
-    while child_id:
-        if child_id in visited:
-            raise ClipImportError(tr("アニメーションフォルダーのレイヤー構造が循環しています。"))
-        visited.add(child_id)
-        child = layers_by_id.get(child_id)
-        if child is None:
-            raise ClipImportError(tr("アニメーションフォルダーの子レイヤーがありません。"))
+    for child in _child_layer_rows(layers_by_id, folder):
         name = str(child["LayerName"] or "")
         if name in result:
             raise ClipImportError(
                 tr("アニメーションフォルダー内でセル名「{name}」が重複しています。").format(name=name)
             )
         result[name] = child
-        child_id = _row_number(child, "LayerNextIndex")
     return result
 
 

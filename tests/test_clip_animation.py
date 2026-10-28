@@ -37,7 +37,8 @@ def _binc(keys=((0.0, "1"), (60.0, "2")), extra_keys=None):
     curves = [tuple(keys)]
     if extra_keys is not None:
         curves.append(tuple(extra_keys))
-    strings = [
+    # Keep curve IDs distinct from numeric counts/zeros in this small fixture.
+    strings = [f"reserved-{index}" for index in range(32)] + [
         "FCurve",
         "Type",
         "ImageCelName",
@@ -325,6 +326,7 @@ def _clip_file(
     start_frame=0,
     end_frame=2,
     mixer_keys=((0.0, "1"),),
+    extra_keys=None,
     include_non_animation_track=False,
 ):
     (
@@ -339,7 +341,7 @@ def _clip_file(
         end_frame,
         include_non_animation_track,
     )
-    compressed_mixer = zlib.compress(_binc(mixer_keys))
+    compressed_mixer = zlib.compress(_binc(mixer_keys, extra_keys))
     mixer_body = len(compressed_mixer).to_bytes(4, "little") + compressed_mixer
     data = _pack_clip(tmp_path / "source.sqlite", [
         _external(mixer_id, mixer_body),
@@ -877,3 +879,36 @@ def test_native_rejects_inconsistent_root_size_without_modifying_source(tmp_path
     with pytest.raises(ClipImportError):
         read_clip_animation(path)
     assert path.read_bytes() == data
+
+
+@requires_clip_native
+def test_duplicate_cel_curve_uses_complete_matching_curve_and_60hz_timebase(tmp_path):
+    path = _clip_file(tmp_path, end_frame=25, mixer_keys=((0.0, "1"),),
+                      extra_keys=((0.0, "1"), (60.0, "")))
+    parsed = read_clip_animation(path)
+    assert parsed.layers[0].keys == (ClipCelKey(0, "1"), ClipCelKey(24, ""))
+    assert parsed.frames[0].layers[0].exposure == 24
+    assert parsed.frames[24].layers[0].exposure == 2
+
+
+@requires_clip_native
+def test_native_clip_can_restore_initial_line_art_without_replacing_paint(qapp, tmp_path):
+    path = _clip_file(tmp_path)
+    window = MainWindow()
+    try:
+        assert window.importer.clip_animation(path, confirm_replace=False)
+        canvas = window.canvas
+        frames = canvas.frames
+        cell = frames[0].layers[0]
+        cell.image = QImage(cell.image)
+        cell.image.fill(QColor("red"))
+        exposure = cell.exposure
+        assert window.initial_state.import_clip_line_art(path) == 1
+        assert canvas.frames is frames and cell.exposure == exposure
+        assert cell.image.pixelColor(0, 0) == QColor("red")
+        assert cell.initial_image.pixelColor(0, 0) == QColor(10, 20, 30, 255)
+        canvas.undo()
+        assert cell.initial_image is None
+        assert cell.image.pixelColor(0, 0) == QColor("red")
+    finally:
+        window.close()

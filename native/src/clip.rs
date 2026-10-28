@@ -114,6 +114,12 @@ impl ClipAnimationReader {
             let data = PyDict::new(py);
             data.set_item("MainId", id)?;
             data.set_item("LayerName", layer.name().unwrap_or(""))?;
+            let children = self
+                .document
+                .layer_tree(layer.canvas_id())
+                .and_then(|tree| tree.children_of(id))
+                .unwrap_or(&[]);
+            data.set_item("children", children)?;
             for (name, value) in [
                 ("LayerOpacity", layer.opacity()),
                 ("LayerComposite", layer.blend_mode().raw()),
