@@ -2,7 +2,42 @@
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+
+type Rgb = (u8, u8, u8);
+
+#[pyfunction]
+pub fn filter_palette<'py>(
+    py: Python<'py>,
+    rgba: &[u8],
+    visible: Option<Vec<Rgb>>,
+    legacy: Option<Rgb>,
+    remap: Vec<(Rgb, Rgb)>,
+) -> PyResult<Bound<'py, PyBytes>> {
+    if !rgba.len().is_multiple_of(4) {
+        return Err(PyValueError::new_err("expected packed RGBA pixels"));
+    }
+    let output = py.detach(|| {
+        let visible: Option<HashSet<_>> = visible.map(|colors| colors.into_iter().collect());
+        let remap: HashMap<_, _> = remap.into_iter().collect();
+        let mut result = rgba.to_vec();
+        for pixel in result.chunks_exact_mut(4) {
+            let rgb = (pixel[0], pixel[1], pixel[2]);
+            // Test the original color, then remap once: A -> B -> C must
+            // display an original A as B, never cascade to C.
+            let keep = pixel[3] != 0
+                && visible.as_ref().is_none_or(|colors| colors.contains(&rgb))
+                && legacy.is_none_or(|color| color == rgb);
+            if !keep {
+                pixel[3] = 0;
+            } else if let Some(&(r, g, b)) = remap.get(&rgb) {
+                pixel[..3].copy_from_slice(&[r, g, b]);
+            }
+        }
+        result
+    });
+    Ok(PyBytes::new(py, &output))
+}
 
 #[pyfunction]
 pub fn resolve_exposures<'py>(

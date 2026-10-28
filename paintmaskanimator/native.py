@@ -72,6 +72,23 @@ def unique_colors(pixels, limit):
     )
 
 
+def filter_palette(rgba, visible, legacy, remap):
+    """Filter original RGB colors and remap visible pixels in one Rust pass."""
+    if not available() or not hasattr(_native, "filter_palette"):
+        return None
+    assert _native is not None
+    def rgb_tuple(rgb):
+        return (int(rgb[0]), int(rgb[1]), int(rgb[2]))
+
+    data = _native.filter_palette(
+        np.ascontiguousarray(rgba, dtype=np.uint8).tobytes(),
+        None if visible is None else [rgb_tuple(rgb) for rgb in visible],
+        None if legacy is None else rgb_tuple(legacy),
+        [(rgb_tuple(child), rgb_tuple(parent)) for child, parent in remap.items()],
+    )
+    return np.frombuffer(data, dtype=np.uint8).reshape(rgba.shape)
+
+
 def line_flow_scores(target, guide, block, base_y, base_x, reach):
     """位置合わせの一致数。古い部品しか入っていなければ numpy へ戻す。"""
     if not available() or not hasattr(_native, "line_flow_scores"):

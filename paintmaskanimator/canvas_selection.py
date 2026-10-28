@@ -20,7 +20,7 @@ from ._canvas_members import CanvasMembers
 from . import constants, imaging
 from .progress import close_counter, create_counter, update_counter
 from .logging_setup import get_logger
-from .undo_entries import LayerBatchUndo, LayerUndo
+from .undo_entries import LayerBatchUndo, LayerUndo, TransformUndo
 
 log = get_logger(__name__)
 
@@ -438,6 +438,7 @@ class SelectionMixin(CanvasMembers):
     def rotate_selection_transform(self, degrees):
         if not self.transform_active or not self.transform_points:
             return
+        before = TransformUndo.capture(self)
         center = self.transform_center()
         angle = math.radians(float(degrees))
         cs, sn = math.cos(angle), math.sin(angle)
@@ -448,6 +449,7 @@ class SelectionMixin(CanvasMembers):
             )
             for p in self.transform_points
         ]
+        self._record_transform_history(before)
         self._invalidate_tp_preview_cache()
         if self.transform_quality_active:
             self.request_quality_preview_counter(
@@ -516,22 +518,33 @@ class SelectionMixin(CanvasMembers):
         return base
 
     def _merge_quality_transform(self, original, preview):
-        """Merge TP output without painting over pixels outside the selection."""
-        base = self._cleared_selection_base(original)
-        result = preview.copy()
-        # Erased areas are already alpha=0 in layer data, so the unselected
-        # artwork can be placed directly over the transformed selection without
-        # any white->transparent conversion.
-        preserved = base
+        """Composite transformed artwork over the remaining layer."""
+        result = self._cleared_selection_base(original)
         painter = QPainter(result)
-        painter.setCompositionMode(
-            QPainter.CompositionMode.CompositionMode_SourceOver
-        )
-        painter.drawImage(0, 0, preserved)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+        painter.drawImage(0, 0, preview)
         painter.end()
         return result
 
+    def _record_transform_history(self, before):
+        if before != TransformUndo.capture(self):
+            self.push_undo(before)
+            self.selectionChanged.emit()
+
+    def _discard_transform_history(self):
+        # Geometry is temporary; confirmation stores a single image edit.
+        old_stack = list(self.undo_stack)
+        for branch in self.history_branches:
+            branch.position = sum(not isinstance(e, TransformUndo)
+                                  for e in old_stack[:branch.position])
+            branch.entries[:] = [e for e in branch.entries
+                                 if not isinstance(e, TransformUndo)]
+        self.history_branches[:] = [b for b in self.history_branches if b.entries]
+        self.undo_stack[:] = [e for e in self.undo_stack if not isinstance(e, TransformUndo)]
+        self.redo_stack[:] = [e for e in self.redo_stack if not isinstance(e, TransformUndo)]
+
     def _reset_selection_transform(self):
+        self._discard_transform_history()
         self.transform_active = False
         self.transform_mode = None
         self.transform_original_layer = None
@@ -665,6 +678,7 @@ class SelectionMixin(CanvasMembers):
             # 再描画されず、変形の履歴が一覧に現れない。
             self.cellChanged.emit(frame_index, layer_index)
 
+        self._discard_transform_history()
         if undo_cells:
             if len(undo_cells) == 1:
                 frame_index, image, has_content = undo_cells[0]
@@ -715,6 +729,7 @@ class SelectionMixin(CanvasMembers):
                 )
         self._reset_selection_transform()
         self.transform_apply_all_frames = False
+        self.selectionChanged.emit()
         self.update()
 
     def selection_bounds(self):

@@ -1252,6 +1252,7 @@ class UIBuildMixin(MainWindowMembers):
             self.used_color.switch_history_branch
         )
         # 編集のたびにヒストリー一覧を更新する。
+        self.canvas.selectionChanged.connect(self.used_color.refresh_history_panel)
         self.canvas.changed.connect(self.used_color.refresh_history_panel)
         self.canvas.cellChanged.connect(
             lambda *_args: self.used_color.refresh_history_panel()

@@ -42,7 +42,7 @@ from PySide6.QtWidgets import QPushButton, QWidget
 from .i18n import tr
 from .constants import OUTSIDE_MARGIN
 from . import constants
-from . import color_ops, colors, geometry, imaging, preferences, view_preview
+from . import color_ops, colors, geometry, imaging, native, preferences, view_preview
 from .document import Document
 from .brush_raster import stamp_outline
 from .toolpanel import tool_label
@@ -65,6 +65,7 @@ from .canvas_transform_geometry import TransformGeometryMixin
 from .canvas_transform_mask import TransformMaskMixin
 from .canvas_undo import UndoMixin
 from .undo_entries import (
+    TransformUndo,
     DocUndo,
     ExposureUndo,
     InitialStateUndo,
@@ -393,6 +394,8 @@ class PaintCanvas(
                 and 0 <= li < len(self.frames[fi].layers)
             )
 
+        if isinstance(entry, TransformUndo):
+            return TransformUndo.capture(self) if self.transform_active else None
         if isinstance(entry, ExposureUndo):
             return ExposureUndo.capture(self, entry.layer, entry.column,
                                         tuple((dst, src) for src, dst in entry.moves))
@@ -1458,13 +1461,24 @@ class PaintCanvas(
         if cached is not None:
             return cached
 
-        _source, packed, opaque = self._color_index_for_image(layer.image)
-        if packed is None or opaque is None:
+        if width <= 0 or height <= 0:
             return layer.image
         rgba = layer.image.convertToFormat(QImage.Format.Format_RGBA8888)
         ptr = imaging.qimage_buffer(rgba)
         rows = np.frombuffer(ptr, dtype=np.uint8).reshape((height, rgba.bytesPerLine()))
         pixels = rows[:, :width * 4].reshape((height, width, 4))
+
+        result = native.filter_palette(pixels, visible, rgb, remap)
+        if result is not None:
+            filtered = QImage(
+                result.data, width, height, width * 4, QImage.Format.Format_RGBA8888
+            ).convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
+            _bounded_cache_put(self._color_filter_cache, key, filtered, 96)
+            return filtered
+
+        _source, packed, opaque = self._color_index_for_image(layer.image)
+        if packed is None or opaque is None:
+            return layer.image
 
         if visible is not None:
             selected_values = np.fromiter(

@@ -121,6 +121,8 @@ class TransformGeometryMixin(CanvasMembers):
     def begin_transform_drag(self, point):
         if not self.transform_active:
             return False
+        from .undo_entries import TransformUndo
+        self._transform_drag_history = TransformUndo.capture(self)
         rotation_handle = self.transform_rotation_handle()
         radius = 16 / max(self.zoom, 0.01)
         if rotation_handle is not None:
@@ -201,6 +203,10 @@ class TransformGeometryMixin(CanvasMembers):
         self.update()
 
     def end_transform_drag(self):
+        before = getattr(self, "_transform_drag_history", None)
+        if self.transform_drag_kind and before is not None:
+            self._record_transform_history(before)
+        self._transform_drag_history = None
         self.transform_drag_kind = None
         self.transform_handle = -1
         self.transform_drag_points = []

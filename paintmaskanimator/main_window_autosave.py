@@ -6,6 +6,8 @@ window's ``canvas``, ``timeline`` and ``build_project_metadata``.
 A collaborator rather than a mixin -- see ``main_window_export.py`` for why.
 """
 from typing import TYPE_CHECKING
+from concurrent.futures import ThreadPoolExecutor
+import copy
 
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QMessageBox
@@ -28,6 +30,9 @@ class AutosaveController:
 
     def __init__(self, window: "MainWindow"):
         self.window = window
+        self._executor = None
+        self._pending = None
+        self._png_cache = project_io.PngCache()
 
     """Periodic best-effort project snapshots + startup crash recovery."""
 
@@ -37,7 +42,7 @@ class AutosaveController:
     def start(self):
         """Periodically snapshot the project so a crash doesn't lose work."""
         self.window._autosave_timer = QTimer(self.window)
-        self.window._autosave_timer.timeout.connect(self.save)
+        self.window._autosave_timer.timeout.connect(self.request_save)
         self.apply_preferences()
 
     def apply_preferences(self):
@@ -49,7 +54,49 @@ class AutosaveController:
         else:
             timer.stop()
 
+    def request_save(self):
+        """Capture on the UI thread; compress and write outside the event loop."""
+        if getattr(self.window, "_closing", False):
+            return
+        if self._pending is not None and not self._pending.done():
+            return
+        if self.window.canvas.drawing:
+            # Do not capture a half-finished stroke or share an active painter.
+            QTimer.singleShot(1000, self.request_save)
+            return
+        try:
+            metadata = copy.deepcopy(self.window.build_project_metadata())
+            frames = [frame.clone() for frame in self.window.canvas.frames]
+            sequence_archive = {
+                key: layer.clone()
+                for key, layer in self.window.canvas._sequence_archive.items()
+            }
+            path = self.path()
+            if self._executor is None:
+                self._executor = ThreadPoolExecutor(
+                    max_workers=1, thread_name_prefix="pma-autosave"
+                )
+            # Cloned QImages share pixels until an edit detaches them. The worker
+            # owns its PNG cache, so manual saves/opens cannot race with it.
+            self._pending = self._executor.submit(
+                self._write, path, metadata, frames, sequence_archive, self._png_cache
+            )
+        except Exception:
+            log.exception("autosave snapshot failed")
+
+    @staticmethod
+    def _write(path, metadata, frames, sequence_archive, png_cache):
+        try:
+            project_io.write_project_archive(
+                path, metadata, frames, sequence_archive, png_cache
+            )
+        except Exception:
+            log.exception("autosave failed")
+
     def save(self):
+        # Explicit synchronous saves must not collide with a periodic write.
+        if self._pending is not None:
+            self._pending.result()
         # Must never raise into the event loop — autosave is best-effort.
         try:
             project_io.write_project_archive(
@@ -85,6 +132,13 @@ class AutosaveController:
             self.clear()
 
     def clear(self):
+        # Finish an in-flight atomic replacement before deleting the snapshot;
+        # otherwise it could reappear after a clean shutdown.
+        if self._executor is not None:
+            self._executor.shutdown(wait=True)
+            self._executor = None
+            self._pending = None
+        self._png_cache.clear()
         try:
             self.path().unlink(missing_ok=True)
         except OSError:

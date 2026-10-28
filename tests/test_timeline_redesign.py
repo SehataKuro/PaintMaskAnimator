@@ -437,6 +437,16 @@ def test_eye_clicks_preserve_layer_selection_and_do_not_rename(qapp):
         assert timeline.layer_list.currentRow() == 0
         QTest.mouseDClick(timeline.layer_list.viewport(), Qt.MouseButton.LeftButton, pos=point)
         qapp.processEvents()
+        assert changes == [(1, False), (1, True)]
+        assert timeline.layer_list.currentRow() == 0
+        assert not timeline.layer_list.findChildren(QLineEdit)
+        # Qt delivers the second rapid press as MouseButtonDblClick. Every
+        # press must toggle, even when several pairs arrive without repainting.
+        for _ in range(4):
+            QTest.mouseClick(timeline.layer_list.viewport(), Qt.MouseButton.LeftButton, pos=point)
+            QTest.mouseDClick(timeline.layer_list.viewport(), Qt.MouseButton.LeftButton, pos=point)
+        assert changes == [(1, value) for value in [False, True] * 5]
+        assert item.data(LayerListDelegate.VISIBLE_ROLE) is True
         assert timeline.layer_list.currentRow() == 0
         assert not timeline.layer_list.findChildren(QLineEdit)
         # Double-clicking the name still opens the editor.

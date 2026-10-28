@@ -274,3 +274,20 @@ def translate_history_label(label: str) -> str:
         "初期状態の読み込み": tr("初期状態の読み込み"),
     }
     return labels.get(label, label)
+
+
+@dataclass
+class TransformUndo(UndoEntry):
+    """Geometry history retained only while a selection transform is active."""
+
+    HISTORY_LABEL = "変形操作"
+    points: tuple
+    cols: int
+    rows: int
+    reference_points: tuple
+
+    @classmethod
+    def capture(cls, canvas):
+        return cls(tuple((p.x(), p.y()) for p in canvas.transform_points),
+                   canvas.transform_mesh_cols, canvas.transform_mesh_rows,
+                   tuple((p.x(), p.y()) for p in canvas.transform_mesh_reference_points))

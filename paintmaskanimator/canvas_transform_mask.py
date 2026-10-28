@@ -140,6 +140,8 @@ class TransformMaskMixin(CanvasMembers):
         ]
 
     def set_transform_mesh_grid(self, cols, rows=None):
+        from .undo_entries import TransformUndo
+        before = TransformUndo.capture(self) if self.transform_active else None
         cols = max(2, min(12, int(cols)))
         rows = max(2, min(12, int(rows if rows is not None else cols)))
         self.transform_mesh_cols = cols
@@ -193,6 +195,8 @@ class TransformMaskMixin(CanvasMembers):
         self._active_mesh_cols = cols
         self._active_mesh_rows = rows
         self.transform_handle = -1
+        if before is not None:
+            self._record_transform_history(before)
         self._invalidate_tp_preview_cache()
         if self.transform_quality_active:
             self.request_quality_preview_counter(

@@ -2,6 +2,8 @@
 import os
 from typing import Any
 import logging
+from threading import Event, get_ident
+from types import SimpleNamespace
 
 import pytest
 
@@ -15,7 +17,8 @@ def qapp():
     return QApplication.instance() or QApplication([])
 
 
-def test_autosave_writes_and_clears(qapp, tmp_path, monkeypatch):
+@pytest.mark.parametrize("background", [False, True])
+def test_autosave_writes_and_clears(qapp, tmp_path, monkeypatch, background):
     monkeypatch.setenv("APPDATA", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
 
@@ -23,7 +26,11 @@ def test_autosave_writes_and_clears(qapp, tmp_path, monkeypatch):
     window = MainWindow()
     try:
         window.canvas.add_frame(dup=True)
-        window.autosave.save()
+        if background:
+            window.autosave.request_save()
+            window.autosave._pending.result(timeout=10)
+        else:
+            window.autosave.save()
 
         autosave = window.autosave.path()
         assert autosave.exists()
@@ -61,3 +68,78 @@ def test_clear_autosave_logs_unlink_failure(caplog, monkeypatch, tmp_path):
         owner.clear()
 
     assert "failed to remove autosave snapshot" in caplog.text
+
+
+def test_periodic_save_keeps_ui_responsive_and_captures_snapshot(qapp, tmp_path, monkeypatch):
+    from PySide6.QtCore import QTimer
+    from PySide6.QtGui import QColor, QImage
+    from paintmaskanimator import project_io
+    from paintmaskanimator.models import Frame, Layer
+    from paintmaskanimator.main_window_autosave import AutosaveController
+
+    image = QImage(8, 8, QImage.Format.Format_ARGB32_Premultiplied)
+    image.fill(QColor("red"))
+    layer = Layer("before", image, has_content=True)
+    archived = layer.clone()
+    metadata = {"nested": {"value": "before"}}
+    window = SimpleNamespace(
+        canvas=SimpleNamespace(drawing=False, frames=[Frame([layer])],
+                               _sequence_archive={(0, 2): archived}),
+        build_project_metadata=lambda: metadata,
+    )
+    owner = AutosaveController(window)
+    monkeypatch.setattr(owner, "path", lambda: tmp_path / "autosave.pmap")
+    entered, release = Event(), Event()
+    captured = []
+    ui_thread = get_ident()
+
+    def blocked_write(path, saved_metadata, frames, archive, cache):
+        captured.append((get_ident(), saved_metadata, frames, archive, cache))
+        entered.set()
+        assert release.wait(5)
+        path.write_bytes(b"snapshot")
+
+    monkeypatch.setattr(project_io, "write_project_archive", blocked_write)
+    try:
+        owner.request_save()
+        assert entered.wait(5)
+        # An additional timeout must not queue another save.
+        first = owner._pending
+        owner.request_save()
+        assert owner._pending is first
+        serviced = []
+        QTimer.singleShot(0, lambda: serviced.append(True))
+        qapp.processEvents()
+        assert serviced
+        layer.name = "after"
+        layer.image.fill(QColor("blue"))
+        archived.image.fill(QColor("green"))
+        metadata["nested"]["value"] = "after"
+        worker_thread, saved_metadata, frames, archive, _cache = captured[0]
+        assert worker_thread != ui_thread
+        assert saved_metadata["nested"]["value"] == "before"
+        assert frames[0].layers[0].name == "before"
+        assert frames[0].layers[0].image.pixelColor(0, 0) == QColor("red")
+        assert archive[(0, 2)].image.pixelColor(0, 0) == QColor("red")
+    finally:
+        release.set()
+        owner.clear()
+    # clear waits for the writer before removing the crash-recovery file.
+    assert not owner.path().exists()
+
+
+def test_periodic_save_defers_during_stroke_and_ignores_closed_window(monkeypatch):
+    from paintmaskanimator import main_window_autosave
+
+    retries = []
+    monkeypatch.setattr(main_window_autosave.QTimer, "singleShot",
+                        lambda delay, callback: retries.append(callback))
+    window = SimpleNamespace(canvas=SimpleNamespace(drawing=True), _closing=False)
+    owner = main_window_autosave.AutosaveController(window)
+    owner.request_save()
+    assert len(retries) == 1
+    assert owner._pending is None
+    window._closing = True
+    retries[0]()
+    assert len(retries) == 1
+    assert owner._executor is None

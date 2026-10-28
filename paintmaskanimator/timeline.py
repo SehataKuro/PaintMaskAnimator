@@ -2106,9 +2106,11 @@ class TimelineWidget(QWidget):
             item = self.layer_list.itemAt(point)
             if (
                 item is not None
-                and point.x() <= LayerListDelegate.MARKER_WIDTH
+                and point.x() <= LayerListDelegate.CHEVRON_WIDTH
                 and event.type() == QEvent.Type.MouseButtonDblClick
             ):
+                # Keep expansion a single action, but let the eye handle a
+                # double-click as its second press during rapid toggling.
                 event.accept()
                 return True
             if item is not None and point.x() <= LayerListDelegate.CHEVRON_WIDTH:

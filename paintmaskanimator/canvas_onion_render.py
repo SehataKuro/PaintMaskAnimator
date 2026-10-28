@@ -32,7 +32,8 @@ class OnionRenderMixin(CanvasMembers):
         return image
 
     def _tinted_onion_image(
-        self, frame_index, color, color_enabled=True, selected_colors_only=False
+        self, frame_index, color, color_enabled=True, selected_colors_only=False,
+        target_size=None,
     ):
         signature = []
         for layer_index in range(len(self.frames[frame_index].layers)):
@@ -62,13 +63,37 @@ class OnionRenderMixin(CanvasMembers):
             tuple(signature), bool(self.silhouette_non_background),
             visible_signature,
             tuple(sorted((self.preview_color_remap or {}).items())),
+            target_size,
         )
         cached = self._onion_cache.pop(cache_key, None)
         if cached is not None:
             self._onion_cache[cache_key] = cached
             return cached
 
-        if self.onion_all_layers:
+        if target_size is not None:
+            # Only the on-screen onion needs this preview. Keep full-resolution
+            # composite/export paths intact and account for device pixel ratio
+            # at the call site. Use nearest sampling, as the canvas does.
+            width, height = target_size
+            image = QImage(width, height, QImage.Format.Format_ARGB32_Premultiplied)
+            image.fill(Qt.GlobalColor.transparent)
+            painter = QPainter(image)
+            painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, False)
+            destination = QRectF(0, 0, width, height)
+            for layer_index in range(len(self.frames[frame_index].layers)):
+                if not self.onion_all_layers and layer_index != self.active_layer_index:
+                    continue
+                key_frame = self.resolve_key_frame(frame_index, layer_index)
+                if key_frame is None:
+                    continue
+                layer = self.frames[key_frame].layers[layer_index]
+                if layer.visible and layer.opacity > 0.0:
+                    source = self._display_layer_image(layer, layer_index)
+                    if source is not None:
+                        painter.setOpacity(max(0.0, min(1.0, float(layer.opacity))))
+                        painter.drawImage(destination, source)
+            painter.end()
+        elif self.onion_all_layers:
             image = self.composite(frame_index, False)
         else:
             image = blank_image()
@@ -235,21 +260,23 @@ class OnionRenderMixin(CanvasMembers):
             -0.5, -0.5, 0.5, 0.5
         )
         frame_indices = self._onion_frame_indices(direction, count)
+        target_size = self._playback_cache_dimensions(work_rect)
+        # Local onion zoom can enlarge the preview independently of the canvas.
+        # Never reduce below the canvas resolution or exceed source resolution.
+        preview_scale = max(1.0, local_scale * float(self.onion_tu_tb_scale))
+        if preview_scale > 1.0:
+            from .utils import workspace_size
+            source_width, source_height = workspace_size()
+            target_size = (
+                min(source_width, max(1, round(target_size[0] * preview_scale))),
+                min(source_height, max(1, round(target_size[1] * preview_scale))),
+            )
 
         # 遠い絵から描き、近い絵を手前へ重ねる。
         for distance, frame_index in reversed(list(enumerate(
             frame_indices,
             start=1,
         ))):
-
-            onion = self._tinted_onion_image(
-                frame_index,
-                color,
-                color_enabled,
-                selected_colors_only,
-            )
-            if self.flip_horizontal or self.flip_vertical:
-                onion = onion.mirrored(self.flip_horizontal, self.flip_vertical)
 
             if distance - 1 < len(levels):
                 level = max(
@@ -271,6 +298,12 @@ class OnionRenderMixin(CanvasMembers):
             )
 
             if draw_opacity > 0.0:
+                onion = self._tinted_onion_image(
+                    frame_index, color, color_enabled, selected_colors_only,
+                    target_size=target_size,
+                )
+                if self.flip_horizontal or self.flip_vertical:
+                    onion = onion.mirrored(self.flip_horizontal, self.flip_vertical)
                 painter.save()
                 painter.translate(
                     transform_center.x()

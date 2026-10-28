@@ -4,7 +4,7 @@ Split out of ``canvas.py`` as a mixin. These methods push document / layer /
 region snapshots onto the undo stack and apply them on undo/redo. They run
 against a live ``PaintCanvas`` instance and its ``_document`` + stacks.
 """
-from PySide6.QtCore import QRect
+from PySide6.QtCore import QRect, QPointF
 from PySide6.QtGui import QPainter
 from .constants import MAX_UNDO, MAX_UNDO_BYTES
 from ._canvas_members import CanvasMembers
@@ -13,6 +13,7 @@ from .models import Layer, default_layer_name
 from .utils import blank_image
 from .logging_setup import get_logger
 from .undo_entries import (
+    TransformUndo,
     DocUndo,
     ExposureUndo,
     InitialStateUndo,
@@ -226,7 +227,16 @@ class UndoMixin(CanvasMembers):
         return True
 
     def apply_undo_entry(self, e):
-        if isinstance(e, InitialStateUndo):
+        if isinstance(e, TransformUndo):
+            self.transform_points = [QPointF(x, y) for x, y in e.points]
+            self.transform_mesh_cols = self._active_mesh_cols = e.cols
+            self.transform_mesh_rows = self._active_mesh_rows = e.rows
+            self.transform_mesh_grid = e.cols
+            self.transform_mesh_reference_points = [QPointF(x, y) for x, y in e.reference_points]
+            self.transform_drag_kind = None
+            self._invalidate_tp_preview_cache()
+            self.selectionChanged.emit()
+        elif isinstance(e, InitialStateUndo):
             for fi, li, image in e.cells:
                 if 0 <= fi < len(self.frames) and 0 <= li < len(self.frames[fi].layers):
                     self.frames[fi].layers[li].initial_image = image
@@ -406,6 +416,9 @@ class UndoMixin(CanvasMembers):
         self.update()
 
     def undo(self):
+        if self.transform_active and (not self.undo_stack or not isinstance(self.undo_stack[-1], TransformUndo)):
+            self.cancel_selection_transform()
+            return
         while self.undo_stack:
             entry = self.undo_stack.pop()
             current = self.current_state_for(entry)
@@ -418,6 +431,8 @@ class UndoMixin(CanvasMembers):
             return
 
     def redo(self):
+        if self.transform_active and (not self.redo_stack or not isinstance(self.redo_stack[-1], TransformUndo)):
+            return
         while self.redo_stack:
             entry = self.redo_stack.pop()
             current = self.current_state_for(entry)

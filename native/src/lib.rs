@@ -323,6 +323,7 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<clip::ClipAnimationReader>()?;
     module.add_function(wrap_pyfunction!(display::resolve_exposures, module)?)?;
     module.add_function(wrap_pyfunction!(display::tint_onion, module)?)?;
+    module.add_function(wrap_pyfunction!(display::filter_palette, module)?)?;
     module.add_class::<auto_paint::GuideSampler>()?;
     module.add_function(wrap_pyfunction!(auto_paint::label_runs, module)?)?;
     module.add_function(wrap_pyfunction!(auto_paint::connect_runs, module)?)?;

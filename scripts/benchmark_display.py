@@ -14,7 +14,7 @@ from PySide6.QtCore import QRectF
 from PySide6.QtGui import QColor, QImage, QPainter
 from PySide6.QtWidgets import QApplication
 
-from paintmaskanimator import native
+from paintmaskanimator import constants, native
 from paintmaskanimator.canvas import PaintCanvas
 from paintmaskanimator.models import Frame, Layer
 
@@ -99,6 +99,61 @@ def main():
         "rust_ms": median_ms(lambda: native.tint_onion(rgba, (0, 100, 255), True, None))
         if native.available() and hasattr(native._native, "tint_onion") else None,
     }
+    colors = np.random.default_rng(25).integers(0, 256, (100, 4), np.uint8)
+    colors[:, 3] = 255
+    pixels = colors[np.random.default_rng(26).integers(0, 100, (1080, 1920))]
+    source = QImage(pixels.data, 1920, 1080, 1920 * 4, QImage.Format.Format_RGBA8888).copy()
+    layer = Layer("palette", source)
+    canvas.visible_color_rgbs = {tuple(map(int, color[:3])) for color in colors[:80]}
+    canvas.preview_color_remap = {
+        tuple(map(int, child[:3])): tuple(map(int, parent[:3]))
+        for child, parent in zip(colors[:64], colors[1:65])
+    }
+
+    def filter_image():
+        # Compare uncached output generation, keeping the fallback's reusable
+        # source index warm, as during repeated palette preview changes.
+        canvas._color_filter_cache.clear()
+        return canvas.filtered_layer_image(layer)
+
+    previous = os.environ.get("PMA_NO_NATIVE")
+    try:
+        os.environ["PMA_NO_NATIVE"] = "1"
+        numpy_ms = median_ms(filter_image)
+        os.environ.pop("PMA_NO_NATIVE", None)
+        rust_ms = median_ms(filter_image) if (
+            native.available() and hasattr(native._native, "filter_palette")
+        ) else None
+    finally:
+        if previous is None:
+            os.environ.pop("PMA_NO_NATIVE", None)
+        else:
+            os.environ["PMA_NO_NATIVE"] = previous
+    results["palette_filter_1920x1080_64_remaps"] = {
+        "numpy_ms": numpy_ms, "rust_ms": rust_ms,
+    }
+    previous_size = constants.CANVAS_WIDTH, constants.CANVAS_HEIGHT
+    try:
+        constants.CANVAS_WIDTH, constants.CANVAS_HEIGHT = 3840, 2160
+        canvas.frames = [Frame([
+            Layer(str(index), QImage(source), has_content=True)
+            for index, source in enumerate(sources)
+        ]) for _ in range(3)]
+        canvas.onion_all_layers = True
+
+        def toggle_with_onions(size):
+            canvas.set_layer_visibility(1, not canvas.frames[0].layers[1].visible)
+            # Measure a newly encountered visibility state, not a cache hit.
+            canvas._onion_cache.clear()
+            canvas._tinted_onion_image(0, QColor("red"), target_size=size)
+            canvas._tinted_onion_image(2, QColor("blue"), target_size=size)
+
+        results["visibility_4k_4_layers_2_onions_960x540"] = {
+            "full_resolution_ms": median_ms(lambda: toggle_with_onions(None)),
+            "display_resolution_ms": median_ms(lambda: toggle_with_onions((960, 540))),
+        }
+    finally:
+        constants.CANVAS_WIDTH, constants.CANVAS_HEIGHT = previous_size
     print(json.dumps(results, indent=2))
     canvas.close()
     app.processEvents()
