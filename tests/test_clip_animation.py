@@ -10,21 +10,23 @@ import pytest
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtWidgets import QApplication, QMessageBox
 
-from paintmaskanimator import constants, main_window_import
+from paintmaskanimator import constants, main_window_import, native
 from paintmaskanimator.clip_animation import (
     ClipAnimationDocument,
     ClipAnimationLayer,
     ClipCelKey,
-    ClipContainer,
     ClipImportError,
     build_pma_frames,
     _composite,
-    _decode_offscreen,
-    parse_image_cel_curve,
     read_clip_animation,
 )
 from paintmaskanimator.main_window import MainWindow
 from paintmaskanimator.project_io import read_project_archive, write_project_archive
+
+
+requires_clip_native = pytest.mark.skipif(
+    not hasattr(native._native, "ClipAnimationReader"), reason="CLIP Rust codec is not built"
+)
 
 
 def _u32(value):
@@ -100,53 +102,79 @@ def _utf16be(value):
     return (len(value)).to_bytes(4, "big") + encoded
 
 
-def _offscreen_attribute(
-    width=2, height=2, packing_type=(1, 4), one_bit=False
-):
+def _offscreen_attribute(width=2, height=2, packing_type=(1, 4), one_bit=False):
     packing = [0] * 16
     packing[1], packing[2] = packing_type
-    if one_bit:
-        packing[8] = 32
-    return b"".join(
-        [
-            (16).to_bytes(4, "big"),
-            (102).to_bytes(4, "big"),
-            (42).to_bytes(4, "big"),
-            (0).to_bytes(4, "big"),
-            _utf16be("Parameter"),
-            width.to_bytes(4, "big"),
-            height.to_bytes(4, "big"),
-            (1).to_bytes(4, "big"),
-            (1).to_bytes(4, "big"),
-            *(value.to_bytes(4, "big") for value in packing),
-            _utf16be("InitColor"),
-            (0).to_bytes(4, "big"),
-            (0).to_bytes(4, "big"),
-            (0).to_bytes(4, "big"),
-            (0).to_bytes(4, "big"),
-            (0).to_bytes(4, "big"),
-        ]
+    packing[3] = sum(packing_type)
+    packing[6] = packing[2] * 8 << 5
+    packing[8] = (1 if one_bit else 8) << 5
+    packing[10] = packing[11] = 256
+    packing[14] = int(one_bit)
+    parameter = _utf16be("Parameter") + b"".join(
+        value.to_bytes(4, "big") for value in [width, height, 1, 1, *packing]
     )
+    init = _utf16be("InitColor") + struct.pack(">5I", 20, 0, 0, 0, 4)
+    blocks = _utf16be("BlockSize") + struct.pack(">4I", 12, 1, 4, 0)
+    return struct.pack(">4I", 16, len(parameter), len(init), len(blocks)) + parameter + init + blocks
+
+
+def _pack_clip(database_path, externals):
+    """Complete container and schema, accepted by the upstream validator."""
+    connection = sqlite3.connect(database_path)
+    connection.executescript("""
+        CREATE TABLE Project (ProjectInternalVersion TEXT, ProjectCanvas INTEGER);
+        INSERT INTO Project VALUES ('1', 1);
+        CREATE TABLE ExternalChunk (ExternalID BLOB, Offset INTEGER);
+    """)
+    for table, columns in {
+        "Canvas": {"CanvasUnit": 0, "CanvasResolution": 72,
+                   "CanvasRootFolder": 999999, "CanvasCurrentLayer": 1},
+        "Layer": {"CanvasId": 1, "LayerType": 0, "LayerComposite": 0,
+                  "LayerLock": 0, "LayerClip": 0, "LayerMasking": 0,
+                  "LayerFolder": 0, "LayerVisibility": 1, "LayerLayerMaskMipmap": 0},
+        "Offscreen": {"LayerId": 1},
+    }.items():
+        existing = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
+        for name, default in columns.items():
+            if name not in existing:
+                connection.execute(f"ALTER TABLE {table} ADD COLUMN {name} INTEGER DEFAULT {default}")
+    connection.execute("UPDATE Layer SET LayerFolder = 1 WHERE LayerFirstChildIndex > 0")
+    connection.execute("""INSERT INTO Layer
+        (MainId, CanvasId, LayerName, LayerType, LayerOpacity, LayerComposite,
+         LayerLock, LayerClip, LayerMasking, LayerFolder, LayerVisibility,
+         LayerNextIndex, LayerFirstChildIndex, LayerUuid)
+        VALUES (999999, 1, 'Root', 0, 256, 0, 0, 0, 0, 1, 1, 0, 1, ?)
+    """, (b'Z' * 16,))
+    header = _chunk(b"Head", struct.pack(">QQQ", 256, 0, 16) + b'F' * 16)
+    data = bytearray(b"CSFCHUNK" + struct.pack(">QQ", 0, 24) + header)
+    for external in externals:
+        id_size = int.from_bytes(external[:8], "big")
+        identifier = external[8:8 + id_size]
+        connection.execute("INSERT INTO ExternalChunk VALUES (?, ?)", (identifier, len(data)))
+        data += _chunk(b"Exta", external)
+    connection.commit()
+    connection.close()
+    database_offset = len(data)
+    data += _chunk(b"SQLi", database_path.read_bytes()) + _chunk(b"Foot", b"")
+    data[8:16] = len(data).to_bytes(8, "big")
+    data[48:56] = database_offset.to_bytes(8, "big")
+    return bytes(data)
 
 
 def _raster_container(unpacked):
     compressed = zlib.compress(bytes(unpacked))
-    block = b"".join(
-        [
-            (0).to_bytes(4, "big"),
-            (0).to_bytes(4, "big"),
-            (0).to_bytes(4, "big"),
-            (0).to_bytes(4, "big"),
-            (1).to_bytes(4, "big"),
-            (len(compressed) + 4).to_bytes(4, "big"),
-            (len(compressed)).to_bytes(4, "little"),
-            compressed,
-        ]
+    block = (
+        struct.pack(">IHHIII", 0, len(unpacked) // (256 * 256), 0, 256, 256, 1)
+        + (len(compressed) + 4).to_bytes(4, "big")
+        + len(compressed).to_bytes(4, "little") + compressed
     )
     begin = "BlockDataBeginChunk".encode("utf-16-be")
     end = b"\0\0\0\x11" + "BlockDataEndChunk".encode("utf-16-be")
     size = 8 + len(begin) + len(block) + len(end)
-    return size.to_bytes(4, "big") + b"\0" * 4 + begin + block + end
+    body = size.to_bytes(4, "big") + (19).to_bytes(4, "big") + begin + block + end
+    for label in ("BlockStatus", "BlockCheckSum"):
+        body += _utf16be(label) + struct.pack(">4I", 12, 1, 4, 0)
+    return body
 
 
 def _raster_body(color=(10, 20, 30), alpha_pixels=None):
@@ -251,7 +279,7 @@ def _sqlite_bytes(
     )
     if include_non_animation_track:
         connection.execute(
-            "INSERT INTO Track VALUES (2, 7, 2000, NULL, ?)",
+            "INSERT INTO Track VALUES (2, 7, 2001, NULL, ?)",
             (b"B" * 16,),
         )
     connection.execute("INSERT INTO Mipmap VALUES (1, 1)")
@@ -300,7 +328,7 @@ def _clip_file(
     include_non_animation_track=False,
 ):
     (
-        sqlite_data,
+        _sqlite_data,
         mixer_id,
         raster_id,
         lower_raster_id,
@@ -313,61 +341,37 @@ def _clip_file(
     )
     compressed_mixer = zlib.compress(_binc(mixer_keys))
     mixer_body = len(compressed_mixer).to_bytes(4, "little") + compressed_mixer
-    data = b"CSFCHUNK" + b"\0" * 16
-    data += _chunk(b"SQLi", sqlite_data)
-    data += _chunk(b"Exta", _external(mixer_id, mixer_body))
-    # The cell folder cache intentionally contains only a wrong/stale solid
-    # image. Import must flatten both visible child layers instead of using it.
-    data += _chunk(
-        b"Exta",
+    data = _pack_clip(tmp_path / "source.sqlite", [
+        _external(mixer_id, mixer_body),
         _external(raster_id, _raster_body(alpha_pixels={0})),
-    )
-    data += _chunk(
-        b"Exta",
         _external(lower_raster_id, _raster_body((40, 50, 60))),
-    )
-    data += _chunk(
-        b"Exta",
         _external(stale_folder_raster_id, _raster_body((200, 0, 0))),
-    )
+    ])
     path = tmp_path / "animation.clip"
     path.write_bytes(data)
     return path
 
 
-def test_parse_image_cel_curve_reads_key_times_and_tags():
-    assert parse_image_cel_curve(_binc()) == [(0.0, "1"), (60.0, "2")]
-
-
-def test_parse_image_cel_curve_ignores_later_duplicate_curve():
-    data = _binc(((0.0, "1"),), extra_keys=((0.0, "2"),))
-    assert parse_image_cel_curve(data) == [(0.0, "1")]
-
-
-def test_one_channel_line_layer_uses_layer_color_and_channel_as_alpha():
-    image = _decode_offscreen(
-        _offscreen_attribute(packing_type=(1, 0)),
-        _alpha_raster_body({0}),
-        (12, 34, 56),
-    )
-    assert image.pixelColor(0, 0) == QColor(12, 34, 56, 255)
-    assert image.pixelColor(1, 0).alpha() == 0
-
-
-def test_one_bit_line_layer_uses_msb_first_mask_as_alpha():
-    image = _decode_offscreen(
-        _offscreen_attribute(
-            width=16,
-            height=2,
-            packing_type=(1, 0),
-            one_bit=True,
-        ),
-        _one_bit_alpha_raster_body({0, 9}),
-        (90, 80, 70),
-    )
-    assert image.pixelColor(0, 0) == QColor(90, 80, 70, 255)
-    assert image.pixelColor(1, 0).alpha() == 0
-    assert image.pixelColor(9, 0) == QColor(90, 80, 70, 255)
+@pytest.mark.parametrize("one_bit", [False, True])
+@requires_clip_native
+def test_native_alpha_raster_and_unsupported_bit_depth(tmp_path, one_bit):
+    path = _layered_clip_file(tmp_path, {"1": [{
+        "name": "line", "raster": _one_bit_alpha_raster_body({0}) if one_bit
+        else _alpha_raster_body({0}),
+        "packing_type": (1, 0), "one_bit": one_bit,
+    }]})
+    reader = native.clip_animation_reader(str(path), 16384, 512 * 1024 * 1024)
+    from paintmaskanimator.clip_animation import _native_raster
+    mipmap = next(row["LayerRenderMipmap"] for row in reader.metadata()["layers"]
+                  if row["LayerName"] == "line")
+    if one_bit:
+        with pytest.raises(ValueError, match="8-bit"):
+            _native_raster(reader, mipmap)
+    else:
+        image, alpha_only, _ = _native_raster(reader, mipmap, (12, 34, 56))
+        assert alpha_only
+        assert image.pixelColor(0, 0) == QColor(12, 34, 56, 255)
+        assert image.pixelColor(1, 0).alpha() == 0
 
 
 def test_build_pma_frames_coalesces_holds_and_preserves_cell_names():
@@ -399,19 +403,7 @@ def test_build_pma_frames_coalesces_holds_and_preserves_cell_names():
     assert frames[5].layers[0].exposure == 3
 
 
-def test_clip_container_is_read_only_and_indexes_external_data(tmp_path):
-    identifier = b"extrnlid_test"
-    original = b"CSFCHUNK" + b"\0" * 16
-    original += _chunk(b"SQLi", b"sqlite")
-    original += _chunk(b"Exta", _external(identifier, b"payload"))
-    path = tmp_path / "index.clip"
-    path.write_bytes(original)
-    container = ClipContainer.scan(path)
-    assert container.sqlite_bytes == b"sqlite"
-    assert container.read_external(identifier) == b"payload"
-    assert path.read_bytes() == original
-
-
+@requires_clip_native
 def test_read_clip_animation_restores_rendered_cell_and_timeline(tmp_path):
     path = _clip_file(tmp_path)
     original = path.read_bytes()
@@ -433,6 +425,7 @@ def test_read_clip_animation_restores_rendered_cell_and_timeline(tmp_path):
     assert path.read_bytes() == original
 
 
+@requires_clip_native
 def test_read_clip_animation_omits_negative_keys_but_keeps_cell_image(tmp_path):
     path = _clip_file(
         tmp_path,
@@ -450,15 +443,12 @@ def test_read_clip_animation_omits_negative_keys_but_keeps_cell_image(tmp_path):
     assert document.frames[0].layers[0].is_blank_key
 
 
+@requires_clip_native
 def test_invalid_container_does_not_look_like_clip(tmp_path):
     path = tmp_path / "broken.clip"
     path.write_bytes(b"not a clip")
-    try:
-        ClipContainer.scan(path)
-    except ClipImportError as exc:
-        assert "ヘッダー" in str(exc)
-    else:
-        raise AssertionError("invalid .clip was accepted")
+    with pytest.raises(ClipImportError):
+        read_clip_animation(path)
 
 
 @pytest.fixture(scope="module")
@@ -681,7 +671,7 @@ def _layered_clip_file(tmp_path, cels):
     externals = []
     next_id = [2]
 
-    def add_raster(body, packing_type=(1, 4)):
+    def add_raster(body, packing_type=(1, 4), one_bit=False):
         raster_id = next_id[0]
         next_id[0] += 1
         identifier = f"extrnlid_{raster_id}".encode()
@@ -689,7 +679,7 @@ def _layered_clip_file(tmp_path, cels):
         connection.execute("INSERT INTO MipmapInfo VALUES (?, ?)", (raster_id, raster_id))
         connection.execute(
             "INSERT INTO Offscreen VALUES (?, ?, ?)",
-            (raster_id, identifier, _offscreen_attribute(packing_type=packing_type)),
+            (raster_id, identifier, _offscreen_attribute(packing_type=packing_type, one_bit=one_bit)),
         )
         externals.append(_external(identifier, body))
         return raster_id
@@ -703,7 +693,9 @@ def _layered_clip_file(tmp_path, cels):
         for index, (layer_id, spec) in enumerate(ids):
             next_sibling = ids[index + 1][0] if index + 1 < len(ids) else 0
             first_child = add_layers(spec["children"]) if "children" in spec else 0
-            render = add_raster(spec["raster"]) if "raster" in spec else None
+            render = add_raster(
+                spec["raster"], spec.get("packing_type", (1, 4)), spec.get("one_bit", False)
+            ) if "raster" in spec else None
             mask = (
                 add_raster(spec["mask"], packing_type=(1, 0))
                 if "mask" in spec
@@ -757,11 +749,7 @@ def _layered_clip_file(tmp_path, cels):
     first_name = next(iter(cels))
     compressed_mixer = zlib.compress(_binc(((0.0, first_name),)))
     mixer_body = len(compressed_mixer).to_bytes(4, "little") + compressed_mixer
-    data = b"CSFCHUNK" + b"\0" * 16
-    data += _chunk(b"SQLi", database_path.read_bytes())
-    data += _chunk(b"Exta", _external(mixer_id, mixer_body))
-    for external in externals:
-        data += _chunk(b"Exta", external)
+    data = _pack_clip(database_path, [_external(mixer_id, mixer_body), *externals])
     path = tmp_path / "layered.clip"
     path.write_bytes(data)
     return path
@@ -786,6 +774,7 @@ def test_composite_on_empty_backdrop_keeps_source_for_any_mode():
         assert np.allclose(_composite(backdrop, source, mode), source)
 
 
+@requires_clip_native
 def test_cel_folder_applies_clipping_blend_mode_mask_and_visibility(tmp_path):
     path = _layered_clip_file(
         tmp_path,
@@ -818,6 +807,7 @@ def test_cel_folder_applies_clipping_blend_mode_mask_and_visibility(tmp_path):
     assert image.pixelColor(1, 1) == _pixel((0, 0, 0))
 
 
+@requires_clip_native
 def test_pass_through_folder_blends_with_layers_below_it(tmp_path):
     path = _layered_clip_file(
         tmp_path,
@@ -856,3 +846,34 @@ def test_pass_through_folder_blends_with_layers_below_it(tmp_path):
     assert (through.red(), through.green(), through.blue()) == (100, 50, 20)
     # A normal (isolated) folder multiplies onto nothing, so the grey shows.
     assert layer.cell_images["2"].pixelColor(0, 0) == _pixel((128, 128, 128))
+
+
+def test_missing_native_codec_reports_actionable_error(monkeypatch, tmp_path):
+    monkeypatch.setattr(native, "_native", None)
+    with pytest.raises(ClipImportError, match="pip install ./native"):
+        read_clip_animation(tmp_path / "animation.clip")
+
+
+@requires_clip_native
+def test_computation_opt_out_keeps_clip_codec_available(monkeypatch, tmp_path):
+    monkeypatch.setenv("PMA_NO_NATIVE", "1")
+    assert not native.available()
+    assert read_clip_animation(_clip_file(tmp_path)).frame_count == 3
+
+
+@requires_clip_native
+def test_timeline_limit_is_checked_before_raster_decode(tmp_path):
+    path = _clip_file(tmp_path, end_frame=constants.MAX_PROJECT_FRAMES)
+    with pytest.raises(ClipImportError, match="PMA"):
+        read_clip_animation(path)
+
+
+@requires_clip_native
+def test_native_rejects_inconsistent_root_size_without_modifying_source(tmp_path):
+    path = _clip_file(tmp_path)
+    data = bytearray(path.read_bytes())
+    data[8:16] = (len(data) - 1).to_bytes(8, "big")
+    path.write_bytes(data)
+    with pytest.raises(ClipImportError):
+        read_clip_animation(path)
+    assert path.read_bytes() == data

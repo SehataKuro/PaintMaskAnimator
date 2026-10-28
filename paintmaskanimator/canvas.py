@@ -66,6 +66,7 @@ from .canvas_transform_mask import TransformMaskMixin
 from .canvas_undo import UndoMixin
 from .undo_entries import (
     DocUndo,
+    ExposureUndo,
     InitialStateUndo,
     LayerBatchUndo,
     LayerInsertUndo,
@@ -392,6 +393,9 @@ class PaintCanvas(
                 and 0 <= li < len(self.frames[fi].layers)
             )
 
+        if isinstance(entry, ExposureUndo):
+            return ExposureUndo.capture(self, entry.layer, entry.column,
+                                        tuple((dst, src) for src, dst in entry.moves))
         if isinstance(entry, DocUndo):
             return DocUndo(self.document_snapshot())
         if isinstance(entry, InitialStateUndo):
@@ -501,7 +505,7 @@ class PaintCanvas(
         return None
 
     def set_tool(self, t):
-        if t != self.tool:
+        if t != self.tool or t == "shape":
             self.abort_skewer_fill()
             self._stop_brush_follow_timer()
             self.line_start = None
@@ -511,7 +515,9 @@ class PaintCanvas(
             self.shape_start = None
             self.shape_end = None
             self.drawing = False
+            self._brush_line_anchor = None
         self.tool = t
+        self._brush_shift_line = False
         self.update_tool_cursor()
         self.update()
 
@@ -590,7 +596,15 @@ class PaintCanvas(
         self.update()
 
 
-    def effective_tool(self): return self.temp_tool or self.tool
+    def effective_tool(self):
+        tool = self.temp_tool or self.tool
+        if tool == "brush" and getattr(self, "_brush_shift_line", False):
+            return "line"
+        if tool == "shape":
+            panel = self._active_tool_panel()
+            if panel is not None and panel.shape_type.currentData() in ("straight", "curve"):
+                return "line"
+        return tool
     def work_rect(self):
         w,h=workspace_size(); return QRectF(self.pan.x(),self.pan.y(),w*self.zoom,h*self.zoom)
 

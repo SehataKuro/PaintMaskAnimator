@@ -34,6 +34,10 @@ pip install ./native   # Rust の部品（Rust のツールチェーンが必要
 `tests/test_native.py` で突き合わせています。環境変数 `PMA_NO_NATIVE=1` で
 Rust の部品を使わずに動かせます。
 
+例外として、`.clip`の読み込みは`clipfile-rs`を使うRust拡張が必須です。
+独自のPythonパーサーは持ちません。`PMA_NO_NATIVE=1`は計算の高速化だけを無効にし、
+CLIPの読み込みには引き続きRust拡張を使います。[CLIP読み込み](docs/clip-import.md)も参照してください。
+
 ## 提出前の確認
 
 CIと同じチェック（ruff・pyright・バージョン表記・翻訳カタログ・テスト）を

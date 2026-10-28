@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QItemSelectionModel, QTimer
 from .i18n import tr
 from .utils import blank_image
+from .undo_entries import ExposureUndo
 from .normalize_dialog import NormalizeNumbersDialog
 from .timeline import TimelineWidget
 from .logging_setup import get_logger
@@ -564,7 +565,41 @@ class TimelineOpsController:
         layer = self.window.canvas.frames[key_column].layers[layer_index]
         old_exposure = max(1, int(layer.exposure))
         old_end = key_column + old_exposure - 1
-        self.window.canvas.push_doc_undo()
+        # A simple right-edge edit changes no pixels. Saving every frame's
+        # image here exhausted the undo memory budget and evicted history.
+        if edge != "left":
+            new_end = max(key_column, boundary_column)
+            next_key = next((
+                col for col in range(key_column + 1, len(self.window.canvas.frames))
+                if self.window.canvas.frames[col].layers[layer_index].has_content
+                or self.window.canvas.frames[col].layers[layer_index].is_blank_key
+            ), None)
+            if next_key is None or new_end < next_key:
+                if new_end == old_end:
+                    return
+                self.window.canvas.push_undo(ExposureUndo.capture(
+                    self.window.canvas, layer_index, key_column
+                ))
+                self.window.canvas._ensure_frame_count(new_end + 1)
+                layer.exposure = new_end - key_column + 1
+                self.window.canvas.current_frame = key_column
+                self.window.canvas.active_layer_index = layer_index
+                self.window.canvas.changed.emit()
+                self.window.canvas.selectionChanged.emit()
+                self.window.canvas.update()
+                return
+            shift = new_end + 1 - next_key
+            moves = tuple(
+                (col + shift, col)
+                for col in range(key_column + 1, len(self.window.canvas.frames))
+                if self.window.canvas.frames[col].layers[layer_index].has_content
+                or self.window.canvas.frames[col].layers[layer_index].is_blank_key
+            )
+            self.window.canvas.push_undo(ExposureUndo.capture(
+                self.window.canvas, layer_index, key_column, moves
+            ))
+        else:
+            self.window.canvas.push_doc_undo()
 
         if edge == "left":
             previous_keys = [

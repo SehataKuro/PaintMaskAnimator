@@ -47,7 +47,8 @@ def test_default_keys(window):
     assert keys(window.a_view_zoom_out) == ["Ctrl+-"]
     assert keys(window.a_view_fit) == ["Ctrl+0"]
     assert keys(window.a_brush_smaller) == ["["] and keys(window.a_brush_larger) == ["]"]
-    assert keys(window.a_tl_add_exposure) == ["E"]
+    assert keys(window.a_tl_add_exposure) == []
+    assert keys(window.a_select_transparent) == ["E"]
     assert keys(window.a_tl_delete_frame) == ["Shift+E"]
     assert keys(window.a_tl_layer_add) == ["Ctrl+Shift+N"]
     assert set(keys(window.a_selection_delete)) == {"Del", "Backspace"}
@@ -168,3 +169,16 @@ def test_brush_size_and_zoom_steps(window):
 def test_key_sequence_strings_parse():
     for text in ("Ctrl+T", "Ctrl+Shift+Z", "Ctrl+=", "Ctrl+-", "Ctrl+0", "[", "]", "Shift+E"):
         assert not QKeySequence(text).isEmpty(), text
+
+@pytest.mark.parametrize("tool", ["brush", "bucket", "rect_select", "eyedropper", "dust"])
+@pytest.mark.parametrize("preferred", ["brush", "bucket"])
+def test_background_shortcut_preserves_drawing_tool(window, monkeypatch, tool, preferred):
+    from paintmaskanimator import preferences
+    monkeypatch.setattr(preferences, "background_color_tool", lambda: preferred)
+    window.tools.select_tool(tool)
+    window.canvas.color_mode = "main"
+    window.a_select_transparent.trigger()
+    assert window.canvas.tool == (tool if tool in ("brush", "bucket") else preferred)
+    assert window.canvas.color_mode == "transparent"
+    window.a_select_transparent.trigger()
+    assert window.canvas.color_mode == "transparent"

@@ -15,7 +15,7 @@ PROJECT_VERSION = tomllib.loads(
 
 hiddenimports = []
 # Optional deps: bundle them if present in the build environment.
-# pma_native は Rust の部品（native/）。無ければ numpy 版で動く。
+# pma_native は Rust の部品（native/）。CLIP読み込みに必須、画像計算はnumpyへ戻せる。
 for optional in ("PIL", "psd_tools", "PySide6QtAds", "pma_native"):
     try:
         __import__(optional)

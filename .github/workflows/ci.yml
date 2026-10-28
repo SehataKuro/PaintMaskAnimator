@@ -57,7 +57,9 @@ jobs:
 
       - name: Build native module (Rust)
         if: matrix.native
-        run: pip install ./native
+        run: |
+          pip install ./native
+          python -c "from pma_native import ClipAnimationReader"
 
       - name: Compile translation catalogues
         run: python scripts/update_translations.py
@@ -92,7 +94,9 @@ jobs:
           pip install -r requirements-dev.txt
 
       - name: Build native module (Rust)
-        run: pip install ./native
+        run: |
+          pip install ./native
+          python -c "from pma_native import ClipAnimationReader"
 
       - name: Lint (ruff)
         run: ruff check paintmaskanimator tests scripts

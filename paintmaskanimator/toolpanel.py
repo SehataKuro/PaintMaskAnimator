@@ -34,7 +34,7 @@ from .widgets import (BrushSizeSpinBox, ClickableValueLabel, HSVColorWheel, Line
 #: translator is installed, so a ``tr()`` at module level would freeze the source
 #: language in. Use :func:`tool_label` wherever the name is displayed.
 TOOL_DEFINITIONS = [
-    ("brush", "ブラシ"), ("line", "ライン"),
+    ("brush", "ブラシ"),
     ("shape", "図形"), ("bucket", "バケツ"),
     ("lasso_fill", "投げ縄塗り"), ("lasso", "投げ縄選択"),
     ("rect_select", "長方形選択"), ("auto_select", "自動選択"),
@@ -972,8 +972,12 @@ class ToolPanel(QWidget):
         # 図形ツール
         self.shape_type_label = QLabel(tr("図形種類"))
         self.shape_type = QComboBox()
+        self.shape_type.addItem(tr("直線"), "straight")
+        self.shape_type.addItem(tr("曲線"), "curve")
         self.shape_type.addItem(tr("多角形"), "polygon")
         self.shape_type.addItem(tr("楕円"), "ellipse")
+        self.shape_type.setToolTip(self.line_type.toolTip())
+        self.shape_type.setCurrentIndex(self.shape_type.findData("polygon"))
         self.shape_corners_label = QLabel(tr("角の数"))
         self.shape_corners = QSpinBox()
         self.shape_corners.setRange(3, 32)
@@ -984,7 +988,7 @@ class ToolPanel(QWidget):
         self.shape_corners_slider.valueChanged.connect(self.shape_corners.setValue)
         self.shape_corners.valueChanged.connect(self.shape_corners_slider.setValue)
         self.shape_type.currentIndexChanged.connect(
-            lambda _index: self._sync_shape_corner_controls()
+            self._shape_kind_changed
         )
         self.shape_lock_ratio = QCheckBox(tr("比率固定"))
         self.shape_fill_inside = QCheckBox(tr("内側を塗る"))
@@ -1088,12 +1092,12 @@ class ToolPanel(QWidget):
             self.selection_all_frames,
             self.mesh_commit,self.mesh_cancel,
             self.flip_h,self.flip_v,
+            self.shape_type_label,self.shape_type,
             self.line_type_label,self.line_type,
             self.line_taper_in,self.line_taper_in_size_label,self.line_taper_in_size,
             self.line_taper_in_curve_label,self.line_taper_in_curve,
             self.line_taper_out,self.line_taper_out_size_label,self.line_taper_out_size,
             self.line_taper_out_curve_label,self.line_taper_out_curve,
-            self.shape_type_label,self.shape_type,
             self.shape_corners_label,self.shape_corners,self.shape_corners_slider,
             self.shape_lock_ratio,self.shape_fill_inside,
             self.shape_sub_outline_main_fill,
@@ -1446,21 +1450,34 @@ class ToolPanel(QWidget):
         if self.selection_all_frames.isEnabled():
             self.selection_all_frames.toggle()
 
+    def _shape_kind_changed(self, _index):
+        kind = self.shape_type.currentData()
+        if kind in ("straight", "curve"):
+            self.line_type.setCurrentIndex(self.line_type.findData(kind))
+        if self.active_tool == "shape":
+            self.select_tool("shape")
+        self._sync_shape_corner_controls()
+
     def select_tool(self, tid):
         self.active_tool=tid
         self.active.setText(tool_label(tid))
+        if tid == "shape" and self.shape_type.currentData() in ("straight", "curve"):
+            self.line_type.setCurrentIndex(self.line_type.findData(self.shape_type.currentData()))
         self.toolChanged.emit(tid)
 
         is_selection = tid in ("lasso", "rect_select", "auto_select")
-        is_line = tid == "line"
-        is_shape = tid == "shape"
+        is_shape_tool = tid == "shape"
+        is_line = tid == "line" or (
+            is_shape_tool and self.shape_type.currentData() in ("straight", "curve")
+        )
+        is_shape = is_shape_tool and not is_line
         is_bucket = tid == "bucket"
         is_dust = tid == "dust"
         is_lasso_fill = tid == "lasso_fill"
-        uses_size = tid in ("brush", "line")
+        uses_size = tid == "brush" or is_line
 
         self.command_box.setVisible(
-            is_selection or is_line or is_shape
+            is_selection or is_line or is_shape_tool
             or is_bucket or is_dust or is_lasso_fill
         )
         for widget in (
@@ -1485,6 +1502,8 @@ class ToolPanel(QWidget):
             self.line_taper_out,self.line_taper_out_size_label,self.line_taper_out_size,
         ):
             widget.setVisible(is_line)
+        self.line_type_label.setVisible(tid == "line")
+        self.line_type.setVisible(tid == "line")
         # 入り／抜きカーブはサイズ数値クリック時のポップアップだけで調整する。
         self.line_taper_in_curve_label.setVisible(False)
         self.line_taper_in_curve.setVisible(False)
@@ -1523,6 +1542,8 @@ class ToolPanel(QWidget):
             self.shape_outline_width_label,self.shape_outline_width,
         ):
             widget.setVisible(is_shape)
+        self.shape_type_label.setVisible(is_shape_tool)
+        self.shape_type.setVisible(is_shape_tool)
         self._sync_shape_corner_controls(visible=is_shape)
 
         self.lasso_inside_boundary.setVisible(is_lasso_fill)
@@ -1536,8 +1557,8 @@ class ToolPanel(QWidget):
             is_lasso_fill and self.lasso_main_outline_sub_fill.isChecked()
         )
         uses_bucket_region = is_bucket or tid == "auto_select"
-        self.bucket_reference_row.setVisible(is_bucket)
-        self.bucket_target_row.setVisible(is_bucket)
+        self.bucket_reference_row.setVisible(is_bucket or is_lasso_fill)
+        self.bucket_target_row.setVisible(is_bucket or is_lasso_fill)
         self.bucket_adjacent.setVisible(uses_bucket_region)
         self.bucket_include_sub.setVisible(is_bucket)
         self.bucket_include_colors.setVisible(is_bucket)

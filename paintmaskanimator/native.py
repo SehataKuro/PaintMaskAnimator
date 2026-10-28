@@ -4,6 +4,8 @@
 置き換えていく」）。部品が入っていない環境、または環境変数
 ``PMA_NO_NATIVE=1`` のときは ``None`` を返し、呼び出し側は numpy 版で計算する。
 どちらでも結果は同じになることを、テストで突き合わせている。
+CLIPファイルの読み込みは例外で、clipfile-rsを使うRust拡張が必須。
+PMA_NO_NATIVEはコーデックを無効にしない。
 
 マスクは numpy の bool 配列で受け渡す。bool 配列は1画素1バイト（0 か 1）
 なので、コピーせずにそのまま Rust へ渡せる。
@@ -27,6 +29,15 @@ except ImportError:  # pragma: no cover
 def available() -> bool:
     """Rust の部品を使うか。"""
     return _native is not None and os.environ.get("PMA_NO_NATIVE") != "1"
+
+
+def clip_animation_reader(path: str, max_dimension: int, max_raster_bytes: int):
+    """CLIP parsing has one implementation, supplied by clipfile-rs."""
+    if _native is None or not hasattr(_native, "ClipAnimationReader"):
+        from .i18n import tr
+        raise ValueError(tr("CLIP読み込みには新しいRust拡張が必要です。pip install ./native で更新してください。"))
+    # PMA_NO_NATIVE disables optional computation accelerators, not file codecs.
+    return _native.ClipAnimationReader(path, max_dimension, max_raster_bytes)
 
 
 def resolve_exposures(states, exposures):

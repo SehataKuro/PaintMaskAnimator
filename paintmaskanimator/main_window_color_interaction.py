@@ -12,7 +12,7 @@ import numpy as np
 from PySide6.QtCore import QRectF
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
-from . import theme
+from . import theme, preferences
 from .i18n import tr
 from .time_display import frame_position
 from .color_picker_dialog import ColorPickerDialog
@@ -452,6 +452,11 @@ class ColorInteractionController:
             self.window.statusBar().showMessage(tr("選択レイヤーの特定色表示を解除しました。"), 2500)
         else:
             self.window.statusBar().showMessage(tr("選択レイヤーには特定色表示が設定されていません。"), 2500)
+
+    def select_background_color(self):
+        if self.window.canvas.tool not in ("brush", "bucket", "line", "shape", "lasso_fill"):
+            self.window.tools.select_tool(preferences.background_color_tool())
+        self.set_color_mode("transparent")
 
     def toggle_draw_background_color(self):
         previous = getattr(self.window, "_previous_draw_color_mode", "main")

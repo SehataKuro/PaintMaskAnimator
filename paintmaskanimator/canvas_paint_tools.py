@@ -794,6 +794,17 @@ class PaintToolsMixin(CanvasMembers):
             painter.drawLine(previous, point)
             previous = point
 
+    def _begin_brush_straight_line(self, point):
+        anchor = getattr(self, "_brush_line_anchor", None)
+        key = (self.current_frame, self.active_layer_index)
+        self._brush_shift_line = True
+        self.line_start = QPointF(anchor[1] if anchor is not None and anchor[0] == key else point)
+        self.line_end = QPointF(point)
+        self.line_control = None
+        self.line_curve_stage = 1
+        self.drawing = True
+        self.update()
+
     def commit_line_tool(self):
         path = self._line_preview_path()
         if path is None:
@@ -805,7 +816,7 @@ class PaintToolsMixin(CanvasMembers):
         end_width = None
         start_curve = 1.0
         end_curve = 1.0
-        if panel is not None:
+        if panel is not None and not getattr(self, "_brush_shift_line", False):
             if panel.line_taper_in.isChecked():
                 start_width = (
                     panel.line_taper_in_size.value() / 2.0
@@ -894,6 +905,11 @@ class PaintToolsMixin(CanvasMembers):
             self.current_frame,
             self.active_layer_index,
         )
+        if getattr(self, "_brush_shift_line", False):
+            self._brush_line_anchor = (
+                (self.current_frame, self.active_layer_index), QPointF(self.line_end),
+            )
+        self._brush_shift_line = False
         self.line_start = None
         self.line_end = None
         self.line_control = None
@@ -1087,8 +1103,6 @@ class PaintToolsMixin(CanvasMembers):
         ).toAlignedRect().intersected(self.active_layer.image.rect())
         if rect.isEmpty():
             return
-        self.push_layer_region_undo(rect)
-
         local_polygon = QPolygonF([
             QPointF(point.x() - rect.x(), point.y() - rect.y())
             for point in points
@@ -1128,27 +1142,38 @@ class PaintToolsMixin(CanvasMembers):
         painter.end()
 
         width, height = rect.width(), rect.height()
-        source = self.active_layer.image.copy(rect).convertToFormat(
-            QImage.Format.Format_RGBA8888
-        )
         mask_image = overlay.convertToFormat(
             QImage.Format.Format_RGBA8888
         )
 
-        source_ptr = imaging.qimage_buffer(source)
         mask_ptr = imaging.qimage_buffer(mask_image)
-        source_rows = np.frombuffer(
-            source_ptr, dtype=np.uint8
-        ).reshape((height, source.bytesPerLine()))
         mask_rows = np.frombuffer(
             mask_ptr, dtype=np.uint8
         ).reshape((height, mask_image.bytesPerLine()))
-        source_pixels = source_rows[:, :width * 4].reshape(
-            (height, width, 4)
-        )
         mask_pixels = mask_rows[:, :width * 4].reshape(
             (height, width, 4)
         )
+
+        options = bucket_fill.BucketOptions.from_tools(
+            window.tools if hasattr(window, "tools") else None,
+        )
+        reference = self._bucket_reference_image(
+            options, self.current_frame, self.active_layer_index, self.active_layer.image,
+        )
+        reference_owner, reference_pixels = self._layer_fill_pixels(reference.copy(rect))
+        if options.target_color != bucket_fill.TARGET_ALL:
+            if options.target_color in (
+                bucket_fill.TARGET_OPAQUE_AND_INNER_TRANSPARENT,
+                bucket_fill.TARGET_TRANSPARENT_AND_CLOSED_OPAQUE,
+            ):
+                # 内部の穴は投げ縄の外側まで含む元の参照画像で判断する。
+                full_owner, full_pixels = self._layer_fill_pixels(reference)
+                eligible = bucket_fill.fill_target_mask(full_pixels, options.target_color, None)
+                eligible |= bucket_fill._enclosed_by(eligible)
+                eligible = eligible[rect.y():rect.y() + height, rect.x():rect.x() + width]
+            else:
+                eligible = bucket_fill.fill_target_mask(reference_pixels, options.target_color, None)
+            mask_pixels[:, :, 3][~eligible] = 0
 
         if mask_only:
             selected_rgbs = self.selected_mask_colors()
@@ -1156,9 +1181,9 @@ class PaintToolsMixin(CanvasMembers):
                 target_mask = np.zeros((height, width), dtype=bool)
             else:
                 packed_source = (
-                    (source_pixels[:, :, 0].astype(np.uint32) << 16)
-                    | (source_pixels[:, :, 1].astype(np.uint32) << 8)
-                    | source_pixels[:, :, 2].astype(np.uint32)
+                    (reference_pixels[:, :, 0].astype(np.uint32) << 16)
+                    | (reference_pixels[:, :, 1].astype(np.uint32) << 8)
+                    | reference_pixels[:, :, 2].astype(np.uint32)
                 )
                 selected_values = np.fromiter(
                     ((r << 16) | (g << 8) | b for r, g, b in selected_rgbs),
@@ -1166,14 +1191,14 @@ class PaintToolsMixin(CanvasMembers):
                     count=len(selected_rgbs),
                 )
                 target_mask = (
-                    (source_pixels[:, :, 3] > 0)
+                    (reference_pixels[:, :, 3] > 0)
                     & np.isin(packed_source, selected_values)
                 )
                 if self.background_mask_rgb in selected_rgbs:
                     target_mask |= (
-                        (source_pixels[:, :, 3] == 0)
+                        (reference_pixels[:, :, 3] == 0)
                         | np.all(
-                            source_pixels[:, :, :3] == 255,
+                            reference_pixels[:, :, :3] == 255,
                             axis=2,
                         )
                     )
@@ -1181,13 +1206,12 @@ class PaintToolsMixin(CanvasMembers):
 
         if inside_boundary:
             polygon_area = mask_pixels[:, :, 3] > 0
-            passable = polygon_area & (
-                (source_pixels[:, :, 3] == 0)
-                | np.all(
-                    source_pixels[:, :, :3] == 255,
-                    axis=2,
+            passable = polygon_area.copy()
+            if options.target_color == bucket_fill.TARGET_ALL:
+                passable &= (
+                    (reference_pixels[:, :, 3] == 0)
+                    | np.all(reference_pixels[:, :, :3] == 255, axis=2)
                 )
-            )
             candidates = np.argwhere(passable)
             if candidates.size:
                 center = np.mean(
@@ -1207,6 +1231,9 @@ class PaintToolsMixin(CanvasMembers):
             else:
                 mask_pixels[:, :, 3] = 0
 
+        if not mask_pixels[:, :, 3].any():
+            return
+        self.push_layer_region_undo(rect)
         overlay = mask_image.convertToFormat(
             QImage.Format.Format_ARGB32_Premultiplied
         )

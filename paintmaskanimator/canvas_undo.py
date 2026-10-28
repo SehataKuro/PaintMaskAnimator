@@ -14,6 +14,7 @@ from .utils import blank_image
 from .logging_setup import get_logger
 from .undo_entries import (
     DocUndo,
+    ExposureUndo,
     InitialStateUndo,
     LayerBatchUndo,
     LayerInsertUndo,
@@ -277,6 +278,21 @@ class UndoMixin(CanvasMembers):
             palette = getattr(self, "_palette", None)
             if palette is not None:
                 palette.restore_history_state(e.state)
+        elif isinstance(e, ExposureUndo):
+            self._ensure_frame_count(e.frame_count)
+            moved = [(dst, self.frames[src].layers[e.layer].clone())
+                     for src, dst in e.moves]
+            for src, _dst in e.moves:
+                self._clear_timeline_layer_cell(self.frames[src].layers[e.layer])
+            for dst, layer in moved:
+                self.frames[dst].layers[e.layer] = layer
+            del self.frames[e.frame_count:]
+            self.frames[e.column].layers[e.layer].exposure = e.exposure
+            self.current_frame = e.current_frame
+            self.active_layer_index = e.active_layer
+            self._invalidate_display_caches()
+            self.changed.emit()
+            self.selectionChanged.emit()
         elif isinstance(e, DocUndo):
             fs, cf, al, w, h = e.snapshot
             constants.CANVAS_WIDTH = w

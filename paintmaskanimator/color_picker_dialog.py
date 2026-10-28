@@ -445,7 +445,8 @@ class ColorPickerDialog(QDialog):
 
         if self._screen_picker is not None:
             return
-        overlay = ScreenColorPickerOverlay(self.color())
+        # モーダルな色選択ダイアログの子にしないと、Qt が入力を遮断する。
+        overlay = ScreenColorPickerOverlay(self.color(), parent=self)
         self._screen_picker = overlay
         overlay.colorPicked.connect(self._screen_color_picked)
         overlay.canceled.connect(self._screen_pick_finished)
@@ -459,6 +460,13 @@ class ColorPickerDialog(QDialog):
         self._screen_picker = None
         self.raise_()
         self.activateWindow()
+
+    def done(self, result):
+        overlay = self._screen_picker
+        if overlay is not None:
+            self._screen_picker = None
+            overlay.cancel()
+        super().done(result)
 
     def reject(self):
         overlay = self._screen_picker

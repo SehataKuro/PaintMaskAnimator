@@ -44,7 +44,7 @@ jobs:
       - name: Build native module (Rust)
         run: |
           pip install ./native
-          python -c "import pma_native; print('pma_native', pma_native.__version__)"
+          python -c "import pma_native; from pma_native import ClipAnimationReader; print('pma_native', pma_native.__version__)"
 
       - name: Validate release version
         run: python scripts/check_version.py "${{ steps.ver.outputs.version }}"
@@ -122,7 +122,7 @@ jobs:
       - name: Build native module (Rust)
         run: |
           pip install ./native
-          python -c "import pma_native; print('pma_native', pma_native.__version__)"
+          python -c "import pma_native; from pma_native import ClipAnimationReader; print('pma_native', pma_native.__version__)"
 
       - name: Validate release version
         run: python scripts/check_version.py "${{ steps.ver.outputs.version }}"

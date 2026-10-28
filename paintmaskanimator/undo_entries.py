@@ -48,6 +48,25 @@ class UndoEntry:
 
 
 @dataclass
+class ExposureUndo(UndoEntry):
+    """Exposure and reversible cell moves, without retaining image snapshots."""
+
+    HISTORY_LABEL = "コマの長さ変更"
+    layer: int
+    column: int
+    exposure: int
+    frame_count: int
+    current_frame: int
+    active_layer: int
+    moves: tuple = ()
+
+    @classmethod
+    def capture(cls, canvas, layer, column, moves=()):
+        return cls(layer, column, canvas.frames[column].layers[layer].exposure,
+                   len(canvas.frames), canvas.current_frame, canvas.active_layer_index, moves)
+
+
+@dataclass
 class DocUndo(UndoEntry):
     """Whole-document snapshot: ``(frames, current_frame, active_layer, w, h)``."""
 
@@ -245,6 +264,7 @@ def translate_history_label(label: str) -> str:
     labels = {
         "編集": tr("編集"),
         "全体編集": tr("全体編集"),
+        "コマの長さ変更": tr("コマの長さ変更"),
         "描画": tr("描画"),
         "色編集": tr("色編集"),
         "一括処理": tr("一括処理"),

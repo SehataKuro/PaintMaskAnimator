@@ -175,6 +175,14 @@ class PreferencesDialog(QDialog):
         self.tool_hold_ms.setEnabled(self.tool_hold_enabled.isChecked())
         self.tool_hold_ms.valueChanged.connect(self._tool_hold_changed)
 
+        self.background_color_tool = QComboBox()
+        self.background_color_tool.addItem(tr("ブラシ"), "brush")
+        self.background_color_tool.addItem(tr("バケツ"), "bucket")
+        self._select_data(self.background_color_tool, preferences.background_color_tool())
+        self.background_color_tool.currentIndexChanged.connect(
+            lambda: preferences.set_background_color_tool(self.background_color_tool.currentData())
+        )
+
         self.time_display = QComboBox()
         self.time_display.addItem(tr("1コマ目"), preferences.TIME_DISPLAY_FRAMES)
         self.time_display.addItem("0+1", preferences.TIME_DISPLAY_SECONDS_FRAMES)
@@ -185,6 +193,8 @@ class PreferencesDialog(QDialog):
             (tr("言語 / Language"), self.language),
             _hint(tr("言語は次回の起動から切り替わります。")),
             (tr("時間の表示"), self.time_display),
+            (tr("背景色選択時の描画ツール"), self.background_color_tool),
+            _hint(tr("描画ツール以外で背景色のショートカット（E）を押したときに使います。")),
             (tr("初期状態"), self.keep_initial_state),
             _hint(tr("初期状態として保存すると自動色塗りの精度が上がります。外すと、読み込み"
                      "のたびに保存するか尋ねます。")),

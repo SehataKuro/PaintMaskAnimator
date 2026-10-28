@@ -62,6 +62,10 @@ python PaintMaskAnimator.py        # or: python -m paintmaskanimator
 PySide6, PySide6-QtAds and numpy are required. Installing Pillow and psd-tools
 enables PSD import/export and other optional features.
 
+Importing `.clip` files requires the Rust extension: install a Rust toolchain and
+run `pip install ./native`. Packaged releases include it. See
+[CLIP import](docs/clip-import.md) for supported formats and limitations.
+
 ## Python actions
 
 The action panel can be extended with Python scripts. Open the in-app editor from

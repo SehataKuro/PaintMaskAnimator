@@ -65,6 +65,10 @@ python PaintMaskAnimator.py        # または python -m paintmaskanimator
 必須の依存は PySide6、PySide6-QtAds、numpy です。Pillow と psd-tools を入れると、
 PSD などの読み込み・書き出しが有効になります。
 
+`.clip`の読み込みにはRust拡張が必要です。Rustのツールチェーンを用意し、
+`pip install ./native`でインストールしてください（配布版には同梱しています）。
+対応範囲は[CLIP読み込み](docs/clip-import.md)を参照してください。
+
 自動塗りの任意のGPU支援と速度の計測方法は、
 [自動塗りの処理と計測](docs/auto-paint-performance.md)を参照してください。
 

@@ -14,6 +14,7 @@ mod line_flow;
 mod thin;
 mod auto_paint;
 mod display;
+mod clip;
 
 /// 4 近傍で、`seeds` からつながる `passable` の領域を求める（行ごとのランで辿る）。
 ///
@@ -319,6 +320,7 @@ fn py_label_regions<'py>(
 
 #[pymodule]
 fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_class::<clip::ClipAnimationReader>()?;
     module.add_function(wrap_pyfunction!(display::resolve_exposures, module)?)?;
     module.add_function(wrap_pyfunction!(display::tint_onion, module)?)?;
     module.add_class::<auto_paint::GuideSampler>()?;

@@ -400,8 +400,8 @@ class ScreenColorPickerOverlay(QWidget):
     colorPicked = Signal(QColor)
     canceled = Signal()
 
-    def __init__(self, before_color=None):
-        super().__init__(None)
+    def __init__(self, before_color=None, parent=None):
+        super().__init__(parent)
         self._before_color = (
             QColor(before_color) if before_color is not None else QColor()
         )

@@ -61,19 +61,33 @@ into its binary. Build-only crates (procedural macros such as `syn`, `quote`,
 | pyo3, pyo3-ffi | MIT OR Apache-2.0 | <https://github.com/PyO3/pyo3> |
 | libc | MIT OR Apache-2.0 | <https://github.com/rust-lang/libc> |
 | once_cell | MIT OR Apache-2.0 | <https://github.com/matklad/once_cell> |
+| clipfile | MIT | <https://github.com/Aodaruma/clipfile-rs> |
+| rusqlite, libsqlite3-sys | MIT | <https://github.com/rusqlite/rusqlite> |
+| flate2 | MIT OR Apache-2.0 | <https://github.com/rust-lang/flate2-rs> |
+| crc32fast | MIT OR Apache-2.0 | <https://github.com/srijs/rust-crc32fast> |
+| cfg-if | MIT OR Apache-2.0 | <https://github.com/rust-lang/cfg-if> |
+| miniz_oxide | MIT OR Zlib OR Apache-2.0 | <https://github.com/Frommi/miniz_oxide> |
+| adler2 | 0BSD OR MIT OR Apache-2.0 | <https://github.com/oyvindln/adler2> |
+| simd-adler32 | MIT | <https://github.com/mcountryman/simd-adler32> |
+| bitflags | MIT OR Apache-2.0 | <https://github.com/bitflags/bitflags> |
+| fallible-iterator | MIT OR Apache-2.0 | <https://github.com/sfackler/rust-fallible-iterator> |
+| fallible-streaming-iterator | MIT OR Apache-2.0 | <https://github.com/sfackler/fallible-streaming-iterator> |
+| smallvec | MIT OR Apache-2.0 | <https://github.com/servo/rust-smallvec> |
 
-PaintMaskAnimator uses them under the Apache License 2.0, the same license as
-the application. Check `cargo tree -e normal --manifest-path native/Cargo.toml`
+Where offered, PaintMaskAnimator uses these crates under Apache License 2.0.
+The MIT-only dependency notices are reproduced below. The bundled SQLite
+database engine is in the public domain (<https://sqlite.org/copyright.html>).
+Check `cargo tree -e normal --manifest-path native/Cargo.toml`
 when the module's dependencies change, and keep this table in sync.
 
 ## clip_to_psd / clipfile-rs (派生コード)
 
-`paintmaskanimator/clip_animation.py` の CLIP STUDIO コンテナ・ラスタータイル・
-アニメーションミキサーの読み込み処理は、以下のプロジェクトのフォーマット観察と
-アルゴリズムを参考にしています。
+CLIP STUDIOの形式解析には`clipfile`を直接使用します。
+`paintmaskanimator/clip_animation.py`に残るセル合成・色の扱いは、以下のプロジェクトの
+フォーマット観察とアルゴリズムを参考にしています。
 
 - Copyright (c) 2024 dobrokot/clip_to_psd contributors
-- Copyright (c) Aodaruma/clipfile-rs contributors
+- Copyright (c) 2026 Aodaruma
 - License: **MIT**
 - Homepage: <https://github.com/dobrokot/clip_to_psd>,
   <https://github.com/Aodaruma/clipfile-rs>
@@ -98,6 +112,102 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+
+---
+
+## Native CLIP dependency license notices
+
+### clipfile 1.2.0 (MIT)
+
+MIT License
+
+Copyright (c) 2026 Aodaruma
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+### rusqlite 0.39.0 (MIT)
+
+Copyright (c) 2014 The rusqlite developers
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+### libsqlite3-sys 0.37.0 (MIT)
+
+Copyright (c) 2014 The rusqlite developers
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+### simd-adler32 0.3.10 (MIT)
+
+MIT License
+
+Copyright (c) [2021] [Marvin Countryman]
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 ---
 

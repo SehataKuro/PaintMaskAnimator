@@ -26,6 +26,17 @@ TIME_DISPLAY_FRAMES = "frames"
 TIME_DISPLAY_SECONDS_FRAMES = "seconds_frames"
 
 
+def background_color_tool():
+    value = config.get_value("background_color_tool", "brush")
+    return value if value in ("brush", "bucket") else "brush"
+
+
+def set_background_color_tool(tool):
+    if tool not in ("brush", "bucket"):
+        raise ValueError(tool)
+    config.set_value("background_color_tool", tool)
+
+
 def background_checker_enabled():
     return bool(config.get_value(BACKGROUND_CHECKER_ENABLED_KEY, False))
 

@@ -454,3 +454,28 @@ def test_eye_clicks_preserve_layer_selection_and_do_not_rename(qapp):
         timeline.close()
         timeline.deleteLater()
         qapp.processEvents()
+
+@pytest.mark.parametrize("column, end", [(9, 12), (0, 3)])
+def test_exposure_extension_keeps_history_and_round_trips(window, monkeypatch, column, end):
+    from paintmaskanimator import canvas_undo
+    from paintmaskanimator.undo_entries import ExposureUndo, UndoEntry
+    canvas = window.canvas
+    canvas.undo_stack.clear()
+    earlier = UndoEntry()
+    canvas.push_undo(earlier)
+    monkeypatch.setattr(canvas_undo, "MAX_UNDO_BYTES", 1)
+    original = [(l.layers[0].sequence_number, l.layers[0].exposure,
+                 l.layers[0].has_content, l.layers[0].is_blank_key) for l in canvas.frames]
+    window.timeline_ops.resize_exposure(_row(window), column, end)
+    assert canvas.undo_stack[0] is earlier
+    assert isinstance(canvas.undo_stack[-1], ExposureUndo)
+    assert canvas.frames[column].layers[0].exposure == end - column + 1
+    extended = [(l.layers[0].sequence_number, l.layers[0].exposure,
+                 l.layers[0].has_content, l.layers[0].is_blank_key) for l in canvas.frames]
+    canvas.undo()
+    restored = [(l.layers[0].sequence_number, l.layers[0].exposure,
+                 l.layers[0].has_content, l.layers[0].is_blank_key) for l in canvas.frames]
+    assert restored == original
+    canvas.redo()
+    assert [(l.layers[0].sequence_number, l.layers[0].exposure,
+             l.layers[0].has_content, l.layers[0].is_blank_key) for l in canvas.frames] == extended

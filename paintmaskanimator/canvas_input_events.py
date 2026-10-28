@@ -119,7 +119,7 @@ class InputEventMixin(CanvasMembers):
                 self.cancel_selection_transform()
             e.accept()
             return
-        if self.effective_tool() == "line" and self.line_curve_stage == 2:
+        if self.effective_tool() == "line" and self.line_curve_stage:
             if e.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
                 self.commit_line_tool()
                 e.accept()
@@ -129,6 +129,7 @@ class InputEventMixin(CanvasMembers):
                 self.line_end = None
                 self.line_control = None
                 self.line_curve_stage = 0
+                self._brush_shift_line = False
                 self.drawing = False
                 self.update()
                 e.accept()
@@ -229,6 +230,9 @@ class InputEventMixin(CanvasMembers):
             self.update()
             return
         if t == "brush":
+            if e.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                self._begin_brush_straight_line(p)
+                return
             self._brush_started_with_content = bool(self.active_layer.has_content)
             self.ensure_editable_key()
             self._begin_opaque_brush_stroke()
@@ -460,6 +464,9 @@ class InputEventMixin(CanvasMembers):
                     raw_release,
                     1.0,
                 )
+                self._brush_line_anchor = (
+                    (self.current_frame, self.active_layer_index), QPointF(raw_release),
+                )
             self._stop_brush_follow_timer()
             self._finish_opaque_brush_stroke()
             self._reset_brush_stabilizer()
@@ -470,8 +477,10 @@ class InputEventMixin(CanvasMembers):
             self.cellChanged.emit(self.current_frame, self.active_layer_index)
         elif t == "line" and self.line_curve_stage == 1:
             self.drawing = False
+            self.line_end = self.widget_to_canvas(e.position())
             panel = self._active_tool_panel()
-            if panel is not None and panel.line_type.currentData() == "curve":
+            if (panel is not None and panel.line_type.currentData() == "curve"
+                    and not getattr(self, "_brush_shift_line", False)):
                 self.line_curve_stage = 2
                 self.line_control = QPointF(
                     (self.line_start.x() + self.line_end.x()) / 2.0,
@@ -552,6 +561,20 @@ class InputEventMixin(CanvasMembers):
             e.accept()
             return
 
+        if self.tool == "brush" and not self.temp_tool:
+            p = self.widget_to_canvas(e.position())
+            if (e.type() == e.Type.TabletPress and self.inside(p)
+                    and e.modifiers() & Qt.KeyboardModifier.ShiftModifier):
+                self._begin_brush_straight_line(p)
+                e.accept()
+                return
+            if getattr(self, "_brush_shift_line", False):
+                self.line_end = QPointF(p)
+                if e.type() == e.Type.TabletRelease:
+                    self.commit_line_tool()
+                self.update()
+                e.accept()
+                return
         if self.effective_tool() != "brush":e.ignore();return
         p=self.widget_to_canvas(e.position()); pressure=max(.001,float(e.pressure()))
         if e.type()==e.Type.TabletPress and self.inside(p):
@@ -588,6 +611,9 @@ class InputEventMixin(CanvasMembers):
                         0.001,
                         float(self._last_brush_pressure),
                     ),
+                )
+                self._brush_line_anchor = (
+                    (self.current_frame, self.active_layer_index), QPointF(p),
                 )
             self._stop_brush_follow_timer()
             self._finish_opaque_brush_stroke()

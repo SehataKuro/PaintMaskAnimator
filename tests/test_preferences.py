@@ -404,3 +404,19 @@ def test_workspace_menu_links_to_preferences(window):
     dialog = window.preferences_dialog
     assert dialog.pages.currentWidget() is dialog.workspaces.parentWidget()
     dialog.close()
+
+def test_background_color_tool_preference(window, monkeypatch):
+    stored = {}
+    monkeypatch.setattr(config, "get_value", lambda key, default=None: stored.get(key, default))
+    monkeypatch.setattr(config, "set_value", lambda key, value: stored.__setitem__(key, value))
+    assert preferences.background_color_tool() == "brush"
+    from paintmaskanimator.preferences_dialog import PreferencesDialog
+    dialog = PreferencesDialog(window)
+    combo = dialog.background_color_tool
+    combo.setCurrentIndex(combo.findData("bucket"))
+    assert preferences.background_color_tool() == "bucket"
+    combo.setCurrentIndex(combo.findData("brush"))
+    assert preferences.background_color_tool() == "brush"
+    stored["background_color_tool"] = "invalid"
+    assert preferences.background_color_tool() == "brush"
+    dialog.close()

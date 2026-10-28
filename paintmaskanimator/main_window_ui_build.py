@@ -214,7 +214,7 @@ class UIBuildMixin(MainWindowMembers):
             tr("描画色：サブを選択"), lambda: self.colors.set_color_mode("sub")
         )
         self.a_select_transparent = self.make_shortcut_action(
-            tr("描画色：背景色を選択"), lambda: self.colors.set_color_mode("transparent")
+            tr("描画色：背景色を選択"), self.colors.select_background_color, "E"
         )
         self.a_toggle_draw_background = self.make_shortcut_action(
             tr("描画色と背景色を切り替え"), self.colors.toggle_draw_background_color, "C"
@@ -327,7 +327,6 @@ class UIBuildMixin(MainWindowMembers):
         self.a_tl_add_exposure = self.make_shortcut_action(
             tr("タイムライン：コマ数を1つ増やす"),
             self.timeline._extend_current_exposure,
-            "E",
         )
         self.a_tl_delete_frame = self.make_shortcut_action(
             tr("タイムライン：コマを削除"),

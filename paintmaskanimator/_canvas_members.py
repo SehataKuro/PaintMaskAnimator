@@ -260,6 +260,7 @@ class CanvasMembers(_MembersBase):
         color: Any
         color_mode: Any
         commit_line_tool: Any
+        _begin_brush_straight_line: Any
         commit_mesh: Any
         commit_selection_transform: Any
         commit_shape_tool: Any
