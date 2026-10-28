@@ -8,13 +8,17 @@
 A collaborator rather than a mixin -- see main_window_export.py for why.
 """
 from typing import TYPE_CHECKING, List, Tuple
+from pathlib import Path
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage
-from PySide6.QtWidgets import QCheckBox, QMessageBox
+from PySide6.QtWidgets import QApplication, QCheckBox, QFileDialog, QMessageBox
 
-from . import preferences
+from . import cut_folder, preferences
+from .errors import OPERATION_ERRORS, OperationError
 from .frame_scope import FrameScope, resolve_cells
 from .i18n import tr
+from .undo_entries import InitialStateUndo
 
 if TYPE_CHECKING:
     from .main_window import MainWindow
@@ -27,6 +31,110 @@ class InitialStateController:
 
     def __init__(self, window: "MainWindow"):
         self.window = window
+
+    def import_line_art_dialog(self) -> int:
+        folder = QFileDialog.getExistingDirectory(
+            self.window, tr("線画カットフォルダーを初期状態として読み込む"), ""
+        )
+        return self.import_line_art(folder) if folder else 0
+
+    def import_line_art(self, path) -> int:
+        """Match layer names/cel numbers, retaining painted pixels and timing.
+
+        No timesheet is needed. Read and validate every matching image before
+        changing anything, then retain only initial-image references for Undo.
+        """
+        canvas = self.window.canvas
+        title = tr("線画カットフォルダーを初期状態として読み込む")
+        status = self.window.statusBar()
+        status.showMessage(tr("線画の初期状態を読み込んでいます…"), 0)
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            contents = cut_folder.scan_cut_folder(path)
+            loaded = {}
+            cells, archived = [], []
+            missing = 0
+
+            def match(layer):
+                nonlocal missing
+                if not layer.has_content or layer.is_paper or layer.is_draft:
+                    return None
+                name = layer.name.strip()
+                key = name.casefold()
+                if key not in contents.cels:
+                    key = "".join(
+                        "_" if char in cut_folder.INVALID_NAME_CHARS + "/" else char
+                        for char in name
+                    ).strip(" .").casefold()
+                source = contents.cels.get(key, {}).get(layer.sequence_number)
+                if source is None:
+                    missing += 1
+                    return None
+                if source not in loaded:
+                    image, error = canvas._read_image_file(source)
+                    if image is None or image.isNull():
+                        raise OperationError(tr("{name} を読み込めません。\n{error}").format(
+                            name=Path(source).name, error=error,
+                        ))
+                    loaded[source] = image.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
+                image = loaded[source]
+                if image.size() != layer.image.size():
+                    raise OperationError(tr(
+                        "線画のサイズが現在のセルと一致しません：{name}\n"
+                        "線画：{width} × {height}px／現在のセル：{expected_width} × {expected_height}px"
+                    ).format(name=Path(source).name, width=image.width(), height=image.height(),
+                             expected_width=layer.image.width(), expected_height=layer.image.height()))
+                return image
+
+            for fi, frame in enumerate(canvas.frames):
+                for li, layer in enumerate(frame.layers):
+                    image = match(layer)
+                    if image is not None:
+                        cells.append((fi, li, image))
+            for (li, number), layer in canvas._sequence_archive.items():
+                image = match(layer)
+                if image is not None:
+                    archived.append((li, number, image))
+        except OPERATION_ERRORS as exc:
+            status.clearMessage()
+            # Restore the cursor before a modal error dialog appears.
+            error_text = str(exc)
+        else:
+            error_text = None
+        finally:
+            QApplication.restoreOverrideCursor()
+        if error_text is not None:
+            QMessageBox.critical(self.window, title, tr(
+                "線画を読み込めませんでした。現在の絵と初期状態は変更していません。\n\n{error}"
+            ).format(error=error_text))
+            return 0
+        if not cells and not archived:
+            status.clearMessage()
+            QMessageBox.information(self.window, title, tr(
+                "一致するセルがありません。線画フォルダーのレイヤー名とセル番号を確認してください。"
+            ))
+            return 0
+
+        def snapshot(image):
+            return QImage(image) if image is not None else None
+
+        canvas.push_undo(InitialStateUndo(
+            [(fi, li, snapshot(canvas.frames[fi].layers[li].initial_image)) for fi, li, _ in cells],
+            [(li, number, snapshot(canvas._sequence_archive[(li, number)].initial_image))
+             for li, number, _ in archived],
+        ))
+        for fi, li, image in cells:
+            canvas.frames[fi].layers[li].initial_image = QImage(image)
+        for li, number, image in archived:
+            canvas._sequence_archive[(li, number)].initial_image = QImage(image)
+        canvas._playback_frame_cache.clear()
+        canvas.changed.emit()
+        canvas.update()
+        count = len(cells) + len(archived)
+        status.showMessage(tr(
+            "{count}セルの線画を初期状態として読み込みました。対応する線画がない{missing}セルは変更していません。"
+        ).format(count=count, missing=missing), 8000)
+        return count
 
     def cells(self) -> List[Cell]:
         """全レイヤーの、絵のあるセル（保持はキーフレームへ畳む）。"""

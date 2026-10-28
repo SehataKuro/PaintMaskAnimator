@@ -555,6 +555,7 @@ def read_project_archive(path, png_cache=None):
                     else None
                 ),
             )
+            loaded_sequence_archive[key].initial_image = load_initial(archive_data)
         metadata["_loaded_sequence_archive"] = loaded_sequence_archive
     if png_cache is not None:
         png_cache.clear()
@@ -696,11 +697,17 @@ def write_project_archive(
                     layer.image,
                     tr("連番保管セルを書き出せませんでした: {name}"),
                 )
+                initial_name = None
+                if layer.initial_image is not None:
+                    initial_name = f"initial/{image_name}"
+                    write_png(initial_name, layer.initial_image,
+                              tr("初期状態の画像を書き出せませんでした: {name}"))
                 metadata["sequence_archive"].append(
                     {
                         "layer_index": int(layer_index),
                         "sequence_number": int(number),
                         "image": image_name,
+                        "initial": initial_name,
                         "name": layer.name,
                         "visible": bool(layer.visible),
                         "opacity": float(layer.opacity),

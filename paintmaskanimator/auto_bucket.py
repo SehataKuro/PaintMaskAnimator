@@ -64,9 +64,9 @@ class BucketWork:
         self.target = target
         # 面の含み塗りでTP線まで同色にしない。手動バケツの設定は変更しない。
         self.options = replace(options, adjacent=True, target_color=bucket_fill.TARGET_ALL,
-                               include_masks=False, island_replacements=(), island_gap=0)
+                               include_masks=False, island_replacements=(), island_max_width=0)
         # 色の照合は元の面で行い、書き込む直前に小さな塗り残しを拾う。
-        self.island_gap = max(0, int(options.island_gap))
+        self.island_max_width = max(0, int(options.island_max_width))
         self.alignment = alignment if alignment is not None else AlignmentCache(gpu="off")
         self.entries = None
         self.matches = {}
@@ -544,11 +544,11 @@ def paint_cell(pixels, guides, options, *, target, margin, work=None, trace_guid
     for entry in pending_faces:
         rgb = auto_trace.enclosed_face_color(target, entry[3], line_finishes, trace_face_rules)
         record(entry, [rgb])
-    if work.island_gap:
+    if work.island_max_width:
         # 自動塗りが確定したクリックを共通バケツで再現し、同じ島を拾う。
         result.paints = []
         session = bucket_fill.BucketSession(
-            target.pixels, replace(work.options, island_gap=work.island_gap), indexed=True,
+            target.pixels, replace(work.options, island_max_width=work.island_max_width), indexed=True,
         )
         for x, y, rgb in result.clicks:
             filled = session.compact(x, y)

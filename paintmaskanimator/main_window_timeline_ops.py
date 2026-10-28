@@ -722,6 +722,7 @@ class TimelineOpsController:
         target = self.window.canvas.frames[int(destination_column)].layers[destination_layer]
         copied = source.clone()
         target.image = source.image
+        target.initial_image = copied.initial_image
         target.has_content = True
         target.is_blank_key = False
         target.sequence_number = copied.sequence_number
@@ -763,6 +764,7 @@ class TimelineOpsController:
         target = self.window.canvas.frames[int(column)].layers[layer_index]
         copied = source.clone()
         target.image = source.image
+        target.initial_image = copied.initial_image
         target.has_content = bool(copied.has_content)
         target.is_blank_key = not bool(copied.has_content)
         target.sequence_number = int(number)

@@ -14,6 +14,7 @@ from .utils import blank_image
 from .logging_setup import get_logger
 from .undo_entries import (
     DocUndo,
+    InitialStateUndo,
     LayerBatchUndo,
     LayerInsertUndo,
     LayerRegionUndo,
@@ -224,7 +225,17 @@ class UndoMixin(CanvasMembers):
         return True
 
     def apply_undo_entry(self, e):
-        if isinstance(e, LayerTilesUndo):
+        if isinstance(e, InitialStateUndo):
+            for fi, li, image in e.cells:
+                if 0 <= fi < len(self.frames) and 0 <= li < len(self.frames[fi].layers):
+                    self.frames[fi].layers[li].initial_image = image
+            for li, number, image in e.archived:
+                archived = self._sequence_archive.get((li, number))
+                if archived is not None:
+                    archived.initial_image = image
+            self._playback_frame_cache.clear()
+            self.changed.emit()
+        elif isinstance(e, LayerTilesUndo):
             if (
                 0 <= e.frame < len(self.frames)
                 and 0 <= e.layer < len(self.frames[e.frame].layers)

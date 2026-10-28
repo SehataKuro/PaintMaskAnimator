@@ -10,11 +10,13 @@ def test_panel_enables_expansion_by_default_and_can_disable_it(qtbot):
     tools = ToolPanel()
     qtbot.addWidget(tools)
     assert tools.bucket_island_fill.isChecked()
-    assert bucket_fill.BucketOptions.from_tools(tools).island_gap == 1
+    assert bucket_fill.BucketOptions.from_tools(tools).island_max_width == 1
+    assert tools.bucket_island_fill_width_label.text() == "幅 1 px 以下"
     tools.bucket_island_fill_width.setValue(2)
-    assert bucket_fill.BucketOptions.from_tools(tools).island_gap == 2
+    assert bucket_fill.BucketOptions.from_tools(tools).island_max_width == 2
+    assert tools.bucket_island_fill_width_label.text() == "幅 2 px 以下"
     tools.bucket_island_fill.setChecked(False)
-    assert bucket_fill.BucketOptions.from_tools(tools).island_gap == 0
+    assert bucket_fill.BucketOptions.from_tools(tools).island_max_width == 0
     assert not tools.bucket_island_fill_width.isEnabled()
 
 
@@ -30,14 +32,12 @@ def island_image(gap=1):
 
 @pytest.mark.parametrize("gap", [1, 2])
 @pytest.mark.parametrize("enabled", [False, True])
-def test_small_islands_match_indexed_and_auto_bucket(gap, enabled):
+def test_separate_islands_are_protected_in_indexed_and_auto_bucket(gap, enabled):
     pixels = island_image(gap)
-    options = bucket_fill.BucketOptions(island_gap=gap if enabled else 0)
+    options = bucket_fill.BucketOptions(island_max_width=gap if enabled else 0)
     result = bucket_fill.compute_fill_region(pixels, 10, 10, options)
     expected = np.zeros(pixels.shape[:2], dtype=bool)
     expected[5:15, 5:15] = True
-    if enabled:
-        expected[8:10, 15+gap:17+gap] = True
     np.testing.assert_array_equal(result.mask, expected)
     indexed = bucket_fill.BucketSession(pixels, options, indexed=True)
     np.testing.assert_array_equal(indexed.compact(10, 10).materialize(expected.shape).mask, expected)
@@ -48,11 +48,11 @@ def test_small_islands_match_indexed_and_auto_bucket(gap, enabled):
     assert paints[0][1] == result.bounds
 
 
-def test_island_gap_selection_and_no_chain():
+def test_island_max_width_selection_and_no_chain():
     pixels = island_image(2)
-    options = bucket_fill.BucketOptions(island_gap=1)
+    options = bucket_fill.BucketOptions(island_max_width=1)
     assert not bucket_fill.compute_fill_region(pixels, 10, 10, options).mask[8, 17]
-    options = bucket_fill.BucketOptions(island_gap=2)
+    options = bucket_fill.BucketOptions(island_max_width=2)
     selection = np.ones(pixels.shape[:2], dtype=bool)
     selection[:, 17:] = False
     result = bucket_fill.compute_fill_region(pixels, 10, 10, options, selection)
@@ -66,7 +66,7 @@ def test_image_border_background_is_not_picked_up():
     pixels = island_image()
     pixels[:4, :4, :3] = 255
     result = bucket_fill.compute_fill_region(
-        pixels, 10, 10, bucket_fill.BucketOptions(island_gap=2),
+        pixels, 10, 10, bucket_fill.BucketOptions(island_max_width=2),
     )
     assert not result.mask[2, 2]
 
@@ -75,7 +75,7 @@ def test_auto_paint_collects_same_island_after_color_decision(monkeypatch):
     from paintmaskanimator import auto_paint
     pixels = island_image(2)
     target = auto_paint._Cell(pixels, target=True)
-    options = bucket_fill.BucketOptions(island_gap=2)
+    options = bucket_fill.BucketOptions(island_max_width=2)
     work = auto_bucket.BucketWork(target, options)
     main = bucket_fill.BucketSession(pixels, work.options, indexed=True).compact(10, 10)
     monkeypatch.setattr(work, "collect", lambda: [(10, 10, 0, main)])

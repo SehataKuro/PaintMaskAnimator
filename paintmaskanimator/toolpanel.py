@@ -746,18 +746,21 @@ class ToolPanel(QWidget):
             "決まった色にできます。"
         ))
 
-        # 隙間閉じと幅スライダーを同じ横一列へ配置する。
+        # 塗り残し拾いと、拾う隙間の幅の上限を同じ横一列へ配置する。
         self.bucket_island_fill=QCheckBox(tr("塗り残し拾い"))
         self.bucket_island_fill.setChecked(True)
-        self.bucket_island_fill.setToolTip(tr("指定した幅の線を挟んだ、同じ対象色の小さな塗り残し（64画素以下）も塗ります。線は残します。自動塗りにも適用します。"))
+        self.bucket_island_fill.setToolTip(tr("塗った領域と角で直接つながる、同じ対象色の空白を指定した幅以下なら先端まで拾います。長さや面積は制限せず、線は飛び越えません。自動塗りにも適用します。"))
         self.bucket_island_fill_width=QSlider(Qt.Orientation.Horizontal)
         self.bucket_island_fill_width.setRange(1,20)
         self.bucket_island_fill_width.setValue(1)
         self.bucket_island_fill_width.setMinimumWidth(58)
-        self.bucket_island_fill_width_label=QLabel("1 px")
-        self.bucket_island_fill_width_label.setFixedWidth(34)
+        self.bucket_island_fill_width.setToolTip(self.bucket_island_fill.toolTip())
+        self.bucket_island_fill_width_label=QLabel(tr("幅 {width} px 以下").format(width=1))
+        self.bucket_island_fill_width_label.setMinimumWidth(90)
         self.bucket_island_fill_width.valueChanged.connect(
-            lambda value: self.bucket_island_fill_width_label.setText(f"{value} px")
+            lambda value: self.bucket_island_fill_width_label.setText(
+                tr("幅 {width} px 以下").format(width=value)
+            )
         )
         self.bucket_island_fill_row=QWidget()
         bucket_island_fill_layout=QHBoxLayout(self.bucket_island_fill_row)

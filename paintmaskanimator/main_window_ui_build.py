@@ -136,6 +136,11 @@ class UIBuildMixin(MainWindowMembers):
             "線で部分を分けるので、精度が上がります。"
         ))
         self.a_keep_initial_state.triggered.connect(lambda: self.initial_state.keep())
+        self.a_import_initial_state=QAction(tr("線画カットフォルダーを初期状態として読み込む…"),self)
+        self.a_import_initial_state.setStatusTip(tr(
+            "レイヤー名とセル番号が一致する線画を初期状態に設定します。今の絵とタイムラインは維持します。"
+        ))
+        self.a_import_initial_state.triggered.connect(self.initial_state.import_line_art_dialog)
         self.a_clear_initial_state=QAction(tr("保持した初期状態を消す"),self)
         self.a_clear_initial_state.triggered.connect(self.initial_state.clear)
         self.a_reference_check=QAction(tr("見本との違いチェック…"),self)
@@ -406,6 +411,7 @@ class UIBuildMixin(MainWindowMembers):
             (tr("ゴミ取り"), self.a_remove_dust),
             (tr("自動で塗る"), self.a_auto_paint),
             (tr("今の絵を初期状態として保持"), self.a_keep_initial_state),
+            (tr("線画カットフォルダーを初期状態として読み込む"), self.a_import_initial_state),
             (tr("保持した初期状態を消す"), self.a_clear_initial_state),
             (tr("見本との違いチェック"), self.a_reference_check),
         ]
@@ -496,6 +502,7 @@ class UIBuildMixin(MainWindowMembers):
         auto_menu.addAction(self.a_auto_paint)
         auto_menu.addSeparator()
         auto_menu.addAction(self.a_keep_initial_state)
+        auto_menu.addAction(self.a_import_initial_state)
         auto_menu.addAction(self.a_clear_initial_state)
         auto_menu.addSeparator()
         auto_menu.addAction(self.a_reference_check)

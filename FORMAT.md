@@ -95,6 +95,7 @@
     {
       "name": "A",
       "image": "layers/layer_0000/frame_000000.png",  // 必須
+      "initial": null,                // null か色塗り前の初期状態PNGへの参照（任意）
       "visible": true,
       "opacity": 1.0,                 // 0.0..1.0 にクランプ
       "is_paper": false,              // 用紙レイヤー（白→透明移行の対象外）
@@ -114,6 +115,10 @@
 ```
 
 - レイヤーが空になった場合、ローダは空白レイヤー1枚で補完する。
+- `initial` は通常画像と同じキャンバスサイズのPNG。通常セルは
+  `initial/layer_0000/frame_000000.png`、連番保管セル（`sequence_archive`）は
+  `initial/sequence_archive/layer_0000/cell_000001.png` に保存する。
+  保管セルの各エントリにも同じ任意フィールド `initial` を持ち、未指定なら初期状態なし。
 - `is_blank_key` 未指定時の推定: `has_content == false` かつ `exposure > 1`
   なら `true`。
 - `tween` / `tween_member`（任意）: あとから直せるトゥイーン。中割りの絵は

@@ -129,8 +129,8 @@ class BucketOptions:
 
     #: クリック位置につながる領域だけを塗る（OFF ならレイヤー内の同色を一括）。
     adjacent: bool = True
-    #: 小さな塗り残しとの間に許す線の幅（px）。0 なら拾わない。
-    island_gap: int = 0
+    #: 角で接する塗り残しの幅の上限（px）。0 なら拾わない。
+    island_max_width: int = 0
     #: 含み塗り（「含む色」に接する部分も塗りに含める）。
     include_masks: bool = False
     #: 含み塗りの対象色（RGB のタプル列）。「含む色」の登録色、未登録ならサブカラー。
@@ -174,7 +174,7 @@ class BucketOptions:
             )
         return cls(
             adjacent=bool(tools.bucket_adjacent.isChecked()),
-            island_gap=(
+            island_max_width=(
                 max(1, int(tools.bucket_island_fill_width.value()))
                 if _checked(tools, "bucket_island_fill") else 0
             ),
@@ -736,7 +736,7 @@ class BucketSession:
         # キャンバス全体のマスクを作ってコピーし直す必要はない。
         options = self.options
         if (not self.indexed or not options.adjacent or options.target_color != TARGET_ALL
-                or options.include_masks or options.island_replacements or options.island_gap
+                or options.include_masks or options.island_replacements or options.island_max_width
                 or passable is None or not passable[y, x]):
             return None
         index = self.index(category, passable)
@@ -759,33 +759,57 @@ class BucketSession:
         return CompactFill(REASON_OK, category, bounds, local, (), bounds)
 
 
-def collect_small_islands(region, target_mask, gap):
-    """元の面の近傍にある64px以下の独立した塗り残しだけを拾う。
+def _island_fits_width(local, max_width):
+    """幅の上限より大きい正方形が入る面を除く。長さ・面積は制限しない。
 
-    間の線は塗らず、大きな別の面・画像端へ開いた背景は対象にしない。
-    拾った島からさらに探索を続けないので、別の面へ連鎖しない。
+    階段状の境界にも使えるよう、幅は内接する画素の正方形の一辺で測る。
+    積分画像で偶数幅も含めて判定し、1px設定で2px幅が通るのを防ぐ。
     """
-    if gap <= 0 or not region.any():
+    side = int(max_width) + 1
+    if min(local.shape) < side:
+        return True
+    summed = np.pad(local, ((1, 0), (1, 0))).cumsum(axis=0).cumsum(axis=1)
+    counts = (summed[side:, side:] - summed[:-side, side:]
+              - summed[side:, :-side] + summed[:-side, :-side])
+    return not np.any(counts == side * side)
+
+
+def collect_small_islands(region, target_mask, max_width):
+    """角で直接接する細い空白だけをたどる。線の画素は飛び越さない。
+
+    上下左右の接続は通常のバケツが処理済み。追加するのは斜め接続だけ。
+    max_width は拾う隙間の幅の上限で、探索距離は常に1画素とする。
+    """
+    if max_width <= 0 or not region.any():
         return region
-    nearby = dilate(region, int(gap) + 1) & target_mask & ~region
-    if not nearby.any():
+    touching = dilate(region, 1) & target_mask & ~region
+    if not touching.any():
         return region
     index = _RegionIndex(target_mask)
     labels = index.labels
-    sizes = np.bincount(labels[target_mask])
-    candidates = np.unique(labels[nearby])
-    main_labels = np.unique(labels[region & target_mask])
     height, width = region.shape
-    limit = min(64, int(region.sum()) - 1)
     result = region.copy()
-    for label in candidates:
-        if label in main_labels or sizes[label] > limit:
+    visited = set(int(value) for value in np.unique(labels[region & target_mask]))
+    pending = [int(value) for value in np.unique(labels[touching])]
+    while pending:
+        label = pending.pop()
+        if label in visited:
             continue
+        visited.add(label)
         x0, y0, x1, y1 = (int(values[label]) for values in
                           (index.x0, index.y0, index.x1, index.y1))
         if x0 == 0 or y0 == 0 or x1 == width or y1 == height:
             continue
-        result[y0:y1, x0:x1] |= labels[y0:y1, x0:x1] == label
+        local = labels[y0:y1, x0:x1] == label
+        if not _island_fits_width(local, max_width):
+            continue
+        result[y0:y1, x0:x1] |= local
+        ax0, ay0 = max(0, x0 - 1), max(0, y0 - 1)
+        ax1, ay1 = min(width, x1 + 1), min(height, y1 + 1)
+        part = labels[ay0:ay1, ax0:ax1]
+        touching = dilate(part == label, 1) & target_mask[ay0:ay1, ax0:ax1]
+        pending.extend(int(value) for value in np.unique(part[touching])
+                       if int(value) not in visited)
     return result
 
 
@@ -956,8 +980,8 @@ def compute_fill_region(
             # 非隣接モードでは、含み塗りの対象色もレイヤー全体から一括対象にする。
             final_region |= mask_family
 
-    if options.adjacent and options.island_gap > 0:
-        final_region = collect_small_islands(final_region, target_mask, options.island_gap)
+    if options.adjacent and options.island_max_width > 0:
+        final_region = collect_small_islands(final_region, target_mask, options.island_max_width)
     if selection_mask is not None:
         final_region &= selection_mask
     bounds = mask_bounds(final_region)

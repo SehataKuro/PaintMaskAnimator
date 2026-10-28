@@ -66,6 +66,7 @@ from .canvas_transform_mask import TransformMaskMixin
 from .canvas_undo import UndoMixin
 from .undo_entries import (
     DocUndo,
+    InitialStateUndo,
     LayerBatchUndo,
     LayerInsertUndo,
     LayerRegionUndo,
@@ -393,6 +394,16 @@ class PaintCanvas(
 
         if isinstance(entry, DocUndo):
             return DocUndo(self.document_snapshot())
+        if isinstance(entry, InitialStateUndo):
+            cells = [
+                (fi, li, QImage(image) if (image := self.frames[fi].layers[li].initial_image) is not None else None)
+                for fi, li, _ in entry.cells if _cell_exists(fi, li)
+            ]
+            archived = [
+                (li, number, QImage(image) if (image := self._sequence_archive[(li, number)].initial_image) is not None else None)
+                for li, number, _ in entry.archived if (li, number) in self._sequence_archive
+            ]
+            return InitialStateUndo(cells, archived) if cells or archived else None
         if isinstance(entry, PaletteStateUndo):
             palette = getattr(self, "_palette", None)
             if palette is None:

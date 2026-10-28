@@ -69,6 +69,19 @@ class DocUndo(UndoEntry):
 
 
 @dataclass
+class InitialStateUndo(UndoEntry):
+    """Initial images only, including cels kept outside the timesheet."""
+
+    HISTORY_LABEL = "初期状態の読み込み"
+    cells: List[Tuple[int, int, Any]]
+    archived: List[Tuple[int, int, Any]] = field(default_factory=list)
+
+    @property
+    def nbytes(self) -> int:
+        return sum(_image_bytes(image) for _fi, _li, image in self.cells + self.archived)
+
+
+@dataclass
 class LayerUndo(UndoEntry):
     """Full snapshot of one layer image in one frame."""
 
@@ -238,5 +251,6 @@ def translate_history_label(label: str) -> str:
         "レイヤー構成": tr("レイヤー構成"),
         "トゥイーン": tr("トゥイーン"),
         "パレット編集": tr("パレット編集"),
+        "初期状態の読み込み": tr("初期状態の読み込み"),
     }
     return labels.get(label, label)
