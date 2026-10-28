@@ -219,8 +219,8 @@ class OnionRenderMixin(CanvasMembers):
                 color_enabled,
                 selected_colors_only,
             )
-            if self.flip_horizontal:
-                onion = onion.mirrored(True, False)
+            if self.flip_horizontal or self.flip_vertical:
+                onion = onion.mirrored(self.flip_horizontal, self.flip_vertical)
 
             if distance - 1 < len(levels):
                 level = max(

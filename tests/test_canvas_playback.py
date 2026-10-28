@@ -40,6 +40,9 @@ class _Playback(PlaybackMixin):
         self.current_frame = 0
         self.active_layer_index = 0
         self.flip_horizontal = False
+        self.flip_vertical = False
+        self.playback_range_start = 0
+        self.playback_range_end = None
         self.silhouette_non_background = False
         self.view_preview = ViewPreview()
         self._playback_active = False
