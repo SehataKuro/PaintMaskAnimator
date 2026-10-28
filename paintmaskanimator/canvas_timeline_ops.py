@@ -343,17 +343,13 @@ class TimelineStructureMixin(CanvasMembers):
         layer_index = int(layer_index)
 
         columns = []
-        for column in range(len(self.frames)):
-            try:
-                kind, start, _exposure = TimelineWidget.timeline_span_at(
-                    self.frames,
-                    layer_index,
-                    column,
-                )
-            except (IndexError, KeyError, TypeError, AttributeError, ValueError) as exc:
-                log.debug("timeline_span_at(col=%s) failed: %s", column, exc)
+        # A span starts exactly at an explicit content/blank key. Resolving
+        # every column backwards makes navigation quadratic on sparse sheets.
+        for column, frame in enumerate(self.frames):
+            if not 0 <= layer_index < len(frame.layers):
                 continue
-            if kind in ("content", "blank") and start == column:
+            layer = frame.layers[layer_index]
+            if not layer.sequence_only and (layer.has_content or layer.is_blank_key):
                 columns.append(column)
         return columns
 
