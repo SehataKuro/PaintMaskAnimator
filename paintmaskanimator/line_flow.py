@@ -134,7 +134,7 @@ def _scores_numpy(target, guide, rows, cols, reach, base_y=None, base_x=None):
     shifts = [(dy, dx) for dy in range(-reach, reach + 1)
               for dx in range(-reach, reach + 1)]
     scores = np.empty((len(shifts), rows, cols))
-    if base_y is None:
+    if base_y is None or base_x is None:
         for index, (dy, dx) in enumerate(shifts):
             scores[index] = _block_sum(target & _shifted(guide, dy, dx), rows, cols)
         return scores

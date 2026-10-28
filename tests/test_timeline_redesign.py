@@ -88,11 +88,11 @@ def test_playhead_and_frame_counter_follow_current_frame(window):
     timeline = window.timeline
     assert isinstance(timeline.table.horizontalHeader(), TimelineRuler)
     assert timeline.table._playhead_column == 4
-    assert "005" in timeline.frame_counter.text()
-    assert "012" in timeline.frame_counter.text()
+    assert "5コマ目" in timeline.frame_counter.text()
+    assert "12コマ目" in timeline.frame_counter.text()
     timeline.select_current(8, 0)
     assert timeline.table._playhead_column == 8
-    assert "009" in timeline.frame_counter.text()
+    assert "9コマ目" in timeline.frame_counter.text()
 
 
 def test_expanding_a_layer_keeps_name_and_track_rows_aligned(window):
@@ -332,24 +332,20 @@ def test_transport_boundary_buttons(window):
     assert window.canvas.current_frame == 0
 
 
-def test_range_resize_and_undo(window):
+def test_range_resize_keeps_cells_outside_the_playback_range(window):
     canvas = window.canvas
+    original_frames = list(canvas.frames)
     window.timeline_ops.resize_range("end", 18)
-    assert len(canvas.frames) == 18
+    assert len(canvas.frames) == 12
     assert window._sheet_duration() == 18
     window.timeline_ops.resize_range("end", 10)
-    assert len(canvas.frames) == 10
-    assert canvas.frames[9].layers[0].exposure == 1
-    window.timeline_ops.resize_range("start", 4)
-    assert len(canvas.frames) == 6
-    assert canvas.frames[0].layers[0].sequence_number == 2
-    assert canvas.frames[0].layers[0].exposure == 3
-    canvas.undo()
-    assert len(canvas.frames) == 10
-    canvas.undo()
-    assert len(canvas.frames) == 18
-    canvas.undo()
     assert len(canvas.frames) == 12
+    assert canvas.frames == original_frames
+    assert canvas.playback_range_end == 10
+    window.timeline_ops.resize_range("start", 4)
+    assert len(canvas.frames) == 12
+    assert canvas.playback_range_start == 4
+    assert canvas.playback_range_end == 10
 
 
 def test_range_handle_drag_changes_duration(window, qapp):
@@ -363,8 +359,41 @@ def test_range_handle_drag_changes_duration(window, qapp):
     right = header.sectionViewportPosition(11) + header.sectionSize(11)
     QTest.mousePress(header.viewport(), Qt.MouseButton.LeftButton, pos=QPoint(right - 2, 8))
     QTest.mouseMove(header.viewport(), QPoint(right + 2 * size, 8))
+    assert window.timeline.table._range_preview == (0, 14)
     QTest.mouseRelease(header.viewport(), Qt.MouseButton.LeftButton, pos=QPoint(right + 2 * size, 8))
-    assert len(window.canvas.frames) == 14
+    assert len(window.canvas.frames) == 12
+    assert window.canvas.playback_range_end == 14
+    assert window.timeline.table._range_preview is None
+
+
+def test_range_handle_hover_uses_horizontal_resize_cursor(window, qapp):
+    from PySide6.QtCore import QPoint
+    from PySide6.QtTest import QTest
+
+    header = window.timeline.table.horizontalHeader()
+    window.show()
+    qapp.processEvents()
+    right = header.sectionViewportPosition(11) + header.sectionSize(11)
+    QTest.mouseMove(header.viewport(), QPoint(right - 2, 8))
+    qapp.processEvents()
+    assert header.viewport().cursor().shape() == Qt.CursorShape.SizeHorCursor
+
+    QTest.mouseMove(header.viewport(), QPoint(right - header.sectionSize(0) // 2, 8))
+    qapp.processEvents()
+    assert header.viewport().cursor().shape() == Qt.CursorShape.ArrowCursor
+
+
+def test_seek_and_cell_creation_are_allowed_outside_playback_range(window):
+    canvas = window.canvas
+    window.timeline_ops.resize_range("end", 8)
+    window.timeline_ops.select_exposure(15, 0)
+    assert canvas.current_frame == 15
+    assert len(canvas.frames) == 16
+    assert canvas.playback_range_end == 8
+
+    window.timeline_ops.create_blank_key(0, 15)
+    assert canvas.frames[15].layers[0].is_blank_key
+    assert canvas.playback_range_end == 8
 
 
 

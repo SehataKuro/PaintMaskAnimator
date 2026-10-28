@@ -5,6 +5,7 @@ turn mouse/tablet/keyboard input into painting, panning, zooming, and tool
 shortcuts. They run against a live ``PaintCanvas`` instance; because the mixin
 precedes ``QWidget`` in the MRO, these overrides win over the base class.
 """
+import time
 from typing import Any
 from PySide6.QtCore import QPoint, QPointF, QRectF, Qt
 from PySide6.QtGui import QCursor, QPolygonF
@@ -18,6 +19,39 @@ log = get_logger(__name__)
 
 
 class InputEventMixin(CanvasMembers):
+    _EYEDROPPER_PREVIEW_INTERVAL_NS = 33_000_000
+
+    def _sample_eyedropper_event(self, event, *, force=False):
+        """Update the loupe and sampled colour without overloading mouse moves."""
+        p = self.widget_to_canvas(event.position())
+        if not self.inside(p):
+            return False
+        now = time.monotonic_ns()
+        last = getattr(self, "_eyedropper_preview_ns", 0)
+        if not force and now - last < self._EYEDROPPER_PREVIEW_INTERVAL_NS:
+            return False
+        self._eyedropper_preview_ns = now
+        show_screen_color_loupe(
+            self,
+            event.globalPosition().toPoint(),
+            self.opaque_paint_color(),
+        )
+        pixel = (int(p.x()), int(p.y()))
+        if force or pixel != getattr(self, "_eyedropper_sample_pixel", None):
+            self._eyedropper_sample_pixel = pixel
+            self.sample_color(p, include_canvas_background=True)
+        return True
+
+    def _finish_eyedropper_event(self, event):
+        """Sample the release point without doing one last expensive screen grab."""
+        p = self.widget_to_canvas(event.position())
+        if not self.inside(p):
+            return
+        pixel = (int(p.x()), int(p.y()))
+        if pixel != getattr(self, "_eyedropper_sample_pixel", None):
+            self._eyedropper_sample_pixel = pixel
+            self.sample_color(p, include_canvas_background=True)
+
     def enterEvent(self, event):
         local = self.mapFromGlobal(QCursor.pos())
         self._brush_cursor_widget_pos = QPointF(local)
@@ -142,14 +176,8 @@ class InputEventMixin(CanvasMembers):
             return
 
         if e.button() == Qt.MouseButton.RightButton:
-            p = self.widget_to_canvas(e.position())
-            if self.inside(p):
-                show_screen_color_loupe(
-                    self,
-                    e.globalPosition().toPoint(),
-                    self.opaque_paint_color(),
-                )
-                self.sample_color(p)
+            if self._sample_eyedropper_event(e, force=True):
+                self._right_eyedropper_drag = True
                 e.accept()
             return
         if e.button() != Qt.MouseButton.LeftButton:
@@ -180,15 +208,7 @@ class InputEventMixin(CanvasMembers):
             return
         if t == "eyedropper":
             self.drawing = True
-            show_screen_color_loupe(
-                self,
-                e.globalPosition().toPoint(),
-                self.opaque_paint_color(),
-            )
-            self.sample_color(
-                p,
-                include_canvas_background=True,
-            )
+            self._sample_eyedropper_event(e, force=True)
             return
         if t == "line":
             if self.line_curve_stage == 2:
@@ -300,6 +320,14 @@ class InputEventMixin(CanvasMembers):
                 self.update(damage.toAlignedRect())
         p = self.widget_to_canvas(e.position())
 
+        if (
+            getattr(self, "_right_eyedropper_drag", False)
+            and e.buttons() & Qt.MouseButton.RightButton
+        ):
+            self._sample_eyedropper_event(e)
+            e.accept()
+            return
+
         if self._onion_interaction_mode is not None:
             if self._onion_interaction_dragging:
                 self._update_onion_interaction_drag(e.position())
@@ -340,15 +368,7 @@ class InputEventMixin(CanvasMembers):
             self.update_transform_drag(p)
             return
         if t == "eyedropper" and self.inside(p):
-            show_screen_color_loupe(
-                self,
-                e.globalPosition().toPoint(),
-                self.opaque_paint_color(),
-            )
-            self.sample_color(
-                p,
-                include_canvas_background=True,
-            )
+            self._sample_eyedropper_event(e)
             return
         if t == "brush":
             # キャンバス外の点も捨てずに渡す。捨てると外を通った区間が抜け、
@@ -410,7 +430,12 @@ class InputEventMixin(CanvasMembers):
             return
 
         if e.button() == Qt.MouseButton.RightButton:
+            if getattr(self, "_right_eyedropper_drag", False):
+                self._finish_eyedropper_event(e)
+            self._right_eyedropper_drag = False
+            self._eyedropper_sample_pixel = None
             hide_screen_color_loupe(self)
+            e.accept()
             return
         if e.button() != Qt.MouseButton.LeftButton:
             return
@@ -419,6 +444,8 @@ class InputEventMixin(CanvasMembers):
         # ドラッグ塗りは、途中で Space などに切り替わっても離したときに閉じる。
         self.finish_bucket_drag()
         if t == "eyedropper":
+            self._finish_eyedropper_event(e)
+            self._eyedropper_sample_pixel = None
             hide_screen_color_loupe(self)
         if self.transform_active and self.drawing:
             self.end_transform_drag()

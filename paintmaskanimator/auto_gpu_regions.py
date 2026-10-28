@@ -171,7 +171,8 @@ class RegionGPU:
                 return cpu_result
         try:
             with self.lock, self.cp.cuda.Device(self.device), self.cp.cuda.using_allocator(self.pool.malloc):
-                from cupyx.scipy.ndimage import label
+                from importlib import import_module
+                label = import_module("cupyx.scipy.ndimage").label
                 started = perf_counter()
                 cp = self.cp
                 labeled: Any = label(cp.asarray(passable))
@@ -241,7 +242,7 @@ class RegionGPU:
     def key(guide, filled, shift, ignore, require, by_label):
         mask_key = getattr(filled, "_gpu_sample_key", None)
         if mask_key is None:
-            mask_key = blake2b(mask_runs(filled), digest_size=16).digest()
+            mask_key = blake2b(mask_runs(filled).tobytes(), digest_size=16).digest()
             filled._gpu_sample_key = mask_key
         return guide, mask_key, tuple(shift), ignore, require, by_label
 

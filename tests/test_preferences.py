@@ -7,7 +7,7 @@ import pytest  # noqa: E402
 from PySide6.QtGui import QAction  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from paintmaskanimator import canvas_undo, config, i18n, preferences, theme  # noqa: E402
+from paintmaskanimator import canvas_undo, config, i18n, preferences, theme, time_display  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -52,6 +52,32 @@ def test_hand_edited_values_are_clamped():
     assert preferences.new_canvas_size() == (64, preferences.CANVAS_SIZE_RANGE[1])
     config.set_value(preferences.NEW_CANVAS_SIZE_KEY, "1280x720")
     assert preferences.new_canvas_size() == (1280, 720)
+
+
+def test_time_display_uses_one_based_frames_or_seconds_plus_frames():
+    preferences.set_time_display_mode(preferences.TIME_DISPLAY_FRAMES)
+    assert time_display.frame_position(0, 24) == "1コマ目"
+    assert time_display.frame_position(24, 24) == "25コマ目"
+    preferences.set_time_display_mode(preferences.TIME_DISPLAY_SECONDS_FRAMES)
+    assert time_display.frame_position(0, 24) == "0+1"
+    assert time_display.frame_position(22, 24) == "0+23"
+    assert time_display.frame_position(23, 24) == "1+0"
+    assert time_display.frame_position(24, 24) == "1+1"
+    preferences.set_time_display_mode(preferences.TIME_DISPLAY_FRAMES)
+
+
+def test_time_display_setting_applies_to_timeline(window):
+    window.show_preferences()
+    dialog = window.preferences_dialog
+    dialog.time_display.setCurrentIndex(
+        dialog.time_display.findData(preferences.TIME_DISPLAY_SECONDS_FRAMES)
+    )
+    assert "0+1" in window.timeline.frame_counter.text()
+    assert window.timeline.table.horizontalHeaderItem(0).text() == "0+1"
+    dialog.time_display.setCurrentIndex(
+        dialog.time_display.findData(preferences.TIME_DISPLAY_FRAMES)
+    )
+    dialog.close()
 
 
 def test_undo_limits_trim_the_stack(restore_undo_limits):

@@ -80,6 +80,10 @@ _PATHS = {
     ),
     "prev_frame": '<path d="m14.5 6-6 6 6 6"/>',
     "next_frame": '<path d="m9.5 6 6 6-6 6"/>',
+    "first_frame": '<path d="M5 5.5v13M17 6l-6 6 6 6"/>',
+    "flip_horizontal": '<path d="M12 3v18" stroke-dasharray="2 2"/><path d="M3 18h5V6Z"/><path d="M21 18h-5V6Z" fill="currentColor"/>',
+    "flip_vertical": '<path d="M3 12h18" stroke-dasharray="2 2"/><path d="M6 3v5h12Z"/><path d="M6 21v-5h12Z" fill="currentColor"/>',
+    "last_frame": '<path d="M19 5.5v13M7 6l6 6-6 6"/>',
     "prev_key": '<path d="M6 5.5v13"/><path d="m17 6-6.5 6 6.5 6Z" fill="currentColor"/>',
     "next_key": '<path d="M18 5.5v13"/><path d="m7 6 6.5 6L7 18Z" fill="currentColor"/>',
     "frame_blank": (

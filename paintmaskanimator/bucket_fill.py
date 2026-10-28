@@ -589,11 +589,13 @@ class CompactFill:
             bounds = mask_bounds(result.region)
         local = None
         islands = []
-        if bounds is not None:
+        if bounds is not None and result.region is not None:
             x0, y0, x1, y1 = bounds
             local = result.region[y0:y1, x0:x1].copy()
             for color, mask in result.islands:
                 box = mask_bounds(mask)
+                if box is None:
+                    continue
                 ix0, iy0, ix1, iy1 = box
                 islands.append((color, box, mask[iy0:iy1, ix0:ix1].copy()))
         return cls(result.reason, result.target, bounds, local, tuple(islands), result.bounds)
@@ -611,6 +613,7 @@ class CompactFill:
     def materialize(self, shape):
         region = None
         if self.local is not None:
+            assert self.bounds is not None
             region = np.zeros(shape, dtype=bool)
             x0, y0, x1, y1 = self.bounds
             region[y0:y1, x0:x1] = self.local
@@ -862,6 +865,7 @@ def compute_fill_region(
         return FillResult(REASON_NOT_TARGET, target=category)
 
     if options.adjacent:
+        assert passable is not None
         # 仮想境界上をクリックした場合だけ、その画素を探索開始点として回収する。
         # 共通前処理の配列は書き換えず、次のクリックにも同じ境界を使う。
         indexed_region = None
@@ -872,6 +876,9 @@ def compute_fill_region(
             passable[start_y, start_x] = True
         region = (indexed_region if indexed_region is not None
                   else scanline_connected_region(passable, (start_x, start_y)))
+
+        if region is None:
+            return FillResult(REASON_EMPTY, target=category)
 
         if not region[start_y, start_x]:
             return FillResult(REASON_EMPTY, target=category)
@@ -890,7 +897,10 @@ def compute_fill_region(
         if gap_recovery_mask is not None:
             # 接点は領域の外接矩形の1画素外までに限られる。小さな面のたびに
             # キャンバス全体を膨張・座標列挙しない。回収の探索先は元の全体マスク。
-            rx0, ry0, rx1, ry1 = mask_bounds(region)
+            region_bounds = mask_bounds(region)
+            if region_bounds is None:
+                return FillResult(REASON_EMPTY, target=category)
+            rx0, ry0, rx1, ry1 = region_bounds
             gx0, gy0 = max(0, rx0 - 1), max(0, ry0 - 1)
             gx1, gy1 = min(width, rx1 + 1), min(height, ry1 + 1)
             touching = dilate(region[gy0:gy1, gx0:gx1], 1)

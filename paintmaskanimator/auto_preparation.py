@@ -69,7 +69,8 @@ class ReferenceRegions:
         key = getattr(geometry, "_reference_pixels_key", None) if immutable else None
         if key is None:
             pixels = np.ascontiguousarray(geometry.pixels)
-            key = (pixels.shape, pixels.dtype.str, blake2b(pixels, digest_size=16).digest())
+            key = (pixels.shape, pixels.dtype.str,
+                   blake2b(pixels.tobytes(), digest_size=16).digest())
             if immutable:
                 geometry._reference_pixels_key = key
         return key, repr(options)

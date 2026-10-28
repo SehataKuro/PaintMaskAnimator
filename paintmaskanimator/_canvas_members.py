@@ -87,12 +87,15 @@ class CanvasMembers(_MembersBase):
         _ensure_before_region: Any
         _ensure_frame_count: Any
         _eyedropper_cursor: Any
+        _eyedropper_preview_ns: int
+        _eyedropper_sample_pixel: tuple[int, int] | None
         _finish_opaque_brush_stroke: Any
         _finish_stabilized_brush: Any
         _hue_cluster_palette_from_samples: Any
         _invalidate_tp_preview_cache: Any
         _last_brush_pressure: Any
         _last_raw_canvas: Any
+        _right_eyedropper_drag: bool
         _line_palette_labels: Any
         _line_preview_path: Any
         _local_color_variation: Any
@@ -134,6 +137,8 @@ class CanvasMembers(_MembersBase):
         _playback_cache_limit: Any
         _playback_frame_cache: Any
         _playback_resolved_keys: Any
+        playback_range_start: int
+        playback_range_end: int | None
         _position_selection_clear_overlay: Any
         _prepare_draw_painter: Any
         _prepare_tp_transform_masks: Any
@@ -283,6 +288,7 @@ class CanvasMembers(_MembersBase):
         finish_transform_line_adjustment: Any
         flip_active_layer: Any
         flip_horizontal: bool
+        flip_vertical: bool
         flood_fill: Any
         frames: list[Frame]
         image_alpha_statistics: Any

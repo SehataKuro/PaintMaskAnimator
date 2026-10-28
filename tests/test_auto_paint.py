@@ -668,6 +668,7 @@ def test_two_reference_controller_keeps_both_painted_images_and_undoes(window):
 def test_reference_picker_supports_three_and_requires_a_cell_to_paint(qapp):
     from PySide6.QtCore import Qt
     from paintmaskanimator.main_window_auto_paint import AutoPaintDialog
+    from paintmaskanimator.auto_paint_dialog import FRAME_ROLE, TITLE_ROLE
     cells = [(index, 0) for index in range(4)]
     images = [imaging.rgba_array_to_qimage(figure(index * 2, painted=True))
               for index in range(4)]
@@ -675,6 +676,8 @@ def test_reference_picker_supports_three_and_requires_a_cell_to_paint(qapp):
                              0, images=images)
     try:
         assert dialog.chosen() == [cells[0]]
+        assert dialog.references.item(0).data(TITLE_ROLE) == "A1"
+        assert dialog.references.item(0).data(FRAME_ROLE) == "1コマ目"
         assert not dialog.references.item(0).icon().isNull()
         dialog.references.item(3).setCheckState(Qt.CheckState.Checked)
         assert dialog.chosen() == [cells[0], cells[3]]

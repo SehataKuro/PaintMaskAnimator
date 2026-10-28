@@ -233,6 +233,7 @@ class MainWindowMembers(_MembersBase):
         channel_combo: Any
         exposure_button: Any
         exposure_spin: Any
+        exposure_control: Any
         a_swap_main_sub: Any
         a_tl_add_exposure: Any
         a_tl_delete_frame: Any
@@ -303,6 +304,8 @@ class MainWindowMembers(_MembersBase):
         auto_paint: AutoPaintController
         initial_state: InitialStateController
         compare_initial_button: Any
+        flip_horizontal_button: Any
+        flip_vertical_button: Any
         project: ProjectIOController
         importer: ImportController
         exposure_images: Any

@@ -37,7 +37,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from . import icons, theme, tooltip
+from . import icons, theme, time_display, tooltip
 from .cell_numbering import changed_count, normalization_mapping
 from .tween_groups import tween_groups
 
@@ -478,27 +478,35 @@ class TimelineRuler(QHeaderView):
 
     frameScrubbed = Signal(int)
     rangeResized = Signal(str, int)
-    _range_drag = None
+    _range_drag: str | None = None
 
     def _edge_at(self, x):
-        if getattr(self.parent(), '_sequence_mode', False):
+        table = self.parent()
+        if not isinstance(table, TimelineTable) or table._sequence_mode:
             return None
-        count = max(1, self.parent()._real_frame_count)
-        right = self.sectionViewportPosition(count - 1) + self.sectionSize(count - 1)
+        start, end = table.display_range()
+        right = self.sectionViewportPosition(end - 1) + self.sectionSize(end - 1)
         if abs(x - right) <= 6:
             return 'end'
-        if abs(x - self.sectionViewportPosition(0)) <= 6:
+        if abs(x - self.sectionViewportPosition(start)) <= 6:
             return 'start'
         return None
 
     def paintEvent(self, event):
         super().paintEvent(event)
-        if getattr(self.parent(), '_sequence_mode', False):
+        table = self.parent()
+        if not isinstance(table, TimelineTable) or table._sequence_mode:
             return
-        count = max(1, self.parent()._real_frame_count)
-        left = self.sectionViewportPosition(0) + 2
-        right = self.sectionViewportPosition(count - 1) + self.sectionSize(count - 1) - 2
+        start, end = table.display_range()
+        left = self.sectionViewportPosition(start) + 2
+        right = self.sectionViewportPosition(end - 1) + self.sectionSize(end - 1) - 2
         painter = QPainter(self.viewport())
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(96, 96, 96, 68))
+        if left > 2:
+            painter.drawRect(0, 0, left - 2, self.height())
+        if right + 2 < self.viewport().width():
+            painter.drawRect(right + 2, 0, self.viewport().width() - right - 2, self.height())
         painter.setPen(QPen(QColor(theme.palette()['text_muted']), 3))
         painter.drawLine(left, 1, right, 1)
         for x in (left, right):
@@ -524,8 +532,25 @@ class TimelineRuler(QHeaderView):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
-        self.setCursor(Qt.CursorShape.SizeHorCursor if self._range_drag or self._edge_at(event.position().x()) else Qt.CursorShape.ArrowCursor)
+        cursor = (Qt.CursorShape.SizeHorCursor
+                  if self._range_drag or self._edge_at(event.position().x())
+                  else Qt.CursorShape.ArrowCursor)
+        self.viewport().setCursor(cursor)
         if self._range_drag:
+            table = self.parent()
+            if isinstance(table, TimelineTable):
+                column = max(
+                    0,
+                    round((event.position().x() + self.offset()) / max(1, self.sectionSize(0))),
+                )
+                start, end = table._range_start, table._range_end
+                if self._range_drag == "start":
+                    start = min(column, end - 1)
+                else:
+                    end = max(start + 1, column)
+                table._range_preview = (start, end)
+                table.viewport().update()
+                self.viewport().update()
             event.accept()
             return
         if event.buttons() & Qt.MouseButton.LeftButton:
@@ -534,12 +559,21 @@ class TimelineRuler(QHeaderView):
             return
         super().mouseMoveEvent(event)
 
+    def leaveEvent(self, event):  # noqa: N802 - Qt override
+        if self._range_drag is None:
+            self.viewport().setCursor(Qt.CursorShape.ArrowCursor)
+        super().leaveEvent(event)
+
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             if self._range_drag:
                 edge = self._range_drag
                 self._range_drag = None
                 column = max(0, round((event.position().x() + self.offset()) / max(1, self.sectionSize(0))))
+                table = self.parent()
+                if isinstance(table, TimelineTable):
+                    table._range_preview = None
+                    table.viewport().update()
                 self.rangeResized.emit(edge, column)
             event.accept()
             return
@@ -627,6 +661,7 @@ class TimelineTable(QTableWidget):
         # Mirrors the owning TimelineWidget's frame count; the widget writes it
         # (``self.table._real_frame_count = ...``) and cell-hit tests read it.
         self._real_frame_count = 1
+        self._sequence_mode = False
         self._drag_source = None
         self._drag_preview_dest = None
         self._duplicate_drag = False
@@ -639,6 +674,9 @@ class TimelineTable(QTableWidget):
         # 秒の区切り線と再生ヘッドの描画に使う（TimelineWidget が書き込む）。
         self._fps = 24
         self._playhead_column: int | None = None
+        self._range_start = 0
+        self._range_end = 1
+        self._range_preview: tuple[int, int] | None = None
         # サムネイルを開いた行と、その行のキーの絵（TimelineWidget が書き込む）。
         self._collapsed_row_height = 28
         self._expanded_rows = set()
@@ -651,11 +689,18 @@ class TimelineTable(QTableWidget):
             QAbstractItemView.SelectionBehavior.SelectItems
         )
         self.setDragDropMode(QAbstractItemView.DragDropMode.NoDragDrop)
-        ruler = TimelineRuler(Qt.Orientation.Horizontal, self)
-        self.setHorizontalHeader(ruler)
-        ruler.frameScrubbed.connect(self._ruler_scrubbed)
+        self.ruler = TimelineRuler(Qt.Orientation.Horizontal, self)
+        self.setHorizontalHeader(self.ruler)
+        self.ruler.frameScrubbed.connect(self._ruler_scrubbed)
         self.horizontalHeader().setMouseTracking(True)
+        self.horizontalHeader().viewport().setMouseTracking(True)
         self.horizontalHeader().installEventFilter(self)
+
+    def display_range(self):
+        start, end = self._range_preview or (self._range_start, self._range_end)
+        start = max(0, min(int(start), max(0, self.columnCount() - 1)))
+        end = max(start + 1, min(int(end), max(1, self.columnCount())))
+        return start, end
 
     def eventFilter(self, watched, event):
         if watched is self.horizontalHeader():
@@ -870,6 +915,25 @@ class TimelineTable(QTableWidget):
     def paintEvent(self, event):
         super().paintEvent(event)
         painter = QPainter(self.viewport())
+        if not self._sequence_mode and self.columnCount():
+            height = self.viewport().height()
+            # 6コマごとの帯を交互に薄く暗くし、時間のまとまりを追いやすくする。
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(0, 0, 0, 10))
+            for start in range(6, self.columnCount(), 12):
+                end = min(start + 6, self.columnCount())
+                left = self.columnViewportPosition(start)
+                right = self.columnViewportPosition(end - 1) + self.columnWidth(end - 1)
+                painter.drawRect(left, 0, right - left, height)
+            # 尺の外側は内容を残したままグレーアウトする。
+            start, end = self.display_range()
+            painter.setBrush(QColor(96, 96, 96, 68))
+            left = self.columnViewportPosition(start)
+            if left > 0:
+                painter.drawRect(0, 0, left, height)
+            right = self.columnViewportPosition(end - 1) + self.columnWidth(end - 1)
+            if right < self.viewport().width():
+                painter.drawRect(right, 0, self.viewport().width() - right, height)
         if self._resize_source is not None and self._resize_preview_column is not None:
             row, key_col, edge = self._resize_source
             item = self.item(row, key_col)
@@ -1262,6 +1326,8 @@ class TimelineWidget(QWidget):
         super().__init__()
         self.setAcceptDrops(True)
         self.sequence_archive = {}
+        self.playback_range_start = 0
+        self.playback_range_end: int | None = None
         self._timeline_zoom_scale = 1.0
         self._timeline_base_cell_width = 36
         self._timeline_base_row_height = 28
@@ -1304,13 +1370,10 @@ class TimelineWidget(QWidget):
         self.normalize_badge.setFixedHeight(16)
         self.normalize_badge.hide()
         self._normalize_pending = 0
-        self.first = QPushButton("|◀")
+        self.first = QPushButton()
         self.first.setToolTip(tr("先頭へ（Home）"))
-        self.last = QPushButton("▶|")
+        self.last = QPushButton()
         self.last.setToolTip(tr("末尾へ（End）"))
-        for button in (self.first, self.last):
-            button.setFixedSize(30, 24)
-            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.prev=QPushButton()
         self.prev.setToolTip(tr("前のフレーム（1）"))
         self.next=QPushButton()
@@ -1352,6 +1415,8 @@ class TimelineWidget(QWidget):
             self.add_exposure: "frame_extend",
             self.delete: "trash",
             self.time_remap_paste: "remap",
+            self.first: "first_frame",
+            self.last: "last_frame",
             self.prev: "prev_frame",
             self.prev_key: "prev_key",
             self.next_key: "next_key",
@@ -1436,7 +1501,7 @@ class TimelineWidget(QWidget):
 
         # 再生まわりは中央にまとめ、現在のコマを数字で常に見せる。
         self.frame_counter = QLabel()
-        self.frame_counter.setToolTip(tr("現在のコマ / 全体のコマ数"))
+        self.frame_counter.setToolTip(tr("現在位置 / 最後のコマ"))
         self.frame_counter.setMinimumWidth(66)
         self.frame_counter.setAlignment(
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
@@ -1731,14 +1796,16 @@ class TimelineWidget(QWidget):
         current = old_current if current is None else max(1, int(current))
         total = old_total if total is None else max(1, int(total))
         self._frame_counter_values = (current, total)
-        width = max(3, len(str(total)))
+        fps = max(1, int(self.fps.value()))
+        current_text = time_display.frame_position(current - 1, fps)
+        total_text = time_display.frame_position(total - 1, fps)
         c = theme.palette()
         self.frame_counter.setText(
             "<span style='color:%s;font-weight:600'>%s</span>"
             "<span style='color:%s'> / %s</span>"
             % (
-                c["error"], str(current).zfill(width),
-                c["text_muted"], str(total).zfill(width),
+                c["error"], current_text,
+                c["text_muted"], total_text,
             )
         )
 
@@ -1990,6 +2057,7 @@ class TimelineWidget(QWidget):
 
     def _fps_changed(self, value):
         self.table._fps = max(1, int(value))
+        self._set_frame_counter()
         self.table.viewport().update()
         self.table.horizontalHeader().viewport().update()
 
@@ -2090,7 +2158,8 @@ class TimelineWidget(QWidget):
         self.frameSelected.emit(int(column), int(row))
 
     def _select_table_cell(self, row, column):
-        if not (0 <= int(column) < self._real_frame_count):
+        limit = self._real_frame_count if self.timeline_mode == "sequence" else self.table.columnCount()
+        if not (0 <= int(column) < limit):
             return
         # 連番の表示列から内部フレームへの変換は受け手側で一度だけ行う。
         self.frameSelected.emit(int(column), int(row))
@@ -2372,6 +2441,15 @@ class TimelineWidget(QWidget):
         self._real_frame_count = real_frame_count
         self.table._real_frame_count = real_frame_count
         self.table._sequence_mode = self.timeline_mode == "sequence"
+        range_start = max(0, int(self.playback_range_start))
+        range_end = (
+            real_frame_count
+            if self.playback_range_end is None
+            else max(range_start + 1, int(self.playback_range_end))
+        )
+        self.table._range_start = range_start
+        self.table._range_end = range_end
+        self.table._range_preview = None
         self.table._fps = max(1, int(self.fps.value()))
         self.table._playhead_column = (
             None if self.timeline_mode == "sequence" else int(current)
@@ -2381,13 +2459,17 @@ class TimelineWidget(QWidget):
         visible_cols = max(
             1, self.table.viewport().width() // max(1, cell_width) + 4
         )
-        cols = max(real_frame_count + 24, visible_cols)
+        cols = max(real_frame_count + 24, range_end + 24, visible_cols)
         self.table.blockSignals(True)
         self.table._sequence_numbers_by_row = {}
         self._sequence_frame_by_cell = {}
         self.table.setRowCount(rows)
         self.table.setColumnCount(cols)
-        self.table.setHorizontalHeaderLabels([str(i + 1) if i % 6 == 0 else "" for i in range(cols)])
+        fps = max(1, int(self.fps.value()))
+        self.table.setHorizontalHeaderLabels([
+            time_display.frame_position(i, fps) if i % 6 == 0 else ""
+            for i in range(cols)
+        ])
         self.table.horizontalHeader().setVisible(True)
         self.table.horizontalHeader().setFixedHeight(25)
         self.layer_header_spacer.setFixedHeight(25)

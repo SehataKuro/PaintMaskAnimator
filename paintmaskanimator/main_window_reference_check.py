@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 from . import reference_check
 from .frame_scope import FrameScope, resolve_cells
 from .i18n import tr
+from .time_display import frame_position
 from .imaging import qimage_rgba_array
 from .progress import close_counter, create_counter, update_counter
 
@@ -80,13 +81,14 @@ class ReferenceCheckDialog(QDialog):
         super().__init__(controller.window)
         self.controller = controller
         self.entries = entries
+        fps = int(controller.window.timeline.fps.value())
         self.setWindowTitle(title or tr("見本との違いチェック"))
         self.setModal(False)
         self.resize(520, 420)
         layout = QVBoxLayout(self)
         intro_label = QLabel(intro or tr(
-            "見本：{frame}コマ目。行を選ぶと、そのコマへ移って場所を選択します。"
-        ).format(frame=reference_frame + 1))
+            "見本：{frame}。行を選ぶと、そのコマへ移って場所を選択します。"
+        ).format(frame=frame_position(reference_frame, fps)))
         intro_label.setWordWrap(True)
         layout.addWidget(intro_label)
         if reference_only is None:
@@ -106,7 +108,7 @@ class ReferenceCheckDialog(QDialog):
         self.tree.setRootIsDecorated(False)
         for row, (frame_index, _layer, finding) in enumerate(entries):
             item = QTreeWidgetItem([
-                str(frame_index + 1),
+                frame_position(frame_index, fps),
                 self._describe(finding),
                 _color_label(finding.rgb),
                 f"{finding.pixels:,}",

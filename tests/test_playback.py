@@ -38,3 +38,18 @@ def test_playback_advance_wraps_at_document_end(qapp):
     canvas.playback_advance()
 
     assert canvas.current_frame == 0
+
+
+def test_playback_uses_range_but_manual_position_can_stay_outside(qapp):
+    canvas = PaintCanvas()
+    canvas.frames = [make_frame() for _ in range(8)]
+    canvas.playback_range_start = 2
+    canvas.playback_range_end = 5
+    canvas.current_frame = 7
+
+    canvas.set_playback_active(True)
+    assert canvas.current_frame == 2
+    canvas.playback_advance(2)
+    assert canvas.current_frame == 4
+    canvas.playback_advance()
+    assert canvas.current_frame == 2

@@ -14,6 +14,7 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
 from . import theme
 from .i18n import tr
+from .time_display import frame_position
 from .color_picker_dialog import ColorPickerDialog
 from .widgets import TransformLineThicknessDialog
 from .logging_setup import get_logger
@@ -162,7 +163,8 @@ class ColorInteractionController:
             self.window.canvas.update()
         self.window.canvas.setFocus()
         self.window.statusBar().showMessage(
-            tr("使用色 {rgb} が最初に現れる {value} コマ目へ移動しました。").format(rgb=rgb, value=target_frame + 1),
+            tr("使用色 {rgb} が最初に現れる {position}へ移動しました。").format(
+                rgb=rgb, position=frame_position(target_frame)),
             3200,
         )
 

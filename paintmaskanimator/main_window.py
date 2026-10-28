@@ -241,6 +241,8 @@ class MainWindow(
     def refresh_ui(self):
         self.canvas.coalesce_numbered_images()
         self.timeline.sequence_archive = self.canvas._sequence_archive
+        self.timeline.playback_range_start = int(self.canvas.playback_range_start)
+        self.timeline.playback_range_end = self.canvas.playback_range_end
         self.timeline.refresh(
             self.canvas.frames,
             self.canvas.current_frame,
@@ -712,6 +714,11 @@ class MainWindow(
                 "height": int(constants.CANVAS_HEIGHT),
             },
             "fps": int(self.timeline.fps.value()),
+            "playback_range": [
+                int(self.canvas.playback_range_start),
+                int(self.canvas.playback_range_end)
+                if self.canvas.playback_range_end is not None else None,
+            ],
             "timeline_mode": str(self.canvas.timeline_mode),
             "clip_studio_source": getattr(
                 self.canvas, "clip_studio_source_metadata", None
@@ -995,6 +1002,8 @@ class MainWindow(
             self.palette.clear_categories()
             self.color_chart_ops.clear()
             self.canvas.frames=[make_frame()];self.canvas.undo_stack.clear();self.canvas.redo_stack.clear();self.canvas.clear_history_branches();self.timeline_ops.set_mode("sheet")
+            self.canvas.playback_range_start = 0
+            self.canvas.playback_range_end = None
             self.canvas.clip_studio_source_metadata = None
         self.canvas.current_frame=0
         self.canvas.active_layer_index=0
@@ -1114,6 +1123,8 @@ class MainWindow(
             QMessageBox.warning(self,tr("TGA保存"),tr("TGAを保存できませんでした。Pillowの導入を確認してください。"))
 
     def _sheet_duration(self):
+        if self.canvas.playback_range_end is not None:
+            return max(1, int(self.canvas.playback_range_end))
         duration = max(1, len(self.canvas.frames))
         for column, frame in enumerate(self.canvas.frames):
             for layer in frame.layers:

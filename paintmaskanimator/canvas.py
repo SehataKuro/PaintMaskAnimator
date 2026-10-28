@@ -119,6 +119,9 @@ class PaintCanvas(
         self._playback_frame_cache={}
         self._playback_cache_limit=14
         self._playback_resolved_keys=[]
+        # 再生する尺。終了は排他的。None は文書の現在の長さを使う。
+        self.playback_range_start = 0
+        self.playback_range_end: int | None = None
         # 連番読込直後の画像を、タイムリマップ再配置用に保持する。
         self._sequence_source_bank=[]
         self._sequence_source_bank_layer_index=-1
@@ -215,7 +218,7 @@ class PaintCanvas(
             self._advance_stabilized_brush
         )
         self.pressure_enabled=True; self.pressure_min=.1; self.pressure_max=1.0; self.pressure_curve=1.0; self.pressure_curve_points=[[0.0,0.0],[0.5,0.5],[1.0,1.0]]
-        self.zoom=1.0; self.pan=QPointF(); self.rotation=0.0; self.flip_horizontal=False; self.onion_skin=False
+        self.zoom=1.0; self.pan=QPointF(); self.rotation=0.0; self.flip_horizontal=False; self.flip_vertical=False; self.onion_skin=False
         self.onion_previous_count=1
         self.onion_next_count=1
         self.onion_previous_opacity=0.22
@@ -618,9 +621,13 @@ class PaintCanvas(
             )
         x=(q.x()-self.pan.x())/self.zoom; y=(q.y()-self.pan.y())/self.zoom
         if self.flip_horizontal:x=workspace_size()[0]-x
+        if self.flip_vertical:y=workspace_size()[1]-y
         return QPointF(x,y)
     def canvas_to_widget(self,p):
-        w,_=workspace_size(); x=w-p.x() if self.flip_horizontal else p.x(); q=QPointF(self.pan.x()+x*self.zoom,self.pan.y()+p.y()*self.zoom)
+        w,h=workspace_size()
+        x=w-p.x() if self.flip_horizontal else p.x()
+        y=h-p.y() if self.flip_vertical else p.y()
+        q=QPointF(self.pan.x()+x*self.zoom,self.pan.y()+y*self.zoom)
         c=self.work_rect().center()
         camera_scale=max(0.0001,float(self.onion_tu_tb_scale))
         if abs(camera_scale-1.0)>1e-9:
@@ -1313,15 +1320,19 @@ class PaintCanvas(
             color.red(), color.green(), color.blue()
         ) == (255, 255, 255)
         if sampled_background:
+            changed = self.color_mode != "transparent"
             self.color_mode = "transparent"
         elif self.color_mode == "sub":
+            changed = QColor(self.sub_color) != color
             self.sub_color = QColor(color)
         else:
+            changed = self.color_mode == "transparent" or QColor(self.main_color) != color
             self.main_color = QColor(color)
             if self.color_mode == "transparent":
                 self.color_mode = "main"
-        self.colorSampled.emit(QColor(color))
-        self.update()
+        if changed:
+            self.colorSampled.emit(QColor(color))
+            self.update()
 
 
     def silhouette_layer_image(self, layer, apply_palette_filter=True):
@@ -1605,8 +1616,8 @@ class PaintCanvas(
             draw_image = self.view_layer_image(layer, layer_index, draw_image)
             if draw_image is None:
                 continue
-            if self.flip_horizontal:
-                draw_image = draw_image.mirrored(True, False)
+            if self.flip_horizontal or self.flip_vertical:
+                draw_image = draw_image.mirrored(self.flip_horizontal, self.flip_vertical)
             painter.setOpacity(layer.opacity)
             painter.drawImage(target_rect, draw_image)
         painter.setOpacity(1.0)
@@ -1704,8 +1715,8 @@ class PaintCanvas(
                 if transform_preview is None:
                     transform_preview = QImage()
                 transform_preview = (
-                    transform_preview.mirrored(True, False)
-                    if self.flip_horizontal else transform_preview
+                    transform_preview.mirrored(self.flip_horizontal, self.flip_vertical)
+                    if self.flip_horizontal or self.flip_vertical else transform_preview
                 )
                 p.setOpacity(1 if quality_ready else .85)
                 p.drawImage(wr, transform_preview)

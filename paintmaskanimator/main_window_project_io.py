@@ -192,7 +192,10 @@ class ProjectIOController:
         archive = tuple((key, layer_signature(layer))
                         for key, layer in sorted(canvas._sequence_archive.items()))
         metadata = self.window.build_project_metadata()
-        for key in ("current_frame", "active_layer_index", "colors", "display", "pressure", "timeline_mode"):
+        for key in (
+            "current_frame", "active_layer_index", "colors", "display", "pressure",
+            "timeline_mode",
+        ):
             metadata.pop(key, None)
         return frames, archive, copy.deepcopy(metadata)
 
@@ -498,6 +501,15 @@ class ProjectIOController:
             self.window.timeline.fps.setValue(
                 max(1, min(60, int(metadata.get("fps", 24))))
             )
+            playback_range = metadata.get("playback_range", [0, None])
+            try:
+                range_start, range_end = playback_range
+                range_start = max(0, int(range_start))
+                range_end = None if range_end is None else max(range_start + 1, int(range_end))
+            except (TypeError, ValueError):
+                range_start, range_end = 0, None
+            self.window.canvas.playback_range_start = range_start
+            self.window.canvas.playback_range_end = range_end
             self.window.canvas.undo_stack.clear()
             self.window.canvas.redo_stack.clear()
             self.window.canvas.clear_history_branches()

@@ -24,6 +24,7 @@ from PySide6.QtGui import QColor, QImage, QPainter
 from . import bucket_fill, frame_scope, imaging
 from ._canvas_members import CanvasMembers
 from .i18n import tr
+from .time_display import frame_position
 from .logging_setup import get_logger
 from .progress import close_counter, create_counter, update_counter
 
@@ -220,8 +221,8 @@ class SkewerFillMixin(CanvasMembers):
                     frame_index, layer_index = queue[0]
                     update_counter(
                         dialog, done, total,
-                        tr("コマ {value} の塗る範囲を探しています").format(
-                            value=frame_index + 1
+                        tr("{position}の塗る範囲を探しています").format(
+                            position=frame_position(frame_index)
                         ),
                     )
                     done += 1
@@ -333,15 +334,15 @@ class SkewerFillMixin(CanvasMembers):
         assert session.pending is not None
         if session.guess is not None:
             return tr(
-                "串刺し塗り：コマ {value} は自信がありません。推測した範囲を青で"
+                "串刺し塗り：{position}は自信がありません。推測した範囲を青で"
                 "表示しています（Enter：この範囲で塗る／クリック：塗る場所を指定"
                 "／Esc：このコマを飛ばす／Shift+Esc：この向きの残りを飛ばす）。"
-            ).format(value=session.pending[0] + 1)
+            ).format(position=frame_position(session.pending[0]))
         return tr(
-            "串刺し塗り：コマ {value} は追いかけきれませんでした。"
+            "串刺し塗り：{position}は追いかけきれませんでした。"
             "塗る場所をクリックしてください（Esc：このコマを飛ばす"
             "／Shift+Esc：この向きの残りを飛ばす）。"
-        ).format(value=session.pending[0] + 1)
+        ).format(position=frame_position(session.pending[0]))
 
     def skewer_fill_has_guess(self):
         session = self._skewer_session

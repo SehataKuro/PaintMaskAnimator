@@ -13,6 +13,7 @@ from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, Qt
 from PySide6.QtGui import QColor, QImage, QPainter, QPolygonF, QRegion
 from PySide6.QtWidgets import QApplication
 from .i18n import tr
+from .time_display import frame_position
 from .optional_deps import PILImage, PILImageFilter
 from .constants import OUTSIDE_MARGIN
 from ._canvas_members import CanvasMembers
@@ -604,7 +605,8 @@ class SelectionMixin(CanvasMembers):
                     progress,
                     progress_index - 1,
                     len(frame_indices),
-                    tr("コマ {value} を変形しています").format(value=frame_index + 1),
+                    tr("{position}を変形しています").format(
+                        position=frame_position(frame_index)),
                 )
             if not (0 <= frame_index < len(self.frames)):
                 continue

@@ -20,7 +20,7 @@ from PySide6.QtWidgets import QDialog
 
 from .auto_paint_dialog import AutoPaintDialog
 
-from . import auto_paint, bucket_fill
+from . import auto_paint, bucket_fill, time_display
 from .frame_scope import FrameScope, resolve_cells
 from .i18n import tr
 from .imaging import qimage_rgba_array
@@ -32,12 +32,11 @@ if TYPE_CHECKING:
 Cell = Tuple[int, int]
 
 
-def cell_label(layer, frame_index) -> str:
-    """設定画面の一覧に出す名前。セル番号があれば添える。"""
+def cell_label(layer, frame_index, fps=24) -> str:
+    """設定画面の一覧に出す ``レイヤー名＋絵番号・時間位置``。"""
     number = getattr(layer, "sequence_number", None)
-    if number is None:
-        return tr("コマ {frame}").format(frame=frame_index + 1)
-    return tr("コマ {frame}（セル {number}）").format(frame=frame_index + 1, number=number)
+    cell = f"{layer.name}{number}" if number is not None else str(layer.name)
+    return f"{cell} · {time_display.frame_position(frame_index, fps)}"
 
 
 class AutoPaintController:
@@ -68,31 +67,16 @@ class AutoPaintController:
         current = 0
         if key is not None and (key, layer_index) in cells:
             current = cells.index((key, layer_index))
+        fps = int(self.window.timeline.fps.value())
         labels = [
-            cell_label(canvas.frames[frame].layers[layer], frame) for frame, layer in cells
+            cell_label(canvas.frames[frame].layers[layer], frame, fps) for frame, layer in cells
         ]
         layer_name = canvas.frames[cells[0][0]].layers[layer_index].name
-        kept = self.window.initial_state.count(cells)
-        line_note = (
-            tr("このレイヤーは{count}セルで色塗り前の初期状態を保持しています。見本以外の"
-               "セルは、初期状態の線で部分を分けて塗ります（今の塗りは、塗る所だけ上書き"
-               "します）。").format(count=kept)
-            if kept else
-            tr("色塗り前の初期状態を保持していないので、今の絵の線で部分を分けます。"
-               "塗りかけの色があると迷いやすいので、塗る前に「今の絵を初期状態として保持」"
-               "をおすすめします。")
-        )
         dialog = AutoPaintDialog(
             self.window, layer_name, cells, labels, current,
-            note=tr(
-                "黒の主線と、赤・緑・青（と黄・水色・赤紫）の色トレス線を色分けの境界にして、"
-                "見本から対応する面の色を選び、通常のバケツと同じ設定で塗ります。"
-                "対応する面や色を決められない所は、そのまま残します。"
-                "一通り塗ったら、迷った所の"
-                "少ないセルを見本に加えて自動で塗り直します。ほかのレイヤーには触れません。"
-            ) + "\n\n" + line_note,
             images=[canvas.frames[frame].layers[layer].image for frame, layer in cells],
             numbers=[canvas.frames[frame].layers[layer].sequence_number for frame, layer in cells],
+            fps=fps,
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return

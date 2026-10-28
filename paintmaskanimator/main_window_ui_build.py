@@ -11,8 +11,6 @@ from typing import Any
 from PySide6.QtCore import QSize, QTimer, Qt
 from PySide6.QtGui import QAction, QGuiApplication, QKeySequence
 from PySide6.QtWidgets import (
-    QComboBox,
-    QDoubleSpinBox,
     QHBoxLayout,
     QLabel,
     QMessageBox,
@@ -29,6 +27,7 @@ import PySide6QtAds as QtAds
 from . import icons, theme, view_preview
 from .i18n import tr
 from .main_window_view_preview import channel_labels
+from .preview_controls import ChannelPreviewButton, ExposureControl
 from .theme import StatusBar
 from .preferences_dialog import PreferencesDialog
 from .tool_window import ToolWindow
@@ -615,9 +614,11 @@ class UIBuildMixin(MainWindowMembers):
         self.zoom=QSlider(Qt.Orientation.Horizontal)
         self.zoom.setRange(5,1600)
         self.zoom.setValue(100)
+        self.zoom.setFixedWidth(72)
         self.zoom_label=QLabel("100%")
         self.rot=QSlider(Qt.Orientation.Horizontal)
         self.rot.setRange(-180,180)
+        self.rot.setFixedWidth(72)
         self.rot_label=QLabel("0°")
         b100=QPushButton()
         b100.setToolTip(tr("100%表示"))
@@ -625,6 +626,14 @@ class UIBuildMixin(MainWindowMembers):
         bfit.setToolTip(tr("全体を表示"))
         b0=QPushButton()
         b0.setToolTip(tr("回転を0°に戻す"))
+        self.flip_horizontal_button=QPushButton()
+        self.flip_horizontal_button.setCheckable(True)
+        self.flip_horizontal_button.setToolTip(tr("左右反転プレビュー"))
+        self.flip_horizontal_button.toggled.connect(self.view_preview.set_flip_horizontal)
+        self.flip_vertical_button=QPushButton()
+        self.flip_vertical_button.setCheckable(True)
+        self.flip_vertical_button.setToolTip(tr("上下反転プレビュー"))
+        self.flip_vertical_button.toggled.connect(self.view_preview.set_flip_vertical)
         self.compare_initial_button=QPushButton()
         self.compare_initial_button.setCheckable(True)
         self.compare_initial_button.setToolTip(tr(
@@ -644,28 +653,26 @@ class UIBuildMixin(MainWindowMembers):
             "アクティブレイヤーだけに掛かる"
         ))
         self.map_colors_button.toggled.connect(self.view_preview.set_map_colors)
-        self.channel_combo=QComboBox()
-        for value, label in channel_labels():
-            self.channel_combo.addItem(label, value)
-        self.channel_combo.setToolTip(tr("表示するチャンネル"))
-        self.channel_combo.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.channel_combo.currentIndexChanged.connect(self.view_preview._channel_chosen)
+        self.channel_combo=ChannelPreviewButton(channel_labels())
+        self.channel_combo.channelChanged.connect(self.view_preview.set_channel)
         self.exposure_button=QPushButton()
         self.exposure_button.setCheckable(True)
         self.exposure_button.setToolTip(tr(
             "露光量の調整：押すと 0 に戻す。もう一度押すと直前の値に戻す"
         ))
         self.exposure_button.clicked.connect(self.view_preview.toggle_exposure)
-        self.exposure_spin=QDoubleSpinBox()
-        self.exposure_spin.setRange(view_preview.EXPOSURE_MIN, view_preview.EXPOSURE_MAX)
-        self.exposure_spin.setSingleStep(0.1)
-        self.exposure_spin.setDecimals(1)
-        self.exposure_spin.setToolTip(tr("露光量（段）。表示だけを明るく・暗くする"))
-        self.exposure_spin.valueChanged.connect(self.view_preview.set_exposure)
+        self.exposure_control=ExposureControl(
+            view_preview.EXPOSURE_MIN, view_preview.EXPOSURE_MAX
+        )
+        self.exposure_control.setToolTip(tr("露光量（段）。左右ドラッグ、またはクリックして入力"))
+        self.exposure_spin=self.exposure_control.spin
+        self.exposure_control.valueChanged.connect(self.view_preview.set_exposure)
         # 表示操作はアイコンボタンにして、キャンバスの下を細い1本のバーにする。
         self._canvas_bar_icons = {
             b100: "zoom_actual", bfit: "fit", self.compare_initial_button: "compare",
             b0: "rotate_reset", self.black_check_button: "black_check",
+            self.flip_horizontal_button: "flip_horizontal",
+            self.flip_vertical_button: "flip_vertical",
             self.map_colors_button: "map_colors", self.exposure_button: "exposure",
         }
         for button in self._canvas_bar_icons:
@@ -680,15 +687,18 @@ class UIBuildMixin(MainWindowMembers):
         bar.setSpacing(4)
         zoom_title=QLabel(tr("拡大"))
         rot_title=QLabel(tr("回転"))
-        for w in (zoom_title,self.zoom,self.zoom_label,b100,bfit,self.compare_initial_button):
+        for w in (zoom_title,self.zoom,self.zoom_label,b100,bfit):
             bar.addWidget(w)
         bar.addSpacing(16)
-        for w in (rot_title,self.rot,self.rot_label,b0):
+        for w in (rot_title,self.rot,self.rot_label,b0,
+                  self.flip_horizontal_button,self.flip_vertical_button):
             bar.addWidget(w)
         bar.addSpacing(16)
+        bar.addStretch(1)
         for w in (
-            self.black_check_button, self.map_colors_button, self.channel_combo,
-            self.exposure_button, self.exposure_spin,
+            self.compare_initial_button, self.black_check_button,
+            self.map_colors_button, self.channel_combo,
+            self.exposure_button, self.exposure_control,
         ):
             bar.addWidget(w)
         cv.addLayout(bar)
@@ -1114,7 +1124,7 @@ class UIBuildMixin(MainWindowMembers):
         )
         self.timeline.first.clicked.connect(lambda: self.timeline_ops.jump_boundary(False))
         self.timeline.last.clicked.connect(lambda: self.timeline_ops.jump_boundary(True))
-        self.timeline.table.horizontalHeader().rangeResized.connect(self.timeline_ops.resize_range)
+        self.timeline.table.ruler.rangeResized.connect(self.timeline_ops.resize_range)
         self.timeline.previousRequested.connect(self.timeline_ops.previous_frame)
         self.timeline.nextRequested.connect(self.timeline_ops.next_frame)
         self.timeline.previousKeyRequested.connect(self.timeline_ops.previous_key)

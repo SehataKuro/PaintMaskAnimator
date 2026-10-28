@@ -12,6 +12,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
 from .i18n import tr
+from .time_display import frame_position
 from .frame_scope import FrameScope, apply_over_scope
 from .progress import close_counter, create_counter, update_counter
 from .logging_setup import get_logger
@@ -78,7 +79,8 @@ class ScopeOpsController:
                 dialog_state["dialog"],
                 done,
                 dialog_state["total"],
-                tr("コマ {value} に{label}を適用しています").format(value=frame_index + 1, label=label),
+                tr("{position}に{label}を適用しています").format(
+                    position=frame_position(frame_index), label=label),
             )
 
         def cancel_requested():

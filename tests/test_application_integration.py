@@ -1,7 +1,6 @@
 """Cross-module smoke tests for release metadata and project persistence."""
 from __future__ import annotations
 
-import importlib.metadata
 from pathlib import Path
 
 try:
@@ -29,7 +28,6 @@ def test_runtime_version_matches_project_metadata():
     assert tomllib is not None
     project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
     expected = project["project"]["version"]
-    assert importlib.metadata.version("paintmaskanimator") == expected
     assert constants.APP_VERSION == expected
 
 

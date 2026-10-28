@@ -124,31 +124,25 @@ class TimelineOpsController:
         canvas = self.window.canvas
         if canvas.timeline_mode != "sheet":
             return
-        count = len(canvas.frames)
-        target = max(1, int(column)) if edge == "end" else min(count - 1, max(0, int(column)))
-        if (edge == "end" and target == count) or (edge == "start" and target == 0):
-            return
-        canvas.push_doc_undo()
+        start = max(0, int(canvas.playback_range_start))
+        end = (
+            len(canvas.frames)
+            if canvas.playback_range_end is None
+            else max(start + 1, int(canvas.playback_range_end))
+        )
         if edge == "end":
-            canvas._ensure_frame_count(target)
-            canvas.frames = canvas.frames[:target]
+            target = max(start + 1, int(column))
+            if target == end:
+                return
+            canvas.playback_range_end = target
         else:
-            for index in range(len(canvas.frames[0].layers)):
-                key = TimelineWidget.key_at_or_before(canvas.frames, index, target)
-                if key is not None and key < target:
-                    layer = canvas.frames[key].layers[index].clone()
-                    layer.exposure = max(1, key + layer.exposure - target)
-                    canvas.frames[target].layers[index] = layer
-            canvas.frames = canvas.frames[target:]
-            canvas.current_frame = max(0, canvas.current_frame - target)
-        for index, frame in enumerate(canvas.frames):
-            for layer in frame.layers:
-                layer.exposure = min(layer.exposure, len(canvas.frames) - index)
-        canvas.current_frame = min(canvas.current_frame, len(canvas.frames) - 1)
-        canvas._cell_structure_dirty = True
+            target = max(0, min(int(column), end - 1))
+            if target == start:
+                return
+            canvas.playback_range_start = target
+            canvas.playback_range_end = end
         canvas.changed.emit()
-        canvas.selectionChanged.emit()
-        canvas.update()
+        self.window.refresh_ui()
 
     def previous_frame(self):
         if self.window.canvas.timeline_mode == "sequence":
@@ -799,7 +793,10 @@ class TimelineOpsController:
                 self.window.canvas.selectionChanged.emit()
                 self.window.canvas.update()
             return
-        column = max(0, min(int(column), len(self.window.canvas.frames) - 1))
+        column = max(0, int(column))
+        if column >= len(self.window.canvas.frames):
+            self.window.canvas._ensure_frame_count(column + 1)
+            self.window.canvas._cell_structure_dirty = True
         self.window.canvas.select_exposure(column, visual_row)
         # タイムラインの別レイヤーのコマを選んだ場合も、そのレイヤーの使用色へ即時更新。
         if self.window.canvas.active_layer_index != previous_layer:

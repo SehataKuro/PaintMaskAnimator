@@ -106,6 +106,45 @@ def test_every_canvas_eyedropper_shows_loupe(
     assert hidden == [True]
 
 
+def test_right_drag_eyedropper_follows_pointer(qapp, monkeypatch):
+    canvas = PaintCanvas()
+    canvas.resize(800, 600)
+    canvas._EYEDROPPER_PREVIEW_INTERVAL_NS = 0
+    sampled = []
+    shown = []
+    monkeypatch.setattr(canvas, "sample_color", lambda point, **_kwargs: sampled.append(point))
+    monkeypatch.setattr(
+        canvas_input_events, "show_screen_color_loupe",
+        lambda _owner, point, _before=None: shown.append(point),
+    )
+    monkeypatch.setattr(canvas_input_events, "hide_screen_color_loupe", lambda _owner: None)
+    start = QPointF(380, 280)
+    end = QPointF(420, 320)
+    press = QMouseEvent(
+        QEvent.Type.MouseButtonPress, start, start,
+        Qt.MouseButton.RightButton, Qt.MouseButton.RightButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    move = QMouseEvent(
+        QEvent.Type.MouseMove, end, end,
+        Qt.MouseButton.NoButton, Qt.MouseButton.RightButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    release = QMouseEvent(
+        QEvent.Type.MouseButtonRelease, end, end,
+        Qt.MouseButton.RightButton, Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+
+    canvas.mousePressEvent(press)
+    canvas.mouseMoveEvent(move)
+    canvas.mouseReleaseEvent(release)
+
+    assert len(sampled) == 2
+    assert shown == [start.toPoint(), end.toPoint()]
+    assert not canvas._right_eyedropper_drag
+
+
 def test_paint_rgb_palette_dedups(qapp):
     pal = colors.paint_rgb_palette(
         [QColor("red"), QColor("red"), QColor("blue")]

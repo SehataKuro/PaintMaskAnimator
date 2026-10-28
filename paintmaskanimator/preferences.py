@@ -21,6 +21,9 @@ AUTO_UPDATE_CHECK_KEY = "check_updates_automatically"
 SKIPPED_UPDATE_KEY = "skipped_update_version"
 BACKGROUND_CHECKER_ENABLED_KEY = "background_checker_enabled"
 BACKGROUND_CHECKER_COLOR_KEY = "background_checker_color"
+TIME_DISPLAY_KEY = "time_display_mode"
+TIME_DISPLAY_FRAMES = "frames"
+TIME_DISPLAY_SECONDS_FRAMES = "seconds_frames"
 
 
 def background_checker_enabled():
@@ -41,6 +44,19 @@ def background_checker_color():
 def set_background_checker_color(color):
     rgb = _rgb_from_hex(color)
     config.set_value(BACKGROUND_CHECKER_COLOR_KEY, "#{:02x}{:02x}{:02x}".format(*rgb))
+
+
+def time_display_mode():
+    value = config.get_value(TIME_DISPLAY_KEY, TIME_DISPLAY_FRAMES)
+    if value not in (TIME_DISPLAY_FRAMES, TIME_DISPLAY_SECONDS_FRAMES):
+        return TIME_DISPLAY_FRAMES
+    return value
+
+
+def set_time_display_mode(mode):
+    if mode not in (TIME_DISPLAY_FRAMES, TIME_DISPLAY_SECONDS_FRAMES):
+        raise ValueError(mode)
+    config.set_value(TIME_DISPLAY_KEY, mode)
 
 DEFAULT_AUTOSAVE_INTERVAL = 3
 AUTOSAVE_INTERVAL_RANGE = (1, 60)

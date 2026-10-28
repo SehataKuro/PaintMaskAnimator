@@ -7,11 +7,12 @@ from PySide6.QtGui import QColor, QIcon, QImage, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit,
     QListView, QListWidget, QListWidgetItem, QPushButton, QSizePolicy, QSlider,
-    QSplitter, QStyledItemDelegate, QStyle, QToolButton, QVBoxLayout, QWidget,
+    QSplitter, QStyledItemDelegate, QStyle, QVBoxLayout, QWidget,
 )
 
 from .i18n import tr
 from .imaging import qimage_rgba_array
+from .time_display import frame_position
 
 Cell = Tuple[int, int]
 TITLE_ROLE = int(Qt.ItemDataRole.UserRole) + 1
@@ -142,7 +143,7 @@ class _CardDelegate(QStyledItemDelegate):
 class AutoPaintDialog(QDialog):
     def __init__(self, parent, layer_name: str, cells: List[Cell], labels: List[str],
                  current: int, note: str = "", images: Optional[List[QImage]] = None,
-                 numbers: Optional[List[Optional[int]]] = None):
+                 numbers: Optional[List[Optional[int]]] = None, fps: int = 24):
         super().__init__(parent)
         self.cells, self.labels = cells, labels
         # 全セルの切り抜き画像を複製せず、元画像と表示する矩形だけを保持する。
@@ -152,28 +153,15 @@ class AutoPaintDialog(QDialog):
         self.resize(1060, 740)
         self.setMinimumSize(780, 580)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(22, 18, 22, 18)
-        layout.setSpacing(12)
-        heading = QHBoxLayout()
-        title = QLabel(tr("見本を選ぶ"))
-        font = title.font()
-        font.setPointSize(font.pointSize() + 5)
-        font.setBold(True)
-        title.setFont(font)
-        heading.addWidget(title)
-        heading.addStretch()
-        heading.addWidget(QLabel(tr("レイヤー {name} · {count}セル").format(
-            name=layer_name, count=len(cells))))
-        layout.addLayout(heading)
-        layout.addWidget(QLabel(tr("完成したセルをクリックして選択。見本は何枚でも追加できます。")))
-
+        layout.setContentsMargins(18, 16, 18, 16)
+        layout.setSpacing(10)
         splitter = QSplitter(Qt.Orientation.Horizontal)
         gallery = QWidget()
         gallery_layout = QVBoxLayout(gallery)
         gallery_layout.setContentsMargins(0, 0, 0, 0)
         toolbar = QHBoxLayout()
         self.search = _SearchBox()
-        self.search.setPlaceholderText(tr("セル・コマ番号で検索"))
+        self.search.setPlaceholderText(tr("コマを検索"))
         self.search.setClearButtonEnabled(True)
         toolbar.addWidget(self.search, 1)
         for text, row in ((tr("先頭へ"), 0), (tr("末尾へ"), len(cells) - 1)):
@@ -184,7 +172,7 @@ class AutoPaintDialog(QDialog):
             toolbar.addWidget(button)
         gallery_layout.addLayout(toolbar)
         self.references = _ReferenceGrid()
-        self.references.setAccessibleName(tr("見本にするセル"))
+        self.references.setAccessibleName(tr("見本にするコマ"))
         self.references.setViewMode(QListView.ViewMode.IconMode)
         self.references.setResizeMode(QListView.ResizeMode.Adjust)
         self.references.setMovement(QListView.Movement.Static)
@@ -196,11 +184,10 @@ class AutoPaintDialog(QDialog):
         for index, label in enumerate(labels):
             item = QListWidgetItem(label, self.references)
             item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
-            frame_text = tr("コマ {frame}").format(frame=cells[index][0] + 1)
+            frame_text = frame_position(cells[index][0], fps)
             number = numbers[index] if numbers else None
-            item.setData(TITLE_ROLE, tr("セル {number}").format(number=number)
-                         if number is not None else frame_text)
-            item.setData(FRAME_ROLE, frame_text if number is not None else "")
+            item.setData(TITLE_ROLE, f"{layer_name}{number if number is not None else index + 1}")
+            item.setData(FRAME_ROLE, frame_text)
             item.setToolTip(label)
             item.setCheckState(Qt.CheckState.Checked if index == current else Qt.CheckState.Unchecked)
             if index < len(self.images):
@@ -230,10 +217,12 @@ class AutoPaintDialog(QDialog):
         side.setMinimumWidth(240)
         side_layout = QVBoxLayout(side)
         side_layout.setContentsMargins(12, 0, 0, 0)
+        preview_header = QLabel(tr("プレビュー"))
+        preview_header_font = preview_header.font()
+        preview_header_font.setBold(True)
+        preview_header.setFont(preview_header_font)
+        side_layout.addWidget(preview_header)
         self.preview_title = QLabel()
-        font = self.preview_title.font()
-        font.setBold(True)
-        self.preview_title.setFont(font)
         side_layout.addWidget(self.preview_title)
         self.preview = _ImagePreview()
         side_layout.addWidget(self.preview, 1)
@@ -267,20 +256,6 @@ class AutoPaintDialog(QDialog):
         splitter.setSizes([710, 300])
         layout.addWidget(splitter, 1)
 
-        if note:
-            details = QToolButton()
-            details.setText(tr("処理について"))
-            details.setCheckable(True)
-            details.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-            details.setArrowType(Qt.ArrowType.RightArrow)
-            hint = QLabel(note)
-            hint.setWordWrap(True)
-            hint.hide()
-            details.toggled.connect(hint.setVisible)
-            details.toggled.connect(lambda checked: details.setArrowType(
-                Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow))
-            layout.addWidget(details)
-            layout.addWidget(hint)
         footer = QHBoxLayout()
         self.summary = QLabel()
         footer.addWidget(self.summary, 1)
@@ -336,11 +311,11 @@ class AutoPaintDialog(QDialog):
         self.remove_button.setEnabled(count > 0)
         self.run_button.setEnabled(0 < count < len(self.cells))
         if count == 0:
-            text = tr("完成した見本を1枚以上選んでください。")
+            text = tr("見本を選択してください")
         elif count == len(self.cells):
-            text = tr("塗るセルを1枚以上残してください。")
+            text = tr("塗るコマを残してください")
         else:
-            text = tr("見本 {references}枚 · 塗るセル {targets}枚").format(
+            text = tr("見本 {references}枚 · 塗るコマ {targets}枚").format(
                 references=count, targets=len(self.cells) - count)
         self.summary.setText(text)
         self._update_toggle()
@@ -388,5 +363,5 @@ class AutoPaintDialog(QDialog):
             hidden = text not in label.casefold()
             self.references.item(i).setHidden(hidden)
             visible += not hidden
-        self.visible_status.setText(tr("表示 {visible} / {total}セル").format(
+        self.visible_status.setText(tr("表示 {visible} / {total}コマ").format(
             visible=visible, total=len(self.cells)))

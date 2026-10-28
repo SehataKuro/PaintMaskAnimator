@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 )
 from . import imaging
 from .i18n import tr
+from .time_display import frame_position
 from .models import Layer
 from .frame_scope import resolve_cells
 from .utils import blank_image
@@ -514,7 +515,8 @@ class LineOpsController:
                 progress,
                 scan_index - 1,
                 frame_total * 2,
-                tr("コマ {index} の対象色を確認しています").format(index=scan_index),
+                tr("{position}の対象色を確認しています").format(
+                    position=frame_position(scan_index - 1)),
             )
             source = frame.layers[source_index]
             if not source.has_content:
@@ -578,7 +580,8 @@ class LineOpsController:
                 progress,
                 frame_total + frame_index,
                 frame_total * 2,
-                tr("コマ {value} をレイヤー分離しています").format(value=frame_index + 1),
+                tr("{position}をレイヤー分離しています").format(
+                    position=frame_position(frame_index)),
             )
             source = frame.layers[source_index]
             if not source.has_content:

@@ -3,14 +3,32 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from PySide6.QtCore import QPointF
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QAbstractSpinBox, QApplication
 
 from paintmaskanimator import view_preview
 from paintmaskanimator.view_preview import ViewPreview
 
 NORMAL = (232, 196, 172)
 SHADOW = (229, 193, 170)  # ノーマルとほとんど同じ影色
+
+
+@pytest.mark.parametrize("horizontal,vertical", [(True, False), (False, True), (True, True)])
+def test_flip_preview_keeps_pointer_coordinates_and_exports(window, horizontal, vertical):
+    canvas = window.canvas
+    painted_layer(window)
+    before = window.crop_image(0)
+    window.flip_horizontal_button.setChecked(horizontal)
+    window.flip_vertical_button.setChecked(vertical)
+    assert canvas.flip_horizontal == horizontal
+    assert canvas.flip_vertical == vertical
+    canvas.rotation = 31.0
+    point = QPointF(123.5, 98.25)
+    recovered = canvas.widget_to_canvas(canvas.canvas_to_widget(point))
+    assert recovered.x() == pytest.approx(point.x())
+    assert recovered.y() == pytest.approx(point.y())
+    assert window.crop_image(0) == before
 
 
 def canvas_pixels(height=40, width=60):
@@ -179,14 +197,22 @@ def test_canvas_map_colors_keep_the_same_rgb_when_switching_images(window):
     assert canvas.view_layer_image(layer, canvas.active_layer_index, first_image) == first
 
 
-def test_exposure_button_toggles_between_zero_and_the_last_value(window):
+def test_exposure_is_a_link_until_clicked(window):
+    control = window.exposure_control
+    assert control.stack.currentWidget() is control.link
+    control.begin_edit()
+    assert control.stack.currentWidget() is window.exposure_spin
+    assert window.exposure_spin.buttonSymbols() == QAbstractSpinBox.ButtonSymbols.NoButtons
     window.exposure_spin.setValue(1.5)
-    window.exposure_button.click()
-    assert window.canvas.view_preview.exposure == 0.0
-    assert window.exposure_spin.value() == 0.0
-    window.exposure_button.click()
+    control.end_edit()
+    assert control.stack.currentWidget() is control.link
     assert window.canvas.view_preview.exposure == 1.5
-    assert window.exposure_button.isChecked()
+    assert "+1.5" in control.link.text()
+
+
+def test_exposure_horizontal_drag_changes_value(window):
+    window.exposure_control._drag(0.5)
+    assert window.canvas.view_preview.exposure == 0.5
 
 
 def test_channel_actions_toggle_back_to_rgb(window):

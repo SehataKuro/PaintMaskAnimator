@@ -63,6 +63,9 @@ class PlaybackMixin(CanvasMembers):
         self._playback_active = bool(active)
         self._playback_frame_cache.clear()
         if self._playback_active:
+            start, end = self.playback_bounds()
+            if not start <= self.current_frame < end:
+                self.current_frame = start
             self._build_playback_key_map()
         else:
             self._playback_resolved_keys = []
@@ -72,10 +75,20 @@ class PlaybackMixin(CanvasMembers):
         """UI全体を再構築せず、再生フレームだけを進める。"""
         if not self.frames:
             return
-        self.current_frame = (
-            self.current_frame + max(1, int(steps))
-        ) % len(self.frames)
+        start, end = self.playback_bounds()
+        span = max(1, end - start)
+        self.current_frame = start + (
+            self.current_frame - start + max(1, int(steps))
+        ) % span
         self.update()
+
+    def playback_bounds(self):
+        """Return the valid inclusive/exclusive playback range."""
+        count = max(1, len(self.frames))
+        start = max(0, min(int(self.playback_range_start), count - 1))
+        requested_end = self.playback_range_end
+        end = count if requested_end is None else max(start + 1, int(requested_end))
+        return start, min(end, count)
 
     def _playback_cache_dimensions(self, target_rect):
         """再生用キャッシュの大きさ（実際の画面の画素数）。
@@ -112,6 +125,7 @@ class PlaybackMixin(CanvasMembers):
             int(cache_height),
             int(self.active_layer_index),
             bool(self.flip_horizontal),
+            bool(getattr(self, "flip_vertical", False)),
             bool(self.silhouette_non_background),
             self.view_preview.key(),
         )
@@ -167,8 +181,10 @@ class PlaybackMixin(CanvasMembers):
                 layer, layer_index,
                 self._display_layer_image(layer, layer_index),
             )
-            if self.flip_horizontal:
-                draw_image = draw_image.mirrored(True, False)
+            if self.flip_horizontal or getattr(self, "flip_vertical", False):
+                draw_image = draw_image.mirrored(
+                    self.flip_horizontal, getattr(self, "flip_vertical", False)
+                )
             painter.setOpacity(float(layer.opacity))
             painter.drawImage(destination, draw_image)
 

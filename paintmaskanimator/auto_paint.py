@@ -34,7 +34,7 @@
 from dataclasses import dataclass, field
 from functools import lru_cache
 from contextlib import ExitStack
-from typing import Callable, Dict, List, Optional, Tuple, cast
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, cast, overload
 
 import numpy as np
 
@@ -1478,30 +1478,34 @@ def _order(count, reference_index, second_reference_index=None, reference_indice
     ]
 
 
+@overload
 def plan_auto_paint(
-    cells: List[np.ndarray], reference_index: int, *,
-    second_reference_index: Optional[int] = None,
-    reference_indices: Optional[List[int]] = None,
+    cells: Sequence[np.ndarray], reference_index: int, *,
+    progress: None = None, **options: Any,
+) -> AutoPlan: ...
+
+
+@overload
+def plan_auto_paint(
+    cells: Sequence[np.ndarray], reference_index: int, *,
+    progress: Callable[[int, int], bool], **options: Any,
+) -> Optional[AutoPlan]: ...
+
+
+def plan_auto_paint(
+    cells: Sequence[np.ndarray], reference_index: int, *,
     progress: Optional[Callable[[int, int], bool]] = None,
-    margin: int = SEARCH_MARGIN, max_rounds: int = MAX_ROUNDS,
-    hints: Optional[List[Optional[np.ndarray]]] = None,
-    lines: Optional[List[Optional[np.ndarray]]] = None,
-    bucket_options: Optional[bucket_fill.BucketOptions] = None,
-    gpu: str = "auto", preparation_workers: int = 2, reuse_reference_regions: bool = True,
+    **options: Any,
 ) -> Optional[AutoPlan]:
     """見本から順に塗る。先行準備は色の引き継ぎ順序を変えず、終了時に回収する。"""
     with ExitStack() as resources:
         return _plan_auto_paint(
-            cells, reference_index, second_reference_index=second_reference_index,
-            reference_indices=reference_indices, progress=progress, margin=margin,
-            max_rounds=max_rounds, hints=hints, lines=lines, bucket_options=bucket_options,
-            gpu=gpu, preparation_workers=preparation_workers,
-            reuse_reference_regions=reuse_reference_regions, _resources=resources,
+            cells, reference_index, progress=progress, _resources=resources, **options,
         )
 
 
 def _plan_auto_paint(
-    cells: List[np.ndarray],
+    cells: Sequence[np.ndarray],
     reference_index: int,
     *,
     second_reference_index: Optional[int] = None,
@@ -1509,8 +1513,8 @@ def _plan_auto_paint(
     progress: Optional[Callable[[int, int], bool]] = None,
     margin: int = SEARCH_MARGIN,
     max_rounds: int = MAX_ROUNDS,
-    hints: Optional[List[Optional[np.ndarray]]] = None,
-    lines: Optional[List[Optional[np.ndarray]]] = None,
+    hints: Optional[Sequence[Optional[np.ndarray]]] = None,
+    lines: Optional[Sequence[Optional[np.ndarray]]] = None,
     bucket_options: Optional[bucket_fill.BucketOptions] = None,
     gpu: str = "auto",
     preparation_workers: int = 2,

@@ -206,4 +206,7 @@ def test_save_and_open_reset_drop_guard(window, tmp_path):
     assert not project.has_unsaved_changes()
     window.timeline.fps.setValue(12)
     assert project.has_unsaved_changes()
+    project.mark_saved()
+    window.timeline_ops.resize_range("end", 8)
+    assert project.has_unsaved_changes()
 

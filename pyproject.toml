@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "paintmaskanimator"
-version = "0.7.1"
+version = "0.7.2"
 description = "Paint / mask animation tool (PySide6)"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -65,7 +65,10 @@ skip_covered = false
 fail_under = 37.0
 
 [tool.pyright]
-include = ["paintmaskanimator", "scripts", "tests"]
+# Test modules intentionally use lightweight fakes and monkeypatch private GPU
+# objects.  Pytest validates those dynamic paths; static checking covers shipped
+# application and release scripts.
+include = ["paintmaskanimator", "scripts"]
 pythonVersion = "3.10"
 typeCheckingMode = "basic"
 # Rust の部品（native/）の型。部品をビルドしていない環境でも型を確かめられる。

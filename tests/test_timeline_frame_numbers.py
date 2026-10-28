@@ -20,7 +20,7 @@ def test_header_numbers_mark_the_first_frame_of_each_six():
             labels[column] = item.text() if item is not None else ""
         numbered = [column + 1 for column, text in labels.items() if text]
         assert numbered[:4] == [1, 7, 13, 19]
-        assert all(labels[number - 1] == str(number) for number in numbered)
+        assert all(labels[number - 1] == f"{number}コマ目" for number in numbered)
     finally:
         window.close()
         window.deleteLater()

@@ -175,9 +175,16 @@ class PreferencesDialog(QDialog):
         self.tool_hold_ms.setEnabled(self.tool_hold_enabled.isChecked())
         self.tool_hold_ms.valueChanged.connect(self._tool_hold_changed)
 
+        self.time_display = QComboBox()
+        self.time_display.addItem(tr("1コマ目"), preferences.TIME_DISPLAY_FRAMES)
+        self.time_display.addItem("0+1", preferences.TIME_DISPLAY_SECONDS_FRAMES)
+        self._select_data(self.time_display, preferences.time_display_mode())
+        self.time_display.currentIndexChanged.connect(self._time_display_changed)
+
         return _page(
             (tr("言語 / Language"), self.language),
             _hint(tr("言語は次回の起動から切り替わります。")),
+            (tr("時間の表示"), self.time_display),
             (tr("初期状態"), self.keep_initial_state),
             _hint(tr("初期状態として保存すると自動色塗りの精度が上がります。外すと、読み込み"
                      "のたびに保存するか尋ねます。")),
@@ -198,6 +205,10 @@ class PreferencesDialog(QDialog):
                 "切り替えたままにしたいときは 300〜500 ms ほどにします。"
             )),
         )
+
+    def _time_display_changed(self):
+        preferences.set_time_display_mode(self.time_display.currentData())
+        self.main_window.refresh_ui()
 
     def _tool_hold_changed(self):
         preferences.set_tool_hold_enabled(self.tool_hold_enabled.isChecked())

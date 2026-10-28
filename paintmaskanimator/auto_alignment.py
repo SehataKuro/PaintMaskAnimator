@@ -118,7 +118,8 @@ class AlignmentCache:
         sx, sy = tx0+(wx0-tx0)%step, ty0+(wy0-ty0)%step
         ys, xs = np.nonzero(target.boundary[sy:ty1:step, sx:tx1:step])
         points = np.ascontiguousarray((ys*step+sy)*width + xs*step+sx, dtype=np.int64)
-        result = (target.values.shape, step, limit, blake2b(points, digest_size=16).digest())
+        result = (target.values.shape, step, limit,
+                  blake2b(points.tobytes(), digest_size=16).digest())
         self._supports[key] = result
         return result
 
@@ -395,7 +396,8 @@ class AlignmentCache:
         if self._cupy is not None:
             return True
         try:
-            import cupy
+            import importlib
+            cupy = importlib.import_module("cupy")
             if cupy.cuda.runtime.getDeviceCount() == 0:
                 self._gpu_failed = True
                 return False

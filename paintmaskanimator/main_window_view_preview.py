@@ -50,6 +50,14 @@ class ViewPreviewController:
         self.window.canvas.set_view_preview(map_colors=bool(checked))
         self.sync()
 
+    def set_flip_horizontal(self, checked):
+        self.window.canvas.flip_horizontal = bool(checked)
+        self.window.canvas.update()
+
+    def set_flip_vertical(self, checked):
+        self.window.canvas.flip_vertical = bool(checked)
+        self.window.canvas.update()
+
     def toggle_map_colors(self):
         self.set_map_colors(not self._settings.map_colors)
 
@@ -109,17 +117,16 @@ class ViewPreviewController:
                 action.setChecked(settings.map_colors)
         combo = getattr(window, "channel_combo", None)
         if combo is not None:
-            index = combo.findData(settings.channel)
             with QSignalBlocker(combo):
-                combo.setCurrentIndex(max(0, index))
-        spin = getattr(window, "exposure_spin", None)
-        if spin is not None:
-            with QSignalBlocker(spin):
-                spin.setValue(settings.exposure)
-        exposure_button = getattr(window, "exposure_button", None)
-        if exposure_button is not None:
-            with QSignalBlocker(exposure_button):
-                exposure_button.setChecked(abs(settings.exposure) > 1e-9)
+                combo.setChannel(settings.channel)
+        control = getattr(window, "exposure_control", None)
+        if control is not None:
+            with QSignalBlocker(control.spin):
+                control.setValue(settings.exposure)
+        button = getattr(window, "exposure_button", None)
+        if button is not None:
+            with QSignalBlocker(button):
+                button.setChecked(abs(settings.exposure) > 1e-9)
 
     def sync_black_check(self, checked):
         button = getattr(self.window, "black_check_button", None)
