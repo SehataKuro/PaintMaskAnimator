@@ -24,6 +24,7 @@ PaintMaskAnimator への貢献を歓迎します。
 python -m venv .venv
 .venv/Scripts/activate
 pip install -e ".[dev,full]"
+cargo update --manifest-path native/Cargo.toml -p clipfile  # 最新の公開版を取り込む
 pip install ./native   # Rust の部品（Rust のツールチェーンが必要）
 ```
 

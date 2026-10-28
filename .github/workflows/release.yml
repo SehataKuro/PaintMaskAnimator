@@ -43,6 +43,7 @@ jobs:
       # 入らなければここで止める（無くても動くが、遅い numpy 版になる）。
       - name: Build native module (Rust)
         run: |
+          cargo update --manifest-path native/Cargo.toml -p clipfile
           pip install ./native
           python -c "import pma_native; from pma_native import ClipAnimationReader; print('pma_native', pma_native.__version__)"
 
@@ -121,6 +122,7 @@ jobs:
       # 入らなければここで止める（無くても動くが、遅い numpy 版になる）。
       - name: Build native module (Rust)
         run: |
+          cargo update --manifest-path native/Cargo.toml -p clipfile
           pip install ./native
           python -c "import pma_native; from pma_native import ClipAnimationReader; print('pma_native', pma_native.__version__)"
 

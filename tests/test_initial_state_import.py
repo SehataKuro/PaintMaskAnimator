@@ -7,7 +7,7 @@ import pytest
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
-from paintmaskanimator import constants, project_io
+from paintmaskanimator import clip_animation, constants, project_io
 from paintmaskanimator.main_window import MainWindow
 from paintmaskanimator.models import Frame, Layer
 from paintmaskanimator.undo_entries import InitialStateUndo
@@ -174,3 +174,72 @@ def test_draft_paper_and_unnumbered_cels_are_not_matched_by_position(window, tmp
     window.canvas.frames[0].layers[1].is_paper = True
     window.canvas.frames[2].layers[0].sequence_number = None
     assert window.initial_state.import_line_art(tmp_path) == 0
+
+
+def clip_document(monkeypatch, *, size=(16, 16), duplicate=False):
+    source = clip_animation.ClipAnimationLayer(
+        "a", (clip_animation.ClipCelKey(99, "3"),),
+        {"2": image("black"), "3": image("white", size), "99": image("blue")},
+    )
+    parsed = clip_animation.ClipAnimationDocument(
+        "lines.clip", "other timing", 16, 16, 12, 99, 101,
+        (source, source) if duplicate else (source,), (),
+    )
+    monkeypatch.setattr(clip_animation, "read_clip_animation", lambda _path: parsed)
+
+
+def test_clip_import_matches_cel_numbers_and_archives_with_one_undo(window, monkeypatch):
+    clip_document(monkeypatch)
+    canvas = window.canvas
+    frames = canvas.frames
+    before = [(cell.sequence_number, cell.exposure, cell.image.cacheKey())
+              for frame in frames for cell in frame.layers]
+    undo_count = len(canvas.undo_stack)
+    assert window.initial_state.import_clip_line_art("lines.clip") == 3
+    assert canvas.frames is frames
+    assert before == [(cell.sequence_number, cell.exposure, cell.image.cacheKey())
+                      for frame in frames for cell in frame.layers]
+    assert frames[0].layers[0].initial_image.pixelColor(0, 0) == QColor("black")
+    assert frames[2].layers[0].initial_image.pixelColor(0, 0) == QColor("black")
+    assert frames[1].layers[0].initial_image is None
+    assert frames[0].layers[1].initial_image.pixelColor(0, 0) == QColor("yellow")
+    assert canvas._sequence_archive[(0, 3)].initial_image.pixelColor(0, 0) == QColor("white")
+    assert len(canvas.undo_stack) == undo_count + 1
+    canvas.undo()
+    assert frames[0].layers[0].initial_image is None
+    assert canvas._sequence_archive[(0, 3)].initial_image is None
+    canvas.redo()
+    assert frames[0].layers[0].initial_image.pixelColor(0, 0) == QColor("black")
+
+
+@pytest.mark.parametrize("failure", ["size", "parser", "duplicate"])
+def test_clip_import_failure_keeps_all_initials_and_work(window, monkeypatch, failure):
+    clip_document(monkeypatch, size=(32, 16) if failure == "size" else (16, 16),
+                  duplicate=failure == "duplicate")
+    if failure == "parser":
+        def fail(_path):
+            raise clip_animation.ClipImportError("unsupported raster")
+        monkeypatch.setattr(clip_animation, "read_clip_animation", fail)
+    errors = []
+    monkeypatch.setattr(QMessageBox, "critical", lambda *args: errors.append(args))
+    before = len(window.canvas.undo_stack)
+    assert window.initial_state.import_clip_line_art("lines.clip") == 0
+    assert errors and len(window.canvas.undo_stack) == before
+    assert window.canvas.frames[0].layers[0].initial_image is None
+    assert window.canvas.frames[0].layers[1].initial_image.pixelColor(0, 0) == QColor("yellow")
+    assert window.canvas._sequence_archive[(0, 3)].initial_image is None
+    assert QApplication.overrideCursor() is None
+
+
+def test_clip_dialog_menu_and_cancel(window, monkeypatch):
+    clip_document(monkeypatch)
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *args: ("lines.clip", ""))
+    auto_action = next(a for a in window.menuBar().actions() if a.text() == "自動塗り")
+    auto_menu = auto_action.menu()
+    assert window.a_import_clip_initial_state in auto_menu.actions()
+    window.a_import_clip_initial_state.trigger()
+    assert window.canvas.frames[0].layers[0].initial_image is not None
+    before = len(window.canvas.undo_stack)
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *args: ("", ""))
+    assert window.initial_state.import_clip_line_art_dialog() == 0
+    assert len(window.canvas.undo_stack) == before

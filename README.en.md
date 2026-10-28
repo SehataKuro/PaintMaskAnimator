@@ -50,6 +50,11 @@ earlier cannot receive in-app updates; reinstall once from Releases.
 The project file format (`.pman`) is documented in [`FORMAT.md`](FORMAT.md)
 (Japanese).
 
+To add original line art to a painted project, use **Auto Paint › Import line art
+from CLIP as initial state…**. Animation folder names and cel numbers determine
+the matches, including archived cels. Current drawings and timing are preserved;
+line art must have the same image dimensions. The import is one Undo step.
+
 ## Running from source
 
 Requires Python 3.10 or later.

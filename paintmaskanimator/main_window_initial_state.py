@@ -1,20 +1,20 @@
 """色塗り前の初期状態の保持と比較表示。``window.initial_state`` が持つ。
 
-カットフォルダーから読み込んだままの絵を、セルごとに「色塗り前の初期状態」として
+カットフォルダーやCLIPから読み込んだ線画を、セルごとに「色塗り前の初期状態」として
 プロジェクトに保持する。自動塗りは初期状態から黒の主線と色トレス線を取り出して
 部分を分けるので、塗りかけの色に惑わされず精度が上がる。キャンバス下の比較ボタンで、
 今の絵と初期状態を切り替えて見比べられる。
 
 A collaborator rather than a mixin -- see main_window_export.py for why.
 """
-from typing import TYPE_CHECKING, List, Tuple
+from typing import TYPE_CHECKING, List, Tuple, cast
 from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage
 from PySide6.QtWidgets import QApplication, QCheckBox, QFileDialog, QMessageBox
 
-from . import cut_folder, preferences
+from . import clip_animation, cut_folder, preferences
 from .errors import OPERATION_ERRORS, OperationError
 from .frame_scope import FrameScope, resolve_cells
 from .i18n import tr
@@ -39,18 +39,48 @@ class InitialStateController:
         return self.import_line_art(folder) if folder else 0
 
     def import_line_art(self, path) -> int:
+        return self._import_line_art(path, from_clip=False)
+
+    def import_clip_line_art_dialog(self) -> int:
+        path, _ = QFileDialog.getOpenFileName(
+            self.window, tr("CLIPの線画を初期状態として読み込む"), "",
+            tr("CLIP STUDIO PAINT (*.clip);;すべてのファイル (*)"),
+        )
+        return self.import_clip_line_art(path) if path else 0
+
+    def import_clip_line_art(self, path) -> int:
+        return self._import_line_art(path, from_clip=True)
+
+    def _import_line_art(self, path, *, from_clip: bool) -> int:
         """Match layer names/cel numbers, retaining painted pixels and timing.
 
         No timesheet is needed. Read and validate every matching image before
         changing anything, then retain only initial-image references for Undo.
         """
         canvas = self.window.canvas
-        title = tr("線画カットフォルダーを初期状態として読み込む")
+        title = (tr("CLIPの線画を初期状態として読み込む") if from_clip
+                 else tr("線画カットフォルダーを初期状態として読み込む"))
         status = self.window.statusBar()
         status.showMessage(tr("線画の初期状態を読み込んでいます…"), 0)
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            contents = cut_folder.scan_cut_folder(path)
+            clip_cels: dict[str, dict[int, tuple[str, QImage]]] = {}
+            if from_clip:
+                document = clip_animation.read_clip_animation(path)
+                for source_layer in document.layers:
+                    key = source_layer.name.strip().casefold()
+                    if key in clip_cels:
+                        raise OperationError(tr(
+                            "CLIP内のアニメーションフォルダー名が重複しています：{name}"
+                        ).format(name=source_layer.name))
+                    numbers = clip_animation.cell_sequence_numbers(source_layer)
+                    clip_cels[key] = {
+                        numbers[tag]: (f"{source_layer.name}/{tag}", image)
+                        for tag, image in source_layer.cell_images.items()
+                    }
+                file_cels = {}
+            else:
+                file_cels = cut_folder.scan_cut_folder(path).cels
             loaded = {}
             cells, archived = [], []
             missing = 0
@@ -61,28 +91,35 @@ class InitialStateController:
                     return None
                 name = layer.name.strip()
                 key = name.casefold()
-                if key not in contents.cels:
+                if not from_clip and key not in file_cels:
                     key = "".join(
                         "_" if char in cut_folder.INVALID_NAME_CHARS + "/" else char
                         for char in name
                     ).strip(" .").casefold()
-                source = contents.cels.get(key, {}).get(layer.sequence_number)
+                source = (clip_cels.get(key, {}).get(layer.sequence_number) if from_clip
+                          else file_cels.get(key, {}).get(layer.sequence_number))
                 if source is None:
                     missing += 1
                     return None
-                if source not in loaded:
-                    image, error = canvas._read_image_file(source)
-                    if image is None or image.isNull():
-                        raise OperationError(tr("{name} を読み込めません。\n{error}").format(
-                            name=Path(source).name, error=error,
-                        ))
-                    loaded[source] = image.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
-                image = loaded[source]
+                if from_clip:
+                    source_name, image = cast(tuple[str, QImage], source)
+                    image = image.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
+                else:
+                    source = cast(Path, source)
+                    source_name = Path(source).name
+                    if source not in loaded:
+                        image, error = canvas._read_image_file(source)
+                        if image is None or image.isNull():
+                            raise OperationError(tr("{name} を読み込めません。\n{error}").format(
+                                name=source_name, error=error,
+                            ))
+                        loaded[source] = image.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
+                    image = loaded[source]
                 if image.size() != layer.image.size():
                     raise OperationError(tr(
                         "線画のサイズが現在のセルと一致しません：{name}\n"
                         "線画：{width} × {height}px／現在のセル：{expected_width} × {expected_height}px"
-                    ).format(name=Path(source).name, width=image.width(), height=image.height(),
+                    ).format(name=source_name, width=image.width(), height=image.height(),
                              expected_width=layer.image.width(), expected_height=layer.image.height()))
                 return image
 
@@ -111,7 +148,7 @@ class InitialStateController:
         if not cells and not archived:
             status.clearMessage()
             QMessageBox.information(self.window, title, tr(
-                "一致するセルがありません。線画フォルダーのレイヤー名とセル番号を確認してください。"
+                "一致するセルがありません。読み込み元のレイヤー名とセル番号を確認してください。"
             ))
             return 0
 

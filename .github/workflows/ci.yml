@@ -58,6 +58,7 @@ jobs:
       - name: Build native module (Rust)
         if: matrix.native
         run: |
+          cargo update --manifest-path native/Cargo.toml -p clipfile
           pip install ./native
           python -c "from pma_native import ClipAnimationReader"
 
@@ -95,6 +96,7 @@ jobs:
 
       - name: Build native module (Rust)
         run: |
+          cargo update --manifest-path native/Cargo.toml -p clipfile
           pip install ./native
           python -c "from pma_native import ClipAnimationReader"
 

@@ -195,6 +195,7 @@ class MainWindowMembers(_MembersBase):
         a_auto_paint: Any
         a_keep_initial_state: Any
         a_import_initial_state: Any
+        a_import_clip_initial_state: Any
         a_clear_initial_state: Any
         a_resize: Any
         a_save: Any
