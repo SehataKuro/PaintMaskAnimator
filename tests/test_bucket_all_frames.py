@@ -146,7 +146,7 @@ def test_low_confidence_frame_waits_for_a_click_and_esc_skips_it(window):
     assert window.canvas.skewer_fill_pending(), "自信のないコマで止まって指定を待つ"
     assert window.canvas.current_frame == 1, "待っているコマを表示する"
     assert len(window.canvas.undo_stack) == depth, "全コマ決まるまで塗らない"
-    assert any("コマ 2" in message for message in messages)
+    assert any("2コマ目" in message for message in messages)
 
     assert window.canvas.skip_skewer_fill_frame()
 

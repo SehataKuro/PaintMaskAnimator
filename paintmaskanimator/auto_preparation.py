@@ -24,7 +24,7 @@ class Preparation(Generic[T]):
         self.pending: dict[int, Future[T]] = {}
         self.prepared = 0
 
-    def __enter__(self):
+    def __enter__(self) -> "Preparation[T]":
         return self
 
     def __exit__(self, *exception):
@@ -40,7 +40,7 @@ class Preparation(Generic[T]):
             if index not in known:
                 self.pending[index] = self.executor.submit(self.build, index)
 
-    def take(self, index):
+    def take(self, index) -> T | None:
         future = self.pending.pop(index, None)
         if future is None:
             return None
