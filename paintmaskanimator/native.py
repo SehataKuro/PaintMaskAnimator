@@ -29,6 +29,28 @@ def available() -> bool:
     return _native is not None and os.environ.get("PMA_NO_NATIVE") != "1"
 
 
+def resolve_exposures(states, exposures):
+    if not available() or not hasattr(_native, "resolve_exposures"):
+        return None
+    assert _native is not None
+    count, layers = states.shape
+    data = _native.resolve_exposures(
+        states.tobytes(), exposures.tobytes(), count, layers,
+    )
+    return np.frombuffer(data, dtype=np.int64).reshape(count, layers)
+
+
+def tint_onion(rgba, color, color_enabled, selected):
+    if not available() or not hasattr(_native, "tint_onion"):
+        return None
+    assert _native is not None
+    data = _native.tint_onion(
+        np.ascontiguousarray(rgba).tobytes(), tuple(color), bool(color_enabled),
+        None if selected is None else [(int(rgb[0]), int(rgb[1]), int(rgb[2])) for rgb in selected],
+    )
+    return np.frombuffer(data, dtype=np.uint8).reshape(rgba.shape)
+
+
 def unique_colors(pixels, limit):
     """Return the smallest sorted packed RGB colors, or None on older builds."""
     if not available() or not hasattr(_native, "unique_colors"):

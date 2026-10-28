@@ -9,7 +9,7 @@ import numpy as np
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QImage, QPainter, QPen
 from ._canvas_members import CanvasMembers
-from . import imaging
+from . import imaging, native
 from .utils import blank_image
 from .logging_setup import get_logger
 
@@ -17,21 +17,38 @@ log = get_logger(__name__)
 
 
 class OnionRenderMixin(CanvasMembers):
+    def _cache_onion_image(self, key, image):
+        # A 4K onion is ~32 MiB. A count-only limit of 48 could retain
+        # over 1.5 GiB; bound bytes as well as entries.
+        budget = 128 * 1024 * 1024
+        size = image.sizeInBytes()
+        if size > budget:
+            return image
+        used = sum(value.sizeInBytes() for value in self._onion_cache.values())
+        while self._onion_cache and (used + size > budget or len(self._onion_cache) >= 48):
+            oldest = self._onion_cache.pop(next(iter(self._onion_cache)))
+            used -= oldest.sizeInBytes()
+        self._onion_cache[key] = image
+        return image
+
     def _tinted_onion_image(
         self, frame_index, color, color_enabled=True, selected_colors_only=False
     ):
         signature = []
         for layer_index in range(len(self.frames[frame_index].layers)):
+            if not self.onion_all_layers and layer_index != self.active_layer_index:
+                continue
             key_frame = self.resolve_key_frame(frame_index, layer_index)
             if key_frame is None:
                 signature.append(None)
                 continue
             layer = self.frames[key_frame].layers[layer_index]
             signature.append((
-                key_frame, int(layer.image.cacheKey()), bool(layer.visible),
-                round(float(layer.opacity), 4),
+                layer_index, key_frame, int(layer.image.cacheKey()), bool(layer.visible),
+                float(layer.opacity),
                 bool(layer.color_filter_enabled),
                 tuple(layer.color_filter_rgb) if layer.color_filter_rgb is not None else None,
+                bool(layer.is_paper), bool(layer.is_draft),
             ))
         visible_signature = (
             None if self.visible_color_rgbs is None
@@ -39,14 +56,16 @@ class OnionRenderMixin(CanvasMembers):
         )
         selected_signature = tuple(sorted(self.selected_used_color_rgbs))
         cache_key = (
-            int(frame_index), int(QColor(color).rgba()), bool(color_enabled),
+            int(QColor(color).rgba()), bool(color_enabled),
             bool(selected_colors_only), bool(self.onion_all_layers),
             int(self.active_layer_index), selected_signature,
             tuple(signature), bool(self.silhouette_non_background),
             visible_signature,
+            tuple(sorted((self.preview_color_remap or {}).items())),
         )
-        cached = self._onion_cache.get(cache_key)
+        cached = self._onion_cache.pop(cache_key, None)
         if cached is not None:
+            self._onion_cache[cache_key] = cached
             return cached
 
         if self.onion_all_layers:
@@ -74,7 +93,20 @@ class OnionRenderMixin(CanvasMembers):
         rows = np.frombuffer(ptr, dtype=np.uint8).reshape(
             (height, image.bytesPerLine())
         )
-        rgba = rows[:, :width * 4].reshape((height, width, 4)).copy()
+        rgba = rows[:, :width * 4].reshape((height, width, 4))
+        tint_color = QColor(color)
+        native_rgba = native.tint_onion(
+            rgba, (tint_color.red(), tint_color.green(), tint_color.blue()),
+            color_enabled,
+            self.selected_used_color_rgbs if selected_colors_only else None,
+        )
+        if native_rgba is not None:
+            result = QImage(
+                native_rgba.data, width, height, native_rgba.strides[0],
+                QImage.Format.Format_RGBA8888,
+            ).copy().convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
+            return self._cache_onion_image(cache_key, result)
+        rgba = rgba.copy()
 
         # 使用色パネルで選択されている親・子の色だけを残す。
         # 選択が空の場合は、チェックの意味を明確にするため全て透明にする。
@@ -109,10 +141,7 @@ class OnionRenderMixin(CanvasMembers):
             rgba.data, width, height, rgba.strides[0],
             QImage.Format.Format_RGBA8888,
         ).copy().convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
-        if len(self._onion_cache) >= 48:
-            self._onion_cache.pop(next(iter(self._onion_cache)))
-        self._onion_cache[cache_key] = result
-        return result
+        return self._cache_onion_image(cache_key, result)
 
     def onion_shift_values(self, direction):
         if int(direction) < 0:

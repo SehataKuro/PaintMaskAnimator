@@ -33,6 +33,9 @@ else:
 
 class CanvasMembers(_MembersBase):
     if TYPE_CHECKING:
+        _exposure_index: Any
+        _exposure_index_signature: Any
+        preview_color_remap: dict
         _brush_resize_anchor: tuple[float, float] | None
         cellChanged: Signal
         changed: Signal

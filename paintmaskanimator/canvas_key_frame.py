@@ -206,20 +206,18 @@ class KeyFrameMixin(CanvasMembers):
     def resolve_key_frame(self, column, layer_index):
         if not self.frames:
             return None
+        from .models import Layer
+        from .timeline_resolution import resolve_exposures
+
         column = max(0, min(int(column), len(self.frames) - 1))
-        for key_col in range(column, -1, -1):
-            if layer_index >= len(self.frames[key_col].layers):
-                continue
-            layer = self.frames[key_col].layers[layer_index]
-            if layer.has_content:
-                return (
-                    key_col
-                    if column < key_col + max(1, layer.exposure)
-                    else None
-                )
-            if getattr(layer, "is_blank_key", False):
-                return None
-        return None
+        signature = (id(self.frames), len(self.frames), Layer.timeline_revision)
+        if getattr(self, "_exposure_index_signature", None) != signature:
+            self._exposure_index = resolve_exposures(self.frames)
+            self._exposure_index_signature = signature
+        if not 0 <= layer_index < self._exposure_index.shape[1]:
+            return None
+        key = int(self._exposure_index[column, layer_index])
+        return key if key >= 0 else None
 
     def ensure_editable_key(self):
         """保持セルでは露出元を編集し、未使用／○は内容キーへ変換する。"""

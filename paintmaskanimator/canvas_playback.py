@@ -10,7 +10,6 @@ from PySide6.QtGui import QImage, QPainter
 from ._canvas_members import CanvasMembers
 from .utils import workspace_size
 from .logging_setup import get_logger
-from typing import Optional
 
 log = get_logger(__name__)
 
@@ -18,46 +17,12 @@ log = get_logger(__name__)
 class PlaybackMixin(CanvasMembers):
     def _build_playback_key_map(self):
         """各フレームで表示するキーフレームを事前解決する。"""
-        frame_count = len(self.frames)
-        if frame_count <= 0:
-            self._playback_resolved_keys = []
-            return
+        from .timeline_resolution import resolve_exposures
 
-        layer_count = max(
-            (len(frame.layers) for frame in self.frames),
-            default=0,
-        )
-        resolved: list[list[Optional[int]]] = [
-            [None] * layer_count
-            for _ in range(frame_count)
+        self._playback_resolved_keys = [
+            [int(key) if key >= 0 else None for key in row]
+            for row in resolve_exposures(self.frames)
         ]
-
-        for layer_index in range(layer_count):
-            current_key: Optional[int] = None
-            exposure_end = -1
-            for frame_index in range(frame_count):
-                if layer_index >= len(
-                    self.frames[frame_index].layers
-                ):
-                    current_key = None
-                    exposure_end = -1
-                    continue
-
-                layer = self.frames[
-                    frame_index
-                ].layers[layer_index]
-                if layer.has_content:
-                    current_key = frame_index
-                    exposure_end = (
-                        frame_index
-                        + max(1, int(layer.exposure))
-                    )
-                elif frame_index >= exposure_end:
-                    current_key = None
-
-                resolved[frame_index][layer_index] = current_key
-
-        self._playback_resolved_keys = resolved
 
     def set_playback_active(self, active):
         self._playback_active = bool(active)

@@ -2154,6 +2154,9 @@ class TimelineWidget(QWidget):
         row = self.table.currentRow()
         if row < 0:
             row = 0
+        if self.timeline_mode != "sequence" and self.table._playhead_column == int(column):
+            # Mouse moves inside a single ruler cell need no selection work.
+            return
         self.table.setCurrentCell(row, int(column))
         self.frameSelected.emit(int(column), int(row))
 
@@ -2929,9 +2932,16 @@ class TimelineWidget(QWidget):
         if self.timeline_mode != "sequence":
             self._set_frame_counter(int(column) + 1)
         if playhead != self.table._playhead_column:
+            previous_playhead = self.table._playhead_column
             self.table._playhead_column = playhead
-            self.table.viewport().update()
-            self.table.horizontalHeader().viewport().update()
+            header = self.table.horizontalHeader()
+            for changed_column in (previous_playhead, playhead):
+                if changed_column is None or not 0 <= changed_column < self.table.columnCount():
+                    continue
+                x = self.table.columnViewportPosition(changed_column)
+                width = self.table.columnWidth(changed_column)
+                self.table.viewport().update(x - 1, 0, width + 2, self.table.viewport().height())
+                header.viewport().update(x - 1, 0, width + 2, header.viewport().height())
         if self.timeline_mode == "sequence":
             column = next(
                 (

@@ -50,6 +50,19 @@ def _row(window):
     return window.timeline.table.rowCount() - 1
 
 
+def test_ruler_does_not_repeat_selection_within_same_frame(window):
+    selected = []
+    window.timeline.frameSelected.connect(lambda column, row: selected.append((column, row)))
+    window.timeline._scrub_header_frame(5)
+    window.timeline._scrub_header_frame(5)
+    window.timeline._scrub_header_frame(5)
+    assert len(selected) == 1
+    assert window.canvas.current_frame == 5
+    window.timeline._scrub_header_frame(6)
+    assert len(selected) == 2
+    assert window.canvas.current_frame == 6
+
+
 def test_cells_keep_marker_text_and_carry_labels(window):
     table = window.timeline.table
     row = _row(window)

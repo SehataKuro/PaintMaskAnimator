@@ -320,7 +320,11 @@ class PaintCanvas(
         self.selectionChanged.connect(
             self._update_selection_clear_overlay
         )
+        self.changed.connect(self._invalidate_exposure_index)
         QTimer.singleShot(0, self.warm_up_brush_runtime)
+    def _invalidate_exposure_index(self):
+        self._exposure_index_signature = None
+
     def _position_selection_clear_overlay(self):
         button = getattr(self, "selection_clear_overlay", None)
         if button is None:
@@ -359,7 +363,9 @@ class PaintCanvas(
     @property
     def frames(self): return self._document.frames
     @frames.setter
-    def frames(self, value): self._document.frames = value
+    def frames(self, value):
+        self._document.frames = value
+        self._invalidate_exposure_index()
     @property
     def current_frame(self): return self._document.current_frame
     @current_frame.setter
@@ -1593,6 +1599,44 @@ class PaintCanvas(
         return result
 
 
+    def _display_image_for_rect(self, image, target_rect):
+        """Keep bounded, device-resolution previews; source pixels stay intact."""
+        if image is None or image.isNull():
+            return image
+        if self.drawing:
+            return image.mirrored(self.flip_horizontal, self.flip_vertical) if (
+                self.flip_horizontal or self.flip_vertical
+            ) else image
+        ratio = max(1.0, float(self.devicePixelRatioF()))
+        width = min(image.width(), max(1, round(target_rect.width() * ratio)))
+        height = min(image.height(), max(1, round(target_rect.height() * ratio)))
+        if (width, height) == (image.width(), image.height()) and not (
+            self.flip_horizontal or self.flip_vertical
+        ):
+            return image
+        key = (int(image.cacheKey()), width, height, self.flip_horizontal, self.flip_vertical)
+        cache = getattr(self, "_display_image_cache", None)
+        if cache is None:
+            self._display_image_cache = cache = {}
+            self._display_image_cache_bytes = 0
+        cached = cache.pop(key, None)
+        if cached is not None:
+            cache[key] = cached
+            return cached
+        result = image.scaled(width, height, Qt.AspectRatioMode.IgnoreAspectRatio,
+                              Qt.TransformationMode.FastTransformation)
+        if self.flip_horizontal or self.flip_vertical:
+            result = result.mirrored(self.flip_horizontal, self.flip_vertical)
+        size = result.sizeInBytes()
+        budget = 64 * 1024 * 1024
+        if size <= budget:
+            while cache and (self._display_image_cache_bytes + size > budget or len(cache) >= 96):
+                oldest = cache.pop(next(iter(cache)))
+                self._display_image_cache_bytes -= oldest.sizeInBytes()
+            cache[key] = result
+            self._display_image_cache_bytes += size
+        return result
+
     def draw_frame_direct(self, painter, target_rect, frame_index):
         """Draw the current frame directly to the widget, avoiding a full-size
         temporary composite on every brush mouse move."""
@@ -1616,8 +1660,7 @@ class PaintCanvas(
             draw_image = self.view_layer_image(layer, layer_index, draw_image)
             if draw_image is None:
                 continue
-            if self.flip_horizontal or self.flip_vertical:
-                draw_image = draw_image.mirrored(self.flip_horizontal, self.flip_vertical)
+            draw_image = self._display_image_for_rect(draw_image, target_rect)
             painter.setOpacity(layer.opacity)
             painter.drawImage(target_rect, draw_image)
         painter.setOpacity(1.0)

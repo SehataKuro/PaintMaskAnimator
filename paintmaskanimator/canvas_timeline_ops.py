@@ -27,11 +27,13 @@ class TimelineStructureMixin(CanvasMembers):
             return
         changed = False
         for f in self.frames:
-            if li < len(f.layers):
+            if li < len(f.layers) and f.layers[li].visible != bool(on):
                 f.layers[li].visible = bool(on)
                 changed = True
         if changed:
-            self._onion_cache.clear()
+            # Onion signatures include visibility. Keep images for the other
+            # layers (and for switching back); no pixels changed here.
+            self._playback_frame_cache.clear()
             self.update()
 
     def set_layer_opacity(self, li, opacity):
@@ -41,11 +43,11 @@ class TimelineStructureMixin(CanvasMembers):
         opacity = max(0.0, min(1.0, float(opacity)))
         changed = False
         for frame in self.frames:
-            if li < len(frame.layers):
+            if li < len(frame.layers) and frame.layers[li].opacity != opacity:
                 frame.layers[li].opacity = opacity
                 changed = True
         if changed:
-            self._onion_cache.clear()
+            self._playback_frame_cache.clear()
             self.update()
 
     def add_layer(self):

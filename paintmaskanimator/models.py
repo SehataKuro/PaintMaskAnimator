@@ -1,6 +1,6 @@
 import copy
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import ClassVar, List, Optional
 
 from PySide6.QtGui import QImage
 
@@ -9,6 +9,16 @@ from .utils import blank_image
 
 @dataclass
 class Layer:
+    # Exposure lookup also runs during scrubbing. Track direct metadata edits,
+    # including undo/import paths, without rescanning every cell on each lookup.
+    timeline_revision: ClassVar[int] = 0
+
+    def __setattr__(self, name, value):
+        if name in ("has_content", "is_blank_key", "exposure"):
+            if self.__dict__.get(name) != value:
+                Layer.timeline_revision += 1
+        object.__setattr__(self, name, value)
+
     name: str
     image: QImage
     visible: bool = True

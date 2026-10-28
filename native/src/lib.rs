@@ -13,6 +13,7 @@ use pyo3::types::PyBytes;
 mod line_flow;
 mod thin;
 mod auto_paint;
+mod display;
 
 /// 4 近傍で、`seeds` からつながる `passable` の領域を求める（行ごとのランで辿る）。
 ///
@@ -318,6 +319,8 @@ fn py_label_regions<'py>(
 
 #[pymodule]
 fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_function(wrap_pyfunction!(display::resolve_exposures, module)?)?;
+    module.add_function(wrap_pyfunction!(display::tint_onion, module)?)?;
     module.add_class::<auto_paint::GuideSampler>()?;
     module.add_function(wrap_pyfunction!(auto_paint::label_runs, module)?)?;
     module.add_function(wrap_pyfunction!(auto_paint::connect_runs, module)?)?;
@@ -337,10 +340,10 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
 /// sorted colors as numpy.unique(...)[..limit], without sorting every pixel.
 #[pyfunction(name = "unique_colors")]
 fn py_unique_colors(py: Python<'_>, pixels: &[u8], limit: usize) -> PyResult<Vec<u32>> {
-    if pixels.len() % 4 != 0 {
+    if !pixels.len().is_multiple_of(4) {
         return Err(pyo3::exceptions::PyValueError::new_err("expected packed u32 pixels"));
     }
-    Ok(py.detach(|| {
+    py.detach(|| {
         if limit == 0 {
             return Ok(Vec::new());
         }
@@ -365,7 +368,7 @@ fn py_unique_colors(py: Python<'_>, pixels: &[u8], limit: usize) -> PyResult<Vec
             }
         }
         Ok(colors)
-    })?)
+    })
 }
 
 #[pyfunction(name = "thin")]
