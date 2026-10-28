@@ -26,13 +26,15 @@ if TYPE_CHECKING:
     from PySide6.QtCore import Signal
     from .document import Document
     from .models import Frame, Layer
-    from .undo_entries import UndoEntry
+    from .undo_entries import TransformUndo, UndoEntry
     _MembersBase = QWidget
 else:
     _MembersBase = object
 
 class CanvasMembers(_MembersBase):
     if TYPE_CHECKING:
+        def _record_transform_history(self, before: TransformUndo) -> None: ...
+
         _exposure_index: Any
         _exposure_index_signature: Any
         preview_color_remap: dict

@@ -153,8 +153,6 @@ class UsedColorController:
         if visible_pixels.size == 0:
             return []
         unique = native.unique_colors(visible_pixels, limit)
-        if unique is None:
-            unique = np.unique(visible_pixels)
         if len(unique) > limit:
             unique = unique[:limit]
         return [

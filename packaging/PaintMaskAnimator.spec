@@ -13,10 +13,12 @@ PROJECT_VERSION = tomllib.loads(
     pathlib.Path("pyproject.toml").read_text(encoding="utf-8")
 )["project"]["version"]
 
-hiddenimports = []
+# Validate the required Rust API before building; never silently omit it.
+from paintmaskanimator import native
+native.validate_backend(native._native)
+hiddenimports = collect_submodules("pma_native")
 # Optional deps: bundle them if present in the build environment.
-# pma_native は Rust の部品（native/）。CLIP読み込みに必須、画像計算はnumpyへ戻せる。
-for optional in ("PIL", "psd_tools", "PySide6QtAds", "pma_native"):
+for optional in ("PIL", "psd_tools", "PySide6QtAds"):
     try:
         __import__(optional)
         hiddenimports += collect_submodules(optional)

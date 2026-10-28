@@ -259,11 +259,8 @@ class FillResult:
 
 
 def dilate(mask, iterations):
-    """8 近傍で ``iterations`` 回膨張させる（Rust の部品があればそちらで）。"""
-    result = native.dilate(mask, iterations)
-    if result is not None:
-        return result
-    return dilate_numpy(mask, iterations)
+    """8 近傍で ``iterations`` 回膨張させる（Rust）。"""
+    return native.dilate(mask, iterations)
 
 
 def dilate_numpy(mask, iterations):
@@ -283,11 +280,8 @@ def dilate_numpy(mask, iterations):
 
 
 def erode(mask, iterations):
-    """8 近傍で ``iterations`` 回収縮させる（Rust の部品があればそちらで）。"""
-    result = native.erode(mask, iterations)
-    if result is not None:
-        return result
-    return erode_numpy(mask, iterations)
+    """8 近傍で ``iterations`` 回収縮させる（Rust）。"""
+    return native.erode(mask, iterations)
 
 
 def erode_numpy(mask, iterations):
@@ -320,8 +314,7 @@ EXTEND_THIN_ITERATIONS = 8
 
 
 def _thin(mask, max_iterations):
-    result = native.thin(mask, max_iterations)
-    return _thin_numpy(mask, max_iterations) if result is None else result
+    return native.thin(mask, max_iterations)
 
 
 def _thin_numpy(mask, max_iterations):

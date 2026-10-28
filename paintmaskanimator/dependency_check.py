@@ -16,7 +16,7 @@ from .i18n import tr
 from .constants import APP_DISPLAY_NAME
 
 #: Modules the application cannot start without.
-REQUIRED_MODULES = ("PySide6.QtWidgets", "numpy")
+REQUIRED_MODULES = ("PySide6.QtWidgets", "numpy", "paintmaskanimator.native")
 
 
 def require_runtime_dependencies(modules: tuple[str, ...] = REQUIRED_MODULES) -> None:
@@ -25,11 +25,15 @@ def require_runtime_dependencies(modules: tuple[str, ...] = REQUIRED_MODULES) ->
         try:
             importlib.import_module(module)
         except ModuleNotFoundError as exc:
-            _report_and_exit(exc.name or module)
+            _report_and_exit(exc.name or module, str(exc) if module == "paintmaskanimator.native" else None)
+        except ImportError as exc:
+            if module != "paintmaskanimator.native":
+                raise
+            _report_and_exit("pma_native", str(exc))
 
 
-def _report_and_exit(missing: str) -> None:
-    message = (
+def _report_and_exit(missing: str, detail: str | None = None) -> None:
+    message = detail or (
         tr("{missing} がインストールされていないため起動できません。\n\nWindowsのコマンドプロンプトで次を実行してください。\n\npy -m pip install PySide6 numpy\n\nインストール後、このファイルをもう一度起動してください。").format(missing=missing)
     )
     print(message)

@@ -96,8 +96,7 @@ def main():
     rgba = np.random.default_rng(24).integers(0, 256, (1080, 1920, 4), np.uint8)
     results["onion_tint_1920x1080"] = {
         "numpy_ms": median_ms(lambda: numpy_tint(rgba)),
-        "rust_ms": median_ms(lambda: native.tint_onion(rgba, (0, 100, 255), True, None))
-        if native.available() and hasattr(native._native, "tint_onion") else None,
+        "rust_ms": median_ms(lambda: native.tint_onion(rgba, (0, 100, 255), True, None)),
     }
     colors = np.random.default_rng(25).integers(0, 256, (100, 4), np.uint8)
     colors[:, 3] = 255
@@ -111,26 +110,12 @@ def main():
     }
 
     def filter_image():
-        # Compare uncached output generation, keeping the fallback's reusable
-        # source index warm, as during repeated palette preview changes.
+        # Compare uncached output generation during repeated palette previews.
         canvas._color_filter_cache.clear()
         return canvas.filtered_layer_image(layer)
 
-    previous = os.environ.get("PMA_NO_NATIVE")
-    try:
-        os.environ["PMA_NO_NATIVE"] = "1"
-        numpy_ms = median_ms(filter_image)
-        os.environ.pop("PMA_NO_NATIVE", None)
-        rust_ms = median_ms(filter_image) if (
-            native.available() and hasattr(native._native, "filter_palette")
-        ) else None
-    finally:
-        if previous is None:
-            os.environ.pop("PMA_NO_NATIVE", None)
-        else:
-            os.environ["PMA_NO_NATIVE"] = previous
     results["palette_filter_1920x1080_64_remaps"] = {
-        "numpy_ms": numpy_ms, "rust_ms": rust_ms,
+        "rust_ms": median_ms(filter_image),
     }
     previous_size = constants.CANVAS_WIDTH, constants.CANVAS_HEIGHT
     try:

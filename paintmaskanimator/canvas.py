@@ -1469,45 +1469,9 @@ class PaintCanvas(
         pixels = rows[:, :width * 4].reshape((height, width, 4))
 
         result = native.filter_palette(pixels, visible, rgb, remap)
-        if result is not None:
-            filtered = QImage(
-                result.data, width, height, width * 4, QImage.Format.Format_RGBA8888
-            ).convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
-            _bounded_cache_put(self._color_filter_cache, key, filtered, 96)
-            return filtered
-
-        _source, packed, opaque = self._color_index_for_image(layer.image)
-        if packed is None or opaque is None:
-            return layer.image
-
-        if visible is not None:
-            selected_values = np.fromiter(
-                ((r << 16) | (g << 8) | b for r, g, b in visible),
-                dtype=np.uint32,
-                count=len(visible),
-            )
-            keep = opaque & np.isin(packed, selected_values)
-        else:
-            keep = opaque.copy()
-        if rgb is not None:
-            packed_target = (
-                (int(rgb[0]) << 16) | (int(rgb[1]) << 8) | int(rgb[2])
-            )
-            keep &= opaque & (packed == packed_target)
-        pixels[:, :, 3][~keep] = 0
-
-        # 親子プレビュー：残っている子色ピクセルを親色へ塗り替える。
-        for child, parent in remap.items():
-            child_packed = (
-                (int(child[0]) << 16) | (int(child[1]) << 8) | int(child[2])
-            )
-            mask = keep & (packed == child_packed)
-            if mask.any():
-                pixels[:, :, 0][mask] = int(parent[0])
-                pixels[:, :, 1][mask] = int(parent[1])
-                pixels[:, :, 2][mask] = int(parent[2])
-
-        filtered = rgba.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
+        filtered = QImage(
+            result.data, width, height, width * 4, QImage.Format.Format_RGBA8888
+        ).convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
         _bounded_cache_put(self._color_filter_cache, key, filtered, 96)
         return filtered
 
@@ -1544,7 +1508,7 @@ class PaintCanvas(
 
         画面に描くときだけ使う。:meth:`composite` は書き出しやサムネイルにも
         使われるので、ここは通さない。隣接色分けはアクティブレイヤーだけに掛け、
-        描いている最中は掛けない（筆を動かすたびに領域を数え直さないため）。
+        描いている最中も割り当て済みの色を維持する。
         """
         preview = self.view_preview
         if image is None or image.isNull() or not preview.active:
@@ -1555,7 +1519,6 @@ class PaintCanvas(
             preview.map_colors
             and layer_index == self.active_layer_index
             and not layer.is_paper
-            and not self.drawing
         )
         if not map_colors and not preview.adjusts_pixels:
             return image

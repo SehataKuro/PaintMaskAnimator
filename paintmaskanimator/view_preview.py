@@ -131,16 +131,13 @@ def background_color(rgb, preview: ViewPreview) -> Tuple[int, int, int]:
 def label_regions(codes, valid) -> Tuple[np.ndarray, int]:
     """同じ値で4近傍につながった ``valid`` の画素に、1から始まる番号を付ける。
 
-    番号は、各領域の最初の画素（行優先）が現れた順。Rust の部品があればそちらで。
+    番号は、各領域の最初の画素（行優先）が現れた順。Rustで計算する。
 
     :param codes: 0〜0xFFFFFF の値の2次元配列（RGB をまとめた値など）。
     :returns: ``(番号の int32 配列, 領域の数)``。``valid`` でない画素は 0。
     """
     marked = np.where(valid, codes.astype(np.uint32), np.uint32(native.INVALID_CODE))
-    result = native.label_regions(marked)
-    if result is not None:
-        return result
-    return label_regions_numpy(codes, valid)
+    return native.label_regions(marked)
 
 
 def label_regions_numpy(codes, valid) -> Tuple[np.ndarray, int]:
@@ -280,6 +277,15 @@ def map_color_pixels(pixels, gap=MAP_NEIGHBOR_GAP, palette=MAP_PALETTE, color_ma
     valid = (pixels[:, :, 3] > 0) & (codes != 0xFFFFFF) & ~line
     if not valid.any():
         return pixels
+    if color_mapping is not None:
+        # 割り当て済みの RGB は領域の形や面積によらず同じ表示色。
+        # 描画中も連結成分・隣接関係を毎回計算せず、最新の画素へ適用する。
+        unique_codes, inverse = np.unique(codes[valid], return_inverse=True)
+        if all(int(code) in color_mapping for code in unique_codes):
+            table = np.asarray(palette, dtype=np.uint8)
+            mapped = np.asarray([color_mapping[int(code)] for code in unique_codes])
+            pixels[valid, :3] = table[mapped[inverse]]
+            return pixels
     labels, count = label_regions(codes, valid)
     areas = np.bincount(labels.reshape(-1), minlength=count + 1)
     neighbors = region_neighbors(labels, count, gap)

@@ -154,13 +154,10 @@ def _scores_numpy(target, guide, rows, cols, reach, base_y=None, base_x=None):
 
 def _scores(target, guide, rows, cols, reach, base_y=None, base_x=None):
     zero = np.zeros((rows, cols), dtype=np.int64) if base_y is None else None
-    found = native.line_flow_scores(
+    return native.line_flow_scores(
         target, guide, target.shape[0] // rows,
         zero if base_y is None else base_y, zero if base_x is None else base_x, reach,
     )
-    if found is not None:
-        return found
-    return _scores_numpy(target, guide, rows, cols, reach, base_y, base_x)
 
 
 def estimate_flow(target_lines, guide_lines) -> Flow:

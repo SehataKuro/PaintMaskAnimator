@@ -156,13 +156,10 @@ def _seed_list(starts):
 
 
 def scanline_connected_region(passable, starts):
-    """4近傍の塗りつぶし領域。Rust の部品があればそちらで、無ければ numpy で求める。"""
+    """4近傍の塗りつぶし領域。Rustで求める。"""
     passable = np.asarray(passable, dtype=bool)
     seeds = _seed_list(starts)
-    region = native.flood_fill(passable, seeds)
-    if region is not None:
-        return region
-    return scanline_connected_region_numpy(passable, seeds)
+    return native.flood_fill(passable, seeds)
 
 
 def scanline_connected_region_numpy(passable, starts):

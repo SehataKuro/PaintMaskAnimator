@@ -7,6 +7,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtWidgets import QApplication, QWidget  # noqa: E402
 
 from paintmaskanimator.widgets import TimeRemapPasteDialog  # noqa: E402
+from paintmaskanimator.main_window_time_remap import TimeRemapController  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -34,3 +35,19 @@ def test_time_remap_preview_rejects_non_mapping_parser_result(qapp):
     finally:
         dialog.deleteLater()
         owner.deleteLater()
+
+
+@pytest.mark.parametrize("text", ["通常のコピーした文字列", "Time Remap\ninvalid"])
+def test_opening_time_remap_with_invalid_clipboard_shows_inline_error(qapp, text):
+    dialog = TimeRemapPasteDialog(text, parse_text=TimeRemapController.parse_text)
+    try:
+        dialog.show()
+        qapp.processEvents()
+        dialog._update_timesheet_preview()
+        assert dialog._parsed_source is None
+        assert dialog.preview_table.rowCount() == 0
+        assert dialog.preview_status.text()
+        assert dialog.preview_status.text() != "データ待機中"
+    finally:
+        dialog.close()
+        dialog.deleteLater()

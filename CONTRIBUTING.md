@@ -28,16 +28,15 @@ cargo update --manifest-path native/Cargo.toml -p clipfile  # 最新の公開版
 pip install ./native   # Rust の部品（Rust のツールチェーンが必要）
 ```
 
-`native/` は重い画像計算の Rust 実装です（[設計方針](docs/design-principles.md)の
-「将来は Rust へ置き換えていく」）。入れなくても numpy 版で動きますが、配布物には
-必ず入れます。Rust 側を直したら、もう一度 `pip install ./native` するか、
-`native/` で `maturin develop --release` を実行します。Rust 版と numpy 版の結果は
-`tests/test_native.py` で突き合わせています。環境変数 `PMA_NO_NATIVE=1` で
-Rust の部品を使わずに動かせます。
+`native/` は画像計算と状態管理の必須Rust拡張です。開発時も上記の
+`pip install ./native` を実行してください。Rust側を変更したら再ビルドします。
+未導入・古いAPIの拡張では起動時にエラーになり、Python実装へは切り替えません。
+`PMA_NO_NATIVE` による無効化は廃止しました。配布版には必ず同梱します。
 
-例外として、`.clip`の読み込みは`clipfile-rs`を使うRust拡張が必須です。
-独自のPythonパーサーは持ちません。`PMA_NO_NATIVE=1`は計算の高速化だけを無効にし、
-CLIPの読み込みには引き続きRust拡張を使います。[CLIP読み込み](docs/clip-import.md)も参照してください。
+NumPyの参照実装は、Rustとの結果比較をするテスト用に利用します。
+画像サイズ・型に応じてNumPyとRustを組み合わせる処理や、まだRustへ移していない
+処理は引き続き使います。`.clip`読み込みも同じ必須拡張に含まれます。
+[CLIP読み込み](docs/clip-import.md)も参照してください。
 
 ## 提出前の確認
 

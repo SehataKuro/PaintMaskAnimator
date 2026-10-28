@@ -37,10 +37,7 @@ def reference(frames, column, index):
     return -1
 
 
-@pytest.mark.parametrize("fallback", [False, True])
-def test_exposure_index_matches_backwards_search(monkeypatch, fallback):
-    if fallback:
-        monkeypatch.setenv("PMA_NO_NATIVE", "1")
+def test_exposure_index_matches_backwards_search():
     rng = np.random.default_rng(46)
     for _ in range(12):
         frames = [Frame([
@@ -154,11 +151,8 @@ def test_native_onion_exactly_matches_numpy(enabled, selected):
         np.testing.assert_array_equal(actual, expected)
 
 
-def test_new_native_functions_fall_back_on_older_extension(monkeypatch):
-    monkeypatch.setattr(native, "_native", object())
-    assert native.resolve_exposures(np.zeros((1, 1), np.uint8), np.ones((1, 1), np.int64)) is None
-    assert native.tint_onion(np.zeros((1, 1, 4), np.uint8), (0, 0, 0), True, None) is None
-    assert native.filter_palette(np.zeros((1, 1, 4), np.uint8), None, None, {}) is None
+def test_backend_contract_includes_display_functions():
+    assert {"resolve_timeline", "tint_onion", "filter_palette"} <= set(native.REQUIRED_API)
 
 
 @pytest.mark.skipif(not native.available(), reason="native extension unavailable")
@@ -183,10 +177,10 @@ def test_palette_filter_native_and_numpy_render_identically(qapp, monkeypatch, v
     original = QImage(source)
     actual = canvas.filtered_layer_image(layer)
     assert canvas.filtered_layer_image(layer) is actual
-    # Rust avoids allocating the full RGB/alpha index used by the fallback.
+    # Rust avoids allocating the full RGB/alpha index used by the NumPy reference.
     assert not canvas._color_index_cache
     canvas._color_filter_cache.clear()
-    monkeypatch.setenv("PMA_NO_NATIVE", "1")
+    monkeypatch.setattr(native, "filter_palette", filter_palette_reference)
     expected = canvas.filtered_layer_image(layer)
     assert actual == expected
     assert source == original
@@ -225,7 +219,7 @@ def test_onion_cache_survives_unrelated_visibility_and_restores_previous_state(q
 @pytest.mark.skipif(not native.available(), reason="native extension unavailable")
 @pytest.mark.parametrize("all_layers", [False, True])
 @pytest.mark.parametrize("selected_only", [False, True])
-def test_onion_native_and_fallback_render_identically(qapp, monkeypatch, all_layers, selected_only):
+def test_onion_native_and_reference_render_identically(qapp, monkeypatch, all_layers, selected_only):
     canvas = PaintCanvas()
     canvas.frames = [Frame([Layer("A", image(), opacity=0.6, has_content=True),
                             Layer("B", image("blue"), has_content=True)])]
@@ -234,7 +228,7 @@ def test_onion_native_and_fallback_render_identically(qapp, monkeypatch, all_lay
     canvas.selected_used_color_rgbs = {(255, 0, 0)}
     actual = canvas._tinted_onion_image(0, QColor(27, 187, 48), True, selected_only)
     canvas._onion_cache.clear()
-    monkeypatch.setenv("PMA_NO_NATIVE", "1")
+    monkeypatch.setattr(native, "tint_onion", tint_onion_reference)
     expected = canvas._tinted_onion_image(0, QColor(27, 187, 48), True, selected_only)
     assert actual == expected
 
@@ -321,3 +315,36 @@ def test_onion_draw_uses_screen_resolution_and_skips_zero_opacity(qapp, monkeypa
     finally:
         painter.end()
         canvas.close()
+
+
+def filter_palette_reference(rgba, visible, legacy, remap):
+    result = rgba.copy()
+    keep = rgba[:, :, 3] != 0
+    if visible is not None:
+        selected = np.zeros(keep.shape, bool)
+        for rgb in visible:
+            selected |= np.all(rgba[:, :, :3] == rgb, axis=2)
+        keep &= selected
+    if legacy is not None:
+        keep &= np.all(rgba[:, :, :3] == legacy, axis=2)
+    result[~keep, 3] = 0
+    for child, parent in remap.items():
+        result[keep & np.all(rgba[:, :, :3] == child, axis=2), :3] = parent
+    return result
+
+
+def tint_onion_reference(rgba, color, enabled, selected):
+    result = rgba.copy()
+    if selected is not None:
+        keep = np.zeros(rgba.shape[:2], bool)
+        for rgb in selected:
+            keep |= np.all(rgba[:, :, :3] == rgb, axis=2)
+        result[~keep, 3] = 0
+    if enabled:
+        lum = (rgba[:, :, 0].astype(np.float32) * 0.299
+               + rgba[:, :, 1].astype(np.float32) * 0.587
+               + rgba[:, :, 2].astype(np.float32) * 0.114) / 255.0
+        mapped = np.asarray(color, np.float32)[None, None, :] * (1 - lum[:, :, None])
+        mapped += 255 * lum[:, :, None]
+        result[:, :, :3] = np.clip(mapped, 0, 255).astype(np.uint8)
+    return result

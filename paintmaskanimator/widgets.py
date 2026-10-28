@@ -42,6 +42,7 @@ from PySide6.QtWidgets import (
 from typing import Any
 from . import theme, timesheet_file
 from .constants import MAX_IMAGE_DIMENSION
+from .errors import OperationError
 from .i18n import tr
 from .utils import _ScreenColorDragMixin
 from .logging_setup import get_logger
@@ -1766,7 +1767,7 @@ class TimeRemapPasteDialog(QDialog):
             parsed = parser(raw_text)
             if not isinstance(parsed, dict):
                 raise TypeError("time-remap parse result must be a mapping")
-        except (ValueError, KeyError, IndexError, TypeError) as exc:
+        except (OperationError, ValueError, KeyError, IndexError, TypeError) as exc:
             # Malformed clipboard/timesheet data is expected here; show the
             # first line of the error in the preview status and log details.
             log.info("time-remap preview parse failed: %s", exc)

@@ -1,18 +1,9 @@
-"""Rust の部品（``pma_native``）への入口。
+"""Required Rust backend for timeline state and image computations.
 
-重い画像計算を Rust で行う（``docs/design-principles.md``「将来は Rust へ
-置き換えていく」）。部品が入っていない環境、または環境変数
-``PMA_NO_NATIVE=1`` のときは ``None`` を返し、呼び出し側は numpy 版で計算する。
-どちらでも結果は同じになることを、テストで突き合わせている。
-CLIPファイルの読み込みは例外で、clipfile-rsを使うRust拡張が必須。
-PMA_NO_NATIVEはコーデックを無効にしない。
-
-マスクは numpy の bool 配列で受け渡す。bool 配列は1画素1バイト（0 か 1）
-なので、コピーせずにそのまま Rust へ渡せる。
+Missing or outdated extensions fail at startup with a rebuild instruction.
+NumPy remains in use for array conversion and algorithms not yet moved to Rust.
 """
 from __future__ import annotations
-
-import os
 
 import numpy as np
 
@@ -20,30 +11,42 @@ from .logging_setup import get_logger
 
 log = get_logger(__name__)
 
-try:  # pragma: no cover - 入っているかどうかは環境しだい
+REQUIRED_API = (
+    "TimelineCell", "resolve_timeline", "ClipAnimationReader", "GuideSampler",
+    "resolve_exposures", "tint_onion", "unique_colors", "filter_palette",
+    "line_flow_scores", "connect_runs", "label_runs", "refine_face", "thin",
+    "flood_fill", "dilate", "erode", "label_regions",
+)
+REBUILD_MESSAGE = (
+    "PaintMaskAnimator requires its Rust extension. "
+    "Install or rebuild it from the project directory: python -m pip install ./native"
+)
+
+
+def validate_backend(module):
+    missing = [name for name in REQUIRED_API if not callable(getattr(module, name, None))]
+    if missing:
+        raise ImportError(f"{REBUILD_MESSAGE} (missing API: {', '.join(missing)})")
+
+
+try:
     import pma_native as _native
-except ImportError:  # pragma: no cover
-    _native = None
+except ImportError as error:
+    raise ImportError(REBUILD_MESSAGE) from error
+validate_backend(_native)
 
 
 def available() -> bool:
-    """Rust の部品を使うか。"""
-    return _native is not None and os.environ.get("PMA_NO_NATIVE") != "1"
+    """Compatibility probe: the required backend was validated on import."""
+    return True
 
 
 def clip_animation_reader(path: str, max_dimension: int, max_raster_bytes: int):
     """CLIP parsing has one implementation, supplied by clipfile-rs."""
-    if _native is None or not hasattr(_native, "ClipAnimationReader"):
-        from .i18n import tr
-        raise ValueError(tr("CLIP読み込みには新しいRust拡張が必要です。pip install ./native で更新してください。"))
-    # PMA_NO_NATIVE disables optional computation accelerators, not file codecs.
     return _native.ClipAnimationReader(path, max_dimension, max_raster_bytes)
 
 
 def resolve_exposures(states, exposures):
-    if not available() or not hasattr(_native, "resolve_exposures"):
-        return None
-    assert _native is not None
     count, layers = states.shape
     data = _native.resolve_exposures(
         states.tobytes(), exposures.tobytes(), count, layers,
@@ -51,10 +54,16 @@ def resolve_exposures(states, exposures):
     return np.frombuffer(data, dtype=np.int64).reshape(count, layers)
 
 
+def resolve_timeline(frames):
+    """Read Rust-owned cell metadata directly, without packing NumPy inputs."""
+    rows = [[layer.__dict__.get("_timeline_metadata") for layer in frame.layers]
+            for frame in frames]
+    layers = max(map(len, rows), default=0)
+    data = _native.resolve_timeline(rows)
+    return np.frombuffer(data, dtype=np.int64).reshape(len(rows), layers)
+
+
 def tint_onion(rgba, color, color_enabled, selected):
-    if not available() or not hasattr(_native, "tint_onion"):
-        return None
-    assert _native is not None
     data = _native.tint_onion(
         np.ascontiguousarray(rgba).tobytes(), tuple(color), bool(color_enabled),
         None if selected is None else [(int(rgb[0]), int(rgb[1]), int(rgb[2])) for rgb in selected],
@@ -63,10 +72,7 @@ def tint_onion(rgba, color, color_enabled, selected):
 
 
 def unique_colors(pixels, limit):
-    """Return the smallest sorted packed RGB colors, or None on older builds."""
-    if not available() or not hasattr(_native, "unique_colors"):
-        return None
-    assert _native is not None
+    """Return the smallest sorted packed RGB colors, using the required Rust backend."""
     return _native.unique_colors(
         np.ascontiguousarray(pixels, dtype=np.uint32).tobytes(), int(limit)
     )
@@ -74,9 +80,6 @@ def unique_colors(pixels, limit):
 
 def filter_palette(rgba, visible, legacy, remap):
     """Filter original RGB colors and remap visible pixels in one Rust pass."""
-    if not available() or not hasattr(_native, "filter_palette"):
-        return None
-    assert _native is not None
     def rgb_tuple(rgb):
         return (int(rgb[0]), int(rgb[1]), int(rgb[2]))
 
@@ -90,10 +93,7 @@ def filter_palette(rgba, visible, legacy, remap):
 
 
 def line_flow_scores(target, guide, block, base_y, base_x, reach):
-    """位置合わせの一致数。古い部品しか入っていなければ numpy へ戻す。"""
-    if not available() or not hasattr(_native, "line_flow_scores"):
-        return None
-    assert _native is not None
+    """位置合わせの一致数をRustで計算する。"""
     height, width = target.shape
     result = _native.line_flow_scores(
         _as_bytes(target), _as_bytes(guide), width, height, int(block),
@@ -111,10 +111,7 @@ def _as_bytes(mask):
 
 
 def connect_runs(starts, ends, kinds, rows):
-    """同色の上下ランを結合する。部品なし・旧版ではNumPy経路へ戻す。"""
-    if not available() or not hasattr(_native, "connect_runs"):
-        return None
-    assert _native is not None
+    """同色の上下ランをRustで結合する。"""
     data, count = _native.connect_runs(*(
         np.ascontiguousarray(values, dtype=np.uint64).tobytes()
         for values in (starts, ends, kinds, rows)
@@ -126,11 +123,9 @@ def label_runs(values):
     """連結領域の走査・結合・番号画像の作成をRustでまとめて行う。"""
     # 大画像は転送・番号画像の複製が支配的になるため、NumPyの走査と
     # connect_runsのRust結合を併用する方が速い（実データで確認）。
-    if (not available() or not hasattr(_native, "label_runs")
-            or values.dtype.kind not in "biu" or not values.dtype.isnative
+    if (values.dtype.kind not in "biu" or not values.dtype.isnative
             or values.size > 65536):
         return None
-    assert _native is not None
     height, width = values.shape
     labels, count, ys, xs, ends, runs = _native.label_runs(
         np.ascontiguousarray(values).tobytes(), width, height, values.dtype.itemsize,
@@ -142,9 +137,6 @@ def label_runs(values):
 
 def refine_face(guide, filled, shift, bounds, radius, thresholds):
     """必要な小矩形だけを渡し、ずれの探索・採色・面積比確認を一括実行する。"""
-    if not available() or not hasattr(_native, "refine_face"):
-        return None
-    assert _native is not None
     ax0, ay0, ax1, ay1 = bounds
     ys, xs = np.nonzero(filled.local)
     points = np.column_stack((ys + filled.bounds[1] + shift[0] - ay0,
@@ -163,9 +155,6 @@ def refine_face(guide, filled, shift, bounds, radius, thresholds):
 
 def sample_region(guide, filled, shift=(0, 0), *, ignore=0, require=0, by_label=False):
     """不変の見本をラン圧縮して保持し、面の重なりと色をRustで数える。"""
-    if not available() or not hasattr(_native, "GuideSampler"):
-        return None
-    assert _native is not None
     immutable = getattr(guide, "_native_immutable", False)
     sampler = getattr(guide, "_native_sampler", None) if immutable else None
     if sampler is None:
@@ -196,10 +185,7 @@ def sample_region(guide, filled, shift=(0, 0), *, ignore=0, require=0, by_label=
 
 
 def thin(mask, iterations):
-    """線端検出用の細線化。古い部品・部品なしでは numpy へ戻す。"""
-    if not available() or not hasattr(_native, "thin"):
-        return None
-    assert _native is not None
+    """線端検出用の細線化をRustで計算する。"""
     height, width = mask.shape
     return _as_mask(_native.thin(_as_bytes(mask), width, height, int(iterations)), height, width)
 
@@ -210,34 +196,25 @@ def _as_mask(data, height, width):
 
 
 def flood_fill(passable, seeds):
-    """4近傍で ``seeds`` からつながる ``passable`` の領域。使えなければ None。"""
-    if not available():
-        return None
+    """4近傍で ``seeds`` からつながる ``passable`` の領域。"""
     height, width = passable.shape
     seeds = [(int(x), int(y)) for x, y in seeds]
-    assert _native is not None
     return _as_mask(
         _native.flood_fill(_as_bytes(passable), width, height, seeds), height, width
     )
 
 
 def dilate(mask, iterations):
-    """8近傍で ``iterations`` 回膨張させる。使えなければ None。"""
-    if not available():
-        return None
+    """8近傍で ``iterations`` 回膨張させる。"""
     height, width = mask.shape
-    assert _native is not None
     return _as_mask(
         _native.dilate(_as_bytes(mask), width, height, int(iterations)), height, width
     )
 
 
 def erode(mask, iterations):
-    """8近傍で ``iterations`` 回収縮させる（範囲外は偽）。使えなければ None。"""
-    if not available():
-        return None
+    """8近傍で ``iterations`` 回収縮させる（範囲外は偽）。"""
     height, width = mask.shape
-    assert _native is not None
     return _as_mask(
         _native.erode(_as_bytes(mask), width, height, int(iterations)), height, width
     )
@@ -248,17 +225,11 @@ INVALID_CODE = 0xFFFFFFFF
 
 
 def label_regions(codes):
-    """同じ値で4近傍につながった画素に1からの番号を付ける。使えなければ None。
+    """同じ値で4近傍につながった画素に1からの番号を付ける。
 
     :param codes: uint32 の2次元配列。:data:`INVALID_CODE` の画素は番号 0。
     :returns: ``(番号の int32 配列, 領域の数)``。
     """
-    if not available():
-        return None
-    assert _native is not None
-    if not hasattr(_native, "label_regions"):
-        # 古い部品が入っている環境（開発中など）では numpy 版を使う。
-        return None
     height, width = codes.shape
     data, count = _native.label_regions(
         np.ascontiguousarray(codes, dtype=np.uint32).tobytes(), width, height

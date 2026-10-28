@@ -5,6 +5,17 @@
 
 __version__: str
 
+class TimelineCell:
+    has_content: bool
+    is_blank_key: bool
+    exposure: int
+    sequence_number: int | None
+    sequence_only: bool
+    cell_name: str | None
+    def __init__(self) -> None: ...
+
+def resolve_timeline(rows: list[list[TimelineCell]]) -> bytes: ...
+
 class ClipAnimationReader:
     def __init__(self, path: str, max_dimension: int, max_raster_bytes: int) -> None: ...
     def metadata(self) -> dict: ...

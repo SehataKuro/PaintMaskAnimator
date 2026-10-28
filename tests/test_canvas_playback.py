@@ -10,6 +10,7 @@ from PySide6.QtGui import QColor, QImage  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from paintmaskanimator.canvas_playback import PlaybackMixin  # noqa: E402
+from paintmaskanimator.models import Layer  # noqa: E402
 from paintmaskanimator.view_preview import ViewPreview  # noqa: E402
 
 
@@ -21,12 +22,12 @@ def qapp():
 def _layer(color="red", *, content=False, exposure=1, visible=True, opacity=1.0):
     image = QImage(2, 1, QImage.Format.Format_ARGB32_Premultiplied)
     image.fill(QColor(color))
-    return SimpleNamespace(
+    return Layer(
+        "A", image,
         has_content=content,
         exposure=exposure,
         visible=visible,
         opacity=opacity,
-        image=image,
     )
 
 

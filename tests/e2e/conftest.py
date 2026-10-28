@@ -100,4 +100,8 @@ def app(qtbot, messages):
     try:
         yield AppDriver(window, qtbot, messages)
     finally:
+        # Scenario output has already been asserted. Discard its temporary
+        # document before closing; the modal guard must still reject unexpected
+        # dialogs during user actions in the scenario itself.
+        window.project.mark_saved()
         window.close()

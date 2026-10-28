@@ -12,6 +12,22 @@ def test_present_modules_pass_through():
     dependency_check.require_runtime_dependencies(("json", "sys"))
 
 
+def test_required_modules_include_rust_backend():
+    assert "paintmaskanimator.native" in dependency_check.REQUIRED_MODULES
+
+
+def test_old_or_missing_rust_backend_reports_rebuild_instruction(monkeypatch, capsys):
+    def missing_backend(name):
+        raise ImportError("Rust extension unavailable: python -m pip install ./native")
+
+    monkeypatch.setattr(dependency_check.importlib, "import_module", missing_backend)
+    monkeypatch.setattr(builtins, "__import__", _blocking_import(builtins.__import__))
+    with pytest.raises(SystemExit) as error:
+        dependency_check.require_runtime_dependencies(("paintmaskanimator.native",))
+    assert error.value.code == 1
+    assert "pip install ./native" in capsys.readouterr().out
+
+
 def test_missing_module_exits_with_a_readable_message(monkeypatch, capsys):
     monkeypatch.setattr(
         dependency_check.importlib,

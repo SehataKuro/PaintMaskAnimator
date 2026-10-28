@@ -45,7 +45,7 @@ jobs:
         run: |
           cargo update --manifest-path native/Cargo.toml -p clipfile
           pip install ./native
-          python -c "import pma_native; from pma_native import ClipAnimationReader; print('pma_native', pma_native.__version__)"
+          python -c "from paintmaskanimator import native; print('pma_native', native._native.__version__)"
 
       - name: Validate release version
         run: python scripts/check_version.py "${{ steps.ver.outputs.version }}"
@@ -124,7 +124,7 @@ jobs:
         run: |
           cargo update --manifest-path native/Cargo.toml -p clipfile
           pip install ./native
-          python -c "import pma_native; from pma_native import ClipAnimationReader; print('pma_native', pma_native.__version__)"
+          python -c "from paintmaskanimator import native; print('pma_native', native._native.__version__)"
 
       - name: Validate release version
         run: python scripts/check_version.py "${{ steps.ver.outputs.version }}"

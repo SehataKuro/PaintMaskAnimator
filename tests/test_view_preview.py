@@ -170,16 +170,32 @@ def test_preview_changes_only_the_screen_not_exports(window):
     assert window.crop_image(0) == before, "書き出し・サムネイルには掛けない"
 
 
-def test_map_colors_wait_until_the_stroke_ends(window):
-    canvas = window.canvas
-    layer = painted_layer(window)
-    window.map_colors_button.click()
+def test_map_colors_remain_stable_during_the_stroke(qapp, monkeypatch):
+    from paintmaskanimator.canvas import PaintCanvas
+
+    canvas = PaintCanvas()
+    layer = canvas.frames[0].layers[canvas.active_layer_index]
+    layer.image.fill(QColor(*NORMAL))
+    layer.image.setPixelColor(15, 15, QColor(*SHADOW))
+    canvas.set_view_preview(map_colors=True)
+    before = canvas.view_layer_image(layer, canvas.active_layer_index, layer.image)
+    normal_color = before.pixelColor(0, 0)
+    shadow_color = before.pixelColor(15, 15)
+
+    def unexpected_labels(*args, **kwargs):
+        pytest.fail("Known colors must not require region analysis while drawing")
+
+    monkeypatch.setattr(view_preview, "label_regions", unexpected_labels)
     canvas.drawing = True
     try:
-        assert canvas.view_layer_image(layer, canvas.active_layer_index, layer.image) is layer.image
+        layer.image.setPixelColor(30, 30, QColor(*SHADOW))
+        shown = canvas.view_layer_image(layer, canvas.active_layer_index, layer.image)
+        assert shown.pixelColor(0, 0) == normal_color
+        assert shown.pixelColor(30, 30) == shadow_color
+        assert layer.image.pixelColor(30, 30) == QColor(*SHADOW)
     finally:
         canvas.drawing = False
-    assert canvas.view_layer_image(layer, canvas.active_layer_index, layer.image) is not layer.image
+    assert canvas.view_layer_image(layer, canvas.active_layer_index, layer.image) == shown
 
 
 def test_canvas_map_colors_keep_the_same_rgb_when_switching_images(window):

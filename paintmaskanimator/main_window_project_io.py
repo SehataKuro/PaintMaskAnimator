@@ -99,11 +99,14 @@ class ProjectIOController:
         return self.open(path)
 
     def update_title(self):
+        suffix = " *" if self.has_unsaved_changes() else ""
         if self.window.current_project_path:
             name = Path(self.window.current_project_path).name
-            self.window.setWindowTitle(f"{APP_DISPLAY_NAME} — {name}")
+            self.window.setWindowTitle(f"{APP_DISPLAY_NAME} — {name}{suffix}")
         else:
-            self.window.setWindowTitle(tr("{NAME} — 新規プロジェクト").format(NAME=APP_DISPLAY_NAME))
+            self.window.setWindowTitle(
+                tr("{NAME} — 新規プロジェクト").format(NAME=APP_DISPLAY_NAME) + suffix
+            )
 
     def save(self):
         if (
@@ -201,9 +204,31 @@ class ProjectIOController:
 
     def mark_saved(self):
         self._saved_signature = self._content_signature()
+        self.update_title()
 
     def has_unsaved_changes(self):
         return self._saved_signature != self._content_signature()
+
+    def confirm_save_before_close(self):
+        if not self.has_unsaved_changes():
+            return True
+        dialog = QMessageBox(self.window)
+        dialog.setObjectName("unsavedCloseConfirmation")
+        dialog.setIcon(QMessageBox.Icon.Warning)
+        dialog.setWindowTitle(tr("未保存の変更"))
+        dialog.setText(tr("変更を保存してから終了しますか？"))
+        save_button = dialog.addButton(tr("保存する"), QMessageBox.ButtonRole.AcceptRole)
+        discard_button = dialog.addButton(
+            tr("保存しない"), QMessageBox.ButtonRole.DestructiveRole
+        )
+        cancel_button = dialog.addButton(tr("キャンセル"), QMessageBox.ButtonRole.RejectRole)
+        dialog.setDefaultButton(save_button)
+        dialog.setEscapeButton(cancel_button)
+        dialog.exec()
+        clicked = dialog.clickedButton()
+        if clicked is save_button:
+            return bool(self.save())
+        return clicked is discard_button
 
     def confirm_save_before_dropped(self):
         if not self.has_unsaved_changes():

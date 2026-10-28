@@ -7,6 +7,47 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 
+# QtAds destruction is unsafe on Windows in a shared QApplication. Keep
+# quarantined windows alive until run_tests.py terminates the test process.
+_retained_windows = []
+
+
+@pytest.fixture(autouse=True)
+def retain_windows_dock_hierarchies(monkeypatch):
+    """Prevent QtAds native destruction in the shared Windows test process.
+
+    pytest-qt calls deleteLater and processes its event before fixture teardown,
+    so cancelling deferred deletion in a fixture finalizer is too late.
+    """
+    import sys
+
+    if sys.platform != "win32":
+        return
+    from paintmaskanimator.main_window import MainWindow
+
+    original_init = MainWindow.__init__
+
+    def initialize(window, *args, **kwargs):
+        original_init(window, *args, **kwargs)
+        _retained_windows.append(window)
+
+    def retain(window):
+        from PySide6.QtCore import QCoreApplication, QEvent
+
+        QCoreApplication.removePostedEvents(window, QEvent.Type.DeferredDelete)
+
+    monkeypatch.setattr(MainWindow, "__init__", initialize)
+    monkeypatch.setattr(MainWindow, "deleteLater", retain)
+
+
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_runtest_teardown(item):
+    # pytest-qt closes registered widgets before fixture finalizers run. At
+    # this point the test's assertions have finished: discard temporary
+    # documents and detach event filters before its first processEvents().
+    _tidy_up_leftover_main_windows()
+    yield
+
 
 @pytest.fixture(autouse=True)
 def isolated_config_dir(tmp_path, monkeypatch):
@@ -43,6 +84,13 @@ def no_unhandled_modal_dialogs(monkeypatch):
         monkeypatch.setattr(QMessageBox, level, _fail_static(level))
 
     def _fail_exec(self):
+        # Existing UI tests close edited documents during teardown. Discard
+        # there; save/close regression tests install their own dialog handler.
+        if isinstance(self, QMessageBox) and self.objectName() == "unsavedCloseConfirmation":
+            for button in self.buttons():
+                if self.buttonRole(button) == QMessageBox.ButtonRole.DestructiveRole:
+                    button.click()
+                    return 0
         raise AssertionError(
             f"unexpected modal dialog: {type(self).__name__} / {self.windowTitle()!r}"
         )
@@ -74,19 +122,30 @@ def _tidy_up_leftover_main_windows():
         return
     from PySide6.QtCore import QCoreApplication, QEvent
     from PySide6.QtWidgets import QApplication
+    from shiboken6 import isValid
 
     app = QApplication.instance()
     if app is None:
         return
     windows = [
         widget for widget in QApplication.topLevelWidgets()
-        if isinstance(widget, main_window.MainWindow)
+        if isinstance(widget, main_window.MainWindow) and isValid(widget)
+        and not getattr(widget, "_closing", False)
     ]
     from paintmaskanimator.utils import remove_app_event_filter
+
+    if sys.platform == "win32":
+        # Cancel deferred destruction *before* close() emits Qt events. Doing
+        # this afterwards can delete the dock hierarchy in the middle of close.
+        for window in windows:
+            QCoreApplication.removePostedEvents(window, QEvent.Type.DeferredDelete)
+            if window not in _retained_windows:
+                _retained_windows.append(window)
 
     for window in windows:
         # close() で止まるのはメインウィンドウ自身のフィルターとタイマーだけ。
         # サブビューのフィルターは残るので、ここで外す（遅くなる原因はこれ）。
+        window._closing = True
         window.close()
         remove_app_event_filter(window.subview)
     if sys.platform == "win32":

@@ -1,7 +1,7 @@
 //! PaintMaskAnimator の重い画像計算を Rust で行う部品。
 //!
 //! 方針（docs/design-principles.md「将来は Rust へ置き換えていく」）に沿って、
-//! 画面や Qt に触れない純粋な関数だけを置く。Python 側の numpy 版と
+//! 画面や Qt に触れない計算と状態管理を置く。Python 側の numpy 版と
 //! 同じ結果になることを、Python のテストで突き合わせる。
 //!
 //! マスクは 1 画素 1 バイト（0 か 1）の行優先の並びでやり取りする。
@@ -15,6 +15,7 @@ mod thin;
 mod auto_paint;
 mod display;
 mod clip;
+mod timeline;
 
 /// 4 近傍で、`seeds` からつながる `passable` の領域を求める（行ごとのランで辿る）。
 ///
@@ -321,6 +322,8 @@ fn py_label_regions<'py>(
 #[pymodule]
 fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<clip::ClipAnimationReader>()?;
+    module.add_class::<timeline::TimelineCell>()?;
+    module.add_function(wrap_pyfunction!(timeline::resolve_timeline, module)?)?;
     module.add_function(wrap_pyfunction!(display::resolve_exposures, module)?)?;
     module.add_function(wrap_pyfunction!(display::tint_onion, module)?)?;
     module.add_function(wrap_pyfunction!(display::filter_palette, module)?)?;

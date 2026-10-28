@@ -189,6 +189,10 @@ class MainWindow(
         )
         self.apply_pressure_settings()
         self.project.mark_saved()
+        self._title_timer = QTimer(self)
+        self._title_timer.setInterval(500)
+        self._title_timer.timeout.connect(self.project.update_title)
+        self._title_timer.start()
         self.autosave.start()
         QTimer.singleShot(0, self.autosave.maybe_restore)
     def status(self, message, level="info", timeout=4000):
@@ -1016,6 +1020,9 @@ class MainWindow(
 
     def closeEvent(self, event):
         """Stop active timers and UI signals before Qt destroys child widgets."""
+        if not getattr(self, "_closing", False) and not self.project.confirm_save_before_close():
+            event.ignore()
+            return
         self._closing = True
         try:
             # A closed window must stop filtering application-wide events;
@@ -1027,6 +1034,7 @@ class MainWindow(
             log.debug("application was deleted during event-filter cleanup", exc_info=True)
         try:
             self.timer.stop()
+            self._title_timer.stop()
             self._used_color_timer.stop()
             self._visible_color_timer.stop()
             if getattr(self, "_autosave_timer", None) is not None:

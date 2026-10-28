@@ -850,16 +850,18 @@ def test_pass_through_folder_blends_with_layers_below_it(tmp_path):
     assert layer.cell_images["2"].pixelColor(0, 0) == _pixel((128, 128, 128))
 
 
-def test_missing_native_codec_reports_actionable_error(monkeypatch, tmp_path):
-    monkeypatch.setattr(native, "_native", None)
-    with pytest.raises(ClipImportError, match="pip install ./native"):
-        read_clip_animation(tmp_path / "animation.clip")
+def test_missing_native_codec_reports_actionable_error():
+    from types import SimpleNamespace
+    api = {name: getattr(native._native, name) for name in native.REQUIRED_API
+           if name != "ClipAnimationReader"}
+    with pytest.raises(ImportError, match="pip install ./native"):
+        native.validate_backend(SimpleNamespace(**api))
 
 
 @requires_clip_native
-def test_computation_opt_out_keeps_clip_codec_available(monkeypatch, tmp_path):
+def test_legacy_opt_out_does_not_disable_required_clip_codec(monkeypatch, tmp_path):
     monkeypatch.setenv("PMA_NO_NATIVE", "1")
-    assert not native.available()
+    assert native.available()
     assert read_clip_animation(_clip_file(tmp_path)).frame_count == 3
 
 

@@ -125,45 +125,8 @@ class OnionRenderMixin(CanvasMembers):
             color_enabled,
             self.selected_used_color_rgbs if selected_colors_only else None,
         )
-        if native_rgba is not None:
-            result = QImage(
-                native_rgba.data, width, height, native_rgba.strides[0],
-                QImage.Format.Format_RGBA8888,
-            ).copy().convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
-            return self._cache_onion_image(cache_key, result)
-        rgba = rgba.copy()
-
-        # 使用色パネルで選択されている親・子の色だけを残す。
-        # 選択が空の場合は、チェックの意味を明確にするため全て透明にする。
-        if selected_colors_only:
-            selected = tuple(self.selected_used_color_rgbs)
-            keep = np.zeros((height, width), dtype=bool)
-            for rgb_value in selected:
-                rgb_value = tuple(int(v) for v in rgb_value[:3])
-                keep |= np.all(
-                    rgba[:, :, :3] == np.asarray(rgb_value, dtype=np.uint8),
-                    axis=2,
-                )
-            rgba[~keep, 3] = 0
-
-        if color_enabled:
-            # CLIP STUDIOのレイヤーカラーに近い処理:
-            # 黒を指定色、白を白へ割り当て、中間調はその間を補間する。
-            luminance = (
-                rgba[:, :, 0].astype(np.float32) * 0.299
-                + rgba[:, :, 1].astype(np.float32) * 0.587
-                + rgba[:, :, 2].astype(np.float32) * 0.114
-            ) / 255.0
-            base = np.array(
-                [QColor(color).red(), QColor(color).green(), QColor(color).blue()],
-                dtype=np.float32,
-            )
-            mapped = base[None, None, :] * (1.0 - luminance[:, :, None])
-            mapped += 255.0 * luminance[:, :, None]
-            rgba[:, :, :3] = np.clip(mapped, 0, 255).astype(np.uint8)
-
         result = QImage(
-            rgba.data, width, height, rgba.strides[0],
+            native_rgba.data, width, height, native_rgba.strides[0],
             QImage.Format.Format_RGBA8888,
         ).copy().convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
         return self._cache_onion_image(cache_key, result)

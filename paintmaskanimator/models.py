@@ -5,8 +5,10 @@ from typing import ClassVar, List, Optional
 from PySide6.QtGui import QImage
 
 from .utils import blank_image
+from .timeline_metadata import timeline_metadata
 
 
+@timeline_metadata
 @dataclass
 class Layer:
     # Exposure lookup also runs during scrubbing. Track direct metadata edits,
@@ -15,7 +17,7 @@ class Layer:
 
     def __setattr__(self, name, value):
         if name in ("has_content", "is_blank_key", "exposure"):
-            if self.__dict__.get(name) != value:
+            if getattr(self, name, None) != value:
                 Layer.timeline_revision += 1
         object.__setattr__(self, name, value)
 

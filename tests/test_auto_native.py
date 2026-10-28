@@ -26,10 +26,11 @@ def test_run_regions_and_numbering_match_numpy(monkeypatch, dtype):
             values -= 2
         elif dtype == np.uint64:
             values += np.uint64(1 << 62)
-        monkeypatch.delenv("PMA_NO_NATIVE", raising=False)
         actual = reference_check._label_runs(values)
-        monkeypatch.setenv("PMA_NO_NATIVE", "1")
-        expected = reference_check._label_runs(values)
+        with monkeypatch.context() as reference:
+            reference.setattr(native, "label_runs", lambda *args: None)
+            reference.setattr(native, "connect_runs", lambda *args: None)
+            expected = reference_check._label_runs(values)
         assert actual[1] == expected[1]
         np.testing.assert_array_equal(actual[0], expected[0])
         for a, b in zip(actual[2], expected[2]):
@@ -58,19 +59,15 @@ def test_refinement_matches_numpy_with_partial_and_mixed_sources(monkeypatch, un
     work = auto_bucket.BucketWork(target, bucket_fill.BucketOptions())
     work.alignment = SimpleNamespace(shift=lambda *args: ((0, 0), 1.0))
     actual = work._refine_face_color(guide, filled, 24)
-    monkeypatch.setenv("PMA_NO_NATIVE", "1")
+    monkeypatch.setattr(native, "refine_face", lambda *args: None)
     expected = work._refine_face_color(guide, filled, 24)
     assert actual == expected
     if not unknown and not mixed:
         assert actual == (255, 223, 212)
 
 
-def test_old_native_keeps_numpy_fallback(monkeypatch):
-    monkeypatch.setattr(native, "_native", object())
-    assert native.connect_runs([], [], [], []) is None
-    assert native.refine_face(None, None, None, None, None, None) is None
-    assert native.sample_region(None, None) is None
-    assert native.label_runs(np.zeros((3, 4), dtype=np.int64)) is None
+def test_backend_contract_includes_automatic_paint():
+    assert {"connect_runs", "refine_face", "GuideSampler", "label_runs"} <= set(native.REQUIRED_API)
 
 
 @needs_kernels

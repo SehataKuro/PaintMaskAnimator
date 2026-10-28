@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+import subprocess
+import sys
 
 from paintmaskanimator import bucket_fill, imaging, native
 
@@ -26,9 +28,19 @@ def test_unique_colors_matches_numpy(limit):
         assert native.unique_colors(pixels, limit) == np.unique(pixels)[:limit].tolist()
 
 
-def test_unique_colors_falls_back_for_old_native(monkeypatch):
-    monkeypatch.setattr(native, "_native", object())
-    assert native.unique_colors(np.array([1], dtype=np.uint32), 101) is None
+def test_old_backend_is_rejected_with_rebuild_instruction():
+    with pytest.raises(ImportError, match="pip install ./native"):
+        native.validate_backend(object())
+
+
+def test_missing_backend_fails_on_import_with_rebuild_instruction():
+    result = subprocess.run(
+        [sys.executable, "-c", "import sys; sys.modules['pma_native'] = None; "
+         "import paintmaskanimator.native"],
+        capture_output=True, text=True,
+    )
+    assert result.returncode != 0
+    assert "pip install ./native" in result.stderr
 
 
 @needs_native
@@ -74,12 +86,11 @@ def test_results_are_writable_arrays():
     assert region.dtype == bool and region.shape == (3, 3)
 
 
-def test_can_be_turned_off(monkeypatch):
+def test_legacy_opt_out_does_not_disable_required_backend(monkeypatch):
     monkeypatch.setenv("PMA_NO_NATIVE", "1")
-    assert not native.available()
-    assert native.flood_fill(np.ones((2, 2), bool), [(0, 0)]) is None
-    region = imaging.scanline_connected_region(np.ones((2, 2), bool), (0, 0))
-    assert region.all(), "Rust を使わないときは numpy 版で計算する"
+    assert native.available()
+    region = native.flood_fill(np.ones((2, 2), bool), [(0, 0)])
+    assert region.all()
 
 
 @needs_native
@@ -108,7 +119,6 @@ def test_native_thinning_matches_numpy(iterations):
                                       bucket_fill._thin_numpy(mask, iterations))
 
 
-def test_thinning_falls_back_with_an_old_native_module(monkeypatch):
-    monkeypatch.setattr(native, "_native", object())
-    mask = np.eye(5, dtype=bool)
-    np.testing.assert_array_equal(bucket_fill._thin(mask, 12), mask)
+def test_backend_contract_includes_thinning():
+    native.validate_backend(native._native)
+    assert "thin" in native.REQUIRED_API

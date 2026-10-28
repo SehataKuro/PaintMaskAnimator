@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from paintmaskanimator import line_flow, native
+from paintmaskanimator import bucket_fill, line_flow, native
 
 
 def scatter(shape, seed=1):
@@ -123,16 +123,15 @@ def test_native_full_flow_matches_numpy_exactly(shape, seed, monkeypatch):
     guide = rng.random(shape) < 0.08
     target = moved(guide, 3, -5) if min(shape) > 5 else guide.copy()
     actual = line_flow.estimate_flow(target, guide)
-    monkeypatch.setenv("PMA_NO_NATIVE", "1")
+    monkeypatch.setattr(line_flow, "_scores", line_flow._scores_numpy)
+    monkeypatch.setattr(bucket_fill, "dilate", bucket_fill.dilate_numpy)
     expected = line_flow.estimate_flow(target, guide)
     for name in ("dy", "dx", "score", "lines"):
         np.testing.assert_array_equal(getattr(actual, name), getattr(expected, name))
 
 
-def test_old_native_component_uses_the_numpy_fallback(monkeypatch):
-    monkeypatch.setattr(native, "_native", object())
-    mask = np.zeros((4, 4), dtype=bool)
-    assert native.line_flow_scores(mask, mask, 4, np.zeros((1, 1)), np.zeros((1, 1)), 2) is None
+def test_backend_contract_includes_line_flow():
+    assert "line_flow_scores" in native.REQUIRED_API
 
 
 @needs_flow_native
