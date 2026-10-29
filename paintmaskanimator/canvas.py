@@ -953,6 +953,8 @@ class PaintCanvas(
                 ).intersected(bounds)
                 tiles[key] = (tile_rect, live.copy(tile_rect))
         self._stroke_dirty_rect = self._stroke_dirty_rect.united(rect)
+        if getattr(self, "_stroke_view_preview", None) is not None:
+            self._stroke_view_dirty = self._stroke_view_dirty.united(rect)
 
 
     def selected_mask_colors(self):
@@ -1522,6 +1524,22 @@ class PaintCanvas(
         )
         if not map_colors and not preview.adjusts_pixels:
             return image
+        stroke_preview = getattr(self, "_stroke_view_preview", None)
+        if (map_colors and stroke_preview is not None
+                and image is layer.image and stroke_preview[0] is layer
+                and stroke_preview[1] == preview.key()):
+            # 筆が触れた範囲だけを変換し、ストローク専用の表示画像へ戻す。
+            # 過去のプレビューキャッシュは共有しない。
+            result = stroke_preview[2]
+            dirty = self._stroke_view_dirty.intersected(image.rect())
+            if not dirty.isEmpty():
+                patch = self.view_layer_image(layer, layer_index, image.copy(dirty))
+                painter = QPainter(result)
+                painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+                painter.drawImage(dirty.topLeft(), patch)
+                painter.end()
+                self._stroke_view_dirty = QRect()
+            return result
         try:
             image_key = int(image.cacheKey())
         except (AttributeError, RuntimeError, TypeError) as exc:

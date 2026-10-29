@@ -44,7 +44,7 @@ from PySide6.QtWidgets import (
 from .i18n import tr
 from .optional_deps import PILImage
 from .constants import APP_DISPLAY_NAME, OUTSIDE_MARGIN
-from . import constants, imaging, layout_paper, preferences, pressure_settings, project_io, theme, updater
+from . import constants, imaging, layout_paper, preferences, pressure_settings, project_io, session_state, theme, updater
 from .actionpanel import ActionPanel
 from .canvas import PaintCanvas
 from .errors import OPERATION_ERRORS
@@ -188,6 +188,7 @@ class MainWindow(
             ),
         )
         self.apply_pressure_settings()
+        session_state.restore(self)
         self.project.mark_saved()
         self._title_timer = QTimer(self)
         self._title_timer.setInterval(500)
@@ -1024,6 +1025,10 @@ class MainWindow(
             event.ignore()
             return
         self._closing = True
+        try:
+            session_state.save(self)
+        except OSError:
+            log.warning("Could not save painting session", exc_info=True)
         try:
             # A closed window must stop filtering application-wide events;
             # otherwise it keeps intercepting input for the rest of the process

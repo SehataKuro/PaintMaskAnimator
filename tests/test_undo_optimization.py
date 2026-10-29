@@ -1,4 +1,5 @@
 import os
+import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -12,6 +13,47 @@ from paintmaskanimator.undo_entries import LayerRegionUndo, LayerUndo
 
 def _app():
     return QApplication.instance() or QApplication([])
+
+
+@pytest.mark.parametrize("blank_key", [False, True])
+def test_playback_created_cell_can_be_undone_and_redone(blank_key):
+    _app()
+    canvas = PaintCanvas()
+    canvas.timeline_mode = "sheet"
+    canvas._ensure_frame_count(3)
+    canvas.current_frame = 1
+    canvas.active_layer.is_blank_key = blank_key
+    canvas.active_layer.exposure = 2 if blank_key else 1
+    canvas.set_playback_active(True)
+    before = canvas.document_snapshot()
+
+    assert canvas.ensure_editable_key()
+    assert not canvas.ensure_editable_key()
+    assert len(canvas.undo_stack) == 1
+    number = canvas.active_layer.sequence_number
+    canvas.push_layer_undo()
+    canvas.active_layer.image.fill(QColor("red"))
+    # Playback can move away before history is traversed.
+    canvas.playback_advance()
+    canvas.set_playback_active(False)
+
+    canvas.undo()  # drawing
+    canvas.undo()  # cell creation
+    restored = canvas.frames[1].layers[0]
+    original = before[0][1].layers[0]
+    assert restored.has_content == original.has_content
+    assert restored.is_blank_key == original.is_blank_key
+    assert restored.sequence_number == original.sequence_number
+    assert restored.exposure == original.exposure
+    assert restored.image == original.image
+
+    canvas.redo()
+    canvas.redo()
+    restored = canvas.frames[1].layers[0]
+    assert restored.has_content
+    assert restored.sequence_number == number
+    assert restored.image.pixelColor(0, 0) == QColor("red")
+    canvas.close()
 
 
 def test_region_undo_redo_restores_only_requested_area():
