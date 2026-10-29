@@ -65,6 +65,21 @@ def label_regions(codes: bytes, width: int, height: int) -> tuple[bytes, int]:
     番号は各領域の最初の画素（行優先）が現れた順。``(番号, 領域の数)`` を返す。
     """
 def unique_colors(pixels: bytes, limit: int) -> list[int]: ...
+def map_known_colors(
+    rgba: bytes, codes: list[int], indices: list[int],
+    palette: list[tuple[int, int, int]], line_max: int,
+) -> bytes | None:
+    """対応表どおりに隣接色分けの仮の色を塗る。対応のない色があれば ``None``。
+
+    ``codes`` は元の RGB をまとめた値の昇順、``indices`` はその仮の色の番号。
+    """
+
+def region_neighbors(labels: bytes, width: int, height: int, gap: int) -> list[tuple[int, int]]:
+    """``gap`` 画素以内で向かい合う領域の組（番号の小さい順）。
+
+    ``labels`` は int32 の並び。0 の画素は領域に数えない。
+    """
+
 def surface_guided_palette_labels(
     rgb: bytes, width: int, height: int, visible: bytes, palette: bytes,
     spatial_refinement: bool,

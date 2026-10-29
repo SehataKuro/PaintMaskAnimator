@@ -16,7 +16,7 @@ REQUIRED_API = (
     "resolve_exposures", "tint_onion", "unique_colors", "filter_palette",
     "line_flow_scores", "connect_runs", "label_runs", "refine_face", "thin",
     "render_quad_labels", "render_mesh_labels",
-    "surface_guided_palette_labels",
+    "surface_guided_palette_labels", "map_known_colors", "region_neighbors",
     "flood_fill", "dilate", "erode", "label_regions",
 )
 REBUILD_MESSAGE = (
@@ -307,3 +307,33 @@ def surface_guided_palette_labels(rgb, visible, palette, spatial_refinement=True
         bool(spatial_refinement),
     )
     return np.frombuffer(data, dtype=np.int16).reshape(height, width).copy()
+
+
+def map_known_colors(pixels, palette, color_mapping, line_max):
+    """隣接色分けの仮の色を、割り当て済みの対応表どおりに塗る。
+
+    :param pixels: ``(高さ, 幅, 4)`` の RGBA8888 配列。
+    :param color_mapping: 元の RGB をまとめた値から仮の色の番号への辞書。
+    :returns: 塗った ``(高さ, 幅, 4)`` の配列。対応のない色があれば ``None``。
+    """
+    height, width = pixels.shape[:2]
+    codes = sorted(int(code) for code in color_mapping)
+    data = _native.map_known_colors(
+        np.ascontiguousarray(pixels, dtype=np.uint8).tobytes(),
+        codes, [int(color_mapping[code]) for code in codes],
+        [(int(color[0]), int(color[1]), int(color[2])) for color in palette],
+        int(line_max),
+    )
+    if data is None:
+        return None
+    # 読み取り専用のまま返す。呼び出し側が自分の配列へ書き写すので複製は要らない。
+    return np.frombuffer(data, dtype=np.uint8).reshape(height, width, 4)
+
+
+def region_neighbors(labels, gap):
+    """``gap`` 画素以内で向かい合う領域の組 ``(a, b)``（``a < b``）の配列。"""
+    height, width = labels.shape
+    pairs = _native.region_neighbors(
+        np.ascontiguousarray(labels, dtype=np.int32).tobytes(), width, height, int(gap)
+    )
+    return np.asarray(pairs, dtype=np.int64).reshape(-1, 2)

@@ -324,3 +324,67 @@ def test_preferences_page_changes_the_palette(window, monkeypatch):
         assert window.canvas.view_preview.palette == view_preview.MAP_PALETTE
     finally:
         dialog.deleteLater()
+
+
+@pytest.mark.parametrize("gap", [1, 2, 4, 7])
+def test_region_neighbors_match_numpy(gap):
+    rng = np.random.default_rng(gap)
+    for _trial in range(5):
+        height = int(rng.integers(3, 40))
+        width = int(rng.integers(3, 40))
+        labels = rng.integers(0, 6, (height, width)).astype(np.int32)
+        count = int(labels.max())
+        expected = view_preview.region_neighbors_numpy(labels, count, gap)
+        actual = view_preview.region_neighbors(labels, count, gap)
+        assert actual.shape == expected.shape
+        np.testing.assert_array_equal(actual, expected)
+
+
+def test_region_neighbors_reach_across_a_line_within_the_gap():
+    # 1 . . 2 — the two surfaces face each other across a two-pixel line.
+    labels = np.array([[1, 0, 0, 2]], dtype=np.int32)
+    assert view_preview.region_neighbors(labels, 2, 1).size == 0
+    np.testing.assert_array_equal(
+        view_preview.region_neighbors(labels, 2, 3), [[1, 2]]
+    )
+
+
+def _surface_pixels():
+    """Two colour surfaces plus a line, pseudo-transparent and clear pixel."""
+    pixels = np.zeros((4, 4, 4), dtype=np.uint8)
+    pixels[:, :, 3] = 255
+    pixels[:2, :, :3] = (200, 100, 100)
+    pixels[2:, :, :3] = (100, 200, 100)
+    pixels[0, 0, :3] = (10, 10, 10)        # line
+    pixels[0, 1, :3] = (255, 255, 255)     # pseudo transparency
+    pixels[0, 2, 3] = 0                    # clear
+    return pixels
+
+
+def test_map_color_pixels_reuse_a_known_mapping_without_relabelling():
+    pixels = _surface_pixels()
+    mapping = {200 << 16 | 100 << 8 | 100: 3, 100 << 16 | 200 << 8 | 100: 7}
+    palette = view_preview.MAP_PALETTE
+    out = view_preview.map_color_pixels(
+        pixels.copy(), palette=palette, color_mapping=dict(mapping)
+    )
+    assert tuple(out[1, 1, :3]) == palette[3]
+    assert tuple(out[3, 3, :3]) == palette[7]
+    # The line, the pseudo-transparent white and the clear pixel are untouched.
+    assert tuple(out[0, 0, :3]) == (10, 10, 10)
+    assert tuple(out[0, 1, :3]) == (255, 255, 255)
+    np.testing.assert_array_equal(out[0, 2], pixels[0, 2])
+
+
+def test_map_color_pixels_assign_a_colour_for_an_unknown_surface():
+    pixels = _surface_pixels()
+    # Only one of the two surfaces is known, so the other has to be assigned
+    # and recorded in the mapping.
+    mapping = {200 << 16 | 100 << 8 | 100: 3}
+    out = view_preview.map_color_pixels(
+        pixels.copy(), palette=view_preview.MAP_PALETTE, color_mapping=mapping
+    )
+    assert mapping[200 << 16 | 100 << 8 | 100] == 3
+    assert (100 << 16 | 200 << 8 | 100) in mapping
+    assert tuple(out[1, 1, :3]) == view_preview.MAP_PALETTE[3]
+    assert tuple(out[3, 3, :3]) != tuple(out[1, 1, :3])
