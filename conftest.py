@@ -7,14 +7,19 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 
-# 共有 QApplication のなかで QtAds を破棄するのは、どのプラットフォームでも
-# 安全ではない（``scripts/run_tests.py`` が全環境でプロセスを強制終了している
-# のも同じ理由）。隔離した窓は run_tests.py がプロセスを終わらせるまで生かす。
-#
-# このリストはテスト中に作られた ``MainWindow`` の台帳でもある。後始末の対象は
-# ここから引く。``QApplication.topLevelWidgets()`` は歩かない（理由は
-# :func:`_live_main_windows` のコメント）。
+# Windows では QtAds の破棄が安全でないので、隔離した窓を強参照で抱えたまま、
+# run_tests.py がプロセスを終わらせるのに任せる。
 _retained_windows = []
+
+# テスト中に作られた ``MainWindow`` の台帳。後始末の対象はここから引く。
+# ``QApplication.topLevelWidgets()`` は歩かない（理由は
+# :func:`_live_main_windows` のコメント）。
+#
+# 弱参照で持つ。強参照にすると、破棄したあとも Python 側のラッパーとその属性
+# （canvas → document → フレームの QImage）が残り、常駐メモリのピークが
+# 926MB から 4.6GB に増える。台帳は「どれを片付けるか」を知るためのもので、
+# 生かしておくためのものではない。
+_known_windows = []
 
 
 @pytest.fixture(autouse=True)
@@ -24,16 +29,25 @@ def retain_windows_dock_hierarchies(monkeypatch):
     pytest-qt はフィクスチャの後始末より先に deleteLater とそのイベント処理を
     行うので、フィクスチャのファイナライザーで遅延破棄を取り消すのでは遅い。
 
-    以前は Windows だけで有効にしていたが、Linux でも同じ危険がある（PR の
-    説明を参照）。破棄をやめ、全環境で窓を保持する。
+    台帳（弱参照）への登録は全環境で行う。後始末の対象をここから引くことで
+    ``QApplication.topLevelWidgets()`` を歩かずに済む（理由は
+    :func:`_live_main_windows`）。破棄を止めるのは Windows だけ。Linux で窓を
+    保持すると常駐メモリが 926MB から 5.2GB に膨らみ、ウィジェットの生成中に
+    別のセグフォルトに変わるため（PR の説明を参照）。
     """
+    import sys
+
     from paintmaskanimator.main_window import MainWindow
 
     original_init = MainWindow.__init__
 
     def initialize(window, *args, **kwargs):
+        import weakref
+
         original_init(window, *args, **kwargs)
-        _retained_windows.append(window)
+        _known_windows.append(weakref.ref(window))
+        if sys.platform == "win32":
+            _retained_windows.append(window)
 
     def retain(window):
         from PySide6.QtCore import QCoreApplication, QEvent
@@ -41,7 +55,8 @@ def retain_windows_dock_hierarchies(monkeypatch):
         QCoreApplication.removePostedEvents(window, QEvent.Type.DeferredDelete)
 
     monkeypatch.setattr(MainWindow, "__init__", initialize)
-    monkeypatch.setattr(MainWindow, "deleteLater", retain)
+    if sys.platform == "win32":
+        monkeypatch.setattr(MainWindow, "deleteLater", retain)
 
 
 @pytest.hookimpl(wrapper=True, tryfirst=True)
@@ -53,7 +68,8 @@ def pytest_runtest_teardown(item):
     # ここで窓を「破棄」してはいけない。破棄すると、続く pytest-qt の
     # close() や e2e の app フィクスチャが死んだ C++ オブジェクトに触り、
     # ``libshiboken: Internal C++ object (MainWindow) already deleted`` が
-    # 大量に出る（Linux の CI で 225 件以上）。そもそも窓は破棄しない。
+    # 大量に出る（Linux の CI で 225 件以上）。破棄はフィクスチャの
+    # ファイナライザー（``quiesce_leftover_main_windows``）に任せる。
     _quiesce_leftover_main_windows()
     yield
 
@@ -118,15 +134,13 @@ def quiesce_leftover_main_windows():
     テスト（``test_docking.py``）が 1 件に 1 分以上かかって固まったように
     見える。
 
-    ここで外すのはフィルターとタイマーだけで、窓そのものは破棄しない
-    （``_quiesce_leftover_main_windows`` のコメントを参照）。代わりに、
-    もう使われない窓が抱えている画像を手放す
-    （``_release_quarantined_window_payloads``）。
+    Windows では窓を破棄できない（QtAds が壊れる）ので、フィルターとタイマーを
+    止めるだけにして窓は隔離したまま残す。それ以外では破棄する
+    （``_tidy_up_leftover_main_windows`` のコメントを参照）。
     """
-    _quiesce_leftover_main_windows()
+    _tidy_up_leftover_main_windows()
     yield
-    _quiesce_leftover_main_windows()
-    _release_quarantined_window_payloads()
+    _tidy_up_leftover_main_windows()
 
 
 def _live_main_windows():
@@ -143,13 +157,23 @@ def _live_main_windows():
     その一覧を後始末のたびに（= 1300 回以上）歩き、要素ごとに Python ラッパー
     を作り直していたのが ``topLevelWidgets()`` でのセグフォルトの現場だった。
 
-    代わりに、自分で登録した台帳（``_retained_windows``）だけを見る。ここに
-    入るのは ``MainWindow.__init__`` を通った窓だけなので、shiboken が破棄を
-    把握しているオブジェクトしかなく、``isValid`` の判定が信頼できる。
+    代わりに、自分で登録した台帳（``_known_windows``）だけを見る。ここに入る
+    のは ``MainWindow.__init__`` を通った窓だけなので、shiboken が破棄を把握
+    しているオブジェクトしかなく、``isValid`` の判定が信頼できる。
     """
     from shiboken6 import isValid
 
-    return [window for window in _retained_windows if isValid(window)]
+    windows = []
+    dead = []
+    for reference in _known_windows:
+        window = reference()
+        if window is None:
+            dead.append(reference)
+        elif isValid(window):
+            windows.append(window)
+    for reference in dead:
+        _known_windows.remove(reference)
+    return windows
 
 
 def _quiesce_leftover_main_windows():
@@ -191,38 +215,45 @@ def _quiesce_leftover_main_windows():
         QCoreApplication.removePostedEvents(window, QEvent.Type.DeferredDelete)
 
 
-def _release_quarantined_window_payloads():
-    """隔離した窓が抱えている画像を手放す。
+def _tidy_up_leftover_main_windows():
+    """窓を黙らせ、そのうえで（Windows 以外では）破棄する。
 
-    窓そのものは破棄できない（QtAds が壊れる）が、重いのは窓の C++ 実体では
-    なくドキュメントの画像である。1 件ごとにフレームの QImage と Undo/Redo
-    スタック、各種キャッシュが積み上がり、Linux で全件実行すると常駐メモリが
-    2 分で 6GB を超え、まだ増え続けることを確認した。これではランナーの
-    メモリ上限次第で OOM に変わるだけなので、上限を設ける。
+    Windows では、ドッキング（QtAds）の窓を持つメインウィンドウを破棄すると
+    access violation やヒープ破壊で落ちる。なので窓は隔離したまま残し、
+    ``scripts/run_tests.py`` がプロセスを終わらせるのに任せる。
 
-    ここは窓が完全に隔離されたあと――pytest-qt の close() も、テストごとの
-    フィクスチャの後始末も終わったあと――でしか呼ばない。e2e の ``app``
-    フィクスチャはファイナライザーで ``window.project`` に触るので、teardown
-    フックの時点で画像を捨ててはいけない。
+    それ以外では破棄する。保持したままだと窓 1 件あたり約 13MB が積み上がり、
+    全件実行の常駐メモリのピークが 926MB から 5.2GB に増えて、こんどは
+    ウィジェットの生成中にセグフォルトするようになる（CI で確認）。
+    ``topLevelWidgets()`` を歩くのをやめた以上、破棄しても列挙の現場は踏まない。
+
+    pytest-qt の close() とフィクスチャの後始末が済んだあとに呼ぶこと。
     """
+    import sys
+
+    _quiesce_leftover_main_windows()
+    if sys.platform == "win32":
+        return
+    windows = _live_main_windows()
+    if not windows:
+        return
+    from PySide6.QtCore import QCoreApplication, QEvent
+    from PySide6.QtWidgets import QApplication
+    from shiboken6 import isValid
+
+    app = QApplication.instance()
+    if app is not None:
+        # 破棄する前に、積まれた 0ms タイマー（``QTimer.singleShot``）を消化
+        # させる。窓が生きているあいだに流さないと、破棄したあとに発火して
+        # ``CDockWidget already deleted`` になる（``main_window_ui_build`` の
+        # ``_resize_tool_selector_area`` がこれ）。
+        app.processEvents()
     for window in _live_main_windows():
-        if getattr(window, "_pma_test_payload_released", False):
-            continue
-        window._pma_test_payload_released = True
-        canvas = getattr(window, "canvas", None)
-        if canvas is None:
-            continue
-        # 画像を持っているものを落とす。例外は握りつぶさない: ここで失敗したら
-        # 後始末の前提が崩れているので、見えるようにしておく。
-        canvas.undo_stack.clear()
-        canvas.redo_stack.clear()
-        canvas.stroke_before = None
-        canvas._stroke_before_tiles = None
-        for name in (
-            "_playback_frame_cache", "_color_filter_cache", "_color_index_cache",
-            "_silhouette_cache", "_view_preview_cache", "_onion_cache",
-        ):
-            cache = getattr(canvas, name, None)
-            if cache is not None:
-                cache.clear()
-        canvas.frames = []
+        window.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    if app is not None:
+        app.processEvents()
+    _known_windows[:] = [
+        reference for reference in _known_windows
+        if (window := reference()) is not None and isValid(window)
+    ]
