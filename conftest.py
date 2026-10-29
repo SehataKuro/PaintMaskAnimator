@@ -42,10 +42,16 @@ def retain_windows_dock_hierarchies(monkeypatch):
 
 @pytest.hookimpl(wrapper=True, tryfirst=True)
 def pytest_runtest_teardown(item):
-    # pytest-qt closes registered widgets before fixture finalizers run. At
-    # this point the test's assertions have finished: discard temporary
-    # documents and detach event filters before its first processEvents().
-    _tidy_up_leftover_main_windows()
+    # pytest-qt はフィクスチャの後始末より先に、登録済みウィジェットを
+    # close() する。この時点でテストの assert は終わっているので、イベントを
+    # 回される前にサブビューのフィルターを外しておく。
+    #
+    # ここで窓を「破棄」してはいけない。破棄すると、続く pytest-qt の
+    # close() や e2e の app フィクスチャが死んだ C++ オブジェクトに触り、
+    # ``libshiboken: Internal C++ object (MainWindow) already deleted`` が
+    # 大量に出る（Linux の CI で 225 件以上）。破棄はフィクスチャの
+    # ファイナライザー（``destroy_leftover_main_windows``）に任せる。
+    _quiesce_leftover_main_windows()
     yield
 
 
@@ -114,27 +120,40 @@ def destroy_leftover_main_windows():
     _tidy_up_leftover_main_windows()
 
 
-def _tidy_up_leftover_main_windows():
+def _live_main_windows():
+    """生きている ``MainWindow`` を列挙する。
+
+    ``_closing`` が立っている（= close() 済みの）窓も含める。close() はフィルター
+    やタイマーを全部外すわけではないので、閉じた窓も後始末の対象になる。
+    """
     import sys
 
     main_window = sys.modules.get("paintmaskanimator.main_window")
     if main_window is None:
-        return
-    from PySide6.QtCore import QCoreApplication, QEvent
+        return []
     from PySide6.QtWidgets import QApplication
     from shiboken6 import isValid
 
-    app = QApplication.instance()
-    if app is None:
-        return
-    windows = [
+    if QApplication.instance() is None:
+        return []
+    return [
         widget for widget in QApplication.topLevelWidgets()
         if isinstance(widget, main_window.MainWindow) and isValid(widget)
-        and not getattr(widget, "_closing", False)
     ]
+
+
+def _quiesce_leftover_main_windows():
+    """窓を閉じてフィルターを外す。破棄はしない。"""
+    import sys
+
+    windows = _live_main_windows()
+    if not windows:
+        return
     from paintmaskanimator.utils import remove_app_event_filter
 
     if sys.platform == "win32":
+        from PySide6.QtCore import QCoreApplication, QEvent
+
         # Cancel deferred destruction *before* close() emits Qt events. Doing
         # this afterwards can delete the dock hierarchy in the middle of close.
         for window in windows:
@@ -145,9 +164,26 @@ def _tidy_up_leftover_main_windows():
     for window in windows:
         # close() で止まるのはメインウィンドウ自身のフィルターとタイマーだけ。
         # サブビューのフィルターは残るので、ここで外す（遅くなる原因はこれ）。
-        window._closing = True
-        window.close()
+        if not getattr(window, "_closing", False):
+            window._closing = True
+            window.close()
         remove_app_event_filter(window.subview)
+
+    if sys.platform == "win32":
+        from PySide6.QtCore import QCoreApplication, QEvent
+
+        for window in windows:
+            QCoreApplication.removePostedEvents(window, QEvent.Type.DeferredDelete)
+
+
+def _tidy_up_leftover_main_windows():
+    """窓を閉じてフィルターを外し、そのうえで破棄する。
+
+    pytest-qt の close() とフィクスチャの後始末が済んだあとに呼ぶこと。
+    """
+    import sys
+
+    _quiesce_leftover_main_windows()
     if sys.platform == "win32":
         # Windows では、ドッキング（QtAds）の窓を持つメインウィンドウを破棄すると
         # access violation やヒープ破壊で落ちる（CI の Windows で再現）。
@@ -155,11 +191,16 @@ def _tidy_up_leftover_main_windows():
         # 次にイベントを回したところ――たいていは別のテストの最中――で起こる。
         # そこで、積まれた破棄の予定を取り消して、窓は残しておく。
         # フィルターは外したので、残っていても遅くはならない。
-        for window in windows:
-            QCoreApplication.removePostedEvents(window, QEvent.Type.DeferredDelete)
         return
+    windows = _live_main_windows()
+    if not windows:
+        return
+    from PySide6.QtCore import QCoreApplication, QEvent
+    from PySide6.QtWidgets import QApplication
+
     for window in windows:
         window.deleteLater()
-    if windows:
-        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    app = QApplication.instance()
+    if app is not None:
         app.processEvents()
