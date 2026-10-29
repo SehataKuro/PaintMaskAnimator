@@ -18,10 +18,7 @@ from PySide6.QtWidgets import QApplication, QWidget  # noqa: E402
 from paintmaskanimator.main_window import MainWindow  # noqa: E402
 from paintmaskanimator.main_window_autosave import AutosaveController  # noqa: E402
 from paintmaskanimator.main_window_workspace import WorkspaceController  # noqa: E402
-from paintmaskanimator.utils import (  # noqa: E402
-    disable_windows_ink_feedback,
-    top_level_window_ids,
-)
+from paintmaskanimator.utils import top_level_window_ids  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -29,24 +26,23 @@ def qapp():
     return QApplication.instance() or QApplication([])
 
 
-@pytest.fixture
-def window(qapp, tmp_path, monkeypatch):
-    monkeypatch.setenv("APPDATA", str(tmp_path))
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    monkeypatch.setattr(AutosaveController, "maybe_restore", lambda self: None)
+@pytest.fixture(scope="module")
+def window(qapp):
+    # Windowsの共有テストプロセスではMainWindowを建てるほど後始末が重く
+    # なるので、読むだけの検証はひとつの窓を共有する。設定ディレクトリの
+    # 隔離は conftest.py の autouse フィクスチャが見ている。
+    original = AutosaveController.maybe_restore
+    AutosaveController.maybe_restore = lambda self: None
     main_window = MainWindow()
+    AutosaveController.maybe_restore = original
     main_window.show()
     for _ in range(5):
         qapp.processEvents()
     try:
         yield main_window
     finally:
-        # 閉じただけのウィンドウはアプリ全体のイベントフィルタを握ったまま
-        # 残り、後続テストのホバー操作を飲んでしまうので破棄まで行う。
+        # 残った窓の後始末（フィルター外しと破棄）は conftest.py が持つ。
         main_window.close()
-        main_window.deleteLater()
-        for _ in range(3):
-            qapp.processEvents()
 
 
 class _FakeDockManager:
@@ -72,21 +68,22 @@ def _native_children(main_window):
     ]
 
 
-def test_ink_feedback_keeps_docks_and_splitters_alien(qapp, window):
-    """ペン操作の設定は、ドックをネイティブウィンドウにしてはいけない。"""
-    disable_windows_ink_feedback(window, window.canvas, window.subview)
-    for _ in range(3):
-        qapp.processEvents()
-    assert _native_children(window) == []
-    assert window.subview_dock.internalWinId() == 0
-    assert window.canvas.internalWinId() == 0
+def test_pen_setup_keeps_docks_and_splitters_alien(window):
+    """ペン操作の設定は、ドックをネイティブウィンドウにしてはいけない。
 
+    子ウィジェットへ ``winId()`` を呼ぶと ADS のスプリッターやドック
+    ウィジェットまでネイティブ化し、レイアウトのたびに親からの相対座標で
+    ``setGeometry`` が走る。所属ウィンドウへ寄せれば昇格は起きない。
 
-def test_top_level_window_ids_collapses_children_to_their_window(window):
-    """子ウィジェットは所属ウィンドウのHWNDへまとめ、重複は返さない。"""
+    ``disable_windows_ink_feedback()`` 自体はここから呼ばない。offscreen の
+    QPA が返す偽の HWND を本物の Win32 API へ渡す形になり、共有テスト
+    プロセスを壊すため。HWND の決め方だけを検証する。
+    """
     handles = top_level_window_ids([window, window.canvas, window.subview, None])
     assert handles == [int(window.winId())]
     assert _native_children(window) == []
+    assert window.subview_dock.internalWinId() == 0
+    assert window.canvas.internalWinId() == 0
 
 
 def test_clamped_geometry_pushes_offscreen_rect_into_available_area(qapp):
