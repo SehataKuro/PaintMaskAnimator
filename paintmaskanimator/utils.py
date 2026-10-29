@@ -76,6 +76,37 @@ def workspace_size():
     return constants.CANVAS_WIDTH + OUTSIDE_MARGIN * 2, constants.CANVAS_HEIGHT + OUTSIDE_MARGIN * 2
 
 
+def top_level_window_ids(widgets):
+    """各ウィジェットが属するトップレベルウィンドウのHWNDを重複なく返す。
+
+    子ウィジェットに対して ``winId()`` を呼ぶと、Qt はそのウィジェットと
+    先祖・兄弟までネイティブウィンドウ(WA_NativeWindow)に昇格させる。
+    ドックのスプリッターやドックウィジェットまでネイティブになると、
+    レイアウトのたびに親からの相対座標で ``QWindowsWindow::setGeometry``
+    が走り、マルチモニタ環境では
+    「Unable to set geometry ... on QWidgetWindow/"subviewDockWindow"」
+    「ads::CDockSplitterClassWindow must be a top level window」
+    といった警告が大量に出る。設定したいウィンドウ単位の属性は
+    トップレベルのHWNDに付けるだけで足り、子は alien のままでよい。
+    """
+    handles = []
+    for widget in widgets:
+        if widget is None:
+            continue
+        try:
+            window = widget.window()
+            if window is None:
+                continue
+            handle = int(window.winId())
+        except (RuntimeError, ValueError, TypeError) as exc:
+            # winId() fails for a not-yet-realized or destroyed widget.
+            log.debug("winId() unavailable for widget: %s", exc)
+            continue
+        if handle and handle not in handles:
+            handles.append(handle)
+    return handles
+
+
 def disable_windows_ink_feedback(*widgets):
     """Windows Inkの波紋・長押し・タップ視覚効果を無効化する。"""
     if sys.platform != "win32":
@@ -106,17 +137,8 @@ def disable_windows_ink_feedback(*widgets):
         # 長押し、右タップ、タッチ系表示、PressAndTap。
         feedback_types = range(1, 12)
 
-        for widget in widgets:
-            if widget is None:
-                continue
-            try:
-                handle = wintypes.HWND(
-                    int(widget.winId())
-                )
-            except (RuntimeError, ValueError, TypeError) as exc:
-                # winId() fails for a not-yet-realized or destroyed widget.
-                log.debug("winId() unavailable for widget: %s", exc)
-                continue
+        for window_id in top_level_window_ids(widgets):
+            handle = wintypes.HWND(window_id)
 
             for feedback_type in feedback_types:
                 try:
