@@ -119,11 +119,14 @@ def quiesce_leftover_main_windows():
     見える。
 
     ここで外すのはフィルターとタイマーだけで、窓そのものは破棄しない
-    （``_quiesce_leftover_main_windows`` のコメントを参照）。
+    （``_quiesce_leftover_main_windows`` のコメントを参照）。代わりに、
+    もう使われない窓が抱えている画像を手放す
+    （``_release_quarantined_window_payloads``）。
     """
     _quiesce_leftover_main_windows()
     yield
     _quiesce_leftover_main_windows()
+    _release_quarantined_window_payloads()
 
 
 def _live_main_windows():
@@ -186,3 +189,40 @@ def _quiesce_leftover_main_windows():
     # close() の最中にテスト側が deleteLater() を積み直していることがある。
     for window in windows:
         QCoreApplication.removePostedEvents(window, QEvent.Type.DeferredDelete)
+
+
+def _release_quarantined_window_payloads():
+    """隔離した窓が抱えている画像を手放す。
+
+    窓そのものは破棄できない（QtAds が壊れる）が、重いのは窓の C++ 実体では
+    なくドキュメントの画像である。1 件ごとにフレームの QImage と Undo/Redo
+    スタック、各種キャッシュが積み上がり、Linux で全件実行すると常駐メモリが
+    2 分で 6GB を超え、まだ増え続けることを確認した。これではランナーの
+    メモリ上限次第で OOM に変わるだけなので、上限を設ける。
+
+    ここは窓が完全に隔離されたあと――pytest-qt の close() も、テストごとの
+    フィクスチャの後始末も終わったあと――でしか呼ばない。e2e の ``app``
+    フィクスチャはファイナライザーで ``window.project`` に触るので、teardown
+    フックの時点で画像を捨ててはいけない。
+    """
+    for window in _live_main_windows():
+        if getattr(window, "_pma_test_payload_released", False):
+            continue
+        window._pma_test_payload_released = True
+        canvas = getattr(window, "canvas", None)
+        if canvas is None:
+            continue
+        # 画像を持っているものを落とす。例外は握りつぶさない: ここで失敗したら
+        # 後始末の前提が崩れているので、見えるようにしておく。
+        canvas.undo_stack.clear()
+        canvas.redo_stack.clear()
+        canvas.stroke_before = None
+        canvas._stroke_before_tiles = None
+        for name in (
+            "_playback_frame_cache", "_color_filter_cache", "_color_index_cache",
+            "_silhouette_cache", "_view_preview_cache", "_onion_cache",
+        ):
+            cache = getattr(canvas, name, None)
+            if cache is not None:
+                cache.clear()
+        canvas.frames = []
