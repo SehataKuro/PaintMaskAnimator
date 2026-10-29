@@ -29,6 +29,8 @@ import math
 
 import numpy as np
 
+from . import native
+
 #: Subsample probes per axis.  4 -> 16 probes per output pixel, which resolves
 #: coverage in 1/16 steps: enough to place a 50% boundary within a pixel.
 DEFAULT_SUBSAMPLES = 4
@@ -104,10 +106,10 @@ class QuadMapper:
         matrix = self.matrix
 
         def combine(row):
-            along_x = (matrix[row, 0] * probe_x).astype(np.float32)
-            along_y = (matrix[row, 1] * probe_y + matrix[row, 2]).astype(
-                np.float32
-            )
+            # Kept in float64: this path is the reference the Rust renderer is
+            # checked against, so probe positions must not round differently.
+            along_x = matrix[row, 0] * probe_x
+            along_y = matrix[row, 1] * probe_y + matrix[row, 2]
             return along_x[None, :] + along_y[:, None]
 
         source_x = combine(0)
@@ -401,7 +403,7 @@ def _splat_label(label_image, mapper, label, out_width, out_height):
     return hit
 
 
-def render_labels(
+def render_labels_numpy(
     label_image,
     mapper,
     out_width,
@@ -476,9 +478,22 @@ def render_labels(
     if progress is not None:
         progress(band_count, band_count)
 
-    # Only a shrink can thin a line below one pixel.  At 1:1 or larger the
-    # coverage result is already complete, and splatting there would only pad
-    # the edge of lines that are perfectly fine.
+    _protect_lines(
+        result, coverage, label_image, mapper, protect_labels,
+        out_width, out_height,
+    )
+    return result, coverage
+
+
+def _protect_lines(
+    result, coverage, label_image, mapper, protect_labels, out_width, out_height
+):
+    """Union the forward-mapped source pixels of ``protect_labels`` into ``result``.
+
+    Only a shrink can thin a line below one pixel.  At 1:1 or larger the
+    coverage result is already complete, and splatting there would only pad the
+    edge of lines that are perfectly fine.
+    """
     shrinking = protect_labels and _area_scale(
         mapper, label_image.shape[1], label_image.shape[0]
     ) < 0.999
@@ -494,6 +509,53 @@ def render_labels(
             # cannot drop the pixels that keep the line connected.
             buffer[hit] = 255
 
+
+def render_labels(
+    label_image,
+    mapper,
+    out_width,
+    out_height,
+    *,
+    subsamples=DEFAULT_SUBSAMPLES,
+    coverage_labels=(),
+    protect_labels=(),
+    band_rows=DEFAULT_BAND_ROWS,
+    progress=None,
+):
+    """Transform ``label_image`` through ``mapper``; see :func:`render_labels_numpy`.
+
+    Both mappers are resolved by the Rust renderer.  The planar quad (scale /
+    rotate / free) maps probes straight from the 3x3 inverse matrix, so no band
+    of probe coordinates is ever held in memory; the mesh is rasterized
+    triangle by triangle into one band of probe *labels*, which is a quarter of
+    what the coordinates alone would take.  :func:`render_labels_numpy` stays as
+    the reference the two are checked against.
+    """
+    label_image = np.ascontiguousarray(label_image, dtype=np.uint16)
+    out_width = max(1, int(out_width))
+    out_height = max(1, int(out_height))
+    subsamples = max(1, int(subsamples))
+    # The renderer resolves the whole raster in one call, so progress can only
+    # report the step as a whole.
+    if progress is not None:
+        progress(0, 1)
+    if isinstance(mapper, QuadMapper):
+        result, coverage = native.render_quad_labels(
+            label_image, mapper.matrix, out_width, out_height,
+            subsamples, coverage_labels,
+        )
+    else:
+        result, coverage = native.render_mesh_labels(
+            label_image, mapper.points, mapper.dense_cols, mapper.dense_rows,
+            out_width, out_height, subsamples, max(1, int(band_rows)),
+            coverage_labels,
+        )
+    if progress is not None:
+        progress(1, 1)
+    _protect_lines(
+        result, coverage, label_image, mapper, protect_labels,
+        out_width, out_height,
+    )
     return result, coverage
 
 

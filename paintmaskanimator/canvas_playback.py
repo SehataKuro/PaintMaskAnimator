@@ -92,6 +92,8 @@ class PlaybackMixin(CanvasMembers):
             bool(self.flip_horizontal),
             bool(getattr(self, "flip_vertical", False)),
             bool(self.silhouette_non_background),
+            # 比較表示の有無で中身が変わるので、今の絵のコマを使い回さない。
+            bool(self.show_initial_state),
             self.view_preview.key(),
         )
         cached = self._playback_frame_cache.get(cache_key)
@@ -144,7 +146,7 @@ class PlaybackMixin(CanvasMembers):
 
             draw_image = self.view_layer_image(
                 layer, layer_index,
-                self._display_layer_image(layer, layer_index),
+                self._layer_display_source(layer, layer_index),
             )
             if self.flip_horizontal or getattr(self, "flip_vertical", False):
                 draw_image = draw_image.mirrored(

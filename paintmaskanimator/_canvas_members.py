@@ -84,6 +84,7 @@ class CanvasMembers(_MembersBase):
         _current_stroke_color: Any
         _curved_mesh_points: Any
         _display_layer_image: Any
+        _layer_display_source: Any
         _document: Document
         _draw_onion_range: Any
         _draw_stabilized_brush_to: Any
@@ -427,6 +428,7 @@ class CanvasMembers(_MembersBase):
         view_layer_image: Any
         view_preview: Any
         silhouette_non_background: Any
+        show_initial_state: Any
         stroke_before: Any
         sub_color: Any
         sync_numbered_image_from_cell: Any

@@ -182,7 +182,17 @@ def label_regions_numpy(codes, valid) -> Tuple[np.ndarray, int]:
 
 
 def region_neighbors(labels, count, gap=MAP_NEIGHBOR_GAP):
-    """``gap`` px 以内に接する領域の組 ``(a, b)``（a < b）の配列。"""
+    """``gap`` px 以内に接する領域の組 ``(a, b)``（a < b）の配列。
+
+    numpy 版は向きと距離の組み合わせごとに画像全体を比べる（既定で16回）ので、
+    ここは Rust で数える。:func:`region_neighbors_numpy` は突き合わせ用。
+    """
+    del count  # Rust 版は番号の数を使わない（組をそのまま集める）。
+    return native.region_neighbors(labels, gap)
+
+
+def region_neighbors_numpy(labels, count, gap=MAP_NEIGHBOR_GAP):
+    """:func:`region_neighbors` の numpy 版（参照実装）。"""
     pairs = []
     height, width = labels.shape
     for distance in range(1, max(1, int(gap)) + 1):
@@ -280,11 +290,12 @@ def map_color_pixels(pixels, gap=MAP_NEIGHBOR_GAP, palette=MAP_PALETTE, color_ma
     if color_mapping is not None:
         # 割り当て済みの RGB は領域の形や面積によらず同じ表示色。
         # 描画中も連結成分・隣接関係を毎回計算せず、最新の画素へ適用する。
-        unique_codes, inverse = np.unique(codes[valid], return_inverse=True)
-        if all(int(code) in color_mapping for code in unique_codes):
-            table = np.asarray(palette, dtype=np.uint8)
-            mapped = np.asarray([color_mapping[int(code)] for code in unique_codes])
-            pixels[valid, :3] = table[mapped[inverse]]
+        # 色を集計せずに済むよう、1 画素ずつの引き当ては Rust で行う。
+        mapped = native.map_known_colors(
+            pixels, palette, color_mapping, MAP_LINE_MAX
+        )
+        if mapped is not None:
+            pixels[:] = mapped
             return pixels
     labels, count = label_regions(codes, valid)
     areas = np.bincount(labels.reshape(-1), minlength=count + 1)
@@ -339,5 +350,7 @@ __all__ = [
     "exposure_lut",
     "label_regions",
     "label_regions_numpy",
+    "region_neighbors",
+    "region_neighbors_numpy",
     "map_color_pixels",
 ]
