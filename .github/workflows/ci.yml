@@ -119,8 +119,10 @@ jobs:
 
       - uses: ./.github/actions/static-checks
 
-      # The README release badges are static (private repo -> shields.io cannot
-      # read the version), so check they still match pyproject.
+      # The README release badges are hard-coded rather than live shields, so
+      # they silently drift a release behind; this keeps them matching
+      # pyproject. (They date from when the repository was private and
+      # shields.io could not read it -- they could now be made dynamic.)
       - name: Check README version badges
         run: python scripts/check_version.py
 
@@ -207,16 +209,20 @@ jobs:
           # are now distributed from GitHub Releases only.
           rsync -a --delete \
             generated-site/ website/public/paintmaskanimator/
-          # Cloudflare Pages Function: Basic-auth over the whole path. The
-          # R2-backed installer route is gone along with the downloads.
-          rm -rf website/functions/paintmaskanimator/downloads
-          mkdir -p website/functions/paintmaskanimator
-          cp source/deploy/jokomanato/functions/paintmaskanimator/_middleware.js \
-            website/functions/paintmaskanimator/_middleware.js
+          # The whole path used to sit behind a Basic-auth Pages Function
+          # (plus an R2-backed installer route). The repository is public, so
+          # the feature map and the coverage report -- both generated from it --
+          # have nothing left to protect, and releases come from GitHub
+          # Releases. Remove the Function so the pages open directly.
+          rm -rf website/functions/paintmaskanimator
           cd website
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A public/paintmaskanimator functions/paintmaskanimator
+          git add -A public/paintmaskanimator
+          # Stages the removal of the auth Function the first time, and
+          # is a no-op afterwards. A pathspec matching nothing tracked
+          # would make `git add` fail, so this one tolerates it.
+          git add -A functions || true
           if git diff --cached --quiet; then
             echo "Feature map is already up to date."
             exit 0
