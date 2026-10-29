@@ -65,6 +65,16 @@ def label_regions(codes: bytes, width: int, height: int) -> tuple[bytes, int]:
     番号は各領域の最初の画素（行優先）が現れた順。``(番号, 領域の数)`` を返す。
     """
 def unique_colors(pixels: bytes, limit: int) -> list[int]: ...
+def render_quad_labels(
+    labels: bytes, source_width: int, source_height: int, matrix: list[float],
+    out_width: int, out_height: int, subsamples: int, coverage_labels: list[int],
+) -> tuple[bytes, list[bytes]]:
+    """平面四角形の逆写像で番号の画像（uint16 の並び）を変形する。
+
+    ``matrix`` は出力座標から元座標への 3x3 を行優先で並べた 9 個。番号と、
+    ``coverage_labels`` ごとの被覆（0-255 の並び）を返す。
+    """
+
 def resolve_exposures(states: bytes, exposures: bytes, frames: int, layers: int) -> bytes: ...
 def filter_palette(rgba: bytes, visible: list[tuple[int, int, int]] | None,
                    legacy: tuple[int, int, int] | None,

@@ -223,3 +223,83 @@ def test_perspective_quad_still_maps_its_corners():
     # The rendered shape stays inside the requested quad's bounding box.
     assert filled[:, 0].max() <= 58
     assert filled[:, 1].max() <= 60
+
+
+def random_label_image(rng, width, height, colors=5):
+    """Flat artwork: a few wide regions rather than per-pixel noise."""
+    image = np.zeros((height, width), dtype=np.uint16)
+    for label in range(1, colors + 1):
+        x0 = int(rng.integers(0, width))
+        y0 = int(rng.integers(0, height))
+        x1 = min(width, x0 + int(rng.integers(1, width)))
+        y1 = min(height, y0 + int(rng.integers(1, height)))
+        image[y0:y1, x0:x1] = label
+    return image
+
+
+@pytest.mark.parametrize("degrees", [0.0, 7.5, 45.0, 90.0, 183.0])
+@pytest.mark.parametrize("scale", [0.4, 1.0, 2.3])
+def test_quad_render_matches_numpy(degrees, scale):
+    rng = np.random.default_rng(int(degrees * 10) + int(scale * 100))
+    width, height = 37, 23
+    image = random_label_image(rng, width, height)
+    quad = rotation_quad(width, height, degrees, width, height, scale)
+    mapper = mask_transform.QuadMapper(quad, width, height)
+    out_width, out_height = 61, 47
+    coverage_labels = (1, 3)
+    expected, expected_coverage = mask_transform.render_labels_numpy(
+        image, mapper, out_width, out_height,
+        coverage_labels=coverage_labels, band_rows=8,
+    )
+    actual, actual_coverage = mask_transform.render_labels(
+        image, mapper, out_width, out_height, coverage_labels=coverage_labels,
+    )
+    assert actual.dtype == np.uint16
+    np.testing.assert_array_equal(actual, expected)
+    assert sorted(actual_coverage) == sorted(expected_coverage)
+    for label, plane in expected_coverage.items():
+        np.testing.assert_array_equal(actual_coverage[label], plane)
+
+
+@pytest.mark.parametrize("subsamples", [1, 2, 4, 6])
+def test_quad_render_matches_numpy_at_every_subsample_rate(subsamples):
+    rng = np.random.default_rng(subsamples)
+    image = random_label_image(rng, 29, 31)
+    # A perspective quad, so the projective divisor is exercised too.
+    quad = [(2.0, 1.0), (40.0, 6.0), (33.0, 38.0), (-3.0, 27.0)]
+    mapper = mask_transform.QuadMapper(quad, 29, 31)
+    expected, _coverage = mask_transform.render_labels_numpy(
+        image, mapper, 44, 40, subsamples=subsamples, band_rows=7,
+    )
+    actual, _actual_coverage = mask_transform.render_labels(
+        image, mapper, 44, 40, subsamples=subsamples,
+    )
+    np.testing.assert_array_equal(actual, expected)
+
+
+def test_quad_render_keeps_protected_lines_connected():
+    image = np.zeros((40, 40), dtype=np.uint16)
+    image[20, :] = 1  # a one-pixel line that a strong shrink would dissolve
+    quad = rotation_quad(40, 40, 0.0, 20, 20, 0.2)
+    mapper = mask_transform.QuadMapper(quad, 40, 40)
+    labels, coverage = mask_transform.render_labels(
+        image, mapper, 40, 40, coverage_labels=(1,), protect_labels=(1,),
+    )
+    rows = np.flatnonzero((labels == 1).any(axis=1))
+    assert rows.size == 1
+    row = labels[rows[0]] == 1
+    assert connected_components(row[None, :]) == 1
+    assert coverage[1][rows[0]][row].min() == 255
+
+
+def test_quad_render_reports_progress_once():
+    image = np.ones((8, 8), dtype=np.uint16)
+    mapper = mask_transform.QuadMapper(
+        rotation_quad(8, 8, 0.0, 4, 4), 8, 8
+    )
+    seen = []
+    mask_transform.render_labels(
+        image, mapper, 8, 8, progress=lambda done, total: seen.append((done, total))
+    )
+    assert seen[0][0] == 0
+    assert seen[-1][0] == seen[-1][1]

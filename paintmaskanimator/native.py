@@ -15,6 +15,7 @@ REQUIRED_API = (
     "TimelineCell", "resolve_timeline", "ClipAnimationReader", "GuideSampler",
     "resolve_exposures", "tint_onion", "unique_colors", "filter_palette",
     "line_flow_scores", "connect_runs", "label_runs", "refine_face", "thin",
+    "render_quad_labels",
     "flood_fill", "dilate", "erode", "label_regions",
 )
 REBUILD_MESSAGE = (
@@ -236,3 +237,26 @@ def label_regions(codes):
     )
     labels = np.frombuffer(data, dtype=np.uint32).reshape(height, width)
     return labels.astype(np.int32), int(count)
+
+
+def render_quad_labels(label_image, matrix, out_width, out_height, subsamples, coverage_labels):
+    """平面四角形の逆写像で番号の画像を変形する。
+
+    :param label_image: uint16 の2次元配列。0 は「何もない」。
+    :param matrix: 出力座標から元座標への 3x3（逆写像）。
+    :param coverage_labels: 被覆（0-255）も返す番号の並び。
+    :returns: ``(uint16 の番号, 番号 -> uint8 の被覆)``。
+    """
+    height, width = label_image.shape
+    labels = np.ascontiguousarray(label_image, dtype=np.uint16)
+    coverage_labels = [int(label) for label in coverage_labels]
+    data, coverage = _native.render_quad_labels(
+        labels.tobytes(), width, height,
+        [float(value) for value in np.asarray(matrix, dtype=np.float64).reshape(9)],
+        int(out_width), int(out_height), int(subsamples), coverage_labels,
+    )
+    result = np.frombuffer(data, dtype=np.uint16).reshape(out_height, out_width)
+    return result.copy(), {
+        label: np.frombuffer(plane, dtype=np.uint8).reshape(out_height, out_width).copy()
+        for label, plane in zip(coverage_labels, coverage)
+    }
