@@ -12,16 +12,21 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build-windows:
     runs-on: windows-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/setup-build-env
         with:
-          python-version: "3.11"
-          cache: pip
+          extra-pip: Pillow psd-tools
 
       - name: Determine version
         id: ver
@@ -33,37 +38,12 @@ jobs:
             echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
-          pip install Pillow psd-tools
-
-      # Rust の部品（native/）をビルドして入れる。配布物では必ず使うので、
-      # 入らなければここで止める（無くても動くが、遅い numpy 版になる）。
-      - name: Build native module (Rust)
-        run: |
-          cargo update --manifest-path native/Cargo.toml -p clipfile
-          pip install ./native
-          python -c "from paintmaskanimator import native; print('pma_native', native._native.__version__)"
-
       - name: Validate release version
         run: python scripts/check_version.py "${{ steps.ver.outputs.version }}"
 
-      - name: Lint and type check
-        run: |
-          ruff check paintmaskanimator tests scripts
-          pyright
-
-      - name: Check translation catalogues are current
-        run: python scripts/update_translations.py --check
-
-      - name: Compile translation catalogues
-        run: python scripts/update_translations.py
+      - uses: ./.github/actions/static-checks
 
       - name: Run tests
-        env:
-          QT_QPA_PLATFORM: offscreen
         run: python scripts/run_tests.py -q
 
       - name: Build exe (PyInstaller)
@@ -94,13 +74,14 @@ jobs:
 
   build-macos:
     runs-on: macos-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/setup-build-env
         with:
-          python-version: "3.11"
-          cache: pip
+          extra-pip: Pillow psd-tools
 
       - name: Determine version
         id: ver
@@ -112,37 +93,12 @@ jobs:
             echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
-          pip install Pillow psd-tools
-
-      # Rust の部品（native/）をビルドして入れる。配布物では必ず使うので、
-      # 入らなければここで止める（無くても動くが、遅い numpy 版になる）。
-      - name: Build native module (Rust)
-        run: |
-          cargo update --manifest-path native/Cargo.toml -p clipfile
-          pip install ./native
-          python -c "from paintmaskanimator import native; print('pma_native', native._native.__version__)"
-
       - name: Validate release version
         run: python scripts/check_version.py "${{ steps.ver.outputs.version }}"
 
-      - name: Lint and type check
-        run: |
-          ruff check paintmaskanimator tests scripts
-          pyright
-
-      - name: Check translation catalogues are current
-        run: python scripts/update_translations.py --check
-
-      - name: Compile translation catalogues
-        run: python scripts/update_translations.py
+      - uses: ./.github/actions/static-checks
 
       - name: Run tests
-        env:
-          QT_QPA_PLATFORM: offscreen
         run: python scripts/run_tests.py -q
 
       - name: Build app (PyInstaller)
@@ -165,9 +121,6 @@ jobs:
         with:
           name: PaintMaskAnimator-${{ steps.ver.outputs.version }}-macOS
           path: PaintMaskAnimator-${{ steps.ver.outputs.version }}-macOS.dmg
-          # Only a hand-off to publish-release, which attaches the file to the
-          # GitHub Release. Kept longer, every release's installers pile up
-          # against the Actions storage quota and a later upload fails.
           retention-days: 1
 
   publish-release:

@@ -17,7 +17,10 @@ pub struct TimelineCell {
 impl TimelineCell {
     #[new]
     fn new() -> Self {
-        Self { exposure: 1, ..Self::default() }
+        Self {
+            exposure: 1,
+            ..Self::default()
+        }
     }
 }
 
@@ -47,15 +50,21 @@ pub fn resolve(rows: &[Vec<TimelineCell>]) -> (usize, Vec<i64>) {
 
 #[pyfunction]
 pub fn resolve_timeline<'py>(
-    py: Python<'py>, rows: Vec<Vec<Py<TimelineCell>>>,
+    py: Python<'py>,
+    rows: Vec<Vec<Py<TimelineCell>>>,
 ) -> Bound<'py, PyBytes> {
     // Snapshot under the GIL, then resolve without Python access. Layer objects
     // remain the sole owners of mutable metadata; this is only a read snapshot.
-    let rows: Vec<Vec<_>> = rows.iter().map(|row| {
-        row.iter().map(|cell| cell.borrow(py).clone()).collect()
-    }).collect();
+    let rows: Vec<Vec<_>> = rows
+        .iter()
+        .map(|row| row.iter().map(|cell| cell.borrow(py).clone()).collect())
+        .collect();
     let bytes = py.detach(|| {
-        resolve(&rows).1.iter().flat_map(|key| key.to_ne_bytes()).collect::<Vec<_>>()
+        resolve(&rows)
+            .1
+            .iter()
+            .flat_map(|key| key.to_ne_bytes())
+            .collect::<Vec<_>>()
     });
     PyBytes::new(py, &bytes)
 }
@@ -67,17 +76,25 @@ mod tests {
     #[test]
     fn blank_missing_and_overlapping_cells() {
         let content = |exposure| TimelineCell {
-            has_content: true, exposure, ..TimelineCell::default()
+            has_content: true,
+            exposure,
+            ..TimelineCell::default()
         };
         let rows = vec![
             vec![content(9), content(0)],
             vec![],
-            vec![TimelineCell { is_blank_key: true, ..TimelineCell::default() }],
+            vec![TimelineCell {
+                is_blank_key: true,
+                ..TimelineCell::default()
+            }],
             vec![content(2)],
             vec![content(1)],
             vec![],
         ];
-        assert_eq!(resolve(&rows), (2, vec![0, 0, 0, -1, -1, -1, 3, -1, 4, -1, -1, -1]));
+        assert_eq!(
+            resolve(&rows),
+            (2, vec![0, 0, 0, -1, -1, -1, 3, -1, 4, -1, -1, -1])
+        );
         assert_eq!(resolve(&[]), (0, vec![]));
     }
 }

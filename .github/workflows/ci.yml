@@ -1,18 +1,80 @@
 name: CI
 
 on:
+  # Only main on push: a branch with an open PR would otherwise run the whole
+  # workflow twice for the same commit (once as `push`, once as `pull_request`),
+  # and the two runs are different refs, so `concurrency` cannot collapse them.
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# Superseded commits on the same branch/PR stop immediately instead of holding
+# a runner. main is excluded so every landed commit keeps a complete run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
+  # The native extension's own test suite. Previously nothing in CI ran it, so
+  # Rust-side logic bugs reached main as long as the crate compiled.
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # cargo test/clippy build pyo3 *without* the extension-module feature
+      # (maturin only sets it for the wheel), so the crate links against
+      # libpython and needs a real interpreter present.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+          shared-key: native-check
+
+      - name: Check formatting (rustfmt)
+        working-directory: native
+        run: cargo fmt --all --check
+
+      - name: Lint (clippy)
+        working-directory: native
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Run tests
+        working-directory: native
+        run: cargo test --all-features
+
+  # The Explorer thumbnail handler is Windows-only (windows-rs) and is built
+  # only by release.yml, so without this job a break in it surfaces for the
+  # first time while cutting a release.
+  rust-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packaging/windows/pman_thumbnail
+          shared-key: thumbnail
+
+      - name: Check formatting (rustfmt)
+        working-directory: packaging/windows/pman_thumbnail
+        run: cargo fmt --all --check
+
+      - name: Lint (clippy)
+        working-directory: packaging/windows/pman_thumbnail
+        run: cargo clippy --all-targets -- -D warnings
+
   # Portability gate: the declared floor (3.10) and ceiling (3.12) of
-  # requires-python, plus Windows — the primary distribution target, where
-  # path handling and APPDATA-backed config would otherwise go unexercised.
+  # requires-python, plus the two desktop platforms we ship installers for.
+  # macOS is here because release.yml builds a .dmg; without it the first
+  # macOS run of the code is the release build itself.
   # Lint/typecheck/coverage/site generation stay in the `test` job below so
   # this one only answers "does it run there?".
   portability:
@@ -26,6 +88,8 @@ jobs:
             python-version: "3.12"
           - os: windows-latest
             python-version: "3.11"
+          - os: macos-latest
+            python-version: "3.11"
     runs-on: ${{ matrix.os }}
     env:
       QT_QPA_PLATFORM: offscreen
@@ -33,29 +97,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/setup-build-env
         with:
           python-version: ${{ matrix.python-version }}
-          cache: pip
-
-      - name: Install Qt runtime libraries
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libegl1 libgl1 libxkbcommon0 libdbus-1-3 \
-            libglib2.0-0 libfontconfig1 libfreetype6
-
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
-
-      - name: Build native module (Rust)
-        run: |
-          cargo update --manifest-path native/Cargo.toml -p clipfile
-          pip install ./native
-          python -c "from paintmaskanimator import native"
 
       - name: Compile translation catalogues
         run: python scripts/update_translations.py
@@ -71,49 +115,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
+      - uses: ./.github/actions/setup-build-env
 
-      # System libraries PySide6 needs even in offscreen mode.
-      - name: Install Qt runtime libraries
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libegl1 libgl1 libxkbcommon0 libdbus-1-3 \
-            libglib2.0-0 libfontconfig1 libfreetype6
-
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
-
-      - name: Build native module (Rust)
-        run: |
-          cargo update --manifest-path native/Cargo.toml -p clipfile
-          pip install ./native
-          python -c "from paintmaskanimator import native"
-
-      - name: Lint (ruff)
-        run: ruff check paintmaskanimator tests scripts
+      - uses: ./.github/actions/static-checks
 
       # The README release badges are static (private repo -> shields.io cannot
       # read the version), so check they still match pyproject.
       - name: Check README version badges
         run: python scripts/check_version.py
-
-      - name: Type check (pyright)
-        run: pyright
-
-      # A newly wrapped tr() string must land with its catalogue entry, or the
-      # translation simply never appears -- silently, since an unresolved lookup
-      # returns the Japanese source string.
-      - name: Check translation catalogues are current
-        run: python scripts/update_translations.py --check
-
-      - name: Compile translation catalogues
-        run: python scripts/update_translations.py
 
       - name: Run tests
         run: >
@@ -121,6 +130,12 @@ jobs:
           --cov=paintmaskanimator --cov-report=term-missing --cov-report=xml
           --cov-report=json:progress-site/.coverage-map.json
           --cov-report=html:coverage-html
+
+      # coverage.xml used to be uploaded as an artifact nothing ever read.
+      # The number is worth seeing on the run itself instead.
+      - name: Report coverage
+        if: always()
+        run: python scripts/coverage_summary.py coverage.xml
 
       - uses: actions/setup-node@v4
         with:
@@ -154,18 +169,9 @@ jobs:
           # Only a hand-off to publish-feature-map; see release.yml.
           retention-days: 1
 
-      - name: Upload coverage report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-xml
-          path: coverage.xml
-          if-no-files-found: ignore
-          retention-days: 7
-
   publish-feature-map:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [test, portability]
+    needs: [test, portability, rust, rust-windows]
     runs-on: ubuntu-latest
     concurrency:
       group: publish-feature-map
