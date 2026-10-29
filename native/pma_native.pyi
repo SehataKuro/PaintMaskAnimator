@@ -65,6 +65,16 @@ def label_regions(codes: bytes, width: int, height: int) -> tuple[bytes, int]:
     番号は各領域の最初の画素（行優先）が現れた順。``(番号, 領域の数)`` を返す。
     """
 def unique_colors(pixels: bytes, limit: int) -> list[int]: ...
+def surface_guided_palette_labels(
+    rgb: bytes, width: int, height: int, visible: bytes, palette: bytes,
+    spatial_refinement: bool,
+) -> bytes:
+    """画素ごとに、割り当てるパレットの番号（int16 の並び、未確定は -1）を決める。
+
+    ``rgb`` は 1 画素 3 バイト、``visible`` は 1 画素 1 バイト、``palette`` は
+    1 色 3 バイトの並び。``spatial_refinement`` が偽なら最近傍の色だけを返す。
+    """
+
 def render_quad_labels(
     labels: bytes, source_width: int, source_height: int, matrix: list[float],
     out_width: int, out_height: int, subsamples: int, coverage_labels: list[int],

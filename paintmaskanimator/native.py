@@ -16,6 +16,7 @@ REQUIRED_API = (
     "resolve_exposures", "tint_onion", "unique_colors", "filter_palette",
     "line_flow_scores", "connect_runs", "label_runs", "refine_face", "thin",
     "render_quad_labels", "render_mesh_labels",
+    "surface_guided_palette_labels",
     "flood_fill", "dilate", "erode", "label_regions",
 )
 REBUILD_MESSAGE = (
@@ -287,3 +288,22 @@ def render_mesh_labels(
         label: np.frombuffer(plane, dtype=np.uint8).reshape(out_height, out_width).copy()
         for label, plane in zip(coverage_labels, coverage)
     }
+
+
+def surface_guided_palette_labels(rgb, visible, palette, spatial_refinement=True):
+    """画素ごとに割り当てるパレットの番号を決める（色面を種に境界を二分する）。
+
+    :param rgb: ``(高さ, 幅, 3)`` の uint8 配列。
+    :param visible: ``(高さ, 幅)`` の真偽配列。偽の画素は -1 のまま。
+    :param palette: ``(色数, 3)`` の uint8 配列。
+    :returns: ``(高さ, 幅)`` の int16 配列。未確定は -1。
+    """
+    height, width = visible.shape
+    pixels = np.ascontiguousarray(rgb, dtype=np.uint8).reshape(height, width, 3)
+    colors = np.ascontiguousarray(palette, dtype=np.uint8).reshape(-1, 3)
+    data = _native.surface_guided_palette_labels(
+        pixels.tobytes(), width, height,
+        np.ascontiguousarray(visible, dtype=bool).tobytes(), colors.tobytes(),
+        bool(spatial_refinement),
+    )
+    return np.frombuffer(data, dtype=np.int16).reshape(height, width).copy()

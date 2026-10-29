@@ -17,6 +17,7 @@ mod display;
 mod clip;
 mod timeline;
 mod mask_transform;
+mod palette_labels;
 
 /// 4 近傍で、`seeds` からつながる `passable` の領域を求める（行ごとのランで辿る）。
 ///
@@ -334,6 +335,7 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(auto_paint::refine_face, module)?)?;
     module.add_function(wrap_pyfunction!(mask_transform::py_render_quad_labels, module)?)?;
     module.add_function(wrap_pyfunction!(mask_transform::py_render_mesh_labels, module)?)?;
+    module.add_function(wrap_pyfunction!(palette_labels::py_surface_guided_palette_labels, module)?)?;
     module.add_function(wrap_pyfunction!(py_unique_colors, module)?)?;
     module.add_function(wrap_pyfunction!(py_flood_fill, module)?)?;
     module.add_function(wrap_pyfunction!(py_dilate, module)?)?;
