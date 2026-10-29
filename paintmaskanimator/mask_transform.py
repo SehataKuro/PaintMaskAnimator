@@ -524,29 +524,32 @@ def render_labels(
 ):
     """Transform ``label_image`` through ``mapper``; see :func:`render_labels_numpy`.
 
-    The planar-quad transform (scale / rotate / free) is resolved by the Rust
-    renderer, which maps probes straight from the 3x3 inverse matrix and so
-    never holds a band of probe coordinates in memory.  The mesh transform has
-    to be rasterized triangle by triangle and still runs on NumPy.
+    Both mappers are resolved by the Rust renderer.  The planar quad (scale /
+    rotate / free) maps probes straight from the 3x3 inverse matrix, so no band
+    of probe coordinates is ever held in memory; the mesh is rasterized
+    triangle by triangle into one band of probe *labels*, which is a quarter of
+    what the coordinates alone would take.  :func:`render_labels_numpy` stays as
+    the reference the two are checked against.
     """
-    if not isinstance(mapper, QuadMapper):
-        return render_labels_numpy(
-            label_image, mapper, out_width, out_height,
-            subsamples=subsamples, coverage_labels=coverage_labels,
-            protect_labels=protect_labels, band_rows=band_rows,
-            progress=progress,
-        )
     label_image = np.ascontiguousarray(label_image, dtype=np.uint16)
     out_width = max(1, int(out_width))
     out_height = max(1, int(out_height))
+    subsamples = max(1, int(subsamples))
     # The renderer resolves the whole raster in one call, so progress can only
     # report the step as a whole.
     if progress is not None:
         progress(0, 1)
-    result, coverage = native.render_quad_labels(
-        label_image, mapper.matrix, out_width, out_height,
-        max(1, int(subsamples)), coverage_labels,
-    )
+    if isinstance(mapper, QuadMapper):
+        result, coverage = native.render_quad_labels(
+            label_image, mapper.matrix, out_width, out_height,
+            subsamples, coverage_labels,
+        )
+    else:
+        result, coverage = native.render_mesh_labels(
+            label_image, mapper.points, mapper.dense_cols, mapper.dense_rows,
+            out_width, out_height, subsamples, max(1, int(band_rows)),
+            coverage_labels,
+        )
     if progress is not None:
         progress(1, 1)
     _protect_lines(

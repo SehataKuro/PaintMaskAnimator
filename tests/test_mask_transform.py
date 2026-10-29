@@ -303,3 +303,74 @@ def test_quad_render_reports_progress_once():
     )
     assert seen[0][0] == 0
     assert seen[-1][0] == seen[-1][1]
+
+
+def curved_mesh(rng, cols, rows, width, height, wobble=3.0):
+    """A dense grid over the source, with every point nudged off the lattice."""
+    points = []
+    for grid_y in range(rows):
+        for grid_x in range(cols):
+            points.append((
+                (width - 1) * grid_x / max(1, cols - 1)
+                + float(rng.uniform(-wobble, wobble)),
+                (height - 1) * grid_y / max(1, rows - 1)
+                + float(rng.uniform(-wobble, wobble)),
+            ))
+    return points
+
+
+@pytest.mark.parametrize("cols,rows", [(2, 2), (3, 4), (5, 5)])
+def test_mesh_render_matches_numpy(cols, rows):
+    rng = np.random.default_rng(cols * 100 + rows)
+    width, height = 33, 27
+    image = random_label_image(rng, width, height)
+    mapper = mask_transform.MeshMapper(
+        curved_mesh(rng, cols, rows, width, height), cols, rows, width, height,
+    )
+    coverage_labels = (2, 4)
+    expected, expected_coverage = mask_transform.render_labels_numpy(
+        image, mapper, 40, 36, coverage_labels=coverage_labels, band_rows=64,
+    )
+    actual, actual_coverage = mask_transform.render_labels(
+        image, mapper, 40, 36, coverage_labels=coverage_labels, band_rows=64,
+    )
+    assert actual.dtype == np.uint16
+    np.testing.assert_array_equal(actual, expected)
+    for label, plane in expected_coverage.items():
+        np.testing.assert_array_equal(actual_coverage[label], plane)
+
+
+@pytest.mark.parametrize("band_rows", [1, 7, 64, 4096])
+def test_mesh_render_matches_numpy_band_for_band(band_rows):
+    rng = np.random.default_rng(band_rows)
+    width, height = 25, 21
+    image = random_label_image(rng, width, height)
+    mapper = mask_transform.MeshMapper(
+        curved_mesh(rng, 4, 3, width, height), 4, 3, width, height,
+    )
+    # The band origin enters the triangle arithmetic, so the Rust renderer has
+    # to split the output on exactly the same rows as the NumPy reference.
+    expected, _coverage = mask_transform.render_labels_numpy(
+        image, mapper, 31, 29, subsamples=2, band_rows=band_rows,
+    )
+    actual, _actual_coverage = mask_transform.render_labels(
+        image, mapper, 31, 29, subsamples=2, band_rows=band_rows,
+    )
+    np.testing.assert_array_equal(actual, expected)
+
+
+def test_mesh_render_keeps_protected_lines_connected():
+    image = np.zeros((40, 40), dtype=np.uint16)
+    image[20, :] = 1
+    # A flat 2x2 grid shrunk hard: the line falls well below one pixel.
+    mapper = mask_transform.MeshMapper(
+        [(4.0, 4.0), (12.0, 4.0), (4.0, 12.0), (12.0, 12.0)], 2, 2, 40, 40,
+    )
+    labels, coverage = mask_transform.render_labels(
+        image, mapper, 40, 40, coverage_labels=(1,), protect_labels=(1,),
+    )
+    rows = np.flatnonzero((labels == 1).any(axis=1))
+    assert rows.size >= 1
+    for row in rows:
+        assert coverage[1][row][labels[row] == 1].min() == 255
+    assert connected_components(labels == 1) == 1

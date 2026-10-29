@@ -15,7 +15,7 @@ REQUIRED_API = (
     "TimelineCell", "resolve_timeline", "ClipAnimationReader", "GuideSampler",
     "resolve_exposures", "tint_onion", "unique_colors", "filter_palette",
     "line_flow_scores", "connect_runs", "label_runs", "refine_face", "thin",
-    "render_quad_labels",
+    "render_quad_labels", "render_mesh_labels",
     "flood_fill", "dilate", "erode", "label_regions",
 )
 REBUILD_MESSAGE = (
@@ -254,6 +254,33 @@ def render_quad_labels(label_image, matrix, out_width, out_height, subsamples, c
         labels.tobytes(), width, height,
         [float(value) for value in np.asarray(matrix, dtype=np.float64).reshape(9)],
         int(out_width), int(out_height), int(subsamples), coverage_labels,
+    )
+    result = np.frombuffer(data, dtype=np.uint16).reshape(out_height, out_width)
+    return result.copy(), {
+        label: np.frombuffer(plane, dtype=np.uint8).reshape(out_height, out_width).copy()
+        for label, plane in zip(coverage_labels, coverage)
+    }
+
+
+def render_mesh_labels(
+    label_image, points, dense_cols, dense_rows, out_width, out_height,
+    subsamples, band_rows, coverage_labels,
+):
+    """曲がった格子（メッシュ変形）で番号の画像を変形する。
+
+    :param points: 出力座標の格子点 ``(x, y)`` を行優先で並べたもの。
+    :param band_rows: 一度に解く行数。使う記憶領域の上限になる。
+    :returns: ``(uint16 の番号, 番号 -> uint8 の被覆)``。
+    """
+    height, width = label_image.shape
+    labels = np.ascontiguousarray(label_image, dtype=np.uint16)
+    coverage_labels = [int(label) for label in coverage_labels]
+    grid = np.asarray(points, dtype=np.float64).reshape(-1, 2)
+    data, coverage = _native.render_mesh_labels(
+        labels.tobytes(), width, height,
+        [(float(x), float(y)) for x, y in grid],
+        int(dense_cols), int(dense_rows), int(out_width), int(out_height),
+        int(subsamples), int(band_rows), coverage_labels,
     )
     result = np.frombuffer(data, dtype=np.uint16).reshape(out_height, out_width)
     return result.copy(), {

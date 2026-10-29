@@ -75,6 +75,19 @@ def render_quad_labels(
     ``coverage_labels`` ごとの被覆（0-255 の並び）を返す。
     """
 
+def render_mesh_labels(
+    labels: bytes, source_width: int, source_height: int,
+    points: list[tuple[float, float]], dense_cols: int, dense_rows: int,
+    out_width: int, out_height: int, subsamples: int, band_rows: int,
+    coverage_labels: list[int],
+) -> tuple[bytes, list[bytes]]:
+    """曲がった格子（メッシュ変形）で番号の画像（uint16 の並び）を変形する。
+
+    ``points`` は出力座標での格子点で、``dense_cols x dense_rows`` の行優先。
+    ``band_rows`` は一度に解く行数（使う記憶領域の上限）。番号と、
+    ``coverage_labels`` ごとの被覆（0-255 の並び）を返す。
+    """
+
 def resolve_exposures(states: bytes, exposures: bytes, frames: int, layers: int) -> bytes: ...
 def filter_palette(rgba: bytes, visible: list[tuple[int, int, int]] | None,
                    legacy: tuple[int, int, int] | None,
