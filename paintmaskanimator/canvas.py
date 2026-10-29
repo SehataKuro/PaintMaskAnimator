@@ -1477,6 +1477,17 @@ class PaintCanvas(
         _bounded_cache_put(self._color_filter_cache, key, filtered, 96)
         return filtered
 
+    def _layer_display_source(self, layer, layer_index):
+        """画面に出すレイヤー画像。比較表示のときは色塗り前の初期状態。
+
+        初期状態を保持していないセルは今の絵をそのまま出す（:mod:`bucket_fill`
+        などの既存の約束と同じ）。初期状態は塗る前の線画そのものなので、
+        パレット絞り込みなどの表示フィルタは掛けない。
+        """
+        if self.show_initial_state and layer.initial_image is not None:
+            return layer.initial_image
+        return self._display_layer_image(layer, layer_index)
+
     def _display_layer_image(self, layer, layer_index):
         """パレット/シルエット等の表示フィルタを適用したレイヤー画像を返す。
 
@@ -1676,10 +1687,7 @@ class PaintCanvas(
             layer = self.frames[key_frame].layers[layer_index]
             if not layer.visible:
                 continue
-            if self.show_initial_state and layer.initial_image is not None:
-                draw_image = layer.initial_image
-            else:
-                draw_image = self._display_layer_image(layer, layer_index)
+            draw_image = self._layer_display_source(layer, layer_index)
             draw_image = self.view_layer_image(layer, layer_index, draw_image)
             if draw_image is None:
                 continue

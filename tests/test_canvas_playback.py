@@ -9,6 +9,7 @@ from PySide6.QtCore import QRectF  # noqa: E402
 from PySide6.QtGui import QColor, QImage  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+from paintmaskanimator.canvas import PaintCanvas  # noqa: E402
 from paintmaskanimator.canvas_playback import PlaybackMixin  # noqa: E402
 from paintmaskanimator.models import Layer  # noqa: E402
 from paintmaskanimator.view_preview import ViewPreview  # noqa: E402
@@ -45,6 +46,7 @@ class _Playback(PlaybackMixin):
         self.playback_range_start = 0
         self.playback_range_end = None
         self.silhouette_non_background = False
+        self.show_initial_state = False
         self.view_preview = ViewPreview()
         self._playback_active = False
         self._playback_resolved_keys = []
@@ -74,6 +76,9 @@ class _Playback(PlaybackMixin):
     def _display_layer_image(self, layer, layer_index):
         self.display_calls.append((layer, layer_index))
         return layer.image
+
+    # 比較表示の切り替えは画面側の約束なので、本物をそのまま使う。
+    _layer_display_source = PaintCanvas._layer_display_source
 
     def view_layer_image(self, layer, layer_index, image):
         return image
@@ -185,3 +190,54 @@ def test_frame_cache_evicts_oldest_entry(qapp):
     playback.playback_frame_image(0, QRectF(0, 0, 3, 1))
     assert len(playback._playback_frame_cache) == 1
     assert first_key not in playback._playback_frame_cache
+
+
+def _layer_with_initial(current="red", initial="blue"):
+    """A cell holding both the current artwork and the pre-colouring state."""
+    layer = _layer(current)
+    retained = QImage(2, 1, QImage.Format.Format_ARGB32_Premultiplied)
+    retained.fill(QColor(initial))
+    layer.initial_image = retained
+    return layer
+
+
+def test_playback_draws_the_initial_state_while_comparing(qapp):
+    playback = _Playback()
+    playback.frames = [SimpleNamespace(layers=[_layer_with_initial()])]
+    playback._playback_resolved_keys = [[0]]
+
+    current = playback.playback_frame_image(0, QRectF(0, 0, 2, 1))
+    assert current is not None
+    assert current.pixelColor(0, 0) == QColor("red")
+
+    playback.show_initial_state = True
+    compared = playback.playback_frame_image(0, QRectF(0, 0, 2, 1))
+    assert compared is not None
+    # The cache must not hand back the frame built from the current artwork.
+    assert compared is not current
+    assert compared.pixelColor(0, 0) == QColor("blue")
+
+    # Turning it off again returns the current artwork.
+    playback.show_initial_state = False
+    assert playback.playback_frame_image(0, QRectF(0, 0, 2, 1)).pixelColor(
+        0, 0
+    ) == QColor("red")
+
+
+def test_playback_falls_back_to_the_current_cell_without_an_initial_state(qapp):
+    playback = _Playback()
+    # The second cell has no retained initial state, as is normal for a cell
+    # drawn after the cut folder was imported.
+    playback.frames = [
+        SimpleNamespace(layers=[_layer_with_initial()]),
+        SimpleNamespace(layers=[_layer("green")]),
+    ]
+    playback._playback_resolved_keys = [[0], [1]]
+    playback.show_initial_state = True
+
+    assert playback.playback_frame_image(0, QRectF(0, 0, 2, 1)).pixelColor(
+        0, 0
+    ) == QColor("blue")
+    assert playback.playback_frame_image(1, QRectF(0, 0, 2, 1)).pixelColor(
+        0, 0
+    ) == QColor("green")
