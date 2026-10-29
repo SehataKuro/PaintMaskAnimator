@@ -2,7 +2,7 @@
 
 import math
 from pathlib import Path
-from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import QEvent, QObject, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (
     QColor,
     QCursor,
@@ -137,6 +137,13 @@ class SubViewWidget(QWidget):
 
     def eventFilter(self, watched, event):
         """サブビューが前面なら、子部品のフォーカスに関係なくSpaceを捕捉する。"""
+        if not isinstance(watched, QObject):
+            # PySide6 が watched を QObject ではない型（QWidgetItem など）として
+            # 渡してくることがある。そのまま QObject.eventFilter に渡すと
+            # TypeError になり、例外がイベントループの外――たまたま実行中だった
+            # 任意の Python フレーム――へ抜けて落ちる。見分けられない相手なら、
+            # フィルターせずに降りる。
+            return False
         active = (
             QApplication.activeWindow()
             if QApplication.instance() is not None

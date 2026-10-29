@@ -9,7 +9,7 @@ means the window shell no longer carries the event-loop hot path.
 import time
 from typing import Any
 
-from PySide6.QtCore import QEvent, QPoint, QPointF, QTimer, Qt
+from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, QTimer, Qt
 from PySide6.QtGui import QCursor, QKeySequence
 from PySide6.QtWidgets import QAbstractButton, QApplication, QSplitter, QTabBar, QWidget
 from ._main_window_members import MainWindowMembers
@@ -355,6 +355,10 @@ class InputMixin(MainWindowMembers):
             self.a_tl_play.trigger()
 
     def eventFilter(self, watched, event):
+        if not isinstance(watched, QObject):
+            # QObject ではない watched を super().eventFilter に渡すと TypeError に
+            # なる。理由は SubView.eventFilter のコメントを参照。
+            return False
         if (
             self._space_tap_started is not None
             and event.type() in (QEvent.Type.MouseButtonPress, QEvent.Type.Wheel)
@@ -574,7 +578,7 @@ class InputMixin(MainWindowMembers):
             return super().eventFilter(watched, event)
         if event.type() == QEvent.Type.MouseButtonRelease:
             QTimer.singleShot(0, self._sync_all_area_hamburgers)
-        if type(watched).__name__ == "QSplitterHandle":
+        if isinstance(watched, QWidget) and type(watched).__name__ == "QSplitterHandle":
             splitter = watched.parentWidget()
             area = self.tool_selector_dock.dockAreaWidget()
             if (
