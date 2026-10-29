@@ -247,6 +247,12 @@ class KeyFrameMixin(CanvasMembers):
                 return True
             return False
 
+        # Painting during playback can turn an unused/blank cell into a key.
+        # Pixel undo is captured after this conversion, so retain the timeline
+        # state separately to make the cell creation itself reversible too.
+        if self._playback_active:
+            self.push_doc_undo()
+
         current = int(self.current_frame)
         layer_index = int(self.active_layer_index)
         block = self.timeline_block_at(current, layer_index)

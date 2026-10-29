@@ -1,8 +1,8 @@
 """Brush-stroke bookkeeping for PaintCanvas.
 
 Split out of ``canvas.py`` as a mixin. Brush stamps blend directly into the
-live layer image (the display path returns ``layer.image`` unchanged), so there
-is no separate display buffer. What remains here is the stroke lifecycle: the
+live layer image. Adjacent-color preview keeps a stroke-local display image
+and updates only touched pixels. This mixin manages the stroke lifecycle: the
 per-stroke tile snapshot that backs ``LayerTilesUndo`` and the brush-runtime
 warm-up that avoids first-stroke jank. They run against a live ``PaintCanvas``.
 """
@@ -19,13 +19,22 @@ log = get_logger(__name__)
 
 class StrokeDisplayMixin(CanvasMembers):
     def _begin_opaque_brush_stroke(self):
-        """Start a stroke without allocating or copying a full-layer image."""
+        """Start tile undo tracking and, when needed, an incremental preview."""
         self._stroke_before_tiles = {}
         self._stroke_dirty_rect = QRect()
         self._stroke_undo_frame = int(self.current_frame)
         self._stroke_undo_layer = int(self.active_layer_index)
         self._stroke_prev_has_content = bool(self.active_layer.has_content)
         self._brush_blended_colors = set()
+        self._stroke_view_preview = None
+        self._stroke_view_dirty = QRect()
+        if self.view_preview.map_colors:
+            image = self._display_layer_image(self.active_layer, self.active_layer_index)
+            if image is self.active_layer.image:
+                self._stroke_view_preview = (
+                    self.active_layer, self.view_preview.key(),
+                    self.view_layer_image(self.active_layer, self.active_layer_index, image).copy(),
+                )
 
     def _stroke_before_region(self, rect):
         """Assemble a small immutable pre-stroke crop from saved tiles."""
@@ -95,6 +104,8 @@ class StrokeDisplayMixin(CanvasMembers):
             ))
         self._stroke_before_tiles = None
         self._stroke_dirty_rect = None
+        self._stroke_view_preview = None
+        self._stroke_view_dirty = QRect()
         self._brush_blended_colors = set()
 
     def warm_up_brush_runtime(self):

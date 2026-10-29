@@ -126,6 +126,44 @@ def test_label_regions_numpy_numbers_in_first_appearance_order():
 # ----------------------------------------------------------------------
 # キャンバスとバー
 # ----------------------------------------------------------------------
+def test_map_stroke_converts_only_pending_pixels(qapp, monkeypatch):
+    from PySide6.QtCore import QRect
+    from paintmaskanimator.canvas import PaintCanvas
+
+    canvas = PaintCanvas()
+    layer = canvas.active_layer
+    layer.image.fill(QColor(*NORMAL))
+    canvas.set_view_preview(map_colors=True)
+    original = canvas.view_layer_image(layer, canvas.active_layer_index, layer.image)
+    canvas._begin_opaque_brush_stroke()
+    canvas.drawing = True
+    converted = []
+    real_map = view_preview.map_color_pixels
+
+    def track(pixels, **kwargs):
+        converted.append(pixels.shape[:2])
+        return real_map(pixels, **kwargs)
+
+    monkeypatch.setattr(view_preview, "map_color_pixels", track)
+    try:
+        for x, color in [(30, QColor(*SHADOW)), (600, QColor(0, 0, 0, 0))]:
+            canvas._ensure_before_region(QRect(x, 30, 4, 4))
+            layer.image.setPixelColor(x, 30, color)
+            shown = canvas.view_layer_image(layer, canvas.active_layer_index, layer.image)
+            assert shown.pixelColor(0, 0) == original.pixelColor(0, 0)
+            if color.alpha() == 0:
+                assert shown.pixelColor(x, 30).alpha() == 0
+            else:
+                assert shown.pixelColor(x, 30) != original.pixelColor(x, 30)
+            assert canvas.view_layer_image(layer, canvas.active_layer_index, layer.image) is shown
+        assert converted == [(4, 4), (4, 4)]
+        assert original.pixelColor(600, 30).alpha() == 255
+    finally:
+        canvas.drawing = False
+        canvas._finish_opaque_brush_stroke()
+    assert canvas.view_layer_image(layer, canvas.active_layer_index, layer.image) == shown
+
+
 @pytest.fixture(scope="module")
 def qapp():
     return QApplication.instance() or QApplication([])
