@@ -8,8 +8,8 @@ A collaborator rather than a mixin -- see ``main_window_export.py`` for why.
 from typing import TYPE_CHECKING
 
 from .i18n import tr
-from PySide6.QtCore import QByteArray, QTimer
-from PySide6.QtWidgets import QInputDialog
+from PySide6.QtCore import QByteArray, QRect, QTimer
+from PySide6.QtWidgets import QApplication, QInputDialog
 
 from . import config
 
@@ -99,6 +99,7 @@ class WorkspaceController:
         )
         if state.isEmpty() or not self.window.dock_manager.restoreState(state):
             return False
+        self.clamp_floating_windows()
         if restore_geometry:
             geometry = QByteArray.fromBase64(
                 str(record.get("window_geometry", "")).encode("ascii")
@@ -109,6 +110,43 @@ class WorkspaceController:
         QTimer.singleShot(0, self.window._sync_all_area_hamburgers)
         self._changed()
         return True
+
+    @staticmethod
+    def clamped_geometry(geometry):
+        """geometry を、いま一番近い画面の作業領域に収めた矩形にする。
+
+        保存時と画面構成が変わっていると、復元した座標がどの画面にも
+        載らないことがある。そのままフロートウィンドウへ渡すと Windows が
+        勝手に別の位置へ置き直し、要求と結果が食い違ったという警告を出す。
+        """
+        screens = QApplication.screens()
+        if not screens:
+            return QRect(geometry)
+
+        def overlap(screen):
+            area = screen.availableGeometry().intersected(geometry)
+            return area.width() * area.height()
+
+        best = max(screens, key=overlap)
+        available = best.availableGeometry()
+        if overlap(best) > 0 and available.contains(geometry):
+            return QRect(geometry)
+        width = min(geometry.width(), available.width())
+        height = min(geometry.height(), available.height())
+        x = min(max(geometry.x(), available.left()), available.right() - width + 1)
+        y = min(max(geometry.y(), available.top()), available.bottom() - height + 1)
+        return QRect(x, y, width, height)
+
+    def clamp_floating_windows(self):
+        """復元したフロートパネルを、いまの画面構成の中へ押し戻す。"""
+        for floating in self.window.dock_manager.floatingWidgets():
+            try:
+                geometry = QRect(floating.geometry())
+            except RuntimeError:
+                continue
+            clamped = self.clamped_geometry(geometry)
+            if clamped != geometry:
+                floating.setGeometry(clamped)
 
     def remember_default(self, state):
         if state is not None and not state.isEmpty():
