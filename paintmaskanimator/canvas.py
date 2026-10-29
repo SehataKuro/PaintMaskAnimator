@@ -1534,10 +1534,13 @@ class PaintCanvas(
             dirty = self._stroke_view_dirty.intersected(image.rect())
             if not dirty.isEmpty():
                 patch = self.view_layer_image(layer, layer_index, image.copy(dirty))
-                painter = QPainter(result)
-                painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
-                painter.drawImage(dirty.topLeft(), patch)
-                painter.end()
+                if patch is not None:
+                    painter = QPainter(result)
+                    painter.setCompositionMode(
+                        QPainter.CompositionMode.CompositionMode_Source
+                    )
+                    painter.drawImage(dirty.topLeft(), patch)
+                    painter.end()
                 self._stroke_view_dirty = QRect()
             return result
         try:
