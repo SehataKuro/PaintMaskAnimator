@@ -26,15 +26,13 @@ def qapp():
     return QApplication.instance() or QApplication([])
 
 
-@pytest.fixture(scope="module")
-def window(qapp):
-    # Windowsの共有テストプロセスではMainWindowを建てるほど後始末が重く
-    # なるので、読むだけの検証はひとつの窓を共有する。設定ディレクトリの
-    # 隔離は conftest.py の autouse フィクスチャが見ている。
-    original = AutosaveController.maybe_restore
-    AutosaveController.maybe_restore = lambda self: None
+@pytest.fixture
+def window(qapp, monkeypatch):
+    # conftest.py はテストごとに残った MainWindow を破棄するので、
+    # モジュールで窓を共有するとそこで死んだ C++ オブジェクトになる。
+    # 設定ディレクトリの隔離は conftest.py の autouse フィクスチャが見ている。
+    monkeypatch.setattr(AutosaveController, "maybe_restore", lambda self: None)
     main_window = MainWindow()
-    AutosaveController.maybe_restore = original
     main_window.show()
     for _ in range(5):
         qapp.processEvents()
