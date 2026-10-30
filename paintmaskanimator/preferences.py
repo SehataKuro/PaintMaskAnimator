@@ -24,6 +24,7 @@ BACKGROUND_CHECKER_COLOR_KEY = "background_checker_color"
 TIME_DISPLAY_KEY = "time_display_mode"
 TIME_DISPLAY_FRAMES = "frames"
 TIME_DISPLAY_SECONDS_FRAMES = "seconds_frames"
+SNAPSHOT_FOLDER_KEY = "snapshot_folder"
 
 
 def background_color_tool():
@@ -96,6 +97,16 @@ def autosave_enabled():
 
 def set_autosave_enabled(enabled):
     config.set_value(AUTOSAVE_ENABLED_KEY, bool(enabled))
+
+
+def snapshot_folder():
+    """キャンバスの書き出し（カメラボタン）の保存先。未設定なら空文字。"""
+    value = config.get_value(SNAPSHOT_FOLDER_KEY, "")
+    return str(value) if value else ""
+
+
+def set_snapshot_folder(path):
+    config.set_value(SNAPSHOT_FOLDER_KEY, str(path or ""))
 
 
 def keep_initial_state_on_cut_folder():

@@ -171,6 +171,20 @@ _PATHS = {
         '<circle cx="12" cy="12" r="8"/>'
         '<path d="M12 4a8 8 0 0 1 0 16Z" fill="currentColor"/>'
     ),
+    # クリップボードへ書き出す：クリップのついた板。
+    "clipboard": (
+        '<path d="M8.5 5.5H6.5a1.5 1.5 0 0 0-1.5 1.5v11.5A1.5 1.5 0 0 0 6.5 20h11'
+        'a1.5 1.5 0 0 0 1.5-1.5V7a1.5 1.5 0 0 0-1.5-1.5h-2"/>'
+        '<rect x="8.5" y="3" width="7" height="3.5" rx="1" fill="ACCENT" stroke="ACCENT"/>'
+        '<path d="M8.5 11h7M8.5 14.5h4.5"/>'
+    ),
+    # フォルダーへ書き出す：カメラ。
+    "camera": (
+        '<path d="M3.5 8.5h3.2l1.6-2.2h7.4l1.6 2.2h3.2a1 1 0 0 1 1 1v8.5a1 1 0 0 1-1 1'
+        'h-17a1 1 0 0 1-1-1V9.5a1 1 0 0 1 1-1Z"/>'
+        '<circle cx="12" cy="13.5" r="3.4" fill="ACCENT" stroke="ACCENT" opacity=".55"/>'
+        '<circle cx="12" cy="13.5" r="3.4"/>'
+    ),
     "rotate_reset": (
         '<path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3"/><path d="M4.5 4.5v4h4"/>'
     ),

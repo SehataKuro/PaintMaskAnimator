@@ -11,6 +11,7 @@ from typing import Any
 from PySide6.QtCore import QSize, QTimer, Qt
 from PySide6.QtGui import QAction, QGuiApplication, QKeySequence
 from PySide6.QtWidgets import (
+    QFrame,
     QHBoxLayout,
     QLabel,
     QMessageBox,
@@ -561,6 +562,13 @@ class UIBuildMixin(MainWindowMembers):
             window.show_and_raise()
         else:
             window.close()
+    def _save_canvas_snapshot_clicked(self):
+        """カメラボタン。Shiftを押していれば保存先を選び直してから保存する。"""
+        shift = bool(
+            QGuiApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier
+        )
+        return self.export.save_canvas_snapshot(choose_folder=shift)
+
     def _apply_canvas_bar_icons(self):
         for button, name in getattr(self, "_canvas_bar_icons", {}).items():
             button.setIcon(icons.icon(name))
@@ -647,6 +655,23 @@ class UIBuildMixin(MainWindowMembers):
         self.flip_vertical_button.setCheckable(True)
         self.flip_vertical_button.setToolTip(tr("上下反転プレビュー"))
         self.flip_vertical_button.toggled.connect(self.view_preview.set_flip_vertical)
+        # 今の絵の書き出し（クリップボード／フォルダー）。見え方のチェックとは
+        # 役割が違うので、区切りを挟んで比較ボタンの左へ置く。
+        self.copy_canvas_button=QPushButton()
+        self.copy_canvas_button.setToolTip(tr(
+            "今の絵をクリップボードへ書き出す"
+        ))
+        self.copy_canvas_button.clicked.connect(self.export.copy_canvas_to_clipboard)
+        self.save_canvas_button=QPushButton()
+        self.save_canvas_button.setToolTip(tr(
+            "今の絵をフォルダーへ書き出す（年月日時分秒のファイル名）。"
+            "Shift＋クリックで保存先を選び直す"
+        ))
+        self.save_canvas_button.clicked.connect(self._save_canvas_snapshot_clicked)
+        self.canvas_export_separator=QFrame()
+        self.canvas_export_separator.setFrameShape(QFrame.Shape.VLine)
+        self.canvas_export_separator.setFrameShadow(QFrame.Shadow.Plain)
+        self.canvas_export_separator.setFixedHeight(16)
         self.compare_initial_button=QPushButton()
         self.compare_initial_button.setCheckable(True)
         self.compare_initial_button.setToolTip(tr(
@@ -687,6 +712,7 @@ class UIBuildMixin(MainWindowMembers):
             self.flip_horizontal_button: "flip_horizontal",
             self.flip_vertical_button: "flip_vertical",
             self.map_colors_button: "map_colors", self.exposure_button: "exposure",
+            self.copy_canvas_button: "clipboard", self.save_canvas_button: "camera",
         }
         for button in self._canvas_bar_icons:
             button.setProperty("iconButton", True)
@@ -709,6 +735,8 @@ class UIBuildMixin(MainWindowMembers):
         bar.addSpacing(16)
         bar.addStretch(1)
         for w in (
+            self.copy_canvas_button, self.save_canvas_button,
+            self.canvas_export_separator,
             self.compare_initial_button, self.black_check_button,
             self.map_colors_button, self.channel_combo,
             self.exposure_button, self.exposure_control,

@@ -929,6 +929,12 @@ def test_boundary_candidate_never_targets_drag_source(
     monkeypatch.setattr(AutosaveController, "maybe_restore", lambda self: None)
     window = MainWindow()
     window.show()
+    # 画面の小さい環境（オフスクリーンは800x600）では既定の窓がアプリの最小幅を
+    # 下回り、ドック配置が押し潰されて境界の座標が変わる。境界の向きを見る
+    # テストなので、最小幅の収まる大きさにしてから測る。
+    minimum = window.central_dock.widget().minimumSizeHint()
+    window.resize(max(window.width(), minimum.width() + 320), window.height())
+    qapp.processEvents()
     try:
         dragged = window.action_panel_dock
         stationary = window.central_dock
