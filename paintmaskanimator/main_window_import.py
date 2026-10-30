@@ -148,8 +148,14 @@ class ImportController:
             archive_note = (
                 tr(" 未配置セル{len}枚は連番に保持しました。").format(len=len(self.window.canvas._sequence_archive))
             )
+        # 読み込んだ直後の絵は定義上「色塗り前」なので、尋ねずに初期状態として保持する
+        # （自動塗りの精度が上がる）。keep() 自身のステータス表示はこのあと上書きする。
+        initial_note = ""
+        kept = self.window.initial_state.keep(confirm=False)
+        if kept:
+            initial_note = tr(" {count}セルを色塗り前の初期状態として保持しました。").format(count=kept)
         self.window.statusBar().showMessage(
-            tr("CLIP STUDIOから{count}フォルダー・{count2}フレームを読み込みました。{note}{note2}").format(count=parsed.folder_count, count2=parsed.frame_count, note=archive_note, note2=fps_note),
+            tr("CLIP STUDIOから{count}フォルダー・{count2}フレームを読み込みました。{note}{note2}{note3}").format(count=parsed.folder_count, count2=parsed.frame_count, note=archive_note, note2=fps_note, note3=initial_note),
             6000,
         )
         return True

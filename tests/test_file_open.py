@@ -1,4 +1,4 @@
-"""Opening .pman files handed over by the OS (double-click)."""
+"""Opening .pman and .clip files handed over by the OS (double-click)."""
 import os
 
 import pytest
@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from paintmaskanimator.file_open import (  # noqa: E402
     ProjectFileOpener,
-    project_paths_from_argv,
+    openable_paths_from_argv,
 )
 
 
@@ -31,9 +31,19 @@ class _Project:
         self.calls.append(("open_dropped", str(path)))
 
 
+class _Importer:
+    def __init__(self):
+        self.calls = []
+
+    def clip_animation(self, path):
+        self.calls.append(("clip_animation", str(path)))
+        return True
+
+
 class _Window:
     def __init__(self, current_project_path=None):
         self.project = _Project()
+        self.importer = _Importer()
         self.current_project_path = current_project_path
 
 
@@ -41,13 +51,18 @@ def _flush():
     QCoreApplication.processEvents()
 
 
-def test_argv_keeps_only_existing_projects(tmp_path):
+def test_argv_keeps_only_existing_openable_files(tmp_path):
     project = tmp_path / "a.PMAN"
     project.write_bytes(b"")
+    clip = tmp_path / "c.Clip"
+    clip.write_bytes(b"")
     other = tmp_path / "b.png"
     other.write_bytes(b"")
-    argv = ["app", str(project), str(other), str(tmp_path / "missing.pman"), "-psn_0_1"]
-    assert project_paths_from_argv(argv) == [str(project)]
+    argv = [
+        "app", str(project), str(clip), str(other),
+        str(tmp_path / "missing.pman"), "-psn_0_1",
+    ]
+    assert openable_paths_from_argv(argv) == [str(project), str(clip)]
 
 
 def test_launch_file_opens_directly(qapp):
@@ -85,5 +100,30 @@ def test_file_while_running_asks_to_save(qapp):
         # Other file types are left for Qt / other handlers.
         assert not QCoreApplication.sendEvent(qapp, QFileOpenEvent("/x/c.png"))
         assert len(window.project.calls) == 1
+    finally:
+        qapp.removeEventFilter(opener)
+
+
+def test_launch_clip_imports_without_touching_the_project(qapp):
+    opener = ProjectFileOpener(qapp, ["/x/a.clip"])
+    try:
+        window = _Window()
+        opener.attach(window)
+        _flush()
+        assert window.importer.calls == [("clip_animation", "/x/a.clip")]
+        assert window.project.calls == []
+    finally:
+        qapp.removeEventFilter(opener)
+
+
+def test_clip_while_running_imports(qapp):
+    opener = ProjectFileOpener(qapp)
+    try:
+        window = _Window(current_project_path="/open.pman")
+        opener.attach(window)
+        _flush()
+        assert QCoreApplication.sendEvent(qapp, QFileOpenEvent("/x/b.clip"))
+        assert window.importer.calls == [("clip_animation", "/x/b.clip")]
+        assert window.project.calls == []
     finally:
         qapp.removeEventFilter(opener)

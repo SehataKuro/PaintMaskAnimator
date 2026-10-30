@@ -498,61 +498,61 @@ If you overwrite it with painted drawings, you cannot get back to the state befo
         <translation>Clears the current selection.</translation>
     </message>
     <message>
-        <location filename="../canvas.py" line="977"/>
-        <location filename="../canvas.py" line="996"/>
+        <location filename="../canvas.py" line="979"/>
+        <location filename="../canvas.py" line="998"/>
         <source>クオリティプレビューを生成しています</source>
         <translation>Generating the quality preview</translation>
     </message>
     <message>
-        <location filename="../canvas.py" line="1042"/>
+        <location filename="../canvas.py" line="1044"/>
         <source>Tp_mask 軽量プレビュー</source>
         <translation>Tp_mask lightweight preview</translation>
     </message>
     <message>
-        <location filename="../canvas.py" line="1044"/>
+        <location filename="../canvas.py" line="1046"/>
         <source>Tp_mask クオリティプレビュー</source>
         <translation>Tp_mask quality preview</translation>
     </message>
     <message>
-        <location filename="../canvas.py" line="1069"/>
+        <location filename="../canvas.py" line="1071"/>
         <source>プレビューを更新しました</source>
         <translation>Preview updated</translation>
     </message>
     <message>
-        <location filename="../canvas.py" line="1074"/>
+        <location filename="../canvas.py" line="1076"/>
         <source>クオリティプレビューを生成できませんでした: {exc}</source>
         <translation>Could not generate the quality preview: {exc}</translation>
     </message>
     <message>
-        <location filename="../canvas.py" line="1099"/>
+        <location filename="../canvas.py" line="1101"/>
         <source>クオリティ方式へ切り替えています</source>
         <translation>Switching to quality mode</translation>
     </message>
     <message>
-        <location filename="../canvas.py" line="1150"/>
+        <location filename="../canvas.py" line="1152"/>
         <source>実線の太さをプレビューへ反映しています</source>
         <translation>Applying the line width to the preview</translation>
     </message>
     <message>
-        <location filename="../canvas.py" line="1169"/>
+        <location filename="../canvas.py" line="1171"/>
         <source>実線色を反映しています</source>
         <translation>Applying the line colour</translation>
     </message>
     <message>
-        <location filename="../canvas.py" line="1952"/>
+        <location filename="../canvas.py" line="1980"/>
         <location filename="../main_window_ui_build.py" line="188"/>
         <source>ハンド</source>
         <translation>Pan</translation>
     </message>
     <message>
-        <location filename="../canvas.py" line="1953"/>
+        <location filename="../canvas.py" line="1981"/>
         <location filename="../main_window_ui_build.py" line="189"/>
         <location filename="../toolpanel.py" line="579"/>
         <source>拡大縮小</source>
         <translation>Zoom</translation>
     </message>
     <message>
-        <location filename="../canvas.py" line="1954"/>
+        <location filename="../canvas.py" line="1982"/>
         <location filename="../main_window_ui_build.py" line="190"/>
         <location filename="../main_window_ui_build.py" line="702"/>
         <location filename="../onion.py" line="643"/>
@@ -562,7 +562,7 @@ If you overwrite it with painted drawings, you cannot get back to the state befo
         <translation>Rotate</translation>
     </message>
     <message>
-        <location filename="../canvas.py" line="1955"/>
+        <location filename="../canvas.py" line="1983"/>
         <location filename="../color_picker_dialog.py" line="230"/>
         <location filename="../main_window_ui_build.py" line="191"/>
         <location filename="../toolpanel.py" line="56"/>
@@ -1193,21 +1193,21 @@ Export into this folder?</translation>
         <translation>No valid ToeiDigitalTimeSheet frames.</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="316"/>
+        <location filename="../main_window.py" line="317"/>
         <source>1枚目の色と透明度を確認できませんでした。
 {exc}</source>
         <translation>Could not inspect the colour and transparency of the first image.
 {exc}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="351"/>
+        <location filename="../main_window.py" line="352"/>
         <source>2値化の準備中にエラーが発生しました。
 {exc}</source>
         <translation>An error occurred while preparing binarisation.
 {exc}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="399"/>
+        <location filename="../main_window.py" line="400"/>
         <source>{Path}
 画像サイズを取得できませんでした。
 {exc}</source>
@@ -1216,21 +1216,21 @@ Could not read the image size.
 {exc}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="411"/>
+        <location filename="../main_window.py" line="412"/>
         <source>画像に合わせてキャンバスを {width} × {height}px に拡張しました。</source>
         <translation>Canvas expanded to {width} × {height}px to fit the image.</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="422"/>
-        <location filename="../main_window.py" line="430"/>
-        <location filename="../main_window.py" line="437"/>
+        <location filename="../main_window.py" line="423"/>
+        <location filename="../main_window.py" line="431"/>
+        <location filename="../main_window.py" line="438"/>
         <source>画像読み込み</source>
         <translation>Image import</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="423"/>
-        <location filename="../main_window.py" line="430"/>
-        <location filename="../main_window.py" line="437"/>
+        <location filename="../main_window.py" line="424"/>
+        <location filename="../main_window.py" line="431"/>
+        <location filename="../main_window.py" line="438"/>
         <source>{Path} を読み込めませんでした。
 
 {error}</source>
@@ -1239,19 +1239,19 @@ Could not read the image size.
 {error}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="451"/>
-        <location filename="../main_window.py" line="459"/>
-        <location filename="../main_window.py" line="466"/>
-        <location filename="../main_window.py" line="511"/>
+        <location filename="../main_window.py" line="452"/>
+        <location filename="../main_window.py" line="460"/>
+        <location filename="../main_window.py" line="467"/>
+        <location filename="../main_window.py" line="512"/>
         <source>連番画像読み込み</source>
         <translation>Image sequence import</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="452"/>
-        <location filename="../main_window.py" line="459"/>
-        <location filename="../main_window.py" line="512"/>
-        <location filename="../main_window.py" line="934"/>
-        <location filename="../main_window.py" line="965"/>
+        <location filename="../main_window.py" line="453"/>
+        <location filename="../main_window.py" line="460"/>
+        <location filename="../main_window.py" line="513"/>
+        <location filename="../main_window.py" line="935"/>
+        <location filename="../main_window.py" line="966"/>
         <source>画像を読み込めませんでした。
 
 {error}</source>
@@ -1260,80 +1260,80 @@ Could not read the image size.
 {error}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="468"/>
-        <location filename="../main_window.py" line="943"/>
+        <location filename="../main_window.py" line="469"/>
+        <location filename="../main_window.py" line="944"/>
         <source>画像を読み込んでいます</source>
         <translation>Loading images</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="479"/>
-        <location filename="../main_window.py" line="954"/>
+        <location filename="../main_window.py" line="480"/>
+        <location filename="../main_window.py" line="955"/>
         <source>{label}（画像 {value}/{total}）</source>
         <translation>{label} (image {value}/{total})</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="497"/>
+        <location filename="../main_window.py" line="498"/>
         <source>画像配置完了。使用色を認識しています</source>
         <translation>Images placed. Scanning used colours</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="503"/>
+        <location filename="../main_window.py" line="504"/>
         <location filename="../main_window_used_color.py" line="178"/>
         <source>使用色を認識しています</source>
         <translation>Scanning used colours</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="518"/>
+        <location filename="../main_window.py" line="519"/>
         <source>元画像へトーンカーブ適用後に2値化</source>
         <translation>binarised after applying the tone curve to the source</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="520"/>
+        <location filename="../main_window.py" line="521"/>
         <source>半透明を二値化</source>
         <translation>binarised the semi-transparent pixels</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="523"/>
+        <location filename="../main_window.py" line="524"/>
         <source>、{method}して1枚目の共通パレット{int}色を適用</source>
         <translation>, {method} and applied the {int}-colour shared palette from the first image</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="526"/>
+        <location filename="../main_window.py" line="527"/>
         <source>{len}枚の画像をタイムラインへ連番配置{note}し、使用色認識まで完了しました。</source>
         <translation>Placed {len} images along the timeline as a sequence{note}, and finished scanning used colours.</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="597"/>
+        <location filename="../main_window.py" line="598"/>
         <source>レイアウト用紙の画像を読み込めませんでした。</source>
         <translation>Could not load the layout paper image.</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="620"/>
+        <location filename="../main_window.py" line="621"/>
         <source>更新確認エラー</source>
         <translation>Update check error</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="620"/>
+        <location filename="../main_window.py" line="621"/>
         <source>不明なエラー</source>
         <translation>Unknown error</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="626"/>
+        <location filename="../main_window.py" line="627"/>
         <source>更新の確認</source>
         <translation>Check for updates</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="627"/>
+        <location filename="../main_window.py" line="628"/>
         <source>最新版を使用しています。（現在: v{VERSION}）</source>
         <translation>You are on the latest version. (current: v{VERSION})</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="636"/>
+        <location filename="../main_window.py" line="637"/>
         <source>更新あり</source>
         <translation>Update available</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="637"/>
+        <location filename="../main_window.py" line="638"/>
         <source>新しいバージョン {latest} が利用可能ですが、この環境向けの
 インストーラが見つかりませんでした。リリースページを確認してください。
 
@@ -1344,12 +1344,12 @@ Please check the releases page.
 {url}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="643"/>
+        <location filename="../main_window.py" line="644"/>
         <source>更新があります</source>
         <translation>Update available</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="644"/>
+        <location filename="../main_window.py" line="645"/>
         <source>新しいバージョン {latest} が利用可能です。
 （現在: v{VERSION}）
 
@@ -1360,22 +1360,22 @@ Please check the releases page.
 Download and install it?</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="655"/>
+        <location filename="../main_window.py" line="656"/>
         <source>更新をダウンロードしています…</source>
         <translation>Downloading the update…</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="657"/>
+        <location filename="../main_window.py" line="658"/>
         <source>更新のダウンロード</source>
         <translation>Update download</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="679"/>
+        <location filename="../main_window.py" line="680"/>
         <source>ダウンロード失敗</source>
         <translation>Download failed</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="679"/>
+        <location filename="../main_window.py" line="680"/>
         <source>更新を取得できませんでした。
 
 {error}</source>
@@ -1384,23 +1384,23 @@ Download and install it?</translation>
 {error}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="686"/>
+        <location filename="../main_window.py" line="687"/>
         <source>インストール</source>
         <translation>Install</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="687"/>
+        <location filename="../main_window.py" line="688"/>
         <source>ダウンロードが完了しました。インストーラを起動して
 アプリを終了します。よろしいですか？</source>
         <translation>The download finished. The installer will start and the application will quit. Continue?</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="703"/>
+        <location filename="../main_window.py" line="704"/>
         <source>起動失敗</source>
         <translation>Launch failed</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="703"/>
+        <location filename="../main_window.py" line="704"/>
         <source>インストーラを起動できませんでした。
 
 {error}</source>
@@ -1409,26 +1409,26 @@ Download and install it?</translation>
 {error}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="867"/>
+        <location filename="../main_window.py" line="868"/>
         <location filename="../main_window_ui_build.py" line="388"/>
         <source>画像を読み込む</source>
         <translation>Import Images</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="869"/>
-        <location filename="../main_window.py" line="920"/>
+        <location filename="../main_window.py" line="870"/>
+        <location filename="../main_window.py" line="921"/>
         <source>画像 (*.png *.jpg *.jpeg *.tga);;PNG (*.png);;JPEG (*.jpg *.jpeg);;TGA (*.tga)</source>
         <translation>Images (*.png *.jpg *.jpeg *.tga);;PNG (*.png);;JPEG (*.jpg *.jpeg);;TGA (*.tga)</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="882"/>
-        <location filename="../main_window.py" line="902"/>
+        <location filename="../main_window.py" line="883"/>
+        <location filename="../main_window.py" line="903"/>
         <location filename="../main_window_ui_build.py" line="389"/>
         <source>画像フォルダーを読み込む</source>
         <translation>Import Image Folder</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="903"/>
+        <location filename="../main_window.py" line="904"/>
         <source>選択したフォルダーに対応画像がありません。
 
 対応形式：PNG、JPEG、TGA</source>
@@ -1437,55 +1437,55 @@ Download and install it?</translation>
 Supported formats: PNG, JPEG, TGA</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="918"/>
+        <location filename="../main_window.py" line="919"/>
         <source>変換せず読み込む（下書きレイヤー）</source>
         <translation>Import unconverted (draft layer)</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="933"/>
-        <location filename="../main_window.py" line="941"/>
-        <location filename="../main_window.py" line="964"/>
+        <location filename="../main_window.py" line="934"/>
+        <location filename="../main_window.py" line="942"/>
+        <location filename="../main_window.py" line="965"/>
         <source>変換せず読み込む</source>
         <translation>Import unconverted</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="972"/>
+        <location filename="../main_window.py" line="973"/>
         <source>{len}枚を下書きレイヤーへ変換せず読み込みました。</source>
         <translation>Imported {len} images into a draft layer without conversion.</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="977"/>
+        <location filename="../main_window.py" line="978"/>
         <source>キャンバスサイズの変更</source>
         <translation>Resize Canvas</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1095"/>
+        <location filename="../main_window.py" line="1100"/>
         <source>ファイル・編集</source>
         <translation>File and Edit</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1097"/>
+        <location filename="../main_window.py" line="1102"/>
         <source>キャンバス操作</source>
         <translation>Canvas operations</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1098"/>
+        <location filename="../main_window.py" line="1103"/>
         <source>ツールコマンド</source>
         <translation>Tool commands</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1106"/>
+        <location filename="../main_window.py" line="1111"/>
         <source>PNG保存</source>
         <translation>Save PNG</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1127"/>
-        <location filename="../main_window.py" line="1131"/>
+        <location filename="../main_window.py" line="1132"/>
+        <location filename="../main_window.py" line="1136"/>
         <source>TGA保存</source>
         <translation>Save TGA</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1131"/>
+        <location filename="../main_window.py" line="1136"/>
         <source>TGAを保存できませんでした。Pillowの導入を確認してください。</source>
         <translation>Could not save the TGA. Check that Pillow is installed.</translation>
     </message>
@@ -1990,7 +1990,7 @@ Supported formats: PNG, JPEG, TGA</translation>
         <location filename="../main_window_color_interaction.py" line="223"/>
         <location filename="../main_window_color_interaction.py" line="235"/>
         <location filename="../main_window_color_interaction.py" line="259"/>
-        <location filename="../widgets.py" line="57"/>
+        <location filename="../widgets.py" line="58"/>
         <source>太さを調整</source>
         <translation>Adjust thickness</translation>
     </message>
@@ -2446,7 +2446,7 @@ Drop a used colour onto the middle of another to create a parent/child link.</tr
     <message>
         <location filename="../main_window_color_chart.py" line="272"/>
         <location filename="../main_window_time_remap.py" line="604"/>
-        <location filename="../widgets.py" line="1471"/>
+        <location filename="../widgets.py" line="1472"/>
         <source>読み込めませんでした。
 
 {exc}</source>
@@ -2510,7 +2510,7 @@ Drop a used colour onto the middle of another to create a parent/child link.</tr
         <translation>Canvas</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1096"/>
+        <location filename="../main_window.py" line="1101"/>
         <location filename="../main_window_ui_build.py" line="786"/>
         <source>ツール</source>
         <translation>Tools</translation>
@@ -2521,7 +2521,7 @@ Drop a used colour onto the middle of another to create a parent/child link.</tr
         <translation>Tool Properties</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1099"/>
+        <location filename="../main_window.py" line="1104"/>
         <location filename="../main_window_ui_build.py" line="816"/>
         <source>アクション</source>
         <translation>Actions</translation>
@@ -2552,7 +2552,7 @@ Drop a used colour onto the middle of another to create a parent/child link.</tr
         <translation>History</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1100"/>
+        <location filename="../main_window.py" line="1105"/>
         <location filename="../main_window_ui_build.py" line="892"/>
         <source>タイムライン</source>
         <translation>Timeline</translation>
@@ -2638,7 +2638,7 @@ texts and where to obtain the corresponding sources, see
     <message>
         <location filename="../color_chart.py" line="560"/>
         <location filename="../color_panel.py" line="366"/>
-        <location filename="../widgets.py" line="135"/>
+        <location filename="../widgets.py" line="136"/>
         <source>未設定</source>
         <translation>Unset</translation>
     </message>
@@ -2770,7 +2770,7 @@ Double-click: edit the name and tag colour</translation>
         <location filename="../main_window_tween.py" line="449"/>
         <location filename="../timeline.py" line="1249"/>
         <location filename="../toolpanel.py" line="578"/>
-        <location filename="../widgets.py" line="649"/>
+        <location filename="../widgets.py" line="650"/>
         <source>自由変形</source>
         <translation>Free Transform</translation>
     </message>
@@ -2919,7 +2919,7 @@ Check that Pillow is available and that the deformed area has colour.</translati
         <location filename="../main_window_tween.py" line="449"/>
         <location filename="../timeline.py" line="1250"/>
         <location filename="../toolpanel.py" line="580"/>
-        <location filename="../widgets.py" line="649"/>
+        <location filename="../widgets.py" line="650"/>
         <source>メッシュ変形</source>
         <translation>Mesh Warp</translation>
     </message>
@@ -3749,7 +3749,7 @@ Details were saved to:
     </message>
     <message>
         <location filename="../actionpanel.py" line="321"/>
-        <location filename="../subview.py" line="246"/>
+        <location filename="../subview.py" line="253"/>
         <source>読み込めません: {name}</source>
         <translation>Cannot load: {name}</translation>
     </message>
@@ -3881,7 +3881,7 @@ Details were saved to:
     </message>
     <message>
         <location filename="../canvas_image_import.py" line="49"/>
-        <location filename="../main_window_import.py" line="308"/>
+        <location filename="../main_window_import.py" line="314"/>
         <source>画像サイズが上限を超えています。
 {width} × {height}px</source>
         <translation>The image is larger than the maximum.
@@ -3946,8 +3946,8 @@ Details were saved to:
     </message>
     <message>
         <location filename="../canvas_onion_interaction.py" line="39"/>
-        <location filename="../subview.py" line="474"/>
-        <location filename="../utils.py" line="369"/>
+        <location filename="../subview.py" line="481"/>
+        <location filename="../utils.py" line="391"/>
         <source>前</source>
         <extracomment>一時ズーム（ドラッグ）で 1px 動かしたときの倍率。</extracomment>
         <translation>Previous</translation>
@@ -3955,8 +3955,8 @@ Details were saved to:
     <message>
         <location filename="../canvas_onion_interaction.py" line="39"/>
         <location filename="../cut_folder_dialog.py" line="609"/>
-        <location filename="../subview.py" line="475"/>
-        <location filename="../utils.py" line="370"/>
+        <location filename="../subview.py" line="482"/>
+        <location filename="../utils.py" line="392"/>
         <source>後</source>
         <translation>Next</translation>
     </message>
@@ -4507,11 +4507,11 @@ Line art: binarises the line work while preserving the white background and the 
         <location filename="../auto_paint_dialog.py" line="263"/>
         <location filename="../color_reduction.py" line="507"/>
         <location filename="../cut_folder_dialog.py" line="792"/>
-        <location filename="../main_window.py" line="655"/>
+        <location filename="../main_window.py" line="656"/>
         <location filename="../main_window_import.py" line="98"/>
         <location filename="../main_window_project_io.py" line="224"/>
         <location filename="../main_window_project_io.py" line="250"/>
-        <location filename="../widgets.py" line="710"/>
+        <location filename="../widgets.py" line="711"/>
         <source>キャンセル</source>
         <translation>Cancel</translation>
     </message>
@@ -4919,7 +4919,7 @@ Save the current project first?</translation>
     </message>
     <message>
         <location filename="../main_window_import.py" line="126"/>
-        <location filename="../main_window_import.py" line="181"/>
+        <location filename="../main_window_import.py" line="187"/>
         <source>読み込めませんでした。現在のドキュメントは変更されていません。
 
 {exc}</source>
@@ -4928,51 +4928,61 @@ Save the current project first?</translation>
 {exc}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="159"/>
-        <location filename="../main_window_import.py" line="167"/>
+        <location filename="../main_window_import.py" line="156"/>
+        <source> {count}セルを色塗り前の初期状態として保持しました。</source>
+        <translation> Kept {count} cels as the initial state before painting.</translation>
+    </message>
+    <message>
+        <location filename="../main_window_import.py" line="158"/>
+        <source>CLIP STUDIOから{count}フォルダー・{count2}フレームを読み込みました。{note}{note2}{note3}</source>
+        <translation>Imported {count} folders and {count2} frames from CLIP STUDIO.{note}{note2}{note3}</translation>
+    </message>
+    <message>
+        <location filename="../main_window_import.py" line="165"/>
+        <location filename="../main_window_import.py" line="173"/>
         <location filename="../main_window_ui_build.py" line="387"/>
         <source>カットフォルダーを開く</source>
         <translation>Open Cut Folder</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="170"/>
+        <location filename="../main_window_import.py" line="176"/>
         <source>カットフォルダーを読み込んでいます：{name}</source>
         <translation>Reading cut folder: {name}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="188"/>
+        <location filename="../main_window_import.py" line="194"/>
         <source>現在のキャンバスをカットフォルダーの内容で置き換えます。
 先に現在のプロジェクトを保存しますか？</source>
         <translation>The current canvas will be replaced with the contents of the cut folder.
 Save the current project first?</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="197"/>
+        <location filename="../main_window_import.py" line="203"/>
         <source>タイムシートで使われていないセル{count}枚は連番に保持しました。</source>
         <translation>{count} cels not used in the time sheet were kept as sequence cels.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="201"/>
+        <location filename="../main_window_import.py" line="207"/>
         <source>「{name}」から{count}列・{frames}フレームを読み込みました。</source>
         <translation>Loaded {count} columns and {frames} frames from “{name}”.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="224"/>
+        <location filename="../main_window_import.py" line="230"/>
         <source>タイムシート（.xdts／.tdts）が見つかりません。</source>
         <translation>No time sheet (.xdts / .tdts) was found.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="230"/>
+        <location filename="../main_window_import.py" line="236"/>
         <source>タイムシートが複数あるため「{name}」を使いました。</source>
         <translation>Several time sheets were found; used “{name}”.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="240"/>
+        <location filename="../main_window_import.py" line="246"/>
         <source>タイムシートにセルの列がありません。</source>
         <translation>The time sheet has no cel columns.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="250"/>
+        <location filename="../main_window_import.py" line="256"/>
         <location filename="../main_window_initial_state.py" line="113"/>
         <source>{name} を読み込めません。
 {error}</source>
@@ -4980,22 +4990,22 @@ Save the current project first?</translation>
 {error}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="306"/>
+        <location filename="../main_window_import.py" line="312"/>
         <source>セルの画像（PNG／TGA）が見つかりません。</source>
         <translation>No cel images (PNG / TGA) were found.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="328"/>
+        <location filename="../main_window_import.py" line="334"/>
         <source>画像が見つからないセルは空セルにしました：{cells}</source>
         <translation>Cels whose image is missing were left empty: {cells}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="332"/>
+        <location filename="../main_window_import.py" line="338"/>
         <source>大きさの違うセル{count}枚は、中央に置いて大きさを揃えました。</source>
         <translation>{count} cels of a different size were centred to match the others.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="460"/>
+        <location filename="../main_window_import.py" line="466"/>
         <source>読み込み結果を反映できませんでした。現在のドキュメントは元の状態へ戻しました。
 
 {exc}</source>
@@ -5012,11 +5022,6 @@ Save the current project first?</translation>
         <location filename="../main_window_import.py" line="149"/>
         <source> 未配置セル{len}枚は連番に保持しました。</source>
         <translation> {len} unplaced cells were kept in the sequence.</translation>
-    </message>
-    <message>
-        <location filename="../main_window_import.py" line="152"/>
-        <source>CLIP STUDIOから{count}フォルダー・{count2}フレームを読み込みました。{note}{note2}</source>
-        <translation>Imported {count} folders and {count2} frames from CLIP STUDIO.{note}{note2}</translation>
     </message>
     <message>
         <location filename="../timesheet_file.py" line="37"/>
@@ -5037,60 +5042,60 @@ Save the current project first?</translation>
         <translation>Only XDTS version 5 is supported.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="616"/>
+        <location filename="../main_window_import.py" line="622"/>
         <source>XDTSにセル欄（fieldId 0）がありません。</source>
         <translation>The XDTS file has no cell column (fieldId 0).</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="648"/>
+        <location filename="../main_window_import.py" line="654"/>
         <source>読み込むCELLとレイヤーの紐づけがありません。</source>
         <translation>No CELL is linked to a layer for import.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="650"/>
+        <location filename="../main_window_import.py" line="656"/>
         <location filename="../main_window_time_remap.py" line="493"/>
         <source>タイムラインがありません。</source>
         <translation>There is no timeline.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="664"/>
+        <location filename="../main_window_import.py" line="670"/>
         <source>CELL「{get}」のフレーム数が不正です。</source>
         <translation>CELL &quot;{get}&quot; has an invalid frame count.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="669"/>
+        <location filename="../main_window_import.py" line="675"/>
         <source>CELL「{get}」の紐づけ先レイヤーがありません。</source>
         <translation>CELL &quot;{get}&quot; has no layer to link to.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="674"/>
+        <location filename="../main_window_import.py" line="680"/>
         <source>レイヤー「{name}」に連番画像がありません。</source>
         <translation>Layer &quot;{name}&quot; has no image sequence.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="685"/>
+        <location filename="../main_window_import.py" line="691"/>
         <source>CELL「{get}」は存在しない絵番号を参照しています（レイヤー画像 {len}枚）。
 {preview}</source>
         <translation>CELL &quot;{get}&quot; refers to a drawing number that does not exist ({len} layer images).
 {preview}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="694"/>
+        <location filename="../main_window_import.py" line="700"/>
         <source>読み込めるCELLの紐づけがありません。</source>
         <translation>There are no CELL links that can be imported.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="697"/>
+        <location filename="../main_window_import.py" line="703"/>
         <source>・{get} → {name}</source>
         <translation>・{get} → {name}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="703"/>
+        <location filename="../main_window_import.py" line="709"/>
         <source>XDTSタイムシートを反映</source>
         <translation>Apply the XDTS time sheet</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="704"/>
+        <location filename="../main_window_import.py" line="710"/>
         <source>反映範囲：{value}～{value2}フレーム
 紐づけ：
 {links}
@@ -5103,51 +5108,51 @@ Links:
 This replaces the target range of the linked layers.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="736"/>
+        <location filename="../main_window_import.py" line="742"/>
         <source>XDTSの{len}個のCELLを{value}～{value2}フレームへ反映しました。</source>
         <translation>Applied {len} XDTS CELLs to frames {value}–{value2}.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="743"/>
+        <location filename="../main_window_import.py" line="749"/>
         <source>PSDを読み込む</source>
         <translation>Import a PSD</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="750"/>
-        <location filename="../main_window_import.py" line="814"/>
-        <location filename="../main_window_import.py" line="856"/>
+        <location filename="../main_window_import.py" line="756"/>
+        <location filename="../main_window_import.py" line="820"/>
+        <location filename="../main_window_import.py" line="862"/>
         <source>PSD読み込み</source>
         <translation>PSD import</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="751"/>
+        <location filename="../main_window_import.py" line="757"/>
         <source>PSDの読み込みには psd-tools と Pillow が必要です。
 requirements.txtをインストールしてください。</source>
         <translation>Importing PSD needs psd-tools and Pillow.
 Install them from requirements.txt.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="767"/>
+        <location filename="../main_window_import.py" line="773"/>
         <source>PSDの画像サイズが上限を超えています。 ({width} × {height}px)</source>
         <translation>The PSD image is larger than the maximum. ({width} × {height}px)</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="770"/>
+        <location filename="../main_window_import.py" line="776"/>
         <source>PSDの最上位レイヤー数が上限を超えています。</source>
         <translation>The PSD has more top-level layers than the maximum.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="783"/>
+        <location filename="../main_window_import.py" line="789"/>
         <source>PSDのレイヤー項目数が上限を超えています。</source>
         <translation>The PSD has more layer entries than the maximum.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="810"/>
+        <location filename="../main_window_import.py" line="816"/>
         <source>読み込める画像レイヤーがありません。</source>
         <translation>There are no image layers to import.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="814"/>
+        <location filename="../main_window_import.py" line="820"/>
         <source>PSDを読み込めませんでした。
 
 {exc}</source>
@@ -5156,24 +5161,24 @@ Install them from requirements.txt.</translation>
 {exc}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="853"/>
+        <location filename="../main_window_import.py" line="859"/>
         <source>PSDから{len}レイヤーを読み込みました。</source>
         <translation>Imported {len} layers from the PSD.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="855"/>
+        <location filename="../main_window_import.py" line="861"/>
         <source>
 調整レイヤーなど{skipped}項目は破棄しました。</source>
         <translation>
 {skipped} entries such as adjustment layers were discarded.</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="1458"/>
+        <location filename="../widgets.py" line="1459"/>
         <source>タイムシートを読み込む（XDTS／TDTS）</source>
         <translation>Import a time sheet (XDTS/TDTS)</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="1460"/>
+        <location filename="../widgets.py" line="1461"/>
         <source>タイムシート (*.xdts *.xtds *.tdts);;すべてのファイル (*)</source>
         <translation>Time sheets (*.xdts *.xtds *.tdts);;All files (*)</translation>
     </message>
@@ -5185,8 +5190,8 @@ Install them from requirements.txt.</translation>
     </message>
     <message>
         <location filename="../main_window_time_remap.py" line="603"/>
-        <location filename="../widgets.py" line="1471"/>
-        <location filename="../widgets.py" line="1864"/>
+        <location filename="../widgets.py" line="1472"/>
+        <location filename="../widgets.py" line="1865"/>
         <source>XDTS読み込み</source>
         <translation>XDTS import</translation>
     </message>
@@ -5241,8 +5246,8 @@ Import an image sequence first.</translation>
     </message>
     <message>
         <location filename="../main_window_time_remap.py" line="532"/>
-        <location filename="../widgets.py" line="1672"/>
-        <location filename="../widgets.py" line="1854"/>
+        <location filename="../widgets.py" line="1673"/>
+        <location filename="../widgets.py" line="1855"/>
         <source>タイムリマップ</source>
         <translation>Time remap</translation>
     </message>
@@ -5424,12 +5429,12 @@ In-between and symbol labels: {blanks} cells</translation>
         <translation>Scanning the used colours of the selected layer</translation>
     </message>
     <message>
-        <location filename="../main_window_workspace.py" line="148"/>
+        <location filename="../main_window_workspace.py" line="186"/>
         <source>ワークスペースを保存</source>
         <translation>Save the workspace</translation>
     </message>
     <message>
-        <location filename="../main_window_workspace.py" line="148"/>
+        <location filename="../main_window_workspace.py" line="186"/>
         <location filename="../preferences_dialog.py" line="685"/>
         <source>ワークスペース名：</source>
         <translation>Workspace name:</translation>
@@ -5440,23 +5445,23 @@ In-between and symbol labels: {blanks} cells</translation>
         <translation>Delete a workspace</translation>
     </message>
     <message>
-        <location filename="../main_window_workspace.py" line="154"/>
+        <location filename="../main_window_workspace.py" line="192"/>
         <location filename="../preferences_dialog.py" line="111"/>
         <source>ワークスペース</source>
         <translation>Workspace</translation>
     </message>
     <message>
-        <location filename="../main_window_workspace.py" line="162"/>
+        <location filename="../main_window_workspace.py" line="200"/>
         <source>現在の配置を保存…</source>
         <translation>Save the current layout…</translation>
     </message>
     <message>
-        <location filename="../main_window_workspace.py" line="167"/>
+        <location filename="../main_window_workspace.py" line="205"/>
         <source>初期設定</source>
         <translation>Default</translation>
     </message>
     <message>
-        <location filename="../main_window_workspace.py" line="183"/>
+        <location filename="../main_window_workspace.py" line="221"/>
         <source>ワークスペースを管理…</source>
         <translation>Manage Workspaces…</translation>
     </message>
@@ -5914,22 +5919,22 @@ In-between and symbol labels: {blanks} cells</translation>
         <translation>Drop an image or a folder</translation>
     </message>
     <message>
-        <location filename="../subview.py" line="222"/>
+        <location filename="../subview.py" line="229"/>
         <source>サブビュー画像を開く</source>
         <translation>Open a sub-view image</translation>
     </message>
     <message>
-        <location filename="../subview.py" line="223"/>
+        <location filename="../subview.py" line="230"/>
         <source>対応画像 (*.png *.jpg *.jpeg *.tga *.psd);;PNG (*.png);;JPEG (*.jpg *.jpeg);;TGA (*.tga);;PSD (*.psd);;すべてのファイル (*)</source>
         <translation>Supported images (*.png *.jpg *.jpeg *.tga *.psd);;PNG (*.png);;JPEG (*.jpg *.jpeg);;TGA (*.tga);;PSD (*.psd);;All files (*)</translation>
     </message>
     <message>
-        <location filename="../subview.py" line="235"/>
+        <location filename="../subview.py" line="242"/>
         <source>画像が見つかりません</source>
         <translation>Image not found</translation>
     </message>
     <message>
-        <location filename="../subview.py" line="415"/>
+        <location filename="../subview.py" line="422"/>
         <source>画像またはフォルダを
 ここにドロップ</source>
         <translation>Drop an image or
@@ -6370,7 +6375,7 @@ Layer cell {value} / {exposure} exposures</translation>
         <translation>The release information is malformed.</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="63"/>
+        <location filename="../widgets.py" line="64"/>
         <source>選択中の複数色を実線として残す太さをまとめて調整します。</source>
         <translation>Adjusts, together, the width that keeps the selected colours as line art.</translation>
     </message>
@@ -6392,124 +6397,124 @@ Layer cell {value} / {exposure} exposures</translation>
     <message>
         <location filename="../new_document_dialog.py" line="51"/>
         <location filename="../preferences_dialog.py" line="408"/>
-        <location filename="../widgets.py" line="103"/>
+        <location filename="../widgets.py" line="104"/>
         <source>幅</source>
         <translation>Width</translation>
     </message>
     <message>
         <location filename="../new_document_dialog.py" line="52"/>
         <location filename="../preferences_dialog.py" line="409"/>
-        <location filename="../widgets.py" line="103"/>
+        <location filename="../widgets.py" line="104"/>
         <source>高さ</source>
         <translation>Height</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="124"/>
+        <location filename="../widgets.py" line="125"/>
         <source>キーを押してください…</source>
         <translation>Press a key…</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="137"/>
+        <location filename="../widgets.py" line="138"/>
         <source>クリックしてキーを入力。BackspaceまたはDeleteで解除。</source>
         <translation>Click, then press a key. Backspace or Delete clears it.</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="188"/>
+        <location filename="../widgets.py" line="189"/>
         <source>ショートカット設定</source>
         <translation>Keyboard shortcuts</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="193"/>
+        <location filename="../widgets.py" line="194"/>
         <source>ショートカット欄を選び、実際のキーまたはキーの組み合わせを押してください。文字列入力ではなくキー入力として認識します。「キャンバス操作」では修飾キー単独も登録できます。</source>
         <translation>Select a shortcut field and press the actual key or key combination. It is read as a key press, not as typed text. Under &quot;Canvas operations&quot; a modifier key on its own can also be registered.</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="256"/>
+        <location filename="../widgets.py" line="257"/>
         <source>ショートカットの重複</source>
         <translation>Duplicate shortcut</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="302"/>
+        <location filename="../widgets.py" line="303"/>
         <source>▲▼をクリック：0.5ずつ変更</source>
         <translation>Click ▲▼: change by 0.5</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="304"/>
+        <location filename="../widgets.py" line="305"/>
         <source>／数値部分をクリック：筆圧設定</source>
         <translation> / click the number: pressure settings</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="387"/>
+        <location filename="../widgets.py" line="388"/>
         <source>半角数字だけ入力できます。</source>
         <translation>Only digits can be entered.</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="389"/>
+        <location filename="../widgets.py" line="390"/>
         <source>半角数字と小数点だけ入力できます。</source>
         <translation>Only digits and a decimal point can be entered.</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="421"/>
+        <location filename="../widgets.py" line="422"/>
         <source>▲▼をクリック：{float:g}ずつ変更／</source>
         <translation>Click ▲▼: change by {float:g} / </translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="423"/>
+        <location filename="../widgets.py" line="424"/>
         <source>半角整数を直接入力できます。</source>
         <translation>An integer can be typed directly.</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="425"/>
+        <location filename="../widgets.py" line="426"/>
         <source>半角数値を直接入力できます。</source>
         <translation>A number can be typed directly.</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="613"/>
+        <location filename="../widgets.py" line="614"/>
         <source>小さいほど緩やか、大きいほど先端付近で急に変化します。</source>
         <translation>Lower is gentler; higher changes more sharply near the tip.</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="650"/>
+        <location filename="../widgets.py" line="651"/>
         <source>長方形選択：{name}トゥイーン</source>
         <translation>Rectangle select: {name} tween</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="661"/>
+        <location filename="../widgets.py" line="662"/>
         <source>&lt;b&gt;メッシュ変形トゥイーン&lt;/b&gt;&lt;br&gt;横{int}×縦{int2}の格子点を操作して、最後のコマの形を指定してください。</source>
         <translation>&lt;b&gt;Mesh warp tween&lt;/b&gt;&lt;br&gt;Move the {int} × {int2} grid points to set the shape of the last exposure.</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="673"/>
+        <location filename="../widgets.py" line="674"/>
         <source>逆生成（◆ーーーー│）</source>
         <translation>Reverse (◆ーーーー│)</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="679"/>
+        <location filename="../widgets.py" line="680"/>
         <source>ON：操作中の変形形状をキーフレーム側へ置き、元の初期形状をラストコマ側へ置きます。</source>
         <translation>On: puts the shape you are editing on the key frame side and the original shape on the last exposure.</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="701"/>
+        <location filename="../widgets.py" line="702"/>
         <source>左へ90°</source>
         <translation>90° left</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="702"/>
+        <location filename="../widgets.py" line="703"/>
         <source>右へ90°</source>
         <translation>90° right</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="709"/>
+        <location filename="../widgets.py" line="710"/>
         <source>{name}を確定してトゥイーン作成</source>
         <translation>Commit {name} and create the tween</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="719"/>
+        <location filename="../widgets.py" line="720"/>
         <source>逆生成：現在操作している変形形状をキーフレーム側の◆へ配置し、ラストコマ側を元の初期形状にします。</source>
         <translation>Reverse: puts the shape you are editing on the ◆ at the key frame side, and the original shape on the last exposure.</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="725"/>
+        <location filename="../widgets.py" line="726"/>
         <source>通常生成：キーフレーム側を元の初期形状、ラストコマ側を現在操作している変形形状にします。</source>
         <translation>Normal: the key frame side keeps the original shape and the last exposure takes the shape you are editing.</translation>
     </message>
@@ -6524,151 +6529,151 @@ Layer cell {value} / {exposure} exposures</translation>
         <translation>Copy the current colour code</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="788"/>
+        <location filename="../widgets.py" line="789"/>
         <source>外側の色相リング</source>
         <extracomment>内側のピッカー形状と色相ピッカーの形状は独立して選択できる。</extracomment>
         <translation>the outer hue ring</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="788"/>
+        <location filename="../widgets.py" line="789"/>
         <source>上の色相バー</source>
         <translation>the hue bar above</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="790"/>
+        <location filename="../widgets.py" line="791"/>
         <source>内側の三角で輝度(L)と彩度(S)</source>
         <translation>lightness (L) and saturation (S) in the inner triangle</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="792"/>
+        <location filename="../widgets.py" line="793"/>
         <source>内側の四角で彩度と明度</source>
         <translation>saturation and value in the inner square</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="794"/>
+        <location filename="../widgets.py" line="795"/>
         <source>{picker}と、{picker2}を選択します。</source>
         <translation>Pick with {picker} and {picker2}.</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="1271"/>
+        <location filename="../widgets.py" line="1272"/>
         <source>タイムリマップをタイムシートへ貼り付け</source>
         <translation>Paste a time remap into the time sheet</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="1286"/>
+        <location filename="../widgets.py" line="1287"/>
         <source>&lt;b&gt;読み込みデータ&lt;/b&gt;</source>
         <translation>&lt;b&gt;Imported data&lt;/b&gt;</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="1288"/>
+        <location filename="../widgets.py" line="1289"/>
         <source>クリップボードをタイムシートへ貼付</source>
         <translation>Paste the clipboard into the time sheet</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="1290"/>
+        <location filename="../widgets.py" line="1291"/>
         <source>XDTS／TDTSを読み込む…</source>
         <translation>Import XDTS/TDTS…</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="1291"/>
+        <location filename="../widgets.py" line="1292"/>
         <source>クリア</source>
         <translation>Clear</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="1304"/>
+        <location filename="../widgets.py" line="1305"/>
         <source>After Effects／ToeiDigitalTimeSheetのコピー情報を貼り付けるか、XDTSファイルを読み込みます。XDTSはこの画面へドロップできます。</source>
         <translation>Paste copied After Effects or ToeiDigitalTimeSheet data, or load an XDTS file. XDTS files can be dropped onto this window.</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="1316"/>
+        <location filename="../widgets.py" line="1317"/>
         <source>&lt;b&gt;タイムシートプレビュー&lt;/b&gt;</source>
         <translation>&lt;b&gt;Time sheet preview&lt;/b&gt;</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="1317"/>
-        <location filename="../widgets.py" line="1489"/>
+        <location filename="../widgets.py" line="1318"/>
+        <location filename="../widgets.py" line="1490"/>
         <source>データ待機中</source>
         <translation>Waiting for data</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="1328"/>
-        <location filename="../widgets.py" line="1483"/>
-        <location filename="../widgets.py" line="1600"/>
+        <location filename="../widgets.py" line="1329"/>
+        <location filename="../widgets.py" line="1484"/>
+        <location filename="../widgets.py" line="1601"/>
         <source>使用</source>
         <translation>Use</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="1371"/>
+        <location filename="../widgets.py" line="1372"/>
         <source>選択行を除外</source>
         <translation>Exclude the selected rows</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="1372"/>
+        <location filename="../widgets.py" line="1373"/>
         <source>選択行を使用</source>
         <translation>Use the selected rows</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="1373"/>
+        <location filename="../widgets.py" line="1374"/>
         <source>全て使用</source>
         <translation>Use all</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="1388"/>
+        <location filename="../widgets.py" line="1389"/>
         <source>ACTION・CELL・CAMをXDTSの列ごとに表示します。CELL名をクリックするとPaintMaskAnimatorのレイヤーへ紐づけできます。「使用」を外した行は取り除き、後続を詰めて反映します。</source>
         <translation>Shows ACTION, CELL and CAM per XDTS column. Click a CELL name to link it to a PaintMaskAnimator layer. Rows with &quot;Use&quot; cleared are removed and the rest closed up.</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="1402"/>
+        <location filename="../widgets.py" line="1403"/>
         <source>このタイムシートをタイムラインへ反映</source>
         <translation>Apply this time sheet to the timeline</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="1216"/>
+        <location filename="../widgets.py" line="1217"/>
         <source>セル</source>
         <translation>Cell</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="1570"/>
+        <location filename="../widgets.py" line="1571"/>
         <source>「{get}」の紐づけ先</source>
         <translation>Link target for &quot;{get}&quot;</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="1574"/>
+        <location filename="../widgets.py" line="1575"/>
         <source>紐づけを解除（読み込まない）</source>
         <translation>Unlink (do not import)</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="1593"/>
+        <location filename="../widgets.py" line="1594"/>
         <source>紐づけ可能なレイヤーがありません</source>
         <translation>There are no layers to link to</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="1608"/>
+        <location filename="../widgets.py" line="1609"/>
         <source>クリックで紐づけ</source>
         <translation>Click to link</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="1626"/>
+        <location filename="../widgets.py" line="1627"/>
         <source>クリックして読み込み先レイヤーを選択します。</source>
         <translation>Click to choose the layer to import into.</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="1675"/>
+        <location filename="../widgets.py" line="1676"/>
         <source>{name}／使用 {count}／除外 {max}／レイヤー紐づけ {count2}</source>
         <translation>{name} / used {count} / excluded {max} / layers linked {count2}</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="1761"/>
+        <location filename="../widgets.py" line="1762"/>
         <source>解析機能を取得できません</source>
         <translation>The parser is unavailable</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="1855"/>
+        <location filename="../widgets.py" line="1856"/>
         <source>有効なタイムシートを貼り付け、使用する行を残してください。</source>
         <translation>Paste a valid time sheet and keep the rows you want to use.</translation>
     </message>
     <message>
-        <location filename="../widgets.py" line="1865"/>
+        <location filename="../widgets.py" line="1866"/>
         <source>読み込むCELL名をクリックし、紐づけ先レイヤーを選択してください。</source>
         <translation>Click the CELL names to import and choose the layer to link them to.</translation>
     </message>
