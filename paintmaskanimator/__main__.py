@@ -69,8 +69,8 @@ def main():
     app = QApplication(sys.argv)
     # Before anything else runs the event loop: macOS sends the double-clicked
     # file as an event right after launch.
-    from .file_open import ProjectFileOpener, project_paths_from_argv
-    file_opener = ProjectFileOpener(app, project_paths_from_argv(sys.argv))
+    from .file_open import ProjectFileOpener, openable_paths_from_argv
+    file_opener = ProjectFileOpener(app, openable_paths_from_argv(sys.argv))
     app.setApplicationName(APP_DISPLAY_NAME)
     app.setApplicationVersion(APP_VERSION)
     # ウィンドウ・Dock・タスクバーのアイコン。配布版は実行ファイル側にも
