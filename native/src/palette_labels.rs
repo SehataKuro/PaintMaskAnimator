@@ -32,7 +32,11 @@ pub type Feature = [f32; 4];
 
 /// `rgb` 1 画素の特徴量。`colors.rgb_hsv_features` と同じ式。
 pub fn feature(rgb: [u8; 3]) -> Feature {
-    let values = [rgb[0] as f32 / 255.0, rgb[1] as f32 / 255.0, rgb[2] as f32 / 255.0];
+    let values = [
+        rgb[0] as f32 / 255.0,
+        rgb[1] as f32 / 255.0,
+        rgb[2] as f32 / 255.0,
+    ];
     let maximum = values[0].max(values[1]).max(values[2]);
     let minimum = values[0].min(values[1]).min(values[2]);
     let delta = maximum - minimum;
@@ -121,8 +125,10 @@ fn nearest_colors(
             distance_rest = next_distances;
             let offset = start;
             scope.spawn(move || {
-                for (index, (label, found)) in
-                    label_part.iter_mut().zip(distance_part.iter_mut()).enumerate()
+                for (index, (label, found)) in label_part
+                    .iter_mut()
+                    .zip(distance_part.iter_mut())
+                    .enumerate()
                 {
                     if visible[offset + index] == 0 {
                         continue;
@@ -165,10 +171,26 @@ fn spread_once(
                 continue;
             }
             let neighbours = [
-                if y > 0 { previous[index - width] } else { UNRESOLVED },
-                if y + 1 < height { previous[index + width] } else { UNRESOLVED },
-                if x > 0 { previous[index - 1] } else { UNRESOLVED },
-                if x + 1 < width { previous[index + 1] } else { UNRESOLVED },
+                if y > 0 {
+                    previous[index - width]
+                } else {
+                    UNRESOLVED
+                },
+                if y + 1 < height {
+                    previous[index + width]
+                } else {
+                    UNRESOLVED
+                },
+                if x > 0 {
+                    previous[index - 1]
+                } else {
+                    UNRESOLVED
+                },
+                if x + 1 < width {
+                    previous[index + 1]
+                } else {
+                    UNRESOLVED
+                },
             ];
             let mut best = UNRESOLVED;
             let mut best_distance = f32::INFINITY;
@@ -202,10 +224,14 @@ pub fn surface_guided_labels(
     threads: usize,
 ) -> Vec<i16> {
     let total = width * height;
-    let palette_features: Vec<Feature> =
-        palette.chunks_exact(3).map(|color| feature([color[0], color[1], color[2]])).collect();
-    let features: Vec<Feature> =
-        rgb.chunks_exact(3).map(|pixel| feature([pixel[0], pixel[1], pixel[2]])).collect();
+    let palette_features: Vec<Feature> = palette
+        .chunks_exact(3)
+        .map(|color| feature([color[0], color[1], color[2]]))
+        .collect();
+    let features: Vec<Feature> = rgb
+        .chunks_exact(3)
+        .map(|pixel| feature([pixel[0], pixel[1], pixel[2]]))
+        .collect();
     let (nearest, nearest_distance) =
         nearest_colors(&features, visible, &palette_features, threads);
     if !spatial_refinement || palette_features.is_empty() {
@@ -226,7 +252,11 @@ pub fn surface_guided_labels(
     for _pass in 0..REFINEMENT_PASSES {
         // 同じ 1 回の中では、埋める前の色だけを見る。
         let previous = labels.clone();
-        if !previous.iter().enumerate().any(|(index, label)| *label < 0 && visible[index] != 0) {
+        if !previous
+            .iter()
+            .enumerate()
+            .any(|(index, label)| *label < 0 && visible[index] != 0)
+        {
             break;
         }
         if !spread_once(
@@ -262,7 +292,9 @@ pub fn py_surface_guided_palette_labels<'py>(
     spatial_refinement: bool,
 ) -> PyResult<Bound<'py, PyBytes>> {
     let invalid = |message: &str| pyo3::exceptions::PyValueError::new_err(message.to_string());
-    let total = width.checked_mul(height).ok_or_else(|| invalid("image is too large"))?;
+    let total = width
+        .checked_mul(height)
+        .ok_or_else(|| invalid("image is too large"))?;
     if total.checked_mul(3) != Some(rgb.len()) {
         return Err(invalid("rgb size does not match width x height"));
     }
@@ -275,11 +307,24 @@ pub fn py_surface_guided_palette_labels<'py>(
     if palette.len() / 3 > i16::MAX as usize {
         return Err(invalid("palette has too many colors"));
     }
-    let threads = thread::available_parallelism().map(|value| value.get()).unwrap_or(1);
+    let threads = thread::available_parallelism()
+        .map(|value| value.get())
+        .unwrap_or(1);
     let labels = py.detach(|| {
-        surface_guided_labels(rgb, width, height, visible, palette, spatial_refinement, threads)
+        surface_guided_labels(
+            rgb,
+            width,
+            height,
+            visible,
+            palette,
+            spatial_refinement,
+            threads,
+        )
     });
-    let bytes: Vec<u8> = labels.iter().flat_map(|value| value.to_ne_bytes()).collect();
+    let bytes: Vec<u8> = labels
+        .iter()
+        .flat_map(|value| value.to_ne_bytes())
+        .collect();
     Ok(PyBytes::new(py, &bytes))
 }
 
@@ -303,7 +348,13 @@ mod tests {
 
     #[test]
     fn every_hue_lands_within_the_unit_circle() {
-        for color in [[255, 0, 0], [255, 255, 0], [0, 255, 0], [0, 255, 255], [0, 0, 255]] {
+        for color in [
+            [255, 0, 0],
+            [255, 255, 0],
+            [0, 255, 0],
+            [0, 255, 255],
+            [0, 0, 255],
+        ] {
             let found = feature(color);
             let radius = (found[0] * found[0] + found[1] * found[1]).sqrt();
             assert!((radius - 2.35).abs() < 1e-5, "{color:?} -> {radius}");
@@ -313,16 +364,14 @@ mod tests {
     #[test]
     fn exact_colors_take_their_own_palette_entry() {
         let rgb = primaries();
-        let labels =
-            surface_guided_labels(&rgb, 3, 1, &[1, 1, 1], &primaries(), true, 1);
+        let labels = surface_guided_labels(&rgb, 3, 1, &[1, 1, 1], &primaries(), true, 1);
         assert_eq!(labels, vec![0, 1, 2]);
     }
 
     #[test]
     fn hidden_pixels_stay_unresolved() {
         let rgb = primaries();
-        let labels =
-            surface_guided_labels(&rgb, 3, 1, &[1, 0, 1], &primaries(), true, 1);
+        let labels = surface_guided_labels(&rgb, 3, 1, &[1, 0, 1], &primaries(), true, 1);
         assert_eq!(labels, vec![0, UNRESOLVED, 2]);
     }
 
@@ -331,12 +380,16 @@ mod tests {
         // 赤と青の色面の間に、両方を混ぜた帯を 2 画素置く。
         let mut rgb = Vec::new();
         for value in [
-            [255, 0, 0], [255, 0, 0], [170, 0, 85], [85, 0, 170], [0, 0, 255], [0, 0, 255],
+            [255, 0, 0],
+            [255, 0, 0],
+            [170, 0, 85],
+            [85, 0, 170],
+            [0, 0, 255],
+            [0, 0, 255],
         ] {
             rgb.extend_from_slice(&value);
         }
-        let labels =
-            surface_guided_labels(&rgb, 6, 1, &[1; 6], &primaries(), true, 1);
+        let labels = surface_guided_labels(&rgb, 6, 1, &[1; 6], &primaries(), true, 1);
         // 混合帯は中間で二分され、中間色のままの画素は残らない。
         assert_eq!(labels, vec![0, 0, 0, 2, 2, 2]);
     }
@@ -347,8 +400,7 @@ mod tests {
         for value in [[255, 0, 0], [170, 0, 85], [85, 0, 170], [0, 0, 255]] {
             rgb.extend_from_slice(&value);
         }
-        let labels =
-            surface_guided_labels(&rgb, 4, 1, &[1; 4], &primaries(), false, 1);
+        let labels = surface_guided_labels(&rgb, 4, 1, &[1; 4], &primaries(), false, 1);
         assert_eq!(labels, vec![0, 0, 2, 2]);
     }
 
