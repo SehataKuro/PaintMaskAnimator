@@ -8,7 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import numpy as np
 import pytest
 from PySide6.QtGui import QColor, QImage
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QApplication, QMessageBox, QProgressBar
 
 from paintmaskanimator import constants, main_window_import, native
 from paintmaskanimator.clip_animation import (
@@ -450,6 +450,20 @@ def test_read_clip_animation_restores_rendered_cell_and_timeline(tmp_path):
 
 
 @requires_clip_native
+def test_clip_reader_reports_analysis_cels_and_timeline(tmp_path):
+    updates = []
+    parsed = read_clip_animation(
+        _clip_file(tmp_path), progress=lambda *args: updates.append(args)
+    )
+    assert updates[0][:2] == (0, 0)
+    total = sum(len(layer.cell_images) for layer in parsed.layers)
+    counted = [(done, count) for done, count, _ in updates if count]
+    assert counted[0] == (0, total)
+    assert counted[-1] == (total, total)
+    assert [done for done, _ in counted] == sorted(done for done, _ in counted)
+
+
+@requires_clip_native
 def test_read_clip_animation_omits_negative_keys_but_keeps_cell_image(tmp_path):
     path = _clip_file(
         tmp_path,
@@ -585,7 +599,9 @@ def test_failed_ui_import_keeps_current_document(
         original_frames = window.canvas.frames
         original_size = (constants.CANVAS_WIDTH, constants.CANVAS_HEIGHT)
 
-        def fail(_path):
+        def fail(_path, *, progress):
+            progress(0, 0, "Analyzing")
+            assert not window.isEnabled()
             raise ClipImportError("synthetic failure")
 
         messages = []
@@ -601,6 +617,9 @@ def test_failed_ui_import_keeps_current_document(
         assert window.canvas.frames is original_frames
         assert (constants.CANVAS_WIDTH, constants.CANVAS_HEIGHT) == original_size
         assert messages
+        assert window.isEnabled()
+        assert not window.importer._clip_import_active
+        assert window.statusBar().findChild(QProgressBar, "clipImportProgress").isHidden()
     finally:
         window.close()
 
@@ -624,9 +643,22 @@ def test_successful_ui_import_replaces_document_in_sheet_mode(
         "sample.clip", "Main", 3, 2, 24.0, 12, 13,
         (source_layer,), frames,
     )
-    monkeypatch.setattr(
-        main_window_import, "read_clip_animation", lambda _path: parsed
-    )
+    progress_bars = []
+
+    def read_with_progress(_path, *, progress):
+        bar = window.statusBar().findChild(QProgressBar, "clipImportProgress")
+        progress_bars.append(bar)
+        progress(0, 0, "Analyzing")
+        assert bar.maximum() == 0
+        assert not window.isEnabled()
+        assert not window.importer.clip_animation(_path, confirm_replace=False)
+        progress(1, 2, "Reading cel")
+        assert (bar.value(), bar.maximum()) == (1, 2)
+        assert window.statusBar().currentMessage() == "Reading cel"
+        progress(2, 2, "Building timeline")
+        return parsed
+
+    monkeypatch.setattr(main_window_import, "read_clip_animation", read_with_progress)
     window = MainWindow()
     try:
         assert window.importer.clip_animation(
@@ -634,6 +666,9 @@ def test_successful_ui_import_replaces_document_in_sheet_mode(
         )
         assert (constants.CANVAS_WIDTH, constants.CANVAS_HEIGHT) == (3, 2)
         assert window.canvas.timeline_mode == "sheet"
+        assert window.isEnabled()
+        assert not window.importer._clip_import_active
+        assert progress_bars[0].isHidden()
         assert window.timeline.timeline_mode == "sheet"
         assert len(window.canvas.frames) == 2
         assert window.canvas.frames[0].layers[0].cell_name == "A-7"
@@ -668,7 +703,7 @@ def test_ui_apply_failure_rolls_back_replaced_document(
         (source_layer,), frames,
     )
     monkeypatch.setattr(
-        main_window_import, "read_clip_animation", lambda _path: parsed
+        main_window_import, "read_clip_animation", lambda _path, **_kwargs: parsed
     )
     monkeypatch.setattr(QMessageBox, "critical", staticmethod(lambda *_args: None))
     window = MainWindow()

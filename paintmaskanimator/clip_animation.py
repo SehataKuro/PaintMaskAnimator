@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 import numpy as np
 from PySide6.QtCore import QPoint
@@ -720,11 +720,20 @@ def _direct_children(
     return result
 
 
-def read_clip_animation(path: str | os.PathLike[str]) -> ClipAnimationDocument:
+def read_clip_animation(
+    path: str | os.PathLike[str],
+    *,
+    progress: Callable[[int, int, str], None] | None = None,
+) -> ClipAnimationDocument:
     """Read using clipfile-rs without modifying the source file."""
     if Path(path).suffix.lower() != ".clip":
         raise ClipImportError(tr("CLIP STUDIOの.clipファイルを指定してください。"))
+    def report(completed: int, total: int, label: str) -> None:
+        if progress is not None:
+            progress(completed, total, label)
+
     try:
+        report(0, 0, tr("CLIP STUDIOアニメーションを解析しています：{name}").format(name=Path(path).name))
         reader = native.clip_animation_reader(
             str(path), MAX_IMAGE_DIMENSION, MAX_PROJECT_IMAGE_BYTES
         )
@@ -755,13 +764,13 @@ def read_clip_animation(path: str | os.PathLike[str]) -> ClipAnimationDocument:
             raise ClipImportError(tr("タイムラインのレイヤーセル数がPMAの上限を超えています。"))
         if width * height > MAX_PROJECT_DECODED_PIXELS:
             raise ClipImportError(tr("タイムライン展開後の画像サイズがPMAの上限を超えています。"))
-        decoded_cels = 0
-        for folder, candidates in tracks:
-            children = _direct_children(layers_by_id, folder)
-            decoded_cels += len(children)
-            if (decoded_cels > MAX_PROJECT_LAYER_CELLS
-                    or width * height * (decoded_cels + 1) > MAX_PROJECT_DECODED_PIXELS):
-                raise ClipImportError(tr("タイムライン展開後の画像サイズがPMAの上限を超えています。"))
+        folder_children = [_direct_children(layers_by_id, folder) for folder, _ in tracks]
+        total_cels = sum(len(children) for children in folder_children)
+        if (total_cels > MAX_PROJECT_LAYER_CELLS
+                or width * height * (total_cels + 1) > MAX_PROJECT_DECODED_PIXELS):
+            raise ClipImportError(tr("タイムライン展開後の画像サイズがPMAの上限を超えています。"))
+        completed_cels = 0
+        for (folder, candidates), children in zip(tracks, folder_children):
             matching = [
                 curve for curve in candidates
                 if all(not tag or tag in children for _time, tag in curve)
@@ -790,7 +799,11 @@ def read_clip_animation(path: str | os.PathLike[str]) -> ClipAnimationDocument:
             # Render every cel, including unused and negative-pre-roll-only
             # cels, so they survive as PMA sequence entries.
             for tag, child in children.items():
+                label = tr("セル画像を読み込み中：{folder} / {cel}").format(folder=folder["LayerName"], cel=tag)
+                report(completed_cels, total_cels, label)
                 images[tag] = renderer.render(child)
+                completed_cels += 1
+                report(completed_cels, total_cels, label)
             parsed_layers.append(
                 ClipAnimationLayer(
                     str(folder["LayerName"] or f"Animation {len(parsed_layers) + 1}"),
@@ -801,6 +814,7 @@ def read_clip_animation(path: str | os.PathLike[str]) -> ClipAnimationDocument:
         if not parsed_layers:
             raise ClipImportError(tr(".clip内にアニメーションフォルダーがありません。"))
         layer_tuple = tuple(parsed_layers)
+        report(total_cels, total_cels, tr("タイムラインを構築しています…"))
         frames = build_pma_frames(width, height, start_frame, end_frame, layer_tuple)
         return ClipAnimationDocument(
             Path(path).name, metadata["timeline_name"], width, height, fps,

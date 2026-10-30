@@ -8,9 +8,9 @@ A collaborator rather than a mixin -- see ``main_window_export.py`` for why.
 from typing import TYPE_CHECKING, Any, cast
 
 from pathlib import Path
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import QEventLoop, QTimer, Qt
 from PySide6.QtGui import QImage, QPainter
-from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
+from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox, QProgressBar
 from .i18n import tr
 from .optional_deps import PILImage, PSDImage
 from .constants import (
@@ -106,7 +106,42 @@ class ImportController:
             return bool(self.window.project.save())
         return clicked is discard_button
 
+    def _read_clip_with_progress(self, source):
+        status = self.window.statusBar()
+        bar = QProgressBar(status)
+        bar.setObjectName("clipImportProgress")
+        bar.setMinimumWidth(200)
+        bar.setRange(0, 0)
+        status.addPermanentWidget(bar)
+        was_enabled = self.window.isEnabled()
+        self._clip_import_active = True
+        self.window.setEnabled(False)
+
+        def update(completed, total, label):
+            if total:
+                bar.setRange(0, total)
+                bar.setValue(completed)
+                bar.setFormat("%v / %m (%p%)")
+            else:
+                bar.setRange(0, 0)
+            status.showMessage(label)
+            # Repaint progress while consuming no editing/shortcut input.
+            QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
+
+        try:
+            if self.window.canvas._playback_active:
+                self.window.timeline.play.setChecked(False)
+                self.window.play(False)
+            return read_clip_animation(source, progress=update)
+        finally:
+            status.removeWidget(bar)
+            bar.deleteLater()
+            self.window.setEnabled(was_enabled)
+            self._clip_import_active = False
+
     def clip_animation(self, path, confirm_replace=True):
+        if getattr(self, "_clip_import_active", False):
+            return False
         source = Path(path)
         if source.suffix.lower() != ".clip":
             return False
@@ -116,7 +151,7 @@ class ImportController:
         )
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            parsed = read_clip_animation(source)
+            parsed = self._read_clip_with_progress(source)
         except (ClipImportError, OSError, ValueError, sqlite3.Error) as exc:
             log.error("CLIP STUDIO animation import failed: %s", exc, exc_info=True)
             self.window.statusBar().clearMessage()
