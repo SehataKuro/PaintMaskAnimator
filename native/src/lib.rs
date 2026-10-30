@@ -10,15 +10,15 @@
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 
-mod line_flow;
-mod thin;
 mod auto_paint;
-mod display;
 mod clip;
-mod timeline;
+mod display;
+mod line_flow;
+mod map_colors;
 mod mask_transform;
 mod palette_labels;
-mod map_colors;
+mod thin;
+mod timeline;
 
 /// 4 近傍で、`seeds` からつながる `passable` の領域を求める（行ごとのランで辿る）。
 ///
@@ -76,7 +76,10 @@ pub fn flood_fill(passable: &[u8], width: usize, height: usize, seeds: &[(i64, i
                         cx += offset;
                         stack.push((left + cx, next_y));
                         // 同じランの続きは積まない（積んだ点から左右に広がる）。
-                        cx += next_pass[cx..].iter().position(|p| *p == 0).unwrap_or(span - cx);
+                        cx += next_pass[cx..]
+                            .iter()
+                            .position(|p| *p == 0)
+                            .unwrap_or(span - cx);
                     }
                 }
             }
@@ -109,7 +112,12 @@ impl BitRows {
                 *word = bits;
             }
         }
-        BitRows { words, per_row, width, height }
+        BitRows {
+            words,
+            per_row,
+            width,
+            height,
+        }
     }
 
     fn unpack(&self) -> Vec<u8> {
@@ -129,7 +137,11 @@ impl BitRows {
     /// 最後の語の、幅より右（範囲外）のビットを 0 にしておく。
     fn tail_mask(&self) -> u64 {
         let used = self.width - (self.per_row - 1) * 64;
-        if used >= 64 { u64::MAX } else { (1u64 << used) - 1 }
+        if used >= 64 {
+            u64::MAX
+        } else {
+            (1u64 << used) - 1
+        }
     }
 
     /// 横に半径 1 の最大（`maximum`）／最小を取る。範囲外は 0 として扱う。
@@ -162,8 +174,16 @@ impl BitRows {
             for i in 0..n {
                 let here = original[y * n + i];
                 let up = if y > 0 { original[(y - 1) * n + i] } else { 0 };
-                let down = if y + 1 < self.height { original[(y + 1) * n + i] } else { 0 };
-                self.words[y * n + i] = if maximum { up | here | down } else { up & here & down };
+                let down = if y + 1 < self.height {
+                    original[(y + 1) * n + i]
+                } else {
+                    0
+                };
+                self.words[y * n + i] = if maximum {
+                    up | here | down
+                } else {
+                    up & here & down
+                };
             }
         }
     }
@@ -318,7 +338,10 @@ fn py_label_regions<'py>(
         .map(|chunk| u32::from_ne_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
         .collect();
     let (labels, count) = py.detach(|| label_regions(&values, width, height));
-    let bytes: Vec<u8> = labels.iter().flat_map(|value| value.to_ne_bytes()).collect();
+    let bytes: Vec<u8> = labels
+        .iter()
+        .flat_map(|value| value.to_ne_bytes())
+        .collect();
     Ok((PyBytes::new(py, &bytes), count))
 }
 
@@ -334,9 +357,18 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(auto_paint::label_runs, module)?)?;
     module.add_function(wrap_pyfunction!(auto_paint::connect_runs, module)?)?;
     module.add_function(wrap_pyfunction!(auto_paint::refine_face, module)?)?;
-    module.add_function(wrap_pyfunction!(mask_transform::py_render_quad_labels, module)?)?;
-    module.add_function(wrap_pyfunction!(mask_transform::py_render_mesh_labels, module)?)?;
-    module.add_function(wrap_pyfunction!(palette_labels::py_surface_guided_palette_labels, module)?)?;
+    module.add_function(wrap_pyfunction!(
+        mask_transform::py_render_quad_labels,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(
+        mask_transform::py_render_mesh_labels,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(
+        palette_labels::py_surface_guided_palette_labels,
+        module
+    )?)?;
     module.add_function(wrap_pyfunction!(map_colors::py_map_known_colors, module)?)?;
     module.add_function(wrap_pyfunction!(map_colors::py_region_neighbors, module)?)?;
     module.add_function(wrap_pyfunction!(py_unique_colors, module)?)?;
@@ -355,7 +387,9 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
 #[pyfunction(name = "unique_colors")]
 fn py_unique_colors(py: Python<'_>, pixels: &[u8], limit: usize) -> PyResult<Vec<u32>> {
     if !pixels.len().is_multiple_of(4) {
-        return Err(pyo3::exceptions::PyValueError::new_err("expected packed u32 pixels"));
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "expected packed u32 pixels",
+        ));
     }
     py.detach(|| {
         if limit == 0 {
@@ -367,7 +401,9 @@ fn py_unique_colors(py: Python<'_>, pixels: &[u8], limit: usize) -> PyResult<Vec
         for chunk in pixels.chunks_exact(4) {
             let value = u32::from_ne_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
             if value > 0xffffff {
-                return Err(pyo3::exceptions::PyValueError::new_err("expected 24-bit RGB"));
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "expected 24-bit RGB",
+                ));
             }
             seen[value as usize / 64] |= 1u64 << (value % 64);
         }
@@ -387,12 +423,22 @@ fn py_unique_colors(py: Python<'_>, pixels: &[u8], limit: usize) -> PyResult<Vec
 
 #[pyfunction(name = "thin")]
 fn py_thin<'py>(
-    py: Python<'py>, mask: &[u8], width: usize, height: usize, iterations: usize,
+    py: Python<'py>,
+    mask: &[u8],
+    width: usize,
+    height: usize,
+    iterations: usize,
 ) -> PyResult<Bound<'py, PyBytes>> {
     check_size(mask, width, height)?;
     // 細線化では上下左右に1画素ずつの余白を作る。
-    if width.checked_add(2).and_then(|w| height.checked_add(2).and_then(|h| w.checked_mul(h))).is_none() {
-        return Err(pyo3::exceptions::PyValueError::new_err("mask dimensions are too large"));
+    if width
+        .checked_add(2)
+        .and_then(|w| height.checked_add(2).and_then(|h| w.checked_mul(h)))
+        .is_none()
+    {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "mask dimensions are too large",
+        ));
     }
     let result = py.detach(|| thin::thin(mask, width, height, iterations));
     Ok(PyBytes::new(py, &result))
@@ -413,24 +459,45 @@ fn py_line_flow_scores<'py>(
 ) -> PyResult<Bound<'py, PyBytes>> {
     check_size(target, width, height)?;
     check_size(guide, width, height)?;
-    if block == 0 || block > 32 || width.checked_rem(block) != Some(0) || height.checked_rem(block) != Some(0) || reach > 128 {
-        return Err(pyo3::exceptions::PyValueError::new_err("invalid flow grid or search reach"));
+    if block == 0
+        || block > 32
+        || width.checked_rem(block) != Some(0)
+        || height.checked_rem(block) != Some(0)
+        || reach > 128
+    {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "invalid flow grid or search reach",
+        ));
     }
     let blocks = (width / block) * (height / block);
     check_size(base_y, blocks, 8)?;
     check_size(base_x, blocks, 8)?;
     let side = 2 * reach + 1;
     if blocks.checked_mul(side * side * 4).is_none() {
-        return Err(pyo3::exceptions::PyValueError::new_err("flow grid is too large"));
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "flow grid is too large",
+        ));
     }
     let decode = |data: &[u8]| -> Vec<i64> {
-        data.chunks_exact(8).map(|chunk| i64::from_ne_bytes(chunk.try_into().unwrap())).collect()
+        data.chunks_exact(8)
+            .map(|chunk| i64::from_ne_bytes(chunk.try_into().unwrap()))
+            .collect()
     };
     let base_y = decode(base_y);
     let base_x = decode(base_x);
     let bytes: Vec<u8> = py.detach(|| {
-        line_flow::score_shifts(target, guide, (width, height), block, &base_y, &base_x, reach)
-            .iter().flat_map(|value| value.to_ne_bytes()).collect()
+        line_flow::score_shifts(
+            target,
+            guide,
+            (width, height),
+            block,
+            &base_y,
+            &base_x,
+            reach,
+        )
+        .iter()
+        .flat_map(|value| value.to_ne_bytes())
+        .collect()
     });
     Ok(PyBytes::new(py, &bytes))
 }

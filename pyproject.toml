@@ -62,7 +62,9 @@ branch = true
 [tool.coverage.report]
 show_missing = true
 skip_covered = false
-fail_under = 37.0
+# The measured total is ~68.6%; this sits just below it so a real regression
+# fails the build instead of being absorbed by a decorative floor.
+fail_under = 66.0
 
 [tool.pyright]
 # Test modules intentionally use lightweight fakes and monkeypatch private GPU

@@ -45,7 +45,10 @@ impl ColorMapping<'_> {
     #[inline]
     fn index_of(&self, code: u32) -> Option<u8> {
         // 色数は数百までなので、二分探索が表を作るより軽い。
-        self.codes.binary_search(&code).ok().map(|slot| self.indices[slot])
+        self.codes
+            .binary_search(&code)
+            .ok()
+            .map(|slot| self.indices[slot])
     }
 }
 
@@ -95,8 +98,12 @@ pub fn region_neighbors(
     let gap = gap.max(1);
     for distance in 1..=gap {
         // numpy 版と同じ4つの向き。残りの向きは組にすると同じものになる。
-        for (dy, dx) in [(0i64, distance as i64), (distance as i64, 0),
-                         (distance as i64, distance as i64), (distance as i64, -(distance as i64))] {
+        for (dy, dx) in [
+            (0i64, distance as i64),
+            (distance as i64, 0),
+            (distance as i64, distance as i64),
+            (distance as i64, -(distance as i64)),
+        ] {
             if dy as usize >= height || dx.unsigned_abs() as usize >= width {
                 continue;
             }
@@ -122,8 +129,10 @@ pub fn region_neighbors(
             }
         }
     }
-    let mut found: Vec<(i64, i64)> =
-        pairs.into_iter().map(|(low, high)| (low as i64, high as i64)).collect();
+    let mut found: Vec<(i64, i64)> = pairs
+        .into_iter()
+        .map(|(low, high)| (low as i64, high as i64))
+        .collect();
     found.sort_unstable();
     found
 }
@@ -156,11 +165,17 @@ pub fn py_map_known_colors<'py>(
         return Err(invalid("the palette must not be empty"));
     }
     let palette: Vec<[u8; 3]> = palette.iter().map(|(r, g, b)| [*r, *g, *b]).collect();
-    let mapping = ColorMapping { codes: &codes, indices: &indices };
+    let mapping = ColorMapping {
+        codes: &codes,
+        indices: &indices,
+    };
     let mut pixels = rgba.to_vec();
-    let known =
-        py.detach(|| map_known_colors(&mut pixels, &mapping, &palette, line_max));
-    Ok(if known { Some(PyBytes::new(py, &pixels)) } else { None })
+    let known = py.detach(|| map_known_colors(&mut pixels, &mapping, &palette, line_max));
+    Ok(if known {
+        Some(PyBytes::new(py, &pixels))
+    } else {
+        None
+    })
 }
 
 #[pyfunction(name = "region_neighbors")]
@@ -213,11 +228,14 @@ mod tests {
     #[test]
     fn lines_transparency_and_holes_keep_their_color() {
         let pixels = rgba(&[
-            [10, 10, 10, 255],       // 主線
-            [255, 255, 255, 255],    // 擬似透明の白
-            [200, 100, 100, 0],      // 透明
+            [10, 10, 10, 255],    // 主線
+            [255, 255, 255, 255], // 擬似透明の白
+            [200, 100, 100, 0],   // 透明
         ]);
-        let mapping = ColorMapping { codes: &[0xc86464], indices: &[0] };
+        let mapping = ColorMapping {
+            codes: &[0xc86464],
+            indices: &[0],
+        };
         let mut painted = pixels.clone();
         assert!(map_known_colors(&mut painted, &mapping, &[RED], 48));
         assert_eq!(painted, pixels);
@@ -227,7 +245,10 @@ mod tests {
     fn an_unknown_color_leaves_every_pixel_alone() {
         let mut pixels = rgba(&[[200, 100, 100, 255], [1, 2, 3, 255]]);
         let before = pixels.clone();
-        let mapping = ColorMapping { codes: &[0x010203], indices: &[0] };
+        let mapping = ColorMapping {
+            codes: &[0x010203],
+            indices: &[0],
+        };
         // 0xc86464 の対応がないので、割り当て直しに回す。
         assert!(!map_known_colors(&mut pixels, &mapping, &[RED], 48));
         // 塗りかけの絵は残さない。

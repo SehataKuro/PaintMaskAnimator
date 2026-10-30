@@ -13,6 +13,7 @@ English | [日本語](README.md)
 [![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![PySide6](https://img.shields.io/badge/PySide6-6.5%2B-41CD52?logo=qt&logoColor=white)](https://doc.qt.io/qtforpython/)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey)](https://github.com/SehataKuro/PaintMaskAnimator/releases)
+[![Coverage](https://img.shields.io/badge/coverage-report-brightgreen)](https://jokomanato.com/paintmaskanimator/coverage/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
 
 A paint and mask animation tool for animation finishing (colouring).
@@ -95,6 +96,13 @@ sources you trust.
 
 Setting up, the pre-submit checks, translations and the release procedure are
 described in [`CONTRIBUTING.md`](CONTRIBUTING.md) (Japanese).
+
+Test coverage is browsable line by line in the
+[**coverage report**](https://jokomanato.com/paintmaskanimator/coverage/), and the
+[**feature verification map**](https://jokomanato.com/paintmaskanimator/) is published on the same site. CI
+refreshes both on pushes to `main` only, so they do not yet reflect an open
+pull request -- for that, read the totals in the run's job summary or download
+the `feature-map-<sha>` artifact.
 
 ```bash
 pip install -e ".[dev,full]"

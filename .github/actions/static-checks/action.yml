@@ -1,0 +1,26 @@
+name: Static checks
+description: >-
+  Lint, type check and translation-catalogue checks. Shared by ci.yml and
+  release.yml; release builds must not ship something CI would have rejected.
+
+runs:
+  using: composite
+  steps:
+    - name: Lint (ruff)
+      shell: bash
+      run: ruff check paintmaskanimator tests scripts
+
+    - name: Type check (pyright)
+      shell: bash
+      run: pyright
+
+    # A newly wrapped tr() string must land with its catalogue entry, or the
+    # translation simply never appears -- silently, since an unresolved lookup
+    # returns the Japanese source string.
+    - name: Check translation catalogues are current
+      shell: bash
+      run: python scripts/update_translations.py --check
+
+    - name: Compile translation catalogues
+      shell: bash
+      run: python scripts/update_translations.py

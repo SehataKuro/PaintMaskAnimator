@@ -31,7 +31,9 @@ use windows::Win32::System::Com::{
 use windows::Win32::UI::Shell::PropertiesSystem::{
     IInitializeWithStream, IInitializeWithStream_Impl,
 };
-use windows::Win32::UI::Shell::{IThumbnailProvider, IThumbnailProvider_Impl, WTSAT_ARGB, WTS_ALPHATYPE};
+use windows::Win32::UI::Shell::{
+    IThumbnailProvider, IThumbnailProvider_Impl, WTSAT_ARGB, WTS_ALPHATYPE,
+};
 
 /// {E65E7337-4EA8-4AED-B618-247D06EAAC47} -- must match installer.iss.
 const CLSID_PMAN_THUMBNAIL: GUID = GUID::from_u128(0xE65E7337_4EA8_4AED_B618_247D06EAAC47);
@@ -45,7 +47,11 @@ fn read_exact(stream: &IStream, buffer: &mut [u8]) -> Result<()> {
     let mut read = 0u32;
     unsafe {
         stream
-            .Read(buffer.as_mut_ptr().cast(), buffer.len() as u32, Some(&mut read))
+            .Read(
+                buffer.as_mut_ptr().cast(),
+                buffer.len() as u32,
+                Some(&mut read),
+            )
             .ok()?;
     }
     if read as usize == buffer.len() {
@@ -61,7 +67,8 @@ fn read_thumbnail_png(stream: &IStream) -> Result<Vec<u8>> {
     let mut header = [0u8; 30];
     read_exact(stream, &mut header)?;
     let u16_at = |i: usize| u16::from_le_bytes([header[i], header[i + 1]]);
-    let u32_at = |i: usize| u32::from_le_bytes([header[i], header[i + 1], header[i + 2], header[i + 3]]);
+    let u32_at =
+        |i: usize| u32::from_le_bytes([header[i], header[i + 1], header[i + 2], header[i + 3]]);
     let flags = u16_at(6);
     let method = u16_at(8);
     let size = u32_at(18);
@@ -96,15 +103,20 @@ fn png_to_hbitmap(png: &[u8], cx: u32) -> Result<HBITMAP> {
             CoCreateInstance(&CLSID_WICImagingFactory, None, CLSCTX_INPROC_SERVER)?;
         let memory = factory.CreateStream()?;
         memory.InitializeFromMemory(png)?;
-        let decoder =
-            factory.CreateDecoderFromStream(&memory, std::ptr::null(), WICDecodeMetadataCacheOnDemand)?;
+        let decoder = factory.CreateDecoderFromStream(
+            &memory,
+            std::ptr::null(),
+            WICDecodeMetadataCacheOnDemand,
+        )?;
         let frame = decoder.GetFrame(0)?;
         let (mut width, mut height) = (0u32, 0u32);
         frame.GetSize(&mut width, &mut height)?;
         if width == 0 || height == 0 || cx == 0 {
             return Err(E_FAIL.into());
         }
-        let scale = (cx as f64 / width as f64).min(cx as f64 / height as f64).min(1.0);
+        let scale = (cx as f64 / width as f64)
+            .min(cx as f64 / height as f64)
+            .min(1.0);
         let out_w = ((width as f64 * scale).round() as u32).max(1);
         let out_h = ((height as f64 * scale).round() as u32).max(1);
 
@@ -156,7 +168,9 @@ struct ThumbnailProvider {
 impl ThumbnailProvider {
     fn new() -> Self {
         OBJECTS.fetch_add(1, Ordering::SeqCst);
-        Self { stream: RefCell::new(None) }
+        Self {
+            stream: RefCell::new(None),
+        }
     }
 }
 
@@ -178,11 +192,20 @@ impl IInitializeWithStream_Impl for ThumbnailProvider_Impl {
 }
 
 impl IThumbnailProvider_Impl for ThumbnailProvider_Impl {
-    fn GetThumbnail(&self, cx: u32, phbmp: *mut HBITMAP, pdwalpha: *mut WTS_ALPHATYPE) -> Result<()> {
+    fn GetThumbnail(
+        &self,
+        cx: u32,
+        phbmp: *mut HBITMAP,
+        pdwalpha: *mut WTS_ALPHATYPE,
+    ) -> Result<()> {
         if phbmp.is_null() || pdwalpha.is_null() {
             return Err(E_POINTER.into());
         }
-        let stream = self.stream.borrow().clone().ok_or(windows::core::Error::from(E_UNEXPECTED))?;
+        let stream = self
+            .stream
+            .borrow()
+            .clone()
+            .ok_or(windows::core::Error::from(E_UNEXPECTED))?;
         let png = read_thumbnail_png(&stream)?;
         let bitmap = png_to_hbitmap(&png, cx)?;
         unsafe {

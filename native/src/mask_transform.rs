@@ -100,7 +100,11 @@ fn resolve_pixel(
     };
     for (slot, label) in coverage_labels.iter().enumerate() {
         let hits = if uniform {
-            if first == *label { probes } else { 0 }
+            if first == *label {
+                probes
+            } else {
+                0
+            }
         } else {
             sampled.iter().filter(|value| *value == label).count()
         };
@@ -124,7 +128,10 @@ impl BandOutput<'_> {
         let span = row * out_width..(row + 1) * out_width;
         (
             &mut self.labels[span.clone()],
-            self.coverage.iter_mut().map(|buffer| &mut buffer[span.clone()]).collect(),
+            self.coverage
+                .iter_mut()
+                .map(|buffer| &mut buffer[span.clone()])
+                .collect(),
         )
     }
 }
@@ -145,8 +152,10 @@ where
     F: Fn(BandOutput) + Send + Sync,
 {
     let mut out_labels = vec![OUTSIDE; out_width * out_height];
-    let mut out_coverage: Vec<Vec<u8>> =
-        coverage_labels.iter().map(|_| vec![0u8; out_width * out_height]).collect();
+    let mut out_coverage: Vec<Vec<u8>> = coverage_labels
+        .iter()
+        .map(|_| vec![0u8; out_width * out_height])
+        .collect();
     if out_width == 0 || out_height == 0 {
         return (out_labels, out_coverage);
     }
@@ -190,7 +199,12 @@ where
                             band
                         })
                         .collect();
-                    render(BandOutput { y0: chunk_start + done, rows, labels, coverage });
+                    render(BandOutput {
+                        y0: chunk_start + done,
+                        rows,
+                        labels,
+                        coverage,
+                    });
                     done += rows;
                 }
             });
@@ -217,26 +231,33 @@ fn render_quad_bands(
     // probe は画素の内側に半歩入った位置にある。
     let offsets: Vec<f64> = (0..subsamples).map(|i| (i as f64 + 0.5) * step).collect();
     // 帯を 1 行にすると、行ごとに並べて解ける。
-    render_in_bands(out_width, out_height, coverage_labels, 1, threads, |mut band| {
-        let row_y = band.y0 as f64;
-        let (labels, mut coverage) = band.row(0, out_width);
-        let mut sampled = vec![OUTSIDE; probes];
-        let mut tally: Vec<(u16, usize)> = Vec::with_capacity(probes);
-        for (x, out) in labels.iter_mut().enumerate() {
-            for (sy, offset_y) in offsets.iter().enumerate() {
-                let probe_y = row_y + offset_y;
-                for (sx, offset_x) in offsets.iter().enumerate() {
-                    let probe_x = x as f64 + offset_x;
-                    sampled[sy * subsamples + sx] = match matrix.map(probe_x, probe_y) {
-                        // 射影の地平線は「何もない」として数える。
-                        None => OUTSIDE,
-                        Some((source_x, source_y)) => image.at(source_x, source_y),
-                    };
+    render_in_bands(
+        out_width,
+        out_height,
+        coverage_labels,
+        1,
+        threads,
+        |mut band| {
+            let row_y = band.y0 as f64;
+            let (labels, mut coverage) = band.row(0, out_width);
+            let mut sampled = vec![OUTSIDE; probes];
+            let mut tally: Vec<(u16, usize)> = Vec::with_capacity(probes);
+            for (x, out) in labels.iter_mut().enumerate() {
+                for (sy, offset_y) in offsets.iter().enumerate() {
+                    let probe_y = row_y + offset_y;
+                    for (sx, offset_x) in offsets.iter().enumerate() {
+                        let probe_x = x as f64 + offset_x;
+                        sampled[sy * subsamples + sx] = match matrix.map(probe_x, probe_y) {
+                            // 射影の地平線は「何もない」として数える。
+                            None => OUTSIDE,
+                            Some((source_x, source_y)) => image.at(source_x, source_y),
+                        };
+                    }
                 }
+                resolve_pixel(&sampled, coverage_labels, out, &mut coverage, x, &mut tally);
             }
-            resolve_pixel(&sampled, coverage_labels, out, &mut coverage, x, &mut tally);
-        }
-    })
+        },
+    )
 }
 
 /// メッシュの三角形を帯へ塗り、probe ごとの番号を書く。
@@ -357,7 +378,13 @@ fn render_mesh_bands(
         |mut band| {
             let mut probe_labels = vec![OUTSIDE; probe_width * band.rows * subsamples];
             rasterize_mesh_band(
-                image, mesh, out_width, band.y0, band.rows, subsamples, &mut probe_labels,
+                image,
+                mesh,
+                out_width,
+                band.y0,
+                band.rows,
+                subsamples,
+                &mut probe_labels,
             );
             let mut sampled = vec![OUTSIDE; probes];
             let mut tally: Vec<(u16, usize)> = Vec::with_capacity(probes);
@@ -369,9 +396,7 @@ fn render_mesh_bands(
                         sampled[sy * subsamples..(sy + 1) * subsamples]
                             .copy_from_slice(&probe_labels[probe_row..probe_row + subsamples]);
                     }
-                    resolve_pixel(
-                        &sampled, coverage_labels, out, &mut coverage, x, &mut tally,
-                    );
+                    resolve_pixel(&sampled, coverage_labels, out, &mut coverage, x, &mut tally);
                 }
             }
         },
@@ -387,7 +412,11 @@ fn check_inputs(
     subsamples: usize,
 ) -> PyResult<Vec<u16>> {
     let invalid = |message: &str| pyo3::exceptions::PyValueError::new_err(message.to_string());
-    if source_width.checked_mul(source_height).map(|total| total * 2) != Some(labels.len()) {
+    if source_width
+        .checked_mul(source_height)
+        .map(|total| total * 2)
+        != Some(labels.len())
+    {
         return Err(invalid("label image size does not match width x height"));
     }
     if subsamples == 0 || subsamples > 16 {
@@ -403,11 +432,16 @@ fn check_inputs(
     {
         return Err(invalid("output size is too large"));
     }
-    Ok(labels.chunks_exact(2).map(|chunk| u16::from_ne_bytes([chunk[0], chunk[1]])).collect())
+    Ok(labels
+        .chunks_exact(2)
+        .map(|chunk| u16::from_ne_bytes([chunk[0], chunk[1]]))
+        .collect())
 }
 
 fn threads() -> usize {
-    thread::available_parallelism().map(|value| value.get()).unwrap_or(1)
+    thread::available_parallelism()
+        .map(|value| value.get())
+        .unwrap_or(1)
 }
 
 fn to_python<'py>(
@@ -415,10 +449,16 @@ fn to_python<'py>(
     result: (Vec<u16>, Vec<Vec<u8>>),
 ) -> (Bound<'py, PyBytes>, Vec<Bound<'py, PyBytes>>) {
     let (labels, coverage) = result;
-    let bytes: Vec<u8> = labels.iter().flat_map(|value| value.to_ne_bytes()).collect();
+    let bytes: Vec<u8> = labels
+        .iter()
+        .flat_map(|value| value.to_ne_bytes())
+        .collect();
     (
         PyBytes::new(py, &bytes),
-        coverage.iter().map(|buffer| PyBytes::new(py, buffer)).collect(),
+        coverage
+            .iter()
+            .map(|buffer| PyBytes::new(py, buffer))
+            .collect(),
     )
 }
 
@@ -435,11 +475,21 @@ pub fn py_render_quad_labels<'py>(
     subsamples: usize,
     coverage_labels: Vec<u16>,
 ) -> PyResult<(Bound<'py, PyBytes>, Vec<Bound<'py, PyBytes>>)> {
-    let values =
-        check_inputs(labels, source_width, source_height, out_width, out_height, subsamples)?;
+    let values = check_inputs(
+        labels,
+        source_width,
+        source_height,
+        out_width,
+        out_height,
+        subsamples,
+    )?;
     let threads = threads();
     let result = py.detach(|| {
-        let image = LabelImage { labels: &values, width: source_width, height: source_height };
+        let image = LabelImage {
+            labels: &values,
+            width: source_width,
+            height: source_height,
+        };
         render_quad_bands(
             &image,
             &Homography(matrix),
@@ -469,10 +519,18 @@ pub fn py_render_mesh_labels<'py>(
     band_rows: usize,
     coverage_labels: Vec<u16>,
 ) -> PyResult<(Bound<'py, PyBytes>, Vec<Bound<'py, PyBytes>>)> {
-    let values =
-        check_inputs(labels, source_width, source_height, out_width, out_height, subsamples)?;
+    let values = check_inputs(
+        labels,
+        source_width,
+        source_height,
+        out_width,
+        out_height,
+        subsamples,
+    )?;
     if dense_cols < 2 || dense_rows < 2 {
-        return Err(pyo3::exceptions::PyValueError::new_err("the mesh needs at least 2x2 points"));
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "the mesh needs at least 2x2 points",
+        ));
     }
     if dense_cols.checked_mul(dense_rows) != Some(points.len()) {
         return Err(pyo3::exceptions::PyValueError::new_err(
@@ -481,8 +539,16 @@ pub fn py_render_mesh_labels<'py>(
     }
     let threads = threads();
     let result = py.detach(|| {
-        let image = LabelImage { labels: &values, width: source_width, height: source_height };
-        let mesh = Mesh { points: &points, cols: dense_cols, rows: dense_rows };
+        let image = LabelImage {
+            labels: &values,
+            width: source_width,
+            height: source_height,
+        };
+        let mesh = Mesh {
+            points: &points,
+            cols: dense_cols,
+            rows: dense_rows,
+        };
         render_mesh_bands(
             &image,
             &mesh,
@@ -502,7 +568,11 @@ mod tests {
     use super::*;
 
     fn image<'a>(labels: &'a [u16], width: usize, height: usize) -> LabelImage<'a> {
-        LabelImage { labels, width, height }
+        LabelImage {
+            labels,
+            width,
+            height,
+        }
     }
 
     /// 恒等変換。probe は画素の中に並ぶので、そのまま写る。
@@ -533,8 +603,7 @@ mod tests {
     #[test]
     fn identity_keeps_labels_and_full_coverage() {
         let labels = vec![0u16, 1, 2, 0];
-        let (result, coverage) =
-            render_quad(&labels, (2, 2), &identity(), (2, 2), 4, &[1, 2], 1);
+        let (result, coverage) = render_quad(&labels, (2, 2), &identity(), (2, 2), 4, &[1, 2], 1);
         assert_eq!(result, labels);
         assert_eq!(coverage[0], vec![0, 255, 0, 0]);
         assert_eq!(coverage[1], vec![0, 0, 255, 0]);
@@ -605,7 +674,11 @@ mod tests {
     ) -> (Vec<u16>, Vec<Vec<u8>>) {
         render_mesh_bands(
             &image(labels, size.0, size.1),
-            &Mesh { points, cols: grid.0, rows: grid.1 },
+            &Mesh {
+                points,
+                cols: grid.0,
+                rows: grid.1,
+            },
             out.0,
             out.1,
             subsamples,
@@ -642,11 +715,27 @@ mod tests {
         let labels: Vec<u16> = (0..64u16).map(|value| value % 4).collect();
         // 3x3 の格子を曲げる（真ん中を持ち上げる）。
         let points = vec![
-            (0.0, 0.0), (6.0, -1.0), (13.0, 1.0),
-            (1.0, 7.0), (7.0, 5.0), (12.0, 8.0),
-            (0.5, 13.0), (6.0, 14.0), (13.0, 12.0),
+            (0.0, 0.0),
+            (6.0, -1.0),
+            (13.0, 1.0),
+            (1.0, 7.0),
+            (7.0, 5.0),
+            (12.0, 8.0),
+            (0.5, 13.0),
+            (6.0, 14.0),
+            (13.0, 12.0),
         ];
-        let whole = render_mesh(&labels, (8, 8), &points, (3, 3), (15, 15), 4, 64, &[1, 2], 1);
+        let whole = render_mesh(
+            &labels,
+            (8, 8),
+            &points,
+            (3, 3),
+            (15, 15),
+            4,
+            64,
+            &[1, 2],
+            1,
+        );
         let banded = render_mesh(&labels, (8, 8), &points, (3, 3), (15, 15), 4, 4, &[1, 2], 1);
         let threaded = render_mesh(&labels, (8, 8), &points, (3, 3), (15, 15), 4, 4, &[1, 2], 5);
         assert_eq!(whole, banded);
