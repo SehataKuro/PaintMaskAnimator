@@ -305,7 +305,10 @@ class MainWindowMembers(_MembersBase):
         reference_check: ReferenceCheckController
         auto_paint: AutoPaintController
         initial_state: InitialStateController
+        canvas_export_separator: Any
         compare_initial_button: Any
+        copy_canvas_button: Any
+        save_canvas_button: Any
         flip_horizontal_button: Any
         flip_vertical_button: Any
         project: ProjectIOController

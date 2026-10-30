@@ -14,6 +14,7 @@ instead of appearing out of nowhere. This is the shape the remaining
 from typing import TYPE_CHECKING
 
 import csv
+import datetime as _datetime
 import shutil
 import subprocess
 import sys
@@ -21,7 +22,7 @@ import tempfile
 from pathlib import Path
 from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMessageBox
 from .i18n import tr
-from . import cut_folder, timesheet_file
+from . import cut_folder, preferences, timesheet_file
 from .models import default_layer_name
 from .optional_deps import PILImage, PSDImage
 from .constants import OUTSIDE_MARGIN
@@ -43,6 +44,79 @@ class ExportController:
 
     def __init__(self, window: "MainWindow"):
         self.window = window
+
+    # -- 今の絵の書き出し（キャンバス下のバー） --------------------------------
+
+    def canvas_image(self):
+        """今表示しているコマの、キャンバス範囲の合成画像。"""
+        return self.window.crop_image(self.window.canvas.current_frame)
+
+    @staticmethod
+    def snapshot_path(folder):
+        """``folder`` に置く、年月日時分秒（14桁）の .png のパス。
+
+        同じ秒に2枚撮ると名前がぶつかるので、そのときだけ連番を足して
+        前の1枚を黙って上書きしないようにする。
+        """
+        stamp = _datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+        path = folder / f"{stamp}.png"
+        suffix = 2
+        while path.exists():
+            path = folder / f"{stamp}_{suffix}.png"
+            suffix += 1
+        return path
+
+    def copy_canvas_to_clipboard(self):
+        """今の絵をクリップボードへ書き出す。"""
+        clipboard = QApplication.clipboard()
+        if clipboard is None:
+            return False
+        clipboard.setImage(self.canvas_image())
+        self.window.statusBar().showMessage(
+            tr("今の絵をクリップボードへ書き出しました。"), 4000
+        )
+        return True
+
+    def choose_snapshot_folder(self):
+        """カメラボタンの保存先を選び直す。選んだら真。"""
+        folder = QFileDialog.getExistingDirectory(
+            self.window,
+            tr("画像の保存先フォルダー"),
+            preferences.snapshot_folder() or "",
+        )
+        if not folder:
+            return False
+        preferences.set_snapshot_folder(folder)
+        return True
+
+    def save_canvas_snapshot(self, choose_folder=False):
+        """今の絵を保存先フォルダーへ年月日時分秒の名前で書き出す。
+
+        保存先が未設定・見つからない場合と ``choose_folder`` のときだけ尋ねる。
+        あとはボタン1回で1枚ずつたまる。
+        """
+        folder = Path(preferences.snapshot_folder())
+        if choose_folder or not preferences.snapshot_folder() or not folder.is_dir():
+            if not self.choose_snapshot_folder():
+                return False
+            folder = Path(preferences.snapshot_folder())
+        path = self.snapshot_path(folder)
+        try:
+            saved = self.canvas_image().save(str(path), "PNG")  # pyright: ignore[reportCallIssue,reportArgumentType]  # QImage.save accepts a str format at runtime
+        except OSError as exc:
+            log.error("snapshot save failed: %s", exc, exc_info=True)
+            saved = False
+        if not saved:
+            QMessageBox.warning(
+                self.window,
+                tr("画像を保存"),
+                tr("画像を保存できませんでした：{path}").format(path=path),
+            )
+            return False
+        self.window.statusBar().showMessage(
+            tr("「{name}」として保存しました。").format(name=path.name), 4000
+        )
+        return True
 
     def xdts_dialog(self):
         path, _ = QFileDialog.getSaveFileName(

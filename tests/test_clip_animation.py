@@ -902,6 +902,8 @@ def test_native_clip_can_restore_initial_line_art_without_replacing_paint(qapp, 
         canvas = window.canvas
         frames = canvas.frames
         cell = frames[0].layers[0]
+        # 読み込みが済んだ時点で、線画は初期状態として保持されている。
+        assert cell.initial_image.pixelColor(0, 0) == QColor(10, 20, 30, 255)
         cell.image = QImage(cell.image)
         cell.image.fill(QColor("red"))
         exposure = cell.exposure
@@ -910,7 +912,34 @@ def test_native_clip_can_restore_initial_line_art_without_replacing_paint(qapp, 
         assert cell.image.pixelColor(0, 0) == QColor("red")
         assert cell.initial_image.pixelColor(0, 0) == QColor(10, 20, 30, 255)
         canvas.undo()
-        assert cell.initial_image is None
+        # 読み込み時に保持した初期状態へ戻る（塗りはそのまま）。
+        assert cell.initial_image.pixelColor(0, 0) == QColor(10, 20, 30, 255)
         assert cell.image.pixelColor(0, 0) == QColor("red")
+    finally:
+        window.close()
+
+
+@requires_clip_native
+def test_clip_import_keeps_the_line_art_as_the_initial_state(qapp, tmp_path):
+    path = _clip_file(tmp_path)
+    window = MainWindow()
+    try:
+        assert window.importer.clip_animation(path, confirm_replace=False)
+        cells = window.initial_state.cells()
+        assert cells
+        assert window.initial_state.count(cells) == len(cells)
+    finally:
+        window.close()
+
+
+@requires_clip_native
+def test_dropped_clip_keeps_the_initial_state_too(qapp, tmp_path):
+    path = _clip_file(tmp_path)
+    window = MainWindow()
+    try:
+        window.canvas.clipAnimationDropped.emit(str(path))
+        cells = window.initial_state.cells()
+        assert cells
+        assert window.initial_state.count(cells) == len(cells)
     finally:
         window.close()
