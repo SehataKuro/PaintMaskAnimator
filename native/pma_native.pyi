@@ -65,6 +65,54 @@ def label_regions(codes: bytes, width: int, height: int) -> tuple[bytes, int]:
     番号は各領域の最初の画素（行優先）が現れた順。``(番号, 領域の数)`` を返す。
     """
 def unique_colors(pixels: bytes, limit: int) -> list[int]: ...
+def map_known_colors(
+    rgba: bytes, codes: list[int], indices: list[int],
+    palette: list[tuple[int, int, int]], line_max: int,
+) -> bytes | None:
+    """対応表どおりに隣接色分けの仮の色を塗る。対応のない色があれば ``None``。
+
+    ``codes`` は元の RGB をまとめた値の昇順、``indices`` はその仮の色の番号。
+    """
+
+def region_neighbors(labels: bytes, width: int, height: int, gap: int) -> list[tuple[int, int]]:
+    """``gap`` 画素以内で向かい合う領域の組（番号の小さい順）。
+
+    ``labels`` は int32 の並び。0 の画素は領域に数えない。
+    """
+
+def surface_guided_palette_labels(
+    rgb: bytes, width: int, height: int, visible: bytes, palette: bytes,
+    spatial_refinement: bool,
+) -> bytes:
+    """画素ごとに、割り当てるパレットの番号（int16 の並び、未確定は -1）を決める。
+
+    ``rgb`` は 1 画素 3 バイト、``visible`` は 1 画素 1 バイト、``palette`` は
+    1 色 3 バイトの並び。``spatial_refinement`` が偽なら最近傍の色だけを返す。
+    """
+
+def render_quad_labels(
+    labels: bytes, source_width: int, source_height: int, matrix: list[float],
+    out_width: int, out_height: int, subsamples: int, coverage_labels: list[int],
+) -> tuple[bytes, list[bytes]]:
+    """平面四角形の逆写像で番号の画像（uint16 の並び）を変形する。
+
+    ``matrix`` は出力座標から元座標への 3x3 を行優先で並べた 9 個。番号と、
+    ``coverage_labels`` ごとの被覆（0-255 の並び）を返す。
+    """
+
+def render_mesh_labels(
+    labels: bytes, source_width: int, source_height: int,
+    points: list[tuple[float, float]], dense_cols: int, dense_rows: int,
+    out_width: int, out_height: int, subsamples: int, band_rows: int,
+    coverage_labels: list[int],
+) -> tuple[bytes, list[bytes]]:
+    """曲がった格子（メッシュ変形）で番号の画像（uint16 の並び）を変形する。
+
+    ``points`` は出力座標での格子点で、``dense_cols x dense_rows`` の行優先。
+    ``band_rows`` は一度に解く行数（使う記憶領域の上限）。番号と、
+    ``coverage_labels`` ごとの被覆（0-255 の並び）を返す。
+    """
+
 def resolve_exposures(states: bytes, exposures: bytes, frames: int, layers: int) -> bytes: ...
 def filter_palette(rgba: bytes, visible: list[tuple[int, int, int]] | None,
                    legacy: tuple[int, int, int] | None,

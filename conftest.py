@@ -7,29 +7,50 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 
-# QtAds destruction is unsafe on Windows in a shared QApplication. Keep
-# quarantined windows alive until run_tests.py terminates the test process.
+# Windows では QtAds の破棄が安全でないので、隔離した窓を強参照で抱えたまま、
+# run_tests.py がプロセスを終わらせるのに任せる。
 _retained_windows = []
+
+# テスト中に作られた ``MainWindow`` の台帳。後始末の対象はここから引く。
+# ``QApplication.topLevelWidgets()`` は歩かない（理由は
+# :func:`_live_main_windows` のコメント）。
+#
+# 弱参照で持つ。台帳は「どれを片付けるか」を知るためのもので、窓を生かして
+# おくためのものではないので、寿命は握らない。
+#
+# なお、常駐メモリのためではない。強参照でも弱参照でも全件実行のピークは
+# 4.6GB / 4.55GB でほぼ変わらなかった（計測済み）。破棄していた以前の 926MB
+# には戻っていない。差の出所はまだ分かっていない。窓の保持（5.9GB）より良く、
+# CI も通るが、ここは詰め切れていない。
+_known_windows = []
 
 
 @pytest.fixture(autouse=True)
 def retain_windows_dock_hierarchies(monkeypatch):
-    """Prevent QtAds native destruction in the shared Windows test process.
+    """共有テストプロセスでの QtAds のネイティブ破棄を防ぐ。
 
-    pytest-qt calls deleteLater and processes its event before fixture teardown,
-    so cancelling deferred deletion in a fixture finalizer is too late.
+    pytest-qt はフィクスチャの後始末より先に deleteLater とそのイベント処理を
+    行うので、フィクスチャのファイナライザーで遅延破棄を取り消すのでは遅い。
+
+    台帳（弱参照）への登録は全環境で行う。後始末の対象をここから引くことで
+    ``QApplication.topLevelWidgets()`` を歩かずに済む（理由は
+    :func:`_live_main_windows`）。破棄を止めるのは Windows だけ。Linux で窓を
+    保持すると常駐メモリが 926MB から 5.2GB に膨らみ、ウィジェットの生成中に
+    別のセグフォルトに変わるため（PR の説明を参照）。
     """
     import sys
 
-    if sys.platform != "win32":
-        return
     from paintmaskanimator.main_window import MainWindow
 
     original_init = MainWindow.__init__
 
     def initialize(window, *args, **kwargs):
+        import weakref
+
         original_init(window, *args, **kwargs)
-        _retained_windows.append(window)
+        _known_windows.append(weakref.ref(window))
+        if sys.platform == "win32":
+            _retained_windows.append(window)
 
     def retain(window):
         from PySide6.QtCore import QCoreApplication, QEvent
@@ -37,7 +58,8 @@ def retain_windows_dock_hierarchies(monkeypatch):
         QCoreApplication.removePostedEvents(window, QEvent.Type.DeferredDelete)
 
     monkeypatch.setattr(MainWindow, "__init__", initialize)
-    monkeypatch.setattr(MainWindow, "deleteLater", retain)
+    if sys.platform == "win32":
+        monkeypatch.setattr(MainWindow, "deleteLater", retain)
 
 
 @pytest.hookimpl(wrapper=True, tryfirst=True)
@@ -50,7 +72,7 @@ def pytest_runtest_teardown(item):
     # close() や e2e の app フィクスチャが死んだ C++ オブジェクトに触り、
     # ``libshiboken: Internal C++ object (MainWindow) already deleted`` が
     # 大量に出る（Linux の CI で 225 件以上）。破棄はフィクスチャの
-    # ファイナライザー（``destroy_leftover_main_windows``）に任せる。
+    # ファイナライザー（``quiesce_leftover_main_windows``）に任せる。
     _quiesce_leftover_main_windows()
     yield
 
@@ -105,15 +127,19 @@ def no_unhandled_modal_dialogs(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def destroy_leftover_main_windows():
-    """Destroy every ``MainWindow`` a test leaves behind.
+def quiesce_leftover_main_windows():
+    """テストが残した ``MainWindow`` を黙らせる。
 
-    Tests only ``close()`` their windows, which hides them but keeps them alive
-    for the whole session. Each one keeps its timers and sub-view filtering
-    application-wide events, and windows a test forgot to close also keep
-    their own filter. Every event then runs through dozens of stale filters,
-    so later window tests (``test_docking.py``) slow to a crawl -- over a
-    minute per test after the files before it -- and look hung.
+    テストは窓を ``close()`` するだけで、閉じても窓はセッションの間ずっと生き
+    残る。窓はそれぞれタイマーを持ち、サブビューはアプリケーション全体の
+    イベントを監視し続ける。閉じ忘れた窓は自分のフィルターも残す。すると
+    あらゆるイベントが何十ものフィルターを通るようになり、あとに来る窓の
+    テスト（``test_docking.py``）が 1 件に 1 分以上かかって固まったように
+    見える。
+
+    Windows では窓を破棄できない（QtAds が壊れる）ので、フィルターとタイマーを
+    止めるだけにして窓は隔離したまま残す。それ以外では破棄する
+    （``_tidy_up_leftover_main_windows`` のコメントを参照）。
     """
     _tidy_up_leftover_main_windows()
     yield
@@ -121,45 +147,63 @@ def destroy_leftover_main_windows():
 
 
 def _live_main_windows():
-    """生きている ``MainWindow`` を列挙する。
+    """テスト中に作られ、まだ生きている ``MainWindow`` を列挙する。
 
-    ``_closing`` が立っている（= close() 済みの）窓も含める。close() はフィルター
-    やタイマーを全部外すわけではないので、閉じた窓も後始末の対象になる。
+    ``QApplication.topLevelWidgets()`` は歩かない。あの一覧には、誰も所有して
+    いないウィジェットが混ざっているうえ、テストのたびに増えていく。
+    ``MainWindow`` を 1 つ作って破棄すると、親なしのトップレベルが 6 つ
+    （QCheckBox 1・QSpinBox 1・QWidget 4。Qt が QSS 適用のために作る見本
+    ウィジェット）取り残され、破棄のたびに単調に積み上がることを確認した。
+    さらに QtAds の ``CDockWidget`` は、破棄後に残ったキュー済みコールバック
+    から触られて ``already deleted`` を出す。CI の ubuntu 3.12 のログに出て
+    いた 30 件の ``QSpinBox already deleted`` はこの置き去りぶんである。
+    その一覧を後始末のたびに（= 1300 回以上）歩き、要素ごとに Python ラッパー
+    を作り直していたのが ``topLevelWidgets()`` でのセグフォルトの現場だった。
+
+    代わりに、自分で登録した台帳（``_known_windows``）だけを見る。ここに入る
+    のは ``MainWindow.__init__`` を通った窓だけなので、shiboken が破棄を把握
+    しているオブジェクトしかなく、``isValid`` の判定が信頼できる。
     """
-    import sys
-
-    main_window = sys.modules.get("paintmaskanimator.main_window")
-    if main_window is None:
-        return []
-    from PySide6.QtWidgets import QApplication
     from shiboken6 import isValid
 
-    if QApplication.instance() is None:
-        return []
-    return [
-        widget for widget in QApplication.topLevelWidgets()
-        if isinstance(widget, main_window.MainWindow) and isValid(widget)
-    ]
+    windows = []
+    dead = []
+    for reference in _known_windows:
+        window = reference()
+        if window is None:
+            dead.append(reference)
+        elif isValid(window):
+            windows.append(window)
+    for reference in dead:
+        _known_windows.remove(reference)
+    return windows
 
 
 def _quiesce_leftover_main_windows():
-    """窓を閉じてフィルターを外す。破棄はしない。"""
-    import sys
+    """窓を閉じてフィルターを外す。破棄はしない。
 
+    共有の ``QApplication`` のなかで、QtAds のドックを持つ ``MainWindow`` を
+    破棄するのは安全ではない。Windows では access violation やヒープ破壊で
+    落ち、Linux では ``QApplication.topLevelWidgets()`` を歩いている最中に
+    セグフォルトする。``scripts/run_tests.py`` がどの環境でもプロセスを強制
+    終了しているのも、インタープリター終了時に QtAds が破棄済みオブジェクトへ
+    触るという同じ問題のためである。
+
+    なので破棄はせず、フィルターとタイマーだけ止める。遅くなる原因は破棄の
+    有無ではなくフィルターの残留なので、これで足りる。窓は run_tests.py が
+    プロセスを終わらせるまで生きたままになる。
+    """
     windows = _live_main_windows()
     if not windows:
         return
+    from PySide6.QtCore import QCoreApplication, QEvent
+
     from paintmaskanimator.utils import remove_app_event_filter
 
-    if sys.platform == "win32":
-        from PySide6.QtCore import QCoreApplication, QEvent
-
-        # Cancel deferred destruction *before* close() emits Qt events. Doing
-        # this afterwards can delete the dock hierarchy in the middle of close.
-        for window in windows:
-            QCoreApplication.removePostedEvents(window, QEvent.Type.DeferredDelete)
-            if window not in _retained_windows:
-                _retained_windows.append(window)
+    # close() が Qt のイベントを出す*前*に、積まれた遅延破棄を取り消す。
+    # あとからやると close() の途中でドック階層が消えることがある。
+    for window in windows:
+        QCoreApplication.removePostedEvents(window, QEvent.Type.DeferredDelete)
 
     for window in windows:
         # close() で止まるのはメインウィンドウ自身のフィルターとタイマーだけ。
@@ -169,15 +213,22 @@ def _quiesce_leftover_main_windows():
             window.close()
         remove_app_event_filter(window.subview)
 
-    if sys.platform == "win32":
-        from PySide6.QtCore import QCoreApplication, QEvent
-
-        for window in windows:
-            QCoreApplication.removePostedEvents(window, QEvent.Type.DeferredDelete)
+    # close() の最中にテスト側が deleteLater() を積み直していることがある。
+    for window in windows:
+        QCoreApplication.removePostedEvents(window, QEvent.Type.DeferredDelete)
 
 
 def _tidy_up_leftover_main_windows():
-    """窓を閉じてフィルターを外し、そのうえで破棄する。
+    """窓を黙らせ、そのうえで（Windows 以外では）破棄する。
+
+    Windows では、ドッキング（QtAds）の窓を持つメインウィンドウを破棄すると
+    access violation やヒープ破壊で落ちる。なので窓は隔離したまま残し、
+    ``scripts/run_tests.py`` がプロセスを終わらせるのに任せる。
+
+    それ以外では破棄する。保持したままだと窓 1 件あたり約 13MB が積み上がり、
+    全件実行の常駐メモリのピークが 926MB から 5.2GB に増えて、こんどは
+    ウィジェットの生成中にセグフォルトするようになる（CI で確認）。
+    ``topLevelWidgets()`` を歩くのをやめた以上、破棄しても列挙の現場は踏まない。
 
     pytest-qt の close() とフィクスチャの後始末が済んだあとに呼ぶこと。
     """
@@ -185,22 +236,27 @@ def _tidy_up_leftover_main_windows():
 
     _quiesce_leftover_main_windows()
     if sys.platform == "win32":
-        # Windows では、ドッキング（QtAds）の窓を持つメインウィンドウを破棄すると
-        # access violation やヒープ破壊で落ちる（CI の Windows で再現）。
-        # テストの多くは片付けに ``window.deleteLater()`` を呼ぶが、その破棄は
-        # 次にイベントを回したところ――たいていは別のテストの最中――で起こる。
-        # そこで、積まれた破棄の予定を取り消して、窓は残しておく。
-        # フィルターは外したので、残っていても遅くはならない。
         return
     windows = _live_main_windows()
     if not windows:
         return
     from PySide6.QtCore import QCoreApplication, QEvent
     from PySide6.QtWidgets import QApplication
+    from shiboken6 import isValid
 
-    for window in windows:
-        window.deleteLater()
-    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     app = QApplication.instance()
     if app is not None:
+        # 破棄する前に、積まれた 0ms タイマー（``QTimer.singleShot``）を消化
+        # させる。窓が生きているあいだに流さないと、破棄したあとに発火して
+        # ``CDockWidget already deleted`` になる（``main_window_ui_build`` の
+        # ``_resize_tool_selector_area`` がこれ）。
         app.processEvents()
+    for window in _live_main_windows():
+        window.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    if app is not None:
+        app.processEvents()
+    _known_windows[:] = [
+        reference for reference in _known_windows
+        if (window := reference()) is not None and isValid(window)
+    ]

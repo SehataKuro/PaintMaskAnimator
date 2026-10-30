@@ -15,6 +15,8 @@ REQUIRED_API = (
     "TimelineCell", "resolve_timeline", "ClipAnimationReader", "GuideSampler",
     "resolve_exposures", "tint_onion", "unique_colors", "filter_palette",
     "line_flow_scores", "connect_runs", "label_runs", "refine_face", "thin",
+    "render_quad_labels", "render_mesh_labels",
+    "surface_guided_palette_labels", "map_known_colors", "region_neighbors",
     "flood_fill", "dilate", "erode", "label_regions",
 )
 REBUILD_MESSAGE = (
@@ -236,3 +238,102 @@ def label_regions(codes):
     )
     labels = np.frombuffer(data, dtype=np.uint32).reshape(height, width)
     return labels.astype(np.int32), int(count)
+
+
+def render_quad_labels(label_image, matrix, out_width, out_height, subsamples, coverage_labels):
+    """平面四角形の逆写像で番号の画像を変形する。
+
+    :param label_image: uint16 の2次元配列。0 は「何もない」。
+    :param matrix: 出力座標から元座標への 3x3（逆写像）。
+    :param coverage_labels: 被覆（0-255）も返す番号の並び。
+    :returns: ``(uint16 の番号, 番号 -> uint8 の被覆)``。
+    """
+    height, width = label_image.shape
+    labels = np.ascontiguousarray(label_image, dtype=np.uint16)
+    coverage_labels = [int(label) for label in coverage_labels]
+    data, coverage = _native.render_quad_labels(
+        labels.tobytes(), width, height,
+        [float(value) for value in np.asarray(matrix, dtype=np.float64).reshape(9)],
+        int(out_width), int(out_height), int(subsamples), coverage_labels,
+    )
+    result = np.frombuffer(data, dtype=np.uint16).reshape(out_height, out_width)
+    return result.copy(), {
+        label: np.frombuffer(plane, dtype=np.uint8).reshape(out_height, out_width).copy()
+        for label, plane in zip(coverage_labels, coverage)
+    }
+
+
+def render_mesh_labels(
+    label_image, points, dense_cols, dense_rows, out_width, out_height,
+    subsamples, band_rows, coverage_labels,
+):
+    """曲がった格子（メッシュ変形）で番号の画像を変形する。
+
+    :param points: 出力座標の格子点 ``(x, y)`` を行優先で並べたもの。
+    :param band_rows: 一度に解く行数。使う記憶領域の上限になる。
+    :returns: ``(uint16 の番号, 番号 -> uint8 の被覆)``。
+    """
+    height, width = label_image.shape
+    labels = np.ascontiguousarray(label_image, dtype=np.uint16)
+    coverage_labels = [int(label) for label in coverage_labels]
+    grid = np.asarray(points, dtype=np.float64).reshape(-1, 2)
+    data, coverage = _native.render_mesh_labels(
+        labels.tobytes(), width, height,
+        [(float(x), float(y)) for x, y in grid],
+        int(dense_cols), int(dense_rows), int(out_width), int(out_height),
+        int(subsamples), int(band_rows), coverage_labels,
+    )
+    result = np.frombuffer(data, dtype=np.uint16).reshape(out_height, out_width)
+    return result.copy(), {
+        label: np.frombuffer(plane, dtype=np.uint8).reshape(out_height, out_width).copy()
+        for label, plane in zip(coverage_labels, coverage)
+    }
+
+
+def surface_guided_palette_labels(rgb, visible, palette, spatial_refinement=True):
+    """画素ごとに割り当てるパレットの番号を決める（色面を種に境界を二分する）。
+
+    :param rgb: ``(高さ, 幅, 3)`` の uint8 配列。
+    :param visible: ``(高さ, 幅)`` の真偽配列。偽の画素は -1 のまま。
+    :param palette: ``(色数, 3)`` の uint8 配列。
+    :returns: ``(高さ, 幅)`` の int16 配列。未確定は -1。
+    """
+    height, width = visible.shape
+    pixels = np.ascontiguousarray(rgb, dtype=np.uint8).reshape(height, width, 3)
+    colors = np.ascontiguousarray(palette, dtype=np.uint8).reshape(-1, 3)
+    data = _native.surface_guided_palette_labels(
+        pixels.tobytes(), width, height,
+        np.ascontiguousarray(visible, dtype=bool).tobytes(), colors.tobytes(),
+        bool(spatial_refinement),
+    )
+    return np.frombuffer(data, dtype=np.int16).reshape(height, width).copy()
+
+
+def map_known_colors(pixels, palette, color_mapping, line_max):
+    """隣接色分けの仮の色を、割り当て済みの対応表どおりに塗る。
+
+    :param pixels: ``(高さ, 幅, 4)`` の RGBA8888 配列。
+    :param color_mapping: 元の RGB をまとめた値から仮の色の番号への辞書。
+    :returns: 塗った ``(高さ, 幅, 4)`` の配列。対応のない色があれば ``None``。
+    """
+    height, width = pixels.shape[:2]
+    codes = sorted(int(code) for code in color_mapping)
+    data = _native.map_known_colors(
+        np.ascontiguousarray(pixels, dtype=np.uint8).tobytes(),
+        codes, [int(color_mapping[code]) for code in codes],
+        [(int(color[0]), int(color[1]), int(color[2])) for color in palette],
+        int(line_max),
+    )
+    if data is None:
+        return None
+    # 読み取り専用のまま返す。呼び出し側が自分の配列へ書き写すので複製は要らない。
+    return np.frombuffer(data, dtype=np.uint8).reshape(height, width, 4)
+
+
+def region_neighbors(labels, gap):
+    """``gap`` 画素以内で向かい合う領域の組 ``(a, b)``（``a < b``）の配列。"""
+    height, width = labels.shape
+    pairs = _native.region_neighbors(
+        np.ascontiguousarray(labels, dtype=np.int32).tobytes(), width, height, int(gap)
+    )
+    return np.asarray(pairs, dtype=np.int64).reshape(-1, 2)

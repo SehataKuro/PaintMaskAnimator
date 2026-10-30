@@ -9,6 +9,7 @@ import math
 import numpy as np
 from PySide6.QtGui import QImage
 from . import imaging
+from . import native
 from . import colors as _colors  # noqa: F401
 
 
@@ -227,7 +228,23 @@ def _surface_guided_palette_labels(
     palette,
     spatial_refinement=True,
 ):
-    """色面内部を種にし、混合境界を隣接する2色へ分割する。"""
+    """色面内部を種にし、混合境界を隣接する2色へ分割する。
+
+    画素ごとの繰り返しなので計算はRustで行う。
+    :func:`_surface_guided_palette_labels_numpy` は突き合わせ用の参照実装。
+    """
+    return native.surface_guided_palette_labels(
+        rgb, visible, palette, spatial_refinement
+    )
+
+
+def _surface_guided_palette_labels_numpy(
+    rgb,
+    visible,
+    palette,
+    spatial_refinement=True,
+):
+    """:func:`_surface_guided_palette_labels` のnumpy版（参照実装）。"""
     height, width = visible.shape
     palette_array = np.asarray(
         palette,

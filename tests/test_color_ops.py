@@ -166,3 +166,57 @@ def test_apply_tone_curve_darkening_lowers_values(qapp):
     back = imaging.qimage_rgba_array(out)
     assert back[0, 0, 0] < 128
     assert back[0, 0, 3] == 255
+
+
+def artwork_with_blended_edges(rng, height, width, palette):
+    """Flat colour surfaces, then noise so the surface boundaries blend."""
+    rgb = np.zeros((height, width, 3), dtype=np.uint8)
+    for color in palette:
+        y0 = int(rng.integers(0, height))
+        x0 = int(rng.integers(0, width))
+        rgb[y0:y0 + height // 2, x0:x0 + width // 2] = color
+    blended = rng.random((height, width)) < 0.4
+    nudged = rgb[blended].astype(np.int16) + rng.integers(
+        -30, 30, (int(blended.sum()), 3)
+    )
+    rgb[blended] = nudged.clip(0, 255).astype(np.uint8)
+    return rgb
+
+
+@pytest.mark.parametrize("spatial_refinement", [True, False])
+@pytest.mark.parametrize("colors", [1, 2, 5, 12])
+def test_surface_guided_palette_labels_match_numpy(spatial_refinement, colors):
+    rng = np.random.default_rng(colors * 10 + int(spatial_refinement))
+    height, width = 37, 29
+    palette = rng.integers(0, 256, (colors, 3), dtype=np.uint8)
+    rgb = artwork_with_blended_edges(rng, height, width, palette)
+    visible = rng.random((height, width)) < 0.9
+    expected = color_ops._surface_guided_palette_labels_numpy(
+        rgb, visible, palette, spatial_refinement
+    )
+    actual = color_ops._surface_guided_palette_labels(
+        rgb, visible, palette, spatial_refinement
+    )
+    assert actual.dtype == np.int16
+    np.testing.assert_array_equal(actual, expected)
+
+
+def test_surface_guided_palette_labels_leave_hidden_pixels_unresolved():
+    palette = np.array([[255, 0, 0], [0, 0, 255]], dtype=np.uint8)
+    rgb = np.zeros((1, 3, 3), dtype=np.uint8)
+    rgb[0] = [[255, 0, 0], [255, 0, 0], [0, 0, 255]]
+    visible = np.array([[True, False, True]])
+    labels = color_ops._surface_guided_palette_labels(rgb, visible, palette)
+    np.testing.assert_array_equal(labels, [[0, -1, 1]])
+
+
+def test_surface_guided_palette_labels_split_a_mixed_edge_in_two():
+    # Two surfaces with a two-pixel blend between them: the blend has to fall
+    # to one side or the other, never stay as an in-between colour.
+    palette = np.array([[255, 0, 0], [0, 0, 255]], dtype=np.uint8)
+    row = [[255, 0, 0], [255, 0, 0], [170, 0, 85], [85, 0, 170], [0, 0, 255], [0, 0, 255]]
+    rgb = np.array([row], dtype=np.uint8)
+    labels = color_ops._surface_guided_palette_labels(
+        rgb, np.ones((1, 6), dtype=bool), palette
+    )
+    np.testing.assert_array_equal(labels, [[0, 0, 0, 1, 1, 1]])
