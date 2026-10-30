@@ -34,7 +34,7 @@ def _u32(value):
 
 
 def _binc(keys=((0.0, "1"), (60.0, "2")), extra_keys=None):
-    curves = [tuple(keys)]
+    curves = [] if keys is None else [tuple(keys)]
     if extra_keys is not None:
         curves.append(tuple(extra_keys))
     # Keep curve IDs distinct from numeric counts/zeros in this small fixture.
@@ -111,6 +111,8 @@ def _offscreen_attribute(width=2, height=2, packing_type=(1, 4), one_bit=False):
     packing[8] = (1 if one_bit else 8) << 5
     packing[10] = packing[11] = 256
     packing[14] = int(one_bit)
+    if one_bit and packing_type == (1, 1):
+        packing = [17, 1, 1, 1, 8192, 1, 32, 1, 32, 65536, 256, 256, 8, 8, 1, 0]
     parameter = _utf16be("Parameter") + b"".join(
         value.to_bytes(4, "big") for value in [width, height, 1, 1, *packing]
     )
@@ -162,10 +164,11 @@ def _pack_clip(database_path, externals):
     return bytes(data)
 
 
-def _raster_container(unpacked):
+def _raster_container(unpacked, *, packed_gray_alpha=False):
     compressed = zlib.compress(bytes(unpacked))
     block = (
-        struct.pack(">IHHIII", 0, len(unpacked) // (256 * 256), 0, 256, 256, 1)
+        struct.pack(">IHHIII", 0, 0 if packed_gray_alpha else len(unpacked) // (256 * 256),
+                    16384 if packed_gray_alpha else 0, 256, 256, 1)
         + (len(compressed) + 4).to_bytes(4, "big")
         + len(compressed).to_bytes(4, "little") + compressed
     )
@@ -376,6 +379,25 @@ def test_native_alpha_raster_and_unsupported_bit_depth(tmp_path, one_bit):
         assert image.pixelColor(1, 0).alpha() == 0
 
 
+@requires_clip_native
+def test_native_csp_monochrome_gray_alpha_planes(tmp_path):
+    # MSB-first alpha then gray, with a row stride of 32 packed bytes.
+    planes = bytearray(16384)
+    for pixel in (0, 1, 256):
+        planes[pixel // 8] |= 1 << (7 - pixel % 8)
+    for pixel in (1, 257):
+        planes[8192 + pixel // 8] |= 1 << (7 - pixel % 8)
+    path = _layered_clip_file(tmp_path, {"1": [{
+        "name": "mono", "raster": _raster_container(planes, packed_gray_alpha=True),
+        "packing_type": (1, 1), "one_bit": True,
+    }]})
+    image = read_clip_animation(path).layers[0].cell_images["1"]
+    assert image.pixelColor(0, 0) == QColor(0, 0, 0, 255)
+    assert image.pixelColor(1, 0) == QColor(255, 255, 255, 255)
+    assert image.pixelColor(0, 1) == QColor(0, 0, 0, 255)
+    assert image.pixelColor(1, 1).alpha() == 0
+
+
 def test_build_pma_frames_coalesces_holds_and_preserves_cell_names():
     red = QImage(4, 3, QImage.Format.Format_ARGB32_Premultiplied)
     red.fill(QColor("red"))
@@ -451,6 +473,92 @@ def test_invalid_container_does_not_look_like_clip(tmp_path):
     path.write_bytes(b"not a clip")
     with pytest.raises(ClipImportError):
         read_clip_animation(path)
+
+
+def _repack_fixture_clip(path, database_path):
+    with sqlite3.connect(database_path) as connection:
+        connection.executescript("""
+            DROP TABLE Project;
+            DROP TABLE ExternalChunk;
+            DELETE FROM Layer WHERE MainId = 999999;
+        """)
+    # Repack the changed database, preserving the fixture's external chunks.
+    data = path.read_bytes()
+    position = 24
+    externals = []
+    while position < len(data):
+        size = int.from_bytes(data[position + 8:position + 16], "big")
+        if data[position + 4:position + 8] == b"Exta":
+            externals.append(data[position + 16:position + 16 + size])
+        position += 16 + size
+    path.write_bytes(_pack_clip(database_path, externals))
+
+
+@requires_clip_native
+def test_unassigned_cel_track_keeps_chain_and_unused_cels(tmp_path):
+    path = _clip_file(tmp_path, mixer_keys=None, include_non_animation_track=True)
+    database_path = tmp_path / "source.sqlite"
+    with sqlite3.connect(database_path) as connection:
+        connection.executescript("""
+            ALTER TABLE TimeLine ADD COLUMN FirstTrack INTEGER;
+            UPDATE TimeLine SET FirstTrack = 1;
+            ALTER TABLE Track ADD COLUMN TrackNextIndex INTEGER;
+            UPDATE Track SET TrackNextIndex = CASE MainId WHEN 1 THEN 2 ELSE 0 END;
+        """)
+    _repack_fixture_clip(path, database_path)
+    original = path.read_bytes()
+    parsed = read_clip_animation(path)
+    assert parsed.layers[0].keys == ()
+    assert "1" in parsed.layers[0].cell_images
+    assert parsed.frames[0].layers[0].is_blank_key
+    assert parsed.frames[0].layers[0].exposure == 3
+    assert path.read_bytes() == original
+
+
+@requires_clip_native
+@pytest.mark.parametrize("selected_timeline", [1, 2])
+def test_shared_bank_tracks_belong_to_selected_timeline(tmp_path, selected_timeline):
+    path = _clip_file(tmp_path)
+    database_path = tmp_path / "source.sqlite"
+    with sqlite3.connect(database_path) as connection:
+        connection.executescript("""
+            ALTER TABLE TimeLine ADD COLUMN FirstTrack INTEGER;
+            UPDATE TimeLine SET FirstTrack = 1;
+            INSERT INTO TimeLine VALUES (2, 7, 30, 0, 4, 'Second', 2);
+            ALTER TABLE Track ADD COLUMN ItemId INTEGER;
+            ALTER TABLE Track ADD COLUMN TrackNextIndex INTEGER;
+            UPDATE Track SET ItemId = 1, TrackNextIndex = 0;
+            INSERT INTO Track
+                SELECT 2, BankId, TrackKind, TrackActionMixer,
+                       LayerUuidWithTrack, 2, 0 FROM Track WHERE MainId = 1;
+        """)
+        connection.execute("UPDATE AnimationCutBank SET FirstTimeLine = ?", (selected_timeline,))
+    _repack_fixture_clip(path, database_path)
+    original = path.read_bytes()
+    parsed = read_clip_animation(path)
+    assert parsed.folder_count == 1
+    assert parsed.frame_count == (3 if selected_timeline == 1 else 5)
+    assert parsed.fps == (24 if selected_timeline == 1 else 30)
+    assert parsed.layers[0].keys == (ClipCelKey(0, "1"),)
+    assert path.read_bytes() == original
+
+
+def test_held_frames_use_shared_image_budget(monkeypatch):
+    import paintmaskanimator.clip_animation as clip_module
+
+    image = QImage(2, 2, QImage.Format.Format_ARGB32_Premultiplied)
+    image.fill(QColor("red"))
+    layer = ClipAnimationLayer("A", (ClipCelKey(0, "1"),), {"1": image})
+    monkeypatch.setattr(clip_module, "MAX_PROJECT_DECODED_PIXELS", 8)
+    frames = build_pma_frames(2, 2, 0, 120, (layer,))
+    assert len(frames) == 121
+    assert frames[0].layers[0].exposure == 121
+    assert frames[1].layers[0].image.cacheKey() == frames[120].layers[0].image.cacheKey()
+    frames[1].layers[0].image.fill(QColor("blue"))
+    assert frames[120].layers[0].image.pixelColor(0, 0).alpha() == 0
+    monkeypatch.setattr(clip_module, "MAX_PROJECT_DECODED_PIXELS", 7)
+    with pytest.raises(ClipImportError, match="PMA"):
+        build_pma_frames(2, 2, 0, 120, (layer,))
 
 
 @pytest.fixture(scope="module")

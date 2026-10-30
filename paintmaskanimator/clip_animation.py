@@ -665,7 +665,10 @@ def build_pma_frames(
     cell_count = duration * len(layers)
     if cell_count > MAX_PROJECT_LAYER_CELLS:
         raise ClipImportError(tr("タイムラインのレイヤーセル数がPMAの上限を超えています。"))
-    if width * height * cell_count > MAX_PROJECT_DECODED_PIXELS:
+    # Held cells share their QImage pixels; only decoded cels and the shared
+    # transparent canvas allocate image buffers, not every timeline slot.
+    image_count = 1 + sum(len(layer.cell_images) for layer in layers)
+    if width * height * image_count > MAX_PROJECT_DECODED_PIXELS:
         raise ClipImportError(tr("タイムライン展開後の画像サイズがPMAの上限を超えています。"))
     transparent = QImage(width, height, QImage.Format.Format_ARGB32_Premultiplied)
     transparent.fill(QColor(0, 0, 0, 0))
@@ -750,14 +753,14 @@ def read_clip_animation(path: str | os.PathLike[str]) -> ClipAnimationDocument:
         cells = duration * len(tracks)
         if cells > MAX_PROJECT_LAYER_CELLS:
             raise ClipImportError(tr("タイムラインのレイヤーセル数がPMAの上限を超えています。"))
-        if width * height * cells > MAX_PROJECT_DECODED_PIXELS:
+        if width * height > MAX_PROJECT_DECODED_PIXELS:
             raise ClipImportError(tr("タイムライン展開後の画像サイズがPMAの上限を超えています。"))
         decoded_cels = 0
         for folder, candidates in tracks:
             children = _direct_children(layers_by_id, folder)
             decoded_cels += len(children)
             if (decoded_cels > MAX_PROJECT_LAYER_CELLS
-                    or width * height * decoded_cels > MAX_PROJECT_DECODED_PIXELS):
+                    or width * height * (decoded_cels + 1) > MAX_PROJECT_DECODED_PIXELS):
                 raise ClipImportError(tr("タイムライン展開後の画像サイズがPMAの上限を超えています。"))
             matching = [
                 curve for curve in candidates
