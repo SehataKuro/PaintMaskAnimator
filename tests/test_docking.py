@@ -300,10 +300,13 @@ def test_single_floating_panel_keeps_hamburger_menu(qapp, tmp_path, monkeypatch)
             pos=blank_title_position,
         )
         qapp.processEvents()
-        assert not any(
-            isinstance(widget, QMenu) and widget.isVisible()
-            for widget in qapp.topLevelWidgets()
-        )
+        # ``topLevelWidgets()`` は歩かない。破棄済みの C++ オブジェクトの
+        # Python ラッパーを列挙のたびに作り直すのがセグフォルトの現場で、
+        # conftest の ``_live_main_windows`` が同じ理由でこれを避けている
+        # （macOS の CI で実際に落ちた）。開いたメニューは必ずポップアップ
+        # なので、現在のポップアップだけを見れば足りる。
+        popup = qapp.activePopupWidget()
+        assert popup is None or not isinstance(popup, QMenu)
         hamburger = floating_title_bar.findChild(QToolButton, "dockHamburger")
         assert hamburger is not None
         assert hamburger.isVisible()
