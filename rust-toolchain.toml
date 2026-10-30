@@ -1,0 +1,17 @@
+# Pins the Rust toolchain for both crates (native/ and
+# packaging/windows/pman_thumbnail), which rustup resolves by walking up from
+# the working directory.
+#
+# Why pin: CI denies warnings (`clippy -D warnings`) and checks formatting
+# (`cargo fmt --check`). Both are defined by the toolchain, not by this
+# repository -- a new Rust release adds clippy lints and occasionally changes
+# rustfmt's output, so a floating toolchain breaks CI with no change on our
+# side and disagrees with what contributors see locally. (It happened: clippy
+# 1.99 added `chunks_exact_to_as_chunks`, which fires on a dozen pre-existing
+# call sites that clippy 1.92 accepts.)
+#
+# Bumping this is deliberate: expect new lints to surface, and fix or allow
+# them in the same change.
+[toolchain]
+channel = "1.92.0"
+components = ["rustfmt", "clippy"]

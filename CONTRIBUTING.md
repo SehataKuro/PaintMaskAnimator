@@ -24,8 +24,19 @@ PaintMaskAnimator への貢献を歓迎します。
 python -m venv .venv
 .venv/Scripts/activate
 pip install -e ".[dev,full]"
-cargo update --manifest-path native/Cargo.toml -p clipfile  # 最新の公開版を取り込む
 pip install ./native   # Rust の部品（Rust のツールチェーンが必要）
+```
+
+Rust のバージョンは `rust-toolchain.toml` で固定しています。rustup が自動で
+その版を使うので指定は不要ですが、`cargo fmt` と `clippy` の結果は版によって
+変わるため、固定を外すと CI と食い違います。Rust 側を触ったら次の 3 つを通して
+ください（CI と同じ内容です）。
+
+```bash
+cd native
+cargo fmt --all --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all-features
 ```
 
 `native/` は画像計算と状態管理の必須Rust拡張です。開発時も上記の
