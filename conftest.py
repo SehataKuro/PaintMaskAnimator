@@ -7,36 +7,33 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 
-# Windows では QtAds の破棄が安全でないので、隔離した窓を強参照で抱えたまま、
-# run_tests.py がプロセスを終わらせるのに任せる。
-_retained_windows = []
-
 # テスト中に作られた ``MainWindow`` の台帳。後始末の対象はここから引く。
 # ``QApplication.topLevelWidgets()`` は歩かない（理由は
 # :func:`_live_main_windows` のコメント）。
 #
 # 弱参照で持つ。台帳は「どれを片付けるか」を知るためのもので、窓を生かして
-# おくためのものではないので、寿命は握らない。
-#
-# なお、常駐メモリのためではない。強参照でも弱参照でも全件実行のピークは
-# 4.6GB / 4.55GB でほぼ変わらなかった（計測済み）。破棄していた以前の 926MB
-# には戻っていない。差の出所はまだ分かっていない。窓の保持（5.9GB）より良く、
-# CI も通るが、ここは詰め切れていない。
+# おくためのものではないので、寿命は握らない。強参照で持つと、C++ の実体を
+# 破棄したあとも Python のラッパーとその属性（canvas → document → フレームの
+# 画像、それに親なしで取り残されたウィジェット）が残り、Windows の全件実行の
+# ピーク常駐メモリが 818MB から 2190MB に増える（計測済み）。
 _known_windows = []
 
 
 @pytest.fixture(autouse=True)
 def retain_windows_dock_hierarchies(monkeypatch):
-    """共有テストプロセスでの QtAds のネイティブ破棄を防ぐ。
+    """窓を台帳に登録し、テストの最中に破棄が起こらないようにする。
 
+    窓は作られた時点で台帳（弱参照）に入れる。後始末の対象をここから引くこと
+    で ``QApplication.topLevelWidgets()`` を歩かずに済む（理由は
+    :func:`_live_main_windows`）。
+
+    Windows では ``deleteLater`` を差し替えて、積まれた破棄を取り消す。テスト
+    の多くは片付けに ``window.deleteLater()`` を呼ぶが、その破棄が起こるのは
+    次にイベントを回したところ――たいていは別のテストの最中――で、そこで
+    QtAds のドックが消えると access violation になる。破棄そのものは禁じず、
+    :func:`_tidy_up_leftover_main_windows` の決められた時点まで遅らせる。
     pytest-qt はフィクスチャの後始末より先に deleteLater とそのイベント処理を
-    行うので、フィクスチャのファイナライザーで遅延破棄を取り消すのでは遅い。
-
-    台帳（弱参照）への登録は全環境で行う。後始末の対象をここから引くことで
-    ``QApplication.topLevelWidgets()`` を歩かずに済む（理由は
-    :func:`_live_main_windows`）。破棄を止めるのは Windows だけ。Linux で窓を
-    保持すると常駐メモリが 926MB から 5.2GB に膨らみ、ウィジェットの生成中に
-    別のセグフォルトに変わるため（PR の説明を参照）。
+    行うので、ファイナライザーで取り消すのでは遅い。
     """
     import sys
 
@@ -49,8 +46,6 @@ def retain_windows_dock_hierarchies(monkeypatch):
 
         original_init(window, *args, **kwargs)
         _known_windows.append(weakref.ref(window))
-        if sys.platform == "win32":
-            _retained_windows.append(window)
 
     def retain(window):
         from PySide6.QtCore import QCoreApplication, QEvent
@@ -182,16 +177,14 @@ def _live_main_windows():
 def _quiesce_leftover_main_windows():
     """窓を閉じてフィルターを外す。破棄はしない。
 
-    共有の ``QApplication`` のなかで、QtAds のドックを持つ ``MainWindow`` を
-    破棄するのは安全ではない。Windows では access violation やヒープ破壊で
-    落ち、Linux では ``QApplication.topLevelWidgets()`` を歩いている最中に
-    セグフォルトする。``scripts/run_tests.py`` がどの環境でもプロセスを強制
-    終了しているのも、インタープリター終了時に QtAds が破棄済みオブジェクトへ
-    触るという同じ問題のためである。
+    ここでは破棄しない。破棄は :func:`_tidy_up_leftover_main_windows` が、
+    pytest-qt の ``close()`` もフィクスチャの後始末も終わったあとに行う。この
+    時点で破棄すると、続く ``close()`` や e2e の ``app`` フィクスチャが死んだ
+    C++ オブジェクトに触る。
 
-    なので破棄はせず、フィルターとタイマーだけ止める。遅くなる原因は破棄の
-    有無ではなくフィルターの残留なので、これで足りる。窓は run_tests.py が
-    プロセスを終わらせるまで生きたままになる。
+    ``scripts/run_tests.py`` がどの環境でもプロセスを強制終了しているのは、
+    インタープリター終了時に QtAds が破棄済みオブジェクトへ触るためで、こちら
+    とは別の話である。
     """
     windows = _live_main_windows()
     if not windows:
@@ -219,24 +212,24 @@ def _quiesce_leftover_main_windows():
 
 
 def _tidy_up_leftover_main_windows():
-    """窓を黙らせ、そのうえで（Windows 以外では）破棄する。
+    """窓を黙らせ、そのうえで破棄する。
 
-    Windows では、ドッキング（QtAds）の窓を持つメインウィンドウを破棄すると
-    access violation やヒープ破壊で落ちる。なので窓は隔離したまま残し、
-    ``scripts/run_tests.py`` がプロセスを終わらせるのに任せる。
+    窓を残すと 1 件あたり約 16MB が積み上がる（ウィジェット木が約 13MB、
+    メニューが約 2.7MB、ドキュメントの画像がテスト次第で数MB）。全件実行では
+    274 件が残り、Windows のピーク常駐メモリが 5.9GB になっていた。Linux では
+    さらに、その圧迫がウィジェットの生成中のセグフォルトに変わる。
 
-    それ以外では破棄する。保持したままだと窓 1 件あたり約 13MB が積み上がり、
-    全件実行の常駐メモリのピークが 926MB から 5.2GB に増えて、こんどは
-    ウィジェットの生成中にセグフォルトするようになる（CI で確認）。
-    ``topLevelWidgets()`` を歩くのをやめた以上、破棄しても列挙の現場は踏まない。
+    以前は Windows だけ破棄を避けていた。QtAds の窓を破棄すると access
+    violation やヒープ破壊で落ちていたからである。これは
+    ``QApplication.topLevelWidgets()`` を歩いていたことが原因で、台帳から引く
+    ようにした今は再現しない（Windows で全件実行を4回、破棄あり・クラッシュ
+    なし。ピークは 5.9GB から 818MB に下がり、破棄していた当時の 926MB も
+    下回る）。破棄するのが安全かどうかは、ここを変えるなら必ず全件実行を
+    複数回まわして確かめること。
 
     pytest-qt の close() とフィクスチャの後始末が済んだあとに呼ぶこと。
     """
-    import sys
-
     _quiesce_leftover_main_windows()
-    if sys.platform == "win32":
-        return
     windows = _live_main_windows()
     if not windows:
         return
