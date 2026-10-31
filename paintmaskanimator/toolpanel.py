@@ -35,7 +35,7 @@ from .widgets import (BrushSizeSpinBox, ClickableValueLabel, HSVColorWheel, Line
 #: language in. Use :func:`tool_label` wherever the name is displayed.
 TOOL_DEFINITIONS = [
     ("brush", "ブラシ"),
-    ("shape", "図形"), ("bucket", "バケツ"),
+    ("shape", "図形"), ("bucket", "バケツ"), ("closed_fill", "閉領域フィル"),
     ("lasso_fill", "投げ縄塗り"), ("lasso", "投げ縄選択"),
     ("rect_select", "長方形選択"), ("auto_select", "自動選択"),
     ("eyedropper", "スポイト"), ("dust", "ゴミ取り"),
@@ -51,6 +51,7 @@ def tool_label(tool_id: str) -> str:
     labels = {
         "brush": tr("ブラシ"), "line": tr("ライン"),
         "shape": tr("図形"), "bucket": tr("バケツ"),
+        "closed_fill": tr("閉領域フィル"),
         "lasso_fill": tr("投げ縄塗り"), "lasso": tr("投げ縄選択"),
         "rect_select": tr("長方形選択"), "auto_select": tr("自動選択"),
         "eyedropper": tr("スポイト"), "dust": tr("ゴミ取り"),
@@ -848,7 +849,14 @@ class ToolPanel(QWidget):
         bucket_gap_layout=QHBoxLayout(self.bucket_gap_row)
         bucket_gap_layout.setContentsMargins(0,0,0,0)
         bucket_gap_layout.setSpacing(4)
+        # 閉領域フィルでは隙間閉じが常に効くので、チェックボックスの代わりに
+        # ただの見出しを出す。
+        self.bucket_gap_width_title=QLabel(tr("閉じる隙間"))
+        self.bucket_gap_width_title.setToolTip(tr(
+            "これより狭い線の隙間は閉じているものとみなして塗ります。"
+        ))
         bucket_gap_layout.addWidget(self.bucket_close_gap)
+        bucket_gap_layout.addWidget(self.bucket_gap_width_title)
         bucket_gap_layout.addWidget(self.bucket_gap_width,1)
         bucket_gap_layout.addWidget(self.bucket_gap_width_label)
 
@@ -1532,7 +1540,9 @@ class ToolPanel(QWidget):
             is_shape_tool and self.shape_type.currentData() in ("straight", "curve")
         )
         is_shape = is_shape_tool and not is_line
-        is_bucket = tid == "bucket"
+        # 閉領域フィルはバケツと同じ設定を使い、隙間閉じだけを常に効かせる。
+        is_closed_fill = tid == "closed_fill"
+        is_bucket = tid in ("bucket", "closed_fill")
         is_dust = tid == "dust"
         is_lasso_fill = tid == "lasso_fill"
         uses_size = tid == "brush" or is_line
@@ -1630,6 +1640,12 @@ class ToolPanel(QWidget):
         self.bucket_require_closed.setVisible(uses_bucket_region)
         self.fill_opacity_row.setVisible(is_bucket or is_lasso_fill)
         self.bucket_all_frames.setVisible(is_bucket)
+        # 隙間閉じと塗り残し拾いは閉領域フィルでは常にこちらが決める。
+        self.bucket_close_gap.setVisible(is_bucket and not is_closed_fill)
+        self.bucket_island_fill_row.setVisible(
+            uses_bucket_region and not is_closed_fill
+        )
+        self.bucket_gap_width_title.setVisible(is_closed_fill)
 
         self.dust_mode_label.setVisible(is_dust)
         self.dust_mode.setVisible(is_dust)

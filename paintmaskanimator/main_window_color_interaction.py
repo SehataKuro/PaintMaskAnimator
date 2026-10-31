@@ -477,7 +477,9 @@ class ColorInteractionController:
             self.window.statusBar().showMessage(tr("選択レイヤーには特定色表示が設定されていません。"), 2500)
 
     def select_background_color(self):
-        if self.window.canvas.tool not in ("brush", "bucket", "line", "shape", "lasso_fill"):
+        if self.window.canvas.tool not in (
+            "brush", "bucket", "closed_fill", "line", "shape", "lasso_fill"
+        ):
             self.window.tools.select_tool(preferences.background_color_tool())
         self.set_color_mode("transparent")
 
