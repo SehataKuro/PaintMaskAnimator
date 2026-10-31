@@ -6,11 +6,14 @@ palette edits: isolate, replace, delete and merge.
 
 A collaborator rather than a mixin -- see ``main_window_export.py`` for why.
 """
+import json
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
 from PySide6.QtGui import QColor, QImage
-from . import imaging, native
+from PySide6.QtWidgets import QFileDialog, QMessageBox
+from . import imaging, native, replacement_sets
 from .i18n import tr
 from .progress import close_counter, create_counter, update_counter
 from .logging_setup import get_logger
@@ -534,3 +537,82 @@ class UsedColorController:
             )
         finally:
             close_counter(progress)
+
+    # ------------------------------------------------------------------
+    # 色置換セットの保存・読み込み（Issue #42）
+    # ------------------------------------------------------------------
+    def save_replacement_set(self):
+        """いま登録している置換色をファイルへ書き出す。"""
+        mapping = self.window.palette.current_replacements()
+        if not mapping:
+            self.window.statusBar().showMessage(
+                tr("保存できる置換色が登録されていません。"), 2400
+            )
+            return False
+        path, _ = QFileDialog.getSaveFileName(
+            self.window,
+            tr("置換色を保存"),
+            "replacements" + replacement_sets.SUFFIX,
+            replacement_sets.FILE_FILTER,
+        )
+        if not path:
+            return False
+        try:
+            saved = replacement_sets.save(path, mapping)
+        except (OSError, TypeError, ValueError) as exc:
+            log.error("replacement set save failed: %s", exc, exc_info=True)
+            QMessageBox.critical(
+                self.window,
+                tr("置換色を保存"),
+                tr("保存できませんでした。\n\n{exc}").format(exc=exc),
+            )
+            return False
+        self.window.statusBar().showMessage(
+            tr("置換色を保存しました：{name}").format(name=saved.name), 3000
+        )
+        return True
+
+    def load_replacement_set(self, path=None):
+        """ファイルの置換色を使用色パネルへ登録する。
+
+        いま使っていない色の組は登録できない（使用色パネルに行がない）ので、
+        いくつ登録できたかを知らせる。
+        """
+        if path is None:
+            path, _ = QFileDialog.getOpenFileName(
+                self.window,
+                tr("置換色を読み込み"),
+                "",
+                replacement_sets.FILE_FILTER,
+            )
+        if not path:
+            return False
+        try:
+            mapping = replacement_sets.load(path)
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            log.error("replacement set load failed: %s", exc, exc_info=True)
+            QMessageBox.critical(
+                self.window,
+                tr("置換色を読み込み"),
+                tr("読み込めませんでした。\n\n{exc}").format(exc=exc),
+            )
+            return False
+        registered = self.window.palette.register_replacements(mapping)
+        if registered < len(mapping):
+            self.window.statusBar().showMessage(
+                tr("置換色 {total}組のうち {registered}組を登録しました"
+                   "（残りはこの絵で使われていない色です）：{name}").format(
+                    total=len(mapping),
+                    registered=registered,
+                    name=Path(path).name,
+                ),
+                4000,
+            )
+        else:
+            self.window.statusBar().showMessage(
+                tr("置換色 {registered}組を登録しました：{name}").format(
+                    registered=registered, name=Path(path).name
+                ),
+                3000,
+            )
+        return True

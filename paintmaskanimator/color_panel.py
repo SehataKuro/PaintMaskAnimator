@@ -63,6 +63,9 @@ class UsedColorPanel(
     clearIsolateRequested = Signal()
     sourceScreenColorPicked = Signal(QColor)
     applyReplacementRequested = Signal(object)
+    # 色置換セットの保存・読み込み（Issue #42）。
+    saveReplacementSetRequested = Signal()
+    loadReplacementSetRequested = Signal()
     mergeColorsRequested = Signal(object, object)
     # 親子関係の更新時に旧色プレビューを解除する通知。
     previewGroupsChanged = Signal(object)
@@ -306,6 +309,13 @@ class UsedColorPanel(
             tr("登録した置換色を、選択レイヤーのすべてのコマへ適用します。")
         )
         self.apply_button.clicked.connect(self._emit_replacements)
+        # よく使う置換はファイルへ出し入れできる（Issue #42）。
+        self.apply_button.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu
+        )
+        self.apply_button.customContextMenuRequested.connect(
+            self._show_replacement_set_menu
+        )
         self.apply_button.setMinimumWidth(72)
         self.apply_button.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
@@ -525,6 +535,25 @@ class UsedColorPanel(
             self._close_replacement_editor()
         self.replacements.pop(source_rgb, None)
         self._set_replacement_button_style(source_rgb)
+
+    def current_replacements(self):
+        """いま登録している ``{元の RGB: 置換後の RGB}``。"""
+        return {
+            tuple(source): (color.red(), color.green(), color.blue())
+            for source, color in self.replacements.items()
+            if tuple(source) != self.background_rgb
+        }
+
+    def _show_replacement_set_menu(self, pos):
+        menu = QMenu(self)
+        save = menu.addAction(tr("置換色を保存…"))
+        save.setEnabled(bool(self.current_replacements()))
+        load = menu.addAction(tr("置換色を読み込む…"))
+        chosen = menu.exec(self.apply_button.mapToGlobal(pos))
+        if chosen is save:
+            self.saveReplacementSetRequested.emit()
+        elif chosen is load:
+            self.loadReplacementSetRequested.emit()
 
     def _emit_replacements(self):
         mapping = {

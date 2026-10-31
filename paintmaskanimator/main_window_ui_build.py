@@ -1264,6 +1264,12 @@ class UIBuildMixin(MainWindowMembers):
         self.palette.applyReplacementRequested.connect(
             self.used_color.apply_palette_replacements
         )
+        self.palette.saveReplacementSetRequested.connect(
+            self.used_color.save_replacement_set
+        )
+        self.palette.loadReplacementSetRequested.connect(
+            self.used_color.load_replacement_set
+        )
         self.palette.previewGroupsChanged.connect(self.colors.set_preview_color_groups)
         self.palette.mergeColorsRequested.connect(self.used_color.apply_palette_merge)
         self.palette.deleteColorsRequested.connect(
