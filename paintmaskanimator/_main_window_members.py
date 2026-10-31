@@ -249,6 +249,9 @@ class MainWindowMembers(_MembersBase):
         a_tl_onion: Any
         a_tl_paste_time_remap: Any
         a_tl_copy_time_remap: Any
+        a_memo: Any
+        project_memo: Any
+        _memo_window: Any
         a_tl_play: Any
         a_tl_previous: Any
         a_tl_previous_key: Any

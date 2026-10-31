@@ -22,6 +22,7 @@ import tempfile
 from pathlib import Path
 from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMessageBox
 from .i18n import tr
+from .memo_window import MEMO_FILE_NAME
 from . import cut_folder, preferences, timesheet_file
 from .models import default_layer_name
 from .optional_deps import PILImage, PSDImage
@@ -298,6 +299,12 @@ class ExportController:
                 self.sheet_text(plan.timesheet_format, sheet_name, **plan.sheet_header),
                 encoding="utf-8",
             )
+            # メモはタイムシートの隣へ出す（Issue #25）。空なら作らない。
+            memo = str(getattr(self.window, "project_memo", "") or "").strip()
+            if memo:
+                (
+                    target / Path(plan.timesheet_path).parent / MEMO_FILE_NAME
+                ).write_text(memo + chr(10), encoding="utf-8")
         except _OPERATION_ERRORS as exc:
             log.error("cut folder export failed: %s", exc, exc_info=True)
             QMessageBox.critical(

@@ -51,6 +51,7 @@ from .errors import OPERATION_ERRORS
 from .color_panel import UsedColorPanel
 from .color_chart import ColorChartPanel, empty_color_chart
 from .history_panel import HistoryPanel
+from .memo_window import MemoWindow
 from .subview import SubViewWidget
 from .color_reduction import ColorReductionDialog
 from .models import Frame, Layer, make_frame
@@ -168,6 +169,9 @@ class MainWindow(
         self._split_drop_press_pos = None
         self._dock_menu_builders = {}
         self.current_project_path = None
+        # カット袋・シートのメモ欄（Issue #25）。窓は開いたときに作る。
+        self.project_memo = ""
+        self._memo_window = None
         # 保存・自動保存で、変更のないセルのPNGを使い回す。
         self.png_cache = project_io.PngCache()
         self.build_actions();self.action_panel=ActionPanel(self);self.build_action_panel();self.build_menu();self.build_ui();self.connect_signals();self.refresh_ui();self.action_panel.reload_python_actions()
@@ -725,6 +729,8 @@ class MainWindow(
                 if self.canvas.playback_range_end is not None else None,
             ],
             "timeline_mode": str(self.canvas.timeline_mode),
+            # カット袋・シートのメモ欄（Issue #25）。
+            "memo": str(self.project_memo),
             "clip_studio_source": getattr(
                 self.canvas, "clip_studio_source_metadata", None
             ),
@@ -1058,6 +1064,29 @@ class MainWindow(
         # on the next launch.
         self.autosave.clear()
         event.accept()
+
+    # ------------------------------------------------------------------
+    # メモ（Issue #25）
+    # ------------------------------------------------------------------
+    def set_project_memo(self, text):
+        """メモの中身を差し替える。開いている窓にも反映する。"""
+        self.project_memo = str(text or "")
+        if self._memo_window is not None:
+            self._memo_window.set_text(self.project_memo)
+
+    def show_memo_window(self):
+        """メモの窓を開く。すでに開いていれば前へ出す。"""
+        if self._memo_window is None:
+            self._memo_window = MemoWindow(self)
+            self._memo_window.set_text(self.project_memo)
+            self._memo_window.textChanged.connect(self._memo_text_changed)
+        self._memo_window.show()
+        self._memo_window.raise_()
+        self._memo_window.activateWindow()
+        return self._memo_window
+
+    def _memo_text_changed(self, text):
+        self.project_memo = str(text)
 
     def pressure(self):
         d = PressureDialog(

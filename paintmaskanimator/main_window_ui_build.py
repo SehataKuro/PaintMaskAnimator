@@ -105,6 +105,9 @@ class UIBuildMixin(MainWindowMembers):
         self.a_prev=QAction(tr("前のフレーム"),self);self.a_prev.setShortcut("1");self.a_prev.triggered.connect(self.timeline_ops.previous_frame)
         self.a_next=QAction(tr("次のフレーム"),self);self.a_next.setShortcut("2");self.a_next.triggered.connect(self.timeline_ops.next_frame)
         self.a_pressure=QAction(tr("筆圧設定…"),self);self.a_pressure.triggered.connect(self.pressure)
+        self.a_memo = self.make_shortcut_action(
+            tr("メモを開く"), self.show_memo_window
+        )
         self.a_isolate_color=QAction(tr("選択色だけ表示"),self)
         self.a_isolate_color.triggered.connect(self.colors.isolate_selected_color)
         self.a_clear_color_filter=QAction(tr("特定色表示を解除"),self)
@@ -411,6 +414,7 @@ class UIBuildMixin(MainWindowMembers):
             (tr("貼り付け"), self.a_paste),
             (tr("キャンバスサイズ変更"), self.a_resize),
             (tr("筆圧設定"), self.a_pressure),
+            (tr("メモを開く"), self.a_memo),
             (tr("環境設定"), self.a_preferences),
             (tr("背景以外を黒シルエット表示"), self.a_silhouette),
             (tr("隣接色分けで表示"), self.a_preview_map),
@@ -503,7 +507,7 @@ class UIBuildMixin(MainWindowMembers):
         f.addAction(self.a_export_xdts)
         f.addAction(self.a_export_psd)
         f.addAction(self.a_export_mp4)
-        e=self.menuBar().addMenu(tr("編集"));e.addAction(self.a_undo);e.addAction(self.a_redo);e.addSeparator();e.addAction(self.a_cut);e.addAction(self.a_copy);e.addAction(self.a_paste);e.addSeparator();e.addAction(self.a_silhouette);e.addAction(self.a_preview_map);e.addAction(self.a_isolate_color);e.addAction(self.a_clear_color_filter);e.addAction(self.a_swap_main_sub);e.addAction(self.a_remove_dust);e.addSeparator();e.addAction(self.a_resize);e.addAction(self.a_pressure)
+        e=self.menuBar().addMenu(tr("編集"));e.addAction(self.a_undo);e.addAction(self.a_redo);e.addSeparator();e.addAction(self.a_cut);e.addAction(self.a_copy);e.addAction(self.a_paste);e.addSeparator();e.addAction(self.a_silhouette);e.addAction(self.a_preview_map);e.addAction(self.a_isolate_color);e.addAction(self.a_clear_color_filter);e.addAction(self.a_swap_main_sub);e.addAction(self.a_remove_dust);e.addSeparator();e.addAction(self.a_resize);e.addAction(self.a_pressure);e.addSeparator();e.addAction(self.a_memo)
         e.addSeparator()
         self.a_color_chart = QAction(tr("カラーチャート…"), self)
         self.a_color_chart.triggered.connect(
