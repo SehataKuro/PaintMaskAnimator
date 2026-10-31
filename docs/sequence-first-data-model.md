@@ -209,26 +209,44 @@ SheetEntry                   # コマ1つ分の指定
 確かめるためのものです。600コマ・4レイヤー・1レイヤーあたり60枚
 （露出10コマ）・1280×720 での測定値：
 
-| 測るもの | 2026-11-01 |
-|---|---|
-| `coalesce_numbered_images` | 0.343 ms |
-| `resolve_cells`（カット全体） | 7.628 ms |
-| `resolve_key_frame`（索引を捨ててから） | 1.415 ms |
-| シーク（13コマおき） | 0.144 ms |
-| カット全体の対象セル数 | 240 |
+| 測るもの | Phase 0 | Phase 1 |
+|---|---|---|
+| `coalesce_numbered_images` | 0.343 ms | 0.377 ms |
+| `resolve_cells`（カット全体） | 7.628 ms | 7.739 ms |
+| `resolve_key_frame`（索引を捨ててから） | 1.415 ms | 1.254 ms |
+| シーク（13コマおき） | 0.144 ms | 0.144 ms |
+| カット全体の対象セル数 | 240 | 240 |
+
+いずれも誤差の範囲で、遅くなっていません（2026-11-01 測定）。
 
 対象セル数が 240（＝60枚 × 4レイヤー）で、コマ×レイヤーの 2400 ではないことが、
 §1 の「重複処理はすでに畳まれている」の裏づけです。
 
-### Phase 1：連番を本体にする（表からは見えない）
+### Phase 1：絵を `Cell` にする（表からは見えない・済）
 
-`Track.cells` を作り、`Layer.image` をそこへの参照にします。`Layer` は
-当面そのまま残し、`image` をプロパティにして `Track.cells[number].image` を
-返すようにします。この段階で `coalesce_numbered_images` と
-`sync_numbered_image_from_cell` が不要になります。
+`Cell`（1枚の絵）を `Layer` と画像のあいだに入れました。共有は
+「同じ `Cell` を指しているか」というデータになり、`id(layer.image)` を見る
+必要がなくなります。
 
-保存形式は変えません。書き出すときは、いまと同じ「コマ×レイヤーの PNG」に
-戻します。
+- `Layer.image` は `Cell` 越しの読み書きになり、**差し替えても共有が切れません**。
+  これまでは `layer.image = 新しい画像` のたびに共有が静かに外れていました。
+- 結ぶのは `share_cell_with`、切るのは `detach_cell`。
+  `coalesce_numbered_images` と `sync_numbered_image_from_cell` は前者を使い、
+  シート操作（`_clear_timeline_layer_cell`）は後者を使います。
+- `Layer.clone()` は自分の `Cell` を持ちます。Undo のスナップショットが
+  あとの編集で汚れないようにするためです。
+
+この段階では**振る舞いを変えません**。`coalesce_numbered_images` と
+`sync_numbered_image_from_cell` はまだ残します（共有を結ぶ役として要るため）。
+消えるのは、シートが参照の表になる Phase 3 です。
+
+`Cell` が持つのは `image` だけにしました。色塗り前の初期状態
+（`initial_image`）はセル単位で復元する Undo があり、いま共有へ寄せると
+Undo の復元結果が変わるためです。Phase 4 でまとめます。
+
+保存形式は変えていません。
+
+**テスト**：[`tests/test_sequence_cells.py`](../tests/test_sequence_cells.py)
 
 ### Phase 2：表示の設定を `Track` へ移す
 
