@@ -8,9 +8,11 @@ A collaborator rather than a mixin -- see ``main_window_export.py`` for why.
 from typing import TYPE_CHECKING, Any, cast
 
 from pathlib import Path
-from PySide6.QtCore import QEventLoop, QTimer, Qt
+from PySide6.QtCore import QEventLoop, QObject, QThread, QTimer, Qt, Signal, Slot
 from PySide6.QtGui import QImage, QPainter
-from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox, QProgressBar
+from PySide6.QtWidgets import (
+    QApplication, QDialog, QFileDialog, QLabel, QMessageBox, QProgressBar, QVBoxLayout,
+)
 from .i18n import tr
 from .optional_deps import PILImage, PSDImage
 from .constants import (
@@ -20,6 +22,7 @@ from .constants import (
     MAX_SINGLE_IMAGE_PIXELS,
 )
 import sqlite3
+import traceback
 from . import constants
 from .canvas import PaintCanvas
 from .clip_animation import (
@@ -41,6 +44,71 @@ if TYPE_CHECKING:
     from .main_window import MainWindow
 
 log = get_logger(__name__)
+
+
+class _ClipReadWorker(QThread):
+    progress = Signal(int, int, str)
+
+    def __init__(self, source, reader):
+        super().__init__()
+        self.source = source
+        self.reader = reader
+        self.result: ClipAnimationDocument | None = None
+        self.error: ClipImportError | None = None
+
+    def run(self):
+        try:
+            # The native reader is thread-affine: create, use and destroy it here.
+            self.result = self.reader(self.source, progress=self.progress.emit)
+        except BaseException as exc:
+            # Log only text: queued/capturing logging handlers may otherwise
+            # retain exc_info and destroy native locals on a different thread.
+            log.error("CLIP reader worker failed:\n%s", traceback.format_exc())
+            # Never transfer a traceback retaining the thread-affine native
+            # reader to the UI thread, even when decoding fails halfway.
+            self.error = ClipImportError(str(exc))
+
+
+class _ClipImportDialog(QDialog):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setObjectName("clipImportProgressDialog")
+        self.setWindowTitle(tr("CLIP STUDIOアニメーション読み込み"))
+        self.setWindowModality(Qt.WindowModality.WindowModal)
+        self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.CustomizeWindowHint | Qt.WindowType.WindowTitleHint)
+        self.setMinimumWidth(420)
+        self.label = QLabel(tr("CLIP STUDIOアニメーションを解析しています…"), self)
+        self.label.setWordWrap(True)
+        self.bar = QProgressBar(self)
+        self.bar.setObjectName("clipImportProgress")
+        self.bar.setRange(0, 0)
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.label)
+        layout.addWidget(self.bar)
+
+    def reject(self):
+        # Escape must not close the modal guard while the worker is running.
+        pass
+
+    def closeEvent(self, event):
+        event.ignore()
+
+
+class _ClipProgressDisplay(QObject):
+    def __init__(self, dialog):
+        super().__init__(dialog)
+        self.dialog = dialog
+        self.bar = dialog.bar
+
+    @Slot(int, int, str)
+    def update(self, completed, total, label):
+        if total:
+            self.bar.setRange(0, total)
+            self.bar.setValue(completed)
+            self.bar.setFormat("%v / %m (%p%)")
+        else:
+            self.bar.setRange(0, 0)
+        self.dialog.label.setText(label)
 
 
 class ImportController:
@@ -107,36 +175,35 @@ class ImportController:
         return clicked is discard_button
 
     def _read_clip_with_progress(self, source):
-        status = self.window.statusBar()
-        bar = QProgressBar(status)
-        bar.setObjectName("clipImportProgress")
-        bar.setMinimumWidth(200)
-        bar.setRange(0, 0)
-        status.addPermanentWidget(bar)
-        was_enabled = self.window.isEnabled()
+        dialog = _ClipImportDialog(self.window)
         self._clip_import_active = True
-        self.window.setEnabled(False)
 
-        def update(completed, total, label):
-            if total:
-                bar.setRange(0, total)
-                bar.setValue(completed)
-                bar.setFormat("%v / %m (%p%)")
-            else:
-                bar.setRange(0, 0)
-            status.showMessage(label)
-            # Repaint progress while consuming no editing/shortcut input.
-            QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
-
+        display = _ClipProgressDisplay(dialog)
+        worker = _ClipReadWorker(source, read_clip_animation)
+        loop = QEventLoop()
+        worker.progress.connect(display.update)
+        worker.finished.connect(loop.quit, Qt.ConnectionType.QueuedConnection)
         try:
             if self.window.canvas._playback_active:
                 self.window.timeline.play.setChecked(False)
                 self.window.play(False)
-            return read_clip_animation(source, progress=update)
+            dialog.show()
+            worker.start()
+            # Keep Qt's normal event loop alive while parsing/compositing runs
+            # off the UI thread. The modal popup blocks document edits.
+            loop.exec()
+            worker.wait()
+            if worker.error is not None:
+                raise worker.error
+            if worker.result is None:
+                raise ClipImportError(tr("CLIP STUDIOアニメーションを読み込めませんでした。"))
+            return worker.result
         finally:
-            status.removeWidget(bar)
-            bar.deleteLater()
-            self.window.setEnabled(was_enabled)
+            worker.wait()
+            worker.deleteLater()
+            display.deleteLater()
+            dialog.done(0)
+            dialog.deleteLater()
             self._clip_import_active = False
 
     def clip_animation(self, path, confirm_replace=True):
