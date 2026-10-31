@@ -314,6 +314,7 @@ class UndoMixin(CanvasMembers):
             self.current_frame = cf
             self.active_layer_index = al
             self.coalesce_numbered_images()
+            self.link_layer_tracks()
             self.changed.emit()
         elif isinstance(e, LayerBatchUndo):
             li = e.layer

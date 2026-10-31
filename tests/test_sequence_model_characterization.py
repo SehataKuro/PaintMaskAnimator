@@ -280,23 +280,39 @@ def test_an_exposure_reads_back_as_the_repeated_number(window):
 
 
 # ---------------------------------------------------------------------------
-# 5. 表示の設定がセルごとに重複している（移行で Track へ移す）
+# 5. 表示の設定はレイヤーに1つ（Phase 2 で変えた）
 # ---------------------------------------------------------------------------
+# Phase 0 では「セルごとに持ち、_copy_display_properties が写して回る」ことを
+# 記録していた。Phase 2 で Track がレイヤーごとに1つ持つ形へ変えたので、
+# ここも書き換えてある。変わったのは次のとおり。
+#
+#   前：1コマだけ不透明度が違う状態が作れた（写し忘れで実際に起きうる）
+#   後：どのコマから変えてもレイヤー全体に効く
 
-def test_display_properties_live_on_every_cell_today(window):
-    """いまは表示の設定をセルごとに持ち、写して回っている。
+def test_display_settings_apply_to_the_whole_layer(window):
+    """どのコマから変えても、そのレイヤー全体に効く。"""
+    window.canvas.frames[1].layers[0].opacity = 0.5
+    window.canvas.frames[1].layers[0].visible = False
 
-    移行後は Track が1つ持つだけになるので、このテストは Phase 2 で
-    書き換える。ここでは「いま写しが要る」ことを記録しておく。
-    """
+    assert window.canvas.frames[0].layers[0].opacity == 0.5
+    assert window.canvas.frames[5].layers[0].visible is False
+
+
+def test_layers_keep_their_own_settings(window):
+    """レイヤーが違えば設定も別。"""
+    window.canvas.add_layer()
+
+    window.canvas.frames[0].layers[0].opacity = 0.25
+
+    assert window.canvas.frames[0].layers[1].opacity == 1.0
+
+
+def test_an_undo_snapshot_is_not_disturbed_by_later_changes(window):
+    """clone は自分の設定を持つ。Undo のスナップショットが汚れない。"""
     source = window.canvas.frames[0].layers[0]
-    source.opacity = 0.5
-    source.visible = False
-    target = window.canvas.frames[1].layers[0]
+    source.opacity = 0.75
+    snapshot = source.clone()
 
-    window.layers._copy_display_properties(source, target)
+    source.opacity = 0.1
 
-    assert target.opacity == 0.5
-    assert target.visible is False
-    # 写す前の他のコマは変わっていない（＝レイヤー共通の設定ではない）。
-    assert window.canvas.frames[2].layers[0].opacity == 1.0
+    assert snapshot.opacity == 0.75

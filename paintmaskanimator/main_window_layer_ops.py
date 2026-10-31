@@ -369,17 +369,10 @@ class LayerOpsController:
 
     @staticmethod
     def _copy_display_properties(source, target):
-        target.name = str(source.name)
-        target.visible = bool(source.visible)
-        target.opacity = float(source.opacity)
-        target.is_paper = bool(source.is_paper)
-        target.is_draft = bool(getattr(source, "is_draft", False))
-        target.alpha_locked = bool(source.alpha_locked)
-        target.color_filter_enabled = bool(
-            source.color_filter_enabled
-        )
-        target.color_filter_rgb = (
-            tuple(source.color_filter_rgb)
-            if source.color_filter_rgb is not None
-            else None
-        )
+        """``target`` が ``source`` と同じレイヤー設定を見るようにする。
+
+        表示の設定は ``Track`` がレイヤーごとに1つ持つようになったので
+        （Issue #31 Phase 2）、8個の値を写す代わりに同じ ``Track`` を
+        指すようにするだけでよい。
+        """
+        target.share_track_with(source)
