@@ -1195,10 +1195,9 @@ class TimelineTable(QTableWidget):
 
         menu = QMenu(self)
         # セル操作ひと通り（Issue #48）。ペイントマンの並びに合わせる。
-        action_label_blank = menu.addAction(tr("中割りセルを作成（○：空フレーム）"))
+        # ●のトラックラベル（絵を持たない印）はこのアプリでは扱わない。
+        action_label_blank = menu.addAction(tr("中割りトラックラベル○を作成"))
         action_label_blank.setEnabled(on_cell)
-        action_new_cell = menu.addAction(tr("新規アニメーションセル（●）"))
-        action_new_cell.setEnabled(on_cell)
         action_clear_label = menu.addAction(tr("トラックラベルを削除"))
         action_clear_label.setEnabled(on_cell and item is not None)
         menu.addSeparator()
@@ -1209,6 +1208,9 @@ class TimelineTable(QTableWidget):
         for action in (action_cell_delete, action_cell_cut, action_cell_copy):
             action.setEnabled(on_cell and item is not None)
         action_cell_paste.setEnabled(on_cell and self.cell_clipboard_filled)
+        menu.addSeparator()
+        action_new_cell = menu.addAction(tr("新規アニメーションセル"))
+        action_new_cell.setEnabled(on_cell)
         menu.addSeparator()
         action_clip_merge = menu.addAction(tr("クリップを結合"))
         action_clip_split = menu.addAction(tr("クリップを分割"))

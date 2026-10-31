@@ -951,7 +951,7 @@ class TimelineOpsController:
         return True
 
     def new_animation_cell(self, visual_row, column):
-        """そのセルに、絵を持つ新しいセル（●）を作る。"""
+        """そのセルに、絵を持つ新しいセルを作る。"""
         target = self._cell_target(visual_row, column)
         if target is None:
             return False
