@@ -1,5 +1,4 @@
 """カット袋・シートのメモ欄（Issue #25）。"""
-import json
 import os
 
 import pytest

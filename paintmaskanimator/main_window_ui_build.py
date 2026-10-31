@@ -98,6 +98,8 @@ class UIBuildMixin(MainWindowMembers):
         self.a_export_tga_seq=QAction(tr("連番TGA＋CSV書き出し…"),self);self.a_export_tga_seq.triggered.connect(lambda:self.export.key_sequence("TGA"))
         self.a_export_cut_folder=QAction(tr("カットフォルダーへ書き出し…"),self)
         self.a_export_cut_folder.triggered.connect(self.export.cut_folder)
+        self.a_export_shadow=QAction(tr("影素材を書き出し…"),self)
+        self.a_export_shadow.triggered.connect(self.export.shadow_sequence)
         self.a_export_xdts=QAction(tr("XDTSタイムシートを書き出す…"),self)
         self.a_export_xdts.triggered.connect(self.export.xdts_dialog)
         self.a_export_psd=QAction(tr("PSDを書き出す…"),self)
@@ -203,6 +205,7 @@ class UIBuildMixin(MainWindowMembers):
             self.a_resize, self.a_undo, self.a_redo,
             self.a_cut, self.a_copy, self.a_paste, self.a_save, self.a_save_tga,
             self.a_export_png_seq, self.a_export_tga_seq, self.a_export_cut_folder,
+            self.a_export_shadow,
             self.a_prev, self.a_next,
             self.a_pressure, self.a_isolate_color, self.a_clear_color_filter,
             self.a_silhouette, self.a_remove_dust, self.a_preview_map,
@@ -406,6 +409,7 @@ class UIBuildMixin(MainWindowMembers):
             (tr("連番PNG＋CSV書き出し"), self.a_export_png_seq),
             (tr("連番TGA＋CSV書き出し"), self.a_export_tga_seq),
             (tr("カットフォルダーへ書き出し"), self.a_export_cut_folder),
+            (tr("影素材を書き出し"), self.a_export_shadow),
             (tr("MP4書き出し"), self.a_export_mp4),
             (tr("元に戻す"), self.a_undo),
             (tr("やり直す"), self.a_redo),
@@ -502,6 +506,7 @@ class UIBuildMixin(MainWindowMembers):
         f.addAction(self.a_save)
         f.addAction(self.a_save_tga)
         f.addAction(self.a_export_cut_folder)
+        f.addAction(self.a_export_shadow)
         f.addAction(self.a_export_png_seq)
         f.addAction(self.a_export_tga_seq)
         f.addAction(self.a_export_xdts)
