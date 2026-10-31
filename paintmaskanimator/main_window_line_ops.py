@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QSpinBox,
 )
-from . import imaging
+from . import imaging, line_noise
 from .i18n import tr
 from .time_display import frame_position
 from .models import Layer
@@ -929,6 +929,16 @@ class LineOpsController:
                     pixels[cy,cx,:3] = fill
                     pixels[cy,cx,3] = 255
                     cell_changed += area
+
+            elif mode == "line_noise":
+                # 線周りのノイズ除去（Issue #19）。適用サイズは線からの距離に
+                # 読み替える。線そのものと色面のふちには触れない。
+                cleaned, cell_changed = line_noise.remove_line_noise(
+                    pixels,
+                    radius=max(1, min(8, max_area)),
+                )
+                if cell_changed:
+                    pixels[:] = cleaned
 
             else:
                 # ゴミ取り：小さな色点を白へ変更する。

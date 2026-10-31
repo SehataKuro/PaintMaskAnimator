@@ -15,7 +15,7 @@ from .optional_deps import PILImage
 from .constants import MAX_IMAGE_DIMENSION, MAX_SINGLE_IMAGE_PIXELS, OUTSIDE_MARGIN
 from .errors import OperationError
 from ._canvas_members import CanvasMembers
-from . import constants, imaging, timesheet_file
+from . import color_ops, constants, imaging, timesheet_file
 from .models import Layer
 from .utils import blank_image, natural_path_key
 from .logging_setup import get_logger
@@ -116,6 +116,57 @@ class ImageImportMixin(CanvasMembers):
         pixels[:, :, 3][white] = 0
         return rgba.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
 
+    def make_border_background_transparent(self, image, tolerance=24):
+        """外周からつながる明色背景を透明にする（Issue #10）。
+
+        JPEG は圧縮で背景が 254,255,253 のようにばらつくため、完全一致
+        #FFFFFF では落とせない。しきい値で拾い、外周からつながる範囲に
+        限ることで、絵の中の白（目のハイライトなど）は残す。
+
+        背景と見なせる色が見つからなければ、元の画像をそのまま返す。
+        """
+        if image is None or image.isNull():
+            return image
+        background_rgb = color_ops.detect_opaque_border_background(image)
+        if background_rgb is None:
+            return image
+
+        rgba = image.convertToFormat(QImage.Format.Format_RGBA8888)
+        width, height = rgba.width(), rgba.height()
+        if width <= 0 or height <= 0:
+            return image
+        ptr = imaging.qimage_buffer(rgba)
+        rows = np.frombuffer(ptr, dtype=np.uint8).reshape(
+            (height, rgba.bytesPerLine())
+        )
+        pixels = rows[:, :width * 4].reshape((height, width, 4))
+
+        difference = (
+            pixels[:, :, :3].astype(np.int32)
+            - np.asarray(background_rgb, dtype=np.int32)
+        )
+        near = np.sum(difference * difference, axis=2) <= (
+            int(tolerance) * int(tolerance) * 3
+        )
+        starts = [
+            (int(x), 0) for x in np.flatnonzero(near[0, :])
+        ]
+        if height > 1:
+            starts.extend((int(x), height - 1) for x in np.flatnonzero(near[-1, :]))
+        if width > 1:
+            starts.extend((0, int(y)) for y in np.flatnonzero(near[:, 0]))
+            starts.extend(
+                (width - 1, int(y)) for y in np.flatnonzero(near[:, -1])
+            )
+        if not starts:
+            return image
+
+        outside = imaging.scanline_connected_region_numpy(near, starts)
+        if not outside.any():
+            return image
+        pixels[:, :, 3][outside] = 0
+        return rgba.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
+
     def import_image(self, path, color_reduction=None, draft=False):
         return self.import_image_sequence(
             [path],
@@ -201,12 +252,13 @@ class ImageImportMixin(CanvasMembers):
                         ],
                         extraction_mode=extraction_mode,
                     )
+            elif Path(path).suffix.lower() in (".jpg", ".jpeg"):
+                # JPEGは圧縮で背景の白がばらつくため、完全一致では落とせない。
+                # しきい値で拾い、外周からつながる範囲だけを透明にする。
+                # 絵の中の白（目のハイライトなど）は残る（Issue #10）。
+                image = self.make_border_background_transparent(image)
             else:
-                # JPEGにはアルファチャンネルがないため、白を透明化すると
-                # 圧縮後に白となった画素まで欠けて見える。デコード済みの
-                # RGBをそのまま保持し、PNG／TGAの既存透明化だけを維持する。
-                if Path(path).suffix.lower() not in (".jpg", ".jpeg"):
-                    image = self._make_white_transparent(image)
+                image = self._make_white_transparent(image)
             decoded.append((path, image))
         if progress_callback:
             progress_callback(len(paths), len(paths), tr("画像の配置を準備しています"))

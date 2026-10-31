@@ -98,6 +98,8 @@ class UIBuildMixin(MainWindowMembers):
         self.a_export_tga_seq=QAction(tr("連番TGA＋CSV書き出し…"),self);self.a_export_tga_seq.triggered.connect(lambda:self.export.key_sequence("TGA"))
         self.a_export_cut_folder=QAction(tr("カットフォルダーへ書き出し…"),self)
         self.a_export_cut_folder.triggered.connect(self.export.cut_folder)
+        self.a_export_shadow=QAction(tr("影素材を書き出し…"),self)
+        self.a_export_shadow.triggered.connect(self.export.shadow_sequence)
         self.a_export_xdts=QAction(tr("XDTSタイムシートを書き出す…"),self)
         self.a_export_xdts.triggered.connect(self.export.xdts_dialog)
         self.a_export_psd=QAction(tr("PSDを書き出す…"),self)
@@ -105,6 +107,9 @@ class UIBuildMixin(MainWindowMembers):
         self.a_prev=QAction(tr("前のフレーム"),self);self.a_prev.setShortcut("1");self.a_prev.triggered.connect(self.timeline_ops.previous_frame)
         self.a_next=QAction(tr("次のフレーム"),self);self.a_next.setShortcut("2");self.a_next.triggered.connect(self.timeline_ops.next_frame)
         self.a_pressure=QAction(tr("筆圧設定…"),self);self.a_pressure.triggered.connect(self.pressure)
+        self.a_memo = self.make_shortcut_action(
+            tr("メモを開く"), self.show_memo_window
+        )
         self.a_isolate_color=QAction(tr("選択色だけ表示"),self)
         self.a_isolate_color.triggered.connect(self.colors.isolate_selected_color)
         self.a_clear_color_filter=QAction(tr("特定色表示を解除"),self)
@@ -200,6 +205,7 @@ class UIBuildMixin(MainWindowMembers):
             self.a_resize, self.a_undo, self.a_redo,
             self.a_cut, self.a_copy, self.a_paste, self.a_save, self.a_save_tga,
             self.a_export_png_seq, self.a_export_tga_seq, self.a_export_cut_folder,
+            self.a_export_shadow,
             self.a_prev, self.a_next,
             self.a_pressure, self.a_isolate_color, self.a_clear_color_filter,
             self.a_silhouette, self.a_remove_dust, self.a_preview_map,
@@ -369,6 +375,10 @@ class UIBuildMixin(MainWindowMembers):
             tr("タイムライン：タイムリマップを貼り付け"),
             self.time_remap.show_paste_dialog,
         )
+        self.a_tl_copy_time_remap = self.make_shortcut_action(
+            tr("タイムライン：タイムリマップをコピー"),
+            self.time_remap.copy_from_timeline,
+        )
         self.a_tl_onion = self.make_shortcut_action(
             tr("タイムライン：オニオンスキン設定"),
             lambda: self.timeline.onion.toggle(),
@@ -399,6 +409,7 @@ class UIBuildMixin(MainWindowMembers):
             (tr("連番PNG＋CSV書き出し"), self.a_export_png_seq),
             (tr("連番TGA＋CSV書き出し"), self.a_export_tga_seq),
             (tr("カットフォルダーへ書き出し"), self.a_export_cut_folder),
+            (tr("影素材を書き出し"), self.a_export_shadow),
             (tr("MP4書き出し"), self.a_export_mp4),
             (tr("元に戻す"), self.a_undo),
             (tr("やり直す"), self.a_redo),
@@ -407,6 +418,7 @@ class UIBuildMixin(MainWindowMembers):
             (tr("貼り付け"), self.a_paste),
             (tr("キャンバスサイズ変更"), self.a_resize),
             (tr("筆圧設定"), self.a_pressure),
+            (tr("メモを開く"), self.a_memo),
             (tr("環境設定"), self.a_preferences),
             (tr("背景以外を黒シルエット表示"), self.a_silhouette),
             (tr("隣接色分けで表示"), self.a_preview_map),
@@ -462,6 +474,7 @@ class UIBuildMixin(MainWindowMembers):
             (tr("コマ数を1つ増やす"), self.a_tl_add_exposure),
             (tr("コマを削除"), self.a_tl_delete_frame),
             (tr("タイムリマップを貼り付け"), self.a_tl_paste_time_remap),
+            (tr("タイムリマップをコピー"), self.a_tl_copy_time_remap),
             (tr("前のフレーム"), self.a_tl_previous),
             (tr("前のコマ"), self.a_tl_previous_key),
             (tr("再生／停止"), self.a_tl_play),
@@ -493,12 +506,13 @@ class UIBuildMixin(MainWindowMembers):
         f.addAction(self.a_save)
         f.addAction(self.a_save_tga)
         f.addAction(self.a_export_cut_folder)
+        f.addAction(self.a_export_shadow)
         f.addAction(self.a_export_png_seq)
         f.addAction(self.a_export_tga_seq)
         f.addAction(self.a_export_xdts)
         f.addAction(self.a_export_psd)
         f.addAction(self.a_export_mp4)
-        e=self.menuBar().addMenu(tr("編集"));e.addAction(self.a_undo);e.addAction(self.a_redo);e.addSeparator();e.addAction(self.a_cut);e.addAction(self.a_copy);e.addAction(self.a_paste);e.addSeparator();e.addAction(self.a_silhouette);e.addAction(self.a_preview_map);e.addAction(self.a_isolate_color);e.addAction(self.a_clear_color_filter);e.addAction(self.a_swap_main_sub);e.addAction(self.a_remove_dust);e.addSeparator();e.addAction(self.a_resize);e.addAction(self.a_pressure)
+        e=self.menuBar().addMenu(tr("編集"));e.addAction(self.a_undo);e.addAction(self.a_redo);e.addSeparator();e.addAction(self.a_cut);e.addAction(self.a_copy);e.addAction(self.a_paste);e.addSeparator();e.addAction(self.a_silhouette);e.addAction(self.a_preview_map);e.addAction(self.a_isolate_color);e.addAction(self.a_clear_color_filter);e.addAction(self.a_swap_main_sub);e.addAction(self.a_remove_dust);e.addSeparator();e.addAction(self.a_resize);e.addAction(self.a_pressure);e.addSeparator();e.addAction(self.a_memo)
         e.addSeparator()
         self.a_color_chart = QAction(tr("カラーチャート…"), self)
         self.a_color_chart.triggered.connect(
@@ -542,6 +556,7 @@ class UIBuildMixin(MainWindowMembers):
         a.addAction(self.a_tl_next_key)
         a.addSeparator()
         a.addAction(self.a_tl_paste_time_remap)
+        a.addAction(self.a_tl_copy_time_remap)
         # 「システムに合わせる」のときは、OSの外観の切り替えに追従する。
         QGuiApplication.styleHints().colorSchemeChanged.connect(
             self._on_system_color_scheme_changed
@@ -1216,6 +1231,9 @@ class UIBuildMixin(MainWindowMembers):
         self.timeline.playbackRangeEdgeRequested.connect(
             self.timeline_ops.resize_range
         )
+        self.timeline.timeRemapCopyRequested.connect(
+            self.time_remap.copy_from_timeline
+        )
         self.timeline.exposureResizeRequested.connect(self.timeline_ops.resize_exposure)
         self.timeline.tweenRequested.connect(
             lambda row, column: self.tween.enable(row, column, "free")
@@ -1302,6 +1320,9 @@ class UIBuildMixin(MainWindowMembers):
         )
         self.palette.adjustLineThicknessRequested.connect(
             self.colors.adjust_parent_line_thickness
+        )
+        self.palette.adjustHsvRequested.connect(
+            self.used_color.adjust_used_color_hsv
         )
         self.palette.focusColorRequested.connect(self.colors.focus_used_color)
         self.palette.clearIsolateRequested.connect(

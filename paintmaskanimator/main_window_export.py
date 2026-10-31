@@ -20,9 +20,12 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMessageBox
+from PySide6.QtWidgets import (QApplication, QDialog, QFileDialog, QInputDialog,
+                               QMessageBox)
 from .i18n import tr
-from . import cut_folder, preferences, timesheet_file
+from .memo_window import MEMO_FILE_NAME
+from . import movie_slate
+from . import cut_folder, imaging, preferences, shadow_export, timesheet_file
 from .models import default_layer_name
 from .optional_deps import PILImage, PSDImage
 from .constants import OUTSIDE_MARGIN
@@ -298,6 +301,12 @@ class ExportController:
                 self.sheet_text(plan.timesheet_format, sheet_name, **plan.sheet_header),
                 encoding="utf-8",
             )
+            # メモはタイムシートの隣へ出す（Issue #25）。空なら作らない。
+            memo = str(getattr(self.window, "project_memo", "") or "").strip()
+            if memo:
+                (
+                    target / Path(plan.timesheet_path).parent / MEMO_FILE_NAME
+                ).write_text(memo + chr(10), encoding="utf-8")
         except _OPERATION_ERRORS as exc:
             log.error("cut folder export failed: %s", exc, exc_info=True)
             QMessageBox.critical(
@@ -617,17 +626,27 @@ class ExportController:
                 tr("動画用フレームを準備しています"),
             )
             output_index = 0
+            # 頭の数コマだけカット名を重ねる（Issue #26）。コマは足さないので
+            # タイミングは変わらない。
+            cut_name = movie_slate.cut_name_for(
+                self.window.current_project_path
+            )
             for frame_index, frame in enumerate(self.window.canvas.frames):
                 image = self.window.crop_image(frame_index)
                 for _ in range(max(1, int(frame.duration))):
                     output_index += 1
+                    written = (
+                        movie_slate.draw_cut_name(image, cut_name)
+                        if output_index <= movie_slate.LEADING_FRAMES
+                        else image
+                    )
                     update_counter(
                         progress,
                         output_index - 1,
                         total,
                         tr("フレーム {index} / {total} を準備しています").format(index=output_index, total=total),
                     )
-                    image.save(
+                    written.save(
                         str(Path(td) / f"f_{output_index:06}.png"),
                     )
             close_counter(progress)
@@ -641,3 +660,142 @@ class ExportController:
             r=subprocess.run([ff,'-y','-framerate',str(self.window.timeline.fps.value()),'-i',str(Path(td)/'f_%06d.png'),'-c:v','libx264','-pix_fmt','yuv420p',path],capture_output=True,text=True)
             close_counter(encoding)
             if r.returncode:QMessageBox.critical(self.window,tr('MP4エラー'),r.stderr[-1500:])
+
+
+    # ------------------------------------------------------------------
+    # 影素材の書き出し（Issue #21）
+    # ------------------------------------------------------------------
+    def shadow_folder_names(self):
+        """色が1つ以上入っている使用色フォルダーの名前。"""
+        palette = self.window.palette
+        return [
+            name for name in palette.category_order
+            if palette._category_members(name)
+        ]
+
+    def shadow_materials(self, folder_name):
+        """``folder_name`` の色を影として、キーごとの3素材を作る。
+
+        :returns: ``[(レイヤー名, 絵番号, {種類: QImage}), ...]``。
+        """
+        palette = self.window.palette
+        shadow_rgbs = palette._category_members(folder_name)
+        results = []
+        if not shadow_rgbs:
+            return results
+        frames = self.window.canvas.frames
+        if not frames:
+            return results
+        for layer_index, template in enumerate(frames[0].layers):
+            layer_name = str(template.name or default_layer_name(layer_index))
+            seen = set()
+            for frame_index, frame in enumerate(frames):
+                if layer_index >= len(frame.layers):
+                    continue
+                layer = frame.layers[layer_index]
+                if not layer.has_content or layer.sequence_only:
+                    continue
+                # 同じ絵を何度も書き出さない。番号が無ければコマ番号を使う。
+                number = (
+                    int(layer.sequence_number)
+                    if layer.sequence_number is not None
+                    else frame_index + 1
+                )
+                if number in seen:
+                    continue
+                seen.add(number)
+                pixels = imaging.qimage_rgba_array(layer.image)
+                images = {
+                    kind: imaging.rgba_array_to_qimage(array)
+                    for kind, array in shadow_export.materials(
+                        pixels, shadow_rgbs
+                    ).items()
+                }
+                results.append((layer_name, number, images))
+        return results
+
+    def shadow_sequence(self):
+        """使用色フォルダーを選び、影素材の連番を書き出す。"""
+        folders = self.shadow_folder_names()
+        if not folders:
+            QMessageBox.warning(
+                self.window,
+                tr("影素材の書き出し"),
+                tr("色の入った使用色フォルダーがありません。"
+                   "影色をフォルダーにまとめてから実行してください。"),
+            )
+            return False
+        folder_name, accepted = QInputDialog.getItem(
+            self.window,
+            tr("影素材の書き出し"),
+            tr("影色をまとめたフォルダー："),
+            folders,
+            0,
+            False,
+        )
+        if not accepted or not folder_name:
+            return False
+        destination = QFileDialog.getExistingDirectory(
+            self.window, tr("書き出し先のフォルダー")
+        )
+        if not destination:
+            return False
+        return self.write_shadow_sequence(folder_name, Path(destination))
+
+    def write_shadow_sequence(self, folder_name, destination):
+        """``destination`` の下へ、種類ごとのフォルダーを作って書き出す。"""
+        materials = self.shadow_materials(folder_name)
+        if not materials:
+            self.window.statusBar().showMessage(
+                tr("書き出せるセルがありません。"), 2800
+            )
+            return False
+
+        progress = create_counter(
+            self.window,
+            tr("影素材の書き出し"),
+            len(materials),
+            tr("「{name}」の影素材を書き出しています").format(name=folder_name),
+        )
+        written = 0
+        try:
+            for index, (layer_name, number, images) in enumerate(materials):
+                update_counter(
+                    progress, index, len(materials),
+                    tr("{number}枚目を書き出しています").format(number=index + 1),
+                )
+                for kind, image in images.items():
+                    target = destination / kind / layer_name
+                    target.mkdir(parents=True, exist_ok=True)
+                    cropped = image.copy(
+                        OUTSIDE_MARGIN,
+                        OUTSIDE_MARGIN,
+                        constants.CANVAS_WIDTH,
+                        constants.CANVAS_HEIGHT,
+                    )
+                    path = target / f"{layer_name}{number:04d}.png"
+                    if not cropped.save(str(path), "PNG"):
+                        raise OSError(
+                            tr("{name}を保存できませんでした。").format(
+                                name=path.name
+                            )
+                        )
+                    written += 1
+        except _OPERATION_ERRORS as exc:
+            log.error("shadow export failed: %s", exc, exc_info=True)
+            QMessageBox.critical(
+                self.window,
+                tr("影素材の書き出し"),
+                tr("書き出し中にエラーが発生しました。" + chr(10) + chr(10) + "{exc}").format(exc=exc),
+            )
+            return False
+        finally:
+            close_counter(progress)
+
+        self.window.statusBar().showMessage(
+            tr("影素材を{count}枚書き出しました：{destination}").format(
+                count=written, destination=destination
+            ),
+            4000,
+        )
+        return True

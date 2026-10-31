@@ -760,22 +760,21 @@ def _hue_cluster_palette_from_samples(
     return np.asarray(palette, dtype=np.uint8)
 
 
-def build_color_reduction_palette(
+def _palette_training_samples(
     image,
-    color_count,
     alpha_threshold=128,
-    max_samples=262144,
     opaque_background=False,
     background_rgb=None,
-    tone_curve_points=None,
-    extraction_mode="surface",
 ):
-    """近い色相を同じ原色面としてまとめる共通パレット。"""
-    color_count = max(2, min(100, int(color_count)))
+    """1枚から、パレットの手本にする画素 ``(N, 3)`` を取り出す。
+
+    背景そのものと、境界のにじみ（局所の色の揺れが大きい画素）を外す。
+    返すのは色の並びだけなので、複数枚ぶんをつなげて1つのパレットを作れる。
+    """
     threshold = max(1, min(254, int(alpha_threshold)))
     rgba = imaging.qimage_rgba_array(image)
     if rgba.size == 0:
-        return np.asarray([[0, 0, 0]], dtype=np.uint8)
+        return np.zeros((0, 3), dtype=np.uint8)
 
     rgb = rgba[:, :, :3]
     alpha = rgba[:, :, 3]
@@ -785,7 +784,7 @@ def build_color_reduction_palette(
         else alpha >= threshold
     )
     if not np.any(visible):
-        return np.asarray([[0, 0, 0]], dtype=np.uint8)
+        return np.zeros((0, 3), dtype=np.uint8)
 
     variation = _colors.local_color_variation(rgb)
     stable = visible & (variation <= 12)
@@ -829,6 +828,47 @@ def build_color_reduction_palette(
     training_rgb = rgb[foreground_mask]
     if training_rgb.size == 0:
         training_rgb = rgb[visible]
+    return training_rgb
+
+
+def build_color_reduction_palette(
+    image,
+    color_count,
+    alpha_threshold=128,
+    max_samples=262144,
+    opaque_background=False,
+    background_rgb=None,
+    tone_curve_points=None,
+    extraction_mode="surface",
+    extra_images=(),
+):
+    """近い色相を同じ原色面としてまとめる共通パレット。
+
+    ``extra_images`` に代表フレームを渡すと、それらの画素もまとめて手本にする。
+    1枚だけから作ると、中間で色が増えるカットやフラッシュで、その1枚に無い色が
+    最近傍へ潰れてしまうため（Issue #10）。
+    """
+    color_count = max(2, min(100, int(color_count)))
+    reserved_background = (
+        np.asarray(background_rgb, dtype=np.uint8)
+        if opaque_background and background_rgb is not None
+        else None
+    )
+    samples = [
+        _palette_training_samples(
+            source,
+            alpha_threshold=alpha_threshold,
+            opaque_background=opaque_background,
+            background_rgb=background_rgb,
+        )
+        for source in (image, *(extra_images or ()))
+    ]
+    samples = [block for block in samples if block.size]
+    if not samples:
+        return np.asarray([[0, 0, 0]], dtype=np.uint8)
+    training_rgb = (
+        samples[0] if len(samples) == 1 else np.vstack(samples)
+    )
 
     if len(training_rgb) > int(max_samples):
         sample_indices = np.linspace(
@@ -1001,3 +1041,26 @@ def apply_color_reduction_palette(
         background_rgb=background_rgb,
     )
 
+
+
+#: パレットの手本にする代表フレームの枚数（1枚目を除く）。
+REFERENCE_FRAME_COUNT = 4
+
+
+def reference_frame_indices(total, count=REFERENCE_FRAME_COUNT):
+    """``total`` 枚の連番から、代表フレームの位置を選ぶ（1枚目を除く）。
+
+    末尾と、そこまでを等間隔に割った位置を取る。1枚目は呼び出し側が必ず
+    手本にするので、ここには入れない（Issue #10）。
+    """
+    total = int(total)
+    count = max(0, int(count))
+    if total <= 1 or count == 0:
+        return []
+    picked = []
+    for step in range(1, count + 1):
+        index = round(step * (total - 1) / count)
+        index = max(1, min(total - 1, int(index)))
+        if index not in picked:
+            picked.append(index)
+    return picked
