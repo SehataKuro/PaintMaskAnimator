@@ -332,6 +332,17 @@ class UsedColorController:
             [packed_mapping[int(value)] for value in source_values],
             dtype=np.uint8,
         )
+        # #FFFFFF は消しゴム（alpha=0）。置換先が白の画素は不透明な白を
+        # 書き込まず、背景が透けるよう alpha も落とす。背景色を変えていると
+        # 「この色を消す」が白べた塗りに見えてしまうため。
+        destination_is_eraser = np.array(
+            [
+                tuple(int(channel) for channel in packed_mapping[int(value)][:3])
+                == (255, 255, 255)
+                for value in source_values
+            ],
+            dtype=bool,
+        )
 
         cache_updates = {}
         cache_removals = set()
@@ -377,6 +388,10 @@ class UsedColorController:
             pixels[:, :, :3][matches] = destination_values[
                 safe_indices[matches]
             ]
+            if destination_is_eraser.any():
+                erased = matches & destination_is_eraser[safe_indices]
+                if erased.any():
+                    pixels[:, :, 3][erased] = 0
             produced = rgba.convertToFormat(
                 QImage.Format.Format_ARGB32_Premultiplied
             )

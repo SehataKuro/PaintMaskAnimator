@@ -305,6 +305,10 @@ class UIBuildMixin(MainWindowMembers):
         self.a_transform_cancel = self.make_shortcut_action(
             tr("変形をキャンセル"), self.tween.cancel_transform_or_tween
         )
+        self.a_focus_used_color = self.make_shortcut_action(
+            tr("使用色：この色を選択範囲にする"),
+            self.colors.focus_selected_used_color,
+        )
         self.a_bucket_include_sub = self.make_shortcut_action(
             tr("バケツ：含み塗り ON/OFF"),
             lambda: self.tools.bucket_include_sub.toggle()
@@ -446,6 +450,7 @@ class UIBuildMixin(MainWindowMembers):
             (tr("メッシュ変形：格子数を変更"), self.a_transform_mesh_grid),
             (tr("変形を確定"), self.a_transform_commit),
             (tr("変形をキャンセル"), self.a_transform_cancel),
+            (tr("使用色：この色を選択範囲にする"), self.a_focus_used_color),
             (tr("バケツ：含み塗り ON/OFF"), self.a_bucket_include_sub),
             (tr("バケツ：隙間閉じ ON/OFF"), self.a_bucket_close_gap),
             (tr("バケツ：串刺し塗り ON/OFF"), self.a_bucket_all_frames),
