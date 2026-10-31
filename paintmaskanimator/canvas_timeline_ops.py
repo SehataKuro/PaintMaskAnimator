@@ -60,15 +60,20 @@ class TimelineStructureMixin(CanvasMembers):
 
         # QImageの暗黙共有を使い、空画像バッファをコマ数分確保しない。
         shared_blank = blank_image()
+        owner = None
         for frame in self.frames:
-            frame.layers.append(
-                Layer(
-                    name,
-                    shared_blank.copy(),
-                    visible=True,
-                    opacity=1.0,
-                )
+            added = Layer(
+                name,
+                shared_blank.copy(),
+                visible=True,
+                opacity=1.0,
             )
+            # 足したレイヤーも、全コマで1つの Track を共有する。
+            if owner is None:
+                owner = added
+            else:
+                added.share_track_with(owner)
+            frame.layers.append(added)
         self.active_layer_index = insert_index
         self._onion_cache.clear()
         self.changed.emit()
@@ -567,6 +572,25 @@ class TimelineStructureMixin(CanvasMembers):
             archived.has_content = True
             archived.is_blank_key = False
 
+    def link_layer_tracks(self):
+        """同じレイヤーのセルを、1つの ``Track``（表示の設定）へ結ぶ。
+
+        先頭コマのセルが持つ設定を、そのレイヤーの設定とする。レイヤーの
+        追加・削除・並べ替えや、読み込み・Undo の復元のあとに呼ぶ
+        （Issue #31 Phase 2）。
+        """
+        if not self.frames:
+            return
+        owners = list(self.frames[0].layers)
+        for frame in self.frames[1:]:
+            for layer_index, layer in enumerate(frame.layers):
+                if layer_index < len(owners):
+                    layer.share_track_with(owners[layer_index])
+        for key, archived in self._sequence_archive.items():
+            layer_index = int(key[0])
+            if 0 <= layer_index < len(owners):
+                archived.share_track_with(owners[layer_index])
+
     def coalesce_numbered_images(self):
         """同一レイヤー・同一番号のセルを、1枚の絵（``Cell``）へ結ぶ。
 
@@ -930,7 +954,7 @@ class TimelineStructureMixin(CanvasMembers):
         while len(self.frames) < count:
             frame = make_frame(names)
             for index, layer in enumerate(frame.layers):
-                layer.visible = template[index].visible
-                layer.opacity = template[index].opacity
-                layer.alpha_locked = template[index].alpha_locked
+                # 表示の設定はレイヤーに1つ。写すのではなく同じ Track を指す
+                # （Issue #31 Phase 2）。
+                layer.share_track_with(template[index])
             self.frames.append(frame)
