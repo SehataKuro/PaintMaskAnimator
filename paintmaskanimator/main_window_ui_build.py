@@ -158,7 +158,7 @@ class UIBuildMixin(MainWindowMembers):
         self.a_preferences.setShortcut("Ctrl+,")
         self.a_preferences.triggered.connect(lambda: self.show_preferences())
         self.tool_actions={}
-        defaults={"brush":"P","line":"U","shape":"O","bucket":"G","lasso_fill":"F","lasso":"L","rect_select":"R","auto_select":"W","eyedropper":"I","dust":"D"}
+        defaults={"brush":"P","line":"U","shape":"O","bucket":"G","closed_fill":"K","lasso_fill":"F","lasso":"L","rect_select":"R","auto_select":"W","eyedropper":"I","dust":"D"}
         for tid,_source_label in ToolPanel.TOOLS:
             a=QAction(tr("ツール：{tool}").format(tool=tool_label(tid)),self);a.setShortcut(defaults.get(tid,""));a.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut);a.triggered.connect(lambda _=False,t=tid,action=a:self.tool_hold.select(t,action));self.addAction(a);self.tool_actions[tid]=a
         self.general_actions=[(tr("新規作成"),self.a_new),(tr("プロジェクトを開く"),self.a_open_project),(tr("上書き保存"),self.a_save_project),(tr("元に戻す"),self.a_undo),(tr("やり直す"),self.a_redo),(tr("前のフレーム"),self.a_prev),(tr("次のフレーム"),self.a_next)]
@@ -305,6 +305,10 @@ class UIBuildMixin(MainWindowMembers):
         self.a_transform_cancel = self.make_shortcut_action(
             tr("変形をキャンセル"), self.tween.cancel_transform_or_tween
         )
+        self.a_focus_used_color = self.make_shortcut_action(
+            tr("使用色：この色を選択範囲にする"),
+            self.colors.focus_selected_used_color,
+        )
         self.a_bucket_include_sub = self.make_shortcut_action(
             tr("バケツ：含み塗り ON/OFF"),
             lambda: self.tools.bucket_include_sub.toggle()
@@ -446,6 +450,7 @@ class UIBuildMixin(MainWindowMembers):
             (tr("メッシュ変形：格子数を変更"), self.a_transform_mesh_grid),
             (tr("変形を確定"), self.a_transform_commit),
             (tr("変形をキャンセル"), self.a_transform_cancel),
+            (tr("使用色：この色を選択範囲にする"), self.a_focus_used_color),
             (tr("バケツ：含み塗り ON/OFF"), self.a_bucket_include_sub),
             (tr("バケツ：隙間閉じ ON/OFF"), self.a_bucket_close_gap),
             (tr("バケツ：串刺し塗り ON/OFF"), self.a_bucket_all_frames),
@@ -1186,6 +1191,31 @@ class UIBuildMixin(MainWindowMembers):
         self.timeline.blankFrameRequested.connect(
             self.timeline_ops.create_blank_key
         )
+        # セルの右クリックメニュー（Issue #48）。
+        self.timeline.newAnimationCellRequested.connect(
+            self.timeline_ops.new_animation_cell
+        )
+        self.timeline.clearCellRequested.connect(self.timeline_ops.clear_cell)
+        self.timeline.cutCellRequested.connect(
+            self.timeline_ops.cut_cell_to_clipboard
+        )
+        self.timeline.copyCellToClipboardRequested.connect(
+            self.timeline_ops.copy_cell_to_clipboard
+        )
+        self.timeline.pasteCellRequested.connect(
+            self.timeline_ops.paste_cell_from_clipboard
+        )
+        self.timeline.mergeClipRequested.connect(self.timeline_ops.merge_clip)
+        self.timeline.splitClipRequested.connect(self.timeline_ops.split_clip)
+        self.timeline.insertFrameAtRequested.connect(
+            self.timeline_ops.insert_frame_at
+        )
+        self.timeline.deleteFrameAtRequested.connect(
+            self.timeline_ops.delete_frame_at
+        )
+        self.timeline.playbackRangeEdgeRequested.connect(
+            self.timeline_ops.resize_range
+        )
         self.timeline.exposureResizeRequested.connect(self.timeline_ops.resize_exposure)
         self.timeline.tweenRequested.connect(
             lambda row, column: self.tween.enable(row, column, "free")
@@ -1258,6 +1288,12 @@ class UIBuildMixin(MainWindowMembers):
         self.palette.sourceScreenColorPicked.connect(self.colors.apply_sampled_color)
         self.palette.applyReplacementRequested.connect(
             self.used_color.apply_palette_replacements
+        )
+        self.palette.saveReplacementSetRequested.connect(
+            self.used_color.save_replacement_set
+        )
+        self.palette.loadReplacementSetRequested.connect(
+            self.used_color.load_replacement_set
         )
         self.palette.previewGroupsChanged.connect(self.colors.set_preview_color_groups)
         self.palette.mergeColorsRequested.connect(self.used_color.apply_palette_merge)

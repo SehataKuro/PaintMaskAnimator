@@ -650,6 +650,18 @@ class TimelineTable(QTableWidget):
     tweenReleaseRequested = Signal(int, int)
     addFrameRequested = Signal(bool)
     extendExposureRequested = Signal(int, int, int)
+    # セルの右クリックメニュー（Issue #48）。いずれも (表示行, 列)。
+    newAnimationCellRequested = Signal(int, int)
+    clearCellRequested = Signal(int, int)
+    cutCellRequested = Signal(int, int)
+    copyCellToClipboardRequested = Signal(int, int)
+    pasteCellRequested = Signal(int, int)
+    mergeClipRequested = Signal(int, int)
+    splitClipRequested = Signal(int, int)
+    insertFrameAtRequested = Signal(int, int)
+    deleteFrameAtRequested = Signal(int, int)
+    #: ("start"|"end", 列)。
+    playbackRangeEdgeRequested = Signal(str, int)
 
     END_HANDLE_ROLE = Qt.ItemDataRole.UserRole + 2
     START_HANDLE_ROLE = Qt.ItemDataRole.UserRole + 4
@@ -661,6 +673,8 @@ class TimelineTable(QTableWidget):
         # Mirrors the owning TimelineWidget's frame count; the widget writes it
         # (``self.table._real_frame_count = ...``) and cell-hit tests read it.
         self._real_frame_count = 1
+        # 「貼り付け」を出してよいか。TimelineWidget が控えの有無を書き込む。
+        self.cell_clipboard_filled = False
         self._sequence_mode = False
         self._drag_source = None
         self._drag_preview_dest = None
@@ -1175,8 +1189,44 @@ class TimelineTable(QTableWidget):
             self.item(index.row(), index.column())
             if index.isValid() else None
         )
+        row = int(index.row()) if index.isValid() else -1
+        column = int(index.column()) if index.isValid() else -1
+        on_cell = index.isValid()
 
         menu = QMenu(self)
+        # セル操作ひと通り（Issue #48）。ペイントマンの並びに合わせる。
+        # ●のトラックラベル（絵を持たない印）はこのアプリでは扱わない。
+        action_label_blank = menu.addAction(tr("中割りトラックラベル○を作成"))
+        action_label_blank.setEnabled(on_cell)
+        action_clear_label = menu.addAction(tr("トラックラベルを削除"))
+        action_clear_label.setEnabled(on_cell and item is not None)
+        menu.addSeparator()
+        action_cell_delete = menu.addAction(tr("削除"))
+        action_cell_cut = menu.addAction(tr("切り取り"))
+        action_cell_copy = menu.addAction(tr("コピー"))
+        action_cell_paste = menu.addAction(tr("貼り付け"))
+        for action in (action_cell_delete, action_cell_cut, action_cell_copy):
+            action.setEnabled(on_cell and item is not None)
+        action_cell_paste.setEnabled(on_cell and self.cell_clipboard_filled)
+        menu.addSeparator()
+        action_new_cell = menu.addAction(tr("新規アニメーションセル"))
+        action_new_cell.setEnabled(on_cell)
+        menu.addSeparator()
+        action_clip_merge = menu.addAction(tr("クリップを結合"))
+        action_clip_split = menu.addAction(tr("クリップを分割"))
+        action_clip_merge.setEnabled(on_cell and item is not None)
+        action_clip_split.setEnabled(on_cell and item is not None)
+        action_range_start = menu.addAction(tr("表示開始フレームにする"))
+        action_range_end = menu.addAction(tr("表示終了フレームにする"))
+        action_range_start.setEnabled(on_cell)
+        action_range_end.setEnabled(on_cell)
+        menu.addSeparator()
+        action_insert_frame = menu.addAction(tr("フレームを挿入"))
+        action_delete_frame = menu.addAction(tr("フレームを削除"))
+        action_insert_frame.setEnabled(on_cell)
+        action_delete_frame.setEnabled(on_cell)
+        menu.addSeparator()
+
         add_menu = menu.addMenu(tr("コマを増やす"))
         action_add_blank = add_menu.addAction(
             tr("空フレームを追加")
@@ -1257,6 +1307,32 @@ class TimelineTable(QTableWidget):
                 action_mesh.setEnabled(tween_enabled)
 
         chosen = menu.exec(event.globalPos())
+        cell_actions = {
+            action_label_blank: self.blankFrameRequested,
+            action_new_cell: self.newAnimationCellRequested,
+            action_clear_label: self.clearCellRequested,
+            action_cell_delete: self.clearCellRequested,
+            action_cell_cut: self.cutCellRequested,
+            action_cell_copy: self.copyCellToClipboardRequested,
+            action_cell_paste: self.pasteCellRequested,
+            action_clip_merge: self.mergeClipRequested,
+            action_clip_split: self.splitClipRequested,
+            action_insert_frame: self.insertFrameAtRequested,
+            action_delete_frame: self.deleteFrameAtRequested,
+        }
+        if chosen in cell_actions and on_cell:
+            cell_actions[chosen].emit(row, column)
+            event.accept()
+            return
+        if chosen is action_range_start and on_cell:
+            self.playbackRangeEdgeRequested.emit("start", column)
+            event.accept()
+            return
+        if chosen is action_range_end and on_cell:
+            # 終端は「このコマまで」。範囲は開始以上・終了未満で持つ。
+            self.playbackRangeEdgeRequested.emit("end", column + 1)
+            event.accept()
+            return
         if chosen is action_add_blank:
             if index.isValid():
                 self.blankFrameRequested.emit(
@@ -1319,6 +1395,16 @@ class TimelineWidget(QWidget):
     timeRemapPasteRequested=Signal()
     timeRemapFileDropped=Signal(str)
     extendExposureRequested=Signal(int,int,int)
+    newAnimationCellRequested=Signal(int,int)
+    clearCellRequested=Signal(int,int)
+    cutCellRequested=Signal(int,int)
+    copyCellToClipboardRequested=Signal(int,int)
+    pasteCellRequested=Signal(int,int)
+    mergeClipRequested=Signal(int,int)
+    splitClipRequested=Signal(int,int)
+    insertFrameAtRequested=Signal(int,int)
+    deleteFrameAtRequested=Signal(int,int)
+    playbackRangeEdgeRequested=Signal(str,int)
     timelineModeChanged=Signal(str)
     normalizeNumbersRequested=Signal(object)
     toggleDraftLayersRequested=Signal(object)
@@ -1661,6 +1747,16 @@ class TimelineWidget(QWidget):
         self.table.extendExposureRequested.connect(
             self.extendExposureRequested
         )
+        self.table.newAnimationCellRequested.connect(self.newAnimationCellRequested)
+        self.table.clearCellRequested.connect(self.clearCellRequested)
+        self.table.cutCellRequested.connect(self.cutCellRequested)
+        self.table.copyCellToClipboardRequested.connect(self.copyCellToClipboardRequested)
+        self.table.pasteCellRequested.connect(self.pasteCellRequested)
+        self.table.mergeClipRequested.connect(self.mergeClipRequested)
+        self.table.splitClipRequested.connect(self.splitClipRequested)
+        self.table.insertFrameAtRequested.connect(self.insertFrameAtRequested)
+        self.table.deleteFrameAtRequested.connect(self.deleteFrameAtRequested)
+        self.table.playbackRangeEdgeRequested.connect(self.playbackRangeEdgeRequested)
         body.addWidget(self.table,1)
         v.addLayout(body)
         self.layer_list.currentRowChanged.connect(self._layer_selected)
@@ -2319,6 +2415,10 @@ class TimelineWidget(QWidget):
 
         if current_name != previous_name:
             self.layerNameChanged.emit(row, current_name)
+    def set_cell_clipboard_filled(self, filled):
+        """「貼り付け」をメニューに出してよいかを伝える（Issue #48）。"""
+        self.table.cell_clipboard_filled = bool(filled)
+
     def _play(self,on): self.playRequested.emit(on)
     @staticmethod
     def timeline_span_at(frames, layer_index, column):

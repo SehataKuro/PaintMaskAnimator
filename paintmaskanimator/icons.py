@@ -42,6 +42,11 @@ _PATHS = {
         '<path d="M20.5 15.5s1.5 2 1.5 3a1.5 1.5 0 0 1-3 0c0-1 1.5-3 1.5-3Z" '
         'fill="ACCENT" stroke="ACCENT"/>'
     ),
+    "closed_fill": (
+        '<path d="M12 3.5 20.5 12 12 20.5 3.5 12Z" fill="ACCENT" '
+        'fill-opacity="0.45" stroke-dasharray="5 3"/>'
+        '<path d="M12 8.5 15.5 12 12 15.5 8.5 12Z"/>'
+    ),
     "lasso": (
         '<path d="M7 17.5C4.3 16.2 3 14.4 3 12c0-4.4 4-7.5 9-7.5s9 3.1 9 7.5-4 7.5-9 7.5"/>'
         '<path d="M8.5 15.5a2 2 0 1 0 0 4c1.4 0 1.5 2 .5 3"/>'

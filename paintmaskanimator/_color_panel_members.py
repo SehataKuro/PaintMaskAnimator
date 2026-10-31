@@ -33,6 +33,8 @@ class UsedColorPanelMembers(_MembersBase):
     if TYPE_CHECKING:
         adjustLineThicknessRequested: Signal
         applyReplacementRequested: Signal
+        saveReplacementSetRequested: Signal
+        loadReplacementSetRequested: Signal
         clearIsolateRequested: Signal
         deleteColorsRequested: Signal
         focusColorRequested: Signal

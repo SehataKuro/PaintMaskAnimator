@@ -99,6 +99,29 @@ class ColorInteractionController:
                 tr("すべてのマスクがOFFです。描画できません。"), 1800
             )
 
+    def focus_selected_used_color(self):
+        """使用色パネルで選んでいる色を選択範囲にする（ショートカット用）。
+
+        特定の色をハイライトする使い方では、右クリックメニューを開かずに
+        キー一発で呼べることが求められる（Issue #44）。選び直していなければ
+        いま描いている色を対象にする。
+        """
+        palette = self.window.palette
+        rgb = getattr(palette, "parent_rgb", None)
+        if rgb is None:
+            selected = getattr(palette, "selected_rgbs", None) or ()
+            rgb = selected[-1] if selected else None
+        if rgb is None:
+            color = self.window.canvas.opaque_paint_color()
+            rgb = (color.red(), color.green(), color.blue())
+        if tuple(int(value) for value in rgb[:3]) == (255, 255, 255):
+            self.window.statusBar().showMessage(
+                tr("背景色は選択範囲にできません。使用色を選んでください。"),
+                2400,
+            )
+            return
+        self.focus_used_color(rgb)
+
     def focus_used_color(self, rgb):
         """指定色の最初のコマへ移動し、その色全体を選択範囲で囲む。"""
         rgb = tuple(int(value) for value in rgb[:3])
@@ -454,7 +477,9 @@ class ColorInteractionController:
             self.window.statusBar().showMessage(tr("選択レイヤーには特定色表示が設定されていません。"), 2500)
 
     def select_background_color(self):
-        if self.window.canvas.tool not in ("brush", "bucket", "line", "shape", "lasso_fill"):
+        if self.window.canvas.tool not in (
+            "brush", "bucket", "closed_fill", "line", "shape", "lasso_fill"
+        ):
             self.window.tools.select_tool(preferences.background_color_tool())
         self.set_color_mode("transparent")
 

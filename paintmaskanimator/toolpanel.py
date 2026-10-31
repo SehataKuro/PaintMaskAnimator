@@ -35,7 +35,7 @@ from .widgets import (BrushSizeSpinBox, ClickableValueLabel, HSVColorWheel, Line
 #: language in. Use :func:`tool_label` wherever the name is displayed.
 TOOL_DEFINITIONS = [
     ("brush", "ブラシ"),
-    ("shape", "図形"), ("bucket", "バケツ"),
+    ("shape", "図形"), ("bucket", "バケツ"), ("closed_fill", "閉領域フィル"),
     ("lasso_fill", "投げ縄塗り"), ("lasso", "投げ縄選択"),
     ("rect_select", "長方形選択"), ("auto_select", "自動選択"),
     ("eyedropper", "スポイト"), ("dust", "ゴミ取り"),
@@ -51,6 +51,7 @@ def tool_label(tool_id: str) -> str:
     labels = {
         "brush": tr("ブラシ"), "line": tr("ライン"),
         "shape": tr("図形"), "bucket": tr("バケツ"),
+        "closed_fill": tr("閉領域フィル"),
         "lasso_fill": tr("投げ縄塗り"), "lasso": tr("投げ縄選択"),
         "rect_select": tr("長方形選択"), "auto_select": tr("自動選択"),
         "eyedropper": tr("スポイト"), "dust": tr("ゴミ取り"),
@@ -406,10 +407,15 @@ class IncludeColorSlots(QWidget):
     枠をクリックすると現在の描画色を登録し、右クリックで消せる。登録した色は
     設定に保存して次回も使う。1色も登録していなければサブカラーを含む
     （以前の「サブカラーを含み塗り」と同じ動作）。
+
+    登録した色は枠ごとに ON/OFF できる（Issue #43）。色トレス線が重なっている
+    ところを塗るとき、含む色を消さずに切り換えられるようにするため。OFF の枠は
+    斜線を重ねて見分ける。
     """
 
     SLOT_COUNT = 3
     CONFIG_KEY = "bucket_include_colors"
+    ENABLED_CONFIG_KEY = "bucket_include_colors_enabled"
     SLOT_SIZE = 22
 
     # 枠へ色を登録した（含み塗りを自動でONにするため）。
@@ -421,6 +427,7 @@ class IncludeColorSlots(QWidget):
         super().__init__(parent)
         self._current_color = current_color
         self._colors: list = [None] * self.SLOT_COUNT
+        self._enabled: list = [True] * self.SLOT_COUNT
         layout = QHBoxLayout(self)
         layout.setContentsMargins(18, 0, 0, 0)
         layout.setSpacing(4)
@@ -444,8 +451,28 @@ class IncludeColorSlots(QWidget):
         self._refresh()
 
     def colors(self):
-        """登録済みの RGB タプル（空きは除く）。"""
+        """含み塗りに使う RGB タプル（空きと OFF の枠は除く）。"""
+        return tuple(
+            color
+            for color, enabled in zip(self._colors, self._enabled)
+            if color is not None and enabled
+        )
+
+    def registered_colors(self):
+        """ON/OFF に関わらず登録してある RGB タプル。"""
         return tuple(color for color in self._colors if color is not None)
+
+    def is_enabled(self, index):
+        return bool(0 <= index < self.SLOT_COUNT and self._enabled[index])
+
+    def set_enabled(self, index, enabled):
+        """枠ごとの ON/OFF。色は消さずに含み塗りの対象から外す。"""
+        if not 0 <= index < self.SLOT_COUNT:
+            return
+        self._enabled[index] = bool(enabled)
+        self._save()
+        self._refresh()
+        self.changed.emit()
 
     def set_color(self, index, rgb):
         if not 0 <= index < self.SLOT_COUNT:
@@ -454,6 +481,8 @@ class IncludeColorSlots(QWidget):
             None if rgb is None
             else (int(rgb[0]), int(rgb[1]), int(rgb[2]))
         )
+        # 色を入れ替えたら、使う状態で始める。
+        self._enabled[index] = True
         self._save()
         self._refresh()
         self.changed.emit()
@@ -468,6 +497,14 @@ class IncludeColorSlots(QWidget):
 
     def _show_menu(self, index, pos):
         menu = QMenu(self)
+        use = menu.addAction(tr("この色を含み塗りに使う"))
+        use.setCheckable(True)
+        use.setChecked(self._enabled[index])
+        use.setEnabled(self._colors[index] is not None)
+        use.toggled.connect(
+            lambda checked, i=index: self.set_enabled(i, checked)
+        )
+        menu.addSeparator()
         menu.addAction(
             tr("現在の描画色を登録"), lambda: self.register_current(index)
         )
@@ -477,20 +514,27 @@ class IncludeColorSlots(QWidget):
 
     def _load(self):
         stored = config.get_value(self.CONFIG_KEY, [])
-        if not isinstance(stored, list):
-            return
-        for index, value in enumerate(stored[: self.SLOT_COUNT]):
-            if (
-                isinstance(value, (list, tuple))
-                and len(value) == 3
-                and all(isinstance(v, int) and 0 <= v <= 255 for v in value)
-            ):
-                self._colors[index] = tuple(value)
+        if isinstance(stored, list):
+            for index, value in enumerate(stored[: self.SLOT_COUNT]):
+                if (
+                    isinstance(value, (list, tuple))
+                    and len(value) == 3
+                    and all(isinstance(v, int) and 0 <= v <= 255 for v in value)
+                ):
+                    self._colors[index] = tuple(value)
+        # ON/OFF を持たない古い設定では、登録済みの色をすべて使う。
+        stored_enabled = config.get_value(self.ENABLED_CONFIG_KEY, None)
+        if isinstance(stored_enabled, list):
+            for index, value in enumerate(stored_enabled[: self.SLOT_COUNT]):
+                self._enabled[index] = bool(value)
 
     def _save(self):
         config.set_value(
             self.CONFIG_KEY,
             [list(color) if color is not None else None for color in self._colors],
+        )
+        config.set_value(
+            self.ENABLED_CONFIG_KEY, [bool(value) for value in self._enabled]
         )
 
     def _refresh(self):
@@ -507,13 +551,31 @@ class IncludeColorSlots(QWidget):
                 ))
             else:
                 name = QColor(*color).name()
-                button.setStyleSheet(
-                    f"QToolButton{{background:{name};"
-                    f"border:1px solid {c['border']};border-radius:4px;}}"
-                )
-                button.setToolTip(tr(
-                    "{code}\nクリックで現在の描画色に置き換え、右クリックで消去します。"
-                ).format(code=name.upper()))
+                index = self.buttons.index(button)
+                if self._enabled[index]:
+                    button.setStyleSheet(
+                        f"QToolButton{{background:{name};"
+                        f"border:1px solid {c['border']};border-radius:4px;}}"
+                    )
+                    button.setToolTip(tr(
+                        "{code}\nクリックで現在の描画色に置き換え、"
+                        "右クリックで ON/OFF と消去ができます。"
+                    ).format(code=name.upper()))
+                else:
+                    # OFF：色は残したまま、斜線を重ねて使っていないことを示す。
+                    button.setStyleSheet(
+                        "QToolButton{background:qlineargradient("
+                        "x1:0,y1:0,x2:1,y2:1,"
+                        f"stop:0 {name},stop:0.42 {name},"
+                        f"stop:0.43 {c['text_muted']},"
+                        f"stop:0.57 {c['text_muted']},"
+                        f"stop:0.58 {name},stop:1 {name});"
+                        f"border:1px dashed {c['text_muted']};border-radius:4px;}}"
+                    )
+                    button.setToolTip(tr(
+                        "{code}（含み塗りに使っていません）\n"
+                        "右クリックで ON に戻せます。"
+                    ).format(code=name.upper()))
 
 
 class ToolPanel(QWidget):
@@ -787,7 +849,14 @@ class ToolPanel(QWidget):
         bucket_gap_layout=QHBoxLayout(self.bucket_gap_row)
         bucket_gap_layout.setContentsMargins(0,0,0,0)
         bucket_gap_layout.setSpacing(4)
+        # 閉領域フィルでは隙間閉じが常に効くので、チェックボックスの代わりに
+        # ただの見出しを出す。
+        self.bucket_gap_width_title=QLabel(tr("閉じる隙間"))
+        self.bucket_gap_width_title.setToolTip(tr(
+            "これより狭い線の隙間は閉じているものとみなして塗ります。"
+        ))
         bucket_gap_layout.addWidget(self.bucket_close_gap)
+        bucket_gap_layout.addWidget(self.bucket_gap_width_title)
         bucket_gap_layout.addWidget(self.bucket_gap_width,1)
         bucket_gap_layout.addWidget(self.bucket_gap_width_label)
 
@@ -1471,7 +1540,9 @@ class ToolPanel(QWidget):
             is_shape_tool and self.shape_type.currentData() in ("straight", "curve")
         )
         is_shape = is_shape_tool and not is_line
-        is_bucket = tid == "bucket"
+        # 閉領域フィルはバケツと同じ設定を使い、隙間閉じだけを常に効かせる。
+        is_closed_fill = tid == "closed_fill"
+        is_bucket = tid in ("bucket", "closed_fill")
         is_dust = tid == "dust"
         is_lasso_fill = tid == "lasso_fill"
         uses_size = tid == "brush" or is_line
@@ -1569,6 +1640,12 @@ class ToolPanel(QWidget):
         self.bucket_require_closed.setVisible(uses_bucket_region)
         self.fill_opacity_row.setVisible(is_bucket or is_lasso_fill)
         self.bucket_all_frames.setVisible(is_bucket)
+        # 隙間閉じと塗り残し拾いは閉領域フィルでは常にこちらが決める。
+        self.bucket_close_gap.setVisible(is_bucket and not is_closed_fill)
+        self.bucket_island_fill_row.setVisible(
+            uses_bucket_region and not is_closed_fill
+        )
+        self.bucket_gap_width_title.setVisible(is_closed_fill)
 
         self.dust_mode_label.setVisible(is_dust)
         self.dust_mode.setVisible(is_dust)

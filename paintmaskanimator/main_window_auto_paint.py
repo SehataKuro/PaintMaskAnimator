@@ -230,7 +230,8 @@ class AutoPaintController:
                 second_reference_index=second_reference_index,
                 reference_indices=reference_indices,
                 bucket_options=replace(
-                    self.window.canvas.bucket_options(), adjacent=True,
+                    self.window.canvas.bucket_options(respect_modifiers=False),
+                    adjacent=True,
                     reference=bucket_fill.REFERENCE_INITIAL,
                 ),
             )

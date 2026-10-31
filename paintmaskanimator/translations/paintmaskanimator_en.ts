@@ -16,34 +16,37 @@
     <message>
         <location filename="../main_window_ui_build.py" line="63"/>
         <location filename="../main_window_ui_build.py" line="164"/>
-        <location filename="../main_window_ui_build.py" line="399"/>
+        <location filename="../main_window_ui_build.py" line="403"/>
         <source>元に戻す</source>
         <translation>Undo</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="64"/>
         <location filename="../main_window_ui_build.py" line="164"/>
-        <location filename="../main_window_ui_build.py" line="400"/>
+        <location filename="../main_window_ui_build.py" line="404"/>
         <source>やり直す</source>
         <translation>Redo</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="65"/>
-        <location filename="../main_window_ui_build.py" line="402"/>
-        <location filename="../toolpanel.py" line="1228"/>
-        <location filename="../toolpanel.py" line="1229"/>
+        <location filename="../main_window_ui_build.py" line="406"/>
+        <location filename="../timeline.py" line="1206"/>
+        <location filename="../toolpanel.py" line="1297"/>
+        <location filename="../toolpanel.py" line="1298"/>
         <source>コピー</source>
         <translation>Copy</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="66"/>
-        <location filename="../main_window_ui_build.py" line="401"/>
+        <location filename="../main_window_ui_build.py" line="405"/>
+        <location filename="../timeline.py" line="1205"/>
         <source>切り取り</source>
         <translation>Cut</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="67"/>
-        <location filename="../main_window_ui_build.py" line="403"/>
+        <location filename="../main_window_ui_build.py" line="407"/>
+        <location filename="../timeline.py" line="1207"/>
         <source>貼り付け</source>
         <translation>Paste</translation>
     </message>
@@ -85,7 +88,7 @@
     <message>
         <location filename="../main_window_ui_build.py" line="85"/>
         <location filename="../main_window_ui_build.py" line="164"/>
-        <location filename="../main_window_ui_build.py" line="391"/>
+        <location filename="../main_window_ui_build.py" line="395"/>
         <source>上書き保存</source>
         <translation>Save</translation>
     </message>
@@ -132,14 +135,14 @@
     <message>
         <location filename="../main_window_ui_build.py" line="105"/>
         <location filename="../main_window_ui_build.py" line="164"/>
-        <location filename="../main_window_ui_build.py" line="460"/>
+        <location filename="../main_window_ui_build.py" line="465"/>
         <source>前のフレーム</source>
         <translation>Previous Frame</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="106"/>
         <location filename="../main_window_ui_build.py" line="164"/>
-        <location filename="../main_window_ui_build.py" line="464"/>
+        <location filename="../main_window_ui_build.py" line="469"/>
         <source>次のフレーム</source>
         <translation>Next Frame</translation>
     </message>
@@ -150,55 +153,55 @@
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="108"/>
-        <location filename="../main_window_ui_build.py" line="414"/>
+        <location filename="../main_window_ui_build.py" line="418"/>
         <source>選択色だけ表示</source>
         <translation>Show Selected Colour Only</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="110"/>
-        <location filename="../main_window_ui_build.py" line="415"/>
+        <location filename="../main_window_ui_build.py" line="419"/>
         <source>特定色表示を解除</source>
         <translation>Clear Colour Filter</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="112"/>
-        <location filename="../main_window_ui_build.py" line="407"/>
+        <location filename="../main_window_ui_build.py" line="411"/>
         <source>背景以外を黒シルエット表示</source>
         <translation>Show Everything but Background as Silhouette</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="114"/>
-        <location filename="../main_window_ui_build.py" line="408"/>
+        <location filename="../main_window_ui_build.py" line="412"/>
         <source>隣接色分けで表示</source>
         <translation>Show Neighbour Colouring</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="116"/>
-        <location filename="../main_window_ui_build.py" line="409"/>
+        <location filename="../main_window_ui_build.py" line="413"/>
         <source>露光量の調整を切り替え</source>
         <translation>Toggle Exposure Adjustment</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="118"/>
-        <location filename="../main_window_ui_build.py" line="410"/>
+        <location filename="../main_window_ui_build.py" line="414"/>
         <source>赤チャンネルを表示</source>
         <translation>Show Red Channel</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="120"/>
-        <location filename="../main_window_ui_build.py" line="411"/>
+        <location filename="../main_window_ui_build.py" line="415"/>
         <source>緑チャンネルを表示</source>
         <translation>Show Green Channel</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="122"/>
-        <location filename="../main_window_ui_build.py" line="412"/>
+        <location filename="../main_window_ui_build.py" line="416"/>
         <source>青チャンネルを表示</source>
         <translation>Show Blue Channel</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="124"/>
-        <location filename="../main_window_ui_build.py" line="413"/>
+        <location filename="../main_window_ui_build.py" line="417"/>
         <source>アルファチャンネルを表示</source>
         <translation>Show Alpha Channel</translation>
     </message>
@@ -230,7 +233,7 @@
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="164"/>
-        <location filename="../main_window_ui_build.py" line="386"/>
+        <location filename="../main_window_ui_build.py" line="390"/>
         <location filename="../new_document_dialog.py" line="19"/>
         <source>新規作成</source>
         <translation>New</translation>
@@ -248,7 +251,7 @@
     </message>
     <message>
         <location filename="../main_window_project_io.py" line="93"/>
-        <location filename="../main_window_ui_build.py" line="474"/>
+        <location filename="../main_window_ui_build.py" line="479"/>
         <source>最近使用したファイル</source>
         <translation>Open Recent</translation>
     </message>
@@ -289,7 +292,7 @@
         <location filename="../main_window_project_io.py" line="176"/>
         <location filename="../main_window_project_io.py" line="238"/>
         <location filename="../main_window_ui_build.py" line="164"/>
-        <location filename="../main_window_ui_build.py" line="387"/>
+        <location filename="../main_window_ui_build.py" line="391"/>
         <source>プロジェクトを開く</source>
         <translation>Open Project</translation>
     </message>
@@ -311,14 +314,14 @@
     <message>
         <location filename="../main_window_initial_state.py" line="37"/>
         <location filename="../main_window_initial_state.py" line="62"/>
-        <location filename="../main_window_ui_build.py" line="419"/>
+        <location filename="../main_window_ui_build.py" line="423"/>
         <source>線画カットフォルダーを初期状態として読み込む</source>
         <translation>Import Line-Art Cut Folder as Initial State</translation>
     </message>
     <message>
         <location filename="../main_window_initial_state.py" line="46"/>
         <location filename="../main_window_initial_state.py" line="61"/>
-        <location filename="../main_window_ui_build.py" line="420"/>
+        <location filename="../main_window_ui_build.py" line="424"/>
         <source>CLIPの線画を初期状態として読み込む</source>
         <translation>Import line art from CLIP as initial state</translation>
     </message>
@@ -366,7 +369,7 @@ Line art: {width} × {height}px / Current cel: {expected_width} × {expected_hei
     <message>
         <location filename="../main_window_initial_state.py" line="210"/>
         <location filename="../main_window_ui_build.py" line="134"/>
-        <location filename="../main_window_ui_build.py" line="418"/>
+        <location filename="../main_window_ui_build.py" line="422"/>
         <source>今の絵を初期状態として保持</source>
         <translation>Keep Current Drawing as Initial State</translation>
     </message>
@@ -390,7 +393,7 @@ If you overwrite it with painted drawings, you cannot get back to the state befo
     <message>
         <location filename="../main_window_initial_state.py" line="239"/>
         <location filename="../main_window_ui_build.py" line="150"/>
-        <location filename="../main_window_ui_build.py" line="421"/>
+        <location filename="../main_window_ui_build.py" line="425"/>
         <source>保持した初期状態を消す</source>
         <translation>Remove Kept Initial State</translation>
     </message>
@@ -406,7 +409,7 @@ If you overwrite it with painted drawings, you cannot get back to the state befo
     </message>
     <message>
         <location filename="../main_window_initial_state.py" line="259"/>
-        <location filename="../toolpanel.py" line="676"/>
+        <location filename="../toolpanel.py" line="738"/>
         <source>色塗り前の初期状態</source>
         <translation>Initial State Before Painting</translation>
     </message>
@@ -487,74 +490,74 @@ If you overwrite it with painted drawings, you cannot get back to the state befo
         <translation>Eyedropper (while held)</translation>
     </message>
     <message>
-        <location filename="../canvas.py" line="304"/>
+        <location filename="../canvas.py" line="305"/>
         <source>選択解除</source>
         <extracomment>色索引・表示フィルタのキャッシュが保持する画素数の上限。10000×10000 の レイヤーは1枚で数百MBになるため、件数だけでなく画素数でも制限する （最低1件は保持する）。</extracomment>
         <translation>Deselect</translation>
     </message>
     <message>
-        <location filename="../canvas.py" line="305"/>
+        <location filename="../canvas.py" line="306"/>
         <source>現在の選択範囲を解除します。</source>
         <translation>Clears the current selection.</translation>
     </message>
     <message>
-        <location filename="../canvas.py" line="979"/>
-        <location filename="../canvas.py" line="998"/>
+        <location filename="../canvas.py" line="984"/>
+        <location filename="../canvas.py" line="1003"/>
         <source>クオリティプレビューを生成しています</source>
         <translation>Generating the quality preview</translation>
     </message>
     <message>
-        <location filename="../canvas.py" line="1044"/>
+        <location filename="../canvas.py" line="1049"/>
         <source>Tp_mask 軽量プレビュー</source>
         <translation>Tp_mask lightweight preview</translation>
     </message>
     <message>
-        <location filename="../canvas.py" line="1046"/>
+        <location filename="../canvas.py" line="1051"/>
         <source>Tp_mask クオリティプレビュー</source>
         <translation>Tp_mask quality preview</translation>
     </message>
     <message>
-        <location filename="../canvas.py" line="1071"/>
+        <location filename="../canvas.py" line="1076"/>
         <source>プレビューを更新しました</source>
         <translation>Preview updated</translation>
     </message>
     <message>
-        <location filename="../canvas.py" line="1076"/>
+        <location filename="../canvas.py" line="1081"/>
         <source>クオリティプレビューを生成できませんでした: {exc}</source>
         <translation>Could not generate the quality preview: {exc}</translation>
     </message>
     <message>
-        <location filename="../canvas.py" line="1101"/>
+        <location filename="../canvas.py" line="1106"/>
         <source>クオリティ方式へ切り替えています</source>
         <translation>Switching to quality mode</translation>
     </message>
     <message>
-        <location filename="../canvas.py" line="1152"/>
+        <location filename="../canvas.py" line="1157"/>
         <source>実線の太さをプレビューへ反映しています</source>
         <translation>Applying the line width to the preview</translation>
     </message>
     <message>
-        <location filename="../canvas.py" line="1171"/>
+        <location filename="../canvas.py" line="1176"/>
         <source>実線色を反映しています</source>
         <translation>Applying the line colour</translation>
     </message>
     <message>
-        <location filename="../canvas.py" line="1980"/>
+        <location filename="../canvas.py" line="1993"/>
         <location filename="../main_window_ui_build.py" line="189"/>
         <source>ハンド</source>
         <translation>Pan</translation>
     </message>
     <message>
-        <location filename="../canvas.py" line="1981"/>
+        <location filename="../canvas.py" line="1994"/>
         <location filename="../main_window_ui_build.py" line="190"/>
-        <location filename="../toolpanel.py" line="579"/>
+        <location filename="../toolpanel.py" line="641"/>
         <source>拡大縮小</source>
         <translation>Zoom</translation>
     </message>
     <message>
-        <location filename="../canvas.py" line="1982"/>
+        <location filename="../canvas.py" line="1995"/>
         <location filename="../main_window_ui_build.py" line="191"/>
-        <location filename="../main_window_ui_build.py" line="728"/>
+        <location filename="../main_window_ui_build.py" line="733"/>
         <location filename="../onion.py" line="643"/>
         <location filename="../onion.py" line="930"/>
         <location filename="../subview.py" line="118"/>
@@ -562,10 +565,10 @@ If you overwrite it with painted drawings, you cannot get back to the state befo
         <translation>Rotate</translation>
     </message>
     <message>
-        <location filename="../canvas.py" line="1983"/>
+        <location filename="../canvas.py" line="1996"/>
         <location filename="../color_picker_dialog.py" line="230"/>
         <location filename="../main_window_ui_build.py" line="192"/>
-        <location filename="../toolpanel.py" line="56"/>
+        <location filename="../toolpanel.py" line="57"/>
         <source>スポイト</source>
         <translation>Eyedropper</translation>
     </message>
@@ -838,7 +841,7 @@ Export into this folder?</translation>
         <location filename="../main_window_export.py" line="615"/>
         <location filename="../main_window_export.py" line="636"/>
         <location filename="../main_window_ui_build.py" line="212"/>
-        <location filename="../main_window_ui_build.py" line="398"/>
+        <location filename="../main_window_ui_build.py" line="402"/>
         <source>MP4書き出し</source>
         <translation>Export MP4</translation>
     </message>
@@ -899,123 +902,123 @@ Export into this folder?</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="217"/>
-        <location filename="../main_window_ui_build.py" line="425"/>
+        <location filename="../main_window_ui_build.py" line="429"/>
         <source>描画色：メインを選択</source>
         <translation>Draw Colour: Main</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="220"/>
-        <location filename="../main_window_ui_build.py" line="426"/>
+        <location filename="../main_window_ui_build.py" line="430"/>
         <source>描画色：サブを選択</source>
         <translation>Draw Colour: Sub</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="223"/>
-        <location filename="../main_window_ui_build.py" line="427"/>
+        <location filename="../main_window_ui_build.py" line="431"/>
         <source>描画色：背景色を選択</source>
         <translation>Draw Colour: Background</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="226"/>
-        <location filename="../main_window_ui_build.py" line="428"/>
+        <location filename="../main_window_ui_build.py" line="432"/>
         <source>描画色と背景色を切り替え</source>
         <translation>Swap Draw and Background Colours</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="229"/>
-        <location filename="../main_window_ui_build.py" line="429"/>
-        <location filename="../toolpanel.py" line="1211"/>
+        <location filename="../main_window_ui_build.py" line="433"/>
+        <location filename="../toolpanel.py" line="1280"/>
         <source>メイン色とサブ色を切り替え</source>
         <translation>Swap Main and Sub Colours</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="232"/>
-        <location filename="../main_window_ui_build.py" line="430"/>
+        <location filename="../main_window_ui_build.py" line="434"/>
         <source>背景色の表示色を変更</source>
         <translation>Change Background Display Colour</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="238"/>
-        <location filename="../main_window_ui_build.py" line="432"/>
+        <location filename="../main_window_ui_build.py" line="436"/>
         <source>選択範囲：自由変形</source>
         <translation>Selection: Free Transform</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="242"/>
-        <location filename="../main_window_ui_build.py" line="433"/>
+        <location filename="../main_window_ui_build.py" line="437"/>
         <source>選択範囲：拡大縮小</source>
         <translation>Selection: Scale</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="245"/>
-        <location filename="../main_window_ui_build.py" line="434"/>
+        <location filename="../main_window_ui_build.py" line="438"/>
         <source>選択範囲：メッシュ変形</source>
         <translation>Selection: Mesh Warp</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="248"/>
-        <location filename="../main_window_ui_build.py" line="436"/>
-        <location filename="../toolpanel.py" line="581"/>
+        <location filename="../main_window_ui_build.py" line="440"/>
+        <location filename="../toolpanel.py" line="643"/>
         <source>選択範囲を解除</source>
         <translation>Deselect</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="255"/>
-        <location filename="../main_window_ui_build.py" line="435"/>
+        <location filename="../main_window_ui_build.py" line="439"/>
         <source>すべてを選択</source>
         <translation>Select All</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="258"/>
-        <location filename="../main_window_ui_build.py" line="437"/>
+        <location filename="../main_window_ui_build.py" line="441"/>
         <source>選択範囲を反転</source>
         <translation>Invert Selection</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="261"/>
-        <location filename="../main_window_ui_build.py" line="438"/>
+        <location filename="../main_window_ui_build.py" line="442"/>
         <source>選択範囲の中を消去</source>
         <translation>Clear Inside Selection</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="268"/>
-        <location filename="../main_window_ui_build.py" line="439"/>
+        <location filename="../main_window_ui_build.py" line="443"/>
         <source>表示：拡大</source>
         <translation>View: Zoom In</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="275"/>
-        <location filename="../main_window_ui_build.py" line="440"/>
+        <location filename="../main_window_ui_build.py" line="444"/>
         <source>表示：縮小</source>
         <translation>View: Zoom Out</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="278"/>
-        <location filename="../main_window_ui_build.py" line="441"/>
+        <location filename="../main_window_ui_build.py" line="445"/>
         <source>表示：全体を表示</source>
         <translation>View: Fit to Window</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="281"/>
-        <location filename="../main_window_ui_build.py" line="442"/>
+        <location filename="../main_window_ui_build.py" line="446"/>
         <source>ブラシサイズを小さく</source>
         <translation>Decrease Brush Size</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="284"/>
-        <location filename="../main_window_ui_build.py" line="443"/>
+        <location filename="../main_window_ui_build.py" line="447"/>
         <source>ブラシサイズを大きく</source>
         <translation>Increase Brush Size</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="287"/>
-        <location filename="../main_window_ui_build.py" line="444"/>
+        <location filename="../main_window_ui_build.py" line="448"/>
         <source>変形：左へ90°回転</source>
         <translation>Transform: Rotate 90° Left</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="291"/>
-        <location filename="../main_window_ui_build.py" line="445"/>
+        <location filename="../main_window_ui_build.py" line="449"/>
         <source>変形：右へ90°回転</source>
         <translation>Transform: Rotate 90° Right</translation>
     </message>
@@ -1026,162 +1029,168 @@ Export into this folder?</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="299"/>
-        <location filename="../main_window_ui_build.py" line="447"/>
-        <location filename="../toolpanel.py" line="574"/>
+        <location filename="../main_window_ui_build.py" line="451"/>
+        <location filename="../toolpanel.py" line="636"/>
         <source>変形を確定</source>
         <translation>Commit Transform</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="306"/>
-        <location filename="../main_window_ui_build.py" line="448"/>
-        <location filename="../toolpanel.py" line="575"/>
+        <location filename="../main_window_ui_build.py" line="452"/>
+        <location filename="../toolpanel.py" line="637"/>
         <source>変形をキャンセル</source>
         <translation>Cancel Transform</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="309"/>
-        <location filename="../main_window_ui_build.py" line="449"/>
+        <location filename="../main_window_ui_build.py" line="453"/>
+        <source>使用色：この色を選択範囲にする</source>
+        <translation>Used colours: Select this colour&apos;s area</translation>
+    </message>
+    <message>
+        <location filename="../main_window_ui_build.py" line="313"/>
+        <location filename="../main_window_ui_build.py" line="454"/>
         <source>バケツ：含み塗り ON/OFF</source>
         <translation>Bucket: Overfill On/Off</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="313"/>
-        <location filename="../main_window_ui_build.py" line="450"/>
+        <location filename="../main_window_ui_build.py" line="317"/>
+        <location filename="../main_window_ui_build.py" line="455"/>
         <source>バケツ：隙間閉じ ON/OFF</source>
         <translation>Bucket: Close Gaps On/Off</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="317"/>
-        <location filename="../main_window_ui_build.py" line="451"/>
+        <location filename="../main_window_ui_build.py" line="321"/>
+        <location filename="../main_window_ui_build.py" line="456"/>
         <source>バケツ：串刺し塗り ON/OFF</source>
         <translation>Bucket: paint through all frames ON/OFF</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="321"/>
-        <location filename="../main_window_ui_build.py" line="452"/>
+        <location filename="../main_window_ui_build.py" line="325"/>
+        <location filename="../main_window_ui_build.py" line="457"/>
         <source>ゴミ取り：すべてのコマ ON/OFF</source>
         <translation>Despeckle: All Frames On/Off</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="325"/>
-        <location filename="../main_window_ui_build.py" line="453"/>
+        <location filename="../main_window_ui_build.py" line="329"/>
+        <location filename="../main_window_ui_build.py" line="458"/>
         <source>ゴミ取り／塗り抜けを適用</source>
         <translation>Apply Despeckle / Fill Holes</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="328"/>
-        <location filename="../main_window_ui_build.py" line="454"/>
+        <location filename="../main_window_ui_build.py" line="332"/>
+        <location filename="../main_window_ui_build.py" line="459"/>
         <source>選択変形：すべてのコマ ON/OFF</source>
         <translation>Selection Transform: All Frames On/Off</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="334"/>
+        <location filename="../main_window_ui_build.py" line="338"/>
         <source>タイムライン：コマ数を1つ増やす</source>
         <translation>Timeline: Add One Exposure</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="338"/>
+        <location filename="../main_window_ui_build.py" line="342"/>
         <source>タイムライン：コマを削除</source>
         <translation>Timeline: Delete Exposure</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="343"/>
+        <location filename="../main_window_ui_build.py" line="347"/>
         <source>タイムライン：前のフレーム</source>
         <translation>Timeline: Previous Frame</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="347"/>
+        <location filename="../main_window_ui_build.py" line="351"/>
         <source>タイムライン：次のフレーム</source>
         <translation>Timeline: Next Frame</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="351"/>
+        <location filename="../main_window_ui_build.py" line="355"/>
         <source>タイムライン：前のコマ</source>
         <translation>Timeline: Previous Exposure</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="356"/>
+        <location filename="../main_window_ui_build.py" line="360"/>
         <source>タイムライン：次のコマ</source>
         <translation>Timeline: Next Exposure</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="361"/>
+        <location filename="../main_window_ui_build.py" line="365"/>
         <source>タイムライン：再生／停止</source>
         <translation>Timeline: Play / Stop</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="365"/>
+        <location filename="../main_window_ui_build.py" line="369"/>
         <source>タイムライン：タイムリマップを貼り付け</source>
         <translation>Timeline: Paste Time Remap</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="369"/>
+        <location filename="../main_window_ui_build.py" line="373"/>
         <source>タイムライン：オニオンスキン設定</source>
         <translation>Timeline: Onion Skin Settings</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="373"/>
+        <location filename="../main_window_ui_build.py" line="377"/>
         <source>タイムライン：レイヤー追加</source>
         <translation>Timeline: Add Layer</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="378"/>
+        <location filename="../main_window_ui_build.py" line="382"/>
         <source>タイムライン：レイヤー削除</source>
         <translation>Timeline: Delete Layer</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="382"/>
+        <location filename="../main_window_ui_build.py" line="386"/>
         <source>タイムライン：レイヤー名変更</source>
         <translation>Timeline: Rename Layer</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="406"/>
-        <location filename="../preferences_dialog.py" line="95"/>
+        <location filename="../main_window_ui_build.py" line="410"/>
+        <location filename="../preferences_dialog.py" line="96"/>
         <source>環境設定</source>
         <translation>Preferences</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="498"/>
+        <location filename="../main_window_ui_build.py" line="503"/>
         <source>カラーチャート…</source>
         <translation>Color Chart…</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="507"/>
+        <location filename="../main_window_ui_build.py" line="512"/>
         <source>自動塗り</source>
         <translation>Auto Paint</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="649"/>
+        <location filename="../main_window_ui_build.py" line="654"/>
         <source>回転を0°に戻す</source>
         <translation>Reset rotation to 0°</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="652"/>
+        <location filename="../main_window_ui_build.py" line="657"/>
         <source>左右反転プレビュー</source>
         <translation>Horizontal flip preview</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="656"/>
+        <location filename="../main_window_ui_build.py" line="661"/>
         <source>上下反転プレビュー</source>
         <translation>Vertical flip preview</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="662"/>
+        <location filename="../main_window_ui_build.py" line="667"/>
         <source>今の絵をクリップボードへ書き出す</source>
         <translation>Copy the current drawing to the clipboard</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="667"/>
+        <location filename="../main_window_ui_build.py" line="672"/>
         <source>今の絵をフォルダーへ書き出す（年月日時分秒のファイル名）。Shift＋クリックで保存先を選び直す</source>
         <translation>Save the current drawing to a folder (named YYYYMMDDHHMMSS). Shift-click to pick another folder</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="678"/>
+        <location filename="../main_window_ui_build.py" line="683"/>
         <source>色塗り前の初期状態と比べる（押すと初期状態を表示、もう一度押すと今の絵に戻る）</source>
         <translation>Compare with the initial state before painting (press to show it, press again to return to the current drawing)</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="684"/>
+        <location filename="../main_window_ui_build.py" line="689"/>
         <source>ブラックチェック（背景以外を黒シルエット表示）</source>
         <translation>Black check (show everything but the background as a black silhouette)</translation>
     </message>
@@ -1196,7 +1205,7 @@ Export into this folder?</translation>
         <translation>Channel</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="898"/>
+        <location filename="../main_window_ui_build.py" line="903"/>
         <source>ヒストリーパネルの使い方を表示します。</source>
         <translation>Show how to use the history panel.</translation>
     </message>
@@ -1313,7 +1322,7 @@ Could not read the image size.
     </message>
     <message>
         <location filename="../main_window.py" line="504"/>
-        <location filename="../main_window_used_color.py" line="178"/>
+        <location filename="../main_window_used_color.py" line="181"/>
         <source>使用色を認識しています</source>
         <translation>Scanning used colours</translation>
     </message>
@@ -1445,7 +1454,7 @@ Download and install it?</translation>
     </message>
     <message>
         <location filename="../main_window.py" line="868"/>
-        <location filename="../main_window_ui_build.py" line="389"/>
+        <location filename="../main_window_ui_build.py" line="393"/>
         <source>画像を読み込む</source>
         <translation>Import Images</translation>
     </message>
@@ -1458,7 +1467,7 @@ Download and install it?</translation>
     <message>
         <location filename="../main_window.py" line="883"/>
         <location filename="../main_window.py" line="903"/>
-        <location filename="../main_window_ui_build.py" line="390"/>
+        <location filename="../main_window_ui_build.py" line="394"/>
         <source>画像フォルダーを読み込む</source>
         <translation>Import Image Folder</translation>
     </message>
@@ -1526,88 +1535,88 @@ Supported formats: PNG, JPEG, TGA</translation>
     </message>
     <message>
         <location filename="../main_window_project_io.py" line="127"/>
-        <location filename="../main_window_ui_build.py" line="392"/>
+        <location filename="../main_window_ui_build.py" line="396"/>
         <source>名前を付けて保存</source>
         <translation>Save As</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="393"/>
+        <location filename="../main_window_ui_build.py" line="397"/>
         <source>現在のコマをPNG書き出し</source>
         <translation>Export Current Frame as PNG</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="394"/>
+        <location filename="../main_window_ui_build.py" line="398"/>
         <source>現在のコマをTGA書き出し</source>
         <translation>Export Current Frame as TGA</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="395"/>
+        <location filename="../main_window_ui_build.py" line="399"/>
         <source>連番PNG＋CSV書き出し</source>
         <translation>Export PNG Sequence + CSV</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="396"/>
+        <location filename="../main_window_ui_build.py" line="400"/>
         <source>連番TGA＋CSV書き出し</source>
         <translation>Export TGA Sequence + CSV</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="404"/>
+        <location filename="../main_window_ui_build.py" line="408"/>
         <source>キャンバスサイズ変更</source>
         <translation>Resize Canvas</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="405"/>
+        <location filename="../main_window_ui_build.py" line="409"/>
         <source>筆圧設定</source>
         <translation>Pen Pressure</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="416"/>
-        <location filename="../toolpanel.py" line="56"/>
-        <location filename="../toolpanel.py" line="1047"/>
+        <location filename="../main_window_ui_build.py" line="420"/>
+        <location filename="../toolpanel.py" line="57"/>
+        <location filename="../toolpanel.py" line="1116"/>
         <source>ゴミ取り</source>
         <translation>Despeckle</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="446"/>
+        <location filename="../main_window_ui_build.py" line="450"/>
         <source>メッシュ変形：格子数を変更</source>
         <translation>Mesh Warp: Change Grid Density</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="457"/>
+        <location filename="../main_window_ui_build.py" line="462"/>
         <source>コマ数を1つ増やす</source>
         <translation>Add One Exposure</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="458"/>
-        <location filename="../timeline.py" line="1857"/>
+        <location filename="../main_window_ui_build.py" line="463"/>
+        <location filename="../timeline.py" line="1953"/>
         <source>コマを削除</source>
         <translation>Delete Exposure</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="459"/>
+        <location filename="../main_window_ui_build.py" line="464"/>
         <source>タイムリマップを貼り付け</source>
         <translation>Paste Time Remap</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="461"/>
+        <location filename="../main_window_ui_build.py" line="466"/>
         <location filename="../onion.py" line="538"/>
         <source>前のコマ</source>
         <translation>Previous Exposure</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="462"/>
-        <location filename="../timeline.py" line="1386"/>
+        <location filename="../main_window_ui_build.py" line="467"/>
+        <location filename="../timeline.py" line="1472"/>
         <source>再生／停止</source>
         <translation>Play / Stop</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="463"/>
+        <location filename="../main_window_ui_build.py" line="468"/>
         <source>次のコマ</source>
         <translation>Next Exposure</translation>
     </message>
     <message>
         <location filename="../main_window_onion.py" line="107"/>
-        <location filename="../main_window_ui_build.py" line="465"/>
+        <location filename="../main_window_ui_build.py" line="470"/>
         <source>オニオンスキン設定</source>
         <translation>Onion Skin Settings</translation>
     </message>
@@ -1617,7 +1626,7 @@ Supported formats: PNG, JPEG, TGA</translation>
         <translation>Moved {percent:g}% of the position / rotation / TU-TB scale change onto the canvas. (measured against a centre rotation of {rotation:.1f}°, shooting scale {value:.1f}%, canvas rotation 0°, no digital zoom change)</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="466"/>
+        <location filename="../main_window_ui_build.py" line="471"/>
         <source>レイヤー追加</source>
         <translation>Add Layer</translation>
     </message>
@@ -1658,7 +1667,7 @@ Supported formats: PNG, JPEG, TGA</translation>
     </message>
     <message>
         <location filename="../main_window_layer_ops.py" line="218"/>
-        <location filename="../main_window_ui_build.py" line="467"/>
+        <location filename="../main_window_ui_build.py" line="472"/>
         <source>レイヤー削除</source>
         <translation>Delete Layer</translation>
     </message>
@@ -1683,17 +1692,17 @@ Supported formats: PNG, JPEG, TGA</translation>
         <translation>Draft layer mode disabled.</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="468"/>
+        <location filename="../main_window_ui_build.py" line="473"/>
         <source>レイヤー名変更</source>
         <translation>Rename Layer</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="471"/>
+        <location filename="../main_window_ui_build.py" line="476"/>
         <source>ファイル</source>
         <translation>File</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="496"/>
+        <location filename="../main_window_ui_build.py" line="501"/>
         <location filename="../undo_entries.py" line="248"/>
         <location filename="../undo_entries.py" line="265"/>
         <source>編集</source>
@@ -1701,85 +1710,85 @@ Supported formats: PNG, JPEG, TGA</translation>
         <translation>Edit</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="516"/>
+        <location filename="../main_window_ui_build.py" line="521"/>
         <source>選択範囲</source>
         <translation>Selection</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="532"/>
+        <location filename="../main_window_ui_build.py" line="537"/>
         <source>アニメーション</source>
         <translation>Animation</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="170"/>
+        <location filename="../color_panel.py" line="173"/>
         <source>0色</source>
         <translation>0 colours</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="177"/>
+        <location filename="../color_panel.py" line="180"/>
         <source>使用色をまとめるフォルダーを作成します。</source>
         <translation>Creates a folder to group used colours.</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="192"/>
-        <location filename="../color_panel.py" line="260"/>
+        <location filename="../color_panel.py" line="195"/>
+        <location filename="../color_panel.py" line="263"/>
         <source>選択</source>
         <translation>Select</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="196"/>
+        <location filename="../color_panel.py" line="199"/>
         <source>クリック：この色だけ選択／Shift＋クリック：範囲選択／{ctrl}＋クリック：追加・解除。チェックと選択は連動します。</source>
         <translation>Click: select only this colour / Shift-click: range / {ctrl}-click: add or remove. The checkbox and the selection stay in sync.</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="201"/>
+        <location filename="../color_panel.py" line="204"/>
         <source>表示</source>
         <translation>View</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="204"/>
+        <location filename="../color_panel.py" line="207"/>
         <source>各行の薄い背景セル全体を右クリックして表示メニューを開けます。</source>
         <translation>Right-click anywhere in a row&apos;s shaded cell to open the visibility menu.</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="206"/>
+        <location filename="../color_panel.py" line="209"/>
         <source>描画対象</source>
         <translation>Paint target</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="210"/>
+        <location filename="../color_panel.py" line="213"/>
         <source>ONにした色の上へ描けます。各行の薄い背景セル全体を右クリックして描画対象メニューを開けます。</source>
         <translation>You can paint over the colours that are on. Right-click anywhere in a row&apos;s shaded cell to open the paint-target menu.</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="174"/>
+        <location filename="../color_panel.py" line="177"/>
         <source>フォルダー</source>
         <translation>Folder</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="215"/>
+        <location filename="../color_panel.py" line="218"/>
         <location filename="../main_window_reference_check.py" line="107"/>
         <source>色</source>
         <translation>Color</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="219"/>
+        <location filename="../color_panel.py" line="222"/>
         <source>ドラッグで並べ替え／親子付け</source>
         <translation>Drag to reorder / nest</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="221"/>
+        <location filename="../color_panel.py" line="224"/>
         <location filename="../color_panel_widgets.py" line="358"/>
         <source>置換色</source>
         <translation>Replacement colour</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="261"/>
+        <location filename="../color_panel.py" line="264"/>
         <source>選択をすべて解除します。</source>
         <translation>Clears the whole selection.</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="267"/>
+        <location filename="../color_panel.py" line="270"/>
         <location filename="../color_panel_mask.py" line="141"/>
         <location filename="../color_panel_visibility.py" line="24"/>
         <location filename="../color_panel_visibility.py" line="56"/>
@@ -1787,517 +1796,527 @@ Supported formats: PNG, JPEG, TGA</translation>
         <translation>Show all</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="269"/>
+        <location filename="../color_panel.py" line="272"/>
         <source>非表示にした使用色と背景色をすべて表示します。</source>
         <translation>Shows every hidden used colour and the background.</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="276"/>
+        <location filename="../color_panel.py" line="279"/>
         <location filename="../subview.py" line="80"/>
         <source>全体</source>
         <translation>All</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="278"/>
+        <location filename="../color_panel.py" line="281"/>
         <source>すべての使用色と背景をマスクON（描画可能）にします。</source>
         <translation>Turns the mask on (paintable) for every used colour and the background.</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="287"/>
+        <location filename="../color_panel.py" line="290"/>
         <source>統合</source>
         <translation>Merge</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="289"/>
+        <location filename="../color_panel.py" line="292"/>
         <source>選択した使用色（2色以上）を、最後に選んだ色へ統合します。実際の画像を塗り替えます。Undoで元に戻せます。</source>
         <translation>Merges the selected used colours (two or more) into the colour selected last. This repaints the actual image and can be undone.</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="304"/>
+        <location filename="../color_panel.py" line="307"/>
         <source>色置換</source>
         <translation>Replace colours</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="306"/>
+        <location filename="../color_panel.py" line="309"/>
         <source>登録した置換色を、選択レイヤーのすべてのコマへ適用します。</source>
         <translation>Applies the registered replacement colours to every exposure of the selected layer.</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="539"/>
-        <location filename="../color_panel.py" line="570"/>
-        <location filename="../color_panel.py" line="1467"/>
+        <location filename="../color_panel.py" line="549"/>
+        <source>置換色を保存…</source>
+        <translation>Save replacement colours…</translation>
+    </message>
+    <message>
+        <location filename="../color_panel.py" line="551"/>
+        <source>置換色を読み込む…</source>
+        <translation>Load replacement colours…</translation>
+    </message>
+    <message>
+        <location filename="../color_panel.py" line="568"/>
+        <location filename="../color_panel.py" line="599"/>
+        <location filename="../color_panel.py" line="1496"/>
         <source>新規フォルダー</source>
         <translation>New folder</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="550"/>
+        <location filename="../color_panel.py" line="579"/>
         <source>使用色：クリックで選択（Shift＝範囲／Ctrl＝追加）。［＋フォルダー］でカテゴリーを作り、色をヘッダーへドラッグして格納。フォルダーのチェックで所属色を一括表示／非表示。ドラッグで並べ替え、色の中央へドロップ＝その色の「子」として整理。親子付けはフォルダーのような整理用で、色は変わりません。解除は右クリックから行えます。色を2色以上選んで［統合］を押すと、最後に選んだ色へ実画像を塗り替えます。</source>
         <translation>Used colours: click to select (Shift = range / Ctrl = add). Use [+ Folder] to create a category and drag colours onto its header to file them. Tick a folder to show or hide all of its colours at once. Drag to reorder; drop onto the centre of a colour to file it as that colour&apos;s &quot;child&quot;. Parent/child grouping is for organising only, like folders, and never changes colours. Remove it from the right-click menu. Select two or more colours and press [Merge] to repaint the image with the colour selected last.</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="561"/>
+        <location filename="../color_panel.py" line="590"/>
         <source>使用色パネルの使い方</source>
         <translation>Using the used-colour panel</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="569"/>
-        <location filename="../color_panel.py" line="700"/>
-        <location filename="../color_panel.py" line="1466"/>
+        <location filename="../color_panel.py" line="598"/>
+        <location filename="../color_panel.py" line="729"/>
+        <location filename="../color_panel.py" line="1495"/>
         <source>使用色フォルダー</source>
         <translation>Used-colour folder</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="569"/>
-        <location filename="../color_panel.py" line="700"/>
-        <location filename="../color_panel.py" line="1466"/>
+        <location filename="../color_panel.py" line="598"/>
+        <location filename="../color_panel.py" line="729"/>
+        <location filename="../color_panel.py" line="1495"/>
         <location filename="../main_window_export.py" line="427"/>
         <source>フォルダー名：</source>
         <translation>Folder name:</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="584"/>
+        <location filename="../color_panel.py" line="613"/>
         <source>使用色フォルダーを作成</source>
         <translation>Create a used-colour folder</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="640"/>
+        <location filename="../color_panel.py" line="669"/>
         <source>📁 {name}（{len}色）</source>
         <translation>📁 {name} ({len} colours)</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="642"/>
+        <location filename="../color_panel.py" line="671"/>
         <source>フォルダーへ色をドラッグして格納できます。右クリックで名前変更・削除ができます。</source>
         <translation>Drag colours onto a folder to file them. Right-click to rename or delete it.</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="657"/>
+        <location filename="../color_panel.py" line="686"/>
         <source>使用色フォルダーの表示切り替え</source>
         <translation>Toggle the used-colour folder</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="673"/>
+        <location filename="../color_panel.py" line="702"/>
         <source>使用色をフォルダーへ移動</source>
         <translation>Move used colours into a folder</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="685"/>
+        <location filename="../color_panel.py" line="714"/>
         <source>使用色をフォルダーから移動</source>
         <translation>Move used colours out of the folder</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="695"/>
-        <location filename="../preferences_dialog.py" line="390"/>
-        <location filename="../preferences_dialog.py" line="512"/>
-        <location filename="../preferences_dialog.py" line="599"/>
+        <location filename="../color_panel.py" line="724"/>
+        <location filename="../preferences_dialog.py" line="391"/>
+        <location filename="../preferences_dialog.py" line="513"/>
+        <location filename="../preferences_dialog.py" line="600"/>
         <source>名前を変更…</source>
         <translation>Rename…</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="696"/>
+        <location filename="../color_panel.py" line="725"/>
         <source>フォルダーを削除</source>
         <translation>Delete folder</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="728"/>
+        <location filename="../color_panel.py" line="757"/>
         <source>使用色フォルダー名を変更</source>
         <translation>Rename the used-colour folder</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="745"/>
+        <location filename="../color_panel.py" line="774"/>
         <source>使用色フォルダーを削除</source>
         <translation>Delete the used-colour folder</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="879"/>
+        <location filename="../color_panel.py" line="908"/>
         <source>背景色 {hex}</source>
         <translation>Background {hex}</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="929"/>
+        <location filename="../color_panel.py" line="958"/>
         <source>背景色 {hex}。並べ替えや親子付けの対象にはできません。</source>
         <translation>Background {hex}. It cannot be reordered or grouped.</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="1132"/>
+        <location filename="../color_panel.py" line="1161"/>
         <source>背景色 #FFFFFF</source>
         <translation>Background #FFFFFF</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="890"/>
+        <location filename="../color_panel.py" line="919"/>
         <source>{text}（親・{count}）</source>
         <translation>{text} (parent, {count})</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="938"/>
+        <location filename="../color_panel.py" line="967"/>
         <source>&#x3000;現在 #{value:02X}{value2:02X}{value3:02X} の子です。</source>
         <translation>  Currently a child of #{value:02X}{value2:02X}{value3:02X}.</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="941"/>
+        <location filename="../color_panel.py" line="970"/>
         <source>クリック：この色だけ選択／Shift＋クリック：範囲選択／{ctrl}＋クリック：選択に追加・解除。ドラッグで並べ替え、色の中央へドロップ＝その色の子として整理。親子付けしても色表示は変わりません。解除はドラッグと右クリックで行えます。</source>
         <translation>Click: select only this colour / Shift-click: range / {ctrl}-click: add to or remove from the selection. Drag to reorder; drop onto the middle of a colour to file it as that colour&apos;s child. Parenting does not change how colours look. Undo it by dragging, or from the right-click menu.</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="1047"/>
+        <location filename="../color_panel.py" line="1076"/>
         <source>背景色は選択できません。</source>
         <translation>The background colour cannot be selected.</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="1050"/>
+        <location filename="../color_panel.py" line="1079"/>
         <source>クリック：この色だけ選択／Shift＋クリック：範囲選択／{ctrl}＋クリック：追加・解除／上下になぞる：一括選択／{alt}＋クリック：この色だけ選択</source>
         <translation>Click: select only this colour / Shift-click: range / {ctrl}-click: add or remove / drag up or down: select a run / {alt}-click: select only this colour</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="1076"/>
+        <location filename="../color_panel.py" line="1105"/>
         <source>クリック：背景表示ON/OFF／上下になぞる：一括ON/OFF／Alt＋クリック：背景だけ表示／右クリック：表示メニュー</source>
         <translation>Click: show or hide the background / drag up or down: toggle a run / Alt-click: show the background only / right-click: visibility menu</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="1081"/>
+        <location filename="../color_panel.py" line="1110"/>
         <source>クリック：表示ON/OFF／上下になぞる：一括ON/OFF／Alt＋クリック：この色だけ表示／右クリック：表示メニュー</source>
         <translation>Click: show or hide / drag up or down: toggle a run / Alt-click: show only this colour / right-click: visibility menu</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="1104"/>
+        <location filename="../color_panel.py" line="1133"/>
         <source>描画対象：ONにするとこの色の上へ描けます。クリック：ON/OFF／上下になぞる：一括ON/OFF／Alt＋クリック：この色だけON／右クリック：描画対象メニュー</source>
         <translation>Paint target: turn it on to paint over this colour. Click: on/off / drag up or down: toggle a run / Alt-click: turn on only this colour / right-click: paint-target menu</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="1110"/>
+        <location filename="../color_panel.py" line="1139"/>
         <source>描画対象：ONにすると背景の上へ描けます。クリック：ON/OFF／上下になぞる：一括ON/OFF／Alt＋クリック：背景だけON／右クリック：描画対象メニュー</source>
         <translation>Paint target: turn it on to paint over the background. Click: on/off / drag up or down: toggle a run / Alt-click: turn on the background only / right-click: paint-target menu</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="1190"/>
+        <location filename="../color_panel.py" line="1219"/>
         <source>左クリック：色を編集。右クリック：画面全体のスポイトへ切替。スポイト中は左クリックで確定、Escで解除。</source>
         <translation>Left-click: edit the colour. Right-click: switch to the screen-wide eyedropper. While picking, left-click to confirm, Esc to cancel.</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="1299"/>
-        <location filename="../color_panel.py" line="1325"/>
+        <location filename="../color_panel.py" line="1328"/>
+        <location filename="../color_panel.py" line="1354"/>
         <source>{len}色</source>
         <translation>{len} colours</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="1347"/>
+        <location filename="../color_panel.py" line="1376"/>
         <source>メインカラーにする</source>
         <translation>Make this the main colour</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="1376"/>
+        <location filename="../color_panel.py" line="1405"/>
         <source>この色を消す</source>
         <translation>Erase this colour</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="1378"/>
+        <location filename="../color_panel.py" line="1407"/>
         <source>選択した{count}色を消す</source>
         <translation>Erase the {count} selected colours</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="1381"/>
+        <location filename="../color_panel.py" line="1410"/>
         <source>選択した使用色を #FFFFFF へ統合します。</source>
         <translation>Merges the selected used colours into #FFFFFF.</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="1386"/>
+        <location filename="../color_panel.py" line="1415"/>
         <source>選択した{count}色をこの色へ統合</source>
         <translation>Merge the {count} selected colours into this colour</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="1404"/>
+        <location filename="../color_panel.py" line="1433"/>
         <source>線の太さを調整</source>
         <translation>Adjust line thickness</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="1409"/>
-        <location filename="../main_window_color_interaction.py" line="130"/>
+        <location filename="../color_panel.py" line="1438"/>
+        <location filename="../main_window_color_interaction.py" line="153"/>
         <source>この色を選択範囲にする</source>
         <translation>Select this colour&apos;s area</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="1437"/>
+        <location filename="../color_panel.py" line="1466"/>
         <source>色の選択をすべて解除</source>
         <translation>Deselect all colours</translation>
     </message>
     <message>
-        <location filename="../main_window_color_interaction.py" line="200"/>
-        <location filename="../main_window_color_interaction.py" line="208"/>
         <location filename="../main_window_color_interaction.py" line="223"/>
-        <location filename="../main_window_color_interaction.py" line="235"/>
-        <location filename="../main_window_color_interaction.py" line="259"/>
+        <location filename="../main_window_color_interaction.py" line="231"/>
+        <location filename="../main_window_color_interaction.py" line="246"/>
+        <location filename="../main_window_color_interaction.py" line="258"/>
+        <location filename="../main_window_color_interaction.py" line="282"/>
         <location filename="../widgets.py" line="58"/>
         <source>太さを調整</source>
         <translation>Adjust thickness</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="1406"/>
+        <location filename="../color_panel.py" line="1435"/>
         <source>選択中の親色・子色をまとめて調整します。</source>
         <translation>Adjusts the selected parent and child colours together.</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="1410"/>
+        <location filename="../color_panel.py" line="1439"/>
         <source>フォルダーへ移動</source>
         <translation>Move to a folder</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="1412"/>
+        <location filename="../color_panel.py" line="1441"/>
         <source>未分類</source>
         <translation>Uncategorised</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="1418"/>
+        <location filename="../color_panel.py" line="1447"/>
         <source>新規フォルダー…</source>
         <translation>New folder…</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="1429"/>
-        <location filename="../color_panel.py" line="1473"/>
+        <location filename="../color_panel.py" line="1458"/>
+        <location filename="../color_panel.py" line="1502"/>
         <source>親子を解除</source>
         <translation>Remove parenting</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="1430"/>
+        <location filename="../color_panel.py" line="1459"/>
         <source>この色に関わる親子関係を解除します。</source>
         <translation>Removes the parent/child links involving this colour.</translation>
     </message>
     <message>
-        <location filename="../color_panel.py" line="1433"/>
+        <location filename="../color_panel.py" line="1462"/>
         <location filename="../color_panel_grouping.py" line="423"/>
         <source>親子をすべて解除</source>
         <translation>Remove all parenting</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="263"/>
+        <location filename="../preferences_dialog.py" line="264"/>
         <source>テーマ</source>
         <translation>Theme</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="243"/>
+        <location filename="../preferences_dialog.py" line="244"/>
         <source>ライト（明るい）</source>
         <translation>Light</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="106"/>
+        <location filename="../preferences_dialog.py" line="107"/>
         <source>一般</source>
         <translation>General</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="107"/>
+        <location filename="../preferences_dialog.py" line="108"/>
         <source>外観</source>
         <translation>Appearance</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="108"/>
+        <location filename="../preferences_dialog.py" line="109"/>
         <source>新規キャンバス</source>
         <translation>New Canvas</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="109"/>
+        <location filename="../preferences_dialog.py" line="110"/>
         <source>筆圧</source>
         <translation>Pen Pressure</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="110"/>
+        <location filename="../preferences_dialog.py" line="111"/>
         <source>表示チェック</source>
         <translation>View Checks</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="112"/>
+        <location filename="../preferences_dialog.py" line="113"/>
         <source>パフォーマンス</source>
         <translation>Performance</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="143"/>
+        <location filename="../preferences_dialog.py" line="144"/>
         <source>自動保存する</source>
         <translation>Save automatically</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="148"/>
+        <location filename="../preferences_dialog.py" line="149"/>
         <source> 分ごと</source>
         <translation> min</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="154"/>
+        <location filename="../preferences_dialog.py" line="155"/>
         <source>カットフォルダーの読み込みは常に色塗り前の初期状態として保存する</source>
         <translation>Always save cut folder imports as the initial state before painting</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="161"/>
+        <location filename="../preferences_dialog.py" line="162"/>
         <source>起動したら新しいバージョンを確かめる</source>
         <translation>Check for a new version after launch</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="166"/>
+        <location filename="../preferences_dialog.py" line="167"/>
         <source>ツールのキーを長押ししたら、離したときに元のツールへ戻す</source>
         <translation>Return to the previous tool when a held tool key is released</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="173"/>
+        <location filename="../preferences_dialog.py" line="174"/>
         <source> ms 以上押したら</source>
         <translation> ms or longer</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="187"/>
+        <location filename="../preferences_dialog.py" line="188"/>
         <source>1コマ目</source>
         <translation>Frame 1</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="194"/>
+        <location filename="../preferences_dialog.py" line="195"/>
         <source>言語は次回の起動から切り替わります。</source>
         <translation>The language changes the next time you start the app.</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="195"/>
+        <location filename="../preferences_dialog.py" line="196"/>
         <source>時間の表示</source>
         <translation>Time Display</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="196"/>
+        <location filename="../preferences_dialog.py" line="197"/>
         <source>背景色選択時の描画ツール</source>
         <translation>Drawing tool for background color selection</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="197"/>
+        <location filename="../preferences_dialog.py" line="198"/>
         <source>描画ツール以外で背景色のショートカット（E）を押したときに使います。</source>
         <translation>Used when you press the background color shortcut (E) while a non-drawing tool is active.</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="198"/>
+        <location filename="../preferences_dialog.py" line="199"/>
         <source>初期状態</source>
         <translation>Initial state</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="199"/>
+        <location filename="../preferences_dialog.py" line="200"/>
         <source>初期状態として保存すると自動色塗りの精度が上がります。外すと、読み込みのたびに保存するか尋ねます。</source>
         <translation>Saving the initial state makes auto paint more accurate. When this is off, you are asked each time you import.</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="201"/>
+        <location filename="../preferences_dialog.py" line="202"/>
         <source>自動保存</source>
         <translation>Autosave</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="203"/>
+        <location filename="../preferences_dialog.py" line="204"/>
         <source>アプリが異常終了したとき、次の起動で自動保存から作業を復元できます。</source>
         <translation>If the app quits unexpectedly, you can restore your work from the autosave the next time it starts.</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="204"/>
+        <location filename="../preferences_dialog.py" line="205"/>
         <source>更新</source>
         <translation>Updates</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="206"/>
+        <location filename="../preferences_dialog.py" line="207"/>
         <source>新しいバージョンがあると、メニューバーの右端（macOS では画面上部のメニューの最後）でお知らせします。ヘルプ › 更新を確認… はいつでも使えます。</source>
         <translation>When a new version is available, a notice appears at the right end of the menu bar (on macOS, as the last menu at the top of the screen). Help › Check for Updates… is always available.</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="209"/>
+        <location filename="../preferences_dialog.py" line="210"/>
         <source>ツールの一時切り替え</source>
         <translation>Temporary tool switch</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="212"/>
+        <location filename="../preferences_dialog.py" line="213"/>
         <source>ツールのキー（P・G など）を押すとすぐ切り替わり、この長さ以上押してから離すと元のツールへ戻ります。0 ms にすると押している間だけ切り替わり、離せば必ず元のツールに戻ります（完全な一時切り替え）。短く押して切り替えたままにしたいときは 300〜500 ms ほどにします。</source>
         <translation>Pressing a tool key (P, G, …) switches tools at once; releasing it after holding it this long returns to the previous tool. At 0 ms the tool is switched only while the key is held and always returns on release (a pure temporary switch). To keep the new tool after a short tap, use about 300–500 ms.</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="244"/>
+        <location filename="../preferences_dialog.py" line="245"/>
         <source>ダーク（暗い）</source>
         <translation>Dark</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="255"/>
+        <location filename="../preferences_dialog.py" line="256"/>
         <source>指定した背景色を市松模様で表示する</source>
         <translation>Show the selected background colour as a checkerboard</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="264"/>
+        <location filename="../preferences_dialog.py" line="265"/>
         <source>アクセントカラー</source>
         <translation>Accent Colour</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="265"/>
+        <location filename="../preferences_dialog.py" line="266"/>
         <source>背景の表示</source>
         <translation>Background Display</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="266"/>
+        <location filename="../preferences_dialog.py" line="267"/>
         <source>市松模様にする背景色</source>
         <translation>Checkerboard Background Colour</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="267"/>
+        <location filename="../preferences_dialog.py" line="268"/>
         <source>背景の表示色が指定色と一致するときに適用します。画像や書き出しには影響しません。</source>
         <translation>Applied when the displayed background colour matches the selected colour. This does not affect the image or exports.</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="282"/>
+        <location filename="../preferences_dialog.py" line="283"/>
         <source>市松模様にする背景色を選択</source>
         <translation>Select Checkerboard Background Colour</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="301"/>
+        <location filename="../preferences_dialog.py" line="302"/>
         <source>カスタム（{color}）</source>
         <translation>Custom ({color})</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="302"/>
+        <location filename="../preferences_dialog.py" line="303"/>
         <source>カスタム…</source>
         <translation>Custom…</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="329"/>
+        <location filename="../preferences_dialog.py" line="330"/>
         <source>{number} 番目の色（クリックで変更）</source>
         <translation>Colour {number} (click to change)</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="335"/>
+        <location filename="../preferences_dialog.py" line="336"/>
         <source>既定に戻す</source>
         <translation>Restore Defaults</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="345"/>
+        <location filename="../preferences_dialog.py" line="346"/>
         <source>隣接色分けの色</source>
         <translation>Neighbour colouring colours</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="348"/>
+        <location filename="../preferences_dialog.py" line="349"/>
         <source>キャンバスの下の「隣接色分け」で、隣り合う部分を塗り分ける仮の色です。大きい部分から順に、隣でまだ使っていない色を 1 番から選ぶので、前の番号の色ほど多く使われます。見分けやすいよう、互いに離れた色にしてください。主線（黒）と背景（白）に近い色は避けると見やすくなります。</source>
         <translation>Temporary colours that the Neighbour colouring button under the canvas uses to tell adjoining areas apart. Starting with the largest areas, each area takes the first colour not already used next to it, so earlier colours are used more often. Pick colours that are far apart; colours close to the main line (black) or the background (white) are harder to see.</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="367"/>
+        <location filename="../preferences_dialog.py" line="368"/>
         <source>隣接色分けの色を選択</source>
         <translation>Choose a Neighbour Colouring Colour</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="388"/>
+        <location filename="../preferences_dialog.py" line="389"/>
         <source>追加…</source>
         <translation>Add…</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="410"/>
+        <location filename="../preferences_dialog.py" line="411"/>
         <source>起動したときと、ファイル › 新規作成… で使う大きさです。</source>
         <translation>The size used at startup and for File › New….</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="413"/>
+        <location filename="../preferences_dialog.py" line="414"/>
         <source>ファイル › 新規作成… で選ぶと、一番下の下書きレイヤーとして入り、キャンバスサイズを用紙に合わせられます。画像は環境設定の中にコピーして保管します。</source>
         <translation>Choose one in File › New… to add it as the bottom draft layer and size the canvas to it. The images are copied into the app&apos;s settings folder.</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="467"/>
+        <location filename="../preferences_dialog.py" line="468"/>
         <source>レイアウト用紙の画像を追加</source>
         <translation>Add Layout Paper Images</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="469"/>
+        <location filename="../preferences_dialog.py" line="470"/>
         <source>画像 (*.png *.jpg *.jpeg *.tga)</source>
         <translation>Images (*.png *.jpg *.jpeg *.tga)</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="484"/>
+        <location filename="../preferences_dialog.py" line="485"/>
         <source>次の画像は読み込めませんでした。
 
 {names}</source>
@@ -2306,121 +2325,141 @@ Supported formats: PNG, JPEG, TGA</translation>
 {names}</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="493"/>
-        <location filename="../preferences_dialog.py" line="570"/>
-        <location filename="../preferences_dialog.py" line="577"/>
-        <location filename="../preferences_dialog.py" line="685"/>
-        <location filename="../preferences_dialog.py" line="692"/>
+        <location filename="../preferences_dialog.py" line="494"/>
+        <location filename="../preferences_dialog.py" line="571"/>
+        <location filename="../preferences_dialog.py" line="578"/>
+        <location filename="../preferences_dialog.py" line="686"/>
+        <location filename="../preferences_dialog.py" line="693"/>
         <source>名前を変更</source>
         <translation>Rename</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="493"/>
+        <location filename="../preferences_dialog.py" line="494"/>
         <source>用紙の名前</source>
         <translation>Paper name</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="509"/>
+        <location filename="../preferences_dialog.py" line="510"/>
         <source>追加</source>
         <translation>Add</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="510"/>
+        <location filename="../preferences_dialog.py" line="511"/>
         <source>今のプリセットを元に、新しいプリセットを作ります。</source>
         <translation>Create a new preset from the current one.</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="530"/>
+        <location filename="../preferences_dialog.py" line="531"/>
         <source>使うプリセット</source>
         <translation>Preset in use</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="533"/>
+        <location filename="../preferences_dialog.py" line="534"/>
         <source>ブラシが「全体の設定を使う」のとき、ここで選んだプリセットで描きます。ブラシだけの設定は、ツールプロパティの 筆圧… で切り替えます。</source>
         <translation>When the brush is set to “Use the global setting”, it draws with the preset chosen here. To give the brush its own setting, use Pressure… in Tool Properties.</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="561"/>
+        <location filename="../preferences_dialog.py" line="562"/>
         <source>新しいプリセット</source>
         <translation>New Preset</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="570"/>
+        <location filename="../preferences_dialog.py" line="571"/>
         <source>プリセットの名前</source>
         <translation>Preset name</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="578"/>
+        <location filename="../preferences_dialog.py" line="579"/>
         <source>その名前は使えません。空欄か、ほかのプリセットと同じ名前です。</source>
         <translation>That name can&apos;t be used. It is empty or already used by another preset.</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="595"/>
+        <location filename="../preferences_dialog.py" line="596"/>
         <source>上へ</source>
         <translation>Move Up</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="597"/>
+        <location filename="../preferences_dialog.py" line="598"/>
         <source>下へ</source>
         <translation>Move Down</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="601"/>
+        <location filename="../preferences_dialog.py" line="602"/>
         <source>現在の配置で上書き</source>
         <translation>Overwrite with Current Layout</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="603"/>
+        <location filename="../preferences_dialog.py" line="604"/>
         <source>選んだワークスペースを、今のパネルの配置で保存し直します。</source>
         <translation>Save the selected workspace again with the current panel layout.</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="606"/>
+        <location filename="../preferences_dialog.py" line="607"/>
         <source>削除…</source>
         <translation>Delete…</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="626"/>
+        <location filename="../preferences_dialog.py" line="627"/>
         <source>ワークスペース メニューに、この順で並びます。ドラッグでも並べ替えられます。新しいワークスペースは ワークスペース › 現在の配置を保存… で作ります。</source>
         <translation>Workspaces appear in the Workspace menu in this order. You can also drag to reorder. Create a new one with Workspace › Save Current Layout….</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="639"/>
+        <location filename="../preferences_dialog.py" line="640"/>
         <source>{name}（使用中）</source>
         <translation>{name} (in use)</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="693"/>
+        <location filename="../preferences_dialog.py" line="694"/>
         <source>その名前は使えません。空欄か、ほかのワークスペースと同じ名前です。</source>
         <translation>That name can&apos;t be used. It is empty or already used by another workspace.</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="708"/>
+        <location filename="../preferences_dialog.py" line="709"/>
         <source>ワークスペース「{name}」を削除しますか？</source>
         <translation>Delete the workspace “{name}”?</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="717"/>
+        <location filename="../preferences_dialog.py" line="718"/>
+        <source>速さ優先（間引き）</source>
+        <translation>Prefer speed (drop pixels)</translation>
+    </message>
+    <message>
+        <location filename="../preferences_dialog.py" line="721"/>
+        <source>線を残す</source>
+        <translation>Keep thin lines</translation>
+    </message>
+    <message>
+        <location filename="../preferences_dialog.py" line="731"/>
         <source> 回</source>
         <translation> steps</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="727"/>
+        <location filename="../preferences_dialog.py" line="741"/>
+        <source>縮小表示</source>
+        <translation>Shrinking the view</translation>
+    </message>
+    <message>
+        <location filename="../preferences_dialog.py" line="743"/>
+        <source>キャンバス全体が見えるところまで縮めると、1画素の線は拾われたり落ちたりして荒れます。「線を残す」は細い線を消さずに縮めますが、大きなキャンバスでは表示の更新が少し重くなります。元の絵は変わりません。</source>
+        <translation>Shrinking far enough to see the whole canvas picks up some one-pixel lines and drops others, so the drawing looks ragged. &quot;Keep thin lines&quot; shrinks without losing them, at the cost of slightly slower redraws on large canvases. The drawing itself is unchanged.</translation>
+    </message>
+    <message>
+        <location filename="../preferences_dialog.py" line="748"/>
         <source>取り消せる回数</source>
         <translation>Undo steps</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="728"/>
+        <location filename="../preferences_dialog.py" line="749"/>
         <source>取り消し履歴のメモリ</source>
         <translation>Undo memory</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="730"/>
+        <location filename="../preferences_dialog.py" line="751"/>
         <source>どちらかの上限に達すると、古い履歴から消えます。大きなキャンバスでは、回数より先にメモリの上限に達します。減らしたときは、次に操作したときに古い履歴が消えます。</source>
         <translation>When either limit is reached, the oldest history is removed first. On large canvases the memory limit is reached before the step limit. After lowering a limit, the old history is removed on your next edit.</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="911"/>
+        <location filename="../main_window_ui_build.py" line="916"/>
         <location filename="../subview.py" line="50"/>
         <source>サブビュー</source>
         <translation>Sub View</translation>
@@ -2428,7 +2467,7 @@ Supported formats: PNG, JPEG, TGA</translation>
     <message>
         <location filename="../main_window_color_chart.py" line="134"/>
         <location filename="../main_window_color_chart.py" line="153"/>
-        <location filename="../main_window_ui_build.py" line="907"/>
+        <location filename="../main_window_ui_build.py" line="912"/>
         <source>カラーチャート</source>
         <translation>Colour Chart</translation>
     </message>
@@ -2461,6 +2500,7 @@ Drop a used colour onto the middle of another to create a parent/child link.</tr
     </message>
     <message>
         <location filename="../main_window_color_chart.py" line="253"/>
+        <location filename="../main_window_used_color.py" line="567"/>
         <source>保存できませんでした。
 
 {exc}</source>
@@ -2481,6 +2521,7 @@ Drop a used colour onto the middle of another to create a parent/child link.</tr
     <message>
         <location filename="../main_window_color_chart.py" line="272"/>
         <location filename="../main_window_time_remap.py" line="604"/>
+        <location filename="../main_window_used_color.py" line="597"/>
         <location filename="../widgets.py" line="1472"/>
         <source>読み込めませんでした。
 
@@ -2495,135 +2536,135 @@ Drop a used colour onto the middle of another to create a parent/child link.</tr
         <translation>PMAG loaded: {Path}</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="193"/>
+        <location filename="../preferences_dialog.py" line="194"/>
         <source>言語 / Language</source>
         <translation>Language</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="137"/>
-        <location filename="../preferences_dialog.py" line="242"/>
-        <location filename="../preferences_dialog.py" line="295"/>
+        <location filename="../preferences_dialog.py" line="138"/>
+        <location filename="../preferences_dialog.py" line="243"/>
+        <location filename="../preferences_dialog.py" line="296"/>
         <source>システムに合わせる</source>
         <translation>Follow system</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="645"/>
+        <location filename="../main_window_ui_build.py" line="650"/>
         <location filename="../subview.py" line="110"/>
         <source>100%表示</source>
         <translation>100%</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="647"/>
+        <location filename="../main_window_ui_build.py" line="652"/>
         <location filename="../subview.py" line="81"/>
         <source>全体を表示</source>
         <translation>Fit</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="689"/>
+        <location filename="../main_window_ui_build.py" line="694"/>
         <source>隣接色分け：隣り合う部分を見分けやすい仮の色で塗り分けて表示する（近い色の塗り漏れが見つかる。元の色が同じ部分は同じ色）。アクティブレイヤーだけに掛かる</source>
         <translation>Neighbour colouring: shows each connected area in an easy-to-tell temporary colour (reveals gaps between near-identical colours; areas of the same original colour share a colour). Applies to the active layer only</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="699"/>
+        <location filename="../main_window_ui_build.py" line="704"/>
         <source>露光量の調整：押すと 0 に戻す。もう一度押すと直前の値に戻す</source>
         <translation>Toggle exposure: reset to 0, then restore the previous value on the next click</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="705"/>
+        <location filename="../main_window_ui_build.py" line="710"/>
         <source>露光量（段）。左右ドラッグ、またはクリックして入力</source>
         <translation>Exposure (stops). Drag horizontally, or click to type</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="727"/>
+        <location filename="../main_window_ui_build.py" line="732"/>
         <location filename="../subview.py" line="117"/>
         <source>拡大</source>
         <translation>Zoom</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="759"/>
+        <location filename="../main_window_ui_build.py" line="764"/>
         <source>キャンバス</source>
         <translation>Canvas</translation>
     </message>
     <message>
         <location filename="../main_window.py" line="1101"/>
-        <location filename="../main_window_ui_build.py" line="814"/>
+        <location filename="../main_window_ui_build.py" line="819"/>
         <source>ツール</source>
         <translation>Tools</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="831"/>
+        <location filename="../main_window_ui_build.py" line="836"/>
         <source>ツールプロパティ</source>
         <translation>Tool Properties</translation>
     </message>
     <message>
         <location filename="../main_window.py" line="1104"/>
-        <location filename="../main_window_ui_build.py" line="844"/>
+        <location filename="../main_window_ui_build.py" line="849"/>
         <source>アクション</source>
         <translation>Actions</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="853"/>
+        <location filename="../main_window_ui_build.py" line="858"/>
         <source>カラーサークル</source>
         <translation>Colour Wheel</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="864"/>
+        <location filename="../main_window_ui_build.py" line="869"/>
         <source>カラースライダー</source>
         <translation>Colour Sliders</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="873"/>
+        <location filename="../main_window_ui_build.py" line="878"/>
         <source>使用色</source>
         <translation>Used Colours</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="884"/>
+        <location filename="../main_window_ui_build.py" line="889"/>
         <source>使用色パネルの使い方を表示します。</source>
         <translation>Show how to use the used-colour panel.</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="888"/>
+        <location filename="../main_window_ui_build.py" line="893"/>
         <source>ヒストリー</source>
         <translation>History</translation>
     </message>
     <message>
         <location filename="../main_window.py" line="1105"/>
-        <location filename="../main_window_ui_build.py" line="920"/>
+        <location filename="../main_window_ui_build.py" line="925"/>
         <source>タイムライン</source>
         <translation>Timeline</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="986"/>
+        <location filename="../main_window_ui_build.py" line="991"/>
         <source>パネル</source>
         <translation>Panels</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="998"/>
+        <location filename="../main_window_ui_build.py" line="1003"/>
         <source>ヘルプ</source>
         <translation>Help</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="999"/>
+        <location filename="../main_window_ui_build.py" line="1004"/>
         <source>更新を確認…</source>
         <translation>Check for Updates…</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="1003"/>
+        <location filename="../main_window_ui_build.py" line="1008"/>
         <source>バージョン情報…</source>
         <translation>About…</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="1076"/>
+        <location filename="../main_window_ui_build.py" line="1081"/>
         <source>サブビューから {color} を取得しました</source>
         <translation>Picked {color} from the sub view</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="1301"/>
+        <location filename="../main_window_ui_build.py" line="1337"/>
         <source>{app} について</source>
         <translation>About {app}</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="1302"/>
+        <location filename="../main_window_ui_build.py" line="1338"/>
         <source>&lt;h3&gt;{app}&lt;/h3&gt;
 &lt;p&gt;Copyright &amp;copy; 2026 PaintMaskAnimator contributors&lt;/p&gt;
 &lt;p&gt;本ソフトウェアは &lt;b&gt;Apache License 2.0&lt;/b&gt; のもとで配布されています。
@@ -2672,7 +2713,7 @@ texts and where to obtain the corresponding sources, see
     </message>
     <message>
         <location filename="../color_chart.py" line="560"/>
-        <location filename="../color_panel.py" line="366"/>
+        <location filename="../color_panel.py" line="376"/>
         <location filename="../widgets.py" line="136"/>
         <source>未設定</source>
         <translation>Unset</translation>
@@ -2768,33 +2809,33 @@ Double-click: edit the name and tag colour</translation>
         <translation>Cancel</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="90"/>
+        <location filename="../toolpanel.py" line="91"/>
         <source>クリック：メイン色に切替</source>
         <translation>Click: switch to main colour</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="91"/>
+        <location filename="../toolpanel.py" line="92"/>
         <source>クリック：サブ色に切替</source>
         <translation>Click: switch to sub colour</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="93"/>
+        <location filename="../toolpanel.py" line="94"/>
         <source>クリック：背景色で描画／右クリック：背景色を変更</source>
         <translation>Click: draw with background colour / Right-click: change background colour</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="573"/>
+        <location filename="../toolpanel.py" line="635"/>
         <source>&lt;b&gt;ツールコマンド&lt;/b&gt;</source>
         <extracomment>カラーサークル上部のメイン／サブ重ねスウォッチの一辺（px）。 色見本・カラーサークルのダブルクリックで、その色の編集を求める（main / sub）。</extracomment>
         <translation>&lt;b&gt;Tool Commands&lt;/b&gt;</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="576"/>
+        <location filename="../toolpanel.py" line="638"/>
         <source>左右反転</source>
         <translation>Flip Horizontally</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="577"/>
+        <location filename="../toolpanel.py" line="639"/>
         <source>上下反転</source>
         <translation>Flip Vertically</translation>
     </message>
@@ -2803,8 +2844,8 @@ Double-click: edit the name and tag colour</translation>
         <location filename="../main_window_tween.py" line="145"/>
         <location filename="../main_window_tween.py" line="199"/>
         <location filename="../main_window_tween.py" line="449"/>
-        <location filename="../timeline.py" line="1249"/>
-        <location filename="../toolpanel.py" line="578"/>
+        <location filename="../timeline.py" line="1299"/>
+        <location filename="../toolpanel.py" line="640"/>
         <location filename="../widgets.py" line="650"/>
         <source>自由変形</source>
         <translation>Free Transform</translation>
@@ -2834,7 +2875,7 @@ Double-click: edit the name and tag colour</translation>
     </message>
     <message>
         <location filename="../main_window_tween.py" line="168"/>
-        <location filename="../timeline.py" line="1247"/>
+        <location filename="../timeline.py" line="1297"/>
         <source>トゥイーンを有効にする</source>
         <translation>Enable tweening</translation>
     </message>
@@ -2952,24 +2993,24 @@ Check that Pillow is available and that the deformed area has colour.</translati
         <location filename="../main_window_tween.py" line="145"/>
         <location filename="../main_window_tween.py" line="199"/>
         <location filename="../main_window_tween.py" line="449"/>
-        <location filename="../timeline.py" line="1250"/>
-        <location filename="../toolpanel.py" line="580"/>
+        <location filename="../timeline.py" line="1300"/>
+        <location filename="../toolpanel.py" line="642"/>
         <location filename="../widgets.py" line="650"/>
         <source>メッシュ変形</source>
         <translation>Mesh Warp</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="583"/>
+        <location filename="../toolpanel.py" line="645"/>
         <source>選択ツール使用時に、現在の選択範囲を解除します。どのツールからでも右上の「選択解除」を使用できます。</source>
         <translation>Clears the current selection when using a selection tool. You can also use Deselect in the upper-right corner from any tool.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="586"/>
+        <location filename="../toolpanel.py" line="648"/>
         <source>左へ90°回転</source>
         <translation>Rotate 90° Left</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="587"/>
+        <location filename="../toolpanel.py" line="649"/>
         <source>右へ90°回転</source>
         <translation>Rotate 90° Right</translation>
     </message>
@@ -2995,7 +3036,7 @@ Check that Pillow is available and that the deformed area has colour.</translati
     </message>
     <message>
         <location filename="../main_window_line_ops.py" line="249"/>
-        <location filename="../toolpanel.py" line="588"/>
+        <location filename="../toolpanel.py" line="650"/>
         <source>メッシュ格子数</source>
         <translation>Mesh Grid</translation>
     </message>
@@ -3175,7 +3216,7 @@ Nothing was applied.</translation>
         <translation>Applied {label} to {pixels:,} pixels across {cells} exposures of the selected layer.</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="179"/>
+        <location filename="../preferences_dialog.py" line="180"/>
         <location filename="../toolpanel.py" line="52"/>
         <source>ブラシ</source>
         <extracomment>(tool id, source label). The id is the stable value everything branches on. The label is *not* translated here: this runs at import time, before the translator is installed, so a ``tr()`` at module level would freeze the source language in. Use :func:`tool_label` wherever the name is displayed.</extracomment>
@@ -3192,116 +3233,109 @@ Nothing was applied.</translation>
         <translation>Shape</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="180"/>
+        <location filename="../preferences_dialog.py" line="181"/>
         <location filename="../toolpanel.py" line="53"/>
         <source>バケツ</source>
         <translation>Bucket</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="54"/>
+        <location filename="../toolpanel.py" line="55"/>
         <source>投げ縄塗り</source>
         <translation>Lasso fill</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="54"/>
+        <location filename="../toolpanel.py" line="55"/>
         <source>投げ縄選択</source>
         <translation>Lasso select</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="55"/>
+        <location filename="../toolpanel.py" line="56"/>
         <source>長方形選択</source>
         <translation>Rectangle select</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="55"/>
+        <location filename="../toolpanel.py" line="56"/>
         <source>自動選択</source>
         <translation>Auto select</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="427"/>
+        <location filename="../toolpanel.py" line="434"/>
         <source>含む色</source>
         <translation>Include</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="472"/>
+        <location filename="../toolpanel.py" line="509"/>
         <source>現在の描画色を登録</source>
         <translation>Register current drawing colour</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="474"/>
+        <location filename="../toolpanel.py" line="511"/>
         <source>消去</source>
         <translation>Clear</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="506"/>
+        <location filename="../toolpanel.py" line="550"/>
         <source>クリックで現在の描画色を含み塗りの色に登録します。</source>
         <translation>Click to register the current drawing colour as a colour to include in the fill.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="515"/>
-        <source>{code}
-クリックで現在の描画色に置き換え、右クリックで消去します。</source>
-        <translation>{code}
-Click to replace with the current drawing colour; right-click to clear.</translation>
-    </message>
-    <message>
-        <location filename="../toolpanel.py" line="594"/>
+        <location filename="../toolpanel.py" line="656"/>
         <source>メッシュ変形中でも格子数を変更できます。</source>
         <translation>You can change the grid density during a mesh warp.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="595"/>
+        <location filename="../toolpanel.py" line="657"/>
         <source>横 </source>
         <translation>Horizontal </translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="596"/>
+        <location filename="../toolpanel.py" line="658"/>
         <source>縦 </source>
         <translation>Vertical </translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="633"/>
+        <location filename="../toolpanel.py" line="695"/>
         <source>すべてのコマに適用</source>
         <translation>Apply to All Frames</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="636"/>
+        <location filename="../toolpanel.py" line="698"/>
         <source>クオリティ（Tp_mask v0.7方式）</source>
         <translation>Quality (Tp_mask v0.7 method)</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="639"/>
+        <location filename="../toolpanel.py" line="701"/>
         <source>色ごとに分離して変形し、中間色を作らずに再合成します。拡大・縮小・回転で線や塗りが崩れにくくなります。</source>
         <translation>Transforms each colour separately, then recomposites without creating intermediate colours. This helps preserve lines and fills during scaling and rotation.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="643"/>
+        <location filename="../toolpanel.py" line="705"/>
         <source>色選択があるときは実線の太さを調整できます。</source>
         <translation>When colours are selected, you can adjust the solid-line thickness.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="650"/>
-        <location filename="../toolpanel.py" line="662"/>
+        <location filename="../toolpanel.py" line="712"/>
+        <location filename="../toolpanel.py" line="724"/>
         <source>実線の太さ：{value}</source>
         <translation>Solid-line thickness: {value}</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="657"/>
+        <location filename="../toolpanel.py" line="719"/>
         <source>クオリティ変形で、使用色パネルの選択色を実線として残す太さを調整します。右へ動かすほど太くなります。</source>
         <translation>Adjusts how thickly selected colours from the Used Colours panel remain as solid lines during a quality transform. Move right for thicker lines.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="674"/>
+        <location filename="../toolpanel.py" line="736"/>
         <source>選択したレイヤーのみ</source>
         <translation>Selected layer only</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="675"/>
+        <location filename="../toolpanel.py" line="737"/>
         <source>キャンバス全体</source>
         <translation>Whole canvas</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="680"/>
+        <location filename="../toolpanel.py" line="742"/>
         <source>どの絵を見て塗る範囲を決めるかを選びます。塗る先はいつも選択中のレイヤーです。
 「選択したレイヤーのみ」はそのレイヤーの絵だけで判定します。
 「キャンバス全体」は表示しているレイヤーを合成した絵で判定するので、線が別のレイヤーにあっても、その線で区切られた部分を塗れます。
@@ -3312,442 +3346,476 @@ Click to replace with the current drawing colour; right-click to clear.</transla
 &quot;Initial state before painting&quot; decides from the kept unpainted picture, so half-finished colours do not get in the way (if none is kept, the current picture is used).</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="692"/>
+        <location filename="../toolpanel.py" line="754"/>
         <source>参照</source>
         <translation>Reference</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="698"/>
+        <location filename="../toolpanel.py" line="760"/>
         <source>すべての色を対象</source>
         <translation>All colours</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="699"/>
+        <location filename="../toolpanel.py" line="761"/>
         <source>透明部分のみ</source>
         <translation>Transparent only</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="700"/>
+        <location filename="../toolpanel.py" line="762"/>
         <source>透明に囲まれた部分</source>
         <translation>Surrounded by transparent</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="701"/>
+        <location filename="../toolpanel.py" line="763"/>
         <source>黒部分のみ</source>
         <translation>Black only</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="702"/>
+        <location filename="../toolpanel.py" line="764"/>
         <source>黒に囲まれた部分</source>
         <translation>Surrounded by black</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="703"/>
+        <location filename="../toolpanel.py" line="765"/>
         <source>白と透明部分のみ</source>
         <translation>White and transparent only</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="704"/>
+        <location filename="../toolpanel.py" line="766"/>
         <source>白と透明に囲まれた部分</source>
         <translation>Surrounded by white and transparent</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="705"/>
+        <location filename="../toolpanel.py" line="767"/>
         <source>薄い半透明を透明扱い</source>
         <translation>Treat faint translucency as transparent</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="706"/>
+        <location filename="../toolpanel.py" line="768"/>
         <source>透明以外と内部の透明</source>
         <translation>Non-transparent and enclosed transparent</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="707"/>
+        <location filename="../toolpanel.py" line="769"/>
         <source>透明以外は閉領域にも</source>
         <translation>Transparent plus enclosed non-transparent</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="711"/>
+        <location filename="../toolpanel.py" line="773"/>
         <source>どの画素をたどって塗るかを選びます。「すべての色を対象」はクリックした色の領域を塗ります。「〜のみ」はその画素だけ、「〜に囲まれた部分」はそれ以外の画素を、クリック位置からつながる範囲で塗ります。</source>
         <translation>Chooses which pixels the fill spreads through. &quot;All colours&quot; fills the area of the clicked colour. &quot;... only&quot; fills just those pixels, and &quot;Surrounded by ...&quot; fills everything else, as far as it connects to the clicked point.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="720"/>
+        <location filename="../toolpanel.py" line="782"/>
         <source>対象色</source>
         <translation>Target colour</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="723"/>
+        <location filename="../toolpanel.py" line="785"/>
         <source>隣接</source>
         <translation>Contiguous</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="726"/>
+        <location filename="../toolpanel.py" line="788"/>
         <source>ON：クリック位置につながる同色領域だけを塗ります。OFF：レイヤー内の同じ色を一括で塗ります。</source>
         <translation>On: fill only the same-colour region connected to the clicked point. Off: fill all areas of that colour in the layer.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="741"/>
+        <location filename="../toolpanel.py" line="803"/>
         <source>囲まれた色を置換色で塗る</source>
         <translation>Repaint enclosed colours with their replacements</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="744"/>
+        <location filename="../toolpanel.py" line="806"/>
         <source>塗った範囲に囲まれた線や点のうち、使用色パネルで置換色を登録してある色を、その置換色で塗ります。頬の範囲線の中を塗るときに、中の斜線も決まった色にできます。</source>
         <translation>Lines and dots enclosed by the filled area whose colour has a replacement registered in the used-colour panel are painted with that replacement. When filling inside a blush outline, the hatching inside gets its set colour too.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="750"/>
+        <location filename="../toolpanel.py" line="812"/>
         <source>塗り残し拾い</source>
         <translation>Fill Small Gaps</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="752"/>
+        <location filename="../toolpanel.py" line="814"/>
         <source>塗った領域と角で直接つながる、同じ対象色の空白を指定した幅以下なら先端まで拾います。長さや面積は制限せず、線は飛び越えません。自動塗りにも適用します。</source>
         <translation>Fills gaps of the same target colour connected directly at pixel corners, up to the specified width and all the way to their tips. Length and area are not limited. Does not jump across lines. Also applies to Auto Paint.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="758"/>
-        <location filename="../toolpanel.py" line="762"/>
+        <location filename="../toolpanel.py" line="820"/>
+        <location filename="../toolpanel.py" line="824"/>
         <source>幅 {width} px 以下</source>
         <translation>Width ≤ {width} px</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="773"/>
+        <location filename="../toolpanel.py" line="835"/>
         <source>隙間閉じ</source>
         <translation>Close Gaps</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="795"/>
+        <location filename="../toolpanel.py" line="854"/>
+        <source>閉じる隙間</source>
+        <translation>Gap to close</translation>
+    </message>
+    <message>
+        <location filename="../toolpanel.py" line="856"/>
+        <source>これより狭い線の隙間は閉じているものとみなして塗ります。</source>
+        <translation>Line gaps narrower than this are treated as closed when filling.</translation>
+    </message>
+    <message>
+        <location filename="../toolpanel.py" line="864"/>
         <source>線の延長</source>
         <translation>Extend Lines</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="799"/>
+        <location filename="../toolpanel.py" line="868"/>
         <source>キャンバス端の手前で途切れた線を、線の向きのまま端まで延ばしたものとして塗ります。スタンダードフレームの外側で線を端まで引いていない素材でも、線の切れ目から隣へ漏れずに塗れます。端からスライダーの長さより遠い線の端は延長しません。</source>
         <translation>Fills as if lines that stop short of the canvas edge continued in their own direction to the edge. Material whose lines are not drawn all the way to the edge outside the standard frame fills without leaking through the open line ends. Line ends farther from the edge than the slider length are not extended.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="831"/>
+        <location filename="../toolpanel.py" line="900"/>
         <source>不透明度</source>
         <translation>Opacity</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="842"/>
+        <location filename="../toolpanel.py" line="911"/>
         <source>塗りつぶし・投げ縄塗りの不透明度。100%は選択した色をそのまま塗ります（近似色は増えません）。100%未満は下地の色と混ぜた色で塗ります。</source>
         <translation>Opacity for the fill and lasso fill tools. At 100% the selected colour is painted as is (no near-duplicate colours are created). Below 100% it is mixed with the colour underneath.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="854"/>
+        <location filename="../toolpanel.py" line="923"/>
         <source>境界線の内側だけを塗る</source>
         <translation>Fill only inside the outline</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="856"/>
-        <location filename="../toolpanel.py" line="996"/>
+        <location filename="../toolpanel.py" line="925"/>
+        <location filename="../toolpanel.py" line="1065"/>
         <source>サブ色を実線、メイン色を内面にする</source>
         <translation>Sub colour for the outline, main colour for the fill</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="858"/>
+        <location filename="../toolpanel.py" line="927"/>
         <source>外線の太さ：1.0 px</source>
         <translation>Outline width: 1.0 px</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="865"/>
+        <location filename="../toolpanel.py" line="934"/>
         <source>外線の太さ：{value:.1f} px</source>
         <translation>Outline width: {value:.1f} px</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="878"/>
+        <location filename="../toolpanel.py" line="947"/>
         <source>ライン種類</source>
         <translation>Line type</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="883"/>
-        <location filename="../toolpanel.py" line="975"/>
+        <location filename="../toolpanel.py" line="952"/>
+        <location filename="../toolpanel.py" line="1044"/>
         <source>直線</source>
         <translation>Straight</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="884"/>
-        <location filename="../toolpanel.py" line="976"/>
+        <location filename="../toolpanel.py" line="953"/>
+        <location filename="../toolpanel.py" line="1045"/>
         <source>曲線</source>
         <translation>Curve</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="886"/>
+        <location filename="../toolpanel.py" line="955"/>
         <source>曲線は、1回目のドラッグで始点と終点を決め、次のクリックで弓なりのカーブを確定します。</source>
         <translation>For a curve, the first drag sets the start and end points and the next click fixes the bow of the curve.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="889"/>
+        <location filename="../toolpanel.py" line="958"/>
         <source>入り</source>
         <translation>Taper in</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="891"/>
+        <location filename="../toolpanel.py" line="960"/>
         <source>入りサイズ：0.5 px</source>
         <translation>Taper-in size: 0.5 px</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="893"/>
+        <location filename="../toolpanel.py" line="962"/>
         <source>クリックすると入りカーブ設定がポップアップします。</source>
         <translation>Click to pop up the taper-in curve settings.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="903"/>
+        <location filename="../toolpanel.py" line="972"/>
         <source>入りサイズ：{value:.1f} px</source>
         <translation>Taper-in size: {value:.1f} px</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="906"/>
+        <location filename="../toolpanel.py" line="975"/>
         <source>入りカーブ：1.00</source>
         <translation>Taper-in curve: 1.00</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="911"/>
+        <location filename="../toolpanel.py" line="980"/>
         <source>小さいほど緩やかに、値を大きくすると先端付近で急に太くなります。</source>
         <translation>Lower is gentler; higher makes the stroke thicken sharply near the tip.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="915"/>
+        <location filename="../toolpanel.py" line="984"/>
         <source>入りカーブ：{value:.2f}</source>
         <translation>Taper-in curve: {value:.2f}</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="918"/>
+        <location filename="../toolpanel.py" line="987"/>
         <source>抜き</source>
         <translation>Taper out</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="920"/>
+        <location filename="../toolpanel.py" line="989"/>
         <source>抜きサイズ：0.5 px</source>
         <translation>Taper-out size: 0.5 px</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="922"/>
+        <location filename="../toolpanel.py" line="991"/>
         <source>クリックすると抜きカーブ設定がポップアップします。</source>
         <translation>Click to pop up the taper-out curve settings.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="932"/>
+        <location filename="../toolpanel.py" line="1001"/>
         <source>抜きサイズ：{value:.1f} px</source>
         <translation>Taper-out size: {value:.1f} px</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="935"/>
+        <location filename="../toolpanel.py" line="1004"/>
         <source>抜きカーブ：1.00</source>
         <translation>Taper-out curve: 1.00</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="940"/>
+        <location filename="../toolpanel.py" line="1009"/>
         <source>小さいほど緩やかに、値を大きくすると終端付近で急に細くなります。</source>
         <translation>Lower is gentler; higher makes the stroke thin out sharply near the end.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="944"/>
+        <location filename="../toolpanel.py" line="1013"/>
         <source>抜きカーブ：{value:.2f}</source>
         <translation>Taper-out curve: {value:.2f}</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="973"/>
+        <location filename="../toolpanel.py" line="1042"/>
         <source>図形種類</source>
         <translation>Shape type</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="977"/>
+        <location filename="../toolpanel.py" line="1046"/>
         <source>多角形</source>
         <translation>Polygon</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="978"/>
+        <location filename="../toolpanel.py" line="1047"/>
         <source>楕円</source>
         <translation>Ellipse</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="981"/>
+        <location filename="../toolpanel.py" line="1050"/>
         <source>角の数</source>
         <translation>Corners</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="993"/>
+        <location filename="../toolpanel.py" line="1062"/>
         <source>比率固定</source>
         <translation>Lock ratio</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="994"/>
+        <location filename="../toolpanel.py" line="1063"/>
         <source>内側を塗る</source>
         <translation>Fill the inside</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="998"/>
+        <location filename="../toolpanel.py" line="1067"/>
         <source>線の太さ：1.0 px</source>
         <translation>Line width: 1.0 px</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1004"/>
+        <location filename="../toolpanel.py" line="1073"/>
         <source>線の太さ：{value:.1f} px</source>
         <translation>Line width: {value:.1f} px</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1009"/>
+        <location filename="../toolpanel.py" line="1078"/>
         <source>領域が開いている場合は塗りを開始しない</source>
         <translation>Do not start filling if the region is open</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1013"/>
+        <location filename="../toolpanel.py" line="1082"/>
         <source>串刺し塗り（選択レイヤーのすべてのコマ）</source>
         <translation>Paint through frames (every frame of the selected layer)</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1017"/>
+        <location filename="../toolpanel.py" line="1086"/>
         <source>クリックした図形を、選択レイヤーの各コマで追いかけて一度に塗ります。追いかけきれないコマでは止まるので、塗る場所をクリックしてください（Esc でそのコマを、Shift+Esc でその向きの残りのコマを飛ばします）。</source>
         <translation>Follows the clicked shape through every frame of the selected layer and fills it in one go. If a frame can&apos;t be tracked, it stops there; click where to fill (Esc skips that frame, Shift+Esc skips the remaining frames in that direction).</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1045"/>
+        <location filename="../toolpanel.py" line="1114"/>
         <source>処理モード</source>
         <translation>Mode</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1048"/>
+        <location filename="../toolpanel.py" line="1117"/>
         <source>塗り抜け</source>
         <translation>Fill holes</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1050"/>
+        <location filename="../toolpanel.py" line="1119"/>
         <source>ゴミ取り：小さな色点を白（#FFFFFF）へ変更します。塗り抜け：小さな白い穴を周囲色で埋めます。</source>
         <translation>Despeckle: turns small colour specks white (#FFFFFF). Fill holes: fills small white holes with the surrounding colour.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1053"/>
+        <location filename="../toolpanel.py" line="1122"/>
         <source>適用サイズ：3 px</source>
         <translation>Size: 3 px</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1059"/>
+        <location filename="../toolpanel.py" line="1128"/>
         <source>適用サイズ：{value} px</source>
         <translation>Size: {value} px</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1062"/>
+        <location filename="../toolpanel.py" line="1131"/>
         <source>選択色を対象</source>
         <translation>Selected colours only</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1065"/>
+        <location filename="../toolpanel.py" line="1134"/>
         <source>使用色パネルで選択している色だけを対象にします。色ごとに独立判定するため、別色と隣接していても小さな選択色を削除できます。</source>
         <translation>Limits the operation to the colours selected in the used-colour panel. Each colour is judged independently, so a small area of a selected colour can be removed even where it touches another colour.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1070"/>
+        <location filename="../toolpanel.py" line="1139"/>
         <source>選択レイヤーのすべてのコマに適用</source>
         <translation>Apply to every exposure of the selected layer</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1073"/>
+        <location filename="../toolpanel.py" line="1142"/>
         <source>ゴミ取りを適用</source>
         <translation>Apply despeckle</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1076"/>
+        <location filename="../toolpanel.py" line="1145"/>
         <source>{mode}を適用</source>
         <translation>Apply {mode}</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1126"/>
-        <location filename="../toolpanel.py" line="1582"/>
+        <location filename="../toolpanel.py" line="1195"/>
+        <location filename="../toolpanel.py" line="1659"/>
         <source>&lt;b&gt;ブラシサイズ&lt;/b&gt;</source>
         <translation>&lt;b&gt;Brush size&lt;/b&gt;</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1131"/>
+        <location filename="../toolpanel.py" line="1200"/>
         <source>筆圧…</source>
         <translation>Pressure…</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1161"/>
+        <location filename="../toolpanel.py" line="1230"/>
         <source>手振れ補正：0</source>
         <translation>Stabiliser: 0</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1166"/>
+        <location filename="../toolpanel.py" line="1235"/>
         <source>ブラシ軌跡を移動平均と遅延半径で滑らかにします。0～300。値が大きいほど補正を強くします。</source>
         <translation>Smooths the brush path with a moving average and a lag radius. 0–300; higher is stronger.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1171"/>
+        <location filename="../toolpanel.py" line="1240"/>
         <source>手振れ補正：{value}</source>
         <translation>Stabiliser: {value}</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1212"/>
+        <location filename="../toolpanel.py" line="1281"/>
         <source>初期色（黒／白）に戻す</source>
         <translation>Reset to default colours (black / white)</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1224"/>
+        <location filename="../toolpanel.py" line="1293"/>
         <source>メイン</source>
         <translation>Main</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1225"/>
+        <location filename="../toolpanel.py" line="1294"/>
         <source>サブ</source>
         <translation>Sub</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1209"/>
+        <location filename="../toolpanel.py" line="1278"/>
         <source>クリック：メイン色を選択／ドラッグ：スポイト</source>
         <translation>Click: pick the main colour / drag: eyedropper</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="729"/>
+        <location filename="../toolpanel.py" line="54"/>
+        <source>閉領域フィル</source>
+        <translation>Closed-area fill</translation>
+    </message>
+    <message>
+        <location filename="../toolpanel.py" line="500"/>
+        <source>この色を含み塗りに使う</source>
+        <translation>Use this colour for overfill</translation>
+    </message>
+    <message>
+        <location filename="../toolpanel.py" line="561"/>
+        <source>{code}
+クリックで現在の描画色に置き換え、右クリックで ON/OFF と消去ができます。</source>
+        <translation>{code}
+Click to replace with the current drawing colour; right-click to toggle it on or off, or to clear it.</translation>
+    </message>
+    <message>
+        <location filename="../toolpanel.py" line="576"/>
+        <source>{code}（含み塗りに使っていません）
+右クリックで ON に戻せます。</source>
+        <translation>{code} (not used for overfill)
+Right-click to turn it back on.</translation>
+    </message>
+    <message>
+        <location filename="../toolpanel.py" line="791"/>
         <source>含み塗り</source>
         <translation>Include colours in fill</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="732"/>
+        <location filename="../toolpanel.py" line="794"/>
         <source>ON：塗る領域に接している「含む色」の部分も一緒に塗ります。色トレス線の色を登録しておくと、線ごと塗りつぶせます。色を登録していないときはサブカラーを含みます。</source>
         <translation>ON: also fills the parts in the “Include” colours that touch the filled area. Register your coloured trace line colours to fill over those lines together. With no colour registered, the sub colour is included.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1210"/>
+        <location filename="../toolpanel.py" line="1279"/>
         <source>クリック：サブ色を選択／ドラッグ：スポイト</source>
         <translation>Click: pick the sub colour / drag: eyedropper</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1259"/>
+        <location filename="../toolpanel.py" line="1328"/>
         <source>背景色</source>
         <translation>Background</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1264"/>
+        <location filename="../toolpanel.py" line="1333"/>
         <source>クリック：背景色で描画／右クリック：背景色の表示色を変更</source>
         <translation>Click: paint with the background colour / right-click: change how the background colour is displayed</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1387"/>
+        <location filename="../toolpanel.py" line="1456"/>
         <source>入りカーブ</source>
         <translation>Taper-in curve</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1390"/>
+        <location filename="../toolpanel.py" line="1459"/>
         <source>抜きカーブ</source>
         <translation>Taper-out curve</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1423"/>
+        <location filename="../toolpanel.py" line="1492"/>
         <source>選択範囲の変形をすべてのコマへ適用します。</source>
         <translation>Applies the selection transform to every exposure.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1424"/>
+        <location filename="../toolpanel.py" line="1493"/>
         <source>クオリティ変形はコマごとに時間がかかります。</source>
         <translation>A quality transform takes time on each exposure.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1582"/>
+        <location filename="../toolpanel.py" line="1659"/>
         <source>&lt;b&gt;ラインサイズ&lt;/b&gt;</source>
         <translation>&lt;b&gt;Line size&lt;/b&gt;</translation>
     </message>
@@ -3811,9 +3879,10 @@ Details were saved to:
     <message>
         <location filename="../actionpanel.py" line="474"/>
         <location filename="../actionpanel.py" line="694"/>
-        <location filename="../preferences_dialog.py" line="392"/>
-        <location filename="../preferences_dialog.py" line="514"/>
-        <location filename="../timeline.py" line="2205"/>
+        <location filename="../preferences_dialog.py" line="393"/>
+        <location filename="../preferences_dialog.py" line="515"/>
+        <location filename="../timeline.py" line="1204"/>
+        <location filename="../timeline.py" line="2301"/>
         <source>削除</source>
         <translation>Delete</translation>
     </message>
@@ -3916,7 +3985,7 @@ Details were saved to:
     </message>
     <message>
         <location filename="../canvas_image_import.py" line="49"/>
-        <location filename="../main_window_import.py" line="314"/>
+        <location filename="../main_window_import.py" line="349"/>
         <source>画像サイズが上限を超えています。
 {width} × {height}px</source>
         <translation>The image is larger than the maximum.
@@ -3982,16 +4051,16 @@ Details were saved to:
     <message>
         <location filename="../canvas_onion_interaction.py" line="39"/>
         <location filename="../subview.py" line="481"/>
-        <location filename="../utils.py" line="391"/>
+        <location filename="../utils.py" line="447"/>
         <source>前</source>
-        <extracomment>一時ズーム（ドラッグ）で 1px 動かしたときの倍率。</extracomment>
+        <extracomment>一時ズーム（ドラッグ）で 1px 動かしたときの倍率。 ツールの形をしたカーソルを出すツール。ブラシはリング描画、スポイト・ハンド・ ズームはそれぞれ専用カーソルがあるので、ここには入れない。</extracomment>
         <translation>Previous</translation>
     </message>
     <message>
         <location filename="../canvas_onion_interaction.py" line="39"/>
         <location filename="../cut_folder_dialog.py" line="609"/>
         <location filename="../subview.py" line="482"/>
-        <location filename="../utils.py" line="392"/>
+        <location filename="../utils.py" line="448"/>
         <source>後</source>
         <translation>Next</translation>
     </message>
@@ -4021,18 +4090,18 @@ Details were saved to:
         <translation>Display position: left-drag to move the canvas, Shift+left-drag or right-drag to rotate. The TU/TB scale is preserved and reflected in the relative values of the previous and next onion skins. Esc cancels.</translation>
     </message>
     <message>
-        <location filename="../canvas_paint_tools.py" line="594"/>
+        <location filename="../canvas_paint_tools.py" line="624"/>
         <source>選択範囲の外側なので塗りを開始しませんでした。</source>
         <extracomment>ドラッグ塗りで、端に接した領域を「外の背景ではない」とみなす大きさの上限 （画像全体に対する割合）。最初にクリックした部分の3倍までもよしとする。</extracomment>
         <translation>The point is outside the selection, so filling did not start.</translation>
     </message>
     <message>
-        <location filename="../canvas_paint_tools.py" line="596"/>
+        <location filename="../canvas_paint_tools.py" line="626"/>
         <source>領域がキャンバス端まで開いているため、塗りを開始しませんでした。</source>
         <translation>The region is open to the canvas edge, so filling did not start.</translation>
     </message>
     <message>
-        <location filename="../canvas_paint_tools.py" line="598"/>
+        <location filename="../canvas_paint_tools.py" line="628"/>
         <source>クリックした場所は「対象色」で塗る対象にしていない色です。</source>
         <translation>The clicked pixel is not a colour the Target colour setting fills.</translation>
     </message>
@@ -4099,7 +4168,7 @@ Details were saved to:
         <translation>Painted through {filled} frame(s).</translation>
     </message>
     <message>
-        <location filename="../canvas_paint_tools.py" line="715"/>
+        <location filename="../canvas_paint_tools.py" line="745"/>
         <source>領域がキャンバス端まで開いているため選択しませんでした。</source>
         <translation>The region is open to the canvas edge, so nothing was selected.</translation>
     </message>
@@ -4184,7 +4253,7 @@ Details were saved to:
         <translation>Recompositing the colour mask</translation>
     </message>
     <message>
-        <location filename="../clip_animation.py" line="723"/>
+        <location filename="../clip_animation.py" line="730"/>
         <source>CLIP STUDIOの.clipファイルを指定してください。</source>
         <translation>Choose a CLIP STUDIO .clip file.</translation>
     </message>
@@ -4205,53 +4274,63 @@ Details were saved to:
     </message>
     <message>
         <location filename="../clip_animation.py" line="662"/>
-        <location filename="../clip_animation.py" line="747"/>
+        <location filename="../clip_animation.py" line="759"/>
         <source>タイムラインのフレーム数がPMAの上限外です。</source>
         <translation>The timeline frame count is out of PMA&apos;s range.</translation>
     </message>
     <message>
         <location filename="../clip_animation.py" line="664"/>
-        <location filename="../clip_animation.py" line="749"/>
+        <location filename="../clip_animation.py" line="761"/>
         <source>アニメーションフォルダー数がPMAの上限外です。</source>
         <translation>The animation folder count is out of PMA&apos;s range.</translation>
     </message>
     <message>
         <location filename="../clip_animation.py" line="667"/>
-        <location filename="../clip_animation.py" line="752"/>
+        <location filename="../clip_animation.py" line="764"/>
         <source>タイムラインのレイヤーセル数がPMAの上限を超えています。</source>
         <translation>The timeline has more layer cells than PMA allows.</translation>
     </message>
     <message>
-        <location filename="../clip_animation.py" line="669"/>
-        <location filename="../clip_animation.py" line="754"/>
-        <location filename="../clip_animation.py" line="761"/>
+        <location filename="../clip_animation.py" line="672"/>
+        <location filename="../clip_animation.py" line="766"/>
+        <location filename="../clip_animation.py" line="771"/>
         <source>タイムライン展開後の画像サイズがPMAの上限を超えています。</source>
         <translation>The decoded timeline images are larger than PMA allows.</translation>
     </message>
     <message>
-        <location filename="../clip_animation.py" line="694"/>
+        <location filename="../clip_animation.py" line="697"/>
         <source>アニメーションフォルダー「{name}」のセル「{tag}」を画像化できません。</source>
         <translation>Cell &quot;{tag}&quot; in animation folder &quot;{name}&quot; cannot be rendered.</translation>
     </message>
     <message>
-        <location filename="../clip_animation.py" line="714"/>
+        <location filename="../clip_animation.py" line="717"/>
         <source>アニメーションフォルダー内でセル名「{name}」が重複しています。</source>
         <translation>Cell name &quot;{name}&quot; is duplicated inside the animation folder.</translation>
     </message>
     <message>
-        <location filename="../clip_animation.py" line="731"/>
+        <location filename="../clip_animation.py" line="743"/>
         <source>.clipのキャンバスサイズがPMAの上限外です。</source>
         <translation>The .clip canvas size exceeds PMA limits.</translation>
     </message>
     <message>
-        <location filename="../clip_animation.py" line="784"/>
+        <location filename="../clip_animation.py" line="796"/>
         <source>アニメーションフォルダー「{LayerName}」にセル「{missing}」がありません。</source>
         <translation>Animation folder &quot;{LayerName}&quot; has no cell &quot;{missing}&quot;.</translation>
     </message>
     <message>
-        <location filename="../clip_animation.py" line="799"/>
+        <location filename="../clip_animation.py" line="802"/>
+        <source>セル画像を読み込み中：{folder} / {cel}</source>
+        <translation>Reading cel images: {folder} / {cel}</translation>
+    </message>
+    <message>
+        <location filename="../clip_animation.py" line="815"/>
         <source>.clip内にアニメーションフォルダーがありません。</source>
         <translation>The .clip file has no animation folders.</translation>
+    </message>
+    <message>
+        <location filename="../clip_animation.py" line="817"/>
+        <source>タイムラインを構築しています…</source>
+        <translation>Building the timeline…</translation>
     </message>
     <message>
         <location filename="../color_panel_grouping.py" line="49"/>
@@ -4723,7 +4802,7 @@ Restore the automatically saved work?</translation>
     </message>
     <message>
         <location filename="../main_window_color_interaction.py" line="65"/>
-        <location filename="../preferences_dialog.py" line="310"/>
+        <location filename="../preferences_dialog.py" line="311"/>
         <source>アクセントカラーを選択</source>
         <translation>Choose the accent colour</translation>
     </message>
@@ -4743,87 +4822,92 @@ Restore the automatically saved work?</translation>
         <translation>Every mask is off, so nothing can be painted.</translation>
     </message>
     <message>
-        <location filename="../main_window_color_interaction.py" line="131"/>
+        <location filename="../main_window_color_interaction.py" line="119"/>
+        <source>背景色は選択範囲にできません。使用色を選んでください。</source>
+        <translation>The background cannot be selected. Choose a used colour.</translation>
+    </message>
+    <message>
+        <location filename="../main_window_color_interaction.py" line="154"/>
         <source>現在のレイヤー内に、この色が使われているコマはありません。</source>
         <translation>No exposure in the current layer uses this colour.</translation>
     </message>
     <message>
-        <location filename="../main_window_color_interaction.py" line="166"/>
+        <location filename="../main_window_color_interaction.py" line="189"/>
         <source>使用色 {rgb} が最初に現れる {position}へ移動しました。</source>
         <translation>Moved to {position}, where the used colour {rgb} first appears.</translation>
     </message>
     <message>
-        <location filename="../main_window_color_interaction.py" line="175"/>
+        <location filename="../main_window_color_interaction.py" line="198"/>
         <source>トゥイーン中は線の太さを変更できません。</source>
         <translation>The line width cannot be changed while tweening.</translation>
     </message>
     <message>
-        <location filename="../main_window_color_interaction.py" line="201"/>
+        <location filename="../main_window_color_interaction.py" line="224"/>
         <source>親として選択している色で右クリックしてください。</source>
         <translation>Right-click on the colour you have selected as the parent.</translation>
     </message>
     <message>
-        <location filename="../main_window_color_interaction.py" line="209"/>
+        <location filename="../main_window_color_interaction.py" line="232"/>
         <source>別の変形処理を確定またはキャンセルしてから実行してください。</source>
         <translation>Commit or cancel the other transform first.</translation>
     </message>
     <message>
-        <location filename="../main_window_color_interaction.py" line="224"/>
+        <location filename="../main_window_color_interaction.py" line="247"/>
         <source>現在位置には調整できるキーフレームがありません。</source>
         <translation>There is no key frame to adjust at the current position.</translation>
     </message>
     <message>
-        <location filename="../main_window_color_interaction.py" line="236"/>
+        <location filename="../main_window_color_interaction.py" line="259"/>
         <source>現在の露出ブロックに画像がありません。</source>
         <translation>The current exposure block has no image.</translation>
     </message>
     <message>
-        <location filename="../main_window_color_interaction.py" line="260"/>
+        <location filename="../main_window_color_interaction.py" line="283"/>
         <source>キーフレーム全体から描画領域を検出できません。</source>
         <translation>No drawn area could be detected across the key frame.</translation>
     </message>
     <message>
-        <location filename="../main_window_color_interaction.py" line="327"/>
+        <location filename="../main_window_color_interaction.py" line="350"/>
         <source>キーフレーム {value}～{value2}（{exposure}コマ）全体へ、選択中の{len}色の太さ {value3} を適用しました。</source>
         <translation>Applied width {value3} to the {len} selected colours across key frames {value}–{value2} ({exposure} exposures).</translation>
     </message>
     <message>
-        <location filename="../main_window_color_interaction.py" line="405"/>
+        <location filename="../main_window_color_interaction.py" line="428"/>
         <source>特定色だけ表示</source>
         <translation>Show a specific colour only</translation>
     </message>
     <message>
-        <location filename="../main_window_color_interaction.py" line="406"/>
+        <location filename="../main_window_color_interaction.py" line="429"/>
         <source>背景色では特定色表示を設定できません。メイン色またはサブ色を選択してください。</source>
         <translation>The background colour cannot be used for the colour filter. Select the main or the sub colour.</translation>
     </message>
     <message>
-        <location filename="../main_window_color_interaction.py" line="430"/>
+        <location filename="../main_window_color_interaction.py" line="453"/>
         <source>選択レイヤーを #{value:02X}{value2:02X}{value3:02X} だけ表示しています。元画像は変更されません。</source>
         <translation>Showing only #{value:02X}{value2:02X}{value3:02X} in the selected layer. The source images are unchanged.</translation>
     </message>
     <message>
-        <location filename="../main_window_color_interaction.py" line="452"/>
+        <location filename="../main_window_color_interaction.py" line="475"/>
         <source>選択レイヤーの特定色表示を解除しました。</source>
         <translation>Cleared the colour filter on the selected layer.</translation>
     </message>
     <message>
-        <location filename="../main_window_color_interaction.py" line="454"/>
+        <location filename="../main_window_color_interaction.py" line="477"/>
         <source>選択レイヤーには特定色表示が設定されていません。</source>
         <translation>The selected layer has no colour filter set.</translation>
     </message>
     <message>
-        <location filename="../main_window_color_interaction.py" line="476"/>
+        <location filename="../main_window_color_interaction.py" line="501"/>
         <source>背景色の表示色を選択</source>
         <translation>Choose how the background colour is displayed</translation>
     </message>
     <message>
-        <location filename="../main_window_color_interaction.py" line="507"/>
+        <location filename="../main_window_color_interaction.py" line="532"/>
         <source>メイン色を選択</source>
         <translation>Choose Main Colour</translation>
     </message>
     <message>
-        <location filename="../main_window_color_interaction.py" line="507"/>
+        <location filename="../main_window_color_interaction.py" line="532"/>
         <source>サブ色を選択</source>
         <translation>Choose Sub Colour</translation>
     </message>
@@ -4942,19 +5026,20 @@ Save the current project first?</translation>
         <translation>Import without saving</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="114"/>
+        <location filename="../clip_animation.py" line="736"/>
+        <location filename="../main_window_import.py" line="149"/>
         <source>CLIP STUDIOアニメーションを解析しています：{name}</source>
         <translation>Parsing the CLIP STUDIO animation: {name}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="125"/>
-        <location filename="../main_window_import.py" line="136"/>
+        <location filename="../main_window_import.py" line="160"/>
+        <location filename="../main_window_import.py" line="171"/>
         <source>CLIP STUDIOアニメーション読み込み</source>
         <translation>CLIP STUDIO animation import</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="126"/>
-        <location filename="../main_window_import.py" line="187"/>
+        <location filename="../main_window_import.py" line="161"/>
+        <location filename="../main_window_import.py" line="222"/>
         <source>読み込めませんでした。現在のドキュメントは変更されていません。
 
 {exc}</source>
@@ -4963,61 +5048,61 @@ Save the current project first?</translation>
 {exc}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="156"/>
+        <location filename="../main_window_import.py" line="191"/>
         <source> {count}セルを色塗り前の初期状態として保持しました。</source>
         <translation> Kept {count} cels as the initial state before painting.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="158"/>
+        <location filename="../main_window_import.py" line="193"/>
         <source>CLIP STUDIOから{count}フォルダー・{count2}フレームを読み込みました。{note}{note2}{note3}</source>
         <translation>Imported {count} folders and {count2} frames from CLIP STUDIO.{note}{note2}{note3}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="165"/>
-        <location filename="../main_window_import.py" line="173"/>
-        <location filename="../main_window_ui_build.py" line="388"/>
+        <location filename="../main_window_import.py" line="200"/>
+        <location filename="../main_window_import.py" line="208"/>
+        <location filename="../main_window_ui_build.py" line="392"/>
         <source>カットフォルダーを開く</source>
         <translation>Open Cut Folder</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="176"/>
+        <location filename="../main_window_import.py" line="211"/>
         <source>カットフォルダーを読み込んでいます：{name}</source>
         <translation>Reading cut folder: {name}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="194"/>
+        <location filename="../main_window_import.py" line="229"/>
         <source>現在のキャンバスをカットフォルダーの内容で置き換えます。
 先に現在のプロジェクトを保存しますか？</source>
         <translation>The current canvas will be replaced with the contents of the cut folder.
 Save the current project first?</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="203"/>
+        <location filename="../main_window_import.py" line="238"/>
         <source>タイムシートで使われていないセル{count}枚は連番に保持しました。</source>
         <translation>{count} cels not used in the time sheet were kept as sequence cels.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="207"/>
+        <location filename="../main_window_import.py" line="242"/>
         <source>「{name}」から{count}列・{frames}フレームを読み込みました。</source>
         <translation>Loaded {count} columns and {frames} frames from “{name}”.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="230"/>
+        <location filename="../main_window_import.py" line="265"/>
         <source>タイムシート（.xdts／.tdts）が見つかりません。</source>
         <translation>No time sheet (.xdts / .tdts) was found.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="236"/>
+        <location filename="../main_window_import.py" line="271"/>
         <source>タイムシートが複数あるため「{name}」を使いました。</source>
         <translation>Several time sheets were found; used “{name}”.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="246"/>
+        <location filename="../main_window_import.py" line="281"/>
         <source>タイムシートにセルの列がありません。</source>
         <translation>The time sheet has no cel columns.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="256"/>
+        <location filename="../main_window_import.py" line="291"/>
         <location filename="../main_window_initial_state.py" line="113"/>
         <source>{name} を読み込めません。
 {error}</source>
@@ -5025,22 +5110,22 @@ Save the current project first?</translation>
 {error}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="312"/>
+        <location filename="../main_window_import.py" line="347"/>
         <source>セルの画像（PNG／TGA）が見つかりません。</source>
         <translation>No cel images (PNG / TGA) were found.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="334"/>
+        <location filename="../main_window_import.py" line="369"/>
         <source>画像が見つからないセルは空セルにしました：{cells}</source>
         <translation>Cels whose image is missing were left empty: {cells}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="338"/>
+        <location filename="../main_window_import.py" line="373"/>
         <source>大きさの違うセル{count}枚は、中央に置いて大きさを揃えました。</source>
         <translation>{count} cels of a different size were centred to match the others.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="466"/>
+        <location filename="../main_window_import.py" line="501"/>
         <source>読み込み結果を反映できませんでした。現在のドキュメントは元の状態へ戻しました。
 
 {exc}</source>
@@ -5049,12 +5134,12 @@ Save the current project first?</translation>
 {exc}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="144"/>
+        <location filename="../main_window_import.py" line="179"/>
         <source>（元FPS {fps:g}、PMA表示 {value} fps）</source>
         <translation> (source FPS {fps:g}, shown as {value} fps in PMA)</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="149"/>
+        <location filename="../main_window_import.py" line="184"/>
         <source> 未配置セル{len}枚は連番に保持しました。</source>
         <translation> {len} unplaced cells were kept in the sequence.</translation>
     </message>
@@ -5077,60 +5162,60 @@ Save the current project first?</translation>
         <translation>Only XDTS version 5 is supported.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="622"/>
+        <location filename="../main_window_import.py" line="657"/>
         <source>XDTSにセル欄（fieldId 0）がありません。</source>
         <translation>The XDTS file has no cell column (fieldId 0).</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="654"/>
+        <location filename="../main_window_import.py" line="689"/>
         <source>読み込むCELLとレイヤーの紐づけがありません。</source>
         <translation>No CELL is linked to a layer for import.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="656"/>
+        <location filename="../main_window_import.py" line="691"/>
         <location filename="../main_window_time_remap.py" line="493"/>
         <source>タイムラインがありません。</source>
         <translation>There is no timeline.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="670"/>
+        <location filename="../main_window_import.py" line="705"/>
         <source>CELL「{get}」のフレーム数が不正です。</source>
         <translation>CELL &quot;{get}&quot; has an invalid frame count.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="675"/>
+        <location filename="../main_window_import.py" line="710"/>
         <source>CELL「{get}」の紐づけ先レイヤーがありません。</source>
         <translation>CELL &quot;{get}&quot; has no layer to link to.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="680"/>
+        <location filename="../main_window_import.py" line="715"/>
         <source>レイヤー「{name}」に連番画像がありません。</source>
         <translation>Layer &quot;{name}&quot; has no image sequence.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="691"/>
+        <location filename="../main_window_import.py" line="726"/>
         <source>CELL「{get}」は存在しない絵番号を参照しています（レイヤー画像 {len}枚）。
 {preview}</source>
         <translation>CELL &quot;{get}&quot; refers to a drawing number that does not exist ({len} layer images).
 {preview}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="700"/>
+        <location filename="../main_window_import.py" line="735"/>
         <source>読み込めるCELLの紐づけがありません。</source>
         <translation>There are no CELL links that can be imported.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="703"/>
+        <location filename="../main_window_import.py" line="738"/>
         <source>・{get} → {name}</source>
         <translation>・{get} → {name}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="709"/>
+        <location filename="../main_window_import.py" line="744"/>
         <source>XDTSタイムシートを反映</source>
         <translation>Apply the XDTS time sheet</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="710"/>
+        <location filename="../main_window_import.py" line="745"/>
         <source>反映範囲：{value}～{value2}フレーム
 紐づけ：
 {links}
@@ -5143,51 +5228,51 @@ Links:
 This replaces the target range of the linked layers.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="742"/>
+        <location filename="../main_window_import.py" line="777"/>
         <source>XDTSの{len}個のCELLを{value}～{value2}フレームへ反映しました。</source>
         <translation>Applied {len} XDTS CELLs to frames {value}–{value2}.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="749"/>
+        <location filename="../main_window_import.py" line="784"/>
         <source>PSDを読み込む</source>
         <translation>Import a PSD</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="756"/>
-        <location filename="../main_window_import.py" line="820"/>
-        <location filename="../main_window_import.py" line="862"/>
+        <location filename="../main_window_import.py" line="791"/>
+        <location filename="../main_window_import.py" line="855"/>
+        <location filename="../main_window_import.py" line="897"/>
         <source>PSD読み込み</source>
         <translation>PSD import</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="757"/>
+        <location filename="../main_window_import.py" line="792"/>
         <source>PSDの読み込みには psd-tools と Pillow が必要です。
 requirements.txtをインストールしてください。</source>
         <translation>Importing PSD needs psd-tools and Pillow.
 Install them from requirements.txt.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="773"/>
+        <location filename="../main_window_import.py" line="808"/>
         <source>PSDの画像サイズが上限を超えています。 ({width} × {height}px)</source>
         <translation>The PSD image is larger than the maximum. ({width} × {height}px)</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="776"/>
+        <location filename="../main_window_import.py" line="811"/>
         <source>PSDの最上位レイヤー数が上限を超えています。</source>
         <translation>The PSD has more top-level layers than the maximum.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="789"/>
+        <location filename="../main_window_import.py" line="824"/>
         <source>PSDのレイヤー項目数が上限を超えています。</source>
         <translation>The PSD has more layer entries than the maximum.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="816"/>
+        <location filename="../main_window_import.py" line="851"/>
         <source>読み込める画像レイヤーがありません。</source>
         <translation>There are no image layers to import.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="820"/>
+        <location filename="../main_window_import.py" line="855"/>
         <source>PSDを読み込めませんでした。
 
 {exc}</source>
@@ -5196,12 +5281,12 @@ Install them from requirements.txt.</translation>
 {exc}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="859"/>
+        <location filename="../main_window_import.py" line="894"/>
         <source>PSDから{len}レイヤーを読み込みました。</source>
         <translation>Imported {len} layers from the PSD.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="861"/>
+        <location filename="../main_window_import.py" line="896"/>
         <source>
 調整レイヤーなど{skipped}項目は破棄しました。</source>
         <translation>
@@ -5374,94 +5459,161 @@ In-between and symbol labels: {blanks} cells</translation>
         <translation>Duplicate within the same layer.</translation>
     </message>
     <message>
-        <location filename="../main_window_used_color.py" line="143"/>
+        <location filename="../main_window_timeline_ops.py" line="908"/>
+        <source>コピーできるセルがありません。</source>
+        <translation>There is no cell to copy.</translation>
+    </message>
+    <message>
+        <location filename="../main_window_timeline_ops.py" line="916"/>
+        <source>セルをコピーしました。</source>
+        <translation>Copied the cell.</translation>
+    </message>
+    <message>
+        <location filename="../main_window_timeline_ops.py" line="923"/>
+        <source>セルを切り取りました。</source>
+        <translation>Cut the cell.</translation>
+    </message>
+    <message>
+        <location filename="../main_window_timeline_ops.py" line="931"/>
+        <source>貼り付けられるセルがありません。</source>
+        <translation>There is no cell to paste.</translation>
+    </message>
+    <message>
+        <location filename="../main_window_timeline_ops.py" line="950"/>
+        <source>セルを貼り付けました。</source>
+        <translation>Pasted the cell.</translation>
+    </message>
+    <message>
+        <location filename="../main_window_timeline_ops.py" line="986"/>
+        <source>露出の途中を選んでください。先頭では分割できません。</source>
+        <translation>Choose a frame inside the exposure; it cannot be split at its start.</translation>
+    </message>
+    <message>
+        <location filename="../main_window_timeline_ops.py" line="1011"/>
+        <source>前に結合できるセルがありません。</source>
+        <translation>There is no preceding cell to merge into.</translation>
+    </message>
+    <message>
+        <location filename="../main_window_used_color.py" line="146"/>
         <source>100色以上</source>
         <translation>100 colours or more</translation>
     </message>
     <message>
-        <location filename="../main_window_used_color.py" line="207"/>
-        <location filename="../main_window_used_color.py" line="219"/>
-        <location filename="../main_window_used_color.py" line="279"/>
+        <location filename="../main_window_used_color.py" line="210"/>
+        <location filename="../main_window_used_color.py" line="222"/>
+        <location filename="../main_window_used_color.py" line="282"/>
         <source>使用色の認識が完了しました</source>
         <translation>Finished scanning used colours</translation>
     </message>
     <message>
-        <location filename="../main_window_used_color.py" line="234"/>
+        <location filename="../main_window_used_color.py" line="237"/>
         <source>{label}（{index}/{total}コマ）</source>
         <translation>{label} (exposure {index}/{total})</translation>
     </message>
     <message>
-        <location filename="../main_window_used_color.py" line="298"/>
+        <location filename="../main_window_used_color.py" line="301"/>
         <source>置換色が登録されていません。</source>
         <extracomment>Palette edit -&gt; the label shown in the history panel and status bar. The key is the stable identifier the code branches on; only the value is user-facing, so translating it cannot change any behaviour.</extracomment>
         <translation>No replacement colour is registered.</translation>
     </message>
     <message>
-        <location filename="../main_window_used_color.py" line="300"/>
-        <location filename="../main_window_used_color.py" line="462"/>
+        <location filename="../main_window_used_color.py" line="303"/>
+        <location filename="../main_window_used_color.py" line="480"/>
         <source>削除する使用色が選択されていません。</source>
         <translation>No used colour is selected for deletion.</translation>
     </message>
     <message>
-        <location filename="../main_window_used_color.py" line="302"/>
+        <location filename="../main_window_used_color.py" line="305"/>
         <source>統合する使用色が選択されていません。</source>
         <translation>No used colour is selected to merge.</translation>
     </message>
     <message>
-        <location filename="../main_window_used_color.py" line="319"/>
+        <location filename="../main_window_used_color.py" line="322"/>
         <source>置換前と置換後が同じ色です。</source>
         <translation>The source and the replacement are the same colour.</translation>
     </message>
     <message>
-        <location filename="../main_window_used_color.py" line="321"/>
+        <location filename="../main_window_used_color.py" line="324"/>
         <source>削除できる使用色が選択されていません。</source>
         <translation>No deletable used colour is selected.</translation>
     </message>
     <message>
-        <location filename="../main_window_used_color.py" line="323"/>
+        <location filename="../main_window_used_color.py" line="326"/>
         <source>親以外の使用色を選択してください。</source>
         <translation>Select a used colour other than the parent.</translation>
     </message>
     <message>
-        <location filename="../main_window_used_color.py" line="413"/>
+        <location filename="../main_window_used_color.py" line="431"/>
         <source>選択範囲の中に、選択した使用色はありませんでした。</source>
         <translation>The selected used colours were not present inside the selection.</translation>
     </message>
     <message>
-        <location filename="../main_window_used_color.py" line="415"/>
+        <location filename="../main_window_used_color.py" line="433"/>
         <source>選択した使用色は画像内にありませんでした。</source>
         <translation>The selected used colours were not present in the images.</translation>
     </message>
     <message>
-        <location filename="../main_window_used_color.py" line="434"/>
+        <location filename="../main_window_used_color.py" line="452"/>
         <source>選択範囲の中で、{cells}セル・{pixels:,}ピクセルへ{label}を適用しました。</source>
         <translation>Applied {label} inside the selection to {cells} cel(s), {pixels:,} pixels.</translation>
     </message>
     <message>
-        <location filename="../main_window_used_color.py" line="437"/>
+        <location filename="../main_window_used_color.py" line="455"/>
         <source>{cells}セル・{pixels:,}ピクセルへ{label}を適用しました。</source>
         <translation>Applied {label} to {pixels:,} pixels across {cells} cells.</translation>
     </message>
     <message>
-        <location filename="../main_window_used_color.py" line="478"/>
+        <location filename="../main_window_used_color.py" line="496"/>
         <source>{len}色を #FFFFFF へ統合しました。</source>
         <translation>Merged {len} colours into #FFFFFF.</translation>
     </message>
     <message>
-        <location filename="../main_window_used_color.py" line="491"/>
+        <location filename="../main_window_used_color.py" line="509"/>
         <source>背景色は統合先にできません。</source>
         <translation>The background colour cannot be a merge target.</translation>
     </message>
     <message>
-        <location filename="../main_window_used_color.py" line="504"/>
+        <location filename="../main_window_used_color.py" line="522"/>
         <source>使用色を更新しています</source>
         <translation>Updating used colours</translation>
     </message>
     <message>
-        <location filename="../main_window_used_color.py" line="512"/>
-        <location filename="../main_window_used_color.py" line="518"/>
+        <location filename="../main_window_used_color.py" line="530"/>
+        <location filename="../main_window_used_color.py" line="536"/>
         <source>選択レイヤーの使用色を認識しています</source>
         <translation>Scanning the used colours of the selected layer</translation>
+    </message>
+    <message>
+        <location filename="../main_window_used_color.py" line="549"/>
+        <source>保存できる置換色が登録されていません。</source>
+        <translation>No replacement colours are registered to save.</translation>
+    </message>
+    <message>
+        <location filename="../main_window_used_color.py" line="554"/>
+        <location filename="../main_window_used_color.py" line="566"/>
+        <source>置換色を保存</source>
+        <translation>Save replacement colours</translation>
+    </message>
+    <message>
+        <location filename="../main_window_used_color.py" line="571"/>
+        <source>置換色を保存しました：{name}</source>
+        <translation>Saved the replacement colours: {name}</translation>
+    </message>
+    <message>
+        <location filename="../main_window_used_color.py" line="584"/>
+        <location filename="../main_window_used_color.py" line="596"/>
+        <source>置換色を読み込み</source>
+        <translation>Load replacement colours</translation>
+    </message>
+    <message>
+        <location filename="../main_window_used_color.py" line="603"/>
+        <source>置換色 {total}組のうち {registered}組を登録しました（残りはこの絵で使われていない色です）：{name}</source>
+        <translation>Registered {registered} of {total} replacement pairs (the rest use colours this drawing does not contain): {name}</translation>
+    </message>
+    <message>
+        <location filename="../main_window_used_color.py" line="613"/>
+        <source>置換色 {registered}組を登録しました：{name}</source>
+        <translation>Registered {registered} replacement pairs: {name}</translation>
     </message>
     <message>
         <location filename="../main_window_workspace.py" line="186"/>
@@ -5470,18 +5622,18 @@ In-between and symbol labels: {blanks} cells</translation>
     </message>
     <message>
         <location filename="../main_window_workspace.py" line="186"/>
-        <location filename="../preferences_dialog.py" line="685"/>
+        <location filename="../preferences_dialog.py" line="686"/>
         <source>ワークスペース名：</source>
         <translation>Workspace name:</translation>
     </message>
     <message>
-        <location filename="../preferences_dialog.py" line="707"/>
+        <location filename="../preferences_dialog.py" line="708"/>
         <source>ワークスペースを削除</source>
         <translation>Delete a workspace</translation>
     </message>
     <message>
         <location filename="../main_window_workspace.py" line="192"/>
-        <location filename="../preferences_dialog.py" line="111"/>
+        <location filename="../preferences_dialog.py" line="112"/>
         <source>ワークスペース</source>
         <translation>Workspace</translation>
     </message>
@@ -6006,69 +6158,69 @@ a folder here</translation>
         <translation>Red</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1180"/>
+        <location filename="../timeline.py" line="1230"/>
         <source>コマを増やす</source>
         <translation>Add exposures</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1182"/>
-        <location filename="../timeline.py" line="1849"/>
+        <location filename="../timeline.py" line="1232"/>
+        <location filename="../timeline.py" line="1945"/>
         <source>空フレームを追加</source>
         <translation>Add an empty frame</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1185"/>
+        <location filename="../timeline.py" line="1235"/>
         <source>表示コマを1コマ伸ばす</source>
         <translation>Extend the exposure by one</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1210"/>
+        <location filename="../timeline.py" line="1260"/>
         <source>連番の番号を呼び出す</source>
         <translation>Recall a sequence number</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1239"/>
+        <location filename="../timeline.py" line="1289"/>
         <source>トゥイーンをキャンセル</source>
         <translation>Cancel the tween</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1347"/>
+        <location filename="../timeline.py" line="1433"/>
         <source>現在のキーフレーム／空フレームを1コマ伸ばします。</source>
         <translation>Extends the current key frame or empty frame by one exposure.</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1860"/>
+        <location filename="../timeline.py" line="1956"/>
         <source>現在の表示コマを1コマ削除します。</source>
         <translation>Deletes one exposure from the current run.</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1353"/>
+        <location filename="../timeline.py" line="1439"/>
         <source>AEまたはToeiDigitalTimeSheetのコピー情報をタイムシートへ貼り付けます。XDTSはタイムラインへドラッグ＆ドロップできます。</source>
         <translation>Pastes copied After Effects or ToeiDigitalTimeSheet data into the time sheet. XDTS files can be dragged and dropped onto the timeline.</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1378"/>
+        <location filename="../timeline.py" line="1464"/>
         <source>前のフレーム（1）</source>
         <translation>Previous frame (1)</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1380"/>
+        <location filename="../timeline.py" line="1466"/>
         <source>次のフレーム（2）</source>
         <translation>Next frame (2)</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1382"/>
+        <location filename="../timeline.py" line="1468"/>
         <source>前のコマ（A）</source>
         <translation>Previous exposure (A)</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1384"/>
+        <location filename="../timeline.py" line="1470"/>
         <source>次のコマ（S）</source>
         <translation>Next exposure (S)</translation>
     </message>
     <message>
         <location filename="../normalize_dialog.py" line="38"/>
-        <location filename="../timeline.py" line="1360"/>
+        <location filename="../timeline.py" line="1446"/>
         <source>タイムラインの順番で正規化</source>
         <translation>Normalise by timeline order</translation>
     </message>
@@ -6084,7 +6236,7 @@ a folder here</translation>
     </message>
     <message>
         <location filename="../normalize_dialog.py" line="60"/>
-        <location filename="../timeline.py" line="1389"/>
+        <location filename="../timeline.py" line="1475"/>
         <source>すべてのレイヤー</source>
         <translation>All layers</translation>
     </message>
@@ -6114,52 +6266,52 @@ a folder here</translation>
         <translation>Renumber</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1392"/>
+        <location filename="../timeline.py" line="1478"/>
         <source>オニオンスキン</source>
         <translation>Onion skin</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1394"/>
+        <location filename="../timeline.py" line="1480"/>
         <source>オニオンスキン表示のON／OFF</source>
         <translation>Turn the onion skin on or off</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1402"/>
+        <location filename="../timeline.py" line="1488"/>
         <source>クリックでオニオンスキン設定を開き、再クリックで閉じます。</source>
         <translation>Click to open the onion skin settings, click again to close them.</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1405"/>
+        <location filename="../timeline.py" line="1491"/>
         <source> コマ</source>
         <translation> exposures</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1459"/>
+        <location filename="../timeline.py" line="1545"/>
         <source>不透明</source>
         <translation>Opacity</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1465"/>
+        <location filename="../timeline.py" line="1551"/>
         <source>選択レイヤーの表示不透明度です。画像の色データ自体は変更しません。</source>
         <translation>The display opacity of the selected layer. The colour data of the images is unchanged.</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1473"/>
+        <location filename="../timeline.py" line="1559"/>
         <source>現在選択しているレイヤーの表示不透明度</source>
         <translation>Display opacity of the currently selected layer</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1504"/>
+        <location filename="../timeline.py" line="1590"/>
         <source>現在位置 / 最後のコマ</source>
         <translation>Current Position / Last Frame</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1520"/>
+        <location filename="../timeline.py" line="1606"/>
         <source>Shift/{ctrl}：複数選択</source>
         <translation>Shift/{ctrl}: multiple selection</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1440"/>
+        <location filename="../timeline.py" line="1526"/>
         <source>シート</source>
         <translation>Sheet</translation>
     </message>
@@ -6169,178 +6321,224 @@ a folder here</translation>
         <translation>Draft</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1222"/>
+        <location filename="../timeline.py" line="1199"/>
+        <source>中割りトラックラベル○を作成</source>
+        <extracomment>(&quot;start&quot;|&quot;end&quot;, 列)。</extracomment>
+        <translation>Create an in-between track label (○)</translation>
+    </message>
+    <message>
+        <location filename="../timeline.py" line="1201"/>
+        <source>トラックラベルを削除</source>
+        <translation>Delete the track label</translation>
+    </message>
+    <message>
+        <location filename="../timeline.py" line="1212"/>
+        <source>新規アニメーションセル</source>
+        <translation>New animation cell</translation>
+    </message>
+    <message>
+        <location filename="../timeline.py" line="1215"/>
+        <source>クリップを結合</source>
+        <translation>Merge clips</translation>
+    </message>
+    <message>
+        <location filename="../timeline.py" line="1216"/>
+        <source>クリップを分割</source>
+        <translation>Split the clip</translation>
+    </message>
+    <message>
+        <location filename="../timeline.py" line="1219"/>
+        <source>表示開始フレームにする</source>
+        <translation>Set as the first played frame</translation>
+    </message>
+    <message>
+        <location filename="../timeline.py" line="1220"/>
+        <source>表示終了フレームにする</source>
+        <translation>Set as the last played frame</translation>
+    </message>
+    <message>
+        <location filename="../timeline.py" line="1224"/>
+        <source>フレームを挿入</source>
+        <translation>Insert a frame</translation>
+    </message>
+    <message>
+        <location filename="../timeline.py" line="1225"/>
+        <source>フレームを削除</source>
+        <translation>Delete the frame</translation>
+    </message>
+    <message>
+        <location filename="../timeline.py" line="1272"/>
         <source>トゥイーンの形を直す</source>
         <translation>Adjust the tween shape</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1224"/>
+        <location filename="../timeline.py" line="1274"/>
         <source>トゥイーンを解除（中割りを通常のセルにする）</source>
         <translation>Release the tween (make the in-betweens ordinary cells)</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1346"/>
+        <location filename="../timeline.py" line="1432"/>
         <source>コマを伸ばす</source>
         <translation>Extend exposure</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1352"/>
+        <location filename="../timeline.py" line="1438"/>
         <source>リマップを貼り付け</source>
         <translation>Paste time remap</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1358"/>
+        <location filename="../timeline.py" line="1444"/>
         <source>順番で正規化</source>
         <translation>Normalise order</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1361"/>
+        <location filename="../timeline.py" line="1447"/>
         <source>左から最初に出てくる順に番号を振り直します。実行前に、振り直す番号の一覧を確認できます。</source>
         <translation>Renumbers the drawings in the order they first appear from the left. You can review the changes before applying them.</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1374"/>
+        <location filename="../timeline.py" line="1460"/>
         <source>先頭へ（Home）</source>
         <translation>Go to Start (Home)</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1376"/>
+        <location filename="../timeline.py" line="1462"/>
         <source>末尾へ（End）</source>
         <translation>Go to End (End)</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1441"/>
+        <location filename="../timeline.py" line="1527"/>
         <source>連番</source>
         <translation>Sequence</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1449"/>
+        <location filename="../timeline.py" line="1535"/>
         <source>連番：左から順番に自動採番／シート：タイムシートの絵番号を保持</source>
         <translation>Sequence: numbered automatically from the left / Sheet: keeps the drawing numbers from the time sheet</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1523"/>
+        <location filename="../timeline.py" line="1609"/>
         <source>ドラッグ・Shift＋クリック：複数選択／選択範囲をそのままドラッグ：まとめて移動／番号・✗の箱：移動／左右端：伸縮／Space：ハンド／{zoom}：拡大縮小</source>
         <translation>Drag or Shift-click: multiple selection / drag the selection itself: move it together / number or ✗ box: move / left and right edges: resize / Space: pan / {zoom}: zoom</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1580"/>
+        <location filename="../timeline.py" line="1666"/>
         <source>すべてのレイヤーのサムネイルを開く／閉じる</source>
         <translation>Show or hide thumbnails for all layers</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1583"/>
+        <location filename="../timeline.py" line="1669"/>
         <source>レイヤー</source>
         <translation>Layer</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1586"/>
+        <location filename="../timeline.py" line="1672"/>
         <source>レイヤーを追加</source>
         <translation>Add layer</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1588"/>
+        <location filename="../timeline.py" line="1674"/>
         <source>レイヤーを削除</source>
         <translation>Delete layer</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1823"/>
+        <location filename="../timeline.py" line="1919"/>
         <source>タイムラインの順番とずれている番号：{count}個</source>
         <translation>Numbers out of timeline order: {count}</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1850"/>
+        <location filename="../timeline.py" line="1946"/>
         <source>選択番号の直後へ、新しい空の番号画像を追加します。</source>
         <translation>Adds a new empty numbered image right after the selected number.</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1853"/>
+        <location filename="../timeline.py" line="1949"/>
         <source>番号・✗の先頭セルでは、直後へ同じ長さの空セル（✗）を挿入。続きの部分では、選択位置から後ろを空セルへ分割します。</source>
         <translation>On a number or ✗ start cell, inserts an empty cell (✗) of the same length right after it. On a held part, splits everything from the selected position onwards into an empty cell.</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1858"/>
+        <location filename="../timeline.py" line="1954"/>
         <source>選択番号を削除し、シート側の対応セルを未使用にします。</source>
         <translation>Deletes the selected number and frees the matching cell on the sheet.</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="2202"/>
+        <location filename="../timeline.py" line="2298"/>
         <source>複製</source>
         <translation>Duplicate</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="2203"/>
+        <location filename="../timeline.py" line="2299"/>
         <source>結合</source>
         <translation>Merge</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="2207"/>
+        <location filename="../timeline.py" line="2303"/>
         <source>下書きレイヤー</source>
         <translation>Draft layer</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="2213"/>
+        <location filename="../timeline.py" line="2309"/>
         <source>番号の正規化</source>
         <translation>Normalise the numbers</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="2520"/>
+        <location filename="../timeline.py" line="2620"/>
         <source>下書きレイヤー（色数削減の対象外）。
 </source>
         <translation>Draft layer (excluded from colour reduction).
 </translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="2521"/>
+        <location filename="../timeline.py" line="2621"/>
         <source>左端の＞でサムネイルを開閉、目のアイコンで表示／非表示を切替、ダブルクリックでレイヤー名を変更。</source>
         <translation>Click the &gt; on the left to show/hide thumbnails and the eye icon to show/hide the layer; double-click to rename the layer.</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="2865"/>
+        <location filename="../timeline.py" line="2965"/>
         <source>確定したトゥイーン（{exposure}コマ）。ダブルクリックで形を直す／右クリックで解除</source>
         <translation>Committed tween ({exposure} exposures). Double-click to adjust the shape / right-click to release</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="2802"/>
+        <location filename="../timeline.py" line="2902"/>
         <source>逆生成トゥイーン中。この右端は元の初期形状です。右クリックでキャンセルできます。</source>
         <translation>Reverse tween in progress. This right end holds the original shape. Right-click to cancel.</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="2808"/>
+        <location filename="../timeline.py" line="2908"/>
         <source>トゥイーン変形中。右クリックでキャンセルできます。</source>
         <translation>Tween deformation in progress. Right-click to cancel.</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="2814"/>
+        <location filename="../timeline.py" line="2914"/>
         <source>右端をドラッグして後方向の表示コマ数を変更／右クリックでトゥイーンを有効化</source>
         <translation>Drag the right edge to change how many exposures follow / right-click to enable tweening</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="2818"/>
+        <location filename="../timeline.py" line="2918"/>
         <source>空フレームの右端をドラッグして表示コマ数を変更</source>
         <translation>Drag the right edge of the empty frame to change the exposure count</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="2822"/>
+        <location filename="../timeline.py" line="2922"/>
         <source>逆生成トゥイーン中。キーフレーム側が操作中の変形形状、右端側が元の初期形状になります。右クリックでキャンセルできます。</source>
         <translation>Reverse tween in progress. The key frame side holds the shape you are editing and the right end the original one. Right-click to cancel.</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="2842"/>
+        <location filename="../timeline.py" line="2942"/>
         <source>CLIP STUDIOセル名：{name}
 </source>
         <translation>CLIP STUDIO cell name: {name}
 </translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="2846"/>
+        <location filename="../timeline.py" line="2946"/>
         <source>中央をドラッグして移動／左端をドラッグして前方向へ伸縮
 レイヤーセル {value} / {exposure}コマ</source>
         <translation>Drag the middle to move / drag the left edge to extend backwards
 Layer cell {value} / {exposure} exposures</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="2850"/>
+        <location filename="../timeline.py" line="2950"/>
         <source>空フレームの先頭です。描画すると自動的にキーフレーム化します。</source>
         <translation>This is the start of an empty frame. Drawing here turns it into a key frame automatically.</translation>
     </message>
@@ -6431,14 +6629,14 @@ Layer cell {value} / {exposure} exposures</translation>
     </message>
     <message>
         <location filename="../new_document_dialog.py" line="51"/>
-        <location filename="../preferences_dialog.py" line="408"/>
+        <location filename="../preferences_dialog.py" line="409"/>
         <location filename="../widgets.py" line="104"/>
         <source>幅</source>
         <translation>Width</translation>
     </message>
     <message>
         <location filename="../new_document_dialog.py" line="52"/>
-        <location filename="../preferences_dialog.py" line="409"/>
+        <location filename="../preferences_dialog.py" line="410"/>
         <location filename="../widgets.py" line="104"/>
         <source>高さ</source>
         <translation>Height</translation>
@@ -6554,12 +6752,12 @@ Layer cell {value} / {exposure} exposures</translation>
         <translation>Normal: the key frame side keeps the original shape and the last exposure takes the shape you are editing.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1239"/>
+        <location filename="../toolpanel.py" line="1308"/>
         <source>カラーコードを入力して Enter で色を変更</source>
         <translation>Type a colour code and press Enter to change the colour</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1246"/>
+        <location filename="../toolpanel.py" line="1315"/>
         <source>現在のカラーコードをコピー</source>
         <translation>Copy the current colour code</translation>
     </message>
@@ -6808,7 +7006,7 @@ Layer cell {value} / {exposure} exposures</translation>
     </message>
     <message>
         <location filename="../cut_folder_dialog.py" line="670"/>
-        <location filename="../main_window_ui_build.py" line="397"/>
+        <location filename="../main_window_ui_build.py" line="401"/>
         <source>カットフォルダーへ書き出し</source>
         <translation>Export to Cut Folder</translation>
     </message>
@@ -6967,8 +7165,8 @@ Layer cell {value} / {exposure} exposures</translation>
     <message>
         <location filename="../layout_paper.py" line="111"/>
         <location filename="../new_document_dialog.py" line="49"/>
-        <location filename="../preferences_dialog.py" line="411"/>
-        <location filename="../preferences_dialog.py" line="483"/>
+        <location filename="../preferences_dialog.py" line="412"/>
+        <location filename="../preferences_dialog.py" line="484"/>
         <source>レイアウト用紙</source>
         <translation>Layout Paper</translation>
     </message>
@@ -6981,7 +7179,7 @@ Layer cell {value} / {exposure} exposures</translation>
     <message>
         <location filename="../main_window_reference_check.py" line="85"/>
         <location filename="../main_window_reference_check.py" line="211"/>
-        <location filename="../main_window_ui_build.py" line="422"/>
+        <location filename="../main_window_ui_build.py" line="426"/>
         <source>見本との違いチェック</source>
         <translation>Check Against Reference</translation>
     </message>
@@ -7105,7 +7303,7 @@ Layer cell {value} / {exposure} exposures</translation>
         <location filename="../auto_paint_dialog.py" line="152"/>
         <location filename="../main_window_auto_paint.py" line="146"/>
         <location filename="../main_window_auto_paint.py" line="198"/>
-        <location filename="../main_window_ui_build.py" line="417"/>
+        <location filename="../main_window_ui_build.py" line="421"/>
         <source>自動で塗る</source>
         <translation>Auto Paint</translation>
     </message>

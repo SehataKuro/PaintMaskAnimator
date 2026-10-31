@@ -244,7 +244,7 @@ class InputEventMixin(CanvasMembers):
             used_color = self.opaque_paint_color()
             if not self.is_pseudo_transparent_color(used_color):
                 self.colorUsed.emit(used_color)
-        elif t == "bucket":
+        elif t in ("bucket", "closed_fill"):
             # 串刺し塗りは既存のセルにだけ塗る。保持セルを新しいキーに分けない。
             if self._bucket_all_frames_enabled():
                 self.flood_fill(QPoint(int(p.x()), int(p.y())))
@@ -396,7 +396,7 @@ class InputEventMixin(CanvasMembers):
         elif t == "mesh" and self.mesh_active >= 0:
             self.mesh_points[self.mesh_active] = p
             self.update()
-        elif t == "bucket" and self._bucket_drag is not None:
+        elif t in ("bucket", "closed_fill") and self._bucket_drag is not None:
             self.continue_bucket_drag(QPointF(p))
 
     def mouseDoubleClickEvent(self, e):
