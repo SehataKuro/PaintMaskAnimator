@@ -42,7 +42,8 @@ from PySide6.QtWidgets import QPushButton, QWidget
 from .i18n import tr
 from .constants import OUTSIDE_MARGIN
 from . import constants
-from . import color_ops, colors, geometry, imaging, native, preferences, view_preview
+from . import (color_ops, colors, display_shrink, geometry, imaging, native,
+               preferences, view_preview)
 from .document import Document
 from .brush_raster import stamp_outline
 from .toolpanel import tool_label
@@ -1652,7 +1653,11 @@ class PaintCanvas(
             self.flip_horizontal or self.flip_vertical
         ):
             return image
-        key = (int(image.cacheKey()), width, height, self.flip_horizontal, self.flip_vertical)
+        mode = preferences.display_shrink_mode()
+        key = (
+            int(image.cacheKey()), width, height,
+            self.flip_horizontal, self.flip_vertical, mode,
+        )
         cache = getattr(self, "_display_image_cache", None)
         if cache is None:
             self._display_image_cache = cache = {}
@@ -1661,8 +1666,12 @@ class PaintCanvas(
         if cached is not None:
             cache[key] = cached
             return cached
-        result = image.scaled(width, height, Qt.AspectRatioMode.IgnoreAspectRatio,
-                              Qt.TransformationMode.FastTransformation)
+        if mode == display_shrink.MODE_KEEP_LINES:
+            # 縮小だけを任せる。拡大や等倍はニアレストのままでよい。
+            result = display_shrink.shrink_keeping_lines(image, width, height)
+        else:
+            result = image.scaled(width, height, Qt.AspectRatioMode.IgnoreAspectRatio,
+                                  Qt.TransformationMode.FastTransformation)
         if self.flip_horizontal or self.flip_vertical:
             result = result.mirrored(self.flip_horizontal, self.flip_vertical)
         size = result.sizeInBytes()

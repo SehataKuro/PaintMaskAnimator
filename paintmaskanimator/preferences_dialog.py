@@ -32,7 +32,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import config, i18n, layout_paper, preferences, pressure_settings, theme, view_preview
+from . import (config, display_shrink, i18n, layout_paper, preferences,
+               pressure_settings, theme, view_preview)
 from .canvas_undo import set_undo_limits
 from .i18n import tr
 from .color_picker_dialog import ColorPickerDialog
@@ -712,6 +713,19 @@ class PreferencesDialog(QDialog):
 
     # -- パフォーマンス -------------------------------------------------------
     def _build_performance_page(self):
+        self.display_shrink_mode = QComboBox()
+        self.display_shrink_mode.addItem(
+            tr("速さ優先（間引き）"), display_shrink.MODE_NEAREST
+        )
+        self.display_shrink_mode.addItem(
+            tr("線を残す"), display_shrink.MODE_KEEP_LINES
+        )
+        self._select_data(
+            self.display_shrink_mode, preferences.display_shrink_mode()
+        )
+        self.display_shrink_mode.currentIndexChanged.connect(
+            self._display_shrink_mode_changed
+        )
         self.undo_steps = QSpinBox()
         self.undo_steps.setRange(*preferences.UNDO_STEPS_RANGE)
         self.undo_steps.setSuffix(tr(" 回"))
@@ -724,6 +738,13 @@ class PreferencesDialog(QDialog):
         self.undo_memory.setValue(preferences.undo_max_memory_mb())
         self.undo_memory.valueChanged.connect(self._undo_limits_changed)
         return _page(
+            (tr("縮小表示"), self.display_shrink_mode),
+            _hint(tr(
+                "キャンバス全体が見えるところまで縮めると、1画素の線は拾われたり"
+                "落ちたりして荒れます。「線を残す」は細い線を消さずに縮めますが、"
+                "大きなキャンバスでは表示の更新が少し重くなります。"
+                "元の絵は変わりません。"
+            )),
             (tr("取り消せる回数"), self.undo_steps),
             (tr("取り消し履歴のメモリ"), self.undo_memory),
             _hint(tr(
@@ -732,6 +753,14 @@ class PreferencesDialog(QDialog):
                 "減らしたときは、次に操作したときに古い履歴が消えます。"
             )),
         )
+
+    def _display_shrink_mode_changed(self):
+        preferences.set_display_shrink_mode(
+            self.display_shrink_mode.currentData()
+        )
+        canvas = getattr(self.main_window, "canvas", None)
+        if canvas is not None:
+            canvas.update()
 
     def _undo_limits_changed(self):
         preferences.set_undo_max_steps(self.undo_steps.value())
