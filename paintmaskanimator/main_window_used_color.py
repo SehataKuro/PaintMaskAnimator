@@ -12,8 +12,9 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 from PySide6.QtGui import QColor, QImage
-from PySide6.QtWidgets import QFileDialog, QMessageBox
+from PySide6.QtWidgets import QDialog, QFileDialog, QMessageBox
 from . import imaging, native, replacement_sets
+from .hsv_adjust_dialog import HsvAdjustDialog
 from .i18n import tr
 from .progress import close_counter, create_counter, update_counter
 from .logging_setup import get_logger
@@ -616,3 +617,51 @@ class UsedColorController:
                 3000,
             )
         return True
+
+    # ------------------------------------------------------------------
+    # 色相・彩度・明度の調整（Issue #22）
+    # ------------------------------------------------------------------
+    def adjust_used_color_hsv(self, selected_rgbs):
+        """選んだ使用色をまとめてずらす。確定で全コマへ適用する。
+
+        スライダーを動かすあいだは ``canvas.preview_color_remap`` だけを
+        差し替えて見せる（非破壊）。キャンセルすれば元の表示に戻る。
+        """
+        rgbs = sorted(
+            tuple(int(channel) for channel in rgb[:3])
+            for rgb in selected_rgbs or ()
+            if rgb is not None and len(rgb) >= 3
+            and tuple(int(channel) for channel in rgb[:3]) != (255, 255, 255)
+        )
+        if not rgbs:
+            self.window.statusBar().showMessage(
+                tr("調整する使用色が選択されていません。"), 2400
+            )
+            return False
+
+        canvas = self.window.canvas
+        restore = dict(getattr(canvas, "preview_color_remap", None) or {})
+        dialog = HsvAdjustDialog(rgbs, self.window)
+
+        def preview(mapping):
+            canvas.preview_color_remap = dict(mapping)
+            canvas.update()
+
+        dialog.previewChanged.connect(preview)
+        try:
+            accepted = dialog.exec() == QDialog.DialogCode.Accepted
+            mapping = dialog.mapping() if accepted else {}
+        finally:
+            canvas.preview_color_remap = restore
+            canvas.update()
+
+        if not accepted:
+            return False
+        if not mapping:
+            self.window.statusBar().showMessage(
+                tr("色は変わりませんでした。"), 2400
+            )
+            return False
+        return bool(
+            self.apply_palette_replacements(mapping, operation="replace")
+        )

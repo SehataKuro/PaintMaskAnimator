@@ -1303,6 +1303,9 @@ class UIBuildMixin(MainWindowMembers):
         self.palette.adjustLineThicknessRequested.connect(
             self.colors.adjust_parent_line_thickness
         )
+        self.palette.adjustHsvRequested.connect(
+            self.used_color.adjust_used_color_hsv
+        )
         self.palette.focusColorRequested.connect(self.colors.focus_used_color)
         self.palette.clearIsolateRequested.connect(
             self.colors.clear_selected_color_filter
