@@ -239,27 +239,6 @@ class CutFolderLayout:
         return replace(self, extra_folders=list(self.extra_folders))
 
 
-def pma_standard_layout():
-    """PMA標準: the per-layer folders of 連番書き出し inside a named cut folder.
-
-    Folder ``作品名_話数_c012``, cels ``A/A0001.png`` -- the same cel naming as
-    the existing key-sequence export -- and the XDTS named after the folder.
-    """
-    cut_name = (
-        block("title"), text("_"), block("episode", digits=2), text("_"),
-        block("cut", digits=3, prefix="c"),
-    )
-    return CutFolderLayout(
-        folder=cut_name,
-        cell_folder=(block("cell"),),
-        cell_file=(block("cell"), block("number", digits=4)),
-        timesheet=cut_name,
-        timesheet_folder=(),
-        extra_folders=[],
-        image_format="png",
-    )
-
-
 def ts_pool_layout():
     """_ts・_pool: the layout used for compositing handoff.
 
@@ -279,7 +258,10 @@ def ts_pool_layout():
     )
 
 
-BUILTIN_PRESETS = {"PMA標準": pma_standard_layout, "_ts・_pool": ts_pool_layout}
+BUILTIN_PRESETS = {"_ts・_pool": ts_pool_layout}
+
+#: The preset a fresh dialog starts from.
+DEFAULT_PRESET = "_ts・_pool"
 
 
 # --- export planning ---------------------------------------------------------

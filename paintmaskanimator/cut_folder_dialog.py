@@ -805,8 +805,8 @@ class CutFolderExportDialog(QDialog):
                 layout = cf.CutFolderLayout.from_json(saved["layout"])
             except (ValueError, TypeError, KeyError, AttributeError):
                 layout = None
-        self._rebuild_preset_combo(saved.get("preset") or "PMA標準")
-        self.set_layout(layout or cf.pma_standard_layout())
+        self._rebuild_preset_combo(saved.get("preset") or cf.DEFAULT_PRESET)
+        self.set_layout(layout or cf.BUILTIN_PRESETS[cf.DEFAULT_PRESET]())
         for line in self.value_edits.values():
             line.textChanged.connect(self._values_changed)
         self.resize(1040, 680)
@@ -958,8 +958,8 @@ class CutFolderExportDialog(QDialog):
             if current and current[0] == "user":
                 self.user_presets.pop(str(current[1]), None)
                 self._save_presets()
-                self._rebuild_preset_combo("PMA標準")
-                self.set_layout(cf.pma_standard_layout())
+                self._rebuild_preset_combo(cf.DEFAULT_PRESET)
+                self.set_layout(cf.BUILTIN_PRESETS[cf.DEFAULT_PRESET]())
                 return
         if kind in ("builtin", "user"):
             self._current_preset = (kind, preset_name)

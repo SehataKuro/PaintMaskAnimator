@@ -1,12 +1,14 @@
 from paintmaskanimator import cut_folder as cf
 from paintmaskanimator.cut_folder import CelSource, block, text
 
+from cut_folder_layouts import episode_layout
+
 
 VALUES = {"title": "PMA", "scene": "", "episode": "3", "cut": "12"}
 
 
-def test_pma_standard_renders_folder_cels_and_timesheet():
-    layout = cf.pma_standard_layout()
+def test_episode_layout_renders_folder_cels_and_timesheet():
+    layout = episode_layout()
     plan = cf.plan_export(
         layout,
         VALUES,
@@ -57,19 +59,19 @@ def test_digits_and_case_options():
 
 def test_missing_value_used_by_template_is_reported():
     plan = cf.plan_export(
-        cf.pma_standard_layout(), dict(VALUES, episode=""), [CelSource(0, "A", 1)]
+        episode_layout(), dict(VALUES, episode=""), [CelSource(0, "A", 1)]
     )
     assert ("missing_value", "episode") in plan.problems
 
 
 def test_unused_empty_value_is_not_a_problem():
-    # シーン is empty but the standard layout never uses it.
-    plan = cf.plan_export(cf.pma_standard_layout(), VALUES, [CelSource(0, "A", 1)])
+    # シーン is empty but the layout never uses it.
+    plan = cf.plan_export(episode_layout(), VALUES, [CelSource(0, "A", 1)])
     assert plan.ok
 
 
 def test_template_without_number_collides_and_is_reported():
-    layout = cf.pma_standard_layout()
+    layout = episode_layout()
     layout.cell_file = (block("cell"),)
     plan = cf.plan_export(
         layout, VALUES, [CelSource(0, "A", 1), CelSource(0, "A", 2)]
@@ -79,21 +81,21 @@ def test_template_without_number_collides_and_is_reported():
 
 
 def test_invalid_characters_are_reported():
-    layout = cf.pma_standard_layout()
+    layout = episode_layout()
     layout.folder = (block("title"),)
     plan = cf.plan_export(layout, dict(VALUES, title="a:b"), [])
     assert ("bad_name", "a:b", "folder") in plan.problems
 
 
 def test_extra_folders_are_rendered_and_nested_paths_allowed():
-    layout = cf.pma_standard_layout()
+    layout = episode_layout()
     layout.extra_folders = [(text("BG"),), (text("LO/"), block("cut", prefix="c"))]
     plan = cf.plan_export(layout, VALUES, [])
     assert plan.folders == ["BG", "LO/c12"]
 
 
 def test_json_round_trip():
-    layout = cf.pma_standard_layout()
+    layout = episode_layout()
     layout.extra_folders = [(text("BG"),)]
     layout.timesheet_folder = (text("_ts"),)
     restored = cf.CutFolderLayout.from_json(layout.to_json())
@@ -108,7 +110,7 @@ def test_explode_and_compact_are_inverse():
 
 
 def test_regex_matches_rendered_names_and_loose_digits():
-    template = cf.pma_standard_layout().cell_file
+    template = episode_layout().cell_file
     pattern = cf.to_regex(template)
     match = pattern.fullmatch("A0012")
     assert match and match["cell"] == "A" and int(match["number"]) == 12

@@ -17,6 +17,8 @@ from paintmaskanimator.cut_folder_dialog import (  # noqa: E402
 )
 from paintmaskanimator.main_window import MainWindow  # noqa: E402
 
+from cut_folder_layouts import episode_layout  # noqa: E402
+
 
 @pytest.fixture(scope="module")
 def qapp():
@@ -60,7 +62,7 @@ def test_cut_folder_export_writes_cels_timesheet_and_empty_folders(window, tmp_p
     assert [(c.cell, c.number) for c in cels] == [("A", 1), ("A", 2)]
     assert skipped == 0
 
-    layout = cf.pma_standard_layout()
+    layout = episode_layout()
     layout.extra_folders = [(text("BG"),)]
     values = {"title": "PMA", "scene": "", "episode": "1", "cut": "12"}
     plan = cf.plan_export(layout, values, cels)
@@ -81,7 +83,7 @@ def test_timesheet_folder_puts_the_sheet_in_a_subfolder(window, tmp_path, monkey
     monkeypatch.setattr(QMessageBox, "information", lambda *_a, **_k: None)
     _draw_cels(window, 1)
     cels, images, _ = window.export.cut_folder_cels()
-    layout = cf.pma_standard_layout()
+    layout = episode_layout()
     layout.timesheet_folder = (text("_ts"),)
     plan = cf.plan_export(layout, {"title": "PMA", "episode": "1", "cut": "3"}, cels)
     assert plan.timesheet_path == "_ts/PMA_01_c003.xdts"
@@ -121,23 +123,23 @@ def test_dialog_preview_and_validation(window, tmp_path):
     cels, _images, _ = window.export.cut_folder_cels()
     dialog = CutFolderExportDialog(cels, cut_hint="12", parent=window)
     try:
+        assert dialog._current_preset == ("builtin", cf.DEFAULT_PRESET)
+        assert not dialog.export_button.isEnabled()  # 作品名 and 保存先 missing
         dialog.value_edits["title"].setText("PMA")
-        assert not dialog.export_button.isEnabled()  # 話数 and 保存先 missing
-        dialog.value_edits["episode"].setText("4")
         dialog.destination.setText(str(tmp_path))
-        assert dialog.export_button.isEnabled()
+        assert dialog.export_button.isEnabled()  # the default needs no 話数
         root = dialog.tree.topLevelItem(0)
         assert root is not None
-        assert root.text(0).startswith("PMA_04_c012/")
+        assert root.text(0).startswith("PMA_C012/")
         names = [root.child(i).text(0) for i in range(root.childCount())]
-        assert "A/" in names and "PMA_04_c012.xdts" in names
+        assert "A/" in names and "_ts/" in names and "_pool/" in names
 
         dialog.timesheet_folder_editor.set_template((text("_sheet"),))
         dialog._refresh_preview()
         root = dialog.tree.topLevelItem(0)
         assert root is not None
         names = [root.child(i).text(0) for i in range(root.childCount())]
-        assert "_sheet/" in names and "PMA_04_c012.xdts" not in names
+        assert "_sheet/" in names and "_ts/" not in names
 
         dialog.remember()
         saved = config.get_value("cut_folder_export")

@@ -11,6 +11,8 @@ from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
 from paintmaskanimator import config, constants, cut_folder as cf, timesheet_file  # noqa: E402
 from paintmaskanimator.main_window import MainWindow  # noqa: E402
 
+from cut_folder_layouts import episode_layout  # noqa: E402
+
 
 @pytest.fixture(scope="module")
 def qapp():
@@ -89,7 +91,7 @@ def _shown(window, frame):
 @pytest.mark.parametrize(
     "layout, values",
     [
-        (cf.pma_standard_layout(), {"title": "PMA", "episode": "1", "cut": "12"}),
+        (episode_layout(), {"title": "PMA", "episode": "1", "cut": "12"}),
         (cf.ts_pool_layout(), {"title": "PMA", "cut": "2"}),
     ],
 )
