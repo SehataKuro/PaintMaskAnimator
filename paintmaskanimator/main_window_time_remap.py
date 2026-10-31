@@ -696,3 +696,105 @@ class TimeRemapController:
         if remap_path.suffix.lower() not in (".xdts", ".xtds"):
             return False
         return bool(self.show_paste_dialog(str(remap_path)))
+
+
+    # ------------------------------------------------------------------
+    # タイムラインからのコピー（Issue #23）
+    # ------------------------------------------------------------------
+    def timeline_states(self, layer_index=None):
+        """シートの並びを ``[絵番号 または None, ...]`` として読み出す。
+
+        ``None`` は空セル（○）と未使用セル。貼り付け（``parse_text``）が作る
+        ``states`` と同じ形なので、往復しても同じ並びになる。
+        """
+        canvas = self.window.canvas
+        if layer_index is None:
+            layer_index = int(canvas.active_layer_index)
+        layer_index = int(layer_index)
+        states: list = []
+        for column in range(len(canvas.frames)):
+            if not (0 <= layer_index < len(canvas.frames[column].layers)):
+                states.append(None)
+                continue
+            block = canvas.timeline_block_at(column, layer_index)
+            if block is None:
+                states.append(None)
+                continue
+            _kind, start, _exposure = block
+            layer = canvas.frames[start].layers[layer_index]
+            states.append(
+                int(layer.sequence_number)
+                if layer.has_content and layer.sequence_number is not None
+                else None
+            )
+        return states
+
+    def after_effects_text(self, states=None, fps=None):
+        """After Effects の Time Remap キーフレームデータを組み立てる。
+
+        絵番号 N は ``(N - 1) / fps`` 秒に置く（連番を1枚ずつ並べた素材の
+        先頭を 0 秒とする、貼り付け側と同じ数え方）。空セルは不透明度 0 の
+        キーで表し、絵が無いことを示す。
+        """
+        states = self.timeline_states() if states is None else list(states)
+        if fps is None:
+            fps = float(self.window.timeline.fps.value())
+        fps = float(fps) if float(fps) > 0 else 24.0
+
+        time_lines = []
+        opacity_lines = []
+        visible = None
+        for index, state in enumerate(states):
+            frame = index + 1
+            if state is None:
+                # 空セルは不透明度0で表す。見えていた直後だけキーを置く。
+                if visible is not False:
+                    opacity_lines.append(f"\t{frame}\t0")
+                    visible = False
+                continue
+            if visible is not True:
+                opacity_lines.append(f"\t{frame}\t100")
+                visible = True
+            time_lines.append(f"\t{frame}\t{(int(state) - 1) / fps:.6f}")
+
+        if not time_lines:
+            raise OperationError(
+                tr("書き出せるセルがありません。絵番号の付いたセルが要ります。")
+            )
+
+        return "\n".join([
+            "Adobe After Effects 8.0 Keyframe Data",
+            "",
+            f"\tUnits Per Second\t{fps:g}",
+            "\tSource Width\t0",
+            "\tSource Height\t0",
+            "\tSource Pixel Aspect Ratio\t1",
+            "\tComp Pixel Aspect Ratio\t1",
+            "",
+            "Time Remap",
+            "\tFrame\tseconds",
+            *time_lines,
+            "",
+            "Transform\tOpacity",
+            "\tFrame\tpercent",
+            *opacity_lines,
+            "",
+            "End of Keyframe Data",
+            "",
+        ])
+
+    def copy_from_timeline(self):
+        """いまのシートをタイムリマップとしてクリップボードへ写す。"""
+        try:
+            text = self.after_effects_text()
+        except OperationError as exc:
+            self.window.statusBar().showMessage(str(exc), 3000)
+            return False
+        clipboard = QApplication.clipboard()
+        if clipboard is None:
+            return False
+        clipboard.setText(text)
+        self.window.statusBar().showMessage(
+            tr("タイムリマップをクリップボードへコピーしました。"), 3000
+        )
+        return True

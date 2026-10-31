@@ -369,6 +369,10 @@ class UIBuildMixin(MainWindowMembers):
             tr("タイムライン：タイムリマップを貼り付け"),
             self.time_remap.show_paste_dialog,
         )
+        self.a_tl_copy_time_remap = self.make_shortcut_action(
+            tr("タイムライン：タイムリマップをコピー"),
+            self.time_remap.copy_from_timeline,
+        )
         self.a_tl_onion = self.make_shortcut_action(
             tr("タイムライン：オニオンスキン設定"),
             lambda: self.timeline.onion.toggle(),
@@ -462,6 +466,7 @@ class UIBuildMixin(MainWindowMembers):
             (tr("コマ数を1つ増やす"), self.a_tl_add_exposure),
             (tr("コマを削除"), self.a_tl_delete_frame),
             (tr("タイムリマップを貼り付け"), self.a_tl_paste_time_remap),
+            (tr("タイムリマップをコピー"), self.a_tl_copy_time_remap),
             (tr("前のフレーム"), self.a_tl_previous),
             (tr("前のコマ"), self.a_tl_previous_key),
             (tr("再生／停止"), self.a_tl_play),
@@ -542,6 +547,7 @@ class UIBuildMixin(MainWindowMembers):
         a.addAction(self.a_tl_next_key)
         a.addSeparator()
         a.addAction(self.a_tl_paste_time_remap)
+        a.addAction(self.a_tl_copy_time_remap)
         # 「システムに合わせる」のときは、OSの外観の切り替えに追従する。
         QGuiApplication.styleHints().colorSchemeChanged.connect(
             self._on_system_color_scheme_changed
@@ -1215,6 +1221,9 @@ class UIBuildMixin(MainWindowMembers):
         )
         self.timeline.playbackRangeEdgeRequested.connect(
             self.timeline_ops.resize_range
+        )
+        self.timeline.timeRemapCopyRequested.connect(
+            self.time_remap.copy_from_timeline
         )
         self.timeline.exposureResizeRequested.connect(self.timeline_ops.resize_exposure)
         self.timeline.tweenRequested.connect(

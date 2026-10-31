@@ -662,6 +662,8 @@ class TimelineTable(QTableWidget):
     deleteFrameAtRequested = Signal(int, int)
     #: ("start"|"end", 列)。
     playbackRangeEdgeRequested = Signal(str, int)
+    # タイムリマップをシートから写す（Issue #23）。
+    timeRemapCopyRequested = Signal()
 
     END_HANDLE_ROLE = Qt.ItemDataRole.UserRole + 2
     START_HANDLE_ROLE = Qt.ItemDataRole.UserRole + 4
@@ -1221,6 +1223,8 @@ class TimelineTable(QTableWidget):
         action_range_start.setEnabled(on_cell)
         action_range_end.setEnabled(on_cell)
         menu.addSeparator()
+        action_copy_time_remap = menu.addAction(tr("タイムリマップをコピー"))
+        menu.addSeparator()
         action_insert_frame = menu.addAction(tr("フレームを挿入"))
         action_delete_frame = menu.addAction(tr("フレームを削除"))
         action_insert_frame.setEnabled(on_cell)
@@ -1324,6 +1328,10 @@ class TimelineTable(QTableWidget):
             cell_actions[chosen].emit(row, column)
             event.accept()
             return
+        if chosen is action_copy_time_remap:
+            self.timeRemapCopyRequested.emit()
+            event.accept()
+            return
         if chosen is action_range_start and on_cell:
             self.playbackRangeEdgeRequested.emit("start", column)
             event.accept()
@@ -1405,6 +1413,7 @@ class TimelineWidget(QWidget):
     insertFrameAtRequested=Signal(int,int)
     deleteFrameAtRequested=Signal(int,int)
     playbackRangeEdgeRequested=Signal(str,int)
+    timeRemapCopyRequested=Signal()
     timelineModeChanged=Signal(str)
     normalizeNumbersRequested=Signal(object)
     toggleDraftLayersRequested=Signal(object)
@@ -1757,6 +1766,7 @@ class TimelineWidget(QWidget):
         self.table.insertFrameAtRequested.connect(self.insertFrameAtRequested)
         self.table.deleteFrameAtRequested.connect(self.deleteFrameAtRequested)
         self.table.playbackRangeEdgeRequested.connect(self.playbackRangeEdgeRequested)
+        self.table.timeRemapCopyRequested.connect(self.timeRemapCopyRequested)
         body.addWidget(self.table,1)
         v.addLayout(body)
         self.layer_list.currentRowChanged.connect(self._layer_selected)
