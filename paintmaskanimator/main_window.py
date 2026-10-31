@@ -44,7 +44,7 @@ from PySide6.QtWidgets import (
 from .i18n import tr
 from .optional_deps import PILImage
 from .constants import APP_DISPLAY_NAME, OUTSIDE_MARGIN
-from . import constants, imaging, layout_paper, preferences, pressure_settings, project_io, session_state, theme, updater
+from . import color_ops, constants, imaging, layout_paper, preferences, pressure_settings, project_io, session_state, theme, updater
 from .actionpanel import ActionPanel
 from .canvas import PaintCanvas
 from .errors import OPERATION_ERRORS
@@ -302,6 +302,14 @@ class MainWindow(
                 f"{Path(paths[0]).name}\n{error}"
             )
 
+        # パレットは代表フレームからまとめて作る。1枚目だけで決めると、
+        # 中間で色が増えるカットやフラッシュで色が潰れる（Issue #10）。
+        reference_images = []
+        for index in color_ops.reference_frame_indices(len(paths)):
+            image, _error = self.canvas._read_image_file(paths[index])
+            if image is not None and not image.isNull():
+                reference_images.append(image)
+
         try:
             color_count = (
                 self.canvas.opaque_rgb_color_count(first_image)
@@ -341,6 +349,7 @@ class MainWindow(
                 opaque_background,
                 background_rgb,
                 self,
+                reference_images=reference_images,
             )
             if (
                 dialog.exec()
