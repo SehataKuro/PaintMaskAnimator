@@ -23,6 +23,7 @@ from pathlib import Path
 from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMessageBox
 from .i18n import tr
 from .memo_window import MEMO_FILE_NAME
+from . import movie_slate
 from . import cut_folder, preferences, timesheet_file
 from .models import default_layer_name
 from .optional_deps import PILImage, PSDImage
@@ -624,17 +625,27 @@ class ExportController:
                 tr("動画用フレームを準備しています"),
             )
             output_index = 0
+            # 頭の数コマだけカット名を重ねる（Issue #26）。コマは足さないので
+            # タイミングは変わらない。
+            cut_name = movie_slate.cut_name_for(
+                self.window.current_project_path
+            )
             for frame_index, frame in enumerate(self.window.canvas.frames):
                 image = self.window.crop_image(frame_index)
                 for _ in range(max(1, int(frame.duration))):
                     output_index += 1
+                    written = (
+                        movie_slate.draw_cut_name(image, cut_name)
+                        if output_index <= movie_slate.LEADING_FRAMES
+                        else image
+                    )
                     update_counter(
                         progress,
                         output_index - 1,
                         total,
                         tr("フレーム {index} / {total} を準備しています").format(index=output_index, total=total),
                     )
-                    image.save(
+                    written.save(
                         str(Path(td) / f"f_{output_index:06}.png"),
                     )
             close_counter(progress)
