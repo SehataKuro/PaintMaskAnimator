@@ -238,6 +238,61 @@ def drag_zoom_factor(dx):
 
 _magnifier_cursor_cache = None
 
+#: ツールの形をしたカーソルを出すツール。ブラシはリング描画、スポイト・ハンド・
+#: ズームはそれぞれ専用カーソルがあるので、ここには入れない。
+TOOL_CURSOR_NAMES = (
+    "shape",
+    "bucket",
+    "lasso_fill",
+    "lasso",
+    "rect_select",
+    "auto_select",
+    "dust",
+)
+
+_tool_cursor_cache: dict = {}
+
+
+def tool_cursor(tool_id):
+    """ツールアイコンの形をしたカーソル。見つからなければ ``None``。
+
+    今どのツールを使っているかを、ツールバーへ視線を動かさず判別できるように
+    する（Issue #45）。左上にクリック位置を示す十字、その右下にツールの絵を
+    置く。暗い絵の上でも消えないよう、白い縁取りの上に黒で描く。
+    """
+    if tool_id not in TOOL_CURSOR_NAMES:
+        return None
+    cached = _tool_cursor_cache.get(tool_id)
+    if cached is not None:
+        return cached
+
+    from . import icons
+
+    glyph = icons.pixmap(tool_id, 16, color="#000000", accent="#000000")
+    halo = icons.pixmap(tool_id, 16, color="#ffffff", accent="#ffffff")
+
+    pixmap = QPixmap(32, 32)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    # 十字（クリック位置）。白を太く敷いてから黒を重ねる。
+    for color, width in ((QColor("white"), 3.0), (QColor("black"), 1.4)):
+        painter.setPen(QPen(color, width))
+        painter.drawLine(QPointF(0.5, 6.5), QPointF(12.5, 6.5))
+        painter.drawLine(QPointF(6.5, 0.5), QPointF(6.5, 12.5))
+    # ツールの絵。1px ずらした白版を敷いて縁取りにする。
+    for dx in (-1, 0, 1):
+        for dy in (-1, 0, 1):
+            if dx or dy:
+                painter.drawPixmap(14 + dx, 14 + dy, halo)
+    painter.drawPixmap(14, 14, glyph)
+    painter.end()
+
+    cursor = QCursor(pixmap, 6, 6)
+    _tool_cursor_cache[tool_id] = cursor
+    return cursor
+
+
 
 def magnifier_cursor():
     """一時ズーム中に表示する虫眼鏡カーソル。"""

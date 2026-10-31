@@ -46,7 +46,7 @@ from . import color_ops, colors, geometry, imaging, native, preferences, view_pr
 from .document import Document
 from .brush_raster import stamp_outline
 from .toolpanel import tool_label
-from .utils import blank_image, magnifier_cursor, workspace_size
+from .utils import blank_image, magnifier_cursor, tool_cursor, workspace_size
 from .progress import close_counter, create_counter, update_counter
 from .logging_setup import get_logger
 from .canvas_brush_stabilizer import BrushStabilizerMixin
@@ -592,7 +592,11 @@ class PaintCanvas(
             if self.cursor().shape() != Qt.CursorShape.BlankCursor:
                 self.setCursor(Qt.CursorShape.BlankCursor)
         else:
-            self.unsetCursor()
+            shaped = tool_cursor(tool)
+            if shaped is not None:
+                self.setCursor(shaped)
+            else:
+                self.unsetCursor()
 
     def set_pen_size(self, value):
         self.pen_size = max(0.5, float(value))
