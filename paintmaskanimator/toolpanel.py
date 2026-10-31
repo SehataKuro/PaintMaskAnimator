@@ -1115,9 +1115,13 @@ class ToolPanel(QWidget):
         self.dust_mode=QComboBox()
         self.dust_mode.addItem(tr("ゴミ取り"), "despeckle")
         self.dust_mode.addItem(tr("塗り抜け"), "fill_holes")
+        self.dust_mode.addItem(tr("線周りのノイズ"), "line_noise")
         self.dust_mode.setToolTip(
             tr("ゴミ取り：小さな色点を白（#FFFFFF）へ変更します。"
-            "塗り抜け：小さな白い穴を周囲色で埋めます。")
+            "塗り抜け：小さな白い穴を周囲色で埋めます。"
+            "線周りのノイズ：線の近くで、まわりに同じ色が1つも無い孤立した"
+            "1ドットを、8近傍の多数決でまわりの色へ寄せます。"
+            "色面のふちは同じ色の隣を必ず持つため、塗り分けは壊れません。")
         )
         self.dust_size_label=QLabel(tr("適用サイズ：3 px"))
         self.dust_size=QSlider(Qt.Orientation.Horizontal)
