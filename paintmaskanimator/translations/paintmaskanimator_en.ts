@@ -1045,7 +1045,7 @@ Export into this folder?</translation>
         <location filename="../main_window_ui_build.py" line="309"/>
         <location filename="../main_window_ui_build.py" line="453"/>
         <source>使用色：この色を選択範囲にする</source>
-        <translation type="unfinished"></translation>
+        <translation>Used colours: Select this colour&apos;s area</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="313"/>
@@ -1834,12 +1834,12 @@ Supported formats: PNG, JPEG, TGA</translation>
     <message>
         <location filename="../color_panel.py" line="549"/>
         <source>置換色を保存…</source>
-        <translation type="unfinished"></translation>
+        <translation>Save replacement colours…</translation>
     </message>
     <message>
         <location filename="../color_panel.py" line="551"/>
         <source>置換色を読み込む…</source>
-        <translation type="unfinished"></translation>
+        <translation>Load replacement colours…</translation>
     </message>
     <message>
         <location filename="../color_panel.py" line="568"/>
@@ -2421,12 +2421,12 @@ Supported formats: PNG, JPEG, TGA</translation>
     <message>
         <location filename="../preferences_dialog.py" line="718"/>
         <source>速さ優先（間引き）</source>
-        <translation type="unfinished"></translation>
+        <translation>Prefer speed (drop pixels)</translation>
     </message>
     <message>
         <location filename="../preferences_dialog.py" line="721"/>
         <source>線を残す</source>
-        <translation type="unfinished"></translation>
+        <translation>Keep thin lines</translation>
     </message>
     <message>
         <location filename="../preferences_dialog.py" line="731"/>
@@ -2436,12 +2436,12 @@ Supported formats: PNG, JPEG, TGA</translation>
     <message>
         <location filename="../preferences_dialog.py" line="741"/>
         <source>縮小表示</source>
-        <translation type="unfinished"></translation>
+        <translation>Shrinking the view</translation>
     </message>
     <message>
         <location filename="../preferences_dialog.py" line="743"/>
         <source>キャンバス全体が見えるところまで縮めると、1画素の線は拾われたり落ちたりして荒れます。「線を残す」は細い線を消さずに縮めますが、大きなキャンバスでは表示の更新が少し重くなります。元の絵は変わりません。</source>
-        <translation type="unfinished"></translation>
+        <translation>Shrinking far enough to see the whole canvas picks up some one-pixel lines and drops others, so the drawing looks ragged. &quot;Keep thin lines&quot; shrinks without losing them, at the cost of slightly slower redraws on large canvases. The drawing itself is unchanged.</translation>
     </message>
     <message>
         <location filename="../preferences_dialog.py" line="748"/>
@@ -3454,12 +3454,12 @@ Nothing was applied.</translation>
     <message>
         <location filename="../toolpanel.py" line="854"/>
         <source>閉じる隙間</source>
-        <translation type="unfinished"></translation>
+        <translation>Gap to close</translation>
     </message>
     <message>
         <location filename="../toolpanel.py" line="856"/>
         <source>これより狭い線の隙間は閉じているものとみなして塗ります。</source>
-        <translation type="unfinished"></translation>
+        <translation>Line gaps narrower than this are treated as closed when filling.</translation>
     </message>
     <message>
         <location filename="../toolpanel.py" line="864"/>
@@ -3748,24 +3748,26 @@ Nothing was applied.</translation>
     <message>
         <location filename="../toolpanel.py" line="54"/>
         <source>閉領域フィル</source>
-        <translation type="unfinished"></translation>
+        <translation>Closed-area fill</translation>
     </message>
     <message>
         <location filename="../toolpanel.py" line="500"/>
         <source>この色を含み塗りに使う</source>
-        <translation type="unfinished"></translation>
+        <translation>Use this colour for overfill</translation>
     </message>
     <message>
         <location filename="../toolpanel.py" line="561"/>
         <source>{code}
 クリックで現在の描画色に置き換え、右クリックで ON/OFF と消去ができます。</source>
-        <translation type="unfinished"></translation>
+        <translation>{code}
+Click to replace with the current drawing colour; right-click to toggle it on or off, or to clear it.</translation>
     </message>
     <message>
         <location filename="../toolpanel.py" line="576"/>
         <source>{code}（含み塗りに使っていません）
 右クリックで ON に戻せます。</source>
-        <translation type="unfinished"></translation>
+        <translation>{code} (not used for overfill)
+Right-click to turn it back on.</translation>
     </message>
     <message>
         <location filename="../toolpanel.py" line="791"/>
@@ -4318,7 +4320,7 @@ Details were saved to:
     <message>
         <location filename="../clip_animation.py" line="802"/>
         <source>セル画像を読み込み中：{folder} / {cel}</source>
-        <translation type="unfinished"></translation>
+        <translation>Reading cel images: {folder} / {cel}</translation>
     </message>
     <message>
         <location filename="../clip_animation.py" line="815"/>
@@ -4328,7 +4330,7 @@ Details were saved to:
     <message>
         <location filename="../clip_animation.py" line="817"/>
         <source>タイムラインを構築しています…</source>
-        <translation type="unfinished"></translation>
+        <translation>Building the timeline…</translation>
     </message>
     <message>
         <location filename="../color_panel_grouping.py" line="49"/>
@@ -4822,7 +4824,7 @@ Restore the automatically saved work?</translation>
     <message>
         <location filename="../main_window_color_interaction.py" line="119"/>
         <source>背景色は選択範囲にできません。使用色を選んでください。</source>
-        <translation type="unfinished"></translation>
+        <translation>The background cannot be selected. Choose a used colour.</translation>
     </message>
     <message>
         <location filename="../main_window_color_interaction.py" line="154"/>
@@ -5459,37 +5461,37 @@ In-between and symbol labels: {blanks} cells</translation>
     <message>
         <location filename="../main_window_timeline_ops.py" line="908"/>
         <source>コピーできるセルがありません。</source>
-        <translation type="unfinished"></translation>
+        <translation>There is no cell to copy.</translation>
     </message>
     <message>
         <location filename="../main_window_timeline_ops.py" line="916"/>
         <source>セルをコピーしました。</source>
-        <translation type="unfinished"></translation>
+        <translation>Copied the cell.</translation>
     </message>
     <message>
         <location filename="../main_window_timeline_ops.py" line="923"/>
         <source>セルを切り取りました。</source>
-        <translation type="unfinished"></translation>
+        <translation>Cut the cell.</translation>
     </message>
     <message>
         <location filename="../main_window_timeline_ops.py" line="931"/>
         <source>貼り付けられるセルがありません。</source>
-        <translation type="unfinished"></translation>
+        <translation>There is no cell to paste.</translation>
     </message>
     <message>
         <location filename="../main_window_timeline_ops.py" line="950"/>
         <source>セルを貼り付けました。</source>
-        <translation type="unfinished"></translation>
+        <translation>Pasted the cell.</translation>
     </message>
     <message>
         <location filename="../main_window_timeline_ops.py" line="986"/>
         <source>露出の途中を選んでください。先頭では分割できません。</source>
-        <translation type="unfinished"></translation>
+        <translation>Choose a frame inside the exposure; it cannot be split at its start.</translation>
     </message>
     <message>
         <location filename="../main_window_timeline_ops.py" line="1011"/>
         <source>前に結合できるセルがありません。</source>
-        <translation type="unfinished"></translation>
+        <translation>There is no preceding cell to merge into.</translation>
     </message>
     <message>
         <location filename="../main_window_used_color.py" line="146"/>
@@ -5584,34 +5586,34 @@ In-between and symbol labels: {blanks} cells</translation>
     <message>
         <location filename="../main_window_used_color.py" line="549"/>
         <source>保存できる置換色が登録されていません。</source>
-        <translation type="unfinished"></translation>
+        <translation>No replacement colours are registered to save.</translation>
     </message>
     <message>
         <location filename="../main_window_used_color.py" line="554"/>
         <location filename="../main_window_used_color.py" line="566"/>
         <source>置換色を保存</source>
-        <translation type="unfinished"></translation>
+        <translation>Save replacement colours</translation>
     </message>
     <message>
         <location filename="../main_window_used_color.py" line="571"/>
         <source>置換色を保存しました：{name}</source>
-        <translation type="unfinished"></translation>
+        <translation>Saved the replacement colours: {name}</translation>
     </message>
     <message>
         <location filename="../main_window_used_color.py" line="584"/>
         <location filename="../main_window_used_color.py" line="596"/>
         <source>置換色を読み込み</source>
-        <translation type="unfinished"></translation>
+        <translation>Load replacement colours</translation>
     </message>
     <message>
         <location filename="../main_window_used_color.py" line="603"/>
         <source>置換色 {total}組のうち {registered}組を登録しました（残りはこの絵で使われていない色です）：{name}</source>
-        <translation type="unfinished"></translation>
+        <translation>Registered {registered} of {total} replacement pairs (the rest use colours this drawing does not contain): {name}</translation>
     </message>
     <message>
         <location filename="../main_window_used_color.py" line="613"/>
         <source>置換色 {registered}組を登録しました：{name}</source>
-        <translation type="unfinished"></translation>
+        <translation>Registered {registered} replacement pairs: {name}</translation>
     </message>
     <message>
         <location filename="../main_window_workspace.py" line="186"/>
@@ -6322,47 +6324,47 @@ a folder here</translation>
         <location filename="../timeline.py" line="1199"/>
         <source>中割りトラックラベル○を作成</source>
         <extracomment>(&quot;start&quot;|&quot;end&quot;, 列)。</extracomment>
-        <translation type="unfinished"></translation>
+        <translation>Create an in-between track label (○)</translation>
     </message>
     <message>
         <location filename="../timeline.py" line="1201"/>
         <source>トラックラベルを削除</source>
-        <translation type="unfinished"></translation>
+        <translation>Delete the track label</translation>
     </message>
     <message>
         <location filename="../timeline.py" line="1212"/>
         <source>新規アニメーションセル</source>
-        <translation type="unfinished"></translation>
+        <translation>New animation cell</translation>
     </message>
     <message>
         <location filename="../timeline.py" line="1215"/>
         <source>クリップを結合</source>
-        <translation type="unfinished"></translation>
+        <translation>Merge clips</translation>
     </message>
     <message>
         <location filename="../timeline.py" line="1216"/>
         <source>クリップを分割</source>
-        <translation type="unfinished"></translation>
+        <translation>Split the clip</translation>
     </message>
     <message>
         <location filename="../timeline.py" line="1219"/>
         <source>表示開始フレームにする</source>
-        <translation type="unfinished"></translation>
+        <translation>Set as the first played frame</translation>
     </message>
     <message>
         <location filename="../timeline.py" line="1220"/>
         <source>表示終了フレームにする</source>
-        <translation type="unfinished"></translation>
+        <translation>Set as the last played frame</translation>
     </message>
     <message>
         <location filename="../timeline.py" line="1224"/>
         <source>フレームを挿入</source>
-        <translation type="unfinished"></translation>
+        <translation>Insert a frame</translation>
     </message>
     <message>
         <location filename="../timeline.py" line="1225"/>
         <source>フレームを削除</source>
-        <translation type="unfinished"></translation>
+        <translation>Delete the frame</translation>
     </message>
     <message>
         <location filename="../timeline.py" line="1272"/>
