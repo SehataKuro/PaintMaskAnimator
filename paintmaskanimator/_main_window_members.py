@@ -159,6 +159,7 @@ class MainWindowMembers(_MembersBase):
         a_bucket_close_gap: Any
         a_bucket_include_sub: Any
         a_focus_used_color: Any
+        _timeline_cell_clipboard: Any
         a_choose_background: Any
         a_clear_color_filter: Any
         a_copy: Any

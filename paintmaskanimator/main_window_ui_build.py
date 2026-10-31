@@ -1191,6 +1191,31 @@ class UIBuildMixin(MainWindowMembers):
         self.timeline.blankFrameRequested.connect(
             self.timeline_ops.create_blank_key
         )
+        # セルの右クリックメニュー（Issue #48）。
+        self.timeline.newAnimationCellRequested.connect(
+            self.timeline_ops.new_animation_cell
+        )
+        self.timeline.clearCellRequested.connect(self.timeline_ops.clear_cell)
+        self.timeline.cutCellRequested.connect(
+            self.timeline_ops.cut_cell_to_clipboard
+        )
+        self.timeline.copyCellToClipboardRequested.connect(
+            self.timeline_ops.copy_cell_to_clipboard
+        )
+        self.timeline.pasteCellRequested.connect(
+            self.timeline_ops.paste_cell_from_clipboard
+        )
+        self.timeline.mergeClipRequested.connect(self.timeline_ops.merge_clip)
+        self.timeline.splitClipRequested.connect(self.timeline_ops.split_clip)
+        self.timeline.insertFrameAtRequested.connect(
+            self.timeline_ops.insert_frame_at
+        )
+        self.timeline.deleteFrameAtRequested.connect(
+            self.timeline_ops.delete_frame_at
+        )
+        self.timeline.playbackRangeEdgeRequested.connect(
+            self.timeline_ops.resize_range
+        )
         self.timeline.exposureResizeRequested.connect(self.timeline_ops.resize_exposure)
         self.timeline.tweenRequested.connect(
             lambda row, column: self.tween.enable(row, column, "free")

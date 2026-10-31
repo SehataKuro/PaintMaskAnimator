@@ -264,11 +264,10 @@ class PaintToolsMixin(CanvasMembers):
 
     @staticmethod
     def _shift_held():
-        application = QApplication.instance()
-        if application is None:
+        if QApplication.instance() is None:
             return False
         return bool(
-            application.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier
+            QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier
         )
 
     def _island_replacements(self):

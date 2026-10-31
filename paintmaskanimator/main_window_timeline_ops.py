@@ -841,3 +841,219 @@ class TimelineOpsController:
         else:
             # 同じレイヤーでは全コマ共通の使用色一覧なので、既存表示を維持する。
             self.window.canvas.update()
+
+    # ------------------------------------------------------------------
+    # セルの右クリックメニューから呼ぶ操作（Issue #48）
+    # ------------------------------------------------------------------
+    def _cell_target(self, visual_row, column):
+        """``(レイヤー番号, 列)``。範囲外なら ``None``。
+
+        タイムラインの行は下のレイヤーが下に並ぶので、表示行とレイヤー番号は
+        逆順になる。
+        """
+        canvas = self.window.canvas
+        layer_count = len(canvas.layers)
+        layer_index = layer_count - 1 - int(visual_row)
+        column = int(column)
+        if not (0 <= layer_index < layer_count):
+            return None
+        if not (0 <= column < len(canvas.frames)):
+            return None
+        return layer_index, column
+
+    def _cell_block(self, visual_row, column):
+        """``(レイヤー番号, 露出の開始列, 露出の長さ)``。空セルなら ``None``。"""
+        target = self._cell_target(visual_row, column)
+        if target is None:
+            return None
+        layer_index, column = target
+        block = self.window.canvas.timeline_block_at(column, layer_index)
+        if block is None:
+            return None
+        _kind, start, exposure = block
+        return layer_index, int(start), int(exposure)
+
+    def _after_cell_edit(self):
+        canvas = self.window.canvas
+        canvas._cell_structure_dirty = True
+        canvas._onion_cache.clear()
+        canvas.changed.emit()
+        canvas.selectionChanged.emit()
+        canvas.update()
+        self.window.refresh_ui()
+
+    def clear_cell(self, visual_row, column):
+        """セルを未使用に戻す（トラックラベルを削除／削除）。
+
+        露出は詰めない。前のセルの表示が伸びるのではなく、そこが空くだけに
+        するため。コマごと詰めたいときは「フレームを削除」を使う。
+        """
+        block = self._cell_block(visual_row, column)
+        if block is None:
+            return False
+        layer_index, start, _exposure = block
+        canvas = self.window.canvas
+        canvas.push_doc_undo()
+        canvas._clear_timeline_layer_cell(
+            canvas.frames[start].layers[layer_index]
+        )
+        self._after_cell_edit()
+        return True
+
+    def copy_cell_to_clipboard(self, visual_row, column):
+        """セルを控える。絵・露出・番号ごと複製して持つ。"""
+        block = self._cell_block(visual_row, column)
+        if block is None:
+            self.window.statusBar().showMessage(
+                tr("コピーできるセルがありません。"), 2400
+            )
+            return False
+        layer_index, start, _exposure = block
+        self.window._timeline_cell_clipboard = (
+            self.window.canvas.frames[start].layers[layer_index].clone()
+        )
+        self.window.timeline.set_cell_clipboard_filled(True)
+        self.window.statusBar().showMessage(tr("セルをコピーしました。"), 2000)
+        return True
+
+    def cut_cell_to_clipboard(self, visual_row, column):
+        if not self.copy_cell_to_clipboard(visual_row, column):
+            return False
+        self.clear_cell(visual_row, column)
+        self.window.statusBar().showMessage(tr("セルを切り取りました。"), 2000)
+        return True
+
+    def paste_cell_from_clipboard(self, visual_row, column):
+        """控えたセルを貼り付ける。名前はその場のレイヤー名のままにする。"""
+        source = getattr(self.window, "_timeline_cell_clipboard", None)
+        if source is None:
+            self.window.statusBar().showMessage(
+                tr("貼り付けられるセルがありません。"), 2400
+            )
+            return False
+        target = self._cell_target(visual_row, column)
+        if target is None:
+            return False
+        layer_index, column = target
+        canvas = self.window.canvas
+        canvas.push_doc_undo()
+        existing = canvas.frames[column].layers[layer_index]
+        pasted = source.clone()
+        pasted.name = existing.name
+        pasted.visible = existing.visible
+        pasted.opacity = existing.opacity
+        # トゥイーンの帯は貼り付け先では組み直せないので持ち込まない。
+        pasted.tween = None
+        pasted.tween_member = None
+        canvas.frames[column].layers[layer_index] = pasted
+        self._after_cell_edit()
+        self.window.statusBar().showMessage(tr("セルを貼り付けました。"), 2000)
+        return True
+
+    def new_animation_cell(self, visual_row, column):
+        """そのセルに、絵を持つ新しいセル（●）を作る。"""
+        target = self._cell_target(visual_row, column)
+        if target is None:
+            return False
+        layer_index, column = target
+        canvas = self.window.canvas
+        canvas.push_doc_undo()
+        layer = canvas.frames[column].layers[layer_index]
+        canvas._clear_timeline_layer_cell(layer)
+        layer.image = blank_image()
+        layer.has_content = True
+        layer.exposure = 1
+        canvas.current_frame = column
+        canvas.active_layer_index = layer_index
+        self._after_cell_edit()
+        return True
+
+    def split_clip(self, visual_row, column):
+        """露出の途中で切り、そこから新しいセルにする（クリップを分割）。
+
+        絵は複製するので、分割したあとは前半・後半を別々に直せる。
+        """
+        block = self._cell_block(visual_row, column)
+        if block is None:
+            return False
+        layer_index, start, exposure = block
+        target = self._cell_target(visual_row, column)
+        if target is None:
+            return False
+        _layer_index, column = target
+        if column <= start or column > start + exposure - 1:
+            self.window.statusBar().showMessage(
+                tr("露出の途中を選んでください。先頭では分割できません。"), 2400
+            )
+            return False
+        canvas = self.window.canvas
+        canvas.push_doc_undo()
+        head = canvas.frames[start].layers[layer_index]
+        tail = head.clone()
+        tail.exposure = start + exposure - column
+        tail.tween = None
+        tail.tween_member = None
+        head.exposure = column - start
+        canvas.frames[column].layers[layer_index] = tail
+        self._after_cell_edit()
+        return True
+
+    def merge_clip(self, visual_row, column):
+        """前のセルの露出を伸ばして、このセルを呑み込む（クリップを結合）。"""
+        block = self._cell_block(visual_row, column)
+        if block is None:
+            return False
+        layer_index, start, exposure = block
+        canvas = self.window.canvas
+        previous = canvas.timeline_block_at(start - 1, layer_index) if start else None
+        if previous is None:
+            self.window.statusBar().showMessage(
+                tr("前に結合できるセルがありません。"), 2400
+            )
+            return False
+        _kind, previous_start, previous_exposure = previous
+        canvas.push_doc_undo()
+        canvas._clear_timeline_layer_cell(
+            canvas.frames[start].layers[layer_index]
+        )
+        canvas.frames[previous_start].layers[layer_index].exposure = (
+            int(previous_exposure) + int(exposure)
+        )
+        self._after_cell_edit()
+        return True
+
+    def insert_frame_at(self, visual_row, column):
+        """そのレイヤーの、その位置へ1コマ分の空きを差し込む。"""
+        target = self._cell_target(visual_row, column)
+        if target is None:
+            return False
+        layer_index, column = target
+        canvas = self.window.canvas
+        canvas.push_doc_undo()
+        canvas._ensure_frame_count(len(canvas.frames) + 1)
+        canvas._shift_timeline_layer_right(layer_index, column, 1)
+        self._after_cell_edit()
+        return True
+
+    def delete_frame_at(self, visual_row, column):
+        """そのコマを削除して、以降を1コマ詰める。"""
+        target = self._cell_target(visual_row, column)
+        if target is None:
+            return False
+        layer_index, column = target
+        canvas = self.window.canvas
+        canvas.push_doc_undo()
+        # そのコマを空にしてから、以降を1コマ詰める。露出の途中なら、
+        # 詰めた分だけ短くなる。
+        block = canvas.timeline_block_at(column, layer_index)
+        if block is not None:
+            _kind, start, exposure = block
+            layer = canvas.frames[start].layers[layer_index]
+            if exposure > 1:
+                layer.exposure = exposure - 1
+            else:
+                canvas._clear_timeline_layer_cell(layer)
+        canvas._shift_timeline_layer_left(layer_index, column + 1)
+        canvas.current_frame = min(column, len(canvas.frames) - 1)
+        self._after_cell_edit()
+        return True
