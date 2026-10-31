@@ -125,7 +125,7 @@
     <message>
         <location filename="../main_window_ui_build.py" line="101"/>
         <source>影素材を書き出し…</source>
-        <translation type="unfinished"></translation>
+        <translation>Export shadow materials…</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="103"/>
@@ -160,7 +160,7 @@
         <location filename="../main_window_ui_build.py" line="111"/>
         <location filename="../main_window_ui_build.py" line="421"/>
         <source>メモを開く</source>
-        <translation type="unfinished"></translation>
+        <translation>Open the memo</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="113"/>
@@ -722,37 +722,37 @@ Install them from requirements.txt.</translation>
         <location filename="../main_window_export.py" line="756"/>
         <location filename="../main_window_export.py" line="788"/>
         <source>影素材の書き出し</source>
-        <translation type="unfinished"></translation>
+        <translation>Export shadow materials</translation>
     </message>
     <message>
         <location filename="../main_window_export.py" line="724"/>
         <source>色の入った使用色フォルダーがありません。影色をフォルダーにまとめてから実行してください。</source>
-        <translation type="unfinished"></translation>
+        <translation>No used-colour folder holds any colours. Group the shadow colours into a folder first.</translation>
     </message>
     <message>
         <location filename="../main_window_export.py" line="731"/>
         <source>影色をまとめたフォルダー：</source>
-        <translation type="unfinished"></translation>
+        <translation>Folder holding the shadow colours:</translation>
     </message>
     <message>
         <location filename="../main_window_export.py" line="739"/>
         <source>書き出し先のフォルダー</source>
-        <translation type="unfinished"></translation>
+        <translation>Destination folder</translation>
     </message>
     <message>
         <location filename="../main_window_export.py" line="758"/>
         <source>「{name}」の影素材を書き出しています</source>
-        <translation type="unfinished"></translation>
+        <translation>Exporting the shadow materials of &quot;{name}&quot;</translation>
     </message>
     <message>
         <location filename="../main_window_export.py" line="789"/>
         <source>書き出し中にエラーが発生しました。</source>
-        <translation type="unfinished"></translation>
+        <translation>Something went wrong while exporting.</translation>
     </message>
     <message>
         <location filename="../main_window_export.py" line="796"/>
         <source>影素材を{count}枚書き出しました：{destination}</source>
-        <translation type="unfinished"></translation>
+        <translation>Exported {count} shadow images: {destination}</translation>
     </message>
     <message>
         <location filename="../main_window_export.py" line="256"/>
@@ -1177,7 +1177,7 @@ Export into this folder?</translation>
     <message>
         <location filename="../main_window_ui_build.py" line="379"/>
         <source>タイムライン：タイムリマップをコピー</source>
-        <translation type="unfinished"></translation>
+        <translation>Timeline: Copy the time remap</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="383"/>
@@ -1202,7 +1202,7 @@ Export into this folder?</translation>
     <message>
         <location filename="../main_window_ui_build.py" line="412"/>
         <source>影素材を書き出し</source>
-        <translation type="unfinished"></translation>
+        <translation>Export shadow materials</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="422"/>
@@ -1214,7 +1214,7 @@ Export into this folder?</translation>
         <location filename="../main_window_ui_build.py" line="477"/>
         <location filename="../timeline.py" line="1226"/>
         <source>タイムリマップをコピー</source>
-        <translation type="unfinished"></translation>
+        <translation>Copy the time remap</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="517"/>
@@ -2097,17 +2097,17 @@ Supported formats: PNG, JPEG, TGA</translation>
     <message>
         <location filename="../color_panel.py" line="1441"/>
         <source>色相・彩度・明度を調整</source>
-        <translation type="unfinished"></translation>
+        <translation>Adjust hue, saturation and brightness</translation>
     </message>
     <message>
         <location filename="../color_panel.py" line="1443"/>
         <source>選択した{count}色の色相・彩度・明度を調整</source>
-        <translation type="unfinished"></translation>
+        <translation>Adjust hue, saturation and brightness of the {count} selected colours</translation>
     </message>
     <message>
         <location filename="../color_panel.py" line="1448"/>
         <source>プレビューを見ながら調整し、OKで全コマへ適用します。</source>
-        <translation type="unfinished"></translation>
+        <translation>Adjust with a live preview; OK applies it to every exposure.</translation>
     </message>
     <message>
         <location filename="../color_panel.py" line="1451"/>
@@ -3859,12 +3859,12 @@ Right-click to turn it back on.</translation>
     <message>
         <location filename="../toolpanel.py" line="1118"/>
         <source>線周りのノイズ</source>
-        <translation type="unfinished"></translation>
+        <translation>Line-edge noise</translation>
     </message>
     <message>
         <location filename="../toolpanel.py" line="1120"/>
         <source>ゴミ取り：小さな色点を白（#FFFFFF）へ変更します。塗り抜け：小さな白い穴を周囲色で埋めます。線周りのノイズ：線の近くで、まわりに同じ色が1つも無い孤立した1ドットを、8近傍の多数決でまわりの色へ寄せます。色面のふちは同じ色の隣を必ず持つため、塗り分けは壊れません。</source>
-        <translation type="unfinished"></translation>
+        <translation>Despeckle: turns small colour specks white (#FFFFFF). Fill holes: fills small white holes with the surrounding colour. Line-edge noise: near a line, a lone pixel with no neighbour of its own colour is pulled towards the surrounding colour by a vote of its eight neighbours. The edge of a colour area always has a neighbour of the same colour, so the painted areas are left intact.</translation>
     </message>
     <message>
         <location filename="../toolpanel.py" line="1283"/>
@@ -4734,7 +4734,7 @@ Line art: binarises the line work while preserving the white background and the 
     <message>
         <location filename="../color_reduction.py" line="385"/>
         <source>代表{frames}枚：1枚目{count:,}色／{note}&#x3000;トーンカーブを元画像へ先に適用し、その後に色数を調整して2値化します。</source>
-        <translation type="unfinished"></translation>
+        <translation>{frames} sample frames; {count:,} colours in the first / {note}&#x3000;The tone curve is applied to the source first, then the colour count is reduced and the result is binarised.</translation>
     </message>
     <message>
         <location filename="../color_reduction.py" line="582"/>
@@ -5512,12 +5512,12 @@ In-between and symbol labels: {blanks} cells</translation>
     <message>
         <location filename="../main_window_time_remap.py" line="762"/>
         <source>書き出せるセルがありません。絵番号の付いたセルが要ります。</source>
-        <translation type="unfinished"></translation>
+        <translation>There are no cells to write out; cells need a drawing number.</translation>
     </message>
     <message>
         <location filename="../main_window_time_remap.py" line="798"/>
         <source>タイムリマップをクリップボードへコピーしました。</source>
-        <translation type="unfinished"></translation>
+        <translation>Copied the time remap to the clipboard.</translation>
     </message>
     <message>
         <location filename="../main_window_timeline_ops.py" line="199"/>
@@ -5715,12 +5715,12 @@ In-between and symbol labels: {blanks} cells</translation>
     <message>
         <location filename="../main_window_used_color.py" line="638"/>
         <source>調整する使用色が選択されていません。</source>
-        <translation type="unfinished"></translation>
+        <translation>No used colours are selected to adjust.</translation>
     </message>
     <message>
         <location filename="../main_window_used_color.py" line="662"/>
         <source>色は変わりませんでした。</source>
-        <translation type="unfinished"></translation>
+        <translation>The colours did not change.</translation>
     </message>
     <message>
         <location filename="../main_window_workspace.py" line="186"/>
@@ -7526,43 +7526,43 @@ Layer cell {value} / {exposure} exposures</translation>
         <location filename="../hsv_adjust_dialog.py" line="71"/>
         <source>色相・彩度・明度</source>
         <extracomment>スライダーの範囲。色相は一周、彩度・明度は±100%。 ``{元の RGB: ずらした RGB}``。</extracomment>
-        <translation type="unfinished"></translation>
+        <translation>Hue, saturation and brightness</translation>
     </message>
     <message>
         <location filename="../hsv_adjust_dialog.py" line="78"/>
         <source>選択中の{count}色をまとめて調整します。OKで、選択レイヤーのすべてのコマへ適用します。</source>
-        <translation type="unfinished"></translation>
+        <translation>Adjusts the {count} selected colours together. OK applies the change to every exposure of the selected layer.</translation>
     </message>
     <message>
         <location filename="../hsv_adjust_dialog.py" line="86"/>
         <source>色相</source>
-        <translation type="unfinished"></translation>
+        <translation>Hue</translation>
     </message>
     <message>
         <location filename="../hsv_adjust_dialog.py" line="88"/>
         <source>彩度</source>
-        <translation type="unfinished"></translation>
+        <translation>Saturation</translation>
     </message>
     <message>
         <location filename="../hsv_adjust_dialog.py" line="90"/>
         <source>明度</source>
-        <translation type="unfinished"></translation>
+        <translation>Brightness</translation>
     </message>
     <message>
         <location filename="../memo_window.py" line="25"/>
         <source>メモ</source>
         <extracomment>書き出すメモのファイル名。</extracomment>
-        <translation type="unfinished"></translation>
+        <translation>Memo</translation>
     </message>
     <message>
         <location filename="../memo_window.py" line="33"/>
         <source>カット袋やシートのメモ欄として使えます。プロジェクトに保存され、カットフォルダー書き出しではタイムシートの隣へ {name} として出ます。</source>
-        <translation type="unfinished"></translation>
+        <translation>Use it as the memo field of a cut bag or an exposure sheet. It is saved in the project, and a cut-folder export writes it next to the exposure sheet as {name}.</translation>
     </message>
     <message>
         <location filename="../memo_window.py" line="43"/>
         <source>例：3コマ目のタイミング要確認</source>
-        <translation type="unfinished"></translation>
+        <translation>e.g. check the timing on the third exposure</translation>
     </message>
 </context>
 </TS>
