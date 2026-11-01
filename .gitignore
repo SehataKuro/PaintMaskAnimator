@@ -17,3 +17,9 @@ dist_installer/
 coverage.xml
 htmlcov/
 pyrightconfig.json
+
+# Understand-Anything scratch; the rest of .ua/ is committed.
+.ua/intermediate/
+.ua/tmp/
+.ua/.trash-*/
+.ua/diff-overlay.json

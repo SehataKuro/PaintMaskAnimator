@@ -168,6 +168,12 @@ python scripts/update_translations.py
    python scripts/preflight.py --release 0.6.5
    ```
 
+## 構造グラフを更新する
+
+公式サイトの構造グラフは、手元の Claude Code で `/understand` を実行して
+`.ua/` をコミットすると更新されます。手順は
+[`docs/knowledge-graph.md`](docs/knowledge-graph.md) を参照してください。
+
 ## パッケージングを変更する場合
 
 配布物には LGPL の PySide6 / Qt Advanced Docking System を同梱しています。
