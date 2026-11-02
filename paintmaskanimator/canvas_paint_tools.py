@@ -7,11 +7,13 @@ previews and their commits, and lasso polygon filling. Undo entries are pushed
 through ``PaintCanvas.push_undo`` as usual; they run against a live
 ``PaintCanvas``.
 """
+import dataclasses
 import math
 import numpy as np
 from typing import Any
 from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, Qt
 from PySide6.QtGui import QColor, QImage, QPainter, QPainterPath, QPen, QPolygonF
+from PySide6.QtWidgets import QApplication
 from .i18n import tr
 from ._canvas_members import CanvasMembers
 from . import bucket_fill, imaging
@@ -222,8 +224,14 @@ class PaintToolsMixin(CanvasMembers):
         window: Any = self.window()
         return getattr(window, "tools", None)
 
-    def bucket_options(self):
-        """現在のバケツ設定を UI から読み出す。"""
+    def bucket_options(self, *, respect_modifiers=True):
+        """現在のバケツ設定を UI から読み出す。
+
+        ``respect_modifiers`` が真なら、Shift を押しながらの塗りは含み塗りを
+        行わない（Issue #43）。ペイントマンと同じく、含み塗りを ON にしたまま
+        1回だけ外せるようにするため。自動塗りのように人の操作と切り離して
+        呼ぶところは偽を渡す。
+        """
         # 含み塗りの対象は、ツールパネルの「含む色」に登録した色。未登録なら
         # サブカラー。使用色パネルでの選択に依存させると、何を含むのかを
         # 塗る前に別の場所で準備する必要があり分かりにくい。
@@ -233,11 +241,33 @@ class PaintToolsMixin(CanvasMembers):
         if not mask_colors:
             sub = QColor(self.sub_color)
             mask_colors = ((sub.red(), sub.green(), sub.blue()),)
-        return bucket_fill.BucketOptions.from_tools(
+        options = bucket_fill.BucketOptions.from_tools(
             tools,
             mask_colors=mask_colors,
             background_selected=self.background_mask_rgb in mask_colors,
             island_replacements=self._island_replacements(),
+        )
+        if respect_modifiers and options.include_masks and self._shift_held():
+            options = dataclasses.replace(options, include_masks=False)
+        if self.effective_tool() == "closed_fill":
+            # 閉領域フィル（Issue #41）：線の隙間を閉じ、開いた線の先も伸ばして
+            # から塗る。1ドットの隙間でこぼれるところを拾うための道具なので、
+            # 隙間閉じを設定任せにしない。逆に「塗り残し拾い」は必要以上に
+            # 広がる元になるため、こちらでは使わない。
+            options = dataclasses.replace(
+                options,
+                close_gap=True,
+                extend_lines=True,
+                island_max_width=0,
+            )
+        return options
+
+    @staticmethod
+    def _shift_held():
+        if QApplication.instance() is None:
+            return False
+        return bool(
+            QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier
         )
 
     def _island_replacements(self):

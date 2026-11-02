@@ -13,7 +13,7 @@
 [![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![PySide6](https://img.shields.io/badge/PySide6-6.5%2B-41CD52?logo=qt&logoColor=white)](https://doc.qt.io/qtforpython/)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey)](https://github.com/SehataKuro/PaintMaskAnimator/releases)
-[![Coverage](https://img.shields.io/badge/coverage-report-brightgreen)](https://jokomanato.com/paintmaskanimator/coverage/)
+[![Coverage](https://img.shields.io/badge/coverage-report-brightgreen)](https://sehatakuro.github.io/PaintMaskAnimator/coverage/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
 
 アニメーションの仕上げ（彩色）のためのペイント / マスクアニメーションツールです。
@@ -102,8 +102,9 @@ API リファレンスと組み込みアクションの一覧は [`docs/actions.
 開発環境の準備、提出前のチェック、翻訳、リリース手順は
 [`CONTRIBUTING.md`](CONTRIBUTING.md) にまとめています。
 
-テストカバレッジは [**カバレッジレポート**](https://jokomanato.com/paintmaskanimator/coverage/) で行ごとに確認できます。
-同じサイトの [**機能検証マップ**](https://jokomanato.com/paintmaskanimator/) もあわせて公開しています。
+テストカバレッジは [**カバレッジレポート**](https://sehatakuro.github.io/PaintMaskAnimator/coverage/) で行ごとに確認できます。
+[**機能検証マップ**](https://sehatakuro.github.io/PaintMaskAnimator/feature-map/) もあわせて公開しています。
+開発者向けの入口は [公式サイトの開発者向けページ](https://sehatakuro.github.io/PaintMaskAnimator/develop.html) にまとめています。
 どちらも `main` への push 時に CI が更新するので、プルリクエストの内容は
 まだ反映されていません。その場合は Actions のラン画面のサマリに出る数値か、
 `feature-map-<sha>` アーティファクトを参照してください。

@@ -32,7 +32,7 @@ test("server-renders the feature verification map", async () => {
   assert.match(html, new RegExp(`<strong>${coverage}<small>%</small></strong>`));
   assert.match(html, new RegExp(statements.toLocaleString("en-US")));
   assert.match(html, /未分類モジュール/);
-  assert.match(html, /https:\/\/jokomanato\.com\/paintmaskanimator\/og\.png/);
+  assert.match(html, /https:\/\/sehatakuro\.github\.io\/PaintMaskAnimator\/feature-map\/og\.png/);
   assert.doesNotMatch(html, /http:\/\/localhost/);
   assert.doesNotMatch(html, /codex-preview|Building your site|react-loading-skeleton/i);
 });

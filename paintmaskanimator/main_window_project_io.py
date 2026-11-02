@@ -526,6 +526,7 @@ class ProjectIOController:
             self.window.timeline.fps.setValue(
                 max(1, min(60, int(metadata.get("fps", 24))))
             )
+            self.window.set_project_memo(metadata.get("memo", ""))
             playback_range = metadata.get("playback_range", [0, None])
             try:
                 range_start, range_end = playback_range

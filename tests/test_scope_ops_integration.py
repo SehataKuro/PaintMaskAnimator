@@ -155,3 +155,17 @@ def test_every_palette_operation_has_a_label(qapp):
 
     assert used, "no apply_palette_replacements(operation=...) call sites found"
     assert used <= set(UsedColorController.OPERATION_LABELS)
+
+
+def test_deleting_a_used_color_erases_it_instead_of_painting_white(window):
+    """「この色を消す」は不透明な白ではなく alpha=0 にする（Issue #47）。
+
+    背景色を変えていると、不透明な白で塗られた部分だけが背景から浮いて見える。
+    #FFFFFF は消しゴムなので、置換先が白なら alpha も落とす。
+    """
+    paint_cell(window, 0, "#ff0000")
+
+    window.used_color.apply_palette_delete({(255, 0, 0)})
+
+    pixel = window.canvas.frames[0].layers[0].image.pixelColor(10, 10)
+    assert pixel.alpha() == 0
