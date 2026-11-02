@@ -6,7 +6,7 @@ into an unusable state (a zero-second autosave, a 0-step undo). Theme, accent
 and language keep living in :mod:`theme` / :mod:`i18n`; this module holds the
 settings that used to be hard-coded constants.
 """
-from . import config, constants, view_preview
+from . import config, constants, display_shrink, view_preview
 
 AUTOSAVE_ENABLED_KEY = "autosave_enabled"
 AUTOSAVE_INTERVAL_KEY = "autosave_interval_minutes"
@@ -25,6 +25,21 @@ TIME_DISPLAY_KEY = "time_display_mode"
 TIME_DISPLAY_FRAMES = "frames"
 TIME_DISPLAY_SECONDS_FRAMES = "seconds_frames"
 SNAPSHOT_FOLDER_KEY = "snapshot_folder"
+DISPLAY_SHRINK_MODE_KEY = "display_shrink_mode"
+
+
+def display_shrink_mode():
+    """縮小表示のしかた。``nearest`` か ``keep_lines``（Issue #46）。"""
+    value = config.get_value(
+        DISPLAY_SHRINK_MODE_KEY, display_shrink.MODE_NEAREST
+    )
+    return value if value in display_shrink.MODES else display_shrink.MODE_NEAREST
+
+
+def set_display_shrink_mode(mode):
+    if mode not in display_shrink.MODES:
+        raise ValueError(mode)
+    config.set_value(DISPLAY_SHRINK_MODE_KEY, mode)
 
 
 def background_color_tool():
