@@ -260,6 +260,7 @@ class CanvasMembers(_MembersBase):
         clear_selection: Any
         clear_selection_preserving_used_colors: Any
         coalesce_numbered_images: Any
+        link_layer_tracks: Any
         color: Any
         color_mode: Any
         commit_line_tool: Any

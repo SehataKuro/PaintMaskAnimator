@@ -245,6 +245,7 @@ class MainWindow(
 
     def refresh_ui(self):
         self.canvas.coalesce_numbered_images()
+        self.canvas.link_layer_tracks()
         self.timeline.sequence_archive = self.canvas._sequence_archive
         self.timeline.playback_range_start = int(self.canvas.playback_range_start)
         self.timeline.playback_range_end = self.canvas.playback_range_end

@@ -186,33 +186,92 @@ SheetEntry                   # コマ1つ分の指定
 一度に入れ替えません。**既存の操作を変えずに中身だけ移す**段階を先に置き、
 保存形式の変更は最後にします。
 
-### Phase 0：いまの振る舞いを固定する
+### Phase 0：いまの振る舞いを固定する（済）
 
-移行の前に、いまの結果をテストで固定します。特に次の4つは、移行で静かに
-壊れやすいところです。
+移行の前に、いまの結果をテストで固定しました。
+[`tests/test_sequence_model_characterization.py`](../tests/test_sequence_model_characterization.py)
+に、移行で静かに壊れやすい5つを置いてあります。
 
-- 保持セルへ描いたときに独立したキーへ分かれること（`ensure_editable_key`）
 - 同じ番号のセルが同じ絵を指すこと（`coalesce_numbered_images`）
+- 保持セルへ描いたときの編集先（`ensure_editable_key`）
 - 一括処理が同じ絵を1回しか処理しないこと（`frame_scope`）
 - タイムリマップの往復（シート → AE テキスト → シート）で並びが変わらないこと
+- 表示の設定がセルごとに重複していること（Phase 2 で書き換える）
 
-あわせて、重いと感じる操作を実測しておきます。**この変更で速くなるとは
-考えていない**ので、遅くなっていないことを確かめるための基準値です。
+このファイルは「いまこう動く」を書き留めたもので、理想の仕様ではありません。
+意図して動きを変える段階では、テストごと書き換えます（何が変わるのかを
+差分として見えるようにするのが狙いです）。
 
-### Phase 1：連番を本体にする（表からは見えない）
+#### 基準値
 
-`Track.cells` を作り、`Layer.image` をそこへの参照にします。`Layer` は
-当面そのまま残し、`image` をプロパティにして `Track.cells[number].image` を
-返すようにします。この段階で `coalesce_numbered_images` と
-`sync_numbered_image_from_cell` が不要になります。
+[`scripts/benchmark_sequence_model.py`](../scripts/benchmark_sequence_model.py)
+で測ります。**速くするための変更ではない**ので、これは遅くなっていないことを
+確かめるためのものです。600コマ・4レイヤー・1レイヤーあたり60枚
+（露出10コマ）・1280×720 での測定値：
 
-保存形式は変えません。書き出すときは、いまと同じ「コマ×レイヤーの PNG」に
-戻します。
+| 測るもの | Phase 0 | Phase 1 | Phase 2 |
+|---|---|---|---|
+| `coalesce_numbered_images` | 0.343 ms | 0.377 ms | 0.315 ms |
+| `resolve_cells`（カット全体） | 7.628 ms | 7.739 ms | 7.922 ms |
+| `resolve_key_frame`（索引を捨ててから） | 1.415 ms | 1.254 ms | 1.384 ms |
+| シーク（13コマおき） | 0.144 ms | 0.144 ms | 0.147 ms |
+| カット全体の対象セル数 | 240 | 240 | 240 |
 
-### Phase 2：表示の設定を `Track` へ移す
+いずれも誤差の範囲で、遅くなっていません（2026-11-01 測定）。
 
-9個の表示設定を `Track` が持ち、`Layer` 側は `Track` を見るようにします。
-`_copy_display_properties` を消します。
+対象セル数が 240（＝60枚 × 4レイヤー）で、コマ×レイヤーの 2400 ではないことが、
+§1 の「重複処理はすでに畳まれている」の裏づけです。
+
+### Phase 1：絵を `Cell` にする（表からは見えない・済）
+
+`Cell`（1枚の絵）を `Layer` と画像のあいだに入れました。共有は
+「同じ `Cell` を指しているか」というデータになり、`id(layer.image)` を見る
+必要がなくなります。
+
+- `Layer.image` は `Cell` 越しの読み書きになり、**差し替えても共有が切れません**。
+  これまでは `layer.image = 新しい画像` のたびに共有が静かに外れていました。
+- 結ぶのは `share_cell_with`、切るのは `detach_cell`。
+  `coalesce_numbered_images` と `sync_numbered_image_from_cell` は前者を使い、
+  シート操作（`_clear_timeline_layer_cell`）は後者を使います。
+- `Layer.clone()` は自分の `Cell` を持ちます。Undo のスナップショットが
+  あとの編集で汚れないようにするためです。
+
+この段階では**振る舞いを変えません**。`coalesce_numbered_images` と
+`sync_numbered_image_from_cell` はまだ残します（共有を結ぶ役として要るため）。
+消えるのは、シートが参照の表になる Phase 3 です。
+
+`Cell` が持つのは `image` だけにしました。色塗り前の初期状態
+（`initial_image`）はセル単位で復元する Undo があり、いま共有へ寄せると
+Undo の復元結果が変わるためです。Phase 4 でまとめます。
+
+保存形式は変えていません。
+
+**テスト**：[`tests/test_sequence_cells.py`](../tests/test_sequence_cells.py)
+
+### Phase 2：表示の設定を `Track` へ移す（済）
+
+8個の表示設定（`name` / `visible` / `opacity` / `is_paper` / `is_draft` /
+`alpha_locked` / `color_filter_enabled` / `color_filter_rgb`）を `Track` が
+レイヤーごとに1つ持つようにしました。同じレイヤーのセルは1つの `Track` を
+共有します。
+
+- **どのコマから変えてもレイヤー全体に効きます。** 1コマだけ不透明度が違う、
+  という状態は作れなくなりました。
+- `Track` は作るときに結びます（`_ensure_frame_count`・`add_layer`）。
+  読み込みや Undo の復元のあとは `link_layer_tracks()` で結び直します。
+- `Layer.clone()` は自分の `Track` を持ちます（Undo のスナップショットが
+  あとの変更で汚れないようにするため）。
+- `_copy_display_properties` は `share_track_with` の1行になりました。
+  呼び出し側（`main_window_time_remap.py`）はそのままです。
+
+**動きが変わったところが1つあります。** レイヤー名もレイヤーに1つなので、
+「1コマだけ名前を変える」ことはできなくなりました。これまではそれができて
+しまい、同じレイヤーのコマごとに名前が違う状態が作れていました。
+`tests/test_initial_state_import.py` の1件が、その状態に依存していたので
+直してあります。
+
+**テスト**：`tests/test_sequence_model_characterization.py` の5番目を書き換え
+（Phase 0 で「セルごとに持つ」と記録していたもの）。
 
 ### Phase 3：シートを参照の表にする
 
