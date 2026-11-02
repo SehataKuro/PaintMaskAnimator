@@ -108,7 +108,8 @@ img { max-width: 100%; height: auto; }
 .topbar nav a { color: var(--hero-soft); }
 .topbar nav a:hover { color: var(--hero-strong); text-decoration: none; }
 body[data-page="history"] [data-nav="history"],
-body[data-page="help"] [data-nav="help"] { color: var(--hero-strong); font-weight: 700; }
+body[data-page="help"] [data-nav="help"],
+body[data-page="develop"] [data-nav="develop"] { color: var(--hero-strong); font-weight: 700; }
 .topbar .nav-cta {
   color: #fff;
   background: var(--brand-blue);
@@ -314,6 +315,13 @@ body[data-page="help"] [data-nav="help"] { color: var(--hero-strong); font-weigh
 .help pre { overflow-x: auto; background: var(--code-bg); color: var(--code-text); padding: 1rem 1.25rem; border-radius: 0.5rem; }
 .help pre code { background: none; padding: 0; color: inherit; }
 
+/* Developer page: link lists where each entry needs a line of explanation. */
+.dev-links { list-style: none; margin: 1.5rem 0 0; padding: 0; display: grid; gap: 1.5rem; }
+.dev-links > li { padding-left: 1rem; border-left: 3px solid var(--line); }
+.dev-links > li > a { font-weight: 700; color: var(--ink); }
+.dev-links > li > a:hover { color: var(--brand-blue); }
+.dev-links p { margin: 0.2rem 0 0; color: var(--muted); font-size: 0.95rem; }
+
 /* ---- Footer ---- */
 .footer { background: var(--bg-soft); border-top: 1px solid var(--line); padding: 3rem 0 1.5rem; font-size: 0.9rem; }
 .footer-inner { display: flex; justify-content: space-between; gap: 2rem; flex-wrap: wrap; }
@@ -329,6 +337,7 @@ body[data-page="help"] [data-nav="help"] { color: var(--hero-strong); font-weigh
 
 /* ---- Narrow screens ---- */
 @media (max-width: 52rem) {
+  .topbar nav { gap: 1.1rem; font-size: 0.85rem; }
   .pillars-grid, .feature-list { grid-template-columns: 1fr; gap: 2rem; }
   .spotlight-inner { grid-template-columns: 1fr; gap: 2.5rem; }
   .release { grid-template-columns: 1fr; gap: 1rem; }

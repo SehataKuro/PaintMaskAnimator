@@ -4072,7 +4072,7 @@ Details were saved to:
     </message>
     <message>
         <location filename="../canvas_image_import.py" line="49"/>
-        <location filename="../main_window_import.py" line="349"/>
+        <location filename="../main_window_import.py" line="416"/>
         <source>画像サイズが上限を超えています。
 {width} × {height}px</source>
         <translation>The image is larger than the maximum.
@@ -4340,82 +4340,89 @@ Details were saved to:
         <translation>Recompositing the colour mask</translation>
     </message>
     <message>
-        <location filename="../clip_animation.py" line="730"/>
+        <location filename="../clip_animation.py" line="825"/>
         <source>CLIP STUDIOの.clipファイルを指定してください。</source>
         <translation>Choose a CLIP STUDIO .clip file.</translation>
     </message>
     <message>
-        <location filename="../clip_animation.py" line="137"/>
+        <location filename="../clip_animation.py" line="168"/>
         <source>セル「{LayerName}」の表示合成画像が.clip内にありません。</source>
         <translation>The composited image for cell &quot;{LayerName}&quot; is not in the .clip file.</translation>
     </message>
     <message>
-        <location filename="../clip_animation.py" line="476"/>
+        <location filename="../clip_animation.py" line="569"/>
+        <location filename="../clip_animation.py" line="849"/>
+        <location filename="../clip_animation.py" line="865"/>
         <source>セル内のレイヤー構造が循環しています。</source>
         <translation>The layer structure inside the cell is circular.</translation>
     </message>
     <message>
-        <location filename="../clip_animation.py" line="617"/>
+        <location filename="../clip_animation.py" line="712"/>
         <source>アニメーションセルの絵番号がPMAの上限外です。</source>
         <translation>The drawing number of an animation cell is out of PMA&apos;s range.</translation>
     </message>
     <message>
-        <location filename="../clip_animation.py" line="662"/>
-        <location filename="../clip_animation.py" line="759"/>
+        <location filename="../clip_animation.py" line="757"/>
+        <location filename="../clip_animation.py" line="883"/>
         <source>タイムラインのフレーム数がPMAの上限外です。</source>
         <translation>The timeline frame count is out of PMA&apos;s range.</translation>
     </message>
     <message>
-        <location filename="../clip_animation.py" line="664"/>
-        <location filename="../clip_animation.py" line="761"/>
+        <location filename="../clip_animation.py" line="759"/>
+        <location filename="../clip_animation.py" line="885"/>
         <source>アニメーションフォルダー数がPMAの上限外です。</source>
         <translation>The animation folder count is out of PMA&apos;s range.</translation>
     </message>
     <message>
-        <location filename="../clip_animation.py" line="667"/>
-        <location filename="../clip_animation.py" line="764"/>
+        <location filename="../clip_animation.py" line="762"/>
+        <location filename="../clip_animation.py" line="888"/>
         <source>タイムラインのレイヤーセル数がPMAの上限を超えています。</source>
         <translation>The timeline has more layer cells than PMA allows.</translation>
     </message>
     <message>
-        <location filename="../clip_animation.py" line="672"/>
-        <location filename="../clip_animation.py" line="766"/>
-        <location filename="../clip_animation.py" line="771"/>
+        <location filename="../clip_animation.py" line="767"/>
+        <location filename="../clip_animation.py" line="890"/>
+        <location filename="../clip_animation.py" line="895"/>
         <source>タイムライン展開後の画像サイズがPMAの上限を超えています。</source>
         <translation>The decoded timeline images are larger than PMA allows.</translation>
     </message>
     <message>
-        <location filename="../clip_animation.py" line="697"/>
+        <location filename="../clip_animation.py" line="792"/>
         <source>アニメーションフォルダー「{name}」のセル「{tag}」を画像化できません。</source>
         <translation>Cell &quot;{tag}&quot; in animation folder &quot;{name}&quot; cannot be rendered.</translation>
     </message>
     <message>
-        <location filename="../clip_animation.py" line="717"/>
+        <location filename="../clip_animation.py" line="812"/>
         <source>アニメーションフォルダー内でセル名「{name}」が重複しています。</source>
         <translation>Cell name &quot;{name}&quot; is duplicated inside the animation folder.</translation>
     </message>
     <message>
-        <location filename="../clip_animation.py" line="743"/>
+        <location filename="../clip_animation.py" line="838"/>
         <source>.clipのキャンバスサイズがPMAの上限外です。</source>
         <translation>The .clip canvas size exceeds PMA limits.</translation>
     </message>
     <message>
-        <location filename="../clip_animation.py" line="796"/>
+        <location filename="../clip_animation.py" line="879"/>
+        <source>表示中のアニメーションフォルダーがありません。</source>
+        <translation>There are no visible animation folders.</translation>
+    </message>
+    <message>
+        <location filename="../clip_animation.py" line="920"/>
         <source>アニメーションフォルダー「{LayerName}」にセル「{missing}」がありません。</source>
         <translation>Animation folder &quot;{LayerName}&quot; has no cell &quot;{missing}&quot;.</translation>
     </message>
     <message>
-        <location filename="../clip_animation.py" line="802"/>
+        <location filename="../clip_animation.py" line="926"/>
         <source>セル画像を読み込み中：{folder} / {cel}</source>
         <translation>Reading cel images: {folder} / {cel}</translation>
     </message>
     <message>
-        <location filename="../clip_animation.py" line="815"/>
+        <location filename="../clip_animation.py" line="945"/>
         <source>.clip内にアニメーションフォルダーがありません。</source>
         <translation>The .clip file has no animation folders.</translation>
     </message>
     <message>
-        <location filename="../clip_animation.py" line="817"/>
+        <location filename="../clip_animation.py" line="947"/>
         <source>タイムラインを構築しています…</source>
         <translation>Building the timeline…</translation>
     </message>
@@ -4704,7 +4711,7 @@ Line art: binarises the line work while preserving the white background and the 
         <location filename="../color_reduction.py" line="522"/>
         <location filename="../cut_folder_dialog.py" line="792"/>
         <location filename="../main_window.py" line="669"/>
-        <location filename="../main_window_import.py" line="98"/>
+        <location filename="../main_window_import.py" line="166"/>
         <location filename="../main_window_project_io.py" line="224"/>
         <location filename="../main_window_project_io.py" line="250"/>
         <location filename="../widgets.py" line="711"/>
@@ -5081,26 +5088,26 @@ Restore the automatically saved work?</translation>
         <translation>Triangle (HLS)</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="58"/>
-        <location filename="../main_window_import.py" line="79"/>
+        <location filename="../main_window_import.py" line="126"/>
+        <location filename="../main_window_import.py" line="147"/>
         <source>CLIP STUDIOアニメーションを読み込む</source>
         <translation>Import a CLIP STUDIO animation</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="60"/>
+        <location filename="../main_window_import.py" line="128"/>
         <location filename="../main_window_initial_state.py" line="47"/>
         <source>CLIP STUDIO PAINT (*.clip);;すべてのファイル (*)</source>
         <translation>CLIP STUDIO PAINT (*.clip);;All files (*)</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="80"/>
+        <location filename="../main_window_import.py" line="148"/>
         <source>現在のキャンバスをCLIP STUDIOアニメーションで置き換えます。
 先に現在のプロジェクトを保存しますか？</source>
         <translation>This replaces the current canvas with the CLIP STUDIO animation.
 Save the current project first?</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="92"/>
+        <location filename="../main_window_import.py" line="160"/>
         <location filename="../main_window_initial_state.py" line="269"/>
         <location filename="../main_window_project_io.py" line="220"/>
         <location filename="../main_window_project_io.py" line="244"/>
@@ -5108,25 +5115,36 @@ Save the current project first?</translation>
         <translation>Save</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="95"/>
+        <location filename="../main_window_import.py" line="163"/>
         <source>保存せず読み込む</source>
         <translation>Import without saving</translation>
     </message>
     <message>
-        <location filename="../clip_animation.py" line="736"/>
-        <location filename="../main_window_import.py" line="149"/>
+        <location filename="../clip_animation.py" line="831"/>
+        <location filename="../main_window_import.py" line="216"/>
         <source>CLIP STUDIOアニメーションを解析しています：{name}</source>
         <translation>Parsing the CLIP STUDIO animation: {name}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="160"/>
-        <location filename="../main_window_import.py" line="171"/>
+        <location filename="../main_window_import.py" line="76"/>
+        <location filename="../main_window_import.py" line="227"/>
+        <location filename="../main_window_import.py" line="238"/>
         <source>CLIP STUDIOアニメーション読み込み</source>
         <translation>CLIP STUDIO animation import</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="161"/>
-        <location filename="../main_window_import.py" line="222"/>
+        <location filename="../main_window_import.py" line="80"/>
+        <source>CLIP STUDIOアニメーションを解析しています…</source>
+        <translation>Analysing the CLIP STUDIO animation…</translation>
+    </message>
+    <message>
+        <location filename="../main_window_import.py" line="199"/>
+        <source>CLIP STUDIOアニメーションを読み込めませんでした。</source>
+        <translation>Could not load the CLIP STUDIO animation.</translation>
+    </message>
+    <message>
+        <location filename="../main_window_import.py" line="228"/>
+        <location filename="../main_window_import.py" line="289"/>
         <source>読み込めませんでした。現在のドキュメントは変更されていません。
 
 {exc}</source>
@@ -5135,61 +5153,61 @@ Save the current project first?</translation>
 {exc}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="191"/>
+        <location filename="../main_window_import.py" line="258"/>
         <source> {count}セルを色塗り前の初期状態として保持しました。</source>
         <translation> Kept {count} cels as the initial state before painting.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="193"/>
+        <location filename="../main_window_import.py" line="260"/>
         <source>CLIP STUDIOから{count}フォルダー・{count2}フレームを読み込みました。{note}{note2}{note3}</source>
         <translation>Imported {count} folders and {count2} frames from CLIP STUDIO.{note}{note2}{note3}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="200"/>
-        <location filename="../main_window_import.py" line="208"/>
+        <location filename="../main_window_import.py" line="267"/>
+        <location filename="../main_window_import.py" line="275"/>
         <location filename="../main_window_ui_build.py" line="402"/>
         <source>カットフォルダーを開く</source>
         <translation>Open Cut Folder</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="211"/>
+        <location filename="../main_window_import.py" line="278"/>
         <source>カットフォルダーを読み込んでいます：{name}</source>
         <translation>Reading cut folder: {name}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="229"/>
+        <location filename="../main_window_import.py" line="296"/>
         <source>現在のキャンバスをカットフォルダーの内容で置き換えます。
 先に現在のプロジェクトを保存しますか？</source>
         <translation>The current canvas will be replaced with the contents of the cut folder.
 Save the current project first?</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="238"/>
+        <location filename="../main_window_import.py" line="305"/>
         <source>タイムシートで使われていないセル{count}枚は連番に保持しました。</source>
         <translation>{count} cels not used in the time sheet were kept as sequence cels.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="242"/>
+        <location filename="../main_window_import.py" line="309"/>
         <source>「{name}」から{count}列・{frames}フレームを読み込みました。</source>
         <translation>Loaded {count} columns and {frames} frames from “{name}”.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="265"/>
+        <location filename="../main_window_import.py" line="332"/>
         <source>タイムシート（.xdts／.tdts）が見つかりません。</source>
         <translation>No time sheet (.xdts / .tdts) was found.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="271"/>
+        <location filename="../main_window_import.py" line="338"/>
         <source>タイムシートが複数あるため「{name}」を使いました。</source>
         <translation>Several time sheets were found; used “{name}”.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="281"/>
+        <location filename="../main_window_import.py" line="348"/>
         <source>タイムシートにセルの列がありません。</source>
         <translation>The time sheet has no cel columns.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="291"/>
+        <location filename="../main_window_import.py" line="358"/>
         <location filename="../main_window_initial_state.py" line="113"/>
         <source>{name} を読み込めません。
 {error}</source>
@@ -5197,22 +5215,22 @@ Save the current project first?</translation>
 {error}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="347"/>
+        <location filename="../main_window_import.py" line="414"/>
         <source>セルの画像（PNG／TGA）が見つかりません。</source>
         <translation>No cel images (PNG / TGA) were found.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="369"/>
+        <location filename="../main_window_import.py" line="436"/>
         <source>画像が見つからないセルは空セルにしました：{cells}</source>
         <translation>Cels whose image is missing were left empty: {cells}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="373"/>
+        <location filename="../main_window_import.py" line="440"/>
         <source>大きさの違うセル{count}枚は、中央に置いて大きさを揃えました。</source>
         <translation>{count} cels of a different size were centred to match the others.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="501"/>
+        <location filename="../main_window_import.py" line="568"/>
         <source>読み込み結果を反映できませんでした。現在のドキュメントは元の状態へ戻しました。
 
 {exc}</source>
@@ -5221,12 +5239,12 @@ Save the current project first?</translation>
 {exc}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="179"/>
+        <location filename="../main_window_import.py" line="246"/>
         <source>（元FPS {fps:g}、PMA表示 {value} fps）</source>
         <translation> (source FPS {fps:g}, shown as {value} fps in PMA)</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="184"/>
+        <location filename="../main_window_import.py" line="251"/>
         <source> 未配置セル{len}枚は連番に保持しました。</source>
         <translation> {len} unplaced cells were kept in the sequence.</translation>
     </message>
@@ -5249,60 +5267,60 @@ Save the current project first?</translation>
         <translation>Only XDTS version 5 is supported.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="657"/>
+        <location filename="../main_window_import.py" line="724"/>
         <source>XDTSにセル欄（fieldId 0）がありません。</source>
         <translation>The XDTS file has no cell column (fieldId 0).</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="689"/>
+        <location filename="../main_window_import.py" line="756"/>
         <source>読み込むCELLとレイヤーの紐づけがありません。</source>
         <translation>No CELL is linked to a layer for import.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="691"/>
+        <location filename="../main_window_import.py" line="758"/>
         <location filename="../main_window_time_remap.py" line="493"/>
         <source>タイムラインがありません。</source>
         <translation>There is no timeline.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="705"/>
+        <location filename="../main_window_import.py" line="772"/>
         <source>CELL「{get}」のフレーム数が不正です。</source>
         <translation>CELL &quot;{get}&quot; has an invalid frame count.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="710"/>
+        <location filename="../main_window_import.py" line="777"/>
         <source>CELL「{get}」の紐づけ先レイヤーがありません。</source>
         <translation>CELL &quot;{get}&quot; has no layer to link to.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="715"/>
+        <location filename="../main_window_import.py" line="782"/>
         <source>レイヤー「{name}」に連番画像がありません。</source>
         <translation>Layer &quot;{name}&quot; has no image sequence.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="726"/>
+        <location filename="../main_window_import.py" line="793"/>
         <source>CELL「{get}」は存在しない絵番号を参照しています（レイヤー画像 {len}枚）。
 {preview}</source>
         <translation>CELL &quot;{get}&quot; refers to a drawing number that does not exist ({len} layer images).
 {preview}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="735"/>
+        <location filename="../main_window_import.py" line="802"/>
         <source>読み込めるCELLの紐づけがありません。</source>
         <translation>There are no CELL links that can be imported.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="738"/>
+        <location filename="../main_window_import.py" line="805"/>
         <source>・{get} → {name}</source>
         <translation>・{get} → {name}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="744"/>
+        <location filename="../main_window_import.py" line="811"/>
         <source>XDTSタイムシートを反映</source>
         <translation>Apply the XDTS time sheet</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="745"/>
+        <location filename="../main_window_import.py" line="812"/>
         <source>反映範囲：{value}～{value2}フレーム
 紐づけ：
 {links}
@@ -5315,51 +5333,51 @@ Links:
 This replaces the target range of the linked layers.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="777"/>
+        <location filename="../main_window_import.py" line="844"/>
         <source>XDTSの{len}個のCELLを{value}～{value2}フレームへ反映しました。</source>
         <translation>Applied {len} XDTS CELLs to frames {value}–{value2}.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="784"/>
+        <location filename="../main_window_import.py" line="851"/>
         <source>PSDを読み込む</source>
         <translation>Import a PSD</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="791"/>
-        <location filename="../main_window_import.py" line="855"/>
-        <location filename="../main_window_import.py" line="897"/>
+        <location filename="../main_window_import.py" line="858"/>
+        <location filename="../main_window_import.py" line="922"/>
+        <location filename="../main_window_import.py" line="964"/>
         <source>PSD読み込み</source>
         <translation>PSD import</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="792"/>
+        <location filename="../main_window_import.py" line="859"/>
         <source>PSDの読み込みには psd-tools と Pillow が必要です。
 requirements.txtをインストールしてください。</source>
         <translation>Importing PSD needs psd-tools and Pillow.
 Install them from requirements.txt.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="808"/>
+        <location filename="../main_window_import.py" line="875"/>
         <source>PSDの画像サイズが上限を超えています。 ({width} × {height}px)</source>
         <translation>The PSD image is larger than the maximum. ({width} × {height}px)</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="811"/>
+        <location filename="../main_window_import.py" line="878"/>
         <source>PSDの最上位レイヤー数が上限を超えています。</source>
         <translation>The PSD has more top-level layers than the maximum.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="824"/>
+        <location filename="../main_window_import.py" line="891"/>
         <source>PSDのレイヤー項目数が上限を超えています。</source>
         <translation>The PSD has more layer entries than the maximum.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="851"/>
+        <location filename="../main_window_import.py" line="918"/>
         <source>読み込める画像レイヤーがありません。</source>
         <translation>There are no image layers to import.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="855"/>
+        <location filename="../main_window_import.py" line="922"/>
         <source>PSDを読み込めませんでした。
 
 {exc}</source>
@@ -5368,12 +5386,12 @@ Install them from requirements.txt.</translation>
 {exc}</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="894"/>
+        <location filename="../main_window_import.py" line="961"/>
         <source>PSDから{len}レイヤーを読み込みました。</source>
         <translation>Imported {len} layers from the PSD.</translation>
     </message>
     <message>
-        <location filename="../main_window_import.py" line="896"/>
+        <location filename="../main_window_import.py" line="963"/>
         <source>
 調整レイヤーなど{skipped}項目は破棄しました。</source>
         <translation>

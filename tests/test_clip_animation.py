@@ -2,13 +2,15 @@ import os
 import sqlite3
 import struct
 import zlib
+import threading
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
 import pytest
 from PySide6.QtGui import QColor, QImage
-from PySide6.QtWidgets import QApplication, QMessageBox, QProgressBar
+from PySide6.QtCore import QTimer
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from paintmaskanimator import constants, main_window_import, native
 from paintmaskanimator.clip_animation import (
@@ -263,19 +265,19 @@ def _sqlite_bytes(
     )
     connection.execute(
         "INSERT INTO Layer VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (2, b"B" * 16, "1", 5, 0, 2, 0, 0, 0, 0, 0, 256),
+        (2, b"B" * 16, "1", 4, 0, 2, 0, 0, 0, 0, 0, 256),
     )
     connection.execute(
         "INSERT INTO Layer VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (5, b"E" * 16, "空", 0, 3, 4, 0, 0, 0, 0, 0, 256),
+        (5, b"E" * 16, "空", 0, 0, 4, 0, 0, 0, 0, 0, 256),
     )
     connection.execute(
         "INSERT INTO Layer VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (3, b"C" * 16, "線", 0, 4, 1, 0, 0, 0, 0, 0, 256),
+        (3, b"C" * 16, "線", 0, 5, 1, 0, 0, 0, 0, 0, 256),
     )
     connection.execute(
         "INSERT INTO Layer VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (4, b"D" * 16, "塗り", 0, 0, 3, 0, 0, 0, 0, 0, 256),
+        (4, b"D" * 16, "塗り", 0, 3, 3, 0, 0, 0, 0, 0, 256),
     )
     connection.execute(
         "INSERT INTO Track VALUES (1, 7, 2000, ?, ?)",
@@ -557,6 +559,69 @@ def test_shared_bank_tracks_belong_to_selected_timeline(tmp_path, selected_timel
     assert path.read_bytes() == original
 
 
+@requires_clip_native
+def test_hidden_tracks_and_ancestors_are_skipped_and_stack_order_is_preserved(tmp_path):
+    path = _clip_file(tmp_path)
+    database_path = tmp_path / "source.sqlite"
+    with sqlite3.connect(database_path) as connection:
+        connection.row_factory = sqlite3.Row
+        template = dict(connection.execute("SELECT * FROM Layer WHERE MainId = 1").fetchone())
+
+        def add_layer(id, name, child=0, next=0, *, animation=False, visible=True, raster=0):
+            row = dict(template)
+            row.update(MainId=id, LayerName=name, LayerUuid=bytes([id]) * 16,
+                       LayerFirstChildIndex=child, LayerNextIndex=next,
+                       LayerRenderMipmap=raster, AnimationFolder=int(animation),
+                       LayerFolder=int(bool(child)), LayerVisibility=int(visible))
+            connection.execute(
+                f"INSERT INTO Layer ({','.join(row)}) VALUES ({','.join('?' for _ in row)})",
+                tuple(row.values()),
+            )
+
+        # The visible bottom folder's track ID is larger than the top folder's.
+        connection.execute("UPDATE Track SET MainId = 100 WHERE MainId = 1")
+        connection.execute("UPDATE Layer SET LayerNextIndex = 10 WHERE MainId = 1")
+        add_layer(10, "Top", 11, 20, animation=True)
+        # Cel visibility is the saved current-frame flag, not a reason to drop
+        # a cel explicitly assigned on the imported timeline.
+        add_layer(11, "1", visible=False, raster=3)
+        add_layer(20, "Hidden", 21, 30, animation=True, visible=False)
+        add_layer(21, "1")  # Missing raster must never be decoded.
+        add_layer(30, "Hidden parent", 40, visible=False)
+        add_layer(40, "Hidden by parent", 41, animation=True)
+        add_layer(41, "1")
+        for track_id, folder_id in ((2, 10), (3, 20), (4, 40)):
+            connection.execute(
+                "INSERT INTO Track VALUES (?, 7, 2000, ?, ?)",
+                (track_id, b"extrnlid_mixer", bytes([folder_id]) * 16),
+            )
+    _repack_fixture_clip(path, database_path)
+    updates = []
+    parsed = read_clip_animation(path, progress=lambda *args: updates.append(args))
+    assert [layer.name for layer in parsed.layers] == ["動画", "Top"]
+    assert {total for _, total, _ in updates if total} == {2}
+    assert parsed.frames[0].layers[1].image.pixelColor(0, 0) == QColor(40, 50, 60, 255)
+    composite = QImage(2, 2, QImage.Format.Format_ARGB32_Premultiplied)
+    composite.fill(QColor(0, 0, 0, 0))
+    from PySide6.QtGui import QPainter
+    painter = QPainter(composite)
+    for layer in parsed.frames[0].layers:
+        painter.drawImage(0, 0, layer.image)
+    painter.end()
+    assert composite.pixelColor(0, 0) == QColor(40, 50, 60, 255)
+
+
+@requires_clip_native
+def test_no_visible_animation_folders_reports_clear_error(tmp_path):
+    path = _clip_file(tmp_path)
+    database_path = tmp_path / "source.sqlite"
+    with sqlite3.connect(database_path) as connection:
+        connection.execute("UPDATE Layer SET LayerVisibility = 0 WHERE MainId = 1")
+    _repack_fixture_clip(path, database_path)
+    with pytest.raises(ClipImportError, match="表示中"):
+        read_clip_animation(path)
+
+
 def test_held_frames_use_shared_image_budget(monkeypatch):
     import paintmaskanimator.clip_animation as clip_module
 
@@ -601,7 +666,7 @@ def test_failed_ui_import_keeps_current_document(
 
         def fail(_path, *, progress):
             progress(0, 0, "Analyzing")
-            assert not window.isEnabled()
+            assert threading.get_ident() != threading.main_thread().ident
             raise ClipImportError("synthetic failure")
 
         messages = []
@@ -619,7 +684,29 @@ def test_failed_ui_import_keeps_current_document(
         assert messages
         assert window.isEnabled()
         assert not window.importer._clip_import_active
-        assert window.statusBar().findChild(QProgressBar, "clipImportProgress").isHidden()
+        assert not any(dialog.isVisible() for dialog in window.findChildren(main_window_import._ClipImportDialog))
+    finally:
+        window.close()
+
+
+@requires_clip_native
+def test_native_decode_failure_does_not_transfer_reader_traceback(qapp, tmp_path, monkeypatch, caplog):
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    path = _layered_clip_file(tmp_path, {"1": [{
+        "name": "unsupported", "raster": _one_bit_alpha_raster_body({0}),
+        "packing_type": (1, 0), "one_bit": True,
+    }]})
+    window = MainWindow()
+    try:
+        frames = window.canvas.frames
+        with pytest.raises(ClipImportError, match="8-bit") as caught:
+            window.importer._read_clip_with_progress(path)
+        assert caught.value.__cause__ is None
+        assert window.canvas.frames is frames
+        assert window.isEnabled()
+        records = [record for record in caplog.records if "CLIP reader worker failed" in record.message]
+        assert records and all(record.exc_info is None for record in records)
     finally:
         window.close()
 
@@ -644,22 +731,41 @@ def test_successful_ui_import_replaces_document_in_sheet_mode(
         (source_layer,), frames,
     )
     progress_bars = []
+    heartbeat = []
+    observed = []
+    reached_progress = threading.Event()
 
     def read_with_progress(_path, *, progress):
-        bar = window.statusBar().findChild(QProgressBar, "clipImportProgress")
-        progress_bars.append(bar)
+        assert threading.get_ident() != threading.main_thread().ident
         progress(0, 0, "Analyzing")
-        assert bar.maximum() == 0
-        assert not window.isEnabled()
-        assert not window.importer.clip_animation(_path, confirm_replace=False)
         progress(1, 2, "Reading cel")
-        assert (bar.value(), bar.maximum()) == (1, 2)
-        assert window.statusBar().currentMessage() == "Reading cel"
+        assert reached_progress.wait(5), "UI did not receive progress during decoding"
         progress(2, 2, "Building timeline")
         return parsed
 
     monkeypatch.setattr(main_window_import, "read_clip_animation", read_with_progress)
     window = MainWindow()
+    timer = QTimer(window)
+    timer.setInterval(5)
+
+    def observe_ui():
+        heartbeat.append(threading.get_ident())
+        if reached_progress.is_set():
+            return
+        dialog = window.findChild(main_window_import._ClipImportDialog, "clipImportProgressDialog")
+        bar = dialog.bar if dialog is not None else None
+        if bar is not None and bar.maximum() == 2 and bar.value() == 1:
+            progress_bars.append(bar)
+            observed.append(dialog.label.text())
+            assert dialog.isVisible() and dialog.isModal()
+            assert dialog.isEnabled()
+            dialog.reject()
+            assert dialog.isVisible()
+            assert not window.importer.clip_animation(tmp_path / "sample.clip", confirm_replace=False)
+            reached_progress.set()
+
+    timer.timeout.connect(observe_ui)
+    timer.start()
     try:
         assert window.importer.clip_animation(
             tmp_path / "sample.clip", confirm_replace=False
@@ -668,7 +774,9 @@ def test_successful_ui_import_replaces_document_in_sheet_mode(
         assert window.canvas.timeline_mode == "sheet"
         assert window.isEnabled()
         assert not window.importer._clip_import_active
-        assert progress_bars[0].isHidden()
+        assert not progress_bars[0].isVisible()
+        assert observed == ["Reading cel"]
+        assert heartbeat and set(heartbeat) == {threading.get_ident()}
         assert window.timeline.timeline_mode == "sheet"
         assert len(window.canvas.frames) == 2
         assert window.canvas.frames[0].layers[0].cell_name == "A-7"
@@ -684,6 +792,7 @@ def test_successful_ui_import_replaces_document_in_sheet_mode(
         sequence_cell = window.timeline.table.item(0, 1)
         assert sequence_cell is not None and sequence_cell.text() == "B-8"
     finally:
+        timer.stop()
         window.close()
 
 
@@ -771,6 +880,8 @@ _LAYER_COLUMNS = (
     "LayerNextIndex", "LayerRenderMipmap", "AnimationFolder", "LayerFolder",
     "LayerVisibility", "LayerOpacity", "LayerComposite", "LayerClip",
     "LayerLayerMaskMipmap",
+    "DrawColorEnable", "DrawColorMainRed", "DrawColorMainGreen", "DrawColorMainBlue",
+    "DrawColorSubRed", "DrawColorSubGreen", "DrawColorSubBlue",
 )
 
 
@@ -831,7 +942,8 @@ def _layered_clip_file(tmp_path, cels):
 
     def add_layers(specs):
         ids = []
-        for spec in specs:
+        # Real CSP links siblings bottom to top; specs remain top to bottom.
+        for spec in reversed(specs):
             layer_id = next_id[0]
             next_id[0] += 1
             ids.append((layer_id, spec))
@@ -860,6 +972,11 @@ def _layered_clip_file(tmp_path, cels):
                 "LayerComposite": spec.get("composite", 0),
                 "LayerClip": spec.get("clip", 0),
                 "LayerLayerMaskMipmap": mask,
+                "DrawColorEnable": int("layer_color" in spec),
+                **{f"DrawColorMain{channel}": value for channel, value in
+                   zip(("Red", "Green", "Blue"), spec.get("layer_color", (0, 0, 0)))},
+                **{f"DrawColorSub{channel}": value for channel, value in
+                   zip(("Red", "Green", "Blue"), spec.get("sub_color", (255, 255, 255)))},
             }
             connection.execute(
                 f"INSERT INTO Layer VALUES ({', '.join('?' for _ in _LAYER_COLUMNS)})",
@@ -991,6 +1108,76 @@ def test_pass_through_folder_blends_with_layers_below_it(tmp_path):
     assert (through.red(), through.green(), through.blue()) == (100, 50, 20)
     # A normal (isolated) folder multiplies onto nothing, so the grey shows.
     assert layer.cell_images["2"].pixelColor(0, 0) == _pixel((128, 128, 128))
+
+
+@requires_clip_native
+def test_qt_normal_compositing_preserves_clipping_opacity_and_offsets(tmp_path):
+    from paintmaskanimator.clip_animation import _CelRenderer, _premultiplied_to_image
+    from paintmaskanimator.imaging import qimage_rgba_array
+
+    path = _layered_clip_file(tmp_path, {"1": [
+        {"name": "hidden", "raster": _raster_body((255, 0, 0)), "visibility": 0},
+        {"name": "clipped", "raster": _raster_body((20, 80, 200)),
+         "opacity": 110, "clip": 1},
+        {"name": "base", "opacity": 177, "children": [
+            {"name": "paint", "raster": _raster_body((200, 100, 40), {0, 256}),
+             "opacity": 179},
+        ]},
+    ]})
+    reader = native.clip_animation_reader(str(path), 16384, 512 * 1024 * 1024)
+    rows = {row["MainId"]: row for row in reader.metadata()["layers"]}
+    cel = next(row for row in rows.values() if row["LayerName"] == "1")
+    # Folder translation applies after clipping and composition, as in the
+    # reference implementation. Keep a transparent column to verify its shape.
+    cel["LayerOffsetX"] = 1
+    cel["LayerOpacity"] = 220
+    renderer = _CelRenderer(reader, rows, 2, 2)
+    assert renderer._can_render_qt(cel, frozenset())
+    actual = renderer.render(cel)
+    reference = _premultiplied_to_image(renderer._content(cel, frozenset()) * renderer._opacity(cel))
+    # QPainter rounds at each 8-bit composition; compare premultiplied pixels
+    # so tiny alpha rounding cannot exaggerate invisible straight RGB values.
+    def premultiplied(image):
+        rgba = qimage_rgba_array(image).astype(float)
+        rgba[..., :3] *= rgba[..., 3:4] / 255
+        return rgba
+    assert np.max(np.abs(premultiplied(actual) - premultiplied(reference))) <= 2
+    assert actual.pixelColor(0, 0).alpha() == 0
+    assert actual.pixelColor(1, 0).alpha() > 0
+
+
+def test_layer_color_maps_black_gray_white_and_preserves_alpha():
+    from paintmaskanimator.clip_animation import _apply_layer_color
+    image = QImage(3, 1, QImage.Format.Format_ARGB32_Premultiplied)
+    image.setPixelColor(0, 0, QColor(0, 0, 0, 255))
+    image.setPixelColor(1, 0, QColor(128, 128, 128, 255))
+    image.setPixelColor(2, 0, QColor(255, 255, 255, 128))
+    actual = _apply_layer_color(image, {
+        "DrawColorEnable": 1,
+        "DrawColorMainRed": 10, "DrawColorMainGreen": 20, "DrawColorMainBlue": 30,
+        "DrawColorSubRed": 210, "DrawColorSubGreen": 220, "DrawColorSubBlue": 230,
+    })
+    assert actual.pixelColor(0, 0) == QColor(10, 20, 30, 255)
+    assert actual.pixelColor(1, 0) == QColor(110, 120, 130, 255)
+    assert actual.pixelColor(2, 0).alpha() == 128
+    assert abs(actual.pixelColor(2, 0).red() - 210) <= 1
+
+
+@requires_clip_native
+@pytest.mark.parametrize("on_folder", [False, True])
+@pytest.mark.parametrize("source_color,expected", [
+    ((0, 0, 0), (128, 255, 192)), ((255, 255, 255), (30, 40, 50)),
+])
+def test_csp_layer_color_is_applied_to_rgba_rasters_and_folders(tmp_path, on_folder, source_color, expected):
+    spec = {"name": "Raster", "raster": _raster_body(source_color, {0})}
+    if on_folder:
+        spec = {"name": "Colored folder", "children": [spec]}
+    spec["layer_color"] = (0x80808080, 0xFFFFFFFF, 0xC0C0C0C0)
+    spec["sub_color"] = (30, 40, 50)
+    path = _layered_clip_file(tmp_path, {"1": [spec]})
+    image = read_clip_animation(path).layers[0].cell_images["1"]
+    assert image.pixelColor(0, 0) == QColor(*expected, 255)
+    assert image.pixelColor(1, 0).alpha() == 0
 
 
 def test_missing_native_codec_reports_actionable_error():

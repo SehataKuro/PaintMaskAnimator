@@ -20,7 +20,7 @@ from .constants import (
     MAX_IMAGE_DIMENSION, MAX_PROJECT_DECODED_PIXELS, MAX_PROJECT_FRAMES,
     MAX_PROJECT_LAYER_CELLS, MAX_PROJECT_LAYERS, MAX_PROJECT_IMAGE_BYTES,
 )
-from .imaging import qimage_rgba_array, rgba_array_to_qimage
+from .imaging import qimage_buffer, qimage_rgba_array, rgba_array_to_qimage
 from .models import Frame, Layer
 
 
@@ -107,6 +107,37 @@ def _blank_canvas(width: int, height: int) -> QImage:
     return image
 
 
+def _apply_layer_color(image: QImage, layer: dict) -> QImage:
+    """CSP layer color maps black to main and white to sub, retaining alpha."""
+    if not _row_number(layer, "DrawColorEnable"):
+        return image
+    main = np.array([_csp_color_byte(layer.get(f"DrawColorMain{c}", 0))
+                     for c in ("Red", "Green", "Blue")], dtype=np.uint32)
+    if image.format() == QImage.Format.Format_ARGB32_Premultiplied:
+        packed = np.frombuffer(qimage_buffer(image, const=True), dtype=np.uint32)
+        if not np.any(packed & 0x00FFFFFF):
+            # Line-art caches are commonly black + alpha even when CSP shows
+            # a layer color. Tint them directly, preserving antialias alpha.
+            result = QImage(image)
+            painter = QPainter(result)
+            try:
+                painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+                painter.fillRect(result.rect(), QColor(*(int(c) for c in main)))
+            finally:
+                painter.end()
+            return result
+    sub = np.array([_csp_color_byte(layer.get(f"DrawColorSub{c}", 255))
+                    for c in ("Red", "Green", "Blue")], dtype=np.uint32)
+    rgba = qimage_rgba_array(image)
+    gray = ((rgba[..., 0].astype(np.uint32) * 299
+             + rgba[..., 1].astype(np.uint32) * 587
+             + rgba[..., 2].astype(np.uint32) * 114 + 500) // 1000).astype(np.uint8)
+    levels = np.arange(256, dtype=np.uint32)[:, None]
+    palette = ((main * (255 - levels) + sub * levels + 127) // 255).astype(np.uint8)
+    rgba[..., :3] = palette[gray]
+    return rgba_array_to_qimage(rgba)
+
+
 def _native_raster(reader, mipmap_id: int, color=(0, 0, 0)):
     """Convert upstream decoded pixels to a detached QImage; no format parsing."""
     width, height, channels, alpha_only, default_white, data = reader.raster(mipmap_id)
@@ -136,9 +167,9 @@ def _render_cached_layer(
         raise ClipImportError(
             tr("セル「{LayerName}」の表示合成画像が.clip内にありません。").format(LayerName=layer['LayerName'])
         )
-    raster, _alpha_only, _default_white = _native_raster(
-        reader, mipmap_id, _single_channel_layer_color(layer)
-    )
+    color = (0, 0, 0) if _row_number(layer, "DrawColorEnable") else _single_channel_layer_color(layer)
+    raster, _alpha_only, _default_white = _native_raster(reader, mipmap_id, color)
+    raster = _apply_layer_color(raster, layer)
     result = _blank_canvas(canvas_width, canvas_height)
     x = _row_number(layer, "LayerOffsetX") + _row_number(
         layer, "LayerRenderOffscrOffsetX"
@@ -157,7 +188,9 @@ def _render_cached_layer(
 def _child_layer_rows(
     layers_by_id: dict[int, dict], layer: dict
 ) -> list[dict]:
-    return [layers_by_id[child_id] for child_id in layer["children"]]
+    # CSP's sibling chain runs bottom to top. The compositor consumes children
+    # top to bottom, grouping clipped layers with the base immediately below.
+    return [layers_by_id[child_id] for child_id in reversed(layer["children"])]
 
 
 # CLIP STUDIO's ``LayerComposite`` values.  The numbering follows the PSD
@@ -447,8 +480,68 @@ class _CelRenderer:
         # The cel itself is drawn on an empty canvas, so its own blend mode
         # and clipping flag have nothing to act on. Its visibility only means
         # "the current frame" inside CLIP and is ignored as well.
+        if self._can_render_qt(cel, frozenset()):
+            image = self._qt_content(cel, frozenset())
+            if self._opacity(cel) == 1.0:
+                return image
+            result = _blank_canvas(self.width, self.height)
+            self._qt_draw(result, image, self._opacity(cel))
+            return result
         pixels = self._content(cel, frozenset()) * self._opacity(cel)
         return _premultiplied_to_image(pixels)
+
+    def _can_render_qt(self, layer: dict, stack: frozenset[int]) -> bool:
+        """Normal blending and clipping can stay in Qt's premultiplied pixels."""
+        if (_row_number(layer, "LayerLayerMaskMipmap")
+                and _row_number(layer, "LayerVisibility", 1) & 2):
+            return False
+        if self._is_folder(layer):
+            children, child_stack = self._children(layer, stack)
+            for child in children:
+                if not self._visible(child):
+                    continue
+                if (_row_number(child, "LayerComposite") != _BLEND_NORMAL
+                        or not self._can_render_qt(child, child_stack)):
+                    return False
+        return True
+
+    @staticmethod
+    def _qt_draw(target: QImage, source: QImage, opacity: float, *, atop=False, x=0, y=0):
+        painter = QPainter(target)
+        try:
+            painter.setOpacity(opacity)
+            if atop:
+                painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceAtop)
+            painter.drawImage(QPoint(x, y), source)
+        finally:
+            painter.end()
+
+    def _qt_content(self, layer: dict, stack: frozenset[int]) -> QImage:
+        if not self._is_folder(layer):
+            return _render_cached_layer(self.reader, layer, self.width, self.height)
+        children, child_stack = self._children(layer, stack)
+        groups: list[tuple[dict, list[dict]]] = []
+        for child in reversed(children):
+            if _row_number(child, "LayerClip") and groups:
+                groups[-1][1].append(child)
+            else:
+                groups.append((child, []))
+        result = _blank_canvas(self.width, self.height)
+        for base, clipped in groups:
+            if not self._visible(base):
+                continue
+            group = self._qt_content(base, child_stack)
+            for child in clipped:
+                if self._visible(child):
+                    self._qt_draw(group, self._qt_content(child, child_stack),
+                                  self._opacity(child), atop=True)
+            self._qt_draw(result, group, self._opacity(base))
+        x, y = _row_number(layer, "LayerOffsetX"), _row_number(layer, "LayerOffsetY")
+        if x or y:
+            shifted = _blank_canvas(self.width, self.height)
+            self._qt_draw(shifted, result, 1.0, x=x, y=y)
+            result = shifted
+        return _apply_layer_color(result, layer)
 
     def _blank(self) -> np.ndarray:
         return np.zeros((self.height, self.width, 4), dtype=np.float32)
@@ -496,6 +589,8 @@ class _CelRenderer:
                 )
             )
         mask = self._mask(layer)
+        if self._is_folder(layer) and _row_number(layer, "DrawColorEnable"):
+            pixels = _image_to_premultiplied(_apply_layer_color(_premultiplied_to_image(pixels), layer))
         if mask is not None:
             pixels *= mask[..., None]
         return pixels
@@ -745,14 +840,43 @@ def read_clip_animation(
         start_frame = max(0, int(round(metadata["start_frame"])))
         end_frame = max(0, int(round(metadata["end_frame"])))
         layers_by_id = {row["MainId"]: row for row in metadata["layers"]}
+        parents = {child: row["MainId"] for row in metadata["layers"] for child in row["children"]}
+
+        def folder_visible(layer_id: int) -> bool:
+            seen = set()
+            while layer_id in layers_by_id:
+                if layer_id in seen:
+                    raise ClipImportError(tr("セル内のレイヤー構造が循環しています。"))
+                seen.add(layer_id)
+                if not _CelRenderer._visible(layers_by_id[layer_id]):
+                    return False
+                if layer_id not in parents:
+                    break
+                layer_id = parents[layer_id]
+            return True
+
+        # PMA also stores layers bottom to top. Preserve tree stacking order,
+        # which is independent of numeric Track/Layer IDs.
+        stack_order: dict[int, int] = {}
+        pending = list(reversed([row["MainId"] for row in metadata["layers"] if row["MainId"] not in parents]))
+        while pending:
+            layer_id = pending.pop()
+            if layer_id in stack_order:
+                raise ClipImportError(tr("セル内のレイヤー構造が循環しています。"))
+            stack_order[layer_id] = len(stack_order)
+            pending.extend(reversed(layers_by_id[layer_id]["children"]))
         renderer = _CelRenderer(reader, layers_by_id, width, height)
         parsed_layers: list[ClipAnimationLayer] = []
         tracks = [
             (layers_by_id[layer_id], curves)
             for layer_id, curves in metadata["tracks"]
-            if "AnimationFolder" not in layers_by_id[layer_id]
-            or layers_by_id[layer_id]["AnimationFolder"]
+            if ("AnimationFolder" not in layers_by_id[layer_id]
+                or layers_by_id[layer_id]["AnimationFolder"])
+            and folder_visible(layer_id)
         ]
+        tracks.sort(key=lambda item: stack_order.get(item[0]["MainId"], len(stack_order)))
+        if not tracks:
+            raise ClipImportError(tr("表示中のアニメーションフォルダーがありません。"))
         # Check allocation budgets before decoding cel images or building Qt frames.
         duration = end_frame - start_frame + 1
         if not 1 <= duration <= MAX_PROJECT_FRAMES:
@@ -802,6 +926,12 @@ def read_clip_animation(
                 label = tr("セル画像を読み込み中：{folder} / {cel}").format(folder=folder["LayerName"], cel=tag)
                 report(completed_cels, total_cels, label)
                 images[tag] = renderer.render(child)
+                ancestor_id = folder["MainId"]
+                while ancestor_id in layers_by_id:
+                    images[tag] = _apply_layer_color(images[tag], layers_by_id[ancestor_id])
+                    if ancestor_id not in parents:
+                        break
+                    ancestor_id = parents[ancestor_id]
                 completed_cels += 1
                 report(completed_cels, total_cels, label)
             parsed_layers.append(
