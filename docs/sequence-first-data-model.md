@@ -209,13 +209,13 @@ SheetEntry                   # コマ1つ分の指定
 確かめるためのものです。600コマ・4レイヤー・1レイヤーあたり60枚
 （露出10コマ）・1280×720 での測定値：
 
-| 測るもの | Phase 0 | Phase 1 |
-|---|---|---|
-| `coalesce_numbered_images` | 0.343 ms | 0.377 ms |
-| `resolve_cells`（カット全体） | 7.628 ms | 7.739 ms |
-| `resolve_key_frame`（索引を捨ててから） | 1.415 ms | 1.254 ms |
-| シーク（13コマおき） | 0.144 ms | 0.144 ms |
-| カット全体の対象セル数 | 240 | 240 |
+| 測るもの | Phase 0 | Phase 1 | Phase 2 |
+|---|---|---|---|
+| `coalesce_numbered_images` | 0.343 ms | 0.377 ms | 0.315 ms |
+| `resolve_cells`（カット全体） | 7.628 ms | 7.739 ms | 7.922 ms |
+| `resolve_key_frame`（索引を捨ててから） | 1.415 ms | 1.254 ms | 1.384 ms |
+| シーク（13コマおき） | 0.144 ms | 0.144 ms | 0.147 ms |
+| カット全体の対象セル数 | 240 | 240 | 240 |
 
 いずれも誤差の範囲で、遅くなっていません（2026-11-01 測定）。
 
@@ -248,10 +248,30 @@ Undo の復元結果が変わるためです。Phase 4 でまとめます。
 
 **テスト**：[`tests/test_sequence_cells.py`](../tests/test_sequence_cells.py)
 
-### Phase 2：表示の設定を `Track` へ移す
+### Phase 2：表示の設定を `Track` へ移す（済）
 
-9個の表示設定を `Track` が持ち、`Layer` 側は `Track` を見るようにします。
-`_copy_display_properties` を消します。
+8個の表示設定（`name` / `visible` / `opacity` / `is_paper` / `is_draft` /
+`alpha_locked` / `color_filter_enabled` / `color_filter_rgb`）を `Track` が
+レイヤーごとに1つ持つようにしました。同じレイヤーのセルは1つの `Track` を
+共有します。
+
+- **どのコマから変えてもレイヤー全体に効きます。** 1コマだけ不透明度が違う、
+  という状態は作れなくなりました。
+- `Track` は作るときに結びます（`_ensure_frame_count`・`add_layer`）。
+  読み込みや Undo の復元のあとは `link_layer_tracks()` で結び直します。
+- `Layer.clone()` は自分の `Track` を持ちます（Undo のスナップショットが
+  あとの変更で汚れないようにするため）。
+- `_copy_display_properties` は `share_track_with` の1行になりました。
+  呼び出し側（`main_window_time_remap.py`）はそのままです。
+
+**動きが変わったところが1つあります。** レイヤー名もレイヤーに1つなので、
+「1コマだけ名前を変える」ことはできなくなりました。これまではそれができて
+しまい、同じレイヤーのコマごとに名前が違う状態が作れていました。
+`tests/test_initial_state_import.py` の1件が、その状態に依存していたので
+直してあります。
+
+**テスト**：`tests/test_sequence_model_characterization.py` の5番目を書き換え
+（Phase 0 で「セルごとに持つ」と記録していたもの）。
 
 ### Phase 3：シートを参照の表にする
 
