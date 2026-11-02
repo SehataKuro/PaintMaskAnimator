@@ -35,6 +35,14 @@ def test_ts_pool_preset_matches_the_compositing_handoff_layout():
     assert [path for path, _ in plan.files] == ["A/A_0001.png", "B/B_0001.png"]
     assert plan.timesheet_path == "_ts/c002.tdts"
     assert "_pool" in plan.folders
+    assert plan.lo_path == "_lo/lo.png"
+    assert "_lo" in plan.folders
+
+
+def test_layout_without_lo_folder_writes_no_lo():
+    plan = cf.plan_export(episode_layout(), VALUES, [CelSource(0, "A", 1)])
+    assert plan.lo_path is None
+    assert cf.CutFolderLayout.from_json(episode_layout().to_json()).lo_folder == ()
 
 
 def test_timesheet_format_round_trips_and_falls_back_to_xdts():

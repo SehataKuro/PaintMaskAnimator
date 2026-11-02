@@ -20,9 +20,10 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMessageBox
 from .i18n import tr
-from . import cut_folder, preferences, timesheet_file
+from . import cut_folder, layout_paper, preferences, timesheet_file
 from .models import default_layer_name
 from .optional_deps import PILImage, PSDImage
 from .constants import OUTSIDE_MARGIN
@@ -32,6 +33,7 @@ from .errors import OPERATION_ERRORS as _OPERATION_ERRORS, OperationError
 from .timeline import TimelineWidget
 from .progress import close_counter, create_counter, update_counter
 from .logging_setup import get_logger
+from .utils import blank_image
 
 if TYPE_CHECKING:
     from .main_window import MainWindow
@@ -228,6 +230,58 @@ class ExportController:
                 images[cel] = layer.image
         return cels, images, skipped
 
+    @staticmethod
+    def _is_layout_paper(layer):
+        if layer.is_paper:
+            return True
+        return bool(getattr(layer, "is_draft", False)) and layer.name.strip() in (
+            "レイアウト用紙", layout_paper.layer_name(),
+        )
+
+    def lo_image(self):
+        """LO: 1コマ目の初期状態をキャンバス全体で合成し、用紙を乗算で重ねた画像。
+
+        初期状態を保持していないセルは今の絵を使う（比較表示と同じ約束）。
+        用紙は文書のレイアウト用紙レイヤー（非表示でも使う）、なければ前回の
+        新規作成で選んだ登録済みの用紙。どちらもなければ重ねない。
+        ``(image, paper_used)`` を返す。
+        """
+        canvas = self.window.canvas
+        result = blank_image(QColor("white"))
+        papers = []
+        painter = QPainter(result)
+        for layer_index in range(len(canvas.frames[0].layers) if canvas.frames else 0):
+            key_frame = canvas.resolve_key_frame(0, layer_index)
+            if key_frame is None:
+                continue
+            layer = canvas.frames[key_frame].layers[layer_index]
+            if self._is_layout_paper(layer):
+                if layer.has_content:
+                    papers.append(layer)
+                continue
+            if not layer.visible:
+                continue
+            source = layer.initial_image if layer.initial_image is not None else layer.image
+            painter.setOpacity(layer.opacity)
+            painter.drawImage(0, 0, source)
+        painter.setOpacity(1.0)
+        paper_images = [layer.image for layer in papers]
+        if not paper_images:
+            entry = layout_paper.paper(layout_paper.last_used())
+            loaded = layout_paper.load_image(entry) if entry else None
+            if loaded is not None:
+                placed = blank_image()
+                canvas._place_imported_image(loaded, placed)
+                paper_images.append(placed)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Multiply)
+        for image in paper_images:
+            painter.drawImage(0, 0, image)
+        painter.end()
+        image = result.copy(
+            OUTSIDE_MARGIN, OUTSIDE_MARGIN, constants.CANVAS_WIDTH, constants.CANVAS_HEIGHT
+        )
+        return image, bool(paper_images)
+
     def cut_folder(self):
         from .cut_folder_dialog import CutFolderExportDialog
 
@@ -293,6 +347,13 @@ class ExportController:
                     saved = image.save(str(output_path), "PNG")
                 if not saved:
                     raise OSError(tr("{name}を保存できませんでした。").format(name=output_path.name))
+            lo_without_paper = False
+            if plan.lo_path:
+                lo, paper_used = self.lo_image()
+                lo_without_paper = not paper_used
+                output_path = target / plan.lo_path
+                if not lo.save(str(output_path), "PNG"):
+                    raise OSError(tr("{name}を保存できませんでした。").format(name=output_path.name))
             sheet_name = Path(plan.timesheet_path).stem
             (target / plan.timesheet_path).write_text(
                 self.sheet_text(plan.timesheet_format, sheet_name, **plan.sheet_header),
@@ -314,6 +375,10 @@ class ExportController:
         )
         if skipped:
             message += "\n" + tr("セル番号のないキー{count}枚は書き出していません。").format(count=skipped)
+        if plan.lo_path:
+            message += "\n" + tr("LOを {path} に書き出しました。").format(path=plan.lo_path)
+            if lo_without_paper:
+                message += tr("レイアウト用紙が見つからないため、用紙は重ねていません。")
         self.window.statusBar().showMessage(message.split("\n")[0], 4000)
         QMessageBox.information(
             self.window, tr("カットフォルダー書き出し"), f"{message}\n\n{target}"

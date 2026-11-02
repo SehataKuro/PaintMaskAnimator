@@ -202,6 +202,8 @@ class CutFolderLayout:
     image_format: str = "png"
     #: ``xdts`` (exchange format) or ``tdts`` (Toei Digital Timesheet).
     timesheet_format: str = "xdts"
+    #: Sub-folder for the LO image (:data:`LO_FILE_NAME`); empty = no LO.
+    lo_folder: tuple = ()
 
     def to_json(self):
         return {
@@ -213,6 +215,7 @@ class CutFolderLayout:
             "extra_folders": [template_to_json(t) for t in self.extra_folders],
             "image_format": self.image_format,
             "timesheet_format": self.timesheet_format,
+            "lo_folder": template_to_json(self.lo_folder),
         }
 
     @classmethod
@@ -233,6 +236,7 @@ class CutFolderLayout:
             timesheet_format=(
                 timesheet_format if timesheet_format in TIMESHEET_EXTENSIONS else "xdts"
             ),
+            lo_folder=template_from_json(data.get("lo_folder")),
         )
 
     def copy(self):
@@ -243,8 +247,8 @@ def ts_pool_layout():
     """_ts・_pool: the layout used for compositing handoff.
 
     Folder ``作品名_C002`` (no episode), cels ``A/A_0001.png``, the time sheet
-    as ``_ts/c002.tdts`` and an empty ``_pool`` for source files such as the
-    ``.clip``.
+    as ``_ts/c002.tdts``, the LO as ``_lo/lo.png`` and an empty ``_pool`` for
+    source files such as the ``.clip``.
     """
     return CutFolderLayout(
         folder=(block("title"), text("_"), block("cut", digits=3, prefix="C")),
@@ -255,10 +259,14 @@ def ts_pool_layout():
         extra_folders=[(text("_pool"),)],
         image_format="png",
         timesheet_format="tdts",
+        lo_folder=(text("_lo"),),
     )
 
 
 BUILTIN_PRESETS = {"_ts・_pool": ts_pool_layout}
+
+#: File name of the LO image written into :attr:`CutFolderLayout.lo_folder`.
+LO_FILE_NAME = "lo.png"
 
 #: The preset a fresh dialog starts from.
 DEFAULT_PRESET = "_ts・_pool"
@@ -288,6 +296,8 @@ class ExportPlan:
     timesheet_format: str = "xdts"
     #: 作品情報 for formats whose sheet carries it (TDTS).
     sheet_header: dict = field(default_factory=dict)
+    #: Relative path of the LO image, or ``None`` when the layout writes none.
+    lo_path: Optional[str] = None
 
     @property
     def ok(self):
@@ -331,7 +341,8 @@ def plan_export(
             key in fields_in(template)
             for template in (
                 layout.folder, layout.cell_folder, layout.cell_file,
-                layout.timesheet, layout.timesheet_folder, *layout.extra_folders,
+                layout.timesheet, layout.timesheet_folder, layout.lo_folder,
+                *layout.extra_folders,
             )
         )
         if used and not str(base.get(key) or "").strip():
@@ -396,6 +407,16 @@ def plan_export(
                 folders.append(sheet_folder)
             timesheet_path = f"{sheet_folder}/{timesheet_path}"
 
+    lo_path = None
+    lo_folder = render(layout.lo_folder, base).strip("/")
+    if lo_folder:
+        if any(invalid_name_reason(part) for part in _split_path(lo_folder)):
+            problems.append(("bad_name", lo_folder, "lo_folder"))
+        else:
+            if lo_folder not in folders:
+                folders.append(lo_folder)
+            lo_path = f"{lo_folder}/{LO_FILE_NAME}"
+
     # Deduplicate while keeping the first occurrence of each problem.
     unique = []
     for problem in problems:
@@ -412,6 +433,7 @@ def plan_export(
             name: str(values.get(name, "") or "").strip()
             for name in ("cut", "episode", "scene")
         },
+        lo_path=lo_path,
     )
 
 

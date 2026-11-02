@@ -715,6 +715,12 @@ class CutFolderExportDialog(QDialog):
         self.timesheet_editor = self._editor(cut_fields)
         self.timesheet_folder_editor = self._editor(cut_fields)
         self.timesheet_folder_editor.placeholder = tr("空欄ならカットフォルダー直下")
+        self.lo_folder_editor = self._editor(cut_fields)
+        self.lo_folder_editor.placeholder = tr("空欄ならLOを書き出さない")
+        self.lo_folder_editor.setToolTip(tr(
+            "1コマ目の初期状態をキャンバス全体で合成し、レイアウト用紙を乗算で重ねて"
+            "このフォルダーへ lo.png として書き出します。"
+        ))
 
         left.addWidget(QLabel(tr("カットフォルダー")))
         left.addWidget(self.folder_editor)
@@ -744,6 +750,9 @@ class CutFolderExportDialog(QDialog):
         sheet_row.addWidget(self.timesheet_format_combo)
         left.addLayout(sheet_row)
         left.addWidget(self.timesheet_editor)
+
+        left.addWidget(QLabel(tr("LOのフォルダー")))
+        left.addWidget(self.lo_folder_editor)
 
         extra_head = QHBoxLayout()
         extra_head.addWidget(QLabel(tr("空のフォルダー")))
@@ -874,7 +883,7 @@ class CutFolderExportDialog(QDialog):
     def _all_editors(self):
         return [
             self.folder_editor, self.cell_folder_editor, self.cell_file_editor,
-            self.timesheet_editor, self.timesheet_folder_editor,
+            self.timesheet_editor, self.timesheet_folder_editor, self.lo_folder_editor,
             *[e for _h, e in self.extra_editors],
         ]
 
@@ -889,6 +898,7 @@ class CutFolderExportDialog(QDialog):
             extra_folders=[e.template() for _h, e in self.extra_editors if e.template()],
             image_format=self.format_combo.currentData(),
             timesheet_format=self.timesheet_format_combo.currentData(),
+            lo_folder=self.lo_folder_editor.template(),
         )
 
     def set_layout(self, layout):
@@ -899,6 +909,7 @@ class CutFolderExportDialog(QDialog):
             self.cell_file_editor.set_template(layout.cell_file)
             self.timesheet_editor.set_template(layout.timesheet)
             self.timesheet_folder_editor.set_template(layout.timesheet_folder)
+            self.lo_folder_editor.set_template(layout.lo_folder)
             index = self.format_combo.findData(layout.image_format)
             self.format_combo.setCurrentIndex(max(0, index))
             index = self.timesheet_format_combo.findData(layout.timesheet_format)
@@ -1004,6 +1015,7 @@ class CutFolderExportDialog(QDialog):
                 "timesheet": tr("タイムシート"),
                 "timesheet_folder": tr("タイムシートのフォルダー"),
                 "extra_folder": tr("空のフォルダー"),
+                "lo_folder": tr("LOのフォルダー"),
             }.get(problem[2], "")
             return tr("{where}の名前「{name}」は使えません。").format(where=where, name=problem[1])
         return str(problem)
@@ -1049,6 +1061,11 @@ class CutFolderExportDialog(QDialog):
         sheet = QTreeWidgetItem([sheet_name])
         sheet.setIcon(0, file_icon)
         folder_item(sheet_directory).addChild(sheet)
+        if plan.lo_path:
+            lo_directory, _, lo_name = plan.lo_path.rpartition("/")
+            lo_item = QTreeWidgetItem([lo_name])
+            lo_item.setIcon(0, file_icon)
+            folder_item(lo_directory).addChild(lo_item)
         self.tree.expandAll()
 
         messages = [self._problem_text(p) for p in plan.problems]

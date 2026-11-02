@@ -6,7 +6,7 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt  # noqa: E402
-from PySide6.QtGui import QColor  # noqa: E402
+from PySide6.QtGui import QColor, QImage  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
 
@@ -213,3 +213,43 @@ def test_ts_pool_preset_writes_a_tdts_into_ts(window, tmp_path, monkeypatch):
     assert sheet["header"]["cut"] == "2"
     assert sheet["timeTables"][0]["name"] == "c002"
     assert sheet["timeTables"][0]["timeTableHeaders"][0]["names"][0] == "A"
+
+
+def test_ts_pool_preset_writes_lo_from_initial_state_multiplied_by_paper(
+    window, tmp_path, monkeypatch
+):
+    from paintmaskanimator import constants, layout_paper
+    from paintmaskanimator.models import Layer
+    from paintmaskanimator.utils import blank_image
+
+    monkeypatch.setattr(QMessageBox, "information", lambda *_a, **_k: None)
+    _draw_cels(window, 2)
+    canvas = window.canvas
+    # 1コマ目の初期状態は青。今の絵（赤）ではなくこちらを使う。
+    first = canvas.frames[0].layers[0]
+    first.initial_image = QImage(first.image.size(), first.image.format())
+    first.initial_image.fill(QColor(0, 0, 255, 255))
+    # 用紙は下書きレイヤーとして下に敷かれ、非表示でも乗算で重ねる。
+    for frame in canvas.frames:
+        paper = Layer(layout_paper.layer_name(), blank_image(QColor(128, 128, 128)), is_draft=True)
+        paper.has_content = True
+        paper.visible = False
+        frame.layers.insert(0, paper)
+
+    cels, images, _ = window.export.cut_folder_cels()
+    plan = cf.plan_export(cf.ts_pool_layout(), {"title": "PMA", "cut": "2"}, cels)
+    assert plan.ok, plan.problems
+    assert window.export.write_cut_folder(plan, tmp_path, images, "png")
+
+    lo = QImage(str(tmp_path / "PMA_C002" / "_lo" / "lo.png"))
+    assert (lo.width(), lo.height()) == (constants.CANVAS_WIDTH, constants.CANVAS_HEIGHT)
+    pixel = lo.pixelColor(lo.width() // 2, lo.height() // 2)
+    assert (pixel.red(), pixel.green(), pixel.blue()) == (0, 0, 128)
+
+
+def test_lo_without_paper_is_the_plain_initial_composite(window):
+    _draw_cels(window, 1)
+    image, paper_used = window.export.lo_image()
+    assert not paper_used
+    pixel = image.pixelColor(0, 0)
+    assert (pixel.red(), pixel.green(), pixel.blue()) == (255, 0, 0)
