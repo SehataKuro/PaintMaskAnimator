@@ -71,6 +71,8 @@ class UsedColorPanel(
     previewGroupsChanged = Signal(object)
     deleteColorsRequested = Signal(object)
     adjustLineThicknessRequested = Signal(object)
+    # 使用色の色相・彩度・明度調整（Issue #22）。
+    adjustHsvRequested = Signal(object)
     focusColorRequested = Signal(object)
     maskColorsChanged = Signal(object)
     selectedColorsChanged = Signal(object)
@@ -1435,6 +1437,17 @@ class UsedColorPanel(
                 tr("選択中の親色・子色をまとめて調整します。")
             )
 
+        action_hsv = menu.addAction(
+            tr("色相・彩度・明度を調整")
+            if len(delete_sources) <= 1
+            else tr("選択した{count}色の色相・彩度・明度を調整").format(
+                count=len(delete_sources)
+            )
+        )
+        action_hsv.setToolTip(
+            tr("プレビューを見ながら調整し、OKで全コマへ適用します。")
+        )
+
         action_focus = menu.addAction(tr("この色を選択範囲にする"))
         folder_menu = menu.addMenu(tr("フォルダーへ移動"))
         folder_actions = {}
@@ -1476,6 +1489,8 @@ class UsedColorPanel(
             self.adjustLineThicknessRequested.emit(
                 set(selected_line_colors)
             )
+        elif chosen is action_hsv:
+            self.adjustHsvRequested.emit(set(delete_sources))
         elif chosen is action_focus:
             self._set_used_color_parent(rgb)
             self.focusColorRequested.emit(tuple(rgb))

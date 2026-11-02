@@ -312,7 +312,12 @@ class ToneCurveWidget(QWidget):
 
 
 class ColorReductionDialog(QDialog):
-    """1枚目で非アンチエイリアス化を調整し、全コマへ適用する。"""
+    """代表フレームからパレットを決め、全コマへ適用する。
+
+    プレビューは1枚目で見せるが、パレットは ``reference_images``（先頭・中間・
+    末尾などの代表フレーム）からまとめて作る。1枚だけで決めると、中間で色が
+    増えるカットやフラッシュで色が潰れるため（Issue #10）。
+    """
 
     def __init__(
         self,
@@ -322,12 +327,18 @@ class ColorReductionDialog(QDialog):
         opaque_background=False,
         background_rgb=None,
         parent=None,
+        reference_images=(),
     ):
         super().__init__(parent)
         self.setWindowTitle(tr("2値化"))
         self.resize(820, 560)
 
         self.source_image = source_image.copy()
+        # パレットの手本にする代表フレーム（1枚目を除く）。
+        self.reference_images = [
+            image.copy() for image in (reference_images or ())
+            if image is not None and not image.isNull()
+        ]
         self.original_color_count = int(original_color_count)
         self.semi_transparent_count = int(
             semi_transparent_count
@@ -371,7 +382,11 @@ class ColorReductionDialog(QDialog):
             else tr("半透明 {count:,}px").format(count=self.semi_transparent_count)
         )
         summary = QLabel(
-            tr("1枚目：{count:,}色／{note}　トーンカーブを元画像へ先に適用し、その後に色数を調整して2値化します。").format(count=self.original_color_count, note=background_note)
+            tr("代表{frames}枚：1枚目{count:,}色／{note}　トーンカーブを元画像へ先に適用し、その後に色数を調整して2値化します。").format(
+                frames=len(self.reference_images) + 1,
+                count=self.original_color_count,
+                note=background_note,
+            )
         )
         summary.setWordWrap(True)
         layout.addWidget(summary)
@@ -1076,6 +1091,15 @@ class ColorReductionDialog(QDialog):
                         opaque_background=processing_opaque_background,
                         background_rgb=processing_background_rgb,
                         extraction_mode=extraction_mode,
+                        # 代表フレームにも同じトーンカーブをかけて手本にする。
+                        extra_images=[
+                            PaintCanvas.apply_tone_curve(
+                                reference,
+                                tone_curve_points=tone_points,
+                                background_rgb=processing_background_rgb,
+                            )
+                            for reference in self.reference_images
+                        ],
                     )
                 )
 

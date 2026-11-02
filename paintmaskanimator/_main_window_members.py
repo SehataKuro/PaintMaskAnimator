@@ -167,6 +167,7 @@ class MainWindowMembers(_MembersBase):
         a_dust_all_frames: Any
         a_dust_apply: Any
         a_export_cut_folder: Any
+        a_export_shadow: Any
         a_export_mp4: Any
         a_export_png_seq: Any
         a_export_psd: Any
@@ -248,6 +249,13 @@ class MainWindowMembers(_MembersBase):
         a_tl_next_key: Any
         a_tl_onion: Any
         a_tl_paste_time_remap: Any
+        a_tl_copy_time_remap: Any
+        a_memo: Any
+        project_memo: Any
+
+        def show_memo_window(self) -> Any: ...
+        def set_project_memo(self, text) -> Any: ...
+        _memo_window: Any
         a_tl_play: Any
         a_tl_previous: Any
         a_tl_previous_key: Any

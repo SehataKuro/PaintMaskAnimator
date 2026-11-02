@@ -35,7 +35,11 @@ _PATHS = {
         '<circle cx="5" cy="19" r="1.8" fill="ACCENT" stroke="ACCENT"/>'
         '<circle cx="19" cy="5" r="1.8" fill="ACCENT" stroke="ACCENT"/>'
     ),
-    "shape": '<path d="M12 3.5 20.5 12 12 20.5 3.5 12Z"/>',
+    "shape": (
+        '<rect x="3.5" y="7.5" width="11" height="11" rx="1.2"/>'
+        '<circle cx="15.5" cy="8.5" r="5" fill="ACCENT" fill-opacity="0.45" '
+        'stroke="ACCENT"/>'
+    ),
     "bucket": (
         '<path d="m4.5 11 7-7 7.5 7.5-7 7a2 2 0 0 1-2.8 0L4.5 13.8a2 2 0 0 1 0-2.8Z"/>'
         '<path d="M4.6 12.4h14"/>'
@@ -55,6 +59,8 @@ _PATHS = {
         '<path d="M7 17.5C4.3 16.2 3 14.4 3 12c0-4.4 4-7.5 9-7.5s9 3.1 9 7.5-4 7.5-9 7.5" '
         'fill="ACCENT" fill-opacity="0.45"/>'
         '<path d="M8.5 15.5a2 2 0 1 0 0 4c1.4 0 1.5 2 .5 3"/>'
+        '<path d="M14.5 8c1.6 1.9 2.5 3.2 2.5 4.1a2.5 2.5 0 0 1-5 0c0-.9.9-2.2 '
+        '2.5-4.1Z" fill="ACCENT" stroke="ACCENT"/>'
     ),
     "rect_select": (
         '<path d="M4 7V5a1 1 0 0 1 1-1h2M11 4h2M17 4h2a1 1 0 0 1 1 1v2M20 11v2'
@@ -72,10 +78,12 @@ _PATHS = {
         'fill="ACCENT" stroke="ACCENT"/>'
     ),
     "dust": (
-        '<circle cx="7" cy="8" r="2.2" fill="ACCENT" stroke="ACCENT"/>'
-        '<circle cx="16.5" cy="7" r="1.6" fill="ACCENT" stroke="ACCENT"/>'
-        '<circle cx="12" cy="16" r="2.8" fill="ACCENT" stroke="ACCENT"/>'
-        '<path d="M19 14.5v.01M5 17.5v.01"/>'
+        '<path d="M4 20.5h7"/>'
+        '<path d="M13.5 4.5 19.5 10.5l-6.4 6.4a1.5 1.5 0 0 1-2.1 0l-3.9-3.9'
+        'a1.5 1.5 0 0 1 0-2.1Z"/>'
+        '<path d="m10 8 6 6"/>'
+        '<circle cx="5.5" cy="6" r="1.5" fill="ACCENT" stroke="ACCENT"/>'
+        '<circle cx="9" cy="3.5" r="1" fill="ACCENT" stroke="ACCENT"/>'
     ),
     # --- timeline ----------------------------------------------------------
     "play": '<path d="M7.5 5.2v13.6a.8.8 0 0 0 1.2.7l11-6.8a.8.8 0 0 0 0-1.4l-11-6.8a.8.8 0 0 0-1.2.7Z" fill="currentColor"/>',
