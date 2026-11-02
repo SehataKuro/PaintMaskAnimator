@@ -60,15 +60,20 @@ class TimelineStructureMixin(CanvasMembers):
 
         # QImageの暗黙共有を使い、空画像バッファをコマ数分確保しない。
         shared_blank = blank_image()
+        owner = None
         for frame in self.frames:
-            frame.layers.append(
-                Layer(
-                    name,
-                    shared_blank.copy(),
-                    visible=True,
-                    opacity=1.0,
-                )
+            added = Layer(
+                name,
+                shared_blank.copy(),
+                visible=True,
+                opacity=1.0,
             )
+            # 足したレイヤーも、全コマで1つの Track を共有する。
+            if owner is None:
+                owner = added
+            else:
+                added.share_track_with(owner)
+            frame.layers.append(added)
         self.active_layer_index = insert_index
         self._onion_cache.clear()
         self.changed.emit()
@@ -93,6 +98,8 @@ class TimelineStructureMixin(CanvasMembers):
         self.update()
     @staticmethod
     def _clear_timeline_layer_cell(layer):
+        # シート操作。同じ番号の他のコマの絵まで消さないよう、先に共有を切る。
+        layer.detach_cell()
         layer.image = blank_image()
         layer.has_content = False
         layer.is_blank_key = False
@@ -540,7 +547,12 @@ class TimelineStructureMixin(CanvasMembers):
         return True
 
     def sync_numbered_image_from_cell(self, frame_index, layer_index):
-        """同じレイヤー・同じ絵番号を、1つの画像オブジェクトへ結び直す。"""
+        """同じレイヤー・同じ絵番号を、1枚の絵（``Cell``）へ結び直す。
+
+        結んだあとは、どのセルに書き込んでも同じ絵として扱われる
+        （Issue #31 Phase 1）。描く直前に呼んで、ストロークが同じ番号の
+        全コマへ出るようにする。
+        """
         source = self.frames[int(frame_index)].layers[int(layer_index)]
         if source.sequence_number is None or not source.has_content:
             return
@@ -549,41 +561,62 @@ class TimelineStructureMixin(CanvasMembers):
                 continue
             target = frame.layers[int(layer_index)]
             if target.sequence_number == source.sequence_number:
-                # QImageのコピーを配ると、次の描画開始時点で各セルが
-                # 別画像へ分離する。同じPythonオブジェクトを共有し、
-                # 同じ番号を実体1枚として扱う。
-                target.image = source.image
+                target.share_cell_with(source)
                 target.has_content = True
                 target.is_blank_key = False
         archived = self._sequence_archive.get((
             int(layer_index), int(source.sequence_number)
         ))
         if archived is not None:
-            archived.image = source.image
+            archived.share_cell_with(source)
             archived.has_content = True
             archived.is_blank_key = False
 
+    def link_layer_tracks(self):
+        """同じレイヤーのセルを、1つの ``Track``（表示の設定）へ結ぶ。
+
+        先頭コマのセルが持つ設定を、そのレイヤーの設定とする。レイヤーの
+        追加・削除・並べ替えや、読み込み・Undo の復元のあとに呼ぶ
+        （Issue #31 Phase 2）。
+        """
+        if not self.frames:
+            return
+        owners = list(self.frames[0].layers)
+        for frame in self.frames[1:]:
+            for layer_index, layer in enumerate(frame.layers):
+                if layer_index < len(owners):
+                    layer.share_track_with(owners[layer_index])
+        for key, archived in self._sequence_archive.items():
+            layer_index = int(key[0])
+            if 0 <= layer_index < len(owners):
+                archived.share_track_with(owners[layer_index])
+
     def coalesce_numbered_images(self):
-        """文書内の同一レイヤー・同一番号の画像参照を統合する。"""
-        shared = {}
+        """同一レイヤー・同一番号のセルを、1枚の絵（``Cell``）へ結ぶ。
+
+        読み込み・取り込み・Undo の復元で、同じ番号のセルがそれぞれ別の絵を
+        持った状態から呼ぶ。結んだあとは、どのセルへ書き込んでも同じ番号の
+        全コマに出る（Issue #31 Phase 1）。
+        """
+        owners = {}
         preferred = int(self.current_frame)
         if 0 <= preferred < len(self.frames):
             for layer_index, layer in enumerate(self.frames[preferred].layers):
                 if layer.has_content and layer.sequence_number is not None:
-                    shared[(layer_index, int(layer.sequence_number))] = layer.image
+                    owners[(layer_index, int(layer.sequence_number))] = layer
 
         for frame in self.frames:
             for layer_index, layer in enumerate(frame.layers):
                 if not layer.has_content or layer.sequence_number is None:
                     continue
                 key = (layer_index, int(layer.sequence_number))
-                image = shared.setdefault(key, layer.image)
-                layer.image = image
+                owner = owners.setdefault(key, layer)
+                layer.share_cell_with(owner)
 
         for key, archived in self._sequence_archive.items():
-            shared_image = shared.get((int(key[0]), int(key[1])))
-            if shared_image is not None:
-                archived.image = shared_image
+            owner = owners.get((int(key[0]), int(key[1])))
+            if owner is not None:
+                archived.share_cell_with(owner)
 
     def delete_sequence_entry(self, layer_index, number):
         """連番画像を削除し、シート側の参照セルを未使用へ戻す。"""
@@ -921,7 +954,7 @@ class TimelineStructureMixin(CanvasMembers):
         while len(self.frames) < count:
             frame = make_frame(names)
             for index, layer in enumerate(frame.layers):
-                layer.visible = template[index].visible
-                layer.opacity = template[index].opacity
-                layer.alpha_locked = template[index].alpha_locked
+                # 表示の設定はレイヤーに1つ。写すのではなく同じ Track を指す
+                # （Issue #31 Phase 2）。
+                layer.share_track_with(template[index])
             self.frames.append(frame)

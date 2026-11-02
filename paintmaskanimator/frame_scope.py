@@ -210,11 +210,15 @@ def resolve_cells(doc, scope: FrameScope) -> List[Tuple[int, int]]:
 
 
 def _group_shared_images(doc, cells):
-    """画像実体を共有するセルをまとめる。
+    """同じ絵（``Cell``）を指すセルをまとめる。
 
-    連番セルは ``coalesce_numbered_images`` で同じ ``QImage`` を指すことがある。
-    セルごとに個別処理すると、片方だけが新しい画像に差し替わって共有が壊れる
-    ので、共有グループは1回だけ処理して結果を全員へ配る。
+    連番セルは ``coalesce_numbered_images`` で同じ ``Cell`` を共有し、
+    結果として同じ ``QImage`` を指す。セルごとに個別処理すると同じ絵を何度も
+    処理することになるので、共有グループは1回だけ処理して結果を全員へ配る。
+
+    判定は ``QImage`` の同一性で行う。``Cell`` の共有はこれを含むうえ、
+    取り込み経路などが ``Cell`` を通さず同じ画像を指す場合も拾えるため
+    （Issue #31 Phase 1 では、共有の判定をこれまでより狭めない）。
     """
     frames = doc.frames
     groups: List[Tuple[Tuple[int, int], List[Tuple[int, int]]]] = []
@@ -314,6 +318,9 @@ def apply_over_scope(
                 layer.image.copy(),
                 bool(layer.has_content),
             ))
+            # 同じ絵を指すセルは1つの Cell を共有しているので、書き込みは
+            # グループの先頭1回で全員に行き渡る。共有が切れていた場合に
+            # そなえ、ここでも結び直しておく。
             layer.image = produced
             layer.has_content = True
             result.changed_cells += 1
