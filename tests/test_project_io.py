@@ -404,3 +404,25 @@ def test_no_thumbnail_without_image(qapp, tmp_path):
     project_io.write_project_archive(path, _metadata(), [make_frame()])
     with zipfile.ZipFile(path) as archive:
         assert project_io.THUMBNAIL_NAME not in archive.namelist()
+
+
+def test_cells_are_stored_and_loaded_without_a_colour_profile(qapp):
+    from PySide6.QtCore import QBuffer, QByteArray, QIODevice
+    from PySide6.QtGui import QColorSpace, QImage
+
+    tagged = QImage(4, 4, QImage.Format.Format_ARGB32_Premultiplied)
+    tagged.fill(0xFF102030)
+    tagged.setColorSpace(QColorSpace(QColorSpace.NamedColorSpace.SRgb))
+
+    assert b"iCCP" not in project_io.encode_png(tagged)
+
+    # Projects saved before profiles were stripped still hold tagged PNGs.
+    data = QByteArray()
+    buffer = QBuffer(data)
+    buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+    assert tagged.save(buffer, "PNG")
+    buffer.close()
+    assert b"iCCP" in bytes(data.data())
+    loaded = project_io._decode_png(bytes(data.data()))
+    assert not loaded.colorSpace().isValid()
+    assert loaded.pixel(0, 0) == tagged.pixel(0, 0)

@@ -78,7 +78,9 @@ class ImageImportMixin(CanvasMembers):
         if image.isNull():
             suffix = Path(path).suffix.lower() or tr("拡張子なし")
             return None, tr("形式: {suffix}\n").format(suffix=suffix) + "\n".join(errors)
-        return image.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied), ""
+        return imaging.without_color_space(
+            image.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
+        ), ""
 
     @staticmethod
     def _natural_path_key(*args, **kwargs):

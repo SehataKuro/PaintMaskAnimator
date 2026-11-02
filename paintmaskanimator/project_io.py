@@ -27,7 +27,7 @@ from .constants import (
     MAX_PROJECT_LAYERS,
     MAX_PROJECT_METADATA_BYTES,
 )
-from .imaging import white_to_transparent_qimage
+from .imaging import white_to_transparent_qimage, without_color_space
 from .models import Frame, Layer, default_layer_name
 from .tween_groups import sanitize_spec
 from .utils import blank_image
@@ -113,6 +113,7 @@ _MAX_WORKERS = 8
 
 def encode_png(image):
     """QImage を PNG のバイト列にする。失敗したら None。"""
+    image = without_color_space(image)
     data = QByteArray()
     buffer = QBuffer(data)
     buffer.open(QIODevice.OpenModeFlag.WriteOnly)
@@ -139,7 +140,8 @@ def _decode_png(data):
         buffer.close()
     if image.isNull():
         return image
-    return image.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
+    # Projects saved before profiles were stripped still carry them.
+    return without_color_space(image.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied))
 
 
 def _prefetch_pngs(archive, entries, width, height, decoded):
@@ -574,6 +576,7 @@ def _thumbnail_png(image):
             Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation,
         )
+    image = without_color_space(image)
     data = QByteArray()
     buffer = QBuffer(data)
     buffer.open(QIODevice.OpenModeFlag.WriteOnly)
