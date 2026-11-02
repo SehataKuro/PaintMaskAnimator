@@ -139,7 +139,9 @@ def test_dialog_and_menu_action(window, tmp_path, monkeypatch):
 def test_sanitized_layer_name_and_top_level_cels(window, tmp_path):
     window.canvas.frames[0].layers[0].name = "A/B"
     write(tmp_path, "A_B0002.png")
-    assert window.initial_state.import_line_art(tmp_path) == 1
+    # レイヤー名はレイヤー1本に1つ（Issue #31 Phase 2）。1コマだけ名前を変える
+    # ことはできないので、絵番号2が出ている2コマぶんが対象になる。
+    assert window.initial_state.import_line_art(tmp_path) == 2
 
 
 def test_imported_initials_survive_project_save(window, tmp_path):
