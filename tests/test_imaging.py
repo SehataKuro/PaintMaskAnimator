@@ -63,3 +63,23 @@ def test_delegators_match_module(qapp):
     )
     via_module = imaging.qimage_rgba_array(imaging.rgba_array_to_qimage(rgba))
     assert np.array_equal(via_class, via_module)
+
+
+def test_without_color_space_drops_the_profile_and_leaves_the_original(qapp):
+    from PySide6.QtGui import QColorSpace
+
+    tagged = QImage(4, 4, QImage.Format.Format_ARGB32_Premultiplied)
+    tagged.fill(0xFF336699)
+    tagged.setColorSpace(QColorSpace(QColorSpace.NamedColorSpace.SRgb))
+
+    stripped = imaging.without_color_space(tagged)
+
+    assert not stripped.colorSpace().isValid()
+    assert stripped.pixel(1, 1) == tagged.pixel(1, 1)
+    # The caller's image is shared elsewhere (undo, other frames): keep its tag.
+    assert tagged.colorSpace().isValid()
+
+
+def test_without_color_space_returns_untagged_images_unchanged(qapp):
+    plain = QImage(4, 4, QImage.Format.Format_ARGB32_Premultiplied)
+    assert imaging.without_color_space(plain) is plain

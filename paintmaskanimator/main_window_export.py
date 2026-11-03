@@ -105,7 +105,7 @@ class ExportController:
             folder = Path(preferences.snapshot_folder())
         path = self.snapshot_path(folder)
         try:
-            saved = self.canvas_image().save(str(path), "PNG")  # pyright: ignore[reportCallIssue,reportArgumentType]  # QImage.save accepts a str format at runtime
+            saved = imaging.without_color_space(self.canvas_image()).save(str(path), "PNG")  # pyright: ignore[reportCallIssue,reportArgumentType]  # QImage.save accepts a str format at runtime
         except OSError as exc:
             log.error("snapshot save failed: %s", exc, exc_info=True)
             saved = False
@@ -283,12 +283,12 @@ class ExportController:
                     progress, number - 1, len(plan.files),
                     tr("{number}枚目を書き出しています").format(number=number),
                 )
-                image = images[cel].copy(
+                image = imaging.without_color_space(images[cel].copy(
                     OUTSIDE_MARGIN,
                     OUTSIDE_MARGIN,
                     constants.CANVAS_WIDTH,
                     constants.CANVAS_HEIGHT,
-                )
+                ))
                 output_path = target / relative
                 if image_format == "tga":
                     saved = self.window.save_tga_image(image, output_path)
@@ -553,7 +553,7 @@ class ExportController:
                     output_path = image_destination / (
                         filename + ".png"
                     )
-                    if not image.save(str(output_path), "PNG"):
+                    if not imaging.without_color_space(image).save(str(output_path), "PNG"):
                         raise OSError(
                             tr("{name}を保存できませんでした。").format(name=output_path.name)
                         )
@@ -646,7 +646,7 @@ class ExportController:
                         total,
                         tr("フレーム {index} / {total} を準備しています").format(index=output_index, total=total),
                     )
-                    written.save(
+                    imaging.without_color_space(written).save(
                         str(Path(td) / f"f_{output_index:06}.png"),
                     )
             close_counter(progress)
@@ -767,12 +767,12 @@ class ExportController:
                 for kind, image in images.items():
                     target = destination / kind / layer_name
                     target.mkdir(parents=True, exist_ok=True)
-                    cropped = image.copy(
+                    cropped = imaging.without_color_space(image.copy(
                         OUTSIDE_MARGIN,
                         OUTSIDE_MARGIN,
                         constants.CANVAS_WIDTH,
                         constants.CANVAS_HEIGHT,
-                    )
+                    ))
                     path = target / f"{layer_name}{number:04d}.png"
                     if not cropped.save(str(path), "PNG"):
                         raise OSError(

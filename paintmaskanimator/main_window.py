@@ -1148,7 +1148,7 @@ class MainWindow(
     def crop_image(self,fi):return self.canvas.composite(fi,True).copy(OUTSIDE_MARGIN,OUTSIDE_MARGIN,constants.CANVAS_WIDTH,constants.CANVAS_HEIGHT)
     def save_png(self):
         path,_=QFileDialog.getSaveFileName(self,tr("PNG保存"),"frame.png","PNG (*.png)");
-        if path:self.crop_image(self.canvas.current_frame).save(path if path.lower().endswith('.png') else path+'.png','PNG')  # pyright: ignore[reportCallIssue,reportArgumentType]  # QImage.save accepts a str format at runtime
+        if path:imaging.without_color_space(self.crop_image(self.canvas.current_frame)).save(path if path.lower().endswith('.png') else path+'.png','PNG')  # pyright: ignore[reportCallIssue,reportArgumentType]  # QImage.save accepts a str format at runtime
     def exposure_images(self):
         out=[]
         for i,f in enumerate(self.canvas.frames):

@@ -804,7 +804,7 @@ class SelectionMixin(CanvasMembers):
         return True
 
     def paste_clipboard(self):
-        image=QApplication.clipboard().image()
+        image=imaging.without_color_space(QApplication.clipboard().image())
         if image.isNull(): return
         self.ensure_editable_key()
         rect=self.selection_bounds()
