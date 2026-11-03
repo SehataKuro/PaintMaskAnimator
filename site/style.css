@@ -315,12 +315,24 @@ body[data-page="develop"] [data-nav="develop"] { color: var(--hero-strong); font
 .help pre { overflow-x: auto; background: var(--code-bg); color: var(--code-text); padding: 1rem 1.25rem; border-radius: 0.5rem; }
 .help pre code { background: none; padding: 0; color: inherit; }
 
-/* Developer page: link lists where each entry needs a line of explanation. */
-.dev-links { list-style: none; margin: 1.5rem 0 0; padding: 0; display: grid; gap: 1.5rem; }
-.dev-links > li { padding-left: 1rem; border-left: 3px solid var(--line); }
-.dev-links > li > a { font-weight: 700; color: var(--ink); }
-.dev-links > li > a:hover { color: var(--brand-blue); }
-.dev-links p { margin: 0.2rem 0 0; color: var(--muted); font-size: 0.95rem; }
+/* Developer page: a hub of destinations, each a whole-card link. */
+.dev { padding-top: 3rem; padding-bottom: 5rem; display: grid; gap: 3.5rem; }
+.dev h2 { margin: 0 0 1.25rem; font-size: 1.4rem; color: var(--ink); }
+.dev > section > p { margin: 0; max-width: 46rem; }
+.dev code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.85em; background: var(--bg-soft); padding: 0.05rem 0.3rem; border-radius: 3px; }
+.dev-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: 1rem; }
+.dev-card {
+  display: flex; flex-direction: column; gap: 0.35rem;
+  padding: 1.1rem 1.25rem; border: 1px solid var(--line); border-radius: 0.6rem;
+  background: var(--bg); color: var(--muted); font-size: 0.92rem; line-height: 1.6;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+.dev-card:hover { text-decoration: none; border-color: var(--accent); background: var(--bg-soft); }
+.dev-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.dev-card strong { color: var(--accent); font-size: 1.02rem; }
+.dev-card strong::after { content: " →"; }
+.dev-card em { margin-top: auto; padding-top: 0.25rem; font-style: normal; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.06em; color: var(--muted); }
+.dev-note { margin: 1rem 0 0; }
 
 /* ---- Footer ---- */
 .footer { background: var(--bg-soft); border-top: 1px solid var(--line); padding: 3rem 0 1.5rem; font-size: 0.9rem; }
