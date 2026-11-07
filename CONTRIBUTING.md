@@ -158,14 +158,14 @@ python scripts/update_translations.py
    リンク）をまとめて更新します。
 
    ```bash
-   python scripts/bump_version.py 0.6.5
+   python scripts/bump_version.py 0.7.4
    ```
 
 3. リリース用の確認を通してからコミットし、タグを push します。
    リリースワークフローも同じ確認を最初に行います。
 
    ```bash
-   python scripts/preflight.py --release 0.6.5
+   python scripts/preflight.py --release 0.7.4
    ```
 
 ## 構造グラフを更新する

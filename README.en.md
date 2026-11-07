@@ -29,8 +29,9 @@ Get the latest version from
 | Windows | `PaintMaskAnimator-Setup-<version>.exe` | 64-bit Windows |
 | macOS | `PaintMaskAnimator-<version>-macOS.dmg` | Apple Silicon (M1 or later). Intel Macs are not supported |
 
-Once installed, the app's update check fetches new versions. Version 0.6.4 and
-earlier cannot receive in-app updates; reinstall once from Releases.
+Once installed, the app's update check fetches new versions.
+Version 0.6.4 and earlier check the old download site and cannot receive in-app
+updates; if you use one of these versions, reinstall once from Releases.
 
 ## Features
 
