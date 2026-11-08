@@ -968,6 +968,71 @@ class TimelineOpsController:
         self._after_cell_edit()
         return True
 
+    def new_number_here(self, visual_row, column):
+        """選んだ1コマを末尾の絵番号で複製し、前後は元の絵を保持する。"""
+        canvas = self.window.canvas
+        target = self._cell_target(visual_row, column)
+        block = None
+        if target is not None:
+            layer_index, column = target
+            block = canvas.timeline_block_at(column, layer_index)
+        if block is None or block[0] != "content":
+            self.window.statusBar().showMessage(
+                tr("絵のあるセルを選んでください。"), 2400
+            )
+            return False
+        _kind, start, exposure = block
+        start, exposure = int(start), int(exposure)
+        source = canvas.frames[start].layers[layer_index]
+        if source.sequence_number is None:
+            self.window.statusBar().showMessage(
+                tr("番号のある絵を選んでください。"), 2400
+            )
+            return False
+        numbers = [
+            layer.sequence_number
+            for frame in canvas.frames
+            if (layer := frame.layers[layer_index]).has_content
+            and isinstance(layer.sequence_number, int)
+        ]
+        numbers.extend(
+            number for (index, number) in canvas._sequence_archive
+            if index == layer_index
+        )
+        new_number = max(numbers, default=0) + 1
+        end = start + exposure - 1
+        canvas.push_doc_undo()
+        selected = source.clone()
+        selected.detach_cell()
+        selected.share_track_with(source)
+        selected.exposure = 1
+        selected.sequence_number = new_number
+        selected.cell_name = None
+        selected.tween = None
+        selected.tween_member = None
+        selected.is_blank_key = False
+        selected.has_content = True
+        selected.sequence_only = False
+        if column < end:
+            tail = source.clone()
+            tail.share_cell_with(source)
+            tail.share_track_with(source)
+            tail.exposure = end - column
+            tail.tween = None
+            tail.tween_member = None
+            canvas.frames[column + 1].layers[layer_index] = tail
+        if column > start:
+            source.exposure = column - start
+        canvas.frames[column].layers[layer_index] = selected
+        canvas.current_frame = column
+        canvas.active_layer_index = layer_index
+        self._after_cell_edit()
+        self.window.statusBar().showMessage(
+            tr("この位置を新しい番号 {number} にしました。").format(number=new_number),
+            2400,
+        )
+        return True
+
     def split_clip(self, visual_row, column):
         """露出の途中で切り、そこから新しいセルにする（クリップを分割）。
 

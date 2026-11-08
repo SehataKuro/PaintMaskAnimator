@@ -659,6 +659,7 @@ class TimelineTable(QTableWidget):
     pasteCellRequested = Signal(int, int)
     mergeClipRequested = Signal(int, int)
     splitClipRequested = Signal(int, int)
+    newNumberHereRequested = Signal(int, int)
     insertFrameAtRequested = Signal(int, int)
     deleteFrameAtRequested = Signal(int, int)
     #: ("start"|"end", 列)。
@@ -1217,8 +1218,10 @@ class TimelineTable(QTableWidget):
         menu.addSeparator()
         action_clip_merge = menu.addAction(tr("クリップを結合"))
         action_clip_split = menu.addAction(tr("クリップを分割"))
+        action_new_number = menu.addAction(tr("この位置を新しい番号にする"))
         action_clip_merge.setEnabled(on_cell and item is not None)
         action_clip_split.setEnabled(on_cell and item is not None)
+        action_new_number.setEnabled(on_cell and item is not None)
         action_range_start = menu.addAction(tr("表示開始フレームにする"))
         action_range_end = menu.addAction(tr("表示終了フレームにする"))
         action_range_start.setEnabled(on_cell)
@@ -1322,6 +1325,7 @@ class TimelineTable(QTableWidget):
             action_cell_paste: self.pasteCellRequested,
             action_clip_merge: self.mergeClipRequested,
             action_clip_split: self.splitClipRequested,
+            action_new_number: self.newNumberHereRequested,
             action_insert_frame: self.insertFrameAtRequested,
             action_delete_frame: self.deleteFrameAtRequested,
         }
@@ -1411,6 +1415,7 @@ class TimelineWidget(QWidget):
     pasteCellRequested=Signal(int,int)
     mergeClipRequested=Signal(int,int)
     splitClipRequested=Signal(int,int)
+    newNumberHereRequested=Signal(int,int)
     insertFrameAtRequested=Signal(int,int)
     deleteFrameAtRequested=Signal(int,int)
     playbackRangeEdgeRequested=Signal(str,int)
@@ -1764,6 +1769,7 @@ class TimelineWidget(QWidget):
         self.table.pasteCellRequested.connect(self.pasteCellRequested)
         self.table.mergeClipRequested.connect(self.mergeClipRequested)
         self.table.splitClipRequested.connect(self.splitClipRequested)
+        self.table.newNumberHereRequested.connect(self.newNumberHereRequested)
         self.table.insertFrameAtRequested.connect(self.insertFrameAtRequested)
         self.table.deleteFrameAtRequested.connect(self.deleteFrameAtRequested)
         self.table.playbackRangeEdgeRequested.connect(self.playbackRangeEdgeRequested)
