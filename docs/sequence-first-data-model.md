@@ -273,16 +273,30 @@ Undo の復元結果が変わるためです。Phase 4 でまとめます。
 **テスト**：`tests/test_sequence_model_characterization.py` の5番目を書き換え
 （Phase 0 で「セルごとに持つ」と記録していたもの）。
 
-### Phase 3：シートを参照の表にする
+### Phase 3：シートを参照の表にする（済）
 
-第4段階までで、次の変更が済みました。
+第5段階までで、次の変更が済みました。
 
 - `SheetEntry` の読み出し口を用意し、読み出し3か所を置き換えました。
 - **「この位置を新しい番号にする」操作を追加しました**（§6.2）。
 - `_shift_timeline_layer_left` / `_shift_timeline_layer_right` と、
   タイムリマップの `_apply_time_remap_states_to_layer` を配列操作へ置き換えました。
+- 保持セルの編集（§1.1・§6.2）の記述を現状に合わせました。
 
-残りは `exposure` と `_sequence_archive` の廃止です。
+**`exposure` と `_sequence_archive` の廃止は Phase 5 へ回しました**（2026-11-09 決定）。
+
+- どちらも保存形式（`FORMAT.md` v1 の `exposure` と `sequence_archive`）に
+  そのまま出ているので、書き出しの形を変える Phase 5 と一緒に扱うほうが
+  手戻りがありません。
+- `_sequence_archive` を「シートから指されない番号」に置き換えるには、
+  `Track` が連番の本体を持つこと（§2.1）が先に要ります。まだ実装していません。
+- `exposure` の解決は Rust（`native/src/timeline.rs`）にもあり、Python だけで閉じません。
+
+Phase 3 で特性テストに固定した、未修正の動き（第4段階前半）：
+
+- 露出の途中へ挿入しても露出が伸びない。
+- メニューからの削除は末尾を切り詰め、`_sequence_archive` へ保管しない。
+- タイムリマップの Undo で `_sequence_archive` が戻らない。
 
 ### Phase 4：Undo の単位を移す
 
@@ -298,6 +312,8 @@ Undo の復元結果が変わるためです。Phase 4 でまとめます。
 
 `format_version` を 2 にし、連番＋シートの形で書き出します。読み込みは 1 と 2 の
 両方を受けます。あわせて [`FORMAT.md`](../FORMAT.md) を 2 の仕様へ書き換えます。
+
+Phase 3 から回した `exposure` と `_sequence_archive` の廃止も、ここで行います。
 
 ほかに `.pman` を読む実装は無いので（§6.1）、ここで待つものはありません。
 
