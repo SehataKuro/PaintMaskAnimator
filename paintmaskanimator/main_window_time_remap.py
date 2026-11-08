@@ -12,7 +12,7 @@ import math
 import re
 from pathlib import Path
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
-from . import timesheet_file
+from . import sheet, timesheet_file
 from .i18n import tr
 from .main_window_import import ImportController
 from .errors import OPERATION_ERRORS as _OPERATION_ERRORS, OperationError
@@ -711,23 +711,7 @@ class TimeRemapController:
         if layer_index is None:
             layer_index = int(canvas.active_layer_index)
         layer_index = int(layer_index)
-        states: list = []
-        for column in range(len(canvas.frames)):
-            if not (0 <= layer_index < len(canvas.frames[column].layers)):
-                states.append(None)
-                continue
-            block = canvas.timeline_block_at(column, layer_index)
-            if block is None:
-                states.append(None)
-                continue
-            _kind, start, _exposure = block
-            layer = canvas.frames[start].layers[layer_index]
-            states.append(
-                int(layer.sequence_number)
-                if layer.has_content and layer.sequence_number is not None
-                else None
-            )
-        return states
+        return sheet.sheet_numbers(canvas.frames, layer_index)
 
     def after_effects_text(self, states=None, fps=None):
         """After Effects の Time Remap キーフレームデータを組み立てる。

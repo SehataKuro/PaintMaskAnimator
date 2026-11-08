@@ -37,7 +37,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from . import icons, theme, time_display, tooltip
+from . import icons, native, theme, time_display, tooltip
+from .sheet import SHEET_EMPTY, SHEET_BLANK, SHEET_CELL
 from .cell_numbering import changed_count, normalization_mapping
 from .tween_groups import tween_groups
 
@@ -2477,9 +2478,10 @@ class TimelineWidget(QWidget):
         タイムラインでも空セルとして見せる。直前が空セルなら、その続きとして
         ✗ は描かない。最後のセルより後ろの空きは対象にしない。
         """
+        kind_names = {SHEET_EMPTY: None, SHEET_BLANK: "blank", SHEET_CELL: "content"}
         kinds = [
-            cls.timeline_span_at(frames, layer_index, column)[0]
-            for column in range(len(frames))
+            kind_names[row[layer_index].kind] if 0 <= layer_index < len(row) else None
+            for row in native.sheet_entries(frames)
         ]
         covered = [column for column, kind in enumerate(kinds) if kind is not None]
         if not covered:

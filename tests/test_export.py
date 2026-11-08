@@ -18,6 +18,9 @@ def qapp():
 
 
 def test_xdts_export_handles_missing_key_reference(qapp, tmp_path, monkeypatch):
+    # key の無い CELL（壊れた参照）を試す。
+    import types
+
     destination = tmp_path / "sheet.xdts"
     monkeypatch.setattr(
         main_window_export.QFileDialog,
@@ -30,9 +33,12 @@ def test_xdts_export_handles_missing_key_reference(qapp, tmp_path, monkeypatch):
         lambda *_args, **_kwargs: None,
     )
     monkeypatch.setattr(
-        main_window_export.TimelineWidget,
-        "timeline_span_at",
-        staticmethod(lambda *_args: ("content", None, 1)),
+        main_window_export.native,
+        "sheet_entries",
+        lambda frames: [
+            [types.SimpleNamespace(kind=2, number=None, key=-1) for _ in frame.layers]
+            for frame in frames
+        ],
     )
 
     window = MainWindow()

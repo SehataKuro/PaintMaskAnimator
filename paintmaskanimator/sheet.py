@@ -1,7 +1,7 @@
 """シートを参照の表として読み出す（Issue #31 Phase 3 第1段階）。
 
 既存の Layer から読む口だけを追加し、露出や保存形式は変えない。
-まだ既存の呼び出し側からは使っていない。次の段階で呼び出し側を移す。
+列全体の読み出しは、この表を通して行う。
 設計は docs/sequence-first-data-model.md。
 """
 from __future__ import annotations
@@ -10,6 +10,11 @@ from copy import deepcopy
 from dataclasses import dataclass
 
 from . import native
+
+
+SHEET_EMPTY = 0
+SHEET_BLANK = 1
+SHEET_CELL = 2
 
 
 class _Blank:
@@ -61,9 +66,9 @@ def sheet_from_frames(frames) -> list[list[SheetEntry]]:
     for column, row in enumerate(native.sheet_entries(frames)):
         entries = []
         for layer_index, entry in enumerate(row):
-            if entry.kind == 0:
+            if entry.kind == SHEET_EMPTY:
                 number = EMPTY
-            elif entry.kind == 1:
+            elif entry.kind == SHEET_BLANK:
                 number = BLANK
             else:
                 number = entry.number if entry.number is not None else UNNUMBERED
