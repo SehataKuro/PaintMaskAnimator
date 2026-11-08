@@ -142,7 +142,7 @@ def test_editing_one_cell_shows_on_every_frame_with_that_number(window):
 
 
 # ---------------------------------------------------------------------------
-# 2. 保持セルへ描くと独立したキーへ分かれる（ensure_editable_key）
+# 2. 保持セルへ描くと露出元を編集する（ensure_editable_key）
 # ---------------------------------------------------------------------------
 
 def test_drawing_on_a_held_frame_edits_the_key_not_a_new_cell(window):
