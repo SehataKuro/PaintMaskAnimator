@@ -12,7 +12,7 @@ from .logging_setup import get_logger
 log = get_logger(__name__)
 
 REQUIRED_API = (
-    "TimelineCell", "resolve_timeline", "ClipAnimationReader", "GuideSampler",
+    "TimelineCell", "resolve_timeline", "SheetEntry", "sheet_entries", "ClipAnimationReader", "GuideSampler",
     "resolve_exposures", "tint_onion", "unique_colors", "filter_palette",
     "line_flow_scores", "connect_runs", "label_runs", "refine_face", "thin",
     "render_quad_labels", "render_mesh_labels",
@@ -63,6 +63,13 @@ def resolve_timeline(frames):
     layers = max(map(len, rows), default=0)
     data = _native.resolve_timeline(rows)
     return np.frombuffer(data, dtype=np.int64).reshape(len(rows), layers)
+
+
+def sheet_entries(frames):
+    """Rust が持つメタデータから、コマ × レイヤーの参照表を読み出す。"""
+    rows = [[layer.__dict__.get("_timeline_metadata") for layer in frame.layers]
+            for frame in frames]
+    return _native.sheet_entries(rows)
 
 
 def tint_onion(rgba, color, color_enabled, selected):
