@@ -9,6 +9,7 @@ They run against a live ``PaintCanvas``.
 # (nothing was used)
 from ._canvas_members import CanvasMembers
 from .cell_numbering import normalization_mapping
+from .sheet import shift_slots_left, shift_slots_right
 from .models import Layer, make_frame, next_layer_name
 from .timeline import TimelineWidget
 from .utils import blank_image
@@ -145,56 +146,35 @@ class TimelineStructureMixin(CanvasMembers):
         ):
             return
 
-        explicit_cells = []
-        required_count = start_column + amount
-        for column in range(
-            start_column,
-            len(self.frames),
-        ):
-            if (
-                layer_index
-                >= len(self.frames[column].layers)
-            ):
+        slots = []
+        for column, frame in enumerate(self.frames):
+            if column < start_column:
+                slots.append(None)
                 continue
-            layer = self.frames[column].layers[
-                layer_index
-            ]
-            if (
-                layer.has_content
-                or getattr(
-                    layer,
-                    "is_blank_key",
-                    False,
-                )
-            ):
-                copied = layer.clone()
-                explicit_cells.append(
-                    (column, copied)
-                )
+            layer = frame.layers[layer_index] if layer_index < len(frame.layers) else None
+            slots.append(
+                layer.clone() if layer is not None and (
+                    layer.has_content or getattr(layer, "is_blank_key", False)
+                ) else None
+            )
+        shifted = shift_slots_right(slots, start_column, amount)
+        required_count = start_column + amount
+        for column in range(start_column, len(slots)):
+            copied = slots[column]
+            if copied is not None:
                 required_count = max(
                     required_count,
-                    column
-                    + amount
-                    + max(1, int(copied.exposure)),
+                    column + amount + max(1, int(copied.exposure)),
                 )
-
         self._ensure_frame_count(required_count)
 
-        # 先に元の明示コマをすべて未使用へ戻してから配置する。
-        # これにより、移動元と移動先が重なっても内容を失わない。
-        for column, _copied in explicit_cells:
-            self._clear_timeline_layer_cell(
-                self.frames[column].layers[
-                    layer_index
-                ]
-            )
-
-        for column, copied in reversed(
-            explicit_cells
-        ):
-            self.frames[
-                column + amount
-            ].layers[layer_index] = copied
+        # 移動元を先にすべて未使用へ戻し、重なる移動先にも複製を配置する。
+        for column in range(start_column, len(slots)):
+            if slots[column] is not None:
+                self._clear_timeline_layer_cell(self.frames[column].layers[layer_index])
+        for column in range(len(shifted) - 1, start_column - 1, -1):
+            if shifted[column] is not None:
+                self.frames[column].layers[layer_index] = shifted[column]
 
     def _shift_timeline_layer_left(
         self,
@@ -215,24 +195,23 @@ class TimelineStructureMixin(CanvasMembers):
         ):
             return
 
-        explicit_cells = []
-        for column in range(start_column, len(self.frames)):
-            layer = self.frames[column].layers[layer_index]
-            if (
-                layer.has_content
-                or getattr(layer, "is_blank_key", False)
-            ):
-                explicit_cells.append((column, layer.clone()))
-
-        for column, _copied in explicit_cells:
-            self._clear_timeline_layer_cell(
-                self.frames[column].layers[layer_index]
+        slots = []
+        for column, frame in enumerate(self.frames):
+            if column < start_column:
+                slots.append(None)
+                continue
+            layer = frame.layers[layer_index]
+            slots.append(
+                layer.clone() if layer.has_content or getattr(layer, "is_blank_key", False)
+                else None
             )
-
-        for column, copied in explicit_cells:
-            target_column = column - amount
-            if target_column >= 0:
-                self.frames[target_column].layers[layer_index] = copied
+        shifted = shift_slots_left(slots, start_column, amount)
+        for column in range(start_column, len(slots)):
+            if slots[column] is not None:
+                self._clear_timeline_layer_cell(self.frames[column].layers[layer_index])
+        for column, copied in enumerate(shifted):
+            if copied is not None:
+                self.frames[column].layers[layer_index] = copied
 
     def _trim_unused_trailing_frames(self):
         """全レイヤーで未使用になった末尾の時間列を取り除く。"""

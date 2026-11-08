@@ -5,7 +5,7 @@ applies the remapped exposure states to the active layer.
 
 A collaborator rather than a mixin -- see ``main_window_export.py`` for why.
 """
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import json
 import math
@@ -450,17 +450,10 @@ class TimeRemapController:
             layer.exposure = 1
 
         # 同じ絵番号／空フレームが連続する区間を露出へ圧縮。
-        run_start = start_frame
-        run_state: Any = states[0]
-        sentinel = object()
-        for offset in range(1, len(states) + 1):
-            next_state = states[offset] if offset < len(states) else sentinel
-            if offset < len(states) and next_state == run_state:
-                continue
-            run_end = start_frame + offset - 1
-            target = self.window.canvas.frames[run_start].layers[layer_index]
+        for offset, length, run_state in sheet.runs_from_states(states):
+            target = self.window.canvas.frames[start_frame + offset].layers[layer_index]
             self.window.layers._copy_display_properties(template, target)
-            target.exposure = max(1, run_end - run_start + 1)
+            target.exposure = max(1, length)
             if run_state is None:
                 target.image = blank_image()
                 target.has_content = False
@@ -473,9 +466,6 @@ class TimeRemapController:
                 target.is_blank_key = False
                 target.sequence_number = int(run_state)
                 target.cell_name = None
-            if offset < len(states):
-                run_start = start_frame + offset
-                run_state = next_state
 
     def apply_to_active_layer(self, parsed, confirm=True):
         states = list(parsed.get("states", []))

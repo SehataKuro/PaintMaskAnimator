@@ -2,6 +2,7 @@
 
 既存の Layer から読む口だけを追加し、露出や保存形式は変えない。
 列全体の読み出しは、この表を通して行う。
+第4段階では、明示コマの移動と番号列の区間圧縮を行う配列操作を追加した。
 設計は docs/sequence-first-data-model.md。
 """
 from __future__ import annotations
@@ -90,3 +91,47 @@ def sheet_numbers(frames, layer_index) -> list[int | None]:
         else None
         for row in sheet_from_frames(frames)
     ]
+
+
+def shift_slots_right(slots, start, amount):
+    """指定位置以降の明示コマを右へ移した新しい列を返す。"""
+    start = max(0, int(start))
+    amount = max(1, int(amount))
+    result = list(slots)
+    required_count = max(
+        [len(slots), start + amount]
+        + [column + amount + 1 for column in range(start, len(slots))
+           if slots[column] is not None]
+    )
+    result.extend([None] * (required_count - len(result)))
+    for column in range(start, len(slots)):
+        result[column] = None
+    for column in range(start, len(slots)):
+        if slots[column] is not None:
+            result[column + amount] = slots[column]
+    return result
+
+
+def shift_slots_left(slots, start, amount):
+    """指定位置以降を空にして明示コマを左へ移し、負の位置は捨てる。"""
+    start = max(0, int(start))
+    amount = max(1, int(amount))
+    result = list(slots)
+    for column in range(start, len(slots)):
+        result[column] = None
+    for column in range(start, len(slots)):
+        if slots[column] is not None and column - amount >= 0:
+            result[column - amount] = slots[column]
+    return result
+
+
+def runs_from_states(states):
+    """番号列を同じ値が連続する (開始位置, 長さ, 値) の区間へ圧縮する。"""
+    runs = []
+    for offset, state in enumerate(states):
+        if runs and runs[-1][2] == state:
+            start, length, _state = runs[-1]
+            runs[-1] = (start, length + 1, state)
+        else:
+            runs.append((offset, 1, state))
+    return runs
