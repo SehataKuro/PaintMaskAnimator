@@ -219,6 +219,18 @@ class KeyFrameMixin(CanvasMembers):
         key = int(self._exposure_index[column, layer_index])
         return key if key >= 0 else None
 
+    def _next_drawing_number(self, layer_index):
+        existing_numbers = [
+            int(seq)
+            for frame in self.frames
+            if (frame.layers[layer_index].has_content
+                and (seq := frame.layers[layer_index].sequence_number) is not None)
+        ]
+        existing_numbers.extend(
+            int(number) for li, number in self._sequence_archive if li == layer_index
+        )
+        return max(existing_numbers, default=0) + 1
+
     def ensure_editable_key(self):
         """保持セルでは露出元を編集し、未使用／○は内容キーへ変換する。"""
         block = self.timeline_block_at(
@@ -231,6 +243,10 @@ class KeyFrameMixin(CanvasMembers):
             self.selectionChanged.emit()
         layer = self.active_layer
         if layer.has_content:
+            if (layer.sequence_number is None and self.timeline_mode == "sheet"
+                    and not layer.is_paper and not layer.is_draft):
+                layer.sequence_number = self._next_drawing_number(self.active_layer_index)
+                self._cell_structure_dirty = True
             if layer.sequence_number is not None:
                 # 描画開始前から全参照を同じ画像へ結び、ストローク中も
                 # 同番号の画像が分離しないようにする。
@@ -293,14 +309,6 @@ class KeyFrameMixin(CanvasMembers):
             if retained_number is not None:
                 layer.sequence_number = int(retained_number)
             else:
-                existing_numbers = [
-                    int(seq)
-                    for frame in self.frames
-                    if (
-                        frame.layers[layer_index].has_content
-                        and (seq := frame.layers[layer_index].sequence_number) is not None
-                    )
-                ]
-                layer.sequence_number = max(existing_numbers, default=0) + 1
+                layer.sequence_number = self._next_drawing_number(layer_index)
         self._cell_structure_dirty = True
         return True

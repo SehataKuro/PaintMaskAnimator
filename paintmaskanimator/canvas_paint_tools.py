@@ -609,6 +609,8 @@ class PaintToolsMixin(CanvasMembers):
         self.push_undo(LayerRegionUndo(
             drag["frame"], drag["layer"], rect,
             drag["before"].copy(rect), drag["has_content"],
+            layer_name=self.frames[drag["frame"]].layers[drag["layer"]].name,
+            number=self.frames[drag["frame"]].layers[drag["layer"]].sequence_number,
         ))
 
     def _bucket_drag_target_exists(self, drag):

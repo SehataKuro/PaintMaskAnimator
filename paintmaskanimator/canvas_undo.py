@@ -209,6 +209,7 @@ class UndoMixin(CanvasMembers):
             int(self.active_layer_index),
             layer.image.copy(),
             bool(layer.has_content),
+            layer_name=layer.name, number=layer.sequence_number,
         ))
 
     def push_layer_region_undo(self, rect):
@@ -223,6 +224,7 @@ class UndoMixin(CanvasMembers):
             rect,
             layer.image.copy(rect),
             bool(layer.has_content),
+            layer_name=layer.name, number=layer.sequence_number,
         ))
         return True
 
@@ -246,43 +248,26 @@ class UndoMixin(CanvasMembers):
                     archived.initial_image = image
             self._playback_frame_cache.clear()
             self.changed.emit()
-        elif isinstance(e, LayerTilesUndo):
-            if (
-                0 <= e.frame < len(self.frames)
-                and 0 <= e.layer < len(self.frames[e.frame].layers)
-            ):
-                fi, li = e.frame, e.layer
-                self.current_frame = fi
-                self.active_layer_index = li
-                layer = self.frames[fi].layers[li]
+        elif isinstance(e, (LayerUndo, LayerRegionUndo, LayerTilesUndo)):
+            target = self._resolve_drawing_undo_target(e)
+            if target is None:
+                return
+            fi, layer = target
+            if isinstance(e, LayerUndo):
+                layer.image = e.image
+            else:
                 painter = QPainter(layer.image)
-                painter.setCompositionMode(
-                    QPainter.CompositionMode.CompositionMode_Source
-                )
-                for rect, image in e.tiles:
+                painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+                patches = e.tiles if isinstance(e, LayerTilesUndo) else ((e.rect, e.image),)
+                for rect, image in patches:
                     painter.drawImage(QRect(rect).topLeft(), image)
                 painter.end()
-                layer.has_content = bool(e.has_content)
-                self.cellChanged.emit(fi, li)
-                self.selectionChanged.emit()
-        elif isinstance(e, LayerRegionUndo):
-            if (
-                0 <= e.frame < len(self.frames)
-                and 0 <= e.layer < len(self.frames[e.frame].layers)
-            ):
-                fi, li = e.frame, e.layer
+            layer.has_content = bool(e.has_content)
+            if fi is not None:
                 self.current_frame = fi
-                self.active_layer_index = li
-                layer = self.frames[fi].layers[li]
-                painter = QPainter(layer.image)
-                painter.setCompositionMode(
-                    QPainter.CompositionMode.CompositionMode_Source
-                )
-                painter.drawImage(QRect(e.rect).topLeft(), e.image)
-                painter.end()
-                layer.has_content = bool(e.has_content)
-                self.cellChanged.emit(fi, li)
-                self.selectionChanged.emit()
+                self.active_layer_index = e.layer
+                self.cellChanged.emit(fi, e.layer)
+            self.selectionChanged.emit()
         elif isinstance(e, PaletteStateUndo):
             # 使用色パネルの並び順・親子プレビュー・表示/マスクを復元する。
             palette = getattr(self, "_palette", None)
@@ -402,14 +387,6 @@ class UndoMixin(CanvasMembers):
             )
             self._onion_cache.clear()
             self.changed.emit()
-            self.selectionChanged.emit()
-        elif isinstance(e, LayerUndo):
-            fi, li = e.frame, e.layer
-            self.current_frame = fi
-            self.active_layer_index = li
-            self.frames[fi].layers[li].image = e.image
-            self.frames[fi].layers[li].has_content = e.has_content
-            self.cellChanged.emit(fi, li)
             self.selectionChanged.emit()
         else:
             log.warning("unknown undo entry type: %r", type(e).__name__)

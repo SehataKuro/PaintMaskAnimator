@@ -512,61 +512,61 @@ If you overwrite it with painted drawings, you cannot get back to the state befo
         <translation>Clears the current selection.</translation>
     </message>
     <message>
-        <location filename="../canvas.py" line="984"/>
-        <location filename="../canvas.py" line="1003"/>
+        <location filename="../canvas.py" line="1012"/>
+        <location filename="../canvas.py" line="1031"/>
         <source>クオリティプレビューを生成しています</source>
         <translation>Generating the quality preview</translation>
     </message>
     <message>
-        <location filename="../canvas.py" line="1049"/>
+        <location filename="../canvas.py" line="1077"/>
         <source>Tp_mask 軽量プレビュー</source>
         <translation>Tp_mask lightweight preview</translation>
     </message>
     <message>
-        <location filename="../canvas.py" line="1051"/>
+        <location filename="../canvas.py" line="1079"/>
         <source>Tp_mask クオリティプレビュー</source>
         <translation>Tp_mask quality preview</translation>
     </message>
     <message>
-        <location filename="../canvas.py" line="1076"/>
+        <location filename="../canvas.py" line="1104"/>
         <source>プレビューを更新しました</source>
         <translation>Preview updated</translation>
     </message>
     <message>
-        <location filename="../canvas.py" line="1081"/>
+        <location filename="../canvas.py" line="1109"/>
         <source>クオリティプレビューを生成できませんでした: {exc}</source>
         <translation>Could not generate the quality preview: {exc}</translation>
     </message>
     <message>
-        <location filename="../canvas.py" line="1106"/>
+        <location filename="../canvas.py" line="1134"/>
         <source>クオリティ方式へ切り替えています</source>
         <translation>Switching to quality mode</translation>
     </message>
     <message>
-        <location filename="../canvas.py" line="1157"/>
+        <location filename="../canvas.py" line="1185"/>
         <source>実線の太さをプレビューへ反映しています</source>
         <translation>Applying the line width to the preview</translation>
     </message>
     <message>
-        <location filename="../canvas.py" line="1176"/>
+        <location filename="../canvas.py" line="1204"/>
         <source>実線色を反映しています</source>
         <translation>Applying the line colour</translation>
     </message>
     <message>
-        <location filename="../canvas.py" line="1993"/>
+        <location filename="../canvas.py" line="2021"/>
         <location filename="../main_window_ui_build.py" line="194"/>
         <source>ハンド</source>
         <translation>Pan</translation>
     </message>
     <message>
-        <location filename="../canvas.py" line="1994"/>
+        <location filename="../canvas.py" line="2022"/>
         <location filename="../main_window_ui_build.py" line="195"/>
         <location filename="../toolpanel.py" line="641"/>
         <source>拡大縮小</source>
         <translation>Zoom</translation>
     </message>
     <message>
-        <location filename="../canvas.py" line="1995"/>
+        <location filename="../canvas.py" line="2023"/>
         <location filename="../main_window_ui_build.py" line="196"/>
         <location filename="../main_window_ui_build.py" line="748"/>
         <location filename="../onion.py" line="643"/>
@@ -576,7 +576,7 @@ If you overwrite it with painted drawings, you cannot get back to the state befo
         <translation>Rotate</translation>
     </message>
     <message>
-        <location filename="../canvas.py" line="1996"/>
+        <location filename="../canvas.py" line="2024"/>
         <location filename="../color_picker_dialog.py" line="230"/>
         <location filename="../main_window_ui_build.py" line="197"/>
         <location filename="../toolpanel.py" line="57"/>
@@ -1770,10 +1770,9 @@ Supported formats: PNG, JPEG, TGA</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="515"/>
-        <location filename="../undo_entries.py" line="248"/>
-        <location filename="../undo_entries.py" line="265"/>
+        <location filename="../undo_entries.py" line="281"/>
+        <location filename="../undo_entries.py" line="298"/>
         <source>編集</source>
-        <extracomment>Label shown in the history panel. Subclasses override.</extracomment>
         <translation>Edit</translation>
     </message>
     <message>
@@ -2602,7 +2601,7 @@ Drop a used colour onto the middle of another to create a parent/child link.</tr
     </message>
     <message>
         <location filename="../main_window_color_chart.py" line="272"/>
-        <location filename="../main_window_time_remap.py" line="604"/>
+        <location filename="../main_window_time_remap.py" line="594"/>
         <location filename="../main_window_used_color.py" line="598"/>
         <location filename="../widgets.py" line="1472"/>
         <source>読み込めませんでした。
@@ -2946,7 +2945,7 @@ Double-click: edit the name and tag colour</translation>
         <location filename="../main_window_tween.py" line="161"/>
         <location filename="../main_window_tween.py" line="223"/>
         <location filename="../main_window_tween.py" line="501"/>
-        <location filename="../undo_entries.py" line="272"/>
+        <location filename="../undo_entries.py" line="305"/>
         <source>トゥイーン</source>
         <translation>Tween</translation>
     </message>
@@ -4177,18 +4176,18 @@ Details were saved to:
         <translation>Display position: left-drag to move the canvas, Shift+left-drag or right-drag to rotate. The TU/TB scale is preserved and reflected in the relative values of the previous and next onion skins. Esc cancels.</translation>
     </message>
     <message>
-        <location filename="../canvas_paint_tools.py" line="624"/>
+        <location filename="../canvas_paint_tools.py" line="626"/>
         <source>選択範囲の外側なので塗りを開始しませんでした。</source>
         <extracomment>ドラッグ塗りで、端に接した領域を「外の背景ではない」とみなす大きさの上限 （画像全体に対する割合）。最初にクリックした部分の3倍までもよしとする。</extracomment>
         <translation>The point is outside the selection, so filling did not start.</translation>
     </message>
     <message>
-        <location filename="../canvas_paint_tools.py" line="626"/>
+        <location filename="../canvas_paint_tools.py" line="628"/>
         <source>領域がキャンバス端まで開いているため、塗りを開始しませんでした。</source>
         <translation>The region is open to the canvas edge, so filling did not start.</translation>
     </message>
     <message>
-        <location filename="../canvas_paint_tools.py" line="628"/>
+        <location filename="../canvas_paint_tools.py" line="630"/>
         <source>クリックした場所は「対象色」で塗る対象にしていない色です。</source>
         <translation>The clicked pixel is not a colour the Target colour setting fills.</translation>
     </message>
@@ -4255,7 +4254,7 @@ Details were saved to:
         <translation>Painted through {filled} frame(s).</translation>
     </message>
     <message>
-        <location filename="../canvas_paint_tools.py" line="745"/>
+        <location filename="../canvas_paint_tools.py" line="747"/>
         <source>領域がキャンバス端まで開いているため選択しませんでした。</source>
         <translation>The region is open to the canvas edge, so nothing was selected.</translation>
     </message>
@@ -5278,7 +5277,7 @@ Save the current project first?</translation>
     </message>
     <message>
         <location filename="../main_window_import.py" line="758"/>
-        <location filename="../main_window_time_remap.py" line="493"/>
+        <location filename="../main_window_time_remap.py" line="483"/>
         <source>タイムラインがありません。</source>
         <translation>There is no timeline.</translation>
     </message>
@@ -5414,7 +5413,7 @@ Install them from requirements.txt.</translation>
         <translation>There is no time sheet data.</translation>
     </message>
     <message>
-        <location filename="../main_window_time_remap.py" line="603"/>
+        <location filename="../main_window_time_remap.py" line="593"/>
         <location filename="../widgets.py" line="1472"/>
         <location filename="../widgets.py" line="1865"/>
         <source>XDTS読み込み</source>
@@ -5446,38 +5445,38 @@ Install them from requirements.txt.</translation>
         <translation>Could not tell whether this is Adobe After Effects, ToeiDigitalTimeSheet or XDTS.</translation>
     </message>
     <message>
-        <location filename="../main_window_time_remap.py" line="490"/>
+        <location filename="../main_window_time_remap.py" line="480"/>
         <source>解析したフレーム範囲が不正です。</source>
         <translation>The parsed frame range is invalid.</translation>
     </message>
     <message>
-        <location filename="../main_window_time_remap.py" line="506"/>
+        <location filename="../main_window_time_remap.py" line="496"/>
         <source>対象レイヤーを選択してください。</source>
         <translation>Select a target layer.</translation>
     </message>
     <message>
-        <location filename="../main_window_time_remap.py" line="511"/>
+        <location filename="../main_window_time_remap.py" line="501"/>
         <source>選択レイヤーに連番画像がありません。
 先に画像連番を読み込んでください。</source>
         <translation>The selected layer has no image sequence.
 Import an image sequence first.</translation>
     </message>
     <message>
-        <location filename="../main_window_time_remap.py" line="528"/>
+        <location filename="../main_window_time_remap.py" line="518"/>
         <source>連番画像は{len}枚ですが、存在しない絵番号が参照されています。
 {preview}</source>
         <translation>The sequence has {len} images, but a drawing number that does not exist is referenced.
 {preview}</translation>
     </message>
     <message>
-        <location filename="../main_window_time_remap.py" line="532"/>
+        <location filename="../main_window_time_remap.py" line="522"/>
         <location filename="../widgets.py" line="1673"/>
         <location filename="../widgets.py" line="1855"/>
         <source>タイムリマップ</source>
         <translation>Time remap</translation>
     </message>
     <message>
-        <location filename="../main_window_time_remap.py" line="541"/>
+        <location filename="../main_window_time_remap.py" line="531"/>
         <source>形式：{name}
 反映範囲：{value}～{value2}フレーム
 連番画像：{len}枚
@@ -5488,38 +5487,38 @@ Sequence images: {len}
 Empty frames: {count}</translation>
     </message>
     <message>
-        <location filename="../main_window_time_remap.py" line="545"/>
+        <location filename="../main_window_time_remap.py" line="535"/>
         <source>
 中割・記号ラベル：{blanks}セル</source>
         <translation>
 In-between and symbol labels: {blanks} cells</translation>
     </message>
     <message>
-        <location filename="../main_window_time_remap.py" line="554"/>
+        <location filename="../main_window_time_remap.py" line="544"/>
         <source>タイムリマップを反映</source>
         <translation>Apply the time remap</translation>
     </message>
     <message>
-        <location filename="../main_window_time_remap.py" line="588"/>
+        <location filename="../main_window_time_remap.py" line="578"/>
         <source>{name}を{value}～{value2}フレームへ反映しました。</source>
         <translation>Applied {name} to frames {value}–{value2}.</translation>
     </message>
     <message>
-        <location filename="../main_window_time_remap.py" line="618"/>
-        <location filename="../main_window_time_remap.py" line="652"/>
-        <location filename="../main_window_time_remap.py" line="673"/>
+        <location filename="../main_window_time_remap.py" line="608"/>
+        <location filename="../main_window_time_remap.py" line="642"/>
+        <location filename="../main_window_time_remap.py" line="663"/>
         <source>使用するタイムシート行がありません。</source>
         <translation>There are no time sheet rows to use.</translation>
     </message>
     <message>
-        <location filename="../main_window_time_remap.py" line="629"/>
-        <location filename="../main_window_time_remap.py" line="689"/>
+        <location filename="../main_window_time_remap.py" line="619"/>
+        <location filename="../main_window_time_remap.py" line="679"/>
         <source>タイムリマップ貼り付け</source>
         <translation>Paste a time remap</translation>
     </message>
     <message>
-        <location filename="../main_window_time_remap.py" line="630"/>
-        <location filename="../main_window_time_remap.py" line="690"/>
+        <location filename="../main_window_time_remap.py" line="620"/>
+        <location filename="../main_window_time_remap.py" line="680"/>
         <source>タイムラインへ反映できませんでした。
 
 {exc}</source>
@@ -5528,12 +5527,12 @@ In-between and symbol labels: {blanks} cells</translation>
 {exc}</translation>
     </message>
     <message>
-        <location filename="../main_window_time_remap.py" line="746"/>
+        <location filename="../main_window_time_remap.py" line="736"/>
         <source>書き出せるセルがありません。絵番号の付いたセルが要ります。</source>
         <translation>There are no cells to write out; cells need a drawing number.</translation>
     </message>
     <message>
-        <location filename="../main_window_time_remap.py" line="782"/>
+        <location filename="../main_window_time_remap.py" line="772"/>
         <source>タイムリマップをクリップボードへコピーしました。</source>
         <translation>Copied the time remap to the clipboard.</translation>
     </message>
@@ -6688,42 +6687,50 @@ Layer cell {value} / {exposure} exposures</translation>
         <translation>This is the start of an empty frame. Drawing here turns it into a key frame automatically.</translation>
     </message>
     <message>
-        <location filename="../undo_entries.py" line="266"/>
+        <location filename="../undo_entries.py" line="120"/>
+        <location filename="../undo_entries.py" line="148"/>
+        <location filename="../undo_entries.py" line="175"/>
+        <source>描画（{layer_name} の {number}番）</source>
+        <extracomment>Label shown in the history panel. Subclasses override.</extracomment>
+        <translation>Drawing ({layer_name}, No. {number})</translation>
+    </message>
+    <message>
+        <location filename="../undo_entries.py" line="299"/>
         <source>全体編集</source>
         <translation>Whole-document edit</translation>
     </message>
     <message>
-        <location filename="../undo_entries.py" line="267"/>
+        <location filename="../undo_entries.py" line="300"/>
         <source>コマの長さ変更</source>
         <translation>Change exposure duration</translation>
     </message>
     <message>
-        <location filename="../undo_entries.py" line="268"/>
+        <location filename="../undo_entries.py" line="301"/>
         <source>描画</source>
         <translation>Draw</translation>
     </message>
     <message>
-        <location filename="../undo_entries.py" line="269"/>
+        <location filename="../undo_entries.py" line="302"/>
         <source>色編集</source>
         <translation>Colour edit</translation>
     </message>
     <message>
-        <location filename="../undo_entries.py" line="270"/>
+        <location filename="../undo_entries.py" line="303"/>
         <source>一括処理</source>
         <translation>Batch operation</translation>
     </message>
     <message>
-        <location filename="../undo_entries.py" line="271"/>
+        <location filename="../undo_entries.py" line="304"/>
         <source>レイヤー構成</source>
         <translation>Layer structure</translation>
     </message>
     <message>
-        <location filename="../undo_entries.py" line="273"/>
+        <location filename="../undo_entries.py" line="306"/>
         <source>パレット編集</source>
         <translation>Palette edit</translation>
     </message>
     <message>
-        <location filename="../undo_entries.py" line="274"/>
+        <location filename="../undo_entries.py" line="307"/>
         <source>初期状態の読み込み</source>
         <translation>Import Initial State</translation>
     </message>

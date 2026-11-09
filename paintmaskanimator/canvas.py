@@ -382,6 +382,28 @@ class PaintCanvas(
     def layers(self): return self._document.layers
     @property
     def active_layer(self): return self._document.active_layer
+    def _resolve_drawing_undo_target(self, entry):
+        """Return (sheet column or None, layer), resolving numbered drawings."""
+        def at(fi):
+            if 0 <= fi < len(self.frames) and 0 <= entry.layer < len(self.frames[fi].layers):
+                return self.frames[fi].layers[entry.layer]
+            return None
+
+        layer = at(entry.frame)
+        if entry.number is None:
+            return (entry.frame, layer) if layer is not None else None
+        if (layer is not None and layer.has_content
+                and layer.sequence_number == entry.number):
+            return entry.frame, layer
+        for fi in range(len(self.frames)):
+            layer = at(fi)
+            if (layer is not None and layer.has_content
+                    and layer.sequence_number == entry.number
+                    and (self.timeline_mode != "sheet" or not layer.sequence_only)):
+                return fi, layer
+        layer = self._sequence_archive.get((entry.layer, entry.number))
+        return (None, layer) if layer is not None else None
+
     def current_state_for(self, entry):
         """Capture the inverse of ``entry``: the state undoing it would replace.
 
@@ -419,28 +441,32 @@ class PaintCanvas(
             # 反対側スタックには「現在のパレット状態」を積む。ラベルは対称。
             return PaletteStateUndo(palette.capture_history_state(), entry.label)
         if isinstance(entry, LayerRegionUndo):
-            if not _cell_exists(entry.frame, entry.layer):
+            target = self._resolve_drawing_undo_target(entry)
+            if target is None:
                 return None
-            layer = self.frames[entry.frame].layers[entry.layer]
+            fi, layer = target
             return LayerRegionUndo(
-                entry.frame,
+                entry.frame if fi is None else fi,
                 entry.layer,
                 QRect(entry.rect),
                 layer.image.copy(entry.rect),
                 bool(layer.has_content),
+                layer_name=entry.layer_name, number=entry.number,
             )
         if isinstance(entry, LayerTilesUndo):
-            if not _cell_exists(entry.frame, entry.layer):
+            target = self._resolve_drawing_undo_target(entry)
+            if target is None:
                 return None
-            layer = self.frames[entry.frame].layers[entry.layer]
+            fi, layer = target
             return LayerTilesUndo(
-                entry.frame,
+                entry.frame if fi is None else fi,
                 entry.layer,
                 tuple(
                     (QRect(rect), layer.image.copy(QRect(rect)))
                     for rect, _image in entry.tiles
                 ),
                 bool(layer.has_content),
+                layer_name=entry.layer_name, number=entry.number,
             )
         if isinstance(entry, ScopedBatchUndo):
             current = [
@@ -496,14 +522,16 @@ class PaintCanvas(
                 current,
             )
         if isinstance(entry, LayerUndo):
-            if not _cell_exists(entry.frame, entry.layer):
+            target = self._resolve_drawing_undo_target(entry)
+            if target is None:
                 return None
-            layer = self.frames[entry.frame].layers[entry.layer]
+            fi, layer = target
             return LayerUndo(
-                entry.frame,
+                entry.frame if fi is None else fi,
                 entry.layer,
                 QImage(layer.image),
                 layer.has_content,
+                layer_name=entry.layer_name, number=entry.number,
             )
         log.warning("unknown undo entry type: %r", type(entry).__name__)
         return None

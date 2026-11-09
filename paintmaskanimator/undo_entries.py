@@ -17,7 +17,7 @@ state and re-applies an entry lives on ``PaintCanvas`` (``current_state_for`` /
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, List, Sequence, Tuple
+from typing import Any, List, Optional, Sequence, Tuple
 
 from .i18n import tr
 
@@ -102,7 +102,7 @@ class InitialStateUndo(UndoEntry):
 
 @dataclass
 class LayerUndo(UndoEntry):
-    """Full snapshot of one layer image in one frame."""
+    """Full drawing snapshot; frame is the recorded position, number the identity."""
 
     HISTORY_LABEL = "描画"
 
@@ -110,6 +110,17 @@ class LayerUndo(UndoEntry):
     layer: int
     image: Any
     has_content: bool
+
+    layer_name: Optional[str] = None
+    number: Optional[int] = None
+
+    @property
+    def history_label(self) -> str:
+        if self.number is not None and self.layer_name is not None:
+            return tr("描画（{layer_name} の {number}番）").format(
+                layer_name=self.layer_name, number=self.number,
+            )
+        return self.HISTORY_LABEL
 
     @property
     def nbytes(self) -> int:
@@ -128,6 +139,17 @@ class LayerRegionUndo(UndoEntry):
     image: Any
     has_content: bool
 
+    layer_name: Optional[str] = None
+    number: Optional[int] = None
+
+    @property
+    def history_label(self) -> str:
+        if self.number is not None and self.layer_name is not None:
+            return tr("描画（{layer_name} の {number}番）").format(
+                layer_name=self.layer_name, number=self.number,
+            )
+        return self.HISTORY_LABEL
+
     @property
     def nbytes(self) -> int:
         return _image_bytes(self.image)
@@ -143,6 +165,17 @@ class LayerTilesUndo(UndoEntry):
     layer: int
     tiles: Sequence[Tuple[Any, Any]]
     has_content: bool
+
+    layer_name: Optional[str] = None
+    number: Optional[int] = None
+
+    @property
+    def history_label(self) -> str:
+        if self.number is not None and self.layer_name is not None:
+            return tr("描画（{layer_name} の {number}番）").format(
+                layer_name=self.layer_name, number=self.number,
+            )
+        return self.HISTORY_LABEL
 
     @property
     def nbytes(self) -> int:

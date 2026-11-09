@@ -83,7 +83,8 @@ def paint(canvas, route):
         canvas.active_layer.image.setPixelColor(5, 5, QColor("blue"))
         kind = LayerUndo
     assert isinstance(canvas.undo_stack[-1], kind)
-    assert history_label_for(canvas.undo_stack[-1]) == "描画"
+    # Phase 4 第3段階で (layer, 番号) 単位へ。
+    assert history_label_for(canvas.undo_stack[-1]) == "描画（A の 1番）"
 
 
 def record(canvas, states):

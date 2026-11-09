@@ -101,6 +101,8 @@ class StrokeDisplayMixin(CanvasMembers):
                 int(self._stroke_undo_layer),
                 tiles,
                 bool(self._stroke_prev_has_content),
+                layer_name=self.frames[self._stroke_undo_frame].layers[self._stroke_undo_layer].name,
+                number=self.frames[self._stroke_undo_frame].layers[self._stroke_undo_layer].sequence_number,
             ))
         self._stroke_before_tiles = None
         self._stroke_dirty_rect = None

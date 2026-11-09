@@ -683,7 +683,9 @@ class SelectionMixin(CanvasMembers):
             if len(undo_cells) == 1:
                 frame_index, image, has_content = undo_cells[0]
                 self.push_undo(
-                    LayerUndo(frame_index, layer_index, image, has_content)
+                    LayerUndo(frame_index, layer_index, image, has_content,
+                              layer_name=self.frames[frame_index].layers[layer_index].name,
+                              number=self.frames[frame_index].layers[layer_index].sequence_number)
                 )
             else:
                 self.push_undo(LayerBatchUndo(layer_index, undo_cells))
