@@ -78,7 +78,6 @@ from .undo_entries import (
     LayerUndo,
     PaletteStateUndo,
     ScopedBatchUndo,
-    TweenBatchUndo,
 )
 
 log = get_logger(__name__)
@@ -503,25 +502,6 @@ class PaintCanvas(
             return LayerRemoveUndo(
                 int(entry.index),
                 int(self.active_layer_index),
-            )
-        if isinstance(entry, TweenBatchUndo):
-            li = entry.layer
-            current = []
-            for fi in range(int(entry.start), min(int(entry.end) + 1, len(self.frames))):
-                if 0 <= li < len(self.frames[fi].layers):
-                    layer = self.frames[fi].layers[li]
-                    current.append((
-                        fi,
-                        QImage(layer.image),
-                        bool(layer.has_content),
-                        int(layer.exposure),
-                    ))
-            return TweenBatchUndo(
-                int(li),
-                len(self.frames),
-                int(entry.start),
-                int(entry.end),
-                current,
             )
         if isinstance(entry, LayerUndo):
             target = self._resolve_drawing_undo_target(entry)

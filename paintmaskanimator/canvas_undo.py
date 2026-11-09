@@ -25,7 +25,6 @@ from .undo_entries import (
     LayerUndo,
     PaletteStateUndo,
     ScopedBatchUndo,
-    TweenBatchUndo,
     history_label_for,
 )
 
@@ -368,31 +367,6 @@ class UndoMixin(CanvasMembers):
             self.active_layer_index = max(
                 0,
                 min(int(e.target_active), len(self.layers) - 1),
-            )
-            self._onion_cache.clear()
-            self.changed.emit()
-            self.selectionChanged.emit()
-        elif isinstance(e, TweenBatchUndo):
-            li = e.layer
-            restore_count = max(1, int(e.restore_count))
-            if len(self.frames) < restore_count:
-                self._ensure_frame_count(restore_count)
-            for fi, image, has_content, exposure in e.cells:
-                if (
-                    0 <= fi < len(self.frames)
-                    and 0 <= li < len(self.frames[fi].layers)
-                ):
-                    layer = self.frames[fi].layers[li]
-                    layer.image = image
-                    layer.has_content = bool(has_content)
-                    layer.exposure = max(1, int(exposure))
-            if len(self.frames) > restore_count:
-                del self.frames[restore_count:]
-            self.current_frame = max(
-                0, min(int(e.start), len(self.frames) - 1)
-            )
-            self.active_layer_index = max(
-                0, min(int(li), len(self.layers) - 1)
             )
             self._onion_cache.clear()
             self.changed.emit()

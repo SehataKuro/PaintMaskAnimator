@@ -248,27 +248,6 @@ class LayerInsertUndo(UndoEntry):
 
 
 @dataclass
-class TweenBatchUndo(UndoEntry):
-    """A tween run: cells of ``(frame, image, has_content, exposure)``.
-
-    ``restore_count`` is the frame count to restore, since tweening can add or
-    remove frames.
-    """
-
-    HISTORY_LABEL = "トゥイーン"
-
-    layer: int
-    restore_count: int
-    start: int
-    end: int
-    cells: List[Tuple[int, Any, bool, int]]
-
-    @property
-    def nbytes(self) -> int:
-        return sum(_image_bytes(image) for _fi, image, _hc, _exp in self.cells)
-
-
-@dataclass
 class PaletteStateUndo(UndoEntry):
     """Used-color panel state. Carries its own label per operation kind."""
 
