@@ -83,7 +83,10 @@ class Track:
 
 
 #: ``Track`` が持つ（＝レイヤー共通の）設定。
-TRACK_FIELDS = Track.__slots__
+TRACK_FIELDS = (
+    "name", "visible", "opacity", "is_paper", "is_draft", "alpha_locked",
+    "color_filter_enabled", "color_filter_rgb",
+)
 
 
 def _track_property(name):

@@ -600,6 +600,122 @@ def _thumbnail_png(image):
     return bytes(data.data()) if ok else None
 
 
+def build_v1_payload(frames, sequence_archive=None):
+    """Return v1 frame/archive metadata and ordered (name, image, error) PNGs.
+
+    Only reads the document. Encoding, caching and ZIP output belong to the
+    writer; images here retain their original cache keys.
+    """
+    frame_metadata = []
+    # まず書き出すセルを集め、PNG はあとでまとめて並列にエンコードする。
+    pending_pngs = []
+
+    def write_png(image_name, image, message):
+        pending_pngs.append((image_name, image, message))
+
+    for frame_index, frame in enumerate(frames):
+        frame_data = {
+            "duration": int(frame.duration),
+            "layers": [],
+        }
+        for layer_index, layer in enumerate(frame.layers):
+            image_name = (
+                f"layers/layer_{layer_index:04d}/"
+                f"frame_{frame_index:06d}.png"
+            )
+            write_png(
+                image_name,
+                layer.image,
+                tr("画像を書き出せませんでした: {name}"),
+            )
+
+            initial_name = None
+            if getattr(layer, "initial_image", None) is not None:
+                initial_name = (
+                    f"initial/layer_{layer_index:04d}/"
+                    f"frame_{frame_index:06d}.png"
+                )
+                write_png(
+                    initial_name,
+                    layer.initial_image,
+                    tr("初期状態の画像を書き出せませんでした: {name}"),
+                )
+
+            frame_data["layers"].append(
+                {
+                    "name": layer.name,
+                    "image": image_name,
+                    "initial": initial_name,
+                    "visible": bool(layer.visible),
+                    "opacity": float(layer.opacity),
+                    "is_paper": bool(layer.is_paper),
+                    "has_content": bool(layer.has_content),
+                    "exposure": int(layer.exposure),
+                    "is_blank_key": bool(
+                        getattr(layer, "is_blank_key", False)
+                    ),
+                    "sequence_number": layer.sequence_number,
+                    "sequence_only": bool(layer.sequence_only),
+                    "is_draft": bool(getattr(layer, "is_draft", False)),
+                    "cell_name": getattr(layer, "cell_name", None),
+                    "tween": getattr(layer, "tween", None),
+                    "tween_member": getattr(layer, "tween_member", None),
+                    "color_filter_enabled": bool(
+                        layer.color_filter_enabled
+                    ),
+                    "color_filter_rgb": (
+                        list(layer.color_filter_rgb)
+                        if layer.color_filter_rgb is not None
+                        else None
+                    ),
+                }
+            )
+        frame_metadata.append(frame_data)
+
+    archive_metadata = []
+    for (layer_index, number), layer in sorted(
+        (sequence_archive or {}).items()
+    ):
+        image_name = (
+            f"sequence_archive/layer_{int(layer_index):04d}/"
+            f"cell_{int(number):06d}.png"
+        )
+        write_png(
+            image_name,
+            layer.image,
+            tr("連番保管セルを書き出せませんでした: {name}"),
+        )
+        initial_name = None
+        if layer.initial_image is not None:
+            initial_name = f"initial/{image_name}"
+            write_png(initial_name, layer.initial_image,
+                      tr("初期状態の画像を書き出せませんでした: {name}"))
+        archive_metadata.append(
+            {
+                "layer_index": int(layer_index),
+                "sequence_number": int(number),
+                "image": image_name,
+                "initial": initial_name,
+                "name": layer.name,
+                "visible": bool(layer.visible),
+                "opacity": float(layer.opacity),
+                "has_content": bool(layer.has_content),
+                "is_blank_key": bool(layer.is_blank_key),
+                "is_draft": bool(getattr(layer, "is_draft", False)),
+                "cell_name": getattr(layer, "cell_name", None),
+                "color_filter_enabled": bool(
+                    layer.color_filter_enabled
+                ),
+                "color_filter_rgb": (
+                    list(layer.color_filter_rgb)
+                    if layer.color_filter_rgb is not None
+                    else None
+                ),
+            }
+        )
+    return frame_metadata, archive_metadata, pending_pngs
+
+
 def write_project_archive(
     project_path, metadata, frames, sequence_archive=None, png_cache=None,
     thumbnail=None,
@@ -637,112 +753,11 @@ def write_project_archive(
                     THUMBNAIL_NAME, thumbnail_png, compress_type=zipfile.ZIP_STORED
                 )
 
-            # まず書き出すセルを集め、PNG はあとでまとめて並列にエンコードする。
-            pending_pngs = []
-
-            def write_png(image_name, image, message):
-                pending_pngs.append((image_name, image, message))
-
-            for frame_index, frame in enumerate(frames):
-                frame_data = {
-                    "duration": int(frame.duration),
-                    "layers": [],
-                }
-                for layer_index, layer in enumerate(frame.layers):
-                    image_name = (
-                        f"layers/layer_{layer_index:04d}/"
-                        f"frame_{frame_index:06d}.png"
-                    )
-                    write_png(
-                        image_name,
-                        layer.image,
-                        tr("画像を書き出せませんでした: {name}"),
-                    )
-
-                    initial_name = None
-                    if getattr(layer, "initial_image", None) is not None:
-                        initial_name = (
-                            f"initial/layer_{layer_index:04d}/"
-                            f"frame_{frame_index:06d}.png"
-                        )
-                        write_png(
-                            initial_name,
-                            layer.initial_image,
-                            tr("初期状態の画像を書き出せませんでした: {name}"),
-                        )
-
-                    frame_data["layers"].append(
-                        {
-                            "name": layer.name,
-                            "image": image_name,
-                            "initial": initial_name,
-                            "visible": bool(layer.visible),
-                            "opacity": float(layer.opacity),
-                            "is_paper": bool(layer.is_paper),
-                            "has_content": bool(layer.has_content),
-                            "exposure": int(layer.exposure),
-                            "is_blank_key": bool(
-                                getattr(layer, "is_blank_key", False)
-                            ),
-                            "sequence_number": layer.sequence_number,
-                            "sequence_only": bool(layer.sequence_only),
-                            "is_draft": bool(getattr(layer, "is_draft", False)),
-                            "cell_name": getattr(layer, "cell_name", None),
-                            "tween": getattr(layer, "tween", None),
-                            "tween_member": getattr(layer, "tween_member", None),
-                            "color_filter_enabled": bool(
-                                layer.color_filter_enabled
-                            ),
-                            "color_filter_rgb": (
-                                list(layer.color_filter_rgb)
-                                if layer.color_filter_rgb is not None
-                                else None
-                            ),
-                        }
-                    )
-                metadata["frames"].append(frame_data)
-
-            metadata["sequence_archive"] = []
-            for (layer_index, number), layer in sorted(
-                (sequence_archive or {}).items()
-            ):
-                image_name = (
-                    f"sequence_archive/layer_{int(layer_index):04d}/"
-                    f"cell_{int(number):06d}.png"
-                )
-                write_png(
-                    image_name,
-                    layer.image,
-                    tr("連番保管セルを書き出せませんでした: {name}"),
-                )
-                initial_name = None
-                if layer.initial_image is not None:
-                    initial_name = f"initial/{image_name}"
-                    write_png(initial_name, layer.initial_image,
-                              tr("初期状態の画像を書き出せませんでした: {name}"))
-                metadata["sequence_archive"].append(
-                    {
-                        "layer_index": int(layer_index),
-                        "sequence_number": int(number),
-                        "image": image_name,
-                        "initial": initial_name,
-                        "name": layer.name,
-                        "visible": bool(layer.visible),
-                        "opacity": float(layer.opacity),
-                        "has_content": bool(layer.has_content),
-                        "is_blank_key": bool(layer.is_blank_key),
-                        "is_draft": bool(getattr(layer, "is_draft", False)),
-                        "cell_name": getattr(layer, "cell_name", None),
-                        "color_filter_enabled": bool(
-                            layer.color_filter_enabled
-                        ),
-                        "color_filter_rgb": (
-                            list(layer.color_filter_rgb)
-                            if layer.color_filter_rgb is not None
-                            else None
-                        ),
-                    }
-                )
+            frame_data, archive_data, pending_pngs = build_v1_payload(
+                frames, sequence_archive
+            )
+            metadata["frames"].extend(frame_data)
+            metadata["sequence_archive"] = archive_data
 
             encoded = cache.encode_many(
                 (image for _name, image, _message in pending_pngs), used_keys
