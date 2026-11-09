@@ -31,6 +31,34 @@ def is_pending(slot: Layer) -> bool:
     return bool(slot.sequence_only)
 
 
+def mark_pending(slot: Layer):
+    """Keep a position pending without changing its drawing or exposure."""
+    slot.set_pending(True)
+
+
+def clear_pending(slot: Layer):
+    """Remove placement intent while retaining the slot and bank artwork."""
+    slot.set_pending(False)
+
+
+def release_slots(slots):
+    """Release removed positions even when history or callers retain them."""
+    for slot in slots:
+        clear_pending(slot)
+
+
+def replace_slot(frame, index, slot):
+    """Install a position copy and release the overwritten pending token."""
+    previous = frame.layers[index]
+    track = previous._track
+    if previous is slot:
+        slot.attach_track(track)
+        return
+    clear_pending(previous)
+    slot.attach_track(track)
+    frame.layers[index] = slot
+
+
 def drawing(track: Track, number: int) -> Cell | None:
     """Return bank artwork without creating a missing Cell."""
     return track.cells.get(number)
@@ -189,6 +217,10 @@ class Document:
     def sync_columns(self):
         """Commit column structure; each Track carries its own bank and hints."""
         self.tracks = [layer._track for layer in self.frames[0].layers] if self.frames else []
+        for frame in self.frames:
+            for index, slot in enumerate(frame.layers):
+                if slot.__dict__.get("_pending_detached", False):
+                    slot.attach_track(self.tracks[index])
 
     def capture_column(self, index):
         frames = [Frame([frame.layers[index]], frame.duration) for frame in self.frames]
@@ -246,9 +278,11 @@ class Document:
                     layer.sequence_number = next_number
                     track.cells[next_number] = cell
                     next_number += 1
+            pending = [layer.sequence_only for layer in slots]
             track.connected = True
-            for layer in slots:
-                layer.__dict__["_track"] = track
+            for layer, waiting in zip(slots, pending):
+                layer.attach_track(track)
+                layer.set_pending(waiting)
                 if layer.has_content or layer.sequence_only:
                     layer.__dict__.pop("_cell", None)
             for number, layer in archived:
@@ -297,7 +331,7 @@ def clone_frame_graph(frames, sequence_archive=None):
             copied_track.legacy_archive_hints = deepcopy(track.legacy_archive_hints)
             copied_track.connected = track.connected
         copied.__dict__["_cell"] = cells[id(cell)]
-        copied.__dict__["_track"] = tracks[id(track)]
+        copied.attach_track(tracks[id(track)])
         if (track.connected and layer.sequence_number is not None
                 and (layer.has_content or layer.sequence_only)):
             copied.__dict__.pop("_cell", None)
@@ -334,7 +368,7 @@ def clear_slot(layer, *, blank=False):
     layer.is_blank_key = blank
     layer.exposure = 1
     layer.sequence_number = None
-    layer.sequence_only = False
+    clear_pending(layer)
     layer.cell_name = None
     layer.tween = None
     layer.tween_member = None
@@ -378,7 +412,7 @@ def place_number(target, source, number):
     if target._track.connected:
         target._track.cells.setdefault(int(number), target._cell)
     target.sequence_number = int(number)
-    target.sequence_only = False
+    clear_pending(target)
     target.exposure = 1
     if target._track.connected:
         target.__dict__.pop("_cell", None)
@@ -403,7 +437,7 @@ def copy_drawing_reference(target, source, *, content=None, blank=None):
         target.sequence_number = number
     target.has_content = content
     target.is_blank_key = blank
-    target.sequence_only = bool(source.sequence_only)
+    target.set_pending(source.sequence_only)
     target.exposure = source.exposure
     if track.connected and (content or source.sequence_only):
         target.__dict__.pop("_cell", None)

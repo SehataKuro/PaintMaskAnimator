@@ -12,6 +12,10 @@ def metadata_for(layer):
     if data is None:
         data = native._native.TimelineCell()
         layer.__dict__["_timeline_metadata"] = data
+    track = layer.__dict__.get("_track")
+    if (track is not None and track.connected
+            and not layer.__dict__.get("_pending_detached", False)):
+        data.sequence_only = layer.__dict__.get("_pending_token") in track.pending_slots
     return data
 
 
@@ -19,11 +23,19 @@ def timeline_metadata(cls):
     """Install properties after @dataclass has captured its public defaults."""
     def metadata_property(name):
         def get(layer):
+            if name == "sequence_only":
+                track = layer.__dict__.get("_track")
+                if (track is not None and track.connected
+                        and not layer.__dict__.get("_pending_detached", False)):
+                    return layer.__dict__.get("_pending_token") in track.pending_slots
             return getattr(metadata_for(layer), name)
 
         def set_value(layer, value):
             # Out-of-range integers are invalid metadata, never a reason to
             # switch to a second runtime implementation.
+            if (name == "sequence_only" and layer._track.connected
+                    and not layer.__dict__.get("_pending_detached", False)):
+                raise AttributeError("Use mark_pending/clear_pending for live positions")
             setattr(metadata_for(layer), name, value)
 
         return property(get, set_value)

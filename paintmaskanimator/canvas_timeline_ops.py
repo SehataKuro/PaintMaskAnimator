@@ -6,6 +6,8 @@ moving timeline cells, exposure blocks, and the sequence-number bookkeeping that
 keeps numbered (imported) images consistent with the cells that reference them.
 They run against a live ``PaintCanvas``.
 """
+from .document import replace_slot, release_slots
+from .document import mark_pending, clear_pending
 from itertools import chain
 from PySide6.QtGui import QImage
 from ._canvas_members import CanvasMembers
@@ -96,6 +98,7 @@ class TimelineStructureMixin(CanvasMembers):
         stored_layers = self._document.capture_column(index)
         self.push_undo(LayerInsertUndo(index, stored_layers, target_active))
         for frame in self.frames:
+            release_slots([frame.layers[index]])
             frame.layers.pop(index)
         self._document.sync_columns()
         self.active_layer_index = target_active
@@ -170,7 +173,7 @@ class TimelineStructureMixin(CanvasMembers):
                 self._clear_timeline_layer_cell(self.frames[column].layers[layer_index])
         for column in range(len(shifted) - 1, start_column - 1, -1):
             if shifted[column] is not None:
-                self.frames[column].layers[layer_index] = shifted[column]
+                replace_slot(self.frames[column], layer_index, shifted[column])
 
     def _shift_timeline_layer_left(
         self,
@@ -207,7 +210,7 @@ class TimelineStructureMixin(CanvasMembers):
                 self._clear_timeline_layer_cell(self.frames[column].layers[layer_index])
         for column, copied in enumerate(shifted):
             if copied is not None:
-                self.frames[column].layers[layer_index] = copied
+                replace_slot(self.frames[column], layer_index, copied)
 
     def _trim_unused_trailing_frames(self):
         """全レイヤーで未使用になった末尾の時間列を取り除く。"""
@@ -219,6 +222,7 @@ class TimelineStructureMixin(CanvasMembers):
                 for layer_index in range(len(self.frames[0].layers))
             ):
                 break
+            release_slots(self.frames[-1].layers)
             self.frames.pop()
 
 
@@ -234,6 +238,8 @@ class TimelineStructureMixin(CanvasMembers):
         source_frame = self.frames[self.current_frame]
         new_frame = Frame([layer.clone_slot() for layer in source_frame.layers], source_frame.duration)
         at = self.current_frame + 1
+        for layer in new_frame.layers:
+            layer.attach_track(layer._track)
         self.frames.insert(at, new_frame)
         self.current_frame = at
         self.changed.emit()
@@ -442,7 +448,7 @@ class TimelineStructureMixin(CanvasMembers):
         target.has_content = False
         target.is_blank_key = True
         target.sequence_number = insert_number
-        target.sequence_only = True
+        mark_pending(target)
         if target._track.connected:
             target.__dict__.pop("_cell", None)
         target.exposure = 1
@@ -570,7 +576,7 @@ class TimelineStructureMixin(CanvasMembers):
                 if layer._track is not track:
                     if layer.has_content or layer.sequence_only:
                         track.cells.setdefault(int(layer.sequence_number), layer._cell)
-                    layer.__dict__["_track"] = track
+                    layer.attach_track(track)
                     if layer.has_content or layer.sequence_only:
                         layer.__dict__.pop("_cell", None)
 
@@ -658,7 +664,7 @@ class TimelineStructureMixin(CanvasMembers):
                 self._ensure_frame_count(target_column + 1)
                 target = self.frames[target_column].layers[layer_index]
             copy_drawing_reference(target, copied)
-            target.sequence_only = False
+            clear_pending(target)
             target.exposure = max(1, int(target_exposure))
             target.visible = copied.visible
             target.opacity = copied.opacity

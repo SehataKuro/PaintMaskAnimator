@@ -4,6 +4,7 @@ Split out of ``canvas.py`` as a mixin. These methods push document / layer /
 region snapshots onto the undo stack and apply them on undo/redo. They run
 against a live ``PaintCanvas`` instance and its ``_document`` + stacks.
 """
+from .document import replace_slot, release_slots
 from PySide6.QtCore import QRect, QPointF
 from PySide6.QtGui import QPainter
 from .constants import MAX_UNDO, MAX_UNDO_BYTES
@@ -286,7 +287,9 @@ class UndoMixin(CanvasMembers):
             for src, _dst in e.moves:
                 self._clear_timeline_layer_cell(self.frames[src].layers[e.layer])
             for dst, layer in moved:
-                self.frames[dst].layers[e.layer] = layer
+                replace_slot(self.frames[dst], e.layer, layer)
+            for frame in self.frames[e.frame_count:]:
+                release_slots(frame.layers)
             del self.frames[e.frame_count:]
             self.frames[e.column].layers[e.layer].exposure = e.exposure
             self.current_frame = e.current_frame
@@ -341,6 +344,7 @@ class UndoMixin(CanvasMembers):
             index = e.index
             for frame in self.frames:
                 if 0 <= index < len(frame.layers) and len(frame.layers) > 1:
+                    release_slots([frame.layers[index]])
                     frame.layers.pop(index)
             self._document.sync_columns()
             self.active_layer_index = max(

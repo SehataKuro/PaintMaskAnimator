@@ -11,6 +11,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import QApplication, QMessageBox
 from .i18n import tr
+from .document import release_slots
 from .models import Layer, default_layer_name
 from .utils import blank_image
 from .progress import close_counter, create_counter, update_counter
@@ -195,6 +196,7 @@ class LayerOpsController:
 
         for frame_index, frame in enumerate(self.window.canvas.frames):
             for layer_index in reversed(indices):
+                release_slots([frame.layers[layer_index]])
                 frame.layers.pop(layer_index)
             frame.layers.insert(base_index, merged_layers[frame_index])
 
@@ -226,6 +228,7 @@ class LayerOpsController:
         self.window.canvas.push_doc_undo()
         for frame in self.window.canvas.frames:
             for index in sorted(indices, reverse=True):
+                release_slots([frame.layers[index]])
                 frame.layers.pop(index)
         self.window.canvas._document.sync_columns()
         self.window.canvas.active_layer_index = min(

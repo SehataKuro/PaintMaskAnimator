@@ -10,6 +10,7 @@ from PySide6.QtGui import QImage
 from PySide6.QtWidgets import QApplication
 
 from paintmaskanimator import timesheet_file
+from paintmaskanimator.document import clear_pending, mark_pending
 from paintmaskanimator.main_window import MainWindow
 from paintmaskanimator.models import Frame, Layer
 from paintmaskanimator.timeline import TimelineWidget
@@ -141,14 +142,17 @@ def test_random_window_readers_match_reference(window):
         for frame in canvas.frames:
             for layer in frame.layers:
                 for name, value in random_metadata(rng).items():
-                    setattr(layer, name, value)
+                    if name == "sequence_only":
+                        (mark_pending if value else clear_pending)(layer)
+                    else:
+                        setattr(layer, name, value)
         canvas.active_layer_index = case % layer_count
         canvas.playback_range_end = [None, 1, len(canvas.frames) + 7][case % 3]
         if canvas.playback_range_end is None:
             # 終端の露出を必ず frames より先まで伸ばす。
             last = canvas.frames[-1].layers[0]
             last.has_content = True
-            last.sequence_only = False
+            clear_pending(last)
             last.exposure = 9
             assert window._sheet_duration() > len(canvas.frames)
         assert window.export.sheet_tracks() == reference_tracks(window)

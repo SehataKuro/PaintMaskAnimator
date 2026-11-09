@@ -5,6 +5,7 @@ the previous/next key, resolve which key backs a given exposure cell, and ensure
 the active cell is an editable key before painting. They run against a live
 ``PaintCanvas`` instance.
 """
+from .document import clear_pending
 # (nothing was used)
 from ._canvas_members import CanvasMembers
 from .utils import blank_image
@@ -147,7 +148,7 @@ class KeyFrameMixin(CanvasMembers):
         # The blank position owns local v1 residue; it must not erase a bank Cell.
         target.detach_cell()
         target.has_content = False
-        target.sequence_only = False
+        clear_pending(target)
         target.image = blank_image()
         target.visible = bool(template.visible)
         target.opacity = float(template.opacity)
@@ -265,7 +266,7 @@ class KeyFrameMixin(CanvasMembers):
                 # 連番の空セルへ描画した旧データでは両方のフラグが
                 # Trueになり得る。内容キーとして即時修復する。
                 layer.is_blank_key = False
-                layer.sequence_only = False
+                clear_pending(layer)
                 self._cell_structure_dirty = True
                 return True
             return False

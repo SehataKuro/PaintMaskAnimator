@@ -11,6 +11,7 @@ from PySide6.QtGui import QImage  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from paintmaskanimator import native  # noqa: E402
+from paintmaskanimator.document import clear_pending, mark_pending  # noqa: E402
 from paintmaskanimator.main_window import MainWindow  # noqa: E402
 from paintmaskanimator.models import Frame, Layer  # noqa: E402
 from paintmaskanimator.sheet import (  # noqa: E402
@@ -121,7 +122,8 @@ def test_numbers_match_time_remap(window, pattern):
     for index in range(2):
         for frame in window.canvas.frames:
             layer = frame.layers[index]
-            layer.has_content = layer.is_blank_key = layer.sequence_only = False
+            layer.has_content = layer.is_blank_key = False
+            clear_pending(layer)
             layer.sequence_number = None
             layer.exposure = 1
         first = window.canvas.frames[0].layers[index]
@@ -133,7 +135,10 @@ def test_numbers_match_time_remap(window, pattern):
         next_key.exposure = 2
         next_key.has_content = pattern != "blank"
         next_key.is_blank_key = pattern == "blank"
-        next_key.sequence_only = pattern == "archive"
+        if pattern == "archive":
+            mark_pending(next_key)
+        else:
+            clear_pending(next_key)
         if pattern in ("held", "archive"):
             next_key._track.cells.setdefault(int(8 + index), next_key._cell)
         next_key.sequence_number = None if pattern == "unnumbered" else 8 + index

@@ -1,6 +1,7 @@
 import copy
 from dataclasses import dataclass
 from typing import ClassVar, List, Optional
+from weakref import WeakSet
 
 from PySide6.QtGui import QImage
 
@@ -56,6 +57,12 @@ class Cell:
         self.cell_name = cell_name
 
 
+class PendingToken:
+    """Identity of a position; no artwork or owner references."""
+
+    __slots__ = ("__weakref__",)
+
+
 class Track:
     """レイヤー1本ぶんの表示設定と番号付きの絵の所有元。
 
@@ -78,7 +85,7 @@ class Track:
     __slots__ = (
         "name", "visible", "opacity", "is_paper", "is_draft", "alpha_locked",
         "color_filter_enabled", "color_filter_rgb", "cells", "connected",
-        "legacy_archive_hints",
+        "legacy_archive_hints", "pending_slots",
     )
 
     def __init__(
@@ -88,6 +95,7 @@ class Track:
     ):
         self.cells: dict[int, Cell] = {}
         self.legacy_archive_hints: dict[int, ArchiveHint] = {}
+        self.pending_slots: WeakSet[PendingToken] = WeakSet()
         self.connected = False
         self.name = name
         self.visible = visible
@@ -210,9 +218,14 @@ class Layer:
         copied = object.__new__(Layer)
         copied.__dict__.update(self.__dict__)
         copied.__dict__.pop("_timeline_metadata", None)
+        copied.__dict__["_pending_token"] = PendingToken()
+        pending = self.sequence_only
+        copied.__dict__["_pending_detached"] = True
         for name in ("has_content", "is_blank_key", "exposure",
                      "sequence_number", "sequence_only"):
             setattr(copied, name, getattr(self, name))
+        from .timeline_metadata import metadata_for
+        metadata_for(copied).sequence_only = pending
         copied.tween = copy.deepcopy(self.tween)
         return copied
 
@@ -241,7 +254,9 @@ class Layer:
         if (self._track.connected and self.sequence_number is not None
                 and (self.has_content or self.sequence_only)):
             copied._track.cells[int(self.sequence_number)] = copied._cell
+            pending = copied.sequence_only
             copied._track.connected = True
+            copied.set_pending(pending)
             copied.__dict__.pop("_cell", None)
         return copied
 
@@ -277,11 +292,40 @@ class Layer:
         """``other`` と同じレイヤー設定を見るようにする。"""
         if other is self:
             return
-        self.__dict__["_track"] = other._track
+        self.attach_track(other._track)
 
     def detach_track(self):
         """共有をやめ、いまの設定を自分だけのものにする。"""
-        self.__dict__["_track"] = self._track.copy_settings()
+        self.attach_track(self._track.copy_settings())
+
+    def set_pending(self, pending):
+        """Change placement intent; connected truth belongs to the Track."""
+        pending = bool(pending)
+        previous = self.sequence_only
+        token = self.__dict__.setdefault("_pending_token", PendingToken())
+        track = self._track
+        if track.connected and not self.__dict__.get("_pending_detached", False):
+            if pending:
+                track.pending_slots.add(token)
+            else:
+                track.pending_slots.discard(token)
+        else:
+            from .timeline_metadata import metadata_for
+            metadata_for(self).sequence_only = pending
+        if previous != pending:
+            Layer.timeline_revision += 1
+        from .timeline_metadata import metadata_for
+        metadata_for(self).sequence_only = pending
+
+    def attach_track(self, track):
+        """Transfer this position's pending membership to its new Track."""
+        pending = self.sequence_only
+        old = self._track
+        token = self.__dict__.setdefault("_pending_token", PendingToken())
+        old.pending_slots.discard(token)
+        self.__dict__["_track"] = track
+        self.__dict__.pop("_pending_detached", None)
+        self.set_pending(pending)
 
     @property
     def cell_id(self):

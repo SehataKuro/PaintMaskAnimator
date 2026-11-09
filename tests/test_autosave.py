@@ -122,7 +122,8 @@ def test_periodic_save_keeps_ui_responsive_and_captures_snapshot(qapp, tmp_path,
         archived.image.fill(QColor("green"))
         archived.initial_image.fill(QColor("blue"))
         archived.cell_name = "after"
-        layer.sequence_only = False
+        from paintmaskanimator.document import clear_pending
+        clear_pending(layer)
         doc.tracks[0].legacy_archive_hints[2].tween["points"].append(3)
         doc.remove_archive_hint(doc.tracks[0], 2)
         metadata["nested"]["value"] = "after"

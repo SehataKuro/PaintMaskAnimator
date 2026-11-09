@@ -6,6 +6,7 @@ or tween" actions.
 
 A collaborator rather than a mixin -- see ``main_window_export.py`` for why.
 """
+from .document import clear_pending
 from .document import create_drawing
 from typing import TYPE_CHECKING
 
@@ -686,7 +687,7 @@ class TweenController:
                     # 中割りは番号を持つ通常の絵として書き出される。
                     # 直し直しでは、元の番号をそのまま使う（リテイク対策）。
                     layer.sequence_number = member_numbers[offset - 1]
-                    layer.sequence_only = False
+                    clear_pending(layer)
                     layer.cell_name = None
                     layer.tween = None
                     layer.tween_member = tween_id

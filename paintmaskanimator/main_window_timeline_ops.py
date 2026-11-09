@@ -5,6 +5,8 @@ creation, frame deletion, and cell move/copy against the timeline widget.
 
 A collaborator rather than a mixin -- see ``main_window_export.py`` for why.
 """
+from .document import replace_slot
+from .document import clear_pending
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QItemSelectionModel, QTimer
@@ -979,16 +981,16 @@ class TimelineOpsController:
         selected.tween_member = None
         selected.is_blank_key = False
         selected.has_content = True
-        selected.sequence_only = False
+        clear_pending(selected)
         if column < end:
             tail = source.clone_slot()
             tail.exposure = end - column
             tail.tween = None
             tail.tween_member = None
-            canvas.frames[column + 1].layers[layer_index] = tail
+            replace_slot(canvas.frames[column + 1], layer_index, tail)
         if column > start:
             source.exposure = column - start
-        canvas.frames[column].layers[layer_index] = selected
+        replace_slot(canvas.frames[column], layer_index, selected)
         canvas.current_frame = column
         canvas.active_layer_index = layer_index
         self._after_cell_edit()
@@ -1025,7 +1027,7 @@ class TimelineOpsController:
         tail.tween = None
         tail.tween_member = None
         head.exposure = column - start
-        canvas.frames[column].layers[layer_index] = tail
+        replace_slot(canvas.frames[column], layer_index, tail)
         self._after_cell_edit()
         return True
 
