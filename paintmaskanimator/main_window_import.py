@@ -457,6 +457,7 @@ class ImportController:
             "timeline_mode": self.window.canvas.timeline_mode,
             "fps": self.window.timeline.fps.value(),
             "project_path": self.window.current_project_path,
+            "created_app_version": self.window.created_app_version,
             "clip_metadata": getattr(
                 self.window.canvas, "clip_studio_source_metadata", None
             ),
@@ -530,6 +531,7 @@ class ImportController:
             self.window.canvas._silhouette_cache.clear()
             self.window._used_color_cache.clear()
             self.window.palette.clear_categories()
+            self.window.created_app_version = constants.APP_VERSION
             self.window.current_project_path = None
             self.window.project.update_title()
             self.window.refresh_ui()
@@ -545,6 +547,7 @@ class ImportController:
             self.window.timeline.set_timeline_mode(old_state["timeline_mode"])
             self.window.timeline.fps.setValue(old_state["fps"])
             self.window.current_project_path = old_state["project_path"]
+            self.window.created_app_version = old_state["created_app_version"]
             self.window.canvas.clip_studio_source_metadata = old_state["clip_metadata"]
             self.window.palette.restore_categories(old_state["palette"])
             self.window.canvas.undo_stack[:] = old_state["undo"]

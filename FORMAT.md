@@ -56,7 +56,8 @@
   "format": "PaintMaskAnimatorProject",   // 固定。これ以外は拒否
   "format_version": 1,
   "mask_format": 2,                        // §4 参照。読み込み時の画素解釈を決める
-  "application_version": 100,
+  "created_app_version": "0.7.3",          // 任意。最初に作ったアプリのバージョン
+  "saved_app_version": "0.7.3",            // 任意。最後に保存したアプリのバージョン
   "canvas": { "width": 1280, "height": 720 },  // 1..16384
   "fps": 24,
   "timeline_mode": "...",
@@ -73,12 +74,22 @@
 > 互換の旧形式名 `"OekakiAnimationProject"` は**廃止**。現行は
 > `"PaintMaskAnimatorProject"` のみ受理する。
 
+`format_version` は整数。省略時は 1 とみなす。読み込み側は対応範囲より大きい
+ファイルを開かず、画像を読む前に理由を示して断る。現行の対応上限は 1。
+
+`created_app_version` / `saved_app_version` は任意の文字列で、値はアプリの
+`constants.APP_VERSION`。前者は上書き保存・名前を付けて保存しても変えず、
+後者は保存するたびに現在のアプリのバージョンへ更新する。
+旧ファイルなどで作成時バージョンが不明なら、再保存でも `created_app_version` は
+`null` とし、推測で補わない。両項目とも欠落・文字列以外（`null` を含む）は不明として読める。
+
 ### ロードに必須 vs. 状態復元用
 
 - **必須（欠けるとロード不能）**: `format`, `canvas.width/height`, `frames`
   （非空リスト）、各レイヤーの `image` 参照。
 - **状態復元用（欠けても既定値で継続）**: `fps`, `colors`, `display`,
-  `pressure`, `current_frame`, `active_layer_index`, `timeline_mode` など。
+  `pressure`, `current_frame`, `active_layer_index`, `timeline_mode`,
+  `created_app_version`, `saved_app_version` など。
   未知キーは無視してよいが、**保存時は保持（round-trip）することを推奨**。
 
 ---

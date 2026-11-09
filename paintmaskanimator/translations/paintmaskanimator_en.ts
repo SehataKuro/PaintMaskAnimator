@@ -7609,5 +7609,13 @@ Layer cell {value} / {exposure} exposures</translation>
         <source>例：3コマ目のタイミング要確認</source>
         <translation>e.g. check the timing on the third exposure</translation>
     </message>
+    <message>
+        <source>このファイルは新しいバージョンのアプリ（v{version}）で保存されています。アプリを更新してから開いてください。</source>
+        <translation>This file was saved with a newer version of the app (v{version}). Please update the app before opening it.</translation>
+    </message>
+    <message>
+        <source>このファイルは新しいバージョンのアプリで保存されています。アプリを更新してから開いてください。</source>
+        <translation>This file was saved with a newer version of the app. Please update the app before opening it.</translation>
+    </message>
 </context>
 </TS>

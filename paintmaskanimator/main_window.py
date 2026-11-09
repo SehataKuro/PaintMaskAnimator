@@ -168,6 +168,7 @@ class MainWindow(
         self._split_drop_source_area = None
         self._split_drop_press_pos = None
         self._dock_menu_builders = {}
+        self.created_app_version = constants.APP_VERSION
         self.current_project_path = None
         # カット袋・シートのメモ欄（Issue #25）。窓は開いたときに作る。
         self.project_memo = ""
@@ -727,7 +728,8 @@ class MainWindow(
             "format": "PaintMaskAnimatorProject",
             "format_version": 1,
             "mask_format": project_io.CURRENT_MASK_FORMAT,
-            "application_version": 100,
+            "created_app_version": self.created_app_version,
+            "saved_app_version": constants.APP_VERSION,
             "canvas": {
                 "width": int(constants.CANVAS_WIDTH),
                 "height": int(constants.CANVAS_HEIGHT),
@@ -1029,6 +1031,7 @@ class MainWindow(
         self.canvas.current_frame=0
         self.canvas.active_layer_index=0
         if not preserve:
+            self.created_app_version = constants.APP_VERSION
             self.current_project_path = None
             self.project.update_title()
         self.refresh_ui()

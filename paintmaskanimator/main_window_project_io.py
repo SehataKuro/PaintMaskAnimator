@@ -542,6 +542,7 @@ class ProjectIOController:
             self.window.canvas._color_filter_cache.clear()
             self.window.canvas._silhouette_cache.clear()
             self.window._used_color_cache.clear()
+            self.window.created_app_version = metadata["created_app_version"]
             self.window.current_project_path = project_path
             self.update_title()
             self.window.tools.set_colors(

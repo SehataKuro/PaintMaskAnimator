@@ -36,6 +36,7 @@ from .logging_setup import get_logger
 # Bump when the on-disk pixel contract changes. mask_format >= 2 stores erased
 # areas as alpha=0; format 1 (or missing) stored them as pseudo-transparent
 # opaque #FFFFFF and needs a white->transparent migration on load.
+SUPPORTED_FORMAT_VERSION = 1
 CURRENT_MASK_FORMAT = 2
 
 log = get_logger(__name__)
@@ -191,8 +192,9 @@ def _prefetch_pngs(archive, entries, width, height, decoded):
 def read_project_archive(path, png_cache=None):
     """Open and validate a project archive.
 
-    Returns (metadata, frames, width, height). Raises ValueError on any
-    malformed/oversized/unsafe archive (the caller shows the UI error).
+    Returns (metadata, frames, width, height). App version fields in metadata
+    are strings or None. Raises OperationError for unsupported formats and
+    malformed/oversized/unsafe archives (the caller shows the UI error).
 
     ``png_cache`` (a ``PngCache``) is reset and seeded with each cell's PNG
     bytes from the archive, so the first save after opening only re-encodes
@@ -226,6 +228,22 @@ def read_project_archive(path, png_cache=None):
         )
         if metadata.get("format") != "PaintMaskAnimatorProject":
             raise OperationError(tr("対応していないプロジェクト形式です。"))
+
+        format_version = metadata.get("format_version", 1)
+        if type(format_version) is not int:
+            raise OperationError(tr("対応していないプロジェクト形式です。"))
+        for key in ("created_app_version", "saved_app_version"):
+            if not isinstance(metadata.get(key), str):
+                metadata[key] = None
+        if format_version > SUPPORTED_FORMAT_VERSION:
+            version = metadata["saved_app_version"]
+            if version:
+                raise OperationError(tr(
+                    "このファイルは新しいバージョンのアプリ（v{version}）で保存されています。アプリを更新してから開いてください。"
+                ).format(version=version))
+            raise OperationError(tr(
+                "このファイルは新しいバージョンのアプリで保存されています。アプリを更新してから開いてください。"
+            ))
 
         try:
             mask_format = int(metadata.get("mask_format", 1))
