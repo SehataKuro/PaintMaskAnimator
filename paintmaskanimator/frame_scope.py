@@ -309,7 +309,8 @@ def apply_over_scope(
         return result
 
     undo_cells = []
-    for _lead_cell, shared_cells, produced, changed_pixels in pending:
+    # 共有 Cell への書き戻しで元画像が変わる前に、全対象の写しを取る。
+    for _lead_cell, shared_cells, _produced, _changed_pixels in pending:
         for frame_index, layer_index in shared_cells:
             layer = doc.frames[frame_index].layers[layer_index]
             undo_cells.append((
@@ -318,6 +319,10 @@ def apply_over_scope(
                 layer.image.copy(),
                 bool(layer.has_content),
             ))
+
+    for _lead_cell, shared_cells, produced, changed_pixels in pending:
+        for frame_index, layer_index in shared_cells:
+            layer = doc.frames[frame_index].layers[layer_index]
             # 同じ絵を指すセルは1つの Cell を共有しているので、書き込みは
             # グループの先頭1回で全員に行き渡る。共有が切れていた場合に
             # そなえ、ここでも結び直しておく。

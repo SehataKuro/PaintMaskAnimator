@@ -143,7 +143,7 @@ UNNUMBERED = [
 SCOPED = [
     ([RS, E, E, R], 2, 0, 0, 0),
     ([BS, E, E, B], 2, 0, 1, 0),
-    ([BS, E, E, B], 2, 0, 0, 1),
+    ([RS, E, E, R], 2, 0, 0, 1),
     ([BS, E, E, B], 2, 0, 1, 0),
 ]
 
@@ -244,9 +244,9 @@ def test_scoped_batch_repeated_number(window):
     assert calls == [((0, 0), (3, 0))]
     assert isinstance(result.undo, ScopedBatchUndo)
     assert [(fi, li) for fi, li, *_ in result.undo.cells] == [(0, 0), (3, 0)]
-    # 実測: 共有 Cell への最初の書き戻し後に、2件目の snapshot を採る。
+    # 実測: 共有 Cell へ書き戻す前に、両コマの赤い snapshot を採る。
     assert [img.pixelColor(5, 5).name() for _, _, img, _ in result.undo.cells] == [
-        "#ff0000", "#0000ff",
+        "#ff0000", "#ff0000",
     ]
     assert history_label_for(result.undo) == "一括処理"
     assert history_label_for(ScopedBatchUndo([], "テスト一括")) == "テスト一括"
@@ -257,7 +257,7 @@ def test_scoped_batch_repeated_number(window):
     record(canvas, states)
     canvas.redo()
     record(canvas, states)
-    # 実測: 2件目の青い snapshot が共有 Cell を再度上書きし、Undo でも青い。
+    # 実測: Undo で両コマとも赤へ戻り、Redo で両コマとも青になる。
     assert states == SCOPED
 
 
