@@ -170,7 +170,6 @@ class CanvasMembers(_MembersBase):
         _selection_fade_opacity: Any
         _selection_fade_started: Any
         _selection_source_from_image: Any
-        _sequence_archive: Any
         _sequence_source_bank: Any
         _sequence_source_bank_layer_index: Any
         _sequence_source_bank_layer_name: Any

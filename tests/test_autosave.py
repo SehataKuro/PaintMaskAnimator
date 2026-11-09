@@ -79,12 +79,18 @@ def test_periodic_save_keeps_ui_responsive_and_captures_snapshot(qapp, tmp_path,
 
     image = QImage(8, 8, QImage.Format.Format_ARGB32_Premultiplied)
     image.fill(QColor("red"))
-    layer = Layer("before", image, has_content=True)
+    layer = Layer("before", image, has_content=True, sequence_only=True)
     archived = layer.clone()
+    archived.initial_image = image.copy()
+    archived.cell_name = "before"
+    archived.tween = {"points": [1, 2]}
+    from paintmaskanimator.document import Document
+    doc = Document()
+    doc.install_legacy_frames([Frame([layer])], {(0, 2): archived})
+    archived = doc.tracks[0].cells[2]
     metadata = {"nested": {"value": "before"}}
     window = SimpleNamespace(
-        canvas=SimpleNamespace(drawing=False, frames=[Frame([layer])],
-                               _sequence_archive={(0, 2): archived}),
+        canvas=SimpleNamespace(drawing=False, frames=doc.frames, _document=doc),
         build_project_metadata=lambda: metadata,
     )
     owner = AutosaveController(window)
@@ -114,13 +120,24 @@ def test_periodic_save_keeps_ui_responsive_and_captures_snapshot(qapp, tmp_path,
         layer.name = "after"
         layer.image.fill(QColor("blue"))
         archived.image.fill(QColor("green"))
+        archived.initial_image.fill(QColor("blue"))
+        archived.cell_name = "after"
+        layer.sequence_only = False
+        doc.tracks[0].legacy_archive_hints[2].tween["points"].append(3)
+        doc.remove_archive_hint(doc.tracks[0], 2)
         metadata["nested"]["value"] = "after"
         worker_thread, saved_metadata, frames, archive, _cache = captured[0]
         assert worker_thread != ui_thread
         assert saved_metadata["nested"]["value"] == "before"
         assert frames[0].layers[0].name == "before"
         assert frames[0].layers[0].image.pixelColor(0, 0) == QColor("red")
-        assert archive[(0, 2)].image.pixelColor(0, 0) == QColor("red")
+        assert frames[0].layers[0]._track.cells[2].image.pixelColor(0, 0) == QColor("red")
+        saved_track = frames[0].layers[0]._track
+        assert saved_track.cells[2].initial_image.pixelColor(0, 0) == QColor("red")
+        assert saved_track.cells[2].cell_name == "before"
+        assert frames[0].layers[0].sequence_only
+        assert saved_track.legacy_archive_hints[2].tween == {"points": [1, 2]}
+        assert archive == {}
     finally:
         release.set()
         owner.clear()

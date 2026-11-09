@@ -199,7 +199,7 @@ def test_registration_consumes_local_cell(small_window, operation):  # noqa: F81
 
         source.__dict__["_cell"] = source._cell
         source.sequence_number = None
-        apply_number_mapping(canvas.frames, canvas._sequence_archive, 0, {}, unnumbered_start=3)
+        apply_number_mapping(canvas.frames, {}, 0, {}, unnumbered_start=3)
         target = source
     elif operation == "link":
         canvas.frames[1].layers[0] = source.clone()
@@ -210,10 +210,18 @@ def test_registration_consumes_local_cell(small_window, operation):  # noqa: F81
         if operation == "undo_view":
             _, target = canvas._resolve_numbered_target(0, 0, 1)
         else:
-            _, archive = project_v1_state(canvas.frames, canvas._sequence_archive)
+            _, archive = project_v1_state(canvas.frames)
             target = archive[(0, 1)]
         assert target.cell_name == "one"
         assert target.initial_image.pixel(0, 0) == 0xffaabbcc
+    if operation == "undo_view":
+        assert target.cell is canvas._document.tracks[0].cells[1]
+        assert target.column is None
+        return
+    if operation == "save_view":
+        assert not target._track.connected
+        assert target.image is canvas._document.tracks[0].cells[1].image
+        return
     assert target._track.connected
     assert target._cell is target._track.cells[target.sequence_number]
     assert "_cell" not in target.__dict__

@@ -84,8 +84,6 @@ class DocUndo(UndoEntry):
                  for frame in frames for layer in frame.layers}
         for track in getattr(self.snapshot, "tracks", ()):
             cells.update((id(cell), cell) for cell in track.cells.values())
-        for layer in getattr(self.snapshot, "archive", {}).values():
-            cells[id(layer._cell)] = layer._cell
         return sum(_image_bytes(cell.image) + _image_bytes(cell.initial_image)
                    for cell in cells.values())
 
@@ -244,7 +242,6 @@ class LayerInsertUndo(UndoEntry):
     index: int
     layers: List[Any]
     target_active: int
-    archive: dict = field(default_factory=dict)
 
     @property
     def nbytes(self) -> int:

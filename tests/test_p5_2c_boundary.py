@@ -40,7 +40,7 @@ def projection_observation():
                       initial_image=image("green"), cell_name="false archive"),
     })
     doc.tracks[0].cells[9] = Cell(image("yellow"), image("magenta"), "bank only")
-    frames, archive = project_v1_state(doc.frames, doc.sequence_archive)
+    frames, archive = project_v1_state(doc.frames)
     frame_data, archive_data, pngs = project_io.build_v1_payload(frames, archive)
     return {"frames": frame_data, "archive": archive_data,
             "pngs": [[name, img.width(), img.height(), img.pixelColor(0, 0).name()]

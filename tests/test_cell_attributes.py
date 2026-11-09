@@ -32,13 +32,10 @@ def canvas(layers, archive=None):
     doc = Document()
     doc.frames = [Frame([item]) for item in layers]
     doc.tracks = [layers[0]._track]
-    doc.sequence_archive = archive or {}
-    obj = SimpleNamespace(frames=[Frame([item]) for item in layers], current_frame=0,
-                          _sequence_archive=doc.sequence_archive, _document=doc)
+    obj = SimpleNamespace(frames=doc.frames, current_frame=0, _document=doc)
     def install():
         doc.current_frame = obj.current_frame
-        doc.install_legacy_frames(obj.frames, obj._sequence_archive)
-        obj._sequence_archive = doc.sequence_archive
+        doc.install_legacy_frames(obj.frames, archive)
     obj.install_legacy_frames = install
     obj._numbered_cell_attributes = (
         lambda *args: TimelineStructureMixin._numbered_cell_attributes(obj, *args)
@@ -115,7 +112,9 @@ def test_archive_fallback():
     TimelineStructureMixin.coalesce_numbered_images(obj)
     assert first.initial_image.pixelColor(0, 0) == QColor("blue")
     assert first.cell_name == "保管"
-    assert first.cell_id == stored.cell_id
+    assert first._cell is obj._document.tracks[0].cells[1]
+    assert first.initial_image is stored.initial_image
+    assert 1 in obj._document.tracks[0].legacy_archive_hints
 
 
 @pytest.fixture

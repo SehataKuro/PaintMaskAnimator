@@ -12,7 +12,7 @@ from ._canvas_members import CanvasMembers
 from .cell_numbering import normalization_mapping
 from .document import (
     is_pending,
-    clear_slot, put_archive, apply_number_mapping, apply_numbered_images, copy_drawing_reference,
+    clear_slot, archive_hint, apply_number_mapping, apply_numbered_images, copy_drawing_reference,
     import_drawing_reference,
 )
 from .sheet import shift_slots_left, shift_slots_right
@@ -93,8 +93,8 @@ class TimelineStructureMixin(CanvasMembers):
             return
         index = int(self.active_layer_index)
         target_active = max(0, index - 1)
-        stored_layers, archive = self._document.capture_column(index)
-        self.push_undo(LayerInsertUndo(index, stored_layers, target_active, archive))
+        stored_layers = self._document.capture_column(index)
+        self.push_undo(LayerInsertUndo(index, stored_layers, target_active))
         for frame in self.frames:
             frame.layers.pop(index)
         self._document.sync_columns()
@@ -254,9 +254,12 @@ class TimelineStructureMixin(CanvasMembers):
             _kind, start, exposure = block
             layer = self.frames[start].layers[layer_index]
             if layer.has_content and layer.sequence_number is not None:
-                put_archive(
-                    self._sequence_archive,
-                    (layer_index, int(layer.sequence_number)), layer.clone_slot(),
+                # Detached legacy frames must join the bank before clearing
+                # their last position, or the subsequent UI install loses it.
+                if not layer._track.connected:
+                    self.install_legacy_frames()
+                self._document.put_archive_hint(
+                    layer._track, int(layer.sequence_number), archive_hint(layer),
                 )
             if exposure > 1:
                 layer.exposure = exposure - 1
@@ -383,7 +386,7 @@ class TimelineStructureMixin(CanvasMembers):
     def sequence_number_normalization(self, layer_index):
         """正規化したときの {旧番号: 新番号} を、データを変えずに返す。"""
         return normalization_mapping(
-            self.frames, self._sequence_archive, layer_index
+            self.frames, {}, layer_index
         )
 
     def normalize_sequence_numbers(self, layer_index=None):
@@ -396,8 +399,8 @@ class TimelineStructureMixin(CanvasMembers):
             layer_indices = (int(layer_index),)
         for target_layer_index in layer_indices:
             mapping = self.sequence_number_normalization(target_layer_index)
-            self._sequence_archive = apply_number_mapping(
-                self.frames, self._sequence_archive, target_layer_index, mapping,
+            apply_number_mapping(
+                self.frames, {}, target_layer_index, mapping,
                 unnumbered_start=len(mapping) + 1, normalize_archive_keys=True,
             )
 
@@ -429,8 +432,8 @@ class TimelineStructureMixin(CanvasMembers):
         )
         self.push_doc_undo()
         mapping = {n: n + 1 for n in track.cells if n >= insert_number}
-        self._sequence_archive = apply_number_mapping(
-            self.frames, self._sequence_archive, layer_index, mapping)
+        apply_number_mapping(
+            self.frames, {}, layer_index, mapping)
         track.cells[insert_number] = Cell(blank_image())
         new_column = len(self.frames)
         self._ensure_frame_count(new_column + 1)
@@ -507,11 +510,11 @@ class TimelineStructureMixin(CanvasMembers):
             if layer.has_content and layer.sequence_number is not None
             and (number is None or layer.sequence_number == number)
         )
-        archive = self._sequence_archive.items()
-        if layer_index is not None and number is not None:
-            key = (layer_index, number)
-            archived = self._sequence_archive.get(key)
-            archive = () if archived is None else ((key, archived),)
+        archive = (
+            ((li, n), track.cells[n])
+            for li, track in enumerate(self._document.tracks)
+            for n in track.legacy_archive_hints if n in track.cells
+        )
         for key, layer in chain(entries, archive):
             if layer_index is not None and key[0] != layer_index:
                 continue
@@ -546,13 +549,6 @@ class TimelineStructureMixin(CanvasMembers):
                 target.share_cell_with(source)
                 target.has_content = True
                 target.is_blank_key = False
-        archived = self._sequence_archive.get((
-            int(layer_index), int(source.sequence_number)
-        ))
-        if archived is not None:
-            archived.share_cell_with(source)
-            archived.has_content = True
-            archived.is_blank_key = False
 
     def link_layer_tracks(self):
         """同じレイヤーのセルを、1つの ``Track``（表示の設定）へ結ぶ。
@@ -602,7 +598,7 @@ class TimelineStructureMixin(CanvasMembers):
             if layer.sequence_number == number:
                 self._clear_timeline_layer_cell(layer)
                 found = True
-        self._sequence_archive.pop((int(layer_index), number), None)
+        self._document.remove_archive_hint(self.frames[0].layers[int(layer_index)]._track, number)
         track.cells.pop(number, None)
         if not found:
             self.undo_stack.pop()
@@ -827,7 +823,7 @@ class TimelineStructureMixin(CanvasMembers):
         destination = self.frames[destination_frame].layers[destination_layer]
         if source_layer != destination_layer:
             import_drawing_reference(
-                self.frames, self._sequence_archive, destination_frame, destination_layer,
+                self.frames, {}, destination_frame, destination_layer,
                 moving, preferred_frame=destination_frame,
                 content=not source_is_blank, blank=source_is_blank)
         else:

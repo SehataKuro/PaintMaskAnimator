@@ -98,7 +98,6 @@ def setup_sheet(window):
     canvas.timeline_mode = "sheet"
     canvas.active_layer_index = 0
     canvas.current_frame = 2
-    canvas._sequence_archive = {}
     put(canvas, 0, 1, 3)
     put(canvas, 3, None)
     put(canvas, 5, 2)
@@ -125,7 +124,8 @@ def layer_state(canvas, layer_index=0):
 
 def state(canvas):
     return (*layer_state(canvas), len(canvas.frames), canvas.current_frame,
-            sorted(canvas._sequence_archive))
+            sorted((li, number) for li, track in enumerate(canvas._document.tracks)
+                   for number in track.legacy_archive_hints))
 
 
 def check(canvas, expected):
@@ -163,14 +163,14 @@ def test_menu_and_canvas_delete(window, column):
     check(canvas, CANVAS_DELETE[column])
     assert layer_state(canvas, 1) == (other[0][:7], other[1])
     if column == 5:
-        archived = canvas._sequence_archive[(0, 2)]
+        assert 2 in canvas._document.tracks[0].legacy_archive_hints
+        archived = canvas._document.tracks[0].cells[2]
         assert archived.image.pixelColor(5, 5).name() == COLORS[2]
     if column == 4:
         # 未使用の1コマだけの場合は何も削除せず、Undoも増やさない。
         canvas.frames = [make_frame(["Only"])]
         canvas.current_frame = 0
         canvas.active_layer_index = 0
-        canvas._sequence_archive = {}
         undo_count = len(canvas.undo_stack)
         canvas.delete_frame()
         check(canvas, ([EMPTY], {}, 1, 0, []))
@@ -196,9 +196,9 @@ def test_time_remap_and_undo(window, states):
     canvas = setup_sheet(window)
     image = blank_image()
     image.setPixelColor(5, 5, QColor(COLORS[4]))
-    canvas._sequence_archive = {
+    canvas.install_legacy_frames(sequence_archive={
         (0, 4): Layer(canvas.layers[0].name, image, has_content=True, sequence_number=4)
-    }
+    })
     before = state(canvas)
     parsed = {"states": states, "start_frame": 1,
               "end_frame": len(states), "format": "test"}
@@ -220,8 +220,9 @@ def test_time_remap_and_undo(window, states):
         )
     check(canvas, expected)
     if len(states) != 2:
-        assert canvas._sequence_archive[(0, 2)].image.pixelColor(5, 5).name() == COLORS[2]
+        assert canvas._document.tracks[0].cells[2].image.pixelColor(5, 5).name() == COLORS[2]
     canvas.undo()
     # J1-A: DocUndo restores the compatibility archive with the sheet.
     assert state(canvas) == before
-    assert sorted(canvas._sequence_archive) == [(0, 4)]
+    assert sorted((li, number) for li, track in enumerate(canvas._document.tracks)
+                   for number in track.legacy_archive_hints) == [(0, 4)]

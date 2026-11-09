@@ -12,7 +12,7 @@ from .i18n import tr
 from .utils import blank_image
 from .document import (
     is_pending,
-    place_number, create_drawing, put_archive, copy_drawing_reference, import_drawing_reference,
+    place_number, create_drawing, archive_hint, copy_drawing_reference, import_drawing_reference,
 )
 from .undo_entries import ExposureUndo
 from .normalize_dialog import NormalizeNumbersDialog
@@ -66,7 +66,6 @@ class TimelineOpsController:
                 self.window.canvas.current_frame = matching[0]
         self.window.canvas.timeline_mode = mode
         self.window.timeline.set_timeline_mode(mode)
-        self.window.timeline.sequence_archive = self.window.canvas._sequence_archive
         self.window.timeline.add_exposure.setVisible(mode == "sheet")
         # 切り替え前の選択セルを保持すると、キャンバスだけ先に切り替わり
         # 赤枠が旧タブの列へ残る。再構築前に選択を明示的に解除する。
@@ -261,9 +260,8 @@ class TimelineOpsController:
         layer = self.window.canvas.frames[int(start)].layers[layer_index]
         self.window.canvas.push_doc_undo()
         if layer.has_content and layer.sequence_number is not None:
-            put_archive(
-                self.window.canvas._sequence_archive,
-                (layer_index, int(layer.sequence_number)), layer.clone(),
+            self.window.canvas._document.put_archive_hint(
+                layer._track, int(layer.sequence_number), archive_hint(layer),
             )
         self.window.canvas._clear_timeline_layer_cell(layer)
         self.window.canvas._cell_structure_dirty = True
@@ -490,7 +488,7 @@ class TimelineOpsController:
             ].layers[target_layer]
             if _source_layer != target_layer:
                 import_drawing_reference(
-                    self.window.canvas.frames, self.window.canvas._sequence_archive,
+                    self.window.canvas.frames, {},
                     target_start, target_layer, copied, preferred_frame=int(destination_column),
                     content=kind == "content", blank=kind == "blank")
             else:
@@ -763,10 +761,6 @@ class TimelineOpsController:
             if self.window.canvas.frames[index].layers[layer_index].sequence_number == int(number)
         ), None)
         if source is None:
-            source = self.window.canvas._sequence_archive.get(
-                (layer_index, int(number))
-            )
-        if source is None:
             resolved = self.window.canvas._resolve_numbered_target(
                 int(column), layer_index, int(number))
             if resolved is None:
@@ -916,7 +910,7 @@ class TimelineOpsController:
         pasted.tween = None
         pasted.tween_member = None
         import_drawing_reference(
-            canvas.frames, canvas._sequence_archive, column, layer_index, pasted,
+            canvas.frames, {}, column, layer_index, pasted,
             preferred_frame=canvas.current_frame)
         existing.tween = None
         existing.tween_member = None
@@ -968,10 +962,6 @@ class TimelineOpsController:
             if (layer := frame.layers[layer_index]).has_content
             and isinstance(layer.sequence_number, int)
         ]
-        numbers.extend(
-            number for (index, number) in canvas._sequence_archive
-            if index == layer_index
-        )
         numbers.extend(source._track.cells)
         new_number = max(numbers, default=0) + 1
         end = start + exposure - 1

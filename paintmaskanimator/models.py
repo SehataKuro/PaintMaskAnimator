@@ -8,6 +8,22 @@ from .utils import blank_image
 from .timeline_metadata import timeline_metadata
 
 
+@dataclass(frozen=True)
+class ArchiveHint:
+    """Image-free legacy archive metadata; presence denotes explicit storage.
+
+    Values contain metadata only and are copied at graph boundaries.
+    Display settings belong to Track and artwork attributes belong to Cell.
+    """
+
+    has_content: bool = True
+    is_blank_key: bool = False
+    exposure: int = 1
+    sequence_only: bool = False
+    tween: object = None
+    tween_member: object = None
+
+
 class Cell:
     """1枚の絵。同じ絵番号のセルはこれを共有する（Issue #31 Phase 1）。
 
@@ -62,6 +78,7 @@ class Track:
     __slots__ = (
         "name", "visible", "opacity", "is_paper", "is_draft", "alpha_locked",
         "color_filter_enabled", "color_filter_rgb", "cells", "connected",
+        "legacy_archive_hints",
     )
 
     def __init__(
@@ -70,6 +87,7 @@ class Track:
         color_filter_rgb=None,
     ):
         self.cells: dict[int, Cell] = {}
+        self.legacy_archive_hints: dict[int, ArchiveHint] = {}
         self.connected = False
         self.name = name
         self.visible = visible
@@ -235,8 +253,7 @@ class Layer:
         track = self.__dict__.get("_track")
         number = getattr(self, "sequence_number", None)
         if (track is not None and track.connected and number is not None
-                and (self.has_content or self.sequence_only
-                     or self.__dict__.get("_archive_reference", False))):
+                and (self.has_content or self.sequence_only)):
             number = int(number)
             return track.cells[number]
         cell = self.__dict__.get("_cell")
@@ -281,8 +298,7 @@ class Layer:
             return
         cell = other._cell
         if (self._track.connected and self.sequence_number is not None
-                and (self.has_content or self.sequence_only
-                     or self.__dict__.get("_archive_reference", False))):
+                and (self.has_content or self.sequence_only)):
             if self._track.cells[int(self.sequence_number)] is not cell:
                 raise ValueError("Cannot replace a connected drawing through share_cell_with")
             return

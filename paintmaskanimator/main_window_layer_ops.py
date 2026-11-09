@@ -55,13 +55,11 @@ class LayerOpsController:
         self.window.canvas.push_doc_undo()
         canvas = self.window.canvas
         for index in sorted(indices, reverse=True):
-            layers, archive = canvas._document.capture_column(index)
+            layers = canvas._document.capture_column(index)
             for frame, layer in zip(canvas.frames, layers):
                 frame.layers.insert(index + 1, layer)
             layers[0].name = tr("{name} コピー").format(name=layers[0].name)
             canvas._document.sync_columns()
-            canvas._sequence_archive.update({(index + 1, n): layer
-                                             for (_, n), layer in archive.items()})
         self.window.canvas.active_layer_index = min(
             len(self.window.canvas.layers) - 1,
             max(indices) + len(indices),

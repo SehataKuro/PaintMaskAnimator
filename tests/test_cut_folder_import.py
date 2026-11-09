@@ -160,7 +160,8 @@ def test_unused_cels_and_missing_cels_are_reported(window, tmp_path):
     assert frames[0].layers[0].sequence_number == 1
     assert not frames[2].layers[0].has_content
     # タイムシートにない B のセルは連番保管セルになる。
-    assert (1, 1) in window.canvas._sequence_archive
+    assert 1 in window.canvas._document.tracks[1].legacy_archive_hints
+    assert 1 in window.canvas._document.tracks[1].cells
 
 
 def test_folder_without_timesheet_is_rejected(window, tmp_path, monkeypatch):

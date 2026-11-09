@@ -1426,7 +1426,6 @@ class TimelineWidget(QWidget):
     def __init__(self):
         super().__init__()
         self.setAcceptDrops(True)
-        self.sequence_archive = {}
         self.playback_range_start = 0
         self.playback_range_end: int | None = None
         self._timeline_zoom_scale = 1.0
@@ -2553,7 +2552,8 @@ class TimelineWidget(QWidget):
                 max(
                     (
                         int(number)
-                        for _layer_index, number in self.sequence_archive
+                        for layer in frames[0].layers
+                        for number in layer._track.cells
                     ),
                     default=1,
                 ),
@@ -2669,11 +2669,12 @@ class TimelineWidget(QWidget):
                 int(frames[column].layers[layer_index].sequence_number): column
                 for column in sequence_columns
             }
+            from .document import DrawingTarget
+            track = frames[0].layers[layer_index]._track
             archive_by_number = {
-                int(number): archived
-                for (archived_layer, number), archived
-                in self.sequence_archive.items()
-                if int(archived_layer) == layer_index
+                number: DrawingTarget(cell, track, None, None, number)
+                for number, cell in track.cells.items()
+                if number in track.legacy_archive_hints or number not in sequence_by_number
             }
             for number, frame_column in sequence_by_number.items():
                 self._sequence_frame_by_cell[(visual_row, number - 1)] = frame_column
@@ -2681,9 +2682,7 @@ class TimelineWidget(QWidget):
                 sorted(
                     set(sequence_by_number)
                     | {
-                        int(number)
-                        for archived_layer, number in self.sequence_archive
-                        if int(archived_layer) == layer_index
+                        int(number) for number in archive_by_number
                     }
                 )
             )
@@ -3015,7 +3014,7 @@ class TimelineWidget(QWidget):
         self.set_normalize_pending(
             sum(
                 changed_count(
-                    normalization_mapping(frames, self.sequence_archive, layer_index)
+                    normalization_mapping(frames, (), layer_index)
                 )
                 for layer_index in range(rows)
             )

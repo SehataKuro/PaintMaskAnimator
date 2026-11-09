@@ -785,7 +785,8 @@ def test_successful_ui_import_replaces_document_in_sheet_mode(
         assert sheet_cell is not None and sheet_cell.text() == "A-7"
         metadata = window.canvas.clip_studio_source_metadata
         assert metadata is not None and metadata["start_frame"] == 12
-        archived = window.canvas._sequence_archive[(0, 2)]
+        assert 2 in window.canvas._document.tracks[0].legacy_archive_hints
+        archived = window.canvas._document.tracks[0].cells[2]
         assert archived.cell_name == "B-8"
         assert archived.image.pixelColor(0, 0) == QColor("magenta")
         window.timeline_ops.set_mode("sequence")
@@ -819,7 +820,8 @@ def test_ui_apply_failure_rolls_back_replaced_document(
     try:
         original_frames = window.canvas.frames
         original_size = (constants.CANVAS_WIDTH, constants.CANVAS_HEIGHT)
-        original_archive = window.canvas._sequence_archive
+        original_document = window.canvas._document
+        original_tracks = tuple(original_document.tracks)
 
         original_refresh = window.used_color.schedule_refresh
         refresh_calls = 0
@@ -839,7 +841,8 @@ def test_ui_apply_failure_rolls_back_replaced_document(
         )
         assert window.canvas.frames is original_frames
         assert (constants.CANVAS_WIDTH, constants.CANVAS_HEIGHT) == original_size
-        assert window.canvas._sequence_archive is original_archive
+        assert window.canvas._document is original_document
+        assert all(a is b for a, b in zip(window.canvas._document.tracks, original_tracks))
         assert window.canvas.clip_studio_source_metadata is None
     finally:
         window.close()

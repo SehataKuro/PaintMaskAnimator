@@ -313,11 +313,6 @@ class TweenController:
             for frame in self.window.canvas.frames
             if frame.layers[layer_index].sequence_number is not None
         }
-        used.update(
-            int(number)
-            for archived_layer, number in self.window.canvas._sequence_archive
-            if int(archived_layer) == layer_index
-        )
         used.update(self.window.canvas.frames[0].layers[layer_index]._track.cells)
         next_number = max(used, default=0) + 1
         return list(range(next_number, next_number + count))

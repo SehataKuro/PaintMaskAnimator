@@ -44,10 +44,11 @@ def test_initial_document_state(canvas):
 
 def test_document_snapshot_shape(canvas):
     snap = canvas.document_snapshot()
-    assert len(snap) == 7
-    frames, cf, ali, w, h, tracks, archive = snap
+    assert len(snap) == 6
+    frames, cf, ali, w, h, tracks = snap
     assert tracks[0] is frames[0].layers[0]._track
-    assert archive == {}
+    assert tracks[0].legacy_archive_hints == {}
+    assert tracks[0].cells == {}
     assert isinstance(frames, list)
     assert (cf, ali) == (0, 0)
     assert (w, h) == (canvas.frames and 1280, 720)

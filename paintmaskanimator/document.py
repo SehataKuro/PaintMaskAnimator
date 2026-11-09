@@ -9,30 +9,14 @@ Frames/Layers still carry QImage payloads (a Qt data type, not a widget); the
 constraint here is *UI independence*, not total Qt independence.
 """
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import NamedTuple
 
 from . import constants
 from PySide6.QtGui import QImage
 
-from .models import Cell, Frame, Layer, Track, make_frame
+from .models import ArchiveHint, Cell, Frame, Layer, Track, make_frame
 from .utils import blank_image
-
-
-@dataclass(frozen=True)
-class ArchiveHint:
-    """Image-free legacy archive metadata; presence denotes explicit storage.
-
-    This C1 value is a detached read snapshot, not a second live owner.
-    Display settings belong to Track and artwork attributes belong to Cell.
-    """
-
-    has_content: bool = True
-    is_blank_key: bool = False
-    exposure: int = 1
-    sequence_only: bool = False
-    tween: object = None
-    tween_member: object = None
 
 
 class PendingEntry(NamedTuple):
@@ -52,6 +36,82 @@ def drawing(track: Track, number: int) -> Cell | None:
     return track.cells.get(number)
 
 
+@dataclass
+class DrawingTarget:
+    """Borrowed drawing and optional sheet position for history restoration."""
+
+    cell: Cell
+    track: Track
+    column: int | None
+    slot: Layer | None
+    number: int | None
+
+    def __iter__(self):
+        # History consumers also use the legacy (column, target) unpacking.
+        yield self.column
+        yield self
+
+    @property
+    def image(self):
+        return self.cell.image
+
+    @image.setter
+    def image(self, value):
+        self.cell.image = value
+
+    @property
+    def has_content(self):
+        if self.slot is not None:
+            return self.slot.has_content
+        return self.track.legacy_archive_hints.get(self.number, ArchiveHint()).has_content
+
+    @has_content.setter
+    def has_content(self, value):
+        if self.slot is not None:
+            self.slot.has_content = bool(value)
+        elif self.number in self.track.legacy_archive_hints:
+            self.track.legacy_archive_hints[self.number] = replace(
+                self.track.legacy_archive_hints[self.number], has_content=bool(value))
+
+    @property
+    def is_blank_key(self):
+        if self.slot is not None:
+            return self.slot.is_blank_key
+        return self.track.legacy_archive_hints.get(self.number, ArchiveHint()).is_blank_key
+
+    @property
+    def initial_image(self):
+        return self.cell.initial_image
+
+    @property
+    def cell_name(self):
+        return self.cell.cell_name
+
+    @property
+    def sequence_number(self):
+        return self.number
+
+    @property
+    def name(self):
+        return self.track.name
+
+    @property
+    def is_paper(self):
+        return self.track.is_paper
+
+    @property
+    def is_draft(self):
+        return self.track.is_draft
+
+    @property
+    def cell_id(self):
+        return id(self.cell)
+
+    @property
+    def _track(self):
+        return self.track
+
+
 class DocumentSnapshot(NamedTuple):
     frames: list
     current_frame: int
@@ -59,34 +119,6 @@ class DocumentSnapshot(NamedTuple):
     width: int
     height: int
     tracks: list
-    archive: dict
-
-
-class SequenceArchive(dict):
-    """Compatibility entries refer to the document's drawing bank."""
-
-    def __init__(self, document, entries=()):
-        self.document = document
-        super().__init__()
-        self.update(entries)
-
-    def __setitem__(self, key, layer):
-        li, number = map(int, key)
-        if 0 <= li < len(self.document.tracks):
-            track = self.document.tracks[li]
-            if track.connected:
-                cell = layer._cell
-                track.cells.setdefault(number, cell)
-                layer = layer.clone_slot()
-                layer.sequence_number = number
-                layer.__dict__["_track"] = track
-                layer.__dict__["_archive_reference"] = True
-                layer.__dict__.pop("_cell", None)
-        super().__setitem__((li, number), layer)
-
-    def update(self, entries=(), **kwargs):
-        for key, value in dict(entries, **kwargs).items():
-            self[key] = value
 
 
 class Document:
@@ -97,18 +129,7 @@ class Document:
         self.current_frame = 0
         self.active_layer_index = 0
         self.tracks = []
-        self.sequence_archive = {}
         self.install_legacy_frames(self.frames)
-
-    @property
-    def sequence_archive(self):
-        return self._sequence_archive
-
-    @sequence_archive.setter
-    def sequence_archive(self, entries):
-        self._sequence_archive = (entries if isinstance(entries, SequenceArchive)
-                                  and entries.document is self
-                                  else SequenceArchive(self, entries))
 
     @property
     def layers(self):
@@ -141,52 +162,38 @@ class Document:
                      for column, slot in self._track_slots(track) if is_pending(slot))
 
     def archive_hints(self, track: Track) -> dict[int, ArchiveHint]:
-        """Detached explicit metadata adapted from the existing archive views."""
-        indices = {i for i, candidate in enumerate(self.tracks) if candidate is track}
-        return {int(number): ArchiveHint(
-            bool(slot.has_content), bool(slot.is_blank_key), int(slot.exposure),
-            is_pending(slot), deepcopy(slot.tween), deepcopy(slot.tween_member))
-            for (li, number), slot in self.sequence_archive.items() if int(li) in indices}
+        """Read detached explicit metadata without borrowing mutable values."""
+        return deepcopy(track.legacy_archive_hints)
 
     def legacy_drawing_state(self, track: Track, number: int) -> ArchiveHint:
         """Explicit archive state, otherwise the old bank-view defaults."""
         return self.archive_hints(track).get(number, ArchiveHint())
 
-    def clone_graph(self, sequence_archive=None):
-        """Copy frames and external archive together, preserving sharing.
+    def put_archive_hint(self, track: Track, number: int, state: ArchiveHint):
+        """Record explicit legacy state without storing artwork or a Layer."""
+        track.legacy_archive_hints[int(number)] = deepcopy(state)
 
-        Identity memoization deliberately does not reconcile distinct Cells
-        with the same number. Copying must preserve legacy conflict handling.
-        The compatibility archive and every unplaced Cell are copied together.
-        """
+    def remove_archive_hint(self, track: Track, number: int):
+        """Remove explicit state only; the drawing remains in its bank."""
+        return track.legacy_archive_hints.pop(int(number), None)
+
+    def clone_graph(self):
+        """Copy the full Track graph, preserving sharing and unplaced cells."""
         copied = object.__new__(Document)
-        copied.frames, archive = clone_frame_graph(
-            self.frames, self.sequence_archive if sequence_archive is None else sequence_archive)
+        copied.frames, _ = clone_frame_graph(self.frames)
         copied.current_frame = self.current_frame
         copied.active_layer_index = self.active_layer_index
         copied.tracks = [layer._track for layer in copied.frames[0].layers] if copied.frames else []
-        copied.sequence_archive = archive
-        return copied, archive
+        return copied
 
     def sync_columns(self):
-        """Commit column structure and remap archive indices by Track identity."""
-        old = self.tracks
-        new = [layer._track for layer in self.frames[0].layers] if self.frames else []
-        if len(old) == len(new) and all(a is b for a, b in zip(old, new)):
-            return
-        indices = {id(track): i for i, track in enumerate(new)}
-        archive = {(indices[id(old[li])], n): layer
-                   for (li, n), layer in self.sequence_archive.items()
-                   if 0 <= li < len(old) and id(old[li]) in indices}
-        self.tracks = new
-        self.sequence_archive = archive
+        """Commit column structure; each Track carries its own bank and hints."""
+        self.tracks = [layer._track for layer in self.frames[0].layers] if self.frames else []
 
     def capture_column(self, index):
         frames = [Frame([frame.layers[index]], frame.duration) for frame in self.frames]
-        archive = {(0, n): layer for (li, n), layer in self.sequence_archive.items()
-                   if li == index}
-        copied, archive = clone_frame_graph(frames, archive)
-        return [frame.layers[0] for frame in copied], archive
+        copied, _ = clone_frame_graph(frames)
+        return [frame.layers[0] for frame in copied]
 
     def install_legacy_frames(self, frames, sequence_archive=None):
         """Normalize detached legacy data once, before publishing it to the UI."""
@@ -245,28 +252,22 @@ class Document:
                 if layer.has_content or layer.sequence_only:
                     layer.__dict__.pop("_cell", None)
             for number, layer in archived:
-                layer.sequence_number = number
-                layer.__dict__["_track"] = track
-                layer.__dict__["_archive_reference"] = True
-                layer.__dict__.pop("_cell", None)
+                self.put_archive_hint(track, number, archive_hint(layer))
         self.frames = frames
         self.tracks = [layer._track for layer in frames[0].layers] if frames else []
-        self.sequence_archive = archive
 
     def snapshot(self):
         """Copy the entire drawing bank, including unplaced drawings."""
-        frames, archive = clone_frame_graph(self.frames, self.sequence_archive)
+        frames, _ = clone_frame_graph(self.frames)
         tracks = [layer._track for layer in frames[0].layers] if frames else []
         return DocumentSnapshot(frames, self.current_frame, self.active_layer_index,
                                 constants.CANVAS_WIDTH, constants.CANVAS_HEIGHT,
-                                tracks, archive)
+                                tracks)
 
     def restore(self, snap):
         frames, current_frame, active_layer_index, width, height = snap[:5]
-        self.frames, archive = clone_frame_graph(
-            frames, getattr(snap, "archive", {}))
+        self.frames, _ = clone_frame_graph(frames)
         self.tracks = [layer._track for layer in self.frames[0].layers] if self.frames else []
-        self.sequence_archive = archive
         self.current_frame = current_frame
         self.active_layer_index = active_layer_index
         return width, height
@@ -293,12 +294,12 @@ def clone_frame_graph(frames, sequence_archive=None):
         if id(track) not in tracks:
             copied_track = tracks[id(track)] = track.copy_settings()
             copied_track.cells = {n: clone_cell(c) for n, c in track.cells.items()}
+            copied_track.legacy_archive_hints = deepcopy(track.legacy_archive_hints)
             copied_track.connected = track.connected
         copied.__dict__["_cell"] = cells[id(cell)]
         copied.__dict__["_track"] = tracks[id(track)]
         if (track.connected and layer.sequence_number is not None
-                and (layer.has_content or layer.sequence_only
-                     or layer.__dict__.get("_archive_reference", False))):
+                and (layer.has_content or layer.sequence_only)):
             copied.__dict__.pop("_cell", None)
         return copied
 
@@ -311,6 +312,13 @@ def clone_frame_graph(frames, sequence_archive=None):
         for key, layer in (sequence_archive or {}).items()
     }
     return copied_frames, archive
+
+
+def archive_hint(layer):
+    """Detach the non-image state of a legacy explicit archive entry."""
+    return ArchiveHint(bool(layer.has_content), bool(layer.is_blank_key),
+                       int(layer.exposure), bool(layer.sequence_only),
+                       deepcopy(layer.tween), deepcopy(layer.tween_member))
 
 
 def clear_slot(layer, *, blank=False):
@@ -359,11 +367,11 @@ def place_number(target, source, number):
     coalesce/sync remain responsible for Cell sharing, as before. The image
     object is reused, while initial_image comes from an independent clone.
     """
-    copied = source.clone()
+    copied = source if isinstance(source, DrawingTarget) else source.clone()
     target.detach_cell()
     target.sequence_number = None
     target.image = source.image
-    target.initial_image = copied.initial_image
+    target.initial_image = (QImage(copied.initial_image) if copied.initial_image is not None else None)
     target.has_content = bool(copied.has_content)
     target.is_blank_key = not bool(copied.has_content)
     target.cell_name = getattr(copied, "cell_name", None)
@@ -425,8 +433,12 @@ def import_drawing_reference(frames, archive, fi, li, source, *, preferred_frame
                    if layer.has_content and layer.sequence_number == number]
         preferred = candidates[preferred_frame] if 0 <= preferred_frame < len(candidates) else None
         owner = preferred if any(layer is preferred for layer in matches) else matches[0]
-        attrs = matches + [layer for (index, n), layer in archive.items()
-                           if index == li and n == number]
+        attrs = list(matches)
+        track = target._track
+        if number in track.legacy_archive_hints and number in track.cells:
+            attrs.append(track.cells[number])
+        attrs.extend(layer for (index, n), layer in archive.items()
+                     if index == li and n == number)
         initial, name = (next((getattr(layer, attr) for layer in attrs
                               if getattr(layer, attr) is not None), None)
                          for attr in ("initial_image", "cell_name"))
@@ -456,6 +468,8 @@ def apply_number_mapping(frames, archive, layer_index, mapping, *,
     track = frames[0].layers[layer_index]._track if frames else None
     if track is not None and track.connected:
         track.cells = {mapping.get(n, n): cell for n, cell in track.cells.items()}
+        track.legacy_archive_hints = {mapping.get(n, n): hint
+                                      for n, hint in track.legacy_archive_hints.items()}
     for frame in frames:
         layer = frame.layers[layer_index]
         if layer.sequence_number is not None:
@@ -526,25 +540,31 @@ def assign_numbers_to_unnumbered(frames, layer_index):
 
 def project_v1_state(frames, sequence_archive=None):
     """Project unreferenced bank drawings to v1 archive without mutating live data."""
-    archive = sequence_archive
-    if not frames:
-        return frames, archive
-    for li, first in enumerate(frames[0].layers):
-        track = first._track
-        if not track.connected:
-            continue
+    if not frames or not any(layer._track.connected for layer in frames[0].layers):
+        # Raw v1 inputs pass through without installation or numbering.
+        return frames, sequence_archive
+    connected_columns = {li for li, layer in enumerate(frames[0].layers)
+                         if layer._track.connected}
+    # Raw entries belong only to unconnected columns. Connected columns derive
+    # their entire archive from H union (cells - R), with bank-owned artwork.
+    archive = {key: layer for key, layer in (sequence_archive or {}).items()
+               if int(key[0]) not in connected_columns}
+    for li in sorted(connected_columns):
+        track = frames[0].layers[li]._track
         represented = {int(frame.layers[li].sequence_number) for frame in frames
                        if frame.layers[li].sequence_number is not None
-                       and (frame.layers[li].has_content or frame.layers[li].sequence_only)}
-        represented.update(int(n) for index, n in (archive or {}) if int(index) == li)
-        for number, cell in track.cells.items():
-            if number in represented:
+                       and (frame.layers[li].has_content or is_pending(frame.layers[li]))}
+        numbers = track.legacy_archive_hints.keys() | (track.cells.keys() - represented)
+        for number in sorted(numbers):
+            cell = track.cells.get(number)
+            if cell is None:
                 continue
-            layer = Layer(track.name, cell.image, has_content=True,
-                          sequence_number=number)
-            layer.__dict__["_track"] = track
-            layer.__dict__.pop("_cell", None)
-            if archive is sequence_archive:
-                archive = dict(sequence_archive or {})
+            hint = track.legacy_archive_hints.get(number, ArchiveHint())
+            layer = Layer(track.name, cell.image, has_content=hint.has_content,
+                          is_blank_key=hint.is_blank_key, exposure=hint.exposure,
+                          sequence_number=number, sequence_only=hint.sequence_only,
+                          tween=deepcopy(hint.tween), tween_member=deepcopy(hint.tween_member))
+            layer.__dict__["_track"] = track.copy_settings()
+            layer.__dict__["_cell"] = cell
             archive[(li, number)] = layer
     return frames, archive

@@ -16,8 +16,8 @@ from . import sheet, timesheet_file
 from .i18n import tr
 from .main_window_import import ImportController
 from .errors import OPERATION_ERRORS as _OPERATION_ERRORS, OperationError
-from .models import Cell, Layer
-from .document import clear_slot, put_archive, remove_archive
+from .models import ArchiveHint, Cell
+from .document import clear_slot
 from .utils import blank_image
 from .widgets import (
     TimeRemapPasteDialog,
@@ -333,6 +333,10 @@ class TimeRemapController:
         ):
             return [image.copy() for image in stored_bank]
 
+        if track.connected:
+            return [track.cells[n].image.copy() if n in track.cells else None
+                    for n in range(1, max(track.cells, default=0) + 1)]
+
         numbered_bank = {n: cell.image.copy() for n, cell in track.cells.items()}
         for frame in self.window.canvas.frames:
             if layer_index >= len(frame.layers):
@@ -344,19 +348,6 @@ class TimeRemapController:
                 and number is not None
                 and int(number) >= 1
                 and int(number) not in numbered_bank
-            ):
-                numbered_bank[int(number)] = layer.image.copy()
-        # シートに並べていない絵（連番保管セル）も、同じ絵番号で使えるようにする。
-        # これを数えないと番号に抜けができ、下の「左から数える」方式へ落ちて
-        # 絵と番号がずれていた。
-        for (archive_layer, number), layer in getattr(
-            self.window.canvas, "_sequence_archive", {}
-        ).items():
-            if (
-                int(archive_layer) == layer_index
-                and int(number) >= 1
-                and int(number) not in numbered_bank
-                and layer.has_content
             ):
                 numbered_bank[int(number)] = layer.image.copy()
         if numbered_bank:
@@ -398,22 +389,15 @@ class TimeRemapController:
             and frame.layers[layer_index].has_content
             and frame.layers[layer_index].sequence_number is not None
         }
-        name = ""
-        if canvas.frames and layer_index < len(canvas.frames[0].layers):
-            name = canvas.frames[0].layers[layer_index].name
-        archive = canvas._sequence_archive
+        track = canvas.frames[0].layers[layer_index]._track
         for number, image in enumerate(source_bank, 1):
             if image is None:
                 continue
-            key = (int(layer_index), number)
             if number in placed:
-                remove_archive(archive, key)
-            elif key not in archive:
-                put_archive(archive, key, Layer(
-                    name, image.copy(), has_content=True, exposure=1,
-                    sequence_number=number,
-                ))
-        self.window.timeline.sequence_archive = archive
+                canvas._document.remove_archive_hint(track, number)
+            elif number not in track.legacy_archive_hints:
+                track.cells.setdefault(number, Cell(image.copy()))
+                canvas._document.put_archive_hint(track, number, ArchiveHint())
 
     def _apply_time_remap_states_to_layer(
         self,

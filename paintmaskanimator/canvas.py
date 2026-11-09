@@ -44,7 +44,7 @@ from .constants import OUTSIDE_MARGIN
 from . import constants
 from . import (color_ops, colors, display_shrink, geometry, imaging, native,
                preferences, view_preview)
-from .document import drawing, is_pending, Document
+from .document import drawing, is_pending, Document, DrawingTarget
 from .brush_raster import stamp_outline
 from .toolpanel import tool_label
 from .utils import blank_image, magnifier_cursor, tool_cursor, workspace_size
@@ -131,7 +131,6 @@ class PaintCanvas(
         self._sequence_source_bank_layer_name=""
         self.clip_studio_source_metadata: dict | None = None
         # シートから外した絵番号を、右クリックで再配置するため保持する。
-        self._sequence_archive={}
         self.timeline_mode="sheet"
         self.tool="brush"; self.temp_tool=None; self.main_color=QColor("black"); self.sub_color=QColor(255,0,0); self.color_mode="main"; self.transparent_display_color=QColor("white"); self.background_mask_rgb=(255,255,255); self.mask_color_rgbs=set(); self.mask_color_rgb=None; self.mask_all_enabled=True; self.selected_used_color_rgbs=set(); self.visible_color_rgbs=None
         # 使用色の親子プレビュー：{子rgb: 親rgb}。表示時のみ子を親色へ塗り替える（非破壊）。
@@ -363,18 +362,10 @@ class PaintCanvas(
     # Core document state lives in self._document; these properties delegate so
     # the many existing `self.frames` / `self.current_frame` call sites keep
     # working unchanged.
-    @property
-    def _sequence_archive(self):
-        return self._document.sequence_archive
-
-    @_sequence_archive.setter
-    def _sequence_archive(self, value):
-        self._document.sequence_archive = value
-
     def install_legacy_frames(self, frames=None, sequence_archive=None):
         self._document.install_legacy_frames(
             self.frames if frames is None else frames,
-            self._sequence_archive if sequence_archive is None else sequence_archive,
+            sequence_archive,
         )
         self._invalidate_exposure_index()
 
@@ -398,7 +389,7 @@ class PaintCanvas(
     @property
     def active_layer(self): return self._document.active_layer
     def _resolve_numbered_target(self, frame, layer_index, number):
-        """Return (sheet column or None, layer), resolving numbered drawings."""
+        """Resolve a borrowed Cell/Track target without creating missing drawings."""
         def at(fi):
             if 0 <= fi < len(self.frames) and 0 <= layer_index < len(self.frames[fi].layers):
                 return self.frames[fi].layers[layer_index]
@@ -406,29 +397,21 @@ class PaintCanvas(
 
         layer = at(frame)
         if number is None:
-            return (frame, layer) if layer is not None else None
+            return DrawingTarget(layer._cell, layer._track, frame, layer, number) if layer is not None else None
         if (layer is not None and layer.has_content
                 and layer.sequence_number == number):
-            return frame, layer
+            return DrawingTarget(layer._cell, layer._track, frame, layer, number)
         for fi in range(len(self.frames)):
             layer = at(fi)
             if (layer is not None and layer.has_content
                     and layer.sequence_number == number
                     and (self.timeline_mode != "sheet" or not is_pending(layer))):
-                return fi, layer
-        layer = self._sequence_archive.get((layer_index, number))
-        if layer is not None:
-            return None, layer
+                return DrawingTarget(layer._cell, layer._track, fi, layer, number)
         if 0 <= layer_index < len(self._document.tracks):
             track = self._document.tracks[layer_index]
             cell = drawing(track, number)
             if cell is not None:
-                from .models import Layer
-                view = Layer(track.name, cell.image,
-                             has_content=True, sequence_number=number)
-                view.__dict__["_track"] = track
-                view.__dict__.pop("_cell", None)
-                return None, view
+                return DrawingTarget(cell, track, None, None, number)
         return None
 
     def _resolve_drawing_undo_target(self, entry):
@@ -460,8 +443,10 @@ class PaintCanvas(
                 for fi, li, _ in entry.cells if _cell_exists(fi, li)
             ]
             archived = [
-                (li, number, QImage(image) if (image := self._sequence_archive[(li, number)].initial_image) is not None else None)
-                for li, number, _ in entry.archived if (li, number) in self._sequence_archive
+                (li, number, QImage(image) if (image := self._document.tracks[li].cells[number].initial_image) is not None else None)
+                for li, number, _ in entry.archived if 0 <= li < len(self._document.tracks)
+                and number in self._document.tracks[li].legacy_archive_hints
+                and drawing(self._document.tracks[li], number) is not None
             ]
             return InitialStateUndo(cells, archived) if cells or archived else None
         if isinstance(entry, PaletteStateUndo):
@@ -516,8 +501,8 @@ class PaintCanvas(
                     else LayerBatchUndo(entry.layer, current))
         if isinstance(entry, LayerRemoveUndo):
             index = entry.index
-            stored, archive = self._document.capture_column(index)
-            return LayerInsertUndo(int(index), stored, int(self.active_layer_index), archive)
+            stored = self._document.capture_column(index)
+            return LayerInsertUndo(int(index), stored, int(self.active_layer_index))
         if isinstance(entry, LayerInsertUndo):
             return LayerRemoveUndo(
                 int(entry.index),

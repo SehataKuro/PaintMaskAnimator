@@ -68,7 +68,7 @@ class AutosaveController:
         try:
             metadata = copy.deepcopy(self.window.build_project_metadata())
             frames, sequence_archive = clone_frame_graph(
-                self.window.canvas.frames, self.window.canvas._sequence_archive
+                self.window.canvas.frames
             )
             path = self.path()
             if self._executor is None:
@@ -102,7 +102,7 @@ class AutosaveController:
                 self.path(),
                 self.window.build_project_metadata(),
                 self.window.canvas.frames,
-                self.window.canvas._sequence_archive,
+                None,
                 self.window.png_cache,
             )
         except Exception:  # noqa: BLE001 - best-effort; must never raise into the event loop

@@ -230,9 +230,6 @@ class KeyFrameMixin(CanvasMembers):
             if (frame.layers[layer_index].has_content
                 and (seq := frame.layers[layer_index].sequence_number) is not None)
         ]
-        existing_numbers.extend(
-            int(number) for li, number in self._sequence_archive if li == layer_index
-        )
         existing_numbers.extend(self.frames[0].layers[layer_index]._track.cells)
         return max(existing_numbers, default=0) + 1
 

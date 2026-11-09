@@ -4,6 +4,7 @@ import pytest
 from PySide6.QtCore import QPointF
 from PySide6.QtGui import QColor
 
+from paintmaskanimator.document import ArchiveHint, clear_slot
 from paintmaskanimator.frame_scope import FrameScope, apply_over_scope
 from paintmaskanimator.models import make_frame
 from paintmaskanimator.undo_entries import LayerBatchUndo, ScopedBatchUndo
@@ -72,18 +73,20 @@ def test_retained_number_metadata_unchanged(window, scoped, is_blank_key, archiv
         )
     layer = c.frames[0].layers[0]
     assert retained.cell_id != layer.cell_id
+    drawing_id = layer.cell_id
     if archived:
-        c._sequence_archive[(0, 3)] = layer
+        c._document.put_archive_hint(layer._track, 3, ArchiveHint())
         for fi in (0, 2):
-            c.frames[fi] = make_frame(["A", "B"])
-        assert all(frame.layers[0].cell_id != layer.cell_id for frame in c.frames)
+            clear_slot(c.frames[fi].layers[0])
+        assert all(frame.layers[0].cell_id != drawing_id for frame in c.frames)
     signals = []
     c.cellChanged.connect(lambda *args: signals.append(args))
     c.undo()
     assert not retained.has_content
     assert retained.is_blank_key == is_blank_key
     assert signals == ([] if archived else [(0, 0), (2, 0)])
-    assert layer.has_content
+    assert (c._document.tracks[0].legacy_archive_hints[3].has_content
+            if archived else layer.has_content)
 
 
 @pytest.mark.parametrize("mode,paper", [("sequence", False), ("sheet", True)])
@@ -121,18 +124,20 @@ def test_archive_and_redo(window):
     repeated(c)
     batch(c)
     archive = c.frames[0].layers[0]
-    c._sequence_archive[(0, 3)] = archive
+    cell = archive._cell
+    c._document.put_archive_hint(archive._track, 3, ArchiveHint())
     for fi in (0, 2, 3):
-        c.frames[fi] = make_frame(["A", "B"])
+        clear_slot(c.frames[fi].layers[0])
     c.current_frame = 1
     signals = []
     c.cellChanged.connect(lambda *args: signals.append(args))
     c.undo()
     assert c.redo_stack[-1].cells[0][0] == 0
-    assert archive.image.pixelColor(5, 5) == QColor("red")
-    assert archive.has_content and c.current_frame == 1 and not signals
+    assert cell.image.pixelColor(5, 5) == QColor("red")
+    assert c._document.tracks[0].legacy_archive_hints[3].has_content
+    assert c.current_frame == 1 and not signals
     c.redo()
-    assert archive.image.pixelColor(5, 5) == QColor("blue")
+    assert cell.image.pixelColor(5, 5) == QColor("blue")
 
 
 def test_missing_discarded(window):

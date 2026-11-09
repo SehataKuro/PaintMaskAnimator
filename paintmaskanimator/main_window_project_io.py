@@ -148,7 +148,7 @@ class ProjectIOController:
                 project_path,
                 metadata,
                 self.window.canvas.frames,
-                self.window.canvas._sequence_archive,
+                None,
                 self.window.png_cache,
                 thumbnail=self.window.crop_image(self.window.canvas.current_frame),
             )
@@ -192,8 +192,11 @@ class ProjectIOController:
         canvas = self.window.canvas
         frames = tuple((frame.duration, tuple(layer_signature(layer) for layer in frame.layers))
                        for frame in canvas.frames)
-        archive = tuple((key, layer_signature(layer))
-                        for key, layer in sorted(canvas._sequence_archive.items()))
+        archive = tuple(
+            (li, number, copy.deepcopy(hint))
+            for li, track in enumerate(canvas._document.tracks)
+            for number, hint in sorted(track.legacy_archive_hints.items())
+        )
         metadata = self.window.build_project_metadata()
         for key in (
             "current_frame", "active_layer_index", "colors", "display", "pressure",
@@ -289,10 +292,7 @@ class ProjectIOController:
             constants.CANVAS_WIDTH = width
             constants.CANVAS_HEIGHT = height
             self.window.canvas.frames = loaded_frames
-            self.window.canvas._sequence_archive = metadata.pop(
-                "_loaded_sequence_archive", {}
-            )
-            self.window.timeline.sequence_archive = self.window.canvas._sequence_archive
+            loaded_sequence_archive = metadata.pop("_loaded_sequence_archive", {})
             clip_source = metadata.get("clip_studio_source")
             self.window.canvas.clip_studio_source_metadata = (
                 dict(clip_source) if isinstance(clip_source, dict) else None
@@ -315,7 +315,7 @@ class ProjectIOController:
                 ),
             )
 
-            self.window.canvas.install_legacy_frames()
+            self.window.canvas.install_legacy_frames(sequence_archive=loaded_sequence_archive)
 
             colors = metadata.get("colors", {})
             self.window.canvas.main_color = QColor(

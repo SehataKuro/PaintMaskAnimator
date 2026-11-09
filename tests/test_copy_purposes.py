@@ -2,7 +2,7 @@
 from PySide6.QtCore import QRect
 from PySide6.QtGui import QColor, QImage, QPainter
 
-from paintmaskanimator.document import Document
+from paintmaskanimator.document import ArchiveHint, Document, clone_frame_graph
 from paintmaskanimator.models import Cell, Frame, Layer, Track
 
 
@@ -86,38 +86,45 @@ def test_independent_clone_painter():
 
 def test_graph_preserves_sharing_and_archive():
     doc, archive = document()
-    copied, copied_archive = doc.clone_graph(archive)
+    doc.install_legacy_frames(doc.frames, archive)
+    copied = doc.clone_graph()
+    copied_hints = copied.tracks[0].legacy_archive_hints
     first, second = [frame.layers[0] for frame in copied.frames]
-    assert first.cell_id == second.cell_id == copied_archive[(0, 3)].cell_id
+    assert first.cell_id == second.cell_id == id(copied.tracks[0].cells[3])
     assert first.cell_id != doc.active_layer.cell_id
-    assert first.track_id == second.track_id == copied_archive[(0, 3)].track_id
+    assert first.track_id == second.track_id == id(copied.tracks[0])
     assert first.track_id != doc.active_layer.track_id
     assert (copied.current_frame, copied.active_layer_index) == (1, 0)
+    assert copied_hints == doc.tracks[0].legacy_archive_hints
+    assert copied_hints[3] is not doc.tracks[0].legacy_archive_hints[3]
     first.tween["nested"].append(2)
     assert second.tween == {"nested": [1]}
 
 
 def test_graph_is_independent_from_live_edits():
     doc, archive = document()
-    copied, copied_archive = doc.clone_graph(archive)
+    doc.install_legacy_frames(doc.frames, archive)
+    copied = doc.clone_graph()
+    copied_hints = copied.tracks[0].legacy_archive_hints
     doc.active_layer.image.fill(QColor("black"))
     doc.active_layer.image = image("blue")
     doc.active_layer.initial_image.fill(QColor("black"))
     doc.active_layer.initial_image = image("blue")
     doc.active_layer.cell_name = "changed"
     doc.active_layer.opacity = 0.2
-    archive.clear()
-    archive[(0, 9)] = layer()
+    doc.tracks[0].legacy_archive_hints.clear()
+    doc.put_archive_hint(doc.tracks[0], 9, ArchiveHint())
     target = copied.active_layer
     assert target.image.pixelColor(0, 0) == QColor("red")
     assert target.initial_image.pixelColor(0, 0) == QColor("green")
     assert (target.cell_name, target.opacity) == ("drawing", 1.0)
-    assert list(copied_archive) == [(0, 3)]
+    assert list(copied_hints) == [3]
 
 
 def test_graph_allocates_once_per_cell_and_track(monkeypatch):
     doc, archive = document()
     doc.frames.extend(Frame([doc.active_layer.clone_slot()]) for _ in range(100))
+    doc.install_legacy_frames(doc.frames, archive)
     created, created_tracks = [], []
     original_track = Track.__init__
     original = Cell.__init__
@@ -132,7 +139,7 @@ def test_graph_allocates_once_per_cell_and_track(monkeypatch):
 
     monkeypatch.setattr(Track, "__init__", counted_track)
     monkeypatch.setattr(Cell, "__init__", counted)
-    copied, _ = doc.clone_graph(archive)
+    copied = doc.clone_graph()
     assert len(created) == 1
     assert len(created_tracks) == 1
     assert len({frame.layers[0].track_id for frame in copied.frames}) == 1
@@ -143,9 +150,9 @@ def test_graph_does_not_coalesce_legacy_conflicts():
     conflicting = layer()
     conflicting.image = image("blue")
     doc.frames.append(Frame([conflicting]))
-    copied, _ = doc.clone_graph(archive)
-    assert copied.frames[0].layers[0].cell_id != copied.frames[2].layers[0].cell_id
-    assert copied.frames[2].layers[0].image.pixelColor(0, 0) == QColor("blue")
+    copied_frames, _ = clone_frame_graph(doc.frames, archive)
+    assert copied_frames[0].layers[0].cell_id != copied_frames[2].layers[0].cell_id
+    assert copied_frames[2].layers[0].image.pixelColor(0, 0) == QColor("blue")
     settings = Track(name="settings", color_filter_rgb=(1, 2, 3))
     assert settings.copy_settings() is not settings
     assert settings.copy().color_filter_rgb == settings.copy_settings().color_filter_rgb

@@ -246,10 +246,12 @@ class UndoMixin(CanvasMembers):
                         layer.initial_image = image
                         restored.add(layer.cell_id)
             for li, number, image in e.archived:
-                archived = self._sequence_archive.get((li, number))
-                if archived is not None and archived.cell_id not in restored:
-                    archived.initial_image = image
-                    restored.add(archived.cell_id)
+                if 0 <= li < len(self._document.tracks):
+                    track = self._document.tracks[li]
+                    cell = track.cells.get(number) if number in track.legacy_archive_hints else None
+                    if cell is not None and id(cell) not in restored:
+                        cell.initial_image = image
+                        restored.add(id(cell))
             self._playback_frame_cache.clear()
             self.changed.emit()
         elif isinstance(e, (LayerUndo, LayerRegionUndo, LayerTilesUndo)):
@@ -352,7 +354,7 @@ class UndoMixin(CanvasMembers):
             index = e.index
             from .document import clone_frame_graph
             from .models import Frame
-            copied, archive = clone_frame_graph([Frame([layer]) for layer in e.layers], e.archive)
+            copied, _ = clone_frame_graph([Frame([layer]) for layer in e.layers])
             stored_layers = [frame.layers[0] for frame in copied]
             for frame_index, frame in enumerate(self.frames):
                 if frame_index < len(stored_layers):
@@ -371,7 +373,6 @@ class UndoMixin(CanvasMembers):
                     layer,
                 )
             self._document.sync_columns()
-            self._sequence_archive.update({(index, n): layer for (_, n), layer in archive.items()})
             self.active_layer_index = max(
                 0, min(int(e.target_active), len(self.layers) - 1))
             self._onion_cache.clear()

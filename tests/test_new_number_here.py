@@ -113,8 +113,9 @@ def test_head_single_and_last_frame(window, exposure, column, expected, keys):
 
 def test_new_number_includes_archived_numbers_from_the_same_layer(window):
     source = paint(window)
-    window.canvas._sequence_archive[(0, 9)] = source.clone()
-    window.canvas._sequence_archive[(1, 99)] = source.clone()
+    window.canvas.install_legacy_frames(sequence_archive={
+        (0, 9): source.clone(), (1, 99): source.clone(),
+    })
 
     assert window.timeline_ops.new_number_here(visual_row(window), 2)
 

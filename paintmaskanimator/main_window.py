@@ -249,12 +249,8 @@ class MainWindow(
             self.used_color.schedule_refresh()
 
     def refresh_ui(self):
-        from .document import project_v1_state
-
         self.canvas.coalesce_numbered_images()
         self.canvas.link_layer_tracks()
-        _, archive = project_v1_state(self.canvas.frames, self.canvas._sequence_archive)
-        self.timeline.sequence_archive = archive
         self.timeline.playback_range_start = int(self.canvas.playback_range_start)
         self.timeline.playback_range_end = self.canvas.playback_range_end
         self.timeline.refresh(
@@ -1042,14 +1038,19 @@ class MainWindow(
             self.canvas.clip_studio_source_metadata = None
         self.canvas.current_frame=0
         self.canvas.active_layer_index=0
-        self.canvas.install_legacy_frames(
-            sequence_archive=self.canvas._sequence_archive if preserve else {})
+        self.canvas.install_legacy_frames()
         if preserve and old_frames:
             # Legacy resize only transforms sheet payloads. Preserve the rest
             # of the bank just as it preserves the compatibility archive.
             for li, old_layer in enumerate(old_frames[0].layers):
                 track = self.canvas.frames[0].layers[li]._track
+                from copy import deepcopy
+                track.legacy_archive_hints = deepcopy(old_layer._track.legacy_archive_hints)
                 for number, cell in old_layer._track.cells.items():
+                    if (number in track.cells and number in track.legacy_archive_hints
+                            and track.cells[number].initial_image is None
+                            and cell.initial_image is not None):
+                        track.cells[number].initial_image = QImage(cell.initial_image)
                     if number not in track.cells:
                         track.cells[number] = Cell(
                             QImage(cell.image),

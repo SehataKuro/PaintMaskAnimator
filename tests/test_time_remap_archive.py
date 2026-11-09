@@ -52,10 +52,11 @@ def sheet_with_archived_four(window, placed=(1, 2, 3), archived=(4,)):
         layer.image = image_of(number)
         layer.has_content = True
         layer.sequence_number = number
-    canvas._sequence_archive = {
+    archive = {
         (0, number): Layer(names[0], image_of(number), has_content=True, sequence_number=number)
         for number in archived
     }
+    canvas.install_legacy_frames(sequence_archive=archive)
     canvas.timeline_mode = "sheet"
     canvas.current_frame = 0
     canvas.active_layer_index = 0
@@ -83,9 +84,9 @@ def test_applying_a_remap_uses_archived_numbers_and_keeps_unused_ones(window):
     assert [pixel(canvas, column) for column in range(3)] == [
         COLORS[1], COLORS[4], COLORS[2]
     ], "シートに無かった4番も正しい絵で並ぶ"
-    assert (0, 3) in canvas._sequence_archive, "使わなかった3番は連番保管セルに残す"
-    assert (0, 4) not in canvas._sequence_archive, "並べた4番は保管から外す"
-    assert canvas._sequence_archive[(0, 3)].image.pixelColor(5, 5).name() == COLORS[3]
+    assert 3 in canvas._document.tracks[0].legacy_archive_hints, "使わなかった3番は連番保管セルに残す"
+    assert 4 not in canvas._document.tracks[0].legacy_archive_hints, "並べた4番は保管から外す"
+    assert canvas._document.tracks[0].cells[3].image.pixelColor(5, 5).name() == COLORS[3]
 
 
 def test_a_real_gap_is_reported_instead_of_renumbering(window):

@@ -38,7 +38,6 @@ def window(qapp, tmp_path, monkeypatch):
     canvas.active_layer_index = 0
     canvas.undo_stack.clear()
     canvas.redo_stack.clear()
-    canvas._sequence_archive = {}
     try:
         yield window
     finally:
@@ -272,15 +271,15 @@ def test_archived_number_drawing_undo(window):
     record(canvas, states)
     canvas.delete_frame()
     record(canvas, states)
-    archive = canvas._sequence_archive[(0, 1)]
-    assert sorted(canvas._sequence_archive) == [(0, 1)]
+    archive = canvas._document.tracks[0].cells[1]
+    assert sorted(canvas._document.tracks[0].legacy_archive_hints) == [1]
     assert archive.image.pixelColor(5, 5).name() == "#0000ff"
     canvas.undo()
     record(canvas, states)
     canvas.undo()
     record(canvas, states)
     # J1-A: restoring the pre-deletion document also restores its empty archive.
-    assert canvas._sequence_archive == {}
+    assert canvas._document.tracks[0].legacy_archive_hints == {}
     assert canvas.frames[3].layers[0].image.pixelColor(5, 5).name() == "#ff0000"
     assert states == [
         ([E, E, E, R], 0, 0, 0, 0),
