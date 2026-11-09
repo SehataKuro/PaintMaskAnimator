@@ -11,6 +11,7 @@ from PySide6.QtGui import QImage
 from ._canvas_members import CanvasMembers
 from .cell_numbering import normalization_mapping
 from .document import (
+    is_pending,
     clear_slot, put_archive, apply_number_mapping, apply_numbered_images, copy_drawing_reference,
     import_drawing_reference,
 )
@@ -331,7 +332,7 @@ class TimelineStructureMixin(CanvasMembers):
             if not 0 <= layer_index < len(frame.layers):
                 continue
             layer = frame.layers[layer_index]
-            if not layer.sequence_only and (layer.has_content or layer.is_blank_key):
+            if not is_pending(layer) and (layer.has_content or layer.is_blank_key):
                 columns.append(column)
         return columns
 
@@ -619,7 +620,7 @@ class TimelineStructureMixin(CanvasMembers):
         pending = []
         for column, frame in enumerate(self.frames):
             for layer_index, layer in enumerate(frame.layers):
-                if layer.sequence_only and layer.sequence_number is not None:
+                if is_pending(layer) and layer.sequence_number is not None:
                     pending.append((int(layer.sequence_number), layer_index, column, layer.clone()))
         for number, layer_index, source_column, copied in sorted(pending):
             target_exposure = 1
@@ -627,7 +628,7 @@ class TimelineStructureMixin(CanvasMembers):
             for column, frame in enumerate(self.frames):
                 layer = frame.layers[layer_index]
                 if (
-                    not layer.sequence_only
+                    not is_pending(layer)
                     and layer.sequence_number == number - 1
                     and (layer.has_content or layer.is_blank_key)
                 ):
@@ -649,7 +650,7 @@ class TimelineStructureMixin(CanvasMembers):
                     for column, frame in enumerate(self.frames)
                     if any(
                         (layer.has_content or layer.is_blank_key)
-                        and not layer.sequence_only
+                        and not is_pending(layer)
                         for layer in frame.layers
                     )
                 ]

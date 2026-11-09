@@ -44,7 +44,7 @@ from .constants import OUTSIDE_MARGIN
 from . import constants
 from . import (color_ops, colors, display_shrink, geometry, imaging, native,
                preferences, view_preview)
-from .document import Document
+from .document import drawing, is_pending, Document
 from .brush_raster import stamp_outline
 from .toolpanel import tool_label
 from .utils import blank_image, magnifier_cursor, tool_cursor, workspace_size
@@ -414,16 +414,17 @@ class PaintCanvas(
             layer = at(fi)
             if (layer is not None and layer.has_content
                     and layer.sequence_number == number
-                    and (self.timeline_mode != "sheet" or not layer.sequence_only)):
+                    and (self.timeline_mode != "sheet" or not is_pending(layer))):
                 return fi, layer
         layer = self._sequence_archive.get((layer_index, number))
         if layer is not None:
             return None, layer
         if 0 <= layer_index < len(self._document.tracks):
             track = self._document.tracks[layer_index]
-            if number in track.cells:
+            cell = drawing(track, number)
+            if cell is not None:
                 from .models import Layer
-                view = Layer(track.name, track.cells[number].image,
+                view = Layer(track.name, cell.image,
                              has_content=True, sequence_number=number)
                 view.__dict__["_track"] = track
                 view.__dict__.pop("_cell", None)

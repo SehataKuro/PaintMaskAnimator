@@ -11,6 +11,7 @@ from PySide6.QtCore import QItemSelectionModel, QTimer
 from .i18n import tr
 from .utils import blank_image
 from .document import (
+    is_pending,
     place_number, create_drawing, put_archive, copy_drawing_reference, import_drawing_reference,
 )
 from .undo_entries import ExposureUndo
@@ -45,7 +46,7 @@ class TimelineOpsController:
             # 連番専用セルのシート配置ではフレーム数・位置が変わるため、
             # 移動前の状態を文書単位で保存してUndo参照切れを防ぐ。
             if any(
-                layer.sequence_only
+                is_pending(layer)
                 for frame in self.window.canvas.frames
                 for layer in frame.layers
             ):
@@ -58,7 +59,7 @@ class TimelineOpsController:
                 if (
                     frame.layers[layer_index].sequence_number == selected_number
                     and (frame.layers[layer_index].has_content or frame.layers[layer_index].is_blank_key)
-                    and (mode == "sequence" or not frame.layers[layer_index].sequence_only)
+                    and (mode == "sequence" or not is_pending(frame.layers[layer_index]))
                 )
             ]
             if matching:

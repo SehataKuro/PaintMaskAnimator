@@ -8,13 +8,48 @@ so that this core model can be reasoned about and tested without a GUI.
 Frames/Layers still carry QImage payloads (a Qt data type, not a widget); the
 constraint here is *UI independence*, not total Qt independence.
 """
+from copy import deepcopy
+from dataclasses import dataclass
 from typing import NamedTuple
 
 from . import constants
 from PySide6.QtGui import QImage
 
-from .models import Cell, Frame, Layer, make_frame
+from .models import Cell, Frame, Layer, Track, make_frame
 from .utils import blank_image
+
+
+@dataclass(frozen=True)
+class ArchiveHint:
+    """Image-free legacy archive metadata; presence denotes explicit storage.
+
+    This C1 value is a detached read snapshot, not a second live owner.
+    Display settings belong to Track and artwork attributes belong to Cell.
+    """
+
+    has_content: bool = True
+    is_blank_key: bool = False
+    exposure: int = 1
+    sequence_only: bool = False
+    tween: object = None
+    tween_member: object = None
+
+
+class PendingEntry(NamedTuple):
+    """A pending position, preserving duplicates and an absent number."""
+
+    column: int
+    slot: Layer
+
+
+def is_pending(slot: Layer) -> bool:
+    """Read the legacy pending flag without resolving or creating artwork."""
+    return bool(slot.sequence_only)
+
+
+def drawing(track: Track, number: int) -> Cell | None:
+    """Return bank artwork without creating a missing Cell."""
+    return track.cells.get(number)
 
 
 class DocumentSnapshot(NamedTuple):
@@ -83,6 +118,39 @@ class Document:
     @property
     def active_layer(self):
         return self.layers[self.active_layer_index]
+
+    def _track_slots(self, track):
+        for column, frame in enumerate(self.frames):
+            for slot in frame.layers:
+                if slot._track is track:
+                    yield column, slot
+
+    def placed_numbers(self, track: Track) -> set[int]:
+        """Content-key numbers only: pending, blank and retained slots excluded."""
+        return {int(slot.sequence_number) for _, slot in self._track_slots(track)
+                if slot.has_content and not is_pending(slot)
+                and slot.sequence_number is not None}
+
+    def unplaced_numbers(self, track: Track) -> set[int]:
+        """Bank minus placed references, independently of explicit archive."""
+        return set(track.cells) - self.placed_numbers(track)
+
+    def pending_entries(self, track: Track) -> tuple[PendingEntry, ...]:
+        """Read positions in frame order, including duplicate/None numbers."""
+        return tuple(PendingEntry(column, slot)
+                     for column, slot in self._track_slots(track) if is_pending(slot))
+
+    def archive_hints(self, track: Track) -> dict[int, ArchiveHint]:
+        """Detached explicit metadata adapted from the existing archive views."""
+        indices = {i for i, candidate in enumerate(self.tracks) if candidate is track}
+        return {int(number): ArchiveHint(
+            bool(slot.has_content), bool(slot.is_blank_key), int(slot.exposure),
+            is_pending(slot), deepcopy(slot.tween), deepcopy(slot.tween_member))
+            for (li, number), slot in self.sequence_archive.items() if int(li) in indices}
+
+    def legacy_drawing_state(self, track: Track, number: int) -> ArchiveHint:
+        """Explicit archive state, otherwise the old bank-view defaults."""
+        return self.archive_hints(track).get(number, ArchiveHint())
 
     def clone_graph(self, sequence_archive=None):
         """Copy frames and external archive together, preserving sharing.
