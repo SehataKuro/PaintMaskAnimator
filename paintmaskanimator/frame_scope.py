@@ -225,7 +225,12 @@ def _group_shared_images(doc, cells):
     index_of = {}
     for frame_index, layer_index in cells:
         layer = frames[frame_index].layers[layer_index]
-        key = id(layer.image)
+        origin = layer.__dict__.get("_content_origin")
+        if (origin is not None and origin == layer.sequence_number
+                and origin in layer._track.cells):
+            key = id(layer._track.cells[origin].image)
+        else:
+            key = id(layer.image)
         position = index_of.get(key)
         if position is None:
             index_of[key] = len(groups)

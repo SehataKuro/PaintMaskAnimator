@@ -364,10 +364,26 @@ class PaintCanvas(
     # the many existing `self.frames` / `self.current_frame` call sites keep
     # working unchanged.
     @property
+    def _sequence_archive(self):
+        return self._document.sequence_archive
+
+    @_sequence_archive.setter
+    def _sequence_archive(self, value):
+        self._document.sequence_archive = value
+
+    def install_legacy_frames(self, frames=None, sequence_archive=None):
+        self._document.install_legacy_frames(
+            self.frames if frames is None else frames,
+            self._sequence_archive if sequence_archive is None else sequence_archive,
+        )
+        self._invalidate_exposure_index()
+
+    @property
     def frames(self): return self._document.frames
     @frames.setter
     def frames(self, value):
         self._document.frames = value
+        self._document.tracks = [layer._track for layer in value[0].layers] if value else []
         self._invalidate_exposure_index()
     @property
     def current_frame(self): return self._document.current_frame
@@ -401,7 +417,17 @@ class PaintCanvas(
                     and (self.timeline_mode != "sheet" or not layer.sequence_only)):
                 return fi, layer
         layer = self._sequence_archive.get((layer_index, number))
-        return (None, layer) if layer is not None else None
+        if layer is not None:
+            return None, layer
+        if 0 <= layer_index < len(self._document.tracks):
+            track = self._document.tracks[layer_index]
+            if number in track.cells:
+                from .models import Layer
+                view = Layer(track.name, track.cells[number].image,
+                             has_content=True, sequence_number=number)
+                view.__dict__["_track"] = track
+                return None, view
+        return None
 
     def _resolve_drawing_undo_target(self, entry):
         return self._resolve_numbered_target(entry.frame, entry.layer, entry.number)
@@ -488,16 +514,8 @@ class PaintCanvas(
                     else LayerBatchUndo(entry.layer, current))
         if isinstance(entry, LayerRemoveUndo):
             index = entry.index
-            stored = [
-                frame.layers[index].clone()
-                for frame in self.frames
-                if 0 <= index < len(frame.layers)
-            ]
-            return LayerInsertUndo(
-                int(index),
-                stored,
-                int(self.active_layer_index),
-            )
+            stored, archive = self._document.capture_column(index)
+            return LayerInsertUndo(int(index), stored, int(self.active_layer_index), archive)
         if isinstance(entry, LayerInsertUndo):
             return LayerRemoveUndo(
                 int(entry.index),

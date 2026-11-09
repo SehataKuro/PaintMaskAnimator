@@ -144,6 +144,10 @@ class KeyFrameMixin(CanvasMembers):
         target = self.frames[
             column
         ].layers[layer_index]
+        # The blank position owns local v1 residue; it must not erase a bank Cell.
+        target.detach_cell()
+        target.has_content = False
+        target.sequence_only = False
         target.image = blank_image()
         target.visible = bool(template.visible)
         target.opacity = float(template.opacity)
@@ -229,6 +233,7 @@ class KeyFrameMixin(CanvasMembers):
         existing_numbers.extend(
             int(number) for li, number in self._sequence_archive if li == layer_index
         )
+        existing_numbers.extend(self.frames[0].layers[layer_index]._track.cells)
         return max(existing_numbers, default=0) + 1
 
     def ensure_editable_key(self):
@@ -245,7 +250,10 @@ class KeyFrameMixin(CanvasMembers):
         if layer.has_content:
             if (layer.sequence_number is None and self.timeline_mode == "sheet"
                     and not layer.is_paper and not layer.is_draft):
-                layer.sequence_number = self._next_drawing_number(self.active_layer_index)
+                number = self._next_drawing_number(self.active_layer_index)
+                if layer._track.connected:
+                    layer._track.cells[number] = layer._cell
+                layer.sequence_number = number
                 self._cell_structure_dirty = True
             if layer.sequence_number is not None:
                 # 描画開始前から全参照を同じ画像へ結び、ストローク中も
@@ -273,6 +281,11 @@ class KeyFrameMixin(CanvasMembers):
         layer_index = int(self.active_layer_index)
         block = self.timeline_block_at(current, layer_index)
         retained_number = layer.sequence_number
+        next_number = self._next_drawing_number(layer_index)
+        if layer._track.connected:
+            # A duplicated empty slot may share its local serialization residue.
+            # The new drawing must not turn that other slot's PNG into this one.
+            layer.detach_cell()
 
         if block is not None:
             kind, start, exposure = block
@@ -303,12 +316,16 @@ class KeyFrameMixin(CanvasMembers):
             # the instant the first stroke begins.
             layer.exposure = 1
 
+        if layer._track.connected:
+            # A retained number is serialization residue, never an edit target.
+            if retained_number is not None:
+                layer.sequence_number = None
+                layer.image = blank_image()
+            layer._track.cells[next_number] = layer._cell
+            layer.sequence_number = next_number
+        elif self.timeline_mode == "sheet":
+            layer.sequence_number = int(retained_number) if retained_number is not None else next_number
         layer.has_content = True
         layer.is_blank_key = False
-        if self.timeline_mode == "sheet":
-            if retained_number is not None:
-                layer.sequence_number = int(retained_number)
-            else:
-                layer.sequence_number = self._next_drawing_number(layer_index)
         self._cell_structure_dirty = True
         return True

@@ -44,8 +44,10 @@ def test_initial_document_state(canvas):
 
 def test_document_snapshot_shape(canvas):
     snap = canvas.document_snapshot()
-    assert len(snap) == 5
-    frames, cf, ali, w, h = snap
+    assert len(snap) == 7
+    frames, cf, ali, w, h, tracks, archive = snap
+    assert tracks[0] is frames[0].layers[0]._track
+    assert archive == {}
     assert isinstance(frames, list)
     assert (cf, ali) == (0, 0)
     assert (w, h) == (canvas.frames and 1280, 720)
@@ -153,9 +155,6 @@ def test_snapshot_restore_roundtrip(canvas):
     assert len(canvas.frames) != frames_before
 
     # restoring the snapshot's frame list reproduces the structure
-    restored_frames, cf, ali, _, _ = snap
-    canvas.frames = [f.clone() for f in restored_frames]
-    canvas.current_frame = cf
-    canvas.active_layer_index = ali
+    canvas._document.restore(snap)
     assert len(canvas.frames) == frames_before
     assert len(canvas.layers) == layers_before

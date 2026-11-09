@@ -279,10 +279,9 @@ def test_archived_number_drawing_undo(window):
     record(canvas, states)
     canvas.undo()
     record(canvas, states)
-    # DocUndo 復元時に archive とシートの Cell が結び直されるため、
-    # その次の描画 Undo は archive の代表画素も赤へ戻す。
-    assert sorted(canvas._sequence_archive) == [(0, 1)]
-    assert canvas._sequence_archive[(0, 1)].image.pixelColor(5, 5).name() == "#ff0000"
+    # J1-A: restoring the pre-deletion document also restores its empty archive.
+    assert canvas._sequence_archive == {}
+    assert canvas.frames[3].layers[0].image.pixelColor(5, 5).name() == "#ff0000"
     assert states == [
         ([E, E, E, R], 0, 0, 0, 0),
         ([E, E, E, B], 3, 0, 1, 0),

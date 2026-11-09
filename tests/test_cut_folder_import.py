@@ -61,6 +61,7 @@ def _draw_timeline(window):
         layer = layers[frame]
         layer.image.fill(COLORS[number])
         layer.has_content = True
+        layer._track.cells.setdefault(number, layer._cell)
         layer.sequence_number = number
         layer.exposure = exposure
     layers[2].is_blank_key = True

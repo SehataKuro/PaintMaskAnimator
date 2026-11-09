@@ -41,6 +41,7 @@ def put_cell(window, column, number, *, exposure=1, layer_index=0):
     layer = window.canvas.frames[column].layers[layer_index]
     layer.has_content = True
     layer.is_blank_key = False
+    layer._track.cells.setdefault(int(number), layer._cell)
     layer.sequence_number = int(number)
     layer.exposure = int(exposure)
     return layer
@@ -163,7 +164,8 @@ def test_clearing_a_cell_does_not_erase_the_other_frames(window):
 def test_sync_links_the_cells_before_a_stroke(window):
     put_cell(window, 0, 1)
     put_cell(window, 4, 1)
-    assert cell_ids(window, (0,))[0] != cell_ids(window, (4,))[0]
+    # Connected numbered slots already resolve the same Track-owned Cell.
+    assert cell_ids(window, (0,))[0] == cell_ids(window, (4,))[0]
 
     window.canvas.sync_numbered_image_from_cell(0, 0)
 

@@ -16,8 +16,8 @@ from . import sheet, timesheet_file
 from .i18n import tr
 from .main_window_import import ImportController
 from .errors import OPERATION_ERRORS as _OPERATION_ERRORS, OperationError
-from .models import Layer
-from .document import put_archive, remove_archive
+from .models import Cell, Layer
+from .document import clear_slot, put_archive, remove_archive
 from .utils import blank_image
 from .widgets import (
     TimeRemapPasteDialog,
@@ -323,7 +323,8 @@ class TimeRemapController:
                 ].layers[layer_index].name
             )
 
-        if stored_bank and (
+        track = self.window.canvas.frames[0].layers[layer_index]._track
+        if not track.connected and stored_bank and (
             stored_index == layer_index
             or (
                 stored_name
@@ -332,7 +333,7 @@ class TimeRemapController:
         ):
             return [image.copy() for image in stored_bank]
 
-        numbered_bank = {}
+        numbered_bank = {n: cell.image.copy() for n, cell in track.cells.items()}
         for frame in self.window.canvas.frames:
             if layer_index >= len(frame.layers):
                 continue
@@ -427,7 +428,7 @@ class TimeRemapController:
         self.window.canvas._ensure_frame_count(end_frame + 1)
         template = self.window.canvas.frames[
             current_frame
-        ].layers[layer_index].clone()
+        ].layers[layer_index]
 
         # 対象範囲より前のキーの露出が入り込まないよう切る。
         for prior in range(start_frame - 1, -1, -1):
@@ -443,13 +444,7 @@ class TimeRemapController:
         for frame_index in range(start_frame, end_frame + 1):
             layer = self.window.canvas.frames[frame_index].layers[layer_index]
             self.window.layers._copy_display_properties(template, layer)
-            layer.detach_cell()
-            layer.image = blank_image()
-            layer.has_content = False
-            layer.is_blank_key = False
-            layer.sequence_number = None
-            layer.cell_name = None
-            layer.exposure = 1
+            clear_slot(layer)
 
         # 同じ絵番号／空フレームが連続する区間を露出へ圧縮。
         for offset, length, run_state in sheet.runs_from_states(states):
@@ -463,11 +458,15 @@ class TimeRemapController:
                 target.sequence_number = None
                 target.cell_name = None
             else:
-                target.image = source_bank[int(run_state) - 1].copy()
+                number = int(run_state)
+                if target._track.connected:
+                    target._track.cells.setdefault(number, Cell(source_bank[number - 1].copy()))
+                else:
+                    target.image = source_bank[number - 1].copy()
+                target.sequence_number = number
                 target.has_content = True
                 target.is_blank_key = False
-                target.sequence_number = int(run_state)
-                target.cell_name = None
+
 
     def apply_to_active_layer(self, parsed, confirm=True):
         states = list(parsed.get("states", []))

@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QApplication
 
 from paintmaskanimator import constants, project_io
 from paintmaskanimator.canvas_timeline_ops import TimelineStructureMixin
+from paintmaskanimator.document import Document
 from paintmaskanimator.main_window import MainWindow
 from paintmaskanimator.models import Frame, Layer
 
@@ -28,8 +29,17 @@ def qapp():
 
 
 def canvas(layers, archive=None):
+    doc = Document()
+    doc.frames = [Frame([item]) for item in layers]
+    doc.tracks = [layers[0]._track]
+    doc.sequence_archive = archive or {}
     obj = SimpleNamespace(frames=[Frame([item]) for item in layers], current_frame=0,
-                          _sequence_archive=archive or {})
+                          _sequence_archive=doc.sequence_archive, _document=doc)
+    def install():
+        doc.current_frame = obj.current_frame
+        doc.install_legacy_frames(obj.frames, obj._sequence_archive)
+        obj._sequence_archive = doc.sequence_archive
+    obj.install_legacy_frames = install
     obj._numbered_cell_attributes = (
         lambda *args: TimelineStructureMixin._numbered_cell_attributes(obj, *args)
     )

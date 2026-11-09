@@ -10,7 +10,9 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QItemSelectionModel, QTimer
 from .i18n import tr
 from .utils import blank_image
-from .document import place_number, create_drawing, put_archive
+from .document import (
+    place_number, create_drawing, put_archive, copy_drawing_reference, import_drawing_reference,
+)
 from .undo_entries import ExposureUndo
 from .normalize_dialog import NormalizeNumbersDialog
 from .timeline import TimelineWidget
@@ -485,13 +487,13 @@ class TimelineOpsController:
             target = self.window.canvas.frames[
                 target_start
             ].layers[target_layer]
-            target.detach_cell()
-            target.initial_image = copied.initial_image if kind == "content" else None
-            target.image = (
-                copied.image.copy()
-                if kind == "content"
-                else blank_image()
-            )
+            if _source_layer != target_layer:
+                import_drawing_reference(
+                    self.window.canvas.frames, self.window.canvas._sequence_archive,
+                    target_start, target_layer, copied, preferred_frame=int(destination_column),
+                    content=kind == "content", blank=kind == "blank")
+            else:
+                copy_drawing_reference(target, copied, content=kind == "content", blank=kind == "blank")
             target.visible = bool(copied.visible)
             target.opacity = float(copied.opacity)
             target.alpha_locked = bool(
@@ -505,19 +507,6 @@ class TimelineOpsController:
                 if copied.color_filter_rgb is not None
                 else None
             )
-            target.has_content = kind == "content"
-            target.is_blank_key = kind == "blank"
-            target.sequence_number = (
-                copied.sequence_number
-                if kind == "content"
-                else None
-            )
-            target.cell_name = (
-                getattr(copied, "cell_name", None)
-                if kind == "content"
-                else None
-            )
-            target.sequence_only = bool(copied.sequence_only)
             target.exposure = max(1, int(exposure))
 
         moved_cells = [
@@ -644,16 +633,7 @@ class TimelineOpsController:
                 return
             source = self.window.canvas.frames[key_column].layers[layer_index]
             copied = source.clone()
-            destination.detach_cell()
-            destination.initial_image = copied.initial_image
-            destination.image = copied.image.copy()
-            destination.has_content = bool(copied.has_content)
-            destination.is_blank_key = bool(
-                getattr(copied, "is_blank_key", False)
-            )
-            destination.sequence_number = copied.sequence_number
-            destination.cell_name = getattr(copied, "cell_name", None)
-            destination.sequence_only = bool(copied.sequence_only)
+            copy_drawing_reference(destination, copied)
             destination.exposure = max(1, old_end - new_start + 1)
             destination.visible = copied.visible
             destination.opacity = copied.opacity
@@ -694,16 +674,7 @@ class TimelineOpsController:
                     ):
                         continue
                     destination = self.window.canvas.frames[col + shift].layers[layer_index]
-                    destination.detach_cell()
-                    destination.initial_image = source.initial_image
-                    destination.image = source.image.copy()
-                    destination.has_content = bool(source.has_content)
-                    destination.is_blank_key = bool(
-                        getattr(source, "is_blank_key", False)
-                    )
-                    destination.sequence_number = source.sequence_number
-                    destination.cell_name = getattr(source, "cell_name", None)
-                    destination.sequence_only = bool(source.sequence_only)
+                    copy_drawing_reference(destination, source)
                     destination.exposure = source.exposure
                     destination.visible = source.visible
                     destination.opacity = source.opacity
@@ -764,14 +735,7 @@ class TimelineOpsController:
         self.window.canvas._ensure_frame_count(int(destination_column) + 1)
         target = self.window.canvas.frames[int(destination_column)].layers[destination_layer]
         copied = source.clone()
-        target.detach_cell()
-        target.image = source.image
-        target.initial_image = copied.initial_image
-        target.has_content = True
-        target.is_blank_key = False
-        target.sequence_number = copied.sequence_number
-        target.cell_name = getattr(copied, "cell_name", None)
-        target.sequence_only = False
+        copy_drawing_reference(target, copied)
         target.exposure = max(1, int(copied.exposure))
         target.visible = copied.visible
         target.opacity = copied.opacity
@@ -802,7 +766,11 @@ class TimelineOpsController:
                 (layer_index, int(number))
             )
         if source is None:
-            return
+            resolved = self.window.canvas._resolve_numbered_target(
+                int(column), layer_index, int(number))
+            if resolved is None:
+                return
+            _, source = resolved
         self.window.canvas.push_doc_undo()
         self.window.canvas._ensure_frame_count(int(column) + 1)
         target = self.window.canvas.frames[int(column)].layers[layer_index]
@@ -946,7 +914,12 @@ class TimelineOpsController:
         # トゥイーンの帯は貼り付け先では組み直せないので持ち込まない。
         pasted.tween = None
         pasted.tween_member = None
-        canvas.frames[column].layers[layer_index] = pasted
+        import_drawing_reference(
+            canvas.frames, canvas._sequence_archive, column, layer_index, pasted,
+            preferred_frame=canvas.current_frame)
+        existing.tween = None
+        existing.tween_member = None
+        existing.exposure = pasted.exposure
         self._after_cell_edit()
         self.window.statusBar().showMessage(tr("セルを貼り付けました。"), 2000)
         return True
@@ -998,11 +971,13 @@ class TimelineOpsController:
             number for (index, number) in canvas._sequence_archive
             if index == layer_index
         )
+        numbers.extend(source._track.cells)
         new_number = max(numbers, default=0) + 1
         end = start + exposure - 1
         canvas.push_doc_undo()
         selected = source.clone()
         selected.detach_cell()
+        source._track.cells[new_number] = selected._cell
         selected.share_track_with(source)
         selected.exposure = 1
         selected.sequence_number = new_number

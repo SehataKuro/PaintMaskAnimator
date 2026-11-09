@@ -672,6 +672,8 @@ class LineOpsController:
             frame.layers[paint_index].has_content = bool(np.any(paint_pixels[:, :, 3] > 0))
             frame.layers[paint_index].exposure = source.exposure
 
+        self.window.canvas._document.sync_columns()
+        self.window.canvas.install_legacy_frames()
         close_counter(progress)
         self.window.canvas.active_layer_index = line_index
         self.window._used_color_cache.clear()

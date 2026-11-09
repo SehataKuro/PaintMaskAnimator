@@ -37,6 +37,7 @@ def paint(window, column=1, number=1, exposure=4):
     layer = window.canvas.frames[column].layers[0]
     layer.image.setPixelColor(10, 10, QColor("#123456"))
     layer.has_content = True
+    layer._track.cells.setdefault(number, layer._cell)
     layer.sequence_number = number
     layer.exposure = exposure
     return layer

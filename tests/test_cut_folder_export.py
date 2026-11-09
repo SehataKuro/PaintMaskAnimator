@@ -48,6 +48,7 @@ def _draw_cels(window, count):
         layer.image.fill(QColor(255, 0, 0, 255))
         layer.has_content = True
         layer.is_blank_key = False
+        layer._track.cells[index + 1] = layer._cell
         layer.sequence_number = index + 1
         layer.exposure = 1
     canvas.frames[0].layers[0].name = "A"

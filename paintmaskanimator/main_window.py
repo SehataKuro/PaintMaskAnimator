@@ -54,7 +54,7 @@ from .history_panel import HistoryPanel
 from .memo_window import MemoWindow
 from .subview import SubViewWidget
 from .color_reduction import ColorReductionDialog
-from .models import Frame, Layer, make_frame
+from .models import Cell, Frame, Layer, make_frame
 from .pressure import PressureDialog
 from .timeline import TimelineWidget
 from .toolpanel import ToolPanel, ToolSelectorPanel
@@ -249,9 +249,12 @@ class MainWindow(
             self.used_color.schedule_refresh()
 
     def refresh_ui(self):
+        from .document import project_v1_state
+
         self.canvas.coalesce_numbered_images()
         self.canvas.link_layer_tracks()
-        self.timeline.sequence_archive = self.canvas._sequence_archive
+        _, archive = project_v1_state(self.canvas.frames, self.canvas._sequence_archive)
+        self.timeline.sequence_archive = archive
         self.timeline.playback_range_start = int(self.canvas.playback_range_start)
         self.timeline.playback_range_end = self.canvas.playback_range_end
         self.timeline.refresh(
@@ -999,10 +1002,19 @@ class MainWindow(
         old_frames=self.canvas.frames if preserve else None;oldw,oldh=constants.CANVAS_WIDTH,constants.CANVAS_HEIGHT;constants.CANVAS_WIDTH,constants.CANVAS_HEIGHT=w,h
         if preserve:
             new=[]
+            resized_images = {}
             for f in old_frames:  # pyright: ignore[reportOptionalIterable]
                 ls=[]
                 for l in f.layers:
-                    ni=blank_image();p=QPainter(ni);p.drawImage(QRectF(OUTSIDE_MARGIN, OUTSIDE_MARGIN, min(oldw, w), min(oldh, h)), l.image, QRectF(OUTSIDE_MARGIN, OUTSIDE_MARGIN, min(oldw, w), min(oldh, h)));p.end();ls.append(Layer(l.name,ni,l.visible,l.opacity,l.is_paper,l.has_content,l.alpha_locked,l.exposure,l.color_filter_enabled,tuple(l.color_filter_rgb) if l.color_filter_rgb is not None else None,bool(l.is_blank_key),l.sequence_number,bool(l.sequence_only),bool(getattr(l,"is_draft",False)),getattr(l,"cell_name",None)))
+                    if l.cell_id not in resized_images:
+                        ni = blank_image()
+                        painter = QPainter(ni)
+                        rect = QRectF(OUTSIDE_MARGIN, OUTSIDE_MARGIN, min(oldw, w), min(oldh, h))
+                        painter.drawImage(rect, l.image, rect)
+                        painter.end()
+                        resized_images[l.cell_id] = ni
+                    ni = resized_images[l.cell_id]
+                    ls.append(Layer(l.name,ni,l.visible,l.opacity,l.is_paper,l.has_content,l.alpha_locked,l.exposure,l.color_filter_enabled,tuple(l.color_filter_rgb) if l.color_filter_rgb is not None else None,bool(l.is_blank_key),l.sequence_number,bool(l.sequence_only),bool(getattr(l,"is_draft",False)),getattr(l,"cell_name",None)))
                 new.append(Frame(ls,f.duration))
             self.canvas.frames=new
         else:
@@ -1030,6 +1042,20 @@ class MainWindow(
             self.canvas.clip_studio_source_metadata = None
         self.canvas.current_frame=0
         self.canvas.active_layer_index=0
+        self.canvas.install_legacy_frames(
+            sequence_archive=self.canvas._sequence_archive if preserve else {})
+        if preserve and old_frames:
+            # Legacy resize only transforms sheet payloads. Preserve the rest
+            # of the bank just as it preserves the compatibility archive.
+            for li, old_layer in enumerate(old_frames[0].layers):
+                track = self.canvas.frames[0].layers[li]._track
+                for number, cell in old_layer._track.cells.items():
+                    if number not in track.cells:
+                        track.cells[number] = Cell(
+                            QImage(cell.image),
+                            QImage(cell.initial_image) if cell.initial_image is not None else None,
+                            cell.cell_name,
+                        )
         if not preserve:
             self.created_app_version = constants.APP_VERSION
             self.current_project_path = None

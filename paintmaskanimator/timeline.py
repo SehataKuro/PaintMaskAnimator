@@ -1,5 +1,4 @@
 import math
-from .document import assign_numbers_to_unnumbered
 from pathlib import Path
 from .i18n import tr
 from .constants import CTRL_KEY_LABEL, HOLD_ZOOM_KEY_LABEL
@@ -2543,7 +2542,7 @@ class TimelineWidget(QWidget):
                         for frame in frames
                         for layer in [frame.layers[layer_index]]
                         if layer.sequence_number is not None
-                        and (layer.has_content or layer.is_blank_key)
+                        and (layer.has_content or layer.sequence_only)
                     } or {1})
                     for layer_index in range(len(frames[current].layers))
                 ),
@@ -2661,7 +2660,7 @@ class TimelineWidget(QWidget):
                         for column, frame in enumerate(frames)
                         if (
                             frame.layers[layer_index].sequence_number is not None
-                            and (frame.layers[layer_index].has_content or frame.layers[layer_index].is_blank_key)
+                            and (frame.layers[layer_index].has_content or frame.layers[layer_index].sequence_only)
                         )
                     }.items()
                 )
@@ -2699,12 +2698,12 @@ class TimelineWidget(QWidget):
                     for number in set(sequence_by_number) | set(archive_by_number)
                 }
             elif self.timeline_mode == "sheet":
-                assign_numbers_to_unnumbered(frames, layer_index)
                 content_key_numbers = {
                     column: int(
                         frames[column].layers[layer_index].sequence_number
                     )
                     for column in content_columns
+                    if frames[column].layers[layer_index].sequence_number is not None
                 }
             else:
                 content_key_numbers = {

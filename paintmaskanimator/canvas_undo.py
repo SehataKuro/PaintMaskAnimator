@@ -279,7 +279,7 @@ class UndoMixin(CanvasMembers):
                 palette.restore_history_state(e.state)
         elif isinstance(e, ExposureUndo):
             self._ensure_frame_count(e.frame_count)
-            moved = [(dst, self.frames[src].layers[e.layer].clone())
+            moved = [(dst, self.frames[src].layers[e.layer].clone_slot())
                      for src, dst in e.moves]
             for src, _dst in e.moves:
                 self._clear_timeline_layer_cell(self.frames[src].layers[e.layer])
@@ -293,15 +293,10 @@ class UndoMixin(CanvasMembers):
             self.changed.emit()
             self.selectionChanged.emit()
         elif isinstance(e, DocUndo):
-            fs, cf, al, w, h = e.snapshot
+            w, h = self._document.restore(e.snapshot)
             constants.CANVAS_WIDTH = w
             constants.CANVAS_HEIGHT = h
-            # The entry was popped before application and its inverse has
-            # already been captured. Transfer the stored snapshot directly;
-            # cloning every frame/layer/image again only adds latency.
-            self.frames = fs
-            self.current_frame = cf
-            self.active_layer_index = al
+            self._invalidate_exposure_index()
             self.coalesce_numbered_images()
             self.link_layer_tracks()
             self.changed.emit()
@@ -325,7 +320,12 @@ class UndoMixin(CanvasMembers):
                     for sheet_fi, frame in enumerate(self.frames):
                         if 0 <= li < len(frame.layers):
                             sheet_layer = frame.layers[li]
-                            if sheet_layer.cell_id == layer.cell_id:
+                            former_content = (
+                                sheet_layer._track is layer._track
+                                and sheet_layer.sequence_number == number
+                                and sheet_layer.__dict__.get("_content_origin") == number
+                            )
+                            if sheet_layer.cell_id == layer.cell_id or former_content:
                                 sheet_layer.has_content = hc
                                 self.cellChanged.emit(sheet_fi, li)
             if scoped:
@@ -340,6 +340,7 @@ class UndoMixin(CanvasMembers):
             for frame in self.frames:
                 if 0 <= index < len(frame.layers) and len(frame.layers) > 1:
                     frame.layers.pop(index)
+            self._document.sync_columns()
             self.active_layer_index = max(
                 0,
                 min(int(e.target_active), len(self.layers) - 1),
@@ -349,7 +350,10 @@ class UndoMixin(CanvasMembers):
             self.selectionChanged.emit()
         elif isinstance(e, LayerInsertUndo):
             index = e.index
-            stored_layers = e.layers
+            from .document import clone_frame_graph
+            from .models import Frame
+            copied, archive = clone_frame_graph([Frame([layer]) for layer in e.layers], e.archive)
+            stored_layers = [frame.layers[0] for frame in copied]
             for frame_index, frame in enumerate(self.frames):
                 if frame_index < len(stored_layers):
                     layer = stored_layers[frame_index]
@@ -360,14 +364,16 @@ class UndoMixin(CanvasMembers):
                         visible=True,
                         opacity=1.0,
                     )
+                if stored_layers:
+                    layer.share_track_with(stored_layers[0])
                 frame.layers.insert(
                     max(0, min(int(index), len(frame.layers))),
                     layer,
                 )
+            self._document.sync_columns()
+            self._sequence_archive.update({(index, n): layer for (_, n), layer in archive.items()})
             self.active_layer_index = max(
-                0,
-                min(int(e.target_active), len(self.layers) - 1),
-            )
+                0, min(int(e.target_active), len(self.layers) - 1))
             self._onion_cache.clear()
             self.changed.emit()
             self.selectionChanged.emit()

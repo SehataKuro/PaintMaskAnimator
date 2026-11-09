@@ -279,6 +279,7 @@ class ImageImportMixin(CanvasMembers):
             layer.has_content = True
             layer.exposure = 1
             layer.sequence_number = offset + 1
+        self.install_legacy_frames()
         self._sequence_source_bank = [
             self.frames[start_frame + offset]
             .layers[insert_index].image.copy()

@@ -222,6 +222,6 @@ def test_time_remap_and_undo(window, states):
     if len(states) != 2:
         assert canvas._sequence_archive[(0, 2)].image.pixelColor(5, 5).name() == COLORS[2]
     canvas.undo()
-    # 実測: シートと選択は戻るが、archive は Undo で復元されない。
-    assert state(canvas)[:4] == before[:4]
-    assert sorted(canvas._sequence_archive) == ([] if len(states) == 2 else [(0, 2)])
+    # J1-A: DocUndo restores the compatibility archive with the sheet.
+    assert state(canvas) == before
+    assert sorted(canvas._sequence_archive) == [(0, 4)]

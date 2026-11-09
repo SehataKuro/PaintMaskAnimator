@@ -41,7 +41,10 @@ class Cell:
 
 
 class Track:
-    """レイヤー1本ぶんの表示の設定（Issue #31 Phase 2）。
+    """レイヤー1本ぶんの表示設定と番号付きの絵の所有元。
+
+    connected は文書へ公開済みの Track。未接続の読み込み途中の Layer は
+    ローカル Cell を持ち、Document.install_legacy_frames が一度だけ統合する。
 
     ``name`` / ``visible`` / ``opacity`` / ``is_paper`` / ``is_draft`` /
     ``alpha_locked`` / ``color_filter_enabled`` / ``color_filter_rgb`` は、
@@ -58,7 +61,7 @@ class Track:
 
     __slots__ = (
         "name", "visible", "opacity", "is_paper", "is_draft", "alpha_locked",
-        "color_filter_enabled", "color_filter_rgb",
+        "color_filter_enabled", "color_filter_rgb", "cells", "connected",
     )
 
     def __init__(
@@ -66,6 +69,8 @@ class Track:
         is_draft=False, alpha_locked=False, color_filter_enabled=False,
         color_filter_rgb=None,
     ):
+        self.cells: dict[int, Cell] = {}
+        self.connected = False
         self.name = name
         self.visible = visible
         self.opacity = opacity
@@ -113,17 +118,14 @@ def _track_property(name):
 
 
 def _cell_property(name):
-    """絵の属性を ``Cell`` 越しに読み書きする。"""
+    """絵の属性を正規の Cell（接続済みなら Track.cells）で読み書きする。"""
 
     def get(layer):
         return getattr(layer._cell, name)
 
     def set_value(layer, value):
         # dataclass の __init__ からも呼ばれるので、ここで作る。
-        cell = layer.__dict__.get("_cell")
-        if cell is None:
-            cell = layer.__dict__["_cell"] = Cell()
-        setattr(cell, name, value)
+        setattr(layer._cell, name, value)
 
     return property(get, set_value)
 
@@ -136,6 +138,21 @@ class Layer:
     timeline_revision: ClassVar[int] = 0
 
     def __setattr__(self, name, value):
+        if name == "has_content" and not value and getattr(self, "has_content", False):
+            track = self.__dict__.get("_track")
+            number = getattr(self, "sequence_number", None)
+            if track is not None and track.connected and number in track.cells:
+                # Legacy callers can change content metadata directly. Keep
+                # the hidden v1 payload independent, and record its former
+                # membership for batch metadata restoration (not drawing).
+                cell = track.cells[number]
+                self.__dict__["_cell"] = Cell(
+                    QImage(cell.image),
+                    QImage(cell.initial_image) if cell.initial_image is not None else None,
+                    cell.cell_name)
+                self.__dict__["_content_origin"] = number
+        if (name == "has_content" and value) or (name == "is_blank_key" and value):
+            self.__dict__.pop("_content_origin", None)
         if name in ("has_content", "is_blank_key", "exposure"):
             if getattr(self, name, None) != value:
                 Layer.timeline_revision += 1
@@ -203,6 +220,10 @@ class Layer:
         )
         # Undo のスナップショットが、あとの表示設定の変更で汚れないようにする。
         copied.detach_track()
+        if (self._track.connected and self.sequence_number is not None
+                and (self.has_content or self.sequence_only)):
+            copied._track.cells[int(self.sequence_number)] = copied._cell
+            copied._track.connected = True
         return copied
 
     # ------------------------------------------------------------------
@@ -210,6 +231,13 @@ class Layer:
     # ------------------------------------------------------------------
     @property
     def _cell(self):
+        track = self.__dict__.get("_track")
+        number = getattr(self, "sequence_number", None)
+        if (track is not None and track.connected and number is not None
+                and (self.has_content or self.sequence_only
+                     or self.__dict__.get("_archive_reference", False))):
+            number = int(number)
+            return track.cells[number]
         cell = self.__dict__.get("_cell")
         if cell is None:
             cell = self.__dict__["_cell"] = Cell()
@@ -250,7 +278,11 @@ class Layer:
         """
         if other is self:
             return
-        self.__dict__["_cell"] = other._cell
+        cell = other._cell
+        if (self._track.connected and self.sequence_number is not None
+                and (self.has_content or self.sequence_only)):
+            self._track.cells[int(self.sequence_number)] = cell
+        self.__dict__["_cell"] = cell
 
     def detach_cell(self):
         """共有をやめ、いまの絵を自分だけのものにする。

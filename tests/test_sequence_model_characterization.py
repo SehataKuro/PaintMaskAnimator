@@ -44,6 +44,7 @@ def put_cell(window, column, number, *, exposure=1, layer_index=0, color="#10101
     layer.image.setPixelColor(10, 10, QColor(color))
     layer.has_content = True
     layer.is_blank_key = False
+    layer._track.cells.setdefault(int(number), layer._cell)
     layer.sequence_number = int(number)
     layer.exposure = int(exposure)
     return layer
@@ -183,6 +184,7 @@ def test_a_blank_key_never_stays_marked_as_content(window):
     layer = window.canvas.frames[3].layers[0]
     layer.has_content = True
     layer.is_blank_key = True
+    layer._track.cells[7] = layer._cell
     layer.sequence_number = 7
     window.canvas.current_frame = 3
     window.canvas.active_layer_index = 0

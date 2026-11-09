@@ -200,7 +200,14 @@ class ProjectIOController:
             "timeline_mode",
         ):
             metadata.pop(key, None)
-        return frames, archive, copy.deepcopy(metadata)
+        cells = tuple(
+            (li, number, cell.image.cacheKey(),
+             cell.initial_image.cacheKey() if cell.initial_image is not None else None,
+             cell.cell_name)
+            for li, layer in enumerate(canvas.frames[0].layers)
+            for number, cell in sorted(layer._track.cells.items())
+        ) if canvas.frames else ()
+        return frames, archive, cells, copy.deepcopy(metadata)
 
     def mark_saved(self):
         self._saved_signature = self._content_signature()
@@ -307,6 +314,8 @@ class ProjectIOController:
                     layer_count - 1,
                 ),
             )
+
+            self.window.canvas.install_legacy_frames()
 
             colors = metadata.get("colors", {})
             self.window.canvas.main_color = QColor(

@@ -36,6 +36,7 @@ def draw_cels(window, count):
         layer = window.canvas.frames[index].layers[0]
         layer.image.setPixelColor(10, 10, QColor(0, 0, 0))
         layer.has_content = True
+        layer._track.cells[index + 1] = layer._cell
         layer.sequence_number = index + 1
         layer.exposure = 1
 

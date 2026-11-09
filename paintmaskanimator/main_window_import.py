@@ -520,7 +520,8 @@ class ImportController:
                             else str(tag)
                         ),
                     )
-            self.window.canvas._sequence_archive = sequence_archive
+            self.window.canvas.install_legacy_frames(
+                sequence_archive=sequence_archive)
             self.window.timeline.sequence_archive = self.window.canvas._sequence_archive
             self.window.canvas.undo_stack.clear()
             self.window.canvas.redo_stack.clear()
@@ -954,6 +955,7 @@ class ImportController:
                 target.exposure = 1
                 target.sequence_number = offset + 1
         self.window.canvas.current_frame = start_frame
+        self.window.canvas.install_legacy_frames()
         self.window.canvas.active_layer_index = first_new_layer
         self.window.canvas.timeline_mode = "sheet"
         self.window.timeline.set_timeline_mode("sheet")

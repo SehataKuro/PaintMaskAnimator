@@ -6,6 +6,7 @@ or tween" actions.
 
 A collaborator rather than a mixin -- see ``main_window_export.py`` for why.
 """
+from .document import create_drawing
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QPoint, QPointF, Qt
@@ -317,6 +318,7 @@ class TweenController:
             for archived_layer, number in self.window.canvas._sequence_archive
             if int(archived_layer) == layer_index
         )
+        used.update(self.window.canvas.frames[0].layers[layer_index]._track.cells)
         next_number = max(used, default=0) + 1
         return list(range(next_number, next_number + count))
 
@@ -667,8 +669,9 @@ class TweenController:
                 frame_index = key_column + offset
                 layer = self.window.canvas.frames[frame_index].layers[layer_index]
                 if offset > 0:
-                    layer.detach_cell()
-                layer.image = image
+                    create_drawing(layer, image, number=member_numbers[offset - 1])
+                else:
+                    layer.image = image
                 layer.has_content = True
                 layer.is_blank_key = False
                 layer.exposure = 1
