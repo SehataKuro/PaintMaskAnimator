@@ -465,6 +465,8 @@ class TimeRemapController:
                     target.image = source_bank[number - 1].copy()
                 target.sequence_number = number
                 target.has_content = True
+                if target._track.connected:
+                    target.__dict__.pop("_cell", None)
                 target.is_blank_key = False
 
 

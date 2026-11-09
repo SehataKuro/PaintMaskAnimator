@@ -126,6 +126,7 @@ def test_numbers_match_time_remap(window, pattern):
             layer.exposure = 1
         first = window.canvas.frames[0].layers[index]
         first.has_content = True
+        first._track.cells.setdefault(int(3 + index), first._cell)
         first.sequence_number = 3 + index
         first.exposure = 8
         next_key = window.canvas.frames[3].layers[index]
@@ -133,6 +134,8 @@ def test_numbers_match_time_remap(window, pattern):
         next_key.has_content = pattern != "blank"
         next_key.is_blank_key = pattern == "blank"
         next_key.sequence_only = pattern == "archive"
+        if pattern in ("held", "archive"):
+            next_key._track.cells.setdefault(int(8 + index), next_key._cell)
         next_key.sequence_number = None if pattern == "unnumbered" else 8 + index
         assert sheet_numbers(window.canvas.frames, index) == window.time_remap.timeline_states(index)
 

@@ -399,6 +399,8 @@ def apply_number_mapping(frames, archive, layer_index, mapping, *,
             if track is not None and track.connected:
                 track.cells[next_number] = cell
             layer.sequence_number = next_number
+            if track is not None and track.connected:
+                layer.__dict__.pop("_cell", None)
             next_number += 1
     result = {}
     for (li, number), archived in archive.items():
@@ -473,6 +475,7 @@ def project_v1_state(frames, sequence_archive=None):
             layer = Layer(track.name, cell.image, has_content=True,
                           sequence_number=number)
             layer.__dict__["_track"] = track
+            layer.__dict__.pop("_cell", None)
             if archive is sequence_archive:
                 archive = dict(sequence_archive or {})
             archive[(li, number)] = layer

@@ -40,6 +40,7 @@ def lay_out(window, plan):
         else:
             layer.has_content = True
             layer.is_blank_key = False
+            layer._track.cells.setdefault(int(number), layer._cell)
             layer.sequence_number = int(number)
 
 

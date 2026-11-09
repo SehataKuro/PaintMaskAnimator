@@ -439,6 +439,8 @@ class TimelineStructureMixin(CanvasMembers):
         target.is_blank_key = True
         target.sequence_number = insert_number
         target.sequence_only = True
+        if target._track.connected:
+            target.__dict__.pop("_cell", None)
         target.exposure = 1
         self.current_frame = new_column
         self.active_layer_index = layer_index
@@ -572,6 +574,8 @@ class TimelineStructureMixin(CanvasMembers):
                     if layer.has_content or layer.sequence_only:
                         track.cells.setdefault(int(layer.sequence_number), layer._cell)
                     layer.__dict__["_track"] = track
+                    if layer.has_content or layer.sequence_only:
+                        layer.__dict__.pop("_cell", None)
 
     def coalesce_numbered_images(self):
         """同一レイヤー・同一番号のセルを、1枚の絵（``Cell``）へ結ぶ。

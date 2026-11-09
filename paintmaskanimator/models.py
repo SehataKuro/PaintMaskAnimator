@@ -224,6 +224,7 @@ class Layer:
                 and (self.has_content or self.sequence_only)):
             copied._track.cells[int(self.sequence_number)] = copied._cell
             copied._track.connected = True
+            copied.__dict__.pop("_cell", None)
         return copied
 
     # ------------------------------------------------------------------
@@ -280,8 +281,11 @@ class Layer:
             return
         cell = other._cell
         if (self._track.connected and self.sequence_number is not None
-                and (self.has_content or self.sequence_only)):
-            self._track.cells[int(self.sequence_number)] = cell
+                and (self.has_content or self.sequence_only
+                     or self.__dict__.get("_archive_reference", False))):
+            if self._track.cells[int(self.sequence_number)] is not cell:
+                raise ValueError("Cannot replace a connected drawing through share_cell_with")
+            return
         self.__dict__["_cell"] = cell
 
     def detach_cell(self):

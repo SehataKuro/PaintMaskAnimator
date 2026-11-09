@@ -254,6 +254,8 @@ class KeyFrameMixin(CanvasMembers):
                 if layer._track.connected:
                     layer._track.cells[number] = layer._cell
                 layer.sequence_number = number
+                if layer._track.connected:
+                    layer.__dict__.pop("_cell", None)
                 self._cell_structure_dirty = True
             if layer.sequence_number is not None:
                 # 描画開始前から全参照を同じ画像へ結び、ストローク中も
@@ -326,6 +328,8 @@ class KeyFrameMixin(CanvasMembers):
         elif self.timeline_mode == "sheet":
             layer.sequence_number = int(retained_number) if retained_number is not None else next_number
         layer.has_content = True
+        if layer._track.connected:
+            layer.__dict__.pop("_cell", None)
         layer.is_blank_key = False
         self._cell_structure_dirty = True
         return True

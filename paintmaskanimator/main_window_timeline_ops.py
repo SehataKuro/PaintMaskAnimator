@@ -981,6 +981,8 @@ class TimelineOpsController:
         selected.share_track_with(source)
         selected.exposure = 1
         selected.sequence_number = new_number
+        if selected._track.connected:
+            selected.__dict__.pop("_cell", None)
         selected.cell_name = None
         selected.tween = None
         selected.tween_member = None

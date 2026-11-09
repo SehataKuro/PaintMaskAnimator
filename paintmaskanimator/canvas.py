@@ -426,6 +426,7 @@ class PaintCanvas(
                 view = Layer(track.name, track.cells[number].image,
                              has_content=True, sequence_number=number)
                 view.__dict__["_track"] = track
+                view.__dict__.pop("_cell", None)
                 return None, view
         return None
 
