@@ -332,8 +332,8 @@ Phase 3 から回した `exposure` と `_sequence_archive` の廃止も、ここ
 | 段階 | 内容 |
 |---|---|
 | 5-1（済） | `created_app_version` / `saved_app_version` を記録し、対応しない `format_version` を理由つきで断る |
-| 5-2a | 保存時の v1 変換の境界と、文書スナップショットの準備 |
-| 5-4 | `initial_image` と `cell_name` を `Cell` へ（同じ番号の全コマに効く） |
+| 5-2a（済） | 保存時の v1 変換の境界と、文書スナップショットの準備 |
+| 5-4（済） | `initial_image` と `cell_name` を `Cell` へ（同じ番号の全コマに効く）。Rust の `TimelineCell.cell_name` は使わなくなり、削除は 5-3 で行う |
 | 5-2b | 絵の本体を `Track.cells` にする（番号の無い通常の絵にも番号を振る） |
 | 5-2c | `_sequence_archive` と `sequence_only` の保管を `Track.cells` へ吸収 |
 | 5-2d | `coalesce_numbered_images` / `sync_numbered_image_from_cell` を廃止 |

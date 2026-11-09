@@ -6,7 +6,8 @@ moving timeline cells, exposure blocks, and the sequence-number bookkeeping that
 keeps numbered (imported) images consistent with the cells that reference them.
 They run against a live ``PaintCanvas``.
 """
-# (nothing was used)
+from itertools import chain
+from PySide6.QtGui import QImage
 from ._canvas_members import CanvasMembers
 from .cell_numbering import normalization_mapping
 from .sheet import shift_slots_left, shift_slots_right
@@ -499,7 +500,8 @@ class TimelineStructureMixin(CanvasMembers):
             layer = self.frames[by_number[number]].layers[layer_index]
             snapshots[number] = (
                 layer.image.copy(), bool(layer.has_content),
-                bool(layer.is_blank_key), getattr(layer, "cell_name", None)
+                bool(layer.is_blank_key), layer.cell_name,
+                QImage(layer.initial_image) if layer.initial_image is not None else None
             )
         if first_number < second_number:
             source_for_number = {
@@ -514,16 +516,44 @@ class TimelineStructureMixin(CanvasMembers):
             layer = frame.layers[layer_index]
             number = layer.sequence_number
             if number in source_for_number:
-                image, has_content, is_blank, cell_name = snapshots[
+                image, has_content, is_blank, cell_name, initial_image = snapshots[
                     source_for_number[number]
                 ]
                 layer.image = image.copy()
                 layer.has_content = has_content
                 layer.is_blank_key = is_blank
                 layer.cell_name = cell_name
+                layer.initial_image = QImage(initial_image) if initial_image is not None else None
         self.changed.emit()
         self.update()
         return True
+
+    def _numbered_cell_attributes(self, layer_index=None, number=None):
+        """結ぶ前に、各属性の最初の非 None 値をシート順→保管の順で確保する。"""
+        values = {}
+        entries = (
+            ((li, int(layer.sequence_number)), layer)
+            for frame in self.frames
+            for li, layer in (enumerate(frame.layers) if layer_index is None else
+                              ((layer_index, frame.layers[layer_index]),))
+            if layer.has_content and layer.sequence_number is not None
+            and (number is None or layer.sequence_number == number)
+        )
+        archive = self._sequence_archive.items()
+        if layer_index is not None and number is not None:
+            key = (layer_index, number)
+            archived = self._sequence_archive.get(key)
+            archive = () if archived is None else ((key, archived),)
+        for key, layer in chain(entries, archive):
+            if layer_index is not None and key[0] != layer_index:
+                continue
+            if number is not None and key[1] != number:
+                continue
+            attrs = values.setdefault(key, [None, None])
+            for index, name in enumerate(("initial_image", "cell_name")):
+                if attrs[index] is None:
+                    attrs[index] = getattr(layer, name)
+        return values
 
     def sync_numbered_image_from_cell(self, frame_index, layer_index):
         """同じレイヤー・同じ絵番号を、1枚の絵（``Cell``）へ結び直す。
@@ -535,11 +565,14 @@ class TimelineStructureMixin(CanvasMembers):
         source = self.frames[int(frame_index)].layers[int(layer_index)]
         if source.sequence_number is None or not source.has_content:
             return
+        key = (int(layer_index), int(source.sequence_number))
+        attributes = self._numbered_cell_attributes(*key)[key]
+        source.initial_image, source.cell_name = attributes
         for index, frame in enumerate(self.frames):
             if index == int(frame_index):
                 continue
             target = frame.layers[int(layer_index)]
-            if target.sequence_number == source.sequence_number:
+            if target.has_content and target.sequence_number == source.sequence_number:
                 target.share_cell_with(source)
                 target.has_content = True
                 target.is_blank_key = False
@@ -577,6 +610,7 @@ class TimelineStructureMixin(CanvasMembers):
         持った状態から呼ぶ。結んだあとは、どのセルへ書き込んでも同じ番号の
         全コマに出る（Issue #31 Phase 1）。
         """
+        attributes = self._numbered_cell_attributes()
         owners = {}
         preferred = int(self.current_frame)
         if 0 <= preferred < len(self.frames):
@@ -591,6 +625,9 @@ class TimelineStructureMixin(CanvasMembers):
                 key = (layer_index, int(layer.sequence_number))
                 owner = owners.setdefault(key, layer)
                 layer.share_cell_with(owner)
+
+        for key, owner in owners.items():
+            owner.initial_image, owner.cell_name = attributes[key]
 
         for key, archived in self._sequence_archive.items():
             owner = owners.get((int(key[0]), int(key[1])))
@@ -664,6 +701,8 @@ class TimelineStructureMixin(CanvasMembers):
                 target_column = len(self.frames)
                 self._ensure_frame_count(target_column + 1)
                 target = self.frames[target_column].layers[layer_index]
+            target.detach_cell()
+            target.initial_image = copied.initial_image
             target.image = copied.image.copy()
             target.has_content = bool(copied.has_content)
             target.is_blank_key = bool(
@@ -816,6 +855,8 @@ class TimelineStructureMixin(CanvasMembers):
                         ]
                         copied = src.clone()
                         # 画素は変わらないので複製しない（暗黙共有で十分）。
+                        dst.detach_cell()
+                        dst.initial_image = copied.initial_image
                         dst.image = copied.image
                         dst.has_content = bool(
                             copied.has_content
@@ -847,6 +888,8 @@ class TimelineStructureMixin(CanvasMembers):
                         self._clear_timeline_layer_cell(src)
 
         destination = self.frames[destination_frame].layers[destination_layer]
+        destination.detach_cell()
+        destination.initial_image = None if source_is_blank else moving.initial_image
         destination.image = (
             moving.image
             if not source_is_blank

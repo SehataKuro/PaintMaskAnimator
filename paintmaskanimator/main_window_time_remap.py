@@ -442,6 +442,7 @@ class TimeRemapController:
         for frame_index in range(start_frame, end_frame + 1):
             layer = self.window.canvas.frames[frame_index].layers[layer_index]
             self.window.layers._copy_display_properties(template, layer)
+            layer.detach_cell()
             layer.image = blank_image()
             layer.has_content = False
             layer.is_blank_key = False

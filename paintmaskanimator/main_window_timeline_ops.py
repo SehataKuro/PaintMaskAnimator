@@ -483,6 +483,8 @@ class TimelineOpsController:
             target = self.window.canvas.frames[
                 target_start
             ].layers[target_layer]
+            target.detach_cell()
+            target.initial_image = copied.initial_image if kind == "content" else None
             target.image = (
                 copied.image.copy()
                 if kind == "content"
@@ -640,6 +642,8 @@ class TimelineOpsController:
                 return
             source = self.window.canvas.frames[key_column].layers[layer_index]
             copied = source.clone()
+            destination.detach_cell()
+            destination.initial_image = copied.initial_image
             destination.image = copied.image.copy()
             destination.has_content = bool(copied.has_content)
             destination.is_blank_key = bool(
@@ -688,6 +692,8 @@ class TimelineOpsController:
                     ):
                         continue
                     destination = self.window.canvas.frames[col + shift].layers[layer_index]
+                    destination.detach_cell()
+                    destination.initial_image = source.initial_image
                     destination.image = source.image.copy()
                     destination.has_content = bool(source.has_content)
                     destination.is_blank_key = bool(
@@ -756,6 +762,7 @@ class TimelineOpsController:
         self.window.canvas._ensure_frame_count(int(destination_column) + 1)
         target = self.window.canvas.frames[int(destination_column)].layers[destination_layer]
         copied = source.clone()
+        target.detach_cell()
         target.image = source.image
         target.initial_image = copied.initial_image
         target.has_content = True
@@ -798,6 +805,7 @@ class TimelineOpsController:
         self.window.canvas._ensure_frame_count(int(column) + 1)
         target = self.window.canvas.frames[int(column)].layers[layer_index]
         copied = source.clone()
+        target.detach_cell()
         target.image = source.image
         target.initial_image = copied.initial_image
         target.has_content = bool(copied.has_content)

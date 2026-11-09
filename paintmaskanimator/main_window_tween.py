@@ -666,6 +666,8 @@ class TweenController:
             for offset, image in enumerate(generated_images):
                 frame_index = key_column + offset
                 layer = self.window.canvas.frames[frame_index].layers[layer_index]
+                if offset > 0:
+                    layer.detach_cell()
                 layer.image = image
                 layer.has_content = True
                 layer.is_blank_key = False

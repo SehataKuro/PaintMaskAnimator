@@ -239,13 +239,18 @@ class UndoMixin(CanvasMembers):
             self._invalidate_tp_preview_cache()
             self.selectionChanged.emit()
         elif isinstance(e, InitialStateUndo):
+            restored = set()
             for fi, li, image in e.cells:
                 if 0 <= fi < len(self.frames) and 0 <= li < len(self.frames[fi].layers):
-                    self.frames[fi].layers[li].initial_image = image
+                    layer = self.frames[fi].layers[li]
+                    if layer.cell_id not in restored:
+                        layer.initial_image = image
+                        restored.add(layer.cell_id)
             for li, number, image in e.archived:
                 archived = self._sequence_archive.get((li, number))
-                if archived is not None:
+                if archived is not None and archived.cell_id not in restored:
                     archived.initial_image = image
+                    restored.add(archived.cell_id)
             self._playback_frame_cache.clear()
             self.changed.emit()
         elif isinstance(e, (LayerUndo, LayerRegionUndo, LayerTilesUndo)):

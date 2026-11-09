@@ -5,6 +5,7 @@ from PySide6.QtGui import QImage
 from paintmaskanimator import native
 from paintmaskanimator.models import Frame, Layer
 from paintmaskanimator.timeline_resolution import resolve_exposures
+from paintmaskanimator.timeline_metadata import METADATA_FIELDS
 
 
 
@@ -17,17 +18,21 @@ def test_metadata_has_one_owner_and_clone_is_independent():
                  sequence_only=True, cell_name="セル十二")
     data = layer.__dict__["_timeline_metadata"]
     assert isinstance(data, native._native.TimelineCell)
-    for name in ("has_content", "exposure", "is_blank_key", "sequence_number",
-                 "sequence_only", "cell_name"):
+    for name in METADATA_FIELDS:
         assert name not in layer.__dict__
         assert getattr(layer, name) == getattr(data, name)
+    # cell_name は同じ絵で共有するため、Rust メタデータから Cell 所有へ移した。
+    assert "cell_name" not in layer.__dict__
+    assert layer.cell_name == layer._cell.cell_name == "セル十二"
     cloned = layer.clone()
     cloned.exposure = 3
     cloned.sequence_number = None
     cloned.cell_name = "別セル"
     assert layer.exposure == 8
     assert layer.sequence_number == 12
-    assert layer.cell_name == "セル十二"
+    assert layer.cell_name == layer._cell.cell_name == "セル十二"
+    assert cloned.cell_name == cloned._cell.cell_name == "別セル"
+    assert cloned._cell is not layer._cell
     assert cloned.__dict__["_timeline_metadata"] is not data
 
 

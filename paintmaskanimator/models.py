@@ -25,17 +25,19 @@ class Cell:
     シート操作（セルを消す・別の絵を置く）が共有を壊さないよう、既定では
     レイヤーごとに別の ``Cell`` を持つ。既定を共有側へ寄せるのは Phase 3。
 
-    Phase 1 で ``Cell`` が持つのは ``image`` だけ。色塗り前の初期状態
-    （``initial_image``）はセルごとに復元する Undo があるため、レイヤー側に
-    残す。まとめるのは Undo を ``(track, number)`` 単位へ移す Phase 4。
+    ``Cell`` は ``image``、色塗り前の初期状態（``initial_image``）、
+    セル名（``cell_name``）を持つ。同じ番号の絵は3属性とも共有し、
+    clone・detach ではすべて独立させる（Issue #31 Phase 5-4）。
 
     設計は docs/sequence-first-data-model.md。
     """
 
-    __slots__ = ("image",)
+    __slots__ = ("image", "initial_image", "cell_name")
 
-    def __init__(self, image=None):
+    def __init__(self, image=None, initial_image=None, cell_name=None):
         self.image = image if image is not None else blank_image()
+        self.initial_image = initial_image
+        self.cell_name = cell_name
 
 
 class Track:
@@ -105,7 +107,7 @@ def _track_property(name):
 
 
 def _cell_property(name):
-    """``Layer.image`` を ``Cell`` 越しに読み書きする。"""
+    """絵の属性を ``Cell`` 越しに読み書きする。"""
 
     def get(layer):
         return getattr(layer._cell, name)
@@ -237,7 +239,9 @@ class Layer:
         """
         current = self._cell
         self.__dict__["_cell"] = Cell(
-            QImage(current.image) if current.image is not None else None
+            QImage(current.image) if current.image is not None else None,
+            QImage(current.initial_image) if current.initial_image is not None else None,
+            current.cell_name,
         )
 
 
@@ -245,7 +249,7 @@ class Layer:
 # 同じ手口（デコレータの順に依存しないよう、ここで行う）。型チェッカーからは
 # dataclass のフィールドに見えるので、代入だけ無視させる。
 for _field, _descriptor in (
-    ("image", _cell_property("image")),
+    *((name, _cell_property(name)) for name in ("image", "initial_image", "cell_name")),
     *((name, _track_property(name)) for name in TRACK_FIELDS),
 ):
     setattr(Layer, _field, _descriptor)

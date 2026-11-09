@@ -86,7 +86,7 @@ def test_import_is_one_undo_and_redo_restores_previous_initials(window, tmp_path
     assert len(canvas.undo_stack) == before + 1
     canvas.undo()
     assert canvas.frames[0].layers[0].initial_image.pixelColor(0, 0) == QColor("magenta")
-    assert canvas.frames[2].layers[0].initial_image is None
+    assert canvas.frames[2].layers[0].initial_image.pixelColor(0, 0) == QColor("magenta")
     assert canvas._sequence_archive[(0, 3)].initial_image is None
     canvas.redo()
     assert canvas.frames[0].layers[0].initial_image.pixelColor(0, 0) == QColor("black")

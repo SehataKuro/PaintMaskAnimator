@@ -3,7 +3,7 @@ from . import native
 
 
 METADATA_FIELDS = (
-    "has_content", "is_blank_key", "exposure", "sequence_number", "sequence_only", "cell_name",
+    "has_content", "is_blank_key", "exposure", "sequence_number", "sequence_only",
 )
 
 
