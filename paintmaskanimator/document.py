@@ -9,7 +9,9 @@ Frames/Layers still carry QImage payloads (a Qt data type, not a widget); the
 constraint here is *UI independence*, not total Qt independence.
 """
 from . import constants
-from .models import make_frame
+from PySide6.QtGui import QImage
+
+from .models import Cell, Frame, make_frame
 
 
 class Document:
@@ -28,6 +30,19 @@ class Document:
     @property
     def active_layer(self):
         return self.layers[self.active_layer_index]
+
+    def clone_graph(self, sequence_archive=None):
+        """Copy frames and external archive together, preserving sharing.
+
+        Identity memoization deliberately does not reconcile distinct Cells
+        with the same number. Copying must preserve legacy conflict handling.
+        The archive stays external to Document and its undo snapshots.
+        """
+        copied = object.__new__(Document)
+        copied.frames, archive = clone_frame_graph(self.frames, sequence_archive)
+        copied.current_frame = self.current_frame
+        copied.active_layer_index = self.active_layer_index
+        return copied, archive
 
     def snapshot(self):
         """Deep copy of the whole document state (used by undo/redo)."""
@@ -50,3 +65,35 @@ class Document:
         self.current_frame = current_frame
         self.active_layer_index = active_layer_index
         return width, height
+
+
+def clone_frame_graph(frames, sequence_archive=None):
+    """Copy frame/archive payloads with one memo shared across both."""
+    cells, tracks = {}, {}
+
+    def clone_layer(layer):
+        copied = layer.clone_slot()
+        cell = layer._cell
+        if id(cell) not in cells:
+            cells[id(cell)] = Cell(
+                QImage(cell.image),
+                QImage(cell.initial_image)
+                if cell.initial_image is not None else None,
+                cell.cell_name,
+            )
+        track = layer._track
+        if id(track) not in tracks:
+            tracks[id(track)] = track.copy_settings()
+        copied.__dict__["_cell"] = cells[id(cell)]
+        copied.__dict__["_track"] = tracks[id(track)]
+        return copied
+
+    copied_frames = [
+        Frame([clone_layer(layer) for layer in frame.layers], frame.duration)
+        for frame in frames
+    ]
+    archive = {
+        key: clone_layer(layer)
+        for key, layer in (sequence_archive or {}).items()
+    }
+    return copied_frames, archive

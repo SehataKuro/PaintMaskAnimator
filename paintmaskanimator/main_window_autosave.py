@@ -13,6 +13,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QMessageBox
 
 from . import config, preferences, project_io
+from .document import clone_frame_graph
 from .i18n import tr
 from .logging_setup import get_logger
 
@@ -66,11 +67,9 @@ class AutosaveController:
             return
         try:
             metadata = copy.deepcopy(self.window.build_project_metadata())
-            frames = [frame.clone() for frame in self.window.canvas.frames]
-            sequence_archive = {
-                key: layer.clone()
-                for key, layer in self.window.canvas._sequence_archive.items()
-            }
+            frames, sequence_archive = clone_frame_graph(
+                self.window.canvas.frames, self.window.canvas._sequence_archive
+            )
             path = self.path()
             if self._executor is None:
                 self._executor = ThreadPoolExecutor(

@@ -1022,9 +1022,7 @@ class TimelineOpsController:
         selected.has_content = True
         selected.sequence_only = False
         if column < end:
-            tail = source.clone()
-            tail.share_cell_with(source)
-            tail.share_track_with(source)
+            tail = source.clone_slot()
             tail.exposure = end - column
             tail.tween = None
             tail.tween_member = None
@@ -1062,7 +1060,8 @@ class TimelineOpsController:
         canvas = self.window.canvas
         canvas.push_doc_undo()
         head = canvas.frames[start].layers[layer_index]
-        tail = head.clone()
+        # Keep independent unnumbered copies until the stage D import boundary.
+        tail = head.clone_slot() if head.sequence_number is not None else head.clone()
         tail.exposure = start + exposure - column
         tail.tween = None
         tail.tween_member = None

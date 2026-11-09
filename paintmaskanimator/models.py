@@ -75,13 +75,19 @@ class Track:
         self.color_filter_enabled = color_filter_enabled
         self.color_filter_rgb = color_filter_rgb
 
-    def copy(self):
+    def copy_settings(self):
+        """Copy display settings only."""
         return Track(
             self.name, self.visible, self.opacity, self.is_paper,
             self.is_draft, self.alpha_locked, self.color_filter_enabled,
             tuple(self.color_filter_rgb)
             if self.color_filter_rgb is not None else None,
         )
+
+
+    def copy(self):
+        """Compatibility alias for copy_settings."""
+        return self.copy_settings()
 
 
 #: ``Track`` が持つ（＝レイヤー共通の）設定。
@@ -161,7 +167,22 @@ class Layer:
     # 塗りつぶした色トレス線に惑わされないように保持する。比較表示にも使う。
     initial_image: Optional[QImage] = None
 
+    def clone_slot(self):
+        """Copy position metadata without creating a Cell or Track.
+
+        Mutable tween settings and timeline metadata belong to each position.
+        """
+        copied = object.__new__(Layer)
+        copied.__dict__.update(self.__dict__)
+        copied.__dict__.pop("_timeline_metadata", None)
+        for name in ("has_content", "is_blank_key", "exposure",
+                     "sequence_number", "sequence_only"):
+            setattr(copied, name, getattr(self, name))
+        copied.tween = copy.deepcopy(self.tween)
+        return copied
+
     def clone(self):
+        """Clone one drawing and its display settings independently (Qt COW)."""
         # QImage は暗黙共有。QImage(image) は画素をコピーせず参照を共有し、
         # どちらかに書き込んだ時点（QPainter や bits()）で初めて複製される。
         # 大きなキャンバスでは Undo の文書スナップショットやコマの複製で
@@ -214,7 +235,7 @@ class Layer:
 
     def detach_track(self):
         """共有をやめ、いまの設定を自分だけのものにする。"""
-        self.__dict__["_track"] = self._track.copy()
+        self.__dict__["_track"] = self._track.copy_settings()
 
     @property
     def cell_id(self):
