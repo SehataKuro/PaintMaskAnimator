@@ -7,7 +7,6 @@ from PySide6.QtGui import QColor, QImage
 from PySide6.QtWidgets import QApplication
 
 from paintmaskanimator import constants, project_io
-from paintmaskanimator.canvas_timeline_ops import TimelineStructureMixin
 from paintmaskanimator.document import Document
 from paintmaskanimator.main_window import MainWindow
 from paintmaskanimator.models import Frame, Layer
@@ -37,16 +36,13 @@ def canvas(layers, archive=None):
         doc.current_frame = obj.current_frame
         doc.install_legacy_frames(obj.frames, archive)
     obj.install_legacy_frames = install
-    obj._numbered_cell_attributes = (
-        lambda *args: TimelineStructureMixin._numbered_cell_attributes(obj, *args)
-    )
     return obj
 
 
 def test_shared_attributes():
     first, second = layer(), layer()
     obj = canvas([first, second])
-    TimelineStructureMixin.coalesce_numbered_images(obj)
+    obj.install_legacy_frames()
     second.initial_image = image("blue")
     second.cell_name = "原画"
     assert first.initial_image.pixelColor(0, 0) == QColor("blue")
@@ -58,8 +54,7 @@ def test_unnumbered_and_unused_are_independent(number, content):
     first, second = layer(number), layer(number)
     second.has_content = content
     obj = canvas([first, second])
-    TimelineStructureMixin.coalesce_numbered_images(obj)
-    TimelineStructureMixin.sync_numbered_image_from_cell(obj, 0, 0)
+    obj.install_legacy_frames()
     first.initial_image = image("blue")
     first.cell_name = "原画"
     assert second.initial_image is None
@@ -87,18 +82,14 @@ def test_all_attributes_survive_independent_copy(operation):
     assert original.cell_name == "原画"
 
 
-@pytest.mark.parametrize("sync", [False, True])
-def test_sheet_first_values_are_independent_of_image_owner(sync):
+def test_sheet_first_values_are_independent_of_image_owner():
     layers = [layer(), layer(2), layer(initial_image=image("blue")), layer(3),
               layer(initial_image=image("green"), cell_name="後")]
     layers[0].cell_name = "先"
     layers[4].image = image("yellow")
     obj = canvas(layers)
     obj.current_frame = 4
-    if sync:
-        TimelineStructureMixin.sync_numbered_image_from_cell(obj, 4, 0)
-    else:
-        TimelineStructureMixin.coalesce_numbered_images(obj)
+    obj.install_legacy_frames()
     for index in (0, 2, 4):
         assert layers[index].initial_image.pixelColor(0, 0) == QColor("blue")
         assert layers[index].cell_name == "先"
@@ -109,7 +100,7 @@ def test_archive_fallback():
     first = layer()
     stored = layer(initial_image=image("blue"), cell_name="保管")
     obj = canvas([first], {(0, 1): stored})
-    TimelineStructureMixin.coalesce_numbered_images(obj)
+    obj.install_legacy_frames()
     assert first.initial_image.pixelColor(0, 0) == QColor("blue")
     assert first.cell_name == "保管"
     assert first._cell is obj._document.tracks[0].cells[1]

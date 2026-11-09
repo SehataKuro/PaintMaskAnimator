@@ -132,7 +132,7 @@ def test_blank_key_cells_are_skipped(qapp):
 
 def test_shared_images_are_processed_once_and_stay_shared(qapp):
     doc = FakeDoc(frame_count=2)
-    # 連番セルは同じ QImage を指す（coalesce_numbered_images 相当の状態）。
+    # 同じQImageを共有する素材（同一画像を1回処理）。
     doc.frames[1].layers[0].image = doc.frames[0].layers[0].image
 
     calls = []

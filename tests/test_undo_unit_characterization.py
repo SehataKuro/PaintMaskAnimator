@@ -153,7 +153,7 @@ def test_repeated_number(window, route):
     canvas = window.canvas
     put(canvas, 0, 1)
     put(canvas, 3, 1)
-    canvas.coalesce_numbered_images()
+    canvas.install_legacy_frames()
     states = [state(canvas)]
     paint(canvas, route)
     record(canvas, states)
@@ -229,7 +229,7 @@ def test_scoped_batch_repeated_number(window):
     canvas = window.canvas
     put(canvas, 0, 1, exposure=2)
     put(canvas, 3, 1)
-    canvas.coalesce_numbered_images()
+    canvas.install_legacy_frames()
     canvas.current_frame = 2
     states = [state(canvas)]
     calls = []

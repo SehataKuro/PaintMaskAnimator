@@ -116,12 +116,10 @@ def test_a_clone_owns_its_drawing(qapp):
 
 # --- 文書の中での共有 --------------------------------------------------------
 
-def test_coalesce_links_cells_of_the_same_number(window):
+def test_connected_slots_of_the_same_number_share_cell(window):
     put_cell(window, 0, 1)
     put_cell(window, 4, 1)
     put_cell(window, 8, 2)
-
-    window.canvas.coalesce_numbered_images()
 
     first, same, other = cell_ids(window, (0, 4, 8))
     assert first == same
@@ -132,7 +130,6 @@ def test_a_replacement_image_reaches_every_frame_with_that_number(window):
     """差し替えで共有が切れない。これまでは切れていた。"""
     put_cell(window, 0, 1)
     put_cell(window, 4, 1)
-    window.canvas.coalesce_numbered_images()
 
     replacement = blank_image()
     replacement.setPixelColor(7, 7, QColor("#123456"))
@@ -148,7 +145,6 @@ def test_clearing_a_cell_does_not_erase_the_other_frames(window):
     """シート操作は共有を切ってから。消すのはこの位置だけ。"""
     put_cell(window, 0, 1)
     put_cell(window, 4, 1)
-    window.canvas.coalesce_numbered_images()
     window.canvas.frames[0].layers[0].image.setPixelColor(9, 9, QColor("#abcdef"))
 
     window.canvas._clear_timeline_layer_cell(
@@ -161,13 +157,15 @@ def test_clearing_a_cell_does_not_erase_the_other_frames(window):
     assert cell_ids(window, (0,))[0] != cell_ids(window, (4,))[0]
 
 
-def test_sync_links_the_cells_before_a_stroke(window):
+def test_connected_slots_share_before_edit(window):
     put_cell(window, 0, 1)
     put_cell(window, 4, 1)
     # Connected numbered slots already resolve the same Track-owned Cell.
     assert cell_ids(window, (0,))[0] == cell_ids(window, (4,))[0]
 
-    window.canvas.sync_numbered_image_from_cell(0, 0)
+    window.canvas.frames[0].layers[0].image = blank_image()
+    assert (window.canvas.frames[4].layers[0].image
+            is window.canvas.frames[0].layers[0].image)
 
     assert cell_ids(window, (0,))[0] == cell_ids(window, (4,))[0]
 
@@ -177,8 +175,6 @@ def test_different_layers_with_the_same_number_stay_apart(window):
     window.canvas.add_layer()
     put_cell(window, 0, 1, layer_index=0)
     put_cell(window, 0, 1, layer_index=1)
-
-    window.canvas.coalesce_numbered_images()
 
     first = window.canvas.frames[0].layers[0].cell_id
     second = window.canvas.frames[0].layers[1].cell_id

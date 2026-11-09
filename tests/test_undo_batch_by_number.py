@@ -22,7 +22,7 @@ def batch(c):
 def repeated(c, number=3):
     for fi in (0, 2, 3):
         put(c, fi, number)
-    c.coalesce_numbered_images()
+    c.install_legacy_frames()
 
 
 def colors(c, expected):
@@ -57,7 +57,7 @@ def test_retained_number_metadata_unchanged(window, scoped, is_blank_key, archiv
     c.cellChanged.disconnect(window._on_canvas_cell_changed)
     for fi in (0, 2):
         put(c, fi, 3)
-    c.coalesce_numbered_images()
+    c.install_legacy_frames()
     retained = c.frames[1].layers[0]
     retained.sequence_number = 3
     retained.has_content = False

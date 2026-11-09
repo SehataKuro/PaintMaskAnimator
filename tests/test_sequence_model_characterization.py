@@ -107,7 +107,7 @@ def after_effects_text(states, fps=24):
 
 
 # ---------------------------------------------------------------------------
-# 1. 同じ番号のセルは同じ絵を指す（coalesce_numbered_images）
+# 1. 同じ番号のセルは bank 所有の同じ Cell を参照する
 # ---------------------------------------------------------------------------
 
 def test_the_same_number_shares_one_image(window):
@@ -120,8 +120,6 @@ def test_the_same_number_shares_one_image(window):
     put_cell(window, 4, 1)
     put_cell(window, 8, 2)
 
-    window.canvas.coalesce_numbered_images()
-
     first = window.canvas.frames[0].layers[0].image
     same_number = window.canvas.frames[4].layers[0].image
     other_number = window.canvas.frames[8].layers[0].image
@@ -133,7 +131,6 @@ def test_editing_one_cell_shows_on_every_frame_with_that_number(window):
     """共有されている絵を直すと、同じ番号の全コマに出る。"""
     put_cell(window, 0, 1)
     put_cell(window, 4, 1)
-    window.canvas.coalesce_numbered_images()
 
     window.canvas.frames[0].layers[0].image.setPixelColor(20, 20, QColor("#ff0000"))
 
@@ -216,7 +213,6 @@ def test_the_same_drawing_in_two_places_is_processed_once(window):
     """
     put_cell(window, 0, 1)
     put_cell(window, 6, 1)
-    window.canvas.coalesce_numbered_images()
 
     cells = resolve_cells(window.canvas, window.scope.current_frame(True))
     images = {
@@ -233,7 +229,6 @@ def test_a_batch_edit_touches_a_shared_drawing_once(window):
     """共有された絵への一括処理は、1回で全コマに反映される。"""
     put_cell(window, 0, 1, color="#ff0000")
     put_cell(window, 6, 1, color="#ff0000")
-    window.canvas.coalesce_numbered_images()
 
     assert window.used_color.apply_palette_replacements(
         {(255, 0, 0): (0, 0, 255)}
