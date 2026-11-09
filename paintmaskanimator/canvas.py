@@ -382,27 +382,30 @@ class PaintCanvas(
     def layers(self): return self._document.layers
     @property
     def active_layer(self): return self._document.active_layer
-    def _resolve_drawing_undo_target(self, entry):
+    def _resolve_numbered_target(self, frame, layer_index, number):
         """Return (sheet column or None, layer), resolving numbered drawings."""
         def at(fi):
-            if 0 <= fi < len(self.frames) and 0 <= entry.layer < len(self.frames[fi].layers):
-                return self.frames[fi].layers[entry.layer]
+            if 0 <= fi < len(self.frames) and 0 <= layer_index < len(self.frames[fi].layers):
+                return self.frames[fi].layers[layer_index]
             return None
 
-        layer = at(entry.frame)
-        if entry.number is None:
-            return (entry.frame, layer) if layer is not None else None
+        layer = at(frame)
+        if number is None:
+            return (frame, layer) if layer is not None else None
         if (layer is not None and layer.has_content
-                and layer.sequence_number == entry.number):
-            return entry.frame, layer
+                and layer.sequence_number == number):
+            return frame, layer
         for fi in range(len(self.frames)):
             layer = at(fi)
             if (layer is not None and layer.has_content
-                    and layer.sequence_number == entry.number
+                    and layer.sequence_number == number
                     and (self.timeline_mode != "sheet" or not layer.sequence_only)):
                 return fi, layer
-        layer = self._sequence_archive.get((entry.layer, entry.number))
+        layer = self._sequence_archive.get((layer_index, number))
         return (None, layer) if layer is not None else None
+
+    def _resolve_drawing_undo_target(self, entry):
+        return self._resolve_numbered_target(entry.frame, entry.layer, entry.number)
 
     def current_state_for(self, entry):
         """Capture the inverse of ``entry``: the state undoing it would replace.
@@ -468,23 +471,22 @@ class PaintCanvas(
                 bool(layer.has_content),
                 layer_name=entry.layer_name, number=entry.number,
             )
-        if isinstance(entry, ScopedBatchUndo):
-            current = [
-                (fi, li, QImage(self.frames[fi].layers[li].image),
-                 bool(self.frames[fi].layers[li].has_content))
-                for fi, li, _img, _hc in entry.cells
-                if _cell_exists(fi, li)
-            ]
-            return ScopedBatchUndo(current, entry.label) if current else None
-        if isinstance(entry, LayerBatchUndo):
-            li = entry.layer
-            current = [
-                (fi, QImage(self.frames[fi].layers[li].image),
-                 self.frames[fi].layers[li].has_content)
-                for fi, _img, _hc in entry.cells
-                if _cell_exists(fi, li)
-            ]
-            return LayerBatchUndo(li, current) if current else None
+        if isinstance(entry, (ScopedBatchUndo, LayerBatchUndo)):
+            current = []
+            scoped = isinstance(entry, ScopedBatchUndo)
+            for cell in entry.cells:
+                fi, li, _img, _hc, number = cell if scoped else (cell[0], entry.layer, *cell[1:])
+                target = self._resolve_numbered_target(fi, li, number)
+                if target is None:
+                    continue
+                resolved_fi, layer = target
+                snapshot = (fi if resolved_fi is None else resolved_fi,
+                            li, QImage(layer.image), bool(layer.has_content), number)
+                current.append(snapshot if scoped else (snapshot[0], *snapshot[2:]))
+            if not current:
+                return None
+            return (ScopedBatchUndo(current, entry.label) if scoped
+                    else LayerBatchUndo(entry.layer, current))
         if isinstance(entry, LayerRemoveUndo):
             index = entry.index
             stored = [

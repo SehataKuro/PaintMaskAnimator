@@ -301,31 +301,35 @@ class UndoMixin(CanvasMembers):
             self.coalesce_numbered_images()
             self.link_layer_tracks()
             self.changed.emit()
-        elif isinstance(e, LayerBatchUndo):
-            li = e.layer
-            self.active_layer_index = li
-            for fi, img, hc in e.cells:
-                if 0 <= fi < len(self.frames) and 0 <= li < len(self.frames[fi].layers):
-                    self.frames[fi].layers[li].image = img
-                    self.frames[fi].layers[li].has_content = hc
+        elif isinstance(e, (LayerBatchUndo, ScopedBatchUndo)):
+            scoped = isinstance(e, ScopedBatchUndo)
+            if not scoped:
+                self.active_layer_index = e.layer
+            for cell in e.cells:
+                fi, li, img, hc, number = cell if scoped else (cell[0], e.layer, *cell[1:])
+                target = self._resolve_numbered_target(fi, li, number)
+                if target is None:
+                    continue
+                resolved_fi, layer = target
+                layer.image = img
+                if number is None:
+                    layer.has_content = hc
                     self.cellChanged.emit(fi, li)
-            self.selectionChanged.emit()
-        elif isinstance(e, ScopedBatchUndo):
-            # 一括処理ランナー（frame_scope）1回分。レイヤーを跨いで復元する。
-            for fi, li, img, hc in e.cells:
-                if (
-                    0 <= fi < len(self.frames)
-                    and 0 <= li < len(self.frames[fi].layers)
-                ):
-                    self.frames[fi].layers[li].image = img
-                    self.frames[fi].layers[li].has_content = hc
-                    self.cellChanged.emit(fi, li)
-            if e.cells:
-                self.active_layer_index = max(
-                    0,
-                    min(int(e.cells[0][1]), len(self.layers) - 1),
-                )
-            self._onion_cache.clear()
+                else:
+                    if resolved_fi is None:
+                        layer.has_content = hc
+                    for sheet_fi, frame in enumerate(self.frames):
+                        if 0 <= li < len(frame.layers):
+                            sheet_layer = frame.layers[li]
+                            if sheet_layer.cell_id == layer.cell_id:
+                                sheet_layer.has_content = hc
+                                self.cellChanged.emit(sheet_fi, li)
+            if scoped:
+                if e.cells:
+                    self.active_layer_index = max(
+                        0, min(int(e.cells[0][1]), len(self.layers) - 1),
+                    )
+                self._onion_cache.clear()
             self.selectionChanged.emit()
         elif isinstance(e, LayerRemoveUndo):
             index = e.index

@@ -244,10 +244,11 @@ def test_scoped_batch_repeated_number(window):
     result = apply_over_scope(canvas, FrameScope.all_frames(canvas), op, label="一括処理")
     assert calls == [((0, 0), (3, 0))]
     assert isinstance(result.undo, ScopedBatchUndo)
-    assert [(fi, li) for fi, li, *_ in result.undo.cells] == [(0, 0), (3, 0)]
-    # 実測: 共有 Cell へ書き戻す前に、両コマの赤い snapshot を採る。
-    assert [img.pixelColor(5, 5).name() for _, _, img, _ in result.undo.cells] == [
-        "#ff0000", "#ff0000",
+    # Phase 4 第4段階で番号1つ＝画像1枚へ。
+    assert [(fi, li) for fi, li, *_ in result.undo.cells] == [(0, 0)]
+    # 書き戻す前の赤い snapshot を番号につき1枚採る。
+    assert [img.pixelColor(5, 5).name() for _, _, img, _, _number in result.undo.cells] == [
+        "#ff0000",
     ]
     assert history_label_for(result.undo) == "一括処理"
     assert history_label_for(ScopedBatchUndo([], "テスト一括")) == "テスト一括"

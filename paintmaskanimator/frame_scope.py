@@ -311,13 +311,20 @@ def apply_over_scope(
     undo_cells = []
     # 共有 Cell への書き戻しで元画像が変わる前に、全対象の写しを取る。
     for _lead_cell, shared_cells, _produced, _changed_pixels in pending:
-        for frame_index, layer_index in shared_cells:
+        first_fi, first_li = shared_cells[0]
+        first = doc.frames[first_fi].layers[first_li]
+        number = first.sequence_number
+        numbered = number is not None and all(
+            li == first_li
+            and doc.frames[fi].layers[li].sequence_number == number
+            and doc.frames[fi].layers[li].has_content == first.has_content
+            for fi, li in shared_cells
+        )
+        for frame_index, layer_index in (shared_cells[:1] if numbered else shared_cells):
             layer = doc.frames[frame_index].layers[layer_index]
             undo_cells.append((
-                int(frame_index),
-                int(layer_index),
-                layer.image.copy(),
-                bool(layer.has_content),
+                int(frame_index), int(layer_index), layer.image.copy(),
+                bool(layer.has_content), number if numbered else None,
             ))
 
     for _lead_cell, shared_cells, produced, changed_pixels in pending:

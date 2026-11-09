@@ -184,29 +184,33 @@ class LayerTilesUndo(UndoEntry):
 
 @dataclass
 class LayerBatchUndo(UndoEntry):
-    """One layer across many frames: cells of ``(frame, image, has_content)``."""
+    """One layer across frames: ``(frame, image, has_content, number)``.
+
+    A number identifies one drawing; None retains the frame-based target.
+    """
 
     HISTORY_LABEL = "色編集"
 
     layer: int
-    cells: List[Tuple[int, Any, bool]]
+    cells: List[Tuple[int, Any, bool, Optional[int]]]
 
     @property
     def nbytes(self) -> int:
-        return sum(_image_bytes(image) for _fi, image, _hc in self.cells)
+        return sum(_image_bytes(image) for _fi, image, _hc, _number in self.cells)
 
 
 @dataclass
 class ScopedBatchUndo(UndoEntry):
-    """一括処理ランナー1回分：``(frame, layer, image, has_content)`` のセル群。
+    """一括処理ランナー1回分：``(frame, layer, image, has_content, number)`` のセル群。
 
     ``LayerBatchUndo`` が1レイヤー固定だったのに対し、こちらはレイヤーを跨げる。
     どれだけのコマ・レイヤーへ適用しても Undo は常にこの1件になる。
+    number がある要素は番号単位、None の要素は従来のコマ単位で復元する。
     """
 
     HISTORY_LABEL = "一括処理"
 
-    cells: List[Tuple[int, int, Any, bool]]
+    cells: List[Tuple[int, int, Any, bool, Optional[int]]]
     label: str = field(default="一括処理")
 
     @property
@@ -215,7 +219,7 @@ class ScopedBatchUndo(UndoEntry):
 
     @property
     def nbytes(self) -> int:
-        return sum(_image_bytes(image) for _fi, _li, image, _hc in self.cells)
+        return sum(_image_bytes(image) for _fi, _li, image, _hc, _number in self.cells)
 
 
 @dataclass
