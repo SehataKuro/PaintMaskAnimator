@@ -13,6 +13,7 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 from .i18n import tr
+from .document import project_v1_state
 from .errors import OperationError
 
 from PySide6.QtCore import QBuffer, QByteArray, QIODevice, Qt
@@ -754,7 +755,7 @@ def write_project_archive(
                 )
 
             frame_data, archive_data, pending_pngs = build_v1_payload(
-                frames, sequence_archive
+                *project_v1_state(frames, sequence_archive)
             )
             metadata["frames"].extend(frame_data)
             metadata["sequence_archive"] = archive_data

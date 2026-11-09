@@ -17,6 +17,7 @@ from .i18n import tr
 from .main_window_import import ImportController
 from .errors import OPERATION_ERRORS as _OPERATION_ERRORS, OperationError
 from .models import Layer
+from .document import put_archive, remove_archive
 from .utils import blank_image
 from .widgets import (
     TimeRemapPasteDialog,
@@ -405,12 +406,12 @@ class TimeRemapController:
                 continue
             key = (int(layer_index), number)
             if number in placed:
-                archive.pop(key, None)
+                remove_archive(archive, key)
             elif key not in archive:
-                archive[key] = Layer(
+                put_archive(archive, key, Layer(
                     name, image.copy(), has_content=True, exposure=1,
                     sequence_number=number,
-                )
+                ))
         self.window.timeline.sequence_archive = archive
 
     def _apply_time_remap_states_to_layer(

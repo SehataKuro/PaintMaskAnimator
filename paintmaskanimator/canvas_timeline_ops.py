@@ -10,6 +10,9 @@ from itertools import chain
 from PySide6.QtGui import QImage
 from ._canvas_members import CanvasMembers
 from .cell_numbering import normalization_mapping
+from .document import (
+    clear_slot, put_archive, apply_number_mapping, apply_numbered_images,
+)
 from .sheet import shift_slots_left, shift_slots_right
 from .models import Layer, make_frame, next_layer_name
 from .timeline import TimelineWidget
@@ -100,17 +103,7 @@ class TimelineStructureMixin(CanvasMembers):
         self.update()
     @staticmethod
     def _clear_timeline_layer_cell(layer):
-        # シート操作。同じ番号の他のコマの絵まで消さないよう、先に共有を切る。
-        layer.detach_cell()
-        layer.image = blank_image()
-        layer.has_content = False
-        layer.is_blank_key = False
-        layer.exposure = 1
-        layer.sequence_number = None
-        layer.sequence_only = False
-        layer.cell_name = None
-        layer.tween = None
-        layer.tween_member = None
+        clear_slot(layer)
 
     def timeline_block_at(self, column, layer_index):
         if not self.frames:
@@ -259,9 +252,10 @@ class TimelineStructureMixin(CanvasMembers):
             _kind, start, exposure = block
             layer = self.frames[start].layers[layer_index]
             if layer.has_content and layer.sequence_number is not None:
-                self._sequence_archive[
-                    (layer_index, int(layer.sequence_number))
-                ] = layer.clone()
+                put_archive(
+                    self._sequence_archive,
+                    (layer_index, int(layer.sequence_number)), layer.clone(),
+                )
             if exposure > 1:
                 layer.exposure = exposure - 1
                 self._shift_timeline_layer_left(
@@ -400,23 +394,10 @@ class TimelineStructureMixin(CanvasMembers):
             layer_indices = (int(layer_index),)
         for target_layer_index in layer_indices:
             mapping = self.sequence_number_normalization(target_layer_index)
-            next_number = len(mapping) + 1
-            for frame in self.frames:
-                layer = frame.layers[target_layer_index]
-                if layer.sequence_number is not None:
-                    layer.sequence_number = mapping[int(layer.sequence_number)]
-                elif layer.has_content and not layer.sequence_only:
-                    layer.sequence_number = next_number
-                    next_number += 1
-            normalized_archive = {}
-            for (archived_layer, old_number), archived in self._sequence_archive.items():
-                if int(archived_layer) == target_layer_index:
-                    new_number = mapping.get(int(old_number), int(old_number))
-                    archived.sequence_number = new_number
-                else:
-                    new_number = int(old_number)
-                normalized_archive[(int(archived_layer), new_number)] = archived
-            self._sequence_archive = normalized_archive
+            self._sequence_archive = apply_number_mapping(
+                self.frames, self._sequence_archive, target_layer_index, mapping,
+                unnumbered_start=len(mapping) + 1, normalize_archive_keys=True,
+            )
 
     def sequence_entry_columns(self, layer_index):
         """絵番号ごとの代表セル位置を番号順で返す。"""
@@ -512,18 +493,7 @@ class TimelineStructureMixin(CanvasMembers):
                 number: number - 1 for number in range(second_number + 1, first_number + 1)
             }
         source_for_number[second_number] = first_number
-        for frame in self.frames:
-            layer = frame.layers[layer_index]
-            number = layer.sequence_number
-            if number in source_for_number:
-                image, has_content, is_blank, cell_name, initial_image = snapshots[
-                    source_for_number[number]
-                ]
-                layer.image = image.copy()
-                layer.has_content = has_content
-                layer.is_blank_key = is_blank
-                layer.cell_name = cell_name
-                layer.initial_image = QImage(initial_image) if initial_image is not None else None
+        apply_numbered_images(self.frames, layer_index, source_for_number, snapshots)
         self.changed.emit()
         self.update()
         return True

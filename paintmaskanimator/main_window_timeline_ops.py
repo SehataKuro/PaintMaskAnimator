@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QItemSelectionModel, QTimer
 from .i18n import tr
 from .utils import blank_image
+from .document import place_number, create_drawing, put_archive
 from .undo_entries import ExposureUndo
 from .normalize_dialog import NormalizeNumbersDialog
 from .timeline import TimelineWidget
@@ -257,9 +258,10 @@ class TimelineOpsController:
         layer = self.window.canvas.frames[int(start)].layers[layer_index]
         self.window.canvas.push_doc_undo()
         if layer.has_content and layer.sequence_number is not None:
-            self.window.canvas._sequence_archive[
-                (layer_index, int(layer.sequence_number))
-            ] = layer.clone()
+            put_archive(
+                self.window.canvas._sequence_archive,
+                (layer_index, int(layer.sequence_number)), layer.clone(),
+            )
         self.window.canvas._clear_timeline_layer_cell(layer)
         self.window.canvas._cell_structure_dirty = True
         self.window.canvas.changed.emit()
@@ -804,16 +806,7 @@ class TimelineOpsController:
         self.window.canvas.push_doc_undo()
         self.window.canvas._ensure_frame_count(int(column) + 1)
         target = self.window.canvas.frames[int(column)].layers[layer_index]
-        copied = source.clone()
-        target.detach_cell()
-        target.image = source.image
-        target.initial_image = copied.initial_image
-        target.has_content = bool(copied.has_content)
-        target.is_blank_key = not bool(copied.has_content)
-        target.sequence_number = int(number)
-        target.cell_name = getattr(copied, "cell_name", None)
-        target.sequence_only = False
-        target.exposure = 1
+        place_number(target, source, number)
         self.window.canvas.current_frame = int(column)
         self.window.canvas.active_layer_index = layer_index
         self.window.canvas._cell_structure_dirty = True
@@ -968,9 +961,7 @@ class TimelineOpsController:
         canvas.push_doc_undo()
         layer = canvas.frames[column].layers[layer_index]
         canvas._clear_timeline_layer_cell(layer)
-        layer.image = blank_image()
-        layer.has_content = True
-        layer.exposure = 1
+        create_drawing(layer, blank_image(), number=None)
         canvas.current_frame = column
         canvas.active_layer_index = layer_index
         self._after_cell_edit()
