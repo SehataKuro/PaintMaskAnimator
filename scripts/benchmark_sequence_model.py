@@ -62,6 +62,7 @@ def build_canvas():
     canvas.frames = frames
     canvas.current_frame = 0
     canvas.active_layer_index = 0
+    canvas.install_legacy_frames()
     return canvas
 
 
@@ -72,9 +73,6 @@ def main():
     whole_cut = FrameScope(
         frames=tuple(range(FRAMES)), layers=all_layers, key_frames_only=True
     )
-
-    def coalesce():
-        canvas.coalesce_numbered_images()
 
     def resolve_whole_cut():
         resolve_cells(canvas, whole_cut)
@@ -97,8 +95,6 @@ def main():
             "drawings_per_layer": DRAWINGS,
             "canvas": [constants.CANVAS_WIDTH, constants.CANVAS_HEIGHT],
         },
-        # 同じ番号へ同じ画像を結び直す。連番が本体になれば不要になる処理。
-        "coalesce_numbered_images_ms": median_ms(coalesce),
         # 一括処理の対象セルを決める。すでに絵ごと1回へ畳んでいる。
         "resolve_cells_whole_cut_ms": median_ms(resolve_whole_cut),
         # 露出の解決（Rust 側）。exposure を「同じ番号の連続」へ変える影響先。

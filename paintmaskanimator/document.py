@@ -398,8 +398,8 @@ def create_drawing(layer, image, *, number):
 def place_number(target, source, number):
     """Recall a drawing with the legacy recall operation's exact copy policy.
 
-    coalesce/sync remain responsible for Cell sharing, as before. The image
-    object is reused, while initial_image comes from an independent clone.
+    Connected content/pending slots share the Cell in their Track bank. The
+    image object is reused, while initial_image comes from an independent clone.
     """
     copied = source if isinstance(source, DrawingTarget) else source.clone()
     target.detach_cell()

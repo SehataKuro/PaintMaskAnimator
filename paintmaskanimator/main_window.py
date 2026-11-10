@@ -222,10 +222,6 @@ class MainWindow(
         self._refresh_theme_dependent_ui()
 
     def _on_canvas_cell_changed(self, frame_index, layer_index):
-        self.canvas.sync_numbered_image_from_cell(
-            frame_index,
-            layer_index,
-        )
         # Existing brush cells do not change timeline structure. Rebuilding the
         # entire table here made brush release scale with the number of imported images.
         structure_dirty = bool(
@@ -249,7 +245,6 @@ class MainWindow(
             self.used_color.schedule_refresh()
 
     def refresh_ui(self):
-        self.canvas.coalesce_numbered_images()
         self.canvas.link_layer_tracks()
         self.timeline.playback_range_start = int(self.canvas.playback_range_start)
         self.timeline.playback_range_end = self.canvas.playback_range_end

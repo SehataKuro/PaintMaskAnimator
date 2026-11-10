@@ -255,13 +255,6 @@ class KeyFrameMixin(CanvasMembers):
                 if layer._track.connected:
                     layer.__dict__.pop("_cell", None)
                 self._cell_structure_dirty = True
-            if layer.sequence_number is not None:
-                # 描画開始前から全参照を同じ画像へ結び、ストローク中も
-                # 同番号の画像が分離しないようにする。
-                self.sync_numbered_image_from_cell(
-                    self.current_frame,
-                    self.active_layer_index,
-                )
             if layer.is_blank_key:
                 # 連番の空セルへ描画した旧データでは両方のフラグが
                 # Trueになり得る。内容キーとして即時修復する。

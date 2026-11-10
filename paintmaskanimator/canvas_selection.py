@@ -692,10 +692,6 @@ class SelectionMixin(CanvasMembers):
             close_counter(progress)
 
         for frame_index in changed_frames:
-            self.sync_numbered_image_from_cell(
-                frame_index,
-                layer_index,
-            )
             # 描画系ツールと同様にセル変更を通知する。これがないと
             # ヒストリーパネル（cellChanged/changedで更新）が確定後も
             # 再描画されず、変形の履歴が一覧に現れない。

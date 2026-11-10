@@ -335,8 +335,8 @@ Phase 3 から回した `exposure` と `_sequence_archive` の廃止も、ここ
 | 5-2a（済） | 保存時の v1 変換の境界と、文書スナップショットの準備 |
 | 5-4（済） | `initial_image` と `cell_name` を `Cell` へ（同じ番号の全コマに効く）。Rust の `TimelineCell.cell_name` は使わなくなり、削除は 5-3 で行う |
 | 5-2b（済） | 絵の本体を `Track.cells` にする（番号の無い通常の絵にも番号を振る） |
-| 5-2c | `_sequence_archive` と `sequence_only` の保管を `Track.cells` へ吸収 |
-| 5-2d | `coalesce_numbered_images` / `sync_numbered_image_from_cell` を廃止 |
+| 5-2c（済） | `_sequence_archive` と `sequence_only` の保管を `Track.cells` へ吸収 |
+| 5-2d（済） | `coalesce_numbered_images` / `sync_numbered_image_from_cell` を廃止。未接続の旧データ（レイアウト用紙の挿入、旧形の DocUndo の復元、frames の直接代入）は `link_layer_tracks` の未接続分岐が `install_legacy_frames` で取り込むので、この分岐と `Document.sync_columns` は残す |
 | 5-3 | `exposure` を廃止（Rust の `resolve()` / `sheet()` も） |
 | 5-5 | 用紙レイヤーを `single_cell` に |
 | 5-6 | `format_version` 2 の読み書き、FORMAT.md、golden `.pman` |

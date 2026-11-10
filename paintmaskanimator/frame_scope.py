@@ -212,7 +212,7 @@ def resolve_cells(doc, scope: FrameScope) -> List[Tuple[int, int]]:
 def _group_shared_images(doc, cells):
     """同じ絵（``Cell``）を指すセルをまとめる。
 
-    連番セルは ``coalesce_numbered_images`` で同じ ``Cell`` を共有し、
+    接続済みの同番号セルは Track の bank にある同じ ``Cell`` を参照し、
     結果として同じ ``QImage`` を指す。セルごとに個別処理すると同じ絵を何度も
     処理することになるので、共有グループは1回だけ処理して結果を全員へ配る。
 

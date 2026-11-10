@@ -28,19 +28,12 @@ class ArchiveHint:
 class Cell:
     """1枚の絵。同じ絵番号のセルはこれを共有する（Issue #31 Phase 1）。
 
-    これまで「同じ番号は同じ絵」は、``Layer.image`` が同じ ``QImage`` を指して
-    いるか（``id()`` が同じか）でしか確かめられなかった。共有を作る
-    ``coalesce_numbered_images`` と、描く直前に結び直す
-    ``sync_numbered_image_from_cell`` の2つで支えていて、どこかで片方だけ
-    差し替わると、同じ番号が別の絵を指す状態が静かにできる。
+    接続済みの内容キーと pending slot は、同じ Track の bank にある
+    ``Cell`` を番号で参照する。``layer.image = x`` はその中身を書き換えるので、
+    同番号の参照にもそのまま反映される。未接続の旧データは
+    ``install_legacy_frames`` で bank へ取り込む。
 
-    ``Cell`` を間に置くと、共有は「同じ ``Cell`` を指しているか」というデータに
-    なる。``layer.image = x`` は ``Cell`` の中身を書き換えるので、共有している
-    セルにもそのまま出る。
-
-    Phase 1 では、共有を**結ぶところだけ**を明示する（``share_cell_with``）。
-    シート操作（セルを消す・別の絵を置く）が共有を壊さないよう、既定では
-    レイヤーごとに別の ``Cell`` を持つ。既定を共有側へ寄せるのは Phase 3。
+    ○・未使用の残存番号はローカルの ``Cell`` を持ち、bank を参照しない。
 
     ``Cell`` は ``image``、色塗り前の初期状態（``initial_image``）、
     セル名（``cell_name``）を持つ。同じ番号の絵は3属性とも共有し、
@@ -335,8 +328,8 @@ class Layer:
     def share_cell_with(self, other):
         """``other`` と同じ絵を指すようにする。
 
-        以後はどちらに書き込んでも両方に出る。``coalesce_numbered_images`` が
-        同じ絵番号のセルを結ぶときに使う。
+        以後はどちらに書き込んでも両方に出る。接続済みの内容キーと
+        pending slot は bank を参照するため、既存の Cell と一致する場合だけ許す。
         """
         if other is self:
             return

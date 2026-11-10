@@ -8,7 +8,6 @@ They run against a live ``PaintCanvas``.
 """
 from .document import replace_slot, release_slots
 from .document import mark_pending, clear_pending
-from itertools import chain
 from PySide6.QtGui import QImage
 from ._canvas_members import CanvasMembers
 from .cell_numbering import normalization_mapping
@@ -505,57 +504,6 @@ class TimelineStructureMixin(CanvasMembers):
         self.update()
         return True
 
-    def _numbered_cell_attributes(self, layer_index=None, number=None):
-        """結ぶ前に、各属性の最初の非 None 値をシート順→保管の順で確保する。"""
-        values = {}
-        entries = (
-            ((li, int(layer.sequence_number)), layer)
-            for frame in self.frames
-            for li, layer in (enumerate(frame.layers) if layer_index is None else
-                              ((layer_index, frame.layers[layer_index]),))
-            if layer.has_content and layer.sequence_number is not None
-            and (number is None or layer.sequence_number == number)
-        )
-        archive = (
-            ((li, n), track.cells[n])
-            for li, track in enumerate(self._document.tracks)
-            for n in track.legacy_archive_hints if n in track.cells
-        )
-        for key, layer in chain(entries, archive):
-            if layer_index is not None and key[0] != layer_index:
-                continue
-            if number is not None and key[1] != number:
-                continue
-            attrs = values.setdefault(key, [None, None])
-            for index, name in enumerate(("initial_image", "cell_name")):
-                if attrs[index] is None:
-                    attrs[index] = getattr(layer, name)
-        return values
-
-    def sync_numbered_image_from_cell(self, frame_index, layer_index):
-        """同じレイヤー・同じ絵番号を、1枚の絵（``Cell``）へ結び直す。
-
-        結んだあとは、どのセルに書き込んでも同じ絵として扱われる
-        （Issue #31 Phase 1）。描く直前に呼んで、ストロークが同じ番号の
-        全コマへ出るようにする。
-        """
-        source = self.frames[int(frame_index)].layers[int(layer_index)]
-        if source.sequence_number is None or not source.has_content:
-            return
-        if source._track.connected:
-            return
-        key = (int(layer_index), int(source.sequence_number))
-        attributes = self._numbered_cell_attributes(*key)[key]
-        source.initial_image, source.cell_name = attributes
-        for index, frame in enumerate(self.frames):
-            if index == int(frame_index):
-                continue
-            target = frame.layers[int(layer_index)]
-            if target.has_content and target.sequence_number == source.sequence_number:
-                target.share_cell_with(source)
-                target.has_content = True
-                target.is_blank_key = False
-
     def link_layer_tracks(self):
         """同じレイヤーのセルを、1つの ``Track``（表示の設定）へ結ぶ。
 
@@ -579,19 +527,6 @@ class TimelineStructureMixin(CanvasMembers):
                     layer.attach_track(track)
                     if layer.has_content or layer.sequence_only:
                         layer.__dict__.pop("_cell", None)
-
-    def coalesce_numbered_images(self):
-        """同一レイヤー・同一番号のセルを、1枚の絵（``Cell``）へ結ぶ。
-
-        読み込み・取り込み・Undo の復元で、同じ番号のセルがそれぞれ別の絵を
-        持った状態から呼ぶ。結んだあとは、どのセルへ書き込んでも同じ番号の
-        全コマに出る（Issue #31 Phase 1）。
-        """
-        if self.frames and all(layer._track.connected for frame in self.frames
-                               for layer in frame.layers):
-            return
-        self._document.sync_columns()
-        self.install_legacy_frames()
 
     def delete_sequence_entry(self, layer_index, number):
         """連番画像を削除し、シート側の参照セルを未使用へ戻す。"""

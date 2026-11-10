@@ -302,7 +302,6 @@ class UndoMixin(CanvasMembers):
             constants.CANVAS_WIDTH = w
             constants.CANVAS_HEIGHT = h
             self._invalidate_exposure_index()
-            self.coalesce_numbered_images()
             self.link_layer_tracks()
             self.changed.emit()
         elif isinstance(e, (LayerBatchUndo, ScopedBatchUndo)):

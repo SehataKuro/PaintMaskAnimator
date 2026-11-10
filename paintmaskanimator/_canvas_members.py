@@ -258,7 +258,6 @@ class CanvasMembers(_MembersBase):
         clamped_index: Any
         clear_selection: Any
         clear_selection_preserving_used_colors: Any
-        coalesce_numbered_images: Any
         link_layer_tracks: Any
         color: Any
         color_mode: Any
@@ -431,7 +430,6 @@ class CanvasMembers(_MembersBase):
         show_initial_state: Any
         stroke_before: Any
         sub_color: Any
-        sync_numbered_image_from_cell: Any
         temp_tool: Any
         timeline_block_at: Any
         timeline_mode: Any
