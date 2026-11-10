@@ -194,6 +194,8 @@ class TimelineStructureMixin(CanvasMembers):
         if not self.frames:
             return
         start_column, amount = max(0, int(start_column)), max(1, int(amount))
+        removed_start = max(0, start_column - amount)
+        containing = self.timeline_block_at(removed_start, layer_index)
         slots = [frame.layers[layer_index].clone_slot() for frame in self.frames]
         for column in range(max(0, start_column - amount), len(slots)):
             source = column + amount
@@ -201,6 +203,16 @@ class TimelineStructureMixin(CanvasMembers):
                 replace_slot(self.frames[column], layer_index, slots[source])
             else:
                 self._clear_timeline_layer_cell(self.frames[column].layers[layer_index])
+        if containing is not None and containing[1] < removed_start:
+            # A held-frame deletion shortens the saved key as well as the dense
+            # run. Otherwise a stale marker can pass v1's unchanged-input check
+            # when a following key hides its old tail.
+            head = self.frames[containing[1]].layers[layer_index]
+            position = head.__dict__.get("_v1_position")
+            block = self.timeline_block_at(containing[1], layer_index)
+            if position is not None and position.legacy is not None and block is not None:
+                head.__dict__["_v1_position"] = replace(
+                    position, legacy=replace(position.legacy, exposure=block[2]))
 
     def _trim_unused_trailing_frames(self):
         """全レイヤーで未使用になった末尾の時間列を取り除く。"""

@@ -155,12 +155,13 @@ SheetEntry                   # コマ1つ分の指定
 
 段取りの前に、実装を進めるうえで外せない前提です。
 
-`has_content` / `is_blank_key` / `exposure` / `sequence_number` /
-`sequence_only` / `cell_name` の6つは、**すでに Rust が持っています**
-（[`native/src/timeline.rs`](../native/src/timeline.rs) の `TimelineCell`）。
-`Layer` のこれらの属性は、[`timeline_metadata.py`](../paintmaskanimator/timeline_metadata.py)
-が付けたプロパティで、Python 側に写しを持ちません。露出の解決
-（どのコマがどのキーを表示するか）も Rust の `resolve()` が行います。
+Phase 5-3 完了後の `TimelineCell` は `has_content` / `is_blank_key` /
+`blank_start` / `sequence_number` / `sequence_only` を持ちます。
+`exposure` と `cell_name` は Rust から削除済みです。`cell_name` は `Cell` が持ち、
+長さは密な番号列の同番号連続区間から計算します。
+`Layer` の位置属性は [`timeline_metadata.py`](../paintmaskanimator/timeline_metadata.py)
+が Rust に接続し、Python 側の `timeline_resolution` が pending の互換表示を解決してから
+Rust の `resolve()` / `sheet()` に密な参照を渡します。
 経緯は [display-performance.md](display-performance.md) にあります。
 
 これは §2 の形にとって**追い風**です。
@@ -168,8 +169,8 @@ SheetEntry                   # コマ1つ分の指定
 - `TimelineCell` の並び（`rows: &[Vec<TimelineCell>]`）は、既に §2.1 の
   `sheet` そのものです。作るのではなく、**絞る**作業になります
   （`SheetEntry` は `number | BLANK | EMPTY` と `tween` だけ）。
-- 露出の解決が Rust にあるので、`exposure` を「同じ番号の連続」へ変える影響は
-  `resolve()` の中に収まります。
+- 同番号連続区間の解決は Rust が担当します。旧 v1 の疎なキーから密な参照への
+  変換と、保存時の圧縮は Python の互換境界が担当します。
 - 設計方針の「将来は Rust へ置き換えていく」で、次段階は「構造編集と変更通知の
   境界を Rust へ移す」と書かれています。シートを Rust が持つのは、その線上です。
 
@@ -337,9 +338,23 @@ Phase 3 から回した `exposure` と `_sequence_archive` の廃止も、ここ
 | 5-2b（済） | 絵の本体を `Track.cells` にする（番号の無い通常の絵にも番号を振る） |
 | 5-2c（済） | `_sequence_archive` と `sequence_only` の保管を `Track.cells` へ吸収 |
 | 5-2d（済） | `coalesce_numbered_images` / `sync_numbered_image_from_cell` を廃止。未接続の旧データ（レイアウト用紙の挿入、旧形の DocUndo の復元、frames の直接代入）は `link_layer_tracks` の未接続分岐が `install_legacy_frames` で取り込むので、この分岐と `Document.sync_columns` は残す |
-| 5-3 | `exposure` を廃止（Rust の `resolve()` / `sheet()` も） |
+| 5-3（済） | live `Layer.exposure` と Rust `TimelineCell.exposure` / `cell_name` を削除。`resolve()` / `sheet()` は密な参照へ切替 |
 | 5-5 | 用紙レイヤーを `single_cell` に |
 | 5-6 | `format_version` 2 の読み書き、FORMAT.md、golden `.pman` |
+
+Phase 5-3 実装結果（2026-11-10）：番号列を正本とし、隣接同番号を1区間に統合します。
+絵と○の途中への挿入はその区間を伸ばし、split は後半を新番号の複製にします。
+長さと v1 保存の露出は見えている連続区間から求めます。tween/member の指定位置、
+pending、旧保存キー境界では v1 の圧縮を区切り、位置情報を保ちます。
+
+残す `exposure` は [`legacy_v1.py`](../paintmaskanimator/legacy_v1.py) の
+`LegacyLayerV1` / `V1Position`、[`models.py`](../paintmaskanimator/models.py) の
+`ArchiveHint`、[`project_io.py`](../paintmaskanimator/project_io.py) の v1 読書きです。
+`document.project_v1_state` が保存用 DTO を作り、旧 PNG・名前・initial_image・
+archive hint を保持します。`main_window` の書出し尺、pending 配置も互換位置情報を
+参照します。これらは live の長さの正本ではありません。
+`ExposureUndo` の型・履歴ラベルと区間を扱う UI/API 名、画像の露光設定は維持します。
+網羅検証は `test_p5_3_chains.py` と A / C4 / D1 の固定比較が担当します。
 
 Phase 5 で決めたこと（2026-11-09）：
 

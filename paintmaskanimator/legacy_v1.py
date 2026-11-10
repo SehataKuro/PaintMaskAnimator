@@ -214,11 +214,11 @@ def compress_v1(sheet, positions=None):
 
 
 def legacy_layer_to_slot(layer: LegacyLayerV1):
-    """Explicit adapter to the unchanged old installer/writer (Phase B only).
+    """Wrap raw v1 input in a detached slot for the installation boundary.
 
-    The DTO has no Track/Cell. Constructing a detached Layer belongs here, outside
-    the pure expansion/compression functions. Archive/bank installation stays in
-    Document.install_legacy_frames.
+    The DTO has no Track/Cell. Keep its sparse length in _legacy_input until
+    Document.install_legacy_frames expands it into dense references; never attach
+    an exposure property to the live Layer.
     """
     from .models import Layer
 

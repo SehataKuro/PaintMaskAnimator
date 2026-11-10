@@ -750,7 +750,7 @@ def build_pma_frames(
     end_frame: int,
     layers: tuple[ClipAnimationLayer, ...],
 ) -> tuple[Frame, ...]:
-    """Convert parsed CLIP tracks into PMA keyframes plus exposure spans."""
+    """Convert parsed CLIP tracks into dense PMA drawing and blank references."""
 
     duration = end_frame - start_frame + 1
     if not (1 <= duration <= MAX_PROJECT_FRAMES):

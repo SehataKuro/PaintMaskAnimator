@@ -34,7 +34,7 @@ def is_pending(slot: Layer) -> bool:
 
 
 def mark_pending(slot: Layer):
-    """Keep a position pending without changing its drawing or exposure."""
+    """Keep a position pending without changing its drawing reference."""
     slot.set_pending(True)
 
 

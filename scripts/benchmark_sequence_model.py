@@ -6,6 +6,7 @@
 
 Run: python -m scripts.benchmark_sequence_model
 """
+import argparse
 import json
 import os
 import statistics
@@ -65,8 +66,16 @@ def build_canvas():
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--smoke", action="store_true", help="Run with a small dense fixture")
+    args = parser.parse_args()
+    global FRAMES, LAYERS, DRAWINGS
+    if args.smoke:
+        FRAMES, LAYERS, DRAWINGS = 30, 2, 3
+        constants.CANVAS_WIDTH, constants.CANVAS_HEIGHT = 16, 16
     app = QApplication.instance() or QApplication([])
     canvas = build_canvas()
+    assert canvas.resolve_key_frame(min(9, FRAMES - 1), 0) == 0
     all_layers = tuple(range(LAYERS))
     whole_cut = FrameScope(
         frames=tuple(range(FRAMES)), layers=all_layers, key_frames_only=True
@@ -75,7 +84,7 @@ def main():
     def resolve_whole_cut():
         resolve_cells(canvas, whole_cut)
 
-    def resolve_exposures():
+    def resolve_dense_spans():
         canvas._invalidate_exposure_index()
         for column in range(0, FRAMES, 7):
             for layer_index in range(LAYERS):
@@ -95,8 +104,8 @@ def main():
         },
         # 一括処理の対象セルを決める。すでに絵ごと1回へ畳んでいる。
         "resolve_cells_whole_cut_ms": median_ms(resolve_whole_cut),
-        # 露出の解決（Rust 側）。exposure を「同じ番号の連続」へ変える影響先。
-        "resolve_key_frame_cold_ms": median_ms(resolve_exposures),
+        # 密な同番号連続区間の解決（Rust 側）。
+        "resolve_key_frame_cold_ms": median_ms(resolve_dense_spans),
         "seek_every_13th_frame_ms": median_ms(seek),
         "cells_in_whole_cut": len(resolve_cells(canvas, whole_cut)),
     }

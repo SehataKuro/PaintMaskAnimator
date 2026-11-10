@@ -50,7 +50,7 @@ class UndoEntry:
 
 @dataclass
 class ExposureUndo(UndoEntry):
-    """Exposure and reversible cell moves, without retaining image snapshots."""
+    """Dense reference slices for duration edits, without image snapshots."""
 
     HISTORY_LABEL = "コマの長さ変更"
     layer: int
@@ -59,11 +59,10 @@ class ExposureUndo(UndoEntry):
     frame_count: int
     current_frame: int
     active_layer: int
-    moves: tuple = ()
     references: tuple = ()
 
     @classmethod
-    def capture(cls, canvas, layer, column, moves=()):
+    def capture(cls, canvas, layer, column):
         # Metadata only: never clone a Layer/Cell or retain drawing snapshots.
         references = tuple(
             (slot.has_content, slot.is_blank_key, slot.blank_start,
@@ -75,7 +74,7 @@ class ExposureUndo(UndoEntry):
         block = canvas.timeline_block_at(column, layer)
         return cls(layer, column, block[2] if block else 1,
                    len(canvas.frames), canvas.current_frame, canvas.active_layer_index,
-                   moves, references)
+                   references)
 
 
 @dataclass

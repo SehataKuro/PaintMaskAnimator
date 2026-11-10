@@ -432,8 +432,7 @@ class PaintCanvas(
         if isinstance(entry, TransformUndo):
             return TransformUndo.capture(self) if self.transform_active else None
         if isinstance(entry, ExposureUndo):
-            return ExposureUndo.capture(self, entry.layer, entry.column,
-                                        tuple((dst, src) for src, dst in entry.moves))
+            return ExposureUndo.capture(self, entry.layer, entry.column)
         if isinstance(entry, DocUndo):
             return DocUndo(self.document_snapshot())
         if isinstance(entry, InitialStateUndo):

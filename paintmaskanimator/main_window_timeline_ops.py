@@ -5,6 +5,8 @@ creation, frame deletion, and cell move/copy against the timeline widget.
 
 A collaborator rather than a mixin -- see ``main_window_export.py`` for why.
 """
+from dataclasses import replace
+
 from .document import replace_slot
 from .document import clear_pending
 from typing import TYPE_CHECKING
@@ -861,8 +863,8 @@ class TimelineOpsController:
                 tr("絵のあるセルを選んでください。"), 2400
             )
             return False
-        _kind, start, exposure = block
-        start, exposure = int(start), int(exposure)
+        _kind, start, _length = block
+        start = int(start)
         source = canvas.frames[start].layers[layer_index]
         if source.sequence_number is None:
             self.window.statusBar().showMessage(
@@ -951,7 +953,7 @@ class TimelineOpsController:
                 tr("前に結合できるセルがありません。"), 2400
             )
             return False
-        _kind, previous_start, previous_exposure = previous
+        _kind, previous_start, _previous_length = previous
         canvas.push_doc_undo()
         source = canvas.frames[previous_start].layers[layer_index]
         for position in range(start, start + exposure):
@@ -959,12 +961,19 @@ class TimelineOpsController:
             slot.tween = None
             slot.tween_member = None
             slot.blank_start = False
+            position_info = slot.__dict__.get("_v1_position")
+            if position_info is not None and position_info.legacy is not None:
+                # Cloned save keys must not reach beyond the merged region.
+                slot.__dict__["_v1_position"] = replace(
+                    position_info, legacy=replace(
+                        position_info.legacy,
+                        exposure=min(position_info.legacy.exposure, start + exposure - position)))
             replace_slot(canvas.frames[position], layer_index, slot)
         self._after_cell_edit()
         return True
 
     def insert_frame_at(self, visual_row, column):
-        """そのレイヤーの、その位置へ1コマ分の空きを差し込む。"""
+        """そのレイヤーに1コマ挿入し、区間途中なら同じ絵・○を伸ばす。"""
         target = self._cell_target(visual_row, column)
         if target is None:
             return False
