@@ -3,6 +3,8 @@ import pytest
 from PySide6.QtGui import QColor, QImage, QPainter
 
 from paintmaskanimator.models import Frame, Layer
+from paintmaskanimator.legacy_v1 import raw_v1_slot, LegacyLayerV1
+from dense_fixtures import length
 from paintmaskanimator.project_io import write_project_archive
 from test_track_cells import image, small_window  # noqa: F401
 
@@ -14,25 +16,15 @@ def test_load_duplicate_split_paint_move_paste_delete_undo_save_reload(
         small_window, tmp_path, monkeypatch, kind, mode):  # noqa: F811
     window = small_window
     canvas = window.canvas
-    retirements = []
-    original_setattr = Layer.__setattr__
-
-    def record_retirement(layer, name, value):
-        if (name == "has_content" and not value and layer.has_content
-                and layer._track.connected and layer.sequence_number in layer._track.cells):
-            retirements.append(layer.sequence_number)
-        original_setattr(layer, name, value)
-
-    monkeypatch.setattr(Layer, "__setattr__", record_retirement)
     # Archive and retained numbers must participate in load-time allocation.
-    frames = [Frame([Layer("A", image(), has_content=True, exposure=3,
+    frames = [Frame([raw_v1_slot("A", image(), has_content=True, exposure=3,
                            initial_image=image(0xff112233), cell_name="legacy", **kind),
-                     Layer("B", image(0), **kind)])]
-    frames.extend(Frame([Layer("A", image(0), **kind), Layer("B", image(0), **kind)])
+                     raw_v1_slot("B", image(0), **kind)])]
+    frames.extend(Frame([raw_v1_slot("A", image(0), **kind), raw_v1_slot("B", image(0), **kind)])
                   for _ in range(3))
     frames[3].layers[0].sequence_number = 10
     frames[3].layers[0].is_blank_key = True
-    archive = {(0, 8): Layer("A", image(0xff8899aa), has_content=True,
+    archive = {(0, 8): raw_v1_slot("A", image(0xff8899aa), has_content=True,
                              sequence_number=8, cell_name="archived", **kind)}
     path = tmp_path / "legacy.pman"
     metadata = {"format": "PaintMaskAnimatorProject", "format_version": 1,
@@ -44,26 +36,31 @@ def test_load_duplicate_split_paint_move_paste_delete_undo_save_reload(
     assert not window.project.has_unsaved_changes()
     assert set(canvas._document.tracks[0].cells) == {8, 10, 11}
     assert canvas.frames[0].layers[0].sequence_number == 11
-    assert canvas.frames[0].layers[0].exposure == 3
+    assert length(canvas, 0) == 3
     # Sheet gestures are exercised after both file modes have been loaded.
     canvas.timeline_mode = "sheet"
     window.refresh_ui()
     window.project.mark_saved()
 
+    split_done = False
+
     def check(painted=False, dirty=True):
         tracks = canvas._document.tracks
-        assert retirements == []
         assert window.project.has_unsaved_changes() == dirty
         assert tracks[0].is_paper == bool(kind.get("is_paper"))
         assert tracks[0].is_draft == bool(kind.get("is_draft"))
-        assert set(tracks[0].cells) == {8, 10, 11}
+        assert set(tracks[0].cells) == ({8, 10, 11, 12} if split_done else {8, 10, 11})
         assert tracks[0].cells[8].image.pixel(0, 0) == 0xff8899aa
         assert tracks[0].cells[8].cell_name == "archived"
         assert tracks[0].cells[10].image.pixelColor(0, 0).alpha() == 0
         assert tracks[0].cells[10].initial_image is None
         assert tracks[0].cells[10].cell_name is None
-        assert tracks[0].cells[11].image.pixel(0, 0) == (
-            0xffabcdef if painted else 0xff123456)
+        assert tracks[0].cells[11].image.pixel(0, 0) == 0xff123456
+        if split_done:
+            assert tracks[0].cells[12] is not tracks[0].cells[11]
+            assert tracks[0].cells[12].image.pixel(0, 0) == (0xffabcdef if painted else 0xff123456)
+            assert tracks[0].cells[12].initial_image == tracks[0].cells[11].initial_image
+            assert tracks[0].cells[12].cell_name == "legacy"
         assert tracks[0].cells[11].initial_image.pixel(0, 0) == 0xff112233
         assert tracks[0].cells[11].cell_name == "legacy"
         for frame in canvas.frames:
@@ -79,12 +76,13 @@ def test_load_duplicate_split_paint_move_paste_delete_undo_save_reload(
     assert canvas.add_frame(True)
     check()
     assert canvas.frames[1].layers[0].sequence_number == 11
-    assert canvas.frames[1].layers[0].exposure == 3
+    assert length(canvas, 1) == 4  # 隣接同番号の統合。
     assert window.project.has_unsaved_changes()
     assert window.timeline_ops.split_clip(1, 2)
+    split_done = True
     check()
-    assert [canvas.frames[i].layers[0].exposure for i in (1, 2)] == [1, 2]
-    assert canvas.frames[2].layers[0].sequence_number == 11
+    assert [length(canvas, i) for i in (1, 2)] == [2, 2]
+    assert canvas.frames[2].layers[0].sequence_number == 12
 
     canvas.current_frame = 2
     canvas.ensure_editable_key()  # Existing keys need no conversion.
@@ -99,18 +97,18 @@ def test_load_duplicate_split_paint_move_paste_delete_undo_save_reload(
     check(True)
     assert canvas.move_timeline_cell(2, 0, 5, 0)
     check(True)
-    assert canvas.frames[5].layers[0].sequence_number == 11
-    assert canvas.frames[5].layers[0].exposure == 2
+    assert canvas.frames[5].layers[0].sequence_number == 12
+    assert length(canvas, 5) == 2
     window.refresh_ui()
     assert window.timeline_ops.copy_cell_to_clipboard(1, 5)
     assert window.timeline_ops.paste_cell_from_clipboard(0, 0)
     check(True)
-    assert canvas.frames[0].layers[1].sequence_number == 11
-    assert canvas._document.tracks[1].cells[11].image.pixel(0, 0) == 0xffabcdef
+    assert canvas.frames[0].layers[1].sequence_number == 12
+    assert canvas._document.tracks[1].cells[12].image.pixel(0, 0) == 0xffabcdef
     assert window.timeline_ops.clear_cell(0, 0)
     check(True)
     assert not any(f.layers[1].has_content for f in canvas.frames)
-    assert 11 in canvas._document.tracks[1].cells
+    assert 12 in canvas._document.tracks[1].cells
     canvas.undo()
     check(True)
     assert canvas.frames[0].layers[1].has_content
@@ -119,19 +117,19 @@ def test_load_duplicate_split_paint_move_paste_delete_undo_save_reload(
     assert not any(f.layers[1].has_content for f in canvas.frames)
     assert window.project.has_unsaved_changes()
     # Sequence deletion is the only operation that removes an unplaced drawing.
-    assert canvas.delete_sequence_entry(1, 11)
-    assert 11 not in canvas._document.tracks[1].cells
+    assert canvas.delete_sequence_entry(1, 12)
+    assert 12 not in canvas._document.tracks[1].cells
     canvas.undo()
     check(True)
-    assert canvas._document.tracks[1].cells[11].cell_name == "legacy"
+    assert canvas._document.tracks[1].cells[12].cell_name == "legacy"
     canvas.redo()
-    assert 11 not in canvas._document.tracks[1].cells
+    assert 12 not in canvas._document.tracks[1].cells
     canvas.undo()
     check(True)
 
     def state():
         return (
-            [(frame.duration, [(layer.sequence_number, layer.exposure,
+            [(frame.duration, [(layer.sequence_number, layer.blank_start,
                                 layer.has_content, layer.is_blank_key, layer.sequence_only)
                                for layer in frame.layers]) for frame in canvas.frames],
             [{n: (QImage(cell.image), QImage(cell.initial_image)
@@ -149,8 +147,8 @@ def test_load_duplicate_split_paint_move_paste_delete_undo_save_reload(
     check(True, dirty=False)
     assert state() == before_save
     assert not window.project.has_unsaved_changes()
-    assert canvas._document.tracks[1].cells[11].image.pixel(0, 0) == 0xffabcdef
-    assert canvas._document.tracks[1].cells[11].cell_name == "legacy"
+    assert canvas._document.tracks[1].cells[12].image.pixel(0, 0) == 0xffabcdef
+    assert canvas._document.tracks[1].cells[12].cell_name == "legacy"
 
 
 def test_share_cannot_replace_connected_cell(small_window):  # noqa: F811
@@ -219,7 +217,7 @@ def test_registration_consumes_local_cell(small_window, operation):  # noqa: F81
         assert target.column is None
         return
     if operation == "save_view":
-        assert not target._track.connected
+        assert isinstance(target, LegacyLayerV1)
         assert target.image is canvas._document.tracks[0].cells[1].image
         return
     assert target._track.connected

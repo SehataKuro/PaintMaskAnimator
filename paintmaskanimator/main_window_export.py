@@ -498,6 +498,7 @@ class ExportController:
                 if (
                     layer_index < len(frame.layers)
                     and frame.layers[layer_index].has_content
+                    and self.window.canvas.timeline_block_at(frame_index, layer_index)[1] == frame_index
                 ):
                     keys.append((
                         layer_index,
@@ -562,8 +563,8 @@ class ExportController:
                 timing_rows.append([
                     filename,
                     frame_index + 1,
-                    frame_index + max(1, layer.exposure),
-                    max(1, layer.exposure),
+                    frame_index + self.window.canvas.timeline_block_at(frame_index, layer_index)[2],
+                    self.window.canvas.timeline_block_at(frame_index, layer_index)[2],
                 ])
                 update_counter(
                     progress,

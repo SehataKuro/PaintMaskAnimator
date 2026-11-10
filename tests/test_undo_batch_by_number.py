@@ -95,9 +95,10 @@ def test_unnumbered_per_cell(window, mode, paper):
     c.timeline_mode = mode
     for fi in (0, 2, 3):
         put(c, fi, None).is_paper = paper
+    c.install_legacy_frames()
     entry = batch(c)
     assert len(entry.cells) == 3
-    assert all(cell[-1] is None for cell in entry.cells)
+    assert [cell[-1] for cell in entry.cells] == [1, 2, 3]
     c.undo()
     colors(c, "red")
     c.redo()

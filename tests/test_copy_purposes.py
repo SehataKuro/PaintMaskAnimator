@@ -15,7 +15,7 @@ def image(color="red"):
 def layer():
     return Layer("A", image(), has_content=True, sequence_number=3,
                  cell_name="drawing", initial_image=image("green"),
-                 tween={"nested": [1]}, exposure=4)
+                 tween={"nested": [1]}, blank_start=False)
 
 
 def document():
@@ -42,13 +42,13 @@ def test_slot_metadata_is_independent():
     source = layer()
     copied = source.clone_slot()
     copied.sequence_number = 9
-    copied.exposure = 2
+    copied.blank_start = True
     copied.has_content = False
     copied.is_blank_key = True
     copied.sequence_only = True
     copied.tween["nested"].append(2)
     copied.tween_member = "other"
-    assert (source.sequence_number, source.exposure) == (3, 4)
+    assert (source.sequence_number, source.blank_start) == (3, False)
     assert source.has_content and not source.is_blank_key and not source.sequence_only
     assert source.tween == {"nested": [1]}
     assert source.tween_member is None

@@ -12,7 +12,8 @@ from PySide6.QtWidgets import QApplication
 from paintmaskanimator import constants, project_io
 from paintmaskanimator.document import Document, project_v1_state
 from paintmaskanimator.main_window import MainWindow
-from paintmaskanimator.models import Cell, Frame, Layer
+from paintmaskanimator.models import Cell, Frame
+from paintmaskanimator.legacy_v1 import raw_v1_slot as Layer
 
 
 BASELINE = Path(__file__).with_name("p5_2c_boundary_expected.json")
@@ -86,7 +87,7 @@ def mode_observation(window, case):
     return {"cursor": canvas.current_frame, "undo": len(canvas.undo_stack) - before,
             "mode": canvas.timeline_mode,
             "slots": [[s.sequence_number, s.has_content, s.is_blank_key,
-                       s.exposure, s.sequence_only] for f in canvas.frames for s in f.layers]}
+                       s.exposure, s.sequence_only] for f in project_v1_state(canvas.frames)[0] for s in f.layers]}
 
 
 def import_observation(window, tmp_path):

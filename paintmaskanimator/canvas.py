@@ -373,8 +373,7 @@ class PaintCanvas(
     def frames(self): return self._document.frames
     @frames.setter
     def frames(self, value):
-        self._document.frames = value
-        self._document.tracks = [layer._track for layer in value[0].layers] if value else []
+        self._document.install_legacy_frames(value)
         self._invalidate_exposure_index()
     @property
     def current_frame(self): return self._document.current_frame

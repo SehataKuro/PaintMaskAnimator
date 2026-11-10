@@ -15,6 +15,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtGui import QColor  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+from dense_fixtures import hold
 from paintmaskanimator.main_window import MainWindow  # noqa: E402
 from paintmaskanimator.models import Layer  # noqa: E402
 from paintmaskanimator.utils import blank_image  # noqa: E402
@@ -43,7 +44,7 @@ def put_cell(window, column, number, *, exposure=1, layer_index=0):
     layer.is_blank_key = False
     layer._track.cells.setdefault(int(number), layer._cell)
     layer.sequence_number = int(number)
-    layer.exposure = int(exposure)
+    hold(window.canvas, column, int(exposure), layer_index)
     return layer
 
 

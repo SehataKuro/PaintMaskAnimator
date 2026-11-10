@@ -38,7 +38,6 @@ def draw_cels(window, count):
         layer.has_content = True
         layer._track.cells[index + 1] = layer._cell
         layer.sequence_number = index + 1
-        layer.exposure = 1
 
 
 def test_the_window_opens_once_and_is_reused(window):

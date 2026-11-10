@@ -9,6 +9,8 @@ from PySide6.QtGui import QColor, QImage  # noqa: E402
 from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
 
 from paintmaskanimator import config, constants, cut_folder as cf, timesheet_file  # noqa: E402
+from tests.dense_fixtures import hold
+
 from paintmaskanimator.main_window import MainWindow  # noqa: E402
 
 
@@ -63,9 +65,9 @@ def _draw_timeline(window):
         layer.has_content = True
         layer._track.cells.setdefault(number, layer._cell)
         layer.sequence_number = number
-        layer.exposure = exposure
+        hold(canvas, frame, exposure)
     layers[2].is_blank_key = True
-    layers[2].exposure = 1
+    layers[2].blank_start = True
     canvas.frames[0].layers[0].name = "A"
 
 

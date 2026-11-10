@@ -53,10 +53,8 @@ def build_canvas():
         for layer_index in range(LAYERS):
             layer = Layer(chr(ord("A") + layer_index), QImage(image))
             # 10コマごとに次の絵へ移り、番号は DRAWINGS で一周する。
-            if column % 10 == 0:
-                layer.has_content = True
-                layer.exposure = 10
-                layer.sequence_number = (column // 10) % DRAWINGS + 1
+            layer.has_content = True
+            layer.sequence_number = (column // 10) % DRAWINGS + 1
             layers.append(layer)
         frames.append(Frame(layers))
     canvas.frames = frames

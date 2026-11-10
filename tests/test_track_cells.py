@@ -52,7 +52,8 @@ def test_retained_only_image_is_rescued_and_projected_without_live_mutation():
     doc = Document()
     doc.install_legacy_frames([Frame([retained])])
     frames, archive = project_v1_state(doc.frames)
-    assert frames is doc.frames
+    assert frames is not doc.frames
+    assert frames[0].layers[0].sequence_number == retained.sequence_number
     assert doc.tracks[0].legacy_archive_hints == {}
     assert archive[(0, 12)].image.pixel(0, 0) == retained.image.pixel(0, 0)
     assert archive[(0, 12)].cell_name == "rescued"
@@ -71,7 +72,8 @@ def test_clear_preserves_bank_and_projection_uses_same_cell():
     assert layer.sequence_number is None
     _, archive = project_v1_state(doc.frames)
     assert archive[(0, 3)].image is cell.image
-    assert not archive[(0, 3)]._track.connected
+    from paintmaskanimator.legacy_v1 import LegacyLayerV1
+    assert isinstance(archive[(0, 3)], LegacyLayerV1)
 
 
 def test_graph_copy_copies_unplaced_cells_once_and_preserves_sharing():
@@ -622,8 +624,12 @@ def test_exposure_undo_moves_slots_without_replacing_the_track(small_window):
     track = canvas._document.tracks[0]
     track.cells[9] = Cell(image(), image(), "unplaced")
     canvas._document.put_archive_hint(canvas._document.tracks[0], 1, ArchiveHint())
+    from paintmaskanimator.document import replace_slot
     clear_slot(canvas.frames[0].layers[0])
-    canvas.apply_undo_entry(ExposureUndo(0, 0, 1, 2, 0, 0, ((1, 0),)))
+    replace_slot(canvas.frames[0], 0, canvas.frames[1].layers[0].clone_reference())
+    saved = ExposureUndo.capture(canvas, 0, 0)
+    clear_slot(canvas.frames[0].layers[0])
+    canvas.apply_undo_entry(saved)
     assert canvas._document.tracks[0] is track
     assert canvas.frames[0].layers[0]._track is track
     assert set(track.cells) == {1, 2, 9}

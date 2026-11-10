@@ -43,9 +43,11 @@ def numpy_tint(rgba):
 def main():
     app = QApplication.instance() or QApplication([])
     canvas = PaintCanvas()
-    canvas.frames = [Frame([Layer("A", QImage()) for _ in range(8)]) for _ in range(1200)]
-    for layer in canvas.frames[0].layers:
-        layer.has_content, layer.exposure = True, 1200
+    frames = [Frame([Layer("A", QImage()) for _ in range(8)]) for _ in range(1200)]
+    for frame in frames:
+        for layer in frame.layers:
+            layer.has_content, layer.sequence_number = True, 1
+    canvas.frames = frames
     columns = list(range(1136, 1200))
 
     def backwards():
@@ -53,7 +55,7 @@ def main():
             for index in range(8):
                 for key in range(column, -1, -1):
                     layer = canvas.frames[key].layers[index]
-                    if layer.has_content or layer.is_blank_key:
+                    if not layer.has_content or layer.sequence_number != 1:
                         break
 
     def indexed():

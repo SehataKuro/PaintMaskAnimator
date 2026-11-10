@@ -4,7 +4,8 @@ Split out of ``canvas.py`` as a mixin. These methods push document / layer /
 region snapshots onto the undo stack and apply them on undo/redo. They run
 against a live ``PaintCanvas`` instance and its ``_document`` + stacks.
 """
-from .document import replace_slot, release_slots
+from copy import deepcopy
+from .document import release_slots
 from PySide6.QtCore import QRect, QPointF
 from PySide6.QtGui import QPainter
 from .constants import MAX_UNDO, MAX_UNDO_BYTES
@@ -282,16 +283,25 @@ class UndoMixin(CanvasMembers):
                 palette.restore_history_state(e.state)
         elif isinstance(e, ExposureUndo):
             self._ensure_frame_count(e.frame_count)
-            moved = [(dst, self.frames[src].layers[e.layer].clone_slot())
-                     for src, dst in e.moves]
-            for src, _dst in e.moves:
-                self._clear_timeline_layer_cell(self.frames[src].layers[e.layer])
-            for dst, layer in moved:
-                replace_slot(self.frames[dst], e.layer, layer)
             for frame in self.frames[e.frame_count:]:
                 release_slots(frame.layers)
             del self.frames[e.frame_count:]
-            self.frames[e.column].layers[e.layer].exposure = e.exposure
+            for frame, values in zip(self.frames[e.column:], e.references):
+                slot = frame.layers[e.layer]
+                content, blank, start, number, pending, tween, member, imported, position = values
+                slot.has_content = False
+                slot.sequence_number = number
+                slot.has_content = content
+                slot.is_blank_key = blank
+                slot.blank_start = start
+                slot.set_pending(pending)
+                slot.tween = deepcopy(tween)
+                slot.tween_member = member
+                for name, value in (("_dense_import", imported), ("_v1_position", position)):
+                    if value is None:
+                        slot.__dict__.pop(name, None)
+                    else:
+                        slot.__dict__[name] = value
             self.current_frame = e.current_frame
             self.active_layer_index = e.active_layer
             self._invalidate_display_caches()

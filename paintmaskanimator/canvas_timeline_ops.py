@@ -6,6 +6,7 @@ moving timeline cells, exposure blocks, and the sequence-number bookkeeping that
 keeps numbered (imported) images consistent with the cells that reference them.
 They run against a live ``PaintCanvas``.
 """
+from dataclasses import replace
 from .document import replace_slot, release_slots
 from .document import mark_pending, clear_pending
 from PySide6.QtGui import QImage
@@ -16,7 +17,6 @@ from .document import (
     clear_slot, archive_hint, apply_number_mapping, apply_numbered_images, copy_drawing_reference,
     import_drawing_reference,
 )
-from .sheet import shift_slots_left, shift_slots_right
 from .models import Cell, Frame, Layer, make_frame, next_layer_name
 from .timeline import TimelineWidget
 from .utils import blank_image
@@ -130,6 +130,8 @@ class TimelineStructureMixin(CanvasMembers):
         layer_index,
         start_column,
         amount,
+        *,
+        extend_containing=False,
     ):
         """指定レイヤーの明示コマを右へ移動し、時間の隙間を作る。"""
         if not self.frames:
@@ -144,72 +146,61 @@ class TimelineStructureMixin(CanvasMembers):
         ):
             return
 
-        slots = []
-        for column, frame in enumerate(self.frames):
-            if column < start_column:
-                slots.append(None)
-                continue
-            layer = frame.layers[layer_index] if layer_index < len(frame.layers) else None
-            slots.append(
-                layer.clone_slot() if layer is not None and (
-                    layer.has_content or getattr(layer, "is_blank_key", False)
-                ) else None
-            )
-        shifted = shift_slots_right(slots, start_column, amount)
-        required_count = start_column + amount
-        for column in range(start_column, len(slots)):
-            copied = slots[column]
-            if copied is not None:
-                required_count = max(
-                    required_count,
-                    column + amount + max(1, int(copied.exposure)),
-                )
-        self._ensure_frame_count(required_count)
-
-        # 移動元を先にすべて未使用へ戻し、重なる移動先にも複製を配置する。
-        for column in range(start_column, len(slots)):
-            if slots[column] is not None:
+        containing = self.timeline_block_at(start_column, layer_index)
+        slots = [frame.layers[layer_index].clone_slot() for frame in self.frames]
+        # Serialization residue follows the old explicit-position copy policy:
+        # hidden hold payload stays in place unless a moved key overwrites it.
+        from .legacy_v1 import V1Position, snapshot_layer
+        positions = [slot.__dict__.get("_v1_position", V1Position(snapshot_layer(slot)))
+                     for slot in slots]
+        starts = [i for i, slot in enumerate(slots) if i >= start_column and (
+            slot.sequence_only or (self.timeline_block_at(i, layer_index) is not None
+                                  and self.timeline_block_at(i, layer_index)[1] == i))]
+        saved_positions = dict(enumerate(positions))
+        for i in reversed(starts):
+            empty = slots[i].clone_slot()
+            clear_slot(empty)
+            saved_positions[i] = V1Position(snapshot_layer(empty))
+            saved_positions[i + amount] = positions[i]
+        # Trailing empty positions do not force another document extension.
+        occupied = [i for i in range(start_column, len(slots))
+                    if slots[i].has_content or slots[i].is_blank_key or slots[i].sequence_only]
+        self._ensure_frame_count(max([start_column + amount, len(slots)]
+                                     + [i + amount + 1 for i in occupied]))
+        for column in range(len(self.frames) - 1, start_column - 1, -1):
+            source = column - amount
+            if source >= start_column and source < len(slots):
+                replace_slot(self.frames[column], layer_index, slots[source])
+            else:
                 self._clear_timeline_layer_cell(self.frames[column].layers[layer_index])
-        for column in range(len(shifted) - 1, start_column - 1, -1):
-            if shifted[column] is not None:
-                replace_slot(self.frames[column], layer_index, shifted[column])
+        if containing is not None and containing[1] < start_column and not extend_containing:
+            _kind, left, length = containing
+            end = left + length
+            for column in range(start_column, min(end + amount, len(self.frames))):
+                if column < end:
+                    replace_slot(self.frames[column], layer_index, slots[column].clone_slot())
+                else:
+                    clear_slot(self.frames[column].layers[layer_index])
+        for column in range(start_column, len(self.frames)):
+            target = self.frames[column].layers[layer_index]
+            position = saved_positions.get(column)
+            if position is None:
+                empty = target.clone_slot()
+                clear_slot(empty)
+                position = V1Position(snapshot_layer(empty))
+            target.__dict__["_v1_position"] = position
 
-    def _shift_timeline_layer_left(
-        self,
-        layer_index,
-        start_column,
-        amount=1,
-    ):
-        """指定位置以降の明示コマを左へ移動し、削除した時間を詰める。"""
+    def _shift_timeline_layer_left(self, layer_index, start_column, amount=1):
         if not self.frames:
             return
-
-        layer_index = int(layer_index)
-        start_column = max(0, int(start_column))
-        amount = max(1, int(amount))
-        if not (
-            0 <= layer_index
-            < len(self.frames[0].layers)
-        ):
-            return
-
-        slots = []
-        for column, frame in enumerate(self.frames):
-            if column < start_column:
-                slots.append(None)
-                continue
-            layer = frame.layers[layer_index]
-            slots.append(
-                layer.clone_slot() if layer.has_content or getattr(layer, "is_blank_key", False)
-                else None
-            )
-        shifted = shift_slots_left(slots, start_column, amount)
-        for column in range(start_column, len(slots)):
-            if slots[column] is not None:
+        start_column, amount = max(0, int(start_column)), max(1, int(amount))
+        slots = [frame.layers[layer_index].clone_slot() for frame in self.frames]
+        for column in range(max(0, start_column - amount), len(slots)):
+            source = column + amount
+            if source < len(slots):
+                replace_slot(self.frames[column], layer_index, slots[source])
+            else:
                 self._clear_timeline_layer_cell(self.frames[column].layers[layer_index])
-        for column, copied in enumerate(shifted):
-            if copied is not None:
-                replace_slot(self.frames[column], layer_index, copied)
 
     def _trim_unused_trailing_frames(self):
         """全レイヤーで未使用になった末尾の時間列を取り除く。"""
@@ -239,7 +230,18 @@ class TimelineStructureMixin(CanvasMembers):
         at = self.current_frame + 1
         for layer in new_frame.layers:
             layer.attach_track(layer._track)
+        held = [self.timeline_block_at(self.current_frame, li)
+                for li in range(len(source_frame.layers))]
         self.frames.insert(at, new_frame)
+        for li, block in enumerate(held):
+            if block is not None and block[1] < self.current_frame:
+                clear_slot(new_frame.layers[li])
+                end = block[1] + block[2]
+                for column in range(at, min(end + 1, len(self.frames))):
+                    if column < end:
+                        replace_slot(self.frames[column], li, source_frame.layers[li].clone_reference())
+                    else:
+                        clear_slot(self.frames[column].layers[li])
         self.current_frame = at
         self.changed.emit()
         self.selectionChanged.emit()
@@ -264,20 +266,10 @@ class TimelineStructureMixin(CanvasMembers):
                 if not layer._track.connected:
                     self.install_legacy_frames()
                 self._document.put_archive_hint(
-                    layer._track, int(layer.sequence_number), archive_hint(layer),
+                    layer._track, int(layer.sequence_number),
+                    replace(archive_hint(layer), exposure=exposure),
                 )
-            if exposure > 1:
-                layer.exposure = exposure - 1
-                self._shift_timeline_layer_left(
-                    layer_index,
-                    start + exposure,
-                )
-            else:
-                self._clear_timeline_layer_cell(layer)
-                self._shift_timeline_layer_left(
-                    layer_index,
-                    start + 1,
-                )
+            self._shift_timeline_layer_left(layer_index, current + 1)
             self.current_frame = min(current, len(self.frames) - 1)
         elif len(self.frames) > 1:
             # ほかのレイヤーの時間列は動かさず、選択レイヤーだけを詰める。
@@ -333,28 +325,33 @@ class TimelineStructureMixin(CanvasMembers):
             layer_index = self.active_layer_index
         layer_index = int(layer_index)
 
+        from .timeline_metadata import reference_for
         columns = []
-        # A span starts exactly at an explicit content/blank key. Resolving
-        # every column backwards makes navigation quadratic on sparse sheets.
+        previous = None
         for column, frame in enumerate(self.frames):
             if not 0 <= layer_index < len(frame.layers):
+                previous = None
                 continue
             layer = frame.layers[layer_index]
-            if not is_pending(layer) and (layer.has_content or layer.is_blank_key):
+            reference = reference_for(layer)
+            starts = reference != previous or (reference.kind == "BLANK" and layer.blank_start)
+            if reference.kind != "EMPTY" and starts and not is_pending(layer):
                 columns.append(column)
+            previous = reference
         return columns
 
 
     def set_duration(self, d):
-        layer = self.active_layer
-        if not layer.has_content:
-            source = self.resolve_key_frame(self.current_frame, self.active_layer_index)
-            if source is not None:
-                self.frames[source].layers[self.active_layer_index].exposure = max(1, int(d))
-            else:
-                layer.exposure = max(1, int(d))
-        else:
-            layer.exposure = max(1, int(d))
+        block = self.timeline_block_at(self.current_frame, self.active_layer_index)
+        if block is not None:
+            _kind, start, length = block
+            duration = max(1, int(d))
+            self._ensure_frame_count(start + duration)
+            source = self.frames[start].layers[self.active_layer_index]
+            for column in range(start + 1, start + duration):
+                self.frames[column].layers[self.active_layer_index] = source.clone_reference()
+            for column in range(start + duration, start + length):
+                self._clear_timeline_layer_cell(self.frames[column].layers[self.active_layer_index])
         self.changed.emit()
 
     def current_exposure(self):
@@ -376,8 +373,7 @@ class TimelineStructureMixin(CanvasMembers):
             < len(self.frames[key_column].layers)
         ):
             return None
-        key_layer = self.frames[key_column].layers[layer_index]
-        exposure = max(1, int(key_layer.exposure))
+        exposure = self.timeline_block_at(key_column, layer_index)[2]
         end_column = min(
             len(self.frames) - 1,
             key_column + exposure - 1,
@@ -450,7 +446,7 @@ class TimelineStructureMixin(CanvasMembers):
         mark_pending(target)
         if target._track.connected:
             target.__dict__.pop("_cell", None)
-        target.exposure = 1
+        target.blank_start = True
         self.current_frame = new_column
         self.active_layer_index = layer_index
         self._cell_structure_dirty = True
@@ -560,6 +556,10 @@ class TimelineStructureMixin(CanvasMembers):
                 if is_pending(layer) and layer.sequence_number is not None:
                     pending.append((int(layer.sequence_number), layer_index, column, layer.clone()))
         for number, layer_index, source_column, copied in sorted(pending):
+            # Placement used sparse explicit keys, including clipped v1 lengths.
+            # Keep that boundary policy separate from the dense operation span.
+            from .document import project_v1_state
+            projected, _ = project_v1_state(self.frames)
             target_exposure = 1
             previous = None
             for column, frame in enumerate(self.frames):
@@ -574,33 +574,75 @@ class TimelineStructureMixin(CanvasMembers):
             target_column = None
             if previous is not None:
                 start, previous_layer = previous
-                exposure = max(1, int(previous_layer.exposure))
+                exposure = self.timeline_block_at(start, layer_index)[2]
+                position = previous_layer.__dict__.get("_v1_position")
+                imported = previous_layer.__dict__.get("_dense_import")
+                signature = (previous_layer.has_content, previous_layer.is_blank_key,
+                             previous_layer.sequence_number, previous_layer.sequence_only,
+                             previous_layer.blank_start)
+                next_column = start + exposure
+                following = (self.frames[next_column].layers[layer_index]
+                             if next_column < len(self.frames) else None)
+                if (position is not None and position.legacy is not None
+                        and imported is not None and imported[0] == signature
+                        and following is not None and following.has_content
+                        and not is_pending(following)):
+                    exposure = max(exposure, int(position.legacy.exposure))
                 if exposure > 1:
                     # 保持区間の長さは変えず、前半を既存番号、後半を
                     # 追加番号へ分配する。
                     target_column = start + max(1, exposure // 2)
-                    previous_layer.exposure = target_column - start
                     target_exposure = start + exposure - target_column
+                    from dataclasses import replace
+                    from .legacy_v1 import V1Position, snapshot_layer
+                    previous_layer.__dict__["_v1_position"] = V1Position(
+                        replace(snapshot_layer(position.legacy if position is not None
+                                               and position.legacy is not None else previous_layer),
+                                exposure=target_column - start), key_start=True,
+                        blank_start=previous_layer.blank_start)
             if target_column is None:
                 visible_columns = [
                     column
-                    for column, frame in enumerate(self.frames)
+                    for column, frame in enumerate(projected)
                     if any(
                         (layer.has_content or layer.is_blank_key)
-                        and not is_pending(layer)
+                        and not layer.sequence_only
                         for layer in frame.layers
                     )
                 ]
                 target_column = (max(visible_columns) + 1) if visible_columns else 0
             self._ensure_frame_count(target_column + 1)
             target = self.frames[target_column].layers[layer_index]
-            if target.has_content or target.is_blank_key:
+            occupied = self.timeline_block_at(target_column, layer_index)
+            collided = False
+            if (target.has_content or target.is_blank_key) and (
+                    occupied is None or occupied[1] == target_column):
+                collided = True
                 target_column = len(self.frames)
                 self._ensure_frame_count(target_column + 1)
                 target = self.frames[target_column].layers[layer_index]
+            if (previous is None and occupied is not None
+                    and occupied[1] < target_column):
+                # A new explicit key cuts the previous hold, including its tail.
+                for index in range(target_column + target_exposure, occupied[1] + occupied[2]):
+                    self._clear_timeline_layer_cell(self.frames[index].layers[layer_index])
+            # Placing another pending of the same number can split a previous
+            # placement; keep that old v1 boundary without splitting dense spans.
+            from .legacy_v1 import V1Position, snapshot_layer
+            tail_position = (self.frames[target_column + target_exposure].layers[layer_index]
+                             if target_column + target_exposure < len(self.frames) else None)
+            if tail_position is not None and tail_position.has_content:
+                tail_position.__dict__["_v1_position"] = V1Position(
+                    snapshot_layer(tail_position), key_start=True)
             copy_drawing_reference(target, copied)
             clear_pending(target)
-            target.exposure = max(1, int(target_exposure))
+            from dataclasses import replace
+            target.__dict__["_v1_position"] = V1Position(
+                replace(snapshot_layer(target), exposure=target_exposure), key_start=True)
+            dense_end = target_column + (1 if collided else target_exposure)
+            self._ensure_frame_count(dense_end)
+            for index in range(target_column + 1, dense_end):
+                replace_slot(self.frames[index], layer_index, target.clone_reference())
             target.visible = copied.visible
             target.opacity = copied.opacity
             self._clear_timeline_layer_cell(
@@ -626,162 +668,72 @@ class TimelineStructureMixin(CanvasMembers):
         self.update()
 
     def move_timeline_cell(self, source_frame, source_layer, destination_frame, destination_layer):
-        source_frame = int(source_frame)
-        destination_frame = int(destination_frame)
-        source_layer = int(source_layer)
-        destination_layer = int(destination_layer)
+        source_frame, source_layer = int(source_frame), int(source_layer)
+        destination_frame, destination_layer = int(destination_frame), int(destination_layer)
         if not (0 <= source_frame < len(self.frames)) or destination_frame < 0:
             return False
-        if not (0 <= source_layer < len(self.frames[source_frame].layers)):
+        if not (0 <= source_layer < len(self.frames[source_frame].layers)
+                and 0 <= destination_layer < len(self.frames[0].layers)):
             return False
-        source = self.frames[source_frame].layers[source_layer]
-        source_is_blank = bool(
-            getattr(source, "is_blank_key", False)
-        )
-        if not (source.has_content or source_is_blank):
+        block = self.timeline_block_at(source_frame, source_layer)
+        if block is None:
             return False
-
+        kind, source_frame, source_span = block
+        source_end = source_frame + source_span
+        moving = [self.frames[index].layers[source_layer].clone_slot()
+                  for index in range(source_frame, source_end)]
+        previous = (self.timeline_block_at(source_frame - 1, source_layer)
+                    if source_frame else None)
+        tail = (self.timeline_block_at(source_end, source_layer)
+                if source_end < len(self.frames) else None)
+        tail_blank = ((tail[1], tail[1] + tail[2])
+                      if kind == "content" and source_layer == destination_layer
+                      and tail is not None and tail[0] == "blank" else None)
+        # Freeze all source references before publishing any modifications.
         self.push_doc_undo()
-        moving = source.clone()
-        moving.exposure = max(1, int(source.exposure))
-
-        # 同一レイヤー内で後方へ移動するときは、元セルを抜いた分だけ座標を補正。
-        source_span = max(1, int(source.exposure))
-        # セルの直後にくっついた空セル（✗）は、セルと一緒に動かす。
-        tail_blank = None
-        old_end = source_frame + source_span
-        if (
-            not source_is_blank
-            and source_layer == destination_layer
-            and old_end < len(self.frames)
-        ):
-            tail = self.frames[old_end].layers[source_layer]
-            if getattr(tail, "is_blank_key", False) and not tail.has_content:
-                tail_blank = (old_end, old_end + max(1, int(tail.exposure)))
-        self._clear_timeline_layer_cell(source)
-
-        # 隣接する「●ーー」の直後のキーを移動した場合、抜けた位置は
-        # 空セルにせず直前キーの保持区間（ー）として埋める。
-        previous_key = None
-        for index in range(source_frame - 1, -1, -1):
-            candidate = self.frames[index].layers[source_layer]
-            if (
-                candidate.has_content
-                or getattr(candidate, "is_blank_key", False)
-            ):
-                previous_key = index
-                break
-        if previous_key is not None:
-            previous = self.frames[previous_key].layers[source_layer]
-            previous_end = previous_key + max(1, int(previous.exposure))
-            if previous_end >= source_frame:
-                fill_until = source_frame + source_span
-                if (
-                    source_layer == destination_layer
-                    and destination_frame > source_frame
-                ):
-                    # キーを右へずらした距離全体を直前キーの保持で埋める。
-                    # 移動元の1コマ分だけ延長すると途中が未使用になる。
-                    fill_until = max(fill_until, destination_frame)
-                previous.exposure = max(
-                    int(previous.exposure),
-                    fill_until - previous_key,
-                )
-
-        self._ensure_frame_count(destination_frame + 1)
-        if not (0 <= destination_layer < len(self.frames[destination_frame].layers)):
-            return False
-
-        occupying_block = self.timeline_block_at(
-            destination_frame,
-            destination_layer,
-        )
-        if occupying_block is not None:
-            _occupying_kind, key, _occupying_exposure = (
-                occupying_block
-            )
-            if int(key) != source_frame:
-                occupied = self.frames[key].layers[
-                    destination_layer
-                ]
-                if key < destination_frame:
-                    # 保持区間上へ落とした場合は落下位置で切る。
-                    occupied.exposure = max(
-                        1,
-                        destination_frame - key,
-                    )
-                elif key == destination_frame:
-                    # 既存の●／○以降を右へ1セル送る。
-                    keys = [
-                        index
-                        for index in range(len(self.frames))
-                        if (
-                            (
-                                self.frames[index]
-                                .layers[destination_layer]
-                                .has_content
-                            )
-                            or getattr(
-                                self.frames[index]
-                                .layers[destination_layer],
-                                "is_blank_key",
-                                False,
-                            )
-                        )
-                        and index >= destination_frame
-                    ]
-                    self._ensure_frame_count(
-                        len(self.frames) + 1
-                    )
-                    for index in reversed(keys):
-                        target = index + 1
-                        self._ensure_frame_count(target + 1)
-                        src = self.frames[index].layers[
-                            destination_layer
-                        ]
-                        dst = self.frames[target].layers[
-                            destination_layer
-                        ]
-                        copied = src.clone()
-                        # 画素は変わらないので複製しない（暗黙共有で十分）。
-                        copy_drawing_reference(dst, copied)
-                        dst.exposure = int(copied.exposure)
-                        dst.visible = bool(copied.visible)
-                        dst.opacity = float(copied.opacity)
-                        dst.alpha_locked = bool(
-                            copied.alpha_locked
-                        )
-                        dst.color_filter_enabled = bool(
-                            copied.color_filter_enabled
-                        )
-                        dst.color_filter_rgb = (
-                            tuple(copied.color_filter_rgb)
-                            if copied.color_filter_rgb is not None
-                            else None
-                        )
-                        self._clear_timeline_layer_cell(src)
-
-        destination = self.frames[destination_frame].layers[destination_layer]
-        if source_layer != destination_layer:
-            import_drawing_reference(
-                self.frames, {}, destination_frame, destination_layer,
-                moving, preferred_frame=destination_frame,
-                content=not source_is_blank, blank=source_is_blank)
-        else:
-            copy_drawing_reference(destination, moving, content=not source_is_blank, blank=source_is_blank)
-        destination.exposure = moving.exposure
-        destination.visible = moving.visible
-        destination.opacity = moving.opacity
-        destination.color_filter_enabled = moving.color_filter_enabled
-        destination.color_filter_rgb = (
-            tuple(moving.color_filter_rgb)
-            if moving.color_filter_rgb is not None else None
-        )
-        new_end = destination_frame + max(1, int(moving.exposure))
-        if not source_is_blank:
-            self._follow_blanks(
-                destination_layer, destination_frame, new_end, tail_blank,
-            )
+        for index in range(source_frame, source_end):
+            self._clear_timeline_layer_cell(self.frames[index].layers[source_layer])
+        if previous is not None and previous[1] + previous[2] == source_frame:
+            fill_end = source_end
+            if source_layer == destination_layer and destination_frame > source_frame:
+                fill_end = max(fill_end, destination_frame)
+                if tail is not None:
+                    fill_end = min(fill_end, tail[1])
+            self._ensure_frame_count(fill_end)
+            template = self.frames[previous[1]].layers[source_layer]
+            for index in range(source_frame, fill_end):
+                replace_slot(self.frames[index], source_layer, template.clone_reference())
+        self._ensure_frame_count(destination_frame + source_span)
+        occupied = self.timeline_block_at(destination_frame, destination_layer)
+        if occupied is not None:
+            _kind, start, length = occupied
+            if start == destination_frame and start != source_frame:
+                self._shift_timeline_layer_right(destination_layer, destination_frame, 1)
+            elif start < destination_frame:
+                # The old key was truncated at the drop position; its tail
+                # must not reappear beyond the moved drawing.
+                for index in range(destination_frame, start + length):
+                    self._clear_timeline_layer_cell(self.frames[index].layers[destination_layer])
+        end = destination_frame + source_span
+        # Determine displaced circles before replacing their visible positions.
+        if kind == "content":
+            self._follow_blanks(destination_layer, destination_frame, end, tail_blank)
+        for offset, copied in enumerate(moving):
+            index = destination_frame + offset
+            target = self.frames[index].layers[destination_layer]
+            if source_layer != destination_layer:
+                import_drawing_reference(
+                    self.frames, {}, index, destination_layer, copied,
+                    preferred_frame=destination_frame,
+                    content=kind == "content", blank=kind == "blank")
+            else:
+                replace_slot(self.frames[index], destination_layer, copied)
+                target = self.frames[index].layers[destination_layer]
+            target.blank_start = kind == "blank" and offset == 0
+        # Moving a member removes its membership at the destination, while
+        # untouched members keep their original position metadata.
+        self.frames[destination_frame].layers[destination_layer].tween = None
+        self.frames[destination_frame].layers[destination_layer].tween_member = None
         self.current_frame = destination_frame
         self.active_layer_index = destination_layer
         self._onion_cache.clear()
@@ -791,46 +743,32 @@ class TimelineStructureMixin(CanvasMembers):
         return True
 
     def _follow_blanks(self, layer_index, start, end, tail_blank=None):
-        """動かしたセル（start〜end の手前）に合わせて空セルを付け直す。
-
-        重なった空セルはセルの終わりまで押し出し（空セルの終わりは動かさない）、
-        元の直後にくっついていた空セルは、セルの新しい終わりから始める。
-        """
-        blank_end = None
+        """Move displaced blank coverage to the end of a moved drawing."""
+        spans = {}
         for column in range(start + 1, min(end, len(self.frames))):
-            layer = self.frames[column].layers[layer_index]
-            if getattr(layer, "is_blank_key", False) and not layer.has_content:
-                blank_end = max(
-                    blank_end or 0, column + max(1, int(layer.exposure))
-                )
-                self._clear_timeline_layer_cell(layer)
+            block = self.timeline_block_at(column, layer_index)
+            if block is not None and block[0] == "blank":
+                spans[block[1]] = block[1] + block[2]
         if tail_blank is not None:
-            tail_start, tail_end = tail_blank
-            if tail_start != end:
-                tail = self.frames[tail_start].layers[layer_index]
-                if tail_start >= end and getattr(tail, "is_blank_key", False):
-                    self._clear_timeline_layer_cell(tail)
-                blank_end = max(blank_end or 0, tail_end)
-        if blank_end is None or blank_end <= end:
+            spans[tail_blank[0]] = tail_blank[1]
+        if not spans:
             return
-        # 押し出した先から次のキーまでの間だけを空セルにする。
-        next_key = next(
-            (
-                column for column in range(end, len(self.frames))
-                if self.frames[column].layers[layer_index].has_content
-                or getattr(self.frames[column].layers[layer_index], "is_blank_key", False)
-            ),
-            None,
-        )
-        if next_key is not None and next_key == end:
+        blank_end = max(spans.values())
+        for left, right in spans.items():
+            for column in range(left, min(right, len(self.frames))):
+                self._clear_timeline_layer_cell(self.frames[column].layers[layer_index])
+        if blank_end <= end:
             return
+        next_key = next((column for column in range(end, len(self.frames))
+                         if self.timeline_block_at(column, layer_index) is not None), None)
         if next_key is not None:
             blank_end = min(blank_end, next_key)
-        self._ensure_frame_count(end + 1)
-        blank = self.frames[end].layers[layer_index]
-        self._clear_timeline_layer_cell(blank)
-        blank.is_blank_key = True
-        blank.exposure = max(1, blank_end - end)
+        self._ensure_frame_count(blank_end)
+        for column in range(end, blank_end):
+            blank = self.frames[column].layers[layer_index]
+            self._clear_timeline_layer_cell(blank)
+            blank.is_blank_key = True
+            blank.blank_start = column == end
 
 
     def _ensure_frame_count(self, count):

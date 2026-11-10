@@ -21,9 +21,10 @@ from paintmaskanimator import constants, layout_paper, project_io
 from paintmaskanimator.clip_animation import (
     ClipAnimationDocument, ClipAnimationLayer, ClipCelKey, build_pma_frames,
 )
-from paintmaskanimator.document import ArchiveHint, Document, clear_slot
+from paintmaskanimator.document import ArchiveHint, Document, clear_slot, project_v1_state
+from paintmaskanimator.legacy_v1 import LegacyLayerV1, legacy_layer_to_slot, snapshot_layer
 from paintmaskanimator.main_window import MainWindow
-from paintmaskanimator.models import Cell, Frame, Layer
+from paintmaskanimator.models import Cell, Frame
 from paintmaskanimator.undo_entries import DocUndo, history_label_for
 
 
@@ -37,7 +38,7 @@ def image(color="red", width=16, height=16):
 
 
 def slot(number=None, color="transparent", **kwargs):
-    return Layer("A", image(color), sequence_number=number, **kwargs)
+    return legacy_layer_to_slot(LegacyLayerV1("A", image(color), sequence_number=number, **kwargs))
 
 
 def pixels(img):
@@ -52,7 +53,37 @@ def pixels(img):
 
 
 def history(stack):
-    return [[type(entry).__name__, history_label_for(entry), entry.nbytes]
+    def logical_bytes(entry):
+        if not isinstance(entry, DocUndo):
+            return entry.nbytes
+        # D1 measured the sparse graph's image slots. Dense holds share a Cell;
+        # observe the equivalent v1 graph instead of its storage allocation.
+        frames = entry.snapshot.frames
+        projected, _ = project_v1_state(frames)
+        seen = set()
+        total = 0
+        for fi, frame in enumerate(projected):
+            for li, saved in enumerate(frame.layers):
+                live = frames[fi].layers[li]
+                cell = (live._track.cells.get(saved.sequence_number)
+                        if saved.has_content or saved.sequence_only else None)
+                if cell is not None:
+                    if id(cell) in seen:
+                        continue
+                    seen.add(id(cell))
+                item = cell if cell is not None else saved
+                total += item.image.sizeInBytes()
+                if item.initial_image is not None:
+                    total += item.initial_image.sizeInBytes()
+        for track in getattr(entry.snapshot, "tracks", ()):
+            for cell in track.cells.values():
+                if id(cell) not in seen:
+                    seen.add(id(cell))
+                    total += cell.image.sizeInBytes()
+                    if cell.initial_image is not None:
+                        total += cell.initial_image.sizeInBytes()
+        return total
+    return [[type(entry).__name__, history_label_for(entry), logical_bytes(entry)]
             for entry in stack]
 
 
@@ -68,14 +99,30 @@ def graph(c, *, size=None):
                           "cell_name": cell.cell_name})
         return refs[key]
 
-    slots = [[{"number": s.sequence_number, "content": s.has_content,
-               "blank": s.is_blank_key, "exposure": s.exposure,
-               "pending": s.sequence_only, "tween": s.tween,
-               "tween_member": s.tween_member, "cell": cell_ref(s._cell),
-               "connected": s._track.connected,
-               "owner_column": next((i for i, t in enumerate(c._document.tracks)
-                                     if t is s._track), None)}
-              for s in f.layers] for f in c.frames]
+    # Observe the old sparse position graph through the v1 projection. Dense
+    # hold references are storage, not extra drawings in the D1 observation.
+    if any(not layer._track.connected for layer in c.frames[0].layers):
+        # Raw boundary observations precede installation, including mixed columns.
+        projected = [Frame([snapshot_layer(s) for s in f.layers], f.duration)
+                     for f in c.frames]
+    else:
+        projected, _archive = project_v1_state(c.frames)
+    slots = []
+    for fi, frame in enumerate(projected):
+        row = []
+        for li, saved in enumerate(frame.layers):
+            live = c.frames[fi].layers[li]
+            cell = (live._track.cells.get(saved.sequence_number)
+                    if saved.has_content or saved.sequence_only else None)
+            row.append({"number": saved.sequence_number, "content": saved.has_content,
+                        "blank": saved.is_blank_key, "exposure": saved.exposure,
+                        "pending": saved.sequence_only, "tween": saved.tween,
+                        "tween_member": saved.tween_member,
+                        "cell": cell_ref(cell if cell is not None else saved),
+                        "connected": live._track.connected,
+                        "owner_column": next((i for i, t in enumerate(c._document.tracks)
+                                              if t is live._track), None)})
+        slots.append(row)
     tracks = []
     for t in c._document.tracks:
         tracks.append({
@@ -208,7 +255,10 @@ def test_refresh_installs_detached_conflicts_once(window):
     track.cells[9] = Cell(image("cyan"), image("black"), "archive")
     c._document.put_archive_hint(track, 9, ArchiveHint())
     # A raw conflicting column alongside an already registered hint-bearing bank.
-    c.frames = [Frame([s, existing.clone_slot()]) for s in conflicts()]
+    # Deliberately stage the raw refresh boundary, rather than the frames setter
+    # (which now installs immediately with the current preferred frame).
+    c._document.frames = [Frame([s, existing.clone_slot()]) for s in conflicts()]
+    c._document.sync_columns()
     c.current_frame = 4
     r = Recorder(c)
     r.take("before")
@@ -481,7 +531,10 @@ def test_removal_paths_keep_v1_payload_and_reload_behavior(window, tmp_path, mon
     paint(c)
     r.take("paint")
     c.push_doc_undo()
-    clear_slot(c.active_layer)
+    # Remove the old sparse key's range, retaining a later same-number key.
+    saved_key = project_v1_state(c.frames)[0][c.current_frame].layers[c.active_layer_index]
+    for index in range(c.current_frame, min(len(c.frames), c.current_frame + saved_key.exposure)):
+        clear_slot(c.frames[index].layers[c.active_layer_index])
     c.undo()
     r.take("docundo")
     # Remove all content keys: reload deliberately exercises existing number normalization.
@@ -504,7 +557,9 @@ def test_removal_paths_keep_v1_payload_and_reload_behavior(window, tmp_path, mon
     # open adds one trailing empty frame; clear_slot preserves local initial images.
     raw_frames = [Frame([slot(initial_image=image("blue") if i in (0, 2, 4) else None)])
                   for i in range(8)]
-    frames, archive, pngs = project_io.build_v1_payload(raw_frames, raw_archive)
+    frames, archive, pngs = project_io.build_v1_payload(
+        [Frame([snapshot_layer(s) for s in f.layers], f.duration) for f in raw_frames],
+        {key: snapshot_layer(s) for key, s in raw_archive.items()})
     independent = {"frames": frames, "archive": archive,
                    "pngs": {name: pixels(img) for name, img, _ in pngs}}
     golden("save/independent", independent)

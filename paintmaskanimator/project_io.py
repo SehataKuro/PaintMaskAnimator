@@ -29,7 +29,8 @@ from .constants import (
     MAX_PROJECT_METADATA_BYTES,
 )
 from .imaging import white_to_transparent_qimage
-from .models import Frame, Layer, default_layer_name
+from .models import Frame, default_layer_name
+from .legacy_v1 import raw_v1_slot as Layer
 from .tween_groups import sanitize_spec
 from .utils import blank_image
 from .logging_setup import get_logger

@@ -5,7 +5,7 @@ The sheet and image-resolution columns deliberately have different pending rules
 """
 from __future__ import annotations
 
-from copy import deepcopy
+from copy import copy, deepcopy
 from dataclasses import dataclass, fields, replace
 from typing import Any
 
@@ -35,10 +35,12 @@ class LegacyLayerV1:
 def snapshot_layer(layer) -> LegacyLayerV1:
     """Detach payloads/settings from a raw, layout, restored or imported slot."""
     values = {}
+    original = getattr(layer, "__dict__", {}).get("_legacy_input")
     for field in fields(LegacyLayerV1):
-        value = getattr(layer, field.name, field.default)
+        value = (original.exposure if original is not None and field.name == "exposure"
+                 else getattr(layer, field.name, field.default))
         if field.name in ("image", "initial_image"):
-            value = value.copy() if value is not None else None
+            value = copy(value) if value is not None else None
         else:
             value = deepcopy(value)
         values[field.name] = value
@@ -221,5 +223,12 @@ def legacy_layer_to_slot(layer: LegacyLayerV1):
     from .models import Layer
 
     copied = snapshot_layer(layer)
-    return Layer(**{field.name: getattr(copied, field.name)
-                    for field in fields(LegacyLayerV1)})
+    slot = Layer(**{field.name: getattr(copied, field.name)
+                    for field in fields(LegacyLayerV1) if field.name != "exposure"})
+    slot.__dict__["_legacy_input"] = copied
+    return slot
+
+
+def raw_v1_slot(*args, **kwargs):
+    """Build a detached input for the v1 reader; never a live exposure owner."""
+    return legacy_layer_to_slot(LegacyLayerV1(*args, **kwargs))

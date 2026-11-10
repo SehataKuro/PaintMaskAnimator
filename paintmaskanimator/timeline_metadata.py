@@ -3,7 +3,7 @@ from . import native
 
 
 METADATA_FIELDS = (
-    "has_content", "is_blank_key", "exposure", "sequence_number", "sequence_only",
+    "has_content", "is_blank_key", "blank_start", "sequence_number", "sequence_only",
 )
 
 
@@ -43,3 +43,30 @@ def timeline_metadata(cls):
     for name in METADATA_FIELDS:
         setattr(cls, name, metadata_property(name))
     return cls
+
+
+def reference_for(layer, *, resolve=False):
+    """Read dense truth, including the v1 pending display/image exception."""
+    from .legacy_v1 import DenseReference
+    imported = layer.__dict__.get("_dense_import")
+    signature = (layer.has_content, layer.is_blank_key, layer.sequence_number,
+                 layer.sequence_only, layer.blank_start)
+    if imported is not None and imported[0] == signature:
+        return imported[2 if resolve else 1]
+    if layer.sequence_only and not resolve:
+        return DenseReference()
+    if layer.has_content:
+        return DenseReference("CELL", layer.sequence_number)
+    return DenseReference("BLANK" if layer.is_blank_key else "EMPTY")
+
+
+def snapshot_metadata(layer, *, resolve=False):
+    if "_dense_import" not in layer.__dict__ and not getattr(layer, "sequence_only", False):
+        return layer.__dict__.get("_timeline_metadata")
+    reference = reference_for(layer, resolve=resolve)
+    data = native._native.TimelineCell()
+    data.has_content = reference.kind == "CELL"
+    data.is_blank_key = reference.kind == "BLANK"
+    data.sequence_number = reference.number
+    data.blank_start = layer.blank_start
+    return data

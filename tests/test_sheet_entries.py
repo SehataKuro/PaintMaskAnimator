@@ -11,7 +11,9 @@ from PySide6.QtGui import QImage  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from paintmaskanimator import native  # noqa: E402
-from paintmaskanimator.document import clear_pending, mark_pending  # noqa: E402
+from paintmaskanimator.document import clear_pending, mark_pending
+from paintmaskanimator.legacy_v1 import LegacyLayerV1, legacy_layer_to_slot
+from dense_fixtures import hold, dense_raw  # noqa: E402
 from paintmaskanimator.main_window import MainWindow  # noqa: E402
 from paintmaskanimator.models import Frame, Layer  # noqa: E402
 from paintmaskanimator.sheet import (  # noqa: E402
@@ -21,7 +23,7 @@ from paintmaskanimator.timeline import TimelineWidget  # noqa: E402
 
 
 def cell(**kwargs):
-    return Layer("A", QImage(), **kwargs)
+    return legacy_layer_to_slot(LegacyLayerV1("A", QImage(), **kwargs))
 
 
 @pytest.fixture(scope="module")
@@ -34,6 +36,7 @@ def test_sequence_only_missing_layers_and_unnumbered():
                      cell(has_content=True, exposure=0)]),
               Frame([cell(has_content=True, is_blank_key=True, sequence_only=True,
                           sequence_number=99)]), Frame([]), Frame([cell()]), Frame([])]
+    frames = dense_raw(frames)
     sheet = sheet_from_frames(frames)
     assert [row[0].number for row in sheet] == [7, 7, 7, 7, EMPTY]
     assert [row[1].number for row in sheet] == [UNNUMBERED, EMPTY, EMPTY, EMPTY, EMPTY]
@@ -50,6 +53,7 @@ def test_new_explicit_key_cuts_long_exposure(blank):
     frames = [Frame([cell(has_content=True, exposure=20, sequence_number=1)]),
               Frame([cell(has_content=not blank, is_blank_key=blank,
                           exposure=2, sequence_number=2)]), Frame([]), Frame([])]
+    frames = dense_raw(frames)
     assert [row[0].number for row in sheet_from_frames(frames)] == [
         1, BLANK if blank else 2, BLANK if blank else 2, EMPTY,
     ]
@@ -62,6 +66,7 @@ def test_new_explicit_key_cuts_long_exposure(blank):
 def test_exposure_is_at_least_one_and_content_wins(exposure):
     frames = [Frame([cell(has_content=True, is_blank_key=True, exposure=exposure)]),
               Frame([cell()])]
+    frames = dense_raw(frames)
     assert sheet_from_frames(frames) == [[SheetEntry(UNNUMBERED)], [SheetEntry(EMPTY)]]
 
 
@@ -86,6 +91,7 @@ def test_random_sheets_match_timeline_span_at(qapp):
             for _ in range(rng.randrange(5))
         ]) for _ in range(rng.randint(20, 45))]
         layers = max(len(frame.layers) for frame in frames)
+        frames = dense_raw(frames)
         sheet = sheet_from_frames(frames)
         raw = native.sheet_entries(frames)
         for column, row in enumerate(sheet):
@@ -125,14 +131,12 @@ def test_numbers_match_time_remap(window, pattern):
             layer.has_content = layer.is_blank_key = False
             clear_pending(layer)
             layer.sequence_number = None
-            layer.exposure = 1
         first = window.canvas.frames[0].layers[index]
         first.has_content = True
         first._track.cells.setdefault(int(3 + index), first._cell)
         first.sequence_number = 3 + index
-        first.exposure = 8
+        hold(window.canvas, 0, 8, index)
         next_key = window.canvas.frames[3].layers[index]
-        next_key.exposure = 2
         next_key.has_content = pattern != "blank"
         next_key.is_blank_key = pattern == "blank"
         if pattern == "archive":
@@ -142,6 +146,7 @@ def test_numbers_match_time_remap(window, pattern):
         if pattern in ("held", "archive"):
             next_key._track.cells.setdefault(int(8 + index), next_key._cell)
         next_key.sequence_number = None if pattern == "unnumbered" else 8 + index
+        hold(window.canvas, 3, 2, index)
         assert sheet_numbers(window.canvas.frames, index) == window.time_remap.timeline_states(index)
 
 
@@ -151,7 +156,8 @@ def test_read_does_not_change_layers_and_tween_is_deepcopied():
               Frame([cell(tween={"ignored": [3]}, tween_member="held")]),
               Frame([cell(is_blank_key=True, exposure=2,
                           tween={"blank": [4]}, tween_member="blank")]), Frame([])]
-    names = ("has_content", "is_blank_key", "exposure", "sequence_only",
+    frames = dense_raw(frames)
+    names = ("has_content", "is_blank_key", "blank_start", "sequence_only",
              "sequence_number", "tween", "tween_member")
     def snapshot():
         return [[deepcopy([getattr(layer, name) for name in names])
@@ -163,8 +169,8 @@ def test_read_does_not_change_layers_and_tween_is_deepcopied():
     assert snapshot() == before
     assert Layer.timeline_revision == revision
     assert sheet[0][0].tween_member == "group"
-    assert sheet[1][0].tween is None
-    assert sheet[1][0].tween_member is None
+    assert sheet[1][0].tween == {"ignored": [3]}
+    assert sheet[1][0].tween_member == "held"
     assert sheet[2][0].is_blank
     assert sheet[2][0].tween_member == "blank"
     assert sheet[3][0].tween is None

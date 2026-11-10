@@ -220,8 +220,11 @@ class AppDriver:
 
     def set_exposure(self, frame: int, layer_index: int, exposure: int) -> None:
         """キーの表示コマ数（露出）を変える。足りないコマは補う。"""
+        from paintmaskanimator.document import replace_slot
         self.canvas._ensure_frame_count(frame + exposure)
-        self.canvas.frames[frame].layers[layer_index].exposure = exposure
+        source = self.canvas.frames[frame].layers[layer_index]
+        for column in range(frame + 1, frame + exposure):
+            replace_slot(self.canvas.frames[column], layer_index, source.clone_reference())
         self.process_events()
 
     def enable_tween(self, layer_index: int, key_column: int, mode: str = "free") -> None:

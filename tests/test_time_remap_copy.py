@@ -7,6 +7,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+from tests.dense_fixtures import hold  # noqa: E402
+
 from paintmaskanimator.errors import OperationError  # noqa: E402
 from paintmaskanimator.main_window import MainWindow  # noqa: E402
 
@@ -32,7 +34,6 @@ def lay_out(window, plan):
     """``plan`` は列ごとの絵番号（None は空セル）。"""
     for column, number in enumerate(plan):
         layer = window.canvas.frames[column].layers[0]
-        layer.exposure = 1
         if number is None:
             layer.has_content = False
             layer.is_blank_key = False
@@ -52,7 +53,7 @@ def test_the_sheet_reads_back_as_drawing_numbers(window):
 
 def test_an_exposure_repeats_its_number_for_every_frame(window):
     lay_out(window, [1, None, None, None, None, None])
-    window.canvas.frames[0].layers[0].exposure = 3
+    hold(window.canvas, 0, 3)
 
     assert window.time_remap.timeline_states()[:3] == [1, 1, 1]
 

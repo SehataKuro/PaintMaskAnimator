@@ -2946,9 +2946,8 @@ class TimelineWidget(QWidget):
                     )
                 self.table.setItem(visual_row, col, item)
         self._apply_row_heights()
-        selected_layer = frames[current].layers[active]
         self.duration.blockSignals(True)
-        self.duration.setValue(max(1, selected_layer.exposure))
+        self.duration.setValue(max(1, self.timeline_span_at(frames, active, current)[2]))
         self.duration.blockSignals(False)
 
         valid_selected = [
@@ -2995,15 +2994,8 @@ class TimelineWidget(QWidget):
 
     @staticmethod
     def key_at_or_before(frames, layer_index, column):
-        for key_col in range(column, -1, -1):
-            if layer_index >= len(frames[key_col].layers):
-                continue
-            layer = frames[key_col].layers[layer_index]
-            if layer.has_content:
-                if column < key_col + max(1, layer.exposure):
-                    return key_col
-                return None
-        return None
+        from .frame_scope import resolve_key_frame
+        return resolve_key_frame(frames, column, layer_index)
 
     def select_current(self, column, active):
         row = max(0, self.table.rowCount() - 1 - active)

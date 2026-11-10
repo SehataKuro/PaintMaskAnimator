@@ -17,6 +17,8 @@ from PySide6.QtGui import QImage
 
 from .models import ArchiveHint, Cell, Frame, Layer, Track, make_frame
 from .utils import blank_image
+from .legacy_v1 import (LegacyLayerV1, legacy_layer_to_slot, snapshot_layer,
+                        expand_legacy, compress_v1, V1Position)
 
 
 class PendingEntry(NamedTuple):
@@ -229,7 +231,19 @@ class Document:
 
     def install_legacy_frames(self, frames, sequence_archive=None):
         """Normalize detached legacy data once, before publishing it to the UI."""
-        archive = sequence_archive if sequence_archive is not None else {}
+        frames = [Frame([legacy_layer_to_slot(slot) if isinstance(slot, LegacyLayerV1)
+                         else slot for slot in frame.layers], frame.duration) for frame in frames]
+        archive = {key: legacy_layer_to_slot(slot) if isinstance(slot, LegacyLayerV1)
+                   else slot for key, slot in (sequence_archive or {}).items()}
+        raw = any("_legacy_input" in slot.__dict__ for frame in frames for slot in frame.layers)
+        width = max((len(frame.layers) for frame in frames), default=0)
+        for frame in frames:
+            while len(frame.layers) < width:
+                li = len(frame.layers)
+                template = next(other.layers[li] for other in frames if li < len(other.layers))
+                slot = Layer(template.name, blank_image())
+                slot.__dict__["_legacy_missing"] = True
+                frame.layers.append(slot)
         for li, first in enumerate(frames[0].layers if frames else []):
             slots = [frame.layers[li] for frame in frames]
             archived = [(int(n), layer) for (index, n), layer in archive.items()
@@ -287,6 +301,26 @@ class Document:
                     layer.__dict__.pop("_cell", None)
             for number, layer in archived:
                 self.put_archive_hint(track, number, archive_hint(layer))
+        if raw:
+            rows = [[snapshot_layer(slot) for slot in frame.layers
+                     if not slot.__dict__.get("_legacy_missing", False)] for frame in frames]
+            expanded = expand_legacy(rows)
+            for column, frame in enumerate(frames):
+                for li, slot in enumerate(frame.layers):
+                    reference = expanded.sheet[column][li]
+                    slot.__dict__["_v1_position"] = expanded.positions[column][li]
+                    if not slot.sequence_only:
+                        slot.has_content = reference.kind == "CELL"
+                        slot.is_blank_key = reference.kind == "BLANK"
+                        slot.blank_start = expanded.positions[column][li].blank_start
+                        if slot.has_content:
+                            slot.sequence_number = reference.number
+                            slot.__dict__.pop("_cell", None)
+                    signature = (slot.has_content, slot.is_blank_key, slot.sequence_number,
+                                 slot.sequence_only, slot.blank_start)
+                    slot.__dict__["_dense_import"] = (
+                        signature, reference, expanded.resolved[column][li])
+                    slot.__dict__.pop("_legacy_input", None)
         self.frames = frames
         self.tracks = [layer._track for layer in frames[0].layers] if frames else []
 
@@ -300,7 +334,12 @@ class Document:
 
     def restore(self, snap):
         frames, current_frame, active_layer_index, width, height = snap[:5]
+        frames = [Frame([legacy_layer_to_slot(slot) if isinstance(slot, LegacyLayerV1)
+                         else slot for slot in frame.layers], frame.duration) for frame in frames]
         self.frames, _ = clone_frame_graph(frames)
+        self.current_frame = current_frame
+        if any("_legacy_input" in slot.__dict__ for frame in self.frames for slot in frame.layers):
+            self.install_legacy_frames(self.frames)
         self.tracks = [layer._track for layer in self.frames[0].layers] if self.frames else []
         self.current_frame = current_frame
         self.active_layer_index = active_layer_index
@@ -351,7 +390,9 @@ def clone_frame_graph(frames, sequence_archive=None):
 def archive_hint(layer):
     """Detach the non-image state of a legacy explicit archive entry."""
     return ArchiveHint(bool(layer.has_content), bool(layer.is_blank_key),
-                       int(layer.exposure), bool(layer.sequence_only),
+                       int(getattr(layer, "exposure",
+                           getattr(layer.__dict__.get("_legacy_input"), "exposure", 1))),
+                       bool(layer.sequence_only),
                        deepcopy(layer.tween), deepcopy(layer.tween_member))
 
 
@@ -360,13 +401,19 @@ def clear_slot(layer, *, blank=False):
 
     Detached legacy slots keep their former initial-image copy semantics.
     """
+    position = layer.__dict__.get("_v1_position")
     layer.detach_cell()
+    layer.__dict__.pop("_v1_position", None)
+    layer.__dict__.pop("_dense_import", None)
     layer.__dict__.pop("_content_origin", None)
     layer.sequence_number = None
+    if position is not None and position.legacy is not None and not position.legacy.has_content:
+        initial = position.legacy.initial_image
+        layer.initial_image = QImage(initial) if initial is not None else None
     layer.image = blank_image()
     layer.has_content = False
     layer.is_blank_key = blank
-    layer.exposure = 1
+    layer.blank_start = bool(layer.is_blank_key)
     layer.sequence_number = None
     clear_pending(layer)
     layer.cell_name = None
@@ -390,7 +437,7 @@ def create_drawing(layer, image, *, number):
     layer.sequence_number = number
     layer.image = image
     layer.has_content = True
-    layer.exposure = 1
+    layer.blank_start = bool(layer.is_blank_key)
     if layer._track.connected:
         layer.__dict__.pop("_cell", None)
 
@@ -413,7 +460,7 @@ def place_number(target, source, number):
         target._track.cells.setdefault(int(number), target._cell)
     target.sequence_number = int(number)
     clear_pending(target)
-    target.exposure = 1
+    target.blank_start = bool(target.is_blank_key)
     if target._track.connected:
         target.__dict__.pop("_cell", None)
 
@@ -438,7 +485,10 @@ def copy_drawing_reference(target, source, *, content=None, blank=None):
     target.has_content = content
     target.is_blank_key = blank
     target.set_pending(source.sequence_only)
-    target.exposure = source.exposure
+    target.blank_start = source.blank_start
+    target.__dict__["_v1_position"] = V1Position(
+        snapshot_layer(target), key_start=bool(content or blank),
+        blank_start=target.blank_start, pending=source.sequence_only)
     if track.connected and (content or source.sequence_only):
         target.__dict__.pop("_cell", None)
 
@@ -506,6 +556,13 @@ def apply_number_mapping(frames, archive, layer_index, mapping, *,
                                       for n, hint in track.legacy_archive_hints.items()}
     for frame in frames:
         layer = frame.layers[layer_index]
+        position = layer.__dict__.get("_v1_position")
+        if position is not None and position.legacy is not None:
+            saved_number = position.legacy.sequence_number
+            if saved_number in mapping:
+                layer.__dict__["_v1_position"] = replace(
+                    position, legacy=replace(position.legacy,
+                                             sequence_number=mapping[saved_number]))
         if layer.sequence_number is not None:
             old = int(layer.sequence_number)
             if normalize_archive_keys or old in mapping:
@@ -576,7 +633,9 @@ def project_v1_state(frames, sequence_archive=None):
     """Project unreferenced bank drawings to v1 archive without mutating live data."""
     if not frames or not any(layer._track.connected for layer in frames[0].layers):
         # Raw v1 inputs pass through without installation or numbering.
-        return frames, sequence_archive
+        return [Frame([snapshot_layer(slot) for slot in frame.layers], frame.duration)
+                for frame in frames], {key: snapshot_layer(slot)
+                                      for key, slot in (sequence_archive or {}).items()}
     connected_columns = {li for li, layer in enumerate(frames[0].layers)
                          if layer._track.connected}
     # Raw entries belong only to unconnected columns. Connected columns derive
@@ -594,11 +653,42 @@ def project_v1_state(frames, sequence_archive=None):
             if cell is None:
                 continue
             hint = track.legacy_archive_hints.get(number, ArchiveHint())
-            layer = Layer(track.name, cell.image, has_content=hint.has_content,
+            layer = LegacyLayerV1(track.name, cell.image,
+                          visible=track.visible, opacity=track.opacity,
+                          is_paper=track.is_paper, is_draft=track.is_draft,
+                          alpha_locked=track.alpha_locked,
+                          color_filter_enabled=track.color_filter_enabled,
+                          color_filter_rgb=deepcopy(track.color_filter_rgb),
+                          initial_image=QImage(cell.initial_image) if cell.initial_image is not None else None,
+                          cell_name=cell.cell_name, has_content=hint.has_content,
                           is_blank_key=hint.is_blank_key, exposure=hint.exposure,
                           sequence_number=number, sequence_only=hint.sequence_only,
                           tween=deepcopy(hint.tween), tween_member=deepcopy(hint.tween_member))
-            layer.__dict__["_track"] = track.copy_settings()
-            layer.__dict__["_cell"] = cell
             archive[(li, number)] = layer
-    return frames, archive
+    rows, positions = [], []
+    from .timeline_metadata import reference_for
+    from .timeline_span import span_at
+    for column, frame in enumerate(frames):
+        row, markers = [], []
+        for li, slot in enumerate(frame.layers):
+            reference = reference_for(slot)
+            row.append(reference)
+            old = slot.__dict__.get("_v1_position")
+            payload = snapshot_layer(slot)
+            if old is not None and old.legacy is not None:
+                payload = replace(old.legacy, name=slot.name, tween=deepcopy(slot.tween),
+                                  tween_member=slot.tween_member)
+                if slot.has_content and (old.legacy.has_content
+                                         or span_at(frames, li, column)[1] == column):
+                    payload = replace(payload, image=QImage(slot.image),
+                                      initial_image=QImage(slot.initial_image)
+                                      if slot.initial_image is not None else None,
+                                      cell_name=slot.cell_name)
+            if old is not None and old.legacy is None:
+                payload = None
+            markers.append(V1Position(payload, old.key_start if old else False,
+                                      slot.blank_start, slot.sequence_only))
+        rows.append(row)
+        positions.append(markers)
+    projected = compress_v1(rows, positions)
+    return [Frame(list(row), frame.duration) for row, frame in zip(projected, frames)], archive

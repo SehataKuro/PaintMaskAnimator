@@ -11,6 +11,8 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from paintmaskanimator import constants  # noqa: E402
 from paintmaskanimator.frame_scope import FrameScope, apply_over_scope  # noqa: E402
+from dense_fixtures import hold
+from paintmaskanimator.document import create_drawing, project_v1_state
 from paintmaskanimator.main_window import MainWindow  # noqa: E402
 from paintmaskanimator.models import make_frame  # noqa: E402
 from paintmaskanimator.undo_entries import (  # noqa: E402
@@ -48,10 +50,17 @@ def window(qapp, tmp_path, monkeypatch):
 
 def put(canvas, frame, number, color="red", exposure=1):
     layer = canvas.frames[frame].layers[0]
-    layer.sequence_number = number
-    layer.exposure = exposure
-    layer.has_content = True
-    layer.image.fill(QColor(color))
+    image = layer.image.copy()
+    image.fill(QColor(color))
+    if number is None:
+        # Raw unnumbered history fixtures intentionally precede installation.
+        from paintmaskanimator.legacy_v1 import raw_v1_slot
+        layer = raw_v1_slot(layer.name, image, has_content=True)
+        canvas.frames[frame].layers[0] = layer
+        assert exposure == 1
+    else:
+        create_drawing(layer, image, number=number)
+        hold(canvas, frame, exposure)
     return layer
 
 
@@ -60,7 +69,7 @@ def state(canvas):
     return ([
         (layer.sequence_number, layer.exposure, layer.has_content,
          layer.image.pixelColor(5, 5).name(QColor.NameFormat.HexArgb))
-        for frame in canvas.frames for layer in [frame.layers[0]]
+        for frame in project_v1_state(canvas.frames)[0] for layer in [frame.layers[0]]
     ], canvas.current_frame, canvas.active_layer_index,
         len(canvas.undo_stack), len(canvas.redo_stack))
 

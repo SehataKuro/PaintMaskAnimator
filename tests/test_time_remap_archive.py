@@ -9,6 +9,8 @@ from PySide6.QtGui import QColor  # noqa: E402
 from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
 
 from paintmaskanimator.errors import OperationError  # noqa: E402
+from paintmaskanimator.document import create_drawing  # noqa: E402
+
 from paintmaskanimator.main_window import MainWindow  # noqa: E402
 from paintmaskanimator.models import Layer, make_frame  # noqa: E402
 from paintmaskanimator.utils import blank_image  # noqa: E402
@@ -49,9 +51,7 @@ def sheet_with_archived_four(window, placed=(1, 2, 3), archived=(4,)):
     canvas.frames = [make_frame(names) for _ in range(len(placed))]
     for column, number in enumerate(placed):
         layer = canvas.frames[column].layers[0]
-        layer.image = image_of(number)
-        layer.has_content = True
-        layer.sequence_number = number
+        create_drawing(layer, image_of(number), number=number)
     archive = {
         (0, number): Layer(names[0], image_of(number), has_content=True, sequence_number=number)
         for number in archived

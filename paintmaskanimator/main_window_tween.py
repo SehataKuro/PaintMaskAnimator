@@ -156,7 +156,7 @@ class TweenController:
         ):
             return
         key_layer = self.window.canvas.frames[key_column].layers[layer_index]
-        exposure = max(1, int(key_layer.exposure))
+        exposure = self.window.canvas.timeline_block_at(key_column, layer_index)[2]
         if not key_layer.has_content or exposure < 2:
             QMessageBox.warning(
                 self.window,
@@ -349,10 +349,9 @@ class TweenController:
         # 区間を 1 枚のキーにまとめてから変形を始める。
         original = (members[-1] if reverse else key).image.copy()
         key.image = original
-        key.exposure = length
         key.tween = None
-        for member in members:
-            canvas._clear_timeline_layer_cell(member)
+        for offset in range(1, length):
+            canvas.frames[key_column + offset].layers[layer_index] = key.clone_reference()
         mode = "mesh" if spec.get("mode") == "mesh" else "free"
         if mode == "mesh":
             self.window.tools.transform_mesh_grid_x.setValue(
@@ -670,7 +669,6 @@ class TweenController:
                     layer.image = image
                 layer.has_content = True
                 layer.is_blank_key = False
-                layer.exposure = 1
                 if offset == 0:
                     layer.tween = tween_groups.make_spec(
                         tween_id, exposure, transform_mode, reverse_generation,

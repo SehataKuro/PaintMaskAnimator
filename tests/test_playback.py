@@ -6,6 +6,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+from tests.dense_fixtures import hold  # noqa: E402
+
 from paintmaskanimator.canvas import PaintCanvas  # noqa: E402
 from paintmaskanimator.models import make_frame  # noqa: E402
 
@@ -20,10 +22,10 @@ def test_playback_key_map_respects_exposure_and_gaps(qapp):
     canvas.frames = [make_frame() for _ in range(5)]
     first = canvas.frames[0].layers[0]
     first.has_content = True
-    first.exposure = 3
+    hold(canvas, 0, 3)
     fourth = canvas.frames[3].layers[0]
     fourth.has_content = True
-    fourth.exposure = 1
+    hold(canvas, 3, 1)
 
     canvas._build_playback_key_map()
 

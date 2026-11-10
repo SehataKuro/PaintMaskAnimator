@@ -4,7 +4,7 @@ import pytest
 from PySide6.QtCore import QRect
 from PySide6.QtGui import QColor
 
-from paintmaskanimator.document import ArchiveHint, clear_slot
+from paintmaskanimator.document import ArchiveHint, clear_slot, mark_pending
 from paintmaskanimator import i18n
 from paintmaskanimator.models import make_frame
 from paintmaskanimator.undo_entries import LayerRegionUndo, LayerTilesUndo, LayerUndo, history_label_for
@@ -60,6 +60,7 @@ def test_missing_number_discarded(window):
     put(c, 0, 3)
     c.push_layer_undo()
     c.frames[0] = make_frame(["A", "B"])
+    c._document.tracks[0].cells.pop(3)
     c.undo()
     assert not c.undo_stack and not c.redo_stack
 
@@ -118,8 +119,10 @@ def test_resolve_priority_and_sequence_only(window):
     e = c.undo_stack[-1]
     assert c._resolve_drawing_undo_target(e).column == 2
     c.frames[2] = make_frame(["A", "B"])
-    c.frames[0].layers[0].sequence_only = True
-    assert c._resolve_drawing_undo_target(e) is None
+    mark_pending(c.frames[0].layers[0])
+    target = c._resolve_drawing_undo_target(e)
+    assert target.column is None and target.slot is None
+    assert target.cell is c._document.tracks[0].cells[3]
     c.timeline_mode = "sequence"
     assert c._resolve_drawing_undo_target(e).column == 0
 

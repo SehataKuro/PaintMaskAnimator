@@ -9,23 +9,25 @@ from PySide6.QtGui import QImage
 
 from paintmaskanimator import project_io
 from paintmaskanimator.models import Frame, Layer, TRACK_FIELDS
+from paintmaskanimator.legacy_v1 import raw_v1_slot
+from paintmaskanimator.document import project_v1_state
 from paintmaskanimator.tween_groups import make_spec
 
 
 def document():
     image = QImage(2, 2, QImage.Format.Format_ARGB32_Premultiplied)
     image.fill(0xff123456)
-    layers = [Layer("A", QImage(image), has_content=True, sequence_number=3,
+    layers = [raw_v1_slot("A", QImage(image), has_content=True, sequence_number=3,
                     cell_name="原画", initial_image=QImage(image)),
-              Layer("A", QImage(image), has_content=True, sequence_number=4),
-              Layer("A", QImage(image), has_content=True, sequence_number=3,
+              raw_v1_slot("A", QImage(image), has_content=True, sequence_number=4),
+              raw_v1_slot("A", QImage(image), has_content=True, sequence_number=3,
                     exposure=2),
-              Layer("A", QImage(image)),
-              Layer("A", QImage(image), is_blank_key=True),
-              Layer("A", QImage(image), sequence_only=True, sequence_number=8)]
+              raw_v1_slot("A", QImage(image)),
+              raw_v1_slot("A", QImage(image), is_blank_key=True),
+              raw_v1_slot("A", QImage(image), sequence_only=True, sequence_number=8)]
     layers[0].tween = make_spec("fixed-tween", 2, "free", False, [], [])
     layers[1].tween_member = "fixed-tween"
-    archived = Layer("A", QImage(image), has_content=True, sequence_number=9,
+    archived = raw_v1_slot("A", QImage(image), has_content=True, sequence_number=9,
                      cell_name="保管", initial_image=QImage(image))
     return [Frame([layer], 2 if i == 0 else 1) for i, layer in enumerate(layers)], {(0, 9): archived}
 
@@ -46,7 +48,7 @@ LEGACY_PNG_SHA256 = "d3fba234bbff8ce0849d2f216baee0fd536ea9f21419dc4764f57f42a5c
 
 def test_payload_matches_original_v1_metadata_and_entry_order(tmp_path):
     frames, archive = document()
-    frame_data, archive_data, pngs = project_io.build_v1_payload(frames, archive)
+    frame_data, archive_data, pngs = project_io.build_v1_payload(*project_v1_state(frames, archive))
     data = metadata()
     data["frames"] = frame_data
     data["sequence_archive"] = archive_data
@@ -101,7 +103,7 @@ def test_build_payload_does_not_mutate_document():
                 id(archive), [(key, layer_state(layer)) for key, layer in archive.items()])
 
     before = state()
-    project_io.build_v1_payload(frames, archive)
+    project_io.build_v1_payload(*project_v1_state(frames, archive))
     assert state() == before
 
 

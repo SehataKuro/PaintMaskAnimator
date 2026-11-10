@@ -5,6 +5,8 @@ from PySide6.QtGui import QImage
 
 from paintmaskanimator.document import Document, clear_pending, clear_slot, mark_pending
 from paintmaskanimator.models import Cell, Frame, Layer
+from paintmaskanimator.legacy_v1 import raw_v1_slot
+from tests.dense_fixtures import length
 from paintmaskanimator.timeline_metadata import metadata_for
 
 
@@ -15,7 +17,7 @@ def image():
 
 
 def test_install_preserves_duplicate_and_unnumbered_pending_positions():
-    slots = [Layer('A', image(), sequence_number=n, sequence_only=True)
+    slots = [raw_v1_slot('A', image(), sequence_number=n, sequence_only=True)
              for n in (3, 3, None)]
     doc = Document()
     doc.install_legacy_frames([Frame([slot]) for slot in slots])
@@ -79,12 +81,12 @@ def test_apply_does_not_place_all_unplaced_bank_drawings():
     try:
         track = canvas._document.tracks[0]
         track.cells.update({3: Cell(image()), 9: Cell(image())})
-        before = [(layer.sequence_number, layer.has_content, layer.exposure)
+        before = [(layer.sequence_number, layer.has_content, layer.blank_start)
                   for frame in canvas.frames for layer in frame.layers]
         changes = []
         canvas.changed.connect(lambda: changes.append(True))
         canvas.apply_sequence_only_entries()
-        assert before == [(layer.sequence_number, layer.has_content, layer.exposure)
+        assert before == [(layer.sequence_number, layer.has_content, layer.blank_start)
                           for frame in canvas.frames for layer in frame.layers]
         assert canvas._document.unplaced_numbers(track) == {3, 9}
         assert not changes
@@ -116,7 +118,7 @@ def test_pending_graph_shift_copy_exposure_trim_and_restore(qapp):
 
     canvas = PaintCanvas()
     try:
-        slots = [Layer('A', image()), Layer('A', image(), has_content=True,
+        slots = [raw_v1_slot('A', image()), raw_v1_slot('A', image(), has_content=True,
                                           sequence_number=3, sequence_only=True)]
         canvas.install_legacy_frames([Frame([slot]) for slot in slots])
         assert_pending_graph(canvas._document)
@@ -174,9 +176,9 @@ def window(qapp, monkeypatch, tmp_path):
 @pytest.mark.parametrize('exposure, split', [(4, (2, 2)), (5, (2, 3)), (1, (1, 1))])
 def test_set_mode_places_only_pending_and_preserves_selection_and_undo(window, exposure, split):
     canvas = window.canvas
-    slots = [Layer('A', image(), has_content=True, sequence_number=1, exposure=exposure)]
-    slots += [Layer('A', image()) for _ in range(4)]
-    slots += [Layer('A', image(), has_content=True, sequence_number=2, sequence_only=True)]
+    slots = [raw_v1_slot('A', image(), has_content=True, sequence_number=1, exposure=exposure)]
+    slots += [raw_v1_slot('A', image()) for _ in range(4)]
+    slots += [raw_v1_slot('A', image(), has_content=True, sequence_number=2, sequence_only=True)]
     canvas.install_legacy_frames([Frame([slot]) for slot in slots])
     track = canvas._document.tracks[0]
     track.cells[9] = Cell(image())
@@ -191,9 +193,9 @@ def test_set_mode_places_only_pending_and_preserves_selection_and_undo(window, e
     assert canvas.timeline_mode == 'sheet'
     assert len(canvas.undo_stack) == before + 1
     assert len(changes) == 1
-    assert canvas.frames[0].layers[0].exposure == split[0]
+    assert length(canvas, 0) == split[0]
     placed = canvas.frames[target].layers[0]
-    assert (placed.sequence_number, placed.has_content, placed.exposure) == (2, True, split[1])
+    assert (placed.sequence_number, placed.has_content, length(canvas, split[0])) == (2, True, split[1])
     assert not slots[5].has_content and not slots[5].sequence_only
     assert canvas._document.unplaced_numbers(track) == {9}
     assert_pending_graph(canvas._document, [slots[5]])
@@ -226,13 +228,13 @@ def test_pending_graph_column_duplicate_reorder_delete(window):
 @pytest.mark.parametrize('case', ['bank_only', 'none', 'duplicate'])
 def test_set_mode_pending_edge_cases_keep_bank_and_token_membership(window, case):
     canvas = window.canvas
-    slots = [Layer('A', image(), has_content=True, sequence_number=1, exposure=4)]
-    slots += [Layer('A', image()) for _ in range(4)]
+    slots = [raw_v1_slot('A', image(), has_content=True, sequence_number=1, exposure=4)]
+    slots += [raw_v1_slot('A', image()) for _ in range(4)]
     if case == 'none':
-        slots.append(Layer('A', image(), sequence_only=True))
+        slots.append(raw_v1_slot('A', image(), sequence_only=True))
     elif case == 'duplicate':
-        slots[4] = Layer('A', image(), has_content=True, sequence_number=2, sequence_only=True)
-        slots.append(Layer('A', image(), has_content=True, sequence_number=2, sequence_only=True))
+        slots[4] = raw_v1_slot('A', image(), has_content=True, sequence_number=2, sequence_only=True)
+        slots.append(raw_v1_slot('A', image(), has_content=True, sequence_number=2, sequence_only=True))
     canvas.install_legacy_frames([Frame([slot]) for slot in slots])
     track = canvas._document.tracks[0]
     track.cells[9] = Cell(image())

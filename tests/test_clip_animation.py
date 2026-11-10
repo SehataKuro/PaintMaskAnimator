@@ -1,3 +1,5 @@
+from paintmaskanimator.timeline_span import span_at
+from paintmaskanimator.document import Document, project_v1_state
 import os
 import sqlite3
 import struct
@@ -417,16 +419,17 @@ def test_build_pma_frames_coalesces_holds_and_preserves_cell_names():
     )
     frames = build_pma_frames(4, 3, 0, 7, (layer,))
     assert len(frames) == 8
-    assert frames[0].layers[0].exposure == 4
+    assert span_at(frames, 0, 0)[2] == 4
     assert frames[0].layers[0].sequence_number == 1
     assert frames[0].layers[0].cell_name is None
-    assert not frames[2].layers[0].has_content
+    assert frames[2].layers[0].has_content
+    assert frames[2].layers[0].sequence_number == 1
     assert frames[4].layers[0].is_blank_key
-    assert frames[4].layers[0].exposure == 1
+    assert span_at(frames, 0, 4)[2] == 1
     assert frames[5].layers[0].has_content
     assert frames[5].layers[0].cell_name == "A"
     assert frames[5].layers[0].sequence_number == 2
-    assert frames[5].layers[0].exposure == 3
+    assert span_at(frames, 0, 5)[2] == 3
 
 
 @requires_clip_native
@@ -445,7 +448,7 @@ def test_read_clip_animation_restores_rendered_cell_and_timeline(tmp_path):
     assert key.name == "動画"
     assert key.cell_name is None
     assert key.sequence_number == 1
-    assert key.exposure == 3
+    assert span_at(document.frames, 0, 0)[2] == 3
     assert key.image.pixelColor(0, 0) == QColor(10, 20, 30, 255)
     assert key.image.pixelColor(1, 0) == QColor(40, 50, 60, 255)
     assert path.read_bytes() == original
@@ -527,7 +530,7 @@ def test_unassigned_cel_track_keeps_chain_and_unused_cels(tmp_path):
     assert parsed.layers[0].keys == ()
     assert "1" in parsed.layers[0].cell_images
     assert parsed.frames[0].layers[0].is_blank_key
-    assert parsed.frames[0].layers[0].exposure == 3
+    assert span_at(parsed.frames, 0, 0)[2] == 3
     assert path.read_bytes() == original
 
 
@@ -631,7 +634,11 @@ def test_held_frames_use_shared_image_budget(monkeypatch):
     monkeypatch.setattr(clip_module, "MAX_PROJECT_DECODED_PIXELS", 8)
     frames = build_pma_frames(2, 2, 0, 120, (layer,))
     assert len(frames) == 121
-    assert frames[0].layers[0].exposure == 121
+    assert span_at(frames, 0, 0)[2] == 121
+    # Hidden v1 images retain the old transparent shared-buffer contract.
+    doc = Document()
+    doc.install_legacy_frames(frames)
+    frames, _ = project_v1_state(doc.frames)
     assert frames[1].layers[0].image.cacheKey() == frames[120].layers[0].image.cacheKey()
     frames[1].layers[0].image.fill(QColor("blue"))
     assert frames[120].layers[0].image.pixelColor(0, 0).alpha() == 0
@@ -1222,8 +1229,8 @@ def test_duplicate_cel_curve_uses_complete_matching_curve_and_60hz_timebase(tmp_
                       extra_keys=((0.0, "1"), (60.0, "")))
     parsed = read_clip_animation(path)
     assert parsed.layers[0].keys == (ClipCelKey(0, "1"), ClipCelKey(24, ""))
-    assert parsed.frames[0].layers[0].exposure == 24
-    assert parsed.frames[24].layers[0].exposure == 2
+    assert span_at(parsed.frames, 0, 0)[2] == 24
+    assert span_at(parsed.frames, 0, 24)[2] == 2
 
 
 @requires_clip_native
@@ -1239,9 +1246,9 @@ def test_native_clip_can_restore_initial_line_art_without_replacing_paint(qapp, 
         assert cell.initial_image.pixelColor(0, 0) == QColor(10, 20, 30, 255)
         cell.image = QImage(cell.image)
         cell.image.fill(QColor("red"))
-        exposure = cell.exposure
+        exposure = span_at(frames, 0, 0)[2]
         assert window.initial_state.import_clip_line_art(path) == 1
-        assert canvas.frames is frames and cell.exposure == exposure
+        assert canvas.frames is frames and span_at(frames, 0, 0)[2] == exposure
         assert cell.image.pixelColor(0, 0) == QColor("red")
         assert cell.initial_image.pixelColor(0, 0) == QColor(10, 20, 30, 255)
         canvas.undo()

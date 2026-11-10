@@ -9,7 +9,9 @@ from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
 from paintmaskanimator import clip_animation, constants, project_io
 from paintmaskanimator.main_window import MainWindow
-from paintmaskanimator.models import Frame, Layer
+from paintmaskanimator.models import Frame
+from paintmaskanimator.legacy_v1 import raw_v1_slot as Layer
+from paintmaskanimator.document import project_v1_state
 from paintmaskanimator.undo_entries import InitialStateUndo
 
 
@@ -59,16 +61,16 @@ def test_import_matches_numbers_not_frame_positions_and_preserves_work(window, t
     canvas = window.canvas
     canvas.current_frame = 2
     old_frames = canvas.frames
-    old_keys = [(cell.sequence_number, cell.exposure, cell.image.cacheKey())
+    old_keys = [(cell.sequence_number, cell.blank_start, cell.image.cacheKey())
                 for frame in canvas.frames for cell in frame.layers]
     assert window.initial_state.import_line_art(tmp_path) == 3
     assert canvas.frames is old_frames
     assert canvas.current_frame == 2
-    assert [(cell.sequence_number, cell.exposure, cell.image.cacheKey())
+    assert [(cell.sequence_number, cell.blank_start, cell.image.cacheKey())
             for frame in canvas.frames for cell in frame.layers] == old_keys
     assert canvas.frames[0].layers[0].initial_image.pixelColor(0, 0) == QColor("black")
     assert canvas.frames[2].layers[0].initial_image.cacheKey() == canvas.frames[0].layers[0].initial_image.cacheKey()
-    assert canvas.frames[1].layers[0].initial_image is None
+    assert project_v1_state(canvas.frames)[0][1].layers[0].initial_image is None
     assert canvas.frames[0].layers[1].initial_image.pixelColor(0, 0) == QColor("yellow")
     assert canvas._document.tracks[0].cells[3].initial_image.pixelColor(0, 0) == QColor("white")
     assert isinstance(canvas.undo_stack[-1], InitialStateUndo)
@@ -194,16 +196,16 @@ def test_clip_import_matches_cel_numbers_and_archives_with_one_undo(window, monk
     clip_document(monkeypatch)
     canvas = window.canvas
     frames = canvas.frames
-    before = [(cell.sequence_number, cell.exposure, cell.image.cacheKey())
+    before = [(cell.sequence_number, cell.blank_start, cell.image.cacheKey())
               for frame in frames for cell in frame.layers]
     undo_count = len(canvas.undo_stack)
     assert window.initial_state.import_clip_line_art("lines.clip") == 3
     assert canvas.frames is frames
-    assert before == [(cell.sequence_number, cell.exposure, cell.image.cacheKey())
+    assert before == [(cell.sequence_number, cell.blank_start, cell.image.cacheKey())
                       for frame in frames for cell in frame.layers]
     assert frames[0].layers[0].initial_image.pixelColor(0, 0) == QColor("black")
     assert frames[2].layers[0].initial_image.pixelColor(0, 0) == QColor("black")
-    assert frames[1].layers[0].initial_image is None
+    assert project_v1_state(frames)[0][1].layers[0].initial_image is None
     assert frames[0].layers[1].initial_image.pixelColor(0, 0) == QColor("yellow")
     assert canvas._document.tracks[0].cells[3].initial_image.pixelColor(0, 0) == QColor("white")
     assert len(canvas.undo_stack) == undo_count + 1

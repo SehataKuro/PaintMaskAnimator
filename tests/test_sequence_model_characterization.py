@@ -18,6 +18,7 @@ from PySide6.QtGui import QColor  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from paintmaskanimator.frame_scope import resolve_cells  # noqa: E402
+from dense_fixtures import hold, length
 from paintmaskanimator.main_window import MainWindow  # noqa: E402
 
 
@@ -46,7 +47,7 @@ def put_cell(window, column, number, *, exposure=1, layer_index=0, color="#10101
     layer.is_blank_key = False
     layer._track.cells.setdefault(int(number), layer._cell)
     layer.sequence_number = int(number)
-    layer.exposure = int(exposure)
+    hold(window.canvas, column, int(exposure), layer_index)
     return layer
 
 
@@ -156,7 +157,7 @@ def test_drawing_on_a_held_frame_edits_the_key_not_a_new_cell(window):
     window.canvas.ensure_editable_key()
 
     assert window.canvas.current_frame == 0
-    assert window.canvas.frames[0].layers[0].exposure == 4
+    assert length(window.canvas, 0) == 4
 
 
 def test_drawing_on_an_unused_frame_makes_a_key_there(window):
@@ -252,7 +253,6 @@ def test_the_sheet_survives_a_time_remap_round_trip(window):
     """
     for column, number in enumerate([1, 2, None, 3, 3, None, 4]):
         layer = window.canvas.frames[column].layers[0]
-        layer.exposure = 1
         if number is None:
             layer.has_content = False
             layer.is_blank_key = False

@@ -18,6 +18,7 @@ from .main_window_import import ImportController
 from .errors import OPERATION_ERRORS as _OPERATION_ERRORS, OperationError
 from .models import ArchiveHint, Cell
 from .document import clear_slot
+from .legacy_v1 import V1Position, snapshot_layer
 from .utils import blank_image
 from .widgets import (
     TimeRemapPasteDialog,
@@ -414,27 +415,22 @@ class TimeRemapController:
             current_frame
         ].layers[layer_index]
 
-        # 対象範囲より前のキーの露出が入り込まないよう切る。
-        for prior in range(start_frame - 1, -1, -1):
-            prior_layer = self.window.canvas.frames[prior].layers[layer_index]
-            exposure = max(1, int(prior_layer.exposure))
-            if prior + exposure > start_frame:
-                prior_layer.exposure = max(1, start_frame - prior)
-                break
-            if prior_layer.has_content:
-                break
-
         # 対象範囲をいったん明示空セルに戻す。
         for frame_index in range(start_frame, end_frame + 1):
             layer = self.window.canvas.frames[frame_index].layers[layer_index]
             self.window.layers._copy_display_properties(template, layer)
             clear_slot(layer)
+            layer.__dict__["_v1_position"] = V1Position(snapshot_layer(layer))
 
-        # 同じ絵番号／空フレームが連続する区間を露出へ圧縮。
-        for offset, length, run_state in sheet.runs_from_states(states):
+        # The parsed range is already a dense reference column.
+        for offset, run_state in enumerate(states):
             target = self.window.canvas.frames[start_frame + offset].layers[layer_index]
             self.window.layers._copy_display_properties(template, target)
-            target.exposure = max(1, length)
+            run_start = offset == 0 or states[offset - 1] != run_state
+            position = target.__dict__["_v1_position"]
+            target.__dict__["_v1_position"] = V1Position(
+                position.legacy, key_start=run_start, blank_start=run_state is None and run_start)
+            target.blank_start = run_state is None and run_start
             if run_state is None:
                 target.image = blank_image()
                 target.has_content = False
@@ -452,6 +448,9 @@ class TimeRemapController:
                 if target._track.connected:
                     target.__dict__.pop("_cell", None)
                 target.is_blank_key = False
+            if run_start:
+                target.__dict__["_v1_position"] = V1Position(
+                    snapshot_layer(target), key_start=True, blank_start=run_state is None)
 
 
     def apply_to_active_layer(self, parsed, confirm=True):

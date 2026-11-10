@@ -26,15 +26,20 @@ def image(color="red", width=64, height=32):
 
 
 def reference(frames, column, index):
-    for key in range(column, -1, -1):
-        if index >= len(frames[key].layers):
-            continue
-        layer = frames[key].layers[index]
-        if layer.has_content:
-            return key if column < key + max(1, layer.exposure) else -1
-        if layer.is_blank_key:
-            return -1
-    return -1
+    if index >= len(frames[column].layers):
+        return -1
+    slot = frames[column].layers[index]
+    if not slot.has_content:
+        return -1
+    key = column
+    while key > 0:
+        if index >= len(frames[key - 1].layers):
+            break
+        previous = frames[key - 1].layers[index]
+        if not previous.has_content or previous.sequence_number != slot.sequence_number:
+            break
+        key -= 1
+    return key
 
 
 def test_exposure_index_matches_backwards_search():
@@ -43,7 +48,7 @@ def test_exposure_index_matches_backwards_search():
         frames = [Frame([
             Layer("A", QImage(), has_content=bool(rng.integers(0, 4) == 0),
                   is_blank_key=bool(rng.integers(0, 6) == 0),
-                  exposure=int(rng.integers(-2, 25)))
+                  sequence_number=int(rng.integers(1, 4)))
             for _ in range(int(rng.integers(0, 6)))
         ]) for _ in range(50)]
         expected = [[reference(frames, column, index) for index in range(5)]
@@ -54,8 +59,9 @@ def test_exposure_index_matches_backwards_search():
 def test_key_index_reused_and_invalidated_by_metadata_and_structure(qapp, monkeypatch):
     canvas = PaintCanvas()
     canvas.frames = [Frame([Layer("A", QImage())]) for _ in range(8)]
-    first = canvas.frames[0].layers[0]
-    first.has_content, first.exposure = True, 8
+    for frame in canvas.frames:
+        frame.layers[0].has_content = True
+        frame.layers[0].sequence_number = 1
     original = timeline_resolution.resolve_exposures
     calls = []
 
@@ -67,22 +73,27 @@ def test_key_index_reused_and_invalidated_by_metadata_and_structure(qapp, monkey
     for column in range(8):
         assert canvas.resolve_key_frame(column, 0) == 0
     assert len(calls) == 1
-    canvas.frames[4].layers[0].is_blank_key = True
+    for frame in canvas.frames[4:]:
+        frame.layers[0].has_content = False
+        frame.layers[0].is_blank_key = True
     assert canvas.resolve_key_frame(7, 0) is None
-    first.exposure = 2
+    for frame in canvas.frames[2:4]:
+        frame.layers[0].has_content = False
     assert canvas.resolve_key_frame(3, 0) is None
     canvas.frames[1], canvas.frames[0] = canvas.frames[0], canvas.frames[1]
     canvas.changed.emit()
-    assert canvas.resolve_key_frame(2, 0) == 1
+    assert canvas.resolve_key_frame(1, 0) == 0
     assert canvas.resolve_key_frame(3, 0) is None
 
 
 def test_playback_blank_keys_cancel_previous_exposure(qapp):
     canvas = PaintCanvas()
     canvas.frames = [Frame([Layer("A", QImage())]) for _ in range(5)]
-    canvas.frames[0].layers[0].has_content = True
-    canvas.frames[0].layers[0].exposure = 5
-    canvas.frames[2].layers[0].is_blank_key = True
+    for column, frame in enumerate(canvas.frames):
+        frame.layers[0].has_content = column < 2
+        frame.layers[0].sequence_number = 1 if column < 2 else None
+        frame.layers[0].is_blank_key = column >= 2
+        frame.layers[0].blank_start = column == 2
     canvas._build_playback_key_map()
     assert canvas._playback_resolved_keys == [[0], [0], [None], [None], [None]]
 
@@ -238,9 +249,9 @@ def test_native_display_validates_buffer_lengths():
         pytest.skip("native extension unavailable")
     with pytest.raises(ValueError, match="RGBA"):
         native._native.tint_onion(b"abc", (0, 0, 0), True, None)
-    with pytest.raises(ValueError, match="dimensions"):
-        native._native.resolve_exposures(b"a", b"", 1, 1)
-    assert native._native.resolve_exposures(b"", b"", 0, 0) == b""
+    assert not hasattr(native._native, "resolve_exposures")
+    assert native.resolve_timeline([]).shape == (0, 0)
+    assert native.resolve_timeline([Frame([])]).shape == (1, 0)
 
 
 @pytest.mark.parametrize("all_layers", [False, True])

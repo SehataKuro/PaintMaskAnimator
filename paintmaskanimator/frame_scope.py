@@ -50,20 +50,12 @@ def resolve_key_frame(frames, column, layer_index):
     if not frames:
         return None
     column = max(0, min(int(column), len(frames) - 1))
-    for key_column in range(column, -1, -1):
-        layers = frames[key_column].layers
-        if layer_index >= len(layers):
-            continue
-        layer = layers[layer_index]
-        if layer.has_content:
-            return (
-                key_column
-                if column < key_column + max(1, int(layer.exposure))
-                else None
-            )
-        if getattr(layer, "is_blank_key", False):
-            return None
-    return None
+    from .timeline_resolution import resolve_exposures
+    resolved = resolve_exposures(frames)
+    if not 0 <= layer_index < resolved.shape[1]:
+        return None
+    key = int(resolved[column, layer_index])
+    return key if key >= 0 else None
 
 
 @dataclass(frozen=True)

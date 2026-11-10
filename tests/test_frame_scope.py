@@ -44,10 +44,11 @@ class FakeDoc:
                     f"L{layer_index}",
                     make_image(color),
                     has_content=True,
+                    sequence_number=column + 1,
                 )
                 for layer_index in range(layer_count)
             ])
-            for _ in range(frame_count)
+            for column in range(frame_count)
         ]
         self.current_frame = 0
         self.active_layer_index = 0
@@ -111,9 +112,9 @@ def test_scope_can_cross_layers(qapp):
 def test_hold_cells_collapse_to_their_key_frame(qapp):
     doc = FakeDoc(frame_count=3)
     # コマ1・2は実体を持たない保持セル。コマ0のキーフレームだけを処理する。
-    for frame in doc.frames[1:]:
-        frame.layers[0].has_content = False
-    doc.frames[0].layers[0].exposure = 3
+    for frame in doc.frames:
+        frame.layers[0].has_content = True
+        frame.layers[0].sequence_number = 1
 
     assert resolve_cells(doc, FrameScope.all_frames(doc)) == [(0, 0)]
     result = apply_over_scope(
@@ -254,8 +255,9 @@ def test_canvas_undo_restores_every_scoped_cell(qapp):
     """ランナーの Undo エントリが実物の PaintCanvas で往復すること。"""
     canvas = PaintCanvas()
     canvas._ensure_frame_count(3)
-    for frame in canvas.frames:
-        frame.layers[0].has_content = True
+    from paintmaskanimator.document import create_drawing
+    for column, frame in enumerate(canvas.frames):
+        create_drawing(frame.layers[0], frame.layers[0].image, number=column + 1)
     before = [frame.layers[0].image.copy() for frame in canvas.frames]
 
     result = apply_over_scope(

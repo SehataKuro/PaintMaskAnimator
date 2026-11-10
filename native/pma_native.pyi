@@ -4,14 +4,14 @@
 """
 
 __version__: str
+TIMELINE_API_VERSION: int
 
 class TimelineCell:
     has_content: bool
     is_blank_key: bool
-    exposure: int
+    blank_start: bool
     sequence_number: int | None
     sequence_only: bool
-    cell_name: str | None
     def __init__(self) -> None: ...
 
 class SheetEntry:
@@ -123,7 +123,6 @@ def render_mesh_labels(
     ``coverage_labels`` ごとの被覆（0-255 の並び）を返す。
     """
 
-def resolve_exposures(states: bytes, exposures: bytes, frames: int, layers: int) -> bytes: ...
 def filter_palette(rgba: bytes, visible: list[tuple[int, int, int]] | None,
                    legacy: tuple[int, int, int] | None,
                    remap: list[tuple[tuple[int, int, int], tuple[int, int, int]]]) -> bytes: ...

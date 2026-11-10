@@ -13,12 +13,14 @@ log = get_logger(__name__)
 
 REQUIRED_API = (
     "TimelineCell", "resolve_timeline", "SheetEntry", "sheet_entries", "ClipAnimationReader", "GuideSampler",
-    "resolve_exposures", "tint_onion", "unique_colors", "filter_palette",
+    "tint_onion", "unique_colors", "filter_palette",
     "line_flow_scores", "connect_runs", "label_runs", "refine_face", "thin",
     "render_quad_labels", "render_mesh_labels",
     "surface_guided_palette_labels", "map_known_colors", "region_neighbors",
     "flood_fill", "dilate", "erode", "label_regions",
 )
+TIMELINE_API_VERSION = 2
+
 REBUILD_MESSAGE = (
     "PaintMaskAnimator requires its Rust extension. "
     "Install or rebuild it from the project directory: python -m pip install ./native"
@@ -26,6 +28,11 @@ REBUILD_MESSAGE = (
 
 
 def validate_backend(module):
+    version = getattr(module, "TIMELINE_API_VERSION", None)
+    if version != TIMELINE_API_VERSION:
+        raise ImportError(
+            f"{REBUILD_MESSAGE} (timeline API: expected {TIMELINE_API_VERSION}, got {version!r})"
+        )
     missing = [name for name in REQUIRED_API if not callable(getattr(module, name, None))]
     if missing:
         raise ImportError(f"{REBUILD_MESSAGE} (missing API: {', '.join(missing)})")
@@ -48,17 +55,10 @@ def clip_animation_reader(path: str, max_dimension: int, max_raster_bytes: int):
     return _native.ClipAnimationReader(path, max_dimension, max_raster_bytes)
 
 
-def resolve_exposures(states, exposures):
-    count, layers = states.shape
-    data = _native.resolve_exposures(
-        states.tobytes(), exposures.tobytes(), count, layers,
-    )
-    return np.frombuffer(data, dtype=np.int64).reshape(count, layers)
-
-
 def resolve_timeline(frames):
     """Read Rust-owned cell metadata directly, without packing NumPy inputs."""
-    rows = [[layer.__dict__.get("_timeline_metadata") for layer in frame.layers]
+    from .timeline_metadata import snapshot_metadata
+    rows = [[snapshot_metadata(layer, resolve=True) for layer in frame.layers]
             for frame in frames]
     layers = max(map(len, rows), default=0)
     data = _native.resolve_timeline(rows)
@@ -67,7 +67,8 @@ def resolve_timeline(frames):
 
 def sheet_entries(frames):
     """Rust が持つメタデータから、コマ × レイヤーの参照表を読み出す。"""
-    rows = [[layer.__dict__.get("_timeline_metadata") for layer in frame.layers]
+    from .timeline_metadata import snapshot_metadata
+    rows = [[snapshot_metadata(layer) for layer in frame.layers]
             for frame in frames]
     return _native.sheet_entries(rows)
 

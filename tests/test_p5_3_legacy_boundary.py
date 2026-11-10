@@ -1,7 +1,6 @@
-"""Phase B: independent fixed cases plus the still-available old Rust oracle."""
+"""Legacy conversion and installed dense boundary contracts."""
 from dataclasses import replace
 import random
-from types import SimpleNamespace
 
 import pytest
 from PySide6.QtGui import QColor, QImage
@@ -15,7 +14,7 @@ from paintmaskanimator.legacy_v1 import (
     compress_v1, expand_legacy, legacy_layer_to_slot, snapshot_frames, snapshot_layer,
 )
 from paintmaskanimator.main_window import MainWindow
-from paintmaskanimator.models import Frame, Layer
+from paintmaskanimator.models import Frame
 from paintmaskanimator.timeline_span import span_at
 from paintmaskanimator.undo_entries import DocUndo
 
@@ -117,11 +116,11 @@ def assert_payload_equal(a, b):
 
 
 def test_writer_reader_and_hidden_payload_roundtrip(tmp_path):
-    frames = [Frame([Layer("A", image("red"), has_content=True, exposure=3,
+    frames = [Frame([LegacyLayerV1("A", image("red"), has_content=True, exposure=3,
                            sequence_number=1)], 2),
-              Frame([Layer("A", image("cyan"), initial_image=image("green"),
+              Frame([LegacyLayerV1("A", image("cyan"), initial_image=image("green"),
                            cell_name="invisible", sequence_number=19)]),
-              Frame([Layer("A", image("yellow"), is_blank_key=True,
+              Frame([LegacyLayerV1("A", image("yellow"), is_blank_key=True,
                            sequence_number=21, exposure=5)])]
     rows = snapshot_frames(frames)
     dense = expand_legacy(rows)
@@ -138,7 +137,7 @@ def test_writer_reader_and_hidden_payload_roundtrip(tmp_path):
     reread = expand_legacy(snapshot_frames(loaded))
     assert reread.sheet == dense.sheet
     loaded_again = frames_from_rows(compress_v1(reread.sheet, reread.positions), [2, 1, 1])
-    assert_payload_equal(project_io.build_v1_payload(loaded),
+    assert_payload_equal(project_io.build_v1_payload(frames_from_rows(snapshot_frames(loaded), [2, 1, 1])),
                          project_io.build_v1_payload(loaded_again))
     frames[1].layers[0].image.fill(QColor("black"))
     frames[1].layers[0].initial_image.fill(QColor("black"))
@@ -150,7 +149,7 @@ def test_writer_reader_and_hidden_payload_roundtrip(tmp_path):
 def test_random_raw_rust_oracle_and_independent_dense_roundtrip():
     rng = random.Random(3153)
     for _ in range(100):
-        frames = [Frame([Layer("A", QImage(), has_content=rng.choice([True, False]),
+        frames = [Frame([LegacyLayerV1("A", QImage(), has_content=rng.choice([True, False]),
                                is_blank_key=rng.choice([True, False]),
                                sequence_only=rng.choice([True, False]),
                                sequence_number=rng.choice([None, 1, 2, 5]),
@@ -158,12 +157,29 @@ def test_random_raw_rust_oracle_and_independent_dense_roundtrip():
                          for _ in range(rng.randrange(4))])
                   for _ in range(rng.randrange(15))]
         dense = expand_legacy(snapshot_frames(frames))
-        oracle = native.sheet_entries(frames)
+        # Rust v2 consumes dense references, never sparse v1 DTOs. Check both
+        # independent expanded columns, with number=None preserved at this pure boundary.
+        from paintmaskanimator.models import Layer
+        from paintmaskanimator.timeline_metadata import metadata_for
+        def dense_frames(references, positions=dense.positions):
+            return [Frame([Layer("A", QImage(), has_content=ref.kind == "CELL",
+                                 is_blank_key=ref.kind == "BLANK",
+                                 sequence_number=ref.number,
+                                 blank_start=positions[i][li].blank_start)
+                           for li, ref in enumerate(row)])
+                    for i, row in enumerate(references)]
+        oracle = native.sheet_entries(dense_frames(dense.sheet))
         assert dense.sheet == tuple(tuple(
             EMPTY if entry.kind == 0 else BLANK if entry.kind == 1
             else DenseReference("CELL", entry.number) for entry in row) for row in oracle)
-        assert dense.sheet_keys == tuple(tuple(entry.key for entry in row) for row in oracle)
-        assert dense.resolve_keys == tuple(map(tuple, native.resolve_timeline(frames).tolist()))
+        resolved = dense_frames(dense.resolved)
+        keys = native.resolve_timeline(resolved).tolist()
+        for column, row in enumerate(keys):
+            for li, key in enumerate(row):
+                ref = dense.resolved[column][li]
+                assert (key >= 0) == (ref.kind == "CELL")
+                if key >= 0:
+                    assert metadata_for(resolved[key].layers[li]).sequence_number == ref.number
         assert expand_legacy(compress_v1(dense.sheet, dense.positions)).sheet == dense.sheet
         # Fresh compression has no legacy markers or pending payloads.
         assert expand_legacy(compress_v1(dense.sheet)).sheet == dense.sheet
@@ -179,9 +195,9 @@ def test_real_boundary_entrances(app, monkeypatch, entrance):
     window = MainWindow()
     try:
         canvas = window.canvas
-        raw = [Frame([Layer("A", image("red"), has_content=True,
+        raw = [Frame([LegacyLayerV1("A", image("red"), has_content=True,
                             exposure=3, sequence_number=7)])]
-        raw += [Frame([Layer("A", image("cyan"))]) for _ in range(2)]
+        raw += [Frame([LegacyLayerV1("A", image("cyan"))]) for _ in range(2)]
         if entrance == "clip":
             source = ClipAnimationLayer("clip", (ClipCelKey(0, "A-7"),),
                                         {"A-7": image("green")})
@@ -197,24 +213,30 @@ def test_real_boundary_entrances(app, monkeypatch, entrance):
             canvas.undo_stack.append(DocUndo(doc.snapshot()))
             canvas.undo()
             raw = canvas.frames
-        dense = expand_legacy(snapshot_frames(raw))
-        assert dense.sheet == tuple(tuple(
-            EMPTY if entry.kind == 0 else BLANK if entry.kind == 1
-            else DenseReference("CELL", entry.number)
-            for entry in row) for row in native.sheet_entries(raw))
+        canvas.install_legacy_frames(raw)
+        from paintmaskanimator.document import project_v1_state
+        from paintmaskanimator.sheet import sheet_numbers
+        li = 1 if entrance == "layout" else 0
+        number = 1 if entrance == "clip" else 7
+        assert sheet_numbers(canvas.frames, li) == [number] * 3
+        projected, _archive = project_v1_state(canvas.frames)
+        dense = expand_legacy(snapshot_frames(projected))
+        assert tuple(row[li] for row in dense.sheet) == refs(number, number, number)
         restored = frames_from_rows(compress_v1(dense.sheet, dense.positions),
-                                    [frame.duration for frame in raw])
-        assert_payload_equal(project_io.build_v1_payload(raw),
+                                    [frame.duration for frame in projected])
+        assert_payload_equal(project_io.build_v1_payload(projected),
                              project_io.build_v1_payload(restored))
     finally:
         window.close()
 
 
-def test_span_keeps_legacy_unclipped_length_and_pending_skip():
+def test_span_uses_installed_dense_length_and_pending_skip():
     rows = [[cell(1, exposure=20)], [cell(99, sequence_only=True)], [],
             [LegacyLayerV1(is_blank_key=True, exposure=0)], []]
-    frames = [SimpleNamespace(layers=row) for row in rows]
-    assert span_at(frames, 0, 2) == ("content", 0, 20)
+    doc = Document()
+    doc.install_legacy_frames(frames_from_rows(rows))
+    frames = doc.frames
+    assert span_at(frames, 0, 2) == ("content", 0, 3)
     assert span_at(frames, 0, 3) == ("blank", 3, 1)
     assert span_at(frames, 0, 4) == (None, None, 0)
     assert span_at(frames, -1, 0) == (None, None, 0)
@@ -257,7 +279,8 @@ def test_adapter_installs_old_keys_once_without_numbering_each_hold():
     doc.install_legacy_frames([Frame([legacy_layer_to_slot(slot) for slot in row])
                                for row in old])
     assert list(doc.tracks[0].cells) == [1]
-    assert expand_legacy(snapshot_frames(doc.frames)).sheet == (refs(1), refs(1), refs(1))
+    from paintmaskanimator.sheet import sheet_numbers
+    assert sheet_numbers(doc.frames, 0) == [1, 1, 1]
 
 
 def test_new_blank_marker_overrides_unchanged_visible_column():

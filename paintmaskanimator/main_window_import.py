@@ -513,7 +513,6 @@ class ImportController:
                         source_layer.name,
                         QImage(image),
                         has_content=True,
-                        exposure=1,
                         sequence_number=number,
                         cell_name=(
                             None
@@ -543,7 +542,8 @@ class ImportController:
             constants.CANVAS_WIDTH = old_state["width"]
             constants.CANVAS_HEIGHT = old_state["height"]
             self.window.canvas._document = old_state["document"]
-            self.window.canvas.frames = old_state["frames"]
+            # The old document is already installed; rollback restores its exact graph.
+            self.window.canvas._document.frames = old_state["frames"]
             self.window.canvas.current_frame = old_state["current_frame"]
             self.window.canvas.active_layer_index = old_state["active_layer_index"]
             self.window.canvas.timeline_mode = old_state["timeline_mode"]
@@ -952,7 +952,6 @@ class ImportController:
                 target = self.window.canvas.frames[start_frame + offset].layers[layer_index]
                 self.window.canvas._place_imported_image(image, target.image)
                 target.has_content = True
-                target.exposure = 1
                 target.sequence_number = offset + 1
         self.window.canvas.current_frame = start_frame
         self.window.canvas.install_legacy_frames()

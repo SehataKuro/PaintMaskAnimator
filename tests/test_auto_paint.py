@@ -7,6 +7,7 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication
 
 from paintmaskanimator import auto_paint, fill_tracking, imaging, line_flow, bucket_fill, project_io, reference_check
+from paintmaskanimator.document import create_drawing
 from paintmaskanimator.main_window import MainWindow
 from paintmaskanimator.undo_entries import ScopedBatchUndo
 
@@ -227,7 +228,7 @@ def put_cells(window, cells):
         full = np.zeros((layer.image.height(), layer.image.width(), 4), dtype=np.uint8)
         full[:pixels.shape[0], :pixels.shape[1]] = pixels
         layer.image = imaging.rgba_array_to_qimage(full)
-        layer.has_content = True
+        create_drawing(layer, layer.image, number=layer.sequence_number)
 
 
 def two_rooms(dx, divider_gap=False, wall_gap=False, painted=False):
@@ -318,13 +319,18 @@ def test_hand_painted_cell_guides_its_neighbours():
     assert color_at(after, 15, 20) == SKIN
 
 
-def test_auto_paint_paints_only_the_layer_and_undoes_once(window):
+@pytest.mark.parametrize("dense_hold", [False, True])
+def test_auto_paint_paints_only_the_layer_and_undoes_once(window, dense_hold):
     canvas = window.canvas
     canvas.add_layer()
     other = canvas.active_layer_index
     put_cells(window, [figure(0), figure(2), figure(4)])
     canvas.active_layer_index = 0
     put_cells(window, [figure(0, painted=True), figure(2), figure(4)])
+    if dense_hold:
+        from dense_fixtures import hold
+        hold(canvas, len(canvas.frames) - 1, 2)
+
     before = [frame.layers[other].image.copy() for frame in canvas.frames]
 
     cells = window.auto_paint.cells()
@@ -914,3 +920,24 @@ def test_plan_uses_the_reference_initial_trace_for_inclusive_fill():
     assert color_at(after, 32, 40) == SKIN
     assert color_at(after, 17, 40) == SKIN
     assert color_at(after, 47, 20) == LEAF
+
+
+def test_initial_state_and_auto_paint_process_dense_holds(window):
+    from dense_fixtures import hold
+
+    canvas = window.canvas
+    put_cells(window, [figure(0, painted=True), figure(2)])
+    hold(canvas, 1, 3)
+    assert window.auto_paint.cells() == [(0, 0), (1, 0)]
+    assert window.initial_state.keep(confirm=False) == 2
+    originals = [frame.layers[0].image.copy() for frame in canvas.frames]
+    assert window.auto_paint.run(window.auto_paint.cells(), 0)
+    for frame in canvas.frames[1:]:
+        assert frame.layers[0].image.pixelColor(47, 20) == QColor(*LEAF)
+        assert frame.layers[0].initial_image == originals[1]
+    assert len(canvas.undo_stack[-1].cells) == 1
+    canvas.undo()
+    assert [frame.layers[0].image for frame in canvas.frames] == originals
+    canvas.redo()
+    assert all(frame.layers[0].image.pixelColor(47, 20) == QColor(*LEAF)
+               for frame in canvas.frames[1:])

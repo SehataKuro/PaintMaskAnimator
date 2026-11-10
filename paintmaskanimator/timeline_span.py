@@ -1,37 +1,28 @@
-"""Common span entry point; Phase B retains the legacy exposure definition."""
+"""Dense timeline spans; blank starts retain independent adjacent circles."""
 
 
 def span_at(frames, layer_index, column):
-    """Return (kind, start, raw key length), including legacy unclipped length."""
-    if (
-        column < 0
-        or column >= len(frames)
-        or layer_index < 0
-    ):
+    if not 0 <= column < len(frames) or layer_index < 0:
         return None, None, 0
 
-    for start in range(column, -1, -1):
-        if layer_index >= len(frames[start].layers):
-            continue
-        layer = frames[start].layers[layer_index]
-        if getattr(layer, "sequence_only", False):
-            continue
-        is_content = bool(layer.has_content)
-        is_blank = bool(
-            getattr(layer, "is_blank_key", False)
-        )
-        if not (is_content or is_blank):
-            continue
+    def state(index):
+        if layer_index >= len(frames[index].layers):
+            return None, None
+        slot = frames[index].layers[layer_index]
+        from .timeline_metadata import reference_for
+        reference = reference_for(slot)
+        return {"CELL": "content", "BLANK": "blank", "EMPTY": None}[reference.kind], reference.number
 
-        exposure = max(1, int(layer.exposure))
-        if column < start + exposure:
-            return (
-                "content" if is_content else "blank",
-                start,
-                exposure,
-            )
-        # 直近の明示コマが届いていない場合、それ以前の露出は
-        # この明示コマを越えて表示しない。
-        break
-
-    return None, None, 0
+    kind, number = state(column)
+    if kind is None:
+        return None, None, 0
+    start, end = column, column + 1
+    while start > 0 and state(start - 1) == (kind, number):
+        if kind == "blank" and frames[start].layers[layer_index].blank_start:
+            break
+        start -= 1
+    while end < len(frames) and state(end) == (kind, number):
+        if kind == "blank" and frames[end].layers[layer_index].blank_start:
+            break
+        end += 1
+    return kind, start, end - start

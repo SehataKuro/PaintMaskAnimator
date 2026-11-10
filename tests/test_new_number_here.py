@@ -8,6 +8,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtGui import QColor  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+from tests.dense_fixtures import hold, length  # noqa: E402
+
 from paintmaskanimator.main_window import MainWindow  # noqa: E402
 
 
@@ -39,16 +41,17 @@ def paint(window, column=1, number=1, exposure=4):
     layer.has_content = True
     layer._track.cells.setdefault(number, layer._cell)
     layer.sequence_number = number
-    layer.exposure = exposure
+    if number is not None:
+        hold(window.canvas, column, exposure)
     return layer
 
 
 def snapshot(window):
     return (
         window.time_remap.timeline_states(0),
-        [[(layer.sequence_number, layer.exposure, layer.has_content,
+        [[(layer.sequence_number, length(window.canvas, fi, li), layer.has_content,
            layer.is_blank_key, layer.cell_id, layer.image.cacheKey())
-          for layer in frame.layers] for frame in window.canvas.frames],
+          for li, layer in enumerate(frame.layers)] for fi, frame in enumerate(window.canvas.frames)],
     )
 
 
@@ -68,7 +71,7 @@ def test_middle_preserves_the_original_drawing_and_detaches_the_new_one(window):
     assert len(window.canvas.frames) == frame_count
     assert [frame.layers[1:] for frame in window.canvas.frames] == other_frames
     head, selected, tail = [window.canvas.frames[c].layers[0] for c in (1, 2, 3)]
-    assert [head.exposure, selected.exposure, tail.exposure] == [1, 1, 2]
+    assert [length(window.canvas, c) for c in (1, 2, 3)] == [1, 1, 2]
     assert head is source
     assert head.tween == {"id": "original-tween"}
     assert head.tween_member == "original-tween"
@@ -104,7 +107,7 @@ def test_head_single_and_last_frame(window, exposure, column, expected, keys):
 
     assert window.time_remap.timeline_states(0) == expected
     assert len(window.canvas.frames) == 6
-    assert [(c, window.canvas.frames[c].layers[0].exposure) for c, _ in keys] == keys
+    assert [(c, length(window.canvas, c)) for c, _ in keys] == keys
     if exposure == 4 and column == 1:
         tail = window.canvas.frames[2].layers[0]
         assert tail.cell_name == "original"
@@ -141,7 +144,7 @@ def test_invalid_targets_leave_the_document_and_undo_unchanged(window, monkeypat
 def test_one_document_undo_restores_numbers_and_exposures(window, monkeypatch):
     paint(window)
     before_numbers = window.time_remap.timeline_states(0)
-    before_exposures = [frame.layers[0].exposure for frame in window.canvas.frames]
+    before_exposures = [length(window.canvas, i) for i in range(len(window.canvas.frames))]
     push = window.canvas.push_doc_undo
     undo_calls = []
 
@@ -156,4 +159,4 @@ def test_one_document_undo_restores_numbers_and_exposures(window, monkeypatch):
     window.canvas.undo()
 
     assert window.time_remap.timeline_states(0) == before_numbers
-    assert [frame.layers[0].exposure for frame in window.canvas.frames] == before_exposures
+    assert [length(window.canvas, i) for i in range(len(window.canvas.frames))] == before_exposures

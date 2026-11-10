@@ -6,8 +6,10 @@ from zipfile import ZipFile
 import pytest
 from PySide6.QtGui import QImage
 
-from paintmaskanimator.document import clear_slot
-from paintmaskanimator.models import Frame, Layer
+from paintmaskanimator.document import project_v1_state
+from paintmaskanimator.legacy_v1 import raw_v1_slot as Layer
+from dense_fixtures import clear_range
+from paintmaskanimator.models import Frame
 from paintmaskanimator.project_io import build_v1_payload
 from test_pending_slots import assert_pending_graph
 from test_track_cells import image, small_window  # noqa: F401
@@ -44,14 +46,14 @@ def legacy_expected_payload(canvas, kind):
                 names[index], image(color), has_content=True, sequence_number=number,
                 initial_image=image(0xff112233) if explicit else None,
                 cell_name="eight" if explicit else None, **kind)
-    return build_v1_payload(frames, archive)
+    return build_v1_payload(*project_v1_state(frames, archive))
 
 
 def graph(canvas):
     return (
         canvas.current_frame,
         [[(s.sequence_number, s.has_content, s.is_blank_key, s.exposure, s.sequence_only)
-          for s in frame.layers] for frame in canvas.frames],
+          for s in frame.layers] for frame in project_v1_state(canvas.frames)[0]],
         [{n: (QImage(c.image), QImage(c.initial_image) if c.initial_image is not None else None,
               c.cell_name) for n, c in track.cells.items()}
          for track in canvas._document.tracks],
@@ -82,7 +84,7 @@ def test_unplaced_undo_columns_pending_modes_docundo_save_reload(
     # Record a drawing edit while placed, then undo it after its slot is cleared.
     canvas.push_layer_undo()
     canvas.active_layer.image = image(0xffabcdef)
-    clear_slot(canvas.active_layer)
+    clear_range(canvas, 0, 4)
     canvas.current_frame = 3
     canvas.undo()
     assert canvas.current_frame == 3

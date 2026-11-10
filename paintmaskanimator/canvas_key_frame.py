@@ -95,10 +95,6 @@ class KeyFrameMixin(CanvasMembers):
                     1,
                     exposure - split_offset,
                 )
-                source.exposure = max(
-                    1,
-                    split_offset,
-                )
                 column = start + split_offset
                 self._ensure_frame_count(
                     column + blank_exposure
@@ -137,10 +133,8 @@ class KeyFrameMixin(CanvasMembers):
                 previous = self.frames[
                     previous_start
                 ].layers[layer_index]
-                previous.exposure = max(
-                    1,
-                    column - previous_start,
-                )
+                for index in range(previous_start + 1, column):
+                    self.frames[index].layers[layer_index] = previous.clone_reference()
 
         target = self.frames[
             column
@@ -166,7 +160,10 @@ class KeyFrameMixin(CanvasMembers):
         )
         target.has_content = False
         target.is_blank_key = True
-        target.exposure = blank_exposure
+        target.blank_start = True
+        target.__dict__.pop("_v1_position", None)
+        for index in range(column + 1, column + blank_exposure):
+            self.frames[index].layers[layer_index] = target.clone_reference()
 
         self.current_frame = column
         self.active_layer_index = layer_index
@@ -183,8 +180,6 @@ class KeyFrameMixin(CanvasMembers):
         previous = [i for i in keys if i < self.current_frame]
         if previous:
             self.current_frame = previous[-1]
-        elif keys:
-            self.current_frame = keys[-1]
         self.selectionChanged.emit()
         self.update()
 
@@ -194,8 +189,6 @@ class KeyFrameMixin(CanvasMembers):
         following = [i for i in keys if i > self.current_frame]
         if following:
             self.current_frame = following[0]
-        elif keys:
-            self.current_frame = keys[0]
         self.selectionChanged.emit()
         self.update()
 
@@ -242,8 +235,11 @@ class KeyFrameMixin(CanvasMembers):
         if block is not None and self.current_frame > block[1]:
             # 保持区間は同じセル。編集対象とUndoの保存先を露出元へ揃え、
             # 加筆のたびに別のセルや番号が作られるのを防ぐ。
+            old = self.active_layer.__dict__.get("_v1_position")
+            was_content_key = old is not None and old.key_start and old.legacy is not None and old.legacy.has_content
             self.current_frame = int(block[1])
-            self.selectionChanged.emit()
+            if not was_content_key:
+                self.selectionChanged.emit()
         layer = self.active_layer
         if layer.has_content:
             if (layer.sequence_number is None and self.timeline_mode == "sheet"
@@ -284,7 +280,6 @@ class KeyFrameMixin(CanvasMembers):
             kind, start, exposure = block
             source_layer = self.frames[start].layers[layer_index]
             copied = source_layer.clone()
-            old_end = start + exposure - 1
 
             layer.visible = bool(copied.visible)
             layer.opacity = float(copied.opacity)
@@ -302,12 +297,12 @@ class KeyFrameMixin(CanvasMembers):
                 if kind == "content"
                 else blank_image()
             )
-            layer.exposure = max(1, old_end - current + 1)
+            layer.blank_start = False
         else:
             # An uncreated cell already owns a transparent image.  Keep it
             # instead of allocating and clearing another full-canvas image at
             # the instant the first stroke begins.
-            layer.exposure = 1
+            layer.blank_start = False
 
         if layer._track.connected:
             # A retained number is serialization residue, never an edit target.
@@ -322,5 +317,12 @@ class KeyFrameMixin(CanvasMembers):
         if layer._track.connected:
             layer.__dict__.pop("_cell", None)
         layer.is_blank_key = False
+        if block is not None and block[0] == "blank":
+            for position in range(current + 1, block[1] + block[2]):
+                slot = self.frames[position].layers[layer_index]
+                slot.sequence_number = layer.sequence_number
+                slot.has_content = True
+                slot.is_blank_key = False
+                slot.blank_start = False
         self._cell_structure_dirty = True
         return True

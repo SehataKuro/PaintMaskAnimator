@@ -18,6 +18,7 @@ from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 from paintmaskanimator import constants, project_io
 from paintmaskanimator.clip_animation import ClipAnimationLayer, ClipCelKey, build_pma_frames
 from paintmaskanimator.document import clear_slot
+from paintmaskanimator.legacy_v1 import LegacyLayerV1, legacy_layer_to_slot, snapshot_frames, expand_legacy
 from paintmaskanimator.errors import OperationError
 from paintmaskanimator.main_window import MainWindow
 from paintmaskanimator.models import Cell, Frame, Layer
@@ -38,7 +39,7 @@ def image(color="transparent"):
 
 
 def slot(number=None, color="transparent", **kwargs):
-    return Layer("A", image(color), sequence_number=number, **kwargs)
+    return legacy_layer_to_slot(LegacyLayerV1("A", image(color), sequence_number=number, **kwargs))
 
 
 def pixels(img):
@@ -193,10 +194,20 @@ def test_raw_visibility(window, kind):
                   Frame([]), Frame([]), Frame([slot()])]
     # Raw sheet and image resolution are distinct observations; no old oracle at runtime.
     from paintmaskanimator.timeline_resolution import resolve_exposures
-    keys = resolve_exposures(frames).tolist()
-    resolved = [[pixels(frames[key].layers[li].image) if key >= 0 else None
+    expanded = expand_legacy(snapshot_frames(frames))
+    def dense_frames(references, source_keys):
+        return [Frame([Layer("A", frames[source_keys[i][li]].layers[li].image
+                                   if source_keys[i][li] >= 0 else image(),
+                            has_content=ref.kind == "CELL", is_blank_key=ref.kind == "BLANK",
+                            sequence_number=ref.number,
+                            blank_start=expanded.positions[i][li].blank_start)
+                       for li, ref in enumerate(row)]) for i, row in enumerate(references)]
+    visible = dense_frames(expanded.sheet, expanded.sheet_keys)
+    images = dense_frames(expanded.resolved, expanded.resolve_keys)
+    keys = resolve_exposures(images).tolist()
+    resolved = [[pixels(images[key].layers[li].image) if key >= 0 else None
                  for li, key in enumerate(keys_at)] for keys_at in keys]
-    golden(f"raw/{kind}", {"numbers": numbers(frames), "resolved": resolved})
+    golden(f"raw/{kind}", {"numbers": numbers(visible), "resolved": resolved})
 
 
 @pytest.mark.parametrize("length", [-5, 0, constants.MAX_PROJECT_FRAMES + 1])
@@ -353,7 +364,10 @@ def test_pending_mode_open(window, tmp_path, case):
     r.take("before")
     window.timeline_ops.set_mode("sequence")
     if case == "blank-collision":
-        clear_slot(c.frames[0].layers[0])
+        # The old fixture removed one sparse key, including its held range.
+        block = c.timeline_block_at(0, 0)
+        for index in range(block[1], block[1] + block[2]):
+            clear_slot(c.frames[index].layers[0])
         assert c.insert_sequence_blank(0, 1)
         r.take("sequence-blank")
     c.current_frame = len(c.frames) - 1

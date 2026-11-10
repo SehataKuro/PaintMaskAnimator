@@ -123,8 +123,14 @@ class InitialStateController:
                              expected_width=layer.image.width(), expected_height=layer.image.height()))
                 return image
 
+            # Dense holds share artwork, but import's count and history retain
+            # the old explicit-position policy, including saved same-number keys.
+            from .document import project_v1_state
+            positions, _ = project_v1_state(canvas.frames)
             for fi, frame in enumerate(canvas.frames):
                 for li, layer in enumerate(frame.layers):
+                    if li >= len(positions[fi].layers) or not positions[fi].layers[li].has_content:
+                        continue
                     image = match(layer)
                     if image is not None:
                         cells.append((fi, li, image))

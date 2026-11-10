@@ -13,6 +13,7 @@ from paintmaskanimator.cell_numbering import (  # noqa: E402
     changed_count,
     normalization_mapping,
 )
+from dense_fixtures import hold
 from paintmaskanimator.main_window import MainWindow  # noqa: E402
 from paintmaskanimator.models import make_frame  # noqa: E402
 from paintmaskanimator.normalize_dialog import NormalizeNumbersDialog  # noqa: E402
@@ -80,7 +81,7 @@ def _out_of_order_window():
         layer = canvas.frames[column].layers[0]
         layer.has_content = True
         layer.sequence_number = number
-        layer.exposure = exposure
+        hold(canvas, column, exposure)
     canvas.current_frame = 0
     window.refresh_ui()
     return window
@@ -108,8 +109,9 @@ def test_normalize_applies_after_confirmation(qapp, monkeypatch):
         window.timeline_ops.normalize_numbers((0,))
         numbers = [
             frame.layers[0].sequence_number
-            for frame in window.canvas.frames
-            if frame.layers[0].has_content
+            for column, frame in enumerate(window.canvas.frames)
+            if window.canvas.timeline_block_at(column, 0) is not None
+            and window.canvas.timeline_block_at(column, 0)[1] == column
         ]
         assert numbers == [1, 2, 3]
         window.refresh_ui()

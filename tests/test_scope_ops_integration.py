@@ -11,6 +11,7 @@ import pytest
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication
 
+from paintmaskanimator.document import create_drawing
 from paintmaskanimator.main_window import MainWindow
 from paintmaskanimator.undo_entries import ScopedBatchUndo
 
@@ -39,7 +40,7 @@ def paint_cell(window, frame_index, color, *, size=3, origin=(10, 10)):
     for y in range(y0, y0 + size):
         for x in range(x0, x0 + size):
             layer.image.setPixelColor(x, y, QColor(color))
-    layer.has_content = True
+    create_drawing(layer, layer.image, number=layer.sequence_number)
     return layer
 
 
@@ -47,10 +48,15 @@ def add_frames(window, count):
     window.canvas._ensure_frame_count(count)
 
 
-def test_color_replacement_applies_to_every_frame_and_undoes_once(window):
+@pytest.mark.parametrize("dense_hold", [False, True])
+def test_color_replacement_applies_to_every_frame_and_undoes_once(window, dense_hold):
     add_frames(window, 3)
     for frame_index in range(3):
         paint_cell(window, frame_index, "#ff0000")
+    if dense_hold:
+        from dense_fixtures import hold
+        hold(window.canvas, len(window.canvas.frames) - 1, 2)
+
     before = [
         frame.layers[0].image.copy() for frame in window.canvas.frames
     ]
@@ -76,11 +82,16 @@ def test_color_replacement_reports_no_match_without_touching_the_stack(window):
     assert len(window.canvas.undo_stack) == depth
 
 
-def test_dust_removal_over_all_frames_is_one_undo_entry(window):
+@pytest.mark.parametrize("dense_hold", [False, True])
+def test_dust_removal_over_all_frames_is_one_undo_entry(window, dense_hold):
     add_frames(window, 3)
     for frame_index in range(3):
         # 白地に浮いた 2x2 の孤立塊。ゴミ取りの対象サイズ内に収める。
         paint_cell(window, frame_index, "#000000", size=2, origin=(20, 20))
+    if dense_hold:
+        from dense_fixtures import hold
+        hold(window.canvas, len(window.canvas.frames) - 1, 2)
+
     before = [
         frame.layers[0].image.copy() for frame in window.canvas.frames
     ]
@@ -169,3 +180,36 @@ def test_deleting_a_used_color_erases_it_instead_of_painting_white(window):
 
     pixel = window.canvas.frames[0].layers[0].image.pixelColor(10, 10)
     assert pixel.alpha() == 0
+
+
+def test_range_starting_inside_dense_hold_updates_shared_art_and_undo(window):
+    from dense_fixtures import hold
+    from paintmaskanimator.frame_scope import FrameScope, apply_over_scope, resolve_cells
+
+    canvas = window.canvas
+    add_frames(window, 4)
+    paint_cell(window, 0, "red")
+    hold(canvas, 0, 3)
+    paint_cell(window, 3, "green")
+    before = [frame.layers[0].image.copy() for frame in canvas.frames]
+    scope = FrameScope.cells((1, 2), (0,))
+    assert resolve_cells(canvas, scope) == [(0, 0)]
+    visited = []
+
+    def recolor(context):
+        visited.append((context.frame, context.layer_index))
+        result = context.layer.image.copy()
+        result.setPixelColor(10, 10, QColor("blue"))
+        return result
+
+    assert apply_over_scope(canvas, scope, recolor, label="範囲色置換")
+    assert visited == [(0, 0)]
+    assert all(frame.layers[0].image.pixelColor(10, 10) == QColor("blue")
+               for frame in canvas.frames[:3])
+    assert canvas.frames[3].layers[0].image == before[3]
+    assert len(canvas.undo_stack[-1].cells) == 1
+    canvas.undo()
+    assert [frame.layers[0].image for frame in canvas.frames] == before
+    canvas.redo()
+    assert all(frame.layers[0].image.pixelColor(10, 10) == QColor("blue")
+               for frame in canvas.frames[:3])

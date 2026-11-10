@@ -10,9 +10,10 @@ from PySide6.QtGui import QImage
 from PySide6.QtWidgets import QApplication
 
 from paintmaskanimator import timesheet_file
-from paintmaskanimator.document import clear_pending, mark_pending
+from paintmaskanimator.legacy_v1 import raw_v1_slot, snapshot_frames
 from paintmaskanimator.main_window import MainWindow
-from paintmaskanimator.models import Frame, Layer
+from paintmaskanimator.models import Frame
+from dense_fixtures import dense_raw
 from paintmaskanimator.timeline import TimelineWidget
 
 
@@ -123,10 +124,11 @@ def test_random_gaps_match_reference(qapp):
     cases = [[], [Frame([])], [Frame([]), Frame([])]]
     for _ in range(300):
         cases.append([Frame([
-            Layer("A", QImage(), **random_metadata(rng))
+            raw_v1_slot("A", QImage(), **random_metadata(rng))
             for _ in range(rng.randrange(5))
         ]) for _ in range(rng.randint(1, 45))])
     for frames in cases:
+        frames = dense_raw(frames)
         maximum = max((len(frame.layers) for frame in frames), default=0)
         for layer_index in range(-1, maximum + 2):
             assert TimelineWidget.timeline_gaps(frames, layer_index) == reference_gaps(
@@ -139,25 +141,54 @@ def test_random_window_readers_match_reference(window):
     canvas = window.canvas
     layer_count = len(canvas.frames[0].layers)
     for case in range(60):
-        for frame in canvas.frames:
-            for layer in frame.layers:
-                for name, value in random_metadata(rng).items():
-                    if name == "sequence_only":
-                        (mark_pending if value else clear_pending)(layer)
-                    else:
-                        setattr(layer, name, value)
+        raw = [Frame([raw_v1_slot("A", QImage(), **random_metadata(rng))
+                      for _ in range(layer_count)]) for _ in canvas.frames]
         canvas.active_layer_index = case % layer_count
         canvas.playback_range_end = [None, 1, len(canvas.frames) + 7][case % 3]
         if canvas.playback_range_end is None:
             # 終端の露出を必ず frames より先まで伸ばす。
-            last = canvas.frames[-1].layers[0]
-            last.has_content = True
-            clear_pending(last)
-            last.exposure = 9
+            # Input duration beyond the document remains a v1 boundary value.
+            raw[-1].layers[0] = raw_v1_slot("A", QImage(), has_content=True,
+                                                sequence_number=20, exposure=9)
+        raw_rows = snapshot_frames(raw)
+        expected_duration = max(len(raw), *(column + max(1, slot.exposure)
+                                for column, row in enumerate(raw_rows) for slot in row
+                                if not slot.sequence_only and (slot.has_content or slot.is_blank_key)))
+        canvas.install_legacy_frames(raw)
+        if canvas.playback_range_end is None:
+            assert window._sheet_duration() == expected_duration
             assert window._sheet_duration() > len(canvas.frames)
+            assert TimelineWidget.timeline_span_at(canvas.frames, 0, len(canvas.frames))[0] is None
         assert window.export.sheet_tracks() == reference_tracks(window)
         for layer_index in [None, -1, *range(layer_count + 2), "0"]:
             actual = window.time_remap.timeline_states(layer_index)
             assert actual == reference_states(window, layer_index)
             if layer_index in (-1, layer_count, layer_count + 1):
                 assert actual == [None] * len(canvas.frames)
+
+
+@pytest.mark.parametrize("following_number, cursor", [(7, 6), (2, 2)])
+def test_pending_collision_keeps_v1_tail_duration_outside_dense_document(window, following_number, cursor):
+    from paintmaskanimator.document import project_v1_state
+
+    canvas = window.canvas
+    raw = [Frame([raw_v1_slot("A", QImage())]) for _ in range(6)]
+    raw[0].layers[0] = raw_v1_slot("A", QImage(), has_content=True,
+                                  sequence_number=1, exposure=4)
+    raw[2].layers[0] = raw_v1_slot("A", QImage(), has_content=True,
+                                  sequence_number=following_number)
+    raw[5].layers[0] = raw_v1_slot("A", QImage(), has_content=True,
+                                  sequence_number=2, sequence_only=True)
+    canvas.install_legacy_frames(raw)
+    canvas.timeline_mode = "sequence"
+    canvas.active_layer_index = 0
+    canvas.current_frame = 5
+    window.timeline_ops.set_mode("sheet")
+    assert len(canvas.frames) == 7
+    assert canvas.current_frame == cursor
+    assert canvas.timeline_block_at(6, 0) == ("content", 6, 1)
+    projected, _ = project_v1_state(canvas.frames)
+    assert projected[0].layers[0].exposure == 2
+    assert projected[6].layers[0].exposure == 2
+    assert window._sheet_duration() == 8
+    assert window.export.sheet_tracks() == reference_tracks(window)

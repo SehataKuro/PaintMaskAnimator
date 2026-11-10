@@ -277,7 +277,7 @@ class MainWindow(
         if not layer.has_content:
             source = self.canvas.resolve_key_frame(self.canvas.current_frame, self.canvas.active_layer_index)
             layer = self.canvas.frames[source].layers[self.canvas.active_layer_index] if source is not None else layer
-        self.timeline.duration.setValue(max(1, layer.exposure))
+        self.timeline.duration.setValue(max(1, TimelineWidget.timeline_span_at(self.canvas.frames, self.canvas.active_layer_index, self.canvas.current_frame)[2]))
         self.timeline.duration.blockSignals(False)
         self.timeline._sync_layer_opacity_slider(layer.opacity)
 
@@ -997,15 +997,27 @@ class MainWindow(
             for f in old_frames:  # pyright: ignore[reportOptionalIterable]
                 ls=[]
                 for l in f.layers:
+                    rect = QRectF(OUTSIDE_MARGIN, OUTSIDE_MARGIN, min(oldw, w), min(oldh, h))
                     if l.cell_id not in resized_images:
                         ni = blank_image()
                         painter = QPainter(ni)
-                        rect = QRectF(OUTSIDE_MARGIN, OUTSIDE_MARGIN, min(oldw, w), min(oldh, h))
                         painter.drawImage(rect, l.image, rect)
                         painter.end()
                         resized_images[l.cell_id] = ni
                     ni = resized_images[l.cell_id]
-                    ls.append(Layer(l.name,ni,l.visible,l.opacity,l.is_paper,l.has_content,l.alpha_locked,l.exposure,l.color_filter_enabled,tuple(l.color_filter_rgb) if l.color_filter_rgb is not None else None,bool(l.is_blank_key),l.sequence_number,bool(l.sequence_only),bool(getattr(l,"is_draft",False)),getattr(l,"cell_name",None)))
+                    copied = l.clone()
+                    copied.image = ni
+                    position = copied.__dict__.get("_v1_position")
+                    if position is not None and position.legacy is not None:
+                        from dataclasses import replace
+                        payload = position.legacy
+                        saved_image = blank_image()
+                        painter = QPainter(saved_image)
+                        painter.drawImage(rect, payload.image, rect)
+                        painter.end()
+                        copied.__dict__["_v1_position"] = replace(
+                            position, legacy=replace(payload, image=saved_image))
+                    ls.append(copied)
                 new.append(Frame(ls,f.duration))
             self.canvas.frames=new
         else:
@@ -1203,15 +1215,26 @@ class MainWindow(
         if self.canvas.playback_range_end is not None:
             return max(1, int(self.canvas.playback_range_end))
         duration = max(1, len(self.canvas.frames))
+        from .document import project_v1_state
+        projected, _ = project_v1_state(self.canvas.frames)
+        for column, frame in enumerate(projected):
+            for legacy in frame.layers:
+                if not legacy.sequence_only and (legacy.has_content or legacy.is_blank_key):
+                    duration = max(duration, column + max(1, int(legacy.exposure)))
+        # Preserve unedited v1 keys extending past the dense document boundary.
+        # This compatibility length belongs to the input DTO, never a live slot.
         for column, frame in enumerate(self.canvas.frames):
-            for layer in frame.layers:
-                if layer.sequence_only:
+            for slot in frame.layers:
+                imported = slot.__dict__.get("_dense_import")
+                position = slot.__dict__.get("_v1_position")
+                signature = (slot.has_content, slot.is_blank_key, slot.sequence_number,
+                             slot.sequence_only, slot.blank_start)
+                if imported is None or imported[0] != signature or position is None:
                     continue
-                if layer.has_content or layer.is_blank_key:
-                    duration = max(
-                        duration,
-                        column + max(1, int(layer.exposure)),
-                    )
+                legacy = position.legacy
+                if (legacy is not None and not legacy.sequence_only
+                        and (legacy.has_content or legacy.is_blank_key)):
+                    duration = max(duration, column + max(1, int(legacy.exposure)))
         return duration
 
 

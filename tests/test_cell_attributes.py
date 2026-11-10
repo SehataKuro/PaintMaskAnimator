@@ -7,6 +7,7 @@ from PySide6.QtGui import QColor, QImage
 from PySide6.QtWidgets import QApplication
 
 from paintmaskanimator import constants, project_io
+from paintmaskanimator.legacy_v1 import raw_v1_slot
 from paintmaskanimator.document import Document
 from paintmaskanimator.main_window import MainWindow
 from paintmaskanimator.models import Frame, Layer
@@ -120,7 +121,9 @@ def window(qapp, monkeypatch, tmp_path):
 
 
 def test_ui_initial_import_undo_redo(window, tmp_path):
-    first, second = layer(initial_image=image("green")), layer()
+    first = raw_v1_slot("A", image("red"), has_content=True, sequence_number=1,
+                        initial_image=image("green"))
+    second = raw_v1_slot("A", image("red"), has_content=True, sequence_number=1)
     window.canvas.frames = [Frame([first]), Frame([second])]
     window.refresh_ui()
     folder = tmp_path / "A"

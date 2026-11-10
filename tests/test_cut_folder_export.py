@@ -50,7 +50,6 @@ def _draw_cels(window, count):
         layer.is_blank_key = False
         layer._track.cells[index + 1] = layer._cell
         layer.sequence_number = index + 1
-        layer.exposure = 1
     canvas.frames[0].layers[0].name = "A"
 
 

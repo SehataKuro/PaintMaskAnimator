@@ -101,7 +101,6 @@ class LayerOpsController:
                 visible=True,
                 opacity=1.0,
                 has_content=False,
-                exposure=1,
             )
             for _ in range(frame_count)
         ]
@@ -155,7 +154,7 @@ class LayerOpsController:
                     signature == previous_signature
                     and active_key_frame is not None
                 ):
-                    merged_layers[active_key_frame].exposure += 1
+                    merged_layers[frame_index] = merged_layers[active_key_frame].clone_reference()
                 else:
                     merged_image = blank_image()
                     painter = QPainter(merged_image)
@@ -179,8 +178,11 @@ class LayerOpsController:
                         visible=True,
                         opacity=1.0,
                         has_content=True,
-                        exposure=1,
-                    )
+                            )
+                    merged_layers[frame_index].sequence_number = 1 + sum(
+                        1 for index, slot in enumerate(merged_layers[:frame_index])
+                        if slot.has_content and (index == 0 or slot.sequence_number
+                            != merged_layers[index - 1].sequence_number))
                     previous_signature = signature
                     active_key_frame = frame_index
 

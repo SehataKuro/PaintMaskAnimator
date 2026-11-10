@@ -12,6 +12,8 @@ from PySide6.QtCore import QEvent  # noqa: E402
 from PySide6.QtGui import QColor  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+from dense_fixtures import hold
+from paintmaskanimator.document import create_drawing, project_v1_state, clear_pending
 from paintmaskanimator.main_window import MainWindow  # noqa: E402
 from paintmaskanimator.models import Layer, make_frame  # noqa: E402
 from paintmaskanimator.utils import blank_image  # noqa: E402
@@ -28,7 +30,7 @@ K3 = (3, 1, True, False, False)
 INSERT = {
     0: ([EMPTY, K1, EMPTY, EMPTY, BLANK, EMPTY, K2, EMPTY, K3, EMPTY],
         {1: "#ff0000", 6: "#00ff00", 8: "#0000ff"}, 10, 2, []),
-    1: ([K1, EMPTY, EMPTY, EMPTY, BLANK, EMPTY, K2, EMPTY, K3, EMPTY],
+    1: ([(1, 4, True, False, False), EMPTY, EMPTY, EMPTY, BLANK, EMPTY, K2, EMPTY, K3, EMPTY],
         {0: "#ff0000", 6: "#00ff00", 8: "#0000ff"}, 10, 2, []),
     3: ([K1, EMPTY, EMPTY, EMPTY, BLANK, EMPTY, K2, EMPTY, K3, EMPTY],
         {0: "#ff0000", 6: "#00ff00", 8: "#0000ff"}, 10, 2, []),
@@ -81,13 +83,14 @@ def window(qapp, tmp_path, monkeypatch):
 
 def put(canvas, column, number, exposure=1, layer_index=0):
     layer = canvas.frames[column].layers[layer_index]
-    layer.sequence_number = number
-    layer.exposure = exposure
     layer.has_content = number is not None
     layer.is_blank_key = number is None
-    layer.sequence_only = False
+    clear_pending(layer)
     if number is not None:
-        layer.image.setPixelColor(5, 5, QColor(COLORS[number]))
+        image = layer.image.copy()
+        image.setPixelColor(5, 5, QColor(COLORS[number]))
+        create_drawing(layer, image, number=number)
+    hold(canvas, column, exposure, layer_index)
     return layer
 
 
@@ -113,7 +116,7 @@ def row(canvas, layer_index=0):
 
 def layer_state(canvas, layer_index=0):
     cells, pixels = [], {}
-    for column, frame in enumerate(canvas.frames):
+    for column, frame in enumerate(project_v1_state(canvas.frames)[0]):
         layer = frame.layers[layer_index]
         cells.append((layer.sequence_number, layer.exposure, layer.has_content,
                       layer.is_blank_key, layer.sequence_only))
@@ -139,7 +142,7 @@ def test_insert_frame_and_undo(window, column):
     before = state(canvas)
     other = layer_state(canvas, 1)
     assert window.timeline_ops.insert_frame_at(row(canvas), column)
-    # 露出途中でも露出は伸びず、後ろの明示キーだけが移動する。
+    # 決定(3): 露出途中の挿入はその区間を1コマ延ばす。
     check(canvas, INSERT[column])
     assert layer_state(canvas, 1) == (other[0] + [EMPTY], other[1])
     canvas.undo()

@@ -3,6 +3,7 @@ from paintmaskanimator.document import (
     ArchiveHint, Document, apply_number_mapping, project_v1_state,
 )
 from paintmaskanimator.models import Cell, TRACK_FIELDS
+from paintmaskanimator.legacy_v1 import LegacyLayerV1
 
 
 def test_hint_projection_includes_placed_explicit_and_unrepresented_bank():
@@ -17,15 +18,17 @@ def test_hint_projection_includes_placed_explicit_and_unrepresented_bank():
     doc.put_archive_hint(track, 1, state)
     state.tween['steps'].append(2)
     frames, archive = project_v1_state(doc.frames)
-    assert frames is doc.frames
+    assert frames is not doc.frames
+    assert isinstance(frames[0].layers[0], LegacyLayerV1)
+    assert frames[0].layers[0].sequence_number == 1
     assert set(archive) == {(0, 1), (0, 9)}
     explicit = archive[(0, 1)]
     assert explicit.image is track.cells[1].image
     assert not explicit.has_content and explicit.is_blank_key
     assert explicit.exposure == 3 and explicit.sequence_only
     assert explicit.tween == {'steps': [1]}
-    assert not explicit._track.connected
-    assert not archive[(0, 9)]._track.connected
+    assert isinstance(explicit, LegacyLayerV1)
+    assert isinstance(archive[(0, 9)], LegacyLayerV1)
     explicit.tween['steps'].append(3)
     assert doc.archive_hints(track)[1].tween == {'steps': [1]}
     assert doc.placed_numbers(track) == {1}

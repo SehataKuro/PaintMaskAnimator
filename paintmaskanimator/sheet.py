@@ -73,7 +73,8 @@ def sheet_from_frames(frames) -> list[list[SheetEntry]]:
                 number = BLANK
             else:
                 number = entry.number if entry.number is not None else UNNUMBERED
-            layer = frames[column].layers[layer_index] if entry.key == column else None
+            layer = (frames[column].layers[layer_index]
+                     if layer_index < len(frames[column].layers) else None)
             entries.append(SheetEntry(
                 number,
                 deepcopy(layer.tween) if layer is not None else None,

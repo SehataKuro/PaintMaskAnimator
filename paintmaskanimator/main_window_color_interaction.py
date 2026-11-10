@@ -330,7 +330,6 @@ class ColorInteractionController:
             key_layer = self.window.canvas.frames[
                 key_frame
             ].layers[layer_index]
-            key_layer.exposure = max(1, int(exposure))
             self.window.canvas.current_frame = min(
                 original_frame,
                 block_end,

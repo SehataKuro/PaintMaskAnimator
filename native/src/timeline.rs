@@ -1,4 +1,4 @@
-//! Timeline metadata and exposure resolution, independent of Qt and image storage.
+//! Dense timeline references, independent of Qt and image storage.
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 
@@ -7,23 +7,21 @@ use pyo3::types::PyBytes;
 pub struct TimelineCell {
     pub has_content: bool,
     pub is_blank_key: bool,
-    pub exposure: i64,
+    pub blank_start: bool,
     pub sequence_number: Option<i64>,
     pub sequence_only: bool,
-    pub cell_name: Option<String>,
 }
 
 #[pymethods]
 impl TimelineCell {
     #[new]
     fn new() -> Self {
-        Self {
-            exposure: 1,
-            ..Self::default()
-        }
+        Self::default()
     }
 }
 
+/// Increment when the Python timeline metadata contract changes.
+pub const TIMELINE_API_VERSION: u32 = 2;
 pub const SHEET_EMPTY: u8 = 0;
 pub const SHEET_BLANK: u8 = 1;
 pub const SHEET_CELL: u8 = 2;
@@ -36,7 +34,8 @@ pub struct SheetEntry {
     pub key: i64,
 }
 
-/// Read the visible sheet, ignoring sequence-only storage cells.
+/// Read a dense visible snapshot. Missing positions are EMPTY, never holds.
+/// Pending visibility is resolved by the caller before crossing this boundary.
 pub fn sheet(rows: &[Vec<TimelineCell>]) -> (usize, Vec<SheetEntry>) {
     let layers = rows.iter().map(Vec::len).max().unwrap_or(0);
     let empty = SheetEntry {
@@ -46,30 +45,31 @@ pub fn sheet(rows: &[Vec<TimelineCell>]) -> (usize, Vec<SheetEntry>) {
     };
     let mut entries = vec![empty.clone(); rows.len() * layers];
     for layer in 0..layers {
-        let mut current = empty.clone();
-        let mut end = 0usize;
+        let mut previous = empty.clone();
         for (frame, row) in rows.iter().enumerate() {
-            if let Some(cell) = row.get(layer) {
-                if !cell.sequence_only && (cell.has_content || cell.is_blank_key) {
-                    current = SheetEntry {
-                        kind: if cell.has_content {
-                            SHEET_CELL
-                        } else {
-                            SHEET_BLANK
-                        },
-                        number: if cell.has_content {
-                            cell.sequence_number
-                        } else {
-                            None
-                        },
-                        key: frame as i64,
-                    };
-                    end = frame.saturating_add(cell.exposure.max(1) as usize);
-                }
-            }
-            if frame < end {
-                entries[frame * layers + layer] = current.clone();
-            }
+            let current = match row.get(layer) {
+                Some(cell) if cell.has_content => SheetEntry {
+                    kind: SHEET_CELL,
+                    number: cell.sequence_number,
+                    key: if previous.kind == SHEET_CELL && previous.number == cell.sequence_number {
+                        previous.key
+                    } else {
+                        frame as i64
+                    },
+                },
+                Some(cell) if cell.is_blank_key => SheetEntry {
+                    kind: SHEET_BLANK,
+                    number: None,
+                    key: if previous.kind == SHEET_BLANK && !cell.blank_start {
+                        previous.key
+                    } else {
+                        frame as i64
+                    },
+                },
+                _ => empty.clone(),
+            };
+            entries[frame * layers + layer] = current.clone();
+            previous = current;
         }
     }
     (layers, entries)
@@ -90,24 +90,27 @@ pub fn sheet_entries(py: Python<'_>, rows: Vec<Vec<Py<TimelineCell>>>) -> Vec<Ve
     })
 }
 
-/// A metadata snapshot: image payloads never cross this boundary.
+/// Resolve a dense image-reference snapshot, which can differ from the sheet
+/// snapshot for legacy pending positions. No implicit hold crosses an empty slot.
 pub fn resolve(rows: &[Vec<TimelineCell>]) -> (usize, Vec<i64>) {
     let layers = rows.iter().map(Vec::len).max().unwrap_or(0);
     let mut keys = vec![-1; rows.len() * layers];
     for layer in 0..layers {
-        let (mut key, mut end) = (-1, 0usize);
+        let mut previous_number = None;
+        let mut key = -1;
         for (frame, row) in rows.iter().enumerate() {
-            if let Some(cell) = row.get(layer) {
-                if cell.has_content {
-                    key = frame as i64;
-                    end = frame.saturating_add(cell.exposure.max(1) as usize);
-                } else if cell.is_blank_key {
-                    key = -1;
-                    end = 0;
+            match row.get(layer) {
+                Some(cell) if cell.has_content => {
+                    if key == -1 || previous_number != cell.sequence_number {
+                        key = frame as i64;
+                    }
+                    previous_number = cell.sequence_number;
+                    keys[frame * layers + layer] = key;
                 }
-            }
-            if frame < end {
-                keys[frame * layers + layer] = key;
+                _ => {
+                    previous_number = None;
+                    key = -1;
+                }
             }
         }
     }
@@ -119,8 +122,7 @@ pub fn resolve_timeline<'py>(
     py: Python<'py>,
     rows: Vec<Vec<Py<TimelineCell>>>,
 ) -> Bound<'py, PyBytes> {
-    // Snapshot under the GIL, then resolve without Python access. Layer objects
-    // remain the sole owners of mutable metadata; this is only a read snapshot.
+    // Snapshot under the GIL; no images or Python access in the computation.
     let rows: Vec<Vec<_>> = rows
         .iter()
         .map(|row| row.iter().map(|cell| cell.borrow(py).clone()).collect())
@@ -139,131 +141,137 @@ pub fn resolve_timeline<'py>(
 mod tests {
     use super::*;
 
-    fn drawing(exposure: i64, number: Option<i64>) -> TimelineCell {
+    fn drawing(number: i64) -> TimelineCell {
         TimelineCell {
             has_content: true,
-            exposure,
-            sequence_number: number,
+            sequence_number: Some(number),
+            ..TimelineCell::default()
+        }
+    }
+    fn blank(start: bool) -> TimelineCell {
+        // Retained numbers do not turn a blank into a drawing.
+        TimelineCell {
+            is_blank_key: true,
+            blank_start: start,
+            sequence_number: Some(99),
             ..TimelineCell::default()
         }
     }
 
     #[test]
-    fn sheet_ignores_sequence_only_and_holds_across_missing_layers() {
-        let mut archived = drawing(1, Some(99));
-        archived.sequence_only = true;
-        archived.is_blank_key = true;
+    fn dense_runs_stop_at_empty_blank_and_different_numbers() {
         let rows = vec![
-            vec![drawing(4, Some(7)), drawing(0, None)],
-            vec![archived],
-            vec![],
+            vec![drawing(1)],
+            vec![drawing(1)],
             vec![TimelineCell::default()],
-            vec![],
-        ];
-        let (layers, entries) = sheet(&rows);
-        assert_eq!(layers, 2);
-        for frame in 0..4 {
-            assert_eq!(
-                entries[frame * layers],
-                SheetEntry {
-                    kind: SHEET_CELL,
-                    number: Some(7),
-                    key: 0
-                }
-            );
-        }
-        assert_eq!(
-            entries[1],
-            SheetEntry {
-                kind: SHEET_CELL,
-                number: None,
-                key: 0
-            }
-        );
-        assert_eq!(entries[3].kind, SHEET_EMPTY);
-        assert_eq!(
-            entries[8],
-            SheetEntry {
-                kind: SHEET_EMPTY,
-                number: None,
-                key: -1
-            }
-        );
-    }
-
-    #[test]
-    fn sheet_blank_exposure_and_new_keys_cut_previous_exposure() {
-        let rows = vec![
-            vec![drawing(20, Some(1))],
-            vec![TimelineCell {
-                is_blank_key: true,
-                exposure: 2,
-                sequence_number: Some(99),
-                ..TimelineCell::default()
-            }],
-            vec![],
-            vec![],
-            vec![drawing(-3, None)],
-            vec![],
+            vec![drawing(1)],
+            vec![blank(true)],
+            vec![blank(false)],
+            vec![drawing(2)],
         ];
         let (_, entries) = sheet(&rows);
         assert_eq!(
-            entries.iter().map(|entry| entry.kind).collect::<Vec<_>>(),
+            entries.iter().map(|e| e.kind).collect::<Vec<_>>(),
             vec![
                 SHEET_CELL,
-                SHEET_BLANK,
-                SHEET_BLANK,
+                SHEET_CELL,
                 SHEET_EMPTY,
                 SHEET_CELL,
-                SHEET_EMPTY
+                SHEET_BLANK,
+                SHEET_BLANK,
+                SHEET_CELL
             ]
         );
         assert_eq!(
-            entries[1],
-            SheetEntry {
-                kind: SHEET_BLANK,
-                number: None,
-                key: 1
-            }
+            entries.iter().map(|e| e.key).collect::<Vec<_>>(),
+            vec![0, 0, -1, 3, 4, 4, 6]
         );
-        assert_eq!(entries[2], entries[1]);
+        assert_eq!(resolve(&rows), (1, vec![0, 0, -1, 3, -1, -1, 6]));
         assert_eq!(entries[4].number, None);
-        let (_, entries) = sheet(&[
-            vec![drawing(20, Some(1))],
-            vec![drawing(1, Some(2))],
-            vec![],
-        ]);
-        assert_eq!(entries[2].kind, SHEET_EMPTY);
+        assert_eq!(entries[6].number, Some(2));
     }
 
     #[test]
-    fn sheet_empty_input() {
-        assert_eq!(sheet(&[]), (0, vec![]));
-        assert_eq!(sheet(&[vec![], vec![]]), (0, vec![]));
-    }
-
-    #[test]
-    fn blank_missing_and_overlapping_cells() {
-        let content = |exposure| TimelineCell {
-            has_content: true,
-            exposure,
-            ..TimelineCell::default()
-        };
+    fn adjacent_same_numbers_merge_but_blank_starts_remain_separate() {
         let rows = vec![
-            vec![content(9), content(0)],
+            vec![drawing(1)],
+            vec![drawing(1)],
+            vec![drawing(1)],
+            vec![drawing(1)],
+            vec![blank(true)],
+            vec![blank(false)],
+            vec![blank(true)],
+            vec![blank(false)],
+            vec![drawing(2)],
+            vec![drawing(3)],
+        ];
+        assert_eq!(
+            sheet(&rows).1.iter().map(|e| e.key).collect::<Vec<_>>(),
+            vec![0, 0, 0, 0, 4, 4, 6, 6, 8, 9]
+        );
+        assert_eq!(resolve(&rows).1, vec![0, 0, 0, 0, -1, -1, -1, -1, 8, 9]);
+    }
+
+    #[test]
+    fn ragged_rows_and_retained_empty_numbers_never_hold() {
+        let rows = vec![
+            vec![drawing(7), drawing(8)],
+            vec![drawing(7)],
             vec![],
-            vec![TimelineCell {
-                is_blank_key: true,
-                ..TimelineCell::default()
-            }],
-            vec![content(2)],
-            vec![content(1)],
-            vec![],
+            vec![
+                drawing(7),
+                TimelineCell {
+                    sequence_number: Some(8),
+                    ..TimelineCell::default()
+                },
+            ],
+            vec![blank(false), blank(false)],
         ];
         assert_eq!(
             resolve(&rows),
-            (2, vec![0, 0, 0, -1, -1, -1, 3, -1, 4, -1, -1, -1])
+            (2, vec![0, 0, 0, -1, -1, -1, 3, -1, -1, -1])
         );
+        let (layers, entries) = sheet(&rows);
+        assert_eq!(layers, 2);
+        assert_eq!(entries[4].kind, SHEET_EMPTY);
+        assert_eq!(entries[7].kind, SHEET_EMPTY);
+        assert_eq!(entries[8].key, 4);
+        assert_eq!(entries[9].key, 4);
+    }
+
+    #[test]
+    fn pending_visibility_is_supplied_as_two_independent_snapshots() {
+        let visible = vec![vec![drawing(7)], vec![drawing(7)], vec![drawing(7)]];
+        let mut pending = drawing(99);
+        pending.sequence_only = true;
+        let resolved = vec![
+            vec![drawing(7)],
+            vec![pending],
+            vec![TimelineCell::default()],
+        ];
+        assert_eq!(resolve(&visible).1, vec![0, 0, 0]);
+        assert_eq!(resolve(&resolved).1, vec![0, 1, -1]);
+        // Pending is not reinterpreted as EMPTY or an old exposure key in Rust.
+        assert_eq!(sheet(&resolved).1[1].number, Some(99));
+        assert_eq!(sheet(&visible).1[1].number, Some(7));
+    }
+
+    #[test]
+    fn content_wins_over_blank_flags() {
+        let mut cell = drawing(1);
+        cell.is_blank_key = true;
+        cell.blank_start = true;
+        let rows = vec![vec![drawing(1)], vec![cell]];
+        assert_eq!(resolve(&rows).1, vec![0, 0]);
+        assert_eq!(sheet(&rows).1[1].kind, SHEET_CELL);
+        assert_eq!(sheet(&rows).1[1].key, 0);
+    }
+
+    #[test]
+    fn empty_input_and_zero_columns() {
+        assert_eq!(sheet(&[]), (0, vec![]));
+        assert_eq!(sheet(&[vec![], vec![]]), (0, vec![]));
         assert_eq!(resolve(&[]), (0, vec![]));
+        assert_eq!(resolve(&[vec![], vec![]]), (0, vec![]));
     }
 }

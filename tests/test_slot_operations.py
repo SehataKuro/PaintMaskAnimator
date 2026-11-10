@@ -19,7 +19,7 @@ def image(color):
 
 def graph():
     first = Layer('A', image(0xff123456), has_content=True,
-                  sequence_number=5, exposure=3)
+                  sequence_number=5)
     first.initial_image = image(0xffabcdef)
     first.cell_name = 'five'
     second = first.clone_slot()
@@ -38,7 +38,7 @@ def compare(left, right):
     ls = [layer for f in lf for layer in f.layers] + list(la.values())
     rs = [layer for f in rf for layer in f.layers] + list(ra.values())
     for a, b in zip(ls, rs, strict=True):
-        for attr in ('has_content', 'is_blank_key', 'exposure', 'sequence_number',
+        for attr in ('has_content', 'is_blank_key', 'blank_start', 'sequence_number',
                      'sequence_only', 'cell_name', 'tween', 'tween_member'):
             assert getattr(a, attr) == getattr(b, attr)
         assert a.image == b.image
@@ -65,7 +65,7 @@ def test_clear_slot(blank):
     layer.image = blank_image()
     layer.has_content = False
     layer.is_blank_key = blank
-    layer.exposure = 1
+    layer.blank_start = blank
     layer.sequence_number = None
     layer.sequence_only = False
     layer.cell_name = None
@@ -87,7 +87,6 @@ def test_place_number():
     target.sequence_number = 2
     target.cell_name = getattr(copied, 'cell_name', None)
     target.sequence_only = False
-    target.exposure = 1
     compare(new, old)
 
 
@@ -101,7 +100,6 @@ def test_create_drawing(number):
     layer = old[0][0].layers[0]
     layer.image = image(0xff112233)
     layer.has_content = True
-    layer.exposure = 1
     layer.sequence_number = number
     compare(new, old)
 
@@ -175,7 +173,7 @@ def test_sequence_image_mapping():
 def test_assign_numbers_to_unnumbered(kind):
     # An exposure-three key is followed by two unused holding slots.
     layers = [Layer('A', image(0xff123456), has_content=True,
-                    sequence_number=n, exposure=3 if i == 0 else 1)
+                    sequence_number=n)
               for i, n in enumerate([None, 2, None, 5, None])]
     layers[1:1] = [Layer('A', image(0)), Layer('A', image(0))]
     for layer in layers:
@@ -194,14 +192,15 @@ def test_assign_numbers_to_unnumbered(kind):
             layer.sequence_number = next_number
             next_number += 1
     assert [frames[i].layers[0].sequence_number for i in (0, 4, 6)] == [6, 7, 8]
-    assert frames[0].layers[0].exposure == 3
+    assert not hasattr(frames[0].layers[0], "exposure")
     compare((frames, {}), (old, {}))
 
 
 def test_v1_projection():
     frames, archive = graph()
     projected_frames, projected_archive = project_v1_state(frames, archive)
-    assert projected_frames is frames
-    assert projected_archive is archive
-    compare((projected_frames, projected_archive), (frames, archive))
-    assert project_v1_state(frames)[1] is None
+    from paintmaskanimator.legacy_v1 import snapshot_frames, snapshot_layer
+    assert snapshot_frames(projected_frames) == snapshot_frames(frames)
+    assert {key: snapshot_layer(slot) for key, slot in projected_archive.items()} == {
+        key: snapshot_layer(slot) for key, slot in archive.items()}
+    assert project_v1_state(frames)[1] == {}

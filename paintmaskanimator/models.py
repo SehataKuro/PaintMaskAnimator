@@ -157,6 +157,8 @@ class Layer:
     timeline_revision: ClassVar[int] = 0
 
     def __setattr__(self, name, value):
+        if name == "exposure":
+            raise AttributeError("Live Layer has no exposure; edit dense references instead")
         if name == "has_content" and not value and getattr(self, "has_content", False):
             track = self.__dict__.get("_track")
             number = getattr(self, "sequence_number", None)
@@ -172,10 +174,12 @@ class Layer:
                 self.__dict__["_content_origin"] = number
         if (name == "has_content" and value) or (name == "is_blank_key" and value):
             self.__dict__.pop("_content_origin", None)
-        if name in ("has_content", "is_blank_key", "exposure"):
-            if getattr(self, name, None) != value:
-                Layer.timeline_revision += 1
+        changed = (name in ("has_content", "is_blank_key", "blank_start", "sequence_number", "sequence_only")
+                   and getattr(self, name, None) != value)
         object.__setattr__(self, name, value)
+        if changed:
+            Layer.timeline_revision += 1
+            self.__dict__.pop("_dense_import", None)
 
     name: str
     image: QImage
@@ -184,7 +188,7 @@ class Layer:
     is_paper: bool = False
     has_content: bool = False
     alpha_locked: bool = False
-    exposure: int = 1
+    blank_start: bool = False
     color_filter_enabled: bool = False
     color_filter_rgb: Optional[tuple] = None
     is_blank_key: bool = False
@@ -211,15 +215,41 @@ class Layer:
         copied = object.__new__(Layer)
         copied.__dict__.update(self.__dict__)
         copied.__dict__.pop("_timeline_metadata", None)
+        imported = self.__dict__.get("_dense_import")
         copied.__dict__["_pending_token"] = PendingToken()
         pending = self.sequence_only
         copied.__dict__["_pending_detached"] = True
-        for name in ("has_content", "is_blank_key", "exposure",
+        for name in ("has_content", "is_blank_key", "blank_start", "sequence_number", "sequence_only",
                      "sequence_number", "sequence_only"):
             setattr(copied, name, getattr(self, name))
         from .timeline_metadata import metadata_for
         metadata_for(copied).sequence_only = pending
+        if imported is not None:
+            copied.__dict__["_dense_import"] = imported
+        position = self.__dict__.get("_v1_position")
+        if position is not None:
+            from dataclasses import replace
+            from .legacy_v1 import snapshot_layer
+            copied.__dict__["_v1_position"] = replace(
+                position, legacy=snapshot_layer(position.legacy)
+                if position.legacy is not None else None)
         copied.tween = copy.deepcopy(self.tween)
+        return copied
+
+    def clone_reference(self):
+        """Extend a reference without duplicating a key's hidden v1 payload."""
+        from dataclasses import replace
+        from .legacy_v1 import snapshot_layer, V1Position
+        copied = self.clone_slot()
+        copied.__dict__.pop("_dense_import", None)
+        copied.__dict__["_v1_position"] = V1Position(replace(
+            snapshot_layer(self), image=blank_image(), initial_image=None,
+            cell_name=None, has_content=False, is_blank_key=False,
+            sequence_number=None, sequence_only=False, exposure=1,
+            tween=None, tween_member=None))
+        copied.blank_start = False
+        copied.tween = None
+        copied.tween_member = None
         return copied
 
     def clone(self):
@@ -230,7 +260,7 @@ class Layer:
         # 全レイヤーを即座にコピーすると数百MB単位の確保になるため。
         copied = Layer(
             self.name, QImage(self.image), self.visible, self.opacity,
-            self.is_paper, self.has_content, self.alpha_locked, self.exposure,
+            self.is_paper, self.has_content, self.alpha_locked, self.blank_start,
             self.color_filter_enabled,
             tuple(self.color_filter_rgb) if self.color_filter_rgb is not None else None,
             bool(self.is_blank_key),
@@ -251,6 +281,15 @@ class Layer:
             copied._track.connected = True
             copied.set_pending(pending)
             copied.__dict__.pop("_cell", None)
+        position = self.__dict__.get("_v1_position")
+        if position is not None:
+            from dataclasses import replace
+            from .legacy_v1 import snapshot_layer
+            copied.__dict__["_v1_position"] = replace(
+                position, legacy=snapshot_layer(position.legacy)
+                if position.legacy is not None else None)
+        if "_dense_import" in self.__dict__:
+            copied.__dict__["_dense_import"] = self.__dict__["_dense_import"]
         return copied
 
     # ------------------------------------------------------------------
@@ -306,6 +345,7 @@ class Layer:
             from .timeline_metadata import metadata_for
             metadata_for(self).sequence_only = pending
         if previous != pending:
+            self.__dict__.pop("_dense_import", None)
             Layer.timeline_revision += 1
         from .timeline_metadata import metadata_for
         metadata_for(self).sequence_only = pending
@@ -313,12 +353,17 @@ class Layer:
     def attach_track(self, track):
         """Transfer this position's pending membership to its new Track."""
         pending = self.sequence_only
+        imported = self.__dict__.get("_dense_import")
         old = self._track
         token = self.__dict__.setdefault("_pending_token", PendingToken())
         old.pending_slots.discard(token)
         self.__dict__["_track"] = track
         self.__dict__.pop("_pending_detached", None)
         self.set_pending(pending)
+        # Moving ownership does not edit the pending position's visible/image
+        # exception. set_pending sees the new bank before its token is added.
+        if imported is not None:
+            self.__dict__["_dense_import"] = imported
 
     @property
     def cell_id(self):

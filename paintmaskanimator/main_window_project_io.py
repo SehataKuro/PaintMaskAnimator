@@ -291,7 +291,6 @@ class ProjectIOController:
 
             constants.CANVAS_WIDTH = width
             constants.CANVAS_HEIGHT = height
-            self.window.canvas.frames = loaded_frames
             loaded_sequence_archive = metadata.pop("_loaded_sequence_archive", {})
             clip_source = metadata.get("clip_studio_source")
             self.window.canvas.clip_studio_source_metadata = (
@@ -315,7 +314,7 @@ class ProjectIOController:
                 ),
             )
 
-            self.window.canvas.install_legacy_frames(sequence_archive=loaded_sequence_archive)
+            self.window.canvas.install_legacy_frames(loaded_frames, sequence_archive=loaded_sequence_archive)
 
             colors = metadata.get("colors", {})
             self.window.canvas.main_color = QColor(
@@ -579,7 +578,7 @@ class ProjectIOController:
             ):
                 self.window.canvas.normalize_sequence_numbers()
             self.window.canvas.apply_sequence_only_entries()
-            self.window.timeline_ops.set_mode("sheet")
+            self.window.timeline_ops.set_mode("sheet", select_number=True)
             self.window.refresh_ui()
             self.window.used_color.schedule_refresh()
             QTimer.singleShot(0, self.window.fit_canvas)
