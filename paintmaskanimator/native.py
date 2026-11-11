@@ -62,7 +62,20 @@ def resolve_timeline(frames):
             for frame in frames]
     layers = max(map(len, rows), default=0)
     data = _native.resolve_timeline(rows)
-    return np.frombuffer(data, dtype=np.int64).reshape(len(rows), layers)
+    result = np.frombuffer(data, dtype=np.int64).reshape(len(rows), layers)
+    overrides = [(column, li, layer) for column, frame in enumerate(frames)
+                 for li, layer in enumerate(frame.layers)
+                 if "_v2_resolve_source" in layer.__dict__]
+    if overrides:
+        result = result.copy()
+        for column, li, layer in overrides:
+            signature, source, original_column, original_count = layer.__dict__["_v2_resolve_source"]
+            if ("_dense_import" in layer.__dict__
+                    and column == original_column and len(frames) == original_count
+                    and signature == (layer.has_content, layer.is_blank_key, layer.sequence_number,
+                                      layer.sequence_only, layer.blank_start)):
+                result[column, li] = -1 if source is None else source
+    return result
 
 
 def sheet_entries(frames):

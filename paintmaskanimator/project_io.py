@@ -40,7 +40,7 @@ from .logging_setup import get_logger
 # Bump when the on-disk pixel contract changes. mask_format >= 2 stores erased
 # areas as alpha=0; format 1 (or missing) stored them as pseudo-transparent
 # opaque #FFFFFF and needs a white->transparent migration on load.
-SUPPORTED_FORMAT_VERSION = 1
+SUPPORTED_FORMAT_VERSION = 2
 CURRENT_MASK_FORMAT = 2
 
 log = get_logger(__name__)
@@ -69,7 +69,12 @@ def load_project(path, png_cache=None):
     Cursor selection must precede bank ownership/initial/name selection.
     """
     read_cache = PngCache() if png_cache is not None else None
-    metadata, frames, width, height = read_project_archive(path, read_cache)
+    result = read_project_archive(path, read_cache, _allow_v2=True)
+    if isinstance(result, LoadedProject):
+        if png_cache is not None:
+            png_cache.replace_from(read_cache)
+        return result
+    metadata, frames, width, height = result
     metadata = dict(metadata)
     document = object.__new__(Document)
     try:
@@ -104,8 +109,19 @@ class ProjectSnapshot:
                    QImage(thumbnail) if thumbnail is not None else None)
 
 
-def write_project_snapshot(path, snapshot, png_cache=None):
-    """All UI save paths use this boundary; stage B still emits legacy v1."""
+def build_v2_payload(snapshot):
+    """Prepare explicit v2 metadata and PNGs without changing the snapshot."""
+    from .project_v2 import build_payload
+    return build_payload(snapshot)
+
+
+def write_project_snapshot(path, snapshot, png_cache=None, *, format_version=1):
+    """Save v1 by default; v2 requires an explicit format_version=2."""
+    if type(format_version) is not int or format_version not in (1, 2):
+        raise OperationError("Unsupported project format version")
+    if format_version == 2:
+        from .project_v2 import write_snapshot
+        return write_snapshot(path, snapshot, png_cache)
     write_project_archive(path, deepcopy(snapshot.metadata), snapshot.document.frames,
                           {}, png_cache, **({"thumbnail": snapshot.thumbnail}
                                            if snapshot.thumbnail is not None else {}))
@@ -257,7 +273,7 @@ def _prefetch_pngs(archive, entries, width, height, decoded):
     }
 
 
-def read_project_archive(path, png_cache=None):
+def read_project_archive(path, png_cache=None, *, _allow_v2=False):
     """Open and validate a project archive.
 
     Returns (metadata, frames, width, height). App version fields in metadata
@@ -291,19 +307,31 @@ def read_project_archive(path, png_cache=None):
             raise OperationError(tr("project.jsonがありません。")) from error
         if metadata_info.file_size > MAX_PROJECT_METADATA_BYTES:
             raise OperationError(tr("プロジェクト情報が大きすぎます。"))
-        metadata = json.loads(
-            archive.read("project.json").decode("utf-8")
-        )
+        duplicates = []
+        def pairs_hook(pairs):
+            result = {}
+            for key, value in pairs:
+                if key in result:
+                    duplicates.append(key)
+                result[key] = value
+            return result
+        try:
+            metadata = json.loads(archive.read("project.json").decode("utf-8"),
+                                  object_pairs_hook=pairs_hook)
+        except (ValueError, UnicodeError) as error:
+            raise OperationError("Invalid project JSON") from error
+        if not isinstance(metadata, dict):
+            raise OperationError("Invalid project metadata")
         if metadata.get("format") != "PaintMaskAnimatorProject":
             raise OperationError(tr("対応していないプロジェクト形式です。"))
 
         format_version = metadata.get("format_version", 1)
-        if type(format_version) is not int:
+        if type(format_version) is not int or format_version < 1:
             raise OperationError(tr("対応していないプロジェクト形式です。"))
         for key in ("created_app_version", "saved_app_version"):
             if not isinstance(metadata.get(key), str):
                 metadata[key] = None
-        if format_version > SUPPORTED_FORMAT_VERSION:
+        if format_version > (SUPPORTED_FORMAT_VERSION if _allow_v2 else 1):
             version = metadata["saved_app_version"]
             if version:
                 raise OperationError(tr(
@@ -312,6 +340,14 @@ def read_project_archive(path, png_cache=None):
             raise OperationError(tr(
                 "このファイルは新しいバージョンのアプリで保存されています。アプリを更新してから開いてください。"
             ))
+
+        if format_version == 2:
+            if duplicates:
+                raise OperationError("Duplicate v2 JSON key")
+            if not _allow_v2:
+                raise OperationError("Use load_project for v2 documents")
+            from .project_v2 import decode_payload
+            return decode_payload(metadata, archive, png_cache)
 
         try:
             mask_format = int(metadata.get("mask_format", 1))
