@@ -141,10 +141,13 @@ def test_all_save_paths_include_unplaced_bank(tmp_path, monkeypatch, save_mode):
     from paintmaskanimator import project_io
     from paintmaskanimator.main_window_autosave import AutosaveController
 
+    from paintmaskanimator import constants
+    monkeypatch.setattr(constants, "CANVAS_WIDTH", 2)
+    monkeypatch.setattr(constants, "CANVAS_HEIGHT", 2)
     doc = Document()
     doc.install_legacy_frames([Frame([slot(3, has_content=True)])])
     doc.tracks[0].cells[9] = Cell(image(0xffabcdef), image(), "unplaced")
-    metadata = lambda: {"format": "PaintMaskAnimatorProject", "format_version": 1,
+    metadata = lambda: {"format": "PaintMaskAnimatorProject", "format_version": 2,
                         "mask_format": 2, "canvas": {"width": 2, "height": 2},
                         "frames": []}
     canvas = SimpleNamespace(frames=doc.frames, _document=doc,
@@ -156,21 +159,22 @@ def test_all_save_paths_include_unplaced_bank(tmp_path, monkeypatch, save_mode):
     monkeypatch.setattr(owner, "path", lambda: path)
     try:
         if save_mode == "normal":
-            project_io.write_project_archive(path, metadata(), doc.frames)
+            project_io.write_project_snapshot(path, project_io.ProjectSnapshot.capture(metadata(), doc))
         elif save_mode == "sync":
             owner.save()
         else:
             owner.request_save()
             owner._pending.result(timeout=10)
-        data, _, _, _ = project_io.read_project_archive(path)
-        archived = data["_loaded_sequence_archive"][(0, 9)]
+        loaded = project_io.load_project(path)
+        assert loaded.format_version == 2
+        archived = loaded.document.tracks[0].cells[9]
         assert archived.image.pixel(0, 0) == 0xffabcdef
         assert archived.initial_image.pixel(0, 0) == 0xff123456
         assert archived.cell_name == "unplaced"
         assert doc.tracks[0].legacy_archive_hints == {}
         from zipfile import ZipFile
         reference = tmp_path / "normal.pman"
-        project_io.write_project_archive(reference, metadata(), doc.frames)
+        project_io.write_project_snapshot(reference, project_io.ProjectSnapshot.capture(metadata(), doc))
         with ZipFile(reference) as expected, ZipFile(path) as actual:
             assert actual.namelist() == expected.namelist()
             assert [actual.read(name) for name in actual.namelist()] == [
@@ -297,11 +301,11 @@ def small_window(tmp_path, monkeypatch):
 
 
 def saved_document(doc, path):
-    from paintmaskanimator.project_io import read_project_archive, write_project_archive
+    from paintmaskanimator.project_io import read_project_archive, legacy_fixture_write_archive
 
     metadata = {"format": "PaintMaskAnimatorProject", "format_version": 1,
                 "mask_format": 2, "canvas": {"width": 2, "height": 2}, "frames": []}
-    write_project_archive(path, metadata, doc.frames)
+    legacy_fixture_write_archive(path, metadata, doc.frames)
     metadata, frames, _, _ = read_project_archive(path)
     restored = Document()
     restored.install_legacy_frames(frames, metadata["_loaded_sequence_archive"])

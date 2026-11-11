@@ -399,7 +399,9 @@ def test_initial_state_is_saved_with_the_project(window, tmp_path):
     path = tmp_path / "kept.pman"
     assert window.project.write(path)
 
-    _metadata, frames, _width, _height = project_io.read_project_archive(path)
+    loaded = project_io.load_project(path)
+    assert loaded.format_version == 2
+    frames = loaded.document.frames
     initial = frames[0].layers[0].initial_image
     assert initial is not None
     assert initial.pixelColor(20, 40).alpha() == 0, "保持したのは塗る前の絵"

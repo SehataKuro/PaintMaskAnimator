@@ -25,7 +25,7 @@ from paintmaskanimator.clip_animation import (
     read_clip_animation,
 )
 from paintmaskanimator.main_window import MainWindow
-from paintmaskanimator.project_io import read_project_archive, write_project_archive
+from paintmaskanimator.project_io import ProjectSnapshot, load_project, write_project_snapshot
 
 
 requires_clip_native = pytest.mark.skipif(
@@ -871,17 +871,16 @@ def test_cell_name_roundtrips_in_pman(tmp_path):
     archived.sequence_number = 2
     archived.cell_name = "未配置A"
     path = tmp_path / "cell-name.pman"
-    write_project_archive(
-        path,
-        metadata,
-        frames,
-        {(0, 2): archived},
-    )
-    _metadata, loaded, _width, _height = read_project_archive(path)
-    assert loaded[0].layers[0].cell_name == "A-1"
-    restored = _metadata["_loaded_sequence_archive"][(0, 2)]
+    from paintmaskanimator.document import Document
+    document = Document()
+    document.install_legacy_frames(frames, {(0, 2): archived})
+    write_project_snapshot(path, ProjectSnapshot(metadata, document.clone_graph(), 2, 2))
+    loaded = load_project(path)
+    assert loaded.format_version == 2
+    assert loaded.document.frames[0].layers[0].cell_name == "A-1"
+    restored = loaded.document.tracks[0].cells[2]
     assert restored.cell_name == "未配置A"
-    assert restored.sequence_number == 2
+    assert 2 in loaded.document.tracks[0].cells
     assert restored.image.pixelColor(0, 0) == QColor("yellow")
 
 

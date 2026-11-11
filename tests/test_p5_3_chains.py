@@ -35,15 +35,17 @@ def save_visible(window, path):
     assert window.project.write(path)
     saved = payload(path)
     entries = sheet_from_frames(c.frames)
-    for column, frame in enumerate(saved["metadata"]["frames"]):
-        for li, layer in enumerate(frame["layers"]):
-            if layer.get("sequence_only") or not (layer["has_content"] or layer["is_blank_key"]):
-                continue
-            entry = entries[column][li]
-            end = column
-            while end < len(entries) and entries[end][li].number == entry.number:
-                end += 1
-            assert 1 <= layer["exposure"] <= end - column
+    assert saved["metadata"]["format_version"] == 2
+    assert "frames" not in saved["metadata"]
+    for li, track in enumerate(saved["metadata"]["tracks"]):
+        assert track["sheet"] == [
+            entry[li].number if type(entry[li].number) is int else (
+                "BLANK" if entry[li].is_blank else None) for entry in entries]
+        assert "exposure" not in track
+        for position in track["positions"]:
+            slot = c.frames[position["column"]].layers[li]
+            assert position.get("tween") == slot.tween
+            assert position.get("tween_member") == slot.tween_member
     assert state(c) == before  # projection never edits the live graph
     return saved
 
@@ -73,7 +75,7 @@ def test_old_v1_open_fixed_semantics_and_pending_recall(window, tmp_path):
              slot(2, "green", has_content=True, sequence_only=True), slot(),
              slot(3, "blue", has_content=True)]
     source = tmp_path / "old-v1.pman"
-    project_io.write_project_archive(source, {
+    project_io.legacy_fixture_write_archive(source, {
         "format": "PaintMaskAnimatorProject", "format_version": 1, "mask_format": 2,
         "canvas": {"width": 16, "height": 16}, "timeline_mode": "sequence", "frames": [],
     }, [Frame([s]) for s in slots],
@@ -107,8 +109,9 @@ def test_old_v1_open_fixed_semantics_and_pending_recall(window, tmp_path):
     assert c.resolve_key_frame(5, 0) == 5
     assert c.composite(5, white=False).pixelColor(0, 0).name() == "#008000"
     save_visible(window, tmp_path / "pending.pman")
-    metadata, loaded, _, _ = project_io.read_project_archive(tmp_path / "pending.pman")
-    c.install_legacy_frames(loaded, metadata["_loaded_sequence_archive"])
+    loaded = project_io.load_project(tmp_path / "pending.pman")
+    c._document = loaded.document
+    c._invalidate_exposure_index()
     assert [(e.column, e.slot.sequence_number) for e in c._document.pending_entries(c._document.tracks[0])] == [(5, 2)]
     before = state(c)
     window.timeline_ops.set_mode("sheet")
@@ -138,7 +141,7 @@ def test_insert_delete_split_merge_new_number_remap_save_chain(window, tmp_path)
     assert ops.delete_frame_at(row(c), 2)
     roundtrip(window, tmp_path, "delete")
     # Regression: the old saved key marker still held 5 after deleting a hold.
-    assert payload(tmp_path / "delete.pman")["metadata"]["frames"][0]["layers"][0]["exposure"] == 4
+    assert payload(tmp_path / "delete.pman")["metadata"]["tracks"][0]["sheet"] == [1, 1, 1, 1, 2, 2, None]
     assert ops.split_clip(row(c), 2)
     assert numbers(c.frames) == [[v] for v in ("CELL:1", "CELL:1", "CELL:3", "CELL:3", "CELL:2", "CELL:2", "EMPTY")]
     roundtrip(window, tmp_path, "split")

@@ -85,7 +85,7 @@ def test_v1_archive_reader_installs_dense_without_live_exposure(tmp_path):
     metadata = {"format": "PaintMaskAnimatorProject", "format_version": 1,
                 "mask_format": 2, "canvas": {"width": 2, "height": 2}, "frames": []}
     path = tmp_path / "dense.pman"
-    project_io.write_project_archive(path, metadata, doc.frames)
+    project_io.legacy_fixture_write_archive(path, metadata, doc.frames)
     _metadata, loaded, _width, _height = project_io.read_project_archive(path)
     reopened = Document()
     reopened.install_legacy_frames(loaded)

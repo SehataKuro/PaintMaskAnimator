@@ -21,7 +21,7 @@ def qapp():
 
 
 @pytest.fixture
-def window(qapp, monkeypatch, tmp_path):
+def window(qapp, monkeypatch, tmp_path, request):
     monkeypatch.setenv("APPDATA", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     monkeypatch.setattr(constants, "CANVAS_WIDTH", 4)
@@ -30,6 +30,9 @@ def window(qapp, monkeypatch, tmp_path):
         raise AssertionError(str(args[-1]))
 
     monkeypatch.setattr(QMessageBox, "critical", fail_dialog)
+    from legacy_save_boundary import install_legacy_save_boundary
+    if request.module.__name__ == "test_p5_6_characterization":
+        install_legacy_save_boundary(monkeypatch)
     w = MainWindow()
     for timer in (w._autosave_timer, w._used_color_timer, w._title_timer):
         timer.stop()

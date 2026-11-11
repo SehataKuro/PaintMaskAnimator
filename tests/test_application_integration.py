@@ -14,7 +14,7 @@ from PySide6.QtWidgets import QApplication
 
 from paintmaskanimator import constants
 from paintmaskanimator.main_window import MainWindow
-from paintmaskanimator.project_io import read_project_archive, write_project_archive
+from paintmaskanimator.project_io import ProjectSnapshot, load_project, write_project_snapshot
 from paintmaskanimator.toolpanel import ToolPanel
 
 
@@ -58,6 +58,7 @@ def test_window_document_roundtrips_through_project_archive(
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     window = MainWindow()
     try:
+        assert window.canvas.ensure_editable_key()
         layer = window.canvas.frames[0].layers[0]
         expected = QColor(12, 34, 56, 255)
         layer.image.setPixelColor(0, 0, expected)
@@ -72,8 +73,11 @@ def test_window_document_roundtrips_through_project_archive(
         }
         path = tmp_path / "smoke.pmap"
 
-        write_project_archive(path, metadata, window.canvas.frames)
-        loaded_metadata, frames, width, height = read_project_archive(path)
+        write_project_snapshot(path, ProjectSnapshot.capture(metadata, window.canvas._document))
+        loaded = load_project(path)
+        loaded_metadata, frames = loaded.metadata, loaded.document.frames
+        width, height = loaded.width, loaded.height
+        assert loaded.format_version == 2
 
         assert loaded_metadata["format"] == "PaintMaskAnimatorProject"
         assert (width, height) == (constants.CANVAS_WIDTH, constants.CANVAS_HEIGHT)

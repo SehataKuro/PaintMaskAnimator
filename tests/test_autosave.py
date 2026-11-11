@@ -38,7 +38,9 @@ def test_autosave_writes_and_clears(qapp, tmp_path, monkeypatch, background):
 
         # The autosave is a valid, reloadable project archive.
         from paintmaskanimator import project_io
-        _metadata, frames, _w, _h = project_io.read_project_archive(autosave)
+        loaded = project_io.load_project(autosave)
+        assert loaded.format_version == 2
+        frames = loaded.document.frames
         assert len(frames) == len(window.canvas.frames)
 
         window.autosave.clear()
@@ -99,13 +101,13 @@ def test_periodic_save_keeps_ui_responsive_and_captures_snapshot(qapp, tmp_path,
     captured = []
     ui_thread = get_ident()
 
-    def blocked_write(path, saved_metadata, frames, archive, cache):
-        captured.append((get_ident(), saved_metadata, frames, archive, cache))
+    def blocked_write(path, snapshot, cache):
+        captured.append((get_ident(), snapshot.metadata, snapshot.document.frames, {}, cache))
         entered.set()
         assert release.wait(5)
         path.write_bytes(b"snapshot")
 
-    monkeypatch.setattr(project_io, "write_project_archive", blocked_write)
+    monkeypatch.setattr(project_io, "write_project_snapshot", blocked_write)
     try:
         owner.request_save()
         assert entered.wait(5)
@@ -161,3 +163,63 @@ def test_periodic_save_defers_during_stroke_and_ignores_closed_window(monkeypatc
     retries[0]()
     assert len(retries) == 1
     assert owner._executor is None
+
+
+def test_autosave_snapshot_keeps_compatibility_and_local_independent(qapp, tmp_path, monkeypatch):
+    import json
+    from dataclasses import replace
+    from zipfile import ZipFile
+    from PySide6.QtGui import QColor
+    from paintmaskanimator import constants, project_io
+    from paintmaskanimator.document import Document
+    from paintmaskanimator.main_window_autosave import AutosaveController
+    from paintmaskanimator.models import Frame
+    from p5_6_support import image, slot
+
+    monkeypatch.setattr(constants, "CANVAS_WIDTH", 4)
+    monkeypatch.setattr(constants, "CANVAS_HEIGHT", 3)
+    doc = Document()
+    doc.install_legacy_frames([
+        Frame([slot(1, "red", has_content=True, exposure=7)]),
+        Frame([slot(None, "green", is_blank_key=True,
+                    initial_image=image("blue"), cell_name="local")])])
+    metadata = {"canvas": {"width": 4, "height": 3}}
+    owner = AutosaveController(SimpleNamespace(
+        canvas=SimpleNamespace(drawing=False, _document=doc),
+        build_project_metadata=lambda: metadata))
+    path = tmp_path / "snapshot.pman"
+    monkeypatch.setattr(owner, "path", lambda: path)
+    expected, _ = project_io.build_v2_payload(project_io.ProjectSnapshot.capture(metadata, doc))
+    entered, release = Event(), Event()
+    writer = project_io.write_project_snapshot
+
+    def blocked_write(destination, snapshot, cache):
+        entered.set()
+        assert release.wait(5)
+        writer(destination, snapshot, cache)
+
+    monkeypatch.setattr(project_io, "write_project_snapshot", blocked_write)
+    try:
+        owner.request_save()
+        assert entered.wait(5)
+        first, local = (frame.layers[0] for frame in doc.frames)
+        position = first.__dict__["_v1_position"]
+        first.__dict__["_v1_position"] = replace(
+            position, legacy=replace(position.legacy, exposure=11), input_length=13)
+        first.__dict__.pop("_dense_import", None)
+        local.image.fill(QColor("yellow"))
+        local.initial_image.fill(QColor("red"))
+        local.cell_name = "changed"
+        release.set()
+        owner._pending.result(timeout=10)
+        with ZipFile(path) as archive:
+            assert json.loads(archive.read("project.json")) == expected
+        loaded = project_io.load_project(path)
+        saved_local = loaded.document.frames[1].layers[0]
+        assert saved_local.image.pixelColor(0, 0) == QColor("green")
+        assert saved_local.initial_image.pixelColor(0, 0) == QColor("blue")
+        assert saved_local.cell_name == "local"
+        assert loaded.document.frames[0].layers[0].__dict__["_v1_position"].input_length == 7
+    finally:
+        release.set()
+        owner.clear()

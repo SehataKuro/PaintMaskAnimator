@@ -5,7 +5,7 @@ from PySide6.QtGui import QColor, QImage, QPainter
 from paintmaskanimator.models import Frame, Layer
 from paintmaskanimator.legacy_v1 import raw_v1_slot, LegacyLayerV1
 from dense_fixtures import length
-from paintmaskanimator.project_io import write_project_archive
+from paintmaskanimator.project_io import legacy_fixture_write_archive
 from test_track_cells import image, small_window  # noqa: F401
 
 
@@ -30,7 +30,7 @@ def test_load_duplicate_split_paint_move_paste_delete_undo_save_reload(
     metadata = {"format": "PaintMaskAnimatorProject", "format_version": 1,
                 "mask_format": 2, "canvas": {"width": 2, "height": 2},
                 "frames": [], "timeline_mode": mode}
-    write_project_archive(path, metadata, frames, archive)
+    legacy_fixture_write_archive(path, metadata, frames, archive)
     window.project.open(path)
     assert canvas.timeline_mode == "sheet"  # Existing open policy ignores saved mode.
     assert not window.project.has_unsaved_changes()

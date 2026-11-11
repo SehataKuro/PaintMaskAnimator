@@ -10,7 +10,7 @@ from paintmaskanimator.document import project_v1_state
 from paintmaskanimator.legacy_v1 import raw_v1_slot as Layer
 from dense_fixtures import clear_range
 from paintmaskanimator.models import Frame
-from paintmaskanimator.project_io import build_v1_payload
+from paintmaskanimator.project_io import legacy_fixture_build_v1_payload
 from test_pending_slots import assert_pending_graph
 from test_track_cells import image, small_window  # noqa: F401
 
@@ -19,6 +19,10 @@ def payload(path):
     """Compare v1 drawing metadata and encoded pixels across real save paths."""
     with ZipFile(path) as archive:
         metadata = json.loads(archive.read("project.json"))
+        if metadata["format_version"] == 2:
+            return (metadata["tracks"], metadata["frame_durations"],
+                    {name: archive.read(name) for name in archive.namelist()
+                     if name.endswith(".png") and not name.startswith("thumbnail")})
         return (metadata["frames"], metadata["sequence_archive"],
                 {name: archive.read(name) for name in archive.namelist()
                  if name.endswith(".png") and not name.startswith("thumbnail")})
@@ -46,7 +50,7 @@ def legacy_expected_payload(canvas, kind):
                 names[index], image(color), has_content=True, sequence_number=number,
                 initial_image=image(0xff112233) if explicit else None,
                 cell_name="eight" if explicit else None, **kind)
-    return build_v1_payload(*project_v1_state(frames, archive))
+    return legacy_fixture_build_v1_payload(*project_v1_state(frames, archive))
 
 
 def graph(canvas):
@@ -61,11 +65,15 @@ def graph(canvas):
     )
 
 
+@pytest.mark.parametrize("boundary", ["legacy", "v2"])
 @pytest.mark.parametrize("kind", [{}, {"is_draft": True}, {"is_paper": True}],
                          ids=["normal", "draft", "paper"])
 @pytest.mark.parametrize("save", ["normal", "sync", "background"])
 def test_unplaced_undo_columns_pending_modes_docundo_save_reload(
-        small_window, tmp_path, monkeypatch, kind, save):  # noqa: F811
+        small_window, tmp_path, monkeypatch, kind, save, boundary):  # noqa: F811
+    if boundary == "legacy":
+        from legacy_save_boundary import install_legacy_save_boundary
+        install_legacy_save_boundary(monkeypatch)
     window = small_window
     canvas = window.canvas
     # Retained blank 12 is rescued, never reused; explicit archive 8 has attributes.
@@ -140,11 +148,24 @@ def test_unplaced_undo_columns_pending_modes_docundo_save_reload(
     reference = tmp_path / "normal.pman"
     assert window.project.write(reference)
     expected = payload(reference)
-    raw_frames, raw_archive, raw_pngs = legacy_expected_payload(canvas, kind)
-    assert expected[:2] == (raw_frames, raw_archive)
-    assert set(expected[2]) == {name for name, _, _ in raw_pngs}
-    for name, pixels, _ in raw_pngs:
-        assert QImage.fromData(expected[2][name]).convertToFormat(pixels.format()) == pixels
+    if boundary == "legacy":
+        raw_frames, raw_archive, raw_pngs = legacy_expected_payload(canvas, kind)
+        assert expected[:2] == (raw_frames, raw_archive)
+        assert set(expected[2]) == {name for name, _, _ in raw_pngs}
+        for name, pixels, _ in raw_pngs:
+            assert QImage.fromData(expected[2][name]).convertToFormat(pixels.format()) == pixels
+    else:
+        tracks = expected[0]
+        assert [t["sheet"] for t in tracks] == [
+            [None, None, None, None, "BLANK", None, "BLANK"],
+            [None, None, None, None, "BLANK", None, None]]
+        assert [{entry["number"] for entry in t["cells"]} for t in tracks] == [
+            {1, 2, 9, 13}, {1, 8, 12}]
+        for index, number in ((0, 9), (1, 8)):
+            entry = next(c for c in tracks[index]["cells"] if c["number"] == number)
+            assert entry["cell_name"] == "eight"
+            assert QImage.fromData(expected[2][entry["image"]]).pixel(0, 0) == 0xff8899aa
+            assert QImage.fromData(expected[2][entry["initial"]]).pixel(0, 0) == 0xff112233
     assert graph(canvas) == after
     assert not window.project.has_unsaved_changes()
     destination = tmp_path / f"{save}.pman"
@@ -164,17 +185,20 @@ def test_unplaced_undo_columns_pending_modes_docundo_save_reload(
         # Existing open policy normalizes when there is no numbered content key
         # (main_window_project_io.open); blank keys alone do not suppress it.
         # No content keys: sorted bank order gives these exact legacy maps.
-        mappings = [{1: 1, 2: 2, 9: 3, 13: 4}, {1: 1, 8: 2, 12: 3}]
-        loaded_slots = deepcopy(after[1])
-        for row in loaded_slots:
-            for index, values in enumerate(row):
-                row[index] = (mappings[index].get(values[0], values[0]), *values[1:])
-        loaded_cells = [{mappings[index][n]: values for n, values in cells.items()}
-                        for index, cells in enumerate(after[2])]
-        assert graph(canvas)[:3] == (6, loaded_slots, loaded_cells)
-        # v1 projection turns bank-only/blank drawings into explicit raw entries.
-        assert [set(t.legacy_archive_hints) for t in canvas._document.tracks] == [
-            {1, 2, 3, 4}, {1, 2, 3}]
+        if boundary == "legacy":
+            mappings = [{1: 1, 2: 2, 9: 3, 13: 4}, {1: 1, 8: 2, 12: 3}]
+            loaded_slots = deepcopy(after[1])
+            for row in loaded_slots:
+                for index, values in enumerate(row):
+                    row[index] = (mappings[index].get(values[0], values[0]), *values[1:])
+            loaded_cells = [{mappings[index][n]: values for n, values in cells.items()}
+                            for index, cells in enumerate(after[2])]
+            assert graph(canvas)[:3] == (6, loaded_slots, loaded_cells)
+            # v1 projection turns bank-only/blank drawings into explicit raw entries.
+            assert [set(t.legacy_archive_hints) for t in canvas._document.tracks] == [
+                {1, 2, 3, 4}, {1, 2, 3}]
+        else:
+            assert graph(canvas) == after
         assert_pending_graph(canvas._document)
         assert not window.project.has_unsaved_changes()
         loaded = graph(canvas)

@@ -60,11 +60,11 @@ def test_snapshot_v1_bytes_and_live_independence(tmp_path, monkeypatch, case):
         for number, cell in live_track.cells.items():
             assert frozen_track.cells[number].image is not cell.image
     baseline = tmp_path / "live.pman"
-    project_io.write_project_archive(baseline, save_metadata(loaded) | {
+    project_io.legacy_fixture_write_archive(baseline, save_metadata(loaded) | {
         "memo": "before", "display": {"onion_skin": False}}, doc.frames)
     expected = entries(baseline)
     saved = tmp_path / "snapshot.pman"
-    project_io.write_project_snapshot(saved, snapshot)
+    project_io.legacy_fixture_write_snapshot(saved, snapshot)
     assert entries(saved) == expected
 
     # Mutate both bank and live local artwork, not just references to images.
@@ -98,7 +98,7 @@ def test_snapshot_v1_bytes_and_live_independence(tmp_path, monkeypatch, case):
     metadata["memo"] = "after"
     metadata["display"]["onion_skin"] = True
     metadata["frames"].append({"after": True})
-    project_io.write_project_snapshot(saved, snapshot)
+    project_io.legacy_fixture_write_snapshot(saved, snapshot)
     assert entries(saved) == expected
     assert json.dumps(graph_state(snapshot.document), sort_keys=True) == expected_graph
     # A repeated write must not extend the snapshot's metadata frames.

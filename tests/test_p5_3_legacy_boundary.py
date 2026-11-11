@@ -125,20 +125,20 @@ def test_writer_reader_and_hidden_payload_roundtrip(tmp_path):
     rows = snapshot_frames(frames)
     dense = expand_legacy(rows)
     recovered = frames_from_rows(compress_v1(dense.sheet, dense.positions), [2, 1, 1])
-    assert_payload_equal(project_io.build_v1_payload(frames),
-                         project_io.build_v1_payload(recovered))
+    assert_payload_equal(project_io.legacy_fixture_build_v1_payload(frames),
+                         project_io.legacy_fixture_build_v1_payload(recovered))
     metadata = {"format": "PaintMaskAnimatorProject", "format_version": 1,
                 "mask_format": 2, "canvas": {"width": 2, "height": 2}, "frames": []}
     path = tmp_path / "boundary.pman"
-    project_io.write_project_archive(
+    project_io.legacy_fixture_write_archive(
         path, metadata, [Frame([legacy_layer_to_slot(slot) for slot in frame.layers],
                                frame.duration) for frame in recovered])
     _data, loaded, _w, _h = project_io.read_project_archive(path)
     reread = expand_legacy(snapshot_frames(loaded))
     assert reread.sheet == dense.sheet
     loaded_again = frames_from_rows(compress_v1(reread.sheet, reread.positions), [2, 1, 1])
-    assert_payload_equal(project_io.build_v1_payload(frames_from_rows(snapshot_frames(loaded), [2, 1, 1])),
-                         project_io.build_v1_payload(loaded_again))
+    assert_payload_equal(project_io.legacy_fixture_build_v1_payload(frames_from_rows(snapshot_frames(loaded), [2, 1, 1])),
+                         project_io.legacy_fixture_build_v1_payload(loaded_again))
     frames[1].layers[0].image.fill(QColor("black"))
     frames[1].layers[0].initial_image.fill(QColor("black"))
     assert rows[1][0].image == image("cyan")
@@ -224,8 +224,8 @@ def test_real_boundary_entrances(app, monkeypatch, entrance):
         assert tuple(row[li] for row in dense.sheet) == refs(number, number, number)
         restored = frames_from_rows(compress_v1(dense.sheet, dense.positions),
                                     [frame.duration for frame in projected])
-        assert_payload_equal(project_io.build_v1_payload(projected),
-                             project_io.build_v1_payload(restored))
+        assert_payload_equal(project_io.legacy_fixture_build_v1_payload(projected),
+                             project_io.legacy_fixture_build_v1_payload(restored))
     finally:
         window.close()
 

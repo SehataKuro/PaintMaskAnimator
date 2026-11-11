@@ -720,7 +720,7 @@ class MainWindow(
         """Assemble the project metadata dict from current widget state."""
         return {
             "format": "PaintMaskAnimatorProject",
-            "format_version": 1,
+            "format_version": 2,
             "mask_format": project_io.CURRENT_MASK_FORMAT,
             "created_app_version": self.created_app_version,
             "saved_app_version": constants.APP_VERSION,
@@ -1234,7 +1234,9 @@ class MainWindow(
                 legacy = position.legacy
                 if (legacy is not None and not legacy.sequence_only
                         and (legacy.has_content or legacy.is_blank_key)):
-                    duration = max(duration, column + max(1, int(legacy.exposure)))
+                    duration = max(duration, column + max(1, int(
+                        position.input_length if position.input_length is not None
+                        else legacy.exposure)))
         return duration
 
 

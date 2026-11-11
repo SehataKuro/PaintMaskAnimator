@@ -109,22 +109,25 @@ class ProjectSnapshot:
                    QImage(thumbnail) if thumbnail is not None else None)
 
 
-def build_v2_payload(snapshot):
+def build_v2_payload(snapshot, *, include_default_local_images=False):
     """Prepare explicit v2 metadata and PNGs without changing the snapshot."""
     from .project_v2 import build_payload
-    return build_payload(snapshot)
+    return build_payload(snapshot, include_default_local_images=include_default_local_images)
 
 
-def write_project_snapshot(path, snapshot, png_cache=None, *, format_version=1):
-    """Save v1 by default; v2 requires an explicit format_version=2."""
-    if type(format_version) is not int or format_version not in (1, 2):
-        raise OperationError("Unsupported project format version")
-    if format_version == 2:
-        from .project_v2 import write_snapshot
-        return write_snapshot(path, snapshot, png_cache)
-    write_project_archive(path, deepcopy(snapshot.metadata), snapshot.document.frames,
-                          {}, png_cache, **({"thumbnail": snapshot.thumbnail}
-                                           if snapshot.thumbnail is not None else {}))
+def write_project_snapshot(path, snapshot, png_cache=None):
+    """Save the current format (v2); legacy fixture output is separate."""
+    from .project_v2 import write_snapshot
+    return write_snapshot(path, snapshot, png_cache)
+
+
+def legacy_fixture_write_snapshot(path, snapshot, png_cache=None):
+    """Test/fixture-only v1 output; never use for user saves."""
+    metadata = deepcopy(snapshot.metadata)
+    metadata["format_version"] = 1
+    legacy_fixture_write_archive(
+        path, metadata, snapshot.document.frames, {}, png_cache,
+        **({"thumbnail": snapshot.thumbnail} if snapshot.thumbnail is not None else {}))
 
 
 class PngCache:
@@ -315,13 +318,10 @@ def read_project_archive(path, png_cache=None, *, _allow_v2=False):
                     duplicates.append(key)
                 result[key] = value
             return result
-        try:
-            metadata = json.loads(archive.read("project.json").decode("utf-8"),
-                                  object_pairs_hook=pairs_hook)
-        except (ValueError, UnicodeError) as error:
-            raise OperationError("Invalid project JSON") from error
+        metadata = json.loads(archive.read("project.json").decode("utf-8"),
+                              object_pairs_hook=pairs_hook)
         if not isinstance(metadata, dict):
-            raise OperationError("Invalid project metadata")
+            raise OperationError(tr("対応していないプロジェクト形式です。"))
         if metadata.get("format") != "PaintMaskAnimatorProject":
             raise OperationError(tr("対応していないプロジェクト形式です。"))
 
@@ -343,9 +343,9 @@ def read_project_archive(path, png_cache=None, *, _allow_v2=False):
 
         if format_version == 2:
             if duplicates:
-                raise OperationError("Duplicate v2 JSON key")
+                raise OperationError(tr("プロジェクト情報に重複したキーがあります。"))
             if not _allow_v2:
-                raise OperationError("Use load_project for v2 documents")
+                raise OperationError(tr("対応していないプロジェクト形式です。"))
             from .project_v2 import decode_payload
             return decode_payload(metadata, archive, png_cache)
 
@@ -704,8 +704,8 @@ def _thumbnail_png(image):
     return bytes(data.data()) if ok else None
 
 
-def build_v1_payload(frames, sequence_archive=None):
-    """Return v1 frame/archive metadata and ordered (name, image, error) PNGs.
+def legacy_fixture_build_v1_payload(frames, sequence_archive=None):
+    """Test/fixture-only v1 metadata and ordered (name, image, error) PNGs.
 
     Only reads the document. Encoding, caching and ZIP output belong to the
     writer; images here retain their original cache keys.
@@ -820,11 +820,11 @@ def build_v1_payload(frames, sequence_archive=None):
     return frame_metadata, archive_metadata, pending_pngs
 
 
-def write_project_archive(
+def legacy_fixture_write_archive(
     project_path, metadata, frames, sequence_archive=None, png_cache=None,
     thumbnail=None,
 ):
-    """Serialize frames + metadata into the project archive at ``project_path``.
+    """Test/fixture-only v1 serialization into ``project_path``.
 
     Fills ``metadata["frames"]`` from the Frame/Layer domain objects, writes one
     PNG per layer-cell plus project.json into a zip, and atomically replaces the
@@ -857,7 +857,7 @@ def write_project_archive(
                     THUMBNAIL_NAME, thumbnail_png, compress_type=zipfile.ZIP_STORED
                 )
 
-            frame_data, archive_data, pending_pngs = build_v1_payload(
+            frame_data, archive_data, pending_pngs = legacy_fixture_build_v1_payload(
                 *project_v1_state(frames, sequence_archive)
             )
             metadata["frames"].extend(frame_data)

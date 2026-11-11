@@ -53,7 +53,7 @@ def test_new_project_save(window, tmp_path):
     data = metadata(path)
     assert data["created_app_version"] == constants.APP_VERSION
     assert data["saved_app_version"] == constants.APP_VERSION
-    assert data["format_version"] == 1
+    assert data["format_version"] == 2
     assert "application_version" not in data
 
 
@@ -75,7 +75,7 @@ def test_open_and_save_as_preserves_creation(window, tmp_path, created, expected
 def test_future_format_rejected_before_images(window, tmp_path, monkeypatch, saved):
     path = tmp_path / "future.pman"
     assert window.project.write(path)
-    rewrite(path, format_version=2, saved_app_version=saved)
+    rewrite(path, format_version=3, saved_app_version=saved)
     original = zipfile.ZipFile.read
 
     def guarded_read(archive, name, *args, **kwargs):
@@ -84,7 +84,7 @@ def test_future_format_rejected_before_images(window, tmp_path, monkeypatch, sav
 
     monkeypatch.setattr(zipfile.ZipFile, "read", guarded_read)
     with pytest.raises(OperationError) as caught:
-        project_io.read_project_archive(path)
+        project_io.load_project(path)
     if isinstance(saved, str):
         expected = f"このファイルは新しいバージョンのアプリ（v{saved}）で保存されています。アプリを更新してから開いてください。"
     else:
@@ -92,14 +92,18 @@ def test_future_format_rejected_before_images(window, tmp_path, monkeypatch, sav
     assert str(caught.value) == expected
 
 
-@pytest.mark.parametrize("version", [..., 1])
+@pytest.mark.parametrize("version", [..., 1, 2])
 def test_supported_format(window, tmp_path, version):
     path = tmp_path / "supported.pman"
-    assert window.project.write(path)
+    if version == 2:
+        assert window.project.write(path)
+    else:
+        from p5_6_support import ROOT
+        path.write_bytes((ROOT / "v1" / "tween-initial.pman").read_bytes())
     rewrite(path, format_version=version, saved_app_version=123)
-    data, frames, _, _ = project_io.read_project_archive(path)
-    assert frames
-    assert data["saved_app_version"] is None
+    loaded = project_io.load_project(path)
+    assert loaded.document.frames
+    assert loaded.metadata["saved_app_version"] is None
 
 
 @pytest.mark.parametrize("version", ["1", 1.0, True, None])
@@ -108,7 +112,7 @@ def test_non_integer_format(window, tmp_path, version):
     assert window.project.write(path)
     rewrite(path, format_version=version)
     with pytest.raises(OperationError, match="対応していないプロジェクト形式です。"):
-        project_io.read_project_archive(path)
+        project_io.load_project(path)
 
 
 @pytest.mark.parametrize("created", ["0.1.0", None])

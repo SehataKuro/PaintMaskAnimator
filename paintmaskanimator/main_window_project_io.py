@@ -422,7 +422,8 @@ class ProjectIOController:
         """Track document content without encoding or scanning image pixels."""
         def layer_signature(layer):
             return tuple(
-                value.cacheKey() if hasattr(value, "cacheKey") else copy.deepcopy(value)
+                value.cacheKey() if hasattr(value, "cacheKey") else (
+                    copy.deepcopy(value) if isinstance(value, (dict, list, set)) else value)
                 for field in fields(layer)
                 for value in (getattr(layer, field.name),)
             )
@@ -447,7 +448,32 @@ class ProjectIOController:
             for li, layer in enumerate(canvas.frames[0].layers)
             for number, cell in sorted(layer._track.cells.items())
         ) if canvas.frames else ()
-        return frames, archive, cells, copy.deepcopy(metadata)
+        # Compatibility is determined by the live fields above and these
+        # image-free import observations. Avoid the writer's projection/resolve
+        # and PNG naming work on the 500 ms title timer. Old artwork is excluded.
+        compatibility = []
+        local = []
+        for frame in canvas.frames:
+            for slot in frame.layers:
+                state = slot.__dict__
+                old = state.get("_v1_position")
+                legacy = old.legacy if old is not None else None
+                compatibility.append((
+                    old.key_start if old is not None else None,
+                    None if legacy is None else (
+                        legacy.has_content, legacy.is_blank_key,
+                        legacy.sequence_number, legacy.sequence_only, legacy.exposure),
+                    old.input_length if old is not None else None,
+                    state.get("_dense_import"), state.get("_v2_length_imported", True),
+                ))
+                if not ((slot.has_content or slot.sequence_only)
+                        and slot.sequence_number is not None):
+                    cell = slot._cell
+                    local.append((cell.image.cacheKey(),
+                                  cell.initial_image.cacheKey()
+                                  if cell.initial_image is not None else None,
+                                  cell.cell_name))
+        return frames, archive, cells, copy.deepcopy(metadata), tuple(compatibility), tuple(local)
 
     def mark_saved(self):
         self._saved_signature = self._content_signature()

@@ -48,13 +48,13 @@ LEGACY_PNG_SHA256 = "d3fba234bbff8ce0849d2f216baee0fd536ea9f21419dc4764f57f42a5c
 
 def test_payload_matches_original_v1_metadata_and_entry_order(tmp_path):
     frames, archive = document()
-    frame_data, archive_data, pngs = project_io.build_v1_payload(*project_v1_state(frames, archive))
+    frame_data, archive_data, pngs = project_io.legacy_fixture_build_v1_payload(*project_v1_state(frames, archive))
     data = metadata()
     data["frames"] = frame_data
     data["sequence_archive"] = archive_data
     assert hashlib.sha256(json_bytes(data)).hexdigest() == LEGACY_JSON_SHA256
     path = tmp_path / "payload.pman"
-    project_io.write_project_archive(path, metadata(), frames, archive)
+    project_io.legacy_fixture_write_archive(path, metadata(), frames, archive)
     with zipfile.ZipFile(path) as saved:
         assert saved.read("project.json") == json_bytes(data)
         assert saved.namelist() == [name for name, _image, _error in pngs] + ["project.json"]
@@ -63,7 +63,7 @@ def test_payload_matches_original_v1_metadata_and_entry_order(tmp_path):
 def test_saved_json_and_png_bytes_match_original_writer(tmp_path):
     frames, archive = document()
     path = tmp_path / "original.pman"
-    project_io.write_project_archive(path, metadata(), frames, archive)
+    project_io.legacy_fixture_write_archive(path, metadata(), frames, archive)
     with zipfile.ZipFile(path) as saved:
         assert hashlib.sha256(saved.read("project.json")).hexdigest() == LEGACY_JSON_SHA256
         pngs = [(name, hashlib.sha256(saved.read(name)).hexdigest())
@@ -74,7 +74,7 @@ def test_saved_json_and_png_bytes_match_original_writer(tmp_path):
 def test_v1_save_load_save_preserves_json(tmp_path):
     frames, archive = document()
     first, second = tmp_path / "first.pman", tmp_path / "second.pman"
-    project_io.write_project_archive(first, metadata(), frames, archive)
+    project_io.legacy_fixture_write_archive(first, metadata(), frames, archive)
     data, loaded, width, height = project_io.read_project_archive(first)
     assert (width, height) == (2, 2)
     loaded_archive = data.pop("_loaded_sequence_archive")
@@ -82,7 +82,7 @@ def test_v1_save_load_save_preserves_json(tmp_path):
     for key in ("created_app_version", "saved_app_version"):
         data.pop(key, None)
     data["frames"] = []
-    project_io.write_project_archive(second, data, loaded, loaded_archive)
+    project_io.legacy_fixture_write_archive(second, data, loaded, loaded_archive)
     with zipfile.ZipFile(first) as a, zipfile.ZipFile(second) as b:
         assert a.read("project.json") == b.read("project.json")
 
@@ -103,7 +103,7 @@ def test_build_payload_does_not_mutate_document():
                 id(archive), [(key, layer_state(layer)) for key, layer in archive.items()])
 
     before = state()
-    project_io.build_v1_payload(*project_v1_state(frames, archive))
+    project_io.legacy_fixture_build_v1_payload(*project_v1_state(frames, archive))
     assert state() == before
 
 

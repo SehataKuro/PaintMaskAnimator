@@ -98,7 +98,7 @@ def create_v1(case, path):
                 "active_layer_index": 0,
                 "timeline_mode": "sequence", "fps": 18, "memo": "固定採取",
                 "playback_range": [0, None]}
-    project_io.write_project_archive(path, metadata, frames, archive)
+    project_io.legacy_fixture_write_archive(path, metadata, frames, archive)
     if case == "unnumbered-mask1":
         # Historical mask flag; PNGs intentionally retain opaque white.
         with ZipFile(path) as z:

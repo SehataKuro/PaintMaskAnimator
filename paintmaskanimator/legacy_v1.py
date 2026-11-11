@@ -64,6 +64,8 @@ class V1Position:
     key_start: bool = False
     blank_start: bool = False
     pending: bool = False
+    # v2 input tail is independent of the projected save length.
+    input_length: int | None = None
 
 
 @dataclass(frozen=True)

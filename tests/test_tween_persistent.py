@@ -16,8 +16,7 @@ from tests.dense_fixtures import hold, length  # noqa: E402
 from paintmaskanimator.main_window import MainWindow  # noqa: E402
 from paintmaskanimator.models import make_frame  # noqa: E402
 from paintmaskanimator.project_io import (  # noqa: E402
-    read_project_archive,
-    write_project_archive,
+    ProjectSnapshot, load_project, write_project_snapshot,
 )
 from paintmaskanimator.timeline import TimelineCellDelegate  # noqa: E402
 
@@ -181,8 +180,10 @@ def test_project_roundtrip_keeps_the_tween(window, tmp_path):
         "frames": [],
     }
     path = tmp_path / "tween.pmap"
-    write_project_archive(path, metadata, window.canvas.frames)
-    _metadata, frames, _w, _h = read_project_archive(path)
+    write_project_snapshot(path, ProjectSnapshot.capture(metadata, window.canvas._document))
+    loaded = load_project(path)
+    assert loaded.format_version == 2
+    frames = loaded.document.frames
     assert tween_groups.group_length(frames, 0, 0) == LENGTH
     assert frames[0].layers[0].tween == window.canvas.frames[0].layers[0].tween
 

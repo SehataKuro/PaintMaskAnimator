@@ -48,8 +48,15 @@ def test_edited_exposure_saves_visible_length(qtbot, monkeypatch, tmp_path, oper
         path = tmp_path / f"{phase}.pman"
         assert window.project.write(path)
         saved = payload(path)
-        for column, expected in saved_lengths.items():
-            assert saved["metadata"]["frames"][column]["layers"][0]["exposure"] == expected
+        assert saved["metadata"]["format_version"] == 2
+        assert "frames" not in saved["metadata"]
+        track = saved["metadata"]["tracks"][0]
+        assert track["sheet"][start:start + length] == [c.frames[start].layers[0].sequence_number] * length
+        assert start + length == len(c.frames) or track["sheet"][start + length] != track["sheet"][start]
+        assert "exposure" not in track
+        for override in track.get("compatibility", {}).get("length_overrides", []):
+            if override["column"] in saved_lengths:
+                assert override["length"] == saved_lengths[override["column"]]
         return saved
 
     saved = check("after")

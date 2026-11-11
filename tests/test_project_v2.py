@@ -44,7 +44,11 @@ def test_v2_builder_preserves_snapshot_and_all_numbered_artwork(case):
                 assert pixels(paths[cell["initial"]]) == pixels(track.cells[number].initial_image)
         for local in data.get("compatibility", {}).get("local_states", []):
             slot = snapshot.document.frames[local["column"]].layers[li]
-            assert pixels(paths[local["image"]]) == pixels(slot.image)
+            if "image" in local:
+                assert pixels(paths[local["image"]]) == pixels(slot.image)
+            else:
+                assert slot.image.pixelColor(0, 0).alpha() == 0
+                assert slot.initial_image is None and slot.cell_name is None
             assert local["retained_number"] == slot.sequence_number
     # Mutable nested JSON is save-owned, even when the caller alters the result.
     payload["tracks"][0]["name"] = "changed"
@@ -124,7 +128,7 @@ def test_v2_explicit_archive_roundtrip(tmp_path, monkeypatch, case):
     loaded = project_io.load_project(ROOT / "v1" / f"{case}.pman")
     path = tmp_path / "v2.pman"
     snapshot = project_io.ProjectSnapshot(loaded.metadata, loaded.document, loaded.width, loaded.height)
-    project_io.write_project_snapshot(path, snapshot, format_version=2)
+    project_io.write_project_snapshot(path, snapshot)
     reopened = project_io.load_project(path)
     assert reopened.format_version == 2
     assert graph_state(reopened.document) == graph_state(loaded.document)
@@ -136,6 +140,22 @@ window = _window
 from p5_6_support import observe  # noqa: E402
 
 
+def assert_stable_v2_json(path, tmp_path):
+    """Compare actual ZIP JSON over two further decode/write cycles."""
+    from zipfile import ZipFile
+    def saved_json(source):
+        with ZipFile(source) as archive:
+            return json.loads(archive.read("project.json"))
+    expected = saved_json(path)
+    for cycle in range(2):
+        loaded = project_io.load_project(path)
+        destination = tmp_path / f"{path.stem}-cycle-{cycle}.pman"
+        project_io.write_project_snapshot(destination, project_io.ProjectSnapshot.capture(
+            loaded.metadata, loaded.document))
+        assert saved_json(destination) == expected
+        path = destination
+
+
 @pytest.mark.parametrize("case", CASES)
 def test_v2_a_read_install_and_canonical_roundtrip(window, tmp_path, case):
     expected = json.loads((ROOT / "expected" / f"{case}.json").read_text())["read_install"]
@@ -143,14 +163,20 @@ def test_v2_a_read_install_and_canonical_roundtrip(window, tmp_path, case):
     path = tmp_path / "v2.pman"
     snap = project_io.ProjectSnapshot(loaded.metadata, loaded.document, loaded.width, loaded.height)
     first, _ = project_io.build_v2_payload(snap)
-    project_io.write_project_snapshot(path, snap, format_version=2)
+    project_io.write_project_snapshot(path, snap)
     reopened = project_io.load_project(path)
+    for frame in reopened.document.frames:
+        for slot in frame.layers:
+            if slot.sequence_number is not None and (slot.has_content or slot.sequence_only):
+                assert "_cell" not in slot.__dict__
+                assert slot._cell is slot._track.cells[slot.sequence_number]
     window.canvas._document = reopened.document
     window.canvas._invalidate_exposure_index()
     assert json.loads(json.dumps(observe(window))) == expected
     second, _ = project_io.build_v2_payload(project_io.ProjectSnapshot(
         reopened.metadata, reopened.document, reopened.width, reopened.height))
     assert second == first
+    assert_stable_v2_json(path, tmp_path)
 
 
 @pytest.mark.parametrize("case", CASES)
@@ -159,7 +185,7 @@ def test_v2_ui_open_roundtrip_matches_a(window, tmp_path, case):
     assert window.project.open(ROOT / "v1" / f"{case}.pman")
     path = tmp_path / "ui-v2.pman"
     project_io.write_project_snapshot(path, project_io.ProjectSnapshot.capture(
-        window.build_project_metadata(), window.canvas._document), format_version=2)
+        window.build_project_metadata(), window.canvas._document))
     assert window.project.open(path)
     assert json.loads(json.dumps(observe(window))) == expected
 
@@ -296,7 +322,8 @@ def test_v2_after_pending_placement_edit_and_undo(window, tmp_path, case):
         observed = observe(window)
         path = tmp_path / f"{stage}.pman"
         snapshot = project_io.ProjectSnapshot.capture(window.build_project_metadata(), canvas._document)
-        project_io.write_project_snapshot(path, snapshot, format_version=2)
+        project_io.write_project_snapshot(path, snapshot)
+        assert_stable_v2_json(path, tmp_path)
         loaded = project_io.load_project(path)
         assert graph_state(loaded.document) == before
         original = canvas._document
@@ -369,7 +396,7 @@ def test_v2_writer_rejection_preserves_existing_file(tmp_path, monkeypatch):
     snapshot = project_io.ProjectSnapshot(loaded.metadata, loaded.document, loaded.width, loaded.height)
     monkeypatch.setattr(project_io, "MAX_PROJECT_METADATA_BYTES", 1)
     with pytest.raises(OperationError):
-        project_io.write_project_snapshot(path, snapshot, format_version=2)
+        project_io.write_project_snapshot(path, snapshot)
     assert path.read_bytes() == b"original"
     assert not path.with_suffix(".pman.tmp").exists()
 
@@ -380,7 +407,7 @@ def test_v2_compatibility_placement_matches_legacy_algorithm(window, tmp_path, c
     original = project_io.load_project(ROOT / "v1" / f"{case}.pman")
     path = tmp_path / "placement.pman"
     project_io.write_project_snapshot(path, project_io.ProjectSnapshot(
-        original.metadata, original.document, original.width, original.height), format_version=2)
+        original.metadata, original.document, original.width, original.height))
     loaded = project_io.load_project(path)
     window.canvas._document = loaded.document
     window.canvas._invalidate_exposure_index()
@@ -398,7 +425,7 @@ def test_v2_zip_contract_and_png_names(tmp_path, monkeypatch):
     loaded = project_io.load_project(ROOT / "v1" / "hidden-retained.pman")
     path = tmp_path / "names.pman"
     project_io.write_project_snapshot(path, project_io.ProjectSnapshot(
-        loaded.metadata, loaded.document, loaded.width, loaded.height, image()), format_version=2)
+        loaded.metadata, loaded.document, loaded.width, loaded.height, image()))
     with ZipFile(path) as archive:
         entries = archive.infolist()
         assert entries[0].filename == "thumbnail.png"
@@ -461,3 +488,113 @@ def test_v2_length_guard_without_import_does_not_gain_input_length(tmp_path):
     built, _ = project_io.build_v2_payload(project_io.ProjectSnapshot(
         loaded.metadata, loaded.document, loaded.width, loaded.height))
     assert built["tracks"][0]["compatibility"]["length_overrides"] == payload["tracks"][0]["compatibility"]["length_overrides"]
+
+
+def test_v2_tween_move_repeated_json(window, tmp_path, monkeypatch):
+    from PySide6.QtCore import QPointF
+    from PySide6.QtWidgets import QMessageBox
+    from test_p5_3_characterization import install, row
+    from p5_6_support import slot
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(
+        lambda *_: QMessageBox.StandardButton.Ok))
+    canvas = install(window, [slot(1, "red", has_content=True, exposure=3), slot(), slot(),
+                              slot(), slot(2, "blue", has_content=True)])
+    canvas.current_frame = 0
+    window.tween.enable(row(canvas), 0, "free")
+    canvas.transform_points = [QPointF(p.x() + 2, p.y() + 1) for p in canvas.transform_points]
+    window.tween.commit_transform_or_tween()
+    window.tween.edit(row(canvas), 0)
+    window.tween.cancel_transform_or_tween()
+    assert canvas.move_timeline_cell(1, 0, 3, 0)
+    for stage in ("moved", "undo", "redo"):
+        if stage == "undo":
+            canvas.undo()
+        elif stage == "redo":
+            canvas.redo()
+        path = tmp_path / f"tween-{stage}.pman"
+        assert window.project.write(path)
+        assert_stable_v2_json(path, tmp_path)
+    assert window.project.open(path)
+    def payload():
+        return project_io.build_v2_payload(project_io.ProjectSnapshot.capture({}, canvas._document))[0]
+    before = payload()
+    position = canvas.frames[0].layers[0].__dict__["_v1_position"]
+    assert position.legacy.exposure == 1 and position.input_length == 3
+    canvas.current_frame = 0
+    canvas.delete_frame()
+    canvas.undo()
+    assert payload() == before
+    canvas.redo()
+    edited = tmp_path / "loaded-redo.pman"
+    assert window.project.write(edited)
+    assert_stable_v2_json(edited, tmp_path)
+
+
+@pytest.mark.parametrize("expiration", ["signature", "marker"])
+def test_v2_separate_input_length_clone_and_guard(tmp_path, expiration):
+    from dataclasses import replace
+    from paintmaskanimator.document import project_v1_state
+    loaded = project_io.load_project(ROOT / "v1" / "placement-key-boundary.pman")
+    slot = loaded.document.frames[0].layers[0]
+    position = slot.__dict__["_v1_position"]
+    slot.__dict__["_v1_position"] = replace(position, input_length=9)
+    clone = loaded.document.clone_graph()
+    copied = clone.frames[0].layers[0]
+    assert copied.__dict__["_v1_position"].input_length == 9
+    def payload():
+        return project_io.build_v2_payload(project_io.ProjectSnapshot.capture(
+            loaded.metadata, clone))[0]["tracks"][0].get("compatibility", {})
+    assert payload()["length_overrides"][0]["input_length"] == 9
+    if expiration == "signature":
+        copied.blank_start = not copied.blank_start
+    else:
+        copied.__dict__.pop("_dense_import", None)
+    assert all("input_length" not in value or value["column"] != 0
+               for value in payload().get("length_overrides", []))
+    assert slot.__dict__["_v1_position"].input_length == 9
+    assert project_v1_state(clone.frames)[0][0].layers[0].exposure != 9
+
+
+def test_v2_default_blank_has_no_png_and_fits_zero_pixel_budget(tmp_path, monkeypatch):
+    from zipfile import ZipFile
+    from PySide6.QtGui import QImage
+    from paintmaskanimator.document import Document
+    from paintmaskanimator.legacy_v1 import raw_v1_slot
+    from paintmaskanimator.models import Frame
+    image = QImage(4, 3, QImage.Format.Format_ARGB32_Premultiplied)
+    image.fill(0)
+    document = Document()
+    document.install_legacy_frames([Frame([raw_v1_slot("A", image)]) for _ in range(6)])
+    path = tmp_path / "blank-v2.pman"
+    monkeypatch.setattr(project_io, "MAX_PROJECT_DECODED_PIXELS", 0)
+    project_io.write_project_snapshot(path, project_io.ProjectSnapshot({}, document, 4, 3))
+    with ZipFile(path) as archive:
+        assert archive.namelist() == ["project.json"]
+    loaded = project_io.load_project(path)
+    assert len(loaded.document.frames) == 6
+    assert not loaded.document.tracks[0].cells
+    assert all(frame.layers[0].image == image for frame in loaded.document.frames)
+
+
+@pytest.mark.parametrize("boundary", ["reader", "writer"])
+@pytest.mark.parametrize("pixels_limit", [35, 36])
+def test_v2_pixel_budget_combines_art_initial_and_local(tmp_path, monkeypatch, boundary, pixels_limit):
+    from paintmaskanimator.errors import OperationError
+    from p5_6_support import image
+    payload = handwritten_payload()
+    payload["tracks"][0]["compatibility"] = {"local_states": [
+        {"column": 1, "image": "local.png"}]}
+    path = tmp_path / "combined.pman"
+    write_handwritten(path, payload, extra={"local.png": project_io.encode_png(image("green"))})
+    loaded = project_io.load_project(path)
+    monkeypatch.setattr(project_io, "MAX_PROJECT_DECODED_PIXELS", pixels_limit)
+    def operation():
+        if boundary == "reader":
+            return project_io.load_project(path)
+        return project_io.write_project_snapshot(tmp_path / "output.pman", project_io.ProjectSnapshot(
+            loaded.metadata, loaded.document, 4, 3))
+    if pixels_limit == 35:
+        with pytest.raises(OperationError):
+            operation()
+    else:
+        operation()

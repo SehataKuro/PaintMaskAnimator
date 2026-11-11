@@ -114,9 +114,12 @@ def qapp():
 
 
 @pytest.fixture
-def window(qapp, monkeypatch):
+def window(qapp, monkeypatch, request):
     monkeypatch.setattr(constants, "CANVAS_WIDTH", 16)
     monkeypatch.setattr(constants, "CANVAS_HEIGHT", 16)
+    from legacy_save_boundary import install_legacy_save_boundary
+    if request.module.__name__ == "test_p5_3_characterization":
+        install_legacy_save_boundary(monkeypatch)
     w = MainWindow()
     for timer in (w._autosave_timer, w._used_color_timer, w._title_timer):
         timer.stop()
@@ -215,7 +218,7 @@ def test_v1_rejects_invalid_length(window, tmp_path, length):
     path = tmp_path / "invalid.pman"
     metadata = {"format": "PaintMaskAnimatorProject", "format_version": 1, "mask_format": 2,
                 "canvas": {"width": 16, "height": 16}, "frames": []}
-    project_io.write_project_archive(path, metadata,
+    project_io.legacy_fixture_write_archive(path, metadata,
                                     [Frame([slot(1, "red", has_content=True, exposure=length)])])
     with pytest.raises(OperationError) as error:
         project_io.read_project_archive(path)

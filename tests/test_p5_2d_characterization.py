@@ -181,9 +181,12 @@ def qapp():
 
 
 @pytest.fixture
-def window(qapp, monkeypatch):
+def window(qapp, monkeypatch, request):
     monkeypatch.setattr(constants, "CANVAS_WIDTH", 16)
     monkeypatch.setattr(constants, "CANVAS_HEIGHT", 16)
+    from legacy_save_boundary import install_legacy_save_boundary
+    if request.module.__name__ == "test_p5_2d_characterization":
+        install_legacy_save_boundary(monkeypatch)
     w = MainWindow()
     for timer in (w._autosave_timer, w._used_color_timer, w._title_timer):
         timer.stop()
@@ -392,7 +395,7 @@ def legacy_file(path):
                 "mask_format": 2, "canvas": {"width": 16, "height": 16},
                 "frames": [], "current_frame": 4, "active_layer_index": 0}
     archive = {(0, 9): slot(9, "magenta", has_content=True, cell_name="archived")}
-    project_io.write_project_archive(path, metadata, frames, archive)
+    project_io.legacy_fixture_write_archive(path, metadata, frames, archive)
 
 
 def test_open_legacy_conflicts_before_first_edit(window, tmp_path):
@@ -557,7 +560,7 @@ def test_removal_paths_keep_v1_payload_and_reload_behavior(window, tmp_path, mon
     # open adds one trailing empty frame; clear_slot preserves local initial images.
     raw_frames = [Frame([slot(initial_image=image("blue") if i in (0, 2, 4) else None)])
                   for i in range(8)]
-    frames, archive, pngs = project_io.build_v1_payload(
+    frames, archive, pngs = project_io.legacy_fixture_build_v1_payload(
         [Frame([snapshot_layer(s) for s in f.layers], f.duration) for f in raw_frames],
         {key: snapshot_layer(s) for key, s in raw_archive.items()})
     independent = {"frames": frames, "archive": archive,

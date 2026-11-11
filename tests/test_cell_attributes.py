@@ -144,7 +144,7 @@ def test_conflicting_v1_load_and_roundtrip(window, tmp_path):
     path = tmp_path / "old.pman"
     metadata = {"format": "PaintMaskAnimatorProject", "format_version": 1,
                 "mask_format": 2, "canvas": {"width": 16, "height": 16}, "frames": []}
-    project_io.write_project_archive(path, metadata, frames, {})
+    project_io.legacy_fixture_write_archive(path, metadata, frames, {})
     assert window.project.open(path)
     for attempt in range(2):
         assert all(frame.layers[0].initial_image.pixelColor(0, 0) == QColor("blue")

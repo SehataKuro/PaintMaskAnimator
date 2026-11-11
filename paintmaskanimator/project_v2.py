@@ -5,6 +5,7 @@ local artwork only. Historical v1 image payloads never enter the PNG list.
 """
 from copy import deepcopy
 
+from .i18n import tr
 from .document import project_v1_state
 from .timeline_metadata import reference_for
 
@@ -87,7 +88,7 @@ def compatibility_scalars(sheet, blank_starts, pending, projected, inputs, resol
     return result
 
 
-def build_payload(snapshot):
+def build_payload(snapshot, *, include_default_local_images=False):
     """Return a new metadata dictionary and ordered (path, QImage, error) PNGs.
 
     The snapshot must contain an installed dense document. This builder never
@@ -168,16 +169,28 @@ def build_payload(snapshot):
                 original = old.legacy
                 if original is not None and not original.sequence_only and (
                         original.has_content or original.is_blank_key):
-                    inputs[column] = {"length": max(1, original.exposure)}
+                    inputs[column] = {"length": max(1, old.input_length if old.input_length is not None
+                                                     else original.exposure)}
             source = int(resolved_sources[column, li])
             value = sheet_value(reference_for(slot, resolve=True))
             resolved.append((value if type(value) is int else None,
                              source if source >= 0 else None))
             # Only live local Cells are collected, never old.legacy artwork.
             if not ((slot.has_content or slot.sequence_only) and slot.sequence_number is not None):
-                locals_.append({"column": column, "retained_number": slot.sequence_number,
-                                **artwork(slot._cell,
-                                          f"compatibility/layer_{li:04d}/position_{column:06d}.png")})
+                from PySide6.QtGui import QImage
+                cell = slot._cell
+                local = {"column": column, "retained_number": slot.sequence_number}
+                keep_image = (include_default_local_images or cell.image.isNull()
+                              or not cell.image.hasAlphaChannel()
+                              or cell.initial_image is not None or cell.cell_name is not None)
+                if not keep_image:
+                    transparent = QImage(cell.image.size(), cell.image.format())
+                    transparent.fill(0)
+                    keep_image = cell.image != transparent
+                if keep_image:
+                    local.update(artwork(cell,
+                        f"compatibility/layer_{li:04d}/position_{column:06d}.png"))
+                locals_.append(local)
         compatibility = compatibility_scalars(
             data["sheet"], starts, pending, keys, inputs, resolved)
         if locals_:
@@ -204,7 +217,7 @@ def _decode_payload(payload, archive, png_cache=None):
 
     def require(ok):
         if not ok:
-            raise OperationError("Invalid v2 project structure")
+            raise OperationError(tr("プロジェクトの構造が不正です。"))
 
     def integer(value, lower, upper):
         require(type(value) is int and lower <= value <= upper)
@@ -285,7 +298,7 @@ def _decode_payload(payload, archive, png_cache=None):
         try:
             info = archive.getinfo(path)
         except KeyError as error:
-            raise OperationError("Missing v2 PNG") from error
+            raise OperationError(tr("プロジェクト内の画像がありません。")) from error
         require(info.file_size <= io.MAX_PROJECT_IMAGE_BYTES)
         blob = archive.read(path)
         require(len(blob) >= 24 and blob[:8] == b"\x89PNG\r\n\x1a\n"
@@ -399,6 +412,8 @@ def _decode_payload(payload, archive, png_cache=None):
             if local is not None:
                 slot.__dict__["_cell"] = artwork(local, track, optional=True)
             slot.attach_track(track)
+            if n is not None and (slot.has_content or slot.sequence_only):
+                slot.__dict__.pop("_cell", None)
             position = positions.get(column, {})
             slot.tween = sanitize_spec(position.get("tween"))
             slot.tween_member = position.get("tween_member")
@@ -407,9 +422,12 @@ def _decode_payload(payload, archive, png_cache=None):
             length = lengths.get(column)
             legacy_kind = state["kind"] if state else key["kind"] if key else "EMPTY"
             legacy_number = state.get("number") if state else key.get("number") if key else n
+            if legacy_kind != "CELL":
+                legacy_number = n  # local retained number also belongs to the old projection
             exposure = state.get("length", 1) if state else key["length"] if key else 1
+            input_length = None
             if length is not None:
-                integer(length.get("length"), 1, io.MAX_PROJECT_FRAMES)
+                exposure = integer(length.get("length"), 1, io.MAX_PROJECT_FRAMES)
                 guard = mapping(length.get("guard"))
                 require(guard.get("kind") in ("CELL", "BLANK", "EMPTY"))
                 number(guard.get("number"), track.cells, nullable=True)
@@ -418,14 +436,14 @@ def _decode_payload(payload, archive, png_cache=None):
                 require((guard["kind"], guard.get("number"), guard["pending"], guard["blank_start"])
                         == (ref.kind, ref.number, state is not None, starts[column]))
                 slot.__dict__["_v2_length_imported"] = guard["imported"]
-                exposure = integer(length.get("input_length", length["length"]),
+                input_length = integer(length.get("input_length", length["length"]),
                                    1, io.MAX_PROJECT_FRAMES)
             legacy = LegacyLayerV1(track.name, slot.image,
                 has_content=legacy_kind == "CELL", is_blank_key=legacy_kind == "BLANK",
                 sequence_number=legacy_number, sequence_only=state is not None,
                 exposure=exposure, tween=deepcopy(slot.tween), tween_member=slot.tween_member)
             slot.__dict__["_v1_position"] = V1Position(legacy, legacy_kind in ("CELL", "BLANK"),
-                                                       starts[column], state is not None)
+                                                       starts[column], state is not None, input_length)
             resolve_ref = ref
             if column in resolved:
                 override = resolved[column]
@@ -465,7 +483,7 @@ def _decode_payload(payload, archive, png_cache=None):
 
 
 def write_snapshot(path, snapshot, png_cache=None):
-    """Publish a validated v2 ZIP atomically; defaults elsewhere remain v1."""
+    """Publish a validated v2 ZIP atomically."""
     import json
     import zipfile
     from pathlib import Path
@@ -479,15 +497,15 @@ def write_snapshot(path, snapshot, png_cache=None):
             or len(payload["tracks"]) * len(payload["frame_durations"]) > io.MAX_PROJECT_LAYER_CELLS
             or sum(len(t["cells"]) + len(t.get("compatibility", {}).get("local_states", []))
                    for t in payload["tracks"]) > io.MAX_PROJECT_LAYER_CELLS):
-        raise OperationError("V2 structure exceeds limit")
+        raise OperationError(tr("プロジェクト内のセル数が多すぎます。"))
     for _, image, _ in pngs:
         if (image.isNull() or image.width() != snapshot.width or image.height() != snapshot.height):
-            raise OperationError("V2 image dimensions differ from canvas")
+            raise OperationError(tr("プロジェクト内の画像サイズがキャンバスと一致しません。"))
     cache = png_cache if png_cache is not None else io.PngCache()
     used = set()
     metadata = json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False).encode("utf-8")
     if len(metadata) > io.MAX_PROJECT_METADATA_BYTES:
-        raise OperationError("V2 metadata exceeds limit")
+        raise OperationError(tr("プロジェクト情報が大きすぎます。"))
     encoded = cache.encode_many((image for _, image, _ in pngs), used)
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -500,7 +518,7 @@ def write_snapshot(path, snapshot, png_cache=None):
             for name, image, message in pngs:
                 blob = encoded.get(int(image.cacheKey()))
                 if blob is None:
-                    raise OperationError(message.format(name=name))
+                    raise OperationError(tr(message).format(name=name))
                 archive.writestr(name, blob, compress_type=zipfile.ZIP_STORED)
             archive.writestr("project.json", metadata)
         # The public reader applies identical ZIP, PNG and graph limits before replace.
@@ -518,4 +536,4 @@ def decode_payload(payload, archive, png_cache=None):
     try:
         return _decode_payload(payload, archive, png_cache)
     except (KeyError, TypeError, ValueError, OverflowError, RecursionError) as error:
-        raise OperationError("Invalid v2 project structure") from error
+        raise OperationError(tr("プロジェクトの構造が不正です。")) from error

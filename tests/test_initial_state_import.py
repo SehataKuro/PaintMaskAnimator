@@ -152,10 +152,12 @@ def test_imported_initials_survive_project_save(window, tmp_path):
     assert window.initial_state.import_line_art(tmp_path / "lines") == 3
     path = tmp_path / "initials.pman"
     assert window.project.write(path)
-    metadata, frames, _w, _h = project_io.read_project_archive(path)
+    loaded = project_io.load_project(path)
+    assert loaded.format_version == 2
+    frames = loaded.document.frames
     assert frames[0].layers[0].image.pixelColor(0, 0) == QColor("red")
     assert frames[0].layers[0].initial_image.pixelColor(0, 0) == QColor("black")
-    assert metadata["_loaded_sequence_archive"][(0, 3)].initial_image.pixelColor(0, 0) == QColor("white")
+    assert loaded.document.tracks[0].cells[3].initial_image.pixelColor(0, 0) == QColor("white")
 
 
 def test_archived_initial_is_retained_when_placing_cel_on_sheet(window, tmp_path):
