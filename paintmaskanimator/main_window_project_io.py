@@ -9,6 +9,7 @@ A collaborator rather than a mixin -- see ``main_window_export.py`` for why.
 import copy
 from dataclasses import fields
 from typing import TYPE_CHECKING
+from types import SimpleNamespace
 from pathlib import Path
 from PySide6.QtCore import QTimer
 from PySide6.QtGui import QColor
@@ -16,7 +17,7 @@ from PySide6.QtWidgets import QFileDialog, QMessageBox
 from .i18n import tr
 from .constants import APP_DISPLAY_NAME
 from . import config, constants, project_io
-from .errors import OPERATION_ERRORS as _OPERATION_ERRORS
+from .errors import OperationError, OPERATION_ERRORS as _OPERATION_ERRORS
 from .logging_setup import get_logger
 
 if TYPE_CHECKING:
@@ -27,6 +28,247 @@ log = get_logger(__name__)
 #: 「最近使用したファイル」を残す設定のキーと、残す件数。
 RECENT_PROJECTS_KEY = "recent_projects"
 RECENT_PROJECTS_LIMIT = 10
+
+
+def prepare_ui_state(metadata):
+    """Report malformed restoration values before touching the current UI."""
+    try:
+        return _prepare_ui_state(metadata)
+    except (TypeError, ValueError, OverflowError) as error:
+        raise OperationError(tr("プロジェクトの表示設定が不正です。")) from error
+
+
+def _prepare_ui_state(metadata):
+    """Convert every restored value before publishing a loaded document."""
+    state = SimpleNamespace()
+    colors = metadata.get("colors", {})
+    if not isinstance(colors, dict):
+        raise OperationError(tr("プロジェクトの色設定が不正です。"))
+    state.main_color = QColor(
+        colors.get("main", "#000000")
+    )
+    state.sub_color = QColor(
+        colors.get("sub", "#FF0000")
+    )
+    mode = colors.get("mode", "main")
+    state.color_mode = (
+        mode if mode in ("main", "sub", "transparent") else "main"
+    )
+    state.transparent_display_color = QColor(
+        colors.get("background", "#FFFFFF")
+    )
+
+    display = metadata.get("display", {})
+    if not isinstance(display, dict):
+        raise OperationError(tr("プロジェクトの表示設定が不正です。"))
+    state.silhouette_non_background = bool(
+        display.get("silhouette_non_background", False)
+    )
+    state.onion_skin = bool(display.get("onion_skin", False))
+    state.onion_previous_count = max(
+        0, min(12, int(display.get("onion_previous_count", 1)))
+    )
+    state.onion_next_count = max(
+        0, min(12, int(display.get("onion_next_count", 1)))
+    )
+    state.onion_previous_opacity = max(
+        0.01,
+        min(1.0, float(display.get("onion_previous_opacity", 0.22))),
+    )
+    state.onion_next_opacity = max(
+        0.01,
+        min(1.0, float(display.get("onion_next_opacity", 0.22))),
+    )
+
+    def normalized_onion_levels(raw_values, count):
+        values = []
+        if isinstance(raw_values, list):
+            for value in raw_values[:12]:
+                try:
+                    values.append(
+                        max(0, min(100, int(value)))
+                    )
+                except (TypeError, ValueError):
+                    values.append(100)
+        count = max(0, min(12, int(count)))
+        while len(values) < count:
+            index = len(values)
+            if count <= 1:
+                default_value = 100
+            else:
+                default_value = int(round(
+                    100.0
+                    - 55.0
+                    * index
+                    / float(max(1, count - 1))
+                ))
+            values.append(
+                max(10, min(100, default_value))
+            )
+        return values[:count]
+
+    state.onion_previous_levels = (
+        normalized_onion_levels(
+            display.get("onion_previous_levels"),
+            state.onion_previous_count,
+        )
+    )
+    state.onion_next_levels = (
+        normalized_onion_levels(
+            display.get("onion_next_levels"),
+            state.onion_next_count,
+        )
+    )
+    state.onion_center_percent = max(
+        0.0,
+        min(
+            100.0,
+            float(
+                display.get(
+                    "onion_center_percent",
+                    50.0,
+                )
+            ),
+        ),
+    )
+    state.onion_previous_color = QColor(
+        display.get("onion_previous_color", "#FF5C5C")
+    )
+    state.onion_next_color = QColor(
+        display.get("onion_next_color", "#5CA0FF")
+    )
+    state.onion_previous_color_enabled = bool(
+        display.get("onion_previous_color_enabled", False)
+    )
+    state.onion_next_color_enabled = bool(
+        display.get("onion_next_color_enabled", False)
+    )
+    state.onion_selected_colors_only = bool(
+        display.get("onion_selected_colors_only", False)
+    )
+    state.onion_previous_shift_x = max(
+        -10000.0,
+        min(
+            10000.0,
+            float(
+                display.get(
+                    "onion_previous_shift_x",
+                    0.0,
+                )
+            ),
+        ),
+    )
+    state.onion_previous_shift_y = max(
+        -10000.0,
+        min(
+            10000.0,
+            float(
+                display.get(
+                    "onion_previous_shift_y",
+                    0.0,
+                )
+            ),
+        ),
+    )
+    state.onion_previous_rotation = (
+        (
+            float(
+                display.get(
+                    "onion_previous_rotation",
+                    0.0,
+                )
+            )
+            + 180.0
+        )
+        % 360.0
+    ) - 180.0
+    state.onion_previous_scale = max(
+        1.0,
+        min(
+            199.0,
+            float(
+                display.get(
+                    "onion_previous_scale",
+                    100.0,
+                )
+            ),
+        ),
+    )
+    state.onion_next_shift_x = max(
+        -10000.0,
+        min(
+            10000.0,
+            float(
+                display.get(
+                    "onion_next_shift_x",
+                    0.0,
+                )
+            ),
+        ),
+    )
+    state.onion_next_shift_y = max(
+        -10000.0,
+        min(
+            10000.0,
+            float(
+                display.get(
+                    "onion_next_shift_y",
+                    0.0,
+                )
+            ),
+        ),
+    )
+    state.onion_next_rotation = (
+        (
+            float(
+                display.get(
+                    "onion_next_rotation",
+                    0.0,
+                )
+            )
+            + 180.0
+        )
+        % 360.0
+    ) - 180.0
+    state.onion_next_scale = max(
+        1.0,
+        min(
+            199.0,
+            float(
+                display.get(
+                    "onion_next_scale",
+                    100.0,
+                )
+            ),
+        ),
+    )
+    state.onion_tu_tb_scale = max(
+        0.05,
+        min(
+            20.0,
+            float(
+                display.get(
+                    "onion_tu_tb_scale",
+                    1.0,
+                )
+            ),
+        ),
+    )
+
+    # 筆圧は描く人とペンの設定なので、ファイルに入っていても使わない
+    # （環境設定のプリセットとブラシの設定を使う）。
+    state.fps = max(1, min(60, int(metadata.get("fps", 24))))
+    state.memo = str(metadata.get("memo", "") or "")
+    playback_range = metadata.get("playback_range", [0, None])
+    try:
+        range_start, range_end = playback_range
+        range_start = max(0, int(range_start))
+        range_end = None if range_end is None else max(range_start + 1, int(range_end))
+    except (TypeError, ValueError):
+        range_start, range_end = 0, None
+    state.playback_range_start = range_start
+    state.playback_range_end = range_end
+    return vars(state)
 
 
 class ProjectIOController:
@@ -141,17 +383,12 @@ class ProjectIOController:
     def write(self, path):
         project_path = Path(path)
 
-        metadata = self.window.build_project_metadata()
-
         try:
-            project_io.write_project_archive(
-                project_path,
-                metadata,
-                self.window.canvas.frames,
-                None,
-                self.window.png_cache,
-                thumbnail=self.window.crop_image(self.window.canvas.current_frame),
+            snapshot = project_io.ProjectSnapshot.capture(
+                self.window.build_project_metadata(), self.window.canvas._document,
+                self.window.crop_image(self.window.canvas.current_frame),
             )
+            project_io.write_project_snapshot(project_path, snapshot, self.window.png_cache)
             self.window.current_project_path = project_path
             self.update_title()
             self.remember_recent(project_path)
@@ -279,9 +516,10 @@ class ProjectIOController:
     def open(self, path):
         project_path = Path(path)
         try:
-            metadata, loaded_frames, width, height = project_io.read_project_archive(
-                project_path, self.window.png_cache
-            )
+            read_cache = project_io.PngCache()
+            loaded = project_io.load_project(project_path, read_cache)
+            metadata = loaded.metadata
+            ui_state = prepare_ui_state(metadata)
 
             self.window.palette.clear_categories()
             self.window._pending_palette_categories = metadata.get(
@@ -289,261 +527,24 @@ class ProjectIOController:
             )
             self.window.color_chart_ops.set_data(metadata.get("color_chart", {}))
 
-            constants.CANVAS_WIDTH = width
-            constants.CANVAS_HEIGHT = height
-            loaded_sequence_archive = metadata.pop("_loaded_sequence_archive", {})
+            constants.CANVAS_WIDTH = loaded.width
+            constants.CANVAS_HEIGHT = loaded.height
             clip_source = metadata.get("clip_studio_source")
             self.window.canvas.clip_studio_source_metadata = (
                 dict(clip_source) if isinstance(clip_source, dict) else None
             )
-            self.window.canvas.current_frame = max(
-                0,
-                min(
-                    int(metadata.get("current_frame", 0)),
-                    len(loaded_frames) - 1,
-                ),
-            )
-            layer_count = len(
-                loaded_frames[self.window.canvas.current_frame].layers
-            )
-            self.window.canvas.active_layer_index = max(
-                0,
-                min(
-                    int(metadata.get("active_layer_index", 0)),
-                    layer_count - 1,
-                ),
-            )
+            self.window.canvas._document = loaded.document
+            self.window.canvas._invalidate_exposure_index()
+            self.window.png_cache.replace_from(read_cache)
 
-            self.window.canvas.install_legacy_frames(loaded_frames, sequence_archive=loaded_sequence_archive)
-
-            colors = metadata.get("colors", {})
-            self.window.canvas.main_color = QColor(
-                colors.get("main", "#000000")
-            )
-            self.window.canvas.sub_color = QColor(
-                colors.get("sub", "#FF0000")
-            )
-            mode = colors.get("mode", "main")
-            self.window.canvas.color_mode = (
-                mode if mode in ("main", "sub", "transparent") else "main"
-            )
-            self.window.canvas.transparent_display_color = QColor(
-                colors.get("background", "#FFFFFF")
-            )
+            for name, value in ui_state.items():
+                if name not in ("fps", "memo"):
+                    setattr(self.window.canvas, name, value)
+            self.window.timeline.fps.setValue(ui_state["fps"])
+            self.window.set_project_memo(ui_state["memo"])
             self.window.palette.set_background_display_color(
                 self.window.canvas.transparent_display_color
             )
-
-            display = metadata.get("display", {})
-            self.window.canvas.silhouette_non_background = bool(
-                display.get("silhouette_non_background", False)
-            )
-            self.window.canvas.onion_skin = bool(display.get("onion_skin", False))
-            self.window.canvas.onion_previous_count = max(
-                0, min(12, int(display.get("onion_previous_count", 1)))
-            )
-            self.window.canvas.onion_next_count = max(
-                0, min(12, int(display.get("onion_next_count", 1)))
-            )
-            self.window.canvas.onion_previous_opacity = max(
-                0.01,
-                min(1.0, float(display.get("onion_previous_opacity", 0.22))),
-            )
-            self.window.canvas.onion_next_opacity = max(
-                0.01,
-                min(1.0, float(display.get("onion_next_opacity", 0.22))),
-            )
-
-            def normalized_onion_levels(raw_values, count):
-                values = []
-                if isinstance(raw_values, list):
-                    for value in raw_values[:12]:
-                        try:
-                            values.append(
-                                max(0, min(100, int(value)))
-                            )
-                        except (TypeError, ValueError):
-                            values.append(100)
-                count = max(0, min(12, int(count)))
-                while len(values) < count:
-                    index = len(values)
-                    if count <= 1:
-                        default_value = 100
-                    else:
-                        default_value = int(round(
-                            100.0
-                            - 55.0
-                            * index
-                            / float(max(1, count - 1))
-                        ))
-                    values.append(
-                        max(10, min(100, default_value))
-                    )
-                return values[:count]
-
-            self.window.canvas.onion_previous_levels = (
-                normalized_onion_levels(
-                    display.get("onion_previous_levels"),
-                    self.window.canvas.onion_previous_count,
-                )
-            )
-            self.window.canvas.onion_next_levels = (
-                normalized_onion_levels(
-                    display.get("onion_next_levels"),
-                    self.window.canvas.onion_next_count,
-                )
-            )
-            self.window.canvas.onion_center_percent = max(
-                0.0,
-                min(
-                    100.0,
-                    float(
-                        display.get(
-                            "onion_center_percent",
-                            50.0,
-                        )
-                    ),
-                ),
-            )
-            self.window.canvas.onion_previous_color = QColor(
-                display.get("onion_previous_color", "#FF5C5C")
-            )
-            self.window.canvas.onion_next_color = QColor(
-                display.get("onion_next_color", "#5CA0FF")
-            )
-            self.window.canvas.onion_previous_color_enabled = bool(
-                display.get("onion_previous_color_enabled", False)
-            )
-            self.window.canvas.onion_next_color_enabled = bool(
-                display.get("onion_next_color_enabled", False)
-            )
-            self.window.canvas.onion_selected_colors_only = bool(
-                display.get("onion_selected_colors_only", False)
-            )
-            self.window.canvas.onion_previous_shift_x = max(
-                -10000.0,
-                min(
-                    10000.0,
-                    float(
-                        display.get(
-                            "onion_previous_shift_x",
-                            0.0,
-                        )
-                    ),
-                ),
-            )
-            self.window.canvas.onion_previous_shift_y = max(
-                -10000.0,
-                min(
-                    10000.0,
-                    float(
-                        display.get(
-                            "onion_previous_shift_y",
-                            0.0,
-                        )
-                    ),
-                ),
-            )
-            self.window.canvas.onion_previous_rotation = (
-                (
-                    float(
-                        display.get(
-                            "onion_previous_rotation",
-                            0.0,
-                        )
-                    )
-                    + 180.0
-                )
-                % 360.0
-            ) - 180.0
-            self.window.canvas.onion_previous_scale = max(
-                1.0,
-                min(
-                    199.0,
-                    float(
-                        display.get(
-                            "onion_previous_scale",
-                            100.0,
-                        )
-                    ),
-                ),
-            )
-            self.window.canvas.onion_next_shift_x = max(
-                -10000.0,
-                min(
-                    10000.0,
-                    float(
-                        display.get(
-                            "onion_next_shift_x",
-                            0.0,
-                        )
-                    ),
-                ),
-            )
-            self.window.canvas.onion_next_shift_y = max(
-                -10000.0,
-                min(
-                    10000.0,
-                    float(
-                        display.get(
-                            "onion_next_shift_y",
-                            0.0,
-                        )
-                    ),
-                ),
-            )
-            self.window.canvas.onion_next_rotation = (
-                (
-                    float(
-                        display.get(
-                            "onion_next_rotation",
-                            0.0,
-                        )
-                    )
-                    + 180.0
-                )
-                % 360.0
-            ) - 180.0
-            self.window.canvas.onion_next_scale = max(
-                1.0,
-                min(
-                    199.0,
-                    float(
-                        display.get(
-                            "onion_next_scale",
-                            100.0,
-                        )
-                    ),
-                ),
-            )
-            self.window.canvas.onion_tu_tb_scale = max(
-                0.05,
-                min(
-                    20.0,
-                    float(
-                        display.get(
-                            "onion_tu_tb_scale",
-                            1.0,
-                        )
-                    ),
-                ),
-            )
-
-            # 筆圧は描く人とペンの設定なので、ファイルに入っていても使わない
-            # （環境設定のプリセットとブラシの設定を使う）。
-            self.window.timeline.fps.setValue(
-                max(1, min(60, int(metadata.get("fps", 24))))
-            )
-            self.window.set_project_memo(metadata.get("memo", ""))
-            playback_range = metadata.get("playback_range", [0, None])
-            try:
-                range_start, range_end = playback_range
-                range_start = max(0, int(range_start))
-                range_end = None if range_end is None else max(range_start + 1, int(range_end))
-            except (TypeError, ValueError):
-                range_start, range_end = 0, None
-            self.window.canvas.playback_range_start = range_start
-            self.window.canvas.playback_range_end = range_end
             self.window.canvas.undo_stack.clear()
             self.window.canvas.redo_stack.clear()
             self.window.canvas.clear_history_branches()
@@ -570,7 +571,7 @@ class ProjectIOController:
             self.window.timeline.onion.blockSignals(True)
             self.window.timeline.onion.setChecked(self.window.canvas.onion_skin)
             self.window.timeline.onion.blockSignals(False)
-            if not any(
+            if loaded.format_version == 1 and not any(
                 layer.sequence_number is not None
                 for frame in self.window.canvas.frames
                 for layer in frame.layers

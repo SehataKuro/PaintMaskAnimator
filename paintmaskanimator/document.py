@@ -13,6 +13,7 @@ from dataclasses import dataclass, replace
 from typing import NamedTuple
 
 from . import constants
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage
 
 from .models import ArchiveHint, Cell, Frame, Layer, Track, make_frame
@@ -229,7 +230,7 @@ class Document:
         copied, _ = clone_frame_graph(frames)
         return [frame.layers[0] for frame in copied]
 
-    def install_legacy_frames(self, frames, sequence_archive=None):
+    def install_legacy_frames(self, frames, sequence_archive=None, *, canvas_size=None):
         """Normalize detached legacy data once, before publishing it to the UI."""
         frames = [Frame([legacy_layer_to_slot(slot) if isinstance(slot, LegacyLayerV1)
                          else slot for slot in frame.layers], frame.duration) for frame in frames]
@@ -241,7 +242,12 @@ class Document:
             while len(frame.layers) < width:
                 li = len(frame.layers)
                 template = next(other.layers[li] for other in frames if li < len(other.layers))
-                slot = Layer(template.name, blank_image())
+                if canvas_size is None:
+                    image = blank_image()
+                else:
+                    image = QImage(*canvas_size, QImage.Format.Format_ARGB32_Premultiplied)
+                    image.fill(Qt.GlobalColor.transparent)
+                slot = Layer(template.name, image)
                 slot.__dict__["_legacy_missing"] = True
                 frame.layers.append(slot)
         for li, first in enumerate(frames[0].layers if frames else []):
@@ -361,6 +367,9 @@ def clone_frame_graph(frames, sequence_archive=None):
 
     def clone_layer(layer):
         copied = layer.clone_slot()
+        if "_dense_import" in layer.__dict__:
+            copied.__dict__["_dense_import"] = deepcopy(layer.__dict__["_dense_import"])
+        copied.tween_member = deepcopy(layer.tween_member)
         cell = layer._cell
         clone_cell(cell)
         track = layer._track

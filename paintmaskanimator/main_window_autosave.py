@@ -7,13 +7,11 @@ A collaborator rather than a mixin -- see ``main_window_export.py`` for why.
 """
 from typing import TYPE_CHECKING
 from concurrent.futures import ThreadPoolExecutor
-import copy
 
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QMessageBox
 
 from . import config, preferences, project_io
-from .document import clone_frame_graph
 from .i18n import tr
 from .logging_setup import get_logger
 
@@ -66,9 +64,8 @@ class AutosaveController:
             QTimer.singleShot(1000, self.request_save)
             return
         try:
-            metadata = copy.deepcopy(self.window.build_project_metadata())
-            frames, sequence_archive = clone_frame_graph(
-                self.window.canvas.frames
+            snapshot = project_io.ProjectSnapshot.capture(
+                self.window.build_project_metadata(), self.window.canvas._document
             )
             path = self.path()
             if self._executor is None:
@@ -78,17 +75,15 @@ class AutosaveController:
             # Cloned QImages share pixels until an edit detaches them. The worker
             # owns its PNG cache, so manual saves/opens cannot race with it.
             self._pending = self._executor.submit(
-                self._write, path, metadata, frames, sequence_archive, self._png_cache
+                self._write, path, snapshot, self._png_cache
             )
         except Exception:
             log.exception("autosave snapshot failed")
 
     @staticmethod
-    def _write(path, metadata, frames, sequence_archive, png_cache):
+    def _write(path, snapshot, png_cache):
         try:
-            project_io.write_project_archive(
-                path, metadata, frames, sequence_archive, png_cache
-            )
+            project_io.write_project_snapshot(path, snapshot, png_cache)
         except Exception:
             log.exception("autosave failed")
 
@@ -98,11 +93,11 @@ class AutosaveController:
             self._pending.result()
         # Must never raise into the event loop — autosave is best-effort.
         try:
-            project_io.write_project_archive(
+            project_io.write_project_snapshot(
                 self.path(),
-                self.window.build_project_metadata(),
-                self.window.canvas.frames,
-                None,
+                project_io.ProjectSnapshot.capture(
+                    self.window.build_project_metadata(), self.window.canvas._document
+                ),
                 self.window.png_cache,
             )
         except Exception:  # noqa: BLE001 - best-effort; must never raise into the event loop

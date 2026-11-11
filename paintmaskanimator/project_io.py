@@ -6,6 +6,8 @@ objects and returns/consumes plain data, so MainWindow keeps only the
 widget<->metadata mapping and the UI feedback.
 """
 import json
+from copy import deepcopy
+from dataclasses import dataclass
 import math
 import os
 from concurrent.futures import ThreadPoolExecutor
@@ -13,7 +15,7 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 from .i18n import tr
-from .document import project_v1_state
+from .document import Document, project_v1_state
 from .errors import OperationError
 
 from PySide6.QtCore import QBuffer, QByteArray, QIODevice, Qt
@@ -49,6 +51,66 @@ THUMBNAIL_NAME = "thumbnail.png"
 THUMBNAIL_SIZE = 512
 
 
+@dataclass(frozen=True)
+class LoadedProject:
+    """Fully installed document, still private until UI state is prepared."""
+
+    metadata: dict
+    document: Document
+    width: int
+    height: int
+    format_version: int = 1
+
+
+def load_project(path, png_cache=None):
+    """Adapt the legacy reader without changing its raw four-value API.
+
+    Use a private cache while preparing an open; publish it only on success.
+    Cursor selection must precede bank ownership/initial/name selection.
+    """
+    read_cache = PngCache() if png_cache is not None else None
+    metadata, frames, width, height = read_project_archive(path, read_cache)
+    metadata = dict(metadata)
+    document = object.__new__(Document)
+    try:
+        document.current_frame = max(0, min(int(metadata.get("current_frame", 0)), len(frames) - 1))
+        document.active_layer_index = max(0, min(
+            int(metadata.get("active_layer_index", 0)),
+            len(frames[document.current_frame].layers) - 1))
+    except (TypeError, ValueError, OverflowError) as error:
+        raise OperationError(tr("プロジェクトの選択位置が不正です。")) from error
+    document.install_legacy_frames(
+        frames, metadata.pop("_loaded_sequence_archive", {}), canvas_size=(width, height))
+    if png_cache is not None:
+        png_cache.replace_from(read_cache)
+    return LoadedProject(metadata, document, width, height)
+
+
+@dataclass(frozen=True)
+class ProjectSnapshot:
+    """Detached save-owned graph; QImages share pixels through Qt COW."""
+
+    metadata: dict
+    document: Document
+    width: int
+    height: int
+    thumbnail: QImage | None = None
+
+    @classmethod
+    def capture(cls, metadata, document, thumbnail=None):
+        from . import constants
+        return cls(deepcopy(metadata), document.clone_graph(),
+                   constants.CANVAS_WIDTH, constants.CANVAS_HEIGHT,
+                   QImage(thumbnail) if thumbnail is not None else None)
+
+
+def write_project_snapshot(path, snapshot, png_cache=None):
+    """All UI save paths use this boundary; stage B still emits legacy v1."""
+    write_project_archive(path, deepcopy(snapshot.metadata), snapshot.document.frames,
+                          {}, png_cache, **({"thumbnail": snapshot.thumbnail}
+                                           if snapshot.thumbnail is not None else {}))
+
+
 class PngCache:
     """変更のないセルの PNG を保存のたびに再エンコードしないためのキャッシュ。
 
@@ -62,6 +124,10 @@ class PngCache:
 
     def __len__(self):
         return len(self._entries)
+
+    def replace_from(self, other):
+        """Publish a prepared read cache without exposing partially loaded state."""
+        self._entries = dict(other._entries)
 
     def clear(self):
         self._entries.clear()
