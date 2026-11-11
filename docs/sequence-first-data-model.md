@@ -328,7 +328,7 @@ Phase 3 から回した `exposure` と `_sequence_archive` の廃止も、ここ
 
 ほかに `.pman` を読む実装は無いので（§6.1）、ここで待つものはありません。
 
-段取り（2026-11-09 決定）。段階ごとにコミットし、5-6 までは保存時に v1 の形へ
+段取り（2026-11-09 決定）。段階ごとにコミットし、5-6 より前は保存時に v1 の形へ
 変換して書きます。
 
 | 段階 | 内容 |
@@ -341,7 +341,7 @@ Phase 3 から回した `exposure` と `_sequence_archive` の廃止も、ここ
 | 5-2d（済） | `coalesce_numbered_images` / `sync_numbered_image_from_cell` を廃止。未接続の旧データ（レイアウト用紙の挿入、旧形の DocUndo の復元、frames の直接代入）は `link_layer_tracks` の未接続分岐が `install_legacy_frames` で取り込むので、この分岐と `Document.sync_columns` は残す |
 | 5-3（済） | live `Layer.exposure` と Rust `TimelineCell.exposure` / `cell_name` を削除。`resolve()` / `sheet()` は密な参照へ切替 |
 | 5-5（見送り） | 用紙レイヤーを `single_cell` に。2026-11-11 に見送りを決定（下記） |
-| 5-6 | `format_version` 2 の読み書き、FORMAT.md、golden `.pman` |
+| 5-6（済） | `format_version` 2 の読み書き、FORMAT.md、golden `.pman` |
 
 Phase 5-3 実装結果（2026-11-10）：番号列を正本とし、隣接同番号を1区間に統合します。
 絵と○の途中への挿入はその区間を伸ばし、split は後半を新番号の複製にします。
@@ -367,6 +367,11 @@ Phase 5-5 は見送ります（2026-11-11 決定）。用紙は今どおり番�
 - 今の用紙はコマごとに番号・○・未使用を持てるため、1枚ものにすると使う人から
   見える変化になります。使われていないものに互換の仕組みを足す理由がありません。
 - 5-6 の新しい保存形式でも、用紙は他のレイヤーと同じ番号の形で保存します。
+
+Phase 5-6 実装結果（2026-11-11）：保存は format_version 2 に統一し、読込は1と2に対応します。
+番号bankとシートを直接保存し、未配置画像・pending・初期状態・名前と必要な旧配置／尺の
+互換情報を保持します。v2を開いても番号は詰め直しません。FORMAT.mdを更新し、
+v2 golden 4件で独立した意味JSON・画素hash、低水準読込とUI open、保存往復を確認します。
 
 Phase 5-6 で決めたこと（2026-11-11）：
 
