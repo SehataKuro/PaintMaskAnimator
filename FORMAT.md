@@ -148,7 +148,8 @@ BLANK/EMPTY自体は絵番号を持ちません。隣接同番号は1区間で�
 本体に保存しません。離れた同番号も同じCellを参照します。
 
 positions は任意（既定[]）。columnで位置を指定し、blank_start（既定false）、tween、
-tween_member（ともに既定null）を持ちます。blank_start=trueはBLANK上だけ許可し、
+tween_member（ともに既定null）を持ちます。blank_start=trueはsheetのBLANK上、または
+同じcolumnにkindがBLANKのpendingがある場合だけ許可し、
 隣接する○の開始を区別します。tweenは番号ではなく位置の属性です。
 
 ### あとから直せるトゥイーン
@@ -212,6 +213,11 @@ hintを増やしません。画像と表示設定は含みません。v1読込�
 - `resolved_overrides`: `{column, value, source_column}`。valueとsource_columnは必須で、
   両方null（画像なし）またはbank番号と編集元位置です。source_columnは文書内で、
   その位置がvalueの番号を持つ絵またはpendingである必要があります。
+  writerは再構成後の同じTrackのsheet/pendingでこの条件を満たす元sourceを保持します。
+  満たさない場合だけ、同番号の実在位置のうち元source以下の最大column、
+  なければ最小columnへ正規化します。ただし元sourceの画像と同番号のbank Cellの画像が
+  同じ場合だけ寄せます。表示が変わる場合や候補がない場合は元sourceを残し、
+  読み戻し検証で保存を拒否します。
   sheetから導く通常の画像解決と違う位置だけ保存します。同じ画像でも編集元の違いを保持します。
 - `local_states`: `{column, retained_number, image?, initial?, cell_name?}`。
   ○/EMPTYのlocalと番号無しpendingを保持します。番号付きの絵/pendingとは併用しません。

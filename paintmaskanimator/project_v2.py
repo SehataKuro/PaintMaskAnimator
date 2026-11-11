@@ -4,6 +4,7 @@ Compatibility contains scalar placement/length/resolution exceptions and current
 local artwork only. Historical v1 image payloads never enter the PNG list.
 """
 from copy import deepcopy
+from bisect import bisect_right
 
 from .i18n import tr
 from .document import project_v1_state
@@ -191,6 +192,27 @@ def build_payload(snapshot, *, include_default_local_images=False):
                     local.update(artwork(cell,
                         f"compatibility/layer_{li:04d}/position_{column:06d}.png"))
                 locals_.append(local)
+        # Match the reader's reconstructed source slots, not virtual resolve
+        # tails retained by legacy imports. Pending takes precedence over sheet.
+        states = {entry["column"]: entry for entry in data["pending"]}
+        sources = {}
+        for column, value in enumerate(data["sheet"]):
+            state = states.get(column)
+            if state is not None:
+                value = state["number"]
+            if type(value) is int:
+                sources.setdefault(value, []).append(column)
+        for column, (value, source) in enumerate(resolved):
+            candidates = sources.get(value, [])
+            if source is not None and candidates and source not in candidates:
+                # Compare live source artwork with the bank artwork used on load.
+                # This pixel comparison belongs only to payload preparation.
+                original = frames[source].layers[li].image
+                bank = track.cells[value].image
+                if original is not bank and original != bank:
+                    continue
+                index = bisect_right(candidates, source)
+                resolved[column] = (value, candidates[max(0, index - 1)])
         compatibility = compatibility_scalars(
             data["sheet"], starts, pending, keys, inputs, resolved)
         if locals_:
@@ -370,7 +392,8 @@ def _decode_payload(payload, archive, png_cache=None):
         starts = [False] * count
         for column, entry in positions.items():
             starts[column] = boolean(entry.get("blank_start", False))
-            require(not starts[column] or sheet[column] == "BLANK")
+            require(not starts[column] or sheet[column] == "BLANK"
+                    or pending.get(column, {}).get("kind") == "BLANK")
         keys = indexed(compatibility.get("placement_keys", placement_keys(sheet, starts, set(pending))))
         for entry in keys.values():
             require(entry.get("kind") in ("CELL", "BLANK"))
