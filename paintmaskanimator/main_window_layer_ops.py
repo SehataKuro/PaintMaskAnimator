@@ -377,13 +377,3 @@ class LayerOpsController:
             else tr("下書きレイヤーモードを解除しました。"),
             2600,
         )
-
-    @staticmethod
-    def _copy_display_properties(source, target):
-        """``target`` が ``source`` と同じレイヤー設定を見るようにする。
-
-        表示の設定は ``Track`` がレイヤーごとに1つ持つようになったので
-        （Issue #31 Phase 2）、8個の値を写す代わりに同じ ``Track`` を
-        指すようにするだけでよい。
-        """
-        target.share_track_with(source)

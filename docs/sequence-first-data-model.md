@@ -503,16 +503,44 @@ A案（描く前に毎回尋ねる）は採りません。「同じ番号は同�
 
 ## 7. 受け入れ条件
 
-- [ ] Phase 0 の特性テストが、移行の各段階で通り続ける
-- [ ] `coalesce_numbered_images` / `sync_numbered_image_from_cell` /
+- [x] Phase 0 の特性テストが、移行の各段階で通り続ける
+      （意図して動きを変えた段階では、変わった点をテストごと書き換えた）
+- [x] `coalesce_numbered_images` / `sync_numbered_image_from_cell` /
       `_copy_display_properties` / `_sequence_archive` が無くなる
-- [ ] 同じ番号のセルは、どの経路で編集しても同じ絵のままになる
-      （`id()` を見なくてもデータから分かる）
-- [ ] タイムリマップと XDTS の反映が、シートの番号列の差し替えだけで済む
-- [ ] 古い `.pman`（`format_version` 1、番号なしのセルを含む）が読め、
-      読んだあと番号が振られている
+      （最後に残った `_copy_display_properties` は §7 の確認で削除。
+      v1 読込の途中にだけ `_loaded_sequence_archive` が残る）
+- [x] 同じ番号のセルは、どの経路で編集しても同じ絵のままになる
+      （絵の本体は `Track.cells` の番号ごとに1つ。5-2b）
+- [x] タイムリマップと XDTS の反映が、シートの番号列の差し替えだけで済む
+      （どちらも `_apply_time_remap_states_to_layer` で各位置の番号を書き、
+      絵は無い番号だけ `Track.cells` へ足す）
+- [x] 古い `.pman`（`format_version` 1、番号なしのセルを含む）が読め、
+      読んだあと番号が振られている（5-2b、5-6 の v1 固定 14件）
 - [ ] Phase 0 で測った操作が、同じか速くなっている（遅くなっていない）
-- [ ] 「この位置だけ別の絵にする」操作がある
+      — 下の「性能の比較」。索引の作り直しだけ約 0.1ms 遅い（判断待ち）
+- [x] 「この位置だけ別の絵にする」操作がある（「この位置を新しい番号にする」、Phase 3）
+
+### 性能の比較（2026-11-12）
+
+Phase 0（878a37a と当時の native）と移行後を、`scripts/benchmark_sequence_model.py`
+（600コマ × 4レイヤー × 60絵、1280×720）で交互に7回ずつ測った中央値（ms）。
+
+| 操作 | Phase 0 | 移行後 |
+|---|---|---|
+| 一括処理の対象セルを決める（`resolve_cells_whole_cut`） | 57.45 | 58.30 |
+| 索引を作り直して引く（`resolve_key_frame_cold`） | 9.11 | 9.54 |
+| コマ送り（`seek_every_13th_frame`） | 1.117 | 1.132 |
+| `coalesce_numbered_images` | 1.9 | （処理ごと無くなった） |
+
+- 確認の途中で、`native.resolve_timeline` が全セルで保留の照会と2回目の走査を
+  していたため索引の作り直しが約1.45倍遅くなっていたのを見つけ、`_dense_import`
+  の無い位置ではメタデータをそのまま渡すように直した（結果が変わらないことは
+  `tests/test_resolve_timeline_equivalence.py` で確かめている）。
+- 直したあとも、索引の作り直し1回は Phase 0 の約 0.45ms に対して約 0.57ms
+  （引くだけの部分は同じ）。差は各位置で `_dense_import` の有無を見る分で、
+  これを無くすには `_dense_import` を付け外しする箇所すべてに手を入れる必要がある。
+  一方、構造を変えるたびに走っていた `coalesce_numbered_images`（約 1.9ms）は
+  無くなっている。
 
 ---
 

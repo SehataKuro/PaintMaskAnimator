@@ -418,14 +418,14 @@ class TimeRemapController:
         # 対象範囲をいったん明示空セルに戻す。
         for frame_index in range(start_frame, end_frame + 1):
             layer = self.window.canvas.frames[frame_index].layers[layer_index]
-            self.window.layers._copy_display_properties(template, layer)
+            layer.share_track_with(template)
             clear_slot(layer)
             layer.__dict__["_v1_position"] = V1Position(snapshot_layer(layer))
 
         # The parsed range is already a dense reference column.
         for offset, run_state in enumerate(states):
             target = self.window.canvas.frames[start_frame + offset].layers[layer_index]
-            self.window.layers._copy_display_properties(template, target)
+            target.share_track_with(template)
             run_start = offset == 0 or states[offset - 1] != run_state
             position = target.__dict__["_v1_position"]
             target.__dict__["_v1_position"] = V1Position(

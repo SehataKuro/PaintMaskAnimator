@@ -58,13 +58,29 @@ def clip_animation_reader(path: str, max_dimension: int, max_raster_bytes: int):
 def resolve_timeline(frames):
     """Read Rust-owned cell metadata directly, without packing NumPy inputs."""
     from .timeline_metadata import snapshot_metadata
-    rows = [[snapshot_metadata(layer, resolve=True) for layer in frame.layers]
-            for frame in frames]
+    imported_columns = set()
+
+    def imported(column, layer):
+        imported_columns.add(column)
+        return snapshot_metadata(layer, resolve=True)
+
+    # Rust の resolve が見るのは has_content と（絵のある位置の）sequence_number だけ。
+    # _dense_import の無い位置では、snapshot_metadata(resolve=True) は保留の位置でも
+    # この2つを Layer のメタデータのまま写すので、メタデータをそのまま渡して同じ結果になる。
+    # 索引は全コマ × 全レイヤーを読むので、セルごとの保留の照会（sequence_only）と
+    # 2回目の走査を省く（#31 §7：Phase 0 より遅くしない）。
+    # メタデータがまだ無い位置は、従来どおり snapshot_metadata に作らせる。
+    rows = [[(values.get("_timeline_metadata") or snapshot_metadata(layer, resolve=True))
+             if "_dense_import" not in (values := layer.__dict__)
+             else imported(column, layer)
+             for layer in frame.layers]
+            for column, frame in enumerate(frames)]
     layers = max(map(len, rows), default=0)
     data = _native.resolve_timeline(rows)
     result = np.frombuffer(data, dtype=np.int64).reshape(len(rows), layers)
-    overrides = [(column, li, layer) for column, frame in enumerate(frames)
-                 for li, layer in enumerate(frame.layers)
+    # v2 の読込元の指定は _dense_import を持つ位置にしか効かない（下の条件）。
+    overrides = [(column, li, layer) for column in sorted(imported_columns)
+                 for li, layer in enumerate(frames[column].layers)
                  if "_v2_resolve_source" in layer.__dict__]
     if overrides:
         result = result.copy()
