@@ -55,8 +55,33 @@ def clip_animation_reader(path: str, max_dimension: int, max_raster_bytes: int):
     return _native.ClipAnimationReader(path, max_dimension, max_raster_bytes)
 
 
+# このプロセスで一度でも位置に _dense_import が付いたか。付けるのは
+# timeline_metadata.set_dense_import だけで、外しても戻さない（一方向）。
+# 立っていなければどの位置にも _dense_import は無い（写しの元も持っていない）。
+_dense_import_seen = False
+
+
+def note_dense_import():
+    global _dense_import_seen
+    _dense_import_seen = True
+
+
 def resolve_timeline(frames):
     """Read Rust-owned cell metadata directly, without packing NumPy inputs."""
+    if not _dense_import_seen:
+        # どの位置にも _dense_import が無いので、下の行づくりはどの位置でも
+        # メタデータをそのまま渡すのと同じになる（メタデータの無い位置を除く）。
+        # 索引は全コマ × 全レイヤーを読むので、Phase 0 と同じ形で読む（#31 §7）。
+        rows = [[layer.__dict__.get("_timeline_metadata") for layer in frame.layers]
+                for frame in frames]
+        try:
+            data = _native.resolve_timeline(rows)
+        except TypeError:
+            # メタデータがまだ無い位置がある。下の従来の経路で作らせる。
+            pass
+        else:
+            layers = max(map(len, rows), default=0)
+            return np.frombuffer(data, dtype=np.int64).reshape(len(rows), layers)
     from .timeline_metadata import snapshot_metadata
     imported_columns = set()
 

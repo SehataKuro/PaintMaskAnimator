@@ -6,7 +6,7 @@ from weakref import WeakSet
 from PySide6.QtGui import QImage
 
 from .utils import blank_image
-from .timeline_metadata import timeline_metadata
+from .timeline_metadata import set_dense_import, timeline_metadata
 
 
 @dataclass(frozen=True)
@@ -225,7 +225,7 @@ class Layer:
         from .timeline_metadata import metadata_for
         metadata_for(copied).sequence_only = pending
         if imported is not None:
-            copied.__dict__["_dense_import"] = imported
+            set_dense_import(copied, imported)
         position = self.__dict__.get("_v1_position")
         if position is not None:
             from dataclasses import replace
@@ -289,7 +289,7 @@ class Layer:
                 position, legacy=snapshot_layer(position.legacy)
                 if position.legacy is not None else None)
         if "_dense_import" in self.__dict__:
-            copied.__dict__["_dense_import"] = self.__dict__["_dense_import"]
+            set_dense_import(copied, self.__dict__["_dense_import"])
         return copied
 
     # ------------------------------------------------------------------
@@ -363,7 +363,7 @@ class Layer:
         # Moving ownership does not edit the pending position's visible/image
         # exception. set_pending sees the new bank before its token is added.
         if imported is not None:
-            self.__dict__["_dense_import"] = imported
+            set_dense_import(self, imported)
 
     @property
     def cell_id(self):

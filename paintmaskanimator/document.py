@@ -17,6 +17,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage
 
 from .models import ArchiveHint, Cell, Frame, Layer, Track, make_frame
+from .timeline_metadata import set_dense_import
 from .utils import blank_image
 from .legacy_v1 import (LegacyLayerV1, legacy_layer_to_slot, snapshot_layer,
                         expand_legacy, compress_v1, V1Position)
@@ -324,8 +325,8 @@ class Document:
                             slot.__dict__.pop("_cell", None)
                     signature = (slot.has_content, slot.is_blank_key, slot.sequence_number,
                                  slot.sequence_only, slot.blank_start)
-                    slot.__dict__["_dense_import"] = (
-                        signature, reference, expanded.resolved[column][li])
+                    set_dense_import(slot, (
+                        signature, reference, expanded.resolved[column][li]))
                     slot.__dict__.pop("_legacy_input", None)
         self.frames = frames
         self.tracks = [layer._track for layer in frames[0].layers] if frames else []
@@ -368,7 +369,7 @@ def clone_frame_graph(frames, sequence_archive=None):
     def clone_layer(layer):
         copied = layer.clone_slot()
         if "_dense_import" in layer.__dict__:
-            copied.__dict__["_dense_import"] = deepcopy(layer.__dict__["_dense_import"])
+            set_dense_import(copied, deepcopy(layer.__dict__["_dense_import"]))
         copied.tween_member = deepcopy(layer.tween_member)
         cell = layer._cell
         clone_cell(cell)

@@ -12,6 +12,7 @@ from .constants import MAX_UNDO, MAX_UNDO_BYTES
 from ._canvas_members import CanvasMembers
 from . import constants
 from .models import Layer, default_layer_name
+from .timeline_metadata import set_dense_import
 from .utils import blank_image
 from .logging_setup import get_logger
 from .undo_entries import (
@@ -297,11 +298,14 @@ class UndoMixin(CanvasMembers):
                 slot.set_pending(pending)
                 slot.tween = deepcopy(tween)
                 slot.tween_member = member
-                for name, value in (("_dense_import", imported), ("_v1_position", position)):
-                    if value is None:
-                        slot.__dict__.pop(name, None)
-                    else:
-                        slot.__dict__[name] = value
+                if imported is None:
+                    slot.__dict__.pop("_dense_import", None)
+                else:
+                    set_dense_import(slot, imported)
+                if position is None:
+                    slot.__dict__.pop("_v1_position", None)
+                else:
+                    slot.__dict__["_v1_position"] = position
             self.current_frame = e.current_frame
             self.active_layer_index = e.active_layer
             self._invalidate_display_caches()

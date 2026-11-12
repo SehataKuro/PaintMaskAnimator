@@ -45,6 +45,12 @@ def timeline_metadata(cls):
     return cls
 
 
+def set_dense_import(layer, value):
+    """位置に _dense_import を付ける唯一の入口（native.resolve_timeline の近道を閉じる）。"""
+    native.note_dense_import()
+    layer.__dict__["_dense_import"] = value
+
+
 def reference_for(layer, *, resolve=False):
     """Read dense truth, including the v1 pending display/image exception."""
     from .legacy_v1 import DenseReference

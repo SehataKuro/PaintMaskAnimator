@@ -2,6 +2,7 @@
 
 参照実装は 853760f の native.resolve_timeline をそのまま写したもの。
 全コマ × 全レイヤーで snapshot_metadata（保留の照会つき）を通していた。
+後半は、まだ _dense_import が一度も付いていないときの近道（Phase 0 と同じ行づくり）を確かめる。
 """
 from pathlib import Path
 
@@ -105,3 +106,102 @@ def test_synthetic_pending_and_missing_metadata(qapp):
     assert "_timeline_metadata" in frames[4].layers[0].__dict__
     assert_same([])
     assert_same([Frame([])])
+
+
+# ---------------------------------------------------------------------------
+# #31 §7 調べ直し: 一度も _dense_import が付いていないプロセスでは、行づくりを
+# Phase 0 と同じ形（メタデータをそのまま渡す）にする近道。
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def no_dense_import_yet(monkeypatch):
+    """近道が開いた状態（このプロセスでまだ _dense_import が付いていない）にする。"""
+    monkeypatch.setattr(native, "_dense_import_seen", False)
+
+
+def forbid_snapshot(monkeypatch):
+    """近道を通ったこと（snapshot_metadata を呼ばないこと）を確かめる。"""
+    from paintmaskanimator import timeline_metadata
+
+    def fail(*args, **kwargs):
+        raise AssertionError("近道を通っていない")
+    monkeypatch.setattr(timeline_metadata, "snapshot_metadata", fail)
+
+
+@pytest.mark.parametrize("path", FIXTURES, ids=lambda p: f"{p.parent.name}/{p.stem}")
+def test_fast_path_matches_reference(qapp, monkeypatch, path):
+    frames = project_io.load_project(path).document.frames
+    assert native._dense_import_seen
+    # _dense_import がどこにも無い文書（編集でみな外れた状態）で近道を開く。
+    for layer in slots(frames):
+        layer.__dict__.pop("_dense_import", None)
+    monkeypatch.setattr(native, "_dense_import_seen", False)
+    expected = reference_resolve(frames)
+    with monkeypatch.context() as patch:
+        forbid_snapshot(patch)
+        assert native.resolve_timeline(frames).tolist() == expected.tolist()
+    for layer in slots(frames)[::2]:
+        mark_pending(layer)
+    expected = reference_resolve(frames)
+    with monkeypatch.context() as patch:
+        forbid_snapshot(patch)
+        assert native.resolve_timeline(frames).tolist() == expected.tolist()
+    assert not native._dense_import_seen
+
+
+def test_fast_path_falls_back_when_metadata_is_missing(qapp, no_dense_import_yet):
+    from PySide6.QtGui import QImage
+
+    def layer(number=None):
+        item = Layer("A", QImage(1, 1, QImage.Format.Format_ARGB32_Premultiplied))
+        item.has_content = number is not None
+        item.sequence_number = number
+        return item
+
+    frames = [Frame([layer(1)]), Frame([layer(1)]), Frame([layer()]), Frame([layer(2)])]
+    for frame in frames[1::2]:
+        frame.layers[0].sequence_only = True
+    frames[1].layers[0].__dict__.pop("_timeline_metadata")
+    # 近道は使えない（Rust はメタデータの無い位置を受け取らない）ので従来の経路で作らせる。
+    actual = native.resolve_timeline(frames)
+    assert "_timeline_metadata" in frames[1].layers[0].__dict__
+    assert actual.tolist() == reference_resolve(frames).tolist()
+    assert native.resolve_timeline([]).shape == (0, 0)
+    assert native.resolve_timeline([Frame([])]).shape == (1, 0)
+
+
+@pytest.mark.parametrize("path", [PROJECTS / "v1" / FIXTURES[0].name,
+                                  PROJECTS / "v2" / "pending-compat.pman"],
+                         ids=lambda p: f"{p.parent.name}/{p.stem}")
+def test_loading_dense_import_closes_fast_path(qapp, no_dense_import_yet, path):
+    frames = project_io.load_project(path).document.frames
+    if any("_dense_import" in layer.__dict__ for layer in slots(frames)):
+        assert native._dense_import_seen
+    assert_same(frames)
+
+
+def test_set_dense_import_closes_fast_path(qapp, no_dense_import_yet):
+    from PySide6.QtGui import QImage
+    from paintmaskanimator.timeline_metadata import set_dense_import
+    item = Layer("A", QImage(1, 1, QImage.Format.Format_ARGB32_Premultiplied))
+    set_dense_import(item, None)
+    assert native._dense_import_seen
+    assert "_dense_import" in item.__dict__
+
+
+def test_dense_import_is_only_written_through_set_dense_import():
+    """近道の前提（付けるのは set_dense_import だけ）を本体のソースで守る。"""
+    import re
+    package = Path(native.__file__).parent
+    write = re.compile(r"""\[\s*["']_dense_import["']\s*\]\s*=(?!=)|setdefault\(\s*["']_dense_import["']"""
+                       r"""|\(\s*\(\s*["']_dense_import["']\s*,""")
+    offenders = []
+    for source in sorted(package.rglob("*.py")):
+        for line in source.read_text(encoding="utf-8").splitlines():
+            if write.search(line):
+                offenders.append((source.name, line.strip()))
+    assert offenders == [("timeline_metadata.py", 'layer.__dict__["_dense_import"] = value')]
+    # __dict__ をまるごと写すのは clone_slot だけ（写し元が持つ値は既にフラグを立てている）。
+    updates = sorted(source.name for source in package.rglob("*.py")
+                     if "__dict__.update(" in source.read_text(encoding="utf-8"))
+    assert updates == ["models.py"]

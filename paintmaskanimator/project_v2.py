@@ -8,7 +8,7 @@ from bisect import bisect_right
 
 from .i18n import tr
 from .document import project_v1_state
-from .timeline_metadata import reference_for
+from .timeline_metadata import reference_for, set_dense_import
 
 
 DISPLAY_FIELDS = (
@@ -480,7 +480,7 @@ def _decode_payload(payload, archive, png_cache=None):
                 resolve_ref = DenseReference("CELL", value) if value is not None else DenseReference()
             signature = (slot.has_content, slot.is_blank_key, slot.sequence_number,
                          slot.sequence_only, slot.blank_start)
-            slot.__dict__["_dense_import"] = (signature, ref, resolve_ref)
+            set_dense_import(slot, (signature, ref, resolve_ref))
             if column in resolved:
                 slot.__dict__["_v2_resolve_source"] = (signature, resolved[column].get("source_column"), column, count)
             document.frames[column].layers.append(slot)
