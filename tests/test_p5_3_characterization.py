@@ -450,7 +450,7 @@ def test_exports_changes_in_c(window, tmp_path, monkeypatch):
     golden("exports_changes_in_c", {
         "numbers": numbers(c.frames), "ae": ae, "xdts": xdts,
         "csv": (destination / "TS.csv").read_text(encoding="utf-8-sig"),
-        "pngs": {str(p.relative_to(destination)): pixels(QImage(str(p)))
+        "pngs": {p.relative_to(destination).as_posix(): pixels(QImage(str(p)))
                  for p in sorted(destination.rglob("*.png"))}})
 
 
