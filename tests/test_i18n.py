@@ -112,3 +112,30 @@ def test_lupdate_files_strings_under_the_runtime_context(tmp_path):
     text = catalogue.read_text(encoding="utf-8")
     assert f"<source>{SOURCE}</source>" in text, "lupdate did not pick up tr()"
     assert f"<name>{i18n.CONTEXT}</name>" in text
+
+
+def test_project_version_messages_translate(qapp, tmp_path, monkeypatch, restore_translators):
+    from pathlib import Path
+
+    lrelease = shutil.which("pyside6-lrelease")
+    if lrelease is None:
+        pytest.skip("pyside6-lrelease not available")
+    catalogue = Path(i18n.__file__).parent / "translations" / f"{i18n.CATALOGUE}_en.ts"
+    subprocess.run(
+        [lrelease, str(catalogue), "-qm", str(tmp_path / f"{i18n.CATALOGUE}_en.qm")],
+        check=True, capture_output=True,
+    )
+    monkeypatch.setattr(i18n, "translations_dir", lambda: tmp_path)
+    assert i18n.install(qapp, "en") == "en"
+    assert i18n.tr(
+        "このファイルは新しいバージョンのアプリ（v{version}）で保存されています。アプリを更新してから開いてください。"
+    ).format(version="9.0.0") == (
+        "This file was saved with a newer version of the app (v9.0.0). "
+        "Please update the app before opening it."
+    )
+    assert i18n.tr(
+        "このファイルは新しいバージョンのアプリで保存されています。アプリを更新してから開いてください。"
+    ) == (
+        "This file was saved with a newer version of the app. "
+        "Please update the app before opening it."
+    )

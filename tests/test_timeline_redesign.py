@@ -9,6 +9,7 @@ import pytest  # noqa: E402
 from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+from dense_fixtures import hold, length, clear_range
 from paintmaskanimator.main_window import MainWindow  # noqa: E402
 from paintmaskanimator.models import make_frame  # noqa: E402
 from paintmaskanimator.timeline import (  # noqa: E402
@@ -34,10 +35,10 @@ def window(qapp):
         layer = canvas.frames[column].layers[0]
         layer.has_content = True
         layer.sequence_number = number
-        layer.exposure = exposure
+        hold(canvas, column, exposure)
     blank = canvas.frames[7].layers[0]
     blank.is_blank_key = True
-    blank.exposure = 2
+    hold(canvas, 7, 2)
     canvas.current_frame = 4
     window.refresh_ui()
     yield window
@@ -210,9 +211,8 @@ def test_gaps_between_cells_are_drawn_as_blanks(window):
 
     frames = window.canvas.frames
     # 1(0-2) 2(3-6) ✗(7-8) 3(9-11) の 2 を 1 コマ短くし、先頭も空ける。
-    frames[3].layers[0].exposure = 3
-    frames[0].layers[0].has_content = False
-    frames[0].layers[0].sequence_number = None
+    clear_range(window.canvas, 6, 7)
+    clear_range(window.canvas, 0, 3)
     gaps = TimelineWidget.timeline_gaps(frames, 0)
     # 先頭の空き（0-2）は ✗ 付き、6 は直後に ✗ が続くので ✗ 付き、
     # 最後のセルより後ろは対象外。
@@ -220,7 +220,7 @@ def test_gaps_between_cells_are_drawn_as_blanks(window):
     assert gaps[6] == (6, 1, True)
     assert 12 not in gaps
     # 空セルの直後の空きは、空セルの続きとして ✗ を描かない。
-    frames[7].layers[0].exposure = 1
+    clear_range(window.canvas, 8, 9)
     gaps = TimelineWidget.timeline_gaps(frames, 0)
     assert gaps[8] == (8, 1, False)
 
@@ -261,13 +261,14 @@ def test_auto_select_builds_a_selection(window):
 
 def _spans(frames, layer_index=0):
     """(先頭, 種類, 長さ) の並び。種類は数字（絵番号）か "x"（空セル）。"""
+    from paintmaskanimator.timeline_span import span_at
     spans = []
     for column, frame in enumerate(frames):
-        layer = frame.layers[layer_index]
-        if layer.has_content:
-            spans.append((column, layer.sequence_number, layer.exposure))
-        elif layer.is_blank_key:
-            spans.append((column, "x", layer.exposure))
+        block = span_at(frames, layer_index, column)
+        if block is not None and block[1] == column:
+            kind, _, size = block
+            spans.append((column, frame.layers[layer_index].sequence_number
+                          if kind == "content" else "x", size))
     return spans
 
 
@@ -279,10 +280,10 @@ def _blank_after_one(window):
         layer = canvas.frames[column].layers[0]
         layer.has_content = True
         layer.sequence_number = number
-        layer.exposure = exposure
+        hold(canvas, column, exposure)
     blank = canvas.frames[6].layers[0]
     blank.is_blank_key = True
-    blank.exposure = 3
+    hold(canvas, 6, 3)
     window.refresh_ui()
     return canvas
 
@@ -303,7 +304,7 @@ def test_moving_a_cell_left_keeps_the_blank_attached(window):
 
 def test_blank_fully_covered_by_the_moved_cell_disappears(window):
     canvas = _blank_after_one(window)
-    canvas.frames[6].layers[0].exposure = 1
+    clear_range(canvas, 7, 9)
     assert canvas.move_timeline_cell(0, 0, 1, 0)
     assert _spans(canvas.frames)[:2] == [(1, 1, 6), (9, 2, 4)]
 
@@ -474,18 +475,18 @@ def test_exposure_extension_keeps_history_and_round_trips(window, monkeypatch, c
     earlier = UndoEntry()
     canvas.push_undo(earlier)
     monkeypatch.setattr(canvas_undo, "MAX_UNDO_BYTES", 1)
-    original = [(l.layers[0].sequence_number, l.layers[0].exposure,
+    original = [(l.layers[0].sequence_number, l.layers[0].blank_start,
                  l.layers[0].has_content, l.layers[0].is_blank_key) for l in canvas.frames]
     window.timeline_ops.resize_exposure(_row(window), column, end)
     assert canvas.undo_stack[0] is earlier
     assert isinstance(canvas.undo_stack[-1], ExposureUndo)
-    assert canvas.frames[column].layers[0].exposure == end - column + 1
-    extended = [(l.layers[0].sequence_number, l.layers[0].exposure,
+    assert length(canvas, column) == end - column + 1
+    extended = [(l.layers[0].sequence_number, l.layers[0].blank_start,
                  l.layers[0].has_content, l.layers[0].is_blank_key) for l in canvas.frames]
     canvas.undo()
-    restored = [(l.layers[0].sequence_number, l.layers[0].exposure,
+    restored = [(l.layers[0].sequence_number, l.layers[0].blank_start,
                  l.layers[0].has_content, l.layers[0].is_blank_key) for l in canvas.frames]
     assert restored == original
     canvas.redo()
-    assert [(l.layers[0].sequence_number, l.layers[0].exposure,
+    assert [(l.layers[0].sequence_number, l.layers[0].blank_start,
              l.layers[0].has_content, l.layers[0].is_blank_key) for l in canvas.frames] == extended

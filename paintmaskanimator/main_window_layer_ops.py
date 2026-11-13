@@ -11,6 +11,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import QApplication, QMessageBox
 from .i18n import tr
+from .document import release_slots
 from .models import Layer, default_layer_name
 from .utils import blank_image
 from .progress import close_counter, create_counter, update_counter
@@ -53,11 +54,13 @@ class LayerOpsController:
         if not indices:
             return
         self.window.canvas.push_doc_undo()
-        for frame in self.window.canvas.frames:
-            for index in sorted(indices, reverse=True):
-                copied = frame.layers[index].clone()
-                copied.name = tr("{name} コピー").format(name=copied.name)
-                frame.layers.insert(index + 1, copied)
+        canvas = self.window.canvas
+        for index in sorted(indices, reverse=True):
+            layers = canvas._document.capture_column(index)
+            for frame, layer in zip(canvas.frames, layers):
+                frame.layers.insert(index + 1, layer)
+            layers[0].name = tr("{name} コピー").format(name=layers[0].name)
+            canvas._document.sync_columns()
         self.window.canvas.active_layer_index = min(
             len(self.window.canvas.layers) - 1,
             max(indices) + len(indices),
@@ -98,7 +101,6 @@ class LayerOpsController:
                 visible=True,
                 opacity=1.0,
                 has_content=False,
-                exposure=1,
             )
             for _ in range(frame_count)
         ]
@@ -152,7 +154,7 @@ class LayerOpsController:
                     signature == previous_signature
                     and active_key_frame is not None
                 ):
-                    merged_layers[active_key_frame].exposure += 1
+                    merged_layers[frame_index] = merged_layers[active_key_frame].clone_reference()
                 else:
                     merged_image = blank_image()
                     painter = QPainter(merged_image)
@@ -176,8 +178,11 @@ class LayerOpsController:
                         visible=True,
                         opacity=1.0,
                         has_content=True,
-                        exposure=1,
-                    )
+                            )
+                    merged_layers[frame_index].sequence_number = 1 + sum(
+                        1 for index, slot in enumerate(merged_layers[:frame_index])
+                        if slot.has_content and (index == 0 or slot.sequence_number
+                            != merged_layers[index - 1].sequence_number))
                     previous_signature = signature
                     active_key_frame = frame_index
 
@@ -193,9 +198,12 @@ class LayerOpsController:
 
         for frame_index, frame in enumerate(self.window.canvas.frames):
             for layer_index in reversed(indices):
+                release_slots([frame.layers[layer_index]])
                 frame.layers.pop(layer_index)
             frame.layers.insert(base_index, merged_layers[frame_index])
 
+        self.window.canvas._document.sync_columns()
+        self.window.canvas.install_legacy_frames()
         self.window.canvas.active_layer_index = base_index
         self.window.canvas._onion_cache.clear()
         self.window.canvas._color_filter_cache.clear()
@@ -222,7 +230,9 @@ class LayerOpsController:
         self.window.canvas.push_doc_undo()
         for frame in self.window.canvas.frames:
             for index in sorted(indices, reverse=True):
+                release_slots([frame.layers[index]])
                 frame.layers.pop(index)
+        self.window.canvas._document.sync_columns()
         self.window.canvas.active_layer_index = min(
             indices[0],
             len(self.window.canvas.layers) - 1,
@@ -276,6 +286,7 @@ class LayerOpsController:
             visual_layers[destination_row:destination_row] = moved_layers
             frame.layers = list(reversed(visual_layers))
 
+        self.window.canvas._document.sync_columns()
         self.window.canvas.active_layer_index = count - 1 - new_active_visual_row
         self.window.canvas._onion_cache.clear()
         self.window.canvas.changed.emit()
@@ -366,13 +377,3 @@ class LayerOpsController:
             else tr("下書きレイヤーモードを解除しました。"),
             2600,
         )
-
-    @staticmethod
-    def _copy_display_properties(source, target):
-        """``target`` が ``source`` と同じレイヤー設定を見るようにする。
-
-        表示の設定は ``Track`` がレイヤーごとに1つ持つようになったので
-        （Issue #31 Phase 2）、8個の値を写す代わりに同じ ``Track`` を
-        指すようにするだけでよい。
-        """
-        target.share_track_with(source)

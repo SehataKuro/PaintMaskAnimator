@@ -9,10 +9,11 @@ def test_sparse_key_scan_matches_spans_without_resolving_each_column(monkeypatch
     frames = []
     for column in range(300):
         layer = SimpleNamespace(
-            has_content=column in (3, 140, 280),
-            is_blank_key=column == 80,
+            has_content=3 <= column < 80 or 280 <= column < 300,
+            is_blank_key=80 <= column < 103,
+            blank_start=column == 80,
+            sequence_number=1 if column < 80 else 2,
             sequence_only=column == 140,
-            exposure=100,
         )
         frames.append(SimpleNamespace(layers=[layer]))
     expected = [

@@ -6,6 +6,8 @@ objects and returns/consumes plain data, so MainWindow keeps only the
 widget<->metadata mapping and the UI feedback.
 """
 import json
+from copy import deepcopy
+from dataclasses import dataclass
 import math
 import os
 from concurrent.futures import ThreadPoolExecutor
@@ -13,6 +15,7 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 from .i18n import tr
+from .document import Document, project_v1_state
 from .errors import OperationError
 
 from PySide6.QtCore import QBuffer, QByteArray, QIODevice, Qt
@@ -28,7 +31,8 @@ from .constants import (
     MAX_PROJECT_METADATA_BYTES,
 )
 from .imaging import white_to_transparent_qimage, without_color_space
-from .models import Frame, Layer, default_layer_name
+from .models import Frame, default_layer_name
+from .legacy_v1 import raw_v1_slot as Layer
 from .tween_groups import sanitize_spec
 from .utils import blank_image
 from .logging_setup import get_logger
@@ -36,6 +40,7 @@ from .logging_setup import get_logger
 # Bump when the on-disk pixel contract changes. mask_format >= 2 stores erased
 # areas as alpha=0; format 1 (or missing) stored them as pseudo-transparent
 # opaque #FFFFFF and needs a white->transparent migration on load.
+SUPPORTED_FORMAT_VERSION = 2
 CURRENT_MASK_FORMAT = 2
 
 log = get_logger(__name__)
@@ -44,6 +49,85 @@ log = get_logger(__name__)
 # （サムネイルの拡張）が zip を解かずに読めるよう、無圧縮でアーカイブの先頭に置く。
 THUMBNAIL_NAME = "thumbnail.png"
 THUMBNAIL_SIZE = 512
+
+
+@dataclass(frozen=True)
+class LoadedProject:
+    """Fully installed document, still private until UI state is prepared."""
+
+    metadata: dict
+    document: Document
+    width: int
+    height: int
+    format_version: int = 1
+
+
+def load_project(path, png_cache=None):
+    """Adapt the legacy reader without changing its raw four-value API.
+
+    Use a private cache while preparing an open; publish it only on success.
+    Cursor selection must precede bank ownership/initial/name selection.
+    """
+    read_cache = PngCache() if png_cache is not None else None
+    result = read_project_archive(path, read_cache, _allow_v2=True)
+    if isinstance(result, LoadedProject):
+        if png_cache is not None:
+            png_cache.replace_from(read_cache)
+        return result
+    metadata, frames, width, height = result
+    metadata = dict(metadata)
+    document = object.__new__(Document)
+    try:
+        document.current_frame = max(0, min(int(metadata.get("current_frame", 0)), len(frames) - 1))
+        document.active_layer_index = max(0, min(
+            int(metadata.get("active_layer_index", 0)),
+            len(frames[document.current_frame].layers) - 1))
+    except (TypeError, ValueError, OverflowError) as error:
+        raise OperationError(tr("プロジェクトの選択位置が不正です。")) from error
+    document.install_legacy_frames(
+        frames, metadata.pop("_loaded_sequence_archive", {}), canvas_size=(width, height))
+    if png_cache is not None:
+        png_cache.replace_from(read_cache)
+    return LoadedProject(metadata, document, width, height)
+
+
+@dataclass(frozen=True)
+class ProjectSnapshot:
+    """Detached save-owned graph; QImages share pixels through Qt COW."""
+
+    metadata: dict
+    document: Document
+    width: int
+    height: int
+    thumbnail: QImage | None = None
+
+    @classmethod
+    def capture(cls, metadata, document, thumbnail=None):
+        from . import constants
+        return cls(deepcopy(metadata), document.clone_graph(),
+                   constants.CANVAS_WIDTH, constants.CANVAS_HEIGHT,
+                   QImage(thumbnail) if thumbnail is not None else None)
+
+
+def build_v2_payload(snapshot, *, include_default_local_images=False):
+    """Prepare explicit v2 metadata and PNGs without changing the snapshot."""
+    from .project_v2 import build_payload
+    return build_payload(snapshot, include_default_local_images=include_default_local_images)
+
+
+def write_project_snapshot(path, snapshot, png_cache=None):
+    """Save the current format (v2); legacy fixture output is separate."""
+    from .project_v2 import write_snapshot
+    return write_snapshot(path, snapshot, png_cache)
+
+
+def legacy_fixture_write_snapshot(path, snapshot, png_cache=None):
+    """Test/fixture-only v1 output; never use for user saves."""
+    metadata = deepcopy(snapshot.metadata)
+    metadata["format_version"] = 1
+    legacy_fixture_write_archive(
+        path, metadata, snapshot.document.frames, {}, png_cache,
+        **({"thumbnail": snapshot.thumbnail} if snapshot.thumbnail is not None else {}))
 
 
 class PngCache:
@@ -59,6 +143,10 @@ class PngCache:
 
     def __len__(self):
         return len(self._entries)
+
+    def replace_from(self, other):
+        """Publish a prepared read cache without exposing partially loaded state."""
+        self._entries = dict(other._entries)
 
     def clear(self):
         self._entries.clear()
@@ -190,11 +278,12 @@ def _prefetch_pngs(archive, entries, width, height, decoded):
     }
 
 
-def read_project_archive(path, png_cache=None):
+def read_project_archive(path, png_cache=None, *, _allow_v2=False):
     """Open and validate a project archive.
 
-    Returns (metadata, frames, width, height). Raises ValueError on any
-    malformed/oversized/unsafe archive (the caller shows the UI error).
+    Returns (metadata, frames, width, height). App version fields in metadata
+    are strings or None. Raises OperationError for unsupported formats and
+    malformed/oversized/unsafe archives (the caller shows the UI error).
 
     ``png_cache`` (a ``PngCache``) is reset and seeded with each cell's PNG
     bytes from the archive, so the first save after opening only re-encodes
@@ -223,11 +312,44 @@ def read_project_archive(path, png_cache=None):
             raise OperationError(tr("project.jsonがありません。")) from error
         if metadata_info.file_size > MAX_PROJECT_METADATA_BYTES:
             raise OperationError(tr("プロジェクト情報が大きすぎます。"))
-        metadata = json.loads(
-            archive.read("project.json").decode("utf-8")
-        )
+        duplicates = []
+        def pairs_hook(pairs):
+            result = {}
+            for key, value in pairs:
+                if key in result:
+                    duplicates.append(key)
+                result[key] = value
+            return result
+        metadata = json.loads(archive.read("project.json").decode("utf-8"),
+                              object_pairs_hook=pairs_hook)
+        if not isinstance(metadata, dict):
+            raise OperationError(tr("対応していないプロジェクト形式です。"))
         if metadata.get("format") != "PaintMaskAnimatorProject":
             raise OperationError(tr("対応していないプロジェクト形式です。"))
+
+        format_version = metadata.get("format_version", 1)
+        if type(format_version) is not int or format_version < 1:
+            raise OperationError(tr("対応していないプロジェクト形式です。"))
+        for key in ("created_app_version", "saved_app_version"):
+            if not isinstance(metadata.get(key), str):
+                metadata[key] = None
+        if format_version > (SUPPORTED_FORMAT_VERSION if _allow_v2 else 1):
+            version = metadata["saved_app_version"]
+            if version:
+                raise OperationError(tr(
+                    "このファイルは新しいバージョンのアプリ（v{version}）で保存されています。アプリを更新してから開いてください。"
+                ).format(version=version))
+            raise OperationError(tr(
+                "このファイルは新しいバージョンのアプリで保存されています。アプリを更新してから開いてください。"
+            ))
+
+        if format_version == 2:
+            if duplicates:
+                raise OperationError(tr("プロジェクト情報に重複したキーがあります。"))
+            if not _allow_v2:
+                raise OperationError(tr("対応していないプロジェクト形式です。"))
+            from .project_v2 import decode_payload
+            return decode_payload(metadata, archive, png_cache)
 
         try:
             mask_format = int(metadata.get("mask_format", 1))
@@ -585,11 +707,127 @@ def _thumbnail_png(image):
     return bytes(data.data()) if ok else None
 
 
-def write_project_archive(
+def legacy_fixture_build_v1_payload(frames, sequence_archive=None):
+    """Test/fixture-only v1 metadata and ordered (name, image, error) PNGs.
+
+    Only reads the document. Encoding, caching and ZIP output belong to the
+    writer; images here retain their original cache keys.
+    """
+    frame_metadata = []
+    # まず書き出すセルを集め、PNG はあとでまとめて並列にエンコードする。
+    pending_pngs = []
+
+    def write_png(image_name, image, message):
+        pending_pngs.append((image_name, image, message))
+
+    for frame_index, frame in enumerate(frames):
+        frame_data = {
+            "duration": int(frame.duration),
+            "layers": [],
+        }
+        for layer_index, layer in enumerate(frame.layers):
+            image_name = (
+                f"layers/layer_{layer_index:04d}/"
+                f"frame_{frame_index:06d}.png"
+            )
+            write_png(
+                image_name,
+                layer.image,
+                tr("画像を書き出せませんでした: {name}"),
+            )
+
+            initial_name = None
+            if getattr(layer, "initial_image", None) is not None:
+                initial_name = (
+                    f"initial/layer_{layer_index:04d}/"
+                    f"frame_{frame_index:06d}.png"
+                )
+                write_png(
+                    initial_name,
+                    layer.initial_image,
+                    tr("初期状態の画像を書き出せませんでした: {name}"),
+                )
+
+            frame_data["layers"].append(
+                {
+                    "name": layer.name,
+                    "image": image_name,
+                    "initial": initial_name,
+                    "visible": bool(layer.visible),
+                    "opacity": float(layer.opacity),
+                    "is_paper": bool(layer.is_paper),
+                    "has_content": bool(layer.has_content),
+                    "exposure": int(layer.exposure),
+                    "is_blank_key": bool(
+                        getattr(layer, "is_blank_key", False)
+                    ),
+                    "sequence_number": layer.sequence_number,
+                    "sequence_only": bool(layer.sequence_only),
+                    "is_draft": bool(getattr(layer, "is_draft", False)),
+                    "cell_name": getattr(layer, "cell_name", None),
+                    "tween": getattr(layer, "tween", None),
+                    "tween_member": getattr(layer, "tween_member", None),
+                    "color_filter_enabled": bool(
+                        layer.color_filter_enabled
+                    ),
+                    "color_filter_rgb": (
+                        list(layer.color_filter_rgb)
+                        if layer.color_filter_rgb is not None
+                        else None
+                    ),
+                }
+            )
+        frame_metadata.append(frame_data)
+
+    archive_metadata = []
+    for (layer_index, number), layer in sorted(
+        (sequence_archive or {}).items()
+    ):
+        image_name = (
+            f"sequence_archive/layer_{int(layer_index):04d}/"
+            f"cell_{int(number):06d}.png"
+        )
+        write_png(
+            image_name,
+            layer.image,
+            tr("連番保管セルを書き出せませんでした: {name}"),
+        )
+        initial_name = None
+        if layer.initial_image is not None:
+            initial_name = f"initial/{image_name}"
+            write_png(initial_name, layer.initial_image,
+                      tr("初期状態の画像を書き出せませんでした: {name}"))
+        archive_metadata.append(
+            {
+                "layer_index": int(layer_index),
+                "sequence_number": int(number),
+                "image": image_name,
+                "initial": initial_name,
+                "name": layer.name,
+                "visible": bool(layer.visible),
+                "opacity": float(layer.opacity),
+                "has_content": bool(layer.has_content),
+                "is_blank_key": bool(layer.is_blank_key),
+                "is_draft": bool(getattr(layer, "is_draft", False)),
+                "cell_name": getattr(layer, "cell_name", None),
+                "color_filter_enabled": bool(
+                    layer.color_filter_enabled
+                ),
+                "color_filter_rgb": (
+                    list(layer.color_filter_rgb)
+                    if layer.color_filter_rgb is not None
+                    else None
+                ),
+            }
+        )
+    return frame_metadata, archive_metadata, pending_pngs
+
+
+def legacy_fixture_write_archive(
     project_path, metadata, frames, sequence_archive=None, png_cache=None,
     thumbnail=None,
 ):
-    """Serialize frames + metadata into the project archive at ``project_path``.
+    """Test/fixture-only v1 serialization into ``project_path``.
 
     Fills ``metadata["frames"]`` from the Frame/Layer domain objects, writes one
     PNG per layer-cell plus project.json into a zip, and atomically replaces the
@@ -622,112 +860,11 @@ def write_project_archive(
                     THUMBNAIL_NAME, thumbnail_png, compress_type=zipfile.ZIP_STORED
                 )
 
-            # まず書き出すセルを集め、PNG はあとでまとめて並列にエンコードする。
-            pending_pngs = []
-
-            def write_png(image_name, image, message):
-                pending_pngs.append((image_name, image, message))
-
-            for frame_index, frame in enumerate(frames):
-                frame_data = {
-                    "duration": int(frame.duration),
-                    "layers": [],
-                }
-                for layer_index, layer in enumerate(frame.layers):
-                    image_name = (
-                        f"layers/layer_{layer_index:04d}/"
-                        f"frame_{frame_index:06d}.png"
-                    )
-                    write_png(
-                        image_name,
-                        layer.image,
-                        tr("画像を書き出せませんでした: {name}"),
-                    )
-
-                    initial_name = None
-                    if getattr(layer, "initial_image", None) is not None:
-                        initial_name = (
-                            f"initial/layer_{layer_index:04d}/"
-                            f"frame_{frame_index:06d}.png"
-                        )
-                        write_png(
-                            initial_name,
-                            layer.initial_image,
-                            tr("初期状態の画像を書き出せませんでした: {name}"),
-                        )
-
-                    frame_data["layers"].append(
-                        {
-                            "name": layer.name,
-                            "image": image_name,
-                            "initial": initial_name,
-                            "visible": bool(layer.visible),
-                            "opacity": float(layer.opacity),
-                            "is_paper": bool(layer.is_paper),
-                            "has_content": bool(layer.has_content),
-                            "exposure": int(layer.exposure),
-                            "is_blank_key": bool(
-                                getattr(layer, "is_blank_key", False)
-                            ),
-                            "sequence_number": layer.sequence_number,
-                            "sequence_only": bool(layer.sequence_only),
-                            "is_draft": bool(getattr(layer, "is_draft", False)),
-                            "cell_name": getattr(layer, "cell_name", None),
-                            "tween": getattr(layer, "tween", None),
-                            "tween_member": getattr(layer, "tween_member", None),
-                            "color_filter_enabled": bool(
-                                layer.color_filter_enabled
-                            ),
-                            "color_filter_rgb": (
-                                list(layer.color_filter_rgb)
-                                if layer.color_filter_rgb is not None
-                                else None
-                            ),
-                        }
-                    )
-                metadata["frames"].append(frame_data)
-
-            metadata["sequence_archive"] = []
-            for (layer_index, number), layer in sorted(
-                (sequence_archive or {}).items()
-            ):
-                image_name = (
-                    f"sequence_archive/layer_{int(layer_index):04d}/"
-                    f"cell_{int(number):06d}.png"
-                )
-                write_png(
-                    image_name,
-                    layer.image,
-                    tr("連番保管セルを書き出せませんでした: {name}"),
-                )
-                initial_name = None
-                if layer.initial_image is not None:
-                    initial_name = f"initial/{image_name}"
-                    write_png(initial_name, layer.initial_image,
-                              tr("初期状態の画像を書き出せませんでした: {name}"))
-                metadata["sequence_archive"].append(
-                    {
-                        "layer_index": int(layer_index),
-                        "sequence_number": int(number),
-                        "image": image_name,
-                        "initial": initial_name,
-                        "name": layer.name,
-                        "visible": bool(layer.visible),
-                        "opacity": float(layer.opacity),
-                        "has_content": bool(layer.has_content),
-                        "is_blank_key": bool(layer.is_blank_key),
-                        "is_draft": bool(getattr(layer, "is_draft", False)),
-                        "cell_name": getattr(layer, "cell_name", None),
-                        "color_filter_enabled": bool(
-                            layer.color_filter_enabled
-                        ),
-                        "color_filter_rgb": (
-                            list(layer.color_filter_rgb)
-                            if layer.color_filter_rgb is not None
-                            else None
-                        ),
-                    }
-                )
+            frame_data, archive_data, pending_pngs = legacy_fixture_build_v1_payload(
+                *project_v1_state(frames, sequence_archive)
+            )
+            metadata["frames"].extend(frame_data)
+            metadata["sequence_archive"] = archive_data
 
             encoded = cache.encode_many(
                 (image for _name, image, _message in pending_pngs), used_keys

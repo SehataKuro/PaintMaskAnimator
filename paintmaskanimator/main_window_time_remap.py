@@ -5,18 +5,20 @@ applies the remapped exposure states to the active layer.
 
 A collaborator rather than a mixin -- see ``main_window_export.py`` for why.
 """
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import json
 import math
 import re
 from pathlib import Path
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
-from . import timesheet_file
+from . import sheet, timesheet_file
 from .i18n import tr
 from .main_window_import import ImportController
 from .errors import OPERATION_ERRORS as _OPERATION_ERRORS, OperationError
-from .models import Layer
+from .models import ArchiveHint, Cell
+from .document import clear_slot
+from .legacy_v1 import V1Position, snapshot_layer
 from .utils import blank_image
 from .widgets import (
     TimeRemapPasteDialog,
@@ -322,7 +324,8 @@ class TimeRemapController:
                 ].layers[layer_index].name
             )
 
-        if stored_bank and (
+        track = self.window.canvas.frames[0].layers[layer_index]._track
+        if not track.connected and stored_bank and (
             stored_index == layer_index
             or (
                 stored_name
@@ -331,7 +334,11 @@ class TimeRemapController:
         ):
             return [image.copy() for image in stored_bank]
 
-        numbered_bank = {}
+        if track.connected:
+            return [track.cells[n].image.copy() if n in track.cells else None
+                    for n in range(1, max(track.cells, default=0) + 1)]
+
+        numbered_bank = {n: cell.image.copy() for n, cell in track.cells.items()}
         for frame in self.window.canvas.frames:
             if layer_index >= len(frame.layers):
                 continue
@@ -342,19 +349,6 @@ class TimeRemapController:
                 and number is not None
                 and int(number) >= 1
                 and int(number) not in numbered_bank
-            ):
-                numbered_bank[int(number)] = layer.image.copy()
-        # シートに並べていない絵（連番保管セル）も、同じ絵番号で使えるようにする。
-        # これを数えないと番号に抜けができ、下の「左から数える」方式へ落ちて
-        # 絵と番号がずれていた。
-        for (archive_layer, number), layer in getattr(
-            self.window.canvas, "_sequence_archive", {}
-        ).items():
-            if (
-                int(archive_layer) == layer_index
-                and int(number) >= 1
-                and int(number) not in numbered_bank
-                and layer.has_content
             ):
                 numbered_bank[int(number)] = layer.image.copy()
         if numbered_bank:
@@ -396,22 +390,15 @@ class TimeRemapController:
             and frame.layers[layer_index].has_content
             and frame.layers[layer_index].sequence_number is not None
         }
-        name = ""
-        if canvas.frames and layer_index < len(canvas.frames[0].layers):
-            name = canvas.frames[0].layers[layer_index].name
-        archive = canvas._sequence_archive
+        track = canvas.frames[0].layers[layer_index]._track
         for number, image in enumerate(source_bank, 1):
             if image is None:
                 continue
-            key = (int(layer_index), number)
             if number in placed:
-                archive.pop(key, None)
-            elif key not in archive:
-                archive[key] = Layer(
-                    name, image.copy(), has_content=True, exposure=1,
-                    sequence_number=number,
-                )
-        self.window.timeline.sequence_archive = archive
+                canvas._document.remove_archive_hint(track, number)
+            elif number not in track.legacy_archive_hints:
+                track.cells.setdefault(number, Cell(image.copy()))
+                canvas._document.put_archive_hint(track, number, ArchiveHint())
 
     def _apply_time_remap_states_to_layer(
         self,
@@ -426,41 +413,24 @@ class TimeRemapController:
         self.window.canvas._ensure_frame_count(end_frame + 1)
         template = self.window.canvas.frames[
             current_frame
-        ].layers[layer_index].clone()
-
-        # 対象範囲より前のキーの露出が入り込まないよう切る。
-        for prior in range(start_frame - 1, -1, -1):
-            prior_layer = self.window.canvas.frames[prior].layers[layer_index]
-            exposure = max(1, int(prior_layer.exposure))
-            if prior + exposure > start_frame:
-                prior_layer.exposure = max(1, start_frame - prior)
-                break
-            if prior_layer.has_content:
-                break
+        ].layers[layer_index]
 
         # 対象範囲をいったん明示空セルに戻す。
         for frame_index in range(start_frame, end_frame + 1):
             layer = self.window.canvas.frames[frame_index].layers[layer_index]
-            self.window.layers._copy_display_properties(template, layer)
-            layer.image = blank_image()
-            layer.has_content = False
-            layer.is_blank_key = False
-            layer.sequence_number = None
-            layer.cell_name = None
-            layer.exposure = 1
+            layer.share_track_with(template)
+            clear_slot(layer)
+            layer.__dict__["_v1_position"] = V1Position(snapshot_layer(layer))
 
-        # 同じ絵番号／空フレームが連続する区間を露出へ圧縮。
-        run_start = start_frame
-        run_state: Any = states[0]
-        sentinel = object()
-        for offset in range(1, len(states) + 1):
-            next_state = states[offset] if offset < len(states) else sentinel
-            if offset < len(states) and next_state == run_state:
-                continue
-            run_end = start_frame + offset - 1
-            target = self.window.canvas.frames[run_start].layers[layer_index]
-            self.window.layers._copy_display_properties(template, target)
-            target.exposure = max(1, run_end - run_start + 1)
+        # The parsed range is already a dense reference column.
+        for offset, run_state in enumerate(states):
+            target = self.window.canvas.frames[start_frame + offset].layers[layer_index]
+            target.share_track_with(template)
+            run_start = offset == 0 or states[offset - 1] != run_state
+            position = target.__dict__["_v1_position"]
+            target.__dict__["_v1_position"] = V1Position(
+                position.legacy, key_start=run_start, blank_start=run_state is None and run_start)
+            target.blank_start = run_state is None and run_start
             if run_state is None:
                 target.image = blank_image()
                 target.has_content = False
@@ -468,14 +438,20 @@ class TimeRemapController:
                 target.sequence_number = None
                 target.cell_name = None
             else:
-                target.image = source_bank[int(run_state) - 1].copy()
+                number = int(run_state)
+                if target._track.connected:
+                    target._track.cells.setdefault(number, Cell(source_bank[number - 1].copy()))
+                else:
+                    target.image = source_bank[number - 1].copy()
+                target.sequence_number = number
                 target.has_content = True
+                if target._track.connected:
+                    target.__dict__.pop("_cell", None)
                 target.is_blank_key = False
-                target.sequence_number = int(run_state)
-                target.cell_name = None
-            if offset < len(states):
-                run_start = start_frame + offset
-                run_state = next_state
+            if run_start:
+                target.__dict__["_v1_position"] = V1Position(
+                    snapshot_layer(target), key_start=True, blank_start=run_state is None)
+
 
     def apply_to_active_layer(self, parsed, confirm=True):
         states = list(parsed.get("states", []))
@@ -711,23 +687,7 @@ class TimeRemapController:
         if layer_index is None:
             layer_index = int(canvas.active_layer_index)
         layer_index = int(layer_index)
-        states: list = []
-        for column in range(len(canvas.frames)):
-            if not (0 <= layer_index < len(canvas.frames[column].layers)):
-                states.append(None)
-                continue
-            block = canvas.timeline_block_at(column, layer_index)
-            if block is None:
-                states.append(None)
-                continue
-            _kind, start, _exposure = block
-            layer = canvas.frames[start].layers[layer_index]
-            states.append(
-                int(layer.sequence_number)
-                if layer.has_content and layer.sequence_number is not None
-                else None
-            )
-        return states
+        return sheet.sheet_numbers(canvas.frames, layer_index)
 
     def after_effects_text(self, states=None, fps=None):
         """After Effects の Time Remap キーフレームデータを組み立てる。

@@ -9,6 +9,8 @@ from PySide6.QtGui import QColor, QImage  # noqa: E402
 from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
 
 from paintmaskanimator import config, constants, cut_folder as cf, timesheet_file  # noqa: E402
+from tests.dense_fixtures import hold
+
 from paintmaskanimator.main_window import MainWindow  # noqa: E402
 
 
@@ -61,10 +63,11 @@ def _draw_timeline(window):
         layer = layers[frame]
         layer.image.fill(COLORS[number])
         layer.has_content = True
+        layer._track.cells.setdefault(number, layer._cell)
         layer.sequence_number = number
-        layer.exposure = exposure
+        hold(canvas, frame, exposure)
     layers[2].is_blank_key = True
-    layers[2].exposure = 1
+    layers[2].blank_start = True
     canvas.frames[0].layers[0].name = "A"
 
 
@@ -159,7 +162,8 @@ def test_unused_cels_and_missing_cels_are_reported(window, tmp_path):
     assert frames[0].layers[0].sequence_number == 1
     assert not frames[2].layers[0].has_content
     # タイムシートにない B のセルは連番保管セルになる。
-    assert (1, 1) in window.canvas._sequence_archive
+    assert 1 in window.canvas._document.tracks[1].legacy_archive_hints
+    assert 1 in window.canvas._document.tracks[1].cells
 
 
 def test_folder_without_timesheet_is_rejected(window, tmp_path, monkeypatch):

@@ -20,13 +20,13 @@ def qapp():
     return QApplication.instance() or QApplication([])
 
 
-def _layer(color="red", *, content=False, exposure=1, visible=True, opacity=1.0):
+def _layer(color="red", *, content=False, visible=True, opacity=1.0):
     image = QImage(2, 1, QImage.Format.Format_ARGB32_Premultiplied)
     image.fill(QColor(color))
     return Layer(
         "A", image,
         has_content=content,
-        exposure=exposure,
+        sequence_number=1 if content else None,
         visible=visible,
         opacity=opacity,
     )
@@ -90,9 +90,9 @@ def test_key_map_handles_empty_and_ragged_layers():
     assert playback._playback_resolved_keys == []
 
     playback.frames = [
-        SimpleNamespace(layers=[_layer(content=True, exposure=3), _layer(content=True)]),
-        SimpleNamespace(layers=[_layer()]),
-        SimpleNamespace(layers=[_layer()]),
+        SimpleNamespace(layers=[_layer(content=True), _layer(content=True)]),
+        SimpleNamespace(layers=[_layer(content=True)]),
+        SimpleNamespace(layers=[_layer(content=True)]),
     ]
     playback._build_playback_key_map()
     assert playback._playback_resolved_keys == [[0, 0], [0, None], [0, None]]

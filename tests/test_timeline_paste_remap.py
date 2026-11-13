@@ -8,6 +8,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtGui import QColor  # noqa: E402
 from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
 
+from paintmaskanimator.document import create_drawing  # noqa: E402
+
 from paintmaskanimator.main_window import MainWindow  # noqa: E402
 from paintmaskanimator.models import make_frame  # noqa: E402
 from paintmaskanimator.utils import blank_image  # noqa: E402
@@ -52,9 +54,7 @@ def window(qapp, tmp_path, monkeypatch):
         layer = canvas.frames[column].layers[0]
         image = blank_image()
         image.fill(QColor(color))
-        layer.image = image
-        layer.has_content = True
-        layer.sequence_number = column + 1
+        create_drawing(layer, image, number=column + 1)
     canvas.timeline_mode = "sheet"
     canvas.active_layer_index = 0
     window.refresh_ui()

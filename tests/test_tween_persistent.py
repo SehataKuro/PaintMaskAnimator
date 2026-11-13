@@ -11,11 +11,12 @@ from PySide6.QtGui import QColor, QPainter, QPen  # noqa: E402
 from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
 
 from paintmaskanimator import constants, tween_groups  # noqa: E402
+from tests.dense_fixtures import hold, length  # noqa: E402
+
 from paintmaskanimator.main_window import MainWindow  # noqa: E402
 from paintmaskanimator.models import make_frame  # noqa: E402
 from paintmaskanimator.project_io import (  # noqa: E402
-    read_project_archive,
-    write_project_archive,
+    ProjectSnapshot, load_project, write_project_snapshot,
 )
 from paintmaskanimator.timeline import TimelineCellDelegate  # noqa: E402
 
@@ -40,7 +41,7 @@ def window(qapp, monkeypatch):
     key = canvas.frames[0].layers[0]
     key.has_content = True
     key.sequence_number = 1
-    key.exposure = LENGTH
+    hold(canvas, 0, LENGTH)
     painter = QPainter(key.image)
     painter.setPen(QPen(QColor("black"), 8))
     painter.drawEllipse(300, 200, 200, 200)
@@ -49,7 +50,7 @@ def window(qapp, monkeypatch):
     other = canvas.frames[8].layers[0]
     other.has_content = True
     other.sequence_number = 2
-    other.exposure = 2
+    hold(canvas, 8, 2)
     canvas.current_frame = 0
     window.refresh_ui()
     yield window
@@ -115,8 +116,9 @@ def test_edit_starts_from_the_saved_shape_and_cancel_restores(window):
     canvas = window.canvas
     assert canvas.transform_active and canvas.tween_pending
     assert canvas.tween_pending["reedit"]["numbers"] == [3, 4, 5, 6, 7]
-    assert canvas.frames[0].layers[0].exposure == LENGTH
-    assert not canvas.frames[1].layers[0].has_content
+    assert length(canvas, 0) == LENGTH
+    assert canvas.frames[1].layers[0].has_content
+    assert canvas.frames[1].layers[0].sequence_number == canvas.frames[0].layers[0].sequence_number
     saved_final = tween_groups.points_from_data(spec["final_points"])
     assert [
         (round(p.x(), 3), round(p.y(), 3)) for p in canvas.transform_points
@@ -155,7 +157,7 @@ def test_release_turns_members_into_plain_cells(window):
     layers = _layers(window)
     assert layers[0].tween is None
     assert all(layer.tween_member is None for layer in layers[1:])
-    assert all(layer.has_content and layer.exposure == 1 for layer in layers)
+    assert all(layer.has_content and length(window.canvas, i) == 1 for i, layer in enumerate(layers))
     item = window.timeline.table.item(_row(window), 2)
     assert not item.data(TimelineCellDelegate.TWEEN_GROUP_ROLE)
 
@@ -178,8 +180,10 @@ def test_project_roundtrip_keeps_the_tween(window, tmp_path):
         "frames": [],
     }
     path = tmp_path / "tween.pmap"
-    write_project_archive(path, metadata, window.canvas.frames)
-    _metadata, frames, _w, _h = read_project_archive(path)
+    write_project_snapshot(path, ProjectSnapshot.capture(metadata, window.canvas._document))
+    loaded = load_project(path)
+    assert loaded.format_version == 2
+    frames = loaded.document.frames
     assert tween_groups.group_length(frames, 0, 0) == LENGTH
     assert frames[0].layers[0].tween == window.canvas.frames[0].layers[0].tween
 

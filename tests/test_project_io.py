@@ -8,6 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtWidgets import QApplication  # noqa: E402
 from paintmaskanimator import constants, project_io  # noqa: E402
 from paintmaskanimator.errors import OperationError  # noqa: E402
+from paintmaskanimator.document import Document  # noqa: E402
 from paintmaskanimator.models import make_frame  # noqa: E402
 
 
@@ -30,6 +31,20 @@ def _metadata():
     }
 
 
+def _write_v2(path, metadata, frames, sequence_archive=None, png_cache=None, thumbnail=None):
+    document = Document()
+    document.install_legacy_frames(frames, sequence_archive or {}, canvas_size=(
+        constants.CANVAS_WIDTH, constants.CANVAS_HEIGHT))
+    snapshot = project_io.ProjectSnapshot.capture(metadata, document, thumbnail)
+    project_io.write_project_snapshot(path, snapshot, png_cache)
+
+
+def _read_v2(path, png_cache=None):
+    loaded = project_io.load_project(path, png_cache)
+    assert loaded.format_version == 2
+    return loaded.metadata, loaded.document.frames, loaded.width, loaded.height
+
+
 def test_write_read_roundtrip(qapp, tmp_path):
     frames = [make_frame(), make_frame()]
     frames[0].layers[0].name = "Custom"
@@ -38,10 +53,10 @@ def test_write_read_roundtrip(qapp, tmp_path):
     frames[1].duration = 3
 
     path = tmp_path / "proj.pmap"
-    project_io.write_project_archive(path, _metadata(), frames)
+    _write_v2(path, _metadata(), frames)
     assert path.exists()
 
-    metadata, loaded, width, height = project_io.read_project_archive(path)
+    metadata, loaded, width, height = _read_v2(path)
     assert (width, height) == (constants.CANVAS_WIDTH, constants.CANVAS_HEIGHT)
     assert len(loaded) == 2
     assert loaded[0].layers[0].name == "Custom"
@@ -72,7 +87,7 @@ def test_legacy_white_migrates_to_transparent(qapp, tmp_path):
     # Simulate a legacy file: write, then strip the mask_format marker.
     metadata = _metadata()
     path = tmp_path / "legacy.pmap"
-    project_io.write_project_archive(path, metadata, frames)
+    project_io.legacy_fixture_write_archive(path, metadata, frames)
 
     import json
     import zipfile
@@ -118,7 +133,7 @@ def test_draft_layer_roundtrip_preserves_white(qapp, tmp_path):
     draft.image.setPixelColor(0, 0, QColor(255, 255, 255, 255))
 
     path = tmp_path / "draft.pmap"
-    project_io.write_project_archive(path, _metadata(), frames)
+    project_io.legacy_fixture_write_archive(path, _metadata(), frames)
 
     # Strip the mask_format marker so the legacy white->transparent migration
     # would run for non-draft layers; draft layers must be exempt.
@@ -158,9 +173,10 @@ def test_current_save_is_mask_format_2(qapp, tmp_path):
     metadata = dict(_metadata())
     metadata["mask_format"] = project_io.CURRENT_MASK_FORMAT
     path = tmp_path / "modern.pmap"
-    project_io.write_project_archive(path, metadata, frames)
+    _write_v2(path, metadata, frames)
 
-    _meta, loaded, _w, _h = project_io.read_project_archive(path)
+    _meta, loaded, _w, _h = _read_v2(path)
+    assert _meta["mask_format"] == 2
     out_content = next(
         layer for layer in loaded[0].layers
         if not getattr(layer, "is_paper", False)
@@ -176,7 +192,7 @@ def test_read_rejects_non_project(qapp, tmp_path):
     with zipfile.ZipFile(path, "w") as z:
         z.writestr("project.json", '{"format": "Nope", "frames": []}')
     with pytest.raises(OperationError):
-        project_io.read_project_archive(path)
+        _read_v2(path)
 
 
 def test_read_rejects_missing_metadata(qapp, tmp_path):
@@ -185,16 +201,24 @@ def test_read_rejects_missing_metadata(qapp, tmp_path):
     with zipfile.ZipFile(path, "w") as z:
         z.writestr("nothing.txt", "x")
     with pytest.raises(OperationError):
-        project_io.read_project_archive(path)
+        _read_v2(path)
 
 
-def test_write_fills_metadata_frames(qapp, tmp_path):
-    """write_project_archive should populate metadata['frames'] from the
-    domain objects (2 frames -> 2 entries)."""
+def test_v2_write_builds_tracks_without_mutating_metadata(qapp, tmp_path):
+    from copy import deepcopy
+    from zipfile import ZipFile
+    import json
     md = _metadata()
-    project_io.write_project_archive(tmp_path / "p.pmap", md, [make_frame()])
-    assert len(md["frames"]) == 1
-    assert md["frames"][0]["layers"][0]["name"]
+    before = deepcopy(md)
+    path = tmp_path / "p.pmap"
+    _write_v2(path, md, [make_frame()])
+    assert md == before
+    with ZipFile(path) as archive:
+        payload = json.loads(archive.read("project.json"))
+    assert payload["format_version"] == 2
+    assert payload["frame_durations"] == [1]
+    assert payload["tracks"][0]["name"]
+    assert "frames" not in payload and "sequence_archive" not in payload
 
 
 def test_failed_write_preserves_existing_project(qapp, tmp_path, monkeypatch):
@@ -209,7 +233,7 @@ def test_failed_write_preserves_existing_project(qapp, tmp_path, monkeypatch):
     monkeypatch.setattr(project_io.zipfile, "ZipFile", BrokenArchive)
 
     with pytest.raises(OSError, match="disk full"):
-        project_io.write_project_archive(path, _metadata(), [make_frame()])
+        _write_v2(path, _metadata(), [make_frame()])
 
     assert path.read_bytes() == original
     assert not path.with_suffix(".pmap.tmp").exists()
@@ -231,7 +255,11 @@ def test_png_cache_reencodes_only_changed_cells(qapp, tmp_path, monkeypatch):
     from PySide6.QtGui import QColor, QPainter
 
     frames = [make_frame(), make_frame()]
-    # 空のセルは同じ透明画像を共有するので、エンコードは画像の種類ごとに1回。
+    # Named local cells need PNGs even when their pixels are transparent.
+    for frame in frames:
+        for layer in frame.layers:
+            layer.cell_name = "cache-local"
+    # Shared transparent artwork is encoded once per cacheKey.
     cell_count = len({
         layer.image.cacheKey() for frame in frames for layer in frame.layers
     })
@@ -239,20 +267,20 @@ def test_png_cache_reencodes_only_changed_cells(qapp, tmp_path, monkeypatch):
     calls = _count_png_encodes(monkeypatch)
     path = tmp_path / "cached.pman"
 
-    project_io.write_project_archive(path, _metadata(), frames, None, cache)
+    _write_v2(path, _metadata(), frames, None, cache)
     assert calls["count"] == cell_count
 
     # 何も変えずに保存し直すと、エンコードは1回も走らない。
-    project_io.write_project_archive(path, _metadata(), frames, None, cache)
+    _write_v2(path, _metadata(), frames, None, cache)
     assert calls["count"] == cell_count
 
     # 描き換えたセルだけがエンコードし直され、その内容が保存される。
     painter = QPainter(frames[1].layers[0].image)
     painter.fillRect(0, 0, 3, 3, QColor("#ff0000"))
     painter.end()
-    project_io.write_project_archive(path, _metadata(), frames, None, cache)
+    _write_v2(path, _metadata(), frames, None, cache)
     assert calls["count"] == cell_count + 1
-    _meta, loaded, _w, _h = project_io.read_project_archive(path)
+    _meta, loaded, _w, _h = _read_v2(path)
     assert loaded[1].layers[0].image.pixelColor(1, 1) == QColor("#ff0000")
     assert loaded[0].layers[0].image.pixelColor(1, 1) != QColor("#ff0000")
 
@@ -263,27 +291,30 @@ def test_png_cache_is_seeded_on_read(qapp, tmp_path, monkeypatch):
     metadata = _metadata()
     # 旧形式（白→透明の移行対象）でなければ、読み込んだ画素はPNGそのまま。
     metadata["mask_format"] = project_io.CURRENT_MASK_FORMAT
-    project_io.write_project_archive(path, metadata, frames)
+    _write_v2(path, metadata, frames)
 
     cache = project_io.PngCache()
-    _meta, loaded, _w, _h = project_io.read_project_archive(path, cache)
+    _meta, loaded, _w, _h = _read_v2(path, cache)
     calls = _count_png_encodes(monkeypatch)
     # 開いた直後の保存は、読み込んだPNGをそのまま使う。
-    project_io.write_project_archive(
+    _write_v2(
         tmp_path / "copy.pman", _metadata(), loaded, None, cache
     )
     assert calls["count"] == 0
-    _meta, reloaded, _w, _h = project_io.read_project_archive(tmp_path / "copy.pman")
+    _meta, reloaded, _w, _h = _read_v2(tmp_path / "copy.pman")
     assert reloaded[0].layers[0].image == loaded[0].layers[0].image
 
 
 def test_png_cache_drops_cells_no_longer_saved(qapp, tmp_path):
     frames = [make_frame(), make_frame()]
+    for frame in frames:
+        for layer in frame.layers:
+            layer.cell_name = "cache-local"
     cache = project_io.PngCache()
     path = tmp_path / "prune.pman"
-    project_io.write_project_archive(path, _metadata(), frames, None, cache)
+    _write_v2(path, _metadata(), frames, None, cache)
     before = len(cache)
-    project_io.write_project_archive(path, _metadata(), frames[:1], None, cache)
+    _write_v2(path, _metadata(), frames[:1], None, cache)
     assert 0 < len(cache) <= before
     assert len(cache) <= len(frames[0].layers)
 
@@ -307,9 +338,9 @@ def test_parallel_save_and_open_keep_every_cell_distinct(qapp, tmp_path):
     metadata = _metadata()
     metadata["mask_format"] = project_io.CURRENT_MASK_FORMAT
     path = tmp_path / "many.pman"
-    project_io.write_project_archive(path, metadata, frames, None, project_io.PngCache())
+    _write_v2(path, metadata, frames, None, project_io.PngCache())
 
-    _meta, loaded, _w, _h = project_io.read_project_archive(path, project_io.PngCache())
+    _meta, loaded, _w, _h = _read_v2(path, project_io.PngCache())
     for (frame_index, layer_index), color in expected.items():
         image = loaded[frame_index].layers[layer_index].image
         assert image.pixelColor(frame_index * 3 + 1, layer_index * 3 + 1) == color
@@ -331,7 +362,7 @@ def test_blank_cells_share_one_image_and_do_not_hit_pixel_limit(qapp, tmp_path, 
     metadata = _metadata()
     metadata["mask_format"] = project_io.CURRENT_MASK_FORMAT
     path = tmp_path / "blank.pman"
-    project_io.write_project_archive(path, metadata, frames)
+    project_io.legacy_fixture_write_archive(path, metadata, frames)
 
     cells = sum(len(frame.layers) for frame in frames)
     pixels = constants.CANVAS_WIDTH * constants.CANVAS_HEIGHT
@@ -357,13 +388,14 @@ def test_distinct_cells_still_hit_pixel_limit(qapp, tmp_path, monkeypatch):
         painter = QPainter(layer.image)
         painter.fillRect(index, 0, 1, 1, QColor("#ff0000"))
         painter.end()
+        layer.has_content = True
     path = tmp_path / "distinct.pman"
-    project_io.write_project_archive(path, _metadata(), frames)
+    _write_v2(path, _metadata(), frames)
 
     pixels = constants.CANVAS_WIDTH * constants.CANVAS_HEIGHT
     monkeypatch.setattr(project_io, "MAX_PROJECT_DECODED_PIXELS", pixels * 3)
     with pytest.raises(OperationError):
-        project_io.read_project_archive(path)
+        _read_v2(path)
 
 
 def test_thumbnail_is_first_stored_entry(qapp, tmp_path):
@@ -376,7 +408,7 @@ def test_thumbnail_is_first_stored_entry(qapp, tmp_path):
     image = QImage(1600, 900, QImage.Format.Format_ARGB32)
     image.fill(QColor("crimson"))
     path = tmp_path / "proj.pman"
-    project_io.write_project_archive(path, _metadata(), [make_frame()], thumbnail=image)
+    _write_v2(path, _metadata(), [make_frame()], thumbnail=image)
 
     with zipfile.ZipFile(path) as archive:
         first = archive.infolist()[0]
@@ -393,7 +425,7 @@ def test_thumbnail_is_first_stored_entry(qapp, tmp_path):
     assert size == first.file_size and name_length == len(project_io.THUMBNAIL_NAME)
 
     # Readers that predate the thumbnail ignore the extra entry.
-    _metadata_read, frames, _w, _h = project_io.read_project_archive(path)
+    _metadata_read, frames, _w, _h = _read_v2(path)
     assert len(frames) == 1
 
 
@@ -401,7 +433,7 @@ def test_no_thumbnail_without_image(qapp, tmp_path):
     import zipfile
 
     path = tmp_path / "proj.pman"
-    project_io.write_project_archive(path, _metadata(), [make_frame()])
+    _write_v2(path, _metadata(), [make_frame()])
     with zipfile.ZipFile(path) as archive:
         assert project_io.THUMBNAIL_NAME not in archive.namelist()
 

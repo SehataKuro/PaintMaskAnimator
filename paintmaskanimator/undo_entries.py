@@ -16,8 +16,9 @@ state and re-applies an entry lives on ``PaintCanvas`` (``current_state_for`` /
 """
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Any, List, Sequence, Tuple
+from typing import Any, List, Optional, Sequence, Tuple
 
 from .i18n import tr
 
@@ -49,7 +50,7 @@ class UndoEntry:
 
 @dataclass
 class ExposureUndo(UndoEntry):
-    """Exposure and reversible cell moves, without retaining image snapshots."""
+    """Dense reference slices for duration edits, without image snapshots."""
 
     HISTORY_LABEL = "コマの長さ変更"
     layer: int
@@ -58,12 +59,22 @@ class ExposureUndo(UndoEntry):
     frame_count: int
     current_frame: int
     active_layer: int
-    moves: tuple = ()
+    references: tuple = ()
 
     @classmethod
-    def capture(cls, canvas, layer, column, moves=()):
-        return cls(layer, column, canvas.frames[column].layers[layer].exposure,
-                   len(canvas.frames), canvas.current_frame, canvas.active_layer_index, moves)
+    def capture(cls, canvas, layer, column):
+        # Metadata only: never clone a Layer/Cell or retain drawing snapshots.
+        references = tuple(
+            (slot.has_content, slot.is_blank_key, slot.blank_start,
+             slot.sequence_number, slot.sequence_only,
+             deepcopy(slot.tween), slot.tween_member,
+             slot.__dict__.get("_dense_import"), slot.__dict__.get("_v1_position"))
+            for frame in canvas.frames[column:]
+            for slot in (frame.layers[layer],))
+        block = canvas.timeline_block_at(column, layer)
+        return cls(layer, column, block[2] if block else 1,
+                   len(canvas.frames), canvas.current_frame, canvas.active_layer_index,
+                   references)
 
 
 @dataclass
@@ -80,11 +91,12 @@ class DocUndo(UndoEntry):
             frames = self.snapshot[0]
         except (TypeError, IndexError):
             return 0
-        return sum(
-            _image_bytes(layer.image)
-            for frame in frames
-            for layer in frame.layers
-        )
+        cells = {id(layer._cell): layer._cell
+                 for frame in frames for layer in frame.layers}
+        for track in getattr(self.snapshot, "tracks", ()):
+            cells.update((id(cell), cell) for cell in track.cells.values())
+        return sum(_image_bytes(cell.image) + _image_bytes(cell.initial_image)
+                   for cell in cells.values())
 
 
 @dataclass
@@ -102,7 +114,7 @@ class InitialStateUndo(UndoEntry):
 
 @dataclass
 class LayerUndo(UndoEntry):
-    """Full snapshot of one layer image in one frame."""
+    """Full drawing snapshot; frame is the recorded position, number the identity."""
 
     HISTORY_LABEL = "描画"
 
@@ -110,6 +122,17 @@ class LayerUndo(UndoEntry):
     layer: int
     image: Any
     has_content: bool
+
+    layer_name: Optional[str] = None
+    number: Optional[int] = None
+
+    @property
+    def history_label(self) -> str:
+        if self.number is not None and self.layer_name is not None:
+            return tr("描画（{layer_name} の {number}番）").format(
+                layer_name=self.layer_name, number=self.number,
+            )
+        return self.HISTORY_LABEL
 
     @property
     def nbytes(self) -> int:
@@ -128,6 +151,17 @@ class LayerRegionUndo(UndoEntry):
     image: Any
     has_content: bool
 
+    layer_name: Optional[str] = None
+    number: Optional[int] = None
+
+    @property
+    def history_label(self) -> str:
+        if self.number is not None and self.layer_name is not None:
+            return tr("描画（{layer_name} の {number}番）").format(
+                layer_name=self.layer_name, number=self.number,
+            )
+        return self.HISTORY_LABEL
+
     @property
     def nbytes(self) -> int:
         return _image_bytes(self.image)
@@ -144,6 +178,17 @@ class LayerTilesUndo(UndoEntry):
     tiles: Sequence[Tuple[Any, Any]]
     has_content: bool
 
+    layer_name: Optional[str] = None
+    number: Optional[int] = None
+
+    @property
+    def history_label(self) -> str:
+        if self.number is not None and self.layer_name is not None:
+            return tr("描画（{layer_name} の {number}番）").format(
+                layer_name=self.layer_name, number=self.number,
+            )
+        return self.HISTORY_LABEL
+
     @property
     def nbytes(self) -> int:
         return sum(_image_bytes(image) for _rect, image in self.tiles)
@@ -151,29 +196,33 @@ class LayerTilesUndo(UndoEntry):
 
 @dataclass
 class LayerBatchUndo(UndoEntry):
-    """One layer across many frames: cells of ``(frame, image, has_content)``."""
+    """One layer across frames: ``(frame, image, has_content, number)``.
+
+    A number identifies one drawing; None retains the frame-based target.
+    """
 
     HISTORY_LABEL = "色編集"
 
     layer: int
-    cells: List[Tuple[int, Any, bool]]
+    cells: List[Tuple[int, Any, bool, Optional[int]]]
 
     @property
     def nbytes(self) -> int:
-        return sum(_image_bytes(image) for _fi, image, _hc in self.cells)
+        return sum(_image_bytes(image) for _fi, image, _hc, _number in self.cells)
 
 
 @dataclass
 class ScopedBatchUndo(UndoEntry):
-    """一括処理ランナー1回分：``(frame, layer, image, has_content)`` のセル群。
+    """一括処理ランナー1回分：``(frame, layer, image, has_content, number)`` のセル群。
 
     ``LayerBatchUndo`` が1レイヤー固定だったのに対し、こちらはレイヤーを跨げる。
     どれだけのコマ・レイヤーへ適用しても Undo は常にこの1件になる。
+    number がある要素は番号単位、None の要素は従来のコマ単位で復元する。
     """
 
     HISTORY_LABEL = "一括処理"
 
-    cells: List[Tuple[int, int, Any, bool]]
+    cells: List[Tuple[int, int, Any, bool, Optional[int]]]
     label: str = field(default="一括処理")
 
     @property
@@ -182,7 +231,7 @@ class ScopedBatchUndo(UndoEntry):
 
     @property
     def nbytes(self) -> int:
-        return sum(_image_bytes(image) for _fi, _li, image, _hc in self.cells)
+        return sum(_image_bytes(image) for _fi, _li, image, _hc, _number in self.cells)
 
 
 @dataclass
@@ -208,27 +257,6 @@ class LayerInsertUndo(UndoEntry):
     @property
     def nbytes(self) -> int:
         return sum(_image_bytes(layer.image) for layer in self.layers)
-
-
-@dataclass
-class TweenBatchUndo(UndoEntry):
-    """A tween run: cells of ``(frame, image, has_content, exposure)``.
-
-    ``restore_count`` is the frame count to restore, since tweening can add or
-    remove frames.
-    """
-
-    HISTORY_LABEL = "トゥイーン"
-
-    layer: int
-    restore_count: int
-    start: int
-    end: int
-    cells: List[Tuple[int, Any, bool, int]]
-
-    @property
-    def nbytes(self) -> int:
-        return sum(_image_bytes(image) for _fi, image, _hc, _exp in self.cells)
 
 
 @dataclass

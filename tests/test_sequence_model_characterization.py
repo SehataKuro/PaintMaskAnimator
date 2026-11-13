@@ -18,6 +18,7 @@ from PySide6.QtGui import QColor  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from paintmaskanimator.frame_scope import resolve_cells  # noqa: E402
+from dense_fixtures import hold, length
 from paintmaskanimator.main_window import MainWindow  # noqa: E402
 
 
@@ -44,8 +45,9 @@ def put_cell(window, column, number, *, exposure=1, layer_index=0, color="#10101
     layer.image.setPixelColor(10, 10, QColor(color))
     layer.has_content = True
     layer.is_blank_key = False
+    layer._track.cells.setdefault(int(number), layer._cell)
     layer.sequence_number = int(number)
-    layer.exposure = int(exposure)
+    hold(window.canvas, column, int(exposure), layer_index)
     return layer
 
 
@@ -106,7 +108,7 @@ def after_effects_text(states, fps=24):
 
 
 # ---------------------------------------------------------------------------
-# 1. 同じ番号のセルは同じ絵を指す（coalesce_numbered_images）
+# 1. 同じ番号のセルは bank 所有の同じ Cell を参照する
 # ---------------------------------------------------------------------------
 
 def test_the_same_number_shares_one_image(window):
@@ -119,8 +121,6 @@ def test_the_same_number_shares_one_image(window):
     put_cell(window, 4, 1)
     put_cell(window, 8, 2)
 
-    window.canvas.coalesce_numbered_images()
-
     first = window.canvas.frames[0].layers[0].image
     same_number = window.canvas.frames[4].layers[0].image
     other_number = window.canvas.frames[8].layers[0].image
@@ -132,7 +132,6 @@ def test_editing_one_cell_shows_on_every_frame_with_that_number(window):
     """共有されている絵を直すと、同じ番号の全コマに出る。"""
     put_cell(window, 0, 1)
     put_cell(window, 4, 1)
-    window.canvas.coalesce_numbered_images()
 
     window.canvas.frames[0].layers[0].image.setPixelColor(20, 20, QColor("#ff0000"))
 
@@ -142,7 +141,7 @@ def test_editing_one_cell_shows_on_every_frame_with_that_number(window):
 
 
 # ---------------------------------------------------------------------------
-# 2. 保持セルへ描くと独立したキーへ分かれる（ensure_editable_key）
+# 2. 保持セルへ描くと露出元を編集する（ensure_editable_key）
 # ---------------------------------------------------------------------------
 
 def test_drawing_on_a_held_frame_edits_the_key_not_a_new_cell(window):
@@ -158,7 +157,7 @@ def test_drawing_on_a_held_frame_edits_the_key_not_a_new_cell(window):
     window.canvas.ensure_editable_key()
 
     assert window.canvas.current_frame == 0
-    assert window.canvas.frames[0].layers[0].exposure == 4
+    assert length(window.canvas, 0) == 4
 
 
 def test_drawing_on_an_unused_frame_makes_a_key_there(window):
@@ -183,6 +182,7 @@ def test_a_blank_key_never_stays_marked_as_content(window):
     layer = window.canvas.frames[3].layers[0]
     layer.has_content = True
     layer.is_blank_key = True
+    layer._track.cells[7] = layer._cell
     layer.sequence_number = 7
     window.canvas.current_frame = 3
     window.canvas.active_layer_index = 0
@@ -214,7 +214,6 @@ def test_the_same_drawing_in_two_places_is_processed_once(window):
     """
     put_cell(window, 0, 1)
     put_cell(window, 6, 1)
-    window.canvas.coalesce_numbered_images()
 
     cells = resolve_cells(window.canvas, window.scope.current_frame(True))
     images = {
@@ -231,7 +230,6 @@ def test_a_batch_edit_touches_a_shared_drawing_once(window):
     """共有された絵への一括処理は、1回で全コマに反映される。"""
     put_cell(window, 0, 1, color="#ff0000")
     put_cell(window, 6, 1, color="#ff0000")
-    window.canvas.coalesce_numbered_images()
 
     assert window.used_color.apply_palette_replacements(
         {(255, 0, 0): (0, 0, 255)}
@@ -255,7 +253,6 @@ def test_the_sheet_survives_a_time_remap_round_trip(window):
     """
     for column, number in enumerate([1, 2, None, 3, 3, None, 4]):
         layer = window.canvas.frames[column].layers[0]
-        layer.exposure = 1
         if number is None:
             layer.has_content = False
             layer.is_blank_key = False

@@ -601,7 +601,30 @@ class SelectionMixin(CanvasMembers):
         frame_indices = list(
             range(len(self.frames)) if all_frames else [current_index]
         )
+        # 共有 Cell を書き換える前に、変形対象の元画像を確保する。
+        originals = {}
+        snapshots = {}
+        for fi in frame_indices:
+            if not (0 <= fi < len(self.frames)
+                    and 0 <= layer_index < len(self.frames[fi].layers)):
+                continue
+            layer = self.frames[fi].layers[layer_index]
+            if fi == current_index and original_current is not None:
+                image, hc = original_current, original_current_has_content
+            elif layer.has_content:
+                image, hc = layer.image, layer.has_content
+            else:
+                continue
+            number = layer.sequence_number
+            key = (number, bool(hc)) if number is not None else (None, fi)
+            if key not in snapshots:
+                snapshots[key] = image.copy()
+            originals[fi] = (snapshots[key], hc, number)
+        content_by_number = {}
+        for _image, hc, number in originals.values():
+            content_by_number.setdefault(number, set()).add(bool(hc))
         undo_cells = []
+        recorded_numbers = set()
         changed_frames = []
         progress = None
         if all_frames and window is not None:
@@ -627,14 +650,9 @@ class SelectionMixin(CanvasMembers):
             if not (0 <= layer_index < len(frame.layers)):
                 continue
             layer = frame.layers[layer_index]
-            if frame_index == current_index and original_current is not None:
-                original = original_current.copy()
-                original_has_content = original_current_has_content
-            else:
-                if not layer.has_content:
-                    continue
-                original = layer.image.copy()
-                original_has_content = layer.has_content
+            if frame_index not in originals:
+                continue
+            original, original_has_content, number = originals[frame_index]
 
             source = (
                 self.transform_source
@@ -660,7 +678,12 @@ class SelectionMixin(CanvasMembers):
                 painter.drawImage(0, 0, preview)
                 painter.end()
 
-            undo_cells.append((frame_index, original.copy(), original_has_content))
+            if len(content_by_number[number]) != 1:
+                number = None
+            key = (number, bool(original_has_content))
+            if number is None or key not in recorded_numbers:
+                undo_cells.append((frame_index, original, original_has_content, number))
+                recorded_numbers.add(key)
             layer.image = base
             layer.has_content = True
             changed_frames.append(frame_index)
@@ -669,10 +692,6 @@ class SelectionMixin(CanvasMembers):
             close_counter(progress)
 
         for frame_index in changed_frames:
-            self.sync_numbered_image_from_cell(
-                frame_index,
-                layer_index,
-            )
             # 描画系ツールと同様にセル変更を通知する。これがないと
             # ヒストリーパネル（cellChanged/changedで更新）が確定後も
             # 再描画されず、変形の履歴が一覧に現れない。
@@ -680,10 +699,12 @@ class SelectionMixin(CanvasMembers):
 
         self._discard_transform_history()
         if undo_cells:
-            if len(undo_cells) == 1:
-                frame_index, image, has_content = undo_cells[0]
+            if len(changed_frames) == 1:
+                frame_index, image, has_content, number = undo_cells[0]
                 self.push_undo(
-                    LayerUndo(frame_index, layer_index, image, has_content)
+                    LayerUndo(frame_index, layer_index, image, has_content,
+                              layer_name=self.frames[frame_index].layers[layer_index].name,
+                              number=number)
                 )
             else:
                 self.push_undo(LayerBatchUndo(layer_index, undo_cells))

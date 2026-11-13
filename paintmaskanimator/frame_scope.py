@@ -50,20 +50,12 @@ def resolve_key_frame(frames, column, layer_index):
     if not frames:
         return None
     column = max(0, min(int(column), len(frames) - 1))
-    for key_column in range(column, -1, -1):
-        layers = frames[key_column].layers
-        if layer_index >= len(layers):
-            continue
-        layer = layers[layer_index]
-        if layer.has_content:
-            return (
-                key_column
-                if column < key_column + max(1, int(layer.exposure))
-                else None
-            )
-        if getattr(layer, "is_blank_key", False):
-            return None
-    return None
+    from .timeline_resolution import resolve_exposures
+    resolved = resolve_exposures(frames)
+    if not 0 <= layer_index < resolved.shape[1]:
+        return None
+    key = int(resolved[column, layer_index])
+    return key if key >= 0 else None
 
 
 @dataclass(frozen=True)
@@ -212,7 +204,7 @@ def resolve_cells(doc, scope: FrameScope) -> List[Tuple[int, int]]:
 def _group_shared_images(doc, cells):
     """同じ絵（``Cell``）を指すセルをまとめる。
 
-    連番セルは ``coalesce_numbered_images`` で同じ ``Cell`` を共有し、
+    接続済みの同番号セルは Track の bank にある同じ ``Cell`` を参照し、
     結果として同じ ``QImage`` を指す。セルごとに個別処理すると同じ絵を何度も
     処理することになるので、共有グループは1回だけ処理して結果を全員へ配る。
 
@@ -225,7 +217,12 @@ def _group_shared_images(doc, cells):
     index_of = {}
     for frame_index, layer_index in cells:
         layer = frames[frame_index].layers[layer_index]
-        key = id(layer.image)
+        origin = layer.__dict__.get("_content_origin")
+        if (origin is not None and origin == layer.sequence_number
+                and origin in layer._track.cells):
+            key = id(layer._track.cells[origin].image)
+        else:
+            key = id(layer.image)
         position = index_of.get(key)
         if position is None:
             index_of[key] = len(groups)
@@ -309,15 +306,27 @@ def apply_over_scope(
         return result
 
     undo_cells = []
+    # 共有 Cell への書き戻しで元画像が変わる前に、全対象の写しを取る。
+    for _lead_cell, shared_cells, _produced, _changed_pixels in pending:
+        first_fi, first_li = shared_cells[0]
+        first = doc.frames[first_fi].layers[first_li]
+        number = first.sequence_number
+        numbered = number is not None and all(
+            li == first_li
+            and doc.frames[fi].layers[li].sequence_number == number
+            and doc.frames[fi].layers[li].has_content == first.has_content
+            for fi, li in shared_cells
+        )
+        for frame_index, layer_index in (shared_cells[:1] if numbered else shared_cells):
+            layer = doc.frames[frame_index].layers[layer_index]
+            undo_cells.append((
+                int(frame_index), int(layer_index), layer.image.copy(),
+                bool(layer.has_content), number if numbered else None,
+            ))
+
     for _lead_cell, shared_cells, produced, changed_pixels in pending:
         for frame_index, layer_index in shared_cells:
             layer = doc.frames[frame_index].layers[layer_index]
-            undo_cells.append((
-                int(frame_index),
-                int(layer_index),
-                layer.image.copy(),
-                bool(layer.has_content),
-            ))
             # 同じ絵を指すセルは1つの Cell を共有しているので、書き込みは
             # グループの先頭1回で全員に行き渡る。共有が切れていた場合に
             # そなえ、ここでも結び直しておく。

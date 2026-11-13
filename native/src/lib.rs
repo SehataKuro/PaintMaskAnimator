@@ -349,8 +349,10 @@ fn py_label_regions<'py>(
 fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<clip::ClipAnimationReader>()?;
     module.add_class::<timeline::TimelineCell>()?;
+    module.add_class::<timeline::SheetEntry>()?;
+    module.add_function(wrap_pyfunction!(timeline::sheet_entries, module)?)?;
     module.add_function(wrap_pyfunction!(timeline::resolve_timeline, module)?)?;
-    module.add_function(wrap_pyfunction!(display::resolve_exposures, module)?)?;
+    module.add("TIMELINE_API_VERSION", timeline::TIMELINE_API_VERSION)?;
     module.add_function(wrap_pyfunction!(display::tint_onion, module)?)?;
     module.add_function(wrap_pyfunction!(display::filter_palette, module)?)?;
     module.add_class::<auto_paint::GuideSampler>()?;

@@ -87,7 +87,7 @@ def group_length(frames, layer_index, key_column):
         return None
     key = layers[layer_index]
     spec = getattr(key, "tween", None)
-    if not spec or not key.has_content or int(key.exposure) != 1:
+    if not spec or not key.has_content:
         return None
     length = int(spec.get("length", 0))
     if length < 2 or key_column + length > len(frames):
@@ -97,7 +97,6 @@ def group_length(frames, layer_index, key_column):
         if (
             getattr(member, "tween_member", None) != spec.get("id")
             or not member.has_content
-            or int(member.exposure) != 1
         ):
             return None
     return length

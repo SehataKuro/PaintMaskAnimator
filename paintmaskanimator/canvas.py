@@ -44,7 +44,7 @@ from .constants import OUTSIDE_MARGIN
 from . import constants
 from . import (color_ops, colors, display_shrink, geometry, imaging, native,
                preferences, view_preview)
-from .document import Document
+from .document import drawing, is_pending, Document, DrawingTarget
 from .brush_raster import stamp_outline
 from .toolpanel import tool_label
 from .utils import blank_image, magnifier_cursor, tool_cursor, workspace_size
@@ -78,7 +78,6 @@ from .undo_entries import (
     LayerUndo,
     PaletteStateUndo,
     ScopedBatchUndo,
-    TweenBatchUndo,
 )
 
 log = get_logger(__name__)
@@ -132,7 +131,6 @@ class PaintCanvas(
         self._sequence_source_bank_layer_name=""
         self.clip_studio_source_metadata: dict | None = None
         # シートから外した絵番号を、右クリックで再配置するため保持する。
-        self._sequence_archive={}
         self.timeline_mode="sheet"
         self.tool="brush"; self.temp_tool=None; self.main_color=QColor("black"); self.sub_color=QColor(255,0,0); self.color_mode="main"; self.transparent_display_color=QColor("white"); self.background_mask_rgb=(255,255,255); self.mask_color_rgbs=set(); self.mask_color_rgb=None; self.mask_all_enabled=True; self.selected_used_color_rgbs=set(); self.visible_color_rgbs=None
         # 使用色の親子プレビュー：{子rgb: 親rgb}。表示時のみ子を親色へ塗り替える（非破壊）。
@@ -364,11 +362,18 @@ class PaintCanvas(
     # Core document state lives in self._document; these properties delegate so
     # the many existing `self.frames` / `self.current_frame` call sites keep
     # working unchanged.
+    def install_legacy_frames(self, frames=None, sequence_archive=None):
+        self._document.install_legacy_frames(
+            self.frames if frames is None else frames,
+            sequence_archive,
+        )
+        self._invalidate_exposure_index()
+
     @property
     def frames(self): return self._document.frames
     @frames.setter
     def frames(self, value):
-        self._document.frames = value
+        self._document.install_legacy_frames(value)
         self._invalidate_exposure_index()
     @property
     def current_frame(self): return self._document.current_frame
@@ -382,6 +387,35 @@ class PaintCanvas(
     def layers(self): return self._document.layers
     @property
     def active_layer(self): return self._document.active_layer
+    def _resolve_numbered_target(self, frame, layer_index, number):
+        """Resolve a borrowed Cell/Track target without creating missing drawings."""
+        def at(fi):
+            if 0 <= fi < len(self.frames) and 0 <= layer_index < len(self.frames[fi].layers):
+                return self.frames[fi].layers[layer_index]
+            return None
+
+        layer = at(frame)
+        if number is None:
+            return DrawingTarget(layer._cell, layer._track, frame, layer, number) if layer is not None else None
+        if (layer is not None and layer.has_content
+                and layer.sequence_number == number):
+            return DrawingTarget(layer._cell, layer._track, frame, layer, number)
+        for fi in range(len(self.frames)):
+            layer = at(fi)
+            if (layer is not None and layer.has_content
+                    and layer.sequence_number == number
+                    and (self.timeline_mode != "sheet" or not is_pending(layer))):
+                return DrawingTarget(layer._cell, layer._track, fi, layer, number)
+        if 0 <= layer_index < len(self._document.tracks):
+            track = self._document.tracks[layer_index]
+            cell = drawing(track, number)
+            if cell is not None:
+                return DrawingTarget(cell, track, None, None, number)
+        return None
+
+    def _resolve_drawing_undo_target(self, entry):
+        return self._resolve_numbered_target(entry.frame, entry.layer, entry.number)
+
     def current_state_for(self, entry):
         """Capture the inverse of ``entry``: the state undoing it would replace.
 
@@ -398,8 +432,7 @@ class PaintCanvas(
         if isinstance(entry, TransformUndo):
             return TransformUndo.capture(self) if self.transform_active else None
         if isinstance(entry, ExposureUndo):
-            return ExposureUndo.capture(self, entry.layer, entry.column,
-                                        tuple((dst, src) for src, dst in entry.moves))
+            return ExposureUndo.capture(self, entry.layer, entry.column)
         if isinstance(entry, DocUndo):
             return DocUndo(self.document_snapshot())
         if isinstance(entry, InitialStateUndo):
@@ -408,8 +441,10 @@ class PaintCanvas(
                 for fi, li, _ in entry.cells if _cell_exists(fi, li)
             ]
             archived = [
-                (li, number, QImage(image) if (image := self._sequence_archive[(li, number)].initial_image) is not None else None)
-                for li, number, _ in entry.archived if (li, number) in self._sequence_archive
+                (li, number, QImage(image) if (image := self._document.tracks[li].cells[number].initial_image) is not None else None)
+                for li, number, _ in entry.archived if 0 <= li < len(self._document.tracks)
+                and number in self._document.tracks[li].legacy_archive_hints
+                and drawing(self._document.tracks[li], number) is not None
             ]
             return InitialStateUndo(cells, archived) if cells or archived else None
         if isinstance(entry, PaletteStateUndo):
@@ -419,91 +454,69 @@ class PaintCanvas(
             # 反対側スタックには「現在のパレット状態」を積む。ラベルは対称。
             return PaletteStateUndo(palette.capture_history_state(), entry.label)
         if isinstance(entry, LayerRegionUndo):
-            if not _cell_exists(entry.frame, entry.layer):
+            target = self._resolve_drawing_undo_target(entry)
+            if target is None:
                 return None
-            layer = self.frames[entry.frame].layers[entry.layer]
+            fi, layer = target
             return LayerRegionUndo(
-                entry.frame,
+                entry.frame if fi is None else fi,
                 entry.layer,
                 QRect(entry.rect),
                 layer.image.copy(entry.rect),
                 bool(layer.has_content),
+                layer_name=entry.layer_name, number=entry.number,
             )
         if isinstance(entry, LayerTilesUndo):
-            if not _cell_exists(entry.frame, entry.layer):
+            target = self._resolve_drawing_undo_target(entry)
+            if target is None:
                 return None
-            layer = self.frames[entry.frame].layers[entry.layer]
+            fi, layer = target
             return LayerTilesUndo(
-                entry.frame,
+                entry.frame if fi is None else fi,
                 entry.layer,
                 tuple(
                     (QRect(rect), layer.image.copy(QRect(rect)))
                     for rect, _image in entry.tiles
                 ),
                 bool(layer.has_content),
+                layer_name=entry.layer_name, number=entry.number,
             )
-        if isinstance(entry, ScopedBatchUndo):
-            current = [
-                (fi, li, QImage(self.frames[fi].layers[li].image),
-                 bool(self.frames[fi].layers[li].has_content))
-                for fi, li, _img, _hc in entry.cells
-                if _cell_exists(fi, li)
-            ]
-            return ScopedBatchUndo(current, entry.label) if current else None
-        if isinstance(entry, LayerBatchUndo):
-            li = entry.layer
-            current = [
-                (fi, QImage(self.frames[fi].layers[li].image),
-                 self.frames[fi].layers[li].has_content)
-                for fi, _img, _hc in entry.cells
-                if _cell_exists(fi, li)
-            ]
-            return LayerBatchUndo(li, current) if current else None
+        if isinstance(entry, (ScopedBatchUndo, LayerBatchUndo)):
+            current = []
+            scoped = isinstance(entry, ScopedBatchUndo)
+            for cell in entry.cells:
+                fi, li, _img, _hc, number = cell if scoped else (cell[0], entry.layer, *cell[1:])
+                target = self._resolve_numbered_target(fi, li, number)
+                if target is None:
+                    continue
+                resolved_fi, layer = target
+                snapshot = (fi if resolved_fi is None else resolved_fi,
+                            li, QImage(layer.image), bool(layer.has_content), number)
+                current.append(snapshot if scoped else (snapshot[0], *snapshot[2:]))
+            if not current:
+                return None
+            return (ScopedBatchUndo(current, entry.label) if scoped
+                    else LayerBatchUndo(entry.layer, current))
         if isinstance(entry, LayerRemoveUndo):
             index = entry.index
-            stored = [
-                frame.layers[index].clone()
-                for frame in self.frames
-                if 0 <= index < len(frame.layers)
-            ]
-            return LayerInsertUndo(
-                int(index),
-                stored,
-                int(self.active_layer_index),
-            )
+            stored = self._document.capture_column(index)
+            return LayerInsertUndo(int(index), stored, int(self.active_layer_index))
         if isinstance(entry, LayerInsertUndo):
             return LayerRemoveUndo(
                 int(entry.index),
                 int(self.active_layer_index),
             )
-        if isinstance(entry, TweenBatchUndo):
-            li = entry.layer
-            current = []
-            for fi in range(int(entry.start), min(int(entry.end) + 1, len(self.frames))):
-                if 0 <= li < len(self.frames[fi].layers):
-                    layer = self.frames[fi].layers[li]
-                    current.append((
-                        fi,
-                        QImage(layer.image),
-                        bool(layer.has_content),
-                        int(layer.exposure),
-                    ))
-            return TweenBatchUndo(
-                int(li),
-                len(self.frames),
-                int(entry.start),
-                int(entry.end),
-                current,
-            )
         if isinstance(entry, LayerUndo):
-            if not _cell_exists(entry.frame, entry.layer):
+            target = self._resolve_drawing_undo_target(entry)
+            if target is None:
                 return None
-            layer = self.frames[entry.frame].layers[entry.layer]
+            fi, layer = target
             return LayerUndo(
-                entry.frame,
+                entry.frame if fi is None else fi,
                 entry.layer,
                 QImage(layer.image),
                 layer.has_content,
+                layer_name=entry.layer_name, number=entry.number,
             )
         log.warning("unknown undo entry type: %r", type(entry).__name__)
         return None

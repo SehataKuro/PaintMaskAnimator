@@ -12,13 +12,15 @@ from .logging_setup import get_logger
 log = get_logger(__name__)
 
 REQUIRED_API = (
-    "TimelineCell", "resolve_timeline", "ClipAnimationReader", "GuideSampler",
-    "resolve_exposures", "tint_onion", "unique_colors", "filter_palette",
+    "TimelineCell", "resolve_timeline", "SheetEntry", "sheet_entries", "ClipAnimationReader", "GuideSampler",
+    "tint_onion", "unique_colors", "filter_palette",
     "line_flow_scores", "connect_runs", "label_runs", "refine_face", "thin",
     "render_quad_labels", "render_mesh_labels",
     "surface_guided_palette_labels", "map_known_colors", "region_neighbors",
     "flood_fill", "dilate", "erode", "label_regions",
 )
+TIMELINE_API_VERSION = 2
+
 REBUILD_MESSAGE = (
     "PaintMaskAnimator requires its Rust extension. "
     "Install or rebuild it from the project directory: python -m pip install ./native"
@@ -26,6 +28,11 @@ REBUILD_MESSAGE = (
 
 
 def validate_backend(module):
+    version = getattr(module, "TIMELINE_API_VERSION", None)
+    if version != TIMELINE_API_VERSION:
+        raise ImportError(
+            f"{REBUILD_MESSAGE} (timeline API: expected {TIMELINE_API_VERSION}, got {version!r})"
+        )
     missing = [name for name in REQUIRED_API if not callable(getattr(module, name, None))]
     if missing:
         raise ImportError(f"{REBUILD_MESSAGE} (missing API: {', '.join(missing)})")
@@ -48,21 +55,76 @@ def clip_animation_reader(path: str, max_dimension: int, max_raster_bytes: int):
     return _native.ClipAnimationReader(path, max_dimension, max_raster_bytes)
 
 
-def resolve_exposures(states, exposures):
-    count, layers = states.shape
-    data = _native.resolve_exposures(
-        states.tobytes(), exposures.tobytes(), count, layers,
-    )
-    return np.frombuffer(data, dtype=np.int64).reshape(count, layers)
+# このプロセスで一度でも位置に _dense_import が付いたか。付けるのは
+# timeline_metadata.set_dense_import だけで、外しても戻さない（一方向）。
+# 立っていなければどの位置にも _dense_import は無い（写しの元も持っていない）。
+_dense_import_seen = False
+
+
+def note_dense_import():
+    global _dense_import_seen
+    _dense_import_seen = True
 
 
 def resolve_timeline(frames):
     """Read Rust-owned cell metadata directly, without packing NumPy inputs."""
-    rows = [[layer.__dict__.get("_timeline_metadata") for layer in frame.layers]
-            for frame in frames]
+    if not _dense_import_seen:
+        # どの位置にも _dense_import が無いので、下の行づくりはどの位置でも
+        # メタデータをそのまま渡すのと同じになる（メタデータの無い位置を除く）。
+        # 索引は全コマ × 全レイヤーを読むので、Phase 0 と同じ形で読む（#31 §7）。
+        rows = [[layer.__dict__.get("_timeline_metadata") for layer in frame.layers]
+                for frame in frames]
+        try:
+            data = _native.resolve_timeline(rows)
+        except TypeError:
+            # メタデータがまだ無い位置がある。下の従来の経路で作らせる。
+            pass
+        else:
+            layers = max(map(len, rows), default=0)
+            return np.frombuffer(data, dtype=np.int64).reshape(len(rows), layers)
+    from .timeline_metadata import snapshot_metadata
+    imported_columns = set()
+
+    def imported(column, layer):
+        imported_columns.add(column)
+        return snapshot_metadata(layer, resolve=True)
+
+    # Rust の resolve が見るのは has_content と（絵のある位置の）sequence_number だけ。
+    # _dense_import の無い位置では、snapshot_metadata(resolve=True) は保留の位置でも
+    # この2つを Layer のメタデータのまま写すので、メタデータをそのまま渡して同じ結果になる。
+    # 索引は全コマ × 全レイヤーを読むので、セルごとの保留の照会（sequence_only）と
+    # 2回目の走査を省く（#31 §7：Phase 0 より遅くしない）。
+    # メタデータがまだ無い位置は、従来どおり snapshot_metadata に作らせる。
+    rows = [[(values.get("_timeline_metadata") or snapshot_metadata(layer, resolve=True))
+             if "_dense_import" not in (values := layer.__dict__)
+             else imported(column, layer)
+             for layer in frame.layers]
+            for column, frame in enumerate(frames)]
     layers = max(map(len, rows), default=0)
     data = _native.resolve_timeline(rows)
-    return np.frombuffer(data, dtype=np.int64).reshape(len(rows), layers)
+    result = np.frombuffer(data, dtype=np.int64).reshape(len(rows), layers)
+    # v2 の読込元の指定は _dense_import を持つ位置にしか効かない（下の条件）。
+    overrides = [(column, li, layer) for column in sorted(imported_columns)
+                 for li, layer in enumerate(frames[column].layers)
+                 if "_v2_resolve_source" in layer.__dict__]
+    if overrides:
+        result = result.copy()
+        for column, li, layer in overrides:
+            signature, source, original_column, original_count = layer.__dict__["_v2_resolve_source"]
+            if ("_dense_import" in layer.__dict__
+                    and column == original_column and len(frames) == original_count
+                    and signature == (layer.has_content, layer.is_blank_key, layer.sequence_number,
+                                      layer.sequence_only, layer.blank_start)):
+                result[column, li] = -1 if source is None else source
+    return result
+
+
+def sheet_entries(frames):
+    """Rust が持つメタデータから、コマ × レイヤーの参照表を読み出す。"""
+    from .timeline_metadata import snapshot_metadata
+    rows = [[snapshot_metadata(layer) for layer in frame.layers]
+            for frame in frames]
+    return _native.sheet_entries(rows)
 
 
 def tint_onion(rgba, color, color_enabled, selected):

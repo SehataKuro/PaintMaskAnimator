@@ -30,8 +30,8 @@
 | macOS | `PaintMaskAnimator-<版>-macOS.dmg` | Apple Silicon（M1 以降）。Intel Mac は非対応 |
 
 インストール後は、アプリ内の更新確認から新しい版を取得できます。
-0.6.4 以前を使っている場合はアプリ内の更新が届かないため、一度だけ Releases から
-入れ直してください。
+0.6.4 以前の版は更新の確認先が旧配布サイトのため、アプリ内の更新が届きません。
+その版を使っている場合は、一度だけ Releases から入れ直してください。
 
 ## 主な機能
 
@@ -104,10 +104,10 @@ API リファレンスと組み込みアクションの一覧は [`docs/actions.
 
 テストカバレッジは [**カバレッジレポート**](https://sehatakuro.github.io/PaintMaskAnimator/coverage/) で行ごとに確認できます。
 [**機能検証マップ**](https://sehatakuro.github.io/PaintMaskAnimator/feature-map/) もあわせて公開しています。
-開発者向けの入口は [公式サイトの開発者向けページ](https://sehatakuro.github.io/PaintMaskAnimator/develop.html) にまとめています。
 どちらも `main` への push 時に CI が更新するので、プルリクエストの内容は
 まだ反映されていません。その場合は Actions のラン画面のサマリに出る数値か、
 `feature-map-<sha>` アーティファクトを参照してください。
+ほかの入口は [公式サイトの開発者向けページ](https://sehatakuro.github.io/PaintMaskAnimator/develop.html) にまとめています。
 
 ```bash
 pip install -e ".[dev,full]"
@@ -125,6 +125,32 @@ python scripts/preflight.py
 | `canvas.py`、`timeline.py`、`toolpanel.py`、`main_window.py` など | UI（PySide6 ウィジェット） |
 | `main_window_<topic>.py` | 機能ごとのコントローラ（`window.export` など） |
 | `i18n.py` | 翻訳の読み込みと `tr()` |
+
+### 構造グラフを更新する
+
+公式サイトの [**構造グラフ**](https://sehatakuro.github.io/PaintMaskAnimator/understand/) は、
+[Understand-Anything](https://github.com/Egonex-AI/Understand-Anything) で作った `.ua/` を
+表示しています。グラフは CI では作らず、構造が変わったときに手元の Claude Code で
+作り直してコミットします。
+
+1. リポジトリの `main` で Claude Code を起動し、次を実行します。言語（日本語）は
+   `.ua/config.json` に保存済みなので、指定は不要です。前回からの差分だけを解析します。
+
+   ```
+   /understand
+   ```
+
+2. `.ua/` をコミットして `main` に push します。作業用のファイルは `.gitignore` で
+   除いてあります。push すると公式サイトのグラフも置き換わります。
+
+   ```bash
+   git add .ua
+   git commit -m "chore(understand): 構造グラフを更新"
+   git push
+   ```
+
+初めての環境での準備、全部作り直すとき、プラグインを更新したときの手順は
+[`docs/knowledge-graph.md`](docs/knowledge-graph.md) を参照してください。
 
 ## プロジェクトの由来
 

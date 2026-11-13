@@ -750,7 +750,7 @@ def build_pma_frames(
     end_frame: int,
     layers: tuple[ClipAnimationLayer, ...],
 ) -> tuple[Frame, ...]:
-    """Convert parsed CLIP tracks into PMA keyframes plus exposure spans."""
+    """Convert parsed CLIP tracks into dense PMA drawing and blank references."""
 
     duration = end_frame - start_frame + 1
     if not (1 <= duration <= MAX_PROJECT_FRAMES):
@@ -780,11 +780,14 @@ def build_pma_frames(
             source_layer.keys, start_frame, end_frame
         ):
             target = frames[run_start].layers[layer_index]
-            target.exposure = exposure
             if not tag:
                 target.cell_name = None
                 target.is_blank_key = True
                 target.has_content = False
+                target.blank_start = True
+                for held in range(run_start + 1, run_start + exposure):
+                    frames[held].layers[layer_index] = target.clone_reference()
+                    frames[held].layers[layer_index].blank_start = False
                 continue
             image = source_layer.cell_images.get(tag)
             if image is None:
@@ -798,6 +801,8 @@ def build_pma_frames(
             target.cell_name = (
                 None if _numeric_cell_name(tag) == target.sequence_number else tag
             )
+            for held in range(run_start + 1, run_start + exposure):
+                frames[held].layers[layer_index] = target.clone_reference()
     return tuple(frames)
 
 

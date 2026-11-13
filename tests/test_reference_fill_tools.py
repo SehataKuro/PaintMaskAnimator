@@ -15,6 +15,7 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication
 
 from paintmaskanimator import bucket_fill, fill_tracking, imaging, reference_check
+from paintmaskanimator.document import create_drawing
 from paintmaskanimator.main_window import MainWindow
 
 
@@ -90,7 +91,7 @@ def draw_outline(layer, x0, y0, size, fill=None):
         for y in range(y0 + 1, y0 + size - 1):
             for x in range(x0 + 1, x0 + size - 1):
                 image.setPixelColor(x, y, QColor(fill))
-    layer.has_content = True
+    create_drawing(layer, layer.image, number=layer.sequence_number)
 
 
 # ----------------------------------------------------------------------
@@ -202,7 +203,7 @@ def stack_cells(window, frames):
         full = np.zeros((height, width, 4), dtype=np.uint8)
         full[:pixels.shape[0], :pixels.shape[1]] = pixels
         layer.image = imaging.rgba_array_to_qimage(full)
-        layer.has_content = True
+        create_drawing(layer, layer.image, number=layer.sequence_number)
 
 
 def test_copy_paint_is_not_a_tool_any_more(window):
@@ -230,12 +231,17 @@ def test_auto_menu_holds_one_way_to_paint_and_the_reference_check(window):
 # ----------------------------------------------------------------------
 # Shift+Esc
 # ----------------------------------------------------------------------
-def test_shift_esc_skips_the_rest_of_the_direction(window):
+@pytest.mark.parametrize("dense_hold", [False, True])
+def test_shift_esc_skips_the_rest_of_the_direction(window, dense_hold):
     window.canvas._ensure_frame_count(4)
     draw_outline(window.canvas.frames[0].layers[0], 4, 4, 8)
     for frame_index in (1, 2, 3):
         # 面積が3倍を超える枠に変わるので、どのコマも自信が持てず止まる。
         draw_outline(window.canvas.frames[frame_index].layers[0], 8, 4, 22)
+    if dense_hold:
+        from dense_fixtures import hold
+        hold(window.canvas, len(window.canvas.frames) - 1, 2)
+
     window.canvas.set_tool("bucket")
     window.canvas.color_mode = "main"
     window.canvas.main_color = QColor("#3355ff")
@@ -266,7 +272,7 @@ def test_colour_replacement_stays_inside_the_selection(window):
     for y in range(0, 10):
         for x in range(0, 40):
             layer.image.setPixelColor(x, y, QColor("#ff0000"))
-    layer.has_content = True
+    create_drawing(layer, layer.image, number=layer.sequence_number)
     height, width = layer.image.height(), layer.image.width()
     selection = np.zeros((height, width), dtype=bool)
     selection[0:10, 0:20] = True
@@ -283,7 +289,7 @@ def test_colour_replacement_reports_when_the_selection_has_no_match(window):
     layer = window.canvas.frames[0].layers[0]
     layer.image.fill(QColor("white"))
     layer.image.setPixelColor(30, 5, QColor("#ff0000"))
-    layer.has_content = True
+    create_drawing(layer, layer.image, number=layer.sequence_number)
     selection = np.zeros((layer.image.height(), layer.image.width()), dtype=bool)
     selection[0:10, 0:20] = True
     window.canvas.set_selection_mask(selection)
@@ -415,7 +421,8 @@ def test_find_mismatches_needs_the_neighbours_to_agree():
     assert reference_check.find_mismatches(previous, current, following) == []
 
 
-def test_reference_check_lists_findings_and_jumps_to_them(window):
+@pytest.mark.parametrize("dense_hold", [False, True])
+def test_reference_check_lists_findings_and_jumps_to_them(window, dense_hold):
     canvas = window.canvas
     canvas._ensure_frame_count(3)
     skin, wrong = "#ffdfd4", "#c5ae67"
@@ -428,7 +435,11 @@ def test_reference_check_lists_findings_and_jumps_to_them(window):
         for y in range(min(height, 120)):
             for x in range(min(width, 120)):
                 layer.image.setPixelColor(x, y, QColor(*pixels[y, x, :3]))
-        layer.has_content = True
+        create_drawing(layer, layer.image, number=layer.sequence_number)
+    if dense_hold:
+        from dense_fixtures import hold
+        hold(canvas, len(canvas.frames) - 1, 2)
+
     canvas.active_layer_index = 0
     canvas.current_frame = 0
 

@@ -246,9 +246,9 @@ class ImportController:
                 tr("（元FPS {fps:g}、PMA表示 {value} fps）").format(fps=parsed.fps, value=self.window.timeline.fps.value())
             )
         archive_note = ""
-        if self.window.canvas._sequence_archive:
+        if any(track.legacy_archive_hints for track in self.window.canvas._document.tracks):
             archive_note = (
-                tr(" 未配置セル{len}枚は連番に保持しました。").format(len=len(self.window.canvas._sequence_archive))
+                tr(" 未配置セル{len}枚は連番に保持しました。").format(len=sum(len(track.legacy_archive_hints) for track in self.window.canvas._document.tracks))
             )
         # 読み込んだ直後の絵は定義上「色塗り前」なので、尋ねずに初期状態として保持する
         # （自動塗りの精度が上がる）。keep() 自身のステータス表示はこのあと上書きする。
@@ -300,10 +300,10 @@ class ImportController:
             return False
         if not self._replace_document(parsed, title=title, source_metadata=None):
             return False
-        if self.window.canvas._sequence_archive:
+        if any(track.legacy_archive_hints for track in self.window.canvas._document.tracks):
             notes.append(
                 tr("タイムシートで使われていないセル{count}枚は連番に保持しました。").format(
-                    count=len(self.window.canvas._sequence_archive)
+                    count=sum(len(track.legacy_archive_hints) for track in self.window.canvas._document.tracks)
                 )
             )
         message = tr("「{name}」から{count}列・{frames}フレームを読み込みました。").format(
@@ -457,6 +457,7 @@ class ImportController:
             "timeline_mode": self.window.canvas.timeline_mode,
             "fps": self.window.timeline.fps.value(),
             "project_path": self.window.current_project_path,
+            "created_app_version": self.window.created_app_version,
             "clip_metadata": getattr(
                 self.window.canvas, "clip_studio_source_metadata", None
             ),
@@ -464,12 +465,13 @@ class ImportController:
             "undo": list(self.window.canvas.undo_stack),
             "redo": list(self.window.canvas.redo_stack),
             "branches": list(self.window.canvas.history_branches),
-            "sequence_archive": self.window.canvas._sequence_archive,
+            "document": self.window.canvas._document,
             "sequence_bank": self.window.canvas._sequence_source_bank,
             "sequence_bank_index": self.window.canvas._sequence_source_bank_layer_index,
             "sequence_bank_name": self.window.canvas._sequence_source_bank_layer_name,
         }
         try:
+            from .document import Document
             if self.window.canvas._playback_active:
                 self.window.timeline.play.setChecked(False)
                 self.window.play(False)
@@ -477,6 +479,7 @@ class ImportController:
             self.window.canvas.clear_selection()
             constants.CANVAS_WIDTH = int(parsed.width)
             constants.CANVAS_HEIGHT = int(parsed.height)
+            self.window.canvas._document = Document()
             self.window.canvas.frames = list(parsed.frames)
             self.window.canvas.current_frame = 0
             self.window.canvas.active_layer_index = 0
@@ -510,7 +513,6 @@ class ImportController:
                         source_layer.name,
                         QImage(image),
                         has_content=True,
-                        exposure=1,
                         sequence_number=number,
                         cell_name=(
                             None
@@ -519,8 +521,8 @@ class ImportController:
                             else str(tag)
                         ),
                     )
-            self.window.canvas._sequence_archive = sequence_archive
-            self.window.timeline.sequence_archive = self.window.canvas._sequence_archive
+            self.window.canvas.install_legacy_frames(
+                sequence_archive=sequence_archive)
             self.window.canvas.undo_stack.clear()
             self.window.canvas.redo_stack.clear()
             self.window.canvas.clear_history_branches()
@@ -530,6 +532,7 @@ class ImportController:
             self.window.canvas._silhouette_cache.clear()
             self.window._used_color_cache.clear()
             self.window.palette.clear_categories()
+            self.window.created_app_version = constants.APP_VERSION
             self.window.current_project_path = None
             self.window.project.update_title()
             self.window.refresh_ui()
@@ -538,20 +541,21 @@ class ImportController:
         except _OPERATION_ERRORS as exc:
             constants.CANVAS_WIDTH = old_state["width"]
             constants.CANVAS_HEIGHT = old_state["height"]
-            self.window.canvas.frames = old_state["frames"]
+            self.window.canvas._document = old_state["document"]
+            # The old document is already installed; rollback restores its exact graph.
+            self.window.canvas._document.frames = old_state["frames"]
             self.window.canvas.current_frame = old_state["current_frame"]
             self.window.canvas.active_layer_index = old_state["active_layer_index"]
             self.window.canvas.timeline_mode = old_state["timeline_mode"]
             self.window.timeline.set_timeline_mode(old_state["timeline_mode"])
             self.window.timeline.fps.setValue(old_state["fps"])
             self.window.current_project_path = old_state["project_path"]
+            self.window.created_app_version = old_state["created_app_version"]
             self.window.canvas.clip_studio_source_metadata = old_state["clip_metadata"]
             self.window.palette.restore_categories(old_state["palette"])
             self.window.canvas.undo_stack[:] = old_state["undo"]
             self.window.canvas.redo_stack[:] = old_state["redo"]
             self.window.canvas.history_branches[:] = old_state["branches"]
-            self.window.canvas._sequence_archive = old_state["sequence_archive"]
-            self.window.timeline.sequence_archive = self.window.canvas._sequence_archive
             self.window.canvas._sequence_source_bank = old_state["sequence_bank"]
             self.window.canvas._sequence_source_bank_layer_index = old_state[
                 "sequence_bank_index"
@@ -948,9 +952,9 @@ class ImportController:
                 target = self.window.canvas.frames[start_frame + offset].layers[layer_index]
                 self.window.canvas._place_imported_image(image, target.image)
                 target.has_content = True
-                target.exposure = 1
                 target.sequence_number = offset + 1
         self.window.canvas.current_frame = start_frame
+        self.window.canvas.install_legacy_frames()
         self.window.canvas.active_layer_index = first_new_layer
         self.window.canvas.timeline_mode = "sheet"
         self.window.timeline.set_timeline_mode("sheet")

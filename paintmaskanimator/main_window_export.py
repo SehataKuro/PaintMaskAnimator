@@ -24,7 +24,8 @@ from PySide6.QtWidgets import (QApplication, QDialog, QFileDialog, QInputDialog,
                                QMessageBox)
 from .i18n import tr
 from .memo_window import MEMO_FILE_NAME
-from . import movie_slate
+from . import movie_slate, native
+from .sheet import SHEET_BLANK, SHEET_CELL
 from . import cut_folder, imaging, preferences, shadow_export, timesheet_file
 from .models import default_layer_name
 from .optional_deps import PILImage, PSDImage
@@ -32,7 +33,6 @@ from .constants import OUTSIDE_MARGIN
 from . import constants
 from .canvas import PaintCanvas
 from .errors import OPERATION_ERRORS as _OPERATION_ERRORS, OperationError
-from .timeline import TimelineWidget
 from .progress import close_counter, create_counter, update_counter
 from .logging_setup import get_logger
 
@@ -151,32 +151,28 @@ class ExportController:
         tracks = []
         names = []
         layer_count = len(self.window.canvas.frames[0].layers)
+        entries = native.sheet_entries(self.window.canvas.frames)
         for layer_index in range(layer_count):
             names.append(self.window.canvas.frames[0].layers[layer_index].name)
             values = []
             for column in range(duration):
-                kind, key_column, _exposure = TimelineWidget.timeline_span_at(
-                    self.window.canvas.frames, layer_index, column
+                entry = (
+                    entries[column][layer_index]
+                    if column < len(entries) and layer_index < len(entries[column])
+                    else None
                 )
-                if kind == "content":
-                    if key_column is None:
-                        log.warning(
-                            "timeline reported content without a key frame: layer=%s frame=%s",
-                            layer_index,
-                            column,
-                        )
+                if entry is not None and entry.kind == SHEET_CELL:
+                    if entry.key < 0:
+                        log.warning("timeline reported content without a key frame: layer=%s frame=%s", layer_index, column)
                         value = timesheet_file.NULL_CELL
-                    elif column == key_column:
-                        number = self.window.canvas.frames[key_column].layers[
-                            layer_index
-                        ].sequence_number
-                        value = str(number) if number is not None else timesheet_file.NULL_CELL
+                    elif column == entry.key:
+                        value = str(entry.number) if entry.number is not None else timesheet_file.NULL_CELL
                     else:
                         value = timesheet_file.HYPHEN
-                elif kind == "blank":
+                elif entry is not None and entry.kind == SHEET_BLANK:
                     value = (
                         timesheet_file.NULL_CELL
-                        if column == key_column else timesheet_file.HYPHEN
+                        if column == entry.key else timesheet_file.HYPHEN
                     )
                 else:
                     value = timesheet_file.NULL_CELL
@@ -502,6 +498,7 @@ class ExportController:
                 if (
                     layer_index < len(frame.layers)
                     and frame.layers[layer_index].has_content
+                    and self.window.canvas.timeline_block_at(frame_index, layer_index)[1] == frame_index
                 ):
                     keys.append((
                         layer_index,
@@ -566,8 +563,8 @@ class ExportController:
                 timing_rows.append([
                     filename,
                     frame_index + 1,
-                    frame_index + max(1, layer.exposure),
-                    max(1, layer.exposure),
+                    frame_index + self.window.canvas.timeline_block_at(frame_index, layer_index)[2],
+                    self.window.canvas.timeline_block_at(frame_index, layer_index)[2],
                 ])
                 update_counter(
                     progress,

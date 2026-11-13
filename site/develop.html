@@ -13,117 +13,84 @@
     <section class="page-head">
       <div class="container">
         <h1>開発者向け</h1>
-        <p>ソースから動かす人、コードを読む人、直したい人のための入口。</p>
+        <p>コードを読む・確かめる・直すための入口です。</p>
       </div>
     </section>
 
-    <main class="container help">
-      <article id="quality">
-        <h2>コードの状態を見る</h2>
-        <p>
-          どちらも <code>main</code> への push ごとに CI が更新します。プルリクエストの内容はまだ反映されていないので、
-          その場合は Actions のラン画面のサマリに出る数値を見てください。
-        </p>
-        <ul class="dev-links">
-          <li>
-            <a href="coverage/" target="_blank" rel="noopener">カバレッジレポート</a>
-            <p>テストがどの行を通ったかを、ファイル単位・行単位で確認できます。</p>
-          </li>
-          <li>
-            <a href="feature-map/" target="_blank" rel="noopener">機能検証マップ</a>
-            <p>どの機能にどのテストが付いているかの一覧。抜けているところが分かります。</p>
-          </li>
-          <li>
-            <a href="{{ repo_url }}/actions/workflows/ci.yml" target="_blank" rel="noopener">CI の実行結果</a>
-            <p>ruff・pyright・テスト・カバレッジのしきい値をまとめて確認しています。</p>
-          </li>
-        </ul>
-      </article>
+    <main class="container dev">
+      <section>
+        <h2>ブラウザで見る</h2>
+        <div class="dev-grid">
+          <a class="dev-card" href="understand/">
+            <strong>構造グラフ</strong>
+            <span>モジュールのつながりとレイヤーを図で見る。ガイドツアーと検索つき。</span>
+          </a>
+          <a class="dev-card" href="coverage/">
+            <strong>カバレッジレポート</strong>
+            <span>テストがどの行を通ったかを、ファイル単位・行単位で見る。</span>
+          </a>
+          <a class="dev-card" href="feature-map/">
+            <strong>機能検証マップ</strong>
+            <span>機能ごとのテストの付き方を一覧で見る。抜けている所が分かる。</span>
+          </a>
+          <a class="dev-card" href="{{ repo_url }}/actions/workflows/ci.yml">
+            <strong>CI の実行結果</strong>
+            <span>ruff・pyright・テスト・カバレッジの結果。</span>
+            <em>GitHub</em>
+          </a>
+        </div>
+        <p class="small dev-note">カバレッジと機能検証マップは、<code>main</code> に push されるたびに更新されます。</p>
+      </section>
 
-      <article id="structure">
-        <h2>構造をつかむ</h2>
-        <p>
-          <code>paintmaskanimator/</code> は 125 モジュール・約 61,000 行あります。全体の地図を作るには
-          <a href="https://github.com/Egonex-AI/Understand-Anything" target="_blank" rel="noopener">Understand-Anything</a>
-          が使えます。Tree-sitter でソースを解析して import や定義の関係を取り出し、そこに要約・レイヤー・ドメインを重ねた
-          対話的なナレッジグラフを作るツールです（MIT ライセンス）。
-        </p>
-        <ul class="dev-links">
-          <li>
-            <a href="understand/" target="_blank" rel="noopener">構造グラフ</a>
-            <p>
-              レイヤー表示・ドメイン表示・ガイドツアー・検索つきのダッシュボード。何も入れずにブラウザで見られます。
-            </p>
-          </li>
-        </ul>
-        <p>
-          グラフはリポジトリの <code>.ua/</code> に入っていて、<code>main</code> に push されるとこのサイトの
-          ダッシュボードも置き換わります。見るだけなら、生成し直す必要はありません。
-        </p>
-        <p>手元で開きたい場合は、リポジトリに入っているグラフをそのまま読み取り専用ビューアで開けます。</p>
-        <pre><code>npx understand-anything-viewer</code></pre>
-        <h3>グラフを更新する</h3>
-        <p>
-          構造が大きく変わったら、誰か 1 人が Claude Code で作り直してコミットします。
-          準備が済んでいれば、<code>main</code> で次を実行して <code>.ua/</code> をコミットするだけです。
-          前回のグラフとの差分だけを解析し直します。
-        </p>
-        <pre><code>/understand</code></pre>
-        <p class="small">
-          初めての環境での準備、全部作り直すとき、プラグインを更新したときの手順は
-          <a href="{{ repo_url }}/blob/main/docs/knowledge-graph.md" target="_blank" rel="noopener">docs/knowledge-graph.md</a>
-          にまとめています。
-        </p>
-      </article>
+      <section>
+        <h2>リポジトリで読む</h2>
+        <div class="dev-grid">
+          <a class="dev-card" href="{{ repo_url }}#readme">
+            <strong>README</strong>
+            <span>ソースからの実行、モジュールの役割、構造グラフの更新。</span>
+            <em>GitHub</em>
+          </a>
+          <a class="dev-card" href="{{ repo_url }}/blob/main/CONTRIBUTING.md">
+            <strong>貢献の手引き</strong>
+            <span>開発環境、提出前のチェック、翻訳、リリース手順。</span>
+            <em>GitHub</em>
+          </a>
+          <a class="dev-card" href="{{ repo_url }}/blob/main/docs/design-principles.md">
+            <strong>設計方針</strong>
+            <span>原画工程を扱わない理由、セル番号を整数に限る理由など。</span>
+            <em>GitHub</em>
+          </a>
+          <a class="dev-card" href="{{ repo_url }}/blob/main/FORMAT.md">
+            <strong>プロジェクトの形式</strong>
+            <span><code>.pman</code> ファイルの中身。</span>
+            <em>GitHub</em>
+          </a>
+          <a class="dev-card" href="{{ repo_url }}/blob/main/docs/actions.md">
+            <strong>アクション API</strong>
+            <span>アクションパネルに Python でボタンを足す。</span>
+            <em>GitHub</em>
+          </a>
+          <a class="dev-card" href="{{ repo_url }}/blob/main/docs/clip-import.md">
+            <strong>CLIP 読み込み</strong>
+            <span><code>.clip</code> から読める範囲と読めない範囲。</span>
+            <em>GitHub</em>
+          </a>
+          <a class="dev-card" href="{{ repo_url }}/blob/main/docs/auto-paint-performance.md">
+            <strong>自動塗りの処理と計測</strong>
+            <span>任意の GPU 支援と、速度の測り方。</span>
+            <em>GitHub</em>
+          </a>
+        </div>
+      </section>
 
-      <article id="source">
-        <h2>ソースから実行する</h2>
-        <p>Python 3.10 以上が必要です。開発時の起動には Rust 拡張が必須なので、Rust のツールチェーンも用意してください。</p>
-        <pre><code>pip install -e ".[dev,full]"
-pip install ./native
-python PaintMaskAnimator.py</code></pre>
-        <p>提出前のチェックは次の 1 本でまとめて走ります。</p>
-        <pre><code>python scripts/preflight.py</code></pre>
-      </article>
-
-      <article id="docs">
-        <h2>読むもの</h2>
-        <ul class="dev-links">
-          <li>
-            <a href="{{ repo_url }}/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">CONTRIBUTING.md</a>
-            <p>開発環境の準備、提出前のチェック、翻訳、リリース手順。</p>
-          </li>
-          <li>
-            <a href="{{ repo_url }}/blob/main/docs/design-principles.md" target="_blank" rel="noopener">設計方針</a>
-            <p>「なぜそうしないのか」を残したメモ。原画工程を対象にしない理由、セル番号を整数に限る理由など。</p>
-          </li>
-          <li>
-            <a href="{{ repo_url }}/blob/main/FORMAT.md" target="_blank" rel="noopener">FORMAT.md</a>
-            <p>プロジェクトファイル <code>.pman</code> の形式。</p>
-          </li>
-          <li>
-            <a href="{{ repo_url }}/blob/main/docs/actions.md" target="_blank" rel="noopener">アクション API</a>
-            <p>アクションパネルに Python でボタンを足すための <code>register_actions</code> の仕様と、組み込みアクションの一覧。</p>
-          </li>
-          <li>
-            <a href="{{ repo_url }}/blob/main/docs/clip-import.md" target="_blank" rel="noopener">CLIP 読み込み</a>
-            <p><code>.clip</code> から読める範囲と読めない範囲。</p>
-          </li>
-          <li>
-            <a href="{{ repo_url }}/blob/main/docs/auto-paint-performance.md" target="_blank" rel="noopener">自動塗りの処理と計測</a>
-            <p>任意の GPU 支援と、速度の測り方。</p>
-          </li>
-        </ul>
-      </article>
-
-      <article id="contribute">
-        <h2>直す・提案する</h2>
+      <section>
+        <h2>不具合・要望</h2>
         <p>
-          貢献は Apache License 2.0 の条件で提供されたものとみなします。CLA は不要です。
-          不具合の報告や要望は <a href="help.html#feedback">ヘルプのフォーム</a> からでも、
-          <a href="{{ repo_url }}/issues" target="_blank" rel="noopener">GitHub の Issue</a> からでも受け付けています。
+          <a href="help.html#feedback">ヘルプのフォーム</a> か
+          <a href="{{ repo_url }}/issues">GitHub の Issue</a> から送ってください。
+          貢献は Apache License 2.0 の条件で受け付けています（CLA は不要）。
         </p>
-      </article>
+      </section>
     </main>
 
 {{ footer }}

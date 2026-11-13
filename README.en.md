@@ -29,8 +29,9 @@ Get the latest version from
 | Windows | `PaintMaskAnimator-Setup-<version>.exe` | 64-bit Windows |
 | macOS | `PaintMaskAnimator-<version>-macOS.dmg` | Apple Silicon (M1 or later). Intel Macs are not supported |
 
-Once installed, the app's update check fetches new versions. Version 0.6.4 and
-earlier cannot receive in-app updates; reinstall once from Releases.
+Once installed, the app's update check fetches new versions.
+Version 0.6.4 and earlier check the old download site and cannot receive in-app
+updates; if you use one of these versions, reinstall once from Releases.
 
 ## Features
 
@@ -121,6 +122,22 @@ The application is the Python package under [`paintmaskanimator/`](paintmaskanim
 | `canvas.py`, `timeline.py`, `toolpanel.py`, `main_window.py`, … | UI (PySide6 widgets) |
 | `main_window_<topic>.py` | Per-feature controllers (`window.export`, …) |
 | `i18n.py` | Translation loading and `tr()` |
+
+### Updating the structure graph
+
+The website's [**structure graph**](https://sehatakuro.github.io/PaintMaskAnimator/understand/)
+shows the `.ua/` knowledge graph built with
+[Understand-Anything](https://github.com/Egonex-AI/Understand-Anything). CI does not
+build it: when the structure changes, rebuild it in Claude Code on `main` and commit it.
+
+1. Run `/understand` in Claude Code at the repository root. The output language
+   (Japanese) is stored in `.ua/config.json`, and only the changes since the last
+   run are analysed.
+2. Commit `.ua/` and push to `main`; the website's graph is replaced on push.
+   Scratch files are already in `.gitignore`.
+
+First-time setup, full rebuilds and plugin upgrades are covered in
+[`docs/knowledge-graph.md`](docs/knowledge-graph.md) (Japanese).
 
 ## Background
 

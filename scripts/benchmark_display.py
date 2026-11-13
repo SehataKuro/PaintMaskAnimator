@@ -2,6 +2,7 @@
 
 Run: python -m scripts.benchmark_display
 """
+import argparse
 import json
 import os
 import statistics
@@ -41,29 +42,42 @@ def numpy_tint(rgba):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--smoke", action="store_true", help="Run with small dense fixtures")
+    args = parser.parse_args()
+    frame_count, layer_count = (24, 2) if args.smoke else (1200, 8)
+    source_width, source_height = (32, 24) if args.smoke else (3840, 2160)
+    display_width, display_height = (16, 12) if args.smoke else (960, 540)
+    pixel_width, pixel_height = (32, 24) if args.smoke else (1920, 1080)
+    if args.smoke:
+        constants.CANVAS_WIDTH, constants.CANVAS_HEIGHT = source_width, source_height
     app = QApplication.instance() or QApplication([])
     canvas = PaintCanvas()
-    canvas.frames = [Frame([Layer("A", QImage()) for _ in range(8)]) for _ in range(1200)]
-    for layer in canvas.frames[0].layers:
-        layer.has_content, layer.exposure = True, 1200
-    columns = list(range(1136, 1200))
+    frames = [Frame([Layer("A", QImage()) for _ in range(layer_count)]) for _ in range(frame_count)]
+    for frame in frames:
+        for layer in frame.layers:
+            layer.has_content, layer.sequence_number = True, 1
+    canvas.frames = frames
+    canvas.install_legacy_frames()
+    assert canvas.resolve_key_frame(frame_count - 1, 0) == 0
+    columns = list(range(max(0, frame_count - 64), frame_count))
 
     def backwards():
         for column in columns:
-            for index in range(8):
+            for index in range(layer_count):
                 for key in range(column, -1, -1):
                     layer = canvas.frames[key].layers[index]
-                    if layer.has_content or layer.is_blank_key:
+                    if not layer.has_content or layer.sequence_number != 1:
                         break
 
     def indexed():
         for column in columns:
-            for index in range(8):
+            for index in range(layer_count):
                 canvas.resolve_key_frame(column, index)
 
     def build():
         canvas._invalidate_exposure_index()
-        canvas.resolve_key_frame(1199, 0)
+        canvas.resolve_key_frame(frame_count - 1, 0)
 
     results = {
         "exposure_64_seeks_1200_frames_8_layers": {
@@ -72,13 +86,20 @@ def main():
             "index_build_ms": median_ms(build),
         }
     }
+    if args.smoke:
+        results["smoke_shape"] = {
+            "frames": frame_count, "layers": layer_count,
+            "source": [source_width, source_height],
+            "display": [display_width, display_height],
+            "pixels": [pixel_width, pixel_height],
+        }
     sources = []
     for index in range(4):
-        source = QImage(3840, 2160, QImage.Format.Format_ARGB32_Premultiplied)
+        source = QImage(source_width, source_height, QImage.Format.Format_ARGB32_Premultiplied)
         source.fill(QColor(index * 60, 100, 200, 180))
         sources.append(source)
-    destination = QImage(960, 540, QImage.Format.Format_ARGB32_Premultiplied)
-    rect = QRectF(0, 0, 960, 540)
+    destination = QImage(display_width, display_height, QImage.Format.Format_ARGB32_Premultiplied)
+    rect = QRectF(0, 0, display_width, display_height)
 
     def draw(cached):
         destination.fill(0)
@@ -93,15 +114,15 @@ def main():
         "before_ms": median_ms(lambda: draw(False)),
         "cached_ms": median_ms(lambda: draw(True)),
     }
-    rgba = np.random.default_rng(24).integers(0, 256, (1080, 1920, 4), np.uint8)
+    rgba = np.random.default_rng(24).integers(0, 256, (pixel_height, pixel_width, 4), np.uint8)
     results["onion_tint_1920x1080"] = {
         "numpy_ms": median_ms(lambda: numpy_tint(rgba)),
         "rust_ms": median_ms(lambda: native.tint_onion(rgba, (0, 100, 255), True, None)),
     }
     colors = np.random.default_rng(25).integers(0, 256, (100, 4), np.uint8)
     colors[:, 3] = 255
-    pixels = colors[np.random.default_rng(26).integers(0, 100, (1080, 1920))]
-    source = QImage(pixels.data, 1920, 1080, 1920 * 4, QImage.Format.Format_RGBA8888).copy()
+    pixels = colors[np.random.default_rng(26).integers(0, 100, (pixel_height, pixel_width))]
+    source = QImage(pixels.data, pixel_width, pixel_height, pixel_width * 4, QImage.Format.Format_RGBA8888).copy()
     layer = Layer("palette", source)
     canvas.visible_color_rgbs = {tuple(map(int, color[:3])) for color in colors[:80]}
     canvas.preview_color_remap = {
@@ -119,11 +140,12 @@ def main():
     }
     previous_size = constants.CANVAS_WIDTH, constants.CANVAS_HEIGHT
     try:
-        constants.CANVAS_WIDTH, constants.CANVAS_HEIGHT = 3840, 2160
+        constants.CANVAS_WIDTH, constants.CANVAS_HEIGHT = source_width, source_height
         canvas.frames = [Frame([
-            Layer(str(index), QImage(source), has_content=True)
+            Layer(str(index), QImage(source), has_content=True, sequence_number=frame_index + 1)
             for index, source in enumerate(sources)
-        ]) for _ in range(3)]
+        ]) for frame_index in range(3)]
+        canvas.install_legacy_frames()
         canvas.onion_all_layers = True
 
         def toggle_with_onions(size):
@@ -135,7 +157,7 @@ def main():
 
         results["visibility_4k_4_layers_2_onions_960x540"] = {
             "full_resolution_ms": median_ms(lambda: toggle_with_onions(None)),
-            "display_resolution_ms": median_ms(lambda: toggle_with_onions((960, 540))),
+            "display_resolution_ms": median_ms(lambda: toggle_with_onions((display_width, display_height))),
         }
     finally:
         constants.CANVAS_WIDTH, constants.CANVAS_HEIGHT = previous_size

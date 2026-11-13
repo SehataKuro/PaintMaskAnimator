@@ -10,6 +10,7 @@ dist_installer/
 *.spec.bak
 .pytest_cache/
 .pytest-tmp/
+.pytest_tmp*/
 *.log
 
 # Coverage

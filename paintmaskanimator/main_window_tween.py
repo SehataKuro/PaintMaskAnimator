@@ -6,6 +6,8 @@ or tween" actions.
 
 A collaborator rather than a mixin -- see ``main_window_export.py`` for why.
 """
+from .document import clear_pending
+from .document import create_drawing
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QPoint, QPointF, Qt
@@ -154,7 +156,7 @@ class TweenController:
         ):
             return
         key_layer = self.window.canvas.frames[key_column].layers[layer_index]
-        exposure = max(1, int(key_layer.exposure))
+        exposure = self.window.canvas.timeline_block_at(key_column, layer_index)[2]
         if not key_layer.has_content or exposure < 2:
             QMessageBox.warning(
                 self.window,
@@ -312,11 +314,7 @@ class TweenController:
             for frame in self.window.canvas.frames
             if frame.layers[layer_index].sequence_number is not None
         }
-        used.update(
-            int(number)
-            for archived_layer, number in self.window.canvas._sequence_archive
-            if int(archived_layer) == layer_index
-        )
+        used.update(self.window.canvas.frames[0].layers[layer_index]._track.cells)
         next_number = max(used, default=0) + 1
         return list(range(next_number, next_number + count))
 
@@ -351,10 +349,9 @@ class TweenController:
         # 区間を 1 枚のキーにまとめてから変形を始める。
         original = (members[-1] if reverse else key).image.copy()
         key.image = original
-        key.exposure = length
         key.tween = None
-        for member in members:
-            canvas._clear_timeline_layer_cell(member)
+        for offset in range(1, length):
+            canvas.frames[key_column + offset].layers[layer_index] = key.clone_reference()
         mode = "mesh" if spec.get("mode") == "mesh" else "free"
         if mode == "mesh":
             self.window.tools.transform_mesh_grid_x.setValue(
@@ -666,10 +663,12 @@ class TweenController:
             for offset, image in enumerate(generated_images):
                 frame_index = key_column + offset
                 layer = self.window.canvas.frames[frame_index].layers[layer_index]
-                layer.image = image
+                if offset > 0:
+                    create_drawing(layer, image, number=member_numbers[offset - 1])
+                else:
+                    layer.image = image
                 layer.has_content = True
                 layer.is_blank_key = False
-                layer.exposure = 1
                 if offset == 0:
                     layer.tween = tween_groups.make_spec(
                         tween_id, exposure, transform_mode, reverse_generation,
@@ -686,7 +685,7 @@ class TweenController:
                     # 中割りは番号を持つ通常の絵として書き出される。
                     # 直し直しでは、元の番号をそのまま使う（リテイク対策）。
                     layer.sequence_number = member_numbers[offset - 1]
-                    layer.sequence_only = False
+                    clear_pending(layer)
                     layer.cell_name = None
                     layer.tween = None
                     layer.tween_member = tween_id

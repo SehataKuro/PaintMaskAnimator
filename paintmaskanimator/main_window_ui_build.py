@@ -1222,6 +1222,7 @@ class UIBuildMixin(MainWindowMembers):
         )
         self.timeline.mergeClipRequested.connect(self.timeline_ops.merge_clip)
         self.timeline.splitClipRequested.connect(self.timeline_ops.split_clip)
+        self.timeline.newNumberHereRequested.connect(self.timeline_ops.new_number_here)
         self.timeline.insertFrameAtRequested.connect(
             self.timeline_ops.insert_frame_at
         )

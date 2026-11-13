@@ -575,6 +575,7 @@ class LineOpsController:
             frame.layers.insert(paint_index, paint_layer)
             frame.layers.insert(line_index, line_layer)
 
+        separated = {}
         for frame_index, frame in enumerate(self.window.canvas.frames):
             update_counter(
                 progress,
@@ -585,6 +586,11 @@ class LineOpsController:
             )
             source = frame.layers[source_index]
             if not source.has_content:
+                continue
+            if source.cell_id in separated:
+                line, paint = separated[source.cell_id]
+                frame.layers[line_index] = line.clone_reference()
+                frame.layers[paint_index] = paint.clone_reference()
                 continue
 
             pixels = imaging.qimage_rgba_array(source.image)
@@ -666,12 +672,17 @@ class LineOpsController:
 
             frame.layers[line_index].image = line_image
             frame.layers[line_index].has_content = bool(np.any(line_mask))
-            frame.layers[line_index].exposure = source.exposure
 
             frame.layers[paint_index].image = paint_image
             frame.layers[paint_index].has_content = bool(np.any(paint_pixels[:, :, 3] > 0))
-            frame.layers[paint_index].exposure = source.exposure
+            number = len(separated) + 1
+            for target_index in (line_index, paint_index):
+                if frame.layers[target_index].has_content:
+                    frame.layers[target_index].sequence_number = number
+            separated[source.cell_id] = (frame.layers[line_index], frame.layers[paint_index])
 
+        self.window.canvas._document.sync_columns()
+        self.window.canvas.install_legacy_frames()
         close_counter(progress)
         self.window.canvas.active_layer_index = line_index
         self.window._used_color_cache.clear()

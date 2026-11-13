@@ -6,12 +6,15 @@
 """
 from __future__ import annotations
 
+from dense_fixtures import hold, length
+
 import pytest
 from PySide6.QtCore import QPoint, QPointF, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication
 
+from paintmaskanimator.document import create_drawing
 from paintmaskanimator.main_window import MainWindow
 from paintmaskanimator.undo_entries import ScopedBatchUndo
 
@@ -45,7 +48,7 @@ def outlined_cell(window, frame_index, *, origin=(4, 4), size=8):
     for y in range(y0, y1):
         layer.image.setPixelColor(x0, y, black)
         layer.image.setPixelColor(x1 - 1, y, black)
-    layer.has_content = True
+    create_drawing(layer, layer.image.copy(), number=frame_index + 1)
     return layer
 
 
@@ -215,17 +218,17 @@ def test_tracks_a_moving_shape_instead_of_leaking_into_the_background(window):
 def test_clicking_a_held_cell_does_not_create_a_new_cell(window):
     prepare(window, 1)
     window.canvas._ensure_frame_count(2)
-    window.canvas.frames[0].layers[0].exposure = 2
+    hold(window.canvas, 0, 2)
     window.canvas.current_frame = 1
-    assert not window.canvas.frames[1].layers[0].has_content
+    assert window.canvas.frames[1].layers[0].sequence_number == window.canvas.frames[0].layers[0].sequence_number
 
     canvas = window.canvas
     canvas.resize(400, 300)
     widget_point = canvas.canvas_to_widget(QPointF(8.5, 8.5)).toPoint()
     QTest.mouseClick(canvas, Qt.MouseButton.LeftButton, pos=widget_point)
 
-    assert not canvas.frames[1].layers[0].has_content, "保持セルを新しいキーにしない"
-    assert canvas.frames[0].layers[0].exposure == 2
+    assert canvas.frames[1].layers[0]._cell is canvas.frames[0].layers[0]._cell, "保持セルに新しい絵を作らない"
+    assert length(canvas, 0) == 2
     assert canvas.frames[0].layers[0].image.pixelColor(8, 8) == QColor("#3355ff")
 
 
@@ -342,7 +345,7 @@ def test_tracks_an_area_closed_by_the_frame_edge(window):
         painter.drawLine(left, bottom, left + 60, bottom - 90)
         painter.drawLine(left + 60, bottom - 90, left + 120, bottom)
         painter.end()
-        layer.has_content = True
+        create_drawing(layer, layer.image.copy(), number=frame_index + 1)
     window.canvas.set_tool("bucket")
     window.canvas.color_mode = "main"
     window.canvas.main_color = QColor("#3355ff")
@@ -376,7 +379,7 @@ def test_tracking_works_with_line_extension(window):
         painter.drawLine(left, top, left - 15, height - 40)          # 下端の手前で途切れる
         painter.drawLine(left + 140, top, left + 155, height - 40)
         painter.end()
-        layer.has_content = True
+        create_drawing(layer, layer.image.copy(), number=frame_index + 1)
     window.canvas.set_tool("bucket")
     window.canvas.color_mode = "main"
     window.canvas.main_color = QColor("#3355ff")

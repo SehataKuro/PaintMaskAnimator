@@ -37,7 +37,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from . import icons, theme, time_display, tooltip
+from . import icons, native, theme, time_display, tooltip
+from .sheet import SHEET_EMPTY, SHEET_BLANK, SHEET_CELL
 from .cell_numbering import changed_count, normalization_mapping
 from .tween_groups import tween_groups
 
@@ -658,6 +659,7 @@ class TimelineTable(QTableWidget):
     pasteCellRequested = Signal(int, int)
     mergeClipRequested = Signal(int, int)
     splitClipRequested = Signal(int, int)
+    newNumberHereRequested = Signal(int, int)
     insertFrameAtRequested = Signal(int, int)
     deleteFrameAtRequested = Signal(int, int)
     #: ("start"|"end", 列)。
@@ -1216,8 +1218,10 @@ class TimelineTable(QTableWidget):
         menu.addSeparator()
         action_clip_merge = menu.addAction(tr("クリップを結合"))
         action_clip_split = menu.addAction(tr("クリップを分割"))
+        action_new_number = menu.addAction(tr("この位置を新しい番号にする"))
         action_clip_merge.setEnabled(on_cell and item is not None)
         action_clip_split.setEnabled(on_cell and item is not None)
+        action_new_number.setEnabled(on_cell and item is not None)
         action_range_start = menu.addAction(tr("表示開始フレームにする"))
         action_range_end = menu.addAction(tr("表示終了フレームにする"))
         action_range_start.setEnabled(on_cell)
@@ -1321,6 +1325,7 @@ class TimelineTable(QTableWidget):
             action_cell_paste: self.pasteCellRequested,
             action_clip_merge: self.mergeClipRequested,
             action_clip_split: self.splitClipRequested,
+            action_new_number: self.newNumberHereRequested,
             action_insert_frame: self.insertFrameAtRequested,
             action_delete_frame: self.deleteFrameAtRequested,
         }
@@ -1410,6 +1415,7 @@ class TimelineWidget(QWidget):
     pasteCellRequested=Signal(int,int)
     mergeClipRequested=Signal(int,int)
     splitClipRequested=Signal(int,int)
+    newNumberHereRequested=Signal(int,int)
     insertFrameAtRequested=Signal(int,int)
     deleteFrameAtRequested=Signal(int,int)
     playbackRangeEdgeRequested=Signal(str,int)
@@ -1420,7 +1426,6 @@ class TimelineWidget(QWidget):
     def __init__(self):
         super().__init__()
         self.setAcceptDrops(True)
-        self.sequence_archive = {}
         self.playback_range_start = 0
         self.playback_range_end: int | None = None
         self._timeline_zoom_scale = 1.0
@@ -1763,6 +1768,7 @@ class TimelineWidget(QWidget):
         self.table.pasteCellRequested.connect(self.pasteCellRequested)
         self.table.mergeClipRequested.connect(self.mergeClipRequested)
         self.table.splitClipRequested.connect(self.splitClipRequested)
+        self.table.newNumberHereRequested.connect(self.newNumberHereRequested)
         self.table.insertFrameAtRequested.connect(self.insertFrameAtRequested)
         self.table.deleteFrameAtRequested.connect(self.deleteFrameAtRequested)
         self.table.playbackRangeEdgeRequested.connect(self.playbackRangeEdgeRequested)
@@ -2436,38 +2442,9 @@ class TimelineWidget(QWidget):
 
         content は●、blank は○、None は未使用セル。
         """
-        if (
-            column < 0
-            or column >= len(frames)
-            or layer_index < 0
-        ):
-            return None, None, 0
+        from .timeline_span import span_at
 
-        for start in range(column, -1, -1):
-            if layer_index >= len(frames[start].layers):
-                continue
-            layer = frames[start].layers[layer_index]
-            if getattr(layer, "sequence_only", False):
-                continue
-            is_content = bool(layer.has_content)
-            is_blank = bool(
-                getattr(layer, "is_blank_key", False)
-            )
-            if not (is_content or is_blank):
-                continue
-
-            exposure = max(1, int(layer.exposure))
-            if column < start + exposure:
-                return (
-                    "content" if is_content else "blank",
-                    start,
-                    exposure,
-                )
-            # 直近の明示コマが届いていない場合、それ以前の露出は
-            # この明示コマを越えて表示しない。
-            break
-
-        return None, None, 0
+        return span_at(frames, layer_index, column)
 
     @classmethod
     def timeline_gaps(cls, frames, layer_index):
@@ -2477,9 +2454,10 @@ class TimelineWidget(QWidget):
         タイムラインでも空セルとして見せる。直前が空セルなら、その続きとして
         ✗ は描かない。最後のセルより後ろの空きは対象にしない。
         """
+        kind_names = {SHEET_EMPTY: None, SHEET_BLANK: "blank", SHEET_CELL: "content"}
         kinds = [
-            cls.timeline_span_at(frames, layer_index, column)[0]
-            for column in range(len(frames))
+            kind_names[row[layer_index].kind] if 0 <= layer_index < len(row) else None
+            for row in native.sheet_entries(frames)
         ]
         covered = [column for column, kind in enumerate(kinds) if kind is not None]
         if not covered:
@@ -2534,7 +2512,7 @@ class TimelineWidget(QWidget):
                         for frame in frames
                         for layer in [frame.layers[layer_index]]
                         if layer.sequence_number is not None
-                        and (layer.has_content or layer.is_blank_key)
+                        and (layer.has_content or layer.sequence_only)
                     } or {1})
                     for layer_index in range(len(frames[current].layers))
                 ),
@@ -2545,7 +2523,8 @@ class TimelineWidget(QWidget):
                 max(
                     (
                         int(number)
-                        for _layer_index, number in self.sequence_archive
+                        for layer in frames[0].layers
+                        for number in layer._track.cells
                     ),
                     default=1,
                 ),
@@ -2652,7 +2631,7 @@ class TimelineWidget(QWidget):
                         for column, frame in enumerate(frames)
                         if (
                             frame.layers[layer_index].sequence_number is not None
-                            and (frame.layers[layer_index].has_content or frame.layers[layer_index].is_blank_key)
+                            and (frame.layers[layer_index].has_content or frame.layers[layer_index].sequence_only)
                         )
                     }.items()
                 )
@@ -2661,11 +2640,12 @@ class TimelineWidget(QWidget):
                 int(frames[column].layers[layer_index].sequence_number): column
                 for column in sequence_columns
             }
+            from .document import DrawingTarget
+            track = frames[0].layers[layer_index]._track
             archive_by_number = {
-                int(number): archived
-                for (archived_layer, number), archived
-                in self.sequence_archive.items()
-                if int(archived_layer) == layer_index
+                number: DrawingTarget(cell, track, None, None, number)
+                for number, cell in track.cells.items()
+                if number in track.legacy_archive_hints or number not in sequence_by_number
             }
             for number, frame_column in sequence_by_number.items():
                 self._sequence_frame_by_cell[(visual_row, number - 1)] = frame_column
@@ -2673,9 +2653,7 @@ class TimelineWidget(QWidget):
                 sorted(
                     set(sequence_by_number)
                     | {
-                        int(number)
-                        for archived_layer, number in self.sequence_archive
-                        if int(archived_layer) == layer_index
+                        int(number) for number in archive_by_number
                     }
                 )
             )
@@ -2690,23 +2668,12 @@ class TimelineWidget(QWidget):
                     for number in set(sequence_by_number) | set(archive_by_number)
                 }
             elif self.timeline_mode == "sheet":
-                used_numbers = [
-                    int(frames[column].layers[layer_index].sequence_number)
-                    for column in content_columns
-                    if frames[column].layers[layer_index].sequence_number
-                    is not None
-                ]
-                next_number = max(used_numbers, default=0) + 1
-                for column in content_columns:
-                    layer = frames[column].layers[layer_index]
-                    if layer.sequence_number is None:
-                        layer.sequence_number = next_number
-                        next_number += 1
                 content_key_numbers = {
                     column: int(
                         frames[column].layers[layer_index].sequence_number
                     )
                     for column in content_columns
+                    if frames[column].layers[layer_index].sequence_number is not None
                 }
             else:
                 content_key_numbers = {
@@ -2979,9 +2946,8 @@ class TimelineWidget(QWidget):
                     )
                 self.table.setItem(visual_row, col, item)
         self._apply_row_heights()
-        selected_layer = frames[current].layers[active]
         self.duration.blockSignals(True)
-        self.duration.setValue(max(1, selected_layer.exposure))
+        self.duration.setValue(max(1, self.timeline_span_at(frames, active, current)[2]))
         self.duration.blockSignals(False)
 
         valid_selected = [
@@ -3018,7 +2984,7 @@ class TimelineWidget(QWidget):
         self.set_normalize_pending(
             sum(
                 changed_count(
-                    normalization_mapping(frames, self.sequence_archive, layer_index)
+                    normalization_mapping(frames, (), layer_index)
                 )
                 for layer_index in range(rows)
             )
@@ -3028,15 +2994,8 @@ class TimelineWidget(QWidget):
 
     @staticmethod
     def key_at_or_before(frames, layer_index, column):
-        for key_col in range(column, -1, -1):
-            if layer_index >= len(frames[key_col].layers):
-                continue
-            layer = frames[key_col].layers[layer_index]
-            if layer.has_content:
-                if column < key_col + max(1, layer.exposure):
-                    return key_col
-                return None
-        return None
+        from .frame_scope import resolve_key_frame
+        return resolve_key_frame(frames, column, layer_index)
 
     def select_current(self, column, active):
         row = max(0, self.table.rowCount() - 1 - active)

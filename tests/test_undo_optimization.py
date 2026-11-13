@@ -7,6 +7,7 @@ from PySide6.QtCore import QPoint, QRect
 from PySide6.QtGui import QColor, QImage, QPainter
 from PySide6.QtWidgets import QApplication
 
+from dense_fixtures import hold
 from paintmaskanimator.canvas import PaintCanvas
 from paintmaskanimator.undo_entries import LayerRegionUndo, LayerUndo
 
@@ -23,7 +24,7 @@ def test_playback_created_cell_can_be_undone_and_redone(blank_key):
     canvas._ensure_frame_count(3)
     canvas.current_frame = 1
     canvas.active_layer.is_blank_key = blank_key
-    canvas.active_layer.exposure = 2 if blank_key else 1
+    hold(canvas, 1, 2 if blank_key else 1)
     canvas.set_playback_active(True)
     before = canvas.document_snapshot()
 
@@ -44,7 +45,11 @@ def test_playback_created_cell_can_be_undone_and_redone(blank_key):
     assert restored.has_content == original.has_content
     assert restored.is_blank_key == original.is_blank_key
     assert restored.sequence_number == original.sequence_number
-    assert restored.exposure == original.exposure
+    assert restored.blank_start == original.blank_start
+    assert [(f.layers[0].has_content, f.layers[0].is_blank_key, f.layers[0].sequence_number)
+            for f in canvas.frames] == [
+                (f.layers[0].has_content, f.layers[0].is_blank_key, f.layers[0].sequence_number)
+                for f in before[0]]
     assert restored.image == original.image
 
     canvas.redo()

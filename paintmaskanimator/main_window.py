@@ -54,7 +54,7 @@ from .history_panel import HistoryPanel
 from .memo_window import MemoWindow
 from .subview import SubViewWidget
 from .color_reduction import ColorReductionDialog
-from .models import Frame, Layer, make_frame
+from .models import Cell, Frame, Layer, make_frame
 from .pressure import PressureDialog
 from .timeline import TimelineWidget
 from .toolpanel import ToolPanel, ToolSelectorPanel
@@ -168,6 +168,7 @@ class MainWindow(
         self._split_drop_source_area = None
         self._split_drop_press_pos = None
         self._dock_menu_builders = {}
+        self.created_app_version = constants.APP_VERSION
         self.current_project_path = None
         # カット袋・シートのメモ欄（Issue #25）。窓は開いたときに作る。
         self.project_memo = ""
@@ -221,10 +222,6 @@ class MainWindow(
         self._refresh_theme_dependent_ui()
 
     def _on_canvas_cell_changed(self, frame_index, layer_index):
-        self.canvas.sync_numbered_image_from_cell(
-            frame_index,
-            layer_index,
-        )
         # Existing brush cells do not change timeline structure. Rebuilding the
         # entire table here made brush release scale with the number of imported images.
         structure_dirty = bool(
@@ -248,9 +245,7 @@ class MainWindow(
             self.used_color.schedule_refresh()
 
     def refresh_ui(self):
-        self.canvas.coalesce_numbered_images()
         self.canvas.link_layer_tracks()
-        self.timeline.sequence_archive = self.canvas._sequence_archive
         self.timeline.playback_range_start = int(self.canvas.playback_range_start)
         self.timeline.playback_range_end = self.canvas.playback_range_end
         self.timeline.refresh(
@@ -282,7 +277,7 @@ class MainWindow(
         if not layer.has_content:
             source = self.canvas.resolve_key_frame(self.canvas.current_frame, self.canvas.active_layer_index)
             layer = self.canvas.frames[source].layers[self.canvas.active_layer_index] if source is not None else layer
-        self.timeline.duration.setValue(max(1, layer.exposure))
+        self.timeline.duration.setValue(max(1, TimelineWidget.timeline_span_at(self.canvas.frames, self.canvas.active_layer_index, self.canvas.current_frame)[2]))
         self.timeline.duration.blockSignals(False)
         self.timeline._sync_layer_opacity_slider(layer.opacity)
 
@@ -725,9 +720,10 @@ class MainWindow(
         """Assemble the project metadata dict from current widget state."""
         return {
             "format": "PaintMaskAnimatorProject",
-            "format_version": 1,
+            "format_version": 2,
             "mask_format": project_io.CURRENT_MASK_FORMAT,
-            "application_version": 100,
+            "created_app_version": self.created_app_version,
+            "saved_app_version": constants.APP_VERSION,
             "canvas": {
                 "width": int(constants.CANVAS_WIDTH),
                 "height": int(constants.CANVAS_HEIGHT),
@@ -997,10 +993,31 @@ class MainWindow(
         old_frames=self.canvas.frames if preserve else None;oldw,oldh=constants.CANVAS_WIDTH,constants.CANVAS_HEIGHT;constants.CANVAS_WIDTH,constants.CANVAS_HEIGHT=w,h
         if preserve:
             new=[]
+            resized_images = {}
             for f in old_frames:  # pyright: ignore[reportOptionalIterable]
                 ls=[]
                 for l in f.layers:
-                    ni=blank_image();p=QPainter(ni);p.drawImage(QRectF(OUTSIDE_MARGIN, OUTSIDE_MARGIN, min(oldw, w), min(oldh, h)), l.image, QRectF(OUTSIDE_MARGIN, OUTSIDE_MARGIN, min(oldw, w), min(oldh, h)));p.end();ls.append(Layer(l.name,ni,l.visible,l.opacity,l.is_paper,l.has_content,l.alpha_locked,l.exposure,l.color_filter_enabled,tuple(l.color_filter_rgb) if l.color_filter_rgb is not None else None,bool(l.is_blank_key),l.sequence_number,bool(l.sequence_only),bool(getattr(l,"is_draft",False)),getattr(l,"cell_name",None)))
+                    rect = QRectF(OUTSIDE_MARGIN, OUTSIDE_MARGIN, min(oldw, w), min(oldh, h))
+                    if l.cell_id not in resized_images:
+                        ni = blank_image()
+                        painter = QPainter(ni)
+                        painter.drawImage(rect, l.image, rect)
+                        painter.end()
+                        resized_images[l.cell_id] = ni
+                    ni = resized_images[l.cell_id]
+                    copied = l.clone()
+                    copied.image = ni
+                    position = copied.__dict__.get("_v1_position")
+                    if position is not None and position.legacy is not None:
+                        from dataclasses import replace
+                        payload = position.legacy
+                        saved_image = blank_image()
+                        painter = QPainter(saved_image)
+                        painter.drawImage(rect, payload.image, rect)
+                        painter.end()
+                        copied.__dict__["_v1_position"] = replace(
+                            position, legacy=replace(payload, image=saved_image))
+                    ls.append(copied)
                 new.append(Frame(ls,f.duration))
             self.canvas.frames=new
         else:
@@ -1028,7 +1045,27 @@ class MainWindow(
             self.canvas.clip_studio_source_metadata = None
         self.canvas.current_frame=0
         self.canvas.active_layer_index=0
+        self.canvas.install_legacy_frames()
+        if preserve and old_frames:
+            # Legacy resize only transforms sheet payloads. Preserve the rest
+            # of the bank just as it preserves the compatibility archive.
+            for li, old_layer in enumerate(old_frames[0].layers):
+                track = self.canvas.frames[0].layers[li]._track
+                from copy import deepcopy
+                track.legacy_archive_hints = deepcopy(old_layer._track.legacy_archive_hints)
+                for number, cell in old_layer._track.cells.items():
+                    if (number in track.cells and number in track.legacy_archive_hints
+                            and track.cells[number].initial_image is None
+                            and cell.initial_image is not None):
+                        track.cells[number].initial_image = QImage(cell.initial_image)
+                    if number not in track.cells:
+                        track.cells[number] = Cell(
+                            QImage(cell.image),
+                            QImage(cell.initial_image) if cell.initial_image is not None else None,
+                            cell.cell_name,
+                        )
         if not preserve:
+            self.created_app_version = constants.APP_VERSION
             self.current_project_path = None
             self.project.update_title()
         self.refresh_ui()
@@ -1178,15 +1215,28 @@ class MainWindow(
         if self.canvas.playback_range_end is not None:
             return max(1, int(self.canvas.playback_range_end))
         duration = max(1, len(self.canvas.frames))
+        from .document import project_v1_state
+        projected, _ = project_v1_state(self.canvas.frames)
+        for column, frame in enumerate(projected):
+            for legacy in frame.layers:
+                if not legacy.sequence_only and (legacy.has_content or legacy.is_blank_key):
+                    duration = max(duration, column + max(1, int(legacy.exposure)))
+        # Preserve unedited v1 keys extending past the dense document boundary.
+        # This compatibility length belongs to the input DTO, never a live slot.
         for column, frame in enumerate(self.canvas.frames):
-            for layer in frame.layers:
-                if layer.sequence_only:
+            for slot in frame.layers:
+                imported = slot.__dict__.get("_dense_import")
+                position = slot.__dict__.get("_v1_position")
+                signature = (slot.has_content, slot.is_blank_key, slot.sequence_number,
+                             slot.sequence_only, slot.blank_start)
+                if imported is None or imported[0] != signature or position is None:
                     continue
-                if layer.has_content or layer.is_blank_key:
-                    duration = max(
-                        duration,
-                        column + max(1, int(layer.exposure)),
-                    )
+                legacy = position.legacy
+                if (legacy is not None and not legacy.sequence_only
+                        and (legacy.has_content or legacy.is_blank_key)):
+                    duration = max(duration, column + max(1, int(
+                        position.input_length if position.input_length is not None
+                        else legacy.exposure)))
         return duration
 
 

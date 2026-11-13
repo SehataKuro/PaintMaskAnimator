@@ -36,6 +36,8 @@ def normalization_mapping(frames, archive_keys, layer_index):
         for archived_layer, number in archive_keys
         if int(archived_layer) == target
     )
+    if 0 <= target < len(frames[0].layers):
+        all_numbers.update(getattr(getattr(frames[0].layers[target], "_track", None), "cells", {}))
     ordered = sheet_numbers + sorted(all_numbers - set(sheet_numbers))
     return {
         old_number: new_number

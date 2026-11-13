@@ -1,0 +1,580 @@
+{
+  "projection": {
+    "frames": [
+      {
+        "duration": 1,
+        "layers": [
+          {
+            "name": "A",
+            "image": "layers/layer_0000/frame_000000.png",
+            "initial": "initial/layer_0000/frame_000000.png",
+            "visible": true,
+            "opacity": 1.0,
+            "is_paper": false,
+            "has_content": true,
+            "exposure": 1,
+            "is_blank_key": false,
+            "sequence_number": 1,
+            "sequence_only": false,
+            "is_draft": false,
+            "cell_name": "placed",
+            "tween": null,
+            "tween_member": null,
+            "color_filter_enabled": false,
+            "color_filter_rgb": null
+          }
+        ]
+      },
+      {
+        "duration": 1,
+        "layers": [
+          {
+            "name": "A",
+            "image": "layers/layer_0000/frame_000001.png",
+            "initial": null,
+            "visible": true,
+            "opacity": 1.0,
+            "is_paper": false,
+            "has_content": true,
+            "exposure": 1,
+            "is_blank_key": false,
+            "sequence_number": 2,
+            "sequence_only": true,
+            "is_draft": false,
+            "cell_name": null,
+            "tween": null,
+            "tween_member": null,
+            "color_filter_enabled": false,
+            "color_filter_rgb": null
+          }
+        ]
+      },
+      {
+        "duration": 1,
+        "layers": [
+          {
+            "name": "A",
+            "image": "layers/layer_0000/frame_000002.png",
+            "initial": null,
+            "visible": true,
+            "opacity": 1.0,
+            "is_paper": false,
+            "has_content": true,
+            "exposure": 1,
+            "is_blank_key": false,
+            "sequence_number": 2,
+            "sequence_only": true,
+            "is_draft": false,
+            "cell_name": null,
+            "tween": null,
+            "tween_member": null,
+            "color_filter_enabled": false,
+            "color_filter_rgb": null
+          }
+        ]
+      },
+      {
+        "duration": 1,
+        "layers": [
+          {
+            "name": "A",
+            "image": "layers/layer_0000/frame_000003.png",
+            "initial": null,
+            "visible": true,
+            "opacity": 1.0,
+            "is_paper": false,
+            "has_content": false,
+            "exposure": 1,
+            "is_blank_key": false,
+            "sequence_number": null,
+            "sequence_only": true,
+            "is_draft": false,
+            "cell_name": null,
+            "tween": null,
+            "tween_member": null,
+            "color_filter_enabled": false,
+            "color_filter_rgb": null
+          }
+        ]
+      },
+      {
+        "duration": 1,
+        "layers": [
+          {
+            "name": "A",
+            "image": "layers/layer_0000/frame_000004.png",
+            "initial": null,
+            "visible": true,
+            "opacity": 1.0,
+            "is_paper": false,
+            "has_content": false,
+            "exposure": 1,
+            "is_blank_key": true,
+            "sequence_number": 12,
+            "sequence_only": false,
+            "is_draft": false,
+            "cell_name": null,
+            "tween": null,
+            "tween_member": null,
+            "color_filter_enabled": false,
+            "color_filter_rgb": null
+          }
+        ]
+      }
+    ],
+    "archive": [
+      {
+        "layer_index": 0,
+        "sequence_number": 1,
+        "image": "sequence_archive/layer_0000/cell_000001.png",
+        "initial": "initial/sequence_archive/layer_0000/cell_000001.png",
+        "name": "A",
+        "visible": true,
+        "opacity": 1.0,
+        "has_content": false,
+        "is_blank_key": true,
+        "is_draft": false,
+        "cell_name": "placed",
+        "color_filter_enabled": false,
+        "color_filter_rgb": null
+      },
+      {
+        "layer_index": 0,
+        "sequence_number": 3,
+        "image": "sequence_archive/layer_0000/cell_000003.png",
+        "initial": "initial/sequence_archive/layer_0000/cell_000003.png",
+        "name": "A",
+        "visible": true,
+        "opacity": 1.0,
+        "has_content": false,
+        "is_blank_key": true,
+        "is_draft": false,
+        "cell_name": "false archive",
+        "color_filter_enabled": false,
+        "color_filter_rgb": null
+      },
+      {
+        "layer_index": 0,
+        "sequence_number": 9,
+        "image": "sequence_archive/layer_0000/cell_000009.png",
+        "initial": "initial/sequence_archive/layer_0000/cell_000009.png",
+        "name": "A",
+        "visible": true,
+        "opacity": 1.0,
+        "has_content": true,
+        "is_blank_key": false,
+        "is_draft": false,
+        "cell_name": "bank only",
+        "color_filter_enabled": false,
+        "color_filter_rgb": null
+      },
+      {
+        "layer_index": 0,
+        "sequence_number": 12,
+        "image": "sequence_archive/layer_0000/cell_000012.png",
+        "initial": null,
+        "name": "A",
+        "visible": true,
+        "opacity": 1.0,
+        "has_content": true,
+        "is_blank_key": false,
+        "is_draft": false,
+        "cell_name": null,
+        "color_filter_enabled": false,
+        "color_filter_rgb": null
+      }
+    ],
+    "pngs": [
+      [
+        "layers/layer_0000/frame_000000.png",
+        4,
+        4,
+        "#ff0000"
+      ],
+      [
+        "initial/layer_0000/frame_000000.png",
+        4,
+        4,
+        "#0000ff"
+      ],
+      [
+        "layers/layer_0000/frame_000001.png",
+        4,
+        4,
+        "#ff0000"
+      ],
+      [
+        "layers/layer_0000/frame_000002.png",
+        4,
+        4,
+        "#ff0000"
+      ],
+      [
+        "layers/layer_0000/frame_000003.png",
+        1280,
+        720,
+        "#000000"
+      ],
+      [
+        "layers/layer_0000/frame_000004.png",
+        4,
+        4,
+        "#ff0000"
+      ],
+      [
+        "sequence_archive/layer_0000/cell_000001.png",
+        4,
+        4,
+        "#ff0000"
+      ],
+      [
+        "initial/sequence_archive/layer_0000/cell_000001.png",
+        4,
+        4,
+        "#0000ff"
+      ],
+      [
+        "sequence_archive/layer_0000/cell_000003.png",
+        4,
+        4,
+        "#ff0000"
+      ],
+      [
+        "initial/sequence_archive/layer_0000/cell_000003.png",
+        4,
+        4,
+        "#008000"
+      ],
+      [
+        "sequence_archive/layer_0000/cell_000009.png",
+        4,
+        4,
+        "#ffff00"
+      ],
+      [
+        "initial/sequence_archive/layer_0000/cell_000009.png",
+        4,
+        4,
+        "#ff00ff"
+      ],
+      [
+        "sequence_archive/layer_0000/cell_000012.png",
+        4,
+        4,
+        "#ff0000"
+      ]
+    ]
+  },
+  "mode": {
+    "even": {
+      "cursor": 2,
+      "undo": 1,
+      "mode": "sheet",
+      "slots": [
+        [
+          1,
+          true,
+          false,
+          2,
+          false
+        ],
+        [
+          null,
+          false,
+          false,
+          1,
+          false
+        ],
+        [
+          2,
+          true,
+          false,
+          2,
+          false
+        ],
+        [
+          null,
+          false,
+          false,
+          1,
+          false
+        ]
+      ]
+    },
+    "odd": {
+      "cursor": 2,
+      "undo": 1,
+      "mode": "sheet",
+      "slots": [
+        [
+          1,
+          true,
+          false,
+          2,
+          false
+        ],
+        [
+          null,
+          false,
+          false,
+          1,
+          false
+        ],
+        [
+          2,
+          true,
+          false,
+          3,
+          false
+        ],
+        [
+          null,
+          false,
+          false,
+          1,
+          false
+        ],
+        [
+          null,
+          false,
+          false,
+          1,
+          false
+        ]
+      ]
+    },
+    "one": {
+      "cursor": 1,
+      "undo": 1,
+      "mode": "sheet",
+      "slots": [
+        [
+          1,
+          true,
+          false,
+          1,
+          false
+        ],
+        [
+          2,
+          true,
+          false,
+          1,
+          false
+        ]
+      ]
+    },
+    "missing": {
+      "cursor": 1,
+      "undo": 1,
+      "mode": "sheet",
+      "slots": [
+        [
+          8,
+          true,
+          false,
+          4,
+          false
+        ],
+        [
+          2,
+          true,
+          false,
+          1,
+          false
+        ]
+      ]
+    },
+    "collision": {
+      "cursor": 6,
+      "undo": 1,
+      "mode": "sheet",
+      "slots": [
+        [
+          1,
+          true,
+          false,
+          2,
+          false
+        ],
+        [
+          null,
+          false,
+          false,
+          1,
+          false
+        ],
+        [
+          7,
+          true,
+          false,
+          1,
+          false
+        ],
+        [
+          null,
+          false,
+          false,
+          1,
+          false
+        ],
+        [
+          null,
+          false,
+          false,
+          1,
+          false
+        ],
+        [
+          null,
+          false,
+          false,
+          1,
+          false
+        ],
+        [
+          2,
+          true,
+          false,
+          2,
+          false
+        ]
+      ]
+    },
+    "none": {
+      "cursor": 5,
+      "undo": 1,
+      "mode": "sheet",
+      "slots": [
+        [
+          1,
+          true,
+          false,
+          4,
+          false
+        ],
+        [
+          null,
+          false,
+          false,
+          1,
+          false
+        ],
+        [
+          null,
+          false,
+          false,
+          1,
+          false
+        ],
+        [
+          null,
+          false,
+          false,
+          1,
+          false
+        ],
+        [
+          null,
+          false,
+          false,
+          1,
+          false
+        ],
+        [
+          null,
+          false,
+          false,
+          1,
+          true
+        ]
+      ]
+    },
+    "duplicate": {
+      "cursor": 1,
+      "undo": 1,
+      "mode": "sheet",
+      "slots": [
+        [
+          1,
+          true,
+          false,
+          1,
+          false
+        ],
+        [
+          2,
+          true,
+          false,
+          1,
+          false
+        ],
+        [
+          2,
+          true,
+          false,
+          2,
+          false
+        ],
+        [
+          null,
+          false,
+          false,
+          1,
+          false
+        ]
+      ]
+    }
+  },
+  "import": {
+    "count": 4,
+    "message": "4セルの線画を初期状態として読み込みました。対応する線画がない1セルは変更していません。",
+    "targets": [
+      1,
+      2
+    ]
+  },
+  "color_resize": {
+    "colors": [
+      [
+        255,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        255
+      ]
+    ],
+    "sizes": {
+      "1": [
+        6,
+        7,
+        null,
+        null
+      ],
+      "2": [
+        6,
+        7,
+        null,
+        null
+      ],
+      "3": [
+        4,
+        4,
+        null,
+        null
+      ],
+      "9": [
+        4,
+        4,
+        [
+          4,
+          4
+        ],
+        "bank"
+      ]
+    }
+  }
+}

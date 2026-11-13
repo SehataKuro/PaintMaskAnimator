@@ -136,9 +136,61 @@ def quiesce_leftover_main_windows():
     止めるだけにして窓は隔離したまま残す。それ以外では破棄する
     （``_tidy_up_leftover_main_windows`` のコメントを参照）。
     """
+    before = _top_level_widget_pointers()
     _tidy_up_leftover_main_windows()
     yield
     _tidy_up_leftover_main_windows()
+    # 別の autouse フィクスチャにすると後始末の順序が逆転しうるので、窓の
+    # 破棄と pytest-qt の close() が済むこの場所で、置き去りぶんも片付ける。
+    _delete_new_top_levels(before)
+
+
+def _top_level_widget_pointers():
+    """テスト開始時に存在するトップレベルの C++ アドレスを控える。"""
+    import sys
+
+    # Windows では QtAds の破棄と topLevelWidgets() の走査で事故の履歴が
+    # ある。今回ここでは確かめられないので、一覧の取得も破棄もしない。
+    if sys.platform == "win32":
+        return None
+    from PySide6.QtWidgets import QApplication
+    from shiboken6 import getCppPointer, isValid
+
+    app = QApplication.instance()
+    # Python ラッパーの作り直しに左右されない C++ アドレスで持つ。アドレスが
+    # 再利用されても、新しい物を「前からあった」として残すだけなので無害。
+    # 逆に、前からある物を新しい物と取り違えて消すことはない。
+    return {
+        getCppPointer(widget)[0] for widget in app.topLevelWidgets() if isValid(widget)
+    } if app is not None else set()
+
+
+def _delete_new_top_levels(before):
+    """テストが残した、親なしのトップレベルを破棄する。"""
+    if before is None:
+        return
+    import gc
+
+    from PySide6.QtCore import QCoreApplication, QEvent
+    from PySide6.QtWidgets import QApplication
+    from shiboken6 import delete, getCppPointer, isValid
+
+    app = QApplication.instance()
+    if app is None:
+        return
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    # _live_main_windows の走査禁止は、積み上がった一覧でセグフォルトが
+    # 起きた経緯による。今回は Linux で全150ファイルの合格を確認済みの
+    # 手順を使い、走査は1テストにつき開始・終了の2回にとどめる。
+    for widget in app.topLevelWidgets():
+        if not isValid(widget) or getCppPointer(widget)[0] in before:
+            continue
+        if widget.parentWidget() is not None:
+            continue
+        widget.close()
+        if isValid(widget):
+            delete(widget)
+    gc.collect()
 
 
 def _live_main_windows():

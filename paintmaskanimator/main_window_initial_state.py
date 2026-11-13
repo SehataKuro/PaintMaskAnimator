@@ -123,15 +123,26 @@ class InitialStateController:
                              expected_width=layer.image.width(), expected_height=layer.image.height()))
                 return image
 
+            # Dense holds share artwork, but import's count and history retain
+            # the old explicit-position policy, including saved same-number keys.
+            from .document import project_v1_state
+            positions, _ = project_v1_state(canvas.frames)
             for fi, frame in enumerate(canvas.frames):
                 for li, layer in enumerate(frame.layers):
+                    if li >= len(positions[fi].layers) or not positions[fi].layers[li].has_content:
+                        continue
                     image = match(layer)
                     if image is not None:
                         cells.append((fi, li, image))
-            for (li, number), layer in canvas._sequence_archive.items():
-                image = match(layer)
-                if image is not None:
-                    archived.append((li, number, image))
+            from .document import DrawingTarget
+            for li, track in enumerate(canvas._document.tracks):
+                for number in track.legacy_archive_hints:
+                    cell = track.cells.get(number)
+                    if cell is None:
+                        continue
+                    image = match(DrawingTarget(cell, track, None, None, number))
+                    if image is not None:
+                        archived.append((li, number, image))
         except OPERATION_ERRORS as exc:
             status.clearMessage()
             # Restore the cursor before a modal error dialog appears.
@@ -157,13 +168,13 @@ class InitialStateController:
 
         canvas.push_undo(InitialStateUndo(
             [(fi, li, snapshot(canvas.frames[fi].layers[li].initial_image)) for fi, li, _ in cells],
-            [(li, number, snapshot(canvas._sequence_archive[(li, number)].initial_image))
+            [(li, number, snapshot(canvas._document.tracks[li].cells[number].initial_image))
              for li, number, _ in archived],
         ))
         for fi, li, image in cells:
             canvas.frames[fi].layers[li].initial_image = QImage(image)
         for li, number, image in archived:
-            canvas._sequence_archive[(li, number)].initial_image = QImage(image)
+            canvas._document.tracks[li].cells[number].initial_image = QImage(image)
         canvas._playback_frame_cache.clear()
         canvas.changed.emit()
         canvas.update()

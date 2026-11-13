@@ -8,6 +8,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtGui import QColor  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+from tests.dense_fixtures import hold, length  # noqa: E402
+
 from paintmaskanimator.main_window import MainWindow  # noqa: E402
 
 
@@ -44,7 +46,7 @@ def test_a_new_animation_cell_marks_the_cell_as_drawn(window):
 
     layer = window.canvas.frames[2].layers[0]
     assert layer.has_content
-    assert layer.exposure == 1
+    assert length(window.canvas, 2) == 1
 
 
 def test_clearing_a_cell_leaves_it_unused_without_closing_the_gap(window):
@@ -86,32 +88,34 @@ def test_copying_lets_the_menu_offer_paste(window):
 
 def test_splitting_a_clip_cuts_the_exposure_in_two(window):
     layer = paint(window, 1)
-    layer.exposure = 4
+    hold(window.canvas, 1, 4)
 
     assert window.timeline_ops.split_clip(visual_row(window), 3)
 
-    assert window.canvas.frames[1].layers[0].exposure == 2
+    assert length(window.canvas, 1) == 2
     tail = window.canvas.frames[3].layers[0]
-    assert tail.has_content and tail.exposure == 2
+    assert tail.has_content and length(window.canvas, 3) == 2
+    assert tail.sequence_number != layer.sequence_number
 
 
 def test_splitting_at_the_head_is_refused(window):
-    layer = paint(window, 1)
-    layer.exposure = 3
+    paint(window, 1)
+    hold(window.canvas, 1, 3)
 
     assert not window.timeline_ops.split_clip(visual_row(window), 1)
-    assert window.canvas.frames[1].layers[0].exposure == 3
+    assert length(window.canvas, 1) == 3
 
 
 def test_merging_swallows_the_cell_into_the_one_before(window):
     first = paint(window, 1)
-    first.exposure = 2
+    hold(window.canvas, 1, 2)
     paint(window, 3)
 
     assert window.timeline_ops.merge_clip(visual_row(window), 3)
 
-    assert window.canvas.frames[1].layers[0].exposure == 3
-    assert not window.canvas.frames[3].layers[0].has_content
+    assert length(window.canvas, 1) == 3
+    assert window.canvas.frames[3].layers[0].has_content
+    assert window.canvas.frames[3].layers[0].sequence_number == first.sequence_number
 
 
 def test_merging_with_nothing_before_is_refused(window):

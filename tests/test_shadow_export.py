@@ -90,6 +90,7 @@ def paint_window_cel(window):
                 OUTSIDE_MARGIN + x, OUTSIDE_MARGIN + y, QColor(*SHADOW_RGB)
             )
     layer.has_content = True
+    layer._track.cells[1] = layer._cell
     layer.sequence_number = 1
     layer.name = "A"
 

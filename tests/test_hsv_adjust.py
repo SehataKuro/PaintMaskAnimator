@@ -9,6 +9,7 @@ from PySide6.QtGui import QColor  # noqa: E402
 from PySide6.QtWidgets import QApplication, QDialog  # noqa: E402
 
 from paintmaskanimator import hsv_adjust_dialog  # noqa: E402
+from paintmaskanimator.document import create_drawing
 from paintmaskanimator.main_window import MainWindow  # noqa: E402
 
 
@@ -34,7 +35,7 @@ def paint(window, color, origin=(10, 10), size=4):
     for y in range(y0, y0 + size):
         for x in range(x0, x0 + size):
             layer.image.setPixelColor(x, y, QColor(color))
-    layer.has_content = True
+    create_drawing(layer, layer.image, number=layer.sequence_number)
 
 
 def test_the_hue_turns_all_the_way_round():
@@ -73,12 +74,17 @@ def test_several_colours_are_shifted_together():
     assert mapping == {(255, 0, 0): (0, 255, 0), (0, 0, 255): (255, 0, 0)}
 
 
-def test_accepting_applies_to_every_frame(window, monkeypatch):
+@pytest.mark.parametrize("dense_hold", [False, True])
+def test_accepting_applies_to_every_frame(window, monkeypatch, dense_hold):
     window.canvas._ensure_frame_count(3)
     for frame_index in range(3):
         layer = window.canvas.frames[frame_index].layers[0]
         layer.image.setPixelColor(10, 10, QColor(255, 0, 0))
-        layer.has_content = True
+        create_drawing(layer, layer.image, number=layer.sequence_number)
+
+    if dense_hold:
+        from dense_fixtures import hold
+        hold(window.canvas, len(window.canvas.frames) - 1, 2)
 
     def accept(dialog):
         dialog.hue.setValue(120)

@@ -4,12 +4,15 @@ Split out of ``canvas.py`` as a mixin. These methods push document / layer /
 region snapshots onto the undo stack and apply them on undo/redo. They run
 against a live ``PaintCanvas`` instance and its ``_document`` + stacks.
 """
+from copy import deepcopy
+from .document import release_slots
 from PySide6.QtCore import QRect, QPointF
 from PySide6.QtGui import QPainter
 from .constants import MAX_UNDO, MAX_UNDO_BYTES
 from ._canvas_members import CanvasMembers
 from . import constants
 from .models import Layer, default_layer_name
+from .timeline_metadata import set_dense_import
 from .utils import blank_image
 from .logging_setup import get_logger
 from .undo_entries import (
@@ -25,7 +28,6 @@ from .undo_entries import (
     LayerUndo,
     PaletteStateUndo,
     ScopedBatchUndo,
-    TweenBatchUndo,
     history_label_for,
 )
 
@@ -209,6 +211,7 @@ class UndoMixin(CanvasMembers):
             int(self.active_layer_index),
             layer.image.copy(),
             bool(layer.has_content),
+            layer_name=layer.name, number=layer.sequence_number,
         ))
 
     def push_layer_region_undo(self, rect):
@@ -223,6 +226,7 @@ class UndoMixin(CanvasMembers):
             rect,
             layer.image.copy(rect),
             bool(layer.has_content),
+            layer_name=layer.name, number=layer.sequence_number,
         ))
         return True
 
@@ -237,52 +241,42 @@ class UndoMixin(CanvasMembers):
             self._invalidate_tp_preview_cache()
             self.selectionChanged.emit()
         elif isinstance(e, InitialStateUndo):
+            restored = set()
             for fi, li, image in e.cells:
                 if 0 <= fi < len(self.frames) and 0 <= li < len(self.frames[fi].layers):
-                    self.frames[fi].layers[li].initial_image = image
+                    layer = self.frames[fi].layers[li]
+                    if layer.cell_id not in restored:
+                        layer.initial_image = image
+                        restored.add(layer.cell_id)
             for li, number, image in e.archived:
-                archived = self._sequence_archive.get((li, number))
-                if archived is not None:
-                    archived.initial_image = image
+                if 0 <= li < len(self._document.tracks):
+                    track = self._document.tracks[li]
+                    cell = track.cells.get(number) if number in track.legacy_archive_hints else None
+                    if cell is not None and id(cell) not in restored:
+                        cell.initial_image = image
+                        restored.add(id(cell))
             self._playback_frame_cache.clear()
             self.changed.emit()
-        elif isinstance(e, LayerTilesUndo):
-            if (
-                0 <= e.frame < len(self.frames)
-                and 0 <= e.layer < len(self.frames[e.frame].layers)
-            ):
-                fi, li = e.frame, e.layer
-                self.current_frame = fi
-                self.active_layer_index = li
-                layer = self.frames[fi].layers[li]
+        elif isinstance(e, (LayerUndo, LayerRegionUndo, LayerTilesUndo)):
+            target = self._resolve_drawing_undo_target(e)
+            if target is None:
+                return
+            fi, layer = target
+            if isinstance(e, LayerUndo):
+                layer.image = e.image
+            else:
                 painter = QPainter(layer.image)
-                painter.setCompositionMode(
-                    QPainter.CompositionMode.CompositionMode_Source
-                )
-                for rect, image in e.tiles:
+                painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+                patches = e.tiles if isinstance(e, LayerTilesUndo) else ((e.rect, e.image),)
+                for rect, image in patches:
                     painter.drawImage(QRect(rect).topLeft(), image)
                 painter.end()
-                layer.has_content = bool(e.has_content)
-                self.cellChanged.emit(fi, li)
-                self.selectionChanged.emit()
-        elif isinstance(e, LayerRegionUndo):
-            if (
-                0 <= e.frame < len(self.frames)
-                and 0 <= e.layer < len(self.frames[e.frame].layers)
-            ):
-                fi, li = e.frame, e.layer
+            layer.has_content = bool(e.has_content)
+            if fi is not None:
                 self.current_frame = fi
-                self.active_layer_index = li
-                layer = self.frames[fi].layers[li]
-                painter = QPainter(layer.image)
-                painter.setCompositionMode(
-                    QPainter.CompositionMode.CompositionMode_Source
-                )
-                painter.drawImage(QRect(e.rect).topLeft(), e.image)
-                painter.end()
-                layer.has_content = bool(e.has_content)
-                self.cellChanged.emit(fi, li)
-                self.selectionChanged.emit()
+                self.active_layer_index = e.layer
+                self.cellChanged.emit(fi, e.layer)
+            self.selectionChanged.emit()
         elif isinstance(e, PaletteStateUndo):
             # 使用色パネルの並び順・親子プレビュー・表示/マスクを復元する。
             palette = getattr(self, "_palette", None)
@@ -290,63 +284,82 @@ class UndoMixin(CanvasMembers):
                 palette.restore_history_state(e.state)
         elif isinstance(e, ExposureUndo):
             self._ensure_frame_count(e.frame_count)
-            moved = [(dst, self.frames[src].layers[e.layer].clone())
-                     for src, dst in e.moves]
-            for src, _dst in e.moves:
-                self._clear_timeline_layer_cell(self.frames[src].layers[e.layer])
-            for dst, layer in moved:
-                self.frames[dst].layers[e.layer] = layer
+            for frame in self.frames[e.frame_count:]:
+                release_slots(frame.layers)
             del self.frames[e.frame_count:]
-            self.frames[e.column].layers[e.layer].exposure = e.exposure
+            for frame, values in zip(self.frames[e.column:], e.references):
+                slot = frame.layers[e.layer]
+                content, blank, start, number, pending, tween, member, imported, position = values
+                slot.has_content = False
+                slot.sequence_number = number
+                slot.has_content = content
+                slot.is_blank_key = blank
+                slot.blank_start = start
+                slot.set_pending(pending)
+                slot.tween = deepcopy(tween)
+                slot.tween_member = member
+                if imported is None:
+                    slot.__dict__.pop("_dense_import", None)
+                else:
+                    set_dense_import(slot, imported)
+                if position is None:
+                    slot.__dict__.pop("_v1_position", None)
+                else:
+                    slot.__dict__["_v1_position"] = position
             self.current_frame = e.current_frame
             self.active_layer_index = e.active_layer
             self._invalidate_display_caches()
             self.changed.emit()
             self.selectionChanged.emit()
         elif isinstance(e, DocUndo):
-            fs, cf, al, w, h = e.snapshot
+            w, h = self._document.restore(e.snapshot)
             constants.CANVAS_WIDTH = w
             constants.CANVAS_HEIGHT = h
-            # The entry was popped before application and its inverse has
-            # already been captured. Transfer the stored snapshot directly;
-            # cloning every frame/layer/image again only adds latency.
-            self.frames = fs
-            self.current_frame = cf
-            self.active_layer_index = al
-            self.coalesce_numbered_images()
+            self._invalidate_exposure_index()
             self.link_layer_tracks()
             self.changed.emit()
-        elif isinstance(e, LayerBatchUndo):
-            li = e.layer
-            self.active_layer_index = li
-            for fi, img, hc in e.cells:
-                if 0 <= fi < len(self.frames) and 0 <= li < len(self.frames[fi].layers):
-                    self.frames[fi].layers[li].image = img
-                    self.frames[fi].layers[li].has_content = hc
+        elif isinstance(e, (LayerBatchUndo, ScopedBatchUndo)):
+            scoped = isinstance(e, ScopedBatchUndo)
+            if not scoped:
+                self.active_layer_index = e.layer
+            for cell in e.cells:
+                fi, li, img, hc, number = cell if scoped else (cell[0], e.layer, *cell[1:])
+                target = self._resolve_numbered_target(fi, li, number)
+                if target is None:
+                    continue
+                resolved_fi, layer = target
+                layer.image = img
+                if number is None:
+                    layer.has_content = hc
                     self.cellChanged.emit(fi, li)
-            self.selectionChanged.emit()
-        elif isinstance(e, ScopedBatchUndo):
-            # 一括処理ランナー（frame_scope）1回分。レイヤーを跨いで復元する。
-            for fi, li, img, hc in e.cells:
-                if (
-                    0 <= fi < len(self.frames)
-                    and 0 <= li < len(self.frames[fi].layers)
-                ):
-                    self.frames[fi].layers[li].image = img
-                    self.frames[fi].layers[li].has_content = hc
-                    self.cellChanged.emit(fi, li)
-            if e.cells:
-                self.active_layer_index = max(
-                    0,
-                    min(int(e.cells[0][1]), len(self.layers) - 1),
-                )
-            self._onion_cache.clear()
+                else:
+                    if resolved_fi is None:
+                        layer.has_content = hc
+                    for sheet_fi, frame in enumerate(self.frames):
+                        if 0 <= li < len(frame.layers):
+                            sheet_layer = frame.layers[li]
+                            former_content = (
+                                sheet_layer._track is layer._track
+                                and sheet_layer.sequence_number == number
+                                and sheet_layer.__dict__.get("_content_origin") == number
+                            )
+                            if sheet_layer.cell_id == layer.cell_id or former_content:
+                                sheet_layer.has_content = hc
+                                self.cellChanged.emit(sheet_fi, li)
+            if scoped:
+                if e.cells:
+                    self.active_layer_index = max(
+                        0, min(int(e.cells[0][1]), len(self.layers) - 1),
+                    )
+                self._onion_cache.clear()
             self.selectionChanged.emit()
         elif isinstance(e, LayerRemoveUndo):
             index = e.index
             for frame in self.frames:
                 if 0 <= index < len(frame.layers) and len(frame.layers) > 1:
+                    release_slots([frame.layers[index]])
                     frame.layers.pop(index)
+            self._document.sync_columns()
             self.active_layer_index = max(
                 0,
                 min(int(e.target_active), len(self.layers) - 1),
@@ -356,7 +369,10 @@ class UndoMixin(CanvasMembers):
             self.selectionChanged.emit()
         elif isinstance(e, LayerInsertUndo):
             index = e.index
-            stored_layers = e.layers
+            from .document import clone_frame_graph
+            from .models import Frame
+            copied, _ = clone_frame_graph([Frame([layer]) for layer in e.layers])
+            stored_layers = [frame.layers[0] for frame in copied]
             for frame_index, frame in enumerate(self.frames):
                 if frame_index < len(stored_layers):
                     layer = stored_layers[frame_index]
@@ -367,49 +383,17 @@ class UndoMixin(CanvasMembers):
                         visible=True,
                         opacity=1.0,
                     )
+                if stored_layers:
+                    layer.share_track_with(stored_layers[0])
                 frame.layers.insert(
                     max(0, min(int(index), len(frame.layers))),
                     layer,
                 )
+            self._document.sync_columns()
             self.active_layer_index = max(
-                0,
-                min(int(e.target_active), len(self.layers) - 1),
-            )
+                0, min(int(e.target_active), len(self.layers) - 1))
             self._onion_cache.clear()
             self.changed.emit()
-            self.selectionChanged.emit()
-        elif isinstance(e, TweenBatchUndo):
-            li = e.layer
-            restore_count = max(1, int(e.restore_count))
-            if len(self.frames) < restore_count:
-                self._ensure_frame_count(restore_count)
-            for fi, image, has_content, exposure in e.cells:
-                if (
-                    0 <= fi < len(self.frames)
-                    and 0 <= li < len(self.frames[fi].layers)
-                ):
-                    layer = self.frames[fi].layers[li]
-                    layer.image = image
-                    layer.has_content = bool(has_content)
-                    layer.exposure = max(1, int(exposure))
-            if len(self.frames) > restore_count:
-                del self.frames[restore_count:]
-            self.current_frame = max(
-                0, min(int(e.start), len(self.frames) - 1)
-            )
-            self.active_layer_index = max(
-                0, min(int(li), len(self.layers) - 1)
-            )
-            self._onion_cache.clear()
-            self.changed.emit()
-            self.selectionChanged.emit()
-        elif isinstance(e, LayerUndo):
-            fi, li = e.frame, e.layer
-            self.current_frame = fi
-            self.active_layer_index = li
-            self.frames[fi].layers[li].image = e.image
-            self.frames[fi].layers[li].has_content = e.has_content
-            self.cellChanged.emit(fi, li)
             self.selectionChanged.emit()
         else:
             log.warning("unknown undo entry type: %r", type(e).__name__)
