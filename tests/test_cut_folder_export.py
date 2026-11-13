@@ -6,7 +6,7 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt  # noqa: E402
-from PySide6.QtGui import QColor  # noqa: E402
+from PySide6.QtGui import QColor, QColorSpace, QImage  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
 
@@ -87,6 +87,39 @@ def test_timesheet_folder_puts_the_sheet_in_a_subfolder(window, tmp_path, monkey
     assert plan.timesheet_path == "_ts/PMA_01_c003.xdts"
     assert window.export.write_cut_folder(plan, tmp_path, images, "png")
     assert (tmp_path / "PMA_01_c003" / "_ts" / "PMA_01_c003.xdts").is_file()
+
+
+def _png_chunks(path):
+    data = path.read_bytes()[8:]
+    chunks = []
+    while data:
+        length = int.from_bytes(data[:4], "big")
+        chunks.append(data[4:8].decode("ascii"))
+        data = data[12 + length:]
+    return chunks
+
+
+def test_every_exported_cel_is_written_without_a_colour_profile(window, tmp_path, monkeypatch):
+    # A cel read from a file with an ICC profile keeps it as the QImage's colour
+    # space, while a cel drawn in PMA has none. Qt then wrote iCCP into the
+    # first kind only, so one cut folder mixed tagged and untagged images.
+    monkeypatch.setattr(QMessageBox, "information", lambda *_a, **_k: None)
+    _draw_cels(window, 2)
+    imported = window.canvas.frames[1].layers[0]
+    imported.image.setColorSpace(QColorSpace(QColorSpace.NamedColorSpace.SRgb))
+    cels, images, _ = window.export.cut_folder_cels()
+    plan = cf.plan_export(
+        cf.pma_standard_layout(), {"title": "PMA", "episode": "1", "cut": "5"}, cels
+    )
+    assert window.export.write_cut_folder(plan, tmp_path, images, "png")
+
+    root = tmp_path / "PMA_01_c005" / "A"
+    for name in ("A0001.png", "A0002.png"):
+        assert "iCCP" not in _png_chunks(root / name), name
+    written = QImage(str(root / "A0002.png"))
+    assert QColor(written.pixel(0, 0)) == QColor(255, 0, 0, 255)
+    # Exporting must not strip the profile from the cel being edited.
+    assert imported.image.colorSpace().isValid()
 
 
 @pytest.mark.parametrize("kind", ["builtin", "user"])

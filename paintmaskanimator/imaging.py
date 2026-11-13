@@ -8,7 +8,7 @@ unchanged.
 from typing import Any
 
 import numpy as np
-from PySide6.QtGui import QImage
+from PySide6.QtGui import QColorSpace, QImage
 
 from .optional_deps import PILImage
 from .constants import TP_MASK_PROXY_THRESHOLD
@@ -27,6 +27,25 @@ def qimage_buffer(image: QImage, *, const: bool = False) -> Any:
     if callable(setsize):
         setsize(int(image.sizeInBytes()))
     return pointer
+
+
+def without_color_space(image: Any) -> Any:
+    """Return ``image`` without an embedded colour space (ICC profile).
+
+    PMA paints and displays raw pixel values and never colour-manages them, so
+    a profile carried in from an imported file only changes how *other*
+    programs show the exported image. Qt writes one into a PNG whenever the
+    QImage has a valid colour space, and only images read from such files
+    have one -- so cells drawn in PMA came out without a profile and imported
+    ones with it. Untouched images are returned as-is, without a copy.
+
+    Typed ``Any`` because callers hand the result to ``QImage.save(path, "PNG")``,
+    which PySide6's stubs reject although it works at runtime.
+    """
+    if image.colorSpace().isValid():
+        image = QImage(image)  # detach: the caller's image keeps its own
+        image.setColorSpace(QColorSpace())
+    return image
 
 
 def qimage_rgba_array(image):
