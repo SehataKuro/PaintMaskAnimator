@@ -1497,11 +1497,39 @@ def plan_auto_paint(
     progress: Optional[Callable[[int, int], bool]] = None,
     **options: Any,
 ) -> Optional[AutoPlan]:
-    """見本から順に塗る。先行準備は色の引き継ぎ順序を変えず、終了時に回収する。"""
+    """見本から順に塗る。先行準備は色の引き継ぎ順序を変えず、終了時に回収する。
+
+    不透明な白は、透明と同じ「まだ塗っていない所」として扱う（:func:`white_as_unpainted`）。
+    """
+    cells = [white_as_unpainted(pixels) for pixels in cells]
+    for key in ("hints", "lines"):
+        if options.get(key) is not None:
+            options[key] = [
+                None if pixels is None else white_as_unpainted(pixels)
+                for pixels in options[key]
+            ]
     with ExitStack() as resources:
         return _plan_auto_paint(
             cells, reference_index, progress=progress, _resources=resources, **options,
         )
+
+
+def white_as_unpainted(pixels: np.ndarray) -> np.ndarray:
+    """不透明な白（#FFFFFF）を透明にした絵。白が無ければ同じ配列をそのまま返す。
+
+    PMA では白は消しゴムと同じ（#15）。それでも、読み込みの2値化（ライン抽出）を
+    通した線画は背景が不透明な白のまま入る。自動塗りは透明の所だけを「まだ塗って
+    いない部分」とみなすので、白のままだと背景も中も「白で塗ってある」ことになり、
+    何も塗らない（#65）。
+    """
+    white = pixels[:, :, 3] > 0
+    for channel in range(3):
+        white &= pixels[:, :, channel] == 255
+    if not white.any():
+        return pixels
+    out = pixels.copy()
+    out[white] = 0
+    return out
 
 
 def _plan_auto_paint(
@@ -1850,6 +1878,7 @@ __all__ = [
     "boundary_mask",
     "gap_mask",
     "line_only",
+    "white_as_unpainted",
     "mark_mask",
     "paint_cell",
     "paint_from_guide",
