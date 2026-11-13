@@ -28,7 +28,7 @@ from .logging_setup import get_logger
 
 from PySide6.QtCore import QMimeData
 from PySide6.QtGui import QDrag
-from PySide6.QtWidgets import QGraphicsOpacityEffect
+from PySide6.QtWidgets import QDialogButtonBox, QGraphicsOpacityEffect
 
 log = get_logger(__name__)
 
@@ -354,7 +354,9 @@ class ReplacementColorPopup(ColorPickerDialog):
     ON の間は編集をそのまま置換色へ反映し、キャンセルしたら開いたときの色へ戻す。
     """
 
-    def __init__(self, color, source_rgb=None, parent=None, preview=None):
+    def __init__(
+        self, color, source_rgb=None, parent=None, preview=None, on_clear=None,
+    ):
         title = tr("置換色")
         if source_rgb is not None:
             title = tr("置換色　元色 #{hex}").format(
@@ -363,6 +365,14 @@ class ReplacementColorPopup(ColorPickerDialog):
         super().__init__(color, parent, title, preview)
         self.setModal(False)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        self.clear_button = None
+        if on_clear is not None:
+            # 置換色を未設定へ戻す（#66）。閉じるのは呼び出し側が行う。
+            self.clear_button = self.button_box.addButton(
+                tr("外す"), QDialogButtonBox.ButtonRole.ResetRole
+            )
+            self.clear_button.setToolTip(tr("この色の置換色を未設定に戻します。"))
+            self.clear_button.clicked.connect(on_clear)
 
 
 class ColorVisibilityCheckBox(QCheckBox):
