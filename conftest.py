@@ -73,6 +73,23 @@ def pytest_runtest_teardown(item):
 
 
 @pytest.fixture(autouse=True)
+def restore_canvas_size():
+    """Put the process-wide canvas size back after every test.
+
+    ``constants.CANVAS_WIDTH`` / ``CANVAS_HEIGHT`` change whenever a project is
+    opened or a new document is made, and every later ``PaintCanvas`` sizes its
+    layers from them. A test that opens a 32x32 project and leaves it set makes
+    unrelated tests further down the run draw onto a canvas too small to hold
+    their coordinates -- they pass alone and fail in the full run.
+    """
+    from paintmaskanimator import constants
+
+    size = constants.CANVAS_WIDTH, constants.CANVAS_HEIGHT
+    yield
+    constants.CANVAS_WIDTH, constants.CANVAS_HEIGHT = size
+
+
+@pytest.fixture(autouse=True)
 def isolated_config_dir(tmp_path, monkeypatch):
     """Point the per-user config directory at a throwaway folder.
 
