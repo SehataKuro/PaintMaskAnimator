@@ -163,6 +163,8 @@ class UsedColorPanel(
 
         # Undo履歴用。復元中は再記録を止め、スウィープ中は開始時状態を保持する。
         self._history_suspended = False
+        # 置換色の編集ポップアップを開いた時点のパネル状態（閉じたら1件の Undo にする）。
+        self._replacement_edit_before = None
         self._sweep_history_before = None
 
         layout = QVBoxLayout(self)
@@ -414,11 +416,19 @@ class UsedColorPanel(
             # 閉じるだけなら編集した色を残す（キャンセル扱いで元に戻さない）。
             popup.accept()
             popup.deleteLater()
+        self._finish_replacement_edit()
 
     def _replacement_popup_destroyed(self, popup):
         if self._replacement_popup is popup:
             self._replacement_popup = None
             self._replacement_popup_rgb = None
+            self._finish_replacement_edit()
+
+    def _finish_replacement_edit(self):
+        """ポップアップでの編集を、開く前との差があれば1件の Undo にする。"""
+        before = self._replacement_edit_before
+        self._replacement_edit_before = None
+        self._record_history(tr("置換色を設定"), before)
 
     def open_replacement_editor(self, source_rgb):
         """置換色のカラーピッカーを開く（開いていれば閉じずにそのまま）。"""
@@ -445,6 +455,8 @@ class UsedColorPanel(
             return
 
         self._close_replacement_editor()
+        if not self._history_suspended:
+            self._replacement_edit_before = self.capture_history_state()
         color = self.replacements.get(source_rgb)
         if color is None:
             window = self.window()
@@ -463,6 +475,8 @@ class UsedColorPanel(
             QColor(color), source_rgb, self,
             preview=lambda changed, rgb=source_rgb:
             self._set_replacement_color(rgb, changed),
+            on_clear=lambda _checked=False, rgb=source_rgb:
+            self.clear_replacement(rgb),
         )
         self._replacement_popup = popup
         self._replacement_popup_rgb = source_rgb
@@ -508,6 +522,10 @@ class UsedColorPanel(
         self._set_replacement_color(source_rgb, color)
 
     def register_replacements(self, mapping):
+        with self._history_edit(tr("置換色を読み込む")):
+            return self._register_replacements(mapping)
+
+    def _register_replacements(self, mapping):
         registered = 0
         for source_rgb, target_rgb in mapping.items():
             source_rgb = tuple(int(value) for value in source_rgb[:3])
@@ -520,6 +538,11 @@ class UsedColorPanel(
             self._set_replacement_color(source_rgb, QColor(*target_rgb))
             registered += 1
         return registered
+
+    def _pick_replacement_color(self, source_rgb, color):
+        """画面スポイトで置換色を決める（Undo で戻せる）。"""
+        with self._history_edit(tr("置換色を設定")):
+            self._set_replacement_color(source_rgb, color)
 
     def _set_replacement_color(self, source_rgb, color):
         if source_rgb == self.background_rgb:
@@ -538,6 +561,27 @@ class UsedColorPanel(
         self.replacements.pop(source_rgb, None)
         self._set_replacement_button_style(source_rgb)
 
+    def clear_replacement(self, source_rgb):
+        """1色の置換色を外す（Undo で戻せる）。外したら True。"""
+        source_rgb = tuple(source_rgb)
+        if source_rgb not in self.replacements:
+            return False
+        with self._history_edit(tr("置換色を外す")):
+            self._clear_replacement(source_rgb)
+        return True
+
+    def clear_all_replacements(self):
+        """すべての置換色を外す（Undo 1回で戻せる）。外した色の数を返す。"""
+        sources = [
+            rgb for rgb in self.replacements if rgb != self.background_rgb
+        ]
+        if not sources:
+            return 0
+        with self._history_edit(tr("置換色をすべて外す")):
+            for rgb in sources:
+                self._clear_replacement(rgb)
+        return len(sources)
+
     def current_replacements(self):
         """いま登録している ``{元の RGB: 置換後の RGB}``。"""
         return {
@@ -551,8 +595,13 @@ class UsedColorPanel(
         save = menu.addAction(tr("置換色を保存…"))
         save.setEnabled(bool(self.current_replacements()))
         load = menu.addAction(tr("置換色を読み込む…"))
+        menu.addSeparator()
+        clear_all = menu.addAction(tr("置換色をすべて外す"))
+        clear_all.setEnabled(bool(self.current_replacements()))
         chosen = menu.exec(self.apply_button.mapToGlobal(pos))
-        if chosen is save:
+        if chosen is clear_all:
+            self.clear_all_replacements()
+        elif chosen is save:
             self.saveReplacementSetRequested.emit()
         elif chosen is load:
             self.loadReplacementSetRequested.emit()
@@ -1223,7 +1272,7 @@ class UsedColorPanel(
             )
             replacement.colorPicked.connect(
                 lambda color, rgb=source_rgb:
-                self._set_replacement_color(rgb, color)
+                self._pick_replacement_color(rgb, color)
             )
             replacement.colorEditorRequested.connect(
                 lambda global_pos, rgb=source_rgb:
@@ -1473,6 +1522,17 @@ class UsedColorPanel(
         action_ungroup_all = None
         if self.child_to_parent:
             action_ungroup_all = menu.addAction(tr("親子をすべて解除"))
+        action_clear_replacement = None
+        if clicked_rgb in self.replacements:
+            menu.addSeparator()
+            action_clear_replacement = menu.addAction(tr("置換色を外す"))
+        action_clear_all_replacements = None
+        if self.current_replacements():
+            if action_clear_replacement is None:
+                menu.addSeparator()
+            action_clear_all_replacements = menu.addAction(
+                tr("置換色をすべて外す")
+            )
         action_clear = None
         if self.selected_rgbs:
             menu.addSeparator()
@@ -1521,6 +1581,16 @@ class UsedColorPanel(
                     self._emit_preview()
         elif action_ungroup_all is not None and chosen is action_ungroup_all:
             self._clear_groups()
+        elif (
+            action_clear_replacement is not None
+            and chosen is action_clear_replacement
+        ):
+            self.clear_replacement(clicked_rgb)
+        elif (
+            action_clear_all_replacements is not None
+            and chosen is action_clear_all_replacements
+        ):
+            self.clear_all_replacements()
         elif action_merge is not None and chosen is action_merge:
             self._merge_selected_into(clicked_rgb)
         elif action_clear is not None and chosen is action_clear:

@@ -287,6 +287,7 @@ class ColorPickerDialog(QDialog):
         )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
+        self.button_box = buttons
 
         self.preview_check = QCheckBox(tr("プレビュー"))
         self.preview_check.setToolTip(
