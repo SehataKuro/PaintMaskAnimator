@@ -10,7 +10,7 @@ constraint here is *UI independence*, not total Qt independence.
 """
 from copy import deepcopy
 from dataclasses import dataclass, replace
-from typing import NamedTuple
+from typing import Any, NamedTuple, cast
 
 from . import constants
 from PySide6.QtCore import Qt
@@ -91,11 +91,16 @@ class DrawingTarget:
     def image(self, value):
         self.cell.image = value
 
+    def _archive_hint(self):
+        if self.number is None:
+            return ArchiveHint()
+        return self.track.legacy_archive_hints.get(self.number, ArchiveHint())
+
     @property
     def has_content(self):
         if self.slot is not None:
             return self.slot.has_content
-        return self.track.legacy_archive_hints.get(self.number, ArchiveHint()).has_content
+        return self._archive_hint().has_content
 
     @has_content.setter
     def has_content(self, value):
@@ -109,7 +114,7 @@ class DrawingTarget:
     def is_blank_key(self):
         if self.slot is not None:
             return self.slot.is_blank_key
-        return self.track.legacy_archive_hints.get(self.number, ArchiveHint()).is_blank_key
+        return self._archive_hint().is_blank_key
 
     @property
     def initial_image(self):
@@ -246,7 +251,8 @@ class Document:
                 if canvas_size is None:
                     image = blank_image()
                 else:
-                    image = QImage(*canvas_size, QImage.Format.Format_ARGB32_Premultiplied)
+                    width, height = canvas_size
+                    image = QImage(int(width), int(height), QImage.Format.Format_ARGB32_Premultiplied)
                     image.fill(Qt.GlobalColor.transparent)
                 slot = Layer(template.name, image)
                 slot.__dict__["_legacy_missing"] = True
@@ -526,7 +532,8 @@ def import_drawing_reference(frames, archive, fi, li, source, *, preferred_frame
         matches = [layer for layer in candidates
                    if layer.has_content and layer.sequence_number == number]
         preferred = candidates[preferred_frame] if 0 <= preferred_frame < len(candidates) else None
-        owner = preferred if any(layer is preferred for layer in matches) else matches[0]
+        owner = (preferred if preferred is not None and any(layer is preferred for layer in matches)
+                 else matches[0])
         attrs = list(matches)
         track = target._track
         if number in track.legacy_archive_hints and number in track.cells:
@@ -639,11 +646,12 @@ def assign_numbers_to_unnumbered(frames, layer_index):
             next_number += 1
 
 
-def project_v1_state(frames, sequence_archive=None):
+def project_v1_state(frames, sequence_archive=None) -> tuple[list[Any], dict[Any, Any]]:
     """Project unreferenced bank drawings to v1 archive without mutating live data."""
     if not frames or not any(layer._track.connected for layer in frames[0].layers):
         # Raw v1 inputs pass through without installation or numbering.
-        return [Frame([snapshot_layer(slot) for slot in frame.layers], frame.duration)
+        # v1 frames hold LegacyLayerV1 slots, not live Layers.
+        return [Frame(cast(Any, [snapshot_layer(slot) for slot in frame.layers]), frame.duration)
                 for frame in frames], {key: snapshot_layer(slot)
                                       for key, slot in (sequence_archive or {}).items()}
     connected_columns = {li for li, layer in enumerate(frames[0].layers)
@@ -701,4 +709,5 @@ def project_v1_state(frames, sequence_archive=None):
         rows.append(row)
         positions.append(markers)
     projected = compress_v1(rows, positions)
-    return [Frame(list(row), frame.duration) for row, frame in zip(projected, frames)], archive
+    return [Frame(cast(Any, list(row)), frame.duration)
+            for row, frame in zip(projected, frames)], archive
