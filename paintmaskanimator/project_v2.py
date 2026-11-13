@@ -257,12 +257,13 @@ def _decode_payload(payload, archive, png_cache=None):
         require(isinstance(value, dict))
         return value
 
-    def number(value, cells, nullable=False):
-        if nullable and value is None:
-            return value
+    def number(value, cells) -> int:
         integer(value, 1, io.MAX_PROJECT_FRAMES)
         require(value in cells)
         return value
+
+    def optional_number(value, cells) -> int | None:
+        return None if value is None else number(value, cells)
 
     def reference(value, cells):
         if value is None:
@@ -337,6 +338,7 @@ def _decode_payload(payload, archive, png_cache=None):
             result = io.white_to_transparent_qimage(result)
         if payload.get("mask_format", 1) >= io.CURRENT_MASK_FORMAT or track.is_paper or track.is_draft:
             seeded.append((result, blob))
+        assert result is not None  # decoded above; only a None input stays None
         return QImage(result)
 
     def artwork(entry, track, optional=False):
@@ -421,7 +423,7 @@ def _decode_payload(payload, archive, png_cache=None):
             if state is not None:
                 require(state.get("kind") in ("CELL", "BLANK", "EMPTY"))
                 kind = state["kind"]
-                n = number(state.get("number"), track.cells, nullable=True)
+                n = optional_number(state.get("number"), track.cells)
                 integer(state.get("length", 1), 1, io.MAX_PROJECT_FRAMES)
             local = locals_.get(column)
             if local is not None:
@@ -453,7 +455,7 @@ def _decode_payload(payload, archive, png_cache=None):
                 exposure = integer(length.get("length"), 1, io.MAX_PROJECT_FRAMES)
                 guard = mapping(length.get("guard"))
                 require(guard.get("kind") in ("CELL", "BLANK", "EMPTY"))
-                number(guard.get("number"), track.cells, nullable=True)
+                optional_number(guard.get("number"), track.cells)
                 for field in ("pending", "blank_start", "imported"):
                     boolean(guard.get(field))
                 require((guard["kind"], guard.get("number"), guard["pending"], guard["blank_start"])
@@ -472,7 +474,7 @@ def _decode_payload(payload, archive, png_cache=None):
                 override = resolved[column]
                 require("value" in override and "source_column" in override)
                 value = override.get("value")
-                number(value, track.cells, nullable=True)
+                optional_number(value, track.cells)
                 source = override.get("source_column")
                 require((value is None) == (source is None))
                 if source is not None:

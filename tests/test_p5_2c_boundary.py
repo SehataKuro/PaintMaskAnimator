@@ -132,7 +132,7 @@ def color_resize_observation(window, monkeypatch):
 
 
 def expected():
-    return json.loads(BASELINE.read_text())
+    return json.loads(BASELINE.read_text(encoding="utf-8"))
 
 
 def test_projection():

@@ -312,7 +312,7 @@
     </message>
     <message>
         <location filename="../main_window_project_io.py" line="413"/>
-        <location filename="../main_window_project_io.py" line="490"/>
+        <location filename="../main_window_project_io.py" line="511"/>
         <location filename="../main_window_ui_build.py" line="169"/>
         <location filename="../main_window_ui_build.py" line="401"/>
         <source>プロジェクトを開く</source>
@@ -324,12 +324,12 @@
         <translation>PaintMaskAnimator Project (*.pman);;Legacy Oekaki Animation Project (*.oap)</translation>
     </message>
     <message>
-        <location filename="../main_window_project_io.py" line="471"/>
+        <location filename="../main_window_project_io.py" line="492"/>
         <source>変更を保存してから終了しますか？</source>
         <translation>Save changes before quitting?</translation>
     </message>
     <message>
-        <location filename="../main_window_project_io.py" line="492"/>
+        <location filename="../main_window_project_io.py" line="513"/>
         <source>現在のキャンバスを保存してから、ドロップしたプロジェクトを開きますか？</source>
         <translation>Save the current canvas before opening the dropped project?</translation>
     </message>
@@ -457,8 +457,8 @@ If you overwrite it with painted drawings, you cannot get back to the state befo
     </message>
     <message>
         <location filename="../main_window_initial_state.py" line="281"/>
-        <location filename="../main_window_project_io.py" line="474"/>
-        <location filename="../main_window_project_io.py" line="499"/>
+        <location filename="../main_window_project_io.py" line="495"/>
+        <location filename="../main_window_project_io.py" line="520"/>
         <source>保存しない</source>
         <translation>Don&apos;t save</translation>
     </message>
@@ -473,17 +473,17 @@ If you overwrite it with painted drawings, you cannot get back to the state befo
         <translation>Showing the initial state before painting. Press again to return to the current drawing.</translation>
     </message>
     <message>
-        <location filename="../main_window_project_io.py" line="594"/>
+        <location filename="../main_window_project_io.py" line="615"/>
         <source>プロジェクトを開きました：{name}</source>
         <translation>Project opened: {name}</translation>
     </message>
     <message>
-        <location filename="../main_window_project_io.py" line="602"/>
+        <location filename="../main_window_project_io.py" line="623"/>
         <source>プロジェクト読込エラー</source>
         <translation>Project load error</translation>
     </message>
     <message>
-        <location filename="../main_window_project_io.py" line="603"/>
+        <location filename="../main_window_project_io.py" line="624"/>
         <source>プロジェクトを開けませんでした。
 
 {error}</source>
@@ -4010,7 +4010,7 @@ Details were saved to:
     </message>
     <message>
         <location filename="../actionpanel.py" line="561"/>
-        <location filename="../main_window_project_io.py" line="470"/>
+        <location filename="../main_window_project_io.py" line="491"/>
         <source>未保存の変更</source>
         <translation>Unsaved changes</translation>
     </message>
@@ -4722,8 +4722,8 @@ Line art: binarises the line work while preserving the white background and the 
         <location filename="../cut_folder_dialog.py" line="792"/>
         <location filename="../main_window.py" line="665"/>
         <location filename="../main_window_import.py" line="166"/>
-        <location filename="../main_window_project_io.py" line="476"/>
-        <location filename="../main_window_project_io.py" line="502"/>
+        <location filename="../main_window_project_io.py" line="497"/>
+        <location filename="../main_window_project_io.py" line="523"/>
         <location filename="../widgets.py" line="711"/>
         <source>キャンセル</source>
         <translation>Cancel</translation>
@@ -5119,8 +5119,8 @@ Save the current project first?</translation>
     <message>
         <location filename="../main_window_import.py" line="160"/>
         <location filename="../main_window_initial_state.py" line="280"/>
-        <location filename="../main_window_project_io.py" line="472"/>
-        <location filename="../main_window_project_io.py" line="496"/>
+        <location filename="../main_window_project_io.py" line="493"/>
+        <location filename="../main_window_project_io.py" line="517"/>
         <source>保存する</source>
         <translation>Save</translation>
     </message>
@@ -6044,7 +6044,7 @@ In-between and symbol labels: {blanks} cells</translation>
     </message>
     <message>
         <location filename="../project_io.py" line="312"/>
-        <location filename="../project_v2.py" line="491"/>
+        <location filename="../project_v2.py" line="531"/>
         <source>プロジェクト情報が大きすぎます。</source>
         <translation>The project data is too large.</translation>
     </message>
@@ -7640,23 +7640,23 @@ Layer cell {value} / {exposure} exposures</translation>
         <translation>The project metadata contains duplicate keys.</translation>
     </message>
     <message>
-        <location filename="../project_v2.py" line="208"/>
-        <location filename="../project_v2.py" line="522"/>
+        <location filename="../project_v2.py" line="242"/>
+        <location filename="../project_v2.py" line="562"/>
         <source>プロジェクトの構造が不正です。</source>
         <translation>The project structure is invalid.</translation>
     </message>
     <message>
-        <location filename="../project_v2.py" line="289"/>
+        <location filename="../project_v2.py" line="323"/>
         <source>プロジェクト内の画像がありません。</source>
         <translation>An image is missing from the project.</translation>
     </message>
     <message>
-        <location filename="../project_v2.py" line="483"/>
+        <location filename="../project_v2.py" line="523"/>
         <source>プロジェクト内のセル数が多すぎます。</source>
         <translation>The project contains too many cells.</translation>
     </message>
     <message>
-        <location filename="../project_v2.py" line="486"/>
+        <location filename="../project_v2.py" line="526"/>
         <source>プロジェクト内の画像サイズがキャンバスと一致しません。</source>
         <translation>An image in the project does not match the canvas size.</translation>
     </message>

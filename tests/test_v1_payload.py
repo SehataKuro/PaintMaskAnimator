@@ -17,6 +17,11 @@ from paintmaskanimator.tween_groups import make_spec
 def document():
     image = QImage(2, 2, QImage.Format.Format_ARGB32_Premultiplied)
     image.fill(0xff123456)
+    # A new QImage takes its resolution from the screen once a QApplication
+    # exists (96 dpi offscreen) and 100 dpi before that. PNG stores it in pHYs,
+    # so the byte hashes below would depend on which tests ran first.
+    image.setDotsPerMeterX(3937)
+    image.setDotsPerMeterY(3937)
     layers = [raw_v1_slot("A", QImage(image), has_content=True, sequence_number=3,
                     cell_name="原画", initial_image=QImage(image)),
               raw_v1_slot("A", QImage(image), has_content=True, sequence_number=4),

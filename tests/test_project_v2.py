@@ -158,7 +158,7 @@ def assert_stable_v2_json(path, tmp_path):
 
 @pytest.mark.parametrize("case", CASES)
 def test_v2_a_read_install_and_canonical_roundtrip(window, tmp_path, case):
-    expected = json.loads((ROOT / "expected" / f"{case}.json").read_text())["read_install"]
+    expected = json.loads((ROOT / "expected" / f"{case}.json").read_text(encoding="utf-8"))["read_install"]
     loaded = project_io.load_project(ROOT / "v1" / f"{case}.pman")
     path = tmp_path / "v2.pman"
     snap = project_io.ProjectSnapshot(loaded.metadata, loaded.document, loaded.width, loaded.height)
@@ -181,7 +181,7 @@ def test_v2_a_read_install_and_canonical_roundtrip(window, tmp_path, case):
 
 @pytest.mark.parametrize("case", CASES)
 def test_v2_ui_open_roundtrip_matches_a(window, tmp_path, case):
-    expected = json.loads((ROOT / "expected" / f"{case}.json").read_text())["ui_open"]
+    expected = json.loads((ROOT / "expected" / f"{case}.json").read_text(encoding="utf-8"))["ui_open"]
     assert window.project.open(ROOT / "v1" / f"{case}.pman")
     path = tmp_path / "ui-v2.pman"
     project_io.write_project_snapshot(path, project_io.ProjectSnapshot.capture(
@@ -403,7 +403,7 @@ def test_v2_writer_rejection_preserves_existing_file(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("case", CASES)
 def test_v2_compatibility_placement_matches_legacy_algorithm(window, tmp_path, case):
-    expected = json.loads((ROOT / "expected" / f"{case}.json").read_text())["mode_placement"]
+    expected = json.loads((ROOT / "expected" / f"{case}.json").read_text(encoding="utf-8"))["mode_placement"]
     original = project_io.load_project(ROOT / "v1" / f"{case}.pman")
     path = tmp_path / "placement.pman"
     project_io.write_project_snapshot(path, project_io.ProjectSnapshot(

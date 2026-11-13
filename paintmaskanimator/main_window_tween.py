@@ -156,7 +156,8 @@ class TweenController:
         ):
             return
         key_layer = self.window.canvas.frames[key_column].layers[layer_index]
-        exposure = self.window.canvas.timeline_block_at(key_column, layer_index)[2]
+        block = self.window.canvas.timeline_block_at(key_column, layer_index)
+        exposure = block[2] if block is not None else 1
         if not key_layer.has_content or exposure < 2:
             QMessageBox.warning(
                 self.window,

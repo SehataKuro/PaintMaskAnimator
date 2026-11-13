@@ -261,7 +261,7 @@ class UndoMixin(CanvasMembers):
             target = self._resolve_drawing_undo_target(e)
             if target is None:
                 return
-            fi, layer = target
+            fi, layer = target.column, target
             if isinstance(e, LayerUndo):
                 layer.image = e.image
             else:
@@ -322,12 +322,14 @@ class UndoMixin(CanvasMembers):
             scoped = isinstance(e, ScopedBatchUndo)
             if not scoped:
                 self.active_layer_index = e.layer
-            for cell in e.cells:
-                fi, li, img, hc, number = cell if scoped else (cell[0], e.layer, *cell[1:])
+            cells = (e.cells if isinstance(e, ScopedBatchUndo) else [
+                (fi, e.layer, img, hc, number) for fi, img, hc, number in e.cells
+            ])
+            for fi, li, img, hc, number in cells:
                 target = self._resolve_numbered_target(fi, li, number)
                 if target is None:
                     continue
-                resolved_fi, layer = target
+                resolved_fi, layer = target.column, target
                 layer.image = img
                 if number is None:
                     layer.has_content = hc

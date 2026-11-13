@@ -556,7 +556,8 @@ class TimelineOpsController:
             minimum = 0
             if previous:
                 prev = canvas.timeline_block_at(previous[-1], layer_index)
-                minimum = prev[1] + prev[2]
+                if prev is not None:
+                    minimum = prev[1] + prev[2]
             new_start = max(minimum, min(boundary_column, old_end))
             if new_start == key_column:
                 return

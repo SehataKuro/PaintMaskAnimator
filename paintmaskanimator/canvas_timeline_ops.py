@@ -82,7 +82,8 @@ class TimelineStructureMixin(CanvasMembers):
             else:
                 added.share_track_with(owner)
             frame.layers.append(added)
-        owner._track.connected = True
+        if owner is not None:
+            owner._track.connected = True
         self._document.sync_columns()
         self.active_layer_index = insert_index
         self._onion_cache.clear()
@@ -154,8 +155,8 @@ class TimelineStructureMixin(CanvasMembers):
         positions = [slot.__dict__.get("_v1_position", V1Position(snapshot_layer(slot)))
                      for slot in slots]
         starts = [i for i, slot in enumerate(slots) if i >= start_column and (
-            slot.sequence_only or (self.timeline_block_at(i, layer_index) is not None
-                                  and self.timeline_block_at(i, layer_index)[1] == i))]
+            slot.sequence_only or ((block := self.timeline_block_at(i, layer_index)) is not None
+                                  and block[1] == i))]
         saved_positions = dict(enumerate(positions))
         for i in reversed(starts):
             empty = slots[i].clone_slot()
@@ -385,7 +386,10 @@ class TimelineStructureMixin(CanvasMembers):
             < len(self.frames[key_column].layers)
         ):
             return None
-        exposure = self.timeline_block_at(key_column, layer_index)[2]
+        block = self.timeline_block_at(key_column, layer_index)
+        if block is None:
+            return None
+        exposure = block[2]
         end_column = min(
             len(self.frames) - 1,
             key_column + exposure - 1,
@@ -530,8 +534,9 @@ class TimelineStructureMixin(CanvasMembers):
             for li, layer in enumerate(frame.layers):
                 track = self._document.tracks[li]
                 if layer._track is not track:
-                    if layer.has_content or layer.sequence_only:
-                        track.cells.setdefault(int(layer.sequence_number), layer._cell)
+                    number = layer.sequence_number
+                    if number is not None and (layer.has_content or layer.sequence_only):
+                        track.cells.setdefault(int(number), layer._cell)
                     layer.attach_track(track)
                     if layer.has_content or layer.sequence_only:
                         layer.__dict__.pop("_cell", None)
@@ -586,7 +591,10 @@ class TimelineStructureMixin(CanvasMembers):
             target_column = None
             if previous is not None:
                 start, previous_layer = previous
-                exposure = self.timeline_block_at(start, layer_index)[2]
+                block = self.timeline_block_at(start, layer_index)
+                # previous は内容か空白キーのある位置なので、必ずブロックの先頭にある。
+                assert block is not None
+                exposure = block[2]
                 position = previous_layer.__dict__.get("_v1_position")
                 imported = previous_layer.__dict__.get("_dense_import")
                 signature = (previous_layer.has_content, previous_layer.is_blank_key,
