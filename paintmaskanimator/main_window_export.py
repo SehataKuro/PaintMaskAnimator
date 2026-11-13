@@ -498,13 +498,15 @@ class ExportController:
                 if (
                     layer_index < len(frame.layers)
                     and frame.layers[layer_index].has_content
-                    and self.window.canvas.timeline_block_at(frame_index, layer_index)[1] == frame_index
+                    and (block := self.window.canvas.timeline_block_at(frame_index, layer_index)) is not None
+                    and block[1] == frame_index
                 ):
                     keys.append((
                         layer_index,
                         safe_layer_name,
                         frame_index,
                         frame.layers[layer_index],
+                        block[2],
                     ))
 
         if not keys:
@@ -529,6 +531,7 @@ class ExportController:
                 safe_layer_name,
                 frame_index,
                 layer,
+                exposure,
             ) in enumerate(keys, 1):
                 update_counter(
                     progress,
@@ -563,8 +566,8 @@ class ExportController:
                 timing_rows.append([
                     filename,
                     frame_index + 1,
-                    frame_index + self.window.canvas.timeline_block_at(frame_index, layer_index)[2],
-                    self.window.canvas.timeline_block_at(frame_index, layer_index)[2],
+                    frame_index + exposure,
+                    exposure,
                 ])
                 update_counter(
                     progress,

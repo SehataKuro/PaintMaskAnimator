@@ -94,8 +94,8 @@ def expand_legacy(rows, *, number_unnumbered=False) -> LegacyExpansion:
     if number_unnumbered:
         rows = [list(row) for row in rows]
         for li in range(width):
-            next_number = max((row[li].sequence_number for row in rows
-                               if li < len(row) and row[li].sequence_number is not None),
+            next_number = max((number for row in rows
+                               if li < len(row) and (number := row[li].sequence_number) is not None),
                               default=0) + 1
             for row in rows:
                 if li < len(row) and row[li].has_content and row[li].sequence_number is None:

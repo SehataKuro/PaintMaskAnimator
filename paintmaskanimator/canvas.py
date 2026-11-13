@@ -457,7 +457,7 @@ class PaintCanvas(
             target = self._resolve_drawing_undo_target(entry)
             if target is None:
                 return None
-            fi, layer = target
+            fi, layer = target.column, target
             return LayerRegionUndo(
                 entry.frame if fi is None else fi,
                 entry.layer,
@@ -470,7 +470,7 @@ class PaintCanvas(
             target = self._resolve_drawing_undo_target(entry)
             if target is None:
                 return None
-            fi, layer = target
+            fi, layer = target.column, target
             return LayerTilesUndo(
                 entry.frame if fi is None else fi,
                 entry.layer,
@@ -484,12 +484,14 @@ class PaintCanvas(
         if isinstance(entry, (ScopedBatchUndo, LayerBatchUndo)):
             current = []
             scoped = isinstance(entry, ScopedBatchUndo)
-            for cell in entry.cells:
-                fi, li, _img, _hc, number = cell if scoped else (cell[0], entry.layer, *cell[1:])
+            cells = (entry.cells if isinstance(entry, ScopedBatchUndo) else [
+                (fi, entry.layer, img, hc, number) for fi, img, hc, number in entry.cells
+            ])
+            for fi, li, _img, _hc, number in cells:
                 target = self._resolve_numbered_target(fi, li, number)
                 if target is None:
                     continue
-                resolved_fi, layer = target
+                resolved_fi, layer = target.column, target
                 snapshot = (fi if resolved_fi is None else resolved_fi,
                             li, QImage(layer.image), bool(layer.has_content), number)
                 current.append(snapshot if scoped else (snapshot[0], *snapshot[2:]))
@@ -510,7 +512,7 @@ class PaintCanvas(
             target = self._resolve_drawing_undo_target(entry)
             if target is None:
                 return None
-            fi, layer = target
+            fi, layer = target.column, target
             return LayerUndo(
                 entry.frame if fi is None else fi,
                 entry.layer,

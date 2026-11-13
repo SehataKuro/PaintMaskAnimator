@@ -45,6 +45,7 @@ class CanvasMembers(_MembersBase):
         colorSampled: Signal
         colorUsed: Signal
         imagesDropped: Signal
+        install_legacy_frames: Any
         onionInteractionChanged: Signal
         onionInteractionFinished: Signal
         projectDropped: Signal
@@ -98,6 +99,7 @@ class CanvasMembers(_MembersBase):
         _finish_opaque_brush_stroke: Any
         _finish_stabilized_brush: Any
         _hue_cluster_palette_from_samples: Any
+        _invalidate_exposure_index: Any
         _invalidate_tp_preview_cache: Any
         _last_brush_pressure: Any
         _last_raw_canvas: Any
@@ -162,6 +164,8 @@ class CanvasMembers(_MembersBase):
         _render_deferred_transform_line_preview: Any
         _reset_brush_stabilizer: Any
         _reset_selection_transform: Any
+        _resolve_drawing_undo_target: Any
+        _resolve_numbered_target: Any
         _rgb_hsv_features: Any
         _rgba_array_to_qimage: Any
         _rotated_vector: Any
