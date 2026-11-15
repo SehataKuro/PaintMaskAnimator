@@ -536,6 +536,12 @@ class MainWindow(
                 tr("{len}枚の画像をタイムラインへ連番配置{note}し、使用色認識まで完了しました。").format(len=len(paths), note=reduction_note),
                 3600,
             )
+        if ok:
+            # 読み込んだレイヤーだけを、色塗り前の初期状態として保持するか尋ねる（#65）。
+            # 自動塗りは初期状態の線で部分を分けるので、精度が上がる。
+            self.initial_state.offer_after_import(
+                self.initial_state.layer_cells(self.canvas.active_layer_index)
+            )
 
 
     def sync_canvas_view_controls(self, zoom_value, rotation_value):
