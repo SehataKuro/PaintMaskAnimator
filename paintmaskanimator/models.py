@@ -209,6 +209,8 @@ class Layer:
     # ここから黒の主線と色トレス線を取り出して部分を分ける。塗りかけの色や、仕上げ色で
     # 塗りつぶした色トレス線に惑わされないように保持する。比較表示にも使う。
     initial_image: Optional[QImage] = None
+    # 外から受け取った原画のセルの印（#24）。Cell に持ち、番号を動かしてもついて回る。
+    is_genga: bool = False
 
     def clone_slot(self):
         """Copy position metadata without creating a Cell or Track.
