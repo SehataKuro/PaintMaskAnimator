@@ -318,6 +318,11 @@ class ToneCurveWidget(QWidget):
 
 
 class ColorReductionDialog(QDialog):
+    #: 並べて見せる、ほかの代表フレームの数。
+    REFERENCE_PREVIEWS = 3
+    #: 並べる絵の高さ（px）。
+    REFERENCE_PREVIEW_HEIGHT = 140
+
     """代表フレームからパレットを決め、全コマへ適用する。
 
     プレビューは1枚目で見せるが、パレットは ``reference_images``（先頭・中間・
@@ -430,6 +435,25 @@ class ColorReductionDialog(QDialog):
         previews.addLayout(original_column, 1)
         previews.addLayout(reduced_column, 1)
         layout.addLayout(previews, 1)
+
+        # ほかの代表フレームも同じ設定で2値化して並べる（#10）。1枚目だけ見て決めると、
+        # 中間や末尾のコマで色が潰れていても気づけない。
+        self.reference_strip = QWidget()
+        strip_layout = QHBoxLayout(self.reference_strip)
+        strip_layout.setContentsMargins(0, 0, 0, 0)
+        strip_layout.setSpacing(6)
+        strip_title = QLabel(tr("ほかの代表フレーム（2値化後）"))
+        strip_layout.addWidget(strip_title)
+        self.reference_previews = []
+        for _index in range(min(self.REFERENCE_PREVIEWS, len(self.reference_images))):
+            label = QLabel()
+            label.setFrameShape(QLabel.Shape.Box)
+            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            strip_layout.addWidget(label)
+            self.reference_previews.append(label)
+        strip_layout.addStretch(1)
+        self.reference_strip.setVisible(bool(self.reference_previews))
+        layout.addWidget(self.reference_strip)
 
         controls = QFormLayout()
         controls.setContentsMargins(0, 0, 0, 0)
@@ -842,6 +866,47 @@ class ColorReductionDialog(QDialog):
     # -- 紙の地色（#51） ---------------------------------------------------
     def flatten_paper_enabled(self):
         return bool(self.flatten_paper is not None and self.flatten_paper.isChecked())
+
+    def reduced_reference_images(
+        self, palette, tone_points, alpha_threshold, extraction_mode,
+        opaque_background, background_rgb,
+    ):
+        """ほかの代表フレームを、今の設定（前処理・パレット・ゴミ取り）で2値化した絵。"""
+        from . import despeckle, imaging
+
+        out = []
+        for reference in self.reference_images[: self.REFERENCE_PREVIEWS]:
+            adjusted = PaintCanvas.apply_tone_curve(
+                reference, tone_curve_points=tone_points, background_rgb=background_rgb,
+            )
+            reduced = PaintCanvas.apply_color_reduction_palette(
+                adjusted, palette,
+                alpha_threshold=alpha_threshold,
+                opaque_background=opaque_background,
+                background_rgb=background_rgb,
+                tone_curve_points=[(0.0, 0.0), (1.0, 1.0)],
+                extraction_mode=extraction_mode,
+            )
+            if reduced is None or reduced.isNull():
+                continue
+            if self.despeckle_pixels():
+                cleaned, removed = despeckle.remove_isolated_specks(
+                    imaging.qimage_rgba_array(reduced), self.despeckle_pixels()
+                )
+                if removed:
+                    reduced = imaging.rgba_array_to_qimage(cleaned)
+            out.append(reduced)
+        return out
+
+    def _update_reference_previews(self, palette, *args):
+        if not self.reference_previews:
+            return
+        images = self.reduced_reference_images(palette, *args)
+        self._reference_reduced_images = images
+        for label, image in zip(self.reference_previews, images):
+            label.setPixmap(QPixmap.fromImage(image).scaledToHeight(
+                self.REFERENCE_PREVIEW_HEIGHT, Qt.TransformationMode.SmoothTransformation,
+            ))
 
     def blur_amount(self):
         """弱いぼかしの半径（px）。0 ならかけない。"""
@@ -1569,6 +1634,11 @@ class ColorReductionDialog(QDialog):
                 )
                 if removed:
                     reduced = imaging.rgba_array_to_qimage(cleaned)
+
+            self._update_reference_previews(
+                palette, tone_points, alpha_threshold, extraction_mode,
+                processing_opaque_background, processing_background_rgb,
+            )
 
             self._palette = palette
             self._palette_key = self._current_preview_key()
