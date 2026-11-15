@@ -23,6 +23,14 @@ from .logging_setup import get_logger
 log = get_logger(__name__)
 
 
+def blur_image(image, sigma):
+    """:func:`soft_blur.soft_blur` を QImage にかける（#10）。"""
+    from . import soft_blur
+
+    rgba = imaging.qimage_rgba_array(image)
+    return imaging.rgba_array_to_qimage(soft_blur.soft_blur(rgba, sigma))
+
+
 def flatten_paper_image(image):
     """:func:`scan_paper.flatten_paper` を QImage にかける（#51）。"""
     from . import scan_paper
@@ -217,6 +225,9 @@ class ImageImportMixin(CanvasMembers):
         if color_reduction.get("flatten_paper"):
             # スキャンした紙の地色とムラを白へそろえてから2値化する（#51）。
             image = flatten_paper_image(image)
+        if float(color_reduction.get("blur") or 0) > 0:
+            # トーンカーブの前に、ざらつきだけを弱いぼかしでならす（#10）。
+            image = blur_image(image, float(color_reduction["blur"]))
         palette = color_reduction.get("palette")
         line_extraction = extraction_mode == "line"
         reduction_background = (
