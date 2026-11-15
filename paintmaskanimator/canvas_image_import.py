@@ -176,6 +176,46 @@ class ImageImportMixin(CanvasMembers):
             draft=draft,
         )
 
+    def reduce_image_with_settings(self, image, color_reduction):
+        """2値化ダイアログで決めた設定（``color_reduction``）を1枚の画像にかける。
+
+        読み込み時と、読み込んだあとのレイヤーへの2値化（#62）で同じ処理を使う。
+        トーンカーブを元画像へ先にかけ、そのあと共通パレットへ寄せる。
+        """
+        palette = color_reduction.get("palette")
+        extraction_mode = color_reduction.get("extraction_mode", "surface")
+        line_extraction = extraction_mode == "line"
+        reduction_background = (
+            (255, 255, 255)
+            if line_extraction
+            else color_reduction.get("background_rgb")
+        )
+        alpha_threshold = int(color_reduction.get("alpha_threshold", 128))
+        tone_curve_points = color_reduction.get(
+            "tone_curve_points", [(0.0, 0.0), (1.0, 1.0)]
+        )
+        if tone_curve_points:
+            image = self.apply_tone_curve(
+                image,
+                tone_curve_points=tone_curve_points,
+                background_rgb=reduction_background,
+            )
+        if palette is not None:
+            image = self.apply_color_reduction_palette(
+                image,
+                palette,
+                alpha_threshold=alpha_threshold,
+                opaque_background=(
+                    True
+                    if line_extraction
+                    else bool(color_reduction.get("opaque_background", False))
+                ),
+                background_rgb=reduction_background,
+                tone_curve_points=[(0.0, 0.0), (1.0, 1.0)],
+                extraction_mode=extraction_mode,
+            )
+        return image
+
     def import_image_sequence(
         self,
         paths,
@@ -199,61 +239,13 @@ class ImageImportMixin(CanvasMembers):
                 # 読み込んだ画素をそのまま下書きレイヤーへ配置する。
                 pass
             elif color_reduction:
-                palette = color_reduction.get("palette")
-                extraction_mode = color_reduction.get(
-                    "extraction_mode",
-                    "surface",
-                )
-                line_extraction = extraction_mode == "line"
-                reduction_background = (
-                    (255, 255, 255)
-                    if line_extraction
-                    else color_reduction.get("background_rgb")
-                )
-                alpha_threshold = int(
-                    color_reduction.get(
-                        "alpha_threshold",
-                        128,
+                if progress_callback and color_reduction.get("palette") is not None:
+                    progress_callback(
+                        index - 1,
+                        len(paths),
+                        tr("{Path} の元画像へトーンカーブを適用し、共通パレットで2値化しています").format(Path=Path(path).name),
                     )
-                )
-                tone_curve_points = color_reduction.get(
-                    "tone_curve_points",
-                    [(0.0, 0.0), (1.0, 1.0)],
-                )
-                if tone_curve_points:
-                    image = self.apply_tone_curve(
-                        image,
-                        tone_curve_points=tone_curve_points,
-                        background_rgb=reduction_background,
-                    )
-                if palette is not None:
-                    if progress_callback:
-                        progress_callback(
-                            index - 1,
-                            len(paths),
-                            tr("{Path} の元画像へトーンカーブを適用し、共通パレットで2値化しています").format(Path=Path(path).name),
-                        )
-                    image = self.apply_color_reduction_palette(
-                        image,
-                        palette,
-                        alpha_threshold=alpha_threshold,
-                        opaque_background=(
-                            True
-                            if line_extraction
-                            else bool(
-                                color_reduction.get(
-                                    "opaque_background",
-                                    False,
-                                )
-                            )
-                        ),
-                        background_rgb=reduction_background,
-                        tone_curve_points=[
-                            (0.0, 0.0),
-                            (1.0, 1.0),
-                        ],
-                        extraction_mode=extraction_mode,
-                    )
+                image = self.reduce_image_with_settings(image, color_reduction)
             elif Path(path).suffix.lower() in (".jpg", ".jpeg"):
                 # JPEGは圧縮で背景の白がばらつくため、完全一致では落とせない。
                 # しきい値で拾い、外周からつながる範囲だけを透明にする。
