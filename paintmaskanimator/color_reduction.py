@@ -4,6 +4,7 @@ from PySide6.QtCore import QEvent, QPointF, QRectF, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QComboBox,
     QDialog,
     QFormLayout,
@@ -333,9 +334,11 @@ class ColorReductionDialog(QDialog):
         reference_images=(),
         allow_without_reduction=True,
         scope_choice=False,
+        scan=False,
     ):
         """``allow_without_reduction`` が偽なら「そのまま読み込む」を出さない（読み込んだ
         あとのレイヤーにかけるとき）。``scope_choice`` なら「今のコマ／すべてのコマ」を選ばせる。
+        ``scan`` なら「紙の地色とムラを白にそろえる」を出して ON にする（#51）。
         """
         super().__init__(parent)
         self.setWindowTitle(tr("2値化"))
@@ -358,6 +361,10 @@ class ColorReductionDialog(QDialog):
             else None
         )
         self.reduction_enabled = True
+        # 紙の地色をそろえる前の画像と、自動検出した背景（#51 の切り替えで戻す）。
+        self._raw_source_image = self.source_image.copy()
+        self._raw_reference_images = [image.copy() for image in self.reference_images]
+        self._detected_background = (self.opaque_background, self.background_rgb)
         # 人が指定した出力色（#62）。None なら色数から自動で決める。
         self._custom_palette = None
         self._custom_reduced_cache = {}
@@ -492,6 +499,17 @@ class ColorReductionDialog(QDialog):
         ))
         controls.addRow(tr("出力する色"), palette_row)
 
+        self.flatten_paper = None
+        if scan:
+            self.flatten_paper = QCheckBox(tr("紙の地色とムラを白にそろえる"))
+            self.flatten_paper.setToolTip(tr(
+                "スキャンした紙のクリーム色・照明のムラ・影を、場所ごとに見積もって白へ"
+                "そろえてから2値化します。鉛筆の濃淡は、紙との比のまま残ります。"
+            ))
+            self.flatten_paper.setChecked(True)
+            self.flatten_paper.toggled.connect(self._flatten_paper_toggled)
+            controls.addRow(tr("スキャン"), self.flatten_paper)
+
         self.all_frames_choice = None
         if scope_choice:
             self.all_frames_choice = QComboBox()
@@ -586,6 +604,7 @@ class ColorReductionDialog(QDialog):
             self._show_tone_curve_live_preview
         )
 
+        self._apply_paper_setting()
         self._install_preview_event_filters()
         self._connect_preview_scrolls()
         self._update_preview()
@@ -641,6 +660,36 @@ class ColorReductionDialog(QDialog):
             self.tone_curve_points_key(),
             self._custom_palette_key(),
         )
+
+    # -- 紙の地色（#51） ---------------------------------------------------
+    def flatten_paper_enabled(self):
+        return bool(self.flatten_paper is not None and self.flatten_paper.isChecked())
+
+    def _apply_paper_setting(self):
+        """チェックに合わせて、プレビューとパレットの手本にする画像を作り直す。"""
+        if self.flatten_paper_enabled():
+            from .canvas_image_import import flatten_paper_image
+
+            self.source_image = flatten_paper_image(self._raw_source_image)
+            self.reference_images = [
+                flatten_paper_image(image) for image in self._raw_reference_images
+            ]
+            # そろえたあとの紙は白なので、白背景として扱う。
+            self.opaque_background, self.background_rgb = True, (255, 255, 255)
+        else:
+            self.source_image = self._raw_source_image.copy()
+            self.reference_images = [image.copy() for image in self._raw_reference_images]
+            self.opaque_background, self.background_rgb = self._detected_background
+        self._base_palette_cache.clear()
+        self._base_reduced_cache.clear()
+        self._custom_reduced_cache.clear()
+        self._tone_preview_source_rgba = None
+        self._tone_preview_background_mask = None
+        self._tone_adjusted_preview_image = self.source_image.copy()
+
+    def _flatten_paper_toggled(self, _checked=None):
+        self._apply_paper_setting()
+        self._mark_preview_dirty()
 
     def _custom_palette_key(self):
         if self._custom_palette is None:

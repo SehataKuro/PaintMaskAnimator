@@ -354,6 +354,7 @@ class MainWindow(
                 background_rgb,
                 self,
                 reference_images=reference_images,
+                scan=True,
             )
             if (
                 dialog.exec()
@@ -471,6 +472,7 @@ class MainWindow(
         return {
             "palette": palette,
             "extraction_mode": dialog.selected_extraction_mode(),
+            "flatten_paper": dialog.flatten_paper_enabled(),
             # 出力する色を指定したときは、色数ではなく指定した色の数（#62）。
             "target_colors": int(len(palette)),
             "source_color_count": int(color_count),

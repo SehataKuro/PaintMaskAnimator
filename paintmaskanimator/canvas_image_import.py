@@ -23,6 +23,14 @@ from .logging_setup import get_logger
 log = get_logger(__name__)
 
 
+def flatten_paper_image(image):
+    """:func:`scan_paper.flatten_paper` を QImage にかける（#51）。"""
+    from . import scan_paper
+
+    rgba = imaging.qimage_rgba_array(image)
+    return imaging.rgba_array_to_qimage(scan_paper.flatten_paper(rgba))
+
+
 class ImageImportMixin(CanvasMembers):
     """Image-file import pipeline + canvas drag-and-drop event handlers."""
 
@@ -192,6 +200,9 @@ class ImageImportMixin(CanvasMembers):
             if changed:
                 image = imaging.rgba_array_to_qimage(cleaned)
             return self._make_white_transparent(image)
+        if color_reduction.get("flatten_paper"):
+            # スキャンした紙の地色とムラを白へそろえてから2値化する（#51）。
+            image = flatten_paper_image(image)
         palette = color_reduction.get("palette")
         line_extraction = extraction_mode == "line"
         reduction_background = (
