@@ -45,6 +45,9 @@ def _line_art(tmp_path, count=2):
 
 def _answer(clicked, asked, *, always=False):
     def answer(box):
+        if box.objectName() == "importMaterialQuestion":
+            next(button for button in box.buttons() if button.text() == "デジタル（TP）").click()
+            return 0
         asked.append(box.text())
         if always:
             box.checkBox().setChecked(True)

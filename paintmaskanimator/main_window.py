@@ -298,6 +298,14 @@ class MainWindow(
                 f"{Path(paths[0]).name}\n{error}"
             )
 
+        # 素材の種類で分ける（#63）。デジタルは全コマを検査し、アンチエイリアスが
+        # あったときだけ、いまある色のまま取り除く。アナログは今までの2値化。
+        material = self.ask_import_material()
+        if material is None:
+            return None, "__cancelled__"
+        if material == "digital":
+            return self.inspect_digital_import(paths)
+
         # パレットは代表フレームからまとめて作る。1枚目だけで決めると、
         # 中間で色が増えるカットやフラッシュで色が潰れる（Issue #10）。
         reference_images = []
@@ -364,6 +372,98 @@ class MainWindow(
         return self._color_reduction_settings(
             dialog, palette, color_count, semi_transparent_count
         ), ""
+
+    def ask_import_material(self):
+        """読み込む素材の種類を尋ねる（前回の選択が既定）。キャンセルなら None。"""
+        box = QMessageBox(self)
+        box.setObjectName("importMaterialQuestion")
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle(tr("画像の読み込み"))
+        box.setText(tr("読み込む素材の種類を選んでください。"))
+        box.setInformativeText(tr(
+            "デジタル（TP）：ペイントソフトで作った2値の絵。全コマを検査し、"
+            "アンチエイリアスがあったときだけ、いまある色のまま取り除きます。\n"
+            "アナログ（スキャン）：紙をスキャンした絵。トーンカーブと色数を決めて2値化します。"
+        ))
+        digital = box.addButton(tr("デジタル（TP）"), QMessageBox.ButtonRole.AcceptRole)
+        analog = box.addButton(tr("アナログ（スキャン）"), QMessageBox.ButtonRole.AcceptRole)
+        box.addButton(tr("キャンセル"), QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(
+            analog if preferences.import_material_kind() == "analog" else digital
+        )
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is digital:
+            kind = "digital"
+        elif clicked is analog:
+            kind = "analog"
+        else:
+            return None
+        preferences.set_import_material_kind(kind)
+        return kind
+
+    def inspect_digital_import(self, paths):
+        """デジタル TP の全コマでアンチエイリアスを数え、取り除くか尋ねる（#63）。
+
+        どのコマにもなければ ``(None, "")``（そのまま読み込む）。あれば、コマごとの
+        画素数を見せ、取り除くなら ``extraction_mode="digital"`` の設定を返す。
+        """
+        from . import digital_antialias
+
+        found = []
+        progress = create_counter(
+            self, tr("アンチエイリアスの検査"), len(paths), tr("全コマを検査しています"),
+        )
+        try:
+            for index, path in enumerate(paths):
+                update_counter(progress, index, len(paths), Path(path).name)
+                image, error = self.canvas._read_image_file(path)
+                if image is None:
+                    return None, f"{Path(path).name}\n{error}"
+                count = digital_antialias.count_antialias(imaging.qimage_rgba_array(image))
+                if count:
+                    found.append((index + 1, Path(path).name, count))
+        finally:
+            close_counter(progress)
+        if not found:
+            self.statusBar().showMessage(
+                tr("{count}枚ともアンチエイリアスはありませんでした。そのまま読み込みます。").format(
+                    count=len(paths)
+                ),
+                4000,
+            )
+            return None, ""
+        box = QMessageBox(self)
+        box.setObjectName("digitalAntialiasReport")
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle(tr("アンチエイリアスの検査"))
+        box.setText(tr(
+            "{frames}/{total}枚にアンチエイリアス（混ざった色・半透明の画素）があります。"
+        ).format(frames=len(found), total=len(paths)))
+        box.setInformativeText(tr(
+            "取り除くと、混ざった画素だけを、となりにある色面の色へ寄せます。"
+            "色面の色はそのまま残り、色は増えも減りもしません。"
+        ))
+        box.setDetailedText("\n".join(
+            tr("{index}枚目（{name}）：{count:,}px").format(index=index, name=name, count=count)
+            for index, name, count in found
+        ))
+        remove = box.addButton(tr("取り除いて読み込む"), QMessageBox.ButtonRole.AcceptRole)
+        keep = box.addButton(tr("そのまま読み込む"), QMessageBox.ButtonRole.AcceptRole)
+        box.addButton(tr("キャンセル"), QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(remove)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is keep:
+            return None, ""
+        if clicked is not remove:
+            return None, "__cancelled__"
+        return {
+            "extraction_mode": "digital",
+            "palette": None,
+            "antialias_frames": len(found),
+            "antialias_pixels": sum(count for _index, _name, count in found),
+        }, ""
 
     @staticmethod
     def _color_reduction_settings(dialog, palette, color_count, semi_transparent_count):
@@ -616,7 +716,11 @@ class MainWindow(
             )
         elif len(paths) > 1:
             reduction_note = ""
-            if color_reduction:
+            if color_reduction and color_reduction.get("extraction_mode") == "digital":
+                reduction_note = tr("、{frames}枚のアンチエイリアスを取り除いて").format(
+                    frames=color_reduction.get("antialias_frames", 0)
+                )
+            elif color_reduction:
                 reduction_method = (
                     tr("元画像へトーンカーブ適用後に2値化")
                     if color_reduction.get("opaque_background")

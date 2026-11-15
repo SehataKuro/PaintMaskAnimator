@@ -182,8 +182,17 @@ class ImageImportMixin(CanvasMembers):
         読み込み時と、読み込んだあとのレイヤーへの2値化（#62）で同じ処理を使う。
         トーンカーブを元画像へ先にかけ、そのあと共通パレットへ寄せる。
         """
-        palette = color_reduction.get("palette")
         extraction_mode = color_reduction.get("extraction_mode", "surface")
+        if extraction_mode == "digital":
+            # デジタル TP：色数を決めず、いまある色面の色だけを残す（#63）。
+            from . import digital_antialias
+
+            rgba = imaging.qimage_rgba_array(image)
+            cleaned, changed = digital_antialias.remove_antialias(rgba)
+            if changed:
+                image = imaging.rgba_array_to_qimage(cleaned)
+            return self._make_white_transparent(image)
+        palette = color_reduction.get("palette")
         line_extraction = extraction_mode == "line"
         reduction_background = (
             (255, 255, 255)

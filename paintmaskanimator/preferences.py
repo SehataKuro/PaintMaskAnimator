@@ -14,6 +14,7 @@ UNDO_STEPS_KEY = "undo_max_steps"
 UNDO_MEMORY_KEY = "undo_max_memory_mb"
 NEW_CANVAS_SIZE_KEY = "new_canvas_size"
 KEEP_INITIAL_STATE_KEY = "keep_initial_state_on_cut_folder"
+IMPORT_MATERIAL_KEY = "import_material_kind"
 MAP_PALETTE_KEY = "map_color_palette"
 TOOL_HOLD_ENABLED_KEY = "tool_hold_switch_enabled"
 TOOL_HOLD_MS_KEY = "tool_hold_switch_ms"
@@ -122,6 +123,21 @@ def snapshot_folder():
 
 def set_snapshot_folder(path):
     config.set_value(SNAPSHOT_FOLDER_KEY, str(path or ""))
+
+
+#: 読み込む素材の種類（#63）。デジタル（TP）か、アナログ（スキャン）か。
+IMPORT_MATERIALS = ("digital", "analog")
+
+
+def import_material_kind():
+    """前回選んだ素材の種類。まだ選んでいなければデジタル。"""
+    value = config.get_value(IMPORT_MATERIAL_KEY, "digital")
+    return value if value in IMPORT_MATERIALS else "digital"
+
+
+def set_import_material_kind(kind):
+    if kind in IMPORT_MATERIALS:
+        config.set_value(IMPORT_MATERIAL_KEY, kind)
 
 
 def keep_initial_state_on_cut_folder():
