@@ -36,18 +36,21 @@ class Cell:
     ○・未使用の残存番号はローカルの ``Cell`` を持ち、bank を参照しない。
 
     ``Cell`` は ``image``、色塗り前の初期状態（``initial_image``）、
-    セル名（``cell_name``）を持つ。同じ番号の絵は3属性とも共有し、
-    clone・detach ではすべて独立させる（Issue #31 Phase 5-4）。
+    セル名（``cell_name``）、原画の印（``is_genga``、#24）を持つ。同じ番号の絵は
+    すべての属性を共有し、clone・detach ではすべて独立させる（Issue #31 Phase 5-4）。
+    原画の印は、外から受け取った原画を参照として読み込んだセルを、中割りのセルと
+    見分けるためのもの。番号ではなくセルに付く印なので、番号を動かしても絵について回る。
 
     設計は docs/sequence-first-data-model.md。
     """
 
-    __slots__ = ("image", "initial_image", "cell_name")
+    __slots__ = ("image", "initial_image", "cell_name", "is_genga")
 
-    def __init__(self, image=None, initial_image=None, cell_name=None):
+    def __init__(self, image=None, initial_image=None, cell_name=None, is_genga=False):
         self.image = image if image is not None else blank_image()
         self.initial_image = initial_image
         self.cell_name = cell_name
+        self.is_genga = bool(is_genga)
 
 
 class PendingToken:
@@ -170,7 +173,7 @@ class Layer:
                 self.__dict__["_cell"] = Cell(
                     QImage(cell.image),
                     QImage(cell.initial_image) if cell.initial_image is not None else None,
-                    cell.cell_name)
+                    cell.cell_name, cell.is_genga)
                 self.__dict__["_content_origin"] = number
         if (name == "has_content" and value) or (name == "is_blank_key" and value):
             self.__dict__.pop("_content_origin", None)
@@ -272,6 +275,7 @@ class Layer:
             self.tween_member,
             QImage(self.initial_image) if self.initial_image is not None else None,
         )
+        copied.is_genga = bool(self.is_genga)
         # Undo のスナップショットが、あとの表示設定の変更で汚れないようにする。
         copied.detach_track()
         if (self._track.connected and self.sequence_number is not None
@@ -397,6 +401,7 @@ class Layer:
             QImage(current.image) if current.image is not None else None,
             QImage(current.initial_image) if current.initial_image is not None else None,
             current.cell_name,
+            current.is_genga,
         )
 
 
@@ -404,7 +409,7 @@ class Layer:
 # 同じ手口（デコレータの順に依存しないよう、ここで行う）。型チェッカーからは
 # dataclass のフィールドに見えるので、代入だけ無視させる。
 for _field, _descriptor in (
-    *((name, _cell_property(name)) for name in ("image", "initial_image", "cell_name")),
+    *((name, _cell_property(name)) for name in ("image", "initial_image", "cell_name", "is_genga")),
     *((name, _track_property(name)) for name in TRACK_FIELDS),
 ):
     setattr(Layer, _field, _descriptor)

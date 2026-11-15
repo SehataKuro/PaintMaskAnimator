@@ -112,6 +112,8 @@ def build_payload(snapshot, *, include_default_local_images=False):
 
     def artwork(cell, path):
         entry = {"image": path, "initial": None, "cell_name": cell.cell_name}
+        if cell.is_genga:
+            entry["genga"] = True
         pngs.append((path, cell.image, "画像を書き出せませんでした: {name}"))
         if cell.initial_image is not None:
             entry["initial"] = f"initial/{path}"
@@ -183,7 +185,8 @@ def build_payload(snapshot, *, include_default_local_images=False):
                 local = {"column": column, "retained_number": slot.sequence_number}
                 keep_image = (include_default_local_images or cell.image.isNull()
                               or not cell.image.hasAlphaChannel()
-                              or cell.initial_image is not None or cell.cell_name is not None)
+                              or cell.initial_image is not None or cell.cell_name is not None
+                              or cell.is_genga)
                 if not keep_image:
                     transparent = QImage(cell.image.size(), cell.image.format())
                     transparent.fill(0)
@@ -344,10 +347,12 @@ def _decode_payload(payload, archive, png_cache=None):
     def artwork(entry, track, optional=False):
         name = entry.get("cell_name")
         require(name is None or isinstance(name, str))
+        genga = entry.get("genga", False)
+        require(isinstance(genga, bool))
         initial = entry.get("initial")
         return Cell(image(entry["image"], track) if "image" in entry else (
             blank() if optional else image(None, track)),
-            image(initial, track) if initial is not None else None, name)
+            image(initial, track) if initial is not None else None, name, genga)
 
     def indexed(entries):
         result = {}

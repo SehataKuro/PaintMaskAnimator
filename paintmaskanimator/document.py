@@ -369,6 +369,7 @@ def clone_frame_graph(frames, sequence_archive=None):
                 QImage(cell.image),
                 QImage(cell.initial_image) if cell.initial_image is not None else None,
                 cell.cell_name,
+                cell.is_genga,
             )
         return cells[id(cell)]
 
@@ -449,7 +450,7 @@ def create_drawing(layer, image, *, number):
         previous = layer._cell
         layer._track.cells[int(number)] = Cell(
             image, QImage(previous.initial_image) if previous.initial_image is not None else None,
-            previous.cell_name)
+            previous.cell_name, previous.is_genga)
     layer.sequence_number = number
     layer.image = image
     layer.has_content = True
@@ -472,6 +473,7 @@ def place_number(target, source, number):
     target.has_content = bool(copied.has_content)
     target.is_blank_key = not bool(copied.has_content)
     target.cell_name = getattr(copied, "cell_name", None)
+    target.is_genga = bool(getattr(copied, "is_genga", False))
     if target._track.connected:
         target._track.cells.setdefault(int(number), target._cell)
     target.sequence_number = int(number)
@@ -549,6 +551,7 @@ def import_drawing_reference(frames, archive, fi, li, source, *, preferred_frame
         cell.image = QImage(owner.image)
         cell.initial_image = QImage(initial) if initial is not None else None
         cell.cell_name = name
+        cell.is_genga = any(bool(getattr(layer, "is_genga", False)) for layer in attrs)
     copy_drawing_reference(target, copied, content=content, blank=blank)
 
 

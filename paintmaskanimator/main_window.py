@@ -1094,6 +1094,32 @@ class MainWindow(
         else:
             self.import_dropped_images(paths)
 
+    def import_genga_dialog(self):
+        """原画を読み込んで、そのレイヤーのセルに原画の印を付ける（#24）。"""
+        paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            tr("原画を読み込む"),
+            "",
+            tr("画像 (*.png *.jpg *.jpeg *.tga);;"
+            "PNG (*.png);;JPEG (*.jpg *.jpeg);;TGA (*.tga)"),
+        )
+        if paths:
+            self.import_genga(paths)
+
+    def import_genga(self, paths):
+        """``paths`` を新しいレイヤーへ読み込み、原画の印を付ける。付けた数を返す。"""
+        before = len(self.canvas.layers)
+        self.import_dropped_images(list(paths), layer_name=tr("原画"))
+        if len(self.canvas.layers) <= before:
+            return 0
+        marked = self.timeline_ops.mark_layer_as_genga(self.canvas.active_layer_index)
+        if marked:
+            self.statusBar().showMessage(
+                tr("{count}枚の原画を読み込み、原画の印を付けました。").format(count=marked),
+                4000,
+            )
+        return marked
+
     def import_image_folder_dialog(self):
         folder = QFileDialog.getExistingDirectory(
             self,
@@ -1268,6 +1294,7 @@ class MainWindow(
                             QImage(cell.image),
                             QImage(cell.initial_image) if cell.initial_image is not None else None,
                             cell.cell_name,
+                            cell.is_genga,
                         )
         if not preserve:
             self.created_app_version = constants.APP_VERSION
