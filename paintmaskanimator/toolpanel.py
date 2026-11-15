@@ -694,6 +694,13 @@ class ToolPanel(QWidget):
         )
         self.selection_all_frames=QCheckBox(tr("すべてのコマに適用"))
         self.selection_all_frames.setChecked(False)
+        # 保持のあるキーで変形を始めたら、そのままトゥイーンにする（#61）。
+        self.transform_as_tween=QCheckBox(tr("保持のあるコマの変形はトゥイーンにする"))
+        self.transform_as_tween.setChecked(False)
+        self.transform_as_tween.setToolTip(tr(
+            "2コマ以上保持しているキーのコマで自由変形・メッシュ変形を始めると、確認なしで"
+            "トゥイーンになります。ハンドルを動かして確定すると、保持の各コマに中割りができます。"
+        ))
 
         self.transform_quality=QCheckBox(tr("クオリティ（Tp_mask v0.7方式）"))
         self.transform_quality.setChecked(True)
@@ -1173,6 +1180,7 @@ class ToolPanel(QWidget):
             self.transform_quality,self.transform_line_width_note,
             self.transform_line_width_label,self.transform_line_width,
             self.selection_all_frames,
+            self.transform_as_tween,
             self.mesh_commit,self.mesh_cancel,
             self.flip_h,self.flip_v,
             self.shape_type_label,self.shape_type,
@@ -1573,7 +1581,8 @@ class ToolPanel(QWidget):
             self.transform_mesh_grid_x,self.transform_mesh_grid_x_slider,
             self.transform_mesh_grid_y,self.transform_mesh_grid_y_slider,
             self.transform_quality,self.transform_line_width_note,
-            self.selection_all_frames
+            self.selection_all_frames,
+            self.transform_as_tween,
         ):
             widget.setVisible(is_selection)
         self._refresh_transform_line_width_visibility()
