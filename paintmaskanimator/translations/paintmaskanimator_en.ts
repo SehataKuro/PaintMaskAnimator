@@ -4328,7 +4328,7 @@ Details were saved to:
         <translation>Loading finished</translation>
     </message>
     <message>
-        <location filename="../canvas_input_events.py" line="493"/>
+        <location filename="../canvas_input_events.py" line="503"/>
         <source>マウスを動かしてカーブを調整し、クリックで確定します。Escで取消。</source>
         <translation>Move the mouse to adjust the curve, then click to confirm. Esc cancels.</translation>
     </message>
@@ -4372,6 +4372,16 @@ Details were saved to:
         <location filename="../canvas_onion_interaction.py" line="60"/>
         <source>表示位置：左ドラッグでキャンバス移動、Shift＋左ドラッグまたは右ドラッグで回転します。TU／TB拡大率は維持され、前後オニオンの相対値へ反映されます。Escで解除します。</source>
         <translation>Display position: left-drag to move the canvas, Shift+left-drag or right-drag to rotate. The TU/TB scale is preserved and reflected in the relative values of the previous and next onion skins. Esc cancels.</translation>
+    </message>
+    <message>
+        <location filename="../canvas_onion_interaction.py" line="397"/>
+        <source>オニオン：クリックした所に前後のコマの絵がありません。</source>
+        <translation>Onion skin: no drawing from the previous or next frames where you clicked.</translation>
+    </message>
+    <message>
+        <location filename="../canvas_onion_interaction.py" line="406"/>
+        <source>オニオン：{frame}コマ目を編集します。</source>
+        <translation>Onion skin: now editing frame {frame}.</translation>
     </message>
     <message>
         <location filename="../canvas_paint_tools.py" line="630"/>

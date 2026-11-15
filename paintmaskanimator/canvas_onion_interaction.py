@@ -317,3 +317,92 @@ class OnionInteractionMixin(CanvasMembers):
 
         self.onionInteractionChanged.emit()
         self.update()
+
+    # ------------------------------------------------------------------
+    # オニオンのコマをクリックして直接編集する（#60）
+    # ------------------------------------------------------------------
+    def _onion_source_point(self, point, direction):
+        """キャンバス上の ``point`` に重なって見える、前／後オニオンの絵の中の位置。
+
+        オニオンは画面の中心を軸に ``シフト → 回転 → 拡大`` して重ねているので、
+        その逆をかける。
+        """
+        from .utils import workspace_size
+
+        shift_x, shift_y, rotation, scale = self.onion_transform_values(direction)
+        width, height = workspace_size()
+        cx, cy = width / 2.0, height / 2.0
+        dx = float(point.x()) - cx - shift_x
+        dy = float(point.y()) - cy - shift_y
+        angle = math.radians(-rotation)
+        rx = dx * math.cos(angle) - dy * math.sin(angle)
+        ry = dx * math.sin(angle) + dy * math.cos(angle)
+        scale = max(0.01, float(scale))
+        return QPointF(cx + rx / scale, cy + ry / scale)
+
+    def _drawn_layer_at(self, frame_index, point, layers):
+        """``frame_index`` で ``point`` に絵がある最初のレイヤー（無ければ None）。"""
+        x, y = int(math.floor(point.x())), int(math.floor(point.y()))
+        for layer_index in layers:
+            key = self.resolve_key_frame(int(frame_index), int(layer_index))
+            if key is None:
+                continue
+            layer = self.frames[key].layers[layer_index]
+            image = layer.image
+            if not layer.visible or not (0 <= x < image.width() and 0 <= y < image.height()):
+                continue
+            if image.pixelColor(x, y).alpha() > 0:
+                return int(layer_index)
+        return None
+
+    def onion_frame_at(self, point):
+        """``point`` に見えているオニオンのコマ ``(コマ, レイヤー)``。無ければ None。
+
+        近いコマから順に調べる（近い絵ほど手前に描いているので）。同じ近さなら、
+        あとから描く後ろのコマを先にする。今のコマに絵がある所は、今のコマを優先して
+        None を返す。
+        """
+        if not self.onion_skin or not self.frames:
+            return None
+        active = int(self.active_layer_index)
+        if self.onion_all_layers:
+            layer_count = len(self.frames[int(self.current_frame)].layers)
+            # 上のレイヤーほど手前に描かれる。今のレイヤーを先に調べる。
+            layers = [active] + [i for i in reversed(range(layer_count)) if i != active]
+        else:
+            layers = [active]
+        if self._drawn_layer_at(self.current_frame, point, [active]) is not None:
+            return None
+        previous = self._onion_frame_indices(-1, self.onion_previous_count)
+        following = self._onion_frame_indices(1, self.onion_next_count)
+        for distance in range(max(len(previous), len(following))):
+            for direction, frames in ((1, following), (-1, previous)):
+                if distance >= len(frames):
+                    continue
+                frame_index = frames[distance]
+                source = self._onion_source_point(point, direction)
+                layer_index = self._drawn_layer_at(frame_index, source, layers)
+                if layer_index is not None:
+                    return int(frame_index), layer_index
+        return None
+
+    def pick_onion_frame(self, point):
+        """``point`` のオニオンのコマへ編集対象を切り替える。切り替えたら真。
+
+        前の今のコマは、切り替えた先から見たオニオンとして薄く残る。
+        """
+        found = self.onion_frame_at(point)
+        if found is None:
+            self.status_message.emit(
+                tr("オニオン：クリックした所に前後のコマの絵がありません。")
+            )
+            return False
+        frame_index, layer_index = found
+        self.current_frame = int(frame_index)
+        self.active_layer_index = int(layer_index)
+        self.selectionChanged.emit()
+        self.update()
+        self.status_message.emit(
+            tr("オニオン：{frame}コマ目を編集します。").format(frame=int(frame_index) + 1)
+        )
+        return True
