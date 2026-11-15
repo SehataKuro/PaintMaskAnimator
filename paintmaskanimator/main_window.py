@@ -361,12 +361,18 @@ class MainWindow(
                 tr("2値化の準備中にエラーが発生しました。\n{exc}").format(exc=exc)
             )
 
+        return self._color_reduction_settings(
+            dialog, palette, color_count, semi_transparent_count
+        ), ""
+
+    @staticmethod
+    def _color_reduction_settings(dialog, palette, color_count, semi_transparent_count):
+        """2値化ダイアログで決めた設定を、画像1枚ごとにかけられる dict にする。"""
         return {
             "palette": palette,
             "extraction_mode": dialog.selected_extraction_mode(),
-            "target_colors": int(
-                dialog.color_count.value()
-            ),
+            # 出力する色を指定したときは、色数ではなく指定した色の数（#62）。
+            "target_colors": int(len(palette)),
             "source_color_count": int(color_count),
             "alpha_threshold": int(
                 dialog.alpha_threshold_255()
@@ -386,7 +392,94 @@ class MainWindow(
                 (float(x), float(y))
                 for x, y in dialog.tone_curve_points()
             ],
-        }, ""
+        }
+
+    def binarize_layer_dialog(self):
+        """読み込んだあとの今のレイヤーに2値化をかける（#62）。
+
+        読み込み時と同じダイアログで設定を決め、今のコマ／すべてのコマへ
+        ``frame_scope`` の一括処理でかける（同じ絵番号は1回、Undo 1回）。
+        """
+        canvas = self.canvas
+        layer_index = int(canvas.active_layer_index)
+        key = canvas.resolve_key_frame(int(canvas.current_frame), layer_index)
+        if key is None:
+            self.statusBar().showMessage(tr("2値化：このコマには絵がありません。"), 3000)
+            return False
+        first_image = canvas.frames[key].layers[layer_index].image.copy()
+        cells = self.initial_state.layer_cells(layer_index)
+        reference_images = [
+            canvas.frames[cells[index][0]].layers[layer_index].image.copy()
+            for index in color_ops.reference_frame_indices(len(cells))
+        ] if cells else []
+        try:
+            color_count = canvas.opaque_rgb_color_count(first_image)
+            semi_transparent_count = int(
+                canvas.image_alpha_statistics(first_image)["semi_transparent"]
+            )
+            background_rgb = canvas.detect_opaque_border_background(first_image)
+            dialog = ColorReductionDialog(
+                first_image,
+                color_count,
+                semi_transparent_count,
+                background_rgb is not None,
+                background_rgb,
+                self,
+                reference_images=reference_images,
+                allow_without_reduction=False,
+                scope_choice=True,
+            )
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return False
+            palette = dialog.selected_palette()
+        except _OPERATION_ERRORS as exc:
+            log.warning("binarizing a layer failed: %s", exc, exc_info=True)
+            QMessageBox.warning(
+                self, tr("2値化"),
+                tr("2値化の準備中にエラーが発生しました。\n{exc}").format(exc=exc),
+            )
+            return False
+        settings = self._color_reduction_settings(
+            dialog, palette, color_count, semi_transparent_count
+        )
+        return self.binarize_layer(settings, all_frames=dialog.selected_all_frames())
+
+    def binarize_layer(self, settings, *, all_frames=True):
+        """``settings`` の2値化を今のレイヤーにかける。変わったら真。"""
+        canvas = self.canvas
+
+        def op(context):
+            image = context.layer.image
+            reduced = canvas.reduce_image_with_settings(image, settings)
+            if reduced is None or reduced.isNull():
+                return None
+            reduced = reduced.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
+            if reduced == image.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied):
+                return None
+            return reduced
+
+        result = self.scope.run_over(
+            self.scope.current_frame(all_frames, selection_only=False),
+            op,
+            label=tr("2値化"),
+            cancellable=True,
+        )
+        canvas.update()
+        if result.cancelled:
+            self.statusBar().showMessage(tr("2値化を中止しました。"), 2400)
+            return False
+        if not result.changed_cells:
+            self.statusBar().showMessage(tr("2値化：変わったセルはありませんでした。"), 3000)
+            return False
+        self._used_color_cache.clear()
+        self.used_color.schedule_refresh()
+        self.statusBar().showMessage(
+            tr("{cells}セルを{count}色で2値化しました。").format(
+                cells=result.changed_cells, count=len(settings["palette"])
+            ),
+            4000,
+        )
+        return True
 
     def prepare_image_import(self, paths):
         # Keep this step light: inspect dimensions only. Color analysis is deferred

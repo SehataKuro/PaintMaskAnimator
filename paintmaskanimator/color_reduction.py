@@ -9,17 +9,20 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QMessageBox,
     QProgressDialog,
     QPushButton,
     QScrollArea,
     QSlider,
     QSpinBox,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 from .i18n import tr
 from .canvas import PaintCanvas
+from .color_picker_dialog import ColorPickerDialog
 from .errors import OperationError
 from .logging_setup import get_logger
 
@@ -328,7 +331,12 @@ class ColorReductionDialog(QDialog):
         background_rgb=None,
         parent=None,
         reference_images=(),
+        allow_without_reduction=True,
+        scope_choice=False,
     ):
+        """``allow_without_reduction`` が偽なら「そのまま読み込む」を出さない（読み込んだ
+        あとのレイヤーにかけるとき）。``scope_choice`` なら「今のコマ／すべてのコマ」を選ばせる。
+        """
         super().__init__(parent)
         self.setWindowTitle(tr("2値化"))
         self.resize(820, 560)
@@ -350,6 +358,9 @@ class ColorReductionDialog(QDialog):
             else None
         )
         self.reduction_enabled = True
+        # 人が指定した出力色（#62）。None なら色数から自動で決める。
+        self._custom_palette = None
+        self._custom_reduced_cache = {}
         self._palette = None
         self._palette_key = None
         self._base_palette_cache = {}
@@ -456,6 +467,39 @@ class ColorReductionDialog(QDialog):
         color_layout.addWidget(self.color_count)
         controls.addRow(tr("色数"), color_row)
 
+        # 出力する色（#62）。自動で決めた色を初期値に、足す・消す・変える。
+        palette_row = QWidget()
+        self.palette_layout = QHBoxLayout(palette_row)
+        self.palette_layout.setContentsMargins(0, 0, 0, 0)
+        self.palette_layout.setSpacing(3)
+        self.palette_swatches = []
+        self.add_color_button = QToolButton()
+        self.add_color_button.setText("＋")
+        self.add_color_button.setToolTip(tr("出力する色を足します。"))
+        self.add_color_button.clicked.connect(self._add_palette_color)
+        self.auto_palette_button = QPushButton(tr("自動に戻す"))
+        self.auto_palette_button.setToolTip(
+            tr("指定した色を捨てて、色数から自動で決めた色に戻します。")
+        )
+        self.auto_palette_button.clicked.connect(self._reset_custom_palette)
+        self.auto_palette_button.setEnabled(False)
+        self.palette_layout.addStretch(1)
+        self.palette_layout.addWidget(self.add_color_button)
+        self.palette_layout.addWidget(self.auto_palette_button)
+        palette_row.setToolTip(tr(
+            "左クリックで色を変更、右クリックで削除。指定した色だけで描き直します。"
+            "指定すると色数は使いません。"
+        ))
+        controls.addRow(tr("出力する色"), palette_row)
+
+        self.all_frames_choice = None
+        if scope_choice:
+            self.all_frames_choice = QComboBox()
+            self.all_frames_choice.addItem(tr("今のコマ"), False)
+            self.all_frames_choice.addItem(tr("すべてのコマ"), True)
+            self.all_frames_choice.setCurrentIndex(1)
+            controls.addRow(tr("範囲"), self.all_frames_choice)
+
         tone_row = QWidget()
         tone_layout = QHBoxLayout(tone_row)
         tone_layout.setContentsMargins(0, 0, 0, 0)
@@ -517,8 +561,11 @@ class ColorReductionDialog(QDialog):
         layout.addLayout(confirm_row)
 
         button_row = QHBoxLayout()
-        self.apply_button = QPushButton(tr("全コマを2値化"))
+        self.apply_button = QPushButton(
+            tr("全コマを2値化") if allow_without_reduction else tr("2値化")
+        )
         self.no_reduction_button = QPushButton(tr("そのまま読み込む"))
+        self.no_reduction_button.setVisible(bool(allow_without_reduction))
         cancel_button = QPushButton(tr("キャンセル"))
         self.apply_button.clicked.connect(self._accept_reduction)
         self.no_reduction_button.clicked.connect(
@@ -592,7 +639,96 @@ class ColorReductionDialog(QDialog):
             self.extraction_mode.currentData(),
             int(self.color_count.value()),
             self.tone_curve_points_key(),
+            self._custom_palette_key(),
         )
+
+    def _custom_palette_key(self):
+        if self._custom_palette is None:
+            return None
+        return tuple(tuple(int(v) for v in color) for color in self._custom_palette)
+
+    # -- 出力する色（#62） -----------------------------------------------
+    def selected_all_frames(self):
+        """範囲の選択（``scope_choice`` のときだけ意味がある）。"""
+        if self.all_frames_choice is None:
+            return True
+        return bool(self.all_frames_choice.currentData())
+
+    def set_custom_palette(self, colors):
+        """出力する色を指定する。空なら自動に戻す。"""
+        colors = [tuple(int(v) for v in color[:3]) for color in colors]
+        unique = list(dict.fromkeys(colors))
+        self._custom_palette = (
+            np.asarray(unique, dtype=np.uint8).reshape((-1, 3)) if unique else None
+        )
+        custom = self._custom_palette is not None
+        self.color_count.setEnabled(not custom)
+        self.color_slider.setEnabled(not custom)
+        self.auto_palette_button.setEnabled(custom)
+        self._refresh_palette_swatches(
+            self._custom_palette if custom else self._palette
+        )
+        self._mark_preview_dirty()
+
+    def _reset_custom_palette(self):
+        self.set_custom_palette([])
+
+    def _shown_palette(self):
+        palette = self._custom_palette if self._custom_palette is not None else self._palette
+        if palette is None:
+            return []
+        return [tuple(int(v) for v in color) for color in palette]
+
+    def _add_palette_color(self):
+        colors = self._shown_palette()
+        initial = QColor(*colors[-1]) if colors else QColor("black")
+        color = ColorPickerDialog.get_color(initial, self, tr("出力する色を足す"))
+        if color.isValid():
+            self.set_custom_palette(colors + [(color.red(), color.green(), color.blue())])
+
+    def _edit_palette_color(self, index):
+        colors = self._shown_palette()
+        if not 0 <= index < len(colors):
+            return
+        color = ColorPickerDialog.get_color(QColor(*colors[index]), self, tr("出力する色"))
+        if color.isValid():
+            colors[index] = (color.red(), color.green(), color.blue())
+            self.set_custom_palette(colors)
+
+    def _remove_palette_color(self, index):
+        colors = self._shown_palette()
+        if len(colors) <= 1 or not 0 <= index < len(colors):
+            return
+        del colors[index]
+        self.set_custom_palette(colors)
+
+    def _palette_swatch_menu(self, index, button, position):
+        menu = QMenu(self)
+        remove = menu.addAction(tr("この色を使わない"))
+        remove.setEnabled(len(self._shown_palette()) > 1)
+        if menu.exec(button.mapToGlobal(position)) is remove:
+            self._remove_palette_color(index)
+
+    def _refresh_palette_swatches(self, palette):
+        for button in self.palette_swatches:
+            self.palette_layout.removeWidget(button)
+            button.deleteLater()
+        self.palette_swatches = []
+        colors = [] if palette is None else [tuple(int(v) for v in c) for c in palette]
+        for index, rgb in enumerate(colors):
+            button = QToolButton()
+            button.setFixedSize(22, 22)
+            button.setToolTip("#{:02X}{:02X}{:02X}".format(*rgb))
+            button.setStyleSheet(
+                "QToolButton{background:#%02x%02x%02x;border:1px solid #777;}" % rgb
+            )
+            button.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            button.clicked.connect(lambda _checked=False, i=index: self._edit_palette_color(i))
+            button.customContextMenuRequested.connect(
+                lambda position, i=index, b=button: self._palette_swatch_menu(i, b, position)
+            )
+            self.palette_layout.insertWidget(index, button)
+            self.palette_swatches.append(button)
 
     def _mark_preview_dirty(self, _value=None):
         if self._initial_preview:
@@ -1157,9 +1293,31 @@ class ColorReductionDialog(QDialog):
             reduced = self._base_reduced_cache[
                 cache_key
             ].copy()
+            custom_key = self._custom_palette_key()
+            if custom_key is not None and self._custom_palette is not None:
+                # 指定した色だけで描き直す。自動の色では上書きしない（#62）。
+                palette = self._custom_palette.copy()
+                custom_cache_key = (extraction_mode, tone_key, custom_key)
+                if custom_cache_key not in self._custom_reduced_cache:
+                    custom_reduced = PaintCanvas.apply_color_reduction_palette(
+                        tone_adjusted_source,
+                        palette,
+                        alpha_threshold=alpha_threshold,
+                        opaque_background=processing_opaque_background,
+                        background_rgb=processing_background_rgb,
+                        tone_curve_points=[(0.0, 0.0), (1.0, 1.0)],
+                        extraction_mode=extraction_mode,
+                    )
+                    if custom_reduced is None or custom_reduced.isNull():
+                        raise OperationError(tr("2値化画像を生成できませんでした。"))
+                    if len(self._custom_reduced_cache) >= 8:
+                        self._custom_reduced_cache.clear()
+                    self._custom_reduced_cache[custom_cache_key] = custom_reduced.copy()
+                reduced = self._custom_reduced_cache[custom_cache_key].copy()
 
             self._palette = palette
-            self._palette_key = cache_key
+            self._palette_key = self._current_preview_key()
+            self._refresh_palette_swatches(palette)
             self._reduced_full_image = reduced
 
             statistics = PaintCanvas.image_alpha_statistics(
