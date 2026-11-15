@@ -138,6 +138,11 @@ class UIBuildMixin(MainWindowMembers):
             "今のレイヤーのアンチエイリアスを取り除き、指定した色だけで描き直します。"
         ))
         self.a_binarize_layer.triggered.connect(self.binarize_layer_dialog)
+        self.a_reconvert_layer=QAction(tr("元のファイルから再変換…"),self)
+        self.a_reconvert_layer.setStatusTip(tr(
+            "連番として読み込んだレイヤーを、読み込み直さずに別の設定で変換し直します。"
+        ))
+        self.a_reconvert_layer.triggered.connect(self.reconvert_layer_dialog)
         self.a_tidy_lines=QAction(tr("線整え…"),self)
         self.a_tidy_lines.setStatusTip(tr(
             "2値の線で、角だけで接している段をつなぎ、突き出た1画素を消します。"
@@ -533,7 +538,7 @@ class UIBuildMixin(MainWindowMembers):
         f.addAction(self.a_export_xdts)
         f.addAction(self.a_export_psd)
         f.addAction(self.a_export_mp4)
-        e=self.menuBar().addMenu(tr("編集"));e.addAction(self.a_undo);e.addAction(self.a_redo);e.addSeparator();e.addAction(self.a_cut);e.addAction(self.a_copy);e.addAction(self.a_paste);e.addSeparator();e.addAction(self.a_silhouette);e.addAction(self.a_preview_map);e.addAction(self.a_isolate_color);e.addAction(self.a_clear_color_filter);e.addAction(self.a_swap_main_sub);e.addAction(self.a_binarize_layer);e.addAction(self.a_tidy_lines);e.addAction(self.a_remove_dust);e.addSeparator();e.addAction(self.a_resize);e.addAction(self.a_pressure);e.addSeparator();e.addAction(self.a_memo)
+        e=self.menuBar().addMenu(tr("編集"));e.addAction(self.a_undo);e.addAction(self.a_redo);e.addSeparator();e.addAction(self.a_cut);e.addAction(self.a_copy);e.addAction(self.a_paste);e.addSeparator();e.addAction(self.a_silhouette);e.addAction(self.a_preview_map);e.addAction(self.a_isolate_color);e.addAction(self.a_clear_color_filter);e.addAction(self.a_swap_main_sub);e.addAction(self.a_binarize_layer);e.addAction(self.a_reconvert_layer);e.addAction(self.a_tidy_lines);e.addAction(self.a_remove_dust);e.addSeparator();e.addAction(self.a_resize);e.addAction(self.a_pressure);e.addSeparator();e.addAction(self.a_memo)
         e.addSeparator()
         self.a_color_chart = QAction(tr("カラーチャート…"), self)
         self.a_color_chart.triggered.connect(

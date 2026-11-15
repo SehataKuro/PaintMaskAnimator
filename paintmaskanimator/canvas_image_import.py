@@ -185,6 +185,20 @@ class ImageImportMixin(CanvasMembers):
         )
 
     def reduce_image_with_settings(self, image, color_reduction):
+        """2値化の設定をかけ、ゴミ取り（``despeckle``、#10）があれば最後に行う。"""
+        image = self._reduce_image(image, color_reduction)
+        max_pixels = int(color_reduction.get("despeckle") or 0)
+        if max_pixels > 0:
+            from . import despeckle
+
+            cleaned, removed = despeckle.remove_isolated_specks(
+                imaging.qimage_rgba_array(image), max_pixels
+            )
+            if removed:
+                image = imaging.rgba_array_to_qimage(cleaned)
+        return image
+
+    def _reduce_image(self, image, color_reduction):
         """2値化ダイアログで決めた設定（``color_reduction``）を1枚の画像にかける。
 
         読み込み時と、読み込んだあとのレイヤーへの2値化（#62）で同じ処理を使う。
@@ -236,6 +250,21 @@ class ImageImportMixin(CanvasMembers):
             )
         return image
 
+    def convert_import_image(self, path, image, color_reduction=None, draft=False):
+        """読み込んだ1枚を、置く前の形へ変換する（読み込みと再変換で同じ処理）。"""
+        if draft:
+            # 変換なし読み込み: 色数削減も白透明化も行わず、
+            # 読み込んだ画素をそのまま下書きレイヤーへ配置する。
+            return image
+        if color_reduction:
+            return self.reduce_image_with_settings(image, color_reduction)
+        if Path(path).suffix.lower() in (".jpg", ".jpeg"):
+            # JPEGは圧縮で背景の白がばらつくため、完全一致では落とせない。
+            # しきい値で拾い、外周からつながる範囲だけを透明にする。
+            # 絵の中の白（目のハイライトなど）は残る（Issue #10）。
+            return self.make_border_background_transparent(image)
+        return self._make_white_transparent(image)
+
     def import_image_sequence(
         self,
         paths,
@@ -254,25 +283,13 @@ class ImageImportMixin(CanvasMembers):
             image, error = self._read_image_file(path)
             if image is None:
                 return False, f"{Path(path).name}\n{error}"
-            if draft:
-                # 変換なし読み込み: 色数削減も白透明化も行わず、
-                # 読み込んだ画素をそのまま下書きレイヤーへ配置する。
-                pass
-            elif color_reduction:
-                if progress_callback and color_reduction.get("palette") is not None:
-                    progress_callback(
-                        index - 1,
-                        len(paths),
-                        tr("{Path} の元画像へトーンカーブを適用し、共通パレットで2値化しています").format(Path=Path(path).name),
-                    )
-                image = self.reduce_image_with_settings(image, color_reduction)
-            elif Path(path).suffix.lower() in (".jpg", ".jpeg"):
-                # JPEGは圧縮で背景の白がばらつくため、完全一致では落とせない。
-                # しきい値で拾い、外周からつながる範囲だけを透明にする。
-                # 絵の中の白（目のハイライトなど）は残る（Issue #10）。
-                image = self.make_border_background_transparent(image)
-            else:
-                image = self._make_white_transparent(image)
+            if progress_callback and color_reduction and color_reduction.get("palette") is not None:
+                progress_callback(
+                    index - 1,
+                    len(paths),
+                    tr("{Path} の元画像へトーンカーブを適用し、共通パレットで2値化しています").format(Path=Path(path).name),
+                )
+            image = self.convert_import_image(path, image, color_reduction, draft=draft)
             decoded.append((path, image))
         if progress_callback:
             progress_callback(len(paths), len(paths), tr("画像の配置を準備しています"))
@@ -293,6 +310,8 @@ class ImageImportMixin(CanvasMembers):
             layer.has_content = True
             layer.sequence_number = offset + 1
         self.install_legacy_frames()
+        track = self.frames[start_frame].layers[insert_index]._track
+        track.import_sources = [str(path) for path, _image in decoded]
         self._sequence_source_bank = [
             self.frames[start_frame + offset]
             .layers[insert_index].image.copy()
