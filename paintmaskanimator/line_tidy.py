@@ -1,6 +1,6 @@
 """2値の線の形を、仕上げで正しいとされる形へ整える（#64）。
 
-Issue #64 の4パターンのうち、近傍の形だけで決められる次の2つを扱う。
+Issue #64 の4パターンのうち、近傍の形だけで決められる次の3つを扱う。
 
 1. **角だけで接している段をつなぐ（足す）**：階段状の線で、段（2画素以上の横か
    縦の並び）どうしが斜めの角1点だけで接しているとき、角の1画素を足して上下左右で
@@ -9,8 +9,12 @@ Issue #64 の4パターンのうち、近傍の形だけで決められる次の
    1画素。1画素幅の線の先端（となりが1画素だけ）や、分岐・交差（となりが4画素以上）
    とは形で見分けられる。
 
-残りの2つ（太さのある階段の内角の余分な1画素、2×2の塊が角でつながった45°の線）は、
-直した形の決め方を参考の図と突き合わせてから足す。
+3. **段の重なりが厚くなった所の1画素を消す**：1画素幅の階段で、となり合う段（横の
+   並び）どうしが2画素ぶん重なっていると、その所だけ線が太く見える。片方の段の端を
+   1画素消して、重なりを1画素にする。長い方の段から消し、同じなら下（先）の段の
+   始まりを消す。
+
+残りの1つ（2×2の塊が角でつながった45°の線）は、直した形を確かめてから足す。
 
 マスク（線の画素が真）を受け取り、足す画素と消す画素のマスクを返す純粋な処理。
 すべての画素を同時に判定するので、結果は走査の順番によらない。
@@ -92,10 +96,74 @@ def spurs(mask: np.ndarray) -> np.ndarray:
     return out
 
 
+def _run_lengths(mask: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """各画素から左へ／右へ、同じ行で続く線の画素数（自分を含む）。"""
+    height, width = mask.shape
+    left = np.zeros((height, width), dtype=np.int32)
+    right = np.zeros((height, width), dtype=np.int32)
+    running = np.zeros(height, dtype=np.int32)
+    for x in range(width):
+        running = np.where(mask[:, x], running + 1, 0)
+        left[:, x] = running
+    running[:] = 0
+    for x in range(width - 1, -1, -1):
+        running = np.where(mask[:, x], running + 1, 0)
+        right[:, x] = running
+    return left, right
+
+
+def _thick_steps_canonical(mask: np.ndarray) -> np.ndarray:
+    """右下がりの横の段で、上の段の終わり e と下の段が2画素重なる所の、消す画素。
+
+    上の段：(y, e-1)・(y, e) が線、(y, e+1) は線でない。
+    下の段：(y+1, e-1)・(y+1, e) が線、(y+1, e-2) は線でない（ここから始まる）。
+    どちらの段も1画素幅：(y-1, e-1)・(y-1, e)・(y+2, e-1)・(y+2, e) は線でない。
+    """
+    s = _shift
+    upper_end = mask & s(mask, 0, -1) & ~s(mask, 0, 1)
+    lower = s(mask, 1, 0) & s(mask, 1, -1) & ~s(mask, 1, -2)
+    thin = ~s(mask, -1, 0) & ~s(mask, -1, -1) & ~s(mask, 2, 0) & ~s(mask, 2, -1)
+    found = upper_end & lower & thin
+    remove = np.zeros_like(mask)
+    if not found.any():
+        return remove
+    left, right = _run_lengths(mask)
+    ys, xs = np.nonzero(found)
+    upper_length = left[ys, xs]
+    lower_length = right[ys + 1, xs - 1]
+    take_upper = upper_length > lower_length
+    remove[np.where(take_upper, ys, ys + 1), np.where(take_upper, xs, xs - 1)] = True
+    return remove
+
+
+def _orientations():
+    """(向きを変える関数, 戻す関数) の8通り（90°回転と左右反転の組み合わせ）。"""
+    for k in range(4):
+        yield (lambda m, k=k: np.rot90(m, k)), (lambda m, k=k: np.rot90(m, -k))
+        yield (lambda m, k=k: np.fliplr(np.rot90(m, k))), (lambda m, k=k: np.rot90(np.fliplr(m), -k))
+
+
+def thick_steps(mask: np.ndarray) -> np.ndarray:
+    """パターン3：消す画素。段の重なりが2画素ある所の、片方の段の端。
+
+    8つの向きで順に調べ、見つけた所はその場で消してから次の向きへ進む（同じ重なりを
+    向きを変えて二度直さない）。
+    """
+    current = mask.astype(bool).copy()
+    removed = np.zeros_like(current)
+    for forward, back in _orientations():
+        found = back(_thick_steps_canonical(np.ascontiguousarray(forward(current))))
+        found &= current
+        current &= ~found
+        removed |= found
+    return removed
+
+
 def tidy_mask(mask: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     """``(足す画素, 消す画素)``。両方を当てた線は ``(mask | add) & ~remove``。"""
     mask = mask.astype(bool)
     remove = spurs(mask)
+    remove |= thick_steps(mask & ~remove)
     add = corner_joins(mask & ~remove)
     return add, remove
 
