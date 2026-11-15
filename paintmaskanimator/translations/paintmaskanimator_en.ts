@@ -4189,6 +4189,7 @@ Details were saved to:
     <message>
         <location filename="../actionpanel.py" line="474"/>
         <location filename="../actionpanel.py" line="694"/>
+        <location filename="../color_reduction.py" line="463"/>
         <location filename="../preferences_dialog.py" line="393"/>
         <location filename="../preferences_dialog.py" line="515"/>
         <location filename="../timeline.py" line="1222"/>
@@ -4794,180 +4795,190 @@ Details were saved to:
         <translation>Removes the replacement color for this color.</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="52"/>
+        <location filename="../color_reduction.py" line="53"/>
         <source>空いている場所をクリック：点を追加／点をドラッグ：濃さを調整／右クリック：中間点を削除／ダブルクリック：標準へ戻す</source>
         <translation>Click empty space: add a point / drag a point: adjust the level / right-click: delete an intermediate point / double-click: reset to the default</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="344"/>
-        <location filename="../color_reduction.py" line="583"/>
-        <location filename="../color_reduction.py" line="1145"/>
-        <location filename="../color_reduction.py" line="1407"/>
-        <location filename="../color_reduction.py" line="1450"/>
-        <location filename="../color_reduction.py" line="1461"/>
+        <location filename="../color_reduction.py" line="345"/>
+        <location filename="../color_reduction.py" line="603"/>
+        <location filename="../color_reduction.py" line="1264"/>
+        <location filename="../color_reduction.py" line="1526"/>
+        <location filename="../color_reduction.py" line="1569"/>
+        <location filename="../color_reduction.py" line="1580"/>
         <location filename="../main_window.py" line="540"/>
         <location filename="../main_window.py" line="566"/>
         <source>2値化</source>
         <translation>Binarise</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="377"/>
-        <location filename="../color_reduction.py" line="426"/>
+        <location filename="../color_reduction.py" line="378"/>
+        <location filename="../color_reduction.py" line="427"/>
         <source>2値化&#x3000;100%</source>
         <translation>Binarised&#x3000;100%</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="398"/>
+        <location filename="../color_reduction.py" line="399"/>
         <source>白背景を自動検出</source>
         <translation>Detect a white background automatically</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="400"/>
+        <location filename="../color_reduction.py" line="401"/>
         <source>半透明 {count:,}px</source>
         <translation>semi-transparent {count:,}px</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="419"/>
-        <location filename="../color_reduction.py" line="873"/>
-        <location filename="../color_reduction.py" line="1128"/>
+        <location filename="../color_reduction.py" line="420"/>
+        <location filename="../color_reduction.py" line="992"/>
+        <location filename="../color_reduction.py" line="1247"/>
         <source>元画像（トーンカーブ）&#x3000;100%</source>
         <translation>Source (tone curve)&#x3000;100%</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="438"/>
+        <location filename="../color_reduction.py" line="439"/>
         <source>色面抽出</source>
         <translation>Colour areas</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="439"/>
+        <location filename="../color_reduction.py" line="440"/>
         <source>ライン抽出</source>
         <translation>Line art</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="442"/>
+        <location filename="../color_reduction.py" line="443"/>
         <source>色面抽出：塗りの色面を保ちながらアンチエイリアスを除去します。
 ライン抽出：白背景と元の線色を保ちながら線画を2値化します。</source>
         <translation>Colour areas: removes anti-aliasing while preserving the filled areas.
 Line art: binarises the line work while preserving the white background and the original line colour.</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="448"/>
+        <location filename="../color_reduction.py" line="449"/>
         <source>2値化方式</source>
         <translation>Binarisation method</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="462"/>
+        <location filename="../color_reduction.py" line="460"/>
+        <source>保存…</source>
+        <translation>Save…</translation>
+    </message>
+    <message>
+        <location filename="../color_reduction.py" line="461"/>
+        <source>今の設定に名前を付けて保存します。</source>
+        <translation>Saves the current settings under a name.</translation>
+    </message>
+    <message>
+        <location filename="../color_reduction.py" line="482"/>
         <source> 色</source>
         <translation> colours</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="475"/>
+        <location filename="../color_reduction.py" line="495"/>
         <source>色数</source>
         <translation>Colours</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="485"/>
+        <location filename="../color_reduction.py" line="505"/>
         <source>出力する色を足します。</source>
         <translation>Adds an output color.</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="487"/>
+        <location filename="../color_reduction.py" line="507"/>
         <source>自動に戻す</source>
         <translation>Back to Automatic</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="489"/>
+        <location filename="../color_reduction.py" line="509"/>
         <source>指定した色を捨てて、色数から自動で決めた色に戻します。</source>
         <translation>Discards the specified colors and goes back to colors chosen automatically from the color count.</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="497"/>
+        <location filename="../color_reduction.py" line="517"/>
         <source>左クリックで色を変更、右クリックで削除。指定した色だけで描き直します。指定すると色数は使いません。</source>
         <translation>Left-click to change a color, right-click to remove it. The image is redrawn using only these colors; the color count is not used once colors are specified.</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="500"/>
-        <location filename="../color_reduction.py" line="742"/>
+        <location filename="../color_reduction.py" line="520"/>
+        <location filename="../color_reduction.py" line="861"/>
         <source>出力する色</source>
         <translation>Output colors</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="504"/>
+        <location filename="../color_reduction.py" line="524"/>
         <source>紙の地色とムラを白にそろえる</source>
         <translation>Even out paper tint and shading to white</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="506"/>
+        <location filename="../color_reduction.py" line="526"/>
         <source>スキャンした紙のクリーム色・照明のムラ・影を、場所ごとに見積もって白へそろえてから2値化します。鉛筆の濃淡は、紙との比のまま残ります。</source>
         <translation>Estimates the paper color locally (cream tint, uneven lighting, shadows) and evens it out to white before binarising. Pencil tones keep their ratio to the paper.</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="511"/>
+        <location filename="../color_reduction.py" line="531"/>
         <source>スキャン</source>
         <translation>Scan</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="516"/>
+        <location filename="../color_reduction.py" line="536"/>
         <location filename="../main_window_line_ops.py" line="773"/>
         <source>今のコマ</source>
         <translation>Current frame</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="517"/>
+        <location filename="../color_reduction.py" line="537"/>
         <location filename="../main_window_line_ops.py" line="774"/>
         <source>すべてのコマ</source>
         <translation>All frames</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="519"/>
+        <location filename="../color_reduction.py" line="539"/>
         <location filename="../main_window_line_ops.py" line="775"/>
         <source>範囲</source>
         <translation>Range</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="527"/>
-        <location filename="../color_reduction.py" line="532"/>
-        <location filename="../color_reduction.py" line="646"/>
+        <location filename="../color_reduction.py" line="547"/>
+        <location filename="../color_reduction.py" line="552"/>
+        <location filename="../color_reduction.py" line="667"/>
         <location filename="../pressure_settings.py" line="65"/>
         <source>標準</source>
         <translation>Default</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="550"/>
+        <location filename="../color_reduction.py" line="570"/>
         <source>トーンカーブ</source>
         <translation>Tone curve</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="554"/>
+        <location filename="../color_reduction.py" line="574"/>
         <source>色数の変更中はプレビューを更新しません。トーンカーブ操作中は元画像へ一時適用し、離すと直前の2値化プレビューへ戻ります。</source>
         <translation>The preview is not updated while the colour count is being changed. While the tone curve is being dragged it is applied to the source temporarily, and released it returns to the previous binarised preview.</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="563"/>
-        <location filename="../color_reduction.py" line="1386"/>
+        <location filename="../color_reduction.py" line="583"/>
+        <location filename="../color_reduction.py" line="1505"/>
         <source>プレビュー反映済み</source>
         <translation>Applied to the preview</translation>
     </message>
     <message>
         <location filename="../auto_paint_dialog.py" line="220"/>
         <location filename="../color_picker_dialog.py" line="292"/>
-        <location filename="../color_reduction.py" line="567"/>
+        <location filename="../color_reduction.py" line="587"/>
         <location filename="../cut_folder_dialog.py" line="775"/>
         <source>プレビュー</source>
         <translation>Preview</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="569"/>
+        <location filename="../color_reduction.py" line="589"/>
         <source>現在のトーンカーブと色数を使って2値化プレビューを更新します。</source>
         <translation>Updates the binarised preview using the current tone curve and colour count.</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="583"/>
+        <location filename="../color_reduction.py" line="603"/>
         <source>全コマを2値化</source>
         <translation>Binarise every exposure</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="585"/>
+        <location filename="../color_reduction.py" line="605"/>
         <location filename="../main_window.py" line="453"/>
         <source>そのまま読み込む</source>
         <translation>Import as is</translation>
@@ -5039,7 +5050,7 @@ Line art: binarises the line work while preserving the white background and the 
     </message>
     <message>
         <location filename="../auto_paint_dialog.py" line="263"/>
-        <location filename="../color_reduction.py" line="587"/>
+        <location filename="../color_reduction.py" line="607"/>
         <location filename="../cut_folder_dialog.py" line="792"/>
         <location filename="../main_window.py" line="391"/>
         <location filename="../main_window.py" line="454"/>
@@ -5072,83 +5083,93 @@ Line art: binarises the line work while preserving the white background and the 
         <translation>Add as reference</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="403"/>
+        <location filename="../color_reduction.py" line="404"/>
         <source>代表{frames}枚：1枚目{count:,}色／{note}&#x3000;トーンカーブを元画像へ先に適用し、その後に色数を調整して2値化します。</source>
         <translation>{frames} sample frames; {count:,} colours in the first / {note}&#x3000;The tone curve is applied to the source first, then the colour count is reduced and the result is binarised.</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="648"/>
+        <location filename="../color_reduction.py" line="669"/>
         <source>中間点 {count}</source>
         <translation>Intermediate points {count}</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="734"/>
+        <location filename="../color_reduction.py" line="733"/>
+        <source>（選ぶ）</source>
+        <translation>(Choose)</translation>
+    </message>
+    <message>
+        <location filename="../color_reduction.py" line="769"/>
+        <source>名前：</source>
+        <translation>Name:</translation>
+    </message>
+    <message>
+        <location filename="../color_reduction.py" line="853"/>
         <source>出力する色を足す</source>
         <translation>Add Output Color</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="756"/>
+        <location filename="../color_reduction.py" line="875"/>
         <source>この色を使わない</source>
         <translation>Don&apos;t Use This Color</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="786"/>
+        <location filename="../color_reduction.py" line="905"/>
         <source>設定未反映</source>
         <translation>Not applied</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="900"/>
+        <location filename="../color_reduction.py" line="1019"/>
         <source>（設定未反映）</source>
         <translation> (not applied)</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="1139"/>
+        <location filename="../color_reduction.py" line="1258"/>
         <source>色相を分類しています</source>
         <translation>Classifying hues</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="1249"/>
+        <location filename="../color_reduction.py" line="1368"/>
         <source>トーンカーブ適用後の画像を生成できませんでした。</source>
         <translation>Could not generate the image with the tone curve applied.</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="1263"/>
+        <location filename="../color_reduction.py" line="1382"/>
         <source>トーンカーブを元画像へ適用しています</source>
         <translation>Applying the tone curve to the source</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="1268"/>
+        <location filename="../color_reduction.py" line="1387"/>
         <source>近い色相をまとめて代表色を作成しています</source>
         <translation>Grouping similar hues into representative colours</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="1295"/>
+        <location filename="../color_reduction.py" line="1414"/>
         <source>線のアンチエイリアスを線色と白背景へ分けています</source>
         <translation>Separating the line anti-aliasing into the line colour and the white background</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="1297"/>
+        <location filename="../color_reduction.py" line="1416"/>
         <source>色面の境界を2色へ分けています</source>
         <translation>Separating the colour-area boundaries into two colours</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="1316"/>
-        <location filename="../color_reduction.py" line="1361"/>
+        <location filename="../color_reduction.py" line="1435"/>
+        <location filename="../color_reduction.py" line="1480"/>
         <source>2値化画像を生成できませんでした。</source>
         <translation>Could not generate the binarised image.</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="1332"/>
+        <location filename="../color_reduction.py" line="1451"/>
         <source>プレビューを更新しています</source>
         <translation>Updating the preview</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="1378"/>
+        <location filename="../color_reduction.py" line="1497"/>
         <source>{name}&#x3000;100%（{actual}色／半透明 {transparent}px）</source>
         <translation>{name}&#x3000;100% ({actual} colours / semi-transparent {transparent}px)</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="1408"/>
+        <location filename="../color_reduction.py" line="1527"/>
         <source>2値化プレビューの生成中にエラーが発生しました。
 
 {exc}</source>
@@ -5157,12 +5178,12 @@ Line art: binarises the line work while preserving the white background and the 
 {exc}</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="1431"/>
+        <location filename="../color_reduction.py" line="1550"/>
         <source>現在の設定はまだプレビューへ反映されていません。先に「プレビュー」を押してください。</source>
         <translation>The current settings have not been applied to the preview yet. Press &quot;Preview&quot; first.</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="1451"/>
+        <location filename="../color_reduction.py" line="1570"/>
         <source>トーンカーブまたは色数が未反映です。
 先に下の「プレビュー」を押してください。</source>
         <translation>The tone curve or the colour count has not been applied.
@@ -6358,6 +6379,7 @@ In-between and symbol labels: {blanks} cells</translation>
         <translation>Edit Presets…</translation>
     </message>
     <message>
+        <location filename="../color_reduction.py" line="468"/>
         <location filename="../pressure.py" line="432"/>
         <source>プリセット</source>
         <translation>Preset</translation>
@@ -7625,6 +7647,7 @@ Layer cell {value} / {exposure} exposures</translation>
         <translation>Delete the selected preset</translation>
     </message>
     <message>
+        <location filename="../color_reduction.py" line="769"/>
         <location filename="../cut_folder_dialog.py" line="946"/>
         <location filename="../cut_folder_dialog.py" line="950"/>
         <source>プリセットを保存</source>
