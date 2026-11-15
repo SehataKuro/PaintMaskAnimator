@@ -674,6 +674,7 @@ class TimelineTable(QTableWidget):
     splitClipRequested = Signal(int, int)
     newNumberHereRequested = Signal(int, int)
     gengaToggleRequested = Signal(int, int)
+    inbetweenRequested = Signal(int, int)
     insertFrameAtRequested = Signal(int, int)
     deleteFrameAtRequested = Signal(int, int)
     #: ("start"|"end", 列)。
@@ -1235,6 +1236,11 @@ class TimelineTable(QTableWidget):
         action_new_number = menu.addAction(tr("この位置を新しい番号にする"))
         action_genga = menu.addAction(tr("原画の印を付ける／外す"))
         action_genga.setEnabled(on_cell and item is not None)
+        action_inbetween = menu.addAction(tr("次の原画までに中割りを入れる…"))
+        action_inbetween.setEnabled(
+            on_cell and item is not None
+            and bool(item.data(TimelineCellDelegate.GENGA_ROLE))
+        )
         action_clip_merge.setEnabled(on_cell and item is not None)
         action_clip_split.setEnabled(on_cell and item is not None)
         action_new_number.setEnabled(on_cell and item is not None)
@@ -1343,6 +1349,7 @@ class TimelineTable(QTableWidget):
             action_clip_split: self.splitClipRequested,
             action_new_number: self.newNumberHereRequested,
             action_genga: self.gengaToggleRequested,
+            action_inbetween: self.inbetweenRequested,
             action_insert_frame: self.insertFrameAtRequested,
             action_delete_frame: self.deleteFrameAtRequested,
         }
@@ -1434,6 +1441,7 @@ class TimelineWidget(QWidget):
     splitClipRequested=Signal(int,int)
     newNumberHereRequested=Signal(int,int)
     gengaToggleRequested=Signal(int,int)
+    inbetweenRequested=Signal(int,int)
     insertFrameAtRequested=Signal(int,int)
     deleteFrameAtRequested=Signal(int,int)
     playbackRangeEdgeRequested=Signal(str,int)
@@ -1788,6 +1796,7 @@ class TimelineWidget(QWidget):
         self.table.splitClipRequested.connect(self.splitClipRequested)
         self.table.newNumberHereRequested.connect(self.newNumberHereRequested)
         self.table.gengaToggleRequested.connect(self.gengaToggleRequested)
+        self.table.inbetweenRequested.connect(self.inbetweenRequested)
         self.table.insertFrameAtRequested.connect(self.insertFrameAtRequested)
         self.table.deleteFrameAtRequested.connect(self.deleteFrameAtRequested)
         self.table.playbackRangeEdgeRequested.connect(self.playbackRangeEdgeRequested)

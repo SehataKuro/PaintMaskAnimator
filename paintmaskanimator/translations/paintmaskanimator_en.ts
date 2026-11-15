@@ -30,7 +30,7 @@
     <message>
         <location filename="../main_window_ui_build.py" line="65"/>
         <location filename="../main_window_ui_build.py" line="441"/>
-        <location filename="../timeline.py" line="1224"/>
+        <location filename="../timeline.py" line="1225"/>
         <location filename="../toolpanel.py" line="1312"/>
         <location filename="../toolpanel.py" line="1313"/>
         <source>コピー</source>
@@ -39,14 +39,14 @@
     <message>
         <location filename="../main_window_ui_build.py" line="66"/>
         <location filename="../main_window_ui_build.py" line="440"/>
-        <location filename="../timeline.py" line="1223"/>
+        <location filename="../timeline.py" line="1224"/>
         <source>切り取り</source>
         <translation>Cut</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="67"/>
         <location filename="../main_window_ui_build.py" line="442"/>
-        <location filename="../timeline.py" line="1225"/>
+        <location filename="../timeline.py" line="1226"/>
         <source>貼り付け</source>
         <translation>Paste</translation>
     </message>
@@ -1270,7 +1270,7 @@ Export into this folder?</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="502"/>
-        <location filename="../timeline.py" line="1246"/>
+        <location filename="../timeline.py" line="1252"/>
         <source>タイムリマップをコピー</source>
         <translation>Copy the time remap</translation>
     </message>
@@ -1849,7 +1849,7 @@ Supported formats: PNG, JPEG, TGA</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="500"/>
-        <location filename="../timeline.py" line="1988"/>
+        <location filename="../timeline.py" line="1997"/>
         <source>コマを削除</source>
         <translation>Delete Exposure</translation>
     </message>
@@ -1866,7 +1866,7 @@ Supported formats: PNG, JPEG, TGA</translation>
     </message>
     <message>
         <location filename="../main_window_ui_build.py" line="505"/>
-        <location filename="../timeline.py" line="1504"/>
+        <location filename="../timeline.py" line="1512"/>
         <source>再生／停止</source>
         <translation>Play / Stop</translation>
     </message>
@@ -2959,12 +2959,12 @@ Drop a used colour onto the middle of another to create a parent/child link.</tr
         <translation>Picked {color} from the sub view</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="1386"/>
+        <location filename="../main_window_ui_build.py" line="1387"/>
         <source>{app} について</source>
         <translation>About {app}</translation>
     </message>
     <message>
-        <location filename="../main_window_ui_build.py" line="1387"/>
+        <location filename="../main_window_ui_build.py" line="1388"/>
         <source>&lt;h3&gt;{app}&lt;/h3&gt;
 &lt;p&gt;Copyright &amp;copy; 2026 PaintMaskAnimator contributors&lt;/p&gt;
 &lt;p&gt;本ソフトウェアは &lt;b&gt;Apache License 2.0&lt;/b&gt; のもとで配布されています。
@@ -3144,7 +3144,7 @@ Double-click: edit the name and tag colour</translation>
         <location filename="../main_window_tween.py" line="147"/>
         <location filename="../main_window_tween.py" line="202"/>
         <location filename="../main_window_tween.py" line="447"/>
-        <location filename="../timeline.py" line="1323"/>
+        <location filename="../timeline.py" line="1329"/>
         <location filename="../toolpanel.py" line="640"/>
         <location filename="../widgets.py" line="650"/>
         <source>自由変形</source>
@@ -3175,7 +3175,7 @@ Double-click: edit the name and tag colour</translation>
     </message>
     <message>
         <location filename="../main_window_tween.py" line="171"/>
-        <location filename="../timeline.py" line="1321"/>
+        <location filename="../timeline.py" line="1327"/>
         <source>トゥイーンを有効にする</source>
         <translation>Enable tweening</translation>
     </message>
@@ -3293,7 +3293,7 @@ Check that Pillow is available and that the deformed area has colour.</translati
         <location filename="../main_window_tween.py" line="147"/>
         <location filename="../main_window_tween.py" line="202"/>
         <location filename="../main_window_tween.py" line="447"/>
-        <location filename="../timeline.py" line="1324"/>
+        <location filename="../timeline.py" line="1330"/>
         <location filename="../toolpanel.py" line="642"/>
         <location filename="../widgets.py" line="650"/>
         <source>メッシュ変形</source>
@@ -4233,8 +4233,8 @@ Details were saved to:
         <location filename="../color_reduction.py" line="463"/>
         <location filename="../preferences_dialog.py" line="393"/>
         <location filename="../preferences_dialog.py" line="515"/>
-        <location filename="../timeline.py" line="1222"/>
-        <location filename="../timeline.py" line="2336"/>
+        <location filename="../timeline.py" line="1223"/>
+        <location filename="../timeline.py" line="2345"/>
         <source>削除</source>
         <translation>Delete</translation>
     </message>
@@ -6016,7 +6016,7 @@ In-between and symbol labels: {blanks} cells</translation>
     </message>
     <message>
         <location filename="../main_window_timeline_ops.py" line="866"/>
-        <location filename="../main_window_timeline_ops.py" line="906"/>
+        <location filename="../main_window_timeline_ops.py" line="991"/>
         <source>絵のあるセルを選んでください。</source>
         <translation>Select a cell with a drawing.</translation>
     </message>
@@ -6031,22 +6031,62 @@ In-between and symbol labels: {blanks} cells</translation>
         <translation>Removed the key drawing mark.</translation>
     </message>
     <message>
-        <location filename="../main_window_timeline_ops.py" line="914"/>
+        <location filename="../main_window_timeline_ops.py" line="903"/>
+        <source>中割りはタイムシートの表示で入れてください。</source>
+        <translation>Add in-betweens in the timesheet view.</translation>
+    </message>
+    <message>
+        <location filename="../main_window_timeline_ops.py" line="912"/>
+        <source>原画の印のあるセルを選んでください。</source>
+        <translation>Select a cel marked as a key drawing.</translation>
+    </message>
+    <message>
+        <location filename="../main_window_timeline_ops.py" line="917"/>
+        <source>この原画のあとに、次の原画がありません。</source>
+        <translation>There is no next key drawing after this one.</translation>
+    </message>
+    <message>
+        <location filename="../main_window_timeline_ops.py" line="921"/>
+        <source>原画と次の原画のあいだに、もうセルがあります。中割りは原画どうしが隣り合っているときに入れられます。</source>
+        <translation>There are already cels between this key drawing and the next. In-betweens can be added only when the key drawings are next to each other.</translation>
+    </message>
+    <message>
+        <location filename="../main_window_timeline_ops.py" line="929"/>
+        <source>原画のあいだが{span}コマなので、中割りは{limit}枚まで入れられます。</source>
+        <translation>The key drawings are {span} frames apart, so up to {limit} in-betweens can be added.</translation>
+    </message>
+    <message>
+        <location filename="../main_window_timeline_ops.py" line="946"/>
+        <source>原画のあいだに中割りを{count}枚入れました（○に描くと番号が付きます）。</source>
+        <translation>Added {count} in-between(s) between the key drawings (drawing on a ○ gives it a number).</translation>
+    </message>
+    <message>
+        <location filename="../main_window_timeline_ops.py" line="957"/>
+        <source>中割りを入れる</source>
+        <translation>Add In-betweens</translation>
+    </message>
+    <message>
+        <location filename="../main_window_timeline_ops.py" line="957"/>
+        <source>中割りの枚数：</source>
+        <translation>Number of in-betweens:</translation>
+    </message>
+    <message>
+        <location filename="../main_window_timeline_ops.py" line="999"/>
         <source>番号のある絵を選んでください。</source>
         <translation>Select a numbered drawing.</translation>
     </message>
     <message>
-        <location filename="../main_window_timeline_ops.py" line="944"/>
+        <location filename="../main_window_timeline_ops.py" line="1029"/>
         <source>この位置を新しい番号 {number} にしました。</source>
         <translation>Made this position a new number: {number}.</translation>
     </message>
     <message>
-        <location filename="../main_window_timeline_ops.py" line="964"/>
+        <location filename="../main_window_timeline_ops.py" line="1049"/>
         <source>露出の途中を選んでください。先頭では分割できません。</source>
         <translation>Choose a frame inside the exposure; it cannot be split at its start.</translation>
     </message>
     <message>
-        <location filename="../main_window_timeline_ops.py" line="996"/>
+        <location filename="../main_window_timeline_ops.py" line="1081"/>
         <source>前に結合できるセルがありません。</source>
         <translation>There is no preceding cell to merge into.</translation>
     </message>
@@ -6735,69 +6775,69 @@ a folder here</translation>
         <translation>Red</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1254"/>
+        <location filename="../timeline.py" line="1260"/>
         <source>コマを増やす</source>
         <translation>Add exposures</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1256"/>
-        <location filename="../timeline.py" line="1980"/>
+        <location filename="../timeline.py" line="1262"/>
+        <location filename="../timeline.py" line="1989"/>
         <source>空フレームを追加</source>
         <translation>Add an empty frame</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1259"/>
+        <location filename="../timeline.py" line="1265"/>
         <source>表示コマを1コマ伸ばす</source>
         <translation>Extend the exposure by one</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1284"/>
+        <location filename="../timeline.py" line="1290"/>
         <source>連番の番号を呼び出す</source>
         <translation>Recall a sequence number</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1313"/>
+        <location filename="../timeline.py" line="1319"/>
         <source>トゥイーンをキャンセル</source>
         <translation>Cancel the tween</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1465"/>
+        <location filename="../timeline.py" line="1473"/>
         <source>現在のキーフレーム／空フレームを1コマ伸ばします。</source>
         <translation>Extends the current key frame or empty frame by one exposure.</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1991"/>
+        <location filename="../timeline.py" line="2000"/>
         <source>現在の表示コマを1コマ削除します。</source>
         <translation>Deletes one exposure from the current run.</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1471"/>
+        <location filename="../timeline.py" line="1479"/>
         <source>AEまたはToeiDigitalTimeSheetのコピー情報をタイムシートへ貼り付けます。XDTSはタイムラインへドラッグ＆ドロップできます。</source>
         <translation>Pastes copied After Effects or ToeiDigitalTimeSheet data into the time sheet. XDTS files can be dragged and dropped onto the timeline.</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1496"/>
+        <location filename="../timeline.py" line="1504"/>
         <source>前のフレーム（1）</source>
         <translation>Previous frame (1)</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1498"/>
+        <location filename="../timeline.py" line="1506"/>
         <source>次のフレーム（2）</source>
         <translation>Next frame (2)</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1500"/>
+        <location filename="../timeline.py" line="1508"/>
         <source>前のコマ（A）</source>
         <translation>Previous exposure (A)</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1502"/>
+        <location filename="../timeline.py" line="1510"/>
         <source>次のコマ（S）</source>
         <translation>Next exposure (S)</translation>
     </message>
     <message>
         <location filename="../normalize_dialog.py" line="38"/>
-        <location filename="../timeline.py" line="1478"/>
+        <location filename="../timeline.py" line="1486"/>
         <source>タイムラインの順番で正規化</source>
         <translation>Normalise by timeline order</translation>
     </message>
@@ -6813,7 +6853,7 @@ a folder here</translation>
     </message>
     <message>
         <location filename="../normalize_dialog.py" line="60"/>
-        <location filename="../timeline.py" line="1507"/>
+        <location filename="../timeline.py" line="1515"/>
         <source>すべてのレイヤー</source>
         <translation>All layers</translation>
     </message>
@@ -6843,52 +6883,52 @@ a folder here</translation>
         <translation>Renumber</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1510"/>
+        <location filename="../timeline.py" line="1518"/>
         <source>オニオンスキン</source>
         <translation>Onion skin</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1512"/>
+        <location filename="../timeline.py" line="1520"/>
         <source>オニオンスキン表示のON／OFF</source>
         <translation>Turn the onion skin on or off</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1520"/>
+        <location filename="../timeline.py" line="1528"/>
         <source>クリックでオニオンスキン設定を開き、再クリックで閉じます。</source>
         <translation>Click to open the onion skin settings, click again to close them.</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1523"/>
+        <location filename="../timeline.py" line="1531"/>
         <source> コマ</source>
         <translation> exposures</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1577"/>
+        <location filename="../timeline.py" line="1585"/>
         <source>不透明</source>
         <translation>Opacity</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1583"/>
+        <location filename="../timeline.py" line="1591"/>
         <source>選択レイヤーの表示不透明度です。画像の色データ自体は変更しません。</source>
         <translation>The display opacity of the selected layer. The colour data of the images is unchanged.</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1591"/>
+        <location filename="../timeline.py" line="1599"/>
         <source>現在選択しているレイヤーの表示不透明度</source>
         <translation>Display opacity of the currently selected layer</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1622"/>
+        <location filename="../timeline.py" line="1630"/>
         <source>現在位置 / 最後のコマ</source>
         <translation>Current Position / Last Frame</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1638"/>
+        <location filename="../timeline.py" line="1646"/>
         <source>Shift/{ctrl}：複数選択</source>
         <translation>Shift/{ctrl}: multiple selection</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1558"/>
+        <location filename="../timeline.py" line="1566"/>
         <source>シート</source>
         <translation>Sheet</translation>
     </message>
@@ -6898,241 +6938,246 @@ a folder here</translation>
         <translation>Draft</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1217"/>
+        <location filename="../timeline.py" line="1218"/>
         <source>中割りトラックラベル○を作成</source>
         <extracomment>(&quot;start&quot;|&quot;end&quot;, 列)。</extracomment>
         <translation>Create an in-between track label (○)</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1219"/>
+        <location filename="../timeline.py" line="1220"/>
         <source>トラックラベルを削除</source>
         <translation>Delete the track label</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1230"/>
+        <location filename="../timeline.py" line="1231"/>
         <source>新規アニメーションセル</source>
         <translation>New animation cell</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1233"/>
+        <location filename="../timeline.py" line="1234"/>
         <source>クリップを結合</source>
         <translation>Merge clips</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1234"/>
+        <location filename="../timeline.py" line="1235"/>
         <source>クリップを分割</source>
         <translation>Split the clip</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1235"/>
+        <location filename="../timeline.py" line="1236"/>
         <source>この位置を新しい番号にする</source>
         <translation>Make This Position a New Number</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1236"/>
+        <location filename="../timeline.py" line="1237"/>
         <source>原画の印を付ける／外す</source>
         <translation>Mark / Unmark as Key Drawing</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1241"/>
+        <location filename="../timeline.py" line="1239"/>
+        <source>次の原画までに中割りを入れる…</source>
+        <translation>Add In-betweens up to the Next Key Drawing…</translation>
+    </message>
+    <message>
+        <location filename="../timeline.py" line="1247"/>
         <source>表示開始フレームにする</source>
         <translation>Set as the first played frame</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1242"/>
+        <location filename="../timeline.py" line="1248"/>
         <source>表示終了フレームにする</source>
         <translation>Set as the last played frame</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1248"/>
+        <location filename="../timeline.py" line="1254"/>
         <source>フレームを挿入</source>
         <translation>Insert a frame</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1249"/>
+        <location filename="../timeline.py" line="1255"/>
         <source>フレームを削除</source>
         <translation>Delete the frame</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1296"/>
+        <location filename="../timeline.py" line="1302"/>
         <source>トゥイーンの形を直す</source>
         <translation>Adjust the tween shape</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1298"/>
+        <location filename="../timeline.py" line="1304"/>
         <source>トゥイーンを解除（中割りを通常のセルにする）</source>
         <translation>Release the tween (make the in-betweens ordinary cells)</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1464"/>
+        <location filename="../timeline.py" line="1472"/>
         <source>コマを伸ばす</source>
         <translation>Extend exposure</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1470"/>
+        <location filename="../timeline.py" line="1478"/>
         <source>リマップを貼り付け</source>
         <translation>Paste time remap</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1476"/>
+        <location filename="../timeline.py" line="1484"/>
         <source>順番で正規化</source>
         <translation>Normalise order</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1479"/>
+        <location filename="../timeline.py" line="1487"/>
         <source>左から最初に出てくる順に番号を振り直します。実行前に、振り直す番号の一覧を確認できます。</source>
         <translation>Renumbers the drawings in the order they first appear from the left. You can review the changes before applying them.</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1492"/>
+        <location filename="../timeline.py" line="1500"/>
         <source>先頭へ（Home）</source>
         <translation>Go to Start (Home)</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1494"/>
+        <location filename="../timeline.py" line="1502"/>
         <source>末尾へ（End）</source>
         <translation>Go to End (End)</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1559"/>
+        <location filename="../timeline.py" line="1567"/>
         <source>連番</source>
         <translation>Sequence</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1567"/>
+        <location filename="../timeline.py" line="1575"/>
         <source>連番：左から順番に自動採番／シート：タイムシートの絵番号を保持</source>
         <translation>Sequence: numbered automatically from the left / Sheet: keeps the drawing numbers from the time sheet</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1641"/>
+        <location filename="../timeline.py" line="1649"/>
         <source>ドラッグ・Shift＋クリック：複数選択／選択範囲をそのままドラッグ：まとめて移動／番号・✗の箱：移動／左右端：伸縮／Space：ハンド／{zoom}：拡大縮小</source>
         <translation>Drag or Shift-click: multiple selection / drag the selection itself: move it together / number or ✗ box: move / left and right edges: resize / Space: pan / {zoom}: zoom</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1698"/>
+        <location filename="../timeline.py" line="1706"/>
         <source>すべてのレイヤーのサムネイルを開く／閉じる</source>
         <translation>Show or hide thumbnails for all layers</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1701"/>
+        <location filename="../timeline.py" line="1709"/>
         <source>レイヤー</source>
         <translation>Layer</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1704"/>
+        <location filename="../timeline.py" line="1712"/>
         <source>レイヤーを追加</source>
         <translation>Add layer</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1706"/>
+        <location filename="../timeline.py" line="1714"/>
         <source>レイヤーを削除</source>
         <translation>Delete layer</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1954"/>
+        <location filename="../timeline.py" line="1963"/>
         <source>タイムラインの順番とずれている番号：{count}個</source>
         <translation>Numbers out of timeline order: {count}</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1981"/>
+        <location filename="../timeline.py" line="1990"/>
         <source>選択番号の直後へ、新しい空の番号画像を追加します。</source>
         <translation>Adds a new empty numbered image right after the selected number.</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1984"/>
+        <location filename="../timeline.py" line="1993"/>
         <source>番号・✗の先頭セルでは、直後へ同じ長さの空セル（✗）を挿入。続きの部分では、選択位置から後ろを空セルへ分割します。</source>
         <translation>On a number or ✗ start cell, inserts an empty cell (✗) of the same length right after it. On a held part, splits everything from the selected position onwards into an empty cell.</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="1989"/>
+        <location filename="../timeline.py" line="1998"/>
         <source>選択番号を削除し、シート側の対応セルを未使用にします。</source>
         <translation>Deletes the selected number and frees the matching cell on the sheet.</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="2333"/>
+        <location filename="../timeline.py" line="2342"/>
         <source>複製</source>
         <translation>Duplicate</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="2334"/>
+        <location filename="../timeline.py" line="2343"/>
         <source>結合</source>
         <translation>Merge</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="2338"/>
+        <location filename="../timeline.py" line="2347"/>
         <source>下書きレイヤー</source>
         <translation>Draft layer</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="2344"/>
+        <location filename="../timeline.py" line="2353"/>
         <source>番号の正規化</source>
         <translation>Normalise the numbers</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="2628"/>
+        <location filename="../timeline.py" line="2637"/>
         <source>下書きレイヤー（色数削減の対象外）。
 </source>
         <translation>Draft layer (excluded from colour reduction).
 </translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="2629"/>
+        <location filename="../timeline.py" line="2638"/>
         <source>左端の＞でサムネイルを開閉、目のアイコンで表示／非表示を切替、ダブルクリックでレイヤー名を変更。</source>
         <translation>Click the &gt; on the left to show/hide thumbnails and the eye icon to show/hide the layer; double-click to rename the layer.</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="2964"/>
+        <location filename="../timeline.py" line="2973"/>
         <source>確定したトゥイーン（{exposure}コマ）。ダブルクリックで形を直す／右クリックで解除</source>
         <translation>Committed tween ({exposure} exposures). Double-click to adjust the shape / right-click to release</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="2970"/>
+        <location filename="../timeline.py" line="2979"/>
         <source>原画
 </source>
         <translation>Key drawing
 </translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="2901"/>
+        <location filename="../timeline.py" line="2910"/>
         <source>逆生成トゥイーン中。この右端は元の初期形状です。右クリックでキャンセルできます。</source>
         <translation>Reverse tween in progress. This right end holds the original shape. Right-click to cancel.</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="2907"/>
+        <location filename="../timeline.py" line="2916"/>
         <source>トゥイーン変形中。右クリックでキャンセルできます。</source>
         <translation>Tween deformation in progress. Right-click to cancel.</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="2913"/>
+        <location filename="../timeline.py" line="2922"/>
         <source>右端をドラッグして後方向の表示コマ数を変更／右クリックでトゥイーンを有効化</source>
         <translation>Drag the right edge to change how many exposures follow / right-click to enable tweening</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="2917"/>
+        <location filename="../timeline.py" line="2926"/>
         <source>空フレームの右端をドラッグして表示コマ数を変更</source>
         <translation>Drag the right edge of the empty frame to change the exposure count</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="2921"/>
+        <location filename="../timeline.py" line="2930"/>
         <source>逆生成トゥイーン中。キーフレーム側が操作中の変形形状、右端側が元の初期形状になります。右クリックでキャンセルできます。</source>
         <translation>Reverse tween in progress. The key frame side holds the shape you are editing and the right end the original one. Right-click to cancel.</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="2941"/>
+        <location filename="../timeline.py" line="2950"/>
         <source>CLIP STUDIOセル名：{name}
 </source>
         <translation>CLIP STUDIO cell name: {name}
 </translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="2945"/>
+        <location filename="../timeline.py" line="2954"/>
         <source>中央をドラッグして移動／左端をドラッグして前方向へ伸縮
 レイヤーセル {value} / {exposure}コマ</source>
         <translation>Drag the middle to move / drag the left edge to extend backwards
 Layer cell {value} / {exposure} exposures</translation>
     </message>
     <message>
-        <location filename="../timeline.py" line="2949"/>
+        <location filename="../timeline.py" line="2958"/>
         <source>空フレームの先頭です。描画すると自動的にキーフレーム化します。</source>
         <translation>This is the start of an empty frame. Drawing here turns it into a key frame automatically.</translation>
     </message>

@@ -1250,6 +1250,7 @@ class UIBuildMixin(MainWindowMembers):
         self.timeline.splitClipRequested.connect(self.timeline_ops.split_clip)
         self.timeline.newNumberHereRequested.connect(self.timeline_ops.new_number_here)
         self.timeline.gengaToggleRequested.connect(self.timeline_ops.toggle_genga)
+        self.timeline.inbetweenRequested.connect(self.timeline_ops.insert_inbetweens_dialog)
         self.timeline.insertFrameAtRequested.connect(
             self.timeline_ops.insert_frame_at
         )
