@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QFormLayout,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QMenu,
     QMessageBox,
@@ -447,6 +448,25 @@ class ColorReductionDialog(QDialog):
         )
         controls.addRow(tr("2値化方式"), self.extraction_mode)
 
+        # 設定のプリセット（#10）。方式・色数・トーンカーブ・出力する色・紙の地色を
+        # 名前を付けて保存し、次の素材で呼び出す。
+        preset_row = QWidget()
+        preset_layout = QHBoxLayout(preset_row)
+        preset_layout.setContentsMargins(0, 0, 0, 0)
+        preset_layout.setSpacing(4)
+        self.preset_choice = QComboBox()
+        self.preset_choice.setMinimumWidth(160)
+        self.preset_choice.activated.connect(self._preset_chosen)
+        self.preset_save_button = QPushButton(tr("保存…"))
+        self.preset_save_button.setToolTip(tr("今の設定に名前を付けて保存します。"))
+        self.preset_save_button.clicked.connect(self._save_preset_clicked)
+        self.preset_delete_button = QPushButton(tr("削除"))
+        self.preset_delete_button.clicked.connect(self._delete_preset_clicked)
+        preset_layout.addWidget(self.preset_choice, 1)
+        preset_layout.addWidget(self.preset_save_button)
+        preset_layout.addWidget(self.preset_delete_button)
+        controls.addRow(tr("プリセット"), preset_row)
+
         color_row = QWidget()
         color_layout = QHBoxLayout(color_row)
         color_layout.setContentsMargins(0, 0, 0, 0)
@@ -605,6 +625,7 @@ class ColorReductionDialog(QDialog):
         )
 
         self._apply_paper_setting()
+        self.refresh_presets()
         self._install_preview_event_filters()
         self._connect_preview_scrolls()
         self._update_preview()
@@ -660,6 +681,104 @@ class ColorReductionDialog(QDialog):
             self.tone_curve_points_key(),
             self._custom_palette_key(),
         )
+
+    # -- プリセット（#10） ---------------------------------------------------
+    def current_settings(self):
+        """プリセットとして保存する設定（JSON にできる値だけ）。"""
+        settings = {
+            "extraction_mode": self.selected_extraction_mode(),
+            "color_count": int(self.color_count.value()),
+            "tone_curve_points": [[float(x), float(y)] for x, y in self.tone_curve_points()],
+            "palette": (
+                [[int(v) for v in color] for color in self._custom_palette]
+                if self._custom_palette is not None else None
+            ),
+        }
+        if self.flatten_paper is not None:
+            settings["flatten_paper"] = bool(self.flatten_paper.isChecked())
+        return settings
+
+    def apply_settings(self, settings):
+        """プリセットの設定をダイアログへ入れる（知らない値・壊れた値は飛ばす）。"""
+        mode = settings.get("extraction_mode")
+        index = self.extraction_mode.findData(mode)
+        if index >= 0:
+            self.extraction_mode.setCurrentIndex(index)
+        count = settings.get("color_count")
+        if isinstance(count, int) and not isinstance(count, bool):
+            self.color_count.setValue(max(2, min(100, count)))
+        points = settings.get("tone_curve_points")
+        if isinstance(points, list):
+            try:
+                self.tone_curve.setPoints([(float(x), float(y)) for x, y in points])
+            except (TypeError, ValueError) as exc:
+                log.info("ignoring a broken tone curve in a preset: %s", exc)
+        if self.flatten_paper is not None and isinstance(settings.get("flatten_paper"), bool):
+            self.flatten_paper.setChecked(settings["flatten_paper"])
+        palette = settings.get("palette")
+        try:
+            colors = [tuple(int(v) for v in color[:3]) for color in palette] if palette else []
+        except (TypeError, ValueError):
+            colors = []
+        if all(0 <= v <= 255 for color in colors for v in color):
+            self.set_custom_palette(colors)
+        self._mark_preview_dirty()
+
+    def refresh_presets(self, selected=None):
+        from . import preferences
+
+        names = sorted(preferences.binarize_presets())
+        self.preset_choice.blockSignals(True)
+        self.preset_choice.clear()
+        self.preset_choice.addItem(tr("（選ぶ）"), None)
+        for name in names:
+            self.preset_choice.addItem(name, name)
+        if selected is not None:
+            index = self.preset_choice.findData(selected)
+            self.preset_choice.setCurrentIndex(max(0, index))
+        self.preset_choice.blockSignals(False)
+        self.preset_delete_button.setEnabled(bool(names))
+
+    def load_preset(self, name):
+        from . import preferences
+
+        settings = preferences.binarize_presets().get(str(name))
+        if settings is None:
+            return False
+        self.apply_settings(settings)
+        return True
+
+    def save_preset(self, name):
+        from . import preferences
+
+        name = str(name).strip()
+        if not name:
+            return False
+        preferences.save_binarize_preset(name, self.current_settings())
+        self.refresh_presets(selected=name)
+        return True
+
+    def _preset_chosen(self, index):
+        name = self.preset_choice.itemData(index)
+        if name is not None:
+            self.load_preset(name)
+
+    def _save_preset_clicked(self):
+        current = self.preset_choice.currentData() or ""
+        name, accepted = QInputDialog.getText(
+            self, tr("プリセットを保存"), tr("名前："), text=str(current),
+        )
+        if accepted:
+            self.save_preset(name)
+
+    def _delete_preset_clicked(self):
+        from . import preferences
+
+        name = self.preset_choice.currentData()
+        if name is None:
+            return
+        preferences.delete_binarize_preset(name)
+        self.refresh_presets()
 
     # -- 紙の地色（#51） ---------------------------------------------------
     def flatten_paper_enabled(self):
