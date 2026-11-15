@@ -245,8 +245,11 @@ class InputEventMixin(CanvasMembers):
             if not self.is_pseudo_transparent_color(used_color):
                 self.colorUsed.emit(used_color)
         elif t in ("bucket", "closed_fill"):
-            # 串刺し塗りは既存のセルにだけ塗る。保持セルを新しいキーに分けない。
-            if self._bucket_all_frames_enabled():
+            # 色置換と串刺し塗りは既存のセルにだけ塗る。保持セルを新しいキーに分けない。
+            if t == "bucket" and self._bucket_replace_color_enabled():
+                self.abort_skewer_fill()
+                self.replace_color_at(QPoint(int(p.x()), int(p.y())))
+            elif self._bucket_all_frames_enabled():
                 self.flood_fill(QPoint(int(p.x()), int(p.y())))
             else:
                 self.ensure_editable_key()
