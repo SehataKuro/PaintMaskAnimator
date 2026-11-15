@@ -943,3 +943,50 @@ def test_initial_state_and_auto_paint_process_dense_holds(window):
     canvas.redo()
     assert all(frame.layers[0].image.pixelColor(47, 20) == QColor(*LEAF)
                for frame in canvas.frames[1:])
+
+
+def on_white(pixels):
+    """透明の所を不透明な白にした絵（ライン抽出で2値化して読み込んだ線画）。"""
+    out = pixels.copy()
+    out[out[:, :, 3] == 0] = (255, 255, 255, 255)
+    return out
+
+
+def test_white_as_unpainted_clears_only_opaque_white():
+    pixels = on_white(figure(0))
+    out = auto_paint.white_as_unpainted(pixels)
+    assert out[5, 5, 3] == 0
+    assert color_at(out, 10, 10) == (0, 0, 0)
+    assert pixels[5, 5, 3] == 255, "渡した絵は書き換えない"
+    clean = figure(0)
+    assert auto_paint.white_as_unpainted(clean) is clean
+
+
+def test_paints_line_art_on_an_opaque_white_background():
+    """#65：背景が不透明な白の線画でも、白を塗り色とみなさずに塗る（初期状態なし）。"""
+    cells = [on_white(figure(0, painted=True)), on_white(figure(2)), on_white(figure(4))]
+    plan = auto_paint.plan_auto_paint(cells, 0)
+    for index, dx in ((1, 2), (2, 4)):
+        after = auto_paint.apply_paint(cells[index], plan.cells[index])
+        assert color_at(after, 15 + dx, 40) == SKIN
+        assert color_at(after, 45 + dx, 20) == LEAF
+        assert color_at(after, 45 + dx, 50) == DRESS
+        assert color_at(after, 5, 5) == (255, 255, 255), "枠の外は塗らない"
+
+
+def test_white_in_the_current_picture_is_not_a_hand_painted_answer():
+    """#65：初期状態があっても、今の絵の白を「人が白で塗った答え」にしない。"""
+    reference = on_white(figure(0, painted=True))
+    current = on_white(figure(2))
+    initial = auto_paint.line_only(current)
+    plan = auto_paint.plan_auto_paint(
+        [reference, initial], 0,
+        hints=[None, current],
+        lines=[auto_paint.line_only(figure(0)), initial],
+    )
+    painted = {rgb for rgb, _bounds, _mask in plan.cells[1].paints}
+    assert (255, 255, 255) not in painted
+    after = auto_paint.apply_paint(current, plan.cells[1])
+    assert color_at(after, 17, 40) == SKIN
+    assert color_at(after, 47, 20) == LEAF
+    assert color_at(after, 47, 50) == DRESS
