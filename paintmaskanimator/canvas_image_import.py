@@ -185,6 +185,20 @@ class ImageImportMixin(CanvasMembers):
         )
 
     def reduce_image_with_settings(self, image, color_reduction):
+        """2値化の設定をかけ、ゴミ取り（``despeckle``、#10）があれば最後に行う。"""
+        image = self._reduce_image(image, color_reduction)
+        max_pixels = int(color_reduction.get("despeckle") or 0)
+        if max_pixels > 0:
+            from . import despeckle
+
+            cleaned, removed = despeckle.remove_isolated_specks(
+                imaging.qimage_rgba_array(image), max_pixels
+            )
+            if removed:
+                image = imaging.rgba_array_to_qimage(cleaned)
+        return image
+
+    def _reduce_image(self, image, color_reduction):
         """2値化ダイアログで決めた設定（``color_reduction``）を1枚の画像にかける。
 
         読み込み時と、読み込んだあとのレイヤーへの2値化（#62）で同じ処理を使う。

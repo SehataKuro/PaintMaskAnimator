@@ -473,6 +473,7 @@ class MainWindow(
             "palette": palette,
             "extraction_mode": dialog.selected_extraction_mode(),
             "flatten_paper": dialog.flatten_paper_enabled(),
+            "despeckle": dialog.despeckle_pixels(),
             # 出力する色を指定したときは、色数ではなく指定した色の数（#62）。
             "target_colors": int(len(palette)),
             "source_color_count": int(color_count),

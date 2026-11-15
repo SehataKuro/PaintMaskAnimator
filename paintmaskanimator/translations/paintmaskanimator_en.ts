@@ -1370,7 +1370,7 @@ Export into this folder?</translation>
     </message>
     <message>
         <location filename="../main_window.py" line="370"/>
-        <location filename="../main_window.py" line="541"/>
+        <location filename="../main_window.py" line="542"/>
         <source>2値化の準備中にエラーが発生しました。
 {exc}</source>
         <translation>An error occurred while preparing binarisation.
@@ -1440,27 +1440,27 @@ Analog (scan): pictures scanned from paper. Binarised with a tone curve and a co
         <translation>Remove and Import</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="509"/>
+        <location filename="../main_window.py" line="510"/>
         <source>2値化：このコマには絵がありません。</source>
         <translation>Binarise: this frame has no drawing.</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="571"/>
+        <location filename="../main_window.py" line="572"/>
         <source>2値化を中止しました。</source>
         <translation>Binarisation cancelled.</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="574"/>
+        <location filename="../main_window.py" line="575"/>
         <source>2値化：変わったセルはありませんでした。</source>
         <translation>Binarise: no cels changed.</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="579"/>
+        <location filename="../main_window.py" line="580"/>
         <source>{cells}セルを{count}色で2値化しました。</source>
         <translation>Binarised {cells} cel(s) with {count} colors.</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="604"/>
+        <location filename="../main_window.py" line="605"/>
         <source>{Path}
 画像サイズを取得できませんでした。
 {exc}</source>
@@ -1469,21 +1469,21 @@ Could not read the image size.
 {exc}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="616"/>
+        <location filename="../main_window.py" line="617"/>
         <source>画像に合わせてキャンバスを {width} × {height}px に拡張しました。</source>
         <translation>Canvas expanded to {width} × {height}px to fit the image.</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="627"/>
-        <location filename="../main_window.py" line="635"/>
-        <location filename="../main_window.py" line="642"/>
+        <location filename="../main_window.py" line="628"/>
+        <location filename="../main_window.py" line="636"/>
+        <location filename="../main_window.py" line="643"/>
         <source>画像読み込み</source>
         <translation>Image import</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="628"/>
-        <location filename="../main_window.py" line="635"/>
-        <location filename="../main_window.py" line="642"/>
+        <location filename="../main_window.py" line="629"/>
+        <location filename="../main_window.py" line="636"/>
+        <location filename="../main_window.py" line="643"/>
         <source>{Path} を読み込めませんでした。
 
 {error}</source>
@@ -1492,19 +1492,19 @@ Could not read the image size.
 {error}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="656"/>
-        <location filename="../main_window.py" line="664"/>
-        <location filename="../main_window.py" line="671"/>
-        <location filename="../main_window.py" line="716"/>
+        <location filename="../main_window.py" line="657"/>
+        <location filename="../main_window.py" line="665"/>
+        <location filename="../main_window.py" line="672"/>
+        <location filename="../main_window.py" line="717"/>
         <source>連番画像読み込み</source>
         <translation>Image sequence import</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="657"/>
-        <location filename="../main_window.py" line="664"/>
-        <location filename="../main_window.py" line="717"/>
-        <location filename="../main_window.py" line="1252"/>
-        <location filename="../main_window.py" line="1283"/>
+        <location filename="../main_window.py" line="658"/>
+        <location filename="../main_window.py" line="665"/>
+        <location filename="../main_window.py" line="718"/>
+        <location filename="../main_window.py" line="1253"/>
+        <location filename="../main_window.py" line="1284"/>
         <source>画像を読み込めませんでした。
 
 {error}</source>
@@ -1513,85 +1513,85 @@ Could not read the image size.
 {error}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="673"/>
-        <location filename="../main_window.py" line="1261"/>
+        <location filename="../main_window.py" line="674"/>
+        <location filename="../main_window.py" line="1262"/>
         <source>画像を読み込んでいます</source>
         <translation>Loading images</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="684"/>
-        <location filename="../main_window.py" line="1272"/>
+        <location filename="../main_window.py" line="685"/>
+        <location filename="../main_window.py" line="1273"/>
         <source>{label}（画像 {value}/{total}）</source>
         <translation>{label} (image {value}/{total})</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="702"/>
+        <location filename="../main_window.py" line="703"/>
         <source>画像配置完了。使用色を認識しています</source>
         <translation>Images placed. Scanning used colours</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="708"/>
+        <location filename="../main_window.py" line="709"/>
         <location filename="../main_window_used_color.py" line="182"/>
         <source>使用色を認識しています</source>
         <translation>Scanning used colours</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="722"/>
+        <location filename="../main_window.py" line="723"/>
         <source>、{frames}枚のアンチエイリアスを取り除いて</source>
         <translation>, removing anti-aliasing from {frames} images,</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="727"/>
+        <location filename="../main_window.py" line="728"/>
         <source>元画像へトーンカーブ適用後に2値化</source>
         <translation>binarised after applying the tone curve to the source</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="729"/>
+        <location filename="../main_window.py" line="730"/>
         <source>半透明を二値化</source>
         <translation>binarised the semi-transparent pixels</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="732"/>
+        <location filename="../main_window.py" line="733"/>
         <source>、{method}して1枚目の共通パレット{int}色を適用</source>
         <translation>, {method} and applied the {int}-colour shared palette from the first image</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="735"/>
+        <location filename="../main_window.py" line="736"/>
         <source>{len}枚の画像をタイムラインへ連番配置{note}し、使用色認識まで完了しました。</source>
         <translation>Placed {len} images along the timeline as a sequence{note}, and finished scanning used colours.</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="812"/>
+        <location filename="../main_window.py" line="813"/>
         <source>レイアウト用紙の画像を読み込めませんでした。</source>
         <translation>Could not load the layout paper image.</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="835"/>
+        <location filename="../main_window.py" line="836"/>
         <source>更新確認エラー</source>
         <translation>Update check error</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="835"/>
+        <location filename="../main_window.py" line="836"/>
         <source>不明なエラー</source>
         <translation>Unknown error</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="841"/>
+        <location filename="../main_window.py" line="842"/>
         <source>更新の確認</source>
         <translation>Check for updates</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="842"/>
+        <location filename="../main_window.py" line="843"/>
         <source>最新版を使用しています。（現在: v{VERSION}）</source>
         <translation>You are on the latest version. (current: v{VERSION})</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="851"/>
+        <location filename="../main_window.py" line="852"/>
         <source>更新あり</source>
         <translation>Update available</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="852"/>
+        <location filename="../main_window.py" line="853"/>
         <source>新しいバージョン {latest} が利用可能ですが、この環境向けの
 インストーラが見つかりませんでした。リリースページを確認してください。
 
@@ -1602,12 +1602,12 @@ Please check the releases page.
 {url}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="858"/>
+        <location filename="../main_window.py" line="859"/>
         <source>更新があります</source>
         <translation>Update available</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="859"/>
+        <location filename="../main_window.py" line="860"/>
         <source>新しいバージョン {latest} が利用可能です。
 （現在: v{VERSION}）
 
@@ -1618,22 +1618,22 @@ Please check the releases page.
 Download and install it?</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="870"/>
+        <location filename="../main_window.py" line="871"/>
         <source>更新をダウンロードしています…</source>
         <translation>Downloading the update…</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="872"/>
+        <location filename="../main_window.py" line="873"/>
         <source>更新のダウンロード</source>
         <translation>Update download</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="894"/>
+        <location filename="../main_window.py" line="895"/>
         <source>ダウンロード失敗</source>
         <translation>Download failed</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="894"/>
+        <location filename="../main_window.py" line="895"/>
         <source>更新を取得できませんでした。
 
 {error}</source>
@@ -1642,23 +1642,23 @@ Download and install it?</translation>
 {error}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="901"/>
+        <location filename="../main_window.py" line="902"/>
         <source>インストール</source>
         <translation>Install</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="902"/>
+        <location filename="../main_window.py" line="903"/>
         <source>ダウンロードが完了しました。インストーラを起動して
 アプリを終了します。よろしいですか？</source>
         <translation>The download finished. The installer will start and the application will quit. Continue?</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="918"/>
+        <location filename="../main_window.py" line="919"/>
         <source>起動失敗</source>
         <translation>Launch failed</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="918"/>
+        <location filename="../main_window.py" line="919"/>
         <source>インストーラを起動できませんでした。
 
 {error}</source>
@@ -1667,72 +1667,72 @@ Download and install it?</translation>
 {error}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1085"/>
+        <location filename="../main_window.py" line="1086"/>
         <location filename="../main_window_ui_build.py" line="427"/>
         <source>画像を読み込む</source>
         <translation>Import Images</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1087"/>
-        <location filename="../main_window.py" line="1177"/>
-        <location filename="../main_window.py" line="1238"/>
+        <location filename="../main_window.py" line="1088"/>
+        <location filename="../main_window.py" line="1178"/>
+        <location filename="../main_window.py" line="1239"/>
         <source>画像 (*.png *.jpg *.jpeg *.tga);;PNG (*.png);;JPEG (*.jpg *.jpeg);;TGA (*.tga)</source>
         <translation>Images (*.png *.jpg *.jpeg *.tga);;PNG (*.png);;JPEG (*.jpg *.jpeg);;TGA (*.tga)</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1107"/>
+        <location filename="../main_window.py" line="1108"/>
         <source>再変換できるのは、このアプリを起動してから連番として読み込んだレイヤーだけです。</source>
         <translation>Only layers imported as an image sequence since the app was started can be re-converted.</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1114"/>
-        <location filename="../main_window.py" line="1121"/>
-        <location filename="../main_window.py" line="1131"/>
-        <location filename="../main_window.py" line="1157"/>
+        <location filename="../main_window.py" line="1115"/>
+        <location filename="../main_window.py" line="1122"/>
+        <location filename="../main_window.py" line="1132"/>
+        <location filename="../main_window.py" line="1158"/>
         <source>再変換</source>
         <translation>Re-convert</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1115"/>
+        <location filename="../main_window.py" line="1116"/>
         <source>元のファイルが見つかりません（{count}枚）。
 {name}</source>
         <translation>Original files not found ({count}).
 {name}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1122"/>
+        <location filename="../main_window.py" line="1123"/>
         <source>元のファイル{count}枚から変換し直します。読み込んだあとに描き足した分は元に戻ります（Undo で戻せます）。続けますか？</source>
         <translation>Converts again from {count} original file(s). Anything drawn after importing will be replaced (you can undo this). Continue?</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1166"/>
+        <location filename="../main_window.py" line="1167"/>
         <source>{cells}セルを元のファイルから変換し直しました。</source>
         <translation>Re-converted {cells} cel(s) from the original files.</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1175"/>
+        <location filename="../main_window.py" line="1176"/>
         <source>原画を読み込む</source>
         <translation>Import Key Animation</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1186"/>
+        <location filename="../main_window.py" line="1187"/>
         <source>原画</source>
         <translation>Key Drawings</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1192"/>
+        <location filename="../main_window.py" line="1193"/>
         <source>{count}枚の原画を読み込み、原画の印を付けました。</source>
         <translation>Imported {count} key drawing(s) and marked them as key drawings.</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1200"/>
-        <location filename="../main_window.py" line="1220"/>
+        <location filename="../main_window.py" line="1201"/>
+        <location filename="../main_window.py" line="1221"/>
         <location filename="../main_window_ui_build.py" line="428"/>
         <source>画像フォルダーを読み込む</source>
         <translation>Import Image Folder</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1221"/>
+        <location filename="../main_window.py" line="1222"/>
         <source>選択したフォルダーに対応画像がありません。
 
 対応形式：PNG、JPEG、TGA</source>
@@ -1741,55 +1741,55 @@ Download and install it?</translation>
 Supported formats: PNG, JPEG, TGA</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1236"/>
+        <location filename="../main_window.py" line="1237"/>
         <source>変換せず読み込む（下書きレイヤー）</source>
         <translation>Import unconverted (draft layer)</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1251"/>
-        <location filename="../main_window.py" line="1259"/>
-        <location filename="../main_window.py" line="1282"/>
+        <location filename="../main_window.py" line="1252"/>
+        <location filename="../main_window.py" line="1260"/>
+        <location filename="../main_window.py" line="1283"/>
         <source>変換せず読み込む</source>
         <translation>Import unconverted</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1290"/>
+        <location filename="../main_window.py" line="1291"/>
         <source>{len}枚を下書きレイヤーへ変換せず読み込みました。</source>
         <translation>Imported {len} images into a draft layer without conversion.</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1295"/>
+        <location filename="../main_window.py" line="1296"/>
         <source>キャンバスサイズの変更</source>
         <translation>Resize Canvas</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1482"/>
+        <location filename="../main_window.py" line="1483"/>
         <source>ファイル・編集</source>
         <translation>File and Edit</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1484"/>
+        <location filename="../main_window.py" line="1485"/>
         <source>キャンバス操作</source>
         <translation>Canvas operations</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1485"/>
+        <location filename="../main_window.py" line="1486"/>
         <source>ツールコマンド</source>
         <translation>Tool commands</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1493"/>
+        <location filename="../main_window.py" line="1494"/>
         <source>PNG保存</source>
         <translation>Save PNG</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1514"/>
-        <location filename="../main_window.py" line="1518"/>
+        <location filename="../main_window.py" line="1515"/>
+        <location filename="../main_window.py" line="1519"/>
         <source>TGA保存</source>
         <translation>Save TGA</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1518"/>
+        <location filename="../main_window.py" line="1519"/>
         <source>TGAを保存できませんでした。Pillowの導入を確認してください。</source>
         <translation>Could not save the TGA. Check that Pillow is installed.</translation>
     </message>
@@ -1830,6 +1830,7 @@ Supported formats: PNG, JPEG, TGA</translation>
         <translation>Pen Pressure</translation>
     </message>
     <message>
+        <location filename="../color_reduction.py" line="557"/>
         <location filename="../main_window_ui_build.py" line="456"/>
         <location filename="../toolpanel.py" line="57"/>
         <location filename="../toolpanel.py" line="1126"/>
@@ -2885,7 +2886,7 @@ Drop a used colour onto the middle of another to create a parent/child link.</tr
         <translation>Canvas</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1483"/>
+        <location filename="../main_window.py" line="1484"/>
         <location filename="../main_window_ui_build.py" line="860"/>
         <source>ツール</source>
         <translation>Tools</translation>
@@ -2896,7 +2897,7 @@ Drop a used colour onto the middle of another to create a parent/child link.</tr
         <translation>Tool Properties</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1486"/>
+        <location filename="../main_window.py" line="1487"/>
         <location filename="../main_window_ui_build.py" line="890"/>
         <source>アクション</source>
         <translation>Actions</translation>
@@ -2927,7 +2928,7 @@ Drop a used colour onto the middle of another to create a parent/child link.</tr
         <translation>History</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1487"/>
+        <location filename="../main_window.py" line="1488"/>
         <location filename="../main_window_ui_build.py" line="966"/>
         <source>タイムライン</source>
         <translation>Timeline</translation>
@@ -4365,32 +4366,32 @@ Details were saved to:
 </translation>
     </message>
     <message>
-        <location filename="../canvas_image_import.py" line="264"/>
+        <location filename="../canvas_image_import.py" line="278"/>
         <source>画像ファイルがありません。</source>
         <translation>There are no image files.</translation>
     </message>
     <message>
-        <location filename="../canvas_image_import.py" line="268"/>
+        <location filename="../canvas_image_import.py" line="282"/>
         <source>{Path} を読み込んでいます</source>
         <translation>Loading {Path}</translation>
     </message>
     <message>
-        <location filename="../canvas_image_import.py" line="276"/>
+        <location filename="../canvas_image_import.py" line="290"/>
         <source>{Path} の元画像へトーンカーブを適用し、共通パレットで2値化しています</source>
         <translation>Applying the tone curve to the source of {Path} and binarising it with the shared palette</translation>
     </message>
     <message>
-        <location filename="../canvas_image_import.py" line="281"/>
+        <location filename="../canvas_image_import.py" line="295"/>
         <source>画像の配置を準備しています</source>
         <translation>Preparing to place the images</translation>
     </message>
     <message>
-        <location filename="../canvas_image_import.py" line="293"/>
+        <location filename="../canvas_image_import.py" line="307"/>
         <source>{value} / {len} 枚を配置しています</source>
         <translation>Placing image {value} / {len}</translation>
     </message>
     <message>
-        <location filename="../canvas_image_import.py" line="314"/>
+        <location filename="../canvas_image_import.py" line="328"/>
         <source>読み込み完了</source>
         <translation>Loading finished</translation>
     </message>
@@ -4841,13 +4842,13 @@ Details were saved to:
     </message>
     <message>
         <location filename="../color_reduction.py" line="345"/>
-        <location filename="../color_reduction.py" line="603"/>
-        <location filename="../color_reduction.py" line="1264"/>
-        <location filename="../color_reduction.py" line="1526"/>
-        <location filename="../color_reduction.py" line="1569"/>
-        <location filename="../color_reduction.py" line="1580"/>
-        <location filename="../main_window.py" line="540"/>
-        <location filename="../main_window.py" line="566"/>
+        <location filename="../color_reduction.py" line="629"/>
+        <location filename="../color_reduction.py" line="1303"/>
+        <location filename="../color_reduction.py" line="1574"/>
+        <location filename="../color_reduction.py" line="1617"/>
+        <location filename="../color_reduction.py" line="1628"/>
+        <location filename="../main_window.py" line="541"/>
+        <location filename="../main_window.py" line="567"/>
         <source>2値化</source>
         <translation>Binarise</translation>
     </message>
@@ -4869,8 +4870,8 @@ Details were saved to:
     </message>
     <message>
         <location filename="../color_reduction.py" line="420"/>
-        <location filename="../color_reduction.py" line="992"/>
-        <location filename="../color_reduction.py" line="1247"/>
+        <location filename="../color_reduction.py" line="1031"/>
+        <location filename="../color_reduction.py" line="1286"/>
         <source>元画像（トーンカーブ）&#x3000;100%</source>
         <translation>Source (tone curve)&#x3000;100%</translation>
     </message>
@@ -4938,7 +4939,7 @@ Line art: binarises the line work while preserving the white background and the 
     </message>
     <message>
         <location filename="../color_reduction.py" line="520"/>
-        <location filename="../color_reduction.py" line="861"/>
+        <location filename="../color_reduction.py" line="900"/>
         <source>出力する色</source>
         <translation>Output colors</translation>
     </message>
@@ -4958,67 +4959,82 @@ Line art: binarises the line work while preserving the white background and the 
         <translation>Scan</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="536"/>
+        <location filename="../color_reduction.py" line="540"/>
+        <source>離れた小さな点を消す</source>
+        <translation>Remove small isolated specks</translation>
+    </message>
+    <message>
+        <location filename="../color_reduction.py" line="542"/>
+        <source>2値化のあとで、ほかの絵に触れていない小さな点（スキャンのゴミなど）を消します。線や色面にくっついた点は消しません。</source>
+        <translation>After binarising, removes small specks that touch nothing else (dust from scanning, etc.). Dots attached to lines or color areas are kept.</translation>
+    </message>
+    <message>
+        <location filename="../color_reduction.py" line="549"/>
+        <source> px以下</source>
+        <translation> px or smaller</translation>
+    </message>
+    <message>
+        <location filename="../color_reduction.py" line="562"/>
         <location filename="../main_window_line_ops.py" line="773"/>
         <source>今のコマ</source>
         <translation>Current frame</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="537"/>
+        <location filename="../color_reduction.py" line="563"/>
         <location filename="../main_window_line_ops.py" line="774"/>
         <source>すべてのコマ</source>
         <translation>All frames</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="539"/>
+        <location filename="../color_reduction.py" line="565"/>
         <location filename="../main_window_line_ops.py" line="775"/>
         <source>範囲</source>
         <translation>Range</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="547"/>
-        <location filename="../color_reduction.py" line="552"/>
-        <location filename="../color_reduction.py" line="667"/>
+        <location filename="../color_reduction.py" line="573"/>
+        <location filename="../color_reduction.py" line="578"/>
+        <location filename="../color_reduction.py" line="693"/>
         <location filename="../pressure_settings.py" line="65"/>
         <source>標準</source>
         <translation>Default</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="570"/>
+        <location filename="../color_reduction.py" line="596"/>
         <source>トーンカーブ</source>
         <translation>Tone curve</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="574"/>
+        <location filename="../color_reduction.py" line="600"/>
         <source>色数の変更中はプレビューを更新しません。トーンカーブ操作中は元画像へ一時適用し、離すと直前の2値化プレビューへ戻ります。</source>
         <translation>The preview is not updated while the colour count is being changed. While the tone curve is being dragged it is applied to the source temporarily, and released it returns to the previous binarised preview.</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="583"/>
-        <location filename="../color_reduction.py" line="1505"/>
+        <location filename="../color_reduction.py" line="609"/>
+        <location filename="../color_reduction.py" line="1553"/>
         <source>プレビュー反映済み</source>
         <translation>Applied to the preview</translation>
     </message>
     <message>
         <location filename="../auto_paint_dialog.py" line="220"/>
         <location filename="../color_picker_dialog.py" line="292"/>
-        <location filename="../color_reduction.py" line="587"/>
+        <location filename="../color_reduction.py" line="613"/>
         <location filename="../cut_folder_dialog.py" line="775"/>
         <source>プレビュー</source>
         <translation>Preview</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="589"/>
+        <location filename="../color_reduction.py" line="615"/>
         <source>現在のトーンカーブと色数を使って2値化プレビューを更新します。</source>
         <translation>Updates the binarised preview using the current tone curve and colour count.</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="603"/>
+        <location filename="../color_reduction.py" line="629"/>
         <source>全コマを2値化</source>
         <translation>Binarise every exposure</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="605"/>
+        <location filename="../color_reduction.py" line="631"/>
         <location filename="../main_window.py" line="453"/>
         <source>そのまま読み込む</source>
         <translation>Import as is</translation>
@@ -5090,11 +5106,11 @@ Line art: binarises the line work while preserving the white background and the 
     </message>
     <message>
         <location filename="../auto_paint_dialog.py" line="263"/>
-        <location filename="../color_reduction.py" line="607"/>
+        <location filename="../color_reduction.py" line="633"/>
         <location filename="../cut_folder_dialog.py" line="792"/>
         <location filename="../main_window.py" line="391"/>
         <location filename="../main_window.py" line="454"/>
-        <location filename="../main_window.py" line="870"/>
+        <location filename="../main_window.py" line="871"/>
         <location filename="../main_window_import.py" line="166"/>
         <location filename="../main_window_project_io.py" line="497"/>
         <location filename="../main_window_project_io.py" line="523"/>
@@ -5128,88 +5144,88 @@ Line art: binarises the line work while preserving the white background and the 
         <translation>{frames} sample frames; {count:,} colours in the first / {note}&#x3000;The tone curve is applied to the source first, then the colour count is reduced and the result is binarised.</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="669"/>
+        <location filename="../color_reduction.py" line="695"/>
         <source>中間点 {count}</source>
         <translation>Intermediate points {count}</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="733"/>
+        <location filename="../color_reduction.py" line="772"/>
         <source>（選ぶ）</source>
         <translation>(Choose)</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="769"/>
+        <location filename="../color_reduction.py" line="808"/>
         <source>名前：</source>
         <translation>Name:</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="853"/>
+        <location filename="../color_reduction.py" line="892"/>
         <source>出力する色を足す</source>
         <translation>Add Output Color</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="875"/>
+        <location filename="../color_reduction.py" line="914"/>
         <source>この色を使わない</source>
         <translation>Don&apos;t Use This Color</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="905"/>
+        <location filename="../color_reduction.py" line="944"/>
         <source>設定未反映</source>
         <translation>Not applied</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="1019"/>
+        <location filename="../color_reduction.py" line="1058"/>
         <source>（設定未反映）</source>
         <translation> (not applied)</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="1258"/>
+        <location filename="../color_reduction.py" line="1297"/>
         <source>色相を分類しています</source>
         <translation>Classifying hues</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="1368"/>
+        <location filename="../color_reduction.py" line="1407"/>
         <source>トーンカーブ適用後の画像を生成できませんでした。</source>
         <translation>Could not generate the image with the tone curve applied.</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="1382"/>
+        <location filename="../color_reduction.py" line="1421"/>
         <source>トーンカーブを元画像へ適用しています</source>
         <translation>Applying the tone curve to the source</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="1387"/>
+        <location filename="../color_reduction.py" line="1426"/>
         <source>近い色相をまとめて代表色を作成しています</source>
         <translation>Grouping similar hues into representative colours</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="1414"/>
+        <location filename="../color_reduction.py" line="1453"/>
         <source>線のアンチエイリアスを線色と白背景へ分けています</source>
         <translation>Separating the line anti-aliasing into the line colour and the white background</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="1416"/>
+        <location filename="../color_reduction.py" line="1455"/>
         <source>色面の境界を2色へ分けています</source>
         <translation>Separating the colour-area boundaries into two colours</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="1435"/>
-        <location filename="../color_reduction.py" line="1480"/>
+        <location filename="../color_reduction.py" line="1474"/>
+        <location filename="../color_reduction.py" line="1519"/>
         <source>2値化画像を生成できませんでした。</source>
         <translation>Could not generate the binarised image.</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="1451"/>
+        <location filename="../color_reduction.py" line="1490"/>
         <source>プレビューを更新しています</source>
         <translation>Updating the preview</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="1497"/>
+        <location filename="../color_reduction.py" line="1545"/>
         <source>{name}&#x3000;100%（{actual}色／半透明 {transparent}px）</source>
         <translation>{name}&#x3000;100% ({actual} colours / semi-transparent {transparent}px)</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="1527"/>
+        <location filename="../color_reduction.py" line="1575"/>
         <source>2値化プレビューの生成中にエラーが発生しました。
 
 {exc}</source>
@@ -5218,12 +5234,12 @@ Line art: binarises the line work while preserving the white background and the 
 {exc}</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="1550"/>
+        <location filename="../color_reduction.py" line="1598"/>
         <source>現在の設定はまだプレビューへ反映されていません。先に「プレビュー」を押してください。</source>
         <translation>The current settings have not been applied to the preview yet. Press &quot;Preview&quot; first.</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="1570"/>
+        <location filename="../color_reduction.py" line="1618"/>
         <source>トーンカーブまたは色数が未反映です。
 先に下の「プレビュー」を押してください。</source>
         <translation>The tone curve or the colour count has not been applied.
@@ -7687,7 +7703,7 @@ Layer cell {value} / {exposure} exposures</translation>
         <translation>Delete the selected preset</translation>
     </message>
     <message>
-        <location filename="../color_reduction.py" line="769"/>
+        <location filename="../color_reduction.py" line="808"/>
         <location filename="../cut_folder_dialog.py" line="946"/>
         <location filename="../cut_folder_dialog.py" line="950"/>
         <source>プリセットを保存</source>

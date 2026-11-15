@@ -530,6 +530,32 @@ class ColorReductionDialog(QDialog):
             self.flatten_paper.toggled.connect(self._flatten_paper_toggled)
             controls.addRow(tr("スキャン"), self.flatten_paper)
 
+        # ゴミ取り（#10）：2値化のあとで、ほかの絵から離れた小さな点を消す。
+        from .despeckle import DEFAULT_MAX_PIXELS
+
+        despeckle_row = QWidget()
+        despeckle_layout = QHBoxLayout(despeckle_row)
+        despeckle_layout.setContentsMargins(0, 0, 0, 0)
+        despeckle_layout.setSpacing(4)
+        self.despeckle_check = QCheckBox(tr("離れた小さな点を消す"))
+        self.despeckle_check.setToolTip(tr(
+            "2値化のあとで、ほかの絵に触れていない小さな点（スキャンのゴミなど）を消します。"
+            "線や色面にくっついた点は消しません。"
+        ))
+        self.despeckle_check.setChecked(bool(scan))
+        self.despeckle_size = QSpinBox()
+        self.despeckle_size.setRange(1, 100)
+        self.despeckle_size.setValue(DEFAULT_MAX_PIXELS)
+        self.despeckle_size.setSuffix(tr(" px以下"))
+        self.despeckle_check.toggled.connect(self._mark_preview_dirty)
+        self.despeckle_check.toggled.connect(self.despeckle_size.setEnabled)
+        self.despeckle_size.valueChanged.connect(self._mark_preview_dirty)
+        self.despeckle_size.setEnabled(self.despeckle_check.isChecked())
+        despeckle_layout.addWidget(self.despeckle_check)
+        despeckle_layout.addWidget(self.despeckle_size)
+        despeckle_layout.addStretch(1)
+        controls.addRow(tr("ゴミ取り"), despeckle_row)
+
         self.all_frames_choice = None
         if scope_choice:
             self.all_frames_choice = QComboBox()
@@ -680,7 +706,14 @@ class ColorReductionDialog(QDialog):
             int(self.color_count.value()),
             self.tone_curve_points_key(),
             self._custom_palette_key(),
+            self.despeckle_pixels(),
         )
+
+    def despeckle_pixels(self):
+        """ゴミ取りで消す点の大きさ（px）。切っていれば 0。"""
+        if not self.despeckle_check.isChecked():
+            return 0
+        return int(self.despeckle_size.value())
 
     # -- プリセット（#10） ---------------------------------------------------
     def current_settings(self):
@@ -696,6 +729,7 @@ class ColorReductionDialog(QDialog):
         }
         if self.flatten_paper is not None:
             settings["flatten_paper"] = bool(self.flatten_paper.isChecked())
+        settings["despeckle"] = self.despeckle_pixels()
         return settings
 
     def apply_settings(self, settings):
@@ -715,6 +749,11 @@ class ColorReductionDialog(QDialog):
                 log.info("ignoring a broken tone curve in a preset: %s", exc)
         if self.flatten_paper is not None and isinstance(settings.get("flatten_paper"), bool):
             self.flatten_paper.setChecked(settings["flatten_paper"])
+        despeckle = settings.get("despeckle")
+        if isinstance(despeckle, int) and not isinstance(despeckle, bool):
+            self.despeckle_check.setChecked(despeckle > 0)
+            if despeckle > 0:
+                self.despeckle_size.setValue(max(1, min(100, despeckle)))
         palette = settings.get("palette")
         try:
             colors = [tuple(int(v) for v in color[:3]) for color in palette] if palette else []
@@ -1482,6 +1521,15 @@ class ColorReductionDialog(QDialog):
                         self._custom_reduced_cache.clear()
                     self._custom_reduced_cache[custom_cache_key] = custom_reduced.copy()
                 reduced = self._custom_reduced_cache[custom_cache_key].copy()
+
+            if self.despeckle_pixels():
+                from . import despeckle, imaging
+
+                cleaned, removed = despeckle.remove_isolated_specks(
+                    imaging.qimage_rgba_array(reduced), self.despeckle_pixels()
+                )
+                if removed:
+                    reduced = imaging.rgba_array_to_qimage(cleaned)
 
             self._palette = palette
             self._palette_key = self._current_preview_key()
