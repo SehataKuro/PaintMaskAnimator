@@ -769,7 +769,8 @@ class LineOpsController:
             layout.addWidget(picture)
         note = QLabel(tr(
             "段と段が角だけで接している所に1画素足して上下左右でつなぎ、"
-            "線の側面から1画素だけ突き出た所を消します。線の先端・交差・直角の角は変えません。"
+            "線の側面から1画素だけ突き出た所と、段の重なりが厚くなった所の1画素を消します。"
+            "線の先端・交差・直角の角は変えません。"
         ))
         note.setWordWrap(True)
         layout.addWidget(note)

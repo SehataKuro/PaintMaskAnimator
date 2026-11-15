@@ -229,3 +229,77 @@ def test_the_dialog_applies_to_the_current_frame(window, monkeypatch):
     assert window.line_ops.tidy_lines_dialog()
 
     assert window.canvas.frames[1].layers[0].image == second, "既定は今のコマだけ"
+
+
+# -- パターン3：段の重なりが厚くなった所 -------------------------------------
+THICK_STEP = grid("""
+.........
+.##......
+..###....
+...####..
+.........
+""")
+# 下の段（4画素）が長いので、その始まり (3, 3) を消す。
+THICK_STEP_FIXED = grid("""
+.........
+.##......
+..###....
+....###..
+.........
+""")
+
+
+@pytest.mark.parametrize("index", range(8))
+def test_a_thick_step_overlap_loses_one_pixel(index):
+    mask = list(orientations(THICK_STEP))[index]
+    expected = list(orientations(THICK_STEP_FIXED))[index]
+    add, remove = line_tidy.tidy_mask(mask)
+    assert not add.any()
+    assert remove.sum() == 1
+    assert ((mask & ~remove) == expected).all()
+    assert four_connected(mask & ~remove), "線は切れない"
+
+
+def test_the_longer_step_loses_the_pixel():
+    upper_longer = grid("""
+........
+.####...
+...###..
+........
+""")
+    _add, remove = line_tidy.tidy_mask(upper_longer)
+    assert remove.sum() == 1 and remove[1, 4], "上の段（4画素）の終わりを消す"
+
+
+def test_equal_steps_remove_the_start_of_the_lower_step():
+    equal = grid("""
+........
+.###....
+..###...
+........
+""")
+    _add, remove = line_tidy.tidy_mask(equal)
+    assert remove.sum() == 1 and remove[2, 2]
+
+
+@pytest.mark.parametrize("shape", [
+    # 太さ2の45°の階段（重なりは1画素ずつ）
+    """
+    ##....
+    .##...
+    ..##..
+    ...##.
+    """,
+    # 太さ2のまっすぐな線
+    """
+    ......
+    .####.
+    .####.
+    ......
+    """,
+])
+@pytest.mark.parametrize("index", range(8))
+def test_thick_lines_are_not_thinned(shape, index):
+    mask = list(orientations(grid("\n".join(line.strip() for line in shape.strip().splitlines()))))[index]
+    _add, remove = line_tidy.tidy_mask(mask)
+    assert not remove.any()
