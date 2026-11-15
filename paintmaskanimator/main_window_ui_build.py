@@ -71,6 +71,11 @@ class UIBuildMixin(MainWindowMembers):
 
         self.a_import_images=QAction(tr("画像を読み込む…"),self)
         self.a_import_images.triggered.connect(self.import_images_dialog)
+        self.a_import_genga=QAction(tr("原画を読み込む…"),self)
+        self.a_import_genga.setStatusTip(tr(
+            "受け取った原画を新しいレイヤーへ読み込み、すべてのセルに原画の印を付けます。"
+        ))
+        self.a_import_genga.triggered.connect(self.import_genga_dialog)
         self.a_import_folder=QAction(tr("画像フォルダーを読み込む…"),self)
         self.a_import_folder.triggered.connect(self.import_image_folder_dialog)
         self.a_import_images_raw=QAction(tr("変換せず読み込む（下書きレイヤー）…"),self)
@@ -510,6 +515,7 @@ class UIBuildMixin(MainWindowMembers):
         )
         f.addAction(self.a_open_cut_folder)
         f.addAction(self.a_import_images)
+        f.addAction(self.a_import_genga)
         f.addAction(self.a_import_folder)
         f.addAction(self.a_import_images_raw)
         f.addAction(self.a_import_psd)
@@ -1238,6 +1244,7 @@ class UIBuildMixin(MainWindowMembers):
         self.timeline.mergeClipRequested.connect(self.timeline_ops.merge_clip)
         self.timeline.splitClipRequested.connect(self.timeline_ops.split_clip)
         self.timeline.newNumberHereRequested.connect(self.timeline_ops.new_number_here)
+        self.timeline.gengaToggleRequested.connect(self.timeline_ops.toggle_genga)
         self.timeline.insertFrameAtRequested.connect(
             self.timeline_ops.insert_frame_at
         )

@@ -122,7 +122,8 @@ Undo/Redoと履歴分岐は復元せず、開いた状態を保存済みとし�
   "color_filter_enabled": false, "color_filter_rgb": null,
   "cells": [
     {"number": 3, "image": "layers/layer_0000/cell_000003.png",
-     "initial": "initial/layers/layer_0000/cell_000003.png", "cell_name": "動画3"},
+     "initial": "initial/layers/layer_0000/cell_000003.png", "cell_name": "動画3",
+     "genga": true},
     {"number": 9, "image": "layers/layer_0000/cell_000009.png"}
   ],
   "sheet": [3, 3, "BLANK", "BLANK", null],
@@ -139,7 +140,9 @@ RGBはnullまたは0..255の整数3要素配列。**alpha_lockedは保存せず�
 
 cells と sheet は必須配列。cells は空可で、全bankを番号昇順に保存します。
 numberはTrack内で一意の整数1..10000、imageは必須PNG参照、initialは任意PNG参照またはnull、
-cell_nameは任意文字列またはnull（ともに既定null）。未配置bankも同じcellsへ保存し、
+cell_nameは任意文字列またはnull（ともに既定null）。genga は任意のbool（既定false）で、
+外から受け取った原画を参照として読み込んだセルの印（#24）。trueのときだけ書く。
+古いアプリはこのキーを読まないので、開くと印だけが落ちる。未配置bankも同じcellsへ保存し、
 配置待ちやhintの有無からbankを推測しません。v2 openは番号を詰め直しません。
 
 sheet は全Trackで長さ N。値は同Trackのcellsに存在する正整数（絵）、`"BLANK"`（○）、

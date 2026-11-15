@@ -851,6 +851,48 @@ class TimelineOpsController:
         self._after_cell_edit()
         return True
 
+    def toggle_genga(self, visual_row, column):
+        """原画の印（#24）を付ける／外す。外から受け取った原画のセルを見分ける。
+
+        印は絵（番号）に付くので、同じ番号のコマすべてに効く。Undo で戻せる。
+        """
+        canvas = self.window.canvas
+        target = self._cell_target(visual_row, column)
+        block = None
+        if target is not None:
+            layer_index, column = target
+            block = canvas.timeline_block_at(column, layer_index)
+        if block is None or block[0] != "content":
+            self.window.statusBar().showMessage(tr("絵のあるセルを選んでください。"), 2400)
+            return False
+        cell = canvas.frames[int(block[1])].layers[layer_index]
+        canvas.push_doc_undo()
+        cell.is_genga = not bool(cell.is_genga)
+        self._after_cell_edit()
+        self.window.statusBar().showMessage(
+            tr("原画の印を付けました。") if cell.is_genga else tr("原画の印を外しました。"),
+            2400,
+        )
+        return True
+
+    def mark_layer_as_genga(self, layer_index):
+        """レイヤーの絵のあるセルすべてに原画の印を付ける。付けた数を返す。"""
+        canvas = self.window.canvas
+        marked = 0
+        seen = set()
+        for frame in canvas.frames:
+            layer = frame.layers[layer_index]
+            number = layer.sequence_number
+            if not layer.has_content or number in seen:
+                continue
+            seen.add(number)
+            if not layer.is_genga:
+                layer.is_genga = True
+                marked += 1
+        if marked:
+            self._after_cell_edit()
+        return marked
+
     def new_number_here(self, visual_row, column):
         """選んだ1コマを末尾の絵番号で複製し、前後は元の絵を保持する。"""
         canvas = self.window.canvas

@@ -335,6 +335,7 @@ class MainWindowMembers(_MembersBase):
         import_image_folder_dialog: Any
         import_images_dialog: Any
         binarize_layer_dialog: Any
+        import_genga_dialog: Any
         import_images_raw_dialog: Any
         make_shortcut_action: Any
         new_doc: Any
