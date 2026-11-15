@@ -1,6 +1,6 @@
 """2値の線の形を、仕上げで正しいとされる形へ整える（#64）。
 
-Issue #64 の4パターンのうち、近傍の形だけで決められる次の3つを扱う。
+Issue #64 の4パターンを扱う。
 
 1. **角だけで接している段をつなぐ（足す）**：階段状の線で、段（2画素以上の横か
    縦の並び）どうしが斜めの角1点だけで接しているとき、角の1画素を足して上下左右で
@@ -14,7 +14,12 @@ Issue #64 の4パターンのうち、近傍の形だけで決められる次の
    1画素消して、重なりを1画素にする。長い方の段から消し、同じなら下（先）の段の
    始まりを消す。
 
-残りの1つ（2×2の塊が角でつながった45°の線）は、直した形を確かめてから足す。
+4. **2×2の塊が角でつながった45°の線をそろえる**：直し方は2通りから選ぶ。
+   * 足す（``"add"``）：塊と塊（や段）が角だけで接している所の、角の両側に1画素ずつ
+     足す。各行が同じ数の画素で1列ずつずれる、太さのそろった階段になる。
+   * 消す（``"remove"``）：塊の、つながる向きから外れた2画素を消す。1画素幅の45°の
+     線になる。
+   規則1（角に1画素足す）とぶつかる所は、こちらを先に当ててから規則1を見る。
 
 マスク（線の画素が真）を受け取り、足す画素と消す画素のマスクを返す純粋な処理。
 すべての画素を同時に判定するので、結果は走査の順番によらない。
@@ -115,13 +120,14 @@ def _run_lengths(mask: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
 def _thick_steps_canonical(mask: np.ndarray) -> np.ndarray:
     """右下がりの横の段で、上の段の終わり e と下の段が2画素重なる所の、消す画素。
 
-    上の段：(y, e-1)・(y, e) が線、(y, e+1) は線でない。
-    下の段：(y+1, e-1)・(y+1, e) が線、(y+1, e-2) は線でない（ここから始まる）。
+    上の段：(y, e-2)〜(y, e) が線、(y, e+1) は線でない。
+    下の段：(y+1, e-1)〜(y+1, e+1) が線、(y+1, e-2) は線でない（ここから始まる）。
     どちらの段も1画素幅：(y-1, e-1)・(y-1, e)・(y+2, e-1)・(y+2, e) は線でない。
     """
     s = _shift
-    upper_end = mask & s(mask, 0, -1) & ~s(mask, 0, 1)
-    lower = s(mask, 1, 0) & s(mask, 1, -1) & ~s(mask, 1, -2)
+    # 2×2 の塊（パターン4）と見分けるため、上の段は重なりより左へ、下の段は右へ続く。
+    upper_end = mask & s(mask, 0, -1) & s(mask, 0, -2) & ~s(mask, 0, 1)
+    lower = s(mask, 1, 0) & s(mask, 1, -1) & s(mask, 1, 1) & ~s(mask, 1, -2)
     thin = ~s(mask, -1, 0) & ~s(mask, -1, -1) & ~s(mask, 2, 0) & ~s(mask, 2, -1)
     found = upper_end & lower & thin
     remove = np.zeros_like(mask)
@@ -159,13 +165,78 @@ def thick_steps(mask: np.ndarray) -> np.ndarray:
     return removed
 
 
-def tidy_mask(mask: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    """``(足す画素, 消す画素)``。両方を当てた線は ``(mask | add) & ~remove``。"""
+#: パターン4の直し方。
+DIAGONAL_MODES = ("add", "remove", None)
+
+
+def _diagonal_blocks_canonical(mask: np.ndarray, mode: str) -> Tuple[np.ndarray, np.ndarray]:
+    """右下がりに角でつながった 2×2 の塊（左上の画素の位置で見る）を直す。
+
+    塊 ``(y, x)``〜``(y+1, x+1)`` がすべて線で、そのまわりの8画素（上下左右の辺に
+    接する画素）が線でなく、左上 ``(y-1, x-1)`` か右下 ``(y+2, x+2)`` の少なくとも
+    片方が線（角でつながっている）とき、パターン4とみなす。
+    """
+    s = _shift
+    block = mask & s(mask, 0, 1) & s(mask, 1, 0) & s(mask, 1, 1)
+    sides = (
+        s(mask, -1, 0) | s(mask, -1, 1) | s(mask, 0, -1) | s(mask, 1, -1)
+        | s(mask, 2, 0) | s(mask, 2, 1) | s(mask, 0, 2) | s(mask, 1, 2)
+    )
+    before = s(mask, -1, -1)
+    after = s(mask, 2, 2)
+    found = block & ~sides & (before | after)
+    add = np.zeros_like(mask)
+    remove = np.zeros_like(mask)
+    height, width = mask.shape
+    for y, x in zip(*np.nonzero(found)):
+        y, x = int(y), int(x)
+        if mode == "remove":
+            remove[y, x + 1] = True
+            remove[y + 1, x] = True
+            continue
+        if before[y, x]:
+            add[y - 1, x] = True
+            add[y, x - 1] = True
+        if after[y, x]:
+            if x + 2 < width:
+                add[y + 1, x + 2] = True
+            if y + 2 < height:
+                add[y + 2, x + 1] = True
+    return add & ~mask, remove
+
+
+def diagonal_blocks(mask: np.ndarray, mode: str = "add") -> Tuple[np.ndarray, np.ndarray]:
+    """パターン4：``(足す画素, 消す画素)``。右下がりと右上がりの両方を見る。"""
+    current = mask.astype(bool).copy()
+    added = np.zeros_like(current)
+    removed = np.zeros_like(current)
+    if mode not in ("add", "remove"):
+        return added, removed
+    for flip in (False, True):
+        view = np.fliplr(current) if flip else current
+        add, remove = _diagonal_blocks_canonical(np.ascontiguousarray(view), mode)
+        if flip:
+            add, remove = np.fliplr(add), np.fliplr(remove)
+        remove &= current
+        current = (current | add) & ~remove
+        added |= add
+        removed |= remove
+    return added & ~removed, removed
+
+
+def tidy_mask(mask: np.ndarray, diagonal: str | None = "add") -> Tuple[np.ndarray, np.ndarray]:
+    """``(足す画素, 消す画素)``。両方を当てた線は ``(mask | add) & ~remove``。
+
+    ``diagonal`` はパターン4の直し方（``"add"`` / ``"remove"`` / ``None`` で当てない）。
+    """
     mask = mask.astype(bool)
     remove = spurs(mask)
-    remove |= thick_steps(mask & ~remove)
-    add = corner_joins(mask & ~remove)
-    return add, remove
+    add, diagonal_remove = diagonal_blocks(mask & ~remove, diagonal)
+    remove |= diagonal_remove
+    remove |= thick_steps((mask | add) & ~remove)
+    current = (mask | add) & ~remove
+    add |= corner_joins(current)
+    return add & ~mask, remove
 
 
 def _boundary_colour(rgba: np.ndarray, y: int, x: int, exclude) -> Tuple[int, ...]:
@@ -186,7 +257,9 @@ def _boundary_colour(rgba: np.ndarray, y: int, x: int, exclude) -> Tuple[int, ..
     return max(found.items(), key=lambda item: item[1])[0]
 
 
-def tidy_lines(rgba: np.ndarray, colours) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+def tidy_lines(
+    rgba: np.ndarray, colours, diagonal: str | None = "add",
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """``colours`` の線を整えた RGBA と、足した画素・消した画素のマスク。
 
     足した画素は線の色になり、消した画素は、となりにある線以外の色（無ければ透明）に
@@ -201,7 +274,7 @@ def tidy_lines(rgba: np.ndarray, colours) -> Tuple[np.ndarray, np.ndarray, np.nd
         mask = opaque & (rgba[:, :, :3] == np.array(rgb, dtype=np.uint8)).all(axis=2)
         if not mask.any():
             continue
-        add, remove = tidy_mask(mask)
+        add, remove = tidy_mask(mask, diagonal)
         # ほかの線の色の上には足さない（色トレス線と主線が接する所など）。
         others = np.zeros_like(mask)
         for other in colours:
