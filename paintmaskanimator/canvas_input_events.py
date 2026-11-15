@@ -183,6 +183,16 @@ class InputEventMixin(CanvasMembers):
             return
         if e.button() != Qt.MouseButton.LeftButton:
             return
+        # Ctrl＋クリック：オニオンに見えている前後のコマへ編集対象を切り替える（#60）。
+        if (
+            self.onion_skin
+            and e.modifiers() & Qt.KeyboardModifier.ControlModifier
+            and not e.modifiers() & Qt.KeyboardModifier.AltModifier
+            and not self.transform_active
+        ):
+            self.pick_onion_frame(self.widget_to_canvas(e.position()))
+            e.accept()
+            return
 
         t = self.effective_tool()
         p = self.widget_to_canvas(e.position())

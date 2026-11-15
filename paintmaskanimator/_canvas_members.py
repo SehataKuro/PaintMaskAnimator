@@ -120,6 +120,8 @@ class CanvasMembers(_MembersBase):
         _onion_cache: Any
         _onion_frame_identity: Any
         _onion_frame_indices: Any
+        pick_onion_frame: Any
+        onion_frame_at: Any
         _onion_interaction_axis: Any
         _onion_interaction_direction: Any
         _onion_interaction_dragging: Any
