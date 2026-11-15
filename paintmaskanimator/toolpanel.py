@@ -1088,6 +1088,16 @@ class ToolPanel(QWidget):
             "（Esc でそのコマを、Shift+Esc でその向きの残りのコマを飛ばします）。"
         ))
 
+        self.bucket_replace_color=QCheckBox(
+            tr("色置換（クリックした色を、選択レイヤーのすべてのコマで置き換える）")
+        )
+        self.bucket_replace_color.setChecked(False)
+        self.bucket_replace_color.setToolTip(tr(
+            "クリックした色と完全に同じ色の画素だけを、つながりに関係なく、"
+            "選択レイヤーのすべてのコマで今の色へ置き換えます。"
+            "含み塗りや隙間閉じなどの設定は効きません。選択範囲があれば、その中だけを置き換えます。"
+        ))
+
         def sync_bucket_options(_checked=None):
             self.bucket_island_fill_width.setEnabled(self.bucket_island_fill.isChecked())
             self.bucket_island_fill_width_label.setEnabled(self.bucket_island_fill.isChecked())
@@ -1188,6 +1198,7 @@ class ToolPanel(QWidget):
             self.bucket_require_closed,
             self.fill_opacity_row,
             self.bucket_all_frames,
+            self.bucket_replace_color,
             self.dust_mode_label,self.dust_mode,
             self.dust_size_label,self.dust_size,
             self.dust_selected_only,
@@ -1644,6 +1655,7 @@ class ToolPanel(QWidget):
         self.bucket_require_closed.setVisible(uses_bucket_region)
         self.fill_opacity_row.setVisible(is_bucket or is_lasso_fill)
         self.bucket_all_frames.setVisible(is_bucket)
+        self.bucket_replace_color.setVisible(tid == "bucket")
         # 隙間閉じと塗り残し拾いは閉領域フィルでは常にこちらが決める。
         self.bucket_close_gap.setVisible(is_bucket and not is_closed_fill)
         self.bucket_island_fill_row.setVisible(

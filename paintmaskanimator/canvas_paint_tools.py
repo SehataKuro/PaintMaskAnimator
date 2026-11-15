@@ -419,6 +419,10 @@ class PaintToolsMixin(CanvasMembers):
         return written_colors
 
     def flood_fill(self, p):
+        if self._bucket_replace_color_enabled():
+            self.abort_skewer_fill()
+            self.replace_color_at(p)
+            return
         if self._bucket_all_frames_enabled():
             self.flood_fill_over_frames(p)
             return
@@ -634,6 +638,71 @@ class PaintToolsMixin(CanvasMembers):
         tools = self._bucket_tools()
         checkbox = getattr(tools, "bucket_all_frames", None)
         return bool(checkbox is not None and checkbox.isChecked())
+
+    def _bucket_replace_color_enabled(self):
+        tools = self._bucket_tools()
+        checkbox = getattr(tools, "bucket_replace_color", None)
+        return bool(checkbox is not None and checkbox.isChecked())
+
+    def replace_color_at(self, p, confirm_line=None):
+        """バケツの色置換（#67）：``p`` の色を、選択レイヤーの全コマで今の色へ置き換える。
+
+        クリックした色と完全に同じ画素だけが対象で、つながりやほかのバケツ設定は
+        見ない。処理は使用色パネルの「色置換」と同じ（1色ぶんの登録をクリックで
+        渡す入口）。置き換えたら真。``confirm_line`` は線の色をクリックしたときに
+        置き換えてよいかを尋ねる関数（テスト用。省略時は確認ダイアログ）。
+        """
+        x, y = int(p.x()), int(p.y())
+        if not self._seed_in_bounds(x, y):
+            return False
+        layer_index = int(self.active_layer_index)
+        key = self.resolve_key_frame(int(self.current_frame), layer_index)
+        if key is None:
+            self.status_message.emit(tr("色置換：このコマには絵がありません。"))
+            return False
+        image = self.frames[key].layers[layer_index].image
+        clicked = image.pixelColor(x, y)
+        if clicked.alpha() == 0:
+            self.status_message.emit(
+                tr("色置換：透明の所は置き換えません。置き換えたい色をクリックしてください。")
+            )
+            return False
+        source = (clicked.red(), clicked.green(), clicked.blue())
+        target_color = self.opaque_paint_color()
+        target = (target_color.red(), target_color.green(), target_color.blue())
+        if source == target:
+            self.status_message.emit(tr("色置換：クリックした色は今の色と同じです。"))
+            return False
+        from . import auto_paint, fill_tracking
+        is_line = (
+            max(source) <= fill_tracking.LINE_MAX or auto_paint._is_primary(source)
+        )
+        if is_line:
+            if confirm_line is None:
+                confirm_line = self._confirm_line_color_replacement
+            if not confirm_line(source):
+                self.status_message.emit(tr("色置換を取りやめました。"))
+                return False
+        window: Any = self.window()
+        controller = getattr(window, "used_color", None)
+        if controller is None:
+            return False
+        return bool(controller.apply_palette_replacements({source: target}))
+
+    def _confirm_line_color_replacement(self, source):
+        from PySide6.QtWidgets import QMessageBox
+
+        answer = QMessageBox.question(
+            self,
+            tr("色置換"),
+            tr(
+                "クリックした色 #{hex} は線の色です。"
+                "選択レイヤーのすべてのコマで、この色の線を置き換えますか？"
+            ).format(hex="{:02X}{:02X}{:02X}".format(*source)),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return answer == QMessageBox.StandardButton.Yes
 
     def _seed_in_bounds(self, start_x, start_y, image=None):
         image = image if image is not None else self.active_layer.image

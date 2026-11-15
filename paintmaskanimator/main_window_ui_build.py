@@ -327,6 +327,10 @@ class UIBuildMixin(MainWindowMembers):
             tr("バケツ：串刺し塗り ON/OFF"),
             lambda: self.tools.bucket_all_frames.toggle()
         )
+        self.a_bucket_replace_color = self.make_shortcut_action(
+            tr("バケツ：色置換 ON/OFF"),
+            lambda: self.tools.bucket_replace_color.toggle()
+        )
         self.a_dust_all_frames = self.make_shortcut_action(
             tr("ゴミ取り：すべてのコマ ON/OFF"),
             lambda: self.tools.dust_all_frames.toggle()
@@ -466,6 +470,7 @@ class UIBuildMixin(MainWindowMembers):
             (tr("バケツ：含み塗り ON/OFF"), self.a_bucket_include_sub),
             (tr("バケツ：隙間閉じ ON/OFF"), self.a_bucket_close_gap),
             (tr("バケツ：串刺し塗り ON/OFF"), self.a_bucket_all_frames),
+            (tr("バケツ：色置換 ON/OFF"), self.a_bucket_replace_color),
             (tr("ゴミ取り：すべてのコマ ON/OFF"), self.a_dust_all_frames),
             (tr("ゴミ取り／塗り抜けを適用"), self.a_dust_apply),
             (tr("選択変形：すべてのコマ ON/OFF"), self.a_selection_all_frames),
