@@ -1,7 +1,7 @@
 """Undo/redo snapshots of the used-color panel state.
 
 Split out of ``color_panel.py`` as a mixin. ``capture_history_state`` freezes the
-panel (order, groups, visibility, masks, selection) into a plain snapshot,
+panel (order, groups, visibility, masks, replacement colours, selection) into a plain snapshot,
 ``restore_history_state`` puts one back, and ``_history_edit`` is the context
 manager every panel edit wraps itself in so a single undo entry is pushed only
 when the snapshot actually changed.
@@ -11,6 +11,8 @@ from ._color_panel_members import UsedColorPanelMembers
 from .logging_setup import get_logger
 
 from contextlib import contextmanager
+
+from PySide6.QtGui import QColor
 
 log = get_logger(__name__)
 
@@ -28,6 +30,10 @@ class ColorPanelHistoryMixin(UsedColorPanelMembers):
             "category_order": list(self.category_order),
             "category_colors": dict(self.category_colors),
             "category_collapsed": dict(self.category_collapsed),
+            "replacements": {
+                tuple(rgb): (color.red(), color.green(), color.blue())
+                for rgb, color in self.replacements.items()
+            },
         }
 
     @staticmethod
@@ -40,6 +46,7 @@ class ColorPanelHistoryMixin(UsedColorPanelMembers):
             tuple(sorted(snapshot.get("mask", set()))),
             tuple(snapshot.get("category_order", ())),
             tuple(sorted(snapshot.get("category_colors", {}).items())),
+            tuple(sorted(snapshot.get("replacements", {}).items())),
         )
 
     def restore_history_state(self, snapshot):
@@ -109,6 +116,20 @@ class ColorPanelHistoryMixin(UsedColorPanelMembers):
             for rgb in self.mask_checks:
                 self._set_mask_checkbox_without_signal(rgb, rgb in self.mask_rgbs)
             self._mask_all_mode = self.all_masks_enabled()
+
+            # 置換色を戻す。いま行のある色だけ（消えた色の置換色は戻さない）。
+            if "replacements" in snapshot:
+                self._close_replacement_editor()
+                restored = {
+                    tuple(rgb): QColor(*target)
+                    for rgb, target in snapshot["replacements"].items()
+                    if tuple(rgb) in self.replacement_buttons
+                }
+                changed = set(self.replacements) | set(restored)
+                self.replacements = restored
+                for rgb in changed:
+                    if rgb in self.replacement_buttons:
+                        self._set_replacement_button_style(rgb)
 
             # 選択状態も戻す（履歴の見た目を揃えるため）。
             self.selected_rgbs = [
