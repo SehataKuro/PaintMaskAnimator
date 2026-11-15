@@ -407,7 +407,7 @@ class MainWindow(
             self.statusBar().showMessage(tr("2値化：このコマには絵がありません。"), 3000)
             return False
         first_image = canvas.frames[key].layers[layer_index].image.copy()
-        cells = self.initial_state.layer_cells(layer_index)
+        cells = [cell for cell in self.initial_state.cells() if cell[1] == layer_index]
         reference_images = [
             canvas.frames[cells[index][0]].layers[layer_index].image.copy()
             for index in color_ops.reference_frame_indices(len(cells))
