@@ -3464,7 +3464,7 @@ Check that the image size, transparency and colour regions are identical.</trans
         <translation>Separating layers at {position}</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="771"/>
+        <location filename="../main_window_line_ops.py" line="772"/>
         <source>段と段が角だけで接している所に1画素足して上下左右でつなぎ、線の側面から1画素だけ突き出た所と、段の重なりが厚くなった所の1画素を消します。線の先端・交差・直角の角は変えません。</source>
         <translation>Adds one pixel where steps touch only at a corner so they connect horizontally or vertically, and removes single pixels sticking out from the side of a line and the extra pixel where two steps overlap too much. Line ends, crossings and right-angle corners are left as they are.</translation>
     </message>
@@ -3487,67 +3487,94 @@ Nothing was applied.</translation>
     </message>
     <message>
         <location filename="../main_window_line_ops.py" line="758"/>
-        <location filename="../main_window_line_ops.py" line="811"/>
+        <location filename="../main_window_line_ops.py" line="839"/>
         <source>線整え</source>
         <translation>Tidy Lines</translation>
     </message>
     <message>
         <location filename="../main_window_line_ops.py" line="761"/>
+        <location filename="../main_window_line_ops.py" line="798"/>
         <source>今のコマ：足す {added}px（赤）／消す {removed}px（青）</source>
         <translation>Current frame: add {added}px (red) / remove {removed}px (blue)</translation>
     </message>
     <message>
         <location filename="../main_window_line_ops.py" line="763"/>
+        <location filename="../main_window_line_ops.py" line="800"/>
         <source>今のコマには直す所がありません。</source>
         <translation>Nothing to fix in the current frame.</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="815"/>
+        <location filename="../main_window_line_ops.py" line="780"/>
+        <source>足して太さをそろえる</source>
+        <translation>Add pixels to even the width</translation>
+    </message>
+    <message>
+        <location filename="../main_window_line_ops.py" line="781"/>
+        <source>消して1画素幅にする</source>
+        <translation>Remove pixels to make it 1 px wide</translation>
+    </message>
+    <message>
+        <location filename="../main_window_line_ops.py" line="782"/>
+        <source>直さない</source>
+        <translation>Leave as is</translation>
+    </message>
+    <message>
+        <location filename="../main_window_line_ops.py" line="784"/>
+        <source>2×2の塊が角でつながった45°の線の直し方。足すと各行が同じ画素数で1列ずつずれる階段に、消すと1画素幅の45°の線になります。</source>
+        <translation>How to fix 45° lines made of 2×2 blocks touching at corners. Adding gives a staircase with the same number of pixels on every row, shifted one column per row; removing gives a 1 px wide 45° line.</translation>
+    </message>
+    <message>
+        <location filename="../main_window_line_ops.py" line="790"/>
+        <source>2×2の45°の線</source>
+        <translation>2×2 45° lines</translation>
+    </message>
+    <message>
+        <location filename="../main_window_line_ops.py" line="843"/>
         <source>線整え：直す所はありませんでした。</source>
         <translation>Tidy lines: nothing to fix.</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="818"/>
+        <location filename="../main_window_line_ops.py" line="846"/>
         <source>線整え：{cells}セルで{added}px足し、{removed}px消しました。</source>
         <translation>Tidy lines: added {added}px and removed {removed}px in {cells} cel(s).</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="843"/>
+        <location filename="../main_window_line_ops.py" line="871"/>
         <source>使用色パネルで対象色を選択してください。</source>
         <translation>Select a target colour in the used-colour panel.</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="856"/>
+        <location filename="../main_window_line_ops.py" line="884"/>
         <source>選択レイヤーに処理できるキーフレームがありません。</source>
         <translation>The selected layer has no key frames to process.</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="1153"/>
+        <location filename="../main_window_line_ops.py" line="1181"/>
         <source>{label}対象を解析しています</source>
         <translation>Analysing {label} targets</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="1163"/>
+        <location filename="../main_window_line_ops.py" line="1191"/>
         <source>{label}を中止しました。画像は変更していません。</source>
         <translation>{label} cancelled. The images were not changed.</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="1170"/>
+        <location filename="../main_window_line_ops.py" line="1198"/>
         <source>選択色の</source>
         <translation>of the selected colour </translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="1173"/>
+        <location filename="../main_window_line_ops.py" line="1201"/>
         <source>指定サイズ以内の{text}{label}対象は見つかりませんでした。</source>
         <translation>No {text}{label} target within the given size was found.</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="1185"/>
+        <location filename="../main_window_line_ops.py" line="1213"/>
         <source>{label}後の使用色を更新しています</source>
         <translation>Updating used colours after {label}</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="1192"/>
+        <location filename="../main_window_line_ops.py" line="1220"/>
         <source>選択レイヤーの{cells}コマで{pixels:,}ピクセルへ{label}を適用しました。</source>
         <translation>Applied {label} to {pixels:,} pixels across {cells} exposures of the selected layer.</translation>
     </message>
@@ -4991,19 +5018,19 @@ Line art: binarises the line work while preserving the white background and the 
     </message>
     <message>
         <location filename="../color_reduction.py" line="587"/>
-        <location filename="../main_window_line_ops.py" line="779"/>
+        <location filename="../main_window_line_ops.py" line="788"/>
         <source>今のコマ</source>
         <translation>Current frame</translation>
     </message>
     <message>
         <location filename="../color_reduction.py" line="588"/>
-        <location filename="../main_window_line_ops.py" line="780"/>
+        <location filename="../main_window_line_ops.py" line="789"/>
         <source>すべてのコマ</source>
         <translation>All frames</translation>
     </message>
     <message>
         <location filename="../color_reduction.py" line="590"/>
-        <location filename="../main_window_line_ops.py" line="781"/>
+        <location filename="../main_window_line_ops.py" line="791"/>
         <source>範囲</source>
         <translation>Range</translation>
     </message>

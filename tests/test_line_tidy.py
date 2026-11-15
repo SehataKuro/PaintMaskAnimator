@@ -303,3 +303,71 @@ def test_thick_lines_are_not_thinned(shape, index):
     mask = list(orientations(grid("\n".join(line.strip() for line in shape.strip().splitlines()))))[index]
     _add, remove = line_tidy.tidy_mask(mask)
     assert not remove.any()
+
+
+# -- パターン4：2×2の塊が角でつながった45°の線 -------------------------------
+DIAGONAL_BLOCKS = grid("""
+##......
+..##....
+..##....
+....##..
+....##..
+......##
+""")
+DIAGONAL_ADDED = grid("""
+###.....
+.###....
+..###...
+...###..
+....###.
+.....###
+""")
+DIAGONAL_REMOVED = grid("""
+##......
+..#.....
+...#....
+....#...
+.....#..
+......##
+""")
+
+
+@pytest.mark.parametrize("mode, expected", [("add", DIAGONAL_ADDED), ("remove", DIAGONAL_REMOVED)])
+@pytest.mark.parametrize("index", range(8))
+def test_diagonal_blocks_become_an_even_staircase(mode, expected, index):
+    mask = list(orientations(DIAGONAL_BLOCKS))[index]
+    add, remove = line_tidy.tidy_mask(mask, mode)
+    assert ((mask | add) & ~remove == list(orientations(expected))[index]).all()
+
+
+def test_diagonal_blocks_can_be_left_to_the_other_rules():
+    add, remove = line_tidy.tidy_mask(DIAGONAL_BLOCKS, None)
+    assert not remove.any(), "直さないなら塊は削らない"
+
+
+def test_a_lone_two_by_two_dot_is_left_alone():
+    dot = grid("""
+......
+..##..
+..##..
+......
+""")
+    for mode in ("add", "remove"):
+        add, remove = line_tidy.tidy_mask(dot, mode)
+        assert not add.any() and not remove.any()
+
+
+def test_the_dialog_offers_the_diagonal_mode(window, monkeypatch):
+    from PySide6.QtWidgets import QComboBox, QDialog
+
+    _paint_stairs(window, 1)
+    chosen = {}
+
+    def accept(dialog):
+        combos = dialog.findChildren(QComboBox)
+        chosen["modes"] = [combos[0].itemData(i) for i in range(combos[0].count())]
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(QDialog, "exec", accept)
+    assert window.line_ops.tidy_lines_dialog()
+    assert chosen["modes"] == ["add", "remove", None], "既定は足す"
