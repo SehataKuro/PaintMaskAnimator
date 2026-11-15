@@ -291,6 +291,11 @@ class LineOpsController:
 
 
     def start_wire_transform(self, mode, line_colors_override=None):
+        # 「保持のあるコマの変形はトゥイーンにする」が ON なら、モードを切り替えずに
+        # そのままトゥイーンとして始める（#61）。トゥイーンの開始自身もここを通るので、
+        # 二重には入らない。
+        if mode in ("free", "mesh") and self.window.tween.start_from_transform(mode):
+            return
         if not self.window.canvas.selection_polygon:
             if not self.window.canvas.auto_select_used_area():
                 QMessageBox.warning(

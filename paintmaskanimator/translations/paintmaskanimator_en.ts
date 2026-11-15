@@ -31,8 +31,8 @@
         <location filename="../main_window_ui_build.py" line="65"/>
         <location filename="../main_window_ui_build.py" line="441"/>
         <location filename="../timeline.py" line="1225"/>
-        <location filename="../toolpanel.py" line="1312"/>
-        <location filename="../toolpanel.py" line="1313"/>
+        <location filename="../toolpanel.py" line="1320"/>
+        <location filename="../toolpanel.py" line="1321"/>
         <source>コピー</source>
         <translation>Copy</translation>
     </message>
@@ -472,7 +472,7 @@ If you overwrite it with painted drawings, you cannot get back to the state befo
     </message>
     <message>
         <location filename="../main_window_initial_state.py" line="307"/>
-        <location filename="../toolpanel.py" line="738"/>
+        <location filename="../toolpanel.py" line="745"/>
         <source>色塗り前の初期状態</source>
         <translation>Initial State Before Painting</translation>
     </message>
@@ -1030,7 +1030,7 @@ Export into this folder?</translation>
     <message>
         <location filename="../main_window_ui_build.py" line="255"/>
         <location filename="../main_window_ui_build.py" line="469"/>
-        <location filename="../toolpanel.py" line="1295"/>
+        <location filename="../toolpanel.py" line="1303"/>
         <source>メイン色とサブ色を切り替え</source>
         <translation>Swap Main and Sub Colours</translation>
     </message>
@@ -1833,7 +1833,7 @@ Supported formats: PNG, JPEG, TGA</translation>
         <location filename="../color_reduction.py" line="557"/>
         <location filename="../main_window_ui_build.py" line="456"/>
         <location filename="../toolpanel.py" line="57"/>
-        <location filename="../toolpanel.py" line="1126"/>
+        <location filename="../toolpanel.py" line="1133"/>
         <source>ゴミ取り</source>
         <translation>Despeckle</translation>
     </message>
@@ -3141,9 +3141,9 @@ Double-click: edit the name and tag colour</translation>
     </message>
     <message>
         <location filename="../main_window_tween.py" line="131"/>
-        <location filename="../main_window_tween.py" line="147"/>
-        <location filename="../main_window_tween.py" line="202"/>
-        <location filename="../main_window_tween.py" line="447"/>
+        <location filename="../main_window_tween.py" line="178"/>
+        <location filename="../main_window_tween.py" line="233"/>
+        <location filename="../main_window_tween.py" line="482"/>
         <location filename="../timeline.py" line="1329"/>
         <location filename="../toolpanel.py" line="640"/>
         <location filename="../widgets.py" line="650"/>
@@ -3161,138 +3161,138 @@ Double-click: edit the name and tag colour</translation>
         <translation>♦ Normal {mode}: the key frame holds the original shape and the last exposure the deformed one.</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="164"/>
-        <location filename="../main_window_tween.py" line="226"/>
-        <location filename="../main_window_tween.py" line="499"/>
+        <location filename="../main_window_tween.py" line="195"/>
+        <location filename="../main_window_tween.py" line="257"/>
+        <location filename="../main_window_tween.py" line="534"/>
         <location filename="../undo_entries.py" line="300"/>
         <source>トゥイーン</source>
         <translation>Tween</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="165"/>
+        <location filename="../main_window_tween.py" line="196"/>
         <source>2コマ以上の表示区間を持つ画像キーフレームで実行してください。</source>
         <translation>Run this on an image key frame whose exposure spans two or more frames.</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="171"/>
+        <location filename="../main_window_tween.py" line="202"/>
         <location filename="../timeline.py" line="1327"/>
         <source>トゥイーンを有効にする</source>
         <translation>Enable tweening</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="173"/>
+        <location filename="../main_window_tween.py" line="204"/>
         <source>{exposure}コマの{name}トゥイーンを開始します。
 確定後もトゥイーンとして残り、タイムラインの帯をダブルクリックすると形を直せます。</source>
         <translation>Starting a {name} tween over {exposure} exposures.
 After you commit, it stays a tween; double-click its span on the timeline to adjust the shape.</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="227"/>
+        <location filename="../main_window_tween.py" line="258"/>
         <source>画像内に変形対象となる描画領域がありません。</source>
         <translation>The image has no drawn area to deform.</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="297"/>
+        <location filename="../main_window_tween.py" line="332"/>
         <source>♦ {name}トゥイーン中です。変形形状を指定し、ポップアップの「逆生成」で生成方向を選べます。</source>
         <translation>♦ {name} tween in progress. Set the deformed shape, then pick the generation direction with &quot;Reverse&quot; in the popup.</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="391"/>
+        <location filename="../main_window_tween.py" line="426"/>
         <source>トゥイーンを解除し、中割りを通常のセルにしました。</source>
         <translation>Released the tween; its in-betweens are now ordinary cells.</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="421"/>
+        <location filename="../main_window_tween.py" line="456"/>
         <source>トゥイーンをキャンセルしました。</source>
         <translation>Tween cancelled.</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="500"/>
+        <location filename="../main_window_tween.py" line="535"/>
         <source>変形情報を取得できないため、トゥイーンを確定できません。</source>
         <translation>The transform data is unavailable, so the tween cannot be committed.</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="550"/>
+        <location filename="../main_window_tween.py" line="585"/>
         <source>トゥイーン確定</source>
         <translation>Commit tween</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="551"/>
+        <location filename="../main_window_tween.py" line="586"/>
         <source>TPクオリティ用の色マスクを生成できませんでした。
 Pillowが利用できることと、変形対象に色があることを確認してください。</source>
         <translation>Could not build the colour mask for TP quality.
 Check that Pillow is available and that the deformed area has colour.</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="563"/>
+        <location filename="../main_window_tween.py" line="598"/>
         <source>{name}トゥイーンを確定</source>
         <translation>Commit the {name} tween</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="565"/>
+        <location filename="../main_window_tween.py" line="600"/>
         <source>{name}トゥイーン画像を準備しています</source>
         <translation>Preparing the {name} tween images</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="573"/>
+        <location filename="../main_window_tween.py" line="608"/>
         <source>開始キーフレームを準備しています</source>
         <translation>Preparing the starting key frame</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="580"/>
+        <location filename="../main_window_tween.py" line="615"/>
         <source>{name}の補間コマ {value}/{exposure} を生成しています</source>
         <translation>Generating {name} in-between exposure {value}/{exposure}</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="635"/>
+        <location filename="../main_window_tween.py" line="670"/>
         <source>{value}コマ目の変形画像を生成できませんでした。</source>
         <translation>Could not generate the deformed image for exposure {value}.</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="656"/>
+        <location filename="../main_window_tween.py" line="691"/>
         <source>生成した画像をタイムラインへ登録しています</source>
         <translation>Registering the generated images on the timeline</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="696"/>
+        <location filename="../main_window_tween.py" line="731"/>
         <source>トゥイーン開始前のUndo情報を取得できませんでした。</source>
         <translation>Could not read the undo state from before the tween started.</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="704"/>
+        <location filename="../main_window_tween.py" line="739"/>
         <source>トゥイーンのキーフレーム化が完了しました</source>
         <translation>Finished converting the tween into key frames</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="722"/>
+        <location filename="../main_window_tween.py" line="757"/>
         <source>トゥイーン確定エラー</source>
         <translation>Tween commit error</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="759"/>
+        <location filename="../main_window_tween.py" line="794"/>
         <source>（TPクオリティ適用）</source>
         <translation> (TP quality applied)</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="763"/>
+        <location filename="../main_window_tween.py" line="798"/>
         <source>逆生成（◆側が変形／右端が初期）</source>
         <translation>Reverse (◆ side deformed, right end original)</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="765"/>
+        <location filename="../main_window_tween.py" line="800"/>
         <source>通常生成（先頭が初期／♦側が変形）</source>
         <translation>Normal (first original, ♦ side deformed)</translation>
     </message>
     <message>
-        <location filename="../main_window_tween.py" line="768"/>
+        <location filename="../main_window_tween.py" line="803"/>
         <source>{exposure}コマの{name}トゥイーンを{note}で確定しました。{note2}帯をダブルクリックすると形を直せます。</source>
         <translation>Committed the {name} tween over {exposure} exposures using {note}.{note2} Double-click the span to adjust the shape.</translation>
     </message>
     <message>
         <location filename="../main_window_tween.py" line="129"/>
-        <location filename="../main_window_tween.py" line="147"/>
-        <location filename="../main_window_tween.py" line="202"/>
-        <location filename="../main_window_tween.py" line="447"/>
+        <location filename="../main_window_tween.py" line="178"/>
+        <location filename="../main_window_tween.py" line="233"/>
+        <location filename="../main_window_tween.py" line="482"/>
         <location filename="../timeline.py" line="1330"/>
         <location filename="../toolpanel.py" line="642"/>
         <location filename="../widgets.py" line="650"/>
@@ -3356,198 +3356,198 @@ Check that Pillow is available and that the deformed area has colour.</translati
         <translation>The next mesh warp will use a {cols} × {rows} grid.</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="298"/>
-        <location filename="../main_window_line_ops.py" line="337"/>
+        <location filename="../main_window_line_ops.py" line="303"/>
+        <location filename="../main_window_line_ops.py" line="342"/>
         <source>変形</source>
         <translation>Transform</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="299"/>
+        <location filename="../main_window_line_ops.py" line="304"/>
         <source>使用色がある領域を検出できないため、変形を開始できません。</source>
         <translation>No area with used colours could be detected, so the transform cannot start.</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="303"/>
+        <location filename="../main_window_line_ops.py" line="308"/>
         <source>選択範囲がなかったため、使用色がある領域を自動選択しました。</source>
         <translation>There was no selection, so the area with used colours was selected automatically.</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="338"/>
+        <location filename="../main_window_line_ops.py" line="343"/>
         <source>選択範囲から変形対象を作成できませんでした。</source>
         <translation>Could not build a transform target from the selection.</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="343"/>
+        <location filename="../main_window_line_ops.py" line="348"/>
         <source>クオリティ方式／</source>
         <translation>quality mode / </translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="345"/>
+        <location filename="../main_window_line_ops.py" line="350"/>
         <source>すべてのコマへ適用します。</source>
         <translation>Applies to every exposure.</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="347"/>
+        <location filename="../main_window_line_ops.py" line="352"/>
         <source>現在のコマへ適用します。</source>
         <translation>Applies to the current exposure.</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="351"/>
+        <location filename="../main_window_line_ops.py" line="356"/>
         <source> 選択中の使用色{len}色を実線として処理します。</source>
         <translation> The {len} selected used colours are treated as line art.</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="355"/>
+        <location filename="../main_window_line_ops.py" line="360"/>
         <source>白い点：変形／枠内：移動／黄色い点：回転。Enterで確定、Escでキャンセルできます。{note}{note2}</source>
         <translation>White handles: deform / inside the frame: move / yellow handles: rotate. Enter commits, Esc cancels.{note}{note2}</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="422"/>
-        <location filename="../main_window_line_ops.py" line="430"/>
-        <location filename="../main_window_line_ops.py" line="447"/>
-        <location filename="../main_window_line_ops.py" line="463"/>
-        <location filename="../main_window_line_ops.py" line="475"/>
+        <location filename="../main_window_line_ops.py" line="427"/>
+        <location filename="../main_window_line_ops.py" line="435"/>
+        <location filename="../main_window_line_ops.py" line="452"/>
+        <location filename="../main_window_line_ops.py" line="468"/>
+        <location filename="../main_window_line_ops.py" line="480"/>
         <source>同一画像を置換色に登録</source>
         <translation>Register an identical image as replacement colours</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="423"/>
-        <location filename="../main_window_line_ops.py" line="431"/>
+        <location filename="../main_window_line_ops.py" line="428"/>
+        <location filename="../main_window_line_ops.py" line="436"/>
         <source>選択レイヤーの現在位置に画像がありません。</source>
         <translation>There is no image at the current position of the selected layer.</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="448"/>
+        <location filename="../main_window_line_ops.py" line="453"/>
         <source>同じタイムライン位置の上側レイヤーに、比較できる画像がありません。</source>
         <translation>There is no comparable image on a layer above at the same timeline position.</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="464"/>
+        <location filename="../main_window_line_ops.py" line="469"/>
         <source>一致する画像は見つかりましたが、登録できる使用色がありません。</source>
         <translation>A matching image was found, but it has no used colours to register.</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="468"/>
+        <location filename="../main_window_line_ops.py" line="473"/>
         <source>上側レイヤー「{name}」から{registered}色を置換色に登録しました。</source>
         <translation>Registered {registered} colours from the layer above, &quot;{name}&quot;, as replacement colours.</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="476"/>
+        <location filename="../main_window_line_ops.py" line="481"/>
         <source>上側レイヤーの画像とピクセルが一致していないため、置換色には登録できません。
 画像サイズ、透明度、色領域の形が同じか確認してください。</source>
         <translation>The pixels do not match the image on the layer above, so no replacement colours can be registered.
 Check that the image size, transparency and colour regions are identical.</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="487"/>
+        <location filename="../main_window_line_ops.py" line="492"/>
         <source>選択した使用色と、それ以外の部分を別レイヤーに分離します。</source>
         <translation>Splits the selected used colours and everything else onto separate layers.</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="498"/>
+        <location filename="../main_window_line_ops.py" line="503"/>
         <source>使用色欄で分離したい色を1色以上選択してください。</source>
         <translation>Select at least one colour to split in the used-colour list.</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="509"/>
+        <location filename="../main_window_line_ops.py" line="514"/>
         <source>対象色を確認しています</source>
         <translation>Checking the target colours</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="518"/>
+        <location filename="../main_window_line_ops.py" line="523"/>
         <source>{position}の対象色を確認しています</source>
         <translation>Checking the target colour at {position}</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="584"/>
+        <location filename="../main_window_line_ops.py" line="589"/>
         <source>{position}をレイヤー分離しています</source>
         <translation>Separating layers at {position}</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="546"/>
+        <location filename="../main_window_line_ops.py" line="551"/>
         <source>選択した使用色が選択レイヤー内に見つかりませんでした。
 処理は適用しません。</source>
         <translation>The selected used colours were not found in the selected layer.
 Nothing was applied.</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="697"/>
+        <location filename="../main_window_line_ops.py" line="702"/>
         <source>LINE／Paintを作成し、元レイヤーを非表示にしました。</source>
         <translation>Created LINE and Paint layers and hid the original.</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="746"/>
+        <location filename="../main_window_line_ops.py" line="751"/>
         <source>線整え：整える線の色がありません。使用色パネルで線の色を選んでください。</source>
         <translation>Tidy lines: there is no line color to tidy. Select a line color in the Used Colors panel.</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="753"/>
-        <location filename="../main_window_line_ops.py" line="805"/>
+        <location filename="../main_window_line_ops.py" line="758"/>
+        <location filename="../main_window_line_ops.py" line="810"/>
         <source>線整え</source>
         <translation>Tidy Lines</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="756"/>
+        <location filename="../main_window_line_ops.py" line="761"/>
         <source>今のコマ：足す {added}px（赤）／消す {removed}px（青）</source>
         <translation>Current frame: add {added}px (red) / remove {removed}px (blue)</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="758"/>
+        <location filename="../main_window_line_ops.py" line="763"/>
         <source>今のコマには直す所がありません。</source>
         <translation>Nothing to fix in the current frame.</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="766"/>
+        <location filename="../main_window_line_ops.py" line="771"/>
         <source>段と段が角だけで接している所に1画素足して上下左右でつなぎ、線の側面から1画素だけ突き出た所を消します。線の先端・交差・直角の角は変えません。</source>
         <translation>Adds one pixel where steps touch only at a corner so they connect horizontally or vertically, and removes single pixels sticking out from the side of a line. Line ends, crossings and right-angle corners are left as they are.</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="809"/>
+        <location filename="../main_window_line_ops.py" line="814"/>
         <source>線整え：直す所はありませんでした。</source>
         <translation>Tidy lines: nothing to fix.</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="812"/>
+        <location filename="../main_window_line_ops.py" line="817"/>
         <source>線整え：{cells}セルで{added}px足し、{removed}px消しました。</source>
         <translation>Tidy lines: added {added}px and removed {removed}px in {cells} cel(s).</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="837"/>
+        <location filename="../main_window_line_ops.py" line="842"/>
         <source>使用色パネルで対象色を選択してください。</source>
         <translation>Select a target colour in the used-colour panel.</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="850"/>
+        <location filename="../main_window_line_ops.py" line="855"/>
         <source>選択レイヤーに処理できるキーフレームがありません。</source>
         <translation>The selected layer has no key frames to process.</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="1147"/>
+        <location filename="../main_window_line_ops.py" line="1152"/>
         <source>{label}対象を解析しています</source>
         <translation>Analysing {label} targets</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="1157"/>
+        <location filename="../main_window_line_ops.py" line="1162"/>
         <source>{label}を中止しました。画像は変更していません。</source>
         <translation>{label} cancelled. The images were not changed.</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="1164"/>
+        <location filename="../main_window_line_ops.py" line="1169"/>
         <source>選択色の</source>
         <translation>of the selected colour </translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="1167"/>
+        <location filename="../main_window_line_ops.py" line="1172"/>
         <source>指定サイズ以内の{text}{label}対象は見つかりませんでした。</source>
         <translation>No {text}{label} target within the given size was found.</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="1179"/>
+        <location filename="../main_window_line_ops.py" line="1184"/>
         <source>{label}後の使用色を更新しています</source>
         <translation>Updating used colours after {label}</translation>
     </message>
     <message>
-        <location filename="../main_window_line_ops.py" line="1186"/>
+        <location filename="../main_window_line_ops.py" line="1191"/>
         <source>選択レイヤーの{cells}コマで{pixels:,}ピクセルへ{label}を適用しました。</source>
         <translation>Applied {label} to {pixels:,} pixels across {cells} exposures of the selected layer.</translation>
     </message>
@@ -3636,42 +3636,52 @@ Nothing was applied.</translation>
     </message>
     <message>
         <location filename="../toolpanel.py" line="698"/>
+        <source>保持のあるコマの変形はトゥイーンにする</source>
+        <translation>Make transforms on held frames a tween</translation>
+    </message>
+    <message>
+        <location filename="../toolpanel.py" line="701"/>
+        <source>2コマ以上保持しているキーのコマで自由変形・メッシュ変形を始めると、確認なしでトゥイーンになります。ハンドルを動かして確定すると、保持の各コマに中割りができます。</source>
+        <translation>Starting a free or mesh transform on a key held for two or more frames turns it into a tween without asking. Move the handles and commit to create in-betweens on each held frame.</translation>
+    </message>
+    <message>
+        <location filename="../toolpanel.py" line="705"/>
         <source>クオリティ（Tp_mask v0.7方式）</source>
         <translation>Quality (Tp_mask v0.7 method)</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="701"/>
+        <location filename="../toolpanel.py" line="708"/>
         <source>色ごとに分離して変形し、中間色を作らずに再合成します。拡大・縮小・回転で線や塗りが崩れにくくなります。</source>
         <translation>Transforms each colour separately, then recomposites without creating intermediate colours. This helps preserve lines and fills during scaling and rotation.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="705"/>
+        <location filename="../toolpanel.py" line="712"/>
         <source>色選択があるときは実線の太さを調整できます。</source>
         <translation>When colours are selected, you can adjust the solid-line thickness.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="712"/>
-        <location filename="../toolpanel.py" line="724"/>
+        <location filename="../toolpanel.py" line="719"/>
+        <location filename="../toolpanel.py" line="731"/>
         <source>実線の太さ：{value}</source>
         <translation>Solid-line thickness: {value}</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="719"/>
+        <location filename="../toolpanel.py" line="726"/>
         <source>クオリティ変形で、使用色パネルの選択色を実線として残す太さを調整します。右へ動かすほど太くなります。</source>
         <translation>Adjusts how thickly selected colours from the Used Colours panel remain as solid lines during a quality transform. Move right for thicker lines.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="736"/>
+        <location filename="../toolpanel.py" line="743"/>
         <source>選択したレイヤーのみ</source>
         <translation>Selected layer only</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="737"/>
+        <location filename="../toolpanel.py" line="744"/>
         <source>キャンバス全体</source>
         <translation>Whole canvas</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="742"/>
+        <location filename="../toolpanel.py" line="749"/>
         <source>どの絵を見て塗る範囲を決めるかを選びます。塗る先はいつも選択中のレイヤーです。
 「選択したレイヤーのみ」はそのレイヤーの絵だけで判定します。
 「キャンバス全体」は表示しているレイヤーを合成した絵で判定するので、線が別のレイヤーにあっても、その線で区切られた部分を塗れます。
@@ -3682,407 +3692,407 @@ Nothing was applied.</translation>
 &quot;Initial state before painting&quot; decides from the kept unpainted picture, so half-finished colours do not get in the way (if none is kept, the current picture is used).</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="754"/>
+        <location filename="../toolpanel.py" line="761"/>
         <source>参照</source>
         <translation>Reference</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="760"/>
+        <location filename="../toolpanel.py" line="767"/>
         <source>すべての色を対象</source>
         <translation>All colours</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="761"/>
+        <location filename="../toolpanel.py" line="768"/>
         <source>透明部分のみ</source>
         <translation>Transparent only</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="762"/>
+        <location filename="../toolpanel.py" line="769"/>
         <source>透明に囲まれた部分</source>
         <translation>Surrounded by transparent</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="763"/>
+        <location filename="../toolpanel.py" line="770"/>
         <source>黒部分のみ</source>
         <translation>Black only</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="764"/>
+        <location filename="../toolpanel.py" line="771"/>
         <source>黒に囲まれた部分</source>
         <translation>Surrounded by black</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="765"/>
+        <location filename="../toolpanel.py" line="772"/>
         <source>白と透明部分のみ</source>
         <translation>White and transparent only</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="766"/>
+        <location filename="../toolpanel.py" line="773"/>
         <source>白と透明に囲まれた部分</source>
         <translation>Surrounded by white and transparent</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="767"/>
+        <location filename="../toolpanel.py" line="774"/>
         <source>薄い半透明を透明扱い</source>
         <translation>Treat faint translucency as transparent</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="768"/>
+        <location filename="../toolpanel.py" line="775"/>
         <source>透明以外と内部の透明</source>
         <translation>Non-transparent and enclosed transparent</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="769"/>
+        <location filename="../toolpanel.py" line="776"/>
         <source>透明以外は閉領域にも</source>
         <translation>Transparent plus enclosed non-transparent</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="773"/>
+        <location filename="../toolpanel.py" line="780"/>
         <source>どの画素をたどって塗るかを選びます。「すべての色を対象」はクリックした色の領域を塗ります。「〜のみ」はその画素だけ、「〜に囲まれた部分」はそれ以外の画素を、クリック位置からつながる範囲で塗ります。</source>
         <translation>Chooses which pixels the fill spreads through. &quot;All colours&quot; fills the area of the clicked colour. &quot;... only&quot; fills just those pixels, and &quot;Surrounded by ...&quot; fills everything else, as far as it connects to the clicked point.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="782"/>
+        <location filename="../toolpanel.py" line="789"/>
         <source>対象色</source>
         <translation>Target colour</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="785"/>
+        <location filename="../toolpanel.py" line="792"/>
         <source>隣接</source>
         <translation>Contiguous</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="788"/>
+        <location filename="../toolpanel.py" line="795"/>
         <source>ON：クリック位置につながる同色領域だけを塗ります。OFF：レイヤー内の同じ色を一括で塗ります。</source>
         <translation>On: fill only the same-colour region connected to the clicked point. Off: fill all areas of that colour in the layer.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="803"/>
+        <location filename="../toolpanel.py" line="810"/>
         <source>囲まれた色を置換色で塗る</source>
         <translation>Repaint enclosed colours with their replacements</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="806"/>
+        <location filename="../toolpanel.py" line="813"/>
         <source>塗った範囲に囲まれた線や点のうち、使用色パネルで置換色を登録してある色を、その置換色で塗ります。頬の範囲線の中を塗るときに、中の斜線も決まった色にできます。</source>
         <translation>Lines and dots enclosed by the filled area whose colour has a replacement registered in the used-colour panel are painted with that replacement. When filling inside a blush outline, the hatching inside gets its set colour too.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="812"/>
+        <location filename="../toolpanel.py" line="819"/>
         <source>塗り残し拾い</source>
         <translation>Fill Small Gaps</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="814"/>
+        <location filename="../toolpanel.py" line="821"/>
         <source>塗った領域と角で直接つながる、同じ対象色の空白を指定した幅以下なら先端まで拾います。長さや面積は制限せず、線は飛び越えません。自動塗りにも適用します。</source>
         <translation>Fills gaps of the same target colour connected directly at pixel corners, up to the specified width and all the way to their tips. Length and area are not limited. Does not jump across lines. Also applies to Auto Paint.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="820"/>
-        <location filename="../toolpanel.py" line="824"/>
+        <location filename="../toolpanel.py" line="827"/>
+        <location filename="../toolpanel.py" line="831"/>
         <source>幅 {width} px 以下</source>
         <translation>Width ≤ {width} px</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="835"/>
+        <location filename="../toolpanel.py" line="842"/>
         <source>隙間閉じ</source>
         <translation>Close Gaps</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="854"/>
+        <location filename="../toolpanel.py" line="861"/>
         <source>閉じる隙間</source>
         <translation>Gap to close</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="856"/>
+        <location filename="../toolpanel.py" line="863"/>
         <source>これより狭い線の隙間は閉じているものとみなして塗ります。</source>
         <translation>Line gaps narrower than this are treated as closed when filling.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="864"/>
+        <location filename="../toolpanel.py" line="871"/>
         <source>線の延長</source>
         <translation>Extend Lines</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="868"/>
+        <location filename="../toolpanel.py" line="875"/>
         <source>キャンバス端の手前で途切れた線を、線の向きのまま端まで延ばしたものとして塗ります。スタンダードフレームの外側で線を端まで引いていない素材でも、線の切れ目から隣へ漏れずに塗れます。端からスライダーの長さより遠い線の端は延長しません。</source>
         <translation>Fills as if lines that stop short of the canvas edge continued in their own direction to the edge. Material whose lines are not drawn all the way to the edge outside the standard frame fills without leaking through the open line ends. Line ends farther from the edge than the slider length are not extended.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="900"/>
+        <location filename="../toolpanel.py" line="907"/>
         <source>不透明度</source>
         <translation>Opacity</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="911"/>
+        <location filename="../toolpanel.py" line="918"/>
         <source>塗りつぶし・投げ縄塗りの不透明度。100%は選択した色をそのまま塗ります（近似色は増えません）。100%未満は下地の色と混ぜた色で塗ります。</source>
         <translation>Opacity for the fill and lasso fill tools. At 100% the selected colour is painted as is (no near-duplicate colours are created). Below 100% it is mixed with the colour underneath.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="923"/>
+        <location filename="../toolpanel.py" line="930"/>
         <source>境界線の内側だけを塗る</source>
         <translation>Fill only inside the outline</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="925"/>
-        <location filename="../toolpanel.py" line="1065"/>
+        <location filename="../toolpanel.py" line="932"/>
+        <location filename="../toolpanel.py" line="1072"/>
         <source>サブ色を実線、メイン色を内面にする</source>
         <translation>Sub colour for the outline, main colour for the fill</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="927"/>
+        <location filename="../toolpanel.py" line="934"/>
         <source>外線の太さ：1.0 px</source>
         <translation>Outline width: 1.0 px</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="934"/>
+        <location filename="../toolpanel.py" line="941"/>
         <source>外線の太さ：{value:.1f} px</source>
         <translation>Outline width: {value:.1f} px</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="947"/>
+        <location filename="../toolpanel.py" line="954"/>
         <source>ライン種類</source>
         <translation>Line type</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="952"/>
-        <location filename="../toolpanel.py" line="1044"/>
+        <location filename="../toolpanel.py" line="959"/>
+        <location filename="../toolpanel.py" line="1051"/>
         <source>直線</source>
         <translation>Straight</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="953"/>
-        <location filename="../toolpanel.py" line="1045"/>
+        <location filename="../toolpanel.py" line="960"/>
+        <location filename="../toolpanel.py" line="1052"/>
         <source>曲線</source>
         <translation>Curve</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="955"/>
+        <location filename="../toolpanel.py" line="962"/>
         <source>曲線は、1回目のドラッグで始点と終点を決め、次のクリックで弓なりのカーブを確定します。</source>
         <translation>For a curve, the first drag sets the start and end points and the next click fixes the bow of the curve.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="958"/>
+        <location filename="../toolpanel.py" line="965"/>
         <source>入り</source>
         <translation>Taper in</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="960"/>
+        <location filename="../toolpanel.py" line="967"/>
         <source>入りサイズ：0.5 px</source>
         <translation>Taper-in size: 0.5 px</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="962"/>
+        <location filename="../toolpanel.py" line="969"/>
         <source>クリックすると入りカーブ設定がポップアップします。</source>
         <translation>Click to pop up the taper-in curve settings.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="972"/>
+        <location filename="../toolpanel.py" line="979"/>
         <source>入りサイズ：{value:.1f} px</source>
         <translation>Taper-in size: {value:.1f} px</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="975"/>
+        <location filename="../toolpanel.py" line="982"/>
         <source>入りカーブ：1.00</source>
         <translation>Taper-in curve: 1.00</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="980"/>
+        <location filename="../toolpanel.py" line="987"/>
         <source>小さいほど緩やかに、値を大きくすると先端付近で急に太くなります。</source>
         <translation>Lower is gentler; higher makes the stroke thicken sharply near the tip.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="984"/>
+        <location filename="../toolpanel.py" line="991"/>
         <source>入りカーブ：{value:.2f}</source>
         <translation>Taper-in curve: {value:.2f}</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="987"/>
+        <location filename="../toolpanel.py" line="994"/>
         <source>抜き</source>
         <translation>Taper out</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="989"/>
+        <location filename="../toolpanel.py" line="996"/>
         <source>抜きサイズ：0.5 px</source>
         <translation>Taper-out size: 0.5 px</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="991"/>
+        <location filename="../toolpanel.py" line="998"/>
         <source>クリックすると抜きカーブ設定がポップアップします。</source>
         <translation>Click to pop up the taper-out curve settings.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1001"/>
+        <location filename="../toolpanel.py" line="1008"/>
         <source>抜きサイズ：{value:.1f} px</source>
         <translation>Taper-out size: {value:.1f} px</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1004"/>
+        <location filename="../toolpanel.py" line="1011"/>
         <source>抜きカーブ：1.00</source>
         <translation>Taper-out curve: 1.00</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1009"/>
+        <location filename="../toolpanel.py" line="1016"/>
         <source>小さいほど緩やかに、値を大きくすると終端付近で急に細くなります。</source>
         <translation>Lower is gentler; higher makes the stroke thin out sharply near the end.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1013"/>
+        <location filename="../toolpanel.py" line="1020"/>
         <source>抜きカーブ：{value:.2f}</source>
         <translation>Taper-out curve: {value:.2f}</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1042"/>
+        <location filename="../toolpanel.py" line="1049"/>
         <source>図形種類</source>
         <translation>Shape type</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1046"/>
+        <location filename="../toolpanel.py" line="1053"/>
         <source>多角形</source>
         <translation>Polygon</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1047"/>
+        <location filename="../toolpanel.py" line="1054"/>
         <source>楕円</source>
         <translation>Ellipse</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1050"/>
+        <location filename="../toolpanel.py" line="1057"/>
         <source>角の数</source>
         <translation>Corners</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1062"/>
+        <location filename="../toolpanel.py" line="1069"/>
         <source>比率固定</source>
         <translation>Lock ratio</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1063"/>
+        <location filename="../toolpanel.py" line="1070"/>
         <source>内側を塗る</source>
         <translation>Fill the inside</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1067"/>
+        <location filename="../toolpanel.py" line="1074"/>
         <source>線の太さ：1.0 px</source>
         <translation>Line width: 1.0 px</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1073"/>
+        <location filename="../toolpanel.py" line="1080"/>
         <source>線の太さ：{value:.1f} px</source>
         <translation>Line width: {value:.1f} px</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1078"/>
+        <location filename="../toolpanel.py" line="1085"/>
         <source>領域が開いている場合は塗りを開始しない</source>
         <translation>Do not start filling if the region is open</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1082"/>
+        <location filename="../toolpanel.py" line="1089"/>
         <source>串刺し塗り（選択レイヤーのすべてのコマ）</source>
         <translation>Paint through frames (every frame of the selected layer)</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1086"/>
+        <location filename="../toolpanel.py" line="1093"/>
         <source>クリックした図形を、選択レイヤーの各コマで追いかけて一度に塗ります。追いかけきれないコマでは止まるので、塗る場所をクリックしてください（Esc でそのコマを、Shift+Esc でその向きの残りのコマを飛ばします）。</source>
         <translation>Follows the clicked shape through every frame of the selected layer and fills it in one go. If a frame can&apos;t be tracked, it stops there; click where to fill (Esc skips that frame, Shift+Esc skips the remaining frames in that direction).</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1092"/>
+        <location filename="../toolpanel.py" line="1099"/>
         <source>色置換（クリックした色を、選択レイヤーのすべてのコマで置き換える）</source>
         <translation>Replace color (replace the clicked color in every frame of the selected layer)</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1096"/>
+        <location filename="../toolpanel.py" line="1103"/>
         <source>クリックした色と完全に同じ色の画素だけを、つながりに関係なく、選択レイヤーのすべてのコマで今の色へ置き換えます。含み塗りや隙間閉じなどの設定は効きません。選択範囲があれば、その中だけを置き換えます。</source>
         <translation>Replaces only the pixels that exactly match the clicked color with the current color, in every frame of the selected layer, whether or not they are connected. Inclusive fill, gap closing and other bucket settings do not apply. If there is a selection, only pixels inside it are replaced.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1124"/>
+        <location filename="../toolpanel.py" line="1131"/>
         <source>処理モード</source>
         <translation>Mode</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1127"/>
+        <location filename="../toolpanel.py" line="1134"/>
         <source>塗り抜け</source>
         <translation>Fill holes</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1136"/>
+        <location filename="../toolpanel.py" line="1143"/>
         <source>適用サイズ：3 px</source>
         <translation>Size: 3 px</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1142"/>
+        <location filename="../toolpanel.py" line="1149"/>
         <source>適用サイズ：{value} px</source>
         <translation>Size: {value} px</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1145"/>
+        <location filename="../toolpanel.py" line="1152"/>
         <source>選択色を対象</source>
         <translation>Selected colours only</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1148"/>
+        <location filename="../toolpanel.py" line="1155"/>
         <source>使用色パネルで選択している色だけを対象にします。色ごとに独立判定するため、別色と隣接していても小さな選択色を削除できます。</source>
         <translation>Limits the operation to the colours selected in the used-colour panel. Each colour is judged independently, so a small area of a selected colour can be removed even where it touches another colour.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1153"/>
+        <location filename="../toolpanel.py" line="1160"/>
         <source>選択レイヤーのすべてのコマに適用</source>
         <translation>Apply to every exposure of the selected layer</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1156"/>
+        <location filename="../toolpanel.py" line="1163"/>
         <source>ゴミ取りを適用</source>
         <translation>Apply despeckle</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1159"/>
+        <location filename="../toolpanel.py" line="1166"/>
         <source>{mode}を適用</source>
         <translation>Apply {mode}</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1210"/>
-        <location filename="../toolpanel.py" line="1675"/>
+        <location filename="../toolpanel.py" line="1218"/>
+        <location filename="../toolpanel.py" line="1684"/>
         <source>&lt;b&gt;ブラシサイズ&lt;/b&gt;</source>
         <translation>&lt;b&gt;Brush size&lt;/b&gt;</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1215"/>
+        <location filename="../toolpanel.py" line="1223"/>
         <source>筆圧…</source>
         <translation>Pressure…</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1245"/>
+        <location filename="../toolpanel.py" line="1253"/>
         <source>手振れ補正：0</source>
         <translation>Stabiliser: 0</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1250"/>
+        <location filename="../toolpanel.py" line="1258"/>
         <source>ブラシ軌跡を移動平均と遅延半径で滑らかにします。0～300。値が大きいほど補正を強くします。</source>
         <translation>Smooths the brush path with a moving average and a lag radius. 0–300; higher is stronger.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1255"/>
+        <location filename="../toolpanel.py" line="1263"/>
         <source>手振れ補正：{value}</source>
         <translation>Stabiliser: {value}</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1296"/>
+        <location filename="../toolpanel.py" line="1304"/>
         <source>初期色（黒／白）に戻す</source>
         <translation>Reset to default colours (black / white)</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1308"/>
+        <location filename="../toolpanel.py" line="1316"/>
         <source>メイン</source>
         <translation>Main</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1309"/>
+        <location filename="../toolpanel.py" line="1317"/>
         <source>サブ</source>
         <translation>Sub</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1293"/>
+        <location filename="../toolpanel.py" line="1301"/>
         <source>クリック：メイン色を選択／ドラッグ：スポイト</source>
         <translation>Click: pick the main colour / drag: eyedropper</translation>
     </message>
@@ -4111,62 +4121,62 @@ Click to replace with the current drawing colour; right-click to toggle it on or
 Right-click to turn it back on.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="791"/>
+        <location filename="../toolpanel.py" line="798"/>
         <source>含み塗り</source>
         <translation>Include colours in fill</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="794"/>
+        <location filename="../toolpanel.py" line="801"/>
         <source>ON：塗る領域に接している「含む色」の部分も一緒に塗ります。色トレス線の色を登録しておくと、線ごと塗りつぶせます。色を登録していないときはサブカラーを含みます。</source>
         <translation>ON: also fills the parts in the “Include” colours that touch the filled area. Register your coloured trace line colours to fill over those lines together. With no colour registered, the sub colour is included.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1128"/>
+        <location filename="../toolpanel.py" line="1135"/>
         <source>線周りのノイズ</source>
         <translation>Line-edge noise</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1130"/>
+        <location filename="../toolpanel.py" line="1137"/>
         <source>ゴミ取り：小さな色点を白（#FFFFFF）へ変更します。塗り抜け：小さな白い穴を周囲色で埋めます。線周りのノイズ：線の近くで、まわりに同じ色が1つも無い孤立した1ドットを、8近傍の多数決でまわりの色へ寄せます。色面のふちは同じ色の隣を必ず持つため、塗り分けは壊れません。</source>
         <translation>Despeckle: turns small colour specks white (#FFFFFF). Fill holes: fills small white holes with the surrounding colour. Line-edge noise: near a line, a lone pixel with no neighbour of its own colour is pulled towards the surrounding colour by a vote of its eight neighbours. The edge of a colour area always has a neighbour of the same colour, so the painted areas are left intact.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1294"/>
+        <location filename="../toolpanel.py" line="1302"/>
         <source>クリック：サブ色を選択／ドラッグ：スポイト</source>
         <translation>Click: pick the sub colour / drag: eyedropper</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1343"/>
+        <location filename="../toolpanel.py" line="1351"/>
         <source>背景色</source>
         <translation>Background</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1348"/>
+        <location filename="../toolpanel.py" line="1356"/>
         <source>クリック：背景色で描画／右クリック：背景色の表示色を変更</source>
         <translation>Click: paint with the background colour / right-click: change how the background colour is displayed</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1471"/>
+        <location filename="../toolpanel.py" line="1479"/>
         <source>入りカーブ</source>
         <translation>Taper-in curve</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1474"/>
+        <location filename="../toolpanel.py" line="1482"/>
         <source>抜きカーブ</source>
         <translation>Taper-out curve</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1507"/>
+        <location filename="../toolpanel.py" line="1515"/>
         <source>選択範囲の変形をすべてのコマへ適用します。</source>
         <translation>Applies the selection transform to every exposure.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1508"/>
+        <location filename="../toolpanel.py" line="1516"/>
         <source>クオリティ変形はコマごとに時間がかかります。</source>
         <translation>A quality transform takes time on each exposure.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1675"/>
+        <location filename="../toolpanel.py" line="1684"/>
         <source>&lt;b&gt;ラインサイズ&lt;/b&gt;</source>
         <translation>&lt;b&gt;Line size&lt;/b&gt;</translation>
     </message>
@@ -4975,19 +4985,19 @@ Line art: binarises the line work while preserving the white background and the 
     </message>
     <message>
         <location filename="../color_reduction.py" line="562"/>
-        <location filename="../main_window_line_ops.py" line="773"/>
+        <location filename="../main_window_line_ops.py" line="778"/>
         <source>今のコマ</source>
         <translation>Current frame</translation>
     </message>
     <message>
         <location filename="../color_reduction.py" line="563"/>
-        <location filename="../main_window_line_ops.py" line="774"/>
+        <location filename="../main_window_line_ops.py" line="779"/>
         <source>すべてのコマ</source>
         <translation>All frames</translation>
     </message>
     <message>
         <location filename="../color_reduction.py" line="565"/>
-        <location filename="../main_window_line_ops.py" line="775"/>
+        <location filename="../main_window_line_ops.py" line="780"/>
         <source>範囲</source>
         <translation>Range</translation>
     </message>
@@ -7399,12 +7409,12 @@ Layer cell {value} / {exposure} exposures</translation>
         <translation>Normal: the key frame side keeps the original shape and the last exposure takes the shape you are editing.</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1323"/>
+        <location filename="../toolpanel.py" line="1331"/>
         <source>カラーコードを入力して Enter で色を変更</source>
         <translation>Type a colour code and press Enter to change the colour</translation>
     </message>
     <message>
-        <location filename="../toolpanel.py" line="1330"/>
+        <location filename="../toolpanel.py" line="1338"/>
         <source>現在のカラーコードをコピー</source>
         <translation>Copy the current colour code</translation>
     </message>
