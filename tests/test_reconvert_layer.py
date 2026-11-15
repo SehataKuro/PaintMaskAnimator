@@ -108,3 +108,20 @@ def test_import_sources_survive_a_document_undo(window, tmp_path, monkeypatch):
     assert np.array_equal(
         np.array(window.canvas.active_layer._track.import_sources or []), np.array(paths)
     )
+
+
+def test_import_sources_are_saved_and_reopened(window, tmp_path, monkeypatch):
+    from paintmaskanimator import project_io
+
+    paths = import_antialiased(window, tmp_path, monkeypatch, count=2)
+    canvas = window.canvas
+    layer_index = canvas.active_layer_index
+    image = canvas.frames[0].layers[0].image
+    project = tmp_path / "with_sources.pman"
+    project_io.write_project_snapshot(
+        project, project_io.ProjectSnapshot({}, canvas._document, image.width(), image.height())
+    )
+
+    reopened = project_io.load_project(project)
+    assert reopened.document.tracks[layer_index].import_sources == paths
+    assert reopened.document.tracks[0].import_sources is None, "読み込んでいないレイヤーには無い"

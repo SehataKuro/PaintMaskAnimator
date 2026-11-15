@@ -136,6 +136,9 @@ tracks は非空配列。表示属性は任意で、nameは通常のレイヤー
 opacity=1.0、is_paper/is_draft/color_filter_enabled=false、color_filter_rgb=null。
 nameは文字列、各フラグはbool、opacityは有限数を0..1へクランプします。
 RGBはnullまたは0..255の整数3要素配列。**alpha_lockedは保存せず、open時false**です。
+`import_sources` は任意の文字列配列（既定なし）で、連番として読み込んだ元のファイルの
+絶対パス（番号 n が n-1 番目）。「元のファイルから再変換」に使います（#89）。古いアプリでは
+読まれずに落ちます。
 用紙と下書きも他のTrackと同じ構造で、番号・○・EMPTYを持てます。single_cellはありません。
 
 cells と sheet は必須配列。cells は空可で、全bankを番号昇順に保存します。
