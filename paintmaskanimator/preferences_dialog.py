@@ -152,7 +152,7 @@ class PreferencesDialog(QDialog):
         self.autosave_interval.valueChanged.connect(self._autosave_changed)
 
         self.keep_initial_state = QCheckBox(
-            tr("カットフォルダーの読み込みは常に色塗り前の初期状態として保存する")
+            tr("カットフォルダー・連番画像の読み込みは常に色塗り前の初期状態として保存する")
         )
         self.keep_initial_state.setChecked(preferences.keep_initial_state_on_cut_folder())
         self.keep_initial_state.toggled.connect(
