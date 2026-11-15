@@ -205,7 +205,7 @@ def _diagonal_blocks_canonical(mask: np.ndarray, mode: str) -> Tuple[np.ndarray,
     return add & ~mask, remove
 
 
-def diagonal_blocks(mask: np.ndarray, mode: str = "add") -> Tuple[np.ndarray, np.ndarray]:
+def diagonal_blocks(mask: np.ndarray, mode: str | None = "add") -> Tuple[np.ndarray, np.ndarray]:
     """パターン4：``(足す画素, 消す画素)``。右下がりと右上がりの両方を見る。"""
     current = mask.astype(bool).copy()
     added = np.zeros_like(current)
