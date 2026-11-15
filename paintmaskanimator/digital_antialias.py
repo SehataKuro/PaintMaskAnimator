@@ -15,7 +15,7 @@ TP で決まっている色が別の色にまとめられたり、細い色ト�
 
 純粋な numpy の処理で、Qt は画像の出し入れにだけ使う。
 """
-from typing import Tuple
+from typing import Optional, Tuple
 
 import numpy as np
 
@@ -99,7 +99,7 @@ def surface_palette(rgba: np.ndarray) -> np.ndarray:
     return np.array(sorted(set(accepted)), dtype=np.int64)
 
 
-def antialias_mask(rgba: np.ndarray, palette: np.ndarray = None) -> np.ndarray:
+def antialias_mask(rgba: np.ndarray, palette: Optional[np.ndarray] = None) -> np.ndarray:
     """寄せる画素：半透明の画素と、残す色ではない不透明な画素。"""
     if palette is None:
         palette = surface_palette(rgba)
