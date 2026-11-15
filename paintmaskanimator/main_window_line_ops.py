@@ -722,9 +722,9 @@ class LineOpsController:
         colours = np.unique(rgba[opaque][:, :3], axis=0)
         return [tuple(int(v) for v in rgb) for rgb in colours[is_line_colour(colours)]]
 
-    def line_tidy_preview(self, rgba, colours, scale=8, margin=6, limit=480):
+    def line_tidy_preview(self, rgba, colours, scale=8, margin=6, limit=480, diagonal="add"):
         """変える画素を色分けした拡大画像（足す＝赤、消す＝青）と、足す・消す画素数。"""
-        out, added, removed = line_tidy.tidy_lines(rgba, colours)
+        out, added, removed = line_tidy.tidy_lines(rgba, colours, diagonal)
         changed = added | removed
         if not changed.any():
             return None, 0, 0
@@ -763,10 +763,11 @@ class LineOpsController:
             ) if preview is not None else tr("今のコマには直す所がありません。")
         )
         layout.addWidget(summary)
+        picture = QLabel()
         if preview is not None:
-            picture = QLabel()
             picture.setPixmap(QPixmap.fromImage(preview))
-            layout.addWidget(picture)
+        picture.setVisible(preview is not None)
+        layout.addWidget(picture)
         note = QLabel(tr(
             "段と段が角だけで接している所に1画素足して上下左右でつなぎ、"
             "線の側面から1画素だけ突き出た所と、段の重なりが厚くなった所の1画素を消します。"
@@ -775,10 +776,34 @@ class LineOpsController:
         note.setWordWrap(True)
         layout.addWidget(note)
         form = QFormLayout()
+        diagonal_choice = QComboBox()
+        diagonal_choice.addItem(tr("足して太さをそろえる"), "add")
+        diagonal_choice.addItem(tr("消して1画素幅にする"), "remove")
+        diagonal_choice.addItem(tr("直さない"), None)
+        diagonal_choice.setToolTip(tr(
+            "2×2の塊が角でつながった45°の線の直し方。足すと各行が同じ画素数で1列ずつずれる"
+            "階段に、消すと1画素幅の45°の線になります。"
+        ))
         scope_choice = QComboBox()
         scope_choice.addItem(tr("今のコマ"), False)
         scope_choice.addItem(tr("すべてのコマ"), True)
+        form.addRow(tr("2×2の45°の線"), diagonal_choice)
         form.addRow(tr("範囲"), scope_choice)
+
+        def refresh_preview(_index=None):
+            image, add_count, remove_count = self.line_tidy_preview(
+                rgba, colours, diagonal=diagonal_choice.currentData()
+            )
+            summary.setText(
+                tr("今のコマ：足す {added}px（赤）／消す {removed}px（青）").format(
+                    added=add_count, removed=remove_count
+                ) if image is not None else tr("今のコマには直す所がありません。")
+            )
+            if image is not None:
+                picture.setPixmap(QPixmap.fromImage(image))
+            picture.setVisible(image is not None)
+
+        diagonal_choice.currentIndexChanged.connect(refresh_preview)
         layout.addLayout(form)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -788,15 +813,18 @@ class LineOpsController:
         layout.addWidget(buttons)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return False
-        return self.tidy_lines(colours, all_frames=bool(scope_choice.currentData()))
+        return self.tidy_lines(
+            colours, all_frames=bool(scope_choice.currentData()),
+            diagonal=diagonal_choice.currentData(),
+        )
 
-    def tidy_lines(self, colours, *, all_frames=False):
+    def tidy_lines(self, colours, *, all_frames=False, diagonal="add"):
         """``colours`` の線を整える。今のコマ／すべてのコマ、Undo 1回。変えたら真。"""
         counts = {"added": 0, "removed": 0}
 
         def op(context):
             rgba = imaging.qimage_rgba_array(context.layer.image)
-            out, added, removed = line_tidy.tidy_lines(rgba, colours)
+            out, added, removed = line_tidy.tidy_lines(rgba, colours, diagonal)
             if not (added.any() or removed.any()):
                 return None
             counts["added"] += int(added.sum())
