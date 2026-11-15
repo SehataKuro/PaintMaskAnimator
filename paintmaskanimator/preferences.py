@@ -125,7 +125,7 @@ def set_snapshot_folder(path):
 
 
 def keep_initial_state_on_cut_folder():
-    """カットフォルダーを読み込んだら、尋ねずに色塗り前の初期状態として保持するか。"""
+    """カットフォルダー・連番画像を読み込んだら、尋ねずに色塗り前の初期状態として保持するか。"""
     return bool(config.get_value(KEEP_INITIAL_STATE_KEY, False))
 
 

@@ -7,7 +7,7 @@
 
 A collaborator rather than a mixin -- see main_window_export.py for why.
 """
-from typing import TYPE_CHECKING, List, Tuple, cast
+from typing import TYPE_CHECKING, List, Optional, Tuple, cast
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -258,13 +258,50 @@ class InitialStateController:
         status.showMessage(tr("{count}セルの初期状態を消しました。").format(count=kept), 4000)
         return kept
 
-    def offer_after_import(self) -> bool:
-        """カットフォルダーを読み込んだあと、初期状態として保持するか尋ねる。
+    def keep_cells(self, cells: List[Cell]) -> int:
+        """``cells`` のうち、初期状態をまだ持たないセルの今の絵を保持する。保持した数を返す。
 
-        環境設定で「常に保持する」なら尋ねずに保持する。保持したら真。
+        連番画像を足したときに使う。ほかのレイヤーや、もう保持しているセル
+        （塗ったあとの絵で上書きすると戻せなくなる）には触れない。
         """
+        canvas = self.window.canvas
+        kept = 0
+        for frame, layer in cells:
+            cell = canvas.frames[frame].layers[layer]
+            if cell.initial_image is None and cell.has_content:
+                cell.initial_image = QImage(cell.image)
+                kept += 1
+        if kept:
+            self.window.statusBar().showMessage(
+                tr("{count}セルを色塗り前の初期状態として保持しました。保存するとプロジェクトに"
+                   "入ります。").format(count=kept),
+                6000,
+            )
+        return kept
+
+    def layer_cells(self, layer_index: int) -> List[Cell]:
+        """1つのレイヤーの、絵のあるセル（保持はキーフレームへ畳む）。"""
+        return [cell for cell in self.cells() if cell[1] == int(layer_index)]
+
+    def offer_after_import(self, cells: Optional[List[Cell]] = None) -> bool:
+        """カットフォルダーや連番画像を読み込んだあと、初期状態として保持するか尋ねる。
+
+        ``cells`` を渡すと、そのセル（読み込んだレイヤー）だけを保持する。省略時は
+        全レイヤー（カットフォルダーは文書ごと置き換えるため）。環境設定で「常に
+        保持する」なら尋ねずに保持する。保持したら真。
+        """
+        def keep() -> bool:
+            if cells is None:
+                return bool(self.keep(confirm=False))
+            return bool(self.keep_cells(cells))
+
+        if cells is not None and not any(
+            self.window.canvas.frames[frame].layers[layer].initial_image is None
+            for frame, layer in cells
+        ):
+            return False
         if preferences.keep_initial_state_on_cut_folder():
-            return bool(self.keep(confirm=False))
+            return keep()
         box = QMessageBox(self.window)
         box.setIcon(QMessageBox.Icon.Question)
         box.setWindowTitle(tr("色塗り前の初期状態"))
@@ -274,7 +311,7 @@ class InitialStateController:
             "ので、塗りかけの色に惑わされません。キャンバス下のボタンで初期状態と見比べる"
             "こともできます。"
         ))
-        always = QCheckBox(tr("今後、カットフォルダーの読み込みは常に初期状態として保存する"))
+        always = QCheckBox(tr("今後、読み込んだ絵は常に初期状態として保存する"))
         always.setToolTip(tr("環境設定の「一般」から外せます。"))
         box.setCheckBox(always)
         keep_button = box.addButton(tr("保存する"), QMessageBox.ButtonRole.AcceptRole)
@@ -285,7 +322,7 @@ class InitialStateController:
             return False
         if always.isChecked():
             preferences.set_keep_initial_state_on_cut_folder(True)
-        return bool(self.keep(confirm=False))
+        return keep()
 
     # -- 比較表示 -------------------------------------------------------------
     def set_compare(self, enabled: bool) -> None:
