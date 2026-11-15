@@ -125,6 +125,9 @@ def build_payload(snapshot, *, include_default_local_images=False):
         data = {key: deepcopy(getattr(track, key)) for key in DISPLAY_FIELDS}
         if data["color_filter_rgb"] is not None:
             data["color_filter_rgb"] = list(data["color_filter_rgb"])
+        if track.import_sources:
+            # 連番として読み込んだ元のファイル（再変換に使う、#89）。
+            data["import_sources"] = [str(path) for path in track.import_sources]
         data.update(cells=[], sheet=[], positions=[], pending=[], drawing_states=[])
         for number, cell in sorted(track.cells.items()):
             data["cells"].append({"number": number, **artwork(
@@ -382,6 +385,10 @@ def _decode_payload(payload, archive, png_cache=None):
             for component in track.color_filter_rgb:
                 integer(component, 0, 255)
             track.color_filter_rgb = tuple(track.color_filter_rgb)
+        sources = data.get("import_sources")
+        if sources is not None:
+            require(isinstance(sources, list) and all(isinstance(path, str) for path in sources))
+            track.import_sources = list(sources) or None
         for entry in data["cells"]:
             mapping(entry)
             n = integer(entry.get("number"), 1, io.MAX_PROJECT_FRAMES)
