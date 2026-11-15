@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
+    QDoubleSpinBox,
     QFormLayout,
     QHBoxLayout,
     QInputDialog,
@@ -593,6 +594,20 @@ class ColorReductionDialog(QDialog):
         tone_layout.addWidget(self.tone_curve, 1)
         tone_layout.addWidget(self.tone_curve_label)
         tone_layout.addWidget(tone_reset)
+        # 弱いぼかし（#10）：トーンカーブの前に、ざらつきだけをならす。
+        self.blur_sigma = QDoubleSpinBox()
+        self.blur_sigma.setRange(0.0, 3.0)
+        self.blur_sigma.setSingleStep(0.5)
+        self.blur_sigma.setDecimals(1)
+        self.blur_sigma.setSuffix(tr(" px"))
+        self.blur_sigma.setSpecialValueText(tr("なし"))
+        self.blur_sigma.setValue(0.0)
+        self.blur_sigma.setToolTip(tr(
+            "トーンカーブの前に弱いぼかしをかけ、スキャンや JPEG のざらつきをならします。"
+            "線のふちのギザギザや小さな点が減ります。0 でかけません。"
+        ))
+        self.blur_sigma.valueChanged.connect(self._blur_changed)
+        controls.addRow(tr("ぼかし"), self.blur_sigma)
         controls.addRow(tr("トーンカーブ"), tone_row)
         layout.addLayout(controls)
 
@@ -707,6 +722,7 @@ class ColorReductionDialog(QDialog):
             self.tone_curve_points_key(),
             self._custom_palette_key(),
             self.despeckle_pixels(),
+            self.blur_amount(),
         )
 
     def despeckle_pixels(self):
@@ -730,6 +746,7 @@ class ColorReductionDialog(QDialog):
         if self.flatten_paper is not None:
             settings["flatten_paper"] = bool(self.flatten_paper.isChecked())
         settings["despeckle"] = self.despeckle_pixels()
+        settings["blur"] = self.blur_amount()
         return settings
 
     def apply_settings(self, settings):
@@ -749,6 +766,9 @@ class ColorReductionDialog(QDialog):
                 log.info("ignoring a broken tone curve in a preset: %s", exc)
         if self.flatten_paper is not None and isinstance(settings.get("flatten_paper"), bool):
             self.flatten_paper.setChecked(settings["flatten_paper"])
+        blur = settings.get("blur")
+        if isinstance(blur, (int, float)) and not isinstance(blur, bool):
+            self.blur_sigma.setValue(max(0.0, min(3.0, float(blur))))
         despeckle = settings.get("despeckle")
         if isinstance(despeckle, int) and not isinstance(despeckle, bool):
             self.despeckle_check.setChecked(despeckle > 0)
@@ -823,20 +843,39 @@ class ColorReductionDialog(QDialog):
     def flatten_paper_enabled(self):
         return bool(self.flatten_paper is not None and self.flatten_paper.isChecked())
 
+    def blur_amount(self):
+        """弱いぼかしの半径（px）。0 ならかけない。"""
+        blur = getattr(self, "blur_sigma", None)
+        return float(blur.value()) if blur is not None else 0.0
+
+    def _prepare_source(self, image):
+        """プレビューとパレットの手本にする前処理（紙の地色→ぼかし）。"""
+        from .canvas_image_import import blur_image, flatten_paper_image
+
+        if self.flatten_paper_enabled():
+            image = flatten_paper_image(image)
+        if self.blur_amount() > 0:
+            image = blur_image(image, self.blur_amount())
+        return image
+
+    def _blur_changed(self, _value=None):
+        self._apply_paper_setting()
+        self._mark_preview_dirty()
+
     def _apply_paper_setting(self):
         """チェックに合わせて、プレビューとパレットの手本にする画像を作り直す。"""
-        if self.flatten_paper_enabled():
-            from .canvas_image_import import flatten_paper_image
-
-            self.source_image = flatten_paper_image(self._raw_source_image)
+        if self.flatten_paper_enabled() or self.blur_amount() > 0:
+            self.source_image = self._prepare_source(self._raw_source_image)
             self.reference_images = [
-                flatten_paper_image(image) for image in self._raw_reference_images
+                self._prepare_source(image) for image in self._raw_reference_images
             ]
-            # そろえたあとの紙は白なので、白背景として扱う。
-            self.opaque_background, self.background_rgb = True, (255, 255, 255)
         else:
             self.source_image = self._raw_source_image.copy()
             self.reference_images = [image.copy() for image in self._raw_reference_images]
+        if self.flatten_paper_enabled():
+            # そろえたあとの紙は白なので、白背景として扱う。
+            self.opaque_background, self.background_rgb = True, (255, 255, 255)
+        else:
             self.opaque_background, self.background_rgb = self._detected_background
         self._base_palette_cache.clear()
         self._base_reduced_cache.clear()
