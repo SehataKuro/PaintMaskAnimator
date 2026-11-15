@@ -484,6 +484,8 @@ class CanvasMembers(_MembersBase):
         work_rect: Any
         zoom: Any
         _bucket_all_frames_enabled: Any
+        _bucket_replace_color_enabled: Any
+        replace_color_at: Any
         _bucket_tools: Any
         _bucket_failure_message: Any
         _fill_patch: Any
