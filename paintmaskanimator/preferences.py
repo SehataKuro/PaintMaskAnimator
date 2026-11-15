@@ -15,6 +15,7 @@ UNDO_MEMORY_KEY = "undo_max_memory_mb"
 NEW_CANVAS_SIZE_KEY = "new_canvas_size"
 KEEP_INITIAL_STATE_KEY = "keep_initial_state_on_cut_folder"
 IMPORT_MATERIAL_KEY = "import_material_kind"
+BINARIZE_PRESETS_KEY = "binarize_presets"
 MAP_PALETTE_KEY = "map_color_palette"
 TOOL_HOLD_ENABLED_KEY = "tool_hold_switch_enabled"
 TOOL_HOLD_MS_KEY = "tool_hold_switch_ms"
@@ -138,6 +139,30 @@ def import_material_kind():
 def set_import_material_kind(kind):
     if kind in IMPORT_MATERIALS:
         config.set_value(IMPORT_MATERIAL_KEY, kind)
+
+
+def binarize_presets():
+    """名前を付けて保存した2値化の設定 ``{名前: 設定}``（#10）。壊れた値は捨てる。"""
+    value = config.get_value(BINARIZE_PRESETS_KEY, {})
+    if not isinstance(value, dict):
+        return {}
+    return {
+        str(name): dict(settings)
+        for name, settings in value.items()
+        if isinstance(settings, dict) and str(name).strip()
+    }
+
+
+def save_binarize_preset(name, settings):
+    presets = binarize_presets()
+    presets[str(name)] = dict(settings)
+    config.set_value(BINARIZE_PRESETS_KEY, presets)
+
+
+def delete_binarize_preset(name):
+    presets = binarize_presets()
+    if presets.pop(str(name), None) is not None:
+        config.set_value(BINARIZE_PRESETS_KEY, presets)
 
 
 def keep_initial_state_on_cut_folder():
