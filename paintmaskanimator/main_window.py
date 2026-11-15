@@ -1094,6 +1094,80 @@ class MainWindow(
         else:
             self.import_dropped_images(paths)
 
+    def reconvert_layer_dialog(self):
+        """今のレイヤーを、元のファイルから読み込み直さずに変換し直す（#10）。
+
+        このアプリで連番として読み込んだレイヤーだけが対象。元のファイルを読み直し、
+        読み込み時と同じ流れ（素材の種類・2値化ダイアログ）で決めた設定をかけ直す。
+        """
+        canvas = self.canvas
+        paths = getattr(canvas.active_layer._track, "import_sources", None)
+        if not paths:
+            self.statusBar().showMessage(
+                tr("再変換できるのは、このアプリを起動してから連番として読み込んだレイヤーだけです。"),
+                4000,
+            )
+            return False
+        missing = [path for path in paths if not Path(path).is_file()]
+        if missing:
+            QMessageBox.warning(
+                self, tr("再変換"),
+                tr("元のファイルが見つかりません（{count}枚）。\n{name}").format(
+                    count=len(missing), name=missing[0]
+                ),
+            )
+            return False
+        answer = QMessageBox.question(
+            self, tr("再変換"),
+            tr("元のファイル{count}枚から変換し直します。読み込んだあとに描き足した分は"
+               "元に戻ります（Undo で戻せます）。続けますか？").format(count=len(paths)),
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return False
+        settings, error = self.prepare_color_reduction(paths)
+        if error == "__cancelled__":
+            return False
+        if error:
+            QMessageBox.warning(self, tr("再変換"), error)
+            return False
+        return self.reconvert_layer(settings)
+
+    def reconvert_layer(self, settings):
+        """今のレイヤーの各番号へ、元のファイルを ``settings`` で変換し直して入れる。"""
+        canvas = self.canvas
+        paths = list(getattr(canvas.active_layer._track, "import_sources", None) or [])
+        draft = bool(canvas.active_layer.is_draft)
+
+        def op(context):
+            number = context.layer.sequence_number
+            if not isinstance(number, int) or not 1 <= number <= len(paths):
+                return None
+            path = paths[number - 1]
+            image, _error = canvas._read_image_file(path)
+            if image is None:
+                return None
+            converted = canvas.convert_import_image(path, image, settings, draft=draft)
+            target = blank_image()
+            canvas._place_imported_image(converted, target)
+            return target.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
+
+        result = self.scope.run_over(
+            self.scope.current_frame(True, selection_only=False),
+            op,
+            label=tr("再変換"),
+            cancellable=True,
+        )
+        canvas.update()
+        if result.cancelled or not result.changed_cells:
+            return False
+        self._used_color_cache.clear()
+        self.used_color.schedule_refresh()
+        self.statusBar().showMessage(
+            tr("{cells}セルを元のファイルから変換し直しました。").format(cells=result.changed_cells),
+            4000,
+        )
+        return True
+
     def import_genga_dialog(self):
         """原画を読み込んで、そのレイヤーのセルに原画の印を付ける（#24）。"""
         paths, _ = QFileDialog.getOpenFileNames(

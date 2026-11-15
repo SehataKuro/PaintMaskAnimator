@@ -81,7 +81,7 @@ class Track:
     __slots__ = (
         "name", "visible", "opacity", "is_paper", "is_draft", "alpha_locked",
         "color_filter_enabled", "color_filter_rgb", "cells", "connected",
-        "legacy_archive_hints", "pending_slots",
+        "legacy_archive_hints", "pending_slots", "import_sources",
     )
 
     def __init__(
@@ -92,6 +92,9 @@ class Track:
         self.cells: dict[int, Cell] = {}
         self.legacy_archive_hints: dict[int, ArchiveHint] = {}
         self.pending_slots: WeakSet[PendingToken] = WeakSet()
+        # 連番として読み込んだ元のファイル（番号 n が import_sources[n - 1]）。
+        # 読み込み直さずに2値化し直すのに使う（#10）。保存はしない。
+        self.import_sources: list[str] | None = None
         self.connected = False
         self.name = name
         self.visible = visible
@@ -103,13 +106,16 @@ class Track:
         self.color_filter_rgb = color_filter_rgb
 
     def copy_settings(self):
-        """Copy display settings only."""
-        return Track(
+        """Copy display settings only (and where the drawings were imported from)."""
+        copied = Track(
             self.name, self.visible, self.opacity, self.is_paper,
             self.is_draft, self.alpha_locked, self.color_filter_enabled,
             tuple(self.color_filter_rgb)
             if self.color_filter_rgb is not None else None,
         )
+        if self.import_sources is not None:
+            copied.import_sources = list(self.import_sources)
+        return copied
 
 
     def copy(self):
