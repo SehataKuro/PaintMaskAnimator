@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QSpinBox,
 )
-from . import imaging, line_noise
+from . import imaging, line_noise, line_tidy
 from .i18n import tr
 from .time_display import frame_position
 from .models import Layer
@@ -697,6 +697,124 @@ class LineOpsController:
             tr("LINE／Paintを作成し、元レイヤーを非表示にしました。"),
             3800,
         )
+
+    def tidy_line_colours(self):
+        """線整え（#64）の対象色：使用色パネルで選んだ色。無ければ今のコマの線の色。
+
+        線の色は、暗い色（RGB の各値が48以下）と、赤・緑・青などの原色。
+        """
+        selected = {tuple(rgb[:3]) for rgb in self.window.canvas.selected_used_colors()}
+        selected.discard((255, 255, 255))
+        if selected:
+            return sorted(selected)
+        canvas = self.window.canvas
+        rgba = imaging.qimage_rgba_array(canvas.active_layer.image)
+        opaque = rgba[:, :, 3] > 0
+        if not opaque.any():
+            return []
+        from .digital_antialias import is_line_colour
+
+        colours = np.unique(rgba[opaque][:, :3], axis=0)
+        return [tuple(int(v) for v in rgb) for rgb in colours[is_line_colour(colours)]]
+
+    def line_tidy_preview(self, rgba, colours, scale=8, margin=6, limit=480):
+        """変える画素を色分けした拡大画像（足す＝赤、消す＝青）と、足す・消す画素数。"""
+        out, added, removed = line_tidy.tidy_lines(rgba, colours)
+        changed = added | removed
+        if not changed.any():
+            return None, 0, 0
+        ys, xs = np.nonzero(changed)
+        height, width = changed.shape
+        y0, y1 = max(0, ys.min() - margin), min(height, ys.max() + margin + 1)
+        x0, x1 = max(0, xs.min() - margin), min(width, xs.max() + margin + 1)
+        crop = rgba[y0:y1, x0:x1].copy()
+        crop[crop[:, :, 3] == 0] = (255, 255, 255, 255)
+        crop[added[y0:y1, x0:x1]] = (230, 40, 40, 255)
+        crop[removed[y0:y1, x0:x1]] = (40, 90, 230, 255)
+        scale = max(1, min(scale, limit // max(1, max(y1 - y0, x1 - x0))))
+        crop = np.repeat(np.repeat(crop, scale, axis=0), scale, axis=1)
+        return imaging.rgba_array_to_qimage(np.ascontiguousarray(crop)), int(added.sum()), int(removed.sum())
+
+    def tidy_lines_dialog(self):
+        """線整え（#64）：段の角をつなぎ、突き出た1画素を消す。プレビューを見て確定する。"""
+        from PySide6.QtGui import QPixmap
+        from PySide6.QtWidgets import QComboBox, QFormLayout, QLabel, QVBoxLayout
+
+        colours = self.tidy_line_colours()
+        if not colours:
+            self.window.statusBar().showMessage(
+                tr("線整え：整える線の色がありません。使用色パネルで線の色を選んでください。"), 3200,
+            )
+            return False
+        rgba = imaging.qimage_rgba_array(self.window.canvas.active_layer.image)
+        preview, added, removed = self.line_tidy_preview(rgba, colours)
+        dialog = QDialog(self.window)
+        dialog.setObjectName("lineTidyDialog")
+        dialog.setWindowTitle(tr("線整え"))
+        layout = QVBoxLayout(dialog)
+        summary = QLabel(
+            tr("今のコマ：足す {added}px（赤）／消す {removed}px（青）").format(
+                added=added, removed=removed
+            ) if preview is not None else tr("今のコマには直す所がありません。")
+        )
+        layout.addWidget(summary)
+        if preview is not None:
+            picture = QLabel()
+            picture.setPixmap(QPixmap.fromImage(preview))
+            layout.addWidget(picture)
+        note = QLabel(tr(
+            "段と段が角だけで接している所に1画素足して上下左右でつなぎ、"
+            "線の側面から1画素だけ突き出た所を消します。線の先端・交差・直角の角は変えません。"
+        ))
+        note.setWordWrap(True)
+        layout.addWidget(note)
+        form = QFormLayout()
+        scope_choice = QComboBox()
+        scope_choice.addItem(tr("今のコマ"), False)
+        scope_choice.addItem(tr("すべてのコマ"), True)
+        form.addRow(tr("範囲"), scope_choice)
+        layout.addLayout(form)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return False
+        return self.tidy_lines(colours, all_frames=bool(scope_choice.currentData()))
+
+    def tidy_lines(self, colours, *, all_frames=False):
+        """``colours`` の線を整える。今のコマ／すべてのコマ、Undo 1回。変えたら真。"""
+        counts = {"added": 0, "removed": 0}
+
+        def op(context):
+            rgba = imaging.qimage_rgba_array(context.layer.image)
+            out, added, removed = line_tidy.tidy_lines(rgba, colours)
+            if not (added.any() or removed.any()):
+                return None
+            counts["added"] += int(added.sum())
+            counts["removed"] += int(removed.sum())
+            return imaging.rgba_array_to_qimage(np.ascontiguousarray(out)).convertToFormat(
+                QImage.Format.Format_ARGB32_Premultiplied
+            )
+
+        result = self.window.scope.run_over(
+            self.window.scope.current_frame(all_frames, selection_only=False),
+            op,
+            label=tr("線整え"),
+        )
+        self.window.canvas.update()
+        if not result.changed_cells:
+            self.window.statusBar().showMessage(tr("線整え：直す所はありませんでした。"), 3000)
+            return False
+        self.window.statusBar().showMessage(
+            tr("線整え：{cells}セルで{added}px足し、{removed}px消しました。").format(
+                cells=result.changed_cells, **counts
+            ),
+            4000,
+        )
+        return True
 
     def remove_dust_fill_surrounding(self):
         """選択レイヤー内でゴミ取り／塗り抜けを実行する。"""

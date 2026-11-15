@@ -114,7 +114,7 @@ def count_antialias(rgba: np.ndarray) -> int:
     return int(np.count_nonzero(antialias_mask(rgba)))
 
 
-def _is_line_colour(rgb: np.ndarray) -> np.ndarray:
+def is_line_colour(rgb: np.ndarray) -> np.ndarray:
     dark = (rgb <= 48).all(axis=-1)
     strong = (rgb >= 215).sum(axis=-1)
     weak = (rgb <= 60).sum(axis=-1)
@@ -153,7 +153,7 @@ def remove_antialias(rgba: np.ndarray) -> Tuple[np.ndarray, int]:
                 continue
             colour = _unpack(neighbour[usable]).astype(np.float64)
             distance = np.sqrt(np.sum((own[usable] - colour) ** 2, axis=1))
-            distance += LINE_PENALTY * _is_line_colour(colour.astype(np.int64))
+            distance += LINE_PENALTY * is_line_colour(colour.astype(np.int64))
             current = best[usable]
             better = distance < current
             rows, cols = np.nonzero(usable)
