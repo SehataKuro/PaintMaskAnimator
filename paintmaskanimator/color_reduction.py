@@ -317,6 +317,22 @@ class ToneCurveWidget(QWidget):
         painter.end()
 
 
+#: 代表フレームを縮める長い辺の上限（px）。パレットの手本と並べ表示には十分な大きさ。
+REFERENCE_MAX_SIDE = 1200
+
+
+def _shrink_reference(image):
+    longest = max(image.width(), image.height())
+    if longest <= REFERENCE_MAX_SIDE:
+        return image.copy()
+    return image.scaled(
+        image.width() * REFERENCE_MAX_SIDE // longest,
+        image.height() * REFERENCE_MAX_SIDE // longest,
+        Qt.AspectRatioMode.IgnoreAspectRatio,
+        Qt.TransformationMode.FastTransformation,
+    )
+
+
 class ColorReductionDialog(QDialog):
     #: 並べて見せる、ほかの代表フレームの数。
     REFERENCE_PREVIEWS = 3
@@ -370,6 +386,10 @@ class ColorReductionDialog(QDialog):
         self.reduction_enabled = True
         # 紙の地色をそろえる前の画像と、自動検出した背景（#51 の切り替えで戻す）。
         self._raw_source_image = self.source_image.copy()
+        # 代表フレームは、パレットの手本と並べて見せる縮小表示にしか使わない。大きいままだと
+        # 紙の地色の補正や2値化に1枚ずつ数秒かかるので、ここで縮めておく（#88）。
+        # 色が混ざらないよう、補間せずに縮める。
+        self.reference_images = [_shrink_reference(image) for image in self.reference_images]
         self._raw_reference_images = [image.copy() for image in self.reference_images]
         self._detected_background = (self.opaque_background, self.background_rgb)
         # 人が指定した出力色（#62）。None なら色数から自動で決める。
@@ -505,7 +525,7 @@ class ColorReductionDialog(QDialog):
         self.color_count.setRange(2, 100)
         self.color_count.setValue(8)
         self.color_count.setSuffix(tr(" 色"))
-        self.color_count.setFixedWidth(76)
+        self.color_count.setFixedWidth(84)
         self.color_slider.valueChanged.connect(
             self.color_count.setValue
         )
@@ -626,6 +646,7 @@ class ColorReductionDialog(QDialog):
         self.blur_sigma.setSuffix(tr(" px"))
         self.blur_sigma.setSpecialValueText(tr("なし"))
         self.blur_sigma.setValue(0.0)
+        self.blur_sigma.setFixedWidth(96)
         self.blur_sigma.setToolTip(tr(
             "トーンカーブの前に弱いぼかしをかけ、スキャンや JPEG のざらつきをならします。"
             "線のふちのギザギザや小さな点が減ります。0 でかけません。"
