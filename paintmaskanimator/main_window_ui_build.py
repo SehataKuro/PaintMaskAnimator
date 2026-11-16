@@ -999,6 +999,7 @@ class UIBuildMixin(MainWindowMembers):
             self.action_panel_dock: self._build_action_panel_menu,
             self.color_wheel_dock: self._build_color_wheel_menu,
             self.color_slider_dock: self._build_color_slider_menu,
+            self.palette_dock: self.palette.build_panel_menu,
         }
         for dock in (
             self.tool_selector_dock,

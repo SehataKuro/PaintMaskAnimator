@@ -10,12 +10,10 @@ styling, and the row context menu. Type-only member declarations shared by the
 mixins live in ``_color_panel_members.py``.
 """
 from typing import Any
-from PySide6.QtCore import QPoint, Qt, Signal
+from PySide6.QtCore import QPoint, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QCursor
 from PySide6.QtWidgets import (
     QApplication,
-    QCheckBox,
-    QGridLayout,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -24,7 +22,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
-    QStyle,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -47,9 +45,11 @@ from .color_panel_widgets import (
     ColorSelectionCheckBox,
     ColorVisibilityCheckBox,
     MaskColorCheckBox,
+    MergeButton,
     ReplacementColorPopup,
     ScreenEyedropButton,
     SourceColorButton,
+    UsedColorModeSwitch,
 )
 
 log = get_logger(__name__)
@@ -170,205 +170,305 @@ class UsedColorPanel(
         self._replacement_edit_before = None
         self._sweep_history_before = None
 
+        # 置き換えモード：色ごとの置き換え後の色を、元の色のすぐ右に出す。
+        self.replace_mode = False
+        self.replacement_code_labels = {}
+        self.code_labels = {}
+        self.toggle_areas = {}
+        self._replacement_screen_picker = None
+
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(3, 3, 3, 3)
-        layout.setSpacing(2)
-        # パネル名はドックのタブに出ているので、色数とフォルダー作成を1行に置く。
+        layout.setContentsMargins(3, 3, 3, 0)
+        layout.setSpacing(3)
+
+        # 1行目：モード切り替え・色数・（置き換え時）プレビュー・フォルダー追加。
         top_row = QHBoxLayout()
-        top_row.setContentsMargins(2, 0, 0, 2)
-        top_row.setSpacing(4)
+        top_row.setContentsMargins(2, 0, 0, 0)
+        top_row.setSpacing(6)
+        self.mode_switch = UsedColorModeSwitch(self)
+        self.mode_switch.modeChanged.connect(self.set_replace_mode)
+        top_row.addWidget(self.mode_switch)
         self.count_label = QLabel(tr("0色"))
-        self.count_label.setStyleSheet("font-weight:600;")
+        self.count_label.setStyleSheet("font-size:10px;color:palette(placeholder-text);")
         top_row.addWidget(self.count_label)
         top_row.addStretch(1)
-        self.category_button = QPushButton(tr("フォルダー"))
+        # 登録した置換色を、適用する前にキャンバスで見る（表示だけ、非破壊）。
+        from . import config
+
+        self.replacement_preview_check = QToolButton()
+        self.replacement_preview_check.setCheckable(True)
+        self.replacement_preview_check.setAutoRaise(True)
+        self.replacement_preview_check.setFixedSize(26, 24)
+        self.replacement_preview_check.setToolTip(tr(
+            "キャンバスでプレビュー：ON のあいだ、置き換えた見た目を表示します"
+            "（画像は変えません）。"
+        ))
+        self.replacement_preview_check.setChecked(
+            bool(config.get_value(self.REPLACEMENT_PREVIEW_KEY, True))
+        )
+        self.replacement_preview_check.toggled.connect(self._replacement_preview_toggled)
+        top_row.addWidget(self.replacement_preview_check)
+        self.category_button = QToolButton()
+        self.category_button.setAutoRaise(True)
+        self.category_button.setFixedSize(26, 24)
         self.category_button.setIcon(icons.icon("folder_plus"))
-        self.category_button.setFixedHeight(24)
         self.category_button.setToolTip(tr("使用色をまとめるフォルダーを作成します。"))
         self.category_button.clicked.connect(self._prompt_create_category)
         top_row.addWidget(self.category_button)
         layout.addLayout(top_row)
 
-        header_widget = QWidget()
-        header = QGridLayout(header_widget)
-        scrollbar_width = self.style().pixelMetric(
-            QStyle.PixelMetric.PM_ScrollBarExtent
-        )
-        header.setContentsMargins(1, 0, 1 + scrollbar_width, 0)
-        header.setHorizontalSpacing(0)
-        header.setColumnMinimumWidth(0, 32)
-        header.setColumnMinimumWidth(1, 32)
-        header.setColumnMinimumWidth(2, 32)
-        selection_header = QLabel(tr("選択"))
-        selection_header.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        selection_header.setStyleSheet("font-size:10px;color:palette(placeholder-text);")
-        selection_header.setToolTip(
-            tr("クリック：この色だけ選択／Shift＋クリック：範囲選択／"
-            "{ctrl}＋クリック：追加・解除。チェックと選択は連動します。").format(
-                ctrl=CTRL_KEY_LABEL)
-        )
-        header.addWidget(selection_header, 0, 0, Qt.AlignmentFlag.AlignCenter)
-        visibility_header = QLabel(tr("表示"))
-        visibility_header.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        visibility_header.setStyleSheet("font-size:10px;color:palette(placeholder-text);")
-        visibility_header.setToolTip(tr("各行の薄い背景セル全体を右クリックして表示メニューを開けます。"))
-        header.addWidget(visibility_header, 0, 1, Qt.AlignmentFlag.AlignCenter)
-        mask_header = QLabel(tr("描画対象"))
-        mask_header.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        mask_header.setStyleSheet("font-size:10px;color:palette(placeholder-text);")
-        mask_header.setToolTip(
-            tr("ONにした色の上へ描けます。各行の薄い背景セル全体を"
-            "右クリックして描画対象メニューを開けます。")
-        )
-        header.addWidget(mask_header, 0, 2, Qt.AlignmentFlag.AlignCenter)
-        # 列見出しは短くし、操作の説明はツールチップへ回す（以前は隣の列と重なって切れていた）。
-        color_header = QLabel(tr("色"))
-        color_header.setStyleSheet(
-            "font-size:10px;padding-left:6px;color:palette(placeholder-text);"
-        )
-        color_header.setToolTip(tr("ドラッグで並べ替え／親子付け"))
-        header.addWidget(color_header, 0, 3)
-        replacement_header = QLabel(tr("置換色"))
-        replacement_header.setStyleSheet("font-size:10px;color:palette(placeholder-text);")
-        replacement_header.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        header.addWidget(replacement_header, 0, 4)
-        header.setColumnMinimumWidth(3, 144)
-        header.setColumnMinimumWidth(4, 72)
-        header.setColumnStretch(3, 1)
-        header.setColumnStretch(4, 1)
-        layout.addWidget(header_widget)
-
-        self.scroll: QScrollArea = QScrollArea()
-        self.scroll.setWidgetResizable(True)
-        self.scroll.setMinimumHeight(0)
-        self.scroll.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-        )
-        self.scroll.setVerticalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOn
-        )
-        self.content = QWidget()
-        self.rows = QVBoxLayout(self.content)
-        self.rows.setContentsMargins(2, 2, 2, 2)
-        self.rows.setSpacing(1)
-        self.rows.addStretch(1)
-        self.scroll.setWidget(self.content)
-        layout.addWidget(self.scroll, 1)
-
-        # 見出しと同じ5列に配置し、各ボタンの意味と位置を揃える。
-        button_row = QGridLayout()
-        button_row.setHorizontalSpacing(0)
-        button_row.setContentsMargins(1, 0, 1 + scrollbar_width, 0)
-        button_row.setColumnMinimumWidth(0, 32)
-        button_row.setColumnMinimumWidth(1, 32)
-        button_row.setColumnMinimumWidth(2, 32)
-        button_row.setColumnMinimumWidth(3, 144)
-        button_row.setColumnMinimumWidth(4, 72)
-        button_row.setColumnStretch(3, 1)
-        button_row.setColumnStretch(4, 1)
-
-        self.clear_selection_button = QPushButton(tr("選択"))
-        self.clear_selection_button.setToolTip(tr("選択をすべて解除します。"))
-        self.clear_selection_button.clicked.connect(self._clear_used_color_selection)
-        self.clear_selection_button.setFixedWidth(32)
-        self.clear_selection_button.setStyleSheet("font-size:10px;padding:0px;")
-        self.clear_selection_button.setFixedHeight(22)
-
-        self.show_all_button = QPushButton(tr("全表示"))
-        self.show_all_button.setToolTip(
-            tr("非表示にした使用色と背景色をすべて表示します。")
-        )
-        self.show_all_button.clicked.connect(self._show_all_colors)
-        self.show_all_button.setFixedWidth(32)
-        self.show_all_button.setStyleSheet("font-size:10px;padding:0px;")
-        self.show_all_button.setFixedHeight(22)
-
-        self.clear_masks_button = QPushButton(tr("全体"))
-        self.clear_masks_button.setToolTip(
-            tr("すべての使用色と背景をマスクON（描画可能）にします。")
-        )
-        self.clear_masks_button.clicked.connect(self._set_all_masks_on)
-        self.clear_masks_button.setFixedWidth(32)
-        self.clear_masks_button.setStyleSheet("font-size:10px;padding:0px;")
-        self.clear_masks_button.setFixedHeight(22)
-
+        # 2行目：ボタン。通常は統合、置き換えでは置き換え後の色の決め方。
         # 統合は親子付けとは独立した操作。複数選択した色を、最後に選んだ色へ
         # 実画像上で塗り替える。親子付けは整理専用で、色は変えない。
-        self.merge_button = QPushButton(tr("統合"))
+        self.merge_button = MergeButton(tr("統合"))
         self.merge_button.setToolTip(
-            tr("選択した使用色（2色以上）を、最後に選んだ色へ統合します。"
+            tr("選択した使用色（2色以上）を、最後に選んだ色（枠で囲んだ行）へ統合します。"
             "実際の画像を塗り替えます。Undoで元に戻せます。")
         )
         self.merge_button.clicked.connect(self._emit_merge)
         self.merge_button.setEnabled(False)
-        self.merge_button.setMinimumWidth(72)
-        self.merge_button.setMaximumWidth(16777215)
-        self.merge_button.setSizePolicy(
-            QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Fixed,
-        )
-        self.merge_button.setStyleSheet("font-size:11px;padding:1px;")
-        self.merge_button.setFixedHeight(22)
+        self.merge_button.setFixedHeight(26)
         self.selectedColorsChanged.connect(self._refresh_merge_button)
+        self.normal_toolbar = QWidget()
+        normal_tools = QHBoxLayout(self.normal_toolbar)
+        normal_tools.setContentsMargins(2, 0, 2, 0)
+        normal_tools.setSpacing(4)
+        normal_tools.addWidget(self.merge_button)
+        normal_tools.addStretch(1)
+        layout.addWidget(self.normal_toolbar)
 
-        self.apply_button = QPushButton(tr("色置換"))
+        self.replace_toolbar = QWidget()
+        replace_tools = QHBoxLayout(self.replace_toolbar)
+        replace_tools.setContentsMargins(2, 0, 2, 0)
+        replace_tools.setSpacing(4)
+        self.replace_from_main_button = self._make_tool_button(
+            "draft", tr("描画色"),
+            tr("選んだ色の置き換え後の色を、今の描画色にします。"),
+            self._replace_selected_with_drawing_color,
+        )
+        self.replace_eyedrop_button = self._make_tool_button(
+            "eyedropper", tr("スポイト"),
+            tr("画面の色をクリックして、選んだ色の置き換え後の色にします。Escで中止。"),
+            self._pick_replacement_from_screen,
+        )
+        self.replace_picker_button = self._make_tool_button(
+            "color_wheel", tr("色を選ぶ"),
+            tr("カラーピッカーで、選んだ色の置き換え後の色を決めます。"),
+            self._open_replacement_editor_for_selection,
+        )
+        self.replace_clear_button = self._make_tool_button(
+            "close", tr("解除"),
+            tr("選んだ色の置き換えをやめます。"),
+            self._clear_selected_replacements,
+        )
+        for button in (
+            self.replace_from_main_button, self.replace_eyedrop_button,
+            self.replace_picker_button, self.replace_clear_button,
+        ):
+            replace_tools.addWidget(button)
+        replace_tools.addStretch(1)
+        layout.addWidget(self.replace_toolbar)
+
+        self.scroll: QScrollArea = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setMinimumHeight(0)
+        self.scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.content = QWidget()
+        self.rows = QVBoxLayout(self.content)
+        self.rows.setContentsMargins(2, 0, 2, 4)
+        self.rows.setSpacing(0)
+        self.rows.addStretch(1)
+        self.scroll.setWidget(self.content)
+        layout.addWidget(self.scroll, 1)
+
+        # 置き換えモードの一番下：全コマを置き換える（範囲は選ばない）。
+        self.apply_button = QPushButton(tr("全コマを置き換え"))
         self.apply_button.setToolTip(
-            tr("登録した置換色を、選択レイヤーのすべてのコマへ適用します。")
+            tr("置き換え後の色を決めた色を、選択レイヤーのすべてのコマで置き換えます。"
+            "一部だけ変えたいときはバケツの色置換を使います。")
         )
         self.apply_button.clicked.connect(self._emit_replacements)
-        # よく使う置換はファイルへ出し入れできる（Issue #42）。
-        self.apply_button.setContextMenuPolicy(
-            Qt.ContextMenuPolicy.CustomContextMenu
-        )
-        self.apply_button.customContextMenuRequested.connect(
-            self._show_replacement_set_menu
-        )
-        self.apply_button.setMinimumWidth(72)
-        self.apply_button.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
-        )
-        self.apply_button.setStyleSheet("font-size:11px;padding:1px;")
-        self.apply_button.setFixedHeight(22)
-        # 登録した置換色を、適用する前にキャンバスで見る（表示だけ、非破壊）。
-        from . import config
+        self.apply_button.setFixedHeight(30)
+        self.apply_button.setObjectName("replaceApplyButton")
+        layout.addWidget(self.apply_button)
 
-        self.replacement_preview_check = QCheckBox(tr("プレビュー"))
-        self.replacement_preview_check.setToolTip(tr(
-            "ON：登録した置換色で置き換えた見た目をキャンバスに表示します（画像は変えません）。"
-            "「色置換」を押すまで、実際の色は変わりません。"
-        ))
-        self.replacement_preview_check.setStyleSheet("font-size:11px;")
-        self.replacement_preview_check.setChecked(
-            bool(config.get_value(self.REPLACEMENT_PREVIEW_KEY, True))
+        # 一番下：選択中の色の数。
+        self.selection_status = QLabel()
+        self.selection_status.setStyleSheet(
+            "font-size:10px;color:palette(placeholder-text);padding:3px 4px;"
         )
-        self.replacement_preview_check.toggled.connect(self._replacement_preview_toggled)
+        layout.addWidget(self.selection_status)
+        self.selectedColorsChanged.connect(self._refresh_selection_status)
+        self.selectedColorsChanged.connect(self._refresh_replace_tool_buttons)
+        self._refresh_selection_status()
 
-        for column, button in enumerate((
-            self.clear_selection_button,
-            self.show_all_button,
-            self.clear_masks_button,
-        )):
-            button.setMinimumWidth(0)
-            button_row.addWidget(button, 0, column)
-        # 選択色の統合は色スウォッチ列（col3）に置く。
-        action_buttons = QHBoxLayout()
-        action_buttons.setContentsMargins(0, 0, 0, 0)
-        action_buttons.setSpacing(2)
-        self.merge_button.setMinimumWidth(0)
-        action_buttons.addWidget(self.merge_button)
-        button_row.addLayout(action_buttons, 0, 3)
-        apply_buttons = QHBoxLayout()
-        apply_buttons.setContentsMargins(0, 0, 0, 0)
-        apply_buttons.setSpacing(4)
-        apply_buttons.addWidget(self.replacement_preview_check)
-        apply_buttons.addWidget(self.apply_button, 1)
-        button_row.addLayout(apply_buttons, 0, 4)
-        layout.addLayout(button_row)
         self.visibleColorsChanged.connect(self._refresh_category_headers)
+        self._hidden_style_cache = {}
+        self.visibleColorsChanged.connect(self._refresh_hidden_styles)
+        self.apply_theme()
+        self.set_replace_mode(False)
 
     def apply_theme(self):
-        """Re-apply palette-derived icons after a theme/accent change."""
+        """Re-apply palette-derived icons and colours after a theme/accent change."""
+        from . import theme
+
+        c = theme.palette()
         self.category_button.setIcon(icons.icon("folder_plus"))
+        self.replacement_preview_check.setIcon(icons.icon("eye"))
+        self.mode_switch.apply_theme()
+        for header in self.category_widgets.values():
+            header.apply_theme()
+        button_style = (
+            "QPushButton{font-size:11px;padding:2px 8px;"
+            f"background:{c['surface']};border:1px solid {c['border']};border-radius:5px;}}"
+            f"QPushButton:hover{{border-color:{c['accent']};}}"
+            f"QPushButton:disabled{{color:{c['text_muted']};}}"
+        )
+        self.merge_button.setStyleSheet(button_style)
+        self.merge_button.setIcon(icons.icon("merge"))
+        for name, button in (
+            ("draft", self.replace_from_main_button),
+            ("eyedropper", self.replace_eyedrop_button),
+            ("color_wheel", self.replace_picker_button),
+        ):
+            button.setStyleSheet(button_style)
+            button.setIcon(icons.icon(name))
+        self.replace_clear_button.setIcon(icons.icon("close", color=c["error"]))
+        self.replace_clear_button.setStyleSheet(
+            "QPushButton{font-size:11px;padding:2px 8px;"
+            f"color:{c['error']};background:{c['surface']};"
+            f"border:1px solid {c['error']};border-radius:5px;}}"
+            f"QPushButton:disabled{{color:{c['text_muted']};border-color:{c['border']};}}"
+        )
+        self.replacement_preview_check.setStyleSheet(
+            "QToolButton{border:0;border-radius:5px;}"
+            f"QToolButton:checked{{background:{c['selection']};}}"
+        )
+        self.apply_button.setIcon(icons.icon("success", color=c["accent_text"]))
+        self.apply_button.setStyleSheet(
+            "QPushButton#replaceApplyButton{font-size:12px;font-weight:600;"
+            f"color:{c['accent_text']};background:{c['accent']};border:0;border-radius:6px;}}"
+            f"QPushButton#replaceApplyButton:hover{{background:{c['accent_hover']};}}"
+        )
+        for rgb in list(self.row_widgets):
+            self._set_source_button_style(rgb)
+
+    def _make_tool_button(self, icon_name, text, tooltip, slot):
+        button = QPushButton(text)
+        button.setIcon(icons.icon(icon_name))
+        button.setToolTip(tooltip)
+        button.setFixedHeight(26)
+        button.setEnabled(False)
+        button.clicked.connect(lambda _checked=False: slot())
+        return button
+
+    # -- モード ---------------------------------------------------------------
+    def set_replace_mode(self, replace):
+        """通常モードと置き換えモードを切り替える。"""
+        replace = bool(replace)
+        changed = replace != self.replace_mode
+        self.replace_mode = replace
+        if self.mode_switch.isReplaceMode() != replace:
+            self.mode_switch.blockSignals(True)
+            self.mode_switch.setReplaceMode(replace)
+            self.mode_switch.blockSignals(False)
+        self.normal_toolbar.setVisible(not replace)
+        self.replace_toolbar.setVisible(replace)
+        self.apply_button.setVisible(replace)
+        self.replacement_preview_check.setVisible(replace)
+        for rgb in list(self.row_widgets):
+            self._apply_row_mode(rgb)
+        self._refresh_replace_tool_buttons()
+        if not replace:
+            self._close_replacement_editor()
+        if changed:
+            # プレビューは置き換えモードのあいだだけ出す。
+            self._emit_replacement_preview()
+
+    def _apply_row_mode(self, rgb):
+        """置き換えモードでは置き換え後の色を出し、表示・保護は触れなくする。"""
+        replace = self.replace_mode
+        is_background = rgb == self.background_rgb
+        for widget in (
+            self.replacement_buttons.get(rgb),
+            self.replacement_code_labels.get(rgb),
+        ):
+            if widget is not None:
+                widget.setVisible(replace and not is_background)
+        for area in self.toggle_areas.get(rgb, ()):
+            area.setVisible(not replace)
+        if rgb in self.source_buttons:
+            self._set_source_button_style(rgb)
+
+    def _refresh_selection_status(self, *_args):
+        count = len([rgb for rgb in self.selected_rgbs if rgb != self.background_rgb])
+        self.selection_status.setText(
+            tr("{count}色を選択中").format(count=count) if count else tr("選択なし")
+        )
+
+    def _replace_targets(self):
+        return [
+            tuple(rgb) for rgb in self.selected_rgbs
+            if tuple(rgb) != self.background_rgb and tuple(rgb) in self.replacement_buttons
+        ]
+
+    def _refresh_replace_tool_buttons(self, *_args):
+        targets = self._replace_targets()
+        for button in (
+            self.replace_from_main_button, self.replace_eyedrop_button,
+            self.replace_picker_button,
+        ):
+            button.setEnabled(bool(targets))
+        self.replace_clear_button.setEnabled(
+            any(rgb in self.replacements for rgb in targets)
+        )
+
+    def _set_replacements_for_selection(self, color, label):
+        targets = self._replace_targets()
+        color = QColor(color)
+        if not targets or not color.isValid():
+            return
+        with self._history_edit(label):
+            for rgb in targets:
+                self._set_replacement_color(rgb, QColor(color))
+        self._refresh_replace_tool_buttons()
+
+    def _replace_selected_with_drawing_color(self):
+        canvas = getattr(self.window(), "canvas", None)
+        if canvas is None:
+            return
+        color = canvas.sub_color if canvas.color_mode == "sub" else canvas.main_color
+        self._set_replacements_for_selection(color, tr("置換色を設定"))
+
+    def _pick_replacement_from_screen(self):
+        from .utils import ScreenColorPickerOverlay
+
+        if not self._replace_targets():
+            return
+        overlay = ScreenColorPickerOverlay()
+        self._replacement_screen_picker = overlay
+        overlay.colorPicked.connect(
+            lambda color: self._set_replacements_for_selection(color, tr("置換色を設定"))
+        )
+        QTimer.singleShot(0, overlay.start)
+
+    def _open_replacement_editor_for_selection(self):
+        targets = self._replace_targets()
+        if not targets:
+            return
+        self._toggle_replacement_editor(targets[-1], QCursor.pos(), targets=targets)
+
+    def _clear_selected_replacements(self):
+        targets = [rgb for rgb in self._replace_targets() if rgb in self.replacements]
+        if not targets:
+            return
+        with self._history_edit(tr("置換色を外す")):
+            for rgb in targets:
+                self._clear_replacement(rgb)
+        self._refresh_replace_tool_buttons()
 
     @staticmethod
     def _rgb_key(color):
@@ -392,32 +492,42 @@ class UsedColorPanel(
         luminance = 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]
         return "#111111" if luminance >= 150 else "#ffffff"
 
+    @staticmethod
+    def _code_text(rgb):
+        return "{:02X}{:02X}{:02X}".format(*rgb)
+
     def _set_replacement_button_style(self, source_rgb):
         button = self.replacement_buttons.get(source_rgb)
         if button is None:
             return
+        label = self.replacement_code_labels.get(source_rgb)
         replacement_color = self.replacements.get(source_rgb)
         if replacement_color is None:
+            # 未設定は点線の空き枠。文字は描かない（text は状態を表すだけ）。
             button.setText(tr("未設定"))
             button.setStyleSheet(
-                "QToolButton{background:#f2f2f2;border:1px dashed #888;}"
-                "QToolButton:hover{border:1px dashed #888;}"
+                "QToolButton{color:transparent;background:transparent;"
+                "border:1px dashed palette(mid);"
+                "border-top-right-radius:4px;border-bottom-right-radius:4px;}"
             )
+            if label is not None:
+                label.setText("")
+            button.setToolTip(tr("置き換え後の色：未設定。クリックで色を選びます。"))
             return
-        button.setText(
-            replacement_color.name(QColor.NameFormat.HexRgb).upper()
-        )
-        replacement_rgb = (
-            replacement_color.red(),
-            replacement_color.green(),
-            replacement_color.blue(),
-        )
+        hex_text = replacement_color.name(QColor.NameFormat.HexRgb).upper()
+        button.setText(hex_text)
         button.setStyleSheet(
-            "QToolButton{"
+            "QToolButton{color:transparent;"
             f"background:{replacement_color.name()};"
-            f"color:{self._text_color(replacement_rgb)};"
-            "border:1px solid #777;}"
-            "QToolButton:hover{border:1px solid #777;}"
+            "border:1px solid rgba(0,0,0,0.18);border-left:1px solid rgba(255,255,255,0.9);"
+            "border-top-right-radius:4px;border-bottom-right-radius:4px;}"
+        )
+        if label is not None:
+            label.setText(hex_text[1:])
+        button.setToolTip(
+            tr("置き換え後の色 {hex}。クリックで色を変えます。右クリックで画面スポイト。").format(
+                hex=hex_text
+            )
         )
 
     def _toggle_replacement(self, source_rgb):
@@ -463,10 +573,17 @@ class UsedColorPanel(
             return
         self._toggle_replacement_editor(source_rgb, QCursor.pos())
 
-    def _toggle_replacement_editor(self, source_rgb, global_position):
-        """左クリックでカラーピッカーを開き、再度の左クリックで閉じる。"""
+    def _toggle_replacement_editor(self, source_rgb, global_position, targets=None):
+        """左クリックでカラーピッカーを開き、再度の左クリックで閉じる。
+
+        ``targets`` を渡すと、選んだ色すべての置き換え後の色をまとめて変える。
+        """
         if source_rgb == self.background_rgb:
             return
+        targets = [
+            tuple(rgb) for rgb in (targets or [source_rgb])
+            if tuple(rgb) != self.background_rgb
+        ]
         if (
             self._replacement_popup is not None
             and self._replacement_popup.isVisible()
@@ -490,14 +607,22 @@ class UsedColorPanel(
                 )
             else:
                 color = QColor(*source_rgb)
-            self._set_replacement_color(source_rgb, color)
+            for rgb in targets:
+                self._set_replacement_color(rgb, color)
+
+        def preview(changed, rgbs=tuple(targets)):
+            for rgb in rgbs:
+                self._set_replacement_color(rgb, changed)
+            self._refresh_replace_tool_buttons()
+
+        def clear(_checked=False, rgbs=tuple(targets)):
+            with self._history_edit(tr("置換色を外す")):
+                for rgb in rgbs:
+                    self._clear_replacement(rgb)
+            self._refresh_replace_tool_buttons()
 
         popup = ReplacementColorPopup(
-            QColor(color), source_rgb, self,
-            preview=lambda changed, rgb=source_rgb:
-            self._set_replacement_color(rgb, changed),
-            on_clear=lambda _checked=False, rgb=source_rgb:
-            self.clear_replacement(rgb),
+            QColor(color), source_rgb, self, preview=preview, on_clear=clear,
         )
         self._replacement_popup = popup
         self._replacement_popup_rgb = source_rgb
@@ -583,7 +708,7 @@ class UsedColorPanel(
 
     def replacement_preview_mapping(self):
         """プレビューに使う ``{元の RGB: 置換後の RGB}``（OFF なら空）。"""
-        if not self.replacement_preview_enabled():
+        if not self.replace_mode or not self.replacement_preview_enabled():
             return {}
         return {
             source: target for source, target in self.current_replacements().items()
@@ -637,21 +762,44 @@ class UsedColorPanel(
             if tuple(source) != self.background_rgb
         }
 
-    def _show_replacement_set_menu(self, pos):
-        menu = QMenu(self)
-        save = menu.addAction(tr("置換色を保存…"))
-        save.setEnabled(bool(self.current_replacements()))
-        load = menu.addAction(tr("置換色を読み込む…"))
+    def build_panel_menu(self, menu):
+        """パネルのハンバーガーメニューに、まとめて行う操作を並べる。"""
+        has_selection = bool(self.selected_rgbs)
+        clear_selection = menu.addAction(tr("色の選択をすべて解除"))
+        clear_selection.setEnabled(has_selection)
+        clear_selection.triggered.connect(
+            lambda _checked=False: self._clear_used_color_selection()
+        )
+        show_all = menu.addAction(tr("すべての色を表示"))
+        show_all.triggered.connect(lambda _checked=False: self._show_all_colors())
+        unlock_all = menu.addAction(tr("すべての色の保護を外す"))
+        unlock_all.triggered.connect(lambda _checked=False: self._set_all_masks_on())
         menu.addSeparator()
+        has_replacements = bool(self.current_replacements())
+        save = menu.addAction(tr("置換色を保存…"))
+        save.setEnabled(has_replacements)
+        save.triggered.connect(
+            lambda _checked=False: self.saveReplacementSetRequested.emit()
+        )
+        load = menu.addAction(tr("置換色を読み込む…"))
+        load.triggered.connect(
+            lambda _checked=False: self.loadReplacementSetRequested.emit()
+        )
         clear_all = menu.addAction(tr("置換色をすべて外す"))
-        clear_all.setEnabled(bool(self.current_replacements()))
-        chosen = menu.exec(self.apply_button.mapToGlobal(pos))
-        if chosen is clear_all:
-            self.clear_all_replacements()
-        elif chosen is save:
-            self.saveReplacementSetRequested.emit()
-        elif chosen is load:
-            self.loadReplacementSetRequested.emit()
+        clear_all.setEnabled(has_replacements)
+        clear_all.triggered.connect(lambda _checked=False: self.clear_all_replacements())
+        menu.addSeparator()
+        help_action = menu.addAction(tr("使用色パネルの使い方"))
+        help_action.triggered.connect(lambda _checked=False: self.show_help())
+
+    def _refresh_hidden_styles(self, *_args):
+        """表示を切り替えた色だけ、見本とコードの見た目を作り直す。"""
+        cache = self._hidden_style_cache
+        for rgb in list(self.source_buttons):
+            hidden = not self.enabled_colors.get(rgb, True)
+            if cache.get(rgb) != hidden:
+                cache[rgb] = hidden
+                self._set_source_button_style(rgb)
 
     def _emit_replacements(self):
         mapping = {
@@ -673,14 +821,14 @@ class UsedColorPanel(
         return name
 
     def help_text(self) -> str:
-        """パネル上部に常時表示していた説明。ヘルプボタンから開く。"""
+        """使用色パネルの使い方。ハンバーガーメニューから開く。"""
         return tr("使用色：クリックで選択（Shift＝範囲／Ctrl＝追加）。"
-            "［＋フォルダー］でカテゴリーを作り、色をヘッダーへドラッグして格納。"
-            "フォルダーのチェックで所属色を一括表示／非表示。"
+            "行の右の目で表示／非表示、鍵で保護（その色の上に描かない）を切り替えます。"
+            "フォルダーを作り、色をドラッグして格納。"
             "ドラッグで並べ替え、色の中央へドロップ＝その色の「子」として整理。"
-            "親子付けはフォルダーのような整理用で、色は変わりません。"
-            "解除は右クリックから行えます。"
-            "色を2色以上選んで［統合］を押すと、最後に選んだ色へ実画像を塗り替えます。")
+            "色を2色以上選んで［統合］を押すと、最後に選んだ色（枠で囲んだ行）へ実画像を塗り替えます。"
+            "左上を「置き換え」にすると、色ごとに置き換え後の色を決めて、"
+            "［全コマを置き換え］でまとめて置き換えます。")
 
     def show_help(self) -> None:
         """使用色パネルの使い方をダイアログで表示する。"""
@@ -764,7 +912,9 @@ class UsedColorPanel(
             header.setVisibilityState(
                 [self.enabled_colors.get(rgb, True) for rgb in members]
             )
-            header.name_label.setText(tr("📁 {name}（{len}色）").format(name=name, len=len(members)))
+            header.name_label.setText(
+                tr("{name}　{len}").format(name=name, len=len(members))
+            )
             header.setToolTip(
                 tr("フォルダーへ色をドラッグして格納できます。"
                 "右クリックで名前変更・削除ができます。")
@@ -996,26 +1146,37 @@ class UsedColorPanel(
         return None
 
     def _apply_swatch_text(self, rgb):
-        """色スウォッチにカラーコードを常時表示する。"""
+        """カラーコードを色見本の右に出す（見本の中には文字を描かない）。"""
         button = self.source_buttons.get(rgb)
         if button is None:
             return
         is_background = rgb == self.background_rgb
-        is_child = rgb in self.child_to_parent
         hex_text = (
             tr("背景色 {hex}").format(hex=self._background_display_hex())
             if is_background
             else "#{:02X}{:02X}{:02X}".format(*rgb)
         )
-        if is_child:
-            button.setText(f"　└ {hex_text}")
-            return
-        child_count = sum(
-            1 for parent in self.child_to_parent.values() if parent == rgb
-        )
-        button.setText(
-            tr("{text}（親・{count}）").format(text=hex_text, count=child_count) if child_count else hex_text
-        )
+        button.setText(hex_text)
+        label = self.code_labels.get(rgb)
+        if label is not None:
+            if is_background:
+                label.setText(tr("背景 {code}").format(
+                    code=self._background_display_hex()[1:]
+                ))
+            else:
+                child_count = sum(
+                    1 for parent in self.child_to_parent.values() if parent == rgb
+                )
+                code = self._code_text(rgb)
+                label.setText(
+                    tr("{code}（親・{count}）").format(code=code, count=child_count)
+                    if child_count else code
+                )
+            hidden = not self.enabled_colors.get(rgb, True)
+            label.setStyleSheet(
+                "font-family:Consolas,Menlo,monospace;font-size:11px;"
+                + ("color:palette(placeholder-text);" if hidden else "")
+            )
 
     def _set_source_button_style(self, rgb):
         button = self.source_buttons.get(rgb)
@@ -1025,31 +1186,41 @@ class UsedColorPanel(
 
         selected = rgb in self.selected_rgbs
         if wrapper is not None:
-            wrapper.setSelected(selected)
+            wrapper.setSelected(selected, last=selected and rgb == self.parent_rgb)
             wrapper.setGroupLine(self._group_line_color(rgb))
         self._sync_selection_check(rgb)
 
-        # 子色のボタン見た目（元色＋親色ボーダー）は _refresh_group_display が持つ。
-        if rgb not in self.child_to_parent:
-            if rgb == self.background_rgb:
-                color = QColor(self.background_display_color)
-                text_color = self._text_color(
-                    (color.red(), color.green(), color.blue())
-                )
-            else:
-                color = QColor(*rgb)
-                text_color = self._text_color(rgb)
-            button.setStyleSheet(
-                "QToolButton{"
-                f"background:{color.name()};color:{text_color};"
-                "border:1px solid rgba(255,255,255,0.55);padding:2px;"
-                "}"
-                "QToolButton:hover{"
-                f"background:{color.name()};color:{text_color};"
-                "border:1px solid rgba(255,255,255,0.55);"
-                "}"
-            )
-            self._apply_swatch_text(rgb)
+        if rgb == self.background_rgb:
+            color = QColor(self.background_display_color)
+        else:
+            color = QColor(*rgb)
+        # 子色は縁を親色にして、親子を示す。
+        parent = self.child_to_parent.get(rgb)
+        border = (
+            f"2px solid {QColor(*self._group_root(rgb)).name()}"
+            if parent is not None else "1px solid rgba(0,0,0,0.18)"
+        )
+        joined = self.replace_mode and rgb != self.background_rgb
+        radius = (
+            "border-top-left-radius:4px;border-bottom-left-radius:4px;"
+            "border-top-right-radius:0px;border-bottom-right-radius:0px;"
+            if joined else "border-radius:4px;"
+        )
+        hidden = not self.enabled_colors.get(rgb, True) and not self.replace_mode
+        # 非表示の色は見本を薄くし、コードも灰色にする。
+        if hidden:
+            shown = QColor(color)
+            shown.setAlpha(70)
+            background = shown.name(QColor.NameFormat.HexArgb)
+            border = "1px dashed palette(mid)"
+        else:
+            background = color.name()
+        button.setStyleSheet(
+            f"QToolButton{{color:transparent;background:{background};border:{border};{radius}"
+            + ("border-right:0px;" if joined and parent is None else "")
+            + "}"
+        )
+        self._apply_swatch_text(rgb)
 
         if rgb == self.background_rgb:
             button.setToolTip(
@@ -1059,15 +1230,14 @@ class UsedColorPanel(
             )
         else:
             group_note = ""
-            parent_of_this = self.child_to_parent.get(rgb)
-            if parent_of_this is not None:
+            if parent is not None:
                 group_note = (
-                    tr("　現在 #{value:02X}{value2:02X}{value3:02X} の子です。").format(value=parent_of_this[0], value2=parent_of_this[1], value3=parent_of_this[2])
+                    tr("　現在 #{value:02X}{value2:02X}{value3:02X} の子です。").format(value=parent[0], value2=parent[1], value3=parent[2])
                 )
             button.setToolTip(
                 tr("クリック：この色だけ選択／Shift＋クリック：範囲選択／"
                    "{ctrl}＋クリック：選択に追加・解除。"
-                   "ドラッグで並べ替え、色の中央へドロップ＝その色の子として整理。"
+                   "ドラッグで並べ替え・フォルダーへ移動、色の中央へドロップ＝その色の子として整理。"
                    "親子付けしても色表示は変わりません。"
                    "解除はドラッグと右クリックで行えます。").format(ctrl=CTRL_KEY_LABEL)
                 + group_note
@@ -1091,6 +1261,9 @@ class UsedColorPanel(
         self.source_buttons.clear()
         self.source_wrappers.clear()
         self.replacement_buttons.clear()
+        self.replacement_code_labels.clear()
+        self.code_labels.clear()
+        self.toggle_areas.clear()
         self.row_widgets.clear()
         while self.rows.count() > 1:
             item = self.rows.takeAt(0)
@@ -1112,9 +1285,17 @@ class UsedColorPanel(
         self.source_buttons.pop(rgb, None)
         self.source_wrappers.pop(rgb, None)
         self.replacement_buttons.pop(rgb, None)
+        self.replacement_code_labels.pop(rgb, None)
+        self.code_labels.pop(rgb, None)
+        self.toggle_areas.pop(rgb, None)
         self.replacements.pop(rgb, None)
 
-    def _make_source_wrapper(self, source, source_rgb):
+    def _open_replacement_editor_if_replacing(self, rgb):
+        if self.replace_mode:
+            self.open_replacement_editor(rgb)
+
+    def _make_source_wrapper(self, source, source_rgb, replacement=None):
+        """色見本・（置き換え時）置き換え後の色・カラーコードを1つの選択領域にまとめる。"""
         is_background = source_rgb == self.background_rgb
         wrapper = ColorSelectionArea()
         wrapper.setColorKey(source_rgb, is_background)
@@ -1136,15 +1317,37 @@ class UsedColorPanel(
             lambda hovered, rgb=source_rgb: self._on_swatch_hover(rgb, hovered)
         )
         if not is_background:
-            # ダブルクリックで、この色の置換色をカラーピッカーで設定する。
+            # 置き換えモードでは、ダブルクリックで置き換え後の色を選ぶ。
             on_double_click(
-                wrapper, lambda rgb=source_rgb: self.open_replacement_editor(rgb)
+                wrapper,
+                lambda rgb=source_rgb: self._open_replacement_editor_if_replacing(rgb),
             )
         wrapper_layout = QHBoxLayout(wrapper)
-        # 右余白は0にしてスウォッチを選択列いっぱいへ広げる。
-        wrapper_layout.setContentsMargins(2, 3, 0, 3)
+        wrapper_layout.setContentsMargins(4, 2, 4, 2)
         wrapper_layout.setSpacing(0)
         wrapper_layout.addWidget(source)
+        if replacement is not None:
+            wrapper_layout.addWidget(replacement)
+        wrapper_layout.addSpacing(8)
+        code = QLabel()
+        code.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        code.setMinimumWidth(48)
+        self.code_labels[source_rgb] = code
+        wrapper_layout.addWidget(code)
+        if replacement is not None:
+            replacement_code = QLabel()
+            replacement_code.setAttribute(
+                Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
+            )
+            replacement_code.setStyleSheet(
+                "font-family:Consolas,Menlo,monospace;font-size:11px;"
+                "color:palette(highlight);"
+            )
+            replacement_code.setMinimumWidth(48)
+            self.replacement_code_labels[source_rgb] = replacement_code
+            wrapper_layout.addSpacing(4)
+            wrapper_layout.addWidget(replacement_code)
+        wrapper_layout.addStretch(1)
         self.source_wrappers[source_rgb] = wrapper
         return wrapper
 
@@ -1153,19 +1356,11 @@ class UsedColorPanel(
         source_rgb = self._rgb_key(qc)
         is_background = source_rgb == self.background_rgb
 
-        # 行全体では選択操作を受けない。
-        # 「選択」列の source_wrapper だけが親子選択メニューを担当する。
+        # 1色1行：[色見本（＋置き換え後の色）][コード] …… [表示][保護][選択]
         row_widget = QWidget()
-        row = QGridLayout(row_widget)
+        row = QHBoxLayout(row_widget)
         row.setContentsMargins(0, 0, 0, 0)
-        row.setHorizontalSpacing(0)
-        row.setColumnMinimumWidth(0, 32)
-        row.setColumnMinimumWidth(1, 32)
-        row.setColumnMinimumWidth(2, 32)
-        row.setColumnMinimumWidth(3, 72)
-        row.setColumnMinimumWidth(4, 72)
-        row.setColumnStretch(3, 1)
-        row.setColumnStretch(4, 1)
+        row.setSpacing(0)
 
         selection_check = ColorSelectionCheckBox()
         selection_check.setChecked(source_rgb in self.selected_rgbs)
@@ -1200,12 +1395,12 @@ class UsedColorPanel(
         )
         visible_check.setToolTip(
             (
-                tr("クリック：背景表示ON/OFF／上下になぞる：一括ON/OFF／"
+                tr("表示：クリックでON/OFF／上下になぞる：一括ON/OFF／"
                 "Alt＋クリック：背景だけ表示／右クリック：表示メニュー")
             )
             if is_background else
             (
-                tr("クリック：表示ON/OFF／上下になぞる：一括ON/OFF／"
+                tr("表示：クリックでON/OFF／上下になぞる：一括ON/OFF／"
                 "Alt＋クリック：この色だけ表示／右クリック：表示メニュー")
             )
         )
@@ -1228,15 +1423,15 @@ class UsedColorPanel(
         mask_check.setChecked(source_rgb in self.mask_rgbs)
         mask_check.setToolTip(
             (
-                tr("描画対象：ONにするとこの色の上へ描けます。"
+                tr("保護：鍵をかけた色の上には描けません。"
                 "クリック：ON/OFF／上下になぞる：一括ON/OFF／"
-                "Alt＋クリック：この色だけON／右クリック：描画対象メニュー")
+                "Alt＋クリック：この色以外を保護／右クリック：保護メニュー")
             )
             if not is_background else
             (
-                tr("描画対象：ONにすると背景の上へ描けます。"
+                tr("保護：鍵をかけると背景の上には描けません。"
                 "クリック：ON/OFF／上下になぞる：一括ON/OFF／"
-                "Alt＋クリック：背景だけON／右クリック：描画対象メニュー")
+                "Alt＋クリック：背景以外を保護／右クリック：保護メニュー")
             )
         )
         mask_check.toggled.connect(
@@ -1253,33 +1448,41 @@ class UsedColorPanel(
         self.mask_checks[source_rgb] = mask_check
 
         source = SourceColorButton()
-        source.setFixedHeight(26)
-        source.setMinimumWidth(72)
-        source.setText(
-            tr("背景色 #FFFFFF")
-            if is_background
-            else qc.name(QColor.NameFormat.HexRgb).upper()
-        )
-        # 「選択」列のマウス操作はすべて外側の ColorSelectionArea が担当する。
-        # これにより、ドラッグはスポイトではなく選択ON/OFFの連続切替になる。
+        source.setFixedSize(34, 18)
+        source.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        # 選択・ドラッグはすべて外側の ColorSelectionArea が担当する。
         source.setAttribute(
             Qt.WidgetAttribute.WA_TransparentForMouseEvents,
             True,
         )
         self.source_buttons[source_rgb] = source
-        source_wrapper = self._make_source_wrapper(source, source_rgb)
-        source_wrapper.setMinimumWidth(72)
+
+        replacement = None
+        if not is_background:
+            replacement = ScreenEyedropButton()
+            replacement.setFixedSize(34, 18)
+            replacement.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+            replacement.setCursor(Qt.CursorShape.PointingHandCursor)
+            replacement.colorPicked.connect(
+                lambda color, rgb=source_rgb:
+                self._pick_replacement_color(rgb, color)
+            )
+            replacement.colorEditorRequested.connect(
+                lambda global_pos, rgb=source_rgb:
+                self._toggle_replacement_editor(rgb, global_pos)
+            )
+            self.replacement_buttons[source_rgb] = replacement
+
+        source_wrapper = self._make_source_wrapper(source, source_rgb, replacement)
         source_wrapper.setSizePolicy(
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Fixed,
         )
-        source.setSizePolicy(
-            QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Fixed,
-        )
+        if replacement is not None:
+            self._set_replacement_button_style(source_rgb)
         self._set_source_button_style(source_rgb)
 
-        # チェックボックスだけでなく、薄いグレーのセル全体をクリック領域にする。
+        # チェックだけでなく、まわりのセル全体をクリック領域にする。
         selection_area = CheckClickArea(selection_check)
         visible_area = CheckClickArea(visible_check)
         mask_area = CheckClickArea(mask_check)
@@ -1301,38 +1504,16 @@ class UsedColorPanel(
                 lambda pos, w=widget, rgb=source_rgb:
                 self._show_mask_context_menu(rgb, w.mapToGlobal(pos))
             )
-        row.addWidget(selection_area, 0, 0)
-        row.addWidget(visible_area, 0, 1)
-        row.addWidget(mask_area, 0, 2)
-        if is_background:
-            row.addWidget(source_wrapper, 0, 3, 1, 2)
-        else:
-            replacement = ScreenEyedropButton()
-            replacement.setFixedHeight(26)
-            replacement.setMinimumWidth(72)
-            replacement.setSizePolicy(
-                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
-            )
-            replacement.setToolTip(
-                tr("左クリック：色を編集。右クリック：画面全体のスポイトへ切替。"
-                "スポイト中は左クリックで確定、Escで解除。")
-            )
-            replacement.colorPicked.connect(
-                lambda color, rgb=source_rgb:
-                self._pick_replacement_color(rgb, color)
-            )
-            replacement.colorEditorRequested.connect(
-                lambda global_pos, rgb=source_rgb:
-                self._toggle_replacement_editor(rgb, global_pos)
-            )
-            self.replacement_buttons[source_rgb] = replacement
-            self._set_replacement_button_style(source_rgb)
-            row.addWidget(source_wrapper, 0, 3)
-            row.addWidget(replacement, 0, 4)
+        self.toggle_areas[source_rgb] = (visible_area, mask_area)
+        row.addWidget(source_wrapper, 1)
+        row.addWidget(visible_area)
+        row.addWidget(mask_area)
+        row.addWidget(selection_area)
 
         self.row_widgets[source_rgb] = row_widget
         # 末尾（ストレッチの手前）へ追加する。並び順は _reapply_row_order で整える。
         self.rows.insertWidget(max(0, self.rows.count() - 1), row_widget)
+        self._apply_row_mode(source_rgb)
         self._refresh_group_display(source_rgb)
 
     def _normalized_colors(self, colors):

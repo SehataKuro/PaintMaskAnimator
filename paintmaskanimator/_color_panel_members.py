@@ -75,10 +75,8 @@ class UsedColorPanelMembers(_MembersBase):
         _clear_replacement: Any
         _close_replacement_editor: Any
         _emit_replacement_preview: Any
-        clear_masks_button: Any
         _clear_rows: Any
         clear_categories: Any
-        clear_selection_button: Any
         _clear_used_color_selection: Any
         _color_index: Any
         colors: Any
@@ -180,7 +178,6 @@ class UsedColorPanelMembers(_MembersBase):
         _set_source_button_style: Any
         _set_used_color_parent: Any
         _set_visibility_state: Any
-        show_all_button: Any
         _show_all_colors: Any
         _show_mask_context_menu: Any
         _show_used_color_context_menu: Any

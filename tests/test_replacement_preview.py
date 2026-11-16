@@ -33,6 +33,8 @@ def prepare(window):
     layer.image.setPixelColor(5, 5, QColor(*RED))
     layer.has_content = True
     window.palette.set_colors([QColor(*RED)])
+    # プレビューは置き換えモードのあいだだけ出す。
+    window.palette.set_replace_mode(True)
     return layer
 
 
@@ -86,4 +88,18 @@ def test_undo_restores_the_preview_with_the_replacement(window):
 
     window.canvas.undo()
 
+    assert window.canvas.preview_color_remap == {RED: BLUE}
+
+
+def test_the_preview_shows_only_in_replace_mode(window):
+    prepare(window)
+    window.palette.replacement_preview_check.setChecked(True)
+    window.palette._set_replacement_color(RED, QColor(*BLUE))
+    assert window.canvas.preview_color_remap == {RED: BLUE}
+
+    window.palette.set_replace_mode(False)
+    assert window.canvas.preview_color_remap == {}
+    assert not window.palette.replacement_preview_check.isVisibleTo(window.palette)
+
+    window.palette.set_replace_mode(True)
     assert window.canvas.preview_color_remap == {RED: BLUE}
