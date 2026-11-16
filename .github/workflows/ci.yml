@@ -44,11 +44,32 @@ jobs:
 
       - name: Lint (clippy)
         working-directory: native
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
       - name: Run tests
         working-directory: native
-        run: cargo test --all-features
+        run: cargo test --workspace --all-features
+
+  rust-core-targets:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [wasm32-unknown-unknown, aarch64-apple-ios]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install target
+        run: rustup target add ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+          shared-key: core-${{ matrix.target }}
+
+      - name: Check core
+        working-directory: native
+        run: cargo check -p pma-core --target ${{ matrix.target }}
 
   # The Explorer thumbnail handler is Windows-only (windows-rs) and is built
   # only by release.yml, so without this job a break in it surfaces for the

@@ -1,5 +1,6 @@
 //! 線端を調べる Zhang-Suen 細線化。各段階で同時に削る条件を numpy 版と一致させる。
 
+/// 細線化したマスクを返す。numpy 版 `bucket_fill._thin_numpy` と一致する。
 pub fn thin(mask: &[u8], width: usize, height: usize, iterations: usize) -> Vec<u8> {
     if width == 0 || height == 0 {
         return Vec::new();
