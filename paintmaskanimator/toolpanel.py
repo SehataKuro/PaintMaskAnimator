@@ -1296,12 +1296,15 @@ class ToolPanel(QWidget):
         self.dust_mode.addItem(tr("ゴミ取り"), "despeckle")
         self.dust_mode.addItem(tr("塗り抜け"), "fill_holes")
         self.dust_mode.addItem(tr("線周りのノイズ"), "line_noise")
+        self.dust_mode.addItem(tr("線整え"), "line_tidy")
         self.dust_mode.setToolTip(
             tr("ゴミ取り：小さな色点を白（#FFFFFF）へ変更します。"
             "塗り抜け：小さな白い穴を周囲色で埋めます。"
             "線周りのノイズ：線の近くで、まわりに同じ色が1つも無い孤立した"
             "1ドットを、8近傍の多数決でまわりの色へ寄せます。"
-            "色面のふちは同じ色の隣を必ず持つため、塗り分けは壊れません。")
+            "色面のふちは同じ色の隣を必ず持つため、塗り分けは壊れません。"
+            "線整え：キャンバスをブラシか投げ縄でなぞった所の線を整えます"
+            "（角だけで接している段をつなぎ、突き出た1画素を消す）。")
         )
         self.dust_size_label=QLabel(tr("適用サイズ：3 px"))
         self.dust_size=QSlider(Qt.Orientation.Horizontal)
@@ -1311,6 +1314,40 @@ class ToolPanel(QWidget):
             lambda value: self.dust_size_label.setText(
                 tr("適用サイズ：{value} px").format(value=value)
             )
+        )
+        # 線整え：キャンバスをなぞった所だけ整える。範囲はブラシの帯か投げ縄の中。
+        self.line_tidy_shape_label=QLabel(tr("なぞり方"))
+        self.line_tidy_shape=QComboBox()
+        self.line_tidy_shape.addItem(tr("ブラシ"), "brush")
+        self.line_tidy_shape.addItem(tr("投げ縄"), "lasso")
+        self.line_tidy_shape.setToolTip(tr(
+            "キャンバスをなぞった所の線を整えます。ブラシはなぞった帯、"
+            "投げ縄は囲んだ中が対象です。離したときに整えます。"
+        ))
+        self.line_tidy_brush_size_label=QLabel(tr("ブラシの太さ：24 px"))
+        self.line_tidy_brush_size=QSlider(Qt.Orientation.Horizontal)
+        self.line_tidy_brush_size.setRange(2,200)
+        self.line_tidy_brush_size.setValue(24)
+        self.line_tidy_brush_size.valueChanged.connect(
+            lambda value: self.line_tidy_brush_size_label.setText(
+                tr("ブラシの太さ：{value} px").format(value=value)
+            )
+        )
+        self.line_tidy_diagonal_label=QLabel(tr("2×2の45°の線"))
+        self.line_tidy_diagonal=QComboBox()
+        self.line_tidy_diagonal.addItem(tr("足して太さをそろえる"), "add")
+        self.line_tidy_diagonal.addItem(tr("消して1画素幅にする"), "remove")
+        self.line_tidy_diagonal.addItem(tr("直さない"), None)
+        self.line_tidy_note=QLabel(tr(
+            "なぞった所だけ整えます。下のボタンは、選択範囲があればその中、"
+            "無ければコマ全体を整えます。"
+        ))
+        self.line_tidy_note.setWordWrap(True)
+        self.line_tidy_shape.currentIndexChanged.connect(
+            lambda _index: self._sync_dust_mode_widgets()
+        )
+        self.dust_mode.currentIndexChanged.connect(
+            lambda _index: self._sync_dust_mode_widgets()
         )
         self.dust_selected_only=QCheckBox(tr("選択色を対象"))
         self.dust_selected_only.setChecked(False)
@@ -1373,6 +1410,10 @@ class ToolPanel(QWidget):
             self.replace_color_note,
             self.dust_mode_label,self.dust_mode,
             self.dust_size_label,self.dust_size,
+            self.line_tidy_shape_label,self.line_tidy_shape,
+            self.line_tidy_brush_size_label,self.line_tidy_brush_size,
+            self.line_tidy_diagonal_label,self.line_tidy_diagonal,
+            self.line_tidy_note,
             self.dust_selected_only,
             self.dust_all_frames,self.dust_apply
         ):
@@ -1714,6 +1755,29 @@ class ToolPanel(QWidget):
             self.select_tool("shape")
         self._sync_shape_corner_controls()
 
+    def line_tidy_stroke_active(self):
+        """ゴミ取りツールの「線整え」で、キャンバスをなぞって整えるときか。"""
+        return (
+            getattr(self, "active_tool", None) == "dust"
+            and self.dust_mode.currentData() == "line_tidy"
+        )
+
+    def _sync_dust_mode_widgets(self):
+        """ゴミ取りの処理モードに合わせて、サイズと線整えの設定を出し分ける。"""
+        is_dust = getattr(self, "active_tool", None) == "dust"
+        tidy = is_dust and self.dust_mode.currentData() == "line_tidy"
+        self.dust_size_label.setVisible(is_dust and not tidy)
+        self.dust_size.setVisible(is_dust and not tidy)
+        for widget in (
+            self.line_tidy_shape_label, self.line_tidy_shape,
+            self.line_tidy_diagonal_label, self.line_tidy_diagonal,
+            self.line_tidy_note,
+        ):
+            widget.setVisible(tidy)
+        brush = tidy and self.line_tidy_shape.currentData() == "brush"
+        self.line_tidy_brush_size_label.setVisible(brush)
+        self.line_tidy_brush_size.setVisible(brush)
+
     def select_tool(self, tid):
         # 閉領域フィルはなくした（バケツの「隙間閉じ」「線の延長」で同じことができる）。
         # 古い設定やショートカットから来たらバケツにする。
@@ -1842,11 +1906,10 @@ class ToolPanel(QWidget):
 
         self.dust_mode_label.setVisible(is_dust)
         self.dust_mode.setVisible(is_dust)
-        self.dust_size_label.setVisible(is_dust)
-        self.dust_size.setVisible(is_dust)
         self.dust_selected_only.setVisible(is_dust)
         self.dust_all_frames.setVisible(is_dust)
         self.dust_apply.setVisible(is_dust)
+        self._sync_dust_mode_widgets()
 
         self.size_title.setText(
             tr("<b>ラインサイズ</b>") if is_line else tr("<b>ブラシサイズ</b>")
