@@ -50,6 +50,7 @@ class CanvasMembers(_MembersBase):
         onionInteractionFinished: Signal
         projectDropped: Signal
         selectionChanged: Signal
+        lineTidyRegionDrawn: Signal
         selectionCleared: Signal
         status_message: Signal
         timeRemapDropped: Signal
@@ -311,6 +312,9 @@ class CanvasMembers(_MembersBase):
         inside: Any
         is_pseudo_transparent_color: Any
         lasso: Any
+        line_tidy_stroke: Any
+        _line_tidy_stroke_active: Any
+        _finish_line_tidy_stroke: Any
         last_canvas: Any
         last_widget: Any
         layers: list[Layer]

@@ -1210,6 +1210,7 @@ class UIBuildMixin(MainWindowMembers):
         self.tools.swapMainSubRequested.connect(self.line_ops.swap_main_sub)
         self.tools.resetMainSubRequested.connect(self.line_ops.reset_main_sub)
         self.tools.removeDustRequested.connect(self.line_ops.remove_dust_fill_surrounding)
+        self.canvas.lineTidyRegionDrawn.connect(self.line_ops.tidy_lines_with_tool)
         self.tools.backgroundColorRequested.connect(self.colors.choose_background_color)
         self.tools.colorEditRequested.connect(self.colors.choose_color)
 

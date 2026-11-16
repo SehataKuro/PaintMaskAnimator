@@ -259,11 +259,15 @@ def _boundary_colour(rgba: np.ndarray, y: int, x: int, exclude) -> Tuple[int, ..
 
 def tidy_lines(
     rgba: np.ndarray, colours, diagonal: str | None = "add",
+    region: np.ndarray | None = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """``colours`` の線を整えた RGBA と、足した画素・消した画素のマスク。
 
     足した画素は線の色になり、消した画素は、となりにある線以外の色（無ければ透明）に
     なる。色ごとに別々に判定する。
+
+    ``region``（画像と同じ大きさの真偽マスク）を渡すと、その中の画素だけを変える。
+    形の判定は画像全体で行うので、範囲のふちでも外の線を見て同じように判定する。
     """
     out = rgba.copy()
     added = np.zeros(rgba.shape[:2], dtype=bool)
@@ -282,6 +286,9 @@ def tidy_lines(
             if other_rgb != rgb:
                 others |= opaque & (rgba[:, :, :3] == np.array(other_rgb, dtype=np.uint8)).all(axis=2)
         add &= ~others
+        if region is not None:
+            add &= region
+            remove &= region
         for y, x in zip(*np.nonzero(remove)):
             out[y, x] = _boundary_colour(rgba, int(y), int(x), rgb)
         out[add, :3] = rgb
