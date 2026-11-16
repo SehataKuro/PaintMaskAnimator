@@ -1096,7 +1096,7 @@ class ToolPanel(QWidget):
         ))
 
         self.bucket_replace_color=QCheckBox(
-            tr("色置換（クリックした色を、選択レイヤーのすべてのコマで置き換える）")
+            tr("色置換（全コマ）")
         )
         self.bucket_replace_color.setChecked(False)
         self.bucket_replace_color.setToolTip(tr(
