@@ -1503,8 +1503,8 @@ Could not read the image size.
         <location filename="../main_window.py" line="659"/>
         <location filename="../main_window.py" line="666"/>
         <location filename="../main_window.py" line="719"/>
-        <location filename="../main_window.py" line="1254"/>
-        <location filename="../main_window.py" line="1285"/>
+        <location filename="../main_window.py" line="1256"/>
+        <location filename="../main_window.py" line="1287"/>
         <source>画像を読み込めませんでした。
 
 {error}</source>
@@ -1514,13 +1514,13 @@ Could not read the image size.
     </message>
     <message>
         <location filename="../main_window.py" line="675"/>
-        <location filename="../main_window.py" line="1263"/>
+        <location filename="../main_window.py" line="1265"/>
         <source>画像を読み込んでいます</source>
         <translation>Loading images</translation>
     </message>
     <message>
         <location filename="../main_window.py" line="686"/>
-        <location filename="../main_window.py" line="1274"/>
+        <location filename="../main_window.py" line="1276"/>
         <source>{label}（画像 {value}/{total}）</source>
         <translation>{label} (image {value}/{total})</translation>
     </message>
@@ -1674,8 +1674,8 @@ Download and install it?</translation>
     </message>
     <message>
         <location filename="../main_window.py" line="1089"/>
-        <location filename="../main_window.py" line="1179"/>
-        <location filename="../main_window.py" line="1240"/>
+        <location filename="../main_window.py" line="1181"/>
+        <location filename="../main_window.py" line="1242"/>
         <source>画像 (*.png *.jpg *.jpeg *.tga);;PNG (*.png);;JPEG (*.jpg *.jpeg);;TGA (*.tga)</source>
         <translation>Images (*.png *.jpg *.jpeg *.tga);;PNG (*.png);;JPEG (*.jpg *.jpeg);;TGA (*.tga)</translation>
     </message>
@@ -1687,8 +1687,8 @@ Download and install it?</translation>
     <message>
         <location filename="../main_window.py" line="1116"/>
         <location filename="../main_window.py" line="1123"/>
-        <location filename="../main_window.py" line="1133"/>
-        <location filename="../main_window.py" line="1159"/>
+        <location filename="../main_window.py" line="1135"/>
+        <location filename="../main_window.py" line="1161"/>
         <source>再変換</source>
         <translation>Re-convert</translation>
     </message>
@@ -1705,34 +1705,34 @@ Download and install it?</translation>
         <translation>Converts again from {count} original file(s). Anything drawn after importing will be replaced (you can undo this). Continue?</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1168"/>
+        <location filename="../main_window.py" line="1170"/>
         <source>{cells}セルを元のファイルから変換し直しました。</source>
         <translation>Re-converted {cells} cel(s) from the original files.</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1177"/>
+        <location filename="../main_window.py" line="1179"/>
         <source>原画を読み込む</source>
         <translation>Import Key Animation</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1188"/>
+        <location filename="../main_window.py" line="1190"/>
         <source>原画</source>
         <translation>Key Drawings</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1194"/>
+        <location filename="../main_window.py" line="1196"/>
         <source>{count}枚の原画を読み込み、原画の印を付けました。</source>
         <translation>Imported {count} key drawing(s) and marked them as key drawings.</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1202"/>
-        <location filename="../main_window.py" line="1222"/>
+        <location filename="../main_window.py" line="1204"/>
+        <location filename="../main_window.py" line="1224"/>
         <location filename="../main_window_ui_build.py" line="428"/>
         <source>画像フォルダーを読み込む</source>
         <translation>Import Image Folder</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1223"/>
+        <location filename="../main_window.py" line="1225"/>
         <source>選択したフォルダーに対応画像がありません。
 
 対応形式：PNG、JPEG、TGA</source>
@@ -1741,55 +1741,55 @@ Download and install it?</translation>
 Supported formats: PNG, JPEG, TGA</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1238"/>
+        <location filename="../main_window.py" line="1240"/>
         <source>変換せず読み込む（下書きレイヤー）</source>
         <translation>Import unconverted (draft layer)</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1253"/>
-        <location filename="../main_window.py" line="1261"/>
-        <location filename="../main_window.py" line="1284"/>
+        <location filename="../main_window.py" line="1255"/>
+        <location filename="../main_window.py" line="1263"/>
+        <location filename="../main_window.py" line="1286"/>
         <source>変換せず読み込む</source>
         <translation>Import unconverted</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1292"/>
+        <location filename="../main_window.py" line="1294"/>
         <source>{len}枚を下書きレイヤーへ変換せず読み込みました。</source>
         <translation>Imported {len} images into a draft layer without conversion.</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1297"/>
+        <location filename="../main_window.py" line="1299"/>
         <source>キャンバスサイズの変更</source>
         <translation>Resize Canvas</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1484"/>
+        <location filename="../main_window.py" line="1486"/>
         <source>ファイル・編集</source>
         <translation>File and Edit</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1486"/>
+        <location filename="../main_window.py" line="1488"/>
         <source>キャンバス操作</source>
         <translation>Canvas operations</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1487"/>
+        <location filename="../main_window.py" line="1489"/>
         <source>ツールコマンド</source>
         <translation>Tool commands</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1495"/>
+        <location filename="../main_window.py" line="1497"/>
         <source>PNG保存</source>
         <translation>Save PNG</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1516"/>
-        <location filename="../main_window.py" line="1520"/>
+        <location filename="../main_window.py" line="1518"/>
+        <location filename="../main_window.py" line="1522"/>
         <source>TGA保存</source>
         <translation>Save TGA</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1520"/>
+        <location filename="../main_window.py" line="1522"/>
         <source>TGAを保存できませんでした。Pillowの導入を確認してください。</source>
         <translation>Could not save the TGA. Check that Pillow is installed.</translation>
     </message>
@@ -2886,7 +2886,7 @@ Drop a used colour onto the middle of another to create a parent/child link.</tr
         <translation>Canvas</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1485"/>
+        <location filename="../main_window.py" line="1487"/>
         <location filename="../main_window_ui_build.py" line="860"/>
         <source>ツール</source>
         <translation>Tools</translation>
@@ -2897,7 +2897,7 @@ Drop a used colour onto the middle of another to create a parent/child link.</tr
         <translation>Tool Properties</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1488"/>
+        <location filename="../main_window.py" line="1490"/>
         <location filename="../main_window_ui_build.py" line="890"/>
         <source>アクション</source>
         <translation>Actions</translation>
@@ -2928,7 +2928,7 @@ Drop a used colour onto the middle of another to create a parent/child link.</tr
         <translation>History</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="1489"/>
+        <location filename="../main_window.py" line="1491"/>
         <location filename="../main_window_ui_build.py" line="966"/>
         <source>タイムライン</source>
         <translation>Timeline</translation>
@@ -4479,12 +4479,13 @@ Details were saved to:
         <translation>Display position: left-drag to move the canvas, Shift+left-drag or right-drag to rotate. The TU/TB scale is preserved and reflected in the relative values of the previous and next onion skins. Esc cancels.</translation>
     </message>
     <message>
-        <location filename="../canvas_onion_interaction.py" line="397"/>
+        <location filename="../canvas_onion_interaction.py" line="447"/>
         <source>オニオン：クリックした所に前後のコマの絵がありません。</source>
+        <extracomment>「まわりで一番多い色」を数える窓の半径（px）。</extracomment>
         <translation>Onion skin: no drawing from the previous or next frames where you clicked.</translation>
     </message>
     <message>
-        <location filename="../canvas_onion_interaction.py" line="406"/>
+        <location filename="../canvas_onion_interaction.py" line="456"/>
         <source>オニオン：{frame}コマ目を編集します。</source>
         <translation>Onion skin: now editing frame {frame}.</translation>
     </message>
