@@ -153,3 +153,26 @@ def test_the_old_shortcuts_switch_tools(window):
     assert window.tools.active_tool == "bucket"
     window.a_bucket_replace_color.trigger()
     assert window.tools.active_tool == "replace_color"
+
+
+def test_a_quick_second_click_also_opens_the_menu(panel, monkeypatch):
+    """2回目が「ダブルクリック」として届いても、メニューを開く（実機で見つかった）。"""
+    opened = []
+    monkeypatch.setattr(ToolSelectorPanel, "_exec_menu", lambda *_a: opened.append(True) or None)
+    panel.select_tool("brush")
+    viewport = panel.list.viewport()
+    point = centre(panel, "fill")
+    QTest.mouseClick(viewport, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, point)
+    # Windows の素早い2回目：押下ではなくダブルクリックが届き、そのあと離す。
+    from PySide6.QtCore import QEvent, QPointF
+    from PySide6.QtGui import QMouseEvent
+
+    double = QMouseEvent(
+        QEvent.Type.MouseButtonDblClick, QPointF(point), viewport.mapToGlobal(QPointF(point)),
+        Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+    )
+    QApplication.sendEvent(viewport, double)
+    QTest.mouseRelease(viewport, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, point)
+    QApplication.processEvents()
+    QApplication.processEvents()
+    assert opened == [True]

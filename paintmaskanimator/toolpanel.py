@@ -223,9 +223,9 @@ class ToolSelectorPanel(QWidget):
 
     CELL_SIZE = 30
     ICON_SIZE = 20
-    #: アイコンのグループ名（単独のツールはツール名）。
+    # アイコンのグループ名（単独のツールはツール名）。
     GROUP_ROLE = Qt.ItemDataRole.UserRole + 1
-    #: 長押しでグループのメニューを開くまでの時間（ms）。
+    # 長押しでグループのメニューを開くまでの時間（ms）。
     LONG_PRESS_MS = 450
     PANEL_MARGIN = 2
     # QListView's wrapping check is strict at an exact N * gridSize boundary.
@@ -364,7 +364,9 @@ class ToolSelectorPanel(QWidget):
     def eventFilter(self, watched, event):
         if watched is self.list.viewport():
             kind = event.type()
-            if kind == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+            # 素早く2回押すと、2回目は「ダブルクリック」として届く。同じ押下として扱う。
+            pressed = kind in (QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonDblClick)
+            if pressed and event.button() == Qt.MouseButton.LeftButton:
                 item = self.list.itemAt(event.position().toPoint())
                 group = item.data(self.GROUP_ROLE) if item is not None else None
                 self._press_group = group
