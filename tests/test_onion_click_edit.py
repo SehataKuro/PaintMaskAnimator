@@ -93,3 +93,19 @@ def test_ctrl_click_on_the_canvas_switches_without_drawing(window):
     for frame, original in zip(canvas.frames, before):
         assert frame.layers[0].image == original, "クリックでは描かない"
     window.hide()
+
+
+def test_frames_on_a_filled_background_can_be_picked(window):
+    """#88：塗りのある TP（背景まで不透明）でも、前後のコマの線を選べる。"""
+    canvas = prepare(window)
+    for index in range(3):
+        layer = canvas.frames[index].layers[0]
+        image = layer.image
+        for x in range(0, 160):
+            for y in range(0, 160):
+                if image.pixelColor(x, y).alpha() == 0:
+                    image.setPixelColor(x, y, QColor("#ffe4cd"))
+    assert canvas.onion_frame_at(QPointF(25, 25)) == (0, 0)
+    assert canvas.onion_frame_at(QPointF(105, 105)) == (2, 0)
+    assert canvas.onion_frame_at(QPointF(5, 5)) is None, "どのコマも同じ肌色の所は選ばない"
+    assert canvas.onion_frame_at(QPointF(65, 65)) is None, "前後のコマが今のコマと同じ色の所"

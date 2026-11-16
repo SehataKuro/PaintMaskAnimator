@@ -4505,12 +4505,13 @@ Details were saved to:
         <translation>Display position: left-drag to move the canvas, Shift+left-drag or right-drag to rotate. The TU/TB scale is preserved and reflected in the relative values of the previous and next onion skins. Esc cancels.</translation>
     </message>
     <message>
-        <location filename="../canvas_onion_interaction.py" line="397"/>
+        <location filename="../canvas_onion_interaction.py" line="447"/>
         <source>オニオン：クリックした所に前後のコマの絵がありません。</source>
+        <extracomment>「まわりで一番多い色」を数える窓の半径（px）。</extracomment>
         <translation>Onion skin: no drawing from the previous or next frames where you clicked.</translation>
     </message>
     <message>
-        <location filename="../canvas_onion_interaction.py" line="406"/>
+        <location filename="../canvas_onion_interaction.py" line="456"/>
         <source>オニオン：{frame}コマ目を編集します。</source>
         <translation>Onion skin: now editing frame {frame}.</translation>
     </message>
