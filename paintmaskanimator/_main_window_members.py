@@ -157,6 +157,9 @@ class MainWindowMembers(_MembersBase):
         _visible_color_timer: QTimer
         _widget_in_timeline: Any
         a_bucket_close_gap: Any
+        a_bucket_adjacent: Any
+        a_bucket_extend_lines: Any
+        a_bucket_island_fill: Any
         a_bucket_include_sub: Any
         a_focus_used_color: Any
         _timeline_cell_clipboard: Any

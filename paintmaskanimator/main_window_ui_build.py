@@ -183,7 +183,7 @@ class UIBuildMixin(MainWindowMembers):
         self.a_preferences.setShortcut("Ctrl+,")
         self.a_preferences.triggered.connect(lambda: self.show_preferences())
         self.tool_actions={}
-        defaults={"brush":"P","line":"U","shape":"O","bucket":"G","closed_fill":"K","lasso_fill":"F","lasso":"L","rect_select":"R","auto_select":"W","eyedropper":"I","dust":"D"}
+        defaults={"brush":"P","line":"U","shape":"O","bucket":"G","lasso_fill":"F","lasso":"L","rect_select":"R","auto_select":"W","eyedropper":"I","dust":"D"}
         for tid,_source_label in ToolPanel.TOOLS:
             a=QAction(tr("ツール：{tool}").format(tool=tool_label(tid)),self);a.setShortcut(defaults.get(tid,""));a.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut);a.triggered.connect(lambda _=False,t=tid,action=a:self.tool_hold.select(t,action));self.addAction(a);self.tool_actions[tid]=a
         self.general_actions=[(tr("新規作成"),self.a_new),(tr("プロジェクトを開く"),self.a_open_project),(tr("上書き保存"),self.a_save_project),(tr("元に戻す"),self.a_undo),(tr("やり直す"),self.a_redo),(tr("前のフレーム"),self.a_prev),(tr("次のフレーム"),self.a_next)]
@@ -343,13 +343,29 @@ class UIBuildMixin(MainWindowMembers):
             tr("バケツ：隙間閉じ ON/OFF"),
             lambda: self.tools.bucket_close_gap.toggle()
         )
+        self.a_bucket_adjacent = self.make_shortcut_action(
+            tr("バケツ：隣接 ON/OFF"),
+            lambda: self.tools.bucket_adjacent.toggle()
+        )
+        self.a_bucket_extend_lines = self.make_shortcut_action(
+            tr("バケツ：線の延長 ON/OFF"),
+            lambda: self.tools.bucket_extend_lines.toggle()
+        )
+        self.a_bucket_island_fill = self.make_shortcut_action(
+            tr("バケツ：塗り残し拾い ON/OFF"),
+            lambda: self.tools.bucket_island_fill.toggle()
+        )
         self.a_bucket_all_frames = self.make_shortcut_action(
-            tr("バケツ：串刺し塗り ON/OFF"),
-            lambda: self.tools.bucket_all_frames.toggle()
+            tr("ツール：串刺し塗り／バケツを切り替え"),
+            lambda: self.tools.select_tool(
+                "bucket" if self.tools.active_tool == "skewer_fill" else "skewer_fill"
+            )
         )
         self.a_bucket_replace_color = self.make_shortcut_action(
-            tr("バケツ：色置換 ON/OFF"),
-            lambda: self.tools.bucket_replace_color.toggle()
+            tr("ツール：色置換／バケツを切り替え"),
+            lambda: self.tools.select_tool(
+                "bucket" if self.tools.active_tool == "replace_color" else "replace_color"
+            )
         )
         self.a_dust_all_frames = self.make_shortcut_action(
             tr("ゴミ取り：すべてのコマ ON/OFF"),
@@ -489,8 +505,11 @@ class UIBuildMixin(MainWindowMembers):
             (tr("使用色：この色を選択範囲にする"), self.a_focus_used_color),
             (tr("バケツ：含み塗り ON/OFF"), self.a_bucket_include_sub),
             (tr("バケツ：隙間閉じ ON/OFF"), self.a_bucket_close_gap),
-            (tr("バケツ：串刺し塗り ON/OFF"), self.a_bucket_all_frames),
-            (tr("バケツ：色置換 ON/OFF"), self.a_bucket_replace_color),
+            (tr("バケツ：隣接 ON/OFF"), self.a_bucket_adjacent),
+            (tr("バケツ：線の延長 ON/OFF"), self.a_bucket_extend_lines),
+            (tr("バケツ：塗り残し拾い ON/OFF"), self.a_bucket_island_fill),
+            (tr("ツール：串刺し塗り／バケツを切り替え"), self.a_bucket_all_frames),
+            (tr("ツール：色置換／バケツを切り替え"), self.a_bucket_replace_color),
             (tr("ゴミ取り：すべてのコマ ON/OFF"), self.a_dust_all_frames),
             (tr("ゴミ取り／塗り抜けを適用"), self.a_dust_apply),
             (tr("選択変形：すべてのコマ ON/OFF"), self.a_selection_all_frames),

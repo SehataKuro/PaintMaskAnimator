@@ -249,17 +249,6 @@ class PaintToolsMixin(CanvasMembers):
         )
         if respect_modifiers and options.include_masks and self._shift_held():
             options = dataclasses.replace(options, include_masks=False)
-        if self.effective_tool() == "closed_fill":
-            # 閉領域フィル（Issue #41）：線の隙間を閉じ、開いた線の先も伸ばして
-            # から塗る。1ドットの隙間でこぼれるところを拾うための道具なので、
-            # 隙間閉じを設定任せにしない。逆に「塗り残し拾い」は必要以上に
-            # 広がる元になるため、こちらでは使わない。
-            options = dataclasses.replace(
-                options,
-                close_gap=True,
-                extend_lines=True,
-                island_max_width=0,
-            )
         return options
 
     @staticmethod
@@ -635,11 +624,15 @@ class PaintToolsMixin(CanvasMembers):
         return None
 
     def _bucket_all_frames_enabled(self):
+        if self.effective_tool() == "skewer_fill":
+            return True
         tools = self._bucket_tools()
         checkbox = getattr(tools, "bucket_all_frames", None)
         return bool(checkbox is not None and checkbox.isChecked())
 
     def _bucket_replace_color_enabled(self):
+        if self.effective_tool() == "replace_color":
+            return True
         tools = self._bucket_tools()
         checkbox = getattr(tools, "bucket_replace_color", None)
         return bool(checkbox is not None and checkbox.isChecked())

@@ -1,6 +1,7 @@
-"""閉領域フィルツール（Issue #41）。
+"""線の切れ目を閉じて塗る（Issue #41）。
 
-バケツでは1ドットの隙間からこぼれてしまう囲いを、隙間を閉じて塗る。
+もとは「閉領域フィル」という別のツールだったが、バケツの「隙間閉じ」「線の延長」と
+同じことなのでなくした。古い設定やショートカットから閉領域フィルが来たらバケツにする。
 """
 import os
 
@@ -47,47 +48,32 @@ def draw_leaky_box(window, left=10, top=10, size=20, gap_at=None):
     return layer
 
 
-def test_the_tool_is_offered_next_to_the_bucket(window):
+def test_the_closed_fill_tool_is_gone_and_falls_back_to_the_bucket(window):
     ids = [tool_id for tool_id, _label in toolpanel.TOOL_DEFINITIONS]
-    assert ids.index("closed_fill") == ids.index("bucket") + 1
-    assert toolpanel.tool_label("closed_fill") == "閉領域フィル"
-    assert "closed_fill" in window.tool_actions
+    assert "closed_fill" not in ids
+    assert "closed_fill" not in window.tool_actions
+    window.tools.select_tool("closed_fill")
+    assert window.tools.active_tool == "bucket"
+    assert window.canvas.tool == "bucket"
 
 
-def test_it_always_closes_gaps_whatever_the_bucket_is_set_to(window):
-    window.tools.bucket_close_gap.setChecked(False)
-    window.tools.bucket_island_fill.setChecked(True)
-
-    window.canvas.set_tool("bucket")
-    assert not window.canvas.bucket_options().close_gap
-
-    window.canvas.set_tool("closed_fill")
-    options = window.canvas.bucket_options()
-    assert options.close_gap
-    assert options.extend_lines
-    # 塗り残し拾いは必要以上に広がるので、こちらでは使わない。
-    assert options.island_max_width == 0
-
-
-def test_it_fills_a_box_that_leaks_through_a_one_dot_gap(window):
+def test_the_bucket_with_gap_closing_holds_a_one_dot_gap(window):
     draw_leaky_box(window, gap_at=7)
+    window.tools.bucket_close_gap.setChecked(True)
+    window.tools.bucket_extend_lines.setChecked(True)
+    window.tools.bucket_island_fill.setChecked(False)
     window.tools.bucket_gap_width.setValue(4)
     window.colors.apply_sampled_color_to_mode("main", QColor("#ff0000"))
 
-    window.canvas.set_tool("closed_fill")
+    window.canvas.set_tool("bucket")
     window.canvas.flood_fill(QPoint(20, 20))
 
     image = window.canvas.frames[0].layers[0].image
-    # 囲いの中は塗られ、外へはこぼれない。
     assert image.pixelColor(20, 20) == QColor("#ff0000")
-    assert image.pixelColor(2, 2) != QColor("#ff0000")
+    assert image.pixelColor(2, 2) != QColor("#ff0000"), "囲いの外へこぼれない"
 
 
-def test_the_bucket_leaks_through_the_same_gap_without_its_aids(window):
-    """道具を分けた理由：バケツは設定しだいでこぼれる。
-
-    閉領域フィルは同じ設定でもこぼれない（上のテスト）。
-    """
+def test_the_bucket_leaks_through_the_same_gap_without_gap_closing(window):
     draw_leaky_box(window, gap_at=7)
     window.tools.bucket_close_gap.setChecked(False)
     window.tools.bucket_extend_lines.setChecked(False)
@@ -99,18 +85,3 @@ def test_the_bucket_leaks_through_the_same_gap_without_its_aids(window):
 
     image = window.canvas.frames[0].layers[0].image
     assert image.pixelColor(2, 2) == QColor("#00ff00")
-
-
-def test_the_closed_fill_holds_the_same_gap(window):
-    draw_leaky_box(window, gap_at=7)
-    window.tools.bucket_close_gap.setChecked(False)
-    window.tools.bucket_extend_lines.setChecked(False)
-    window.tools.bucket_island_fill.setChecked(False)
-    window.colors.apply_sampled_color_to_mode("main", QColor("#0000ff"))
-
-    window.canvas.set_tool("closed_fill")
-    window.canvas.flood_fill(QPoint(20, 20))
-
-    image = window.canvas.frames[0].layers[0].image
-    assert image.pixelColor(20, 20) == QColor("#0000ff")
-    assert image.pixelColor(2, 2) != QColor("#0000ff")
