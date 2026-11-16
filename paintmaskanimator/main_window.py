@@ -1123,6 +1123,8 @@ class MainWindow(
             self, tr("再変換"),
             tr("元のファイル{count}枚から変換し直します。読み込んだあとに描き足した分は"
                "元に戻ります（Undo で戻せます）。続けますか？").format(count=len(paths)),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
         if answer != QMessageBox.StandardButton.Yes:
             return False
