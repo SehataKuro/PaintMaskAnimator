@@ -152,6 +152,21 @@ class ColorPanelHistoryMixin(UsedColorPanelMembers):
         self.selectedColorsChanged.emit(set(self.selected_rgbs))
         self.visibleColorsChanged.emit(self.enabled_rgb_set())
 
+    def restore_history_state_after_refresh(self, snapshot):
+        """次に使用色を数え直したとき（set_colors の最後）に、snapshot へ戻す。
+
+        統合や色置換を Undo すると、画像は戻っても消えた色の行はまだない。
+        数え直して行がそろってから、フォルダー・並び・親子を戻す。
+        """
+        self._pending_history_restore = snapshot
+
+    def _apply_pending_history_restore(self):
+        snapshot = getattr(self, "_pending_history_restore", None)
+        if snapshot is None:
+            return
+        self._pending_history_restore = None
+        self.restore_history_state(snapshot)
+
     def _record_history(self, label, before):
         """変更前後を比べ、意味のある差があればUndo履歴へ積む。"""
         if self._history_suspended or before is None:

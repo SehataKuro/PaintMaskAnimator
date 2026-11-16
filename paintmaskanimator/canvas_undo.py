@@ -27,6 +27,8 @@ from .undo_entries import (
     LayerTilesUndo,
     LayerUndo,
     PaletteStateUndo,
+    attach_palette_state,
+    palette_state_of,
     ScopedBatchUndo,
     history_label_for,
 )
@@ -413,9 +415,26 @@ class UndoMixin(CanvasMembers):
                 # タイムラインの削除・正規化後に残った、既に存在しない
                 # セルの古い履歴は安全に破棄する。
                 continue
+            self._carry_palette_state(entry, current)
             self.redo_stack.append(current)
             self.apply_undo_entry(entry)
+            self._restore_palette_state(entry)
             return
+
+    def _carry_palette_state(self, entry, opposite):
+        """反対側のエントリに、いまのパネル状態を持たせる（Redo/Undo で戻すため）。"""
+        if palette_state_of(entry) is None:
+            return
+        palette = getattr(self, "_palette", None)
+        if palette is not None:
+            attach_palette_state(opposite, palette.capture_history_state())
+
+    def _restore_palette_state(self, entry):
+        state = palette_state_of(entry)
+        palette = getattr(self, "_palette", None)
+        if state is not None and palette is not None:
+            # 画像から使用色を数え直したあとで、フォルダーや並びを戻す。
+            palette.restore_history_state_after_refresh(state)
 
     def redo(self):
         if self.transform_active and (not self.redo_stack or not isinstance(self.redo_stack[-1], TransformUndo)):
@@ -425,6 +444,8 @@ class UndoMixin(CanvasMembers):
             current = self.current_state_for(entry)
             if current is None:
                 continue
+            self._carry_palette_state(entry, current)
             self.undo_stack.append(current)
             self.apply_undo_entry(entry)
+            self._restore_palette_state(entry)
             return
