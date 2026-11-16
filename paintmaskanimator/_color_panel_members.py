@@ -74,6 +74,7 @@ class UsedColorPanelMembers(_MembersBase):
         _clear_mask_colors: Any
         _clear_replacement: Any
         _close_replacement_editor: Any
+        _emit_replacement_preview: Any
         clear_masks_button: Any
         _clear_rows: Any
         clear_categories: Any

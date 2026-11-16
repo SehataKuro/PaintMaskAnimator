@@ -147,6 +147,7 @@ class ColorPanelHistoryMixin(UsedColorPanelMembers):
 
         # キャンバス側へ最新状態を伝える。
         self._emit_preview()
+        self._emit_replacement_preview()
         self.maskColorsChanged.emit(set(self.mask_rgbs))
         self.selectedColorsChanged.emit(set(self.selected_rgbs))
         self.visibleColorsChanged.emit(self.enabled_rgb_set())

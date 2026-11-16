@@ -14,6 +14,7 @@ from PySide6.QtCore import QPoint, Qt, Signal
 from PySide6.QtGui import QColor, QCursor
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QGridLayout,
     QHBoxLayout,
     QInputDialog,
@@ -69,6 +70,8 @@ class UsedColorPanel(
     mergeColorsRequested = Signal(object, object)
     # 親子関係の更新時に旧色プレビューを解除する通知。
     previewGroupsChanged = Signal(object)
+    # 登録した置換色のプレビュー ``{元の RGB: 置換後の RGB}``（OFF なら空）。
+    replacementPreviewChanged = Signal(object)
     deleteColorsRequested = Signal(object)
     adjustLineThicknessRequested = Signal(object)
     # 使用色の色相・彩度・明度調整（Issue #22）。
@@ -326,6 +329,19 @@ class UsedColorPanel(
         )
         self.apply_button.setStyleSheet("font-size:11px;padding:1px;")
         self.apply_button.setFixedHeight(22)
+        # 登録した置換色を、適用する前にキャンバスで見る（表示だけ、非破壊）。
+        from . import config
+
+        self.replacement_preview_check = QCheckBox(tr("プレビュー"))
+        self.replacement_preview_check.setToolTip(tr(
+            "ON：登録した置換色で置き換えた見た目をキャンバスに表示します（画像は変えません）。"
+            "「色置換」を押すまで、実際の色は変わりません。"
+        ))
+        self.replacement_preview_check.setStyleSheet("font-size:11px;")
+        self.replacement_preview_check.setChecked(
+            bool(config.get_value(self.REPLACEMENT_PREVIEW_KEY, True))
+        )
+        self.replacement_preview_check.toggled.connect(self._replacement_preview_toggled)
 
         for column, button in enumerate((
             self.clear_selection_button,
@@ -341,7 +357,12 @@ class UsedColorPanel(
         self.merge_button.setMinimumWidth(0)
         action_buttons.addWidget(self.merge_button)
         button_row.addLayout(action_buttons, 0, 3)
-        button_row.addWidget(self.apply_button, 0, 4)
+        apply_buttons = QHBoxLayout()
+        apply_buttons.setContentsMargins(0, 0, 0, 0)
+        apply_buttons.setSpacing(4)
+        apply_buttons.addWidget(self.replacement_preview_check)
+        apply_buttons.addWidget(self.apply_button, 1)
+        button_row.addLayout(apply_buttons, 0, 4)
         layout.addLayout(button_row)
         self.visibleColorsChanged.connect(self._refresh_category_headers)
 
@@ -552,6 +573,31 @@ class UsedColorPanel(
             return
         self.replacements[source_rgb] = replacement
         self._set_replacement_button_style(source_rgb)
+        self._emit_replacement_preview()
+
+    # -- 置換色のプレビュー -------------------------------------------------
+    REPLACEMENT_PREVIEW_KEY = "used_color_replacement_preview"
+
+    def replacement_preview_enabled(self):
+        return bool(self.replacement_preview_check.isChecked())
+
+    def replacement_preview_mapping(self):
+        """プレビューに使う ``{元の RGB: 置換後の RGB}``（OFF なら空）。"""
+        if not self.replacement_preview_enabled():
+            return {}
+        return {
+            source: target for source, target in self.current_replacements().items()
+            if source in self.replacement_buttons and source != target
+        }
+
+    def _emit_replacement_preview(self):
+        self.replacementPreviewChanged.emit(self.replacement_preview_mapping())
+
+    def _replacement_preview_toggled(self, checked):
+        from . import config
+
+        config.set_value(self.REPLACEMENT_PREVIEW_KEY, bool(checked))
+        self._emit_replacement_preview()
 
     def _clear_replacement(self, source_rgb):
         if source_rgb == self.background_rgb:
@@ -560,6 +606,7 @@ class UsedColorPanel(
             self._close_replacement_editor()
         self.replacements.pop(source_rgb, None)
         self._set_replacement_button_style(source_rgb)
+        self._emit_replacement_preview()
 
     def clear_replacement(self, source_rgb):
         """1色の置換色を外す（Undo で戻せる）。外したら True。"""
@@ -1388,6 +1435,8 @@ class UsedColorPanel(
             self.selectedColorsChanged.emit(set(self.selected_rgbs))
         if palette_changed:
             self.visibleColorsChanged.emit(self.enabled_rgb_set())
+            # 消えた色の置換色は外れたので、プレビューも合わせる。
+            self._emit_replacement_preview()
 
     def add_color(self, color):
         """Add a newly drawn color immediately, before a whole-image scan."""
