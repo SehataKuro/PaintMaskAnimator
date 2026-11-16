@@ -245,7 +245,6 @@ TOOL_CURSOR_NAMES = (
     "bucket",
     "replace_color",
     "skewer_fill",
-    "closed_fill",
     "lasso_fill",
     "lasso",
     "rect_select",

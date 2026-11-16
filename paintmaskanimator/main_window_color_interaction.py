@@ -477,7 +477,7 @@ class ColorInteractionController:
 
     def select_background_color(self):
         if self.window.canvas.tool not in (
-            "brush", "bucket", "closed_fill", "line", "shape", "lasso_fill",
+            "brush", "bucket", "line", "shape", "lasso_fill",
             "replace_color", "skewer_fill",
         ):
             self.window.tools.select_tool(preferences.background_color_tool())

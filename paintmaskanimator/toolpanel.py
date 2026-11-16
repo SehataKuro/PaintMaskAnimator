@@ -35,7 +35,7 @@ from .widgets import (BrushSizeSpinBox, ClickableValueLabel, HSVColorWheel, Line
 #: language in. Use :func:`tool_label` wherever the name is displayed.
 TOOL_DEFINITIONS = [
     ("brush", "ブラシ"),
-    ("shape", "図形"), ("bucket", "バケツ"), ("closed_fill", "閉領域フィル"),
+    ("shape", "図形"), ("bucket", "バケツ"),
     ("lasso_fill", "投げ縄塗り"), ("replace_color", "色置換"), ("skewer_fill", "串刺し塗り"),
     ("lasso", "投げ縄選択"),
     ("rect_select", "長方形選択"), ("auto_select", "自動選択"),
@@ -46,9 +46,21 @@ TOOL_DEFINITIONS = [
 #: ツールの並びで1つのアイコンに重ねるツール。アイコンの左下に三角を付け、もう一度
 #: 押すか長押しすると中のツールを選べる。最初のツールが既定で表に出る。
 TOOL_GROUPS = (
-    ("fill", ("bucket", "closed_fill", "lasso_fill", "replace_color", "skewer_fill")),
+    ("fill", ("bucket", "lasso_fill", "skewer_fill")),
     ("select", ("lasso", "rect_select", "auto_select")),
 )
+
+
+def next_in_group(active_tool: str, pressed_tool: str) -> str:
+    """グループの先頭のツールのキーをもう一度押したときに選ぶツール。
+
+    ``pressed_tool`` がグループの先頭で、``active_tool`` が同じグループなら、グループの
+    中で次のツール（最後なら先頭）を返す。それ以外は ``pressed_tool`` のまま。
+    """
+    for _group, members in TOOL_GROUPS:
+        if pressed_tool == members[0] and active_tool in members:
+            return members[(members.index(active_tool) + 1) % len(members)]
+    return pressed_tool
 
 
 def tool_group_of(tool_id: str) -> str:
@@ -90,7 +102,6 @@ def tool_label(tool_id: str) -> str:
     labels = {
         "brush": tr("ブラシ"), "line": tr("ライン"),
         "shape": tr("図形"), "bucket": tr("バケツ"),
-        "closed_fill": tr("閉領域フィル"),
         "lasso_fill": tr("投げ縄塗り"), "lasso": tr("投げ縄選択"),
         "replace_color": tr("色置換"), "skewer_fill": tr("串刺し塗り"),
         "rect_select": tr("長方形選択"), "auto_select": tr("自動選択"),
@@ -1704,6 +1715,10 @@ class ToolPanel(QWidget):
         self._sync_shape_corner_controls()
 
     def select_tool(self, tid):
+        # 閉領域フィルはなくした（バケツの「隙間閉じ」「線の延長」で同じことができる）。
+        # 古い設定やショートカットから来たらバケツにする。
+        if tid == "closed_fill":
+            tid = "bucket"
         self.active_tool=tid
         self.active.setText(tool_label(tid))
         if tid == "shape" and self.shape_type.currentData() in ("straight", "curve"):
@@ -1717,9 +1732,8 @@ class ToolPanel(QWidget):
         )
         is_shape = is_shape_tool and not is_line
         # 閉領域フィルはバケツと同じ設定を使い、隙間閉じだけを常に効かせる。
-        is_closed_fill = tid == "closed_fill"
         # 串刺し塗りは、範囲が全コマになるだけのバケツ（設定も同じ）。
-        is_bucket = tid in ("bucket", "closed_fill", "skewer_fill")
+        is_bucket = tid in ("bucket", "skewer_fill")
         is_dust = tid == "dust"
         is_lasso_fill = tid == "lasso_fill"
         uses_size = tid == "brush" or is_line
@@ -1822,12 +1836,9 @@ class ToolPanel(QWidget):
         self.bucket_all_frames.setVisible(False)
         self.bucket_replace_color.setVisible(False)
         self.replace_color_note.setVisible(tid == "replace_color")
-        # 隙間閉じと塗り残し拾いは閉領域フィルでは常にこちらが決める。
-        self.bucket_close_gap.setVisible(is_bucket and not is_closed_fill)
-        self.bucket_island_fill_row.setVisible(
-            uses_bucket_region and not is_closed_fill
-        )
-        self.bucket_gap_width_title.setVisible(is_closed_fill)
+        self.bucket_close_gap.setVisible(is_bucket)
+        self.bucket_island_fill_row.setVisible(uses_bucket_region)
+        self.bucket_gap_width_title.setVisible(False)
 
         self.dust_mode_label.setVisible(is_dust)
         self.dust_mode.setVisible(is_dust)

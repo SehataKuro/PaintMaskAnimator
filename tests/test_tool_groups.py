@@ -30,22 +30,20 @@ def centre(panel, group):
 
 
 def test_grouped_tools_share_one_icon(panel):
-    assert set(panel.items) == {"brush", "shape", "fill", "select", "eyedropper", "dust"}
-    assert dict(TOOL_GROUPS)["fill"] == (
-        "bucket", "closed_fill", "lasso_fill", "replace_color", "skewer_fill"
-    )
+    assert set(panel.items) == {"brush", "shape", "fill", "replace_color", "select", "eyedropper", "dust"}
+    assert dict(TOOL_GROUPS)["fill"] == ("bucket", "lasso_fill", "skewer_fill")
     assert tool_group_of("rect_select") == "select" and tool_group_of("brush") == "brush"
 
 
 def test_selecting_a_member_shows_it_on_the_group_icon(panel):
     changed = []
     panel.toolChanged.connect(changed.append)
-    panel.select_tool("closed_fill")
-    panel.select_tool("replace_color")
-    assert changed == ["closed_fill", "replace_color"], "同じアイコンの中でも切り替わる"
+    panel.select_tool("lasso_fill")
+    panel.select_tool("skewer_fill")
+    assert changed == ["lasso_fill", "skewer_fill"], "同じアイコンの中でも切り替わる"
     item = panel.items["fill"]
-    assert item.data(Qt.ItemDataRole.UserRole) == "replace_color"
-    assert "色置換" in item.toolTip()
+    assert item.data(Qt.ItemDataRole.UserRole) == "skewer_fill"
+    assert "串刺し塗り" in item.toolTip()
 
 
 def test_clicking_another_group_brings_back_its_last_tool(panel):
@@ -64,7 +62,7 @@ def test_clicking_the_active_group_again_opens_its_menu(panel, monkeypatch):
 
     def choose(_panel, menu, *_args):
         opened.append([action.text() for action in menu.actions()])
-        return menu.actions()[1]  # 閉領域フィル
+        return menu.actions()[1]  # 投げ縄塗り
 
     monkeypatch.setattr(ToolSelectorPanel, "_exec_menu", choose)
     panel.select_tool("bucket")
@@ -72,8 +70,8 @@ def test_clicking_the_active_group_again_opens_its_menu(panel, monkeypatch):
                      centre(panel, "fill"))
     QApplication.processEvents()
     QApplication.processEvents()
-    assert opened and opened[0][:3] == ["バケツ", "閉領域フィル", "投げ縄塗り"]
-    assert panel.active_tool == "closed_fill"
+    assert opened and opened[0] == ["バケツ", "投げ縄塗り", "串刺し塗り"]
+    assert panel.active_tool == "lasso_fill"
 
 
 def test_first_click_on_a_group_does_not_open_the_menu(panel, monkeypatch):
@@ -176,3 +174,38 @@ def test_a_quick_second_click_also_opens_the_menu(panel, monkeypatch):
     QApplication.processEvents()
     QApplication.processEvents()
     assert opened == [True]
+
+
+def test_pressing_the_group_key_again_cycles_through_the_group():
+    from paintmaskanimator.toolpanel import next_in_group
+
+    assert next_in_group("brush", "bucket") == "bucket", "最初はバケツ"
+    assert next_in_group("bucket", "bucket") == "lasso_fill"
+    assert next_in_group("lasso_fill", "bucket") == "skewer_fill"
+    assert next_in_group("skewer_fill", "bucket") == "bucket", "最後から先頭へ戻る"
+    assert next_in_group("bucket", "lasso_fill") == "lasso_fill", "F は投げ縄塗りへ直接"
+    assert next_in_group("lasso", "lasso") == "rect_select"
+
+
+def test_the_g_key_cycles_in_the_app(window):
+    action = window.tool_actions["bucket"]
+    window.tools.select_tool("brush")
+    action.trigger()
+    assert window.tools.active_tool == "bucket"
+    action.trigger()
+    assert window.tools.active_tool == "lasso_fill"
+    action.trigger()
+    assert window.tools.active_tool == "skewer_fill"
+    action.trigger()
+    assert window.tools.active_tool == "bucket"
+
+
+def test_bucket_option_toggles_have_shortcut_actions(window):
+    for name, box in (
+        ("a_bucket_adjacent", window.tools.bucket_adjacent),
+        ("a_bucket_extend_lines", window.tools.bucket_extend_lines),
+        ("a_bucket_island_fill", window.tools.bucket_island_fill),
+    ):
+        before = box.isChecked()
+        getattr(window, name).trigger()
+        assert box.isChecked() is not before

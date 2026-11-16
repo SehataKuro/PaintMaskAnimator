@@ -524,6 +524,8 @@ class PaintCanvas(
         return None
 
     def set_tool(self, t):
+        if t == "closed_fill":
+            t = "bucket"  # 閉領域フィルはなくした（バケツの隙間閉じと同じ）
         if t != self.tool or t == "shape":
             self.abort_skewer_fill()
             self._stop_brush_follow_timer()
