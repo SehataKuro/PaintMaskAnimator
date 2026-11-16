@@ -28,8 +28,23 @@ from paintmaskanimator.undo_entries import history_label_for
 BASELINE = Path(__file__).with_name("p5_3_characterization_expected.json")
 
 
+_APP_VERSION_KEYS = ("created_app_version", "saved_app_version")
+APP_VERSION_PLACEHOLDER = "<app-version>"
+
+
+def _without_app_version(value):
+    """保存したアプリの版は毎リリース変わるので、比べる前に置き換える。"""
+    if isinstance(value, dict):
+        return {key: APP_VERSION_PLACEHOLDER if key in _APP_VERSION_KEYS else _without_app_version(item)
+                for key, item in value.items()}
+    if isinstance(value, list):
+        return [_without_app_version(item) for item in value]
+    return value
+
+
 def golden(key, actual):
-    assert actual == json.loads(BASELINE.read_text(encoding="utf-8"))[key]
+    expected = json.loads(BASELINE.read_text(encoding="utf-8"))[key]
+    assert _without_app_version(actual) == _without_app_version(expected)
 
 
 def image(color="transparent"):
