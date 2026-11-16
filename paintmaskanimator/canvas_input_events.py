@@ -215,6 +215,7 @@ class InputEventMixin(CanvasMembers):
         if (
             not self.inside(p)
             and t not in ("lasso", "lasso_fill", "rect_select")
+            and not (t == "dust" and self._line_tidy_stroke_active())
         ):
             return
         if t == "eyedropper":
@@ -276,6 +277,11 @@ class InputEventMixin(CanvasMembers):
             self.ensure_editable_key()
             self.drawing = True
             self.lasso = [p]
+        elif t == "dust" and self._line_tidy_stroke_active():
+            # 線整え：なぞった所（ブラシの帯か投げ縄の中）を離したときに整える。
+            self.drawing = True
+            self.line_tidy_stroke = [QPointF(p)]
+            self.update()
         elif t == "rect_select":
             self.ensure_editable_key()
             self.drawing = True
@@ -402,6 +408,9 @@ class InputEventMixin(CanvasMembers):
             # キャンバス外から開始／通過しても軌跡を保持する。
             self.lasso.append(QPointF(p))
             self.update()
+        elif t == "dust" and self.line_tidy_stroke:
+            self.line_tidy_stroke.append(QPointF(p))
+            self.update()
         elif t == "rect_select":
             # キャンバス外の座標も保持し、確定時に画像領域へクリップする。
             self.rect_end = QPointF(p)
@@ -516,6 +525,8 @@ class InputEventMixin(CanvasMembers):
             self.selection_mask_rect = None
             self.lasso = []
             self.selectionChanged.emit()
+        elif t == "dust" and self.line_tidy_stroke:
+            self._finish_line_tidy_stroke()
         elif t == "lasso_fill" and len(self.lasso) >= 3:
             polygon = list(self.lasso)
             self.lasso = []
