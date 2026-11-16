@@ -200,6 +200,127 @@ class AppDriver:
             self.window.project.open_dialog()
         self.process_events()
 
+    # -- 読み込み（#62 #63 #65 #80） ------------------------------------
+    @contextmanager
+    def answer_boxes(self, **answers):
+        """名前付きの QMessageBox（objectName）を、このブロックの間だけ決めたボタンで答える。
+
+        ``answers`` は ``{objectName: ボタンの文字}``。名前の無い箱や知らない名前の箱が
+        出たら、想定外の確認としてテストを失敗させる。
+        """
+        from PySide6.QtWidgets import QMessageBox
+
+        seen = []
+
+        def answer(box):
+            name = box.objectName()
+            seen.append(name)
+            label = answers.get(name)
+            if label is None:
+                raise AssertionError(f"予期しない確認: {name!r} / {box.text()!r}")
+            next(button for button in box.buttons() if button.text() == label).click()
+            return 0
+
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(QMessageBox, "exec", lambda box: answer(box))
+            yield seen
+
+    def import_images(self, paths, *, material="デジタル（TP）", report=None,
+                      keep_initial="保存しない", genga=False) -> None:
+        """メニューの「画像を読み込む」と同じ経路で連番を読み込む（素材の種類も答える）。"""
+        # 名前の無い箱は、読み込み後の「初期状態として保存しますか？」。
+        answers = {"importMaterialQuestion": material, "": keep_initial}
+        if report is not None:
+            answers["digitalAntialiasReport"] = report
+        with self.answer_boxes(**answers):
+            if genga:
+                self.window.import_genga([str(path) for path in paths])
+            else:
+                self.window.import_dropped_images([str(path) for path in paths])
+        self.process_events()
+
+    @property
+    def active_layer_index(self) -> int:
+        return int(self.canvas.active_layer_index)
+
+    def layer_rgba(self, frame: int, layer_index: int | None = None):
+        from paintmaskanimator import imaging
+
+        layer_index = self.active_layer_index if layer_index is None else layer_index
+        return imaging.qimage_rgba_array(self.canvas.frames[frame].layers[layer_index].image)
+
+    def layer_colours(self, frame: int, layer_index: int | None = None) -> set:
+        rgba = self.layer_rgba(frame, layer_index)
+        visible = rgba[:, :, 3] > 0
+        return {tuple(int(v) for v in rgb) for rgb in rgba[visible][:, :3]}
+
+    def reconvert_active_layer(self, *, material="デジタル（TP）", report="取り除いて読み込む") -> bool:
+        with self.answer_boxes(importMaterialQuestion=material, digitalAntialiasReport=report):
+            done = self.window.reconvert_layer_dialog()
+        self.process_events()
+        return bool(done)
+
+    # -- 色（#66 #67） -----------------------------------------------------
+    def click(self, canvas_point, modifiers=Qt.KeyboardModifier.NoModifier) -> None:
+        """キャンバスの1点を左クリックする（実イベント）。"""
+        point = self._widget_point(canvas_point)
+        QTest.mouseClick(self.canvas, Qt.MouseButton.LeftButton, modifiers, point)
+        self.process_events()
+
+    def set_bucket_replace_color(self, enabled: bool) -> None:
+        self.window.tools.bucket_replace_color.setChecked(bool(enabled))
+        self.process_events()
+
+    def set_replacement_color(self, source_rgb, color: QColor) -> None:
+        self.window.palette._pick_replacement_color(tuple(source_rgb), QColor(color))
+
+    def clear_replacement_color(self, source_rgb) -> bool:
+        return self.window.palette.clear_replacement(tuple(source_rgb))
+
+    def apply_replacements(self) -> None:
+        self.window.palette._emit_replacements()
+        self.process_events()
+
+    # -- 線整え（#64） -----------------------------------------------------
+    def tidy_lines(self, colours, *, diagonal="add", all_frames=False) -> bool:
+        return self.window.line_ops.tidy_lines(colours, all_frames=all_frames, diagonal=diagonal)
+
+    # -- 原画・オニオン・トゥイーン（#24 #60 #61） -------------------------
+    def visual_row(self, layer_index: int) -> int:
+        return len(self.canvas.layers) - 1 - int(layer_index)
+
+    def toggle_genga(self, layer_index: int, column: int) -> bool:
+        return self.window.timeline_ops.toggle_genga(self.visual_row(layer_index), column)
+
+    def insert_inbetweens(self, layer_index: int, column: int, count: int) -> bool:
+        return self.window.timeline_ops.insert_inbetweens(self.visual_row(layer_index), column, count)
+
+    def move_cell(self, layer_index: int, column: int, destination: int) -> None:
+        """タイムラインでセルをドラッグして動かすのと同じ操作（シート表示）。"""
+        self.canvas._ensure_frame_count(destination + 1)
+        row = self.visual_row(layer_index)
+        self.window.timeline_ops.move_cell(row, column, row, destination)
+        self.process_events()
+
+    def block_at(self, column: int, layer_index: int = 0):
+        return self.canvas.timeline_block_at(column, layer_index)
+
+    def set_onion(self, *, previous=1, following=1, enabled=True) -> None:
+        self.canvas.onion_skin = bool(enabled)
+        self.canvas.onion_previous_count = previous
+        self.canvas.onion_next_count = following
+        self.canvas.update()
+        self.process_events()
+
+    def set_view_flip(self, horizontal=False, vertical=False) -> None:
+        self.canvas.flip_horizontal = bool(horizontal)
+        self.canvas.flip_vertical = bool(vertical)
+        self.canvas.update()
+        self.process_events()
+
+    def set_transform_as_tween(self, enabled: bool) -> None:
+        self.window.tools.transform_as_tween.setChecked(bool(enabled))
+
     # ------------------------------------------------------------------
     # 観測
     # ------------------------------------------------------------------
