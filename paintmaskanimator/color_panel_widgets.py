@@ -7,13 +7,17 @@ drag-and-drop handling. ``UsedColorPanel`` composes these; they know nothing
 about the panel beyond the signals they emit.
 """
 from PySide6.QtCore import QByteArray, QPoint, QPointF, QRectF, QTimer, Qt, Signal
-from PySide6.QtGui import QColor, QCursor, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtGui import QColor, QCursor, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QHBoxLayout,
     QLabel,
+    QPushButton,
+    QStyle,
+    QStyleOptionButton,
     QToolButton,
+    QVBoxLayout,
     QWidget,
 )
 from . import icons, theme
@@ -36,6 +40,56 @@ log = get_logger(__name__)
 USED_COLOR_MIME = "application/x-pma-used-color"
 
 
+class FolderVisibilityButton(QToolButton):
+    """フォルダーの一括表示。全部表示＝薄い目、一部＝半分の目、全部非表示＝目に斜線。"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._state = Qt.CheckState.Checked
+        self.setAutoRaise(True)
+        self.setFixedSize(26, 22)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setStyleSheet("QToolButton{border:0;background:transparent;}")
+
+    def checkState(self):
+        return self._state
+
+    def setCheckState(self, state):
+        if state != self._state:
+            self._state = state
+            self.update()
+
+    def nextCheckState(self):
+        # 押したら、全部表示なら全部隠し、それ以外は全部表示にする。
+        self._state = (
+            Qt.CheckState.Unchecked if self._state == Qt.CheckState.Checked
+            else Qt.CheckState.Checked
+        )
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and self.rect().contains(
+            event.position().toPoint()
+        ):
+            self.nextCheckState()
+            self.update()
+            self.clicked.emit(self._state == Qt.CheckState.Checked)
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        colors = theme.palette()
+        hidden = self._state == Qt.CheckState.Unchecked
+        color = QColor(colors["accent"] if hidden else colors["text_muted"])
+        if self._state == Qt.CheckState.Checked:
+            painter.setOpacity(0.55)
+        elif self._state == Qt.CheckState.PartiallyChecked:
+            painter.setOpacity(0.85)
+        _draw_eye_icon(painter, self.rect(), color, not hidden)
+        painter.end()
+
+
 class ColorCategoryHeader(QWidget):
     """使用色カテゴリーの折りたたみ・表示・ドロップ用ヘッダー。"""
 
@@ -49,33 +103,48 @@ class ColorCategoryHeader(QWidget):
         self._name = str(name)
         self._drop_active = False
         self.setAcceptDrops(True)
-        self.setObjectName("usedColorCategoryHeader")
-        self.setMinimumHeight(32)
-        self.setStyleSheet(
-            "QWidget#usedColorCategoryHeader{"
-            "background-color:palette(midlight);"
-            "border:2px solid palette(mid);border-radius:4px;}"
-            "QWidget#usedColorCategoryHeader:hover{"
-            "border-color:palette(highlight);}"
-        )
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 2, 7, 2)
+        # フォルダーどうしの間は段落のように空け、見出しと中の色を同じ薄い面に置く。
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 8, 0, 0)
+        outer.setSpacing(0)
+        self.frame = QWidget(self)
+        self.frame.setObjectName("usedColorCategoryHeader")
+        self.frame.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        outer.addWidget(self.frame)
+        self.apply_theme()
+        layout = QHBoxLayout(self.frame)
+        layout.setContentsMargins(4, 1, 0, 1)
         layout.setSpacing(4)
-        self.collapse_button = QToolButton(self)
+        self.collapse_button = QToolButton(self.frame)
         self.collapse_button.setCheckable(True)
         self.collapse_button.setChecked(False)
+        self.collapse_button.setAutoRaise(True)
+        self.collapse_button.setFixedSize(18, 18)
         self.collapse_button.setText("▼")
+        self.collapse_button.setStyleSheet(
+            "QToolButton{border:0;font-size:8px;color:palette(placeholder-text);}"
+        )
         self.collapse_button.setToolTip(tr("フォルダーを折りたたむ"))
-        self.visibility_check = QCheckBox(self)
-        self.visibility_check.setTristate(True)
+        # フォルダーの一括表示は、行の「目」と同じ列に目のボタンで置く。
+        self.visibility_check = FolderVisibilityButton(self.frame)
         self.visibility_check.setToolTip(tr("フォルダー内の色を一括表示／非表示"))
-        self.name_label = QLabel(self._name, self)
-        self.name_label.setStyleSheet("font-weight:700;")
+        self.name_label = QLabel(self._name, self.frame)
+        self.name_label.setStyleSheet("font-size:11px;font-weight:600;")
         layout.addWidget(self.collapse_button)
-        layout.addWidget(self.visibility_check)
         layout.addWidget(self.name_label, 1)
+        layout.addWidget(self.visibility_check)
+        # 右の「保護」「選択」列のぶんを空けて、目を行の目の列にそろえる。
+        layout.addSpacing(26 * 2)
         self.collapse_button.toggled.connect(self._on_collapsed)
         self.visibility_check.clicked.connect(self.visibilityChanged.emit)
+
+    def apply_theme(self):
+        tint = theme.palette()["surface_alt"]
+        self.frame.setStyleSheet(
+            "QWidget#usedColorCategoryHeader{"
+            f"background-color:{tint};border:0;"
+            "border-top-left-radius:6px;border-top-right-radius:6px;}"
+        )
 
     def name(self):
         return self._name
@@ -387,18 +456,21 @@ class ColorVisibilityCheckBox(QCheckBox):
         self._sweeping = False
         self._consume_release = False
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFixedSize(30, 24)
+        self.setFixedSize(24, 22)
         self.setStyleSheet(
             "QCheckBox{background:transparent;border:none;padding:0px;}"
         )
 
     def paintEvent(self, event):
         painter = QPainter(self)
+        # 表示中は控えめな目、非表示にした色だけアクセント色の「目に斜線」で目立たせる。
         colors = theme.palette()
         color = QColor(
-            colors["text"] if self.isChecked() and self.isEnabled()
-            else colors["text_muted"]
+            colors["text_muted"] if self.isChecked() or not self.isEnabled()
+            else colors["accent"]
         )
+        if self.isChecked():
+            painter.setOpacity(0.55)
         _draw_eye_icon(painter, self.rect(), color, self.isChecked())
         painter.end()
 
@@ -459,27 +531,28 @@ class MaskColorCheckBox(QCheckBox):
         self._sweeping = False
         self._consume_release = False
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFixedSize(30, 24)
+        self.setFixedSize(24, 22)
         self.setStyleSheet("QCheckBox{background:transparent;border:none;padding:0;}")
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, False)
 
     def paintEvent(self, event):
-        # ON は塗りつぶした的、OFF は細い輪だけにして、状態を形と色の両方で示す。
+        # 描画対象 OFF＝「保護」。保護した色だけアクセント色の鍵で示し、
+        # 描画対象 ON（ふだんの状態）は薄い鍵にして目立たせない。
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        center = QPointF(self.rect().center()) + QPointF(0.5, 0.5)
-        if self.isChecked() and self.isEnabled():
-            accent = self.palette().highlight().color()
-            painter.setPen(QPen(accent, 1.6))
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawEllipse(center, 6.5, 6.5)
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(accent)
-            painter.drawEllipse(center, 3.5, 3.5)
-        else:
-            painter.setPen(QPen(self.palette().mid().color(), 1.4))
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawEllipse(center, 6.5, 6.5)
+        colors = theme.palette()
+        protected = not self.isChecked()
+        color = QColor(
+            colors["accent"] if protected and self.isEnabled()
+            else colors["text_muted"]
+        )
+        if not protected:
+            painter.setOpacity(0.4)
+        dpr = painter.device().devicePixelRatioF() if painter.device() else 1.0
+        pixmap = icons.pixmap("lock", 15, color.name(),
+                              device_pixel_ratio=dpr)
+        painter.drawPixmap(
+            int((self.width() - 15) / 2), int((self.height() - 15) / 2), pixmap
+        )
         painter.end()
 
     def nextCheckState(self):
@@ -536,7 +609,7 @@ def _draw_check_glyph(painter, rect, color, is_checked):
     size = min(rect.width(), rect.height())
     box = QRectF(0, 0, size, size)
     box.moveCenter(QPointF(rect.center()))
-    box.adjust(6.0, 6.0, -6.0, -6.0)
+    box.adjust(5.0, 5.0, -5.0, -5.0)
 
     if is_checked:
         painter.setPen(Qt.PenStyle.NoPen)
@@ -575,7 +648,7 @@ class ColorSelectionCheckBox(QCheckBox):
         self._sweeping = False
         self._consume_release = False
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFixedSize(30, 24)
+        self.setFixedSize(24, 22)
         self.setStyleSheet(
             "QCheckBox{background:transparent;border:none;padding:0px;}"
         )
@@ -638,8 +711,8 @@ class CheckClickArea(QWidget):
         super().__init__(parent)
         self.checkbox = checkbox
         self._sweeping = False
-        self.setFixedWidth(32)
-        self.setFixedHeight(26)
+        self.setFixedWidth(26)
+        self.setFixedHeight(24)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setStyleSheet(
             "CheckClickArea{background:transparent;border:none;}"
@@ -700,6 +773,7 @@ class ColorSelectionArea(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._selected = False
+        self._last = False
         self._selection_frame_enabled = False
         # 親子グループを示す左端の縦ライン色（None＝グループなし）。
         self._group_line_color = None
@@ -726,11 +800,17 @@ class ColorSelectionArea(QWidget):
             return "after"
         return "child"
 
-    def setSelected(self, selected):
-        """選択状態を、色に依存しない単一アクセント枠で表す。"""
+    def setSelected(self, selected, last=False):
+        """選択中は薄いアクセント色の面、最後に選んだ色だけ太い枠で囲む。"""
         selected = bool(selected)
-        changed = self._selected != selected or not self._selection_frame_enabled
+        last = bool(last) and selected
+        changed = (
+            self._selected != selected
+            or self._last != last
+            or not self._selection_frame_enabled
+        )
         self._selected = selected
+        self._last = last
         self._selection_frame_enabled = True
         if changed:
             self.update()
@@ -766,16 +846,22 @@ class ColorSelectionArea(QWidget):
             painter.setBrush(self._group_line_color)
             painter.drawRoundedRect(QRectF(1.0, 1.0, 3.0, self.height() - 2.0), 1.5, 1.5)
 
-        # 選択は親子で色分けせず、テーマのアクセント色による細い角丸枠に統一。
+        # 選択中の行は薄いアクセント面。統合先になる「最後に選んだ色」だけ枠で囲む。
         if self._selection_frame_enabled and self._selected:
             accent = self.palette().highlight().color()
-            pen = QPen(accent)
-            pen.setWidthF(2.0)
-            painter.setPen(pen)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRoundedRect(
-                QRectF(self.rect()).adjusted(1.5, 1.5, -1.5, -1.5), 4.0, 4.0
-            )
+            fill = QColor(accent)
+            fill.setAlpha(46)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(fill)
+            painter.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), 5.0, 5.0)
+            if self._last:
+                pen = QPen(accent)
+                pen.setWidthF(2.0)
+                painter.setPen(pen)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawRoundedRect(
+                    QRectF(self.rect()).adjusted(1.0, 1.0, -1.0, -1.0), 5.0, 5.0
+                )
 
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
         if self._drop_mode == "child":
@@ -936,3 +1022,127 @@ class ColorSelectionArea(QWidget):
     def contextMenuEvent(self, event):
         self.contextMenuRequested.emit(event.globalPos())
         event.accept()
+
+
+class UsedColorModeSwitch(QWidget):
+    """パネル左上の「通常｜置き換え」切り替え。置き換え側はアクセント色で示す。"""
+
+    modeChanged = Signal(bool)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("usedColorModeSwitch")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(2, 2, 2, 2)
+        layout.setSpacing(2)
+        self.normal_button = QToolButton(self)
+        self.normal_button.setText(tr("通常"))
+        self.normal_button.setToolTip(tr("使用色の表示・保護・選択を扱います。"))
+        self.replace_button = QToolButton(self)
+        self.replace_button.setText(tr("置き換え"))
+        self.replace_button.setToolTip(
+            tr("色ごとに置き換え後の色を決め、全コマをまとめて置き換えます。")
+        )
+        for button in (self.normal_button, self.replace_button):
+            button.setCheckable(True)
+            button.setAutoExclusive(True)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            layout.addWidget(button)
+        self.normal_button.setChecked(True)
+        self.replace_button.toggled.connect(self.modeChanged.emit)
+        self.apply_theme()
+
+    def isReplaceMode(self):
+        return self.replace_button.isChecked()
+
+    def setReplaceMode(self, replace):
+        (self.replace_button if replace else self.normal_button).setChecked(True)
+
+    def apply_theme(self):
+        c = theme.palette()
+        self.setStyleSheet(
+            "QWidget#usedColorModeSwitch{"
+            f"background:{c['surface_alt']};border:1px solid {c['border']};"
+            "border-radius:6px;}"
+            "QToolButton{border:0;border-radius:4px;padding:2px 9px;"
+            f"font-size:11px;color:{c['text_muted']};background:transparent;}}"
+            f"QToolButton:hover{{color:{c['text']};}}"
+            "QToolButton:checked{"
+            f"background:{c['surface']};color:{c['text']};font-weight:600;}}"
+            "QToolButton#replaceModeButton:checked{"
+            f"background:{c['accent']};color:{c['accent_text']};}}"
+        )
+        self.replace_button.setObjectName("replaceModeButton")
+
+
+class MergeButton(QPushButton):
+    """「統合 → ■ 統合先のコード」を描くボタン。text() は常に「統合」。"""
+
+    def __init__(self, text, parent=None):
+        super().__init__(text, parent)
+        self._target = None
+
+    def setTarget(self, rgb):
+        rgb = tuple(rgb) if rgb is not None else None
+        if rgb != self._target:
+            self._target = rgb
+            self.updateGeometry()
+            self.update()
+
+    def target(self):
+        return self._target
+
+    def sizeHint(self):
+        hint = super().sizeHint()
+        if self._target is not None:
+            hint.setWidth(hint.width() + 78)
+        return hint
+
+    def paintEvent(self, event):
+        if self._target is None:
+            super().paintEvent(event)
+            return
+        painter = QPainter(self)
+        option = QStyleOptionButton()
+        self.initStyleOption(option)
+        option.text = ""
+        option.icon = QIcon()
+        self.style().drawControl(QStyle.ControlElement.CE_PushButton, option, painter, self)
+        rect = self.contentsRect().adjusted(8, 0, -8, 0)
+        metrics = self.fontMetrics()
+        text_color = self.palette().buttonText().color()
+        if not self.isEnabled():
+            text_color = self.palette().color(
+                self.palette().ColorGroup.Disabled, self.palette().ColorRole.ButtonText
+            )
+        x = rect.left()
+        icon_size = 14
+        if not self.icon().isNull():
+            self.icon().paint(
+                painter, x, rect.center().y() - icon_size // 2, icon_size, icon_size
+            )
+            x += icon_size + 4
+        painter.setPen(text_color)
+        label = self.text() + "  →"
+        painter.drawText(
+            x, rect.top(), metrics.horizontalAdvance(label) + 2, rect.height(),
+            Qt.AlignmentFlag.AlignVCenter, label,
+        )
+        x += metrics.horizontalAdvance(label) + 6
+        swatch = QRectF(x, rect.center().y() - 6, 12, 12)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setPen(QPen(QColor(0, 0, 0, 60), 1))
+        painter.setBrush(QColor(*self._target))
+        painter.drawRoundedRect(swatch, 3, 3)
+        x += 16
+        code = "{:02X}{:02X}{:02X}".format(*self._target)
+        mono = self.font()
+        mono.setFamilies(["Consolas", "Menlo", "monospace"])
+        painter.setFont(mono)
+        painter.setPen(text_color)
+        painter.drawText(
+            int(x), rect.top(), rect.right() - int(x), rect.height(),
+            Qt.AlignmentFlag.AlignVCenter, code,
+        )
+        painter.end()

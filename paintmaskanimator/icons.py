@@ -158,6 +158,20 @@ _PATHS = {
         'M6.6 6.7C3.9 8.4 2.5 12 2.5 12S6 18.5 12 18.5a8.7 8.7 0 0 0 5.4-1.8"/>'
         '<path d="m3.5 3.5 17 17"/>'
     ),
+    "lock": (
+        '<rect x="5.5" y="10.5" width="13" height="9.5" rx="2"/>'
+        '<path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/>'
+    ),
+    "merge": (
+        '<path d="M6.5 4.5v3a5.5 5.5 0 0 0 5.5 5.5 5.5 5.5 0 0 0 5.5-5.5v-3"/>'
+        '<path d="M12 13v6.5"/>'
+    ),
+    "color_wheel": (
+        '<circle cx="12" cy="12" r="8"/>'
+        '<circle cx="12" cy="7.8" r="1.6" fill="currentColor"/>'
+        '<circle cx="15.8" cy="13.6" r="1.6" fill="currentColor"/>'
+        '<circle cx="8.2" cy="13.6" r="1.6" fill="currentColor"/>'
+    ),
     "draft": (
         '<path d="M15.5 4.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/>'
         '<path d="M13.5 6.5l3 3"/>'

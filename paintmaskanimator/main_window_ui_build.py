@@ -999,6 +999,7 @@ class UIBuildMixin(MainWindowMembers):
             self.action_panel_dock: self._build_action_panel_menu,
             self.color_wheel_dock: self._build_color_wheel_menu,
             self.color_slider_dock: self._build_color_slider_menu,
+            self.palette_dock: self.palette.build_panel_menu,
         }
         for dock in (
             self.tool_selector_dock,
@@ -1362,6 +1363,7 @@ class UIBuildMixin(MainWindowMembers):
             self.used_color.load_replacement_set
         )
         self.palette.previewGroupsChanged.connect(self.colors.set_preview_color_groups)
+        self.palette.replacementPreviewChanged.connect(self.colors.set_replacement_preview)
         self.palette.mergeColorsRequested.connect(self.used_color.apply_palette_merge)
         self.palette.deleteColorsRequested.connect(
             self.used_color.apply_palette_delete
