@@ -3601,7 +3601,7 @@ Nothing was applied.</translation>
         <location filename="../preferences_dialog.py" line="180"/>
         <location filename="../toolpanel.py" line="103"/>
         <source>ブラシ</source>
-        <extracomment>(tool id, source label). The id is the stable value everything branches on. The label is *not* translated here: this runs at import time, before the translator is installed, so a ``tr()`` at module level would freeze the source language in. Use :func:`tool_label` wherever the name is displayed. ツールの並びで1つのアイコンに重ねるツール。アイコンの左下に三角を付け、もう一度 押すか長押しすると中のツールを選べる。最初のツールが既定で表に出る。</extracomment>
+        <extracomment>(tool id, source label). The id is the stable value everything branches on. The label is *not* translated here: this runs at import time, before the translator is installed, so a ``tr()`` at module level would freeze the source language in. Use :func:`tool_label` wherever the name is displayed. ツールの並びで1つのアイコンに重ねるツール。アイコンの右下に三角を付け、もう一度 押すか長押しすると中のツールを選べる。最初のツールが既定で表に出る。</extracomment>
         <translation>Brush</translation>
     </message>
     <message>
