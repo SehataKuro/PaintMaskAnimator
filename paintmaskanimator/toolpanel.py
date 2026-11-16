@@ -43,7 +43,7 @@ TOOL_DEFINITIONS = [
 ]
 
 
-#: ツールの並びで1つのアイコンに重ねるツール。アイコンの左下に三角を付け、もう一度
+#: ツールの並びで1つのアイコンに重ねるツール。アイコンの右下に三角を付け、もう一度
 #: 押すか長押しすると中のツールを選べる。最初のツールが既定で表に出る。
 TOOL_GROUPS = (
     ("fill", ("bucket", "lasso_fill", "skewer_fill")),
@@ -72,7 +72,7 @@ def tool_group_of(tool_id: str) -> str:
 
 
 def _grouped_tool_icon(tool_id):
-    """グループのアイコン：表に出ているツールのアイコンに、左下の小さな三角を重ねる。"""
+    """グループのアイコン：表に出ているツールのアイコンに、右下の小さな三角を重ねる。"""
     from PySide6.QtGui import QIcon, QPainter, QPolygonF
     from PySide6.QtCore import QPointF
 
@@ -86,7 +86,7 @@ def _grouped_tool_icon(tool_id):
         painter.setBrush(QColor(theme.palette()["text"]))
         mark = size * 0.28
         painter.drawPolygon(QPolygonF([
-            QPointF(0, size), QPointF(mark, size), QPointF(0, size - mark),
+            QPointF(size, size), QPointF(size - mark, size), QPointF(size, size - mark),
         ]))
         painter.end()
         result.addPixmap(pixmap)
