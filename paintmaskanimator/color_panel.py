@@ -1657,6 +1657,8 @@ class UsedColorPanel(
             self.visibleColorsChanged.emit(self.enabled_rgb_set())
             # 消えた色の置換色は外れたので、プレビューも合わせる。
             self._emit_replacement_preview()
+        # 統合・色置換の Undo/Redo なら、行がそろったここでフォルダーなどを戻す。
+        self._apply_pending_history_restore()
 
     def add_color(self, color):
         """Add a newly drawn color immediately, before a whole-image scan."""

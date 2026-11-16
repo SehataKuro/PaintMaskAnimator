@@ -38,6 +38,11 @@ class UndoEntry:
     #: Label shown in the history panel. Subclasses override.
     HISTORY_LABEL = "編集"
 
+    # 統合や色置換のように、画像と一緒に使用色パネルの整理（フォルダー・並び・
+    # 親子）も変える操作では、エントリに ``palette_state`` 属性を後から付けて、
+    # Undo/Redo で画像と一緒に戻す（canvas_undo の _carry/_restore_palette_state）。
+    # dataclass のフィールドにすると子クラスの引数の順が崩れるので、属性で持つ。
+
     @property
     def history_label(self) -> str:
         return self.HISTORY_LABEL
@@ -269,6 +274,18 @@ class PaletteStateUndo(UndoEntry):
     @property
     def history_label(self) -> str:
         return self.label or "パレット編集"
+
+
+_PALETTE_STATE = "palette_state"
+
+
+def attach_palette_state(entry, state) -> None:
+    """エントリに使用色パネルの状態を付ける（Undo/Redo で画像と一緒に戻す）。"""
+    setattr(entry, _PALETTE_STATE, state)
+
+
+def palette_state_of(entry) -> Any:
+    return getattr(entry, _PALETTE_STATE, None)
 
 
 def history_label_for(entry) -> str:
