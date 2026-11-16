@@ -124,3 +124,29 @@ def test_panel_menu_holds_the_bulk_actions(panel):
         "置換色を保存…", "置換色を読み込む…", "置換色をすべて外す",
     ):
         assert expected in texts
+
+
+def test_replace_tools_wrap_to_two_rows_when_the_panel_is_narrow(panel, qapp):
+    panel.set_replace_mode(True)
+    panel.resize(900, 500)
+    panel.show()
+    qapp.processEvents()
+    assert panel._replace_tool_columns == 4
+    panel.setMinimumWidth(0)
+    panel.resize(200, 500)
+    qapp.processEvents()
+    assert panel._replace_tool_columns == 2
+    # 文字が切れないよう、どのボタンも最小幅は文字の幅以上。
+    for button in panel._replace_tool_buttons:
+        assert button.minimumWidth() >= button.sizeHint().width()
+
+
+def test_folder_eye_is_plain_when_empty_and_hidden_in_replace_mode(panel):
+    name = panel.create_category("線", record_history=False)
+    header = panel.category_widgets[name]
+    assert header.visibility_check.checkState() == Qt.CheckState.Checked
+
+    panel.set_replace_mode(True)
+    assert not header.visibility_check.isVisibleTo(panel)
+    panel.set_replace_mode(False)
+    assert header.visibility_check.isVisibleTo(panel)

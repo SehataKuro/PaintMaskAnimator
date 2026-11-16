@@ -171,7 +171,8 @@ class ColorCategoryHeader(QWidget):
 
     def setVisibilityState(self, values):
         states = [bool(value) for value in values]
-        if states and all(states):
+        # 空のフォルダーは「隠している色なし」として、ふつうの目にする。
+        if all(states):
             state = Qt.CheckState.Checked
         elif states and any(states):
             state = Qt.CheckState.PartiallyChecked

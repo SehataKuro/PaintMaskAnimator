@@ -14,6 +14,7 @@ from PySide6.QtCore import QPoint, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QCursor
 from PySide6.QtWidgets import (
     QApplication,
+    QGridLayout,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -238,9 +239,12 @@ class UsedColorPanel(
         layout.addWidget(self.normal_toolbar)
 
         self.replace_toolbar = QWidget()
-        replace_tools = QHBoxLayout(self.replace_toolbar)
-        replace_tools.setContentsMargins(2, 0, 2, 0)
-        replace_tools.setSpacing(4)
+        # 幅が足りないときは2段に折り返す（文字が切れないように）。
+        self._replace_tools_layout = QGridLayout(self.replace_toolbar)
+        self._replace_tools_layout.setContentsMargins(2, 0, 2, 0)
+        self._replace_tools_layout.setHorizontalSpacing(4)
+        self._replace_tools_layout.setVerticalSpacing(4)
+        self._replace_tool_columns = 0
         self.replace_from_main_button = self._make_tool_button(
             "draft", tr("描画色"),
             tr("選んだ色の置き換え後の色を、今の描画色にします。"),
@@ -261,12 +265,11 @@ class UsedColorPanel(
             tr("選んだ色の置き換えをやめます。"),
             self._clear_selected_replacements,
         )
-        for button in (
+        self._replace_tool_buttons = (
             self.replace_from_main_button, self.replace_eyedrop_button,
             self.replace_picker_button, self.replace_clear_button,
-        ):
-            replace_tools.addWidget(button)
-        replace_tools.addStretch(1)
+        )
+        self._relayout_replace_tools(4)
         layout.addWidget(self.replace_toolbar)
 
         self.scroll: QScrollArea = QScrollArea()
@@ -347,6 +350,12 @@ class UsedColorPanel(
             "QToolButton{border:0;border-radius:5px;}"
             f"QToolButton:checked{{background:{c['selection']};}}"
         )
+        # 文字が切れないよう、見た目を決めてから最小幅をそろえる。
+        for button in self._replace_tool_buttons:
+            button.setMinimumWidth(0)
+            button.setMinimumWidth(button.sizeHint().width())
+        self._replace_tool_columns = 0
+        self._fit_replace_tools()
         self.apply_button.setIcon(icons.icon("success", color=c["accent_text"]))
         self.apply_button.setStyleSheet(
             "QPushButton#replaceApplyButton{font-size:12px;font-weight:600;"
@@ -355,6 +364,32 @@ class UsedColorPanel(
         )
         for rgb in list(self.row_widgets):
             self._set_source_button_style(rgb)
+
+    def _relayout_replace_tools(self, columns):
+        """置き換えのボタンを ``columns`` 列に並べ直す（4 か 2）。"""
+        if columns == self._replace_tool_columns:
+            return
+        self._replace_tool_columns = columns
+        layout = self._replace_tools_layout
+        for button in self._replace_tool_buttons:
+            layout.removeWidget(button)
+        for index, button in enumerate(self._replace_tool_buttons):
+            layout.addWidget(button, index // columns, index % columns)
+        for column in range(4):
+            layout.setColumnStretch(column, 1 if column < columns else 0)
+
+    def _fit_replace_tools(self):
+        if not getattr(self, "_replace_tool_buttons", None):
+            return
+        spacing = self._replace_tools_layout.horizontalSpacing()
+        needed = sum(
+            button.sizeHint().width() for button in self._replace_tool_buttons
+        ) + spacing * 3 + 4
+        self._relayout_replace_tools(4 if self.width() - 6 >= needed else 2)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._fit_replace_tools()
 
     def _make_tool_button(self, icon_name, text, tooltip, slot):
         button = QPushButton(text)
@@ -381,7 +416,9 @@ class UsedColorPanel(
         self.replacement_preview_check.setVisible(replace)
         for rgb in list(self.row_widgets):
             self._apply_row_mode(rgb)
+        self._refresh_category_headers()
         self._refresh_replace_tool_buttons()
+        self._fit_replace_tools()
         if not replace:
             self._close_replacement_editor()
         if changed:
@@ -915,6 +952,8 @@ class UsedColorPanel(
             header.name_label.setText(
                 tr("{name}　{len}").format(name=name, len=len(members))
             )
+            # 置き換えモードでは表示を触れないので、フォルダーの目も出さない。
+            header.visibility_check.setVisible(not self.replace_mode)
             header.setToolTip(
                 tr("フォルダーへ色をドラッグして格納できます。"
                 "右クリックで名前変更・削除ができます。")
