@@ -635,11 +635,15 @@ class PaintToolsMixin(CanvasMembers):
         return None
 
     def _bucket_all_frames_enabled(self):
+        if self.effective_tool() == "skewer_fill":
+            return True
         tools = self._bucket_tools()
         checkbox = getattr(tools, "bucket_all_frames", None)
         return bool(checkbox is not None and checkbox.isChecked())
 
     def _bucket_replace_color_enabled(self):
+        if self.effective_tool() == "replace_color":
+            return True
         tools = self._bucket_tools()
         checkbox = getattr(tools, "bucket_replace_color", None)
         return bool(checkbox is not None and checkbox.isChecked())

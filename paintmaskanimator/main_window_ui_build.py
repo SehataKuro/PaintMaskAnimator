@@ -345,11 +345,15 @@ class UIBuildMixin(MainWindowMembers):
         )
         self.a_bucket_all_frames = self.make_shortcut_action(
             tr("バケツ：串刺し塗り ON/OFF"),
-            lambda: self.tools.bucket_all_frames.toggle()
+            lambda: self.tools.select_tool(
+                "bucket" if self.tools.active_tool == "skewer_fill" else "skewer_fill"
+            )
         )
         self.a_bucket_replace_color = self.make_shortcut_action(
             tr("バケツ：色置換 ON/OFF"),
-            lambda: self.tools.bucket_replace_color.toggle()
+            lambda: self.tools.select_tool(
+                "bucket" if self.tools.active_tool == "replace_color" else "replace_color"
+            )
         )
         self.a_dust_all_frames = self.make_shortcut_action(
             tr("ゴミ取り：すべてのコマ ON/OFF"),

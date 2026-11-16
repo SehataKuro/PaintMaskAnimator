@@ -1,4 +1,4 @@
-from PySide6.QtCore import QPoint, QSize, QTimer, Qt, Signal
+from PySide6.QtCore import QEvent, QPoint, QSize, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -36,10 +36,49 @@ from .widgets import (BrushSizeSpinBox, ClickableValueLabel, HSVColorWheel, Line
 TOOL_DEFINITIONS = [
     ("brush", "ブラシ"),
     ("shape", "図形"), ("bucket", "バケツ"), ("closed_fill", "閉領域フィル"),
-    ("lasso_fill", "投げ縄塗り"), ("lasso", "投げ縄選択"),
+    ("lasso_fill", "投げ縄塗り"), ("replace_color", "色置換"), ("skewer_fill", "串刺し塗り"),
+    ("lasso", "投げ縄選択"),
     ("rect_select", "長方形選択"), ("auto_select", "自動選択"),
     ("eyedropper", "スポイト"), ("dust", "ゴミ取り"),
 ]
+
+
+#: ツールの並びで1つのアイコンに重ねるツール。アイコンの左下に三角を付け、もう一度
+#: 押すか長押しすると中のツールを選べる。最初のツールが既定で表に出る。
+TOOL_GROUPS = (
+    ("fill", ("bucket", "closed_fill", "lasso_fill", "replace_color", "skewer_fill")),
+    ("select", ("lasso", "rect_select", "auto_select")),
+)
+
+
+def tool_group_of(tool_id: str) -> str:
+    """``tool_id`` が入っているグループの名前。グループに入っていなければ ``tool_id``。"""
+    for group, members in TOOL_GROUPS:
+        if tool_id in members:
+            return group
+    return tool_id
+
+
+def _grouped_tool_icon(tool_id):
+    """グループのアイコン：表に出ているツールのアイコンに、左下の小さな三角を重ねる。"""
+    from PySide6.QtGui import QIcon, QPainter, QPolygonF
+    from PySide6.QtCore import QPointF
+
+    base = _tool_icon(tool_id)
+    result = QIcon()
+    for size in (16, 20, 24, 32, 40, 48):
+        pixmap = base.pixmap(size, size)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(theme.palette()["text"]))
+        mark = size * 0.28
+        painter.drawPolygon(QPolygonF([
+            QPointF(0, size), QPointF(mark, size), QPointF(0, size - mark),
+        ]))
+        painter.end()
+        result.addPixmap(pixmap)
+    return result
 
 
 def tool_label(tool_id: str) -> str:
@@ -53,6 +92,7 @@ def tool_label(tool_id: str) -> str:
         "shape": tr("図形"), "bucket": tr("バケツ"),
         "closed_fill": tr("閉領域フィル"),
         "lasso_fill": tr("投げ縄塗り"), "lasso": tr("投げ縄選択"),
+        "replace_color": tr("色置換"), "skewer_fill": tr("串刺し塗り"),
         "rect_select": tr("長方形選択"), "auto_select": tr("自動選択"),
         "eyedropper": tr("スポイト"), "dust": tr("ゴミ取り"),
     }
@@ -183,6 +223,10 @@ class ToolSelectorPanel(QWidget):
 
     CELL_SIZE = 30
     ICON_SIZE = 20
+    #: アイコンのグループ名（単独のツールはツール名）。
+    GROUP_ROLE = Qt.ItemDataRole.UserRole + 1
+    #: 長押しでグループのメニューを開くまでの時間（ms）。
+    LONG_PRESS_MS = 450
     PANEL_MARGIN = 2
     # QListView's wrapping check is strict at an exact N * gridSize boundary.
     # One shared pixel (not one per cell) keeps the final cell on the row.
@@ -244,33 +288,126 @@ class ToolSelectorPanel(QWidget):
         swatch_row.addWidget(self.color_swatch)
         swatch_row.addStretch(1)
         layout.addWidget(self._swatch_holder)
+        # グループごとに表に出ているツール。最後に選んだものを覚えておく。
+        self.group_members = {group: members for group, members in TOOL_GROUPS}
+        self.group_current = {group: members[0] for group, members in TOOL_GROUPS}
         for tool_id, _source_label in self.TOOLS:
-            label = tool_label(tool_id)
-            item = QListWidgetItem(_tool_icon(tool_id), "")
-            item.setData(Qt.ItemDataRole.UserRole, tool_id)
-            item.setData(Qt.ItemDataRole.ToolTipRole, label)
-            item.setData(Qt.ItemDataRole.AccessibleTextRole, label)
+            group = tool_group_of(tool_id)
+            if group in self.items:
+                continue
+            item = QListWidgetItem(QIcon(), "")
+            item.setData(self.GROUP_ROLE, group)
             item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.list.addItem(item)
-            self.items[tool_id] = item
+            self.items[group] = item
+            self._show_member(group, self.group_current.get(group, tool_id))
         self.list.currentItemChanged.connect(self._current_item_changed)
+        # 同じアイコンをもう一度押す・長押しすると、グループの中のツールを選べる。
+        self._press_group = None
+        self._press_was_active = False
+        self._long_press = QTimer(self)
+        self._long_press.setSingleShot(True)
+        self._long_press.setInterval(self.LONG_PRESS_MS)
+        self._long_press.timeout.connect(self._long_press_fired)
+        self.list.viewport().installEventFilter(self)
         # InternalMove drag-reorder recreates QListWidgetItems on drop, so the
         # references in self.items go stale. Rebuild the map when rows change.
         self.list.model().rowsInserted.connect(self._rebuild_item_map)
         self.set_active_tool("brush")
         self._resize_swatch_to_columns()
 
+    def _show_member(self, group, tool_id):
+        """グループのアイコンに ``tool_id`` を表に出す。"""
+        item = self.items.get(group)
+        if item is None:
+            return
+        if group in self.group_members:
+            self.group_current[group] = tool_id
+            item.setIcon(_grouped_tool_icon(tool_id))
+            names = "、".join(tool_label(member) for member in self.group_members[group])
+            tip = tr("{tool}\n（もう一度押すか長押しで切り替え：{names}）").format(
+                tool=tool_label(tool_id), names=names,
+            )
+        else:
+            item.setIcon(_tool_icon(tool_id))
+            tip = tool_label(tool_id)
+        item.setData(Qt.ItemDataRole.UserRole, tool_id)
+        item.setData(Qt.ItemDataRole.ToolTipRole, tip)
+        item.setData(Qt.ItemDataRole.AccessibleTextRole, tool_label(tool_id))
+
+    def show_group_menu(self, group, position=None):
+        """グループの中のツールを並べたメニューを開く。選ばれたツール名を返す。"""
+        members = self.group_members.get(group)
+        if not members:
+            return None
+        menu = QMenu(self)
+        menu.setObjectName("toolGroupMenu")
+        actions = {}
+        for tool_id in members:
+            action = menu.addAction(_tool_icon(tool_id), tool_label(tool_id))
+            action.setCheckable(True)
+            action.setChecked(tool_id == self.active_tool)
+            actions[action] = tool_id
+        if position is None:
+            rect = self.list.visualItemRect(self.items[group])
+            position = self.list.viewport().mapToGlobal(rect.topRight())
+        chosen = self._exec_menu(menu, position)
+        tool_id = actions.get(chosen)
+        if tool_id is not None:
+            self.select_tool(tool_id)
+        return tool_id
+
+    def _exec_menu(self, menu, position):
+        """メニューを開いて選ばれた項目を返す（テストで差し替えられるように分けておく）。"""
+        return menu.exec(position)
+
+    def eventFilter(self, watched, event):
+        if watched is self.list.viewport():
+            kind = event.type()
+            if kind == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+                item = self.list.itemAt(event.position().toPoint())
+                group = item.data(self.GROUP_ROLE) if item is not None else None
+                self._press_group = group
+                self._press_was_active = bool(
+                    group is not None and tool_group_of(self.active_tool) == group
+                )
+                if group in self.group_members:
+                    self._long_press.start()
+            elif kind == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.LeftButton:
+                fired = not self._long_press.isActive() and self._press_group is None
+                self._long_press.stop()
+                group = self._press_group
+                self._press_group = None
+                if fired:
+                    return True
+                if group in self.group_members and self._press_was_active:
+                    item = self.list.itemAt(event.position().toPoint())
+                    if item is not None and item.data(self.GROUP_ROLE) == group:
+                        QTimer.singleShot(0, lambda g=group: self.show_group_menu(g))
+            elif kind == QEvent.Type.MouseMove and self._long_press.isActive():
+                item = self.list.itemAt(event.position().toPoint())
+                if item is None or item.data(self.GROUP_ROLE) != self._press_group:
+                    self._long_press.stop()
+        return super().eventFilter(watched, event)
+
+    def _long_press_fired(self):
+        group = self._press_group
+        # 長押しで開いたら、離したときに「もう一度押した」扱いにしない。
+        self._press_group = None
+        if group in self.group_members:
+            self.show_group_menu(group)
+
     def _rebuild_item_map(self, *args):
         rebuilt = {}
         for index in range(self.list.count()):
             item = self.list.item(index)
-            tool_id = item.data(Qt.ItemDataRole.UserRole)
-            if tool_id:
-                rebuilt[tool_id] = item
+            group = item.data(self.GROUP_ROLE)
+            if group:
+                rebuilt[group] = item
         if rebuilt:
             self.items = rebuilt
             # Restore the active highlight on the (possibly new) item.
-            active = self.items.get(self.active_tool)
+            active = self.items.get(tool_group_of(self.active_tool))
             if active is not None:
                 self.list.blockSignals(True)
                 self.list.setCurrentItem(active)
@@ -293,8 +430,8 @@ class ToolSelectorPanel(QWidget):
     def apply_theme(self):
         """Re-apply palette-derived styling after a theme/accent change."""
         self._apply_list_theme()
-        for tool_id, item in self.items.items():
-            item.setIcon(_tool_icon(tool_id))
+        for group, item in self.items.items():
+            self._show_member(group, item.data(Qt.ItemDataRole.UserRole) or group)
         self.color_swatch._restyle()
 
     def set_swatch_colors(self, main, sub, mode, background=None):
@@ -374,9 +511,11 @@ class ToolSelectorPanel(QWidget):
         return max(1, columns)
 
     def set_active_tool(self, tool_id):
-        item = self.items.get(tool_id)
+        group = tool_group_of(tool_id)
+        item = self.items.get(group)
         if item is None:
             return
+        self._show_member(group, tool_id)
         self.active_tool = tool_id
         self.list.blockSignals(True)
         self.list.setCurrentItem(item)
@@ -392,11 +531,16 @@ class ToolSelectorPanel(QWidget):
         self.toolChanged.emit(tool_id)
 
     def select_tool(self, tool_id):
-        item = self.items.get(tool_id)
+        group = tool_group_of(tool_id)
+        item = self.items.get(group)
         if item is None:
             return
-        if tool_id == self.active_tool:
-            self.list.setCurrentItem(item)
+        self._show_member(group, tool_id)
+        if self.list.currentItem() is item:
+            # 同じグループの中で切り替えた（アイコンは同じ）。
+            if tool_id != self.active_tool:
+                self.active_tool = tool_id
+                self.toolChanged.emit(tool_id)
             return
         self.list.setCurrentItem(item)
 
@@ -1099,6 +1243,12 @@ class ToolPanel(QWidget):
             tr("色置換（全コマ）")
         )
         self.bucket_replace_color.setChecked(False)
+        self.replace_color_note = QLabel(tr(
+            "クリックした色と完全に同じ色の画素だけを、つながりに関係なく、選択レイヤーの"
+            "すべてのコマで今の色へ置き換えます。選択範囲があれば、その中だけを置き換えます。"
+            "線の色をクリックしたときは確認します。"
+        ))
+        self.replace_color_note.setWordWrap(True)
         self.bucket_replace_color.setToolTip(tr(
             "クリックした色と完全に同じ色の画素だけを、つながりに関係なく、"
             "選択レイヤーのすべてのコマで今の色へ置き換えます。"
@@ -1207,6 +1357,7 @@ class ToolPanel(QWidget):
             self.fill_opacity_row,
             self.bucket_all_frames,
             self.bucket_replace_color,
+            self.replace_color_note,
             self.dust_mode_label,self.dust_mode,
             self.dust_size_label,self.dust_size,
             self.dust_selected_only,
@@ -1565,7 +1716,8 @@ class ToolPanel(QWidget):
         is_shape = is_shape_tool and not is_line
         # 閉領域フィルはバケツと同じ設定を使い、隙間閉じだけを常に効かせる。
         is_closed_fill = tid == "closed_fill"
-        is_bucket = tid in ("bucket", "closed_fill")
+        # 串刺し塗りは、範囲が全コマになるだけのバケツ（設定も同じ）。
+        is_bucket = tid in ("bucket", "closed_fill", "skewer_fill")
         is_dust = tid == "dust"
         is_lasso_fill = tid == "lasso_fill"
         uses_size = tid == "brush" or is_line
@@ -1663,8 +1815,11 @@ class ToolPanel(QWidget):
         self.bucket_extend_row.setVisible(is_bucket)
         self.bucket_require_closed.setVisible(uses_bucket_region)
         self.fill_opacity_row.setVisible(is_bucket or is_lasso_fill)
-        self.bucket_all_frames.setVisible(is_bucket)
-        self.bucket_replace_color.setVisible(tid == "bucket")
+        # 串刺し塗りと色置換はツールになった（ツールの並びのバケツ系）。チェックは
+        # 互換のために残し、表示しない。
+        self.bucket_all_frames.setVisible(False)
+        self.bucket_replace_color.setVisible(False)
+        self.replace_color_note.setVisible(tid == "replace_color")
         # 隙間閉じと塗り残し拾いは閉領域フィルでは常にこちらが決める。
         self.bucket_close_gap.setVisible(is_bucket and not is_closed_fill)
         self.bucket_island_fill_row.setVisible(

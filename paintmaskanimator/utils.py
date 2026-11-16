@@ -243,6 +243,8 @@ _magnifier_cursor_cache = None
 TOOL_CURSOR_NAMES = (
     "shape",
     "bucket",
+    "replace_color",
+    "skewer_fill",
     "closed_fill",
     "lasso_fill",
     "lasso",

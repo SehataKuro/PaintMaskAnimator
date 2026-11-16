@@ -46,6 +46,17 @@ _PATHS = {
         '<path d="M20.5 15.5s1.5 2 1.5 3a1.5 1.5 0 0 1-3 0c0-1 1.5-3 1.5-3Z" '
         'fill="ACCENT" stroke="ACCENT"/>'
     ),
+    "replace_color": (
+        '<path d="m4.5 11 7-7 7.5 7.5-7 7a2 2 0 0 1-2.8 0L4.5 13.8a2 2 0 0 1 0-2.8Z"/>'
+        '<path d="M15 2.5h4.5V7"/>'
+        '<path d="m19.5 2.5-3 3"/>'
+        '<circle cx="20" cy="17.5" r="2.5" fill="ACCENT" stroke="ACCENT"/>'
+    ),
+    "skewer_fill": (
+        '<rect x="7" y="3" width="13" height="13" rx="1.5" stroke-opacity="0.5"/>'
+        '<rect x="4" y="6" width="13" height="13" rx="1.5" stroke-opacity="0.75"/>'
+        '<path d="m7 13.5 4-4 4 4-4 4Z" fill="ACCENT" stroke="ACCENT"/>'
+    ),
     "closed_fill": (
         '<path d="M12 3.5 20.5 12 12 20.5 3.5 12Z" fill="ACCENT" '
         'fill-opacity="0.45" stroke-dasharray="5 3"/>'
