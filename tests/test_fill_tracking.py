@@ -150,7 +150,7 @@ def test_color_correlation_matches_direct_counts():
         values, counts = np.unique(before[keep], return_counts=True)
         actual, size = fill_tracking._color_correlation(before, after, keep, values, counts)
         expected = np.zeros(size)
-        for value in values[np.argsort(-counts)[:fill_tracking._CONTEXT_COLORS]]:
+        for value in values[np.argsort(-counts, kind="stable")[:fill_tracking._CONTEXT_COLORS]]:
             expected += direct_correlation((before == value) & keep, after == value, size)
         np.testing.assert_array_equal(actual, expected)
 

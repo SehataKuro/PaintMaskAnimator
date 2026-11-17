@@ -186,3 +186,22 @@ class FillSession:
 def compute_fill_region_once(rgba: bytes, width: int, height: int, x: int, y: int,
                              options: tuple, selection: bytes | None = None,
                              line_cache: LineCache | None = None) -> tuple: ...
+
+
+def estimate_shifts(
+    previous: bytes, current: bytes, region: bytes, width: int, height: int,
+    count: int, margin: int | None,
+) -> list[tuple[int, int]]: ...
+def warp_region(
+    previous: bytes, current: bytes, region: bytes, width: int, height: int,
+    shift: tuple[int, int], origin: tuple[int, int] = (0, 0),
+) -> bytes | None: ...
+def estimate_color_shifts(
+    previous: bytes, current: bytes, region: bytes, before: tuple[int, int],
+    after: tuple[int, int], offset: tuple[int, int], count: int,
+) -> list[tuple[int, int]]: ...
+def tracking_region_center(region: bytes, width: int, height: int) -> tuple[int, int] | None: ...
+def context_similarity(
+    before: tuple[bytes, bytes, tuple[int, int], tuple[int, int]],
+    after: tuple[bytes, bytes, tuple[int, int], tuple[int, int]],
+) -> float: ...

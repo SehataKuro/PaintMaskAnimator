@@ -12,6 +12,7 @@ from .logging_setup import get_logger
 log = get_logger(__name__)
 
 REQUIRED_API = (
+    "estimate_shifts", "warp_region", "estimate_color_shifts", "tracking_region_center", "context_similarity",
     "TimelineCell", "resolve_timeline", "SheetEntry", "sheet_entries", "ClipAnimationReader", "GuideSampler",
     "tint_onion", "unique_colors", "filter_palette",
     "line_flow_scores", "connect_runs", "label_runs", "refine_face", "thin",
@@ -522,3 +523,69 @@ def fill_region_output(output, shape):
         x0, y0, x1, y1 = bounds
         region[y0:y1, x0:x1] = _as_mask(data, y1-y0, x1-x0)
     return reason, region, bounds, None if category is None else tuple(category)
+
+
+def estimate_shifts(previous, current, region, count, margin):
+    height, width = region.shape
+    return _native.estimate_shifts(
+        _as_bytes(previous), _as_bytes(current), _as_bytes(region),
+        width, height, max(0, int(count)), None if margin is None else int(margin),
+    )
+
+
+def warp_region(previous, current, region, shift, origin):
+    height, width = region.shape
+    data = _native.warp_region(
+        _as_bytes(previous), _as_bytes(current), _as_bytes(region),
+        width, height, shift, origin,
+    )
+    return None if data is None else np.frombuffer(data, dtype=bool).reshape(height, width)
+
+
+def estimate_color_shifts(previous, current, region, bounds, count, radius, margin):
+    height, width = region.shape
+    x0, y0, x1, y1 = bounds
+    if margin is None:
+        margin = max(64, max(x1 - x0, y1 - y0) * 3)
+    tx0, ty0 = max(0, x0 - radius), max(0, y0 - radius)
+    tx1, ty1 = min(width, x1 + radius), min(height, y1 + radius)
+    wx0, wy0 = max(0, tx0 - margin), max(0, ty0 - margin)
+    wx1, wy1 = min(width, tx1 + margin), min(height, ty1 + margin)
+    before = previous[ty0:ty1, tx0:tx1]
+    after = current[wy0:wy1, wx0:wx1]
+    return _native.estimate_color_shifts(
+        before.tobytes(), after.tobytes(), _as_bytes(region[ty0:ty1, tx0:tx1]),
+        (before.shape[1], before.shape[0]), (after.shape[1], after.shape[0]),
+        (wy0 - ty0, wx0 - tx0), int(count),
+    )
+
+
+def _tracking_center(region):
+    height, width = region.shape
+    return _native.tracking_region_center(_as_bytes(region), width, height)
+
+
+def _tracking_context(pixels, region, center, radius):
+    height, width = region.shape
+    cy, cx = center
+    y0, x0 = max(0, cy - radius), max(0, cx - radius)
+    y1, x1 = min(height, cy + radius + 1), min(width, cx + radius + 1)
+    return (
+        pixels[y0:y1, x0:x1].tobytes(), _as_bytes(region[y0:y1, x0:x1]),
+        (x1 - x0, y1 - y0), (y0 - cy, x0 - cx),
+    )
+
+
+def context_similarity(previous, previous_region, current, current_region, radius):
+    before_center = _tracking_center(previous_region)
+    if before_center is None:
+        return 0.0
+    after_center = _tracking_center(current_region)
+    if after_center is None:
+        return 0.0
+    if radius < 0:
+        raise ValueError("negative dimensions are not allowed")
+    return _native.context_similarity(
+        _tracking_context(previous, previous_region, before_center, radius),
+        _tracking_context(current, current_region, after_center, radius),
+    )

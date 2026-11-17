@@ -14,6 +14,7 @@ mod auto_paint;
 mod clip;
 mod display;
 mod fill_session;
+mod fill_tracking;
 mod map_colors;
 mod mask_transform;
 mod palette_labels;
@@ -195,6 +196,17 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(py_line_flow_scores, module)?)?;
     module.add_function(wrap_pyfunction!(py_thin, module)?)?;
     module.add_function(wrap_pyfunction!(py_fill_target_mask, module)?)?;
+    module.add_function(wrap_pyfunction!(fill_tracking::estimate_shifts, module)?)?;
+    module.add_function(wrap_pyfunction!(fill_tracking::warp_region, module)?)?;
+    module.add_function(wrap_pyfunction!(
+        fill_tracking::estimate_color_shifts,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(
+        fill_tracking::tracking_region_center,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(fill_tracking::context_similarity, module)?)?;
     module.add_class::<fill_session::FillSession>()?;
     module.add_class::<fill_session::LineCache>()?;
     module.add_function(wrap_pyfunction!(

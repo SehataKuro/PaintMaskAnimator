@@ -418,3 +418,111 @@ def test_fill_once_drag_line_cache():
             assert (a.reason, a.target, a.bounds) == (b.reason, b.target, b.bounds)
             np.testing.assert_array_equal(a.region, b.region)
     assert '_native_line_cache' in cache
+
+
+@needs_native
+def test_fill_tracking_matches_numpy():
+    from paintmaskanimator import fill_tracking as tracking
+
+    rng = np.random.default_rng(11)
+    dimensions = [(19, w) for w in WIDTHS] + [(29, 353), (347, 31), (280, 271), (100, 103)]
+    palette = np.array([
+        (255, 255, 255, 255), (0, 0, 0, 255), (200, 30, 30, 255),
+        (30, 160, 60, 255), (12, 16, 88, 0), (0, 0, 0, 0),
+        (200, 30, 30, 128), (30, 160, 60, 128), (70, 80, 200, 255),
+    ], dtype=np.uint8)
+    for case in range(280):
+        height, width = dimensions[case % len(dimensions)]
+        previous = np.full((height, width, 4), 255, np.uint8)
+        current = previous.copy()
+        region = np.zeros((height, width), bool)
+        current_region = region.copy()
+        for x in range(4, width, 17):
+            previous[:, x, :3] = current[:, x, :3] = 0
+        for box in range(3):
+            w = int(rng.integers(1, width + 1))
+            h = int(rng.integers(1, height + 1))
+            x = 0 if case % 7 == 0 else int(rng.integers(width - w + 1))
+            y = 0 if case % 9 == 0 else int(rng.integers(height - h + 1))
+            nx = int(np.clip(x + rng.integers(-25, 26), 0, width - w))
+            ny = int(np.clip(y + rng.integers(-25, 26), 0, height - h))
+            color = palette[int(rng.integers(len(palette)))]
+            for pixels, xx, yy in [(previous, x, y), (current, nx, ny)]:
+                pixels[yy:yy + h, xx:xx + w] = palette[1]
+                pixels[yy + 1:yy + h - 1, xx + 1:xx + w - 1] = color
+            if box == 0 and case % 13:
+                if w > 2 and h > 2:
+                    region[y + 1:y + h - 1, x + 1:x + w - 1] = True
+                    current_region[ny + 1:ny + h - 1, nx + 1:nx + w - 1] = True
+                else:
+                    region[y, x] = current_region[ny, nx] = True
+        if case % 11 == 0:
+            previous.fill(255)
+            current.fill(255)
+        if case % 19 == 0:
+            # 同じ頻度の色が6色の採用境界をまたぐ。
+            previous[:] = palette[np.indices(region.shape).sum(axis=0) % len(palette)]
+            current[:] = np.roll(previous, (1, -1), axis=(0, 1))
+        if case % 17 == 0:
+            # スライスのメモリ順序と座標の向きが異なる配列。
+            previous, current = previous[:, ::-1], current[:, ::-1]
+            region, current_region = region[:, ::-1], current_region[:, ::-1]
+        lines = tracking.line_art(previous), tracking.line_art(current), region
+        margin = (None, -1, 0, 2, 15, 36, 100)[case % 7]
+        count = (0, 1, 3, 5)[case % 4]
+        radius = (0, 3, 12, 24, 38)[case % 5]
+        shifts = tracking.estimate_shifts(*lines, count=count, margin=margin)
+        assert shifts == tracking.estimate_shifts_numpy(*lines, count=count, margin=margin), case
+        shift = shifts[0] if shifts else (ny - y, nx - x)
+        warped = tracking.warp_region(*lines, shift=shift)
+        expected = tracking.warp_region_numpy(*lines, shift=shift)
+        assert (warped is None) == (expected is None), case
+        if warped is not None:
+            assert np.array_equal(warped, expected), case
+        color_args = previous, current, region
+        options = dict(count=count, radius=radius, margin=margin)
+        assert tracking.estimate_color_shifts(*color_args, **options) == (
+            tracking.estimate_color_shifts_numpy(*color_args, **options)
+        ), case
+        context = previous, region, current, current_region
+        assert tracking.context_similarity(*context, radius=radius) == (
+            tracking.context_similarity_numpy(*context, radius=radius)
+        ), case
+
+
+@needs_native
+def test_fill_tracking_selects_lower_labels_at_equal_frequency():
+    from paintmaskanimator import fill_tracking as tracking
+
+    previous = np.zeros((3, 3, 4), np.uint8)
+    previous[..., 3] = 255
+    previous[..., 0] = np.arange(9).reshape(3, 3)
+    region = np.zeros((3, 3), bool)
+    region[1, 1] = True
+    current = np.empty_like(previous)
+    current[:] = (7, 0, 0, 255)  # 7 と 8 は同頻度の8色から選ばれない。
+    assert tracking.estimate_color_shifts(previous, current, region) == []
+    assert tracking.estimate_color_shifts_numpy(previous, current, region) == []
+
+
+@needs_native
+@pytest.mark.parametrize("origin", [(0, 0), (19, 27), (96, 128)])
+def test_tracking_cropped_windows_match_at_canvas_edges(origin):
+    from paintmaskanimator import fill_tracking as tracking
+
+    shape = (167, 227)
+    y, x = origin
+    yy, xx = np.ogrid[:shape[0], :shape[1]]
+    region = np.zeros(shape, dtype=bool)
+    region[y:y + 69, x:x + 97] = True
+    before = ((yy + xx) % 2 == 0) & ~region
+    after = np.roll(before, (7, -11), axis=(0, 1))
+    for margin in (-5, 0, 1, 3, 19, 5000, None):
+        assert tracking.estimate_shifts(before, after, region, margin=margin) == (
+            tracking.estimate_shifts_numpy(before, after, region, margin=margin)
+        )
+    for shift in ((0, 0), (-13, -22), (14, 21), (-220, 10), (10, 300)):
+        assert np.array_equal(
+            tracking.warp_region(before, after, region, shift),
+            tracking.warp_region_numpy(before, after, region, shift),
+        )
