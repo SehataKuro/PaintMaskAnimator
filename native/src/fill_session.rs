@@ -221,3 +221,52 @@ pub fn compute_fill_region_once<'py>(
     }
     Ok(output(py, r.map_err(PyValueError::new_err)?))
 }
+
+type TrackOutput<'py> = (
+    Option<f64>,
+    Vec<Output<'py>>,
+    Option<(i64, i64)>,
+    Option<Bound<'py, PyBytes>>,
+);
+
+#[pyfunction]
+#[pyo3(signature=(rgba, previous, width, height, reference, options, selection=None, previous_rgba=None, previous_lines=None))]
+#[allow(clippy::too_many_arguments)]
+pub fn track_fill_region<'py>(
+    py: Python<'py>,
+    rgba: &[u8],
+    previous: &[u8],
+    width: usize,
+    height: usize,
+    reference: Category,
+    options: Options,
+    selection: Option<&[u8]>,
+    previous_rgba: Option<&[u8]>,
+    previous_lines: Option<&[u8]>,
+) -> PyResult<TrackOutput<'py>> {
+    use pma_core::fill::tracking::{track_fill_region, TrackInput, TrackMatch};
+    let input = TrackInput {
+        rgba,
+        previous,
+        dimensions: (width, height),
+        reference,
+        selection,
+        previous_rgba,
+        previous_lines,
+    };
+    let options = self::options(options)?;
+    let result = py
+        .detach(|| track_fill_region(input, options))
+        .map_err(|err| PyValueError::new_err(err.to_string()))?;
+    let (shift, warped) = match result.matched {
+        Some(TrackMatch::Warped(mask)) => (None, Some(PyBytes::new(py, &mask))),
+        Some(TrackMatch::Shifted(shift)) => (Some(shift), None),
+        _ => (None, None),
+    };
+    Ok((
+        result.score,
+        result.members.into_iter().map(|r| output(py, r)).collect(),
+        shift,
+        warped,
+    ))
+}

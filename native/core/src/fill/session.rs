@@ -292,8 +292,16 @@ impl<R: AsRef<[u8]>, M: std::ops::Deref<Target = [u8]>> BucketState<R, M> {
     }
     /// 最大4色を古い順に保持する。5色目で最古の索引も破棄する。
     pub fn prepare(&mut self, category: Category) -> Result<&Prepared<M>, String> {
+        self.prepare_for(category, None)
+    }
+
+    fn prepare_for(
+        &mut self,
+        category: Category,
+        selection: Option<&[u8]>,
+    ) -> Result<&Prepared<M>, String> {
         if !self.prepared.iter().any(|(c, _)| *c == category) {
-            let p = self.build(category, None)?;
+            let p = self.build(category, selection)?;
             if self.prepared.len() >= PREPARED_LIMIT {
                 self.prepared.pop_front();
             }
@@ -388,7 +396,32 @@ impl<R: AsRef<[u8]>, M: std::ops::Deref<Target = [u8]>> BucketState<R, M> {
         y: usize,
         selection: Option<&[u8]>,
     ) -> Result<LocalOutcome, String> {
+        self.compute_impl(x, y, selection, false)
+    }
+
+    // 追跡専用の新規セッションで、全候補に同じ選択範囲を使う。
+    pub(crate) fn compute_tracking(
+        &mut self,
+        x: usize,
+        y: usize,
+        selection: Option<&[u8]>,
+    ) -> Result<LocalOutcome, String> {
+        self.compute_impl(x, y, selection, true)
+    }
+
+    fn compute_impl(
+        &mut self,
+        x: usize,
+        y: usize,
+        selection: Option<&[u8]>,
+        reuse_selection: bool,
+    ) -> Result<LocalOutcome, String> {
         let category = self.category(x, y)?;
+        let key = if reuse_selection && !matches!(self.options.target_color, TargetColor::All(_)) {
+            None
+        } else {
+            category
+        };
         if selection.is_some_and(|s| s.len() != self.width * self.height) {
             return Err("invalid selection length".into());
         }
@@ -405,10 +438,17 @@ impl<R: AsRef<[u8]>, M: std::ops::Deref<Target = [u8]>> BucketState<R, M> {
                 category,
             });
         }
-        let single = if selection.is_some() {
-            Some(self.build(category, selection)?)
+        if reuse_selection
+            && self.options.fill.include_masks
+            && self.options.fill.include_background_mask
+            && self.background.is_none()
+        {
+            self.background();
+        }
+        let single = if selection.is_some() && !reuse_selection {
+            Some(self.build(key, selection)?)
         } else {
-            self.prepare(category)?;
+            self.prepare_for(key, selection)?;
             None
         };
         if self.options.fill.include_masks
@@ -423,7 +463,7 @@ impl<R: AsRef<[u8]>, M: std::ops::Deref<Target = [u8]>> BucketState<R, M> {
             let (_, p) = self
                 .prepared
                 .iter_mut()
-                .find(|(c, _)| *c == category)
+                .find(|(c, _)| *c == key)
                 .ok_or("missing prepared category")?;
             if self.indexed && p.uses > 0 && p.index.is_none() {
                 if let Some(pass) = &p.passable {

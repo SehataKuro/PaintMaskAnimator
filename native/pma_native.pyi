@@ -205,3 +205,15 @@ def context_similarity(
     before: tuple[bytes, bytes, tuple[int, int], tuple[int, int]],
     after: tuple[bytes, bytes, tuple[int, int], tuple[int, int]],
 ) -> float: ...
+
+_FillOptions = tuple[str, bool, int, bool, int, bool, bool, int, bool, bool,
+                     tuple[tuple[int, int, int], ...]]
+_FillOutput = tuple[str, tuple[int, int, int, int] | None, bytes | None,
+                    tuple[int, int, int] | None]
+
+def track_fill_region(
+    rgba: bytes, previous: bytes, width: int, height: int,
+    reference: tuple[int, int, int] | None, options: _FillOptions,
+    selection: bytes | None = ..., previous_rgba: bytes | None = ...,
+    previous_lines: bytes | None = ...,
+) -> tuple[float | None, list[_FillOutput], tuple[int, int] | None, bytes | None]: ...

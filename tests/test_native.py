@@ -526,3 +526,125 @@ def test_tracking_cropped_windows_match_at_canvas_edges(origin):
             tracking.warp_region(before, after, region, shift),
             tracking.warp_region_numpy(before, after, region, shift),
         )
+
+
+def _assert_tracking_equal(actual, expected):
+    assert (actual.reason, actual.target, actual.bounds, actual.score) == (
+        expected.reason, expected.target, expected.bounds, expected.score
+    )
+    for name in ("region", "matched"):
+        a, b = getattr(actual, name), getattr(expected, name)
+        assert (a is None) == (b is None)
+        if b is not None:
+            np.testing.assert_array_equal(a, b)
+    assert [rgb for rgb, _ in actual.islands] == [rgb for rgb, _ in expected.islands]
+    for (_, actual_mask), (_, expected_mask) in zip(actual.islands, expected.islands):
+        np.testing.assert_array_equal(actual_mask, expected_mask)
+
+
+@needs_native
+def test_track_fill_region_matches_numpy():
+    from itertools import product
+
+    from paintmaskanimator import fill_tracking
+
+    rng = np.random.default_rng(4403)
+    variants = (
+        {}, {"adjacent": False}, {"require_closed": True},
+        {"close_gap": True, "gap_width": 2},
+        {"extend_lines": True, "extend_length": 4},
+        {"include_masks": True},
+        {"include_masks": True, "include_background_mask": True},
+        {"island_max_width": 1}, {"island_max_width": 2},
+        {"close_gap": True, "extend_lines": True, "include_masks": True,
+         "island_max_width": 1, "require_closed": True},
+    )
+    palette = np.array([
+        (255, 255, 255, 255), (0, 0, 0, 255), (120, 30, 80, 255),
+        (230, 120, 160, 255), (15, 20, 48, 0), (10, 10, 10, 30),
+    ], dtype=np.uint8)
+    for case, (target, variant, clue) in enumerate(product(
+        bucket_fill.TARGET_COLORS, variants, range(4)
+    )):
+        h, w = map(int, rng.integers(76, 128, size=2))
+        bh, bw = map(int, rng.integers(5, (h - 3, w - 3)))
+        y = 0 if case % 5 == 0 else int(rng.integers(h - bh + 1))
+        x = 0 if case % 7 == 0 else int(rng.integers(w - bw + 1))
+        ny = int(np.clip(y + rng.integers(-16, 17), 0, h - bh))
+        nx = int(np.clip(x + rng.integers(-16, 17), 0, w - bw))
+        color = palette[int(rng.integers(len(palette)))]
+        yy, xx = np.indices((h, w))
+        texture = (yy + xx) % 2 == 0 if case % 3 == 0 else rng.random((h, w)) < .12
+        before = palette[np.where(texture, 3, 0)]
+        after = np.roll(before, (ny - y, nx - x), axis=(0, 1))
+        for frame, py, px in [(before, y, x), (after, ny, nx)]:
+            frame[py:py + bh, px:px + bw] = palette[1]
+            frame[py + 1:py + bh - 1, px + 1:px + bw - 1] = color
+            frame[py, px + bw // 2] = palette[0]
+            frame[py + 2:py + 4, px + 2:px + 4] = palette[2]
+        previous = np.zeros((h, w), bool)
+        if case % 19:
+            previous[y + 1:y + bh - 1, x + 1:x + bw - 1] = True
+        selection = (yy < h - 2) & (xx >= 2) if case % 2 else None
+        reference = bucket_fill.seed_category(before, x + bw // 2, y + bh // 2)
+        options = bucket_fill.BucketOptions(
+            target_color=target, mask_colors=((120, 30, 80),),
+            island_replacements=(((120, 30, 80), (3, 4, 5)),), **variant,
+        )
+        args = (after, previous, reference, options, selection)
+        kwargs = {
+            "previous_pixels": before if clue in (1, 3) else None,
+            "previous_lines": fill_tracking.line_art(before) if clue >= 2 else None,
+        }
+        _assert_tracking_equal(
+            bucket_fill.track_fill_region(*args, **kwargs),
+            bucket_fill.track_fill_region_numpy(*args, **kwargs),
+        )
+
+
+@needs_native
+@pytest.mark.parametrize("split", [False, True])
+def test_track_fill_region_preserves_islands_and_bounds(split):
+    pixels = np.zeros((24, 26, 4), dtype=np.uint8)
+    pixels[..., 3] = 255
+    pixels[3:17, 3:16] = 255
+    pixels[8:10, 7:9] = (120, 30, 80, 255)
+    # この島は左の白領域の矩形を1画素はみ出す。
+    pixels[12, 2] = (120, 30, 80, 255)
+    previous = np.zeros(pixels.shape[:2], bool)
+    previous[3:17, 3:16] = True
+    if split:
+        pixels[3:17, 10, :3] = 0
+        pixels[8:10, 12:14] = (120, 30, 80, 255)
+    options = bucket_fill.BucketOptions(
+        target_color=bucket_fill.TARGET_ALL,
+        island_replacements=(((120, 30, 80), (3, 4, 5)),),
+    )
+    args = (pixels, previous, None, options)
+    result = bucket_fill.track_fill_region(*args)
+    _assert_tracking_equal(result, bucket_fill.track_fill_region_numpy(*args))
+    assert len(result.islands) == (2 if split else 1)
+    assert result.islands[0][1][12, 2]
+    assert result.bounds == (3 if split else 2, 3, 16, 17)
+    assert result.mask[5, 5] and result.mask[5, 15]
+
+
+@needs_native
+def test_track_fill_region_rescues_small_region():
+    rng = np.random.default_rng(702)
+    colors = np.array([(210, 180, 150, 255), (75, 120, 110, 255)], dtype=np.uint8)
+    before = colors[rng.integers(2, size=(42, 54))]
+    previous = np.zeros(before.shape[:2], bool)
+    previous[17:19, 18:20] = True
+    red = (229, 59, 70)
+    before[previous] = (*red, 255)
+    after = np.roll(before, 10, axis=1)
+    options = bucket_fill.BucketOptions(target_color=bucket_fill.TARGET_ALL)
+    args = (after, previous, red, options)
+    kwargs = {"previous_pixels": before, "previous_lines": np.zeros_like(previous)}
+    assert not bucket_fill.track_fill_region(*args).ok
+    result = bucket_fill.track_fill_region(*args, **kwargs)
+    _assert_tracking_equal(result, bucket_fill.track_fill_region_numpy(*args, **kwargs))
+    assert result.ok
+    assert result.bounds == (28, 17, 30, 19)
+    np.testing.assert_array_equal(result.matched, result.mask)

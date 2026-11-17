@@ -213,6 +213,7 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
         fill_session::compute_fill_region_once,
         module
     )?)?;
+    module.add_function(wrap_pyfunction!(fill_session::track_fill_region, module)?)?;
     module.add_function(wrap_pyfunction!(py_extend_line_ends, module)?)?;
     module.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())

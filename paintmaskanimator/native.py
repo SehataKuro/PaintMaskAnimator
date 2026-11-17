@@ -12,7 +12,7 @@ from .logging_setup import get_logger
 log = get_logger(__name__)
 
 REQUIRED_API = (
-    "estimate_shifts", "warp_region", "estimate_color_shifts", "tracking_region_center", "context_similarity",
+    "track_fill_region", "estimate_shifts", "warp_region", "estimate_color_shifts", "tracking_region_center", "context_similarity",
     "TimelineCell", "resolve_timeline", "SheetEntry", "sheet_entries", "ClipAnimationReader", "GuideSampler",
     "tint_onion", "unique_colors", "filter_palette",
     "line_flow_scores", "connect_runs", "label_runs", "refine_face", "thin",
@@ -512,6 +512,20 @@ def compute_fill_region_once(pixels, x, y, options, selection=None, line_cache=N
     return _native.compute_fill_region_once(
         np.ascontiguousarray(pixels, dtype=np.uint8).tobytes(), width, height, x, y,
         _fill_options(options), None if selection is None else _as_bytes(selection), line_cache)
+
+
+def track_fill_region(pixels, previous, reference, options, selection=None,
+                      previous_pixels=None, previous_lines=None):
+    """画像と手がかりを渡し、採用した領域と一致した手がかりを受け取る。"""
+    height, width = previous.shape
+    return _native.track_fill_region(
+        pixels.tobytes(), _as_bytes(previous), width, height,
+        None if reference is None else tuple(int(c) for c in reference),
+        _fill_options(options),
+        None if selection is None else _as_bytes(selection),
+        None if previous_pixels is None else previous_pixels.tobytes(),
+        None if previous_lines is None else _as_bytes(previous_lines),
+    )
 
 
 def fill_region_output(output, shape):

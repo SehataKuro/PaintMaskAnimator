@@ -962,6 +962,12 @@ def compute_fill_region(
     reason, final_region, bounds, category = native.fill_region_output(output, (height, width))
     if reason != REASON_OK:
         return FillResult(reason, region=final_region, target=category)
+    return _fill_result_with_islands(
+        pixels, final_region, bounds, category, options, selection_mask
+    )
+
+
+def _fill_result_with_islands(pixels, final_region, bounds, category, options, selection_mask):
     islands = ()
     if options.island_replacements:
         islands = enclosed_islands(
@@ -1256,6 +1262,57 @@ def track_fill_region(
     :returns: 結果の ``score`` に重なりを入れる。自信がなくても候補があれば ok で返し、
         採用するかは呼び出し側が ``score`` で決める。候補が無ければ ``REASON_EMPTY``。
     """
+    from .fill_tracking import shift_mask
+
+    if not previous.any():
+        return FillResult(REASON_EMPTY, target=reference)
+    if previous_pixels is not None and previous_pixels.shape != pixels.shape:
+        previous_pixels = None
+    if previous_lines is not None and previous_lines.shape != previous.shape:
+        # 形が違う線画を明示した場合は、前の画素からの線画生成も省く。
+        previous_lines = np.empty(0, dtype=bool)
+    score, outputs, shift, warped = native.track_fill_region(
+        pixels, previous, reference, options, selection_mask, previous_pixels, previous_lines
+    )
+    if not outputs:
+        return FillResult(REASON_EMPTY, target=reference, score=score)
+
+    if warped is not None:
+        matched = np.frombuffer(warped, dtype=bool).reshape(previous.shape).copy()
+    elif shift is not None:
+        matched = shift_mask(previous, *shift)
+    else:
+        matched = previous
+
+    if len(outputs) == 1:
+        _, region, bounds, category = native.fill_region_output(outputs[0], previous.shape)
+        result = _fill_result_with_islands(
+            pixels, region, bounds, category, options, selection_mask
+        )
+        result.score = score
+        result.matched = matched
+        return result
+
+    union = np.zeros_like(previous, dtype=bool)
+    islands = []
+    for output in outputs:
+        _, region, _, _ = native.fill_region_output(output, previous.shape)
+        union |= region
+        if options.island_replacements:
+            islands.extend(enclosed_islands(
+                pixels, region, options.island_replacements, selection_mask
+            ))
+    return FillResult(
+        REASON_OK, union, target=reference, bounds=mask_bounds(union),
+        islands=tuple(islands), score=score, matched=matched,
+    )
+
+
+def track_fill_region_numpy(
+    pixels, previous, reference, options: BucketOptions, selection_mask=None,
+    previous_pixels=None, previous_lines=None,
+) -> FillResult:
+    """追跡の候補選択を NumPy で実行する（一致テスト用）。"""
     from . import fill_tracking
 
     previous_area = int(np.count_nonzero(previous))
@@ -1377,7 +1434,7 @@ def track_fill_region(
         and previous_area <= TRACK_SMALL_AREA
         and best_iou < TRACK_GOOD_IOU
     ):
-        rescued = _track_small_region(
+        rescued = _track_small_region_numpy(
             pixels, previous, previous_pixels, target, options, selection_mask
         )
         if rescued is not None and rescued.score is not None and rescued.score > best_iou:
@@ -1388,7 +1445,7 @@ def track_fill_region(
     return best
 
 
-def _shift_candidates(previous_pixels, pixels, previous):
+def _shift_candidates_numpy(previous_pixels, pixels, previous):
     """前のコマから今のコマへの、ずれの候補（重複なし、``(0, 0)`` を含む）。
 
     主線の縁の重なりと、まわりの色の並びの2通りで推定する。
@@ -1405,7 +1462,7 @@ def _shift_candidates(previous_pixels, pixels, previous):
     return list(dict.fromkeys(shifts))
 
 
-def _track_small_region(pixels, previous, previous_pixels, target, options, selection_mask):
+def _track_small_region_numpy(pixels, previous, previous_pixels, target, options, selection_mask):
     """小さい図形を、まわりの色の並びが一番似ている閉じた領域として探す。
 
     ``score`` には :func:`fill_tracking.context_similarity` の値から
@@ -1418,7 +1475,7 @@ def _track_small_region(pixels, previous, previous_pixels, target, options, sele
     tried = np.zeros_like(target)
     best: Optional[FillResult] = None
     best_score = 0.0
-    for dy, dx in _shift_candidates(previous_pixels, pixels, previous):
+    for dy, dx in _shift_candidates_numpy(previous_pixels, pixels, previous):
         moved = fill_tracking.shift_mask(previous, dy, dx)
         bounds = mask_bounds(moved)
         if bounds is None:
@@ -1437,7 +1494,8 @@ def _track_small_region(pixels, previous, previous_pixels, target, options, sele
             continue
         center_y, center_x = np.argwhere(moved).mean(axis=0)
         order = np.argsort(
-            (points[:, 0] + y0 - center_y) ** 2 + (points[:, 1] + x0 - center_x) ** 2
+            (points[:, 0] + y0 - center_y) ** 2 + (points[:, 1] + x0 - center_x) ** 2,
+            kind="stable",
         )
         seeds = 0
         for index in order:
@@ -1479,7 +1537,7 @@ def guess_target_categories(pixels, previous, previous_pixels, count=2):
 
     lines = fill_tracking.line_art(pixels)
     votes = {}
-    for dy, dx in _shift_candidates(previous_pixels, pixels, previous):
+    for dy, dx in _shift_candidates_numpy(previous_pixels, pixels, previous):
         moved = fill_tracking.shift_mask(previous, dy, dx) & ~lines
         sample = pixels[moved]
         if not len(sample):
