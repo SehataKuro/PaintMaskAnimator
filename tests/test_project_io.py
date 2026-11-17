@@ -458,3 +458,155 @@ def test_cells_are_stored_and_loaded_without_a_colour_profile(qapp):
     loaded = project_io._decode_png(bytes(data.data()))
     assert not loaded.colorSpace().isValid()
     assert loaded.pixel(0, 0) == tagged.pixel(0, 0)
+
+
+def _assert_png_matches_qt(data):
+    actual = project_io._decode_png(data)
+    expected = project_io._decode_png_qt(data)
+    assert actual.isNull() == expected.isNull()
+    assert (actual.width(), actual.height(), actual.format()) == (
+        expected.width(), expected.height(), expected.format())
+    assert actual.colorSpace().isValid() == expected.colorSpace().isValid()
+    if not actual.isNull():
+        assert bytes(actual.constBits()) == bytes(expected.constBits())
+    return actual
+
+
+@pytest.mark.parametrize("width", [1, 2, 31, 63, 64, 65, 127, 128, 129, 200])
+def test_png_random_premultiplied_matches_qt(qapp, width):
+    import numpy as np
+    from PySide6.QtGui import QImage
+
+    rng = np.random.default_rng(3100 + width)
+    height = 1 + width % 40
+    rgba = rng.integers(0, 256, (height, width, 4), dtype=np.uint8)
+    image = QImage(rgba.tobytes(), width, height, width * 4,
+                   QImage.Format.Format_RGBA8888).convertToFormat(
+                       QImage.Format.Format_ARGB32_Premultiplied)
+    data = project_io.encode_png(image)
+    assert data is not None
+    assert project_io.native.decode_png(data, 1 << 30)[:2] == (width, height)
+    assert not _assert_png_matches_qt(data).isNull()
+
+
+def _pillow_png(mode, transparency=False):
+    from io import BytesIO
+    from PIL import Image
+
+    image = Image.new(mode, (7, 3))
+    if mode == "P":
+        image.putpalette([10, 20, 30, 90, 120, 150] + [0] * 762)
+        image.putdata([i % 2 for i in range(21)])
+    elif mode in ("1", "L", "I;16"):
+        image.putdata([i * (3000 if mode == "I;16" else 11) for i in range(21)])
+    else:
+        channels = len(mode)
+        image.putdata([tuple((i * 37 + c * 51) % 256 for c in range(channels))
+                       for i in range(21)])
+    options = {}
+    if transparency:
+        options["transparency"] = {"P": bytes([0, 127]), "RGB": (0, 51, 102), "L": 22}[mode]
+    buffer = BytesIO()
+    image.save(buffer, format="PNG", **options)
+    return buffer.getvalue()
+
+
+@pytest.mark.parametrize("mode,transparency", [
+    ("1", False), ("L", False), ("L", True), ("LA", False),
+    ("P", False), ("P", True), ("RGB", False), ("RGB", True),
+    ("RGBA", False), ("I;16", False),
+])
+def test_png_pillow_matches_qt(qapp, mode, transparency):
+    data = _pillow_png(mode, transparency)
+    if mode == "I;16":
+        with pytest.raises(ValueError):
+            project_io.native.decode_png(data, 1 << 30)
+    else:
+        assert project_io.native.decode_png(data, 1 << 30)[:2] == (7, 3)
+    assert not _assert_png_matches_qt(data).isNull()
+
+
+def test_png_profile_matches_qt(qapp):
+    from PySide6.QtCore import QBuffer, QByteArray, QIODevice
+    from PySide6.QtGui import QColorSpace, QImage
+
+    image = QImage(5, 3, QImage.Format.Format_ARGB32_Premultiplied)
+    image.fill(0x70503010)
+    image.setColorSpace(QColorSpace(QColorSpace.NamedColorSpace.SRgb))
+    data = QByteArray()
+    buffer = QBuffer(data)
+    buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+    assert image.save(buffer, "PNG")
+    buffer.close()
+    assert not _assert_png_matches_qt(bytes(data.data())).colorSpace().isValid()
+
+
+def test_png_invalid_and_limits(qapp):
+    data = _pillow_png("RGBA")
+    corrupt = bytearray(data)
+    # IHDR の CRC を壊す。
+    corrupt[29] ^= 1
+    for broken in (b"", data[:8], data[:len(data) // 2], data[:-1], bytes(corrupt)):
+        with pytest.raises(ValueError):
+            project_io.native.decode_png(broken, 1 << 30)
+        _assert_png_matches_qt(broken)
+    with pytest.raises(ValueError):
+        project_io.native.decode_png(data, 7 * 3 * 4 - 1)
+    assert project_io.native.decode_png(data, 7 * 3 * 4)[:2] == (7, 3)
+
+
+def test_png_interlaced_matches_qt(qapp):
+    import struct
+    import zlib
+
+    def chunk(kind, payload):
+        return (struct.pack(">I", len(payload)) + kind + payload
+                + struct.pack(">I", zlib.crc32(kind + payload)))
+
+    width, height = 9, 7
+    pixels = [bytes(((x * 37) % 256, (y * 51) % 256, 83, (x * 29 + y * 11) % 256))
+              for y in range(height) for x in range(width)]
+    rows = bytearray()
+    for x0, y0, dx, dy in [(0, 0, 8, 8), (4, 0, 8, 8), (0, 4, 4, 8),
+                           (2, 0, 4, 4), (0, 2, 2, 4), (1, 0, 2, 2), (0, 1, 1, 2)]:
+        for y in range(y0, height, dy):
+            rows.append(0)
+            for x in range(x0, width, dx):
+                rows.extend(pixels[y * width + x])
+    data = (b"\x89PNG\r\n\x1a\n"
+            + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 1))
+            + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+    assert project_io.native.decode_png(data, 1 << 30) == (width, height, b"".join(pixels))
+    assert not _assert_png_matches_qt(data).isNull()
+
+
+def test_png_fallback_and_allocation_limit(qapp, monkeypatch):
+    from PySide6.QtGui import QImageReader
+
+    original = project_io._decode_png_qt
+    calls = []
+
+    def qt_decode(data):
+        calls.append(data)
+        return original(data)
+
+    monkeypatch.setattr(project_io, "_decode_png_qt", qt_decode)
+    data = _pillow_png("I;16")
+    project_io._decode_png(data)
+    assert calls == [data]
+    seen = []
+    decode = project_io.native.decode_png
+
+    def native_decode(data, max_bytes):
+        seen.append(max_bytes)
+        return decode(data, max_bytes)
+
+    monkeypatch.setattr(project_io.native, "decode_png", native_decode)
+    previous = QImageReader.allocationLimit()
+    try:
+        for mb in (1, 2, 0):
+            QImageReader.setAllocationLimit(mb)
+            project_io._decode_png(_pillow_png("RGBA"))
+        assert seen == [1024 * 1024, 2 * 1024 * 1024, (1 << 64) - 1]
+    finally:
+        QImageReader.setAllocationLimit(previous)

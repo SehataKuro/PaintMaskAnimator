@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 import zipfile
 from pathlib import Path, PurePosixPath
 
+from . import native
 from .i18n import tr
 from .document import Document, project_v1_state
 from .errors import OperationError
@@ -214,7 +215,21 @@ def encode_png(image):
 
 
 def _decode_png(data):
+    """Rust（pma_core::project::png）で読み、GIL を手放す。読めないものは Qt に回す。"""
+    limit_mb = QImageReader.allocationLimit()
+    max_bytes = limit_mb * 1024 * 1024 if limit_mb > 0 else (1 << 64) - 1
+    try:
+        width, height, pixels = native.decode_png(data, max_bytes)
+    except ValueError:
+        return _decode_png_qt(data)
+    image = QImage(pixels, width, height, width * 4, QImage.Format.Format_RGBA8888)
+    return without_color_space(image.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied))
+
+
+def _decode_png_qt(data):
     """PNG を読み、キャンバスと同じ形式（乗算済み ARGB）にする。失敗なら null。
+
+    Rust で読めない PNG と、テストでの突き合わせ用。
 
     QImage.fromData は読み込み中も GIL を握ったままなので、スレッドに分けても
     速くならない。QImageReader.read は GIL を手放すので、こちらを使う。

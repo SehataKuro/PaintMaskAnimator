@@ -5,3 +5,7 @@ description = "PaintMaskAnimator の計算とデータ（Python・Qt に依存�
 edition = "2021"
 license = "Apache-2.0"
 publish = false
+
+[dependencies]
+# PNG のデコード（段階3）。純 Rust（fdeflate・miniz_oxide）だけを使う。
+png = "0.18.1"

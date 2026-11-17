@@ -30,6 +30,22 @@ fn check_size(data: &[u8], width: usize, height: usize) -> PyResult<()> {
     Ok(())
 }
 
+#[pyfunction(name = "decode_png")]
+fn py_decode_png<'py>(
+    py: Python<'py>,
+    data: &[u8],
+    max_bytes: u64,
+) -> PyResult<(usize, usize, Bound<'py, PyBytes>)> {
+    let (width, height) = py
+        .detach(|| pma_core::project::png::png_size(data, max_bytes))
+        .map_err(|error| pyo3::exceptions::PyValueError::new_err(error.to_string()))?;
+    let pixels = PyBytes::new_with(py, width * height * 4, |buf| {
+        py.detach(|| pma_core::project::png::decode_png_into(data, max_bytes, buf))
+            .map_err(|error| pyo3::exceptions::PyValueError::new_err(error.to_string()))
+    })?;
+    Ok((width, height, pixels))
+}
+
 #[pyfunction(name = "remove_line_noise")]
 #[allow(clippy::too_many_arguments)]
 fn py_remove_line_noise<'py>(
@@ -119,6 +135,7 @@ fn py_label_regions<'py>(
 
 #[pymodule]
 fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_function(wrap_pyfunction!(py_decode_png, module)?)?;
     module.add_class::<clip::ClipAnimationReader>()?;
     module.add_class::<timeline::TimelineCell>()?;
     module.add_class::<timeline::SheetEntry>()?;
