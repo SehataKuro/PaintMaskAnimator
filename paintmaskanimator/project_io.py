@@ -10,6 +10,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 import math
 import os
+import time
 from concurrent.futures import ThreadPoolExecutor
 import zipfile
 from pathlib import Path, PurePosixPath
@@ -373,6 +374,41 @@ class _RustZipArchive:
 
     def __exit__(self, *_args):
         self.close()
+
+
+class _RustZipWriter:
+    """Rust（pma_core::project::zip）で書き、GIL を手放す。"""
+
+    def __init__(self, path):
+        self._writer = native.ZipWriter(os.fspath(path))
+
+    def writestr(self, name, data, compress_type=zipfile.ZIP_DEFLATED):
+        date_time = time.localtime(time.time())[:6]
+        if date_time[0] < 1980:
+            raise ValueError("ZIP does not support timestamps before 1980")
+        if compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
+            raise NotImplementedError("That compression method is not supported")
+        self._writer.write(name, data, compress_type == zipfile.ZIP_DEFLATED, date_time)
+
+    def close(self):
+        self._writer.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        if exc_type is None:
+            self.close()
+        else:
+            try:
+                self.close()
+            except Exception:
+                pass  # 本体の例外を保持する（close の失敗で置き換えない）。
+
+
+def _create_project_zip(path):
+    """Rust（pma_core::project::zip）で書き、GIL を手放す。"""
+    return _RustZipWriter(path)
 
 
 def _open_project_zip(path):

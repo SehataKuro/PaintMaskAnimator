@@ -1,7 +1,8 @@
-//! ファイルシステムに依存しない ZIP の読み取り。
-use std::io::{Read, Seek, SeekFrom};
+//! ファイルシステムに依存しない ZIP の読み書き。
+use std::io::{Read, Seek, SeekFrom, Write};
 
-use ::zip::{CompressionMethod, ZipArchive};
+use ::zip::ZipArchive;
+pub use ::zip::{result::ZipError, CompressionMethod};
 
 use crate::Error;
 
@@ -130,11 +131,106 @@ impl<R: Read + Seek> ZipReader<R> {
     }
 }
 
+/// Python の localtime から渡す DOS 日時。奇数秒は zipfile と同じく切り捨てる。
+#[derive(Clone, Copy)]
+pub struct ZipTime(pub u16, pub u8, pub u8, pub u8, pub u8, pub u8);
+
+/// zipfile.writestr と同じ順で項目を書く。時刻・ファイル操作は呼び出し側が担当する。
+pub struct ZipBuilder<W: Write + Seek> {
+    writer: ::zip::ZipWriter<W>,
+}
+
+impl<W: Write + Seek> ZipBuilder<W> {
+    /// Seek でヘッダーを更新するためデータ記述子を使わない writer を作る。
+    pub fn new(writer: W) -> Self {
+        Self {
+            writer: ::zip::ZipWriter::new(writer),
+        }
+    }
+
+    /// STORED または DEFLATED で追加する。日時・名前・圧縮・I/O の異常は Err。
+    /// 権限は zipfile.writestr の 0600、UTF-8 名のフラグはクレートが設定する。
+    pub fn add(
+        &mut self,
+        name: &str,
+        data: &[u8],
+        method: CompressionMethod,
+        time: ZipTime,
+    ) -> ::zip::result::ZipResult<()> {
+        let date =
+            ::zip::DateTime::from_date_and_time(time.0, time.1, time.2, time.3, time.4, time.5)
+                .map_err(|_| ::zip::result::ZipError::InvalidArchive("ZIP datetime".into()))?;
+        if !matches!(
+            method,
+            CompressionMethod::Stored | CompressionMethod::Deflated
+        ) {
+            return Err(::zip::result::ZipError::UnsupportedArchive(
+                "ZIP compression",
+            ));
+        }
+        let options = ::zip::write::SimpleFileOptions::default()
+            .compression_method(method)
+            .compression_level(if method == CompressionMethod::Deflated {
+                Some(7)
+            } else {
+                None
+            })
+            .last_modified_time(date)
+            .external_attributes(0o600 << 16)
+            // DEFLATE の最悪時の増加にも余裕を取り、4 GiB 前に ZIP64 を予約する。
+            .large_file(data.len() as u64 >= 0xffff_ffff - 16 * 1024 * 1024);
+        self.writer.start_file(name, options)?;
+        self.writer.write_all(data)?;
+        Ok(())
+    }
+
+    /// 最後のヘッダーと中央ディレクトリを書き、元の出力を返す。I/O の異常は Err。
+    pub fn finish(self) -> ::zip::result::ZipResult<W> {
+        self.writer.finish()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use ::zip::write::SimpleFileOptions;
     use std::io::{Cursor, Write};
+
+    #[test]
+    fn builder_headers_and_roundtrip() {
+        for method in [CompressionMethod::Stored, CompressionMethod::Deflated] {
+            let mut builder = ZipBuilder::new(Cursor::new(Vec::new()));
+            builder
+                .add(
+                    "日本語.png",
+                    b"hello hello hello",
+                    method,
+                    ZipTime(2026, 11, 17, 12, 34, 57),
+                )
+                .unwrap();
+            let bytes = builder.finish().unwrap().into_inner();
+            let word = |i| u16::from_le_bytes([bytes[i], bytes[i + 1]]);
+            assert_eq!(word(6), 0x800); // bit3 は 0
+            assert_eq!(word(10), (12 << 11) | (34 << 5) | 28);
+            assert_eq!(word(12), (46 << 9) | (11 << 5) | 17);
+            assert_eq!(word(28), 0);
+            assert_eq!(u32::from_le_bytes(bytes[22..26].try_into().unwrap()), 17);
+            assert!(u32::from_le_bytes(bytes[18..22].try_into().unwrap()) > 0);
+            let mut reader = ZipReader::open(Cursor::new(bytes)).unwrap();
+            let mut out = [0; 17];
+            reader.read_into(0, &mut out).unwrap();
+            assert_eq!(&out, b"hello hello hello");
+        }
+        let mut builder = ZipBuilder::new(Cursor::new(Vec::new()));
+        assert!(builder
+            .add(
+                "x",
+                b"",
+                CompressionMethod::Stored,
+                ZipTime(1979, 1, 1, 0, 0, 0)
+            )
+            .is_err());
+    }
 
     fn sample(method: CompressionMethod) -> Vec<u8> {
         let mut writer = ::zip::ZipWriter::new(Cursor::new(Vec::new()));

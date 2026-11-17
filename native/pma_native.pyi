@@ -155,3 +155,9 @@ class ZipReader:
 
 def decode_v2_plan(payload: dict, archive_names: list[str], limits: tuple[int, int, int] | None = None) -> tuple[dict, list[list], str | None]:
     """v2 の構造計画、要求順の画像、構造エラーの理由を返す。"""
+
+
+class ZipWriter:
+    def __init__(self, path: str) -> None: ...
+    def write(self, name: str, data: bytes, deflate: bool, date_time: tuple[int, int, int, int, int, int]) -> None: ...
+    def close(self) -> None: ...

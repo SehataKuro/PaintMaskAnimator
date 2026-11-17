@@ -86,3 +86,79 @@ impl ZipReader {
         })
     }
 }
+
+/// パスと I/O エラーを扱う Python 用 ZIP writer。
+#[pyclass]
+pub struct ZipWriter {
+    writer: Mutex<Option<pma_core::project::zip::ZipBuilder<std::io::BufWriter<File>>>>,
+}
+
+fn write_error(error: pma_core::project::zip::ZipError) -> PyErr {
+    match error {
+        pma_core::project::zip::ZipError::Io(error) => error.into(),
+        error => PyValueError::new_err(error.to_string()),
+    }
+}
+
+#[pymethods]
+impl ZipWriter {
+    #[new]
+    fn new(py: Python<'_>, path: PathBuf) -> PyResult<Self> {
+        py.detach(|| {
+            let file = File::create(path)?;
+            Ok(Self {
+                writer: Mutex::new(Some(pma_core::project::zip::ZipBuilder::new(
+                    std::io::BufWriter::new(file),
+                ))),
+            })
+        })
+    }
+
+    fn write(
+        &self,
+        py: Python<'_>,
+        name: &str,
+        data: &[u8],
+        deflate: bool,
+        date_time: (u16, u8, u8, u8, u8, u8),
+    ) -> PyResult<()> {
+        // bytes を借りたまま GIL を解放し、PNG のコピーと圧縮を行う。
+        py.detach(|| {
+            let mut guard = self
+                .writer
+                .lock()
+                .map_err(|_| PyRuntimeError::new_err("ZIP lock"))?;
+            let writer = guard
+                .as_mut()
+                .ok_or_else(|| PyValueError::new_err("closed ZIP"))?;
+            let (y, m, d, h, min, sec) = date_time;
+            writer
+                .add(
+                    name,
+                    data,
+                    if deflate {
+                        pma_core::project::zip::CompressionMethod::Deflated
+                    } else {
+                        pma_core::project::zip::CompressionMethod::Stored
+                    },
+                    pma_core::project::zip::ZipTime(y, m, d, h, min, sec),
+                )
+                .map_err(write_error)
+        })
+    }
+
+    fn close(&self, py: Python<'_>) -> PyResult<()> {
+        py.detach(|| {
+            use std::io::Write;
+            let writer = self
+                .writer
+                .lock()
+                .map_err(|_| PyRuntimeError::new_err("ZIP lock"))?
+                .take();
+            if let Some(writer) = writer {
+                writer.finish().map_err(write_error)?.flush()?;
+            }
+            Ok(())
+        })
+    }
+}

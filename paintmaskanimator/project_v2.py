@@ -677,7 +677,7 @@ def write_snapshot(path, snapshot, png_cache=None):
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
     try:
-        with zipfile.ZipFile(temporary, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        with io._create_project_zip(temporary) as archive:
             thumbnail = io._thumbnail_png(snapshot.thumbnail)
             if thumbnail is not None:
                 archive.writestr(io.THUMBNAIL_NAME, thumbnail, compress_type=zipfile.ZIP_STORED)

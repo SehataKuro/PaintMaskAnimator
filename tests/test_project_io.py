@@ -1,5 +1,6 @@
 """Roundtrip tests for the extracted project serializer — no widget needed."""
 import os
+from pathlib import Path
 
 import pytest
 
@@ -230,7 +231,7 @@ def test_failed_write_preserves_existing_project(qapp, tmp_path, monkeypatch):
         def __init__(self, *_args, **_kwargs):
             raise OSError("disk full")
 
-    monkeypatch.setattr(project_io.zipfile, "ZipFile", BrokenArchive)
+    monkeypatch.setattr(project_io, "_create_project_zip", BrokenArchive)
 
     with pytest.raises(OSError, match="disk full"):
         _write_v2(path, _metadata(), [make_frame()])
@@ -881,3 +882,96 @@ def test_rust_zip_incompatible_archives_use_zipfile(qapp, tmp_path, case):
     _zip_case(path, case)
     with project_io._open_project_zip(path) as archive:
         assert isinstance(archive, zipfile.ZipFile)
+
+
+# Rust ZIP writer: small snapshots keep the added coverage inexpensive.
+def _assert_zip_writers_equal(tmp_path, monkeypatch, snapshot):
+    import struct
+    import zipfile
+    import time
+    from paintmaskanimator import project_v2
+
+    fixed = time.localtime(1_700_000_000)
+    monkeypatch.setattr(time, "localtime", lambda *_: fixed)
+    rust_path, python_path = tmp_path / "rust.pman", tmp_path / "python.pman"
+    project_v2.write_snapshot(rust_path, snapshot)
+    with monkeypatch.context() as patch:
+        patch.setattr(project_io, "_create_project_zip", lambda p: zipfile.ZipFile(
+            p, "w", compression=zipfile.ZIP_DEFLATED))
+        project_v2.write_snapshot(python_path, snapshot)
+    assert rust_path.stat().st_size <= python_path.stat().st_size
+    with zipfile.ZipFile(rust_path) as rust, zipfile.ZipFile(python_path) as python:
+        assert rust.namelist() == python.namelist()
+        with project_io._RustZipArchive(rust_path) as reader:
+            assert [i.filename for i in reader.infolist()] == rust.namelist()
+            for a, b in zip(rust.infolist(), python.infolist()):
+                for field in ("filename", "file_size", "flag_bits", "date_time", "external_attr", "extra", "compress_type"):
+                    assert getattr(a, field) == getattr(b, field), (a.filename, field)
+                assert rust.read(a) == python.read(b) == reader.read(a.filename)
+        if snapshot.thumbnail is not None:
+            first = rust.infolist()[0]
+            assert first.filename == project_io.THUMBNAIL_NAME
+            assert first.compress_type == zipfile.ZIP_STORED
+            header = rust_path.read_bytes()[:30]
+            fields = struct.unpack("<4s5H3I2H", header)
+            assert fields[2] & 8 == 0
+            assert fields[7] == fields[8] == first.file_size
+    a, b = project_io.load_project(rust_path), project_io.load_project(python_path)
+    assert a.metadata == b.metadata
+    assert project_io.build_v2_payload(project_io.ProjectSnapshot(
+        a.metadata, a.document, a.width, a.height))[0] == project_io.build_v2_payload(
+            project_io.ProjectSnapshot(b.metadata, b.document, b.width, b.height))[0]
+    for path in (rust_path, python_path):
+        assert project_io.read_project_archive(path, _allow_v2=True).metadata == a.metadata
+
+
+@pytest.mark.parametrize("thumbnail", [False, True])
+def test_rust_zip_writer_snapshot(qapp, tmp_path, monkeypatch, thumbnail):
+    from PySide6.QtGui import QImage
+    monkeypatch.setattr(constants, "CANVAS_WIDTH", 4)
+    monkeypatch.setattr(constants, "CANVAS_HEIGHT", 3)
+    frame = make_frame()
+    frame.layers[0].name = "日本語レイヤー"
+    frame.layers[0].cell_name = "セル壱"
+    document = Document()
+    document.install_legacy_frames([frame], {}, canvas_size=(4, 3))
+    image = QImage(4, 3, QImage.Format.Format_RGBA8888)
+    image.fill(0xff123456)
+    snapshot = project_io.ProjectSnapshot.capture(_metadata(), document, image if thumbnail else None)
+    _assert_zip_writers_equal(tmp_path, monkeypatch, snapshot)
+
+
+@pytest.mark.parametrize("fixture", sorted((Path(__file__).parent / "fixtures/projects/v2").glob("*.pman")))
+def test_rust_zip_writer_v2_fixtures(qapp, tmp_path, monkeypatch, fixture):
+    loaded = project_io.load_project(fixture)
+    snapshot = project_io.ProjectSnapshot(loaded.metadata, loaded.document, loaded.width, loaded.height)
+    _assert_zip_writers_equal(tmp_path, monkeypatch, snapshot)
+
+
+def test_rust_zip_writer_failure_cleanup(qapp, tmp_path, monkeypatch):
+    monkeypatch.setattr(constants, "CANVAS_WIDTH", 4)
+    monkeypatch.setattr(constants, "CANVAS_HEIGHT", 3)
+    path = tmp_path / "existing.pman"
+    path.write_bytes(b"original")
+    def fail(*args):
+        raise OSError("disk full")
+    monkeypatch.setattr(project_io._RustZipWriter, "writestr", fail)
+    with pytest.raises(OSError, match="disk full"):
+        _write_v2(path, _metadata(), [make_frame()])
+    assert path.read_bytes() == b"original"
+    assert not path.with_suffix(".pman.tmp").exists()
+    with pytest.raises(IsADirectoryError):
+        project_io._create_project_zip(tmp_path)
+
+
+def test_rust_zip_writer_utf8_and_timestamp(tmp_path):
+    import zipfile
+    writer = project_io.native.ZipWriter(str(tmp_path / "utf8.zip"))
+    writer.write("日本語.png", b"abc", False, (2026, 11, 17, 12, 34, 57))
+    writer.close()
+    writer.close()
+    with zipfile.ZipFile(tmp_path / "utf8.zip") as archive:
+        info = archive.infolist()[0]
+        assert info.flag_bits == 0x800
+        assert info.date_time == (2026, 11, 17, 12, 34, 56)
+        assert info.external_attr == 0o600 << 16
