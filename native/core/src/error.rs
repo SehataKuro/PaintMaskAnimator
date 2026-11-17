@@ -7,6 +7,8 @@ pub enum Error {
     Unsupported(String),
     /// 壊れたデータや確保できない画像。
     Invalid(String),
+    /// ZIP の破損または zipfile に戻す形式。
+    Archive(String),
     /// RGBA8888 の画素数が指定のバイト上限を超えた。
     TooLarge {
         width: u32,
@@ -18,6 +20,7 @@ pub enum Error {
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Archive(message) => write!(f, "不正な ZIP: {message}"),
             Self::Unsupported(message) => write!(f, "未対応の PNG: {message}"),
             Self::Invalid(message) => write!(f, "不正な PNG: {message}"),
             Self::TooLarge {

@@ -83,6 +83,13 @@ def test_future_format_rejected_before_images(window, tmp_path, monkeypatch, sav
         return original(archive, name, *args, **kwargs)
 
     monkeypatch.setattr(zipfile.ZipFile, "read", guarded_read)
+    rust_read = project_io._RustZipArchive.read
+
+    def guarded_rust_read(archive, name):
+        assert name == "project.json", "must reject before reading images"
+        return rust_read(archive, name)
+
+    monkeypatch.setattr(project_io._RustZipArchive, "read", guarded_rust_read)
     with pytest.raises(OperationError) as caught:
         project_io.load_project(path)
     if isinstance(saved, str):

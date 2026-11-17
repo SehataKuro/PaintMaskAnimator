@@ -311,6 +311,78 @@ def _prefetch_pngs(archive, entries, width, height, decoded):
     }
 
 
+@dataclass(frozen=True)
+class _RustZipInfo:
+    filename: str
+    file_size: int
+    flag_bits: int
+
+
+class _RustZipArchive:
+    """Rust（pma_core::project::zip）で読み、GIL を手放す。
+
+    Rust で開けないものは _open_project_zip が zipfile に回す。
+    """
+
+    def __init__(self, path):
+        self._reader = native.ZipReader(os.fspath(path))
+        self._path = path
+        self._infos = [_RustZipInfo(*entry) for entry in self._reader.entries()]
+        self._indices = {info.filename: i for i, info in enumerate(self._infos)}
+        self._closed = False
+
+    def infolist(self):
+        return list(self._infos)
+
+    def getinfo(self, name):
+        try:
+            return self._infos[self._indices[name]]
+        except KeyError:
+            raise KeyError(f"There is no item named {name!r} in the archive") from None
+
+    def read(self, name):
+        if self._closed:
+            raise ValueError("Attempt to use ZIP archive that was already closed")
+        info = self.getinfo(name)
+        try:
+            return self._reader.read(self._indices[name])
+        except RuntimeError as error:
+            # 失敗時だけ既存実装の診断を使い、CRC 等の文言も維持する。
+            # 全体の read() は使わず宣言サイズ+1まで。成功してもRustの失敗を隠さない。
+            try:
+                with zipfile.ZipFile(self._path, "r") as archive:
+                    with archive.open(name) as source:
+                        remaining = info.file_size + 1
+                        while remaining:
+                            chunk = source.read(min(remaining, 65536))
+                            if not chunk:
+                                break
+                            remaining -= len(chunk)
+            except zipfile.BadZipFile:
+                raise
+            except Exception as diagnostic:
+                raise zipfile.BadZipFile(str(diagnostic)) from error
+            raise zipfile.BadZipFile(str(error)) from error
+
+    def close(self):
+        self._reader.close()
+        self._closed = True
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        self.close()
+
+
+def _open_project_zip(path):
+    """Rust（pma_core::project::zip）で読み、GIL を手放す。Rust で開けないものは zipfile に回す。"""
+    try:
+        return _RustZipArchive(path)
+    except ValueError:
+        return zipfile.ZipFile(path, "r")
+
+
 def read_project_archive(path, png_cache=None, *, _allow_v2=False):
     """Open and validate a project archive.
 
@@ -326,7 +398,7 @@ def read_project_archive(path, png_cache=None, *, _allow_v2=False):
     # 成功してから差し替える。
     seeded = []
     project_path = Path(path)
-    with zipfile.ZipFile(project_path, "r") as archive:
+    with _open_project_zip(project_path) as archive:
         archive_entries = archive.infolist()
         # セルの画像と、保持した初期状態（あれば）で、セル1つにつき最大2ファイル。
         # ほかに project.json とサムネイル。

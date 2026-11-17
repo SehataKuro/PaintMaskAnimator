@@ -703,3 +703,181 @@ def test_native_png_encode_invalid_input():
     for w, h, pixels in [(0, 1, b""), (1, 0, b""), (1, 1, b""), (1, 1, b"12345")]:
         with pytest.raises(ValueError):
             project_io.native.encode_png(pixels, w, h, 3780, 3780)
+
+
+# 段階3-3: ZIP読み取りのRust/zipfile互換性。
+def _zip_read_signature(archive):
+    return [(i.filename, i.file_size, i.flag_bits) for i in archive.infolist()]
+
+
+def _assert_zip_read_equal(path):
+    import zipfile
+    with project_io._RustZipArchive(path) as rust, zipfile.ZipFile(path) as python:
+        assert _zip_read_signature(rust) == _zip_read_signature(python)
+        for info in python.infolist():
+            assert rust.read(info.filename) == python.read(info.filename)
+        with pytest.raises(KeyError) as a:
+            rust.getinfo("missing")
+        with pytest.raises(KeyError) as b:
+            python.getinfo("missing")
+        assert str(a.value) == str(b.value)
+    with pytest.raises(ValueError, match="already closed"):
+        rust.read("missing")
+    rust.close()
+    assert rust.infolist() == [project_io._RustZipInfo(*i) for i in _zip_read_signature(python)]
+
+
+def test_rust_zip_all_project_fixtures():
+    from pathlib import Path
+    root = Path(__file__).parent / "fixtures" / "projects"
+    paths = sorted(root.glob("v[12]/*.pman"))
+    assert paths
+    for path in paths:
+        _assert_zip_read_equal(path)
+
+
+def test_rust_zip_saved_project(qapp, tmp_path):
+    path = tmp_path / "saved.pman"
+    _write_v2(path, _metadata(), [make_frame()])
+    _assert_zip_read_equal(path)
+
+
+def _zip_case(path, case):
+    import io
+    import struct
+    import warnings
+    import zipfile
+    stream = io.BytesIO()
+    compression = {"bzip2": zipfile.ZIP_BZIP2, "stored": zipfile.ZIP_STORED}.get(
+        case, zipfile.ZIP_DEFLATED
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        with zipfile.ZipFile(stream, "w", compression=compression) as archive:
+            # 有効な最小v1プロジェクト（透明な1画素画像）。
+            import json
+            from PySide6.QtGui import QImage
+            image = QImage(1, 1, QImage.Format.Format_ARGB32_Premultiplied)
+            image.fill(0)
+            metadata = {"format": "PaintMaskAnimatorProject", "mask_format": 2,
+                        "canvas": {"width": 1, "height": 1},
+                        "frames": [{"layers": [{"image": "pixel.png"}]}]}
+            archive.writestr("project.json", json.dumps(metadata).encode())
+            archive.writestr("extra", b"abcdef" * 10)
+            if case == "duplicate":
+                archive.writestr("extra", b"duplicate")
+            archive.writestr("pixel.png", project_io.encode_png(image))
+            if case in {"utf8", "cp437_utf8"}:
+                archive.writestr("日本語", b"name")
+            if case == "zip64":
+                with archive.open("large", "w", force_zip64=True) as output:
+                    output.write(b"small ZIP64 entry")
+            if case == "comment":
+                archive.comment = b"comment"
+    data = bytearray(stream.getvalue())
+    central = data.index(b"PK\x01\x02")
+    if case in ("encrypted", "descriptor"):
+        flag = 1 if case == "encrypted" else 8
+        for offset in [6, central + 8]:
+            struct.pack_into("<H", data, offset, struct.unpack_from("<H", data, offset)[0] | flag)
+    if case == "crc":
+        struct.pack_into("<I", data, central + 16, 0)
+    if case == "oversize":
+        struct.pack_into("<I", data, central + 24, 1)
+    if case == "cp437":
+        # 二番目の名前の先頭だけをCP437に置換（長さは変えない）。
+        local2 = data.index(b"PK\x03\x04", 4)
+        central2 = data.index(b"PK\x01\x02", central + 4)
+        data[local2 + 30] = data[central2 + 46] = 0x82
+    if case == "cp437_utf8":
+        for signature, flag_offset in [(b"PK\x03\x04", 6), (b"PK\x01\x02", 8)]:
+            start = 0
+            while (at := data.find(signature, start)) >= 0:
+                flags = struct.unpack_from("<H", data, at + flag_offset)[0]
+                struct.pack_into("<H", data, at + flag_offset, flags & ~0x800)
+                start = at + 4
+    if case == "zip64_eocd":
+        end = data.index(b"PK\x05\x06")
+        _, disk, cd_disk, count_disk, count, size, offset, comment_len = struct.unpack_from(
+            "<4s4H2IH", data, end
+        )
+        zip64_end = struct.pack("<4sQ2H2I4Q", b"PK\x06\x06", 44, 45, 45,
+                                disk, cd_disk, count_disk, count, size, offset)
+        locator = struct.pack("<4sIQI", b"PK\x06\x07", 0, end, 1)
+        legacy = struct.pack("<4s4H2IH", b"PK\x05\x06", 0, 0, 65535, 65535,
+                             0xffffffff, 0xffffffff, comment_len)
+        data = data[:end] + zip64_end + locator + legacy
+    if case == "prefix":
+        data = b"leading garbage" + data
+    if case == "broken":
+        data = b"broken zip"
+    if case == "empty":
+        data = b""
+    path.write_bytes(data)
+
+
+@pytest.mark.parametrize("case", [
+    "stored", "utf8", "cp437", "cp437_utf8", "descriptor", "duplicate", "encrypted", "crc",
+    "oversize", "prefix", "comment", "zip64", "zip64_eocd", "bzip2", "broken", "empty",
+])
+def test_rust_zip_project_results_match_zipfile(qapp, tmp_path, monkeypatch, case):
+    import zipfile
+    path = tmp_path / f"{case}.pman"
+    _zip_case(path, case)
+    if case not in {"duplicate", "encrypted", "bzip2", "broken", "empty", "crc", "oversize", "cp437_utf8"}:
+        _assert_zip_read_equal(path)
+
+    def result():
+        try:
+            metadata, frames, width, height = project_io.read_project_archive(path)
+            # 内部保持オブジェクトを除くメタデータと全レイヤー画素を比較する。
+            metadata.pop("_loaded_sequence_archive", None)
+            pixels = [(layer.name, layer.visible, layer.opacity,
+                       layer.image.width(), layer.image.height(),
+                       bytes(layer.image.constBits()))
+                      for frame in frames for layer in frame.layers]
+            return ("ok", metadata, pixels, width, height)
+        except Exception as error:
+            return ("error", type(error), str(error))
+
+    actual = result()
+    if case not in {"duplicate", "encrypted", "crc", "oversize", "broken", "empty"}:
+        assert actual[0] == "ok", actual
+    monkeypatch.setattr(project_io, "_open_project_zip", lambda p: zipfile.ZipFile(p, "r"))
+    assert actual == result()
+
+
+def test_rust_zip_falls_back_on_open_error(tmp_path, monkeypatch):
+    import zipfile
+    path = tmp_path / "fallback.pman"
+    _zip_case(path, "comment")
+    def unsupported(_path):
+        raise ValueError("unsupported")
+    monkeypatch.setattr(project_io.native, "ZipReader", unsupported)
+    with project_io._open_project_zip(path) as archive:
+        assert isinstance(archive, zipfile.ZipFile)
+        assert archive.read("extra") == b"abcdef" * 10
+
+
+def test_rust_zip_missing_path_is_oserror(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        project_io._open_project_zip(tmp_path / "absent.pman")
+
+
+@pytest.mark.parametrize("case", ["crc", "oversize"])
+def test_rust_zip_read_failure_is_bad_zip(tmp_path, case):
+    import zipfile
+    path = tmp_path / "bad.pman"
+    _zip_case(path, case)
+    with project_io._RustZipArchive(path) as archive:
+        with pytest.raises(zipfile.BadZipFile):
+            archive.read("project.json")
+
+
+@pytest.mark.parametrize("case", ["duplicate", "encrypted", "bzip2", "cp437_utf8"])
+def test_rust_zip_incompatible_archives_use_zipfile(qapp, tmp_path, case):
+    import zipfile
+    path = tmp_path / "fallback.pman"
+    _zip_case(path, case)
+    with project_io._open_project_zip(path) as archive:
+        assert isinstance(archive, zipfile.ZipFile)
