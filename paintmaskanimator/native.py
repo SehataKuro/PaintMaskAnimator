@@ -17,7 +17,7 @@ REQUIRED_API = (
     "line_flow_scores", "connect_runs", "label_runs", "refine_face", "thin",
     "render_quad_labels", "render_mesh_labels",
     "surface_guided_palette_labels", "map_known_colors", "region_neighbors",
-    "flood_fill", "dilate", "erode", "label_regions", "remove_line_noise", "decode_png", "encode_png", "ZipReader", "ZipWriter", "decode_v2_plan",
+    "extend_line_ends", "flood_fill", "dilate", "erode", "label_regions", "remove_line_noise", "decode_png", "encode_png", "ZipReader", "ZipWriter", "decode_v2_plan",
 )
 TIMELINE_API_VERSION = 2
 
@@ -437,3 +437,14 @@ def decode_v2_plan(payload, archive_names, limits=None):
 def ZipWriter(path):
     """ZIP writer を作る。"""
     return _native.ZipWriter(path)
+
+
+def extend_line_ends(boundary, strips, max_length):
+    """細線化済みの帯から端点を検出し、端までの延長マスクを返す。"""
+    height, width = boundary.shape
+    data = _native.extend_line_ends(
+        _as_bytes(boundary), width, height,
+        [(y0, y1, x0, x1, _as_bytes(skeleton))
+         for y0, y1, x0, x1, skeleton in strips], int(max_length),
+    )
+    return _as_mask(data, height, width)

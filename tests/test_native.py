@@ -223,3 +223,51 @@ def test_remove_line_noise_tie_follows_shift_direction():
     assert count == changed == 1
     assert np.array_equal(actual, expected)
     assert tuple(actual[1, 1]) == (0, 0, 0, 255)
+
+
+@pytest.mark.parametrize("width", WIDTHS)
+def test_extend_line_ends_matches_numpy(width):
+    rng = np.random.default_rng(4100 + width)
+    shape = (37, width)
+    masks = [np.zeros(shape, bool), np.ones(shape, bool), rng.random(shape) < .08,
+             rng.random(shape) < .7]
+    lines = np.zeros(shape, bool)
+    for _ in range(12):
+        x, y = int(rng.integers(width)), int(rng.integers(37))
+        dx, dy = int(rng.integers(-11, 12)), int(rng.integers(-11, 12))
+        for t in range(16):
+            px, py = round(x + dx * t / 11), round(y + dy * t / 11)
+            if 0 <= px < width and 0 <= py < 37:
+                lines[py, px] = True
+    masks.extend([lines, np.pad(np.ones((1, 1), bool), ((0, 36), (0, width - 1)))])
+    for length in (1, 2, 5, 20, 50, 10000):
+        cache = {}
+        for boundary in masks:
+            expected = bucket_fill.extend_line_ends_numpy(boundary, length)
+            np.testing.assert_array_equal(bucket_fill.extend_line_ends(boundary, length), expected)
+            for _ in range(2):
+                np.testing.assert_array_equal(
+                    bucket_fill.extend_line_ends(boundary, length, cache), expected)
+
+
+@pytest.mark.parametrize("dx,dy", [(2, 1), (-2, 1), (1, -2), (-1, -2),
+                                   (11, 7), (-11, -7), (0, 11), (11, 0)])
+def test_extend_line_ends_direction_and_rounding(dx, dy):
+    # Skeleton を直接渡し、.5 丸め・負方向・norm の向きを細線化と分離して比較。
+    boundary = np.zeros((61, 61), bool)
+    for t in range(12):
+        boundary[round(30 + dy * t / 11), round(30 + dx * t / 11)] = True
+    skeleton = boundary.copy()
+    expected = bucket_fill.extend_line_ends_numpy(boundary, 50)
+    np.testing.assert_array_equal(bucket_fill.extend_line_ends(boundary, 50), expected)
+    assert native.extend_line_ends(boundary, [(0, 61, 0, 61, skeleton)], 50).shape == boundary.shape
+
+
+def test_extend_line_ends_native_rejects_invalid_input():
+    backend = native._native
+    for boundary, width, height, strips, length in [
+        (b'', 2, 2, [], 1), (b'\0', 1, 1, [(0, 2, 0, 1, b'\0\0')], 1),
+        (b'\0', 1, 1, [(0, 1, 0, 1, b'')], 1), (b'\0', 1, 1, [], 0),
+    ]:
+        with pytest.raises(ValueError):
+            backend.extend_line_ends(boundary, width, height, strips, length)

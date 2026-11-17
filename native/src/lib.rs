@@ -193,6 +193,7 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(py_label_regions, module)?)?;
     module.add_function(wrap_pyfunction!(py_line_flow_scores, module)?)?;
     module.add_function(wrap_pyfunction!(py_thin, module)?)?;
+    module.add_function(wrap_pyfunction!(py_extend_line_ends, module)?)?;
     module.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
 }
@@ -315,4 +316,46 @@ fn py_line_flow_scores<'py>(
         .collect()
     });
     Ok(PyBytes::new(py, &bytes))
+}
+
+#[pyfunction(name = "extend_line_ends")]
+#[allow(clippy::type_complexity)]
+fn py_extend_line_ends<'py>(
+    py: Python<'py>,
+    boundary: &[u8],
+    width: usize,
+    height: usize,
+    strips: Vec<(usize, usize, usize, usize, Vec<u8>)>,
+    max_length: usize,
+) -> PyResult<Bound<'py, PyBytes>> {
+    check_size(boundary, width, height)?;
+    if max_length == 0 {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "max_length must be positive",
+        ));
+    }
+    for (y0, y1, x0, x1, skeleton) in &strips {
+        if y0 > y1 || x0 > x1 || *y1 > height || *x1 > width {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "invalid strip bounds",
+            ));
+        }
+        check_size(skeleton, x1 - x0, y1 - y0)?;
+    }
+    let result = py.detach(|| {
+        let strips: Vec<_> = strips
+            .iter()
+            .map(
+                |(y0, y1, x0, x1, skeleton)| pma_core::fill::line_ends::Strip {
+                    y0: *y0,
+                    y1: *y1,
+                    x0: *x0,
+                    x1: *x1,
+                    skeleton,
+                },
+            )
+            .collect();
+        pma_core::fill::line_ends::extend_line_ends(boundary, width, height, &strips, max_length)
+    });
+    Ok(PyBytes::new(py, &result))
 }

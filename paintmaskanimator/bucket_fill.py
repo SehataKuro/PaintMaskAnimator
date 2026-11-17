@@ -435,6 +435,53 @@ def extend_line_ends(boundary, max_length, cache=None):
     # 端から max_length 以内の帯だけを細線化する（全体を細線化すると大きな
     # キャンバスで遅い）。向きを測るために少し内側まで含める。
     band = max_length + EXTEND_TRACE_LENGTH + EXTEND_THIN_ITERATIONS + 2
+    strips_for_native = []
+    strips = (
+        (0, min(height, band), 0, width),
+        (max(0, height - band), height, 0, width),
+        (0, height, 0, min(width, band)),
+        (0, height, max(0, width - band), width),
+    )
+    for y0, y1, x0, x1 in strips:
+        part = boundary[y0:y1, x0:x1]
+        if not part.any():
+            continue
+        key = (y0, y1, x0, x1, EXTEND_THIN_ITERATIONS)
+        cached = cache.get(key) if cache is not None else None
+        if cached is not None and np.array_equal(cached[0], part):
+            skeleton = cached[1]
+        else:
+            skeleton = _thin(part, EXTEND_THIN_ITERATIONS)
+            if cache is not None:
+                # ドラッグ中だけ保持する。線や参照が変わった帯は必ず計算し直す。
+                if key not in cache and len(cache) >= 4:
+                    cache.clear()
+                cache[key] = (part.copy(), skeleton)
+        strips_for_native.append((y0, y1, x0, x1, skeleton))
+    return native.extend_line_ends(boundary, strips_for_native, max_length)
+
+
+def extend_line_ends_numpy(boundary, max_length, cache=None):
+    """キャンバス端の手前で途切れた線を、端まで延ばした画素の真偽マスク。
+
+    作画では画面に映る範囲（スタンダードフレーム）の外まで素材を用意するが、
+    フレームの外では線を端まで引かないことが多い。そのまま塗ると線の切れ目から
+    隣の領域へ漏れるので、端点の向きのまま線を延ばした仮想の境界を返す。
+
+    延ばすのは「その向きでキャンバス端まで ``max_length`` 以内」の端点だけで、
+    途中で別の線に当たればそこで止める。絵の内側の端点（髪のハネなど）は
+    延長しないので、ふつうの塗りには影響しない。
+
+    :param boundary: 塗りを止める画素（線など）の真偽マスク。
+    :param cache: ドラッグ中だけ保持する細線化のキャッシュ。衝突判定は再利用しない。
+    :returns: 延長線の画素。``boundary`` の画素は含まない。
+    """
+    height, width = boundary.shape
+    extension = np.zeros((height, width), dtype=bool)
+    max_length = max(1, int(max_length))
+    # 端から max_length 以内の帯だけを細線化する（全体を細線化すると大きな
+    # キャンバスで遅い）。向きを測るために少し内側まで含める。
+    band = max_length + EXTEND_TRACE_LENGTH + EXTEND_THIN_ITERATIONS + 2
     strips = (
         (0, min(height, band), 0, width),
         (max(0, height - band), height, 0, width),
