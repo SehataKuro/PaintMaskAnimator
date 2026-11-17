@@ -227,6 +227,147 @@ def _decode_payload(payload, archive, png_cache=None):
     """Build a private dense graph directly, without legacy installation."""
     import math
     import struct
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QImage
+    from . import project_io as io
+    from .document import Document
+    from .errors import OperationError
+    from .legacy_v1 import DenseReference, LegacyLayerV1, V1Position
+    from .models import ArchiveHint, Cell, Frame, Layer, Track, default_layer_name
+    from .tween_groups import sanitize_spec
+
+    from .native import decode_v2_plan
+
+    def require(ok):
+        if not ok:
+            raise OperationError(tr("プロジェクトの構造が不正です。"))
+
+    def finite(value):
+        if isinstance(value, float):
+            require(math.isfinite(value))
+        elif isinstance(value, dict):
+            for child in value.values():
+                finite(child)
+        elif isinstance(value, list):
+            for child in value:
+                finite(child)
+    finite(payload)
+    plan, requests, error = decode_v2_plan(
+        payload, [i.filename for i in archive.infolist()],
+        (io.MAX_PROJECT_FRAMES, io.MAX_PROJECT_LAYERS, io.MAX_PROJECT_LAYER_CELLS))
+    width, height = plan["width"], plan["height"]
+    decoded, seeded = {}, []
+
+    def blank():
+        image = QImage(width, height, QImage.Format.Format_ARGB32_Premultiplied)
+        image.fill(Qt.GlobalColor.transparent)
+        return image
+
+    def image(path, paper, draft):
+        try:
+            info = archive.getinfo(path)
+        except KeyError as error:
+            raise OperationError(tr("プロジェクト内の画像がありません。")) from error
+        require(info.file_size <= io.MAX_PROJECT_IMAGE_BYTES)
+        blob = archive.read(path)
+        require(len(blob) >= 24 and blob[:8] == b"\x89PNG\r\n\x1a\n"
+                and blob[12:16] == b"IHDR")
+        require(struct.unpack(">II", blob[16:24]) == (width, height))
+        if blob not in decoded:
+            require((len(decoded) + 1) * width * height <= io.MAX_PROJECT_DECODED_PIXELS)
+            result = io._decode_png(blob)
+            require(not result.isNull() and result.width() == width and result.height() == height)
+            decoded[blob] = result
+        result = decoded[blob]
+        if payload.get("mask_format", 1) < io.CURRENT_MASK_FORMAT and not (
+                paper or draft):
+            result = io.white_to_transparent_qimage(result)
+        if payload.get("mask_format", 1) >= io.CURRENT_MASK_FORMAT or paper or draft:
+            seeded.append((result, blob))
+        assert result is not None  # decoded above; only a None input stays None
+        return QImage(result)
+
+    images = [image(path, paper, draft) for path, paper, draft in requests]
+    require(error is None)
+
+    def artwork(values):
+        image_index, initial_index, name = values
+        return Cell(blank() if image_index is None else images[image_index],
+                    None if initial_index is None else images[initial_index], name)
+
+    # DenseReference は frozen dataclass。同じ参照を共有しても変更されない。
+    references = {}
+
+    def dense(values):
+        key = tuple(values)
+        result = references.get(key)
+        if result is None:
+            result = references[key] = DenseReference(*values)
+        return result
+
+    document = object.__new__(Document)
+    document.frames = [Frame([], duration) for duration in plan["durations"]]
+    document.tracks = []
+    for li, data in enumerate(plan["tracks"]):
+        original = payload["tracks"][li]
+        name, visible, opacity, paper, draft, filter_enabled, rgb = data["display"]
+        track = Track(default_layer_name(li) if name is None else name,
+                      visible, opacity, paper, draft,
+                      color_filter_enabled=filter_enabled,
+                      color_filter_rgb=None if rgb is None else tuple(rgb))
+        for number, values in data["cells"]:
+            track.cells[number] = artwork(values)
+        for number, content, blank_key, length, pending, index in data["hints"]:
+            entry = original["drawing_states"][index]
+            track.legacy_archive_hints[number] = ArchiveHint(
+                content, blank_key, length, pending, sanitize_spec(entry.get("tween")),
+                entry.get("tween_member"))
+        track.connected = True
+        for column, values in enumerate(data["slots"]):
+            (content, blank_key, number, pending, start, local,
+             legacy_kind, legacy_number, exposure, input_length, imported,
+             ref, resolve_ref, has_resolved, source, position_index) = values
+            slot = Layer(track.name, blank(), has_content=content,
+                         is_blank_key=blank_key, sequence_number=number,
+                         sequence_only=pending, blank_start=start)
+            if local is not None:
+                slot.__dict__["_cell"] = artwork(local)
+            slot.attach_track(track)
+            if number is not None and (content or pending):
+                slot.__dict__.pop("_cell", None)
+            position = {} if position_index is None else original["positions"][position_index]
+            slot.tween = sanitize_spec(position.get("tween"))
+            slot.tween_member = position.get("tween_member")
+            if imported is not None:
+                slot.__dict__["_v2_length_imported"] = imported
+            legacy = LegacyLayerV1(track.name, slot.image,
+                has_content=legacy_kind == "CELL", is_blank_key=legacy_kind == "BLANK",
+                sequence_number=legacy_number, sequence_only=pending,
+                exposure=exposure, tween=deepcopy(slot.tween), tween_member=slot.tween_member)
+            slot.__dict__["_v1_position"] = V1Position(
+                legacy, legacy_kind in ("CELL", "BLANK"), start, pending, input_length)
+            signature = (content, blank_key, number, pending, start)
+            set_dense_import(slot, (signature, dense(ref), dense(resolve_ref)))
+            if has_resolved:
+                slot.__dict__["_v2_resolve_source"] = (signature, source, column, len(document.frames))
+            document.frames[column].layers.append(slot)
+        document.tracks.append(track)
+    document.current_frame = plan["current_frame"]
+    document.active_layer_index = plan["active_layer_index"]
+    metadata = deepcopy(payload)
+    for key in ("tracks", "frame_durations"):
+        metadata.pop(key, None)
+    if png_cache is not None:
+        png_cache.clear()
+        for result, blob in seeded:
+            png_cache.remember(result, blob)
+    return io.LoadedProject(metadata, document, width, height, 2)
+
+
+def _decode_payload_python(payload, archive, png_cache=None):
+    """Build a private dense graph directly, without legacy installation."""
+    import math
+    import struct
     from pathlib import PurePosixPath
     from PySide6.QtCore import Qt
     from PySide6.QtGui import QImage

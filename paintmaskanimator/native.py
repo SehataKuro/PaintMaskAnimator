@@ -17,7 +17,7 @@ REQUIRED_API = (
     "line_flow_scores", "connect_runs", "label_runs", "refine_face", "thin",
     "render_quad_labels", "render_mesh_labels",
     "surface_guided_palette_labels", "map_known_colors", "region_neighbors",
-    "flood_fill", "dilate", "erode", "label_regions", "remove_line_noise", "decode_png", "encode_png", "ZipReader",
+    "flood_fill", "dilate", "erode", "label_regions", "remove_line_noise", "decode_png", "encode_png", "ZipReader", "decode_v2_plan",
 )
 TIMELINE_API_VERSION = 2
 
@@ -427,3 +427,8 @@ def encode_png(rgba, width, height, dots_per_meter_x, dots_per_meter_y):
 def ZipReader(path):
     """Rust で ZIP を開く。未対応・破損は ValueError、ファイル操作失敗は OSError。"""
     return _native.ZipReader(path)
+
+
+def decode_v2_plan(payload, archive_names, limits=None):
+    """v2 の構造計算と要求順の画像一覧を Rust から受け取る。"""
+    return _native.decode_v2_plan(payload, archive_names, limits)

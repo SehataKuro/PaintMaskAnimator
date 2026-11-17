@@ -12,3 +12,5 @@ png = "0.18.1"
 # .pman（ZIP）の読み取り（段階3-3）。deflate だけ。圧縮の実装は png と同じ
 # flate2 の純 Rust バックエンド（miniz_oxide）で、C ライブラリは入らない。
 zip = { version = "9.6.1", default-features = false, features = ["deflate-flate2"] }
+# project.json の解釈（段階3-4）。値の型（serde_json::Value）として使う。純 Rust。
+serde_json = "1"

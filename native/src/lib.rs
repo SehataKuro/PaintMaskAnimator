@@ -16,6 +16,7 @@ mod display;
 mod map_colors;
 mod mask_transform;
 mod palette_labels;
+mod project_payload;
 mod project_zip;
 mod timeline;
 
@@ -157,6 +158,7 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(py_encode_png, module)?)?;
     module.add_class::<clip::ClipAnimationReader>()?;
     module.add_class::<project_zip::ZipReader>()?;
+    module.add_function(wrap_pyfunction!(project_payload::decode_v2_plan, module)?)?;
     module.add_class::<timeline::TimelineCell>()?;
     module.add_class::<timeline::SheetEntry>()?;
     module.add_function(wrap_pyfunction!(timeline::sheet_entries, module)?)?;
