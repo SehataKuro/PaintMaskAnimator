@@ -1,6 +1,20 @@
 //! 線の位置合わせで、候補のずれごとの一致画素数を数える。
 //! 元の線の座標・探索順・区画をそのまま使い、背景の偽画素だけを省く。
 
+/// 候補のずれ `(dy, dx)` ごと・区画ごとの一致画素数を返す。
+/// `paintmaskanimator/line_flow.py` の numpy 版 `_scores_numpy` と同じ一致数・候補順。
+///
+/// `target` と `guide` は長さ `width * height` の行優先マスク（0 が背景、非0 が線）。
+/// `(width, height)` は画像の幅と高さ、`block` は区画の一辺の画素数で、
+/// `block > 0` かつ幅・高さが `block` で割り切れることを前提とする。
+/// `base_y`・`base_x` は各区画の基準のずれで、長さはともに
+/// `blocks = (height / block) * (width / block)`、区画は行優先に並ぶ。
+/// `reach` は基準のずれから上下左右に探索する画素数。
+///
+/// `side = 2 * reach + 1` とし、候補は
+/// `(dy, dx) = (base_y[index] + iy - reach, base_x[index] + ix - reach)`。
+/// 結果の並びは `(iy * side + ix) * blocks + index`（`iy` が外側、`ix` が内側）。
+/// 画像外やずれの加算がオーバーフローする画素・候補は一致として数えない。
 pub fn score_shifts(
     target: &[u8],
     guide: &[u8],

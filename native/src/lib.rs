@@ -13,7 +13,6 @@ use pyo3::types::PyBytes;
 mod auto_paint;
 mod clip;
 mod display;
-mod line_flow;
 mod map_colors;
 mod mask_transform;
 mod palette_labels;
@@ -233,7 +232,7 @@ fn py_line_flow_scores<'py>(
     let base_y = decode(base_y);
     let base_x = decode(base_x);
     let bytes: Vec<u8> = py.detach(|| {
-        line_flow::score_shifts(
+        pma_core::line_flow::score_shifts(
             target,
             guide,
             (width, height),
