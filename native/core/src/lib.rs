@@ -1,4 +1,5 @@
 //! PaintMaskAnimator の計算とデータ。Python・Qt・ファイル・スレッドに触れない。
 //! 規約は issue #96 §2。
+pub mod map_colors;
 pub mod regions;
 pub mod thin;
