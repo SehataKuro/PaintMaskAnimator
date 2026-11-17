@@ -8,6 +8,7 @@ pub const WHITE_MIN: u8 = 240;
 pub const FAINT_ALPHA_MAX: u8 = 50;
 
 /// Python の設定文字列は入口でこの型に変換する。
+#[derive(Clone)]
 pub enum TargetColor {
     /// TARGET_ALL ("all"): All(Some(rgb)) は alpha 非ゼロで RGB が一致、All(None) は透明または純白を通す。
     All(Option<[u8; 3]>),

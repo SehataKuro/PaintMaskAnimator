@@ -17,7 +17,7 @@ REQUIRED_API = (
     "line_flow_scores", "connect_runs", "label_runs", "refine_face", "thin",
     "render_quad_labels", "render_mesh_labels",
     "surface_guided_palette_labels", "map_known_colors", "region_neighbors",
-    "fill_target_mask", "extend_line_ends", "flood_fill", "dilate", "erode", "label_regions", "remove_line_noise", "decode_png", "encode_png", "ZipReader", "ZipWriter", "decode_v2_plan",
+    "FillSession", "LineCache", "compute_fill_region_once", "fill_target_mask", "extend_line_ends", "flood_fill", "dilate", "erode", "label_regions", "remove_line_noise", "decode_png", "encode_png", "ZipReader", "ZipWriter", "decode_v2_plan",
 )
 TIMELINE_API_VERSION = 2
 
@@ -458,3 +458,67 @@ def fill_target_mask(pixels, target_color, category):
         None if category is None else tuple(int(c) for c in category),
     )
     return _as_mask(data, height, width)
+
+
+def _fill_options(options):
+    return (options.target_color, options.extend_lines, max(1, int(options.extend_length)),
+            options.close_gap, max(1, int(options.gap_width)), options.adjacent,
+            options.require_closed, max(0, int(options.island_max_width)),
+            options.include_masks, options.include_background_mask, options.mask_colors)
+
+
+LineCache = _native.LineCache
+
+
+class FillSession:
+    """Rust が画像と前処理を所有するセッション。"""
+    def __init__(self, pixels, options, indexed=False):
+        height, width = pixels.shape[:2]
+        self.shape = (height, width)
+        self._state = _native.FillSession(
+            np.ascontiguousarray(pixels, dtype=np.uint8).tobytes(), width, height,
+            _fill_options(options), indexed)
+
+    def compute(self, x, y):
+        return self._state.compute(x, y)
+
+    def prepared(self, category):
+        return tuple(None if m is None else np.frombuffer(m, dtype=np.uint8).view(bool).reshape(self.shape)
+                     for m in self._state.prepared(category))
+
+    def index(self, category):
+        labels, boxes = self._state.index(category)
+        return (np.frombuffer(labels, dtype=np.uint32).reshape(self.shape),
+                np.frombuffer(boxes, dtype=np.uintp).reshape(-1, 4))
+
+    def background(self):
+        return np.frombuffer(self._state.background(), dtype=np.uint8).view(bool).reshape(self.shape)
+
+    def categories(self):
+        return [None if c is None else tuple(c) for c in self._state.categories()]
+
+    def nbytes(self):
+        return self._state.nbytes()
+
+
+def compute_fill_region_once(pixels, x, y, options, selection=None, line_cache=None):
+    """画像・選択範囲の前処理と領域決定を一度に行う。"""
+    height, width = pixels.shape[:2]
+    if line_cache is not None:
+        if "_native_line_cache" not in line_cache:
+            line_cache["_native_line_cache"] = LineCache()
+        line_cache = line_cache["_native_line_cache"]
+    return _native.compute_fill_region_once(
+        np.ascontiguousarray(pixels, dtype=np.uint8).tobytes(), width, height, x, y,
+        _fill_options(options), None if selection is None else _as_bytes(selection), line_cache)
+
+
+def fill_region_output(output, shape):
+    """Rust の矩形内マスクを Python の全体マスクへ展開する。"""
+    reason, bounds, data, category = output
+    region = None
+    if data is not None:
+        region = np.zeros(shape, dtype=bool)
+        x0, y0, x1, y1 = bounds
+        region[y0:y1, x0:x1] = _as_mask(data, y1-y0, x1-x0)
+    return reason, region, bounds, None if category is None else tuple(category)

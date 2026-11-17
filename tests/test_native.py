@@ -299,3 +299,122 @@ def test_fill_target_mask_native_rejects_invalid_input():
             native._native.fill_target_mask(data, width, height, "all", None)
     assert native._native.fill_target_mask(b'', 0, 3, "all", None) == b''
     assert "fill_target_mask" in native.REQUIRED_API
+
+
+@needs_native
+def test_compute_fill_region_matches_numpy():
+    """固定線画、全対象色、選択、索引の組合せで全フィールドを比較する。"""
+    from dataclasses import replace
+    rng = np.random.default_rng(430)
+    pixels = np.full((19, 23, 4), 255, np.uint8)
+    pixels[3:16, 4, :3] = 0
+    pixels[3:16, 18, :3] = 0
+    pixels[3, 4:19, :3] = 0
+    pixels[15, 4:19, :3] = 0
+    pixels[3, 10] = 255  # 隙間
+    pixels[0:7, 21, :3] = 0  # 端で途切れる線
+    pixels[8:10, 9:11] = (120, 30, 80, 255)
+    pixels[6:8, 13:15, 3] = 0
+    pixels[11, 12] = (10, 10, 10, 30)
+    for y, x in rng.integers((1, 1), (18, 22), (12, 2)):
+        pixels[y, x] = (0, 0, 0, 255)
+    selection = np.zeros(pixels.shape[:2], bool)
+    selection[2:17, 2:20] = True
+    base = bucket_fill.BucketOptions(
+        mask_colors=((120, 30, 80),), island_replacements=(((120, 30, 80), (3, 4, 5)),))
+    variants = [{}, {'adjacent': False}, {'require_closed': True},
+                {'close_gap': True, 'gap_width': 1},
+                {'extend_lines': True, 'extend_length': 4},
+                {'include_masks': True},
+                {'include_masks': True, 'include_background_mask': True},
+                {'island_max_width': 1}, {'island_max_width': 2},
+                {'close_gap': True, 'extend_lines': True, 'include_masks': True,
+                 'island_max_width': 1, 'require_closed': True}]
+    def compare(options, x, y, selected=None, session=None):
+        a = bucket_fill.compute_fill_region(pixels, x, y, options, selected, session=session)
+        b = bucket_fill.compute_fill_region_numpy(pixels, x, y, options, selected, session=session)
+        assert (a.reason, a.target, a.bounds) == (b.reason, b.target, b.bounds)
+        assert (a.region is None) == (b.region is None)
+        if a.region is not None:
+            np.testing.assert_array_equal(a.region, b.region)
+        assert len(a.islands) == len(b.islands)
+        for (ac, am), (bc, bm) in zip(a.islands, b.islands):
+            assert ac == bc
+            np.testing.assert_array_equal(am, bm)
+    for target in bucket_fill.TARGET_COLORS:
+        for changes in variants:
+            options = replace(base, target_color=target, **changes)
+            for selected in (None, selection):
+                for x, y in ((6, 6), (10, 3), (0, 0), (14, 6), (9, 8), (-1, 3)):
+                    compare(options, x, y, selected)
+            for indexed in (False, True):
+                session = bucket_fill.BucketSession(pixels, options, indexed=indexed)
+                for x, y in ((6, 6), (10, 3), (0, 0)):
+                    compare(options, x, y, session=session)
+
+
+@needs_native
+@pytest.mark.parametrize('bad', ['rgba', 'selection', 'x', 'y', 'dimensions'])
+def test_compute_fill_region_rejects_bad_buffer_lengths(bad):
+    options = native._fill_options(bucket_fill.BucketOptions())
+    args = dict(rgba=bytes(36), width=3, height=3, x=1, y=1,
+                options=options, selection=None)
+    if bad in ('rgba', 'selection'):
+        args[bad] = b''
+    elif bad == 'dimensions':
+        args['width'] = 2**63
+    else:
+        args[bad] = -1 if bad == 'x' else 3
+    with pytest.raises(ValueError):
+        native._native.compute_fill_region_once(**args)
+
+
+@needs_native
+def test_fill_session_fifo_prepare_and_categories():
+    pixels = np.zeros((17, 29, 4), np.uint8)
+    colors = [(0, 0, 0), (20, 40, 60), (80, 90, 100), (120, 30, 40),
+              (180, 90, 20), (255, 255, 255)]
+    for x, color in enumerate(colors):
+        pixels[:, x*4:(x+1)*4] = (*color, 255)
+    options = bucket_fill.BucketOptions(close_gap=True, gap_width=1,
+                                      extend_lines=True, extend_length=3)
+    session = bucket_fill.BucketSession(pixels, options, indexed=True)
+    for x in (1, 5, 9, 13, 17, 21, 25, 1, 9):
+        category = bucket_fill.seed_category(pixels, x, 8)
+        actual = bucket_fill.compute_fill_region(pixels, x, 8, options, session=session)
+        expected = bucket_fill.compute_fill_region_numpy(pixels, x, 8, options)
+        assert (actual.reason, actual.target, actual.bounds) == (expected.reason, category, expected.bounds)
+        if actual.region is not None:
+            np.testing.assert_array_equal(actual.region, expected.region)
+        prepared = session.prepare(category)
+        reference = bucket_fill._prepare_bucket(pixels, category, options, session.background, None, {})
+        for a, b in zip(prepared, reference):
+            assert (a is None) == (b is None)
+            if a is not None:
+                np.testing.assert_array_equal(a, b)
+        assert len(session._native().categories()) <= 4
+        assert all(c in session._native().categories() for c in session._prepared)
+    with pytest.raises(ValueError):
+        session._native().compute(29, 0)
+    with pytest.raises(ValueError):
+        native._native.FillSession(b'', 29, 17, native._fill_options(options))
+
+
+@needs_native
+def test_fill_once_drag_line_cache():
+    pixels = np.full((43, 47, 4), 255, np.uint8)
+    pixels[4:39, 23] = (0, 0, 0, 255)
+    options = bucket_fill.BucketOptions(extend_lines=True, extend_length=8)
+    cache = {}
+    selection = np.zeros((43, 47), bool)
+    selection[2:41, 1:46] = True
+    for changed in (False, False, True, True, False):
+        image = pixels.copy()
+        if changed:
+            image[10:20, 23] = 255
+        for selected in (None, selection):
+            a = bucket_fill.compute_fill_region(image, 10, 10, options, selected, line_cache=cache)
+            b = bucket_fill.compute_fill_region_numpy(image, 10, 10, options, selected, line_cache={})
+            assert (a.reason, a.target, a.bounds) == (b.reason, b.target, b.bounds)
+            np.testing.assert_array_equal(a.region, b.region)
+    assert '_native_line_cache' in cache

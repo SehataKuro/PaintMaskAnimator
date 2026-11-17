@@ -13,6 +13,7 @@ use pyo3::types::PyBytes;
 mod auto_paint;
 mod clip;
 mod display;
+mod fill_session;
 mod map_colors;
 mod mask_transform;
 mod palette_labels;
@@ -194,6 +195,12 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(py_line_flow_scores, module)?)?;
     module.add_function(wrap_pyfunction!(py_thin, module)?)?;
     module.add_function(wrap_pyfunction!(py_fill_target_mask, module)?)?;
+    module.add_class::<fill_session::FillSession>()?;
+    module.add_class::<fill_session::LineCache>()?;
+    module.add_function(wrap_pyfunction!(
+        fill_session::compute_fill_region_once,
+        module
+    )?)?;
     module.add_function(wrap_pyfunction!(py_extend_line_ends, module)?)?;
     module.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())

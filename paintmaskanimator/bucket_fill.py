@@ -698,6 +698,12 @@ class _RegionIndex:
         return region
 
 
+class _NativeRegionIndex(_RegionIndex):
+    def __init__(self, state, category):
+        self.labels, boxes = state.index(category)
+        self.x0, self.y0, self.x1, self.y1 = boxes.T
+
+
 class BucketSession:
     """変更しない参照画像で、複数回クリックするときの共通前処理。
 
@@ -715,39 +721,49 @@ class BucketSession:
         self._results = {}
         self._result_bytes = 0
         self.gpu_regions = gpu_regions
+        self._native_session = None
 
     @property
     def background(self):
         if self._background is None:
-            self._background = background_mask_packed(rgba_packed_view(self.pixels))
+            self._background = self._native().background()
         return self._background
 
     @property
     def nbytes(self):
-        """共有キャッシュの上限判定用。重複する配列も保守的に数える。"""
-        total = self.pixels.nbytes + (0 if self._background is None else self._background.nbytes)
-        total += sum(array.nbytes for prepared in self._prepared.values()
-                     for array in prepared if array is not None)
+        """共有マスクは Rust 側で一度だけ数える。"""
+        total = self.pixels.nbytes
         total += sum(array.nbytes for index in self._indices.values()
+                     if not isinstance(index, _NativeRegionIndex)
                      for array in (index.labels, index.x0, index.y0, index.x1, index.y1))
         total += sum(array.nbytes for pair in self._lines.values() for array in pair)
         total += sum(result.nbytes + len(getattr(result, "_native_runs", b""))
                      for result in self._results.values())
+        if self._native_session is not None:
+            total += self._native_session.nbytes()
         return total
 
+    def _native(self):
+        if self._native_session is None:
+            self._native_session = native.FillSession(self.pixels, self.options, self.indexed)
+        return self._native_session
+
+    def _sync_prepared(self):
+        categories = self._native().categories()
+        removed = [c for c in self._prepared if c not in categories]
+        for category in removed:
+            del self._prepared[category]
+            self._indices.pop(category, None)
+        if removed:
+            self._results.clear()
+            self._result_bytes = 0
+
     def prepare(self, category):
+        state = self._native()
         if category not in self._prepared:
-            # 多色の原画でも、画像全体の配列を色数ぶん保持し続けない。
-            if len(self._prepared) >= 4:
-                oldest = next(iter(self._prepared))
-                del self._prepared[oldest]
-                self._indices.pop(oldest, None)
-                # 領域番号は索引ごとに異なるので、その索引の結果も捨てる。
-                self._results.clear()
-                self._result_bytes = 0
-            self._prepared[category] = _prepare_bucket(
-                self.pixels, category, self.options, self.background, None, self._lines,
-            )
+            prepared = state.prepared(category)
+            self._sync_prepared()
+            self._prepared[category] = prepared
         return self._prepared[category]
 
     def compute(self, x, y):
@@ -755,7 +771,9 @@ class BucketSession:
 
     def index(self, category, passable):
         if category not in self._indices:
-            self._indices[category] = _RegionIndex(passable, self.gpu_regions)
+            self._indices[category] = (
+                _NativeRegionIndex(self._native(), category) if self.gpu_regions is None
+                else _RegionIndex(passable, self.gpu_regions))
         return self._indices[category]
 
     def compact(self, x, y):
@@ -897,6 +915,73 @@ def _prepare_bucket(pixels, category, options, pseudo_background, selection_mask
 
 
 def compute_fill_region(
+    pixels,
+    start_x,
+    start_y,
+    options: BucketOptions,
+    selection_mask=None,
+    *,
+    line_cache=None,
+    session=None,
+) -> FillResult:
+    """``(start_x, start_y)`` から塗る画素の真偽マスクを求める。
+
+    :param pixels: ``(height, width, 4)`` の RGBA8888 配列。読み取りのみ。
+    :param selection_mask: 選択範囲の真偽マスク。``None`` なら制限なし。
+    :param line_cache: 同じドラッグ内で共有する線端下処理のキャッシュ。
+    :param session: 変更しない同じ画像・設定で前処理を再利用する場合に指定する。
+    """
+    height, width = pixels.shape[:2]
+    if not (0 <= start_x < width and 0 <= start_y < height):
+        return FillResult(REASON_OUT_OF_BOUNDS)
+    if selection_mask is not None and not selection_mask[start_y, start_x]:
+        return FillResult(REASON_OUTSIDE_SELECTION)
+
+    if session is not None and (
+        session.pixels is not pixels or session.options != options or selection_mask is not None
+    ):
+        raise ValueError("BucketSession requires its original image, options and no selection")
+    # 完全透明の種は RGB を読む必要も全画像を転送する必要もない。
+    if options.target_color in (TARGET_OPAQUE_AND_INNER_TRANSPARENT,
+                                TARGET_SURROUNDED_BY_TRANSPARENT):
+        if int(pixels[start_y, start_x, 3]) == 0:
+            return FillResult(REASON_NOT_TARGET)
+    if options.target_color != TARGET_ALL and (session is None or session._native_session is None):
+        category = seed_category(pixels, start_x, start_y)
+        seed = pixels[start_y:start_y+1, start_x:start_x+1]
+        if not native.fill_target_mask(seed, options.target_color, category)[0, 0]:
+            return FillResult(REASON_NOT_TARGET, target=category)
+    if session is not None:
+        if session.pixels is not pixels or session.options != options or selection_mask is not None:
+            raise ValueError("BucketSession requires its original image, options and no selection")
+        output = session._native().compute(start_x, start_y)
+        session._sync_prepared()
+    else:
+        output = native.compute_fill_region_once(
+            pixels, start_x, start_y, options, selection_mask, line_cache)
+    reason, final_region, bounds, category = native.fill_region_output(output, (height, width))
+    if reason != REASON_OK:
+        return FillResult(reason, region=final_region, target=category)
+    islands = ()
+    if options.island_replacements:
+        islands = enclosed_islands(
+            pixels, final_region, options.island_replacements, selection_mask
+        )
+        # 島は塗る範囲の縁からはみ出すことがある。書き込み・Undo の矩形に含める。
+        for _rgb, island in islands:
+            island_bounds = mask_bounds(island)
+            assert island_bounds is not None  # 空の島は enclosed_islands が返さない
+            ix0, iy0, ix1, iy1 = island_bounds
+            bounds = (
+                min(bounds[0], ix0), min(bounds[1], iy0),
+                max(bounds[2], ix1), max(bounds[3], iy1),
+            )
+    return FillResult(
+        REASON_OK, final_region, target=category, bounds=bounds, islands=islands
+    )
+
+
+def compute_fill_region_numpy(
     pixels,
     start_x,
     start_y,
