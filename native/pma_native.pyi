@@ -167,3 +167,6 @@ def extend_line_ends(boundary: bytes, width: int, height: int,
                      strips: list[tuple[int, int, int, int, bytes]], max_length: int) -> bytes:
     """細線化済みの帯から端点の延長マスクを返す。"""
     ...
+
+def fill_target_mask(rgba: bytes, width: int, height: int, target_color: str,
+                     category: tuple[int, int, int] | None = None) -> bytes: ...

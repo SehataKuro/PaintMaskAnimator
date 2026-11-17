@@ -564,6 +564,14 @@ def seed_category(pixels, start_x, start_y):
 
 
 def fill_target_mask(pixels, target_color, category, packed=None):
+    """対象色に一致する画素を Rust で判定し、numpy 版 fill_target_mask_numpy と同じ結果を返す。
+
+    packed は互換のため受け取るが使わない。呼び出し元では常に pixels から作った同じ画素。
+    """
+    return native.fill_target_mask(pixels, target_color, category)
+
+
+def fill_target_mask_numpy(pixels, target_color, category, packed=None):
     """``target_color`` の設定で、たどってよい画素の真偽マスクを返す。
 
     ``TARGET_ALL`` は従来どおり、開始点の色種別 ``category``（背景なら None）と

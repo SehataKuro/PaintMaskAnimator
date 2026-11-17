@@ -193,6 +193,7 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(py_label_regions, module)?)?;
     module.add_function(wrap_pyfunction!(py_line_flow_scores, module)?)?;
     module.add_function(wrap_pyfunction!(py_thin, module)?)?;
+    module.add_function(wrap_pyfunction!(py_fill_target_mask, module)?)?;
     module.add_function(wrap_pyfunction!(py_extend_line_ends, module)?)?;
     module.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
@@ -357,5 +358,37 @@ fn py_extend_line_ends<'py>(
             .collect();
         pma_core::fill::line_ends::extend_line_ends(boundary, width, height, &strips, max_length)
     });
+    Ok(PyBytes::new(py, &result))
+}
+
+#[pyfunction(name = "fill_target_mask")]
+#[pyo3(signature = (rgba, width, height, target_color, category=None))]
+fn py_fill_target_mask<'py>(
+    py: Python<'py>,
+    rgba: &[u8],
+    width: usize,
+    height: usize,
+    target_color: &str,
+    category: Option<[u8; 3]>,
+) -> PyResult<Bound<'py, PyBytes>> {
+    use pma_core::fill::target::{fill_target_mask, TargetColor};
+    if width.checked_mul(height).and_then(|n| n.checked_mul(4)) != Some(rgba.len()) {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "invalid RGBA dimensions or length",
+        ));
+    }
+    let target = match target_color {
+        "all" => TargetColor::All(category),
+        "transparent" => TargetColor::Transparent,
+        "surrounded_by_transparent" => TargetColor::SurroundedByTransparent,
+        "black" => TargetColor::Black,
+        "surrounded_by_black" => TargetColor::SurroundedByBlack,
+        "white_transparent" => TargetColor::WhiteTransparent,
+        "faint_as_transparent" => TargetColor::FaintAsTransparent,
+        "opaque_and_inner_transparent" => TargetColor::OpaqueAndInnerTransparent,
+        "transparent_and_closed_opaque" => TargetColor::TransparentAndClosedOpaque,
+        _ => TargetColor::SurroundedByWhiteTransparent,
+    };
+    let result = py.detach(|| fill_target_mask(rgba, width, height, target));
     Ok(PyBytes::new(py, &result))
 }

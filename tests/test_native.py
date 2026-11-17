@@ -271,3 +271,31 @@ def test_extend_line_ends_native_rejects_invalid_input():
     ]:
         with pytest.raises(ValueError):
             backend.extend_line_ends(boundary, width, height, strips, length)
+
+
+@pytest.mark.parametrize("width", WIDTHS)
+def test_fill_target_mask_matches_numpy(width):
+    rng = np.random.default_rng(4200 + width)
+    pixels = rng.integers(0, 256, (23, width, 4), dtype=np.uint8)
+    edges = np.array([0, 47, 48, 49, 239, 240, 241, 255], dtype=np.uint8)
+    pixels[::2, :, :3] = rng.choice(edges, pixels[::2, :, :3].shape)
+    pixels[:, :, 3] = rng.choice([0, 1, 49, 50, 51, 254, 255], (23, width))
+    pixels[0, :, :3] = 255
+    pixels[1, :, :3] = 0
+    for image in (pixels, pixels[:, ::-1], pixels.transpose(1, 0, 2)):
+        for target in (*bucket_fill.TARGET_COLORS, "unknown_target"):
+            for category in (None, (0, 0, 0), (255, 255, 255), (48, 240, 49)):
+                for packed in (None, imaging.rgba_packed_view(image)):
+                    expected = bucket_fill.fill_target_mask_numpy(image, target, category, packed)
+                    actual = bucket_fill.fill_target_mask(image, target, category, packed)
+                    assert actual.dtype == np.bool_ and actual.shape == image.shape[:2]
+                    np.testing.assert_array_equal(actual, expected)
+
+
+def test_fill_target_mask_native_rejects_invalid_input():
+    for data, width, height in [(b'', 1, 1), (b'\0' * 3, 1, 1),
+                                (b'\0' * 4, 2, 1), (b'', 2**63, 4)]:
+        with pytest.raises(ValueError):
+            native._native.fill_target_mask(data, width, height, "all", None)
+    assert native._native.fill_target_mask(b'', 0, 3, "all", None) == b''
+    assert "fill_target_mask" in native.REQUIRED_API

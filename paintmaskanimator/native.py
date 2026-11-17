@@ -17,7 +17,7 @@ REQUIRED_API = (
     "line_flow_scores", "connect_runs", "label_runs", "refine_face", "thin",
     "render_quad_labels", "render_mesh_labels",
     "surface_guided_palette_labels", "map_known_colors", "region_neighbors",
-    "extend_line_ends", "flood_fill", "dilate", "erode", "label_regions", "remove_line_noise", "decode_png", "encode_png", "ZipReader", "ZipWriter", "decode_v2_plan",
+    "fill_target_mask", "extend_line_ends", "flood_fill", "dilate", "erode", "label_regions", "remove_line_noise", "decode_png", "encode_png", "ZipReader", "ZipWriter", "decode_v2_plan",
 )
 TIMELINE_API_VERSION = 2
 
@@ -446,5 +446,15 @@ def extend_line_ends(boundary, strips, max_length):
         _as_bytes(boundary), width, height,
         [(y0, y1, x0, x1, _as_bytes(skeleton))
          for y0, y1, x0, x1, skeleton in strips], int(max_length),
+    )
+    return _as_mask(data, height, width)
+
+
+def fill_target_mask(pixels, target_color, category):
+    """RGBA 配列から対象色の真偽マスクを返す。"""
+    height, width = pixels.shape[:2]
+    data = _native.fill_target_mask(
+        np.ascontiguousarray(pixels, dtype=np.uint8).tobytes(), width, height, target_color,
+        None if category is None else tuple(int(c) for c in category),
     )
     return _as_mask(data, height, width)
