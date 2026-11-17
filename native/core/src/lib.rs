@@ -3,6 +3,7 @@
 pub mod auto_paint;
 pub mod display;
 pub mod line_flow;
+pub mod line_noise;
 pub mod map_colors;
 pub mod mask_transform;
 pub mod palette_labels;

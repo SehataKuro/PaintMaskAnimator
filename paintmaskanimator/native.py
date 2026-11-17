@@ -17,7 +17,7 @@ REQUIRED_API = (
     "line_flow_scores", "connect_runs", "label_runs", "refine_face", "thin",
     "render_quad_labels", "render_mesh_labels",
     "surface_guided_palette_labels", "map_known_colors", "region_neighbors",
-    "flood_fill", "dilate", "erode", "label_regions",
+    "flood_fill", "dilate", "erode", "label_regions", "remove_line_noise",
 )
 TIMELINE_API_VERSION = 2
 
@@ -399,3 +399,16 @@ def region_neighbors(labels, gap):
         np.ascontiguousarray(labels, dtype=np.int32).tobytes(), width, height, int(gap)
     )
     return np.asarray(pairs, dtype=np.int64).reshape(-1, 2)
+
+
+def remove_line_noise(rgba, line_luma, radius, majority, isolation):
+    """線近傍の孤立色を除去し、書き換え可能な RGBA 配列と変更画素数を返す。"""
+    pixels = np.ascontiguousarray(rgba, dtype=np.uint8)
+    height, width = pixels.shape[:2]
+    data, changed = _native.remove_line_noise(
+        pixels.tobytes(), width, height, int(line_luma), max(0, int(radius)),
+        int(majority), int(isolation),
+    )
+    if not changed:
+        return pixels.copy(), 0
+    return np.frombuffer(data, dtype=np.uint8).reshape(height, width, 4).copy(), changed

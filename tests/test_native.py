@@ -122,3 +122,104 @@ def test_native_thinning_matches_numpy(iterations):
 def test_backend_contract_includes_thinning():
     native.validate_backend(native._native)
     assert "thin" in native.REQUIRED_API
+
+
+@needs_native
+@pytest.mark.parametrize("line_luma", [0, 110, 255])
+@pytest.mark.parametrize("radius", [0, 1, 2, 8])
+@pytest.mark.parametrize("majority,isolation", [(0, 0), (5, 1), (9, 8)])
+def test_remove_line_noise_matches_numpy(line_luma, radius, majority, isolation):
+    from paintmaskanimator import line_noise
+
+    rng = np.random.default_rng(96)
+    palette = np.array([
+        [240, 240, 240, 255], [255, 255, 0, 127], [0, 0, 0, 255],
+        [109, 109, 109, 255], [110, 110, 110, 255],
+        [111, 111, 111, 255], [45, 67, 89, 0],
+    ], dtype=np.uint8)
+    images = [np.zeros(shape, dtype=np.uint8) for shape in
+              [(0, 3, 4), (3, 0, 4), (1, 1, 4), (3, 3, 4)]]
+    dot = np.tile([0, 0, 0, 255], (3, 3, 1)).astype(np.uint8)
+    dot[1, 1] = [255, 255, 0, 42]
+    images.append(dot)
+    for index, width in enumerate(WIDTHS):
+        height = int(rng.integers(1, 41))
+        pixels = palette[rng.choice(len(palette), (height, width),
+                                    p=[.30, .30, .12, .06, .06, .06, .10])]
+        if index % 3 == 0:
+            pixels[..., 3] = 255
+        elif index % 3 == 1:
+            pixels[..., 3] = 0
+        else:
+            pixels = pixels[:, ::-1]
+        images.append(pixels)
+    options = dict(line_luma=line_luma, radius=radius,
+                   majority=majority, isolation=isolation)
+    for rgba in images:
+        before = rgba.copy()
+        expected, count = line_noise.remove_line_noise_numpy(rgba, **options)
+        actual, changed = line_noise.remove_line_noise(rgba, **options)
+        assert changed == count
+        assert np.array_equal(actual, expected)
+        assert np.array_equal(rgba, before)
+        assert actual.dtype == np.uint8 and actual.shape == rgba.shape
+        if not changed:
+            assert actual is rgba
+        else:
+            assert actual.flags.writeable
+            assert not np.shares_memory(actual, rgba)
+
+
+@needs_native
+@pytest.mark.parametrize("line_luma,majority,isolation,radius", [
+    (-1, -1, -1, -2), (256, 0, 8, 1),
+    (110, -(2**40), 2**40, 2), (2**40, 2**40, 0, 8),
+])
+def test_remove_line_noise_signed_parameters(line_luma, majority, isolation, radius):
+    from paintmaskanimator import line_noise
+
+    rgba = np.tile([240, 240, 240, 255], (5, 5, 1)).astype(np.uint8)
+    rgba[1, 1] = [0, 0, 0, 255]
+    rgba[2, 2] = [255, 255, 0, 1]
+    options = dict(line_luma=line_luma, majority=majority,
+                   isolation=isolation, radius=radius)
+    expected, count = line_noise.remove_line_noise_numpy(rgba, **options)
+    actual, changed = line_noise.remove_line_noise(rgba, **options)
+    assert changed == count
+    assert np.array_equal(actual, expected)
+    if not changed:
+        assert actual is rgba
+
+
+@needs_native
+def test_remove_line_noise_native_entry_and_validation():
+    rgba = np.zeros((3, 3, 4), dtype=np.uint8)
+    actual, changed = native.remove_line_noise(rgba, 110, 2, 5, 0)
+    assert changed == 0 and np.array_equal(actual, rgba)
+    assert actual.flags.writeable and not np.shares_memory(actual, rgba)
+    with pytest.raises(ValueError, match="rgba has 35 bytes, expected 3 x 3 x 4"):
+        native._native.remove_line_noise(bytes(35), 3, 3, 110, 2, 5, 0)
+
+
+@needs_native
+@pytest.mark.parametrize("shape", [(3, 3), (3, 3, 3), (1, 3, 4), (3, 2, 4)])
+def test_remove_line_noise_early_return(shape):
+    from paintmaskanimator import line_noise
+
+    rgba = np.zeros(shape, dtype=np.uint8)
+    actual, changed = line_noise.remove_line_noise(rgba)
+    assert actual is rgba and changed == 0
+
+
+@needs_native
+def test_remove_line_noise_tie_follows_shift_direction():
+    from paintmaskanimator import line_noise
+
+    rgba = np.tile([200, 200, 200, 255], (3, 3, 1)).astype(np.uint8)
+    rgba.reshape(-1, 4)[[0, 1, 2, 8]] = [0, 0, 0, 255]
+    rgba[1, 1] = [255, 255, 0, 42]
+    expected, count = line_noise.remove_line_noise_numpy(rgba, majority=4)
+    actual, changed = line_noise.remove_line_noise(rgba, majority=4)
+    assert count == changed == 1
+    assert np.array_equal(actual, expected)
+    assert tuple(actual[1, 1]) == (0, 0, 0, 255)

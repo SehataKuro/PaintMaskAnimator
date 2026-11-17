@@ -30,6 +30,34 @@ fn check_size(data: &[u8], width: usize, height: usize) -> PyResult<()> {
     Ok(())
 }
 
+#[pyfunction(name = "remove_line_noise")]
+#[allow(clippy::too_many_arguments)]
+fn py_remove_line_noise<'py>(
+    py: Python<'py>,
+    rgba: &[u8],
+    width: usize,
+    height: usize,
+    line_luma: i64,
+    radius: usize,
+    majority: i64,
+    isolation: i64,
+) -> PyResult<(Bound<'py, PyBytes>, usize)> {
+    if width.checked_mul(height).and_then(|n| n.checked_mul(4)) != Some(rgba.len()) {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "rgba has {} bytes, expected {} x {} x 4",
+            rgba.len(),
+            width,
+            height
+        )));
+    }
+    let (result, changed) = py.detach(|| {
+        pma_core::line_noise::remove_line_noise(
+            rgba, width, height, line_luma, radius, majority, isolation,
+        )
+    });
+    Ok((PyBytes::new(py, &result), changed))
+}
+
 #[pyfunction(name = "flood_fill")]
 fn py_flood_fill<'py>(
     py: Python<'py>,
@@ -119,6 +147,7 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(map_colors::py_region_neighbors, module)?)?;
     module.add_function(wrap_pyfunction!(py_unique_colors, module)?)?;
     module.add_function(wrap_pyfunction!(py_flood_fill, module)?)?;
+    module.add_function(wrap_pyfunction!(py_remove_line_noise, module)?)?;
     module.add_function(wrap_pyfunction!(py_dilate, module)?)?;
     module.add_function(wrap_pyfunction!(py_erode, module)?)?;
     module.add_function(wrap_pyfunction!(py_label_regions, module)?)?;

@@ -128,3 +128,10 @@ def filter_palette(rgba: bytes, visible: list[tuple[int, int, int]] | None,
                    remap: list[tuple[tuple[int, int, int], tuple[int, int, int]]]) -> bytes: ...
 def tint_onion(rgba: bytes, color: tuple[int, int, int], enabled: bool,
                selected: list[tuple[int, int, int]] | None) -> bytes: ...
+
+
+def remove_line_noise(
+    rgba: bytes, width: int, height: int, line_luma: int,
+    radius: int, majority: int, isolation: int,
+) -> tuple[bytes, int]:
+    """線近傍の孤立色を多数決で置き換えた RGBA8888 と変更画素数。"""
