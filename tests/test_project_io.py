@@ -610,3 +610,96 @@ def test_png_fallback_and_allocation_limit(qapp, monkeypatch):
         assert seen == [1024 * 1024, 2 * 1024 * 1024, (1 << 64) - 1]
     finally:
         QImageReader.setAllocationLimit(previous)
+
+
+def _png_chunks(data):
+    chunks = []
+    offset = 8
+    while offset < len(data):
+        size = int.from_bytes(data[offset:offset + 4], "big")
+        chunks.append((data[offset + 4:offset + 8], data[offset + 8:offset + 8 + size]))
+        offset += size + 12
+    return chunks
+
+
+def _assert_encoded_png_matches_qt(image):
+    actual = project_io.encode_png(image)
+    expected = project_io._encode_png_qt(image)
+    assert actual is not None and expected is not None
+    assert project_io.native.decode_png(actual, 1 << 30) == project_io.native.decode_png(expected, 1 << 30)
+    a, b = project_io._decode_png(actual), project_io._decode_png(expected)
+    assert (a.width(), a.height(), a.format()) == (b.width(), b.height(), b.format())
+    assert bytes(a.constBits()) == bytes(b.constBits())
+    ac, bc = _png_chunks(actual), _png_chunks(expected)
+    assert {kind for kind, _ in ac} == {kind for kind, _ in bc}
+    assert [(k, p) for k, p in ac if k in (b"IHDR", b"pHYs")] == [
+        (k, p) for k, p in bc if k in (b"IHDR", b"pHYs")]
+    assert {k for k, _ in ac} <= {b"IHDR", b"pHYs", b"IDAT", b"IEND"}
+
+
+@pytest.mark.parametrize("width", [1, 2, 31, 63, 64, 65, 127, 128, 129, 200])
+def test_png_encode_random_matches_qt(qapp, width):
+    import numpy as np
+    from PySide6.QtGui import QImage
+
+    height = 1 + width % 40
+    rgba = np.random.default_rng(3200 + width).integers(0, 256, (height, width, 4), dtype=np.uint8)
+    image = QImage(rgba.tobytes(), width, height, width * 4,
+                   QImage.Format.Format_RGBA8888).convertToFormat(
+                       QImage.Format.Format_ARGB32_Premultiplied)
+    _assert_encoded_png_matches_qt(image)
+
+
+@pytest.mark.parametrize("fill", [0, 0xFF123456])
+@pytest.mark.parametrize("dpm", [(2835, 2835), (0, 0), (0, 2835), (-1, 2835), (-1, -1)])
+def test_png_encode_density_transparency_profile(qapp, fill, dpm):
+    from PySide6.QtGui import QColorSpace, QImage
+
+    image = QImage(17, 9, QImage.Format.Format_ARGB32_Premultiplied)
+    image.fill(fill)
+    image.setDotsPerMeterX(dpm[0])
+    image.setDotsPerMeterY(dpm[1])
+    image.setColorSpace(QColorSpace(QColorSpace.NamedColorSpace.SRgb))
+    _assert_encoded_png_matches_qt(image)
+    assert b"iCCP" not in {k for k, _ in _png_chunks(project_io.encode_png(image))}
+
+
+@pytest.mark.parametrize("format_name", ["Format_RGB32", "Format_ARGB32", "Format_Grayscale8", "text"])
+def test_png_encode_qt_formats(qapp, monkeypatch, format_name):
+    from PySide6.QtGui import QImage
+
+    fmt = (QImage.Format.Format_ARGB32_Premultiplied if format_name == "text"
+           else getattr(QImage.Format, format_name))
+    image = QImage(13, 7, fmt)
+    image.fill(0xFF123456)
+    if format_name == "text":
+        image.setText("key", "value")
+
+    def unexpected(*args):
+        pytest.fail("Qt形式でRustを呼んだ")
+
+    monkeypatch.setattr(project_io.native, "encode_png", unexpected)
+    assert project_io.encode_png(image) == project_io._encode_png_qt(image)
+
+
+def test_png_encode_native_error_falls_back(qapp, monkeypatch):
+    from PySide6.QtGui import QImage
+
+    image = QImage(13, 7, QImage.Format.Format_ARGB32_Premultiplied)
+    image.fill(0x70102030)
+    calls = []
+
+    def invalid(*args):
+        calls.append(args)
+        raise ValueError("invalid")
+
+    monkeypatch.setattr(project_io.native, "encode_png", invalid)
+    assert project_io.encode_png(image) == project_io._encode_png_qt(image)
+    assert len(calls) == 1
+    assert isinstance(calls[0][0], bytes)
+
+
+def test_native_png_encode_invalid_input():
+    for w, h, pixels in [(0, 1, b""), (1, 0, b""), (1, 1, b""), (1, 1, b"12345")]:
+        with pytest.raises(ValueError):
+            project_io.native.encode_png(pixels, w, h, 3780, 3780)

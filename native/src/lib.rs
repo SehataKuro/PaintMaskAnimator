@@ -30,6 +30,23 @@ fn check_size(data: &[u8], width: usize, height: usize) -> PyResult<()> {
     Ok(())
 }
 
+#[pyfunction(name = "encode_png")]
+fn py_encode_png<'py>(
+    py: Python<'py>,
+    rgba: &[u8],
+    width: usize,
+    height: usize,
+    dots_per_meter_x: i32,
+    dots_per_meter_y: i32,
+) -> PyResult<Bound<'py, PyBytes>> {
+    let dimensions = (dots_per_meter_x > 0 || dots_per_meter_y > 0)
+        .then_some((dots_per_meter_x as u32, dots_per_meter_y as u32));
+    let data = py
+        .detach(|| pma_core::project::png::encode_png(width, height, rgba, dimensions))
+        .map_err(|error| pyo3::exceptions::PyValueError::new_err(error.to_string()))?;
+    Ok(PyBytes::new(py, &data))
+}
+
 #[pyfunction(name = "decode_png")]
 fn py_decode_png<'py>(
     py: Python<'py>,
@@ -136,6 +153,7 @@ fn py_label_regions<'py>(
 #[pymodule]
 fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(py_decode_png, module)?)?;
+    module.add_function(wrap_pyfunction!(py_encode_png, module)?)?;
     module.add_class::<clip::ClipAnimationReader>()?;
     module.add_class::<timeline::TimelineCell>()?;
     module.add_class::<timeline::SheetEntry>()?;

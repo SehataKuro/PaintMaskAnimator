@@ -1,4 +1,4 @@
-//! Qt と画素が一致する 8bit 以下の PNG のデコード。
+//! Qt と画素が一致する PNG のエンコードと 8bit 以下のデコード。
 use std::io::Cursor;
 
 use png::{BitDepth, ColorType, Transformations};
@@ -168,9 +168,98 @@ pub fn decode_png(data: &[u8], max_bytes: u64) -> Result<RgbaImage, Error> {
     })
 }
 
+/// 乗算していない RGBA8888 を RGBA 8bit・非インターレースの PNG にする。
+/// dots_per_meter が Some ならメートル単位の pHYs を書き、ほかの付加チャンクは書かない。
+/// Qt (`project_io._encode_png_qt`) と画素が一致するのは、テキストのない乗算済み
+/// ARGB32 を Qt で RGBA8888 に変換して渡した場合。色空間の除去も呼び出し側で行う。
+/// ゼロ寸法・u32 を超える寸法・画素数のオーバーフロー・長さ不一致、
+/// PNG 書き出し失敗は Invalid を返す。画素全体の複製は作らない。
+pub fn encode_png(
+    width: usize,
+    height: usize,
+    rgba: &[u8],
+    dots_per_meter: Option<(u32, u32)>,
+) -> Result<Vec<u8>, Error> {
+    if width == 0
+        || height == 0
+        || width.checked_mul(height).and_then(|n| n.checked_mul(4)) != Some(rgba.len())
+    {
+        return Err(invalid("寸法または画素数"));
+    }
+    let width = u32::try_from(width).map_err(invalid)?;
+    let height = u32::try_from(height).map_err(invalid)?;
+    let mut data = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut data, width, height);
+        encoder.set_color(ColorType::Rgba);
+        encoder.set_depth(BitDepth::Eight);
+        // 4見本・7回中央値: 合計1,023,553 bytes（Qt 1,033,200）。
+        // 線30.786ms/塗26.848ms/ノイズ43.767ms/4K線91.152ms。
+        // 全見本でQt以下。Level6〜9 / Upの候補では容量合計が最小。
+        encoder.set_deflate_compression(png::DeflateCompression::Level(7));
+        encoder.set_filter(png::Filter::Up);
+        encoder.set_pixel_dims(dots_per_meter.map(|(xppu, yppu)| png::PixelDimensions {
+            xppu,
+            yppu,
+            unit: png::Unit::Meter,
+        }));
+        let mut writer = encoder.write_header().map_err(invalid)?;
+        writer.write_image_data(rgba).map_err(invalid)?;
+        writer.finish().map_err(invalid)?;
+    }
+    Ok(data)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn encoding_roundtrip_and_chunks() {
+        let pixels = [1, 2, 3, 0, 255, 128, 64, 127];
+        for dimensions in [None, Some((2835, 3780)), Some((0, 0))] {
+            let data = encode_png(2, 1, &pixels, dimensions).unwrap();
+            assert_eq!(decode_png(&data, 8).unwrap().pixels, pixels);
+            let mut chunks = &data[8..];
+            let mut kinds = Vec::new();
+            while !chunks.is_empty() {
+                let size = u32::from_be_bytes(chunks[..4].try_into().unwrap()) as usize;
+                let kind = &chunks[4..8];
+                kinds.push(kind.to_vec());
+                if kind == b"pHYs" {
+                    let (x, y) = dimensions.unwrap();
+                    assert_eq!(&chunks[8..12], &x.to_be_bytes());
+                    assert_eq!(&chunks[12..16], &y.to_be_bytes());
+                    assert_eq!(chunks[16], 1);
+                }
+                chunks = &chunks[size + 12..];
+            }
+            assert_eq!(kinds.first().unwrap(), b"IHDR");
+            assert_eq!(kinds.last().unwrap(), b"IEND");
+            let start = if dimensions.is_some() {
+                assert_eq!(kinds[1], b"pHYs");
+                2
+            } else {
+                1
+            };
+            assert!(kinds[start..kinds.len() - 1].iter().all(|k| k == b"IDAT"));
+            assert!(kinds.len() > start + 1);
+        }
+    }
+
+    #[test]
+    fn encoding_rejects_invalid_dimensions_and_length() {
+        for (w, h, pixels) in [
+            (0, 1, &[][..]),
+            (1, 0, &[][..]),
+            (1, 1, &[][..]),
+            (1, 1, &[0; 5][..]),
+            (usize::MAX, 2, &[][..]),
+            (u32::MAX as usize, 1, &[][..]),
+        ] {
+            assert!(encode_png(w, h, pixels, None).is_err());
+        }
+    }
 
     fn encode(color: ColorType, depth: BitDepth, pixels: &[u8]) -> Vec<u8> {
         let mut data = Vec::new();

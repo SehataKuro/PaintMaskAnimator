@@ -159,7 +159,7 @@ class PngCache:
         """``images`` の PNG を ``{cacheKey: bytes | None}`` で返す。
 
         キャッシュに無いものだけを、複数のスレッドで同時にエンコードする。
-        QImage.save は実行中 GIL を手放すので、コア数に近い倍率で速くなる
+        Rust の PNG エンコードも QImage.save も実行中 GIL を手放すので、コア数に近い倍率で速くなる
         （1920x1080 で1枚約60ms かかり、全セルの書き出しが数十秒になっていた）。
         """
         result = {}
@@ -201,7 +201,25 @@ _MAX_WORKERS = 8
 
 
 def encode_png(image):
-    """QImage を PNG のバイト列にする。失敗したら None。"""
+    """Rust（pma_core::project::png）で書き、GIL を手放す。キャンバスの形式以外は Qt に回す。
+
+    PNG のバイト列を返し、失敗したら None。
+    """
+    image = without_color_space(image)
+    if image.format() != QImage.Format.Format_ARGB32_Premultiplied or image.textKeys():
+        return _encode_png_qt(image)
+    rgba = image.convertToFormat(QImage.Format.Format_RGBA8888)
+    # 不変 bytes を1回作り、GILを手放している間も安全に借用する。
+    pixels = bytes(rgba.constBits())
+    try:
+        return native.encode_png(pixels, rgba.width(), rgba.height(),
+                                 image.dotsPerMeterX(), image.dotsPerMeterY())
+    except ValueError:
+        return _encode_png_qt(image)
+
+
+def _encode_png_qt(image):
+    """Rust で書けない形式と、テストでの突き合わせ用。失敗したら None。"""
     image = without_color_space(image)
     data = QByteArray()
     buffer = QBuffer(data)

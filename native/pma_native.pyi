@@ -139,3 +139,7 @@ def remove_line_noise(
 
 def decode_png(data: bytes, max_bytes: int) -> tuple[int, int, bytes]:
     """PNG を幅・高さ・乗算していない RGBA8888 にする。未対応・不正・上限超過は ValueError。"""
+
+
+def encode_png(rgba: bytes, width: int, height: int, dots_per_meter_x: int, dots_per_meter_y: int) -> bytes:
+    """乗算していない RGBA8888 を PNG にし、失敗は ValueError。"""
