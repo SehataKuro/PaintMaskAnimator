@@ -904,3 +904,153 @@ def test_guess_target_categories_cropped_windows_match_numpy():
         assert bucket_fill.guess_target_categories(
             pixels, previous, before,
         ) == bucket_fill.guess_target_categories_numpy(pixels, previous, before)
+
+
+def _assert_color_stats_parity(rgba, threshold=128, background=None):
+    from paintmaskanimator import color_ops, imaging
+
+    image = imaging.rgba_array_to_qimage(rgba)
+    for name in ("image_alpha_statistics", "opaque_rgb_color_count", "detect_opaque_border_background"):
+        result = getattr(color_ops, name)(image)
+        expected = getattr(color_ops, name + "_numpy")(image)
+        assert type(result) is type(expected)
+        assert result == expected
+        if isinstance(result, dict):
+            assert list(result) == list(expected)
+            assert all(type(value) is int for value in result.values())
+        if isinstance(result, tuple):
+            assert all(type(value) is int for value in result)
+
+    result = color_ops.estimate_mixed_boundary_pixels(image, background)
+    assert type(result) is int
+    assert result == color_ops.estimate_mixed_boundary_pixels_numpy(image, background)
+    result = color_ops.binarize_alpha_for_pixel_art(image, threshold)
+    expected = color_ops.binarize_alpha_for_pixel_art_numpy(image, threshold)
+    assert type(result) is type(expected)
+    assert result.format() == expected.format()
+    assert np.array_equal(imaging.qimage_rgba_array(result), imaging.qimage_rgba_array(expected))
+
+
+@needs_native
+def test_color_stats_and_overlay_match_numpy():
+    from PySide6.QtGui import QColor
+    from paintmaskanimator import color_ops
+
+    rng = np.random.default_rng(520)
+    for index in range(320):
+        height = (1, 2, 3, int(rng.integers(4, 21)))[index % 4]
+        width = WIDTHS[(index // 4) % len(WIDTHS)]
+        color_count = (1, 2, 13, 257)[(index // 3) % 4]
+        palette = rng.integers(0, 256, (color_count, 3), dtype=np.uint8)
+        rgba = np.empty((height, width, 4), dtype=np.uint8)
+        rgba[..., :3] = palette[rng.integers(len(palette), size=(height, width))]
+        alphas = ([0], [255], [250, 254, 255], [0, 1, 249, 250, 254, 255], np.arange(256))
+        rgba[..., 3] = rng.choice(alphas[index % len(alphas)], size=(height, width))
+        background = tuple(map(int, palette[0])) if index % 2 else None
+        threshold = (-20, 1, 128, 254, 500, "128", 128.75)[index % 7]
+        _assert_color_stats_parity(rgba, threshold, background)
+
+        exact = [QColor(*map(int, color)) for color in palette[:index % 5]]
+        mask = rng.choice([-2, 0, 3], size=(height, width))
+        overlay = rgba[:, ::-1].astype(np.int32)
+        result = color_ops._snap_overlay_to_exact_rgbs(overlay, mask, exact)
+        expected = color_ops._snap_overlay_to_exact_rgbs_numpy(overlay, mask, exact)
+        assert type(result) is np.ndarray
+        assert result.dtype == expected.dtype
+        assert result.flags.writeable
+        assert np.array_equal(result, expected)
+
+
+@needs_native
+def test_color_stats_thresholds_and_unusual_arguments():
+    from PySide6.QtGui import QImage
+    from paintmaskanimator import color_ops, imaging
+
+    def image_of(rows):
+        rgb = np.array(rows, dtype=np.uint8)
+        rgba = np.full((*rgb.shape[:2], 4), 255, dtype=np.uint8)
+        rgba[..., :3] = rgb
+        _assert_color_stats_parity(rgba)
+        return imaging.rgba_array_to_qimage(rgba)
+
+    for color, expected in (
+        ((217, 217, 217), None),
+        ((218, 218, 218), (218, 218, 218)),
+        ((218, 230, 242), (218, 230, 242)),
+        ((218, 230, 243), None),
+    ):
+        assert color_ops.detect_opaque_border_background(image_of([[color]])) == expected
+
+    low, high = (232, 232, 232), (233, 233, 233)
+    for rows in ([[high, low]], [[high], [low]], [[high, low], [low, high]],
+                 [[high], [low], [high], [low]]):
+        assert color_ops.detect_opaque_border_background(image_of(rows)) == low
+    white = (255, 255, 255)
+    for count in (25, 26, 27):
+        rows = [[white] * count + [(0, 0, 0)] * 13 + [(110, 110, 110)] * (37 - count)]
+        expected = white if count >= 26 else None
+        assert color_ops.detect_opaque_border_background(image_of(rows)) == expected
+
+    bg = (0, 0, 0)
+    for distance, expected in ((4, 0), (5, 0), (6, 1), (189, 1), (190, 0), (191, 0)):
+        image = image_of([[(distance, 0, 0), white]])
+        assert color_ops.estimate_mixed_boundary_pixels(image, bg) == expected
+        assert color_ops.estimate_mixed_boundary_pixels_numpy(image, bg) == expected
+
+    for background in (0, [1], (1, 2), [1, 2, 3, 4], (-32768, 0, 0),
+                       (32767, 0, 0), (32768, 0, 0), (1.75, 2, 3),
+                       np.array([1, 2, 3], dtype=np.int16), [[1, 2, 3]]):
+        try:
+            expected = color_ops.estimate_mixed_boundary_pixels_numpy(image, background)
+        except (ValueError, OverflowError) as exc:
+            with pytest.raises(type(exc)) as actual:
+                color_ops.estimate_mixed_boundary_pixels(image, background)
+            assert str(actual.value) == str(exc)
+        else:
+            assert color_ops.estimate_mixed_boundary_pixels(image, background) == expected
+
+    assert color_ops.image_alpha_statistics(None) == color_ops.image_alpha_statistics_numpy(QImage())
+    assert color_ops.opaque_rgb_color_count(QImage()) == 0
+    assert color_ops.detect_opaque_border_background(None) is None
+    assert color_ops.estimate_mixed_boundary_pixels(QImage(), object()) == 0
+    assert color_ops.binarize_alpha_for_pixel_art(QImage(), object()).isNull()
+
+    rgba = np.array([[[10, 20, 30, 249]]], dtype=np.uint8)
+    for palette, expected in (
+        ([(9, 20, 30), (11, 20, 30)], [9, 20, 30, 249]),
+        ([(10, 20, 30), (255, 255, 255)], [255, 255, 255, 249]),
+    ):
+        result = color_ops._snap_overlay_to_exact_rgbs(rgba, [[1]], palette)
+        assert result[0, 0].tolist() == expected
+        assert np.array_equal(result, color_ops._snap_overlay_to_exact_rgbs_numpy(rgba, [[1]], palette))
+    assert np.array_equal(
+        color_ops._snap_overlay_to_exact_rgbs(rgba[..., :3], [[1]], [white]),
+        color_ops._snap_overlay_to_exact_rgbs_numpy(rgba[..., :3], [[1]], [white]),
+    )
+    with pytest.raises(IndexError):
+        color_ops._snap_overlay_to_exact_rgbs(rgba, [1, 1], [white])
+
+
+@needs_native
+def test_color_stats_rgba8888_with_padded_rows():
+    from PySide6.QtGui import QImage
+    from paintmaskanimator import color_ops
+
+    raw = bytes([
+        10, 20, 30, 0, 10, 20, 30, 1, 10, 20, 30, 249, 9, 9, 9, 9,
+        50, 60, 70, 250, 50, 60, 70, 254, 50, 60, 70, 255, 8, 8, 8, 8,
+    ])
+    image = QImage(raw, 3, 2, 16, QImage.Format.Format_RGBA8888)
+    rgba = imaging.qimage_rgba_array(image, readonly=True)
+    assert isinstance(rgba.base, bytes)
+    assert not rgba.flags.writeable
+    assert rgba.tobytes() == raw[:12] + raw[16:28]
+    assert color_ops.image_alpha_statistics(image) == {
+        "transparent": 1, "semi_transparent": 4, "opaque": 1,
+    }
+    assert color_ops.detect_opaque_border_background(image) is None
+    for threshold in (-1, 1, 128, 249, 250, 254, 255, 1000):
+        result = color_ops.binarize_alpha_for_pixel_art(image, threshold)
+        expected = color_ops.binarize_alpha_for_pixel_art_numpy(image, threshold)
+        assert result.format() == expected.format()
+        assert result == expected

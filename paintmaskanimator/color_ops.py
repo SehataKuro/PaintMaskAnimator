@@ -13,7 +13,120 @@ from . import native
 from . import colors as _colors  # noqa: F401
 
 
-def _snap_overlay_to_exact_rgbs(
+def _is_rgba8(rgba):
+    return rgba.dtype == np.uint8 and rgba.ndim == 3 and rgba.shape[2] == 4
+
+
+def _snap_overlay_to_exact_rgbs(overlay_rgba, active_mask, exact_colors):
+    """境界の丸め誤差を、指定された正規RGBへ吸着する。"""
+    rgba = np.asarray(overlay_rgba, dtype=np.uint8).copy()
+    mask = np.asarray(active_mask, dtype=bool)
+    palette = _colors.paint_rgb_palette(exact_colors)
+    if not _is_rgba8(rgba) or mask.shape != rgba.shape[:2]:
+        return _snap_normalized_overlay_numpy(rgba, mask, palette)
+    if palette.size == 0 or not np.any(mask):
+        return rgba
+    return native.snap_overlay_to_exact_rgbs(rgba, mask, palette)
+
+
+def image_alpha_statistics(image):
+    """透明・半透明・不透明画素数を返す。"""
+    counts = (0, 0, 0)
+    if image is not None and not image.isNull():
+        rgba = imaging.qimage_rgba_array(image, readonly=True)
+        if rgba.size:
+            if not _is_rgba8(rgba):
+                return image_alpha_statistics_numpy(image)
+            counts = native.image_alpha_statistics(rgba)
+    transparent, semi_transparent, opaque = counts
+    return {
+        "transparent": transparent,
+        "semi_transparent": semi_transparent,
+        "opaque": opaque,
+    }
+
+
+def binarize_alpha_for_pixel_art(image, alpha_threshold=128):
+    """半透明を完全透明／完全不透明へ二値化する。"""
+    if image is None or image.isNull():
+        return QImage()
+    rgba = imaging.qimage_rgba_array(image, readonly=True)
+    if rgba.size == 0:
+        return image.copy()
+    if not _is_rgba8(rgba):
+        return binarize_alpha_for_pixel_art_numpy(image, alpha_threshold)
+    threshold = max(1, min(254, int(alpha_threshold)))
+    return imaging.rgba_array_to_qimage(native.binarize_alpha_for_pixel_art(rgba, threshold))
+
+
+def opaque_rgb_color_count(image):
+    """透明画素を除外したRGB色数を返す。"""
+    if image is None or image.isNull():
+        return 0
+    rgba = imaging.qimage_rgba_array(image, readonly=True)
+    if rgba.size == 0:
+        return 0
+    if not _is_rgba8(rgba):
+        return opaque_rgb_color_count_numpy(image)
+    return native.opaque_rgb_color_count(rgba)
+
+
+def detect_opaque_border_background(image):
+    """外周につながる不透明な明色背景を検出する。"""
+    if image is None or image.isNull():
+        return None
+
+    rgba = imaging.qimage_rgba_array(image)
+    if rgba.size == 0:
+        return None
+
+    alpha = rgba[:, :, 3]
+    # 半透明・透明を含む画像は従来のアルファ二値化を使う。
+    if np.any(alpha < 250):
+        return None
+
+    rgb = rgba[:, :, :3]
+    height, width = rgb.shape[:2]
+    if width <= 0 or height <= 0:
+        return None
+
+    border_parts = [
+        rgb[0, :, :],
+        rgb[height - 1, :, :],
+    ]
+    if height > 2:
+        border_parts.extend([
+            rgb[1:height - 1, 0, :],
+            rgb[1:height - 1, width - 1, :],
+        ])
+    border = np.concatenate(border_parts, axis=0)
+    if border.size == 0:
+        return None
+
+    return native.border_background(border)
+
+
+def estimate_mixed_boundary_pixels(image, background_rgb=None):
+    """白背景上のアンチエイリアス境界のおおよその画素数。"""
+    if image is None or image.isNull():
+        return 0
+    rgba = imaging.qimage_rgba_array(image, readonly=True)
+    if rgba.size == 0:
+        return 0
+    if not _is_rgba8(rgba):
+        return estimate_mixed_boundary_pixels_numpy(image, background_rgb)
+    if background_rgb is not None:
+        if (
+            type(background_rgb) not in (tuple, list)
+            or len(background_rgb) != 3
+            or not all(type(value) is int and 0 <= value <= 255 for value in background_rgb)
+        ):
+            return estimate_mixed_boundary_pixels_numpy(image, background_rgb)
+        background_rgb = tuple(background_rgb)
+    return native.estimate_mixed_boundary_pixels(rgba, background_rgb)
+
+
+def _snap_overlay_to_exact_rgbs_numpy(
     overlay_rgba,
     active_mask,
     exact_colors,
@@ -30,6 +143,10 @@ def _snap_overlay_to_exact_rgbs(
     palette = _colors.paint_rgb_palette(
         exact_colors
     )
+    return _snap_normalized_overlay_numpy(rgba, mask, palette)
+
+
+def _snap_normalized_overlay_numpy(rgba, mask, palette):
     if (
         palette.size == 0
         or not np.any(mask)
@@ -61,7 +178,7 @@ def _snap_overlay_to_exact_rgbs(
     return rgba
 
 
-def image_alpha_statistics(image):
+def image_alpha_statistics_numpy(image):
     """透明・半透明・不透明画素数を返す。"""
     if image is None or image.isNull():
         return {
@@ -86,7 +203,7 @@ def image_alpha_statistics(image):
     }
 
 
-def binarize_alpha_for_pixel_art(
+def binarize_alpha_for_pixel_art_numpy(
     image,
     alpha_threshold=128,
 ):
@@ -113,7 +230,7 @@ def binarize_alpha_for_pixel_art(
     return imaging.rgba_array_to_qimage(result)
 
 
-def opaque_rgb_color_count(image):
+def opaque_rgb_color_count_numpy(image):
     """透明画素を除外したRGB色数を返す。"""
     if image is None or image.isNull():
         return 0
@@ -132,7 +249,7 @@ def opaque_rgb_color_count(image):
     return int(np.unique(packed).size)
 
 
-def detect_opaque_border_background(image):
+def detect_opaque_border_background_numpy(image):
     """外周につながる不透明な明色背景を検出する。"""
     if image is None or image.isNull():
         return None
@@ -185,7 +302,7 @@ def detect_opaque_border_background(image):
     return tuple(int(value) for value in dominant)
 
 
-def estimate_mixed_boundary_pixels(
+def estimate_mixed_boundary_pixels_numpy(
     image,
     background_rgb=None,
 ):

@@ -16,6 +16,8 @@ REQUIRED_API = (
     "track_fill_region", "estimate_shifts", "warp_region", "estimate_color_shifts", "tracking_region_center", "context_similarity",
     "TimelineCell", "resolve_timeline", "SheetEntry", "sheet_entries", "ClipAnimationReader", "GuideSampler",
     "tint_onion", "unique_colors", "filter_palette",
+    "image_alpha_statistics", "binarize_alpha_for_pixel_art", "opaque_rgb_color_count",
+    "border_background", "estimate_mixed_boundary_pixels", "snap_overlay_to_exact_rgbs",
     "local_color_variation", "median_cut_palette_from_samples", "normalize_tone_curve_points",
     "line_flow_scores", "connect_runs", "label_runs", "refine_face", "thin",
     "render_quad_labels", "render_mesh_labels",
@@ -143,6 +145,47 @@ def unique_colors(pixels, limit):
     return _native.unique_colors(
         np.ascontiguousarray(pixels, dtype=np.uint32).tobytes(), int(limit)
     )
+
+
+def _rgba_bytes(rgba):
+    # qimage_rgba_array(readonly=True) already packed the pixels into bytes.
+    base = rgba.base
+    if isinstance(base, bytes) and rgba.flags.c_contiguous and len(base) == rgba.nbytes:
+        return base
+    return rgba.tobytes()
+
+
+def image_alpha_statistics(rgba):
+    height, width = rgba.shape[:2]
+    return _native.image_alpha_statistics(_rgba_bytes(rgba), width, height)
+
+
+def binarize_alpha_for_pixel_art(rgba, threshold):
+    height, width = rgba.shape[:2]
+    result = _native.binarize_alpha_for_pixel_art(_rgba_bytes(rgba), width, height, threshold)
+    return np.frombuffer(result, dtype=np.uint8).reshape(rgba.shape)
+
+
+def opaque_rgb_color_count(rgba):
+    height, width = rgba.shape[:2]
+    return _native.opaque_rgb_color_count(_rgba_bytes(rgba), width, height)
+
+
+def border_background(border):
+    return _native.border_background(border.tobytes())
+
+
+def estimate_mixed_boundary_pixels(rgba, background):
+    height, width = rgba.shape[:2]
+    return _native.estimate_mixed_boundary_pixels(_rgba_bytes(rgba), width, height, background)
+
+
+def snap_overlay_to_exact_rgbs(rgba, mask, palette):
+    height, width = rgba.shape[:2]
+    result = _native.snap_overlay_to_exact_rgbs(
+        _rgba_bytes(rgba), width, height, mask.tobytes(), palette.tobytes(),
+    )
+    return np.frombuffer(result, dtype=np.uint8).reshape(rgba.shape).copy()
 
 
 def local_color_variation(rgb):

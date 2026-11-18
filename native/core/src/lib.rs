@@ -1,6 +1,7 @@
 //! PaintMaskAnimator の計算とデータ。Python・Qt・ファイル・スレッドに触れない。
 //! 規約は issue #96 §2。
 pub mod auto_paint;
+pub mod color_stats;
 pub mod colors;
 pub mod display;
 pub mod error;

@@ -12,6 +12,7 @@ use pyo3::types::PyBytes;
 
 mod auto_paint;
 mod clip;
+mod color_stats;
 mod colors;
 mod display;
 mod fill_decisions;
@@ -189,6 +190,27 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     )?)?;
     module.add_function(wrap_pyfunction!(map_colors::py_map_known_colors, module)?)?;
     module.add_function(wrap_pyfunction!(map_colors::py_region_neighbors, module)?)?;
+    module.add_function(wrap_pyfunction!(
+        color_stats::image_alpha_statistics,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(
+        color_stats::binarize_alpha_for_pixel_art,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(
+        color_stats::opaque_rgb_color_count,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(color_stats::border_background, module)?)?;
+    module.add_function(wrap_pyfunction!(
+        color_stats::estimate_mixed_boundary_pixels,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(
+        color_stats::snap_overlay_to_exact_rgbs,
+        module
+    )?)?;
     module.add_function(wrap_pyfunction!(colors::unique_colors, module)?)?;
     module.add_function(wrap_pyfunction!(colors::local_color_variation, module)?)?;
     module.add_function(wrap_pyfunction!(

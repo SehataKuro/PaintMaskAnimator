@@ -48,8 +48,11 @@ def without_color_space(image: Any) -> Any:
     return image
 
 
-def qimage_rgba_array(image):
-    """PySide6の版差に依存しないQImage→NumPy変換。"""
+def qimage_rgba_array(image, *, readonly=False):
+    """PySide6の版差に依存しないQImage→NumPy変換。
+
+    readonly=True の場合は Rust の入口と共有できる bytes に画素をコピーする。
+    """
     converted = image.convertToFormat(
         QImage.Format.Format_RGBA8888
     )
@@ -85,9 +88,10 @@ def qimage_rgba_array(image):
     rows = flat[:expected].reshape(
         (height, bytes_per_line)
     )
-    return rows[:, :width * 4].reshape(
-        (height, width, 4)
-    ).copy()
+    rgba = rows[:, :width * 4].reshape(height, width, 4)
+    if readonly:
+        return np.ndarray(rgba.shape, dtype=np.uint8, buffer=rgba.tobytes())
+    return rgba.copy()
 
 
 def rgba_array_to_qimage(rgba):
