@@ -10,6 +10,7 @@ import math
 import numpy as np
 from PySide6.QtGui import QColor
 
+from . import native
 from . import constants  # noqa: F401
 
 
@@ -60,6 +61,13 @@ def paint_rgb_palette(colors):
 
 def local_color_variation(rgb):
     """上下左右との差が大きい境界画素を抽出する。"""
+    if type(rgb) is np.ndarray and rgb.dtype == np.uint8 and rgb.ndim == 3 and rgb.shape[2] == 3:
+        return native.local_color_variation(rgb)
+    return local_color_variation_numpy(rgb)
+
+
+def local_color_variation_numpy(rgb):
+    """上下左右との差が大きい境界画素を抽出する。"""
     source = rgb.astype(np.int16)
     variation = np.zeros(source.shape[:2], dtype=np.int16)
 
@@ -90,7 +98,18 @@ def local_color_variation(rgb):
     return variation
 
 
-def median_cut_palette_from_samples(
+def median_cut_palette_from_samples(sample, color_count):
+    """頻度付きMedian-Cutで代表色を作る。"""
+    color_count = max(1, int(color_count))
+    sample = np.asarray(sample, dtype=np.uint8).reshape((-1, 3))
+    if sample.size == 0:
+        return np.zeros((0, 3), dtype=np.uint8)
+    if len(sample) > (1 << 53) // 255:
+        return median_cut_palette_from_samples_numpy(sample, color_count)
+    return native.median_cut_palette_from_samples(sample, min(color_count, len(sample)))
+
+
+def median_cut_palette_from_samples_numpy(
     sample,
     color_count,
 ):
@@ -173,6 +192,24 @@ def median_cut_palette_from_samples(
 
 
 def normalize_tone_curve_points(points):
+    """制御点を 0〜1 に収め、並べ替えて端点を固定する。"""
+    converted = []
+    try:
+        iterable = list(points)
+    except TypeError:
+        iterable = []
+
+    for point in iterable:
+        try:
+            x, y = point[:2]
+            converted.append((float(x), float(y)))
+        except (TypeError, ValueError, IndexError):
+            continue
+
+    return native.normalize_tone_curve_points(converted)
+
+
+def normalize_tone_curve_points_numpy(points):
     normalized = []
     try:
         iterable = list(points)

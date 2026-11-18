@@ -12,6 +12,7 @@ use pyo3::types::PyBytes;
 
 mod auto_paint;
 mod clip;
+mod colors;
 mod display;
 mod fill_decisions;
 mod fill_session;
@@ -188,7 +189,16 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     )?)?;
     module.add_function(wrap_pyfunction!(map_colors::py_map_known_colors, module)?)?;
     module.add_function(wrap_pyfunction!(map_colors::py_region_neighbors, module)?)?;
-    module.add_function(wrap_pyfunction!(py_unique_colors, module)?)?;
+    module.add_function(wrap_pyfunction!(colors::unique_colors, module)?)?;
+    module.add_function(wrap_pyfunction!(colors::local_color_variation, module)?)?;
+    module.add_function(wrap_pyfunction!(
+        colors::normalize_tone_curve_points,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(
+        colors::median_cut_palette_from_samples,
+        module
+    )?)?;
     module.add_function(wrap_pyfunction!(py_flood_fill, module)?)?;
     module.add_function(wrap_pyfunction!(py_remove_line_noise, module)?)?;
     module.add_function(wrap_pyfunction!(py_dilate, module)?)?;
@@ -225,45 +235,6 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(py_extend_line_ends, module)?)?;
     module.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
-}
-
-/// Bound palette memory even for photographic layers. Keep the same smallest
-/// sorted colors as numpy.unique(...)[..limit], without sorting every pixel.
-#[pyfunction(name = "unique_colors")]
-fn py_unique_colors(py: Python<'_>, pixels: &[u8], limit: usize) -> PyResult<Vec<u32>> {
-    if !pixels.len().is_multiple_of(4) {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "expected packed u32 pixels",
-        ));
-    }
-    py.detach(|| {
-        if limit == 0 {
-            return Ok(Vec::new());
-        }
-        // RGB has a fixed 24-bit domain: a 2 MiB bitmap avoids a tree lookup
-        // for every repeated pixel in flat animation artwork.
-        let mut seen = vec![0u64; (1 << 24) / 64];
-        for chunk in pixels.chunks_exact(4) {
-            let value = u32::from_ne_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
-            if value > 0xffffff {
-                return Err(pyo3::exceptions::PyValueError::new_err(
-                    "expected 24-bit RGB",
-                ));
-            }
-            seen[value as usize / 64] |= 1u64 << (value % 64);
-        }
-        let mut colors = Vec::new();
-        for (index, mut word) in seen.into_iter().enumerate() {
-            while word != 0 {
-                colors.push((index * 64 + word.trailing_zeros() as usize) as u32);
-                if colors.len() == limit {
-                    return Ok(colors);
-                }
-                word &= word - 1;
-            }
-        }
-        Ok(colors)
-    })
 }
 
 #[pyfunction(name = "thin")]

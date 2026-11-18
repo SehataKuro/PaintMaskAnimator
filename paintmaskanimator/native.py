@@ -16,6 +16,7 @@ REQUIRED_API = (
     "track_fill_region", "estimate_shifts", "warp_region", "estimate_color_shifts", "tracking_region_center", "context_similarity",
     "TimelineCell", "resolve_timeline", "SheetEntry", "sheet_entries", "ClipAnimationReader", "GuideSampler",
     "tint_onion", "unique_colors", "filter_palette",
+    "local_color_variation", "median_cut_palette_from_samples", "normalize_tone_curve_points",
     "line_flow_scores", "connect_runs", "label_runs", "refine_face", "thin",
     "render_quad_labels", "render_mesh_labels",
     "surface_guided_palette_labels", "map_known_colors", "region_neighbors",
@@ -142,6 +143,21 @@ def unique_colors(pixels, limit):
     return _native.unique_colors(
         np.ascontiguousarray(pixels, dtype=np.uint32).tobytes(), int(limit)
     )
+
+
+def local_color_variation(rgb):
+    height, width = rgb.shape[:2]
+    data = _native.local_color_variation(rgb.tobytes(), width, height)
+    return np.frombuffer(data, dtype=np.uint8).astype(np.int16).reshape(height, width)
+
+
+def median_cut_palette_from_samples(sample, color_count):
+    data = _native.median_cut_palette_from_samples(sample.tobytes(), color_count)
+    return np.frombuffer(data, dtype=np.uint8).copy().reshape(-1, 3)
+
+
+def normalize_tone_curve_points(points):
+    return _native.normalize_tone_curve_points(points)
 
 
 def filter_palette(rgba, visible, legacy, remap):

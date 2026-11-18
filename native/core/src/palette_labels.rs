@@ -7,6 +7,8 @@
 //!
 //! 特徴量の計算は numpy 版と同じ順序・同じ単精度で行う。
 
+use crate::colors::local_color_variation_rgb;
+
 /// まだどの色にも決まっていない画素。
 const UNRESOLVED: i16 = -1;
 
@@ -14,7 +16,7 @@ const UNRESOLVED: i16 = -1;
 const REFINEMENT_PASSES: usize = 12;
 
 /// 色面の内部とみなす、隣との差（0-255）の上限。
-const FLAT_VARIATION: i16 = 12;
+const FLAT_VARIATION: u8 = 12;
 
 /// 色面の内部とみなす、最近傍の色との隔たりの上限。
 const FLAT_DISTANCE: f32 = 0.12;
@@ -66,34 +68,6 @@ fn distance(a: &Feature, b: &Feature) -> f32 {
         total += difference * difference;
     }
     total
-}
-
-/// 上下左右との差（チャンネルごとの差の最大）。境目の画素だけ大きくなる。
-fn local_variation(rgb: &[u8], width: usize, height: usize) -> Vec<i16> {
-    let mut variation = vec![0i16; width * height];
-    let channel_gap = |a: usize, b: usize| {
-        (0..3)
-            .map(|c| (rgb[a * 3 + c] as i16 - rgb[b * 3 + c] as i16).abs())
-            .max()
-            .unwrap_or(0)
-    };
-    for y in 0..height {
-        for x in 0..width {
-            let index = y * width + x;
-            // 下と右だけ見れば、相手側にも同じ差を広げられる。
-            if y + 1 < height {
-                let gap = channel_gap(index, index + width);
-                variation[index] = variation[index].max(gap);
-                variation[index + width] = variation[index + width].max(gap);
-            }
-            if x + 1 < width {
-                let gap = channel_gap(index, index + 1);
-                variation[index] = variation[index].max(gap);
-                variation[index + 1] = variation[index + 1].max(gap);
-            }
-        }
-    }
-    variation
 }
 
 /// 連続した画素範囲の最近傍番号と距離を出力先へ書き込む（戻り値なし）。
@@ -250,7 +224,8 @@ pub fn refine_labels(
 ) -> Vec<i16> {
     let total = width * height;
     // 平坦で、しかも近い色がはっきりしている画素だけを先に確定させる。
-    let variation = local_variation(rgb, width, height);
+    let pixels = &rgb.as_chunks::<3>().0[..total];
+    let variation = local_color_variation_rgb(pixels, width);
     let mut labels = vec![UNRESOLVED; total];
     for index in 0..total {
         let flat = variation[index] <= FLAT_VARIATION && nearest_distance[index] <= FLAT_DISTANCE;

@@ -6,7 +6,7 @@ import pytest
 import subprocess
 import sys
 
-from paintmaskanimator import bucket_fill, imaging, native
+from paintmaskanimator import bucket_fill, colors, imaging, native
 
 needs_native = pytest.mark.skipif(
     not native.available(), reason="Rust の部品（pma_native）が入っていない"
@@ -24,6 +24,9 @@ def test_unique_colors_matches_numpy(limit):
         np.zeros(200, dtype=np.uint32),
         rng.integers(0, 256, 10000, dtype=np.uint32),
         np.array([0xffffff, 0, 0xffffff, 0, 1], dtype=np.uint32),
+        rng.integers(0, 1 << 24, (129, 7), dtype=np.uint32)[::-1, ::2],
+        np.arange(limit, dtype=np.uint32)[::-1],
+        np.repeat(np.array([0xffffff, 0, 63], dtype=np.uint32), [32769, 32769, 3]),
     ):
         assert native.unique_colors(pixels, limit) == np.unique(pixels)[:limit].tolist()
 
@@ -49,6 +52,92 @@ def test_unique_colors_rejects_invalid_input():
         native._native.unique_colors(b"abc", 101)
     with pytest.raises(ValueError, match="24-bit RGB"):
         native._native.unique_colors(np.array([0xffffffff], dtype=np.uint32).tobytes(), 101)
+    pixels = np.zeros(65545, dtype=np.uint32)
+    pixels[-1] = 0xffffffff
+    with pytest.raises(ValueError, match="24-bit RGB"):
+        native.unique_colors(pixels, 101)
+
+
+@needs_native
+def test_local_color_variation_matches_numpy():
+    rng = np.random.default_rng(51)
+    for index in range(300):
+        height = index % 39
+        width = WIDTHS[index % len(WIDTHS)]
+        rgba = rng.integers(0, 256, (height, width, 4), dtype=np.uint8)
+        rgb = rgba[..., :3]
+        if index % 3 == 0:
+            rgb = rgb[::-1, ::-1]
+        elif index % 3 == 1:
+            rgb = rgb.transpose(1, 0, 2)
+        actual = colors.local_color_variation(rgb)
+        assert actual.dtype == np.int16
+        assert actual.flags.writeable
+        np.testing.assert_array_equal(actual, colors.local_color_variation_numpy(rgb))
+
+    for rgb in (
+        np.zeros((7, 0, 3), dtype=np.uint8),
+        np.full((1, 1, 3), 255, dtype=np.uint8),
+        np.full((4, 5, 3), 255, dtype=np.uint8),
+        np.array([[[0, 255, 0], [255, 0, 255]]], dtype=np.uint8),
+        np.array([[[-32768, 32767, 0], [32767, 0, -32768]]], dtype=np.int32),
+        np.array([[[1.1, -2.5, 0.9], [256.0, -500.0, 0.0]]]),
+        np.ma.array([[[0, 255, 0], [255, 0, 255]]], mask=[[[1, 0, 0], [0, 0, 0]]], dtype=np.uint8),
+    ):
+        np.testing.assert_array_equal(
+            colors.local_color_variation(rgb), colors.local_color_variation_numpy(rgb)
+        )
+
+
+@needs_native
+def test_median_cut_palette_matches_numpy():
+    rng = np.random.default_rng(52)
+    for index in range(330):
+        count = int(rng.integers(1, 250))
+        # 少数値のチャンネルで、色の同点と範囲の同点を多く作る。
+        source = rng.integers(0, [256, 4, 3] if index % 2 else 256, (count, 3), dtype=np.uint8)
+        sample = source[rng.integers(0, count, int(rng.integers(0, 2500)))][::-1]
+        limit = [-1, 0, 1, 2, 3, 8, 32, 100, count, count + 1, 1 << 80][index % 11]
+        actual = colors.median_cut_palette_from_samples(sample, limit)
+        assert actual.dtype == np.uint8
+        assert actual.flags.writeable
+        np.testing.assert_array_equal(
+            actual, colors.median_cut_palette_from_samples_numpy(sample, limit)
+        )
+
+    for sample, limit in (
+        ([], 100),
+        ([[0, 255, 0]], 1),
+        ([[0, 255, 0]] * 35, 100),
+        ([[0, 1, 2], [1, 2, 3], [255, 0, 0], [255, 0, 0]], 2),
+        (np.column_stack([np.arange(100), np.zeros((100, 2))]), 100),
+    ):
+        np.testing.assert_array_equal(
+            colors.median_cut_palette_from_samples(sample, limit),
+            colors.median_cut_palette_from_samples_numpy(sample, limit),
+        )
+
+
+@needs_native
+def test_normalize_tone_curve_points_matches_numpy():
+    rng = np.random.default_rng(53)
+    for index in range(300):
+        points = rng.uniform(-0.25, 1.25, (index % 42, 2)).tolist()
+        if index % 3:
+            points.extend([(0.5, 0.0), (0.500008, 0.9), (0.500016, 0.8), (0.5, 0.7)])
+        assert colors.normalize_tone_curve_points(iter(points)) == (
+            colors.normalize_tone_curve_points_numpy(points)
+        )
+
+    for points in (
+        None, [], [(0.25, -0.0)],
+        [(0.4, float("nan")), (float("inf"), 0.3), (float("-inf"), 1.0)],
+        [(), None, ("bad", 0.2), ("0.4", "0.5"), (0.3, 0.4, "ignored")],
+        [(i * 0.000009, 0.3) for i in range(111112)],
+    ):
+        assert colors.normalize_tone_curve_points(points) == (
+            colors.normalize_tone_curve_points_numpy(points)
+        )
 
 
 def random_masks(seed=7, count=120):
