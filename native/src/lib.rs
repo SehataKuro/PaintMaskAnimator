@@ -13,6 +13,7 @@ use pyo3::types::PyBytes;
 mod auto_paint;
 mod clip;
 mod display;
+mod fill_decisions;
 mod fill_session;
 mod fill_tracking;
 mod map_colors;
@@ -213,6 +214,13 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
         fill_session::compute_fill_region_once,
         module
     )?)?;
+    module.add_function(wrap_pyfunction!(fill_decisions::enclosed_by, module)?)?;
+    module.add_function(wrap_pyfunction!(fill_decisions::enclosed_islands, module)?)?;
+    module.add_function(wrap_pyfunction!(
+        fill_decisions::guess_target_categories,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(fill_decisions::skewer_seed, module)?)?;
     module.add_function(wrap_pyfunction!(fill_session::track_fill_region, module)?)?;
     module.add_function(wrap_pyfunction!(py_extend_line_ends, module)?)?;
     module.add("__version__", env!("CARGO_PKG_VERSION"))?;

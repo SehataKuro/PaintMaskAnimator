@@ -286,21 +286,9 @@ class SkewerFillMixin(CanvasMembers):
                 session.selection_mask,
                 previous_pixels=session.previous_pixels[session.direction],
             ), pixels
-        # 「隣接」OFF はレイヤー内の同色を一括で塗るので、位置を追う必要がない。
-        reference = session.reference
-        if reference is None:
-            target = bucket_fill.background_mask(pixels)
-        else:
-            target = np.all(pixels[:, :, :3] == reference, axis=2)
-            target &= pixels[:, :, 3] > 0
-        points = np.argwhere(target)
-        if not points.size:
-            return None, pixels
-        start_y, start_x = (int(value) for value in points[0])
-        result = bucket_fill.compute_fill_region(
-            pixels, start_x, start_y, session.options, session.selection_mask
-        )
-        return (result if result.ok else None), pixels
+        return bucket_fill.skewer_fill_once(
+            pixels, session.reference, session.options, session.selection_mask
+        ), pixels
 
     def _skewer_remember(self, session, image, result):
         assert result.bounds is not None  # ok なら必ず外接矩形がある

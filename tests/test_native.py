@@ -648,3 +648,170 @@ def test_track_fill_region_rescues_small_region():
     assert result.ok
     assert result.bounds == (28, 17, 30, 19)
     np.testing.assert_array_equal(result.matched, result.mask)
+
+
+@needs_native
+def test_fill_decisions_match_numpy_randomly():
+    rng = np.random.default_rng(4503)
+    palette = np.array([
+        (0, 0, 0, 0), (255, 255, 255, 255), (48, 48, 48, 255),
+        (48, 49, 48, 255), (220, 80, 60, 255), (220, 80, 60, 0),
+        (230, 75, 65, 1),
+    ], dtype=np.uint8)
+    red, other = (220, 80, 60), (230, 75, 65)
+    replacements = ((red, (1, 2, 3)), (other, other), (other, (4, 5, 6)),
+                    (red, (7, 8, 9)))
+    for index in range(300):
+        w = WIDTHS[index % len(WIDTHS)]
+        h = 1 if index % 11 == 0 else int(rng.integers(2, 25))
+        before = palette[rng.integers(len(palette), size=(h, w))]
+        pixels = np.roll(before, (index % 7 - 3, index % 5 - 2), axis=(0, 1))
+        if index % 23 == 0:
+            pixels[:] = 0
+        if index % 29 == 0:
+            pixels[:] = 255
+        region = rng.random((h, w)) < (index % 11) / 10
+        selection = None if index % 2 else rng.random((h, w)) < 0.83
+        share = (0, 0.5, 0.6, 0.75, 1, float("nan"))[index % 6]
+        args = (pixels, region, replacements, selection, share)
+        actual = bucket_fill.enclosed_islands(*args)
+        expected = bucket_fill.enclosed_islands_numpy(*args)
+        assert [rgb for rgb, _ in actual] == [rgb for rgb, _ in expected]
+        for (_, actual_mask), (_, expected_mask) in zip(actual, expected):
+            np.testing.assert_array_equal(actual_mask, expected_mask)
+        np.testing.assert_array_equal(
+            bucket_fill._enclosed_by(region), bucket_fill._enclosed_by_numpy(region),
+        )
+        args = (pixels, region, before, index % 6 - 2)
+        assert bucket_fill.guess_target_categories(*args) == bucket_fill.guess_target_categories_numpy(*args)
+        if index % 5 == 0:
+            options = bucket_fill.BucketOptions(adjacent=False, island_replacements=replacements)
+            reference = (None, red, other)[index % 3]
+            seed = bucket_fill.skewer_seed_numpy(pixels, reference)
+            expected = (None if seed is None else
+                        bucket_fill.compute_fill_region_numpy(pixels, *seed, options, selection))
+            actual = bucket_fill.skewer_fill_once(pixels, reference, options, selection)
+            if expected is None or not expected.ok:
+                assert actual is None
+            else:
+                _assert_tracking_equal(actual, expected)
+
+
+@needs_native
+def test_enclosed_islands_exact_threshold():
+    pixels = np.array([[
+        [255, 255, 255, 255], [120, 30, 80, 1], [0, 0, 0, 0], [255, 255, 255, 255],
+    ]], dtype=np.uint8)
+    region = np.array([[True, False, False, True]])
+    replacements = (((120, 30, 80), (3, 4, 5)),)
+    for threshold in (0.5, np.nextafter(0.5, 1)):
+        args = (pixels, region, replacements, None, threshold)
+        actual = bucket_fill.enclosed_islands(*args)
+        expected = bucket_fill.enclosed_islands_numpy(*args)
+        assert len(actual) == len(expected) == int(threshold == 0.5)
+        if actual:
+            np.testing.assert_array_equal(actual[0][1], expected[0][1])
+
+
+def _island_fill_head_fingerprints():
+    import hashlib
+
+    def fingerprint(mask):
+        return None if mask is None else hashlib.sha256(mask.tobytes()).hexdigest()
+
+    rng = np.random.default_rng(4596)
+    rows = []
+    for i in range(144):
+        h, w = 24 + i % 14, WIDTHS[2 + i % (len(WIDTHS) - 2)]
+        pixels = np.zeros((h, w, 4), np.uint8)
+        pixels[..., 3] = 255
+        pixels[3:-3, 3:-3, :] = 255
+        red, blue = (120, 30, 80), (55, 20, 220)
+        pixels[9:11, 3:6] = (*red, 255)
+        pixels[12:13, 2:4] = (*red, 255)
+        pixels[5:8, 7:8] = (*blue, 1)
+        pixels[5:7, -8:-5] = (*blue, 255)
+        previous = pixels[..., 0] != 0
+        before = pixels.copy()
+        if i % 3 == 0:
+            pixels[3:-3, w // 2, :3] = 0
+        if i % 4 == 0:
+            pixels[4:-4, 4:-4][rng.random((h - 8, w - 8)) < 0.08] = (*red, 255)
+        options = bucket_fill.BucketOptions(
+            adjacent=i % 7 != 1, close_gap=i % 7 == 2,
+            island_replacements=((red, (3, 4, 5)), (blue, blue), (blue, (6, 7, 8))),
+        )
+        selection = None
+        if i % 3 == 1:
+            selection = np.ones_like(previous)
+            selection[8:12, 1:5] = False
+        results = [
+            bucket_fill.compute_fill_region(pixels, 6, 6, options, selection),
+            bucket_fill.track_fill_region(
+                pixels, previous, None, options, selection,
+                previous_pixels=before if i % 2 else None,
+            ),
+        ]
+        if selection is None:
+            session = bucket_fill.BucketSession(pixels, options, indexed=True)
+            results.extend(bucket_fill.compute_fill_region(
+                pixels, 6, 6, options, session=session,
+            ) for _ in range(2))
+        for result in results:
+            rows.append((
+                result.reason, result.target, result.bounds, result.score,
+                fingerprint(result.region), fingerprint(result.matched),
+                [(rgb, fingerprint(mask)) for rgb, mask in result.islands],
+            ))
+    return rows
+
+
+@needs_native
+def test_island_fill_matches_9e6fac7():
+    import json
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    baseline = root / "native/target/head_45"
+    if not all((baseline / item).exists() for item in ("bucket_fill.py", "native.py", "pma_native")):
+        pytest.skip("比較用の 9e6fac7 の Python ソースと拡張が用意された環境で実行する")
+    old = subprocess.check_output(
+        [sys.executable, "-c", r"""
+import importlib.util
+import json
+import runpy
+import sys
+from pathlib import Path
+
+baseline = Path(sys.argv[1])
+sys.path.insert(0, str(baseline))
+for module in ("native", "bucket_fill"):
+    name = f"paintmaskanimator.{module}"
+    spec = importlib.util.spec_from_file_location(name, baseline / f"{module}.py")
+    loaded = importlib.util.module_from_spec(spec)
+    sys.modules[name] = loaded
+    spec.loader.exec_module(loaded)
+cases = runpy.run_path(sys.argv[2])
+print(json.dumps(cases["_island_fill_head_fingerprints"]()))
+""", str(baseline), str(Path(__file__).resolve())],
+        cwd=root, text=True,
+    )
+    assert json.loads(old) == json.loads(json.dumps(_island_fill_head_fingerprints()))
+
+
+@needs_native
+def test_guess_target_categories_cropped_windows_match_numpy():
+    rng = np.random.default_rng(4517)
+    palette = np.array([
+        (250, 250, 250, 0), (255, 255, 255, 255), (48, 48, 48, 255),
+        (49, 48, 48, 255), (190, 105, 90, 255), (220, 100, 80, 255),
+    ], dtype=np.uint8)
+    for index, (y, x) in enumerate(((0, 0), (17, 600), (430, 379), (480, 780))):
+        before = np.full((490, 790, 4), 255, dtype=np.uint8)
+        before[y:y + 10, x:x + 10] = palette[rng.integers(len(palette), size=(10, 10))]
+        pixels = np.roll(before, (index * 9 - 4, index * 29 - 12), axis=(0, 1))
+        previous = np.zeros(before.shape[:2], dtype=bool)
+        previous[y:y + 9, x:x + 9] = True
+        assert bucket_fill.guess_target_categories(
+            pixels, previous, before,
+        ) == bucket_fill.guess_target_categories_numpy(pixels, previous, before)

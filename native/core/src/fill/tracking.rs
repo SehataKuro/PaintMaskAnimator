@@ -4,7 +4,9 @@ use std::collections::HashMap;
 
 mod fft;
 mod fill_region;
-pub use fill_region::{track_fill_region, TrackInput, TrackMatch, TrackOutcome};
+pub use fill_region::{
+    guess_target_categories, track_fill_region, TrackInput, TrackMatch, TrackOutcome,
+};
 
 type Shift = (i64, i64);
 const PEAK_TOLERANCE: f64 = 0.9;

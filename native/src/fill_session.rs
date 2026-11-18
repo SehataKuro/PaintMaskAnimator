@@ -1,4 +1,5 @@
 //! バケツ状態の Python 入口。計算とキャッシュは core に置く。
+use pma_core::fill::islands::Replacement;
 use pma_core::fill::region::{Enclosed, FillOptions};
 use pma_core::fill::session::{Bounds, BucketState, Category, LocalOutcome, PrepareOptions};
 use pma_core::fill::target::TargetColor;
@@ -6,7 +7,8 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedBytes;
 use pyo3::types::PyBytes;
-use std::sync::Mutex;
+use std::ops::Deref;
+use std::sync::{Arc, Mutex};
 
 fn store_mask(data: Vec<u8>) -> PyBackedBytes {
     Python::attach(|py| PyBytes::new(py, &data).extract().expect("bytes storage"))
@@ -14,6 +16,35 @@ fn store_mask(data: Vec<u8>) -> PyBackedBytes {
 
 fn share_mask(mask: &PyBackedBytes) -> PyBackedBytes {
     Python::attach(|py| mask.clone_ref(py))
+}
+
+// 単発計算の対象マスクを passable と共有する。Vec の画素領域は移動する。
+#[derive(Clone)]
+struct SharedMask(Arc<Vec<u8>>);
+
+impl Deref for SharedMask {
+    type Target = [u8];
+
+    fn deref(&self) -> &[u8] {
+        self.0.as_slice()
+    }
+}
+
+fn transient_state(
+    rgba: &[u8],
+    width: usize,
+    height: usize,
+    options: PrepareOptions,
+) -> Result<BucketState<&[u8], SharedMask>, String> {
+    BucketState::with_storage(
+        rgba,
+        width,
+        height,
+        options,
+        false,
+        |mask| SharedMask(Arc::new(mask)),
+        SharedMask::clone,
+    )
 }
 
 type Options = (
@@ -28,6 +59,7 @@ type Options = (
     bool,
     bool,
     Vec<[u8; 3]>,
+    Vec<Replacement>,
 );
 fn options(o: Options) -> PyResult<PrepareOptions> {
     let (
@@ -42,6 +74,7 @@ fn options(o: Options) -> PyResult<PrepareOptions> {
         include_masks,
         include_background_mask,
         mask_colors,
+        island_replacements,
     ) = o;
     let target_color = match color.as_str() {
         "all" => TargetColor::All(None),
@@ -67,6 +100,7 @@ fn options(o: Options) -> PyResult<PrepareOptions> {
         extend_length,
         close_gap,
         gap_width,
+        island_replacements,
         fill: FillOptions {
             adjacent,
             require_closed,
@@ -87,6 +121,7 @@ type Output<'py> = (
     Option<Bounds>,
     Option<Bound<'py, PyBytes>>,
     Option<(u8, u8, u8)>,
+    Vec<crate::fill_decisions::IslandOutput<'py>>,
 );
 fn output(py: Python<'_>, r: LocalOutcome) -> Output<'_> {
     (
@@ -94,6 +129,7 @@ fn output(py: Python<'_>, r: LocalOutcome) -> Output<'_> {
         r.bounds,
         r.region.as_ref().map(|r| PyBytes::new(py, r)),
         r.category.map(|[r, g, b]| (r, g, b)),
+        crate::fill_decisions::island_output(py, r.islands),
     )
 }
 #[pymethods]
@@ -202,7 +238,7 @@ pub fn compute_fill_region_once<'py>(
     line_cache: Option<PyRef<'py, LineCache>>,
 ) -> PyResult<Output<'py>> {
     let (x, y) = coordinates(x, y)?;
-    let mut state = BucketState::new(rgba, width, height, self::options(options)?, false)
+    let mut state = transient_state(rgba, width, height, self::options(options)?)
         .map_err(PyValueError::new_err)?;
     let mut cache = line_cache
         .as_ref()

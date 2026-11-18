@@ -7,17 +7,28 @@ use crate::fill::target::{fill_target_mask, TargetColor};
 use crate::regions::{dilate, flood_fill};
 use crate::Error;
 use std::borrow::Cow;
+use std::collections::HashMap;
 
-const MAX_TRIES: usize = 8;
-const MIN_IOU: f64 = 0.1;
-const GOOD_IOU: f64 = 0.75;
-const MAX_AREA_RATIO: f64 = 3.0;
-const INCLUDE_RATIO: f64 = 0.7;
-const SMALL_AREA: usize = 2500;
-const SMALL_REACH: i64 = 6;
-const SMALL_SEEDS: usize = 6;
+/// Python の `bucket_fill.TRACK_MAX_TRIES`。
+const TRACK_MAX_TRIES: usize = 8;
+/// Python の `bucket_fill.TRACK_MIN_IOU`。
+const TRACK_MIN_IOU: f64 = 0.1;
+/// Python の `bucket_fill.TRACK_GOOD_IOU`。
+const TRACK_GOOD_IOU: f64 = 0.75;
+/// Python の `bucket_fill.TRACK_MAX_AREA_RATIO`。
+const TRACK_MAX_AREA_RATIO: f64 = 3.0;
+/// Python の `bucket_fill.TRACK_INCLUDE_RATIO`。
+const TRACK_INCLUDE_RATIO: f64 = 0.7;
+/// Python の `bucket_fill.TRACK_SMALL_AREA`。
+const TRACK_SMALL_AREA: usize = 2500;
+/// Python の `bucket_fill.TRACK_SMALL_REACH`。
+const TRACK_SMALL_REACH: i64 = 6;
+/// Python の `bucket_fill.TRACK_SMALL_SEEDS`。
+const TRACK_SMALL_SEEDS: usize = 6;
+/// Python の `fill_tracking.CONTEXT_RADIUS`。
 const CONTEXT_RADIUS: i64 = 24;
-const CONTEXT_PENALTY: f64 = 0.1;
+/// Python の `bucket_fill.TRACK_CONTEXT_PENALTY`。
+const TRACK_CONTEXT_PENALTY: f64 = 0.1;
 
 /// `track_fill_region_numpy` に渡す画像と手がかり。
 pub struct TrackInput<'a> {
@@ -174,7 +185,7 @@ fn pick_overlap(
     let mut candidates = Vec::new();
     let mut best = Vec::new();
     let (mut best_iou, mut matched) = (0.0, 0);
-    for _ in 0..MAX_TRIES {
+    for _ in 0..TRACK_MAX_TRIES {
         let Some(seed @ (x, y)) = points
             .iter()
             .copied()
@@ -186,7 +197,7 @@ fn pick_overlap(
             clear_region(&mut eligible, size, &result);
             let area = area(result.region.as_deref().unwrap_or_default());
             let ratio = area as f64 / previous_area as f64;
-            if ratio <= MAX_AREA_RATIO {
+            if ratio <= TRACK_MAX_AREA_RATIO {
                 let overlaps: Vec<_> = references
                     .iter()
                     .map(|reference| {
@@ -195,7 +206,7 @@ fn pick_overlap(
                             .sum()
                     })
                     .collect();
-                if ratio >= 1.0 / MAX_AREA_RATIO {
+                if ratio >= 1.0 / TRACK_MAX_AREA_RATIO {
                     for (index, (&overlap, reference)) in
                         overlaps.iter().zip(references).enumerate()
                     {
@@ -212,7 +223,7 @@ fn pick_overlap(
                     area,
                     overlaps,
                 });
-                if best_iou >= GOOD_IOU {
+                if best_iou >= TRACK_GOOD_IOU {
                     break;
                 }
             }
@@ -224,12 +235,12 @@ fn pick_overlap(
         }
         points.retain(|&(x, y)| eligible[y * size.w + x] != 0);
     }
-    if best_iou < GOOD_IOU {
+    if best_iou < TRACK_GOOD_IOU {
         for (index, reference) in references.iter().enumerate() {
             let members: Vec<_> = candidates
                 .iter()
                 .enumerate()
-                .filter(|(_, c)| c.overlaps[index] as f64 >= c.area as f64 * INCLUDE_RATIO)
+                .filter(|(_, c)| c.overlaps[index] as f64 >= c.area as f64 * TRACK_INCLUDE_RATIO)
                 .map(|(i, _)| i)
                 .collect();
             if members.len() < 2 {
@@ -282,34 +293,41 @@ fn rgba_crop(rgba: &[u8], size: Size, rect: Rect) -> Vec<u8> {
 
 // bucket_fill._shift_candidates_numpy と同じ順に重複を除く。
 fn shift_candidates(
-    input: &TrackInput<'_>,
     before: &[u8],
+    rgba: &[u8],
+    previous: &[u8],
     size: Size,
     rect: Rect,
 ) -> Result<Vec<Shift>, Error> {
-    let line_art = |rgba: &[u8]| {
-        rgba.chunks_exact(4)
-            .map(|p| u8::from(p[3] != 0 && p[0] <= 48 && p[1] <= 48 && p[2] <= 48))
-            .collect::<Vec<_>>()
-    };
-    let mut shifts = estimate_shifts(
-        &line_art(before),
-        &line_art(input.rgba),
-        input.previous,
-        size.w,
-        size.h,
-        3,
-        None,
-    )?;
     let margin = 64.max(3 * (rect.x1 - rect.x0).max(rect.y1 - rect.y0));
     let template = rect.expand(CONTEXT_RADIUS).intersect(size.rect());
     let window = template.expand(margin).intersect(size.rect());
+    let line_window = rect.expand(margin).intersect(size.rect());
     let ts = template.size();
     let ws = window.size();
+    let ls = line_window.size();
+    ts.check(before, 4)?;
+    let mut before_lines = vec![0; ls.w * ls.h];
+    copy_rect(
+        &fill_target_mask(before, ts.w, ts.h, TargetColor::Black),
+        ts,
+        &mut before_lines,
+        ls,
+        (template.y0 - line_window.y0, template.x0 - line_window.x0),
+    );
+    let mut line_shifts = estimate_shifts(
+        &before_lines,
+        &line_crop(rgba, size, line_window),
+        &crop(previous, size, line_window),
+        ls.w,
+        ls.h,
+        3,
+        Some(margin),
+    )?;
     let colors = estimate_color_shifts(
-        &rgba_crop(before, size, template),
-        &rgba_crop(input.rgba, size, window),
-        &crop(input.previous, size, template),
+        before,
+        &rgba_crop(rgba, size, window),
+        &crop(previous, size, template),
         ts.w,
         ts.h,
         ws.w,
@@ -318,12 +336,101 @@ fn shift_candidates(
         3,
     )?;
     let mut unique = Vec::new();
-    for shift in shifts.drain(..).chain(colors).chain([(0, 0)]) {
+    for shift in line_shifts.drain(..).chain(colors).chain([(0, 0)]) {
         if !unique.contains(&shift) {
             unique.push(shift);
         }
     }
     Ok(unique)
+}
+
+fn line_crop(rgba: &[u8], size: Size, rect: Rect) -> Vec<u8> {
+    let ws = rect.size();
+    if ws.w == size.w && ws.h == size.h {
+        return fill_target_mask(rgba, size.w, size.h, TargetColor::Black);
+    }
+    fill_target_mask(&rgba_crop(rgba, size, rect), ws.w, ws.h, TargetColor::Black)
+}
+
+/// `bucket_fill.guess_target_categories_numpy` と同じ色候補を得票順で返す。
+/// 前コマの RGBA は previous の外接矩形を CONTEXT_RADIUS だけ広げた矩形内のデータ。
+/// 今のコマと previous は、すべての探索窓・移動先を含む同じ矩形に切り出せる。
+pub fn guess_target_categories(
+    rgba: &[u8],
+    previous: &[u8],
+    before: &[u8],
+    w: usize,
+    h: usize,
+) -> Result<Vec<Category>, Error> {
+    let size = Size { w, h };
+    size.check(rgba, 4)?;
+    size.check(previous, 1)?;
+    let Some(rect) = bounds(previous, size) else {
+        return Ok(Vec::new());
+    };
+    let shifts = shift_candidates(before, rgba, previous, size, rect)?;
+    let mut votes: Vec<(i32, f64)> = Vec::new();
+    let mut counts: HashMap<i32, usize> = HashMap::new();
+    for (dy, dx) in shifts {
+        let mut total = 0;
+        let mut last = None;
+        let mut run = 0;
+        for (x, y) in positions(rect.intersect(Rect {
+            x0: -dx,
+            y0: -dy,
+            x1: w as i64 - dx,
+            y1: h as i64 - dy,
+        })) {
+            if previous[y * w + x] == 0 {
+                continue;
+            }
+            let i = ((y as i64 + dy) as usize * w + (x as i64 + dx) as usize) * 4;
+            let p = &rgba[i..i + 4];
+            if p[3] != 0 && p[..3].iter().all(|&c| c <= crate::fill::target::BLACK_MAX) {
+                continue;
+            }
+            let key = if p[3] == 0 || p[..3] == [255; 3] {
+                -1
+            } else {
+                i32::from_be_bytes([0, p[0], p[1], p[2]])
+            };
+            total += 1;
+            if last != Some(key) {
+                if let Some(key) = last {
+                    *counts.entry(key).or_default() += run;
+                }
+                last = Some(key);
+                run = 0;
+            }
+            run += 1;
+        }
+        if let Some(key) = last {
+            *counts.entry(key).or_default() += run;
+        }
+        // np.unique はキーの昇順、argmax は同数なら最初のキー。
+        if let Some((key, n)) = counts
+            .drain()
+            .max_by_key(|&(key, n)| (n, std::cmp::Reverse(key)))
+        {
+            let share = n as f64 / total as f64;
+            if let Some((_, vote)) = votes.iter_mut().find(|(color, _)| *color == key) {
+                *vote += share;
+            } else {
+                votes.push((key, share));
+            }
+        }
+    }
+    // 同票の順位は、ずれの探索順で票が入った順。
+    votes.sort_by(|a, b| b.1.total_cmp(&a.1));
+    Ok(votes
+        .into_iter()
+        .map(|(key, _)| {
+            (key >= 0).then(|| {
+                let [_, r, g, b] = key.to_be_bytes();
+                [r, g, b]
+            })
+        })
+        .collect())
 }
 
 struct Context {
@@ -366,18 +473,30 @@ fn small_region(
     let mut available = target.to_vec();
     let mut best_score = 0.0;
     let mut best = None;
-    for shift in shift_candidates(input, before, size, previous_bounds)? {
+    for shift in shift_candidates(
+        &rgba_crop(
+            before,
+            size,
+            previous_bounds
+                .expand(CONTEXT_RADIUS)
+                .intersect(size.rect()),
+        ),
+        input.rgba,
+        input.previous,
+        size,
+        previous_bounds,
+    )? {
         let moved = translated(input.previous, size, shift);
         let Some(rect) = bounds(&moved, size) else {
             continue;
         };
-        let window = rect.expand(SMALL_REACH).intersect(size.rect());
+        let window = rect.expand(TRACK_SMALL_REACH).intersect(size.rect());
         let ws = window.size();
         let near = dilate(
             &crop(&moved, size, window),
             ws.w,
             ws.h,
-            SMALL_REACH as usize,
+            TRACK_SMALL_REACH as usize,
         );
         let center_point = centroid(&moved, size, rect);
         let mut points: Vec<_> = positions(window)
@@ -394,7 +513,7 @@ fn small_region(
                 clear_region(&mut available, size, &result);
                 let ratio = area(result.region.as_deref().unwrap_or_default()) as f64
                     / previous_area as f64;
-                if (1.0 / MAX_AREA_RATIO..=MAX_AREA_RATIO).contains(&ratio) {
+                if (1.0 / TRACK_MAX_AREA_RATIO..=TRACK_MAX_AREA_RATIO).contains(&ratio) {
                     let mut region = vec![0; target.len()];
                     for (x, y) in marked_pixels(&result) {
                         region[y * size.w + x] = 1;
@@ -413,7 +532,7 @@ fn small_region(
                         )?;
                         if score > best_score {
                             best_score = score;
-                            best = Some((result, (score - CONTEXT_PENALTY).max(0.0), shift));
+                            best = Some((result, (score - TRACK_CONTEXT_PENALTY).max(0.0), shift));
                         }
                     }
                 }
@@ -421,7 +540,7 @@ fn small_region(
                 available[y * size.w + x] = 0;
             }
             seeds += 1;
-            if seeds >= SMALL_SEEDS {
+            if seeds >= TRACK_SMALL_SEEDS {
                 break;
             }
         }
@@ -522,8 +641,10 @@ pub fn track_fill_region(
         size,
         &mut state,
     )?;
-    if let Some(before) = before.filter(|_| previous_area <= SMALL_AREA && score < GOOD_IOU) {
-        if let Some((result, rescued_score, shift)) = small_region(
+    if let Some(before) =
+        before.filter(|_| previous_area <= TRACK_SMALL_AREA && score < TRACK_GOOD_IOU)
+    {
+        if let Some((mut result, rescued_score, shift)) = small_region(
             &input,
             before,
             &target,
@@ -534,7 +655,8 @@ pub fn track_fill_region(
         )? {
             if rescued_score > score {
                 outcome.score = Some(rescued_score);
-                if rescued_score >= MIN_IOU {
+                if rescued_score >= TRACK_MIN_IOU {
+                    state.add_islands(&mut result, input.selection)?;
                     outcome.members.push(result);
                     outcome.matched = Some(TrackMatch::Shifted(shift));
                 }
@@ -542,8 +664,11 @@ pub fn track_fill_region(
             }
         }
     }
-    if score >= MIN_IOU {
+    if score >= TRACK_MIN_IOU {
         outcome.members = members;
+        for member in &mut outcome.members {
+            state.add_islands(member, input.selection)?;
+        }
         let reference = references.swap_remove(index);
         outcome.matched = Some(match reference.kind {
             TrackMatch::Previous if matches!(reference.mask, Cow::Owned(_)) => {
@@ -561,6 +686,16 @@ mod tests {
     use super::*;
     use crate::fill::region::{Enclosed, FillOptions};
 
+    #[test]
+    fn guess_breaks_count_ties_by_sorted_rgb_key() {
+        let current = [100, 20, 20, 255, 20, 100, 20, 255, 0, 0, 0, 255];
+        let before = [255; 12];
+        assert_eq!(
+            guess_target_categories(&current, &[1, 1, 1], &before, 3, 1).unwrap(),
+            [Some([20, 100, 20])]
+        );
+    }
+
     fn options() -> PrepareOptions {
         PrepareOptions {
             target_color: TargetColor::All(None),
@@ -568,6 +703,7 @@ mod tests {
             extend_length: 4,
             close_gap: false,
             gap_width: 1,
+            island_replacements: Vec::new(),
             fill: FillOptions {
                 adjacent: true,
                 require_closed: false,

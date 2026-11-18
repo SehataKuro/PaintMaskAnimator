@@ -78,9 +78,39 @@ pub fn fill_target_mask(rgba: &[u8], width: usize, height: usize, target: Target
     }
 }
 
+/// `bucket_fill.skewer_seed_numpy` と同じ、参照色の最初の座標を行優先で返す。
+pub fn skewer_seed(
+    rgba: &[u8],
+    w: usize,
+    h: usize,
+    reference: Option<[u8; 3]>,
+) -> Result<Option<(usize, usize)>, crate::Error> {
+    if w.checked_mul(h).and_then(|n| n.checked_mul(4)) != Some(rgba.len()) {
+        return Err(crate::Error::Invalid("invalid skewer dimensions".into()));
+    }
+    let mut pixels = rgba.chunks_exact(4);
+    let first = match reference {
+        Some(rgb) => pixels.position(|p| p[3] != 0 && p[..3] == rgb),
+        None => pixels.position(|p| p[3] == 0 || p[..3] == [255; 3]),
+    };
+    Ok(first.map(|i| (i % w, i / w)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn skewer_seed_is_first_opaque_color_or_background() {
+        let rgba = [
+            10, 20, 30, 0, 255, 255, 255, 255, 10, 20, 30, 1, 10, 20, 30, 255,
+        ];
+        assert_eq!(
+            skewer_seed(&rgba, 2, 2, Some([10, 20, 30])).unwrap(),
+            Some((0, 1))
+        );
+        assert_eq!(skewer_seed(&rgba, 2, 2, None).unwrap(), Some((0, 0)));
+    }
 
     // alpha/RGB の境界、純黒・純白、一成分だけ境界外、同色の透明画素。
     const PIXELS: [[u8; 4]; 14] = [

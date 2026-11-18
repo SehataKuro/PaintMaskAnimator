@@ -604,6 +604,11 @@ def fill_target_mask_numpy(pixels, target_color, category, packed=None):
 
 
 def _enclosed_by(region):
+    """キャンバス端から4近傍でたどれない穴を返す。"""
+    return native.enclosed_by(region, mask_bounds(region))
+
+
+def _enclosed_by_numpy(region):
     """``region`` の外側（キャンバス端につながる部分）以外の、region でない画素。"""
     outside_candidates = ~region
     edge = np.zeros_like(region)
@@ -959,32 +964,38 @@ def compute_fill_region(
     else:
         output = native.compute_fill_region_once(
             pixels, start_x, start_y, options, selection_mask, line_cache)
-    reason, final_region, bounds, category = native.fill_region_output(output, (height, width))
-    if reason != REASON_OK:
-        return FillResult(reason, region=final_region, target=category)
-    return _fill_result_with_islands(
-        pixels, final_region, bounds, category, options, selection_mask
-    )
+    return _native_fill_result(output, (height, width))
 
 
-def _fill_result_with_islands(pixels, final_region, bounds, category, options, selection_mask):
-    islands = ()
-    if options.island_replacements:
-        islands = enclosed_islands(
-            pixels, final_region, options.island_replacements, selection_mask
-        )
-        # 島は塗る範囲の縁からはみ出すことがある。書き込み・Undo の矩形に含める。
-        for _rgb, island in islands:
-            island_bounds = mask_bounds(island)
-            assert island_bounds is not None  # 空の島は enclosed_islands が返さない
-            ix0, iy0, ix1, iy1 = island_bounds
-            bounds = (
-                min(bounds[0], ix0), min(bounds[1], iy0),
-                max(bounds[2], ix1), max(bounds[3], iy1),
-            )
+def _native_fill_result(output, shape):
+    reason, region, bounds, category, islands = native.fill_region_output(output, shape)
     return FillResult(
-        REASON_OK, final_region, target=category, bounds=bounds, islands=islands
+        reason, region=region, target=category,
+        bounds=bounds if reason == REASON_OK else None, islands=islands,
     )
+
+
+def skewer_fill_once(pixels, reference, options, selection_mask=None):
+    """隣接 OFF の串刺し塗り。参照色の最初の点を種に塗る。"""
+    seed = native.skewer_seed(pixels, reference)
+    if seed is None:
+        return None
+    result = compute_fill_region(pixels, *seed, options, selection_mask)
+    return result if result.ok else None
+
+
+def skewer_seed_numpy(pixels, reference):
+    """隣接 OFF の串刺し塗りの種を求める numpy 版。"""
+    if reference is None:
+        target = background_mask(pixels)
+    else:
+        target = np.all(pixels[:, :, :3] == reference, axis=2)
+        target &= pixels[:, :, 3] > 0
+    points = np.argwhere(target)
+    if not points.size:
+        return None
+    y, x = points[0]
+    return int(x), int(y)
 
 
 def compute_fill_region_numpy(
@@ -1078,9 +1089,9 @@ def compute_fill_region_numpy(
 
         # 閉じ込められた穴・島も一緒に塗る対象色。
         if target_color == TARGET_OPAQUE_AND_INNER_TRANSPARENT:
-            region |= _enclosed_by(region) & (pixels[:, :, 3] == 0)
+            region |= _enclosed_by_numpy(region) & (pixels[:, :, 3] == 0)
         elif target_color == TARGET_TRANSPARENT_AND_CLOSED_OPAQUE:
-            region |= _enclosed_by(region) & (pixels[:, :, 3] != 0)
+            region |= _enclosed_by_numpy(region) & (pixels[:, :, 3] != 0)
     else:
         # 「隣接」OFFでは、対象色の画素（既定はクリック位置と同じ色）を一括で塗る。
         region = target_mask
@@ -1128,7 +1139,7 @@ def compute_fill_region_numpy(
         return FillResult(REASON_EMPTY, target=category)
     islands = ()
     if options.island_replacements:
-        islands = enclosed_islands(
+        islands = enclosed_islands_numpy(
             pixels, final_region, options.island_replacements, selection_mask
         )
         # 島は塗る範囲の縁からはみ出すことがある。書き込み・Undo の矩形に含める。
@@ -1150,7 +1161,14 @@ def compute_fill_region_numpy(
 ISLAND_MIN_SHARE = 0.6
 
 
-def enclosed_islands(
+def enclosed_islands(pixels, region, replacements, selection_mask=None, min_share=ISLAND_MIN_SHARE):
+    """囲まれた色の島を置換表の順で返す。"""
+    if not replacements or (bounds := mask_bounds(region)) is None:
+        return ()
+    return native.enclosed_islands(pixels, region, bounds, replacements, selection_mask, min_share)
+
+
+def enclosed_islands_numpy(
     pixels, region, replacements, selection_mask=None,
     min_share=ISLAND_MIN_SHARE,
 ):
@@ -1285,10 +1303,7 @@ def track_fill_region(
         matched = previous
 
     if len(outputs) == 1:
-        _, region, bounds, category = native.fill_region_output(outputs[0], previous.shape)
-        result = _fill_result_with_islands(
-            pixels, region, bounds, category, options, selection_mask
-        )
+        result = _native_fill_result(outputs[0], previous.shape)
         result.score = score
         result.matched = matched
         return result
@@ -1296,12 +1311,11 @@ def track_fill_region(
     union = np.zeros_like(previous, dtype=bool)
     islands = []
     for output in outputs:
-        _, region, _, _ = native.fill_region_output(output, previous.shape)
+        _, region, _, _, member_islands = native.fill_region_output(
+            output, previous.shape, include_island_bounds=False
+        )
         union |= region
-        if options.island_replacements:
-            islands.extend(enclosed_islands(
-                pixels, region, options.island_replacements, selection_mask
-            ))
+        islands.extend(member_islands)
     return FillResult(
         REASON_OK, union, target=reference, bounds=mask_bounds(union),
         islands=tuple(islands), score=score, matched=matched,
@@ -1526,6 +1540,18 @@ def _track_small_region_numpy(pixels, previous, previous_pixels, target, options
 
 
 def guess_target_categories(pixels, previous, previous_pixels, count=2):
+    """図形の移動先の色を得票順で返す。背景の候補は None。"""
+    from .fill_tracking import CONTEXT_RADIUS
+
+    bounds = mask_bounds(previous)
+    if bounds is None:
+        return []
+    return native.guess_target_categories(
+        pixels, previous, previous_pixels, bounds, CONTEXT_RADIUS,
+    )[:count]
+
+
+def guess_target_categories_numpy(pixels, previous, previous_pixels, count=2):
     """``previous`` の図形が今のコマで何色の上にあるか、候補を多い順に返す。
 
     見本のコマで塗った図形を、まだ塗っていない（あるいは違う色で塗った）コマへ

@@ -248,28 +248,10 @@ pub fn compute_fill_region(
             }
         }
         if o.enclosed != Enclosed::None {
-            let inverse: Vec<u8> = region.iter().map(|v| u8::from(*v == 0)).collect();
-            let mut starts = Vec::new();
-            for x in 0..w {
-                if inverse[x] != 0 {
-                    starts.push((x as i64, 0));
-                }
-                if inverse[(h - 1) * w + x] != 0 {
-                    starts.push((x as i64, (h - 1) as i64));
-                }
-            }
-            for y in 1..h.saturating_sub(1) {
-                if inverse[y * w] != 0 {
-                    starts.push((0, y as i64));
-                }
-                if inverse[y * w + w - 1] != 0 {
-                    starts.push(((w - 1) as i64, y as i64));
-                }
-            }
-            let outside = flood_fill(&inverse, w, h, &starts);
+            let enclosed =
+                super::islands::enclosed_by(&region, w, h).map_err(|err| err.to_string())?;
             for i in 0..n {
-                if inverse[i] != 0
-                    && outside[i] == 0
+                if enclosed[i] != 0
                     && ((rgba[i * 4 + 3] == 0) == (o.enclosed == Enclosed::InnerTransparent))
                 {
                     region[i] = 1;

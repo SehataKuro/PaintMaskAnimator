@@ -1,4 +1,5 @@
 //! numpy の `_prepare_bucket` と BucketSession の画像・前処理キャッシュ。
+use super::islands::{enclosed_islands, Island, Replacement, ISLAND_MIN_SHARE};
 use super::line_ends::{extend_line_ends, Strip};
 use super::region::{compute_fill_region, FillOptions, FillOutcome};
 use super::target::{fill_target_mask, TargetColor};
@@ -21,6 +22,7 @@ pub struct PrepareOptions {
     pub close_gap: bool,
     pub gap_width: usize,
     pub fill: FillOptions,
+    pub island_replacements: Vec<Replacement>,
 }
 #[derive(Default)]
 /// ドラッグ中の帯の画素が完全一致した場合だけ細線化を再利用する。
@@ -144,6 +146,7 @@ pub struct LocalOutcome {
     pub bounds: Option<Bounds>,
     pub region: Option<Vec<u8>>,
     pub category: Category,
+    pub islands: Vec<Island>,
 }
 /// 不変 RGBA と最大4色の FIFO 前処理を所有するバケツセッション。
 pub struct BucketState<R: AsRef<[u8]>, M = Vec<u8>> {
@@ -389,14 +392,39 @@ impl<R: AsRef<[u8]>, M: std::ops::Deref<Target = [u8]>> BucketState<R, M> {
                 .sum::<usize>()
     }
 
-    /// キャッシュを借りて最終領域を求め、矩形内だけを返す。selection は単発用。
+    /// `bucket_fill.compute_fill_region_numpy` と同じ領域・島を矩形内マスクで返す。
+    /// selection は単発計算に使う。
     pub fn compute(
         &mut self,
         x: usize,
         y: usize,
         selection: Option<&[u8]>,
     ) -> Result<LocalOutcome, String> {
-        self.compute_impl(x, y, selection, false)
+        let mut result = self.compute_impl(x, y, selection, false)?;
+        self.add_islands(&mut result, selection)
+            .map_err(|err| err.to_string())?;
+        Ok(result)
+    }
+
+    pub(crate) fn add_islands(
+        &self,
+        result: &mut LocalOutcome,
+        selection: Option<&[u8]>,
+    ) -> Result<(), crate::Error> {
+        if result.reason == "ok" && !self.options.island_replacements.is_empty() {
+            if let (Some(region), Some(bounds)) = (&result.region, result.bounds) {
+                result.islands = enclosed_islands(
+                    self.rgba.as_ref(),
+                    (self.width, self.height),
+                    region,
+                    bounds,
+                    &self.options.island_replacements,
+                    selection,
+                    ISLAND_MIN_SHARE,
+                )?;
+            }
+        }
+        Ok(())
     }
 
     // 追跡専用の新規セッションで、全候補に同じ選択範囲を使う。
@@ -436,6 +464,7 @@ impl<R: AsRef<[u8]>, M: std::ops::Deref<Target = [u8]>> BucketState<R, M> {
                 bounds: None,
                 region: None,
                 category,
+                islands: Vec::new(),
             });
         }
         if reuse_selection
@@ -481,6 +510,7 @@ impl<R: AsRef<[u8]>, M: std::ops::Deref<Target = [u8]>> BucketState<R, M> {
                 bounds: None,
                 region: None,
                 category,
+                islands: Vec::new(),
             });
         }
         if o.adjacent && !o.include_masks && o.enclosed == super::region::Enclosed::None {
@@ -556,6 +586,7 @@ impl<R: AsRef<[u8]>, M: std::ops::Deref<Target = [u8]>> BucketState<R, M> {
                     bounds: Some(bounds),
                     region: Some(local),
                     category,
+                    islands: Vec::new(),
                 });
             }
         }
@@ -612,6 +643,7 @@ impl<R: AsRef<[u8]>, M: std::ops::Deref<Target = [u8]>> BucketState<R, M> {
             region,
             bounds,
             category,
+            islands: Vec::new(),
         })
     }
 }
@@ -742,6 +774,7 @@ mod tests {
             extend_length: 4,
             close_gap: false,
             gap_width: 1,
+            island_replacements: Vec::new(),
             fill: FillOptions {
                 adjacent: true,
                 require_closed: false,

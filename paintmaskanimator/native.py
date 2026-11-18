@@ -12,6 +12,7 @@ from .logging_setup import get_logger
 log = get_logger(__name__)
 
 REQUIRED_API = (
+    "enclosed_by", "enclosed_islands", "guess_target_categories", "skewer_seed",
     "track_fill_region", "estimate_shifts", "warp_region", "estimate_color_shifts", "tracking_region_center", "context_similarity",
     "TimelineCell", "resolve_timeline", "SheetEntry", "sheet_entries", "ClipAnimationReader", "GuideSampler",
     "tint_onion", "unique_colors", "filter_palette",
@@ -462,10 +463,12 @@ def fill_target_mask(pixels, target_color, category):
 
 
 def _fill_options(options):
+    replacements = options.island_replacements
     return (options.target_color, options.extend_lines, max(1, int(options.extend_length)),
             options.close_gap, max(1, int(options.gap_width)), options.adjacent,
             options.require_closed, max(0, int(options.island_max_width)),
-            options.include_masks, options.include_background_mask, options.mask_colors)
+            options.include_masks, options.include_background_mask, options.mask_colors,
+            _replacements(replacements) if replacements else ())
 
 
 LineCache = _native.LineCache
@@ -528,15 +531,88 @@ def track_fill_region(pixels, previous, reference, options, selection=None,
     )
 
 
-def fill_region_output(output, shape):
+def _replacements(replacements):
+    return tuple((tuple(map(int, source[:3])), tuple(map(int, destination[:3])))
+                 for source, destination in replacements)
+
+
+def _expand_local(data, bounds, shape):
+    out = np.zeros(shape, dtype=bool)
+    x0, y0, x1, y1 = bounds
+    out[y0:y1, x0:x1] = np.frombuffer(data, dtype=bool).reshape(y1 - y0, x1 - x0)
+    return out
+
+
+def fill_region_output(output, shape, *, include_island_bounds=True):
     """Rust の矩形内マスクを Python の全体マスクへ展開する。"""
-    reason, bounds, data, category = output
-    region = None
-    if data is not None:
-        region = np.zeros(shape, dtype=bool)
-        x0, y0, x1, y1 = bounds
-        region[y0:y1, x0:x1] = _as_mask(data, y1-y0, x1-x0)
-    return reason, region, bounds, None if category is None else tuple(category)
+    reason, bounds, data, category, local_islands = output
+    region = None if data is None else _expand_local(data, bounds, shape)
+    if not local_islands:
+        return reason, region, bounds, category, ()
+    islands = tuple((color, _expand_local(mask, rect, shape))
+                    for color, rect, mask in local_islands)
+    if include_island_bounds:
+        for _, (x0, y0, x1, y1), _ in local_islands:
+            bounds = (min(bounds[0], x0), min(bounds[1], y0),
+                      max(bounds[2], x1), max(bounds[3], y1))
+    return reason, region, bounds, category, islands
+
+
+def enclosed_by(region, bounds):
+    if bounds is None:
+        return np.zeros_like(region)
+    x0, y0, x1, y1 = bounds
+    return _expand_local(
+        _native.enclosed_by(_as_bytes(region[y0:y1, x0:x1]), x1-x0, y1-y0),
+        bounds, region.shape,
+    )
+
+
+def enclosed_islands(pixels, region, bounds, replacements, selection, min_share):
+    x0, y0, x1, y1 = bounds
+    h, w = region.shape
+    left, top = max(0, x0 - 1), max(0, y0 - 1)
+    right, bottom = min(w, x1 + 1), min(h, y1 + 1)
+    window = np.s_[top:bottom, left:right]
+    output = _native.enclosed_islands(
+        pixels[window].tobytes(), (right - left, bottom - top),
+        _as_bytes(region[y0:y1, x0:x1]), (x0-left, y0-top, x1-left, y1-top),
+        _replacements(replacements), float(min_share),
+        None if selection is None else _as_bytes(selection[window]),
+    )
+    return tuple((color, _expand_local(mask, (a+left, b+top, c+left, d+top), region.shape))
+                 for color, (a, b, c, d), mask in output)
+
+
+def guess_target_categories(pixels, previous, previous_pixels, bounds, radius):
+    h, w = previous.shape
+    x0, y0, x1, y1 = bounds
+    extent = max(x1 - x0, y1 - y0)
+    margin = max(64, 3 * extent)
+    # 色相関のピークは部分的な重なりも候補にする。移動後に参照し得る画素まで含める。
+    reach = 2 * margin + 2 * extent + 3 * radius
+    window = np.s_[max(0, y0-reach):min(h, y1+reach), max(0, x0-reach):min(w, x1+reach)]
+    template = np.s_[max(0, y0-radius):min(h, y1+radius), max(0, x0-radius):min(w, x1+radius)]
+    local = previous[window]
+    height, width = local.shape
+    return [None if rgb is None else tuple(rgb) for rgb in _native.guess_target_categories(
+        pixels[window].tobytes(), _as_bytes(local), previous_pixels[template].tobytes(), width, height,
+    )]
+
+
+def skewer_seed(pixels, reference):
+    height, width = pixels.shape[:2]
+    if not width:
+        return None
+    # 行優先で順に調べる。参照色が無いときも全画像の bytes を確保せずに済む。
+    rows = max(1, (256 * 1024) // (width * 4))
+    for top in range(0, height, rows):
+        block = pixels[top:top + rows]
+        seed = _native.skewer_seed(block.tobytes(), width, len(block), reference)
+        if seed is not None:
+            x, y = seed
+            return x, y + top
+    return None
 
 
 def estimate_shifts(previous, current, region, count, margin):
