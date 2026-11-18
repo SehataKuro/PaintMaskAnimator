@@ -14,5 +14,6 @@ pub mod palette_labels;
 pub mod project;
 pub mod regions;
 pub mod thin;
+pub mod tone_curve;
 
 pub use error::Error;

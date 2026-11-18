@@ -19,6 +19,7 @@ REQUIRED_API = (
     "image_alpha_statistics", "binarize_alpha_for_pixel_art", "opaque_rgb_color_count",
     "border_background", "estimate_mixed_boundary_pixels", "snap_overlay_to_exact_rgbs",
     "local_color_variation", "median_cut_palette_from_samples", "normalize_tone_curve_points",
+    "tone_curve_samples", "tone_curve_lut", "apply_tone_curve",
     "line_flow_scores", "connect_runs", "label_runs", "refine_face", "thin",
     "render_quad_labels", "render_mesh_labels",
     "surface_guided_palette_labels", "map_known_colors", "region_neighbors",
@@ -197,6 +198,21 @@ def local_color_variation(rgb):
 def median_cut_palette_from_samples(sample, color_count):
     data = _native.median_cut_palette_from_samples(sample.tobytes(), color_count)
     return np.frombuffer(data, dtype=np.uint8).copy().reshape(-1, 3)
+
+
+def tone_curve_samples(points, values):
+    data = _native.tone_curve_samples(points, values.tobytes())
+    return None if data is None else np.frombuffer(data, dtype=np.float64).copy()
+
+
+def tone_curve_lut(points):
+    return np.frombuffer(_native.tone_curve_lut(points), dtype=np.uint8).copy()
+
+
+def apply_tone_curve(rgba, points, background_rgb):
+    height, width = rgba.shape[:2]
+    data = _native.apply_tone_curve(_rgba_bytes(rgba), width, height, points, background_rgb)
+    return np.ndarray(rgba.shape, dtype=np.uint8, buffer=data)
 
 
 def normalize_tone_curve_points(points):

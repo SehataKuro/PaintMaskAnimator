@@ -563,7 +563,59 @@ def _line_palette_labels(rgb, visible, palette):
     return labels.reshape(visible.shape)
 
 
-def tone_curve_samples(
+def tone_curve_samples(tone_curve_points, input_values):
+    """制御点を通る形状保持型3次曲線を評価する。"""
+    if (
+        type(input_values) is not np.ndarray
+        or input_values.ndim != 1
+        or input_values.dtype != np.float64
+    ):
+        return tone_curve_samples_numpy(tone_curve_points, input_values)
+    points = [] if tone_curve_points is None else _colors._float_tone_curve_points(tone_curve_points)
+    if np.geterr()["under"] != "ignore":
+        return tone_curve_samples_numpy(points, input_values)
+    result = native.tone_curve_samples(points, input_values)
+    if result is None:
+        return tone_curve_samples_numpy(points, input_values)
+    return result
+
+
+def tone_curve_lut(tone_curve_points=None):
+    """256段階のトーンカーブ変換表を返す。"""
+    points = [] if tone_curve_points is None else _colors._float_tone_curve_points(tone_curve_points)
+    if np.geterr()["under"] != "ignore":
+        return tone_curve_lut_numpy(points)
+    return native.tone_curve_lut(points)
+
+
+def apply_tone_curve(image, tone_curve_points=None, background_rgb=None):
+    """256段階LUTを適用し、元の背景に近い画素を保持する。"""
+    if image is None or image.isNull():
+        return image
+    points = _colors.normalize_tone_curve_points(
+        tone_curve_points if tone_curve_points is not None else [(0.0, 0.0), (1.0, 1.0)]
+    )
+    if points == [(0.0, 0.0), (1.0, 1.0)]:
+        return image.copy()
+
+    rgba = imaging.qimage_rgba_array(image, readonly=True)
+    if rgba.size == 0:
+        return image.copy()
+    if not _is_rgba8(rgba) or np.geterr()["under"] != "ignore":
+        return _apply_tone_curve_rgba_numpy(rgba, points, background_rgb)
+    if background_rgb is not None:
+        if (
+            type(background_rgb) not in (tuple, list)
+            or len(background_rgb) != 3
+            or not all(type(value) is int and 0 <= value <= 255 for value in background_rgb)
+        ):
+            return _apply_tone_curve_rgba_numpy(rgba, points, background_rgb)
+        background_rgb = tuple(background_rgb)
+    result = native.apply_tone_curve(rgba, points, background_rgb)
+    return imaging.rgba_array_to_qimage(result)
+
+
+def tone_curve_samples_numpy(
     tone_curve_points,
     input_values,
 ):
@@ -697,11 +749,11 @@ def tone_curve_samples(
     return np.clip(outputs, 0.0, 1.0)
 
 
-def tone_curve_lut(tone_curve_points=None):
+def tone_curve_lut_numpy(tone_curve_points=None):
     inputs = (
         np.arange(256, dtype=np.float64) / 255.0
     )
-    outputs = tone_curve_samples(
+    outputs = tone_curve_samples_numpy(
         tone_curve_points,
         inputs,
     )
@@ -712,7 +764,7 @@ def tone_curve_lut(tone_curve_points=None):
     ).astype(np.uint8)
 
 
-def apply_tone_curve(
+def apply_tone_curve_numpy(
     image,
     tone_curve_points=None,
     background_rgb=None,
@@ -733,7 +785,11 @@ def apply_tone_curve(
     if rgba.size == 0:
         return image.copy()
 
-    lut = tone_curve_lut(points)
+    return _apply_tone_curve_rgba_numpy(rgba, points, background_rgb)
+
+
+def _apply_tone_curve_rgba_numpy(rgba, points, background_rgb):
+    lut = tone_curve_lut_numpy(points)
     result = rgba.copy()
     result[:, :, :3] = lut[result[:, :, :3]]
 

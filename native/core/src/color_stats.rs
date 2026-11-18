@@ -2,7 +2,7 @@
 
 use crate::{colors::local_color_variation, Error};
 
-fn rgba_pixels(rgba: &[u8], width: usize, height: usize) -> Result<&[[u8; 4]], Error> {
+pub(crate) fn rgba_pixels(rgba: &[u8], width: usize, height: usize) -> Result<&[[u8; 4]], Error> {
     let (pixels, tail) = rgba.as_chunks::<4>();
     if !tail.is_empty() || width.checked_mul(height) != Some(pixels.len()) {
         return Err(Error::Invalid(

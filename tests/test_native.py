@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+import re
 import subprocess
 import sys
 
@@ -1054,3 +1055,117 @@ def test_color_stats_rgba8888_with_padded_rows():
         expected = color_ops.binarize_alpha_for_pixel_art_numpy(image, threshold)
         assert result.format() == expected.format()
         assert result == expected
+
+
+@needs_native
+def test_tone_curve_samples_and_lut_match_numpy():
+    from paintmaskanimator import color_ops
+
+    rng = np.random.default_rng(53)
+    curves = [
+        None, [], [(0.5, 0)], [("0.4", "0.7"), None], [(np.nan, -np.inf)],
+        [(128 / 255, 126.5 / 255)], [(128 / 255, 127.5 / 255)],
+    ]
+    quiet_nan = np.array([0xFFF8000000000042], dtype=np.uint64).view(np.float64)
+    for index in range(480):
+        count = 1 + index % 16
+        xs = rng.uniform(-0.3, 1.3, count) if index % 2 else rng.random(count)
+        if index % 7 == 0:
+            xs = np.round(xs, 1)
+        ys = rng.random(count)
+        if index % 3 == 0:
+            xs.sort()
+            ys.sort()
+        if index % 5 == 0:
+            ys.fill(0.3)
+        curves.append(list(zip(xs, ys)))
+
+    for points in curves:
+        knots = colors.normalize_tone_curve_points(points)
+        values = np.r_[
+            rng.uniform(-1, 2, 129), np.linspace(0, 1, 256),
+            [x for x, _ in knots], -0.0, -np.inf, np.inf, np.nan, -np.nan, quiet_nan,
+        ][::-1]
+        actual = color_ops.tone_curve_samples(iter(points) if points else points, values)
+        expected = color_ops.tone_curve_samples_numpy(points, values)
+        assert actual.dtype == expected.dtype == np.float64
+        assert actual.shape == expected.shape
+        np.testing.assert_array_equal(actual.view(np.uint64), expected.view(np.uint64))
+        lut = color_ops.tone_curve_lut(points)
+        assert lut.dtype == np.uint8 and lut.shape == (256,)
+        np.testing.assert_array_equal(lut, color_ops.tone_curve_lut_numpy(points))
+
+    for points in [None, [(0.5, 0.25)]]:
+        for values in [
+            0.3, np.array(0.5), [0, 0.5, 1], np.ones((3, 2)),
+            np.arange(3, dtype=np.int16), np.array([], dtype=np.float64),
+        ]:
+            actual = color_ops.tone_curve_samples(points, values)
+            expected = color_ops.tone_curve_samples_numpy(points, values)
+            assert type(actual) is type(expected)
+            assert actual.shape == expected.shape and actual.dtype == expected.dtype
+            np.testing.assert_array_equal(actual.view(np.uint64), expected.view(np.uint64))
+
+
+@needs_native
+def test_tone_curve_samples_preserves_numpy_float_errors():
+    from paintmaskanimator import color_ops
+
+    points = [(0.5, 0.8)]
+    signaling_nan = np.array([0x7ff0000000000001], dtype=np.uint64).view(np.float64)
+    with pytest.warns(RuntimeWarning, match="invalid value"):
+        samples = color_ops.tone_curve_samples(iter(points), signaling_nan)
+    assert samples.view(np.uint64).tolist() == [0x7ff8000000000001]
+    with np.errstate(over="raise"):
+        with pytest.raises(FloatingPointError, match="overflow"):
+            color_ops.tone_curve_samples(points, np.array([np.finfo(float).max]))
+    with np.errstate(under="raise"):
+        with pytest.raises(FloatingPointError, match="underflow"):
+            color_ops.tone_curve_samples(points, np.array([1e-200]))
+
+
+@needs_native
+def test_tone_curve_samples_collapsed_to_one_point():
+    from paintmaskanimator import color_ops
+
+    # 端点も含め、隣り合う x が全て統合の許容差より小さい。
+    points = list(zip(np.linspace(0, 1, 100002), np.zeros(100002)))
+    values = np.array([-np.inf, -0.0, 0.5, np.inf, np.nan])
+    actual = color_ops.tone_curve_samples(points, values)
+    expected = color_ops.tone_curve_samples_numpy(points, values)
+    np.testing.assert_array_equal(actual.view(np.uint64), expected.view(np.uint64))
+    np.testing.assert_array_equal(color_ops.tone_curve_lut(points), np.full(256, 255, dtype=np.uint8))
+
+
+@needs_native
+def test_apply_tone_curve_matches_numpy():
+    from PySide6.QtGui import QImage
+    from paintmaskanimator import color_ops
+
+    rng = np.random.default_rng(54)
+    for height, width in [(1, 1), (1, 65), (64, 1), (29, 31)]:
+        rgba = rng.integers(0, 256, (height, width, 4), dtype=np.uint8)
+        for pixel, value in zip(rgba.reshape(-1, 4), [[105, 105, 105, 255], [106, 106, 102, 255]]):
+            pixel[:] = value
+        image = QImage(rgba.tobytes(), width, height, width * 4, QImage.Format.Format_RGBA8888).copy()
+        curves = [None, [(0, 0), (1, 1)], [(0.5, 0.2)], [(0.3, 0.8), (0.7, 0.2)]]
+        curves.extend(
+            rng.uniform(-0.2, 1.2, (count, 2)).tolist() for count in range(1, 17)
+        )
+        for points in curves:
+            for background in [None, (255, 255, 255), (0, 0, 0), [100, 100, 100], 100, [100]]:
+                actual = color_ops.apply_tone_curve(image, points, background)
+                expected = color_ops.apply_tone_curve_numpy(image, points, background)
+                assert actual.format() == expected.format()
+                assert actual == expected
+                np.testing.assert_array_equal(
+                    imaging.qimage_rgba_array(actual), imaging.qimage_rgba_array(expected)
+                )
+        for background in [[256, 0, 0], [0, 0], [0, 0, 0, 0]]:
+            with pytest.raises((ValueError, OverflowError)) as reference:
+                color_ops.apply_tone_curve_numpy(image, [(0.5, 0.2)], background)
+            with pytest.raises(reference.type, match="^" + re.escape(str(reference.value)) + "$"):
+                color_ops.apply_tone_curve(image, [(0.5, 0.2)], background)
+
+    for image in [None, QImage()]:
+        assert color_ops.apply_tone_curve(image) is image

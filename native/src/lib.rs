@@ -24,6 +24,7 @@ mod palette_labels;
 mod project_payload;
 mod project_zip;
 mod timeline;
+mod tone_curve;
 
 fn check_size(data: &[u8], width: usize, height: usize) -> PyResult<()> {
     if width.checked_mul(height) != Some(data.len()) {
@@ -203,6 +204,9 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
         module
     )?)?;
     module.add_function(wrap_pyfunction!(color_stats::border_background, module)?)?;
+    module.add_function(wrap_pyfunction!(tone_curve::tone_curve_samples, module)?)?;
+    module.add_function(wrap_pyfunction!(tone_curve::tone_curve_lut, module)?)?;
+    module.add_function(wrap_pyfunction!(tone_curve::apply_tone_curve, module)?)?;
     module.add_function(wrap_pyfunction!(
         color_stats::estimate_mixed_boundary_pixels,
         module

@@ -106,7 +106,9 @@ def rgba_array_to_qimage(rgba):
         return QImage()
 
     stride = int(rgba.strides[0])
-    raw = rgba.tobytes(order="C")
+    # Rust などが用意した連続かつ配列と同じ大きさの bytes は共有できる。
+    base = rgba.base
+    raw = base if type(base) is bytes and len(base) == rgba.nbytes else rgba.tobytes(order="C")
     image = QImage(
         raw,
         width,

@@ -193,6 +193,10 @@ def median_cut_palette_from_samples_numpy(
 
 def normalize_tone_curve_points(points):
     """制御点を 0〜1 に収め、並べ替えて端点を固定する。"""
+    return native.normalize_tone_curve_points(_float_tone_curve_points(points))
+
+
+def _float_tone_curve_points(points):
     converted = []
     try:
         iterable = list(points)
@@ -206,7 +210,7 @@ def normalize_tone_curve_points(points):
         except (TypeError, ValueError, IndexError):
             continue
 
-    return native.normalize_tone_curve_points(converted)
+    return converted
 
 
 def normalize_tone_curve_points_numpy(points):
