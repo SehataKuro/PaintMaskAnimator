@@ -116,13 +116,7 @@ fn check_inputs(
     subsamples: usize,
 ) -> PyResult<Vec<u16>> {
     let invalid = |message: &str| pyo3::exceptions::PyValueError::new_err(message.to_string());
-    if source_width
-        .checked_mul(source_height)
-        .map(|total| total * 2)
-        != Some(labels.len())
-    {
-        return Err(invalid("label image size does not match width x height"));
-    }
+    check_label_bytes(labels, source_width, source_height)?;
     if subsamples == 0 || subsamples > 16 {
         return Err(invalid("subsamples must be between 1 and 16"));
     }
@@ -136,10 +130,7 @@ fn check_inputs(
     {
         return Err(invalid("output size is too large"));
     }
-    Ok(labels
-        .chunks_exact(2)
-        .map(|chunk| u16::from_ne_bytes([chunk[0], chunk[1]]))
-        .collect())
+    Ok(decode_labels(labels))
 }
 
 fn threads() -> usize {
@@ -265,6 +256,131 @@ pub fn py_render_mesh_labels<'py>(
         )
     });
     Ok(to_python(py, result))
+}
+
+/// 行優先の u16 ラベルバッファの形を検査する。
+fn check_label_bytes(labels: &[u8], width: usize, height: usize) -> PyResult<()> {
+    if width.checked_mul(height).and_then(|n| n.checked_mul(2)) != Some(labels.len()) {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "ラベルのバイト数が幅×高さ×2と一致しません",
+        ));
+    }
+    Ok(())
+}
+
+/// NumPy と同じネイティブバイト順の u16 に戻す。
+fn decode_labels(labels: &[u8]) -> Vec<u16> {
+    labels
+        .chunks_exact(2)
+        .map(|chunk| u16::from_ne_bytes([chunk[0], chunk[1]]))
+        .collect()
+}
+
+/// 列数、行数、行優先の格子点。
+type ForwardGrid = (usize, usize, Vec<(f64, f64)>);
+
+/// 線保護の命中画素を、番号ごとの疎な行優先添字として返す。
+#[pyfunction(name = "splat_mask_labels")]
+#[allow(clippy::too_many_arguments)]
+pub fn py_splat_mask_labels<'py>(
+    py: Python<'py>,
+    labels: &[u8],
+    source_width: usize,
+    source_height: usize,
+    out_width: usize,
+    out_height: usize,
+    protect_labels: Vec<u16>,
+    matrix: Option<[f64; 9]>,
+    grid: Option<ForwardGrid>,
+) -> PyResult<Vec<Bound<'py, PyBytes>>> {
+    use pma_core::mask_transform::{splat_labels, ForwardMap};
+    use pyo3::exceptions::PyValueError;
+
+    check_label_bytes(labels, source_width, source_height)?;
+    if out_width
+        .checked_mul(out_height)
+        .is_none_or(|n| n > isize::MAX as usize)
+    {
+        return Err(PyValueError::new_err("出力の画像サイズが不正です"));
+    }
+    let mapping = match (matrix, &grid) {
+        (Some(matrix), None) => ForwardMap::Quad(Homography(matrix)),
+        (None, Some((cols, rows, points)))
+            if *cols >= 2 && *rows >= 2 && cols.checked_mul(*rows) == Some(points.len()) =>
+        {
+            ForwardMap::Mesh(Mesh {
+                cols: *cols,
+                rows: *rows,
+                points,
+            })
+        }
+        _ => {
+            return Err(PyValueError::new_err(
+                "前向き写像の行列または格子が不正です",
+            ))
+        }
+    };
+    let hits = py.detach(|| {
+        let values = decode_labels(labels);
+        let image = LabelImage {
+            labels: &values,
+            width: source_width,
+            height: source_height,
+        };
+        Ok::<_, pma_core::Error>(
+            splat_labels(&image, &mapping, out_width, out_height, &protect_labels)?
+                .into_iter()
+                .map(|plane| {
+                    plane
+                        .into_iter()
+                        .flat_map(usize::to_ne_bytes)
+                        .collect::<Vec<u8>>()
+                })
+                .collect::<Vec<_>>(),
+        )
+    });
+    Ok(hits
+        .map_err(|error| PyValueError::new_err(error.to_string()))?
+        .iter()
+        .map(|plane| PyBytes::new(py, plane))
+        .collect())
+}
+
+/// ラベル画像を RGBA に展開し、指定時は白を透明にする。
+#[pyfunction(name = "mask_labels_to_rgba")]
+pub fn py_mask_labels_to_rgba<'py>(
+    py: Python<'py>,
+    labels: &[u8],
+    width: usize,
+    height: usize,
+    palette: &[u8],
+    transparent_white: bool,
+) -> PyResult<Bound<'py, PyBytes>> {
+    use pyo3::exceptions::PyValueError;
+
+    check_label_bytes(labels, width, height)?;
+    if palette.is_empty()
+        || !palette.len().is_multiple_of(4)
+        || labels.len() > isize::MAX as usize / 2
+    {
+        return Err(PyValueError::new_err(
+            "画像または RGBA パレットのサイズが不正です",
+        ));
+    }
+    let rgba = py.detach(|| {
+        let values = decode_labels(labels);
+        pma_core::mask_transform::labels_to_rgba(
+            &LabelImage {
+                labels: &values,
+                width,
+                height,
+            },
+            palette,
+            transparent_white,
+        )
+    });
+    let rgba = rgba.map_err(|error| PyValueError::new_err(error.to_string()))?;
+    Ok(PyBytes::new(py, &rgba))
 }
 
 #[cfg(test)]

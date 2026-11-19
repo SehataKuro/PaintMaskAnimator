@@ -205,6 +205,14 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
         module
     )?)?;
     module.add_function(wrap_pyfunction!(
+        mask_transform::py_splat_mask_labels,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(
+        mask_transform::py_mask_labels_to_rgba,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(
         palette_labels::py_surface_guided_palette_labels,
         module
     )?)?;

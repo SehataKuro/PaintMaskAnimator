@@ -812,12 +812,8 @@ class TransformMaskMixin(CanvasMembers):
         final = max(1, steps[1]) + 1
         if progress_callback is not None:
             progress_callback(final, final, tr("色マスクを再合成しています"))
-        output = mask_transform.labels_to_rgba(labels, label_colors)
-        # v0.7 rule, unchanged: exact #FFFFFF is the transform's transparency.
-        white = (output[:, :, 3] > 0) & np.all(
-            output[:, :, :3] == 255, axis=2
-        )
-        output[white, 3] = 0
+        # v0.7 の規則どおり、完全な白 (#FFFFFF) は透明にする。
+        output = mask_transform.labels_to_rgba_transparent_white(labels, label_colors)
 
         line_soft = []
         for line_color, label in self.transform_tp_line_masks:

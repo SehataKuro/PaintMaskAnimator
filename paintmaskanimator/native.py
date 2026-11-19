@@ -25,7 +25,8 @@ REQUIRED_API = (
     "select_palette_colors", "line_palette_labels", "apply_color_reduction_palette",
     "line_flow_scores", "line_flow_interpolate", "connect_runs", "label_runs", "refine_face", "thin",
     "reference_color_stats", "reference_line_art", "reference_region_stats", "reference_region_under",
-    "render_quad_labels", "render_mesh_labels", "solve_local_shift",
+    "render_quad_labels", "render_mesh_labels", "splat_mask_labels", "mask_labels_to_rgba",
+    "solve_local_shift",
     "surface_guided_palette_labels", "map_known_colors", "region_neighbors",
     "FillSession", "LineCache", "compute_fill_region_once", "fill_target_mask", "extend_line_ends", "flood_fill", "dilate", "erode", "label_regions", "remove_line_noise", "decode_png", "encode_png", "ZipReader", "ZipWriter", "decode_v2_plan",
 )
@@ -530,6 +531,30 @@ def render_mesh_labels(
         label: np.frombuffer(plane, dtype=np.uint8).reshape(out_height, out_width).copy()
         for label, plane in zip(coverage_labels, coverage)
     }
+
+
+def splat_mask_labels(label_image, out_width, out_height, protect_labels, *, matrix=None, grid=None):
+    """保護番号の順に、前向き写像が命中した画素の平坦な添字を返す。"""
+    height, width = label_image.shape
+    if matrix is not None:
+        matrix = matrix.reshape(-1).tolist()
+    if grid is not None:
+        cols, rows, points = grid
+        grid = cols, rows, [tuple(point) for point in points.tolist()]
+    planes = _native.splat_mask_labels(
+        label_image.tobytes(), width, height, out_width, out_height,
+        protect_labels, matrix, grid,
+    )
+    return [np.frombuffer(plane, dtype=np.intp) for plane in planes]
+
+
+def mask_labels_to_rgba(labels, palette, transparent_white):
+    """uint16 のラベル画像と uint8 のパレットを、書き込み可能な RGBA に展開する。"""
+    height, width = labels.shape
+    data = _native.mask_labels_to_rgba(
+        labels.tobytes(), width, height, palette.tobytes(), transparent_white,
+    )
+    return np.frombuffer(data, dtype=np.uint8).reshape(height, width, 4).copy()
 
 
 def surface_guided_palette_labels(rgb, visible, palette, spatial_refinement=True):

@@ -298,3 +298,19 @@ def solve_local_shift(
     fast_size: tuple[int, int], dys: list[int], dxs: list[int], total: float,
     step: int, motion_penalty: float, near_line_weight: float, share_motion: bool,
 ) -> tuple[tuple[int, int], float, float]: ...
+
+
+def splat_mask_labels(
+    labels: bytes,
+    source_width: int,
+    source_height: int,
+    out_width: int,
+    out_height: int,
+    protect_labels: list[int],
+    matrix: list[float] | None,
+    grid: tuple[int, int, list[tuple[float, float]]] | None,
+) -> list[bytes]: ...
+
+def mask_labels_to_rgba(
+    labels: bytes, width: int, height: int, palette: bytes, transparent_white: bool,
+) -> bytes: ...

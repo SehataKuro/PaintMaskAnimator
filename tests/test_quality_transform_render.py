@@ -386,3 +386,24 @@ def test_degenerate_quad_does_not_raise(canvas):
     canvas._invalidate_tp_preview_cache()
     image, _rect = canvas._tp_mask_preview_image(source, SIZE * 2, SIZE * 2)
     assert image is not None
+
+
+def test_final_tp_rgba_matches_numpy_recombination(canvas, monkeypatch):
+    """TP の最終プレビューを、変更前の白透明化と画素単位で比較する。"""
+    from paintmaskanimator import mask_transform
+
+    monkeypatch.setattr(mask_transform, "_SPLAT_NUMPY_MAX_PIXELS", 0)
+    points = rotate(27, scale=0.45)
+    actual, _ = render(canvas, points)
+
+    def numpy_recombination(labels, palette):
+        """従来どおり RGBA 展開後に白の alpha だけを 0 にする。"""
+        output = mask_transform.labels_to_rgba_numpy(labels, palette)
+        white = (output[:, :, 3] > 0) & np.all(output[:, :, :3] == 255, axis=2)
+        output[white, 3] = 0
+        return output
+
+    monkeypatch.setattr(mask_transform, "labels_to_rgba_transparent_white", numpy_recombination)
+    monkeypatch.setattr(mask_transform, "_protect_lines", mask_transform._protect_lines_numpy)
+    expected, _ = render(canvas, points)
+    assert np.array_equal(actual, expected)

@@ -410,6 +410,138 @@ pub fn render_mesh(
     render_in_bands(out_width, out_height, coverage_labels, band_height, render)
 }
 
+/// 線保護に使う前向き写像。Python の各 mapper の `forward` に対応する。
+pub enum ForwardMap<'a> {
+    /// NumPy が逆行列から求めた、元座標から出力座標への行優先 3×3。
+    Quad(Homography),
+    /// 出力座標の格子点を行優先で持つ、各辺2点以上の格子。
+    Mesh(Mesh<'a>),
+}
+
+impl Mesh<'_> {
+    /// 元画素中心を Python の `MeshMapper.forward` と同じ順序で補間する。
+    fn forward(&self, image: &LabelImage, x: f64, y: f64) -> (f64, f64) {
+        let axis = |coordinate: f64, size: usize, points: usize| {
+            let last = (size as f64 - 1.0).max(1e-9);
+            let span = (points - 1) as f64;
+            let grid = (coordinate / last * span).clamp(0.0, span);
+            // clip 後に int64 へ切り捨て、終端では最後のセルを選ぶ。
+            let base = (grid as usize).min(points - 2);
+            (base, grid - base as f64)
+        };
+        let (col, fx) = axis(x, image.width, self.cols);
+        let (row, fy) = axis(y, image.height, self.rows);
+        let i = row * self.cols + col;
+        let a = self.points[i];
+        let b = self.points[i + 1];
+        let c = self.points[i + self.cols];
+        let d = self.points[i + self.cols + 1];
+        // NumPy と同じく各演算を f64 で丸め、左右の和を出してから上下を混ぜる。
+        let interpolate = |a: f64, b: f64, c: f64, d: f64| {
+            let top = a * (1.0 - fx) + b * fx;
+            let bottom = c * (1.0 - fx) + d * fx;
+            top * (1.0 - fy) + bottom * fy
+        };
+        (
+            interpolate(a.0, b.0, c.0, d.0),
+            interpolate(a.1, b.1, c.1, d.1),
+        )
+    }
+}
+
+/// `_splat_label` の真の画素を、保護番号の順に出力の行優先添字で返す。
+/// 入力は幅×高さのラベル画像と前向き写像。添字の重複は同じ画素への命中を表す。
+pub fn splat_labels(
+    image: &LabelImage,
+    mapping: &ForwardMap,
+    out_width: usize,
+    out_height: usize,
+    protect_labels: &[u16],
+) -> Result<Vec<Vec<usize>>, crate::Error> {
+    if image.width.checked_mul(image.height) != Some(image.labels.len())
+        || out_width.checked_mul(out_height).is_none()
+    {
+        return Err(crate::Error::Invalid("ラベル画像のサイズが不正".into()));
+    }
+    if let ForwardMap::Mesh(mesh) = mapping {
+        if mesh.cols < 2
+            || mesh.rows < 2
+            || mesh.cols.checked_mul(mesh.rows) != Some(mesh.points.len())
+        {
+            return Err(crate::Error::Invalid("格子のサイズが不正".into()));
+        }
+    }
+    let mut hits = vec![Vec::new(); protect_labels.len()];
+    let Some(max_label) = protect_labels.iter().copied().max() else {
+        return Ok(hits);
+    };
+    let mut slots = vec![usize::MAX; usize::from(max_label) + 1];
+    for (slot, &label) in protect_labels.iter().enumerate() {
+        slots[usize::from(label)] = slot;
+    }
+    for (index, &label) in image.labels.iter().enumerate() {
+        let Some(&slot) = slots.get(usize::from(label)) else {
+            continue;
+        };
+        if slot == usize::MAX {
+            continue;
+        }
+        let x = (index % image.width) as f64 + 0.5;
+        let y = (index / image.width) as f64 + 0.5;
+        let mapped = match mapping {
+            // QuadMapper.forward と同じ演算順。分母が小さい場合は命中なし。
+            ForwardMap::Quad(matrix) => matrix.map(x, y),
+            ForwardMap::Mesh(mesh) => Some(mesh.forward(image, x, y)),
+        };
+        if let Some((x, y)) = mapped {
+            let (x, y) = (x.floor(), y.floor());
+            // 正の範囲判定で NaN と無限大も落とす。
+            if x >= 0.0 && x < out_width as f64 && y >= 0.0 && y < out_height as f64 {
+                hits[slot].push(y as usize * out_width + x as usize);
+            }
+        }
+    }
+    // 同じ番号が繰り返されたときも、呼び出し側は元の順に書き込む。
+    for (slot, &label) in protect_labels.iter().enumerate() {
+        let last = slots[usize::from(label)];
+        if slot != last {
+            hits[slot] = hits[last].clone();
+        }
+    }
+    Ok(hits)
+}
+
+/// `labels_to_rgba_numpy` と同じ行優先 RGBA8888 を返す。
+/// ラベルは幅×高さ、パレットは4バイトずつで先頭行が背景。上限を超す番号は末尾行へ丸める。
+/// `transparent_white` が真なら canvas と同じく RGB が白の画素の alpha を 0 にする。
+pub fn labels_to_rgba(
+    image: &LabelImage,
+    palette: &[u8],
+    transparent_white: bool,
+) -> Result<Vec<u8>, crate::Error> {
+    if image.width.checked_mul(image.height) != Some(image.labels.len())
+        || image.labels.len().checked_mul(4).is_none()
+        || palette.is_empty()
+        || !palette.len().is_multiple_of(4)
+    {
+        return Err(crate::Error::Invalid(
+            "ラベル画像またはパレットのサイズが不正".into(),
+        ));
+    }
+    let last = palette.len() / 4 - 1;
+    let mut rgba = Vec::with_capacity(image.labels.len() * 4);
+    for &label in image.labels {
+        let start = usize::from(label).min(last) * 4;
+        let color = &palette[start..start + 4];
+        rgba.extend_from_slice(color);
+        if transparent_white && color[..3] == [255; 3] {
+            let alpha = rgba.len() - 1;
+            rgba[alpha] = 0;
+        }
+    }
+    Ok(rgba)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -420,6 +552,81 @@ mod tests {
             width,
             height,
         }
+    }
+
+    #[test]
+    fn splat_keeps_label_order_and_repeated_hits() {
+        let image = image(&[1, 2, 1, 3], 4, 1);
+        let map = ForwardMap::Quad(Homography([0.4, 0.0, -0.3, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]));
+        let hits = splat_labels(&image, &map, 1, 1, &[1, 2, 4, 1, 3]).unwrap();
+        assert_eq!(hits, [vec![0], vec![0], vec![], vec![0], vec![]]);
+    }
+
+    #[test]
+    fn splat_skips_horizon_nan_and_outside_pixels() {
+        let image = image(&[1], 1, 1);
+        for denominator in [0.0, 1e-12, -1e-12, f64::NAN, 1e-11] {
+            let map = ForwardMap::Quad(Homography([
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                denominator,
+            ]));
+            assert!(splat_labels(&image, &map, 1, 1, &[1]).unwrap()[0].is_empty());
+        }
+
+        let points = [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (f64::NAN, 1.0)];
+        let map = ForwardMap::Mesh(Mesh {
+            points: &points,
+            cols: 2,
+            rows: 2,
+        });
+        assert!(splat_labels(&image, &map, 2, 2, &[1]).unwrap()[0].is_empty());
+    }
+
+    #[test]
+    fn splat_handles_empty_images_and_mesh_edges() {
+        let map = ForwardMap::Quad(identity());
+        assert!(splat_labels(&image(&[], 0, 3), &map, 1, 1, &[1]).unwrap()[0].is_empty());
+        assert!(splat_labels(&image(&[1], 1, 1), &map, 0, 1, &[1]).unwrap()[0].is_empty());
+        assert_eq!(
+            splat_labels(&image(&[1], 1, 1), &map, 1, 1, &[1]).unwrap(),
+            [vec![0]]
+        );
+
+        let points = [(0.0, 0.0), (0.9, 0.0), (0.0, 1.9), (0.9, 1.9)];
+        let map = ForwardMap::Mesh(Mesh {
+            points: &points,
+            cols: 2,
+            rows: 2,
+        });
+        assert_eq!(
+            splat_labels(&image(&[1, 2], 1, 2), &map, 1, 2, &[1, 2]).unwrap(),
+            [vec![0], vec![1]]
+        );
+    }
+
+    #[test]
+    fn rgba_clips_labels_and_only_changes_white_alpha() {
+        let palette = [255, 255, 255, 19, 255, 255, 254, 80];
+        let labels = image(&[0, 1, u16::MAX], 3, 1);
+        assert_eq!(
+            labels_to_rgba(&labels, &palette, false).unwrap(),
+            [255, 255, 255, 19, 255, 255, 254, 80, 255, 255, 254, 80]
+        );
+        assert_eq!(
+            labels_to_rgba(&labels, &palette, true).unwrap(),
+            [255, 255, 255, 0, 255, 255, 254, 80, 255, 255, 254, 80]
+        );
+        assert!(labels_to_rgba(&image(&[], 0, 0), &palette, true)
+            .unwrap()
+            .is_empty());
+        assert!(labels_to_rgba(&labels, &[], false).is_err());
     }
 
     /// 恒等変換。probe は画素の中に並ぶので、そのまま写る。
