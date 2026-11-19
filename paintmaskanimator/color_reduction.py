@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from . import color_reduction_preview as preview_ops
 from .i18n import tr
 from .canvas import PaintCanvas
 from .errors import OperationError
@@ -550,29 +551,7 @@ class ColorReductionDialog(QDialog):
 
     def tone_curve_points_key(self):
         """複数点トーンカーブを安定したハッシュ可能キーへ変換する。"""
-        normalized = []
-        for point in self.tone_curve_points():
-            try:
-                x, y = point[:2]
-                normalized.append(
-                    (
-                        round(float(x), 5),
-                        round(float(y), 5),
-                    )
-                )
-            except (
-                TypeError,
-                ValueError,
-                IndexError,
-            ):
-                continue
-
-        if not normalized:
-            normalized = [
-                (0.0, 0.0),
-                (1.0, 1.0),
-            ]
-        return tuple(normalized)
+        return preview_ops.tone_curve_points_key(self.tone_curve_points())
 
     def _tone_curve_changed(self, points):
         point_count = max(0, len(points) - 2)
@@ -626,26 +605,8 @@ class ColorReductionDialog(QDialog):
                 self.source_image
             )
         )
-        if self.background_rgb is None:
-            self._tone_preview_background_mask = None
-            return
-
-        background = np.asarray(
-            self.background_rgb,
-            dtype=np.int16,
-        )
-        difference = (
-            self._tone_preview_source_rgba[:, :, :3]
-            .astype(np.int16)
-            - background
-        )
-        self._tone_preview_background_mask = (
-            np.sum(
-                difference.astype(np.int32)
-                * difference.astype(np.int32),
-                axis=2,
-            )
-            <= (5 * 5 * 3)
+        self._tone_preview_background_mask = preview_ops.tone_preview_background_mask(
+            self._tone_preview_source_rgba, self.background_rgb
         )
 
     def _show_tone_curve_live_preview(self, force=False):
@@ -661,21 +622,9 @@ class ColorReductionDialog(QDialog):
             lut = PaintCanvas.tone_curve_lut(
                 self.tone_curve_points()
             )
-            result = source_rgba.copy()
-            result[:, :, :3] = lut[
-                result[:, :, :3]
-            ]
-
-            if (
-                self._tone_preview_background_mask is not None
-                and self.background_rgb is not None
-            ):
-                result[:, :, :3][
-                    self._tone_preview_background_mask
-                ] = np.asarray(
-                    self.background_rgb,
-                    dtype=np.uint8,
-                )
+            result = preview_ops.apply_tone_preview_lut(
+                source_rgba, lut, self._tone_preview_background_mask, self.background_rgb
+            )
 
             preview = PaintCanvas._rgba_array_to_qimage(
                 result
@@ -1008,32 +957,16 @@ class ColorReductionDialog(QDialog):
         target = int(self.color_count.value())
         alpha_threshold = self.alpha_threshold_255()
         tone_points = self.tone_curve_points()
-        try:
-            tone_key = self.tone_curve_points_key()
-        except (TypeError, ValueError, IndexError, AttributeError) as exc:
-            log.debug("tone_curve_points_key() failed, using identity: %s", exc)
-            tone_points = [
-                (0.0, 0.0),
-                (1.0, 1.0),
-            ]
-            tone_key = tuple(tone_points)
-
-        extraction_mode = (
-            "line"
-            if self.extraction_mode.currentData() == "line"
-            else "surface"
+        tone_points, tone_key = preview_ops.resolve_tone_preview_points(
+            tone_points, lambda: self.tone_curve_points_key(), log
         )
-        cache_key = (extraction_mode, target, tone_key)
-        processing_opaque_background = (
-            True
-            if extraction_mode == "line"
-            else self.opaque_background
+        cache_key, processing_opaque_background, processing_background_rgb = (
+            preview_ops.resolve_color_preview_settings(
+                self.extraction_mode.currentData(), target, tone_key,
+                self.opaque_background, self.background_rgb,
+            )
         )
-        processing_background_rgb = (
-            (255, 255, 255)
-            if extraction_mode == "line"
-            else self.background_rgb
-        )
+        extraction_mode = cache_key[0]
         needs_color_processing = (
             cache_key not in self._base_palette_cache
         )
@@ -1051,18 +984,9 @@ class ColorReductionDialog(QDialog):
             Qt.CursorShape.WaitCursor
         )
         try:
-            tone_adjusted_source = PaintCanvas.apply_tone_curve(
-                self.source_image,
-                tone_curve_points=tone_points,
-                background_rgb=processing_background_rgb,
+            tone_adjusted_source = preview_ops.prepare_color_preview_source(
+                self.source_image, tone_points, processing_background_rgb
             )
-            if (
-                tone_adjusted_source is None
-                or tone_adjusted_source.isNull()
-            ):
-                raise OperationError(
-                    tr("トーンカーブ適用後の画像を生成できませんでした。")
-                )
             self._tone_adjusted_preview_image = (
                 tone_adjusted_source.copy()
             )
@@ -1082,54 +1006,12 @@ class ColorReductionDialog(QDialog):
                     1,
                     tr("近い色相をまとめて代表色を作成しています"),
                 )
-                base_palette = (
-                    PaintCanvas.build_color_reduction_palette(
-                        tone_adjusted_source,
-                        target,
-                        alpha_threshold=alpha_threshold,
-                        max_samples=131072,
-                        opaque_background=processing_opaque_background,
-                        background_rgb=processing_background_rgb,
-                        extraction_mode=extraction_mode,
-                        # 代表フレームにも同じトーンカーブをかけて手本にする。
-                        extra_images=[
-                            PaintCanvas.apply_tone_curve(
-                                reference,
-                                tone_curve_points=tone_points,
-                                background_rgb=processing_background_rgb,
-                            )
-                            for reference in self.reference_images
-                        ],
-                    )
+                base_palette, base_reduced = preview_ops.reduce_color_preview(
+                    tone_adjusted_source, self.reference_images, target, alpha_threshold,
+                    tone_points, extraction_mode, processing_opaque_background,
+                    processing_background_rgb,
+                    lambda value, label: self._update_color_progress(progress, value, label),
                 )
-
-                self._update_color_progress(
-                    progress,
-                    2,
-                    (
-                        tr("線のアンチエイリアスを線色と白背景へ分けています")
-                        if extraction_mode == "line"
-                        else tr("色面の境界を2色へ分けています")
-                    ),
-                )
-                base_reduced = (
-                    PaintCanvas.apply_color_reduction_palette(
-                        tone_adjusted_source,
-                        base_palette,
-                        alpha_threshold=alpha_threshold,
-                        opaque_background=processing_opaque_background,
-                        background_rgb=processing_background_rgb,
-                        tone_curve_points=[
-                            (0.0, 0.0),
-                            (1.0, 1.0),
-                        ],
-                        extraction_mode=extraction_mode,
-                    )
-                )
-                if base_reduced is None or base_reduced.isNull():
-                    raise OperationError(
-                        tr("2値化画像を生成できませんでした。")
-                    )
 
                 self._base_palette_cache[cache_key] = (
                     np.asarray(
