@@ -2,7 +2,7 @@
 use crate::{regions::dilate, Error};
 use std::collections::HashMap;
 
-mod fft;
+pub(crate) mod fft;
 mod fill_region;
 pub use fill_region::{
     guess_target_categories, track_fill_region, TrackInput, TrackMatch, TrackOutcome,

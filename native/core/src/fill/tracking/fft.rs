@@ -125,29 +125,37 @@ impl Transform {
     }
 
     fn forward(&mut self, mut runs: &[Run], columns: &mut [Complex64]) -> Result<(), Error> {
+        self.forward_rows(columns, runs.last().map_or(0, |r| r.y + 1), |y, row| {
+            let end = runs.partition_point(|r| r.y <= y);
+            for r in &runs[..end] {
+                row[r.x..r.end].fill(1.0);
+            }
+            runs = &runs[end..];
+            end != 0
+        })
+    }
+
+    fn forward_rows(
+        &mut self,
+        columns: &mut [Complex64],
+        active_rows: usize,
+        mut fill: impl FnMut(usize, &mut [f64]) -> bool,
+    ) -> Result<(), Error> {
         let Size { w, h } = self.size;
         let bins = w / 2 + 1;
         columns.fill(Complex64::default());
-        for start in (0..h).step_by(Self::BLOCK_ROWS) {
-            if runs.is_empty() {
-                break;
-            }
-            let rows = (h - start).min(Self::BLOCK_ROWS);
+        for start in (0..active_rows).step_by(Self::BLOCK_ROWS) {
+            let rows = (active_rows - start).min(Self::BLOCK_ROWS);
             for y in 0..rows {
                 let row = &mut self.block[y * bins..][..bins];
-                let end = runs.partition_point(|r| r.y <= start + y);
-                if end == 0 {
-                    row.fill(Complex64::default());
-                    continue;
-                }
                 self.horizontal.fill(0.0);
-                for r in &runs[..end] {
-                    self.horizontal[r.x..r.end].fill(1.0);
+                if fill(start + y, &mut self.horizontal) {
+                    self.forward
+                        .process_with_scratch(&mut self.horizontal, row, &mut self.scratch)
+                        .map_err(|_| invalid())?;
+                } else {
+                    row.fill(Complex64::default());
                 }
-                runs = &runs[end..];
-                self.forward
-                    .process_with_scratch(&mut self.horizontal, row, &mut self.scratch)
-                    .map_err(|_| invalid())?;
             }
             for (x, column) in columns.chunks_exact_mut(h).enumerate() {
                 for (y, value) in column[start..start + rows].iter_mut().enumerate() {
@@ -159,6 +167,17 @@ impl Transform {
             self.vertical.transform(column, false)?;
         }
         Ok(())
+    }
+
+    fn inverse_row(&mut self) -> Result<(), Error> {
+        // 端の周波数の虚部は理論上ゼロ。数値誤差を取り除く。
+        self.row[0].im = 0.0;
+        if self.size.w.is_multiple_of(2) {
+            self.row[self.size.w / 2].im = 0.0;
+        }
+        self.inverse
+            .process_with_scratch(&mut self.row, &mut self.horizontal, &mut self.scratch)
+            .map_err(|_| invalid())
     }
 
     fn inverse(
@@ -198,18 +217,7 @@ impl Transform {
                 }
                 for y in 0..rows {
                     self.row.copy_from_slice(&self.block[y * bins..][..bins]);
-                    // 端の周波数の虚部は理論上ゼロ。数値誤差を取り除く。
-                    self.row[0].im = 0.0;
-                    if w.is_multiple_of(2) {
-                        self.row[bins - 1].im = 0.0;
-                    }
-                    self.inverse
-                        .process_with_scratch(
-                            &mut self.row,
-                            &mut self.horizontal,
-                            &mut self.scratch,
-                        )
-                        .map_err(|_| invalid())?;
+                    self.inverse_row()?;
                     let row = &mut values[(start + y) * output.w..][..output.w];
                     for range in &x_ranges {
                         let src = if range.start == 0 {
@@ -268,4 +276,60 @@ pub(super) fn correlate<'a>(
     }
     drop(target);
     plan.inverse(&mut sum, output, before, after, reach)
+}
+
+// 二値窓の相関を、呼び出し元が指定した周期と行・列の順で取り出す。
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+pub(crate) fn circular_counts(
+    before: &[u8],
+    exact: &[u8],
+    wide: &[u8],
+    shape: (usize, usize),
+    period: (usize, usize),
+    ys: &[usize],
+    xs: &[usize],
+    radix: u64,
+) -> Result<(Vec<(usize, usize)>, f64), Error> {
+    let (height, width) = shape;
+    let (h, w) = period;
+    let mut plan = Transform::new(Size { w, h });
+    let bins = w / 2 + 1;
+    let mut template = zeros(bins * h)?;
+    let mut guide = zeros(bins * h)?;
+    plan.forward_rows(&mut template, height, |y, row| {
+        for (value, &pixel) in row.iter_mut().zip(&before[y * width..][..width]) {
+            *value = f64::from(pixel);
+        }
+        true
+    })?;
+    plan.forward_rows(&mut guide, height, |y, row| {
+        for (x, value) in row[..width].iter_mut().enumerate() {
+            let i = y * width + x;
+            *value = (u64::from(wide[i]) * radix + u64::from(exact[i])) as f64;
+        }
+        true
+    })?;
+    for (b, a) in guide.iter_mut().zip(template) {
+        *b *= a.conj();
+    }
+    for column in guide.chunks_exact_mut(h) {
+        plan.vertical.transform(column, true)?;
+    }
+    let mut values = zeros(ys.len() * xs.len())?;
+    let mut max_error = 0.0_f64;
+    let scale = 1.0 / (w * h) as f64;
+    for (&y, output) in ys.iter().zip(values.chunks_exact_mut(xs.len())) {
+        for (value, column) in plan.row.iter_mut().zip(guide.chunks_exact(h)) {
+            *value = column[y];
+        }
+        plan.inverse_row()?;
+        for (&x, value) in xs.iter().zip(output) {
+            let raw = plan.horizontal[x] * scale;
+            let rounded = raw.round();
+            max_error = max_error.max((raw - rounded).abs());
+            let packed = rounded as u64;
+            *value = ((packed % radix) as usize, (packed / radix) as usize);
+        }
+    }
+    Ok((values, max_error))
 }

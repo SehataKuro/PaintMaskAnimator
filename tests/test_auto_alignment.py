@@ -409,6 +409,8 @@ def test_exact_shift_ties_follow_window_order():
     assert shift == (0, 4)
     assert share == 1.0
     assert shift.gap == 0.0
+    expected, expected_share = auto_paint._solve_local_shift_numpy(problem)
+    assert (shift, share, shift.gap) == (expected, expected_share, expected.gap)
 
 
 def test_packed_shift_counts_near_maximum_window(monkeypatch):
@@ -445,3 +447,59 @@ def test_packed_shift_counts_near_maximum_window(monkeypatch):
                 valid = (y >= 0) & (y < size) & (x >= 0) & (x < size)
                 expected[row, col] = np.count_nonzero(mask[y[valid], x[valid]])
         np.testing.assert_array_equal(actual, expected)
+
+
+def test_native_local_shift_matches_numpy(monkeypatch):
+    calls = 0
+    solve = auto_paint.native.solve_local_shift
+
+    def track_native(*args):
+        nonlocal calls
+        calls += 1
+        return solve(*args)
+
+    monkeypatch.setattr(auto_paint.native, 'solve_local_shift', track_native)
+    rng = np.random.default_rng(611)
+    for index in range(60):
+        height, width = (int(n) for n in rng.integers(3, 95, size=2))
+        boundary = rng.random((height, width)) < (index % 4 + 1) / 5
+        exact = rng.random((height, width)) < 0.25
+        boundary[0, 0] = exact[-1, -1] = True
+        wide = auto_paint.bucket_fill.dilate(exact, 1)
+        target = SimpleNamespace(values=boundary, boundary=boundary)
+        guide = SimpleNamespace(boundary=exact, wide_boundary=wide)
+        monkeypatch.setattr(auto_paint, '_MAX_WINDOW', (24, 42, 66, 100)[index % 4])
+        problem = auto_paint._prepare_local_shift(
+            target, guide, (0, 0, width, height), margin=index % 27, lazy=True)
+        assert problem is not None and 'boundaries' not in problem
+        for share_motion in (False, True):
+            problem['share_motion'] = share_motion
+            actual = auto_paint._solve_local_shift(problem)
+            expected = auto_paint._solve_local_shift_numpy(problem)
+            assert actual == expected
+            if share_motion:
+                assert actual[0].gap == expected[0].gap
+        assert 'after' not in problem
+    assert calls == 120
+
+
+def test_local_shift_numpy_fallback(monkeypatch):
+    before = np.array([[0.5, 0, 1]], dtype=np.float32)
+    exact = np.array([[True, False, True]])
+    problem = dict(before=before, boundaries=(exact, exact), total=1.5,
+                   size=(1, 3), dys=np.array([0]), dxs=np.array([0, 1]),
+                   step=1, share_motion=True)
+
+    def unexpected_native(*args):
+        pytest.fail("nonbinary or unavailable backend must use NumPy")
+
+    monkeypatch.setattr(auto_paint.native, 'solve_local_shift', unexpected_native)
+    for binary in (False, True):
+        if binary:
+            monkeypatch.setattr(auto_paint.native, 'available', lambda: False)
+            before[0, 0] = 1
+            problem['total'] = 2.0
+        actual = auto_paint._solve_local_shift(problem)
+        expected = auto_paint._solve_local_shift_numpy(problem)
+        assert actual == expected
+        assert actual[0].gap == expected[0].gap

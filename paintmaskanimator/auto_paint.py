@@ -38,7 +38,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, cast, o
 
 import numpy as np
 
-from . import bucket_fill, fill_tracking, line_flow, reference_check
+from . import bucket_fill, fill_tracking, line_flow, native, reference_check
 
 Rgb = Tuple[int, int, int]
 Bounds = Tuple[int, int, int, int]
@@ -575,9 +575,12 @@ def _prepare_local_shift(target, guide, bounds, context=CONTEXT, margin=SEARCH_M
     wx0, wy0 = max(0, tx0 - margin), max(0, ty0 - margin)
     wx1, wy1 = min(width, tx1 + margin), min(height, ty1 + margin)
     step = max(1, int(np.ceil(max(wx1 - wx0, wy1 - wy0) / _MAX_WINDOW)))
-    before = np.zeros((wy1 - wy0, wx1 - wx0), dtype=np.float32)
-    before[ty0 - wy0:ty1 - wy0, tx0 - wx0:tx1 - wx0] = target.boundary[ty0:ty1, tx0:tx1]
-    before = before[::step, ::step]
+    target_boundary = target.boundary
+    binary = target_boundary.dtype == np.bool_
+    boundary = np.zeros((wy1 - wy0, wx1 - wx0), dtype=np.bool_ if binary else np.float32)
+    boundary[ty0 - wy0:ty1 - wy0, tx0 - wx0:tx1 - wx0] = target_boundary[ty0:ty1, tx0:tx1]
+    boundary = boundary[::step, ::step]
+    before = boundary.astype(np.float32) if binary else boundary
     # ぴったり重なる線は1、1画素ずれて重なる線は ``NEAR_LINE_WEIGHT`` に数える。
     total = float(before.sum())
     if total == 0 or not guide.wide_boundary[wy0:wy1:step, wx0:wx1:step].any():
@@ -588,7 +591,8 @@ def _prepare_local_shift(target, guide, bounds, context=CONTEXT, margin=SEARCH_M
     xs = np.r_[0:limit + 1, size[1] - limit:size[1]]
     dys = np.where(ys >= size[0] // 2, ys - size[0], ys)
     dxs = np.where(xs >= size[1] // 2, xs - size[1], xs)
-    problem = _ShiftProblem(before=before, size=size, total=total, step=step,
+    problem = _ShiftProblem(before=before, before_bytes=boundary.tobytes() if binary else None,
+                size=size, total=total, step=step,
                 limit=limit, ys=ys, xs=xs, dys=dys, dxs=dxs,
                 device_spec=(target, guide, wx0, wy0, tx0, ty0, tx1, ty1))
     if not lazy:
@@ -672,6 +676,33 @@ def _finish_local_shift(problem, window):
 
 
 def _solve_local_shift(problem):
+    if not native.available():
+        return _solve_local_shift_numpy(problem)
+    before = problem['before']
+    exact, wide = problem['boundaries']
+    before_bytes = problem.get('before_bytes')
+    if before_bytes is None:
+        if not np.all((before == 0) | (before == 1)):
+            return _solve_local_shift_numpy(problem)
+        before_bytes = before.astype(np.uint8).tobytes()
+    if exact.dtype != np.bool_ or wide.dtype != np.bool_:
+        if not (np.all((exact == 0) | (exact == 1)) and np.all((wide == 0) | (wide == 1))):
+            return _solve_local_shift_numpy(problem)
+        exact, wide = exact.astype(np.uint8), wide.astype(np.uint8)
+    height, width = before.shape
+    size = problem.get('size') or _correlation_size(before, problem['limit'])
+    share_motion = problem.get('share_motion', False)
+    shift, overlap, gap = native.solve_local_shift(
+        before_bytes, exact.tobytes(), wide.tobytes(), width, height, size,
+        problem['dys'].tolist(), problem['dxs'].tolist(), problem['total'],
+        problem['step'], MOTION_PENALTY, NEAR_LINE_WEIGHT, share_motion)
+    if share_motion:
+        from .auto_motion import LocalShift
+        shift = LocalShift(*shift, gap)
+    return shift, overlap
+
+
+def _solve_local_shift_numpy(problem):
     window = _local_shift_window(problem)
     shift, overlap = _finish_local_shift(problem, window)
     if not problem.get('share_motion', False):

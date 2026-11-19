@@ -24,7 +24,7 @@ REQUIRED_API = (
     "palette_color_counts", "hue_cluster_palette", "palette_training_samples",
     "select_palette_colors", "line_palette_labels", "apply_color_reduction_palette",
     "line_flow_scores", "connect_runs", "label_runs", "refine_face", "thin",
-    "render_quad_labels", "render_mesh_labels",
+    "render_quad_labels", "render_mesh_labels", "solve_local_shift",
     "surface_guided_palette_labels", "map_known_colors", "region_neighbors",
     "FillSession", "LineCache", "compute_fill_region_once", "fill_target_mask", "extend_line_ends", "flood_fill", "dilate", "erode", "label_regions", "remove_line_noise", "decode_png", "encode_png", "ZipReader", "ZipWriter", "decode_v2_plan",
 )
@@ -814,3 +814,11 @@ def apply_color_reduction_palette(rgba, palette, threshold, opaque, background, 
         _rgba_bytes(rgba), width, height, _rgba_bytes(palette), threshold, opaque, background, points, line,
     )
     return np.ndarray(rgba.shape, dtype=np.uint8, buffer=data)
+
+def solve_local_shift(before: bytes, exact: bytes, wide: bytes, width: int, height: int,
+                      fast_size: tuple[int, int], dys: list[int], dxs: list[int],
+                      total: float, step: int, motion_penalty: float, near_line_weight: float,
+                      share_motion: bool) -> tuple[tuple[int, int], float, float]:
+    return _native.solve_local_shift(
+        before, exact, wide, width, height, fast_size, dys, dxs, total, step,
+        motion_penalty, near_line_weight, share_motion)

@@ -8,6 +8,7 @@ pub mod error;
 pub mod fill;
 pub mod line_flow;
 pub mod line_noise;
+pub mod local_shift;
 pub mod map_colors;
 pub mod mask_transform;
 pub mod palette;
