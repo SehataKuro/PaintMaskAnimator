@@ -61,7 +61,7 @@ def certify(problem, hint):
     from . import auto_paint as ap
     if hint is None:
         return None
-    before, after = problem['before'], problem['after']
+    before = problem['before']
     step, total = problem['step'], problem['total']
     if not hint or total < 4 or not np.all((before == 0) | (before == 1)):
         return None
@@ -71,19 +71,25 @@ def certify(problem, hint):
     if dy not in dys or dx not in dxs:
         return None
     rows, cols = problem['size']
+    exact, wide = problem['boundaries']
+    height, width = exact.shape
+    max_overlap = float(ap._weighted_overlap(int(exact.any()), int(wide.any())))
 
     def overlaps(shifts):
         shifts = np.asarray(shifts, dtype=np.int64)
         y = (ys[None] + shifts[:, 0, None]) % rows
         x = (xs[None] + shifts[:, 1, None]) % cols
-        valid = (y < after.shape[0]) & (x < after.shape[1])
-        values = after[np.minimum(y, after.shape[0] - 1), np.minimum(x, after.shape[1] - 1)]
-        return np.where(valid, values, 0).sum(axis=1, dtype=np.float64) / total
+        valid = (y < height) & (x < width)
+        np.minimum(y, height - 1, out=y)
+        np.minimum(x, width - 1, out=x)
+        exact_count = np.count_nonzero(valid & exact[y, x], axis=1)
+        wide_count = np.count_nonzero(valid & wide[y, x], axis=1)
+        return ap._weighted_overlap(exact_count, wide_count) / total
 
     penalty = ap.MOTION_PENALTY * step
     score = float(overlaps([(dy, dx)])[0]) - penalty * (abs(dy) + abs(dx))
     # 大きな証明表が必要なら、従来のFFTを使う方が速い。
-    radius = int(np.floor((float(after.max()) - score + 2e-5) / penalty))
+    radius = int(np.floor((max_overlap - score + 2e-5) / penalty))
     if radius < 0 or radius > 8:
         return None
     shifts = [(int(y), int(x)) for y in dys for x in dxs if abs(y) + abs(x) <= radius]
@@ -93,8 +99,9 @@ def certify(problem, hint):
     scores = near - penalty * np.array([abs(y) + abs(x) for y, x in shifts])
     best = int(np.argmax(scores))
     runner = np.partition(scores, -2)[-2] if len(scores) > 1 else -np.inf
-    unseen = float(after.max()) - penalty * (radius + 1)
-    if scores[best] - max(runner, unseen) <= 2e-5:
+    unseen = max_overlap - penalty * (radius + 1) if len(shifts) < len(dys) * len(dxs) else -np.inf
+    if scores[best] - max(runner, unseen) <= 2e-5 or runner < unseen:
         return None
+    # gap も全探索と一致させるため、未検査候補が次点を超えない場合だけ返す。
     return LocalShift(shifts[best][0] * step, shifts[best][1] * step,
-                      scores[best] - max(runner, unseen)), float(near[best])
+                      scores[best] - runner), float(near[best])

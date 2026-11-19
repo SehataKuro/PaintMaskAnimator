@@ -545,22 +545,25 @@ def _local_shift(target: _Cell, guide: _Cell, bounds, context=CONTEXT, margin=SE
     小さな部分は自分の縁だけでは場所を決めにくいので、まわりの線もいっしょに
     重ねる。線が一番多く重なるずれ ``(dy, dx)`` と、重なった割合を返す。
     """
-    problem = _prepare_local_shift(target, guide, bounds, context, margin)
+    problem = _prepare_local_shift(target, guide, bounds, context, margin, lazy=True)
     return ((0, 0), 0.0) if problem is None else _solve_local_shift(problem)
 
 
 class _ShiftProblem(dict):
-    """GPUで作る見本の窓は、CPUへ戻す必要が生じたときだけ構築する。"""
+    """CPU用の境界窓とGPU用の重み付き窓は、それぞれ必要になってから作る。"""
 
     def __getitem__(self, key):
-        if key == 'after' and key not in self:
+        if key in ('boundaries', 'after') and key not in self:
             _target, guide, wx0, wy0, *_crop = dict.__getitem__(self, 'device_spec')
             step = dict.__getitem__(self, 'step')
             height, width = dict.__getitem__(self, 'before').shape
             roi = np.s_[wy0:wy0+height*step:step, wx0:wx0+width*step:step]
-            exact = guide.boundary[roi].astype(np.float32)
-            near = guide.wide_boundary[roi].astype(np.float32)
-            self[key] = exact * (1.0 - NEAR_LINE_WEIGHT) + near * NEAR_LINE_WEIGHT
+            if key == 'boundaries':
+                self[key] = guide.boundary[roi], guide.wide_boundary[roi]
+            else:
+                exact = guide.boundary[roi].astype(np.float32)
+                near = guide.wide_boundary[roi].astype(np.float32)
+                self[key] = exact * (1.0 - NEAR_LINE_WEIGHT) + near * NEAR_LINE_WEIGHT
         return super().__getitem__(key)
 
 
@@ -607,13 +610,40 @@ def _fft_size(length):
         candidate += 1
 
 
+def _weighted_overlap(exact, wide):
+    return exact * (1.0 - NEAR_LINE_WEIGHT) + wide * NEAR_LINE_WEIGHT
+
+
 def _local_shift_window(problem):
-    before, after = problem["before"], problem["after"]
+    """Rust版と同じ評価になるよう、二値境界の重なりを整数で数える。"""
+    before = problem["before"]
     fast_size = problem.get("size") or _correlation_size(before, problem["limit"])
-    correlation = np.fft.irfft2(
-        np.fft.rfft2(after, fast_size) * np.conj(np.fft.rfft2(before, fast_size)), fast_size
-    )
-    return correlation[np.ix_(problem["dys"] % fast_size[0], problem["dxs"] % fast_size[1])]
+    exact, wide = problem["boundaries"]
+    # C_exact は total 以下。桁上がりしない基数で二つの件数を一度に相関する。
+    # 通常は間引き後384²画素以下、既定の探索幅でFFTは432²以下。
+    # 相関のスケール N*(radix+1) に float64 の eps と余裕係数1024を
+    # 掛けても約0.006。長い探索幅などでこの見積もりが0.5に近づく前に
+    # 二つの二値相関へ切り替え、丸め前の値のスケールを下げる。
+    radix = int(problem["total"]) + 1
+    rows, cols = fast_size
+    indices = np.ix_(problem["dys"] % rows, problem["dxs"] % cols)
+    spectrum = np.fft.rfft2(before.astype(np.float64), fast_size)
+    np.conj(spectrum, out=spectrum)
+
+    def rounded_counts(guide):
+        transformed = np.fft.rfft2(guide, fast_size)
+        transformed *= spectrum
+        window = np.fft.irfft2(transformed, fast_size)[indices]
+        return np.rint(window, out=window)
+
+    if rows * cols * (radix + 1) * (1024 * np.finfo(np.float64).eps) >= 0.25:
+        return _weighted_overlap(rounded_counts(exact.astype(np.float64)),
+                                 rounded_counts(wide.astype(np.float64)))
+    packed = wide.astype(np.float64)
+    packed *= radix
+    packed += exact
+    wide_count, exact_count = np.divmod(rounded_counts(packed), radix)
+    return _weighted_overlap(exact_count, wide_count)
 
 
 def _correlation_size(before, limit):
@@ -629,6 +659,7 @@ def _correlation_size(before, limit):
 
 
 def _finish_local_shift(problem, window):
+    """同点では探索窓の行優先で最初（dys、次にdxsの格納順）を選ぶ。"""
     total, step = problem["total"], problem["step"]
     dys, dxs = problem["dys"], problem["dxs"]
     near = window / total

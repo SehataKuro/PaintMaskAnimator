@@ -4,28 +4,32 @@ import pytest
 from paintmaskanimator import auto_alignment, auto_motion, auto_paint, bucket_fill, line_flow
 
 
-def problem(dy, dx, seed=14):
+def problem(dy, dx, seed=14, *, nearby_runner=False):
     rng = np.random.default_rng(seed)
     before = np.zeros((56, 72), dtype=np.float32)
     before[18:35, 20:50] = rng.random((17, 30)) < 0.12
-    exact = np.roll(before, (dy, dx), (0, 1))
-    after = exact * (1 - auto_paint.NEAR_LINE_WEIGHT) + bucket_fill.dilate(
-        exact.astype(bool), 1).astype(np.float32) * auto_paint.NEAR_LINE_WEIGHT
+    exact = np.roll(before.astype(bool), (dy, dx), (0, 1))
+    if nearby_runner:
+        exact |= np.roll(exact, 1 if dx > 0 else -1, axis=1)
+    wide = bucket_fill.dilate(exact, 1)
     size = auto_paint._correlation_size(before, 8)
     shifts = np.r_[0:9, -8:0]
-    return dict(before=before, after=after, total=float(before.sum()), step=1,
-                size=size, limit=8, dys=shifts, dxs=shifts)
+    return dict(before=before, boundaries=(exact, wide), total=float(before.sum()), step=1,
+                size=size, limit=8, dys=shifts, dxs=shifts, share_motion=True)
 
 
 @pytest.mark.parametrize('shift', [(0, 0), (1, -1), (3, -2), (-2, 3)])
 def test_certified_motion_matches_full_fft(shift):
     for seed in range(8):
-        candidate = problem(*shift, seed)
-        actual = auto_motion.certify(candidate, shift)
+        candidate = problem(*shift, seed, nearby_runner=True)
+        dy, dx = shift
+        hint = (dy, dx + (1 if dx > 0 else -1))
+        actual = auto_motion.certify(candidate, hint)
         expected = auto_paint._solve_local_shift(candidate)
         assert actual is not None
         assert actual[0] == expected[0]
-        assert actual[1] == pytest.approx(expected[1], abs=2e-6)
+        assert actual[0].gap == expected[0].gap
+        assert actual[1] == expected[1]
 
 
 def test_incorrect_hint_or_tied_motion_cannot_skip_full_search():
@@ -33,10 +37,18 @@ def test_incorrect_hint_or_tied_motion_cannot_skip_full_search():
     assert auto_motion.certify(candidate, (-8, 8)) is None
     candidate['before'][:] = 0
     candidate['before'][25, 35] = 1
-    candidate['after'][:] = 0
-    candidate['after'][25, [33, 37]] = 1
+    exact, wide = candidate['boundaries']
+    exact[:] = False
+    exact[25, [33, 37]] = True
+    wide[:] = bucket_fill.dilate(exact, 1)
     candidate['total'] = 1.0
     assert auto_motion.certify(candidate, (0, 2)) is None
+
+
+def test_uncertain_runner_up_cannot_skip_full_search():
+    candidate = problem(0, 0)
+    assert auto_paint._solve_local_shift(candidate)[0] == (0, 0)
+    assert auto_motion.certify(candidate, (0, 0)) is None
 
 
 def test_shared_field_reuses_motion_but_is_bounded():

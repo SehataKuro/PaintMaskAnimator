@@ -245,7 +245,7 @@ class AlignmentCache:
         def solve(item):
             key, request = item
             target, guide, bounds, margin = request
-            problem = ap._prepare_local_shift(target, guide, bounds, margin=margin)
+            problem = ap._prepare_local_shift(target, guide, bounds, margin=margin, lazy=True)
             if problem is None:
                 return ((0, 0), 0.0), False
             problem['share_motion'] = self._support_enabled
@@ -372,7 +372,7 @@ class AlignmentCache:
                     key = self.key(target, geometry, bounds, margin)
                     if key in self.results or key in pending:
                         continue
-                    problem = ap._prepare_local_shift(target, geometry, bounds, margin=margin)
+                    problem = ap._prepare_local_shift(target, geometry, bounds, margin=margin, lazy=True)
                     if problem is None:
                         self.results[key] = ((0, 0), 0.0)
                     else:
