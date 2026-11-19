@@ -75,7 +75,7 @@ pub fn unique_colors(pixels: &[u8], limit: usize) -> Result<Vec<u32>, Error> {
 }
 
 #[inline]
-fn channel_difference(left: [u8; 3], right: [u8; 3]) -> u8 {
+fn channel_difference<const N: usize>(left: [u8; N], right: [u8; N]) -> u8 {
     left[0]
         .abs_diff(right[0])
         .max(left[1].abs_diff(right[1]))
@@ -94,7 +94,10 @@ pub fn local_color_variation(rgb: &[u8], width: usize, height: usize) -> Result<
 }
 
 // 画素数が行幅の倍数であることは呼び出し側で確認する。
-pub(crate) fn local_color_variation_rgb(pixels: &[[u8; 3]], width: usize) -> Vec<u8> {
+pub(crate) fn local_color_variation_rgb<const N: usize>(
+    pixels: &[[u8; N]],
+    width: usize,
+) -> Vec<u8> {
     let mut variation = vec![0; pixels.len()];
     if pixels.is_empty() {
         return variation;
@@ -119,12 +122,12 @@ pub(crate) fn local_color_variation_rgb(pixels: &[[u8; 3]], width: usize) -> Vec
 }
 
 #[derive(Clone, Copy)]
-struct ColorCount {
-    rgb: [u8; 3],
-    count: usize,
+pub(crate) struct ColorCount {
+    pub(crate) rgb: [u8; 3],
+    pub(crate) count: usize,
 }
 
-fn sorted_color_counts(sample: &[[u8; 3]]) -> Vec<ColorCount> {
+pub(crate) fn sorted_color_counts(sample: &[[u8; 3]]) -> Vec<ColorCount> {
     let mut sorted = sample.to_vec();
     sorted.sort_unstable();
     let mut colors = Vec::new();

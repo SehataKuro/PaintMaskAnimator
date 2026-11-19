@@ -20,6 +20,8 @@ REQUIRED_API = (
     "border_background", "estimate_mixed_boundary_pixels", "snap_overlay_to_exact_rgbs",
     "local_color_variation", "median_cut_palette_from_samples", "normalize_tone_curve_points",
     "tone_curve_samples", "tone_curve_lut", "apply_tone_curve",
+    "palette_color_counts", "hue_cluster_palette", "palette_training_samples",
+    "select_palette_colors", "line_palette_labels", "apply_color_reduction_palette",
     "line_flow_scores", "connect_runs", "label_runs", "refine_face", "thin",
     "render_quad_labels", "render_mesh_labels",
     "surface_guided_palette_labels", "map_known_colors", "region_neighbors",
@@ -754,3 +756,45 @@ def context_similarity(previous, previous_region, current, current_region, radiu
         _tracking_context(previous, previous_region, before_center, radius),
         _tracking_context(current, current_region, after_center, radius),
     )
+
+
+def palette_color_counts(sample):
+    colors, weights = _native.palette_color_counts(_rgba_bytes(sample))
+    return np.frombuffer(colors, dtype=np.uint8).reshape(-1, 3), np.frombuffer(weights, dtype=np.float64)
+
+
+def hue_cluster_palette(colors, features, weights, log_weights, color_count):
+    data = _native.hue_cluster_palette(
+        _rgba_bytes(colors), features.tobytes(), _rgba_bytes(weights), log_weights.tobytes(), color_count,
+    )
+    return np.frombuffer(data, dtype=np.uint8).reshape(-1, 3).copy()
+
+
+def palette_training_samples(rgba, threshold, opaque, background):
+    height, width = rgba.shape[:2]
+    data = _native.palette_training_samples(_rgba_bytes(rgba), width, height, threshold, opaque, background)
+    return np.frombuffer(data, dtype=np.uint8).reshape(-1, 3).copy()
+
+
+def select_palette_colors(training, priority, clustered, color_count, line, background):
+    data = _native.select_palette_colors(
+        _rgba_bytes(training), _rgba_bytes(priority), _rgba_bytes(clustered), color_count, line, background,
+    )
+    colors = np.frombuffer(data, dtype=np.uint8).copy()
+    return colors.reshape(-1, 3) if colors.size else colors
+
+
+def line_palette_labels(rgb, visible, palette):
+    height, width = visible.shape
+    data = _native.line_palette_labels(
+        _rgba_bytes(rgb), width, height, _rgba_bytes(visible), _rgba_bytes(palette),
+    )
+    return np.frombuffer(data, dtype=np.int16).reshape(height, width).copy()
+
+
+def apply_color_reduction_palette(rgba, palette, threshold, opaque, background, points, line):
+    height, width = rgba.shape[:2]
+    data = _native.apply_color_reduction_palette(
+        _rgba_bytes(rgba), width, height, _rgba_bytes(palette), threshold, opaque, background, points, line,
+    )
+    return np.ndarray(rgba.shape, dtype=np.uint8, buffer=data)

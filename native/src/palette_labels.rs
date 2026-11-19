@@ -42,7 +42,7 @@ fn nearest_colors(
 }
 
 /// 色面を種にして、画素ごとのパレットの番号（未確定は -1）を決める。
-fn surface_guided_labels(
+pub(crate) fn surface_guided_labels(
     rgb: &[u8],
     width: usize,
     height: usize,

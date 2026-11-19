@@ -7,7 +7,7 @@ import re
 import subprocess
 import sys
 
-from paintmaskanimator import bucket_fill, colors, imaging, native
+from paintmaskanimator import bucket_fill, color_ops, colors, imaging, native
 
 needs_native = pytest.mark.skipif(
     not native.available(), reason="Rust の部品（pma_native）が入っていない"
@@ -1169,3 +1169,114 @@ def test_apply_tone_curve_matches_numpy():
 
     for image in [None, QImage()]:
         assert color_ops.apply_tone_curve(image) is image
+
+
+def _palette_case_rgba(case):
+    rng = np.random.default_rng(54)
+    if case in {"single", "row", "column", "few", "many"}:
+        height, width, count = {
+            "single": (1, 1, 1), "row": (1, 47, 3), "column": (47, 1, 5),
+            "few": (10, 14, 16), "many": (18, 20, 300),
+        }[case]
+        colors = rng.integers(0, 256, (count, 3), dtype=np.uint8)
+        rgba = np.empty((height, width, 4), dtype=np.uint8)
+        rgba[..., :3] = colors[rng.integers(count, size=(height, width))]
+        rgba[..., 3] = rng.choice([0, 64, 127, 128, 180, 254, 255], (height, width))
+        rgba[0, 0, 3] = 255
+        return rgba
+
+    rgba = np.full((18, 24, 4), 255, dtype=np.uint8)
+    bg = {"lines": (255, 255, 255), "black": (0, 0, 0), "color": (28, 66, 119)}[case]
+    rgba[..., :3] = bg
+    rgba[3:15, 3:11, :3] = (9, 10, 11)
+    rgba[3:15, 10:13, :3] = (85, 84, 84)
+    rgba[4:15, 13:21, :3] = (141, 139, 139) if case == "lines" else (200, 90, 45)
+    rgba[4:15, 11:13, 3] = 128
+    rgba[7:9, 4:20, :3] = (40, 38, 42)
+    return rgba
+
+
+def _assert_palette_array(actual, expected, dtype):
+    assert actual.dtype == expected.dtype == dtype
+    np.testing.assert_array_equal(actual, expected)
+
+
+@needs_native
+@pytest.mark.parametrize("case", ["single", "row", "column", "few", "many", "lines", "black", "color"])
+@pytest.mark.parametrize("mode", ["line", "surface"])
+def test_color_reduction_palette_matches_numpy(case, mode):
+    rgba = _palette_case_rgba(case)
+    image = imaging.rgba_array_to_qimage(rgba)
+    extra = imaging.rgba_array_to_qimage(np.flip(rgba, axis=1).copy())
+    rgb = rgba[..., :3]
+    visible = rgba[..., 3] >= 128
+    samples = rgb.reshape(-1, 3)[::-1]
+    for count in (2, 3, 5, 6, 16, 100):
+        _assert_palette_array(
+            color_ops._hue_cluster_palette_from_samples(samples, count),
+            color_ops._hue_cluster_palette_from_samples_numpy(samples, count),
+            np.uint8,
+        )
+
+    bg_color = {"black": (0, 0, 0), "color": (28, 66, 119)}.get(case, (255, 255, 255))
+    points = [(0.0, 0.0), (0.23, 0.1), (0.72, 0.95), (1.0, 1.0)]
+    for opaque in (False, True):
+        for background in (None, bg_color):
+            options = dict(opaque_background=opaque, background_rgb=background)
+            _assert_palette_array(
+                color_ops._palette_training_samples(image, **options),
+                color_ops._palette_training_samples_numpy(image, **options),
+                np.uint8,
+            )
+            options["extraction_mode"] = mode
+            for count in (2, 3, 5, 6, 16, 100):
+                for extras in ((), (extra,)):
+                    for limit in (19, 262144):
+                        params = dict(max_samples=limit, extra_images=extras, **options)
+                        expected = color_ops.build_color_reduction_palette_numpy(image, count, **params)
+                        palette = color_ops.build_color_reduction_palette(image, count, **params)
+                        _assert_palette_array(palette, expected, np.uint8)
+                        if palette.size and mode == "line":
+                            _assert_palette_array(
+                                color_ops._line_palette_labels(rgb, visible, palette),
+                                color_ops._line_palette_labels_numpy(rgb, visible, palette),
+                                np.int16,
+                            )
+                        for curve in (None, points):
+                            actual = color_ops.apply_color_reduction_palette(
+                                image, palette, tone_curve_points=curve, **options,
+                            )
+                            expected = color_ops.apply_color_reduction_palette_numpy(
+                                image, palette, tone_curve_points=curve, **options,
+                            )
+                            assert actual.format() == expected.format()
+                            assert actual == expected
+
+
+@needs_native
+def test_color_reduction_palette_edge_cases():
+    from PySide6.QtGui import QImage
+
+    image = imaging.rgba_array_to_qimage(_palette_case_rgba("color"))
+    null_image = QImage()
+    for empty in (None, null_image):
+        assert color_ops.apply_color_reduction_palette(empty, object()) is empty
+    actual = color_ops.apply_color_reduction_palette(image, [])
+    assert actual.format() == image.format()
+    assert actual == image
+    for limit in (0, 1, 7, 102):
+        kwargs = dict(max_samples=limit, opaque_background=True, background_rgb=[28, 66, 119])
+        _assert_palette_array(
+            color_ops.build_color_reduction_palette(image, 6, **kwargs),
+            color_ops.build_color_reduction_palette_numpy(image, 6, **kwargs),
+            np.uint8,
+        )
+
+    rgb = np.tile(np.arange(256, dtype=np.uint8)[None, :, None], (3, 1, 3))
+    visible = np.ones(rgb.shape[:2], dtype=bool)
+    palette = [(0, 0, 0), (49, 54, 53), (49, 54, 53), (83, 79, 80), (255, 255, 255)]
+    _assert_palette_array(
+        color_ops._line_palette_labels(rgb, visible, palette),
+        color_ops._line_palette_labels_numpy(rgb, visible, palette),
+        np.int16,
+    )

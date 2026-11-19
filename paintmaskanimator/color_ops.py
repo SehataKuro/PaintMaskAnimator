@@ -501,6 +501,22 @@ def _surface_guided_palette_labels_numpy(
 
 def _line_palette_labels(rgb, visible, palette):
     """ライン抽出用。色相よりRGB差と明度差を優先して実線を保つ。"""
+    colors = np.asarray(palette, dtype=np.uint8).reshape(-1, 3)
+    if (
+        type(rgb) is not np.ndarray
+        or rgb.dtype != np.uint8
+        or type(visible) is not np.ndarray
+        or visible.dtype != np.bool_
+        or visible.ndim != 2
+        or rgb.shape != (*visible.shape, 3)
+        or not 0 < len(colors) <= 32767
+    ):
+        return _line_palette_labels_numpy(rgb, visible, colors)
+    return native.line_palette_labels(rgb, visible, colors)
+
+
+def _line_palette_labels_numpy(rgb, visible, palette):
+    """ライン抽出用。色相よりRGB差と明度差を優先して実線を保つ。"""
     palette_array = np.asarray(palette, dtype=np.uint8).reshape((-1, 3))
     source = rgb.reshape((-1, 3)).astype(np.float32) / 255.0
     targets = palette_array.astype(np.float32) / 255.0
@@ -816,7 +832,27 @@ def _apply_tone_curve_rgba_numpy(rgba, points, background_rgb):
     return imaging.rgba_array_to_qimage(result)
 
 
-def _hue_cluster_palette_from_samples(
+def _native_palette_background(background):
+    return background is None or (
+        type(background) in (tuple, list)
+        and len(background) == 3
+        and all(type(value) is int and 0 <= value <= 255 for value in background)
+    )
+
+
+def _hue_cluster_palette_from_samples(sample, color_count):
+    """色相を主軸に、近い色を同じ原色面へまとめる。"""
+    sample = np.asarray(sample, dtype=np.uint8).reshape(-1, 3)
+    color_count = max(1, int(color_count))
+    colors, weights = native.palette_color_counts(sample)
+    if len(colors) <= color_count:
+        return colors.copy()
+    return native.hue_cluster_palette(
+        colors, _colors.rgb_hsv_features(colors), weights, np.log1p(weights), color_count,
+    )
+
+
+def _hue_cluster_palette_from_samples_numpy(
     sample,
     color_count,
 ):
@@ -933,7 +969,22 @@ def _hue_cluster_palette_from_samples(
     return np.asarray(palette, dtype=np.uint8)
 
 
-def _palette_training_samples(
+def _palette_training_samples(image, alpha_threshold=128, opaque_background=False, background_rgb=None):
+    """背景と境界のにじみを外して、パレットの手本の RGB を返す。"""
+    threshold = max(1, min(254, int(alpha_threshold)))
+    rgba = imaging.qimage_rgba_array(image, readonly=True)
+    if rgba.size == 0:
+        return np.zeros((0, 3), dtype=np.uint8)
+    if not _is_rgba8(rgba) or (opaque_background and not _native_palette_background(background_rgb)):
+        return _palette_training_samples_numpy(image, threshold, opaque_background, background_rgb)
+    background = (
+        tuple(map(int, np.asarray(background_rgb, dtype=np.uint8)))
+        if opaque_background and background_rgb is not None else None
+    )
+    return native.palette_training_samples(rgba, threshold, bool(opaque_background), background)
+
+
+def _palette_training_samples_numpy(
     image,
     alpha_threshold=128,
     opaque_background=False,
@@ -1021,6 +1072,11 @@ def build_color_reduction_palette(
     1枚だけから作ると、中間で色が増えるカットやフラッシュで、その1枚に無い色が
     最近傍へ潰れてしまうため（Issue #10）。
     """
+    if opaque_background and not _native_palette_background(background_rgb):
+        return build_color_reduction_palette_numpy(
+            image, color_count, alpha_threshold, max_samples, opaque_background,
+            background_rgb, tone_curve_points, extraction_mode, extra_images,
+        )
     color_count = max(2, min(100, int(color_count)))
     reserved_background = (
         np.asarray(background_rgb, dtype=np.uint8)
@@ -1072,6 +1128,84 @@ def build_color_reduction_palette(
             foreground_count if foreground_count >= 6 else 0,
         )
     clustered_palette = _hue_cluster_palette_from_samples(
+        training_rgb,
+        foreground_count,
+    )
+    background = None if reserved_background is None else tuple(map(int, reserved_background))
+    return native.select_palette_colors(
+        training_rgb, priority_palette, clustered_palette, color_count,
+        extraction_mode == "line", background,
+    )
+
+
+def build_color_reduction_palette_numpy(
+    image,
+    color_count,
+    alpha_threshold=128,
+    max_samples=262144,
+    opaque_background=False,
+    background_rgb=None,
+    tone_curve_points=None,
+    extraction_mode="surface",
+    extra_images=(),
+):
+    """近い色相を同じ原色面としてまとめる共通パレット。
+
+    ``extra_images`` に代表フレームを渡すと、それらの画素もまとめて手本にする。
+    1枚だけから作ると、中間で色が増えるカットやフラッシュで、その1枚に無い色が
+    最近傍へ潰れてしまうため（Issue #10）。
+    """
+    color_count = max(2, min(100, int(color_count)))
+    reserved_background = (
+        np.asarray(background_rgb, dtype=np.uint8)
+        if opaque_background and background_rgb is not None
+        else None
+    )
+    samples = [
+        _palette_training_samples_numpy(
+            source,
+            alpha_threshold=alpha_threshold,
+            opaque_background=opaque_background,
+            background_rgb=background_rgb,
+        )
+        for source in (image, *(extra_images or ()))
+    ]
+    samples = [block for block in samples if block.size]
+    if not samples:
+        return np.asarray([[0, 0, 0]], dtype=np.uint8)
+    training_rgb = (
+        samples[0] if len(samples) == 1 else np.vstack(samples)
+    )
+
+    if len(training_rgb) > int(max_samples):
+        sample_indices = np.linspace(
+            0,
+            len(training_rgb) - 1,
+            int(max_samples),
+            dtype=np.int64,
+        )
+        training_rgb = training_rgb[sample_indices]
+
+    foreground_count = (
+        color_count - 1
+        if reserved_background is not None
+        else color_count
+    )
+    foreground_count = max(1, foreground_count)
+    extraction_mode = (
+        "line" if extraction_mode == "line" else "surface"
+    )
+    if extraction_mode == "line":
+        priority_palette = _colors.priority_palette_colors_from_samples(
+            training_rgb,
+            foreground_count,
+        )
+    else:
+        priority_palette = _colors.priority_palette_colors_from_samples(
+            training_rgb,
+            foreground_count if foreground_count >= 6 else 0,
+        )
+    clustered_palette = _hue_cluster_palette_from_samples_numpy(
         training_rgb,
         foreground_count,
     )
@@ -1155,6 +1289,48 @@ def apply_color_reduction_palette(
     """色相面を確定し、境界混合色を二分してからトーンを適用する。"""
     if image is None or image.isNull():
         return image
+    rgba = imaging.qimage_rgba_array(image, readonly=True)
+    if rgba.size == 0:
+        return image.copy()
+    colors = np.asarray(palette, dtype=np.uint8).reshape(-1, 3)
+    if colors.size == 0:
+        return image.copy()
+    if (
+        not _is_rgba8(rgba)
+        or len(colors) > 32767
+        or not _native_palette_background(background_rgb)
+        or np.geterr()["under"] != "ignore"
+    ):
+        return apply_color_reduction_palette_numpy(
+            image, colors, alpha_threshold, opaque_background, background_rgb,
+            tone_curve_points, extraction_mode,
+        )
+    threshold = max(1, min(254, int(alpha_threshold)))
+    background = (
+        None if background_rgb is None else tuple(map(int, np.asarray(background_rgb, dtype=np.uint8)))
+    )
+    points = _colors.normalize_tone_curve_points(tone_curve_points)
+    if points == [(0.0, 0.0), (1.0, 1.0)]:
+        points = None
+    result = native.apply_color_reduction_palette(
+        rgba, colors, threshold, bool(opaque_background), background, points,
+        extraction_mode == "line",
+    )
+    return imaging.rgba_array_to_qimage(result)
+
+
+def apply_color_reduction_palette_numpy(
+    image,
+    palette,
+    alpha_threshold=128,
+    opaque_background=False,
+    background_rgb=None,
+    tone_curve_points=None,
+    extraction_mode="surface",
+):
+    """色相面を確定し、境界混合色を二分してからトーンを適用する。"""
+    if image is None or image.isNull():
+        return image
 
     rgba = imaging.qimage_rgba_array(image)
     if rgba.size == 0:
@@ -1179,7 +1355,7 @@ def apply_color_reduction_palette(
     )
 
     if extraction_mode == "line":
-        labels = _line_palette_labels(
+        labels = _line_palette_labels_numpy(
             rgb, visible, palette_array
         )
     else:

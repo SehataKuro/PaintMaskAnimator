@@ -118,23 +118,27 @@ pub fn apply_tone_curve(
     }
     let lut = tone_curve_lut(points);
     let (output, _) = output.as_chunks_mut::<4>();
-    if let Some([br, bg, bb]) = background {
-        for (&[r, g, b, a], dest) in pixels.iter().zip(output) {
-            let dr = i32::from(i16::from(r) - i16::from(br));
-            let dg = i32::from(i16::from(g) - i16::from(bg));
-            let db = i32::from(i16::from(b) - i16::from(bb));
-            *dest = if dr * dr + dg * dg + db * db <= 75 {
-                [br, bg, bb, a]
-            } else {
-                [lut[r as usize], lut[g as usize], lut[b as usize], a]
-            };
-        }
-    } else {
-        for (&[r, g, b, a], dest) in pixels.iter().zip(output) {
-            *dest = [lut[r as usize], lut[g as usize], lut[b as usize], a];
-        }
+    for (&pixel, dest) in pixels.iter().zip(output) {
+        *dest = tone_curve_pixel(pixel, &lut, background);
     }
     Ok(())
+}
+
+#[inline]
+pub(crate) fn tone_curve_pixel(
+    [r, g, b, a]: [u8; 4],
+    lut: &[u8; 256],
+    background: Option<[u8; 3]>,
+) -> [u8; 4] {
+    if let Some([br, bg, bb]) = background {
+        let dr = i32::from(i16::from(r) - i16::from(br));
+        let dg = i32::from(i16::from(g) - i16::from(bg));
+        let db = i32::from(i16::from(b) - i16::from(bb));
+        if dr * dr + dg * dg + db * db <= 75 {
+            return [br, bg, bb, a];
+        }
+    }
+    [lut[r as usize], lut[g as usize], lut[b as usize], a]
 }
 
 #[cfg(test)]

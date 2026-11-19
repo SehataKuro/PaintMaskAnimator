@@ -10,6 +10,7 @@ pub mod line_flow;
 pub mod line_noise;
 pub mod map_colors;
 pub mod mask_transform;
+pub mod palette;
 pub mod palette_labels;
 pub mod project;
 pub mod regions;

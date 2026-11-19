@@ -20,6 +20,7 @@ mod fill_session;
 mod fill_tracking;
 mod map_colors;
 mod mask_transform;
+mod palette;
 mod palette_labels;
 mod project_payload;
 mod project_zip;
@@ -207,6 +208,15 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(tone_curve::tone_curve_samples, module)?)?;
     module.add_function(wrap_pyfunction!(tone_curve::tone_curve_lut, module)?)?;
     module.add_function(wrap_pyfunction!(tone_curve::apply_tone_curve, module)?)?;
+    module.add_function(wrap_pyfunction!(
+        palette::apply_color_reduction_palette,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(palette::line_palette_labels, module)?)?;
+    module.add_function(wrap_pyfunction!(palette::select_palette_colors, module)?)?;
+    module.add_function(wrap_pyfunction!(palette::palette_training_samples, module)?)?;
+    module.add_function(wrap_pyfunction!(palette::hue_cluster_palette, module)?)?;
+    module.add_function(wrap_pyfunction!(palette::palette_color_counts, module)?)?;
     module.add_function(wrap_pyfunction!(
         color_stats::estimate_mixed_boundary_pixels,
         module
