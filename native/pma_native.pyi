@@ -279,3 +279,9 @@ def solve_local_shift(
     fast_size: tuple[int, int], dys: list[int], dxs: list[int], total: float,
     step: int, motion_penalty: float, near_line_weight: float, share_motion: bool,
 ) -> tuple[tuple[int, int], float, float]: ...
+
+def certify_local_shift(
+    before: bytes, exact: bytes, wide: bytes, width: int, height: int,
+    fast_size: tuple[int, int], dys: list[int], dxs: list[int], total: float,
+    step: int, motion_penalty: float, near_line_weight: float, hint: tuple[float, float],
+) -> tuple[tuple[int, int], float, float] | None: ...

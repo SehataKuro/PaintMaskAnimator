@@ -161,6 +161,161 @@ pub fn solve_local_shift(
     Ok((shift, share, gap))
 }
 
+/// NumPy の `auto_motion.certify_numpy` と同じ画素ずれ、上位差、一致率を返す。
+/// 上限から最良と次点を確定できない場合は None。ヒントは間引き前の画素座標。
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+pub fn certify_local_shift(
+    before: &[u8],
+    exact: &[u8],
+    wide: &[u8],
+    width: usize,
+    height: usize,
+    fast_size: (usize, usize),
+    dys: &[i64],
+    dxs: &[i64],
+    total: f64,
+    step: i64,
+    motion_penalty: f64,
+    near_line_weight: f64,
+    hint: (f64, f64),
+) -> Result<Option<((i64, i64), f64, f64)>, Error> {
+    const EPSILON: f64 = 2e-5;
+    const MAX_RADIUS: f64 = 8.0;
+    const MAX_WORK: usize = 32768;
+
+    if total < 4.0 {
+        return Ok(None);
+    }
+    let (rows, cols) = fast_size;
+    let penalty = motion_penalty * step as f64;
+    if width == 0
+        || height == 0
+        || width.checked_mul(height) != Some(before.len())
+        || exact.len() != before.len()
+        || wide.len() != before.len()
+        || !(height..=isize::MAX as usize).contains(&rows)
+        || !(width..=isize::MAX as usize).contains(&cols)
+        || !total.is_finite()
+        || step <= 0
+        || !penalty.is_finite()
+        || penalty <= 0.0
+        || !(0.0..=1.0).contains(&near_line_weight)
+        || !hint.0.is_finite()
+        || !hint.1.is_finite()
+        || dys
+            .iter()
+            .chain(dxs)
+            .any(|&v| v.checked_mul(step).is_none())
+    {
+        return Err(invalid());
+    }
+    if before.iter().any(|&v| v > 1) {
+        return Ok(None);
+    }
+    if exact.iter().chain(wide).any(|&v| v > 1) {
+        return Err(invalid());
+    }
+    let step_f64 = step as f64;
+    let dy = (hint.0 / step_f64).round_ties_even();
+    let dx = (hint.1 / step_f64).round_ties_even();
+    // i64::MAX は f64 では 2^63 に丸められるため、上端は含めない。
+    let range = i64::MIN as f64..-(i64::MIN as f64);
+    if !range.contains(&dy) || !range.contains(&dx) {
+        return Ok(None);
+    }
+    let (dy, dx) = (dy as i64, dx as i64);
+    if !dys.contains(&dy) || !dxs.contains(&dx) {
+        return Ok(None);
+    }
+
+    let points: Vec<_> = before
+        .iter()
+        .enumerate()
+        .filter(|&(_, &v)| v != 0)
+        .map(|(i, _)| (i / width, i % width))
+        .collect();
+    let shape = (height, width);
+    let y_index = |y: i64| y.rem_euclid(rows as i64) as usize;
+    let x_index = |x: i64| x.rem_euclid(cols as i64) as usize;
+    let distance = |y: i64, x: i64| y.unsigned_abs().saturating_add(x.unsigned_abs());
+    let weighted =
+        |e: usize, w: usize| e as f64 * (1.0 - near_line_weight) + w as f64 * near_line_weight;
+    let max_overlap = weighted(
+        usize::from(exact.contains(&1)),
+        usize::from(wide.contains(&1)),
+    );
+    let (e, w) = direct_counts(
+        &points,
+        exact,
+        wide,
+        shape,
+        fast_size,
+        &[y_index(dy)],
+        &[x_index(dx)],
+    )[0];
+    let score = weighted(e, w) / total - penalty * distance(dy, dx) as f64;
+    let radius = ((max_overlap - score + EPSILON) / penalty).floor();
+    if !(0.0..=MAX_RADIUS).contains(&radius) {
+        return Ok(None);
+    }
+
+    let mut candidates = Vec::new();
+    let mut checked = 0_usize;
+    for &y in dys {
+        let xs: Vec<_> = dxs
+            .iter()
+            .copied()
+            .filter(|&x| distance(y, x) <= radius as u64)
+            .collect();
+        if !xs.is_empty() {
+            checked += xs.len();
+            if checked.saturating_mul(points.len()) > MAX_WORK {
+                return Ok(None);
+            }
+            candidates.push((y, xs));
+        }
+    }
+    if checked == 0 {
+        return Ok(None);
+    }
+
+    let (mut best, mut runner) = (f64::NEG_INFINITY, f64::NEG_INFINITY);
+    let (mut shift, mut share) = ((0, 0), 0.0);
+    for (y, xs) in candidates {
+        let indices: Vec<_> = xs.iter().map(|&x| x_index(x)).collect();
+        let counts = direct_counts(
+            &points,
+            exact,
+            wide,
+            shape,
+            fast_size,
+            &[y_index(y)],
+            &indices,
+        );
+        for (x, (e, w)) in xs.into_iter().zip(counts) {
+            let overlap = weighted(e, w) / total;
+            let score = overlap - penalty * distance(y, x) as f64;
+            if score > best {
+                runner = best;
+                best = score;
+                shift = (y * step, x * step);
+                share = overlap;
+            } else if score > runner {
+                runner = score;
+            }
+        }
+    }
+    let unseen = if checked < dys.len().saturating_mul(dxs.len()) {
+        max_overlap - penalty * (radius + 1.0)
+    } else {
+        f64::NEG_INFINITY
+    };
+    if best - runner.max(unseen) <= EPSILON || runner < unseen {
+        return Ok(None);
+    }
+    Ok(Some((shift, best - runner, share)))
+}
+
 fn smooth(mut n: usize) -> bool {
     for factor in [2, 3, 5] {
         while n.is_multiple_of(factor) {
@@ -299,6 +454,110 @@ mod tests {
             fft::circular_counts(&before, &guide, &guide, (1, 3), (1, 3), &[0], &[1, 2, 0], 2)
                 .unwrap();
         assert_eq!(fft, [(1, 1), (1, 1), (0, 0)]);
+    }
+
+    #[test]
+    fn certify_wraps_and_checks_the_runner_bound() {
+        let before = [1, 1, 1, 1, 0, 0, 0, 0];
+        let exact = [1, 1, 1, 0, 0, 0, 0, 1];
+        let certify = |period, dxs: &[i64], penalty, hint| {
+            certify_local_shift(
+                &before,
+                &exact,
+                &exact,
+                8,
+                1,
+                (1, period),
+                &[0],
+                dxs,
+                4.0,
+                2,
+                penalty,
+                0.25,
+                hint,
+            )
+            .unwrap()
+        };
+        // 周期8では -1 の先頭画素が窓内へ戻る。周期9ではゼロ詰め領域へ落ちる。
+        assert_eq!(
+            certify(8, &[0, -1], 0.0625, (0.0, -2.0)),
+            Some(((0, -2), 0.125, 1.0))
+        );
+        assert_eq!(
+            certify(9, &[0, -1], 0.0625, (0.0, -2.0)),
+            Some(((0, 0), 0.125, 0.75))
+        );
+        // 半径1で次点が未検査上限と等しい場合は確定する。
+        assert_eq!(
+            certify(8, &[0, -1, 2], 0.0625, (0.0, -2.0)),
+            Some(((0, -2), 0.125, 1.0))
+        );
+        assert_eq!(certify(8, &[0, -1, 2], 0.05, (0.0, -2.0)), None);
+        assert_eq!(certify(8, &[-1], 0.0625, (1.0, -3.0)), None);
+        assert_eq!(certify(8, &[0, -1], 0.0625, (2.0, -2.0)), None);
+        assert_eq!(
+            certify(8, &[-1], 0.0625, (1.0, -2.0)),
+            Some(((0, -2), f64::INFINITY, 1.0))
+        );
+        assert_eq!(certify(8, &[0, -1, 9], 0.0625, (0.0, 18.0)), None);
+        assert_eq!(certify(8, &[-1, -1], 0.0625, (0.0, -2.0)), None);
+    }
+
+    #[test]
+    fn certify_gap_threshold_is_inclusive() {
+        let certify = |penalty| {
+            certify_local_shift(
+                &[1; 4],
+                &[0; 4],
+                &[0; 4],
+                4,
+                1,
+                (1, 4),
+                &[0],
+                &[0, 1],
+                4.0,
+                1,
+                penalty,
+                0.25,
+                (0.0, 1.0),
+            )
+            .unwrap()
+        };
+        assert_eq!(certify(2e-5), None);
+        let above = f64::from_bits(2e-5_f64.to_bits() + 1);
+        assert_eq!(certify(above), Some(((0, 0), above, 0.0)));
+    }
+
+    #[test]
+    fn certify_rejects_small_nonbinary_and_over_budget_inputs() {
+        let certify = |before: &[u8], total, dxs: &[i64], hint| {
+            let exact = vec![1; before.len()];
+            certify_local_shift(
+                before,
+                &exact,
+                &exact,
+                before.len(),
+                1,
+                (1, before.len()),
+                &[0],
+                dxs,
+                total,
+                1,
+                0.25,
+                0.25,
+                hint,
+            )
+            .unwrap()
+        };
+        assert_eq!(certify(&[1; 3], 3.0, &[0], (0.0, 0.0)), None);
+        assert_eq!(certify(&[1, 1, 1, 1, 2], 6.0, &[0], (0.0, 0.0)), None);
+        assert_eq!(certify(&[1; 6], 4.0, &[0], (0.0, 0.0)), None); // 半径が負
+        assert_eq!(certify(&[1; 5], 4.0, &[1], (0.0, 1.0)), None); // 候補なし
+        assert_eq!(
+            certify(&[1; 16384], 16384.0, &[0, 1], (0.0, 1.0)),
+            Some(((0, 0), 0.25, 1.0))
+        );
+        assert_eq!(certify(&[1; 16385], 16385.0, &[0, 1], (0.0, 1.0)), None);
     }
 
     #[test]

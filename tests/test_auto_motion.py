@@ -122,3 +122,92 @@ def test_unprofitable_shared_search_is_disabled_without_changing_answers():
     assert not cache._support_enabled and not cache._certify_enabled
     assert cache.shift(*request)[0] == (0, 0)
     assert not cache._supports and not cache._shared
+
+
+@pytest.mark.parametrize('share_motion', [False, True])
+def test_native_certify_matches_numpy_on_random_windows(share_motion, monkeypatch):
+    from paintmaskanimator import native
+
+    rng = np.random.default_rng(602)
+    original = native.certify_local_shift
+    native_calls = 0
+
+    def counted(*args):
+        nonlocal native_calls
+        native_calls += 1
+        return original(*args)
+
+    monkeypatch.setattr(native, 'certify_local_shift', counted)
+    accepted = 0
+    trials = 0
+    for seed in range(80):
+        step = 1 + seed % 4
+        dy, dx = [(0, 0), (1, -1), (-1, 1), (2, 0)][seed % 4]
+        if seed % 2:
+            candidate = problem(dy, dx, seed, nearby_runner=True)
+        else:
+            # 窓と周期が同じ小窓で端の点が反対側に回り込む。
+            shape = (int(rng.integers(4, 8)), int(rng.integers(4, 8)))
+            before = (rng.random(shape) < 0.5).astype(np.float32)
+            exact = np.roll(before.astype(bool), (dy, dx), (0, 1))
+            wide = exact | (rng.random(shape) < 0.2)
+            shifts = np.array([0, 1, 2, -2, -1])
+            candidate = dict(before=before, boundaries=(exact, wide),
+                             total=float(before.sum()), size=shape, dys=shifts, dxs=shifts)
+        if candidate['total'] < 4:
+            candidate['before'].flat[:4] = 1
+            candidate['total'] = float(candidate['before'].sum())
+        candidate.update(step=step, share_motion=share_motion)
+        if seed % 3:
+            candidate['before_bytes'] = candidate['before'].astype(np.uint8).tobytes()
+
+        # 最良・次点・遠方・範囲外のヒントと、間引きでちょうど半分になるヒント。
+        full = dict(candidate, share_motion=True)
+        window = auto_paint._local_shift_window(full) / full['total']
+        dys, dxs = full['dys'], full['dxs']
+        scores = window - auto_paint.MOTION_PENALTY * step * (
+            np.abs(dys)[:, None] + np.abs(dxs)[None, :])
+        best, runner = np.argsort(-scores.ravel(), kind='stable')[:2]
+
+        def pixel_shift(index):
+            y, x = divmod(int(index), len(dxs))
+            return int(dys[y]) * step, int(dxs[x]) * step
+
+        full_shift, full_share = auto_paint._solve_local_shift(full)
+        for hint in (pixel_shift(best), pixel_shift(runner), (int(dys[-1]) * step, 2 * step),
+                     (99 * step, 0), (step / 2, -1.5 * step)):
+            expected = auto_motion.certify_numpy(candidate, hint)
+            actual = auto_motion.certify(candidate, hint)
+            assert actual == expected
+            trials += 1
+            if actual is not None:
+                shift, share = actual
+                assert shift.gap == expected[0].gap == full_shift.gap
+                assert shift == full_shift and share == full_share
+                accepted += 1
+    assert native_calls == trials == 400
+    assert 0 < accepted < trials
+
+
+def test_certify_keeps_empty_hints_and_numpy_fallback(monkeypatch):
+    from paintmaskanimator import native
+
+    candidate = problem(0, 0, nearby_runner=True)
+    hint = (0, -1)
+    expected = auto_motion.certify_numpy(candidate, hint)
+    assert expected is not None
+
+    def unexpected(*_args):
+        pytest.fail('Rust was called for a NumPy fallback')
+
+    monkeypatch.setattr(native, 'certify_local_shift', unexpected)
+    assert auto_motion.certify(candidate, None) is None
+    assert auto_motion.certify(candidate, ()) is None
+    assert auto_motion.certify(dict(candidate, total=3.0), hint) is None
+    before = candidate['before'].copy()
+    before[0, 0] = 0.5
+    assert auto_motion.certify(dict(candidate, before=before), hint) is None
+    monkeypatch.setattr(native, 'available', lambda: False)
+    actual = auto_motion.certify(candidate, hint)
+    assert actual == expected
+    assert actual[0].gap == expected[0].gap

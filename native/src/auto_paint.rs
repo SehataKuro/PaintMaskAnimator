@@ -283,3 +283,41 @@ pub fn solve_local_shift(
     })
     .map_err(|error| PyValueError::new_err(error.to_string()))
 }
+
+#[pyfunction]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+pub fn certify_local_shift(
+    py: Python<'_>,
+    before: &[u8],
+    exact: &[u8],
+    wide: &[u8],
+    width: usize,
+    height: usize,
+    fast_size: (usize, usize),
+    dys: Vec<i64>,
+    dxs: Vec<i64>,
+    total: f64,
+    step: i64,
+    motion_penalty: f64,
+    near_line_weight: f64,
+    hint: (f64, f64),
+) -> PyResult<Option<((i64, i64), f64, f64)>> {
+    py.detach(|| {
+        pma_core::local_shift::certify_local_shift(
+            before,
+            exact,
+            wide,
+            width,
+            height,
+            fast_size,
+            &dys,
+            &dxs,
+            total,
+            step,
+            motion_penalty,
+            near_line_weight,
+            hint,
+        )
+    })
+    .map_err(|error| PyValueError::new_err(error.to_string()))
+}

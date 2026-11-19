@@ -1,7 +1,10 @@
 """セル間で共有する動きの候補と、全探索を省略できる場合の厳密な上界検査。"""
 from collections import OrderedDict
+from math import isfinite
 
 import numpy as np
+
+from . import native
 
 
 class LocalShift(tuple):
@@ -58,6 +61,45 @@ class MotionMemory:
 
 def certify(problem, hint):
     """未検査候補の理論上限を超えた場合だけ、FFTと同じ最良位置を返す。"""
+    from . import auto_paint as ap
+
+    if hint is None:
+        return None
+    step, total = problem['step'], problem['total']
+    if not hint or total < 4:
+        return None
+    if not native.available():
+        return certify_numpy(problem, hint)
+    before_bytes = problem.get('before_bytes')
+    if before_bytes is None:
+        before = problem['before']
+        if not np.all((before == 0) | (before == 1)):
+            return certify_numpy(problem, hint)
+        before_bytes = before.astype(np.uint8).tobytes()
+    dy, dx = hint
+    # Python 固有の除算や大きな整数では、f64 への事前変換で丸めが変わりうる。
+    if any(type(value) not in (int, float) or abs(value) > 2**53 or not isfinite(value)
+           for value in (dy, dx)) or step > 2**53:
+        return certify_numpy(problem, (dy, dx))
+    exact, wide = problem['boundaries']
+    if exact.dtype != np.bool_ or wide.dtype != np.bool_:
+        if not all((mask.dtype == np.bool_ or np.issubdtype(mask.dtype, np.integer))
+                   and np.all((mask == 0) | (mask == 1)) for mask in (exact, wide)):
+            return certify_numpy(problem, (dy, dx))
+        exact, wide = exact.astype(np.uint8), wide.astype(np.uint8)
+    height, width = exact.shape
+    result = native.certify_local_shift(
+        before_bytes, exact.tobytes(), wide.tobytes(), width, height, problem['size'],
+        list(map(int, problem['dys'])), list(map(int, problem['dxs'])), total, step,
+        ap.MOTION_PENALTY, ap.NEAR_LINE_WEIGHT, (dy, dx))
+    if result is None:
+        return None
+    shift, gap, share = result
+    return LocalShift(*shift, gap), share
+
+
+def certify_numpy(problem, hint):
+    """候補の重なりと未検査候補の上限を NumPy で計算する。"""
     from . import auto_paint as ap
     if hint is None:
         return None

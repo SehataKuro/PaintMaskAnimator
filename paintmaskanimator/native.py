@@ -24,7 +24,7 @@ REQUIRED_API = (
     "palette_color_counts", "hue_cluster_palette", "palette_training_samples",
     "select_palette_colors", "line_palette_labels", "apply_color_reduction_palette",
     "line_flow_scores", "connect_runs", "label_runs", "refine_face", "thin",
-    "render_quad_labels", "render_mesh_labels", "solve_local_shift",
+    "render_quad_labels", "render_mesh_labels", "solve_local_shift", "certify_local_shift",
     "surface_guided_palette_labels", "map_known_colors", "region_neighbors",
     "FillSession", "LineCache", "compute_fill_region_once", "fill_target_mask", "extend_line_ends", "flood_fill", "dilate", "erode", "label_regions", "remove_line_noise", "decode_png", "encode_png", "ZipReader", "ZipWriter", "decode_v2_plan",
 )
@@ -822,3 +822,12 @@ def solve_local_shift(before: bytes, exact: bytes, wide: bytes, width: int, heig
     return _native.solve_local_shift(
         before, exact, wide, width, height, fast_size, dys, dxs, total, step,
         motion_penalty, near_line_weight, share_motion)
+
+
+def certify_local_shift(before: bytes, exact: bytes, wide: bytes, width: int, height: int,
+                      fast_size: tuple[int, int], dys: list[int], dxs: list[int],
+                      total: float, step: int, motion_penalty: float, near_line_weight: float,
+                      hint: tuple[float, float]) -> tuple[tuple[int, int], float, float] | None:
+    return _native.certify_local_shift(
+        before, exact, wide, width, height, fast_size, dys, dxs, total, step,
+        motion_penalty, near_line_weight, hint)
