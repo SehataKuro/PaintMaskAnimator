@@ -63,29 +63,22 @@ class AlignmentCache:
         self.regions = None
         self.region_error = None
         self._samples = None
-        from .auto_motion import MotionMemory
-        self.motion = MotionMemory()
-        self.motion_certified = 0
         self.shared_support_hits = 0
         self._supports = {}
         self._shared = OrderedDict()
-        self.support_checks = self.motion_trials = 0
-        self._support_enabled = self._certify_enabled = True
+        self.support_checks = 0
+        self._support_enabled = True
         self._resident = None
         from .auto_routing import PipelinePolicy
         self.policy = PipelinePolicy()
 
-    def register_motion(self, target, source, flow, x0=0, y0=0):
-        self.motion.register((boundary_key(target), boundary_key(source)), flow, x0, y0)
-
     def _learn_motion(self, pending):
-        if not self._support_enabled and not self._certify_enabled:
+        if not self._support_enabled:
             return
         for key, (target, guide, bounds, _margin) in pending.items():
             if key in self.results:
-                self.motion.learn((boundary_key(target), boundary_key(guide)), bounds, self.results[key])
                 result = self.results[key]
-                if self._support_enabled and getattr(result[0], 'gap', 0) > 2e-5 and min(
+                if getattr(result[0], 'gap', 0) > 2e-5 and min(
                         abs(result[1] - threshold) for threshold in (0.3, 0.4, 0.5, 0.6)) > 2e-5:
                     support = self._support_key(target, bounds, _margin)
                     if support is not None:
@@ -96,8 +89,6 @@ class AlignmentCache:
             self._support_enabled = False
             self._shared.clear()
             self._supports.clear()
-        if self.motion_trials >= 128 and self.motion_certified * 16 < self.motion_trials:
-            self._certify_enabled = False
 
     def _support_key(self, target, bounds, margin):
         from . import auto_paint as ap
@@ -195,10 +186,6 @@ class AlignmentCache:
         if not pending:
             return
 
-        hints = {key: self.motion.predict((boundary_key(target), boundary_key(guide)), bounds) if self._certify_enabled else None
-                 for key, (target, guide, bounds, _margin) in pending.items()}
-        self.motion_trials += sum(hint is not None for hint in hints.values())
-
         use_gpu = (self.gpu not in ("off", "0") and not self._gpu_failed and len(pending) >= 4
                    and (self.gpu != "auto" or self.expected_cells >= 4))
         if use_gpu and self._load_gpu():
@@ -211,12 +198,6 @@ class AlignmentCache:
                     self.cpu_solves += 1
                     continue
                 problem['share_motion'] = self._support_enabled
-                from .auto_motion import certify
-                certified = certify(problem, hints[key])
-                if certified is not None:
-                    self.results[key] = certified
-                    self.motion_certified += 1
-                    continue
                 problems[key] = problem
                 rows, cols = problem["size"]
                 if min(rows, cols) <= 2 * problem['limit']:
@@ -242,31 +223,24 @@ class AlignmentCache:
             self._learn_motion(pending)
             return
 
-        def solve(item):
-            key, request = item
+        def solve(request):
             target, guide, bounds, margin = request
             problem = ap._prepare_local_shift(target, guide, bounds, margin=margin, lazy=True)
             if problem is None:
-                return ((0, 0), 0.0), False
+                return (0, 0), 0.0
             problem['share_motion'] = self._support_enabled
-            if hints[key] is not None:
-                from .auto_motion import certify
-                certified = certify(problem, hints[key])
-                if certified is not None:
-                    return certified, True
-            return ap._solve_local_shift(problem), False
+            return ap._solve_local_shift(problem)
 
         if len(pending) < 4:
-            results = map(solve, pending.items())
+            results = map(solve, pending.values())
         else:
             if self._executor is None:
                 self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="alignment")
-            results = self._executor.map(solve, pending.items())
+            results = self._executor.map(solve, pending.values())
             self.cpu_batches += 1
-        for key, (result, certified) in zip(pending, results):
+        for key, result in zip(pending, results):
             self.results[key] = result
-            self.cpu_solves += not certified
-            self.motion_certified += certified
+            self.cpu_solves += 1
             self.batched_solves += 1
         self._learn_motion(pending)
 

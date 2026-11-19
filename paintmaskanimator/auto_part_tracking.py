@@ -147,8 +147,6 @@ class PartTracker:
         left, right = target.boundary[y0:y1, x0:x1], source.boundary[y0:y1, x0:x1]
         pair = _FlowPair(line_flow.estimate_flow(left, right), line_flow.estimate_flow(right, left),
                          x0, y0)
-        self.alignment.register_motion(target, source, pair.forward, x0, y0)
-        self.alignment.register_motion(source, target, pair.backward, x0, y0)
         self.flow_solves += 1
         self.pairs[key] = pair
         if len(self.pairs) > MAX_FLOW_PAIRS:

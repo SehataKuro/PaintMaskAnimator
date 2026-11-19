@@ -179,7 +179,6 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(auto_paint::connect_runs, module)?)?;
     module.add_function(wrap_pyfunction!(auto_paint::refine_face, module)?)?;
     module.add_function(wrap_pyfunction!(auto_paint::solve_local_shift, module)?)?;
-    module.add_function(wrap_pyfunction!(auto_paint::certify_local_shift, module)?)?;
     module.add_function(wrap_pyfunction!(
         mask_transform::py_render_quad_labels,
         module
