@@ -14,6 +14,7 @@ pub mod mask_transform;
 pub mod palette;
 pub mod palette_labels;
 pub mod project;
+pub mod reference_check;
 pub mod regions;
 pub mod thin;
 pub mod tone_curve;

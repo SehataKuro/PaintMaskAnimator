@@ -24,6 +24,7 @@ REQUIRED_API = (
     "palette_color_counts", "hue_cluster_palette", "palette_training_samples",
     "select_palette_colors", "line_palette_labels", "apply_color_reduction_palette",
     "line_flow_scores", "line_flow_interpolate", "connect_runs", "label_runs", "refine_face", "thin",
+    "reference_color_stats", "reference_line_art", "reference_region_stats", "reference_region_under",
     "render_quad_labels", "render_mesh_labels", "solve_local_shift",
     "surface_guided_palette_labels", "map_known_colors", "region_neighbors",
     "FillSession", "LineCache", "compute_fill_region_once", "fill_target_mask", "extend_line_ends", "flood_fill", "dilate", "erode", "label_regions", "remove_line_noise", "decode_png", "encode_png", "ZipReader", "ZipWriter", "decode_v2_plan",
@@ -307,6 +308,75 @@ def label_runs(values):
     return (np.frombuffer(labels, dtype=np.int32).reshape(height, width).copy(), count,
             (np.frombuffer(ys, dtype=np.int64).copy(), np.frombuffer(xs, dtype=np.int64).copy(),
              np.frombuffer(ends, dtype=np.int64).copy(), np.frombuffer(runs, dtype=np.int32).copy()))
+
+
+def _reference_rgba(pixels):
+    return (type(pixels) is np.ndarray and pixels.ndim == 3 and pixels.shape[2] == 4
+            and pixels.dtype == np.uint8)
+
+
+def reference_color_stats(pixels):
+    """色ごとの画素数と外接矩形を返す。対応外の入力では None。"""
+    if not _reference_rgba(pixels) or not np.little_endian:
+        return None
+    return _native.reference_color_stats(_rgba_bytes(pixels), pixels.shape[1])
+
+
+def reference_line_art(pixels, line_max):
+    """RGB がしきい値以下の不透明画素のマスクを返す。対応外の入力では None。"""
+    if not _reference_rgba(pixels) or not 0 <= line_max <= 255:
+        return None
+    data = _native.reference_line_art(_rgba_bytes(pixels), line_max)
+    return np.frombuffer(data, dtype=bool).reshape(pixels.shape[:2])
+
+
+def reference_region_stats(runs, count, width, height):
+    """ランから領域ごとの画素数、外接矩形、画像の端に接するかを返す。対応外の型では None。"""
+    ys, starts, ends, labels = runs
+    if any(array.dtype != np.int64 for array in (ys, starts, ends)) or labels.dtype != np.int32:
+        return None
+    return _native.reference_region_stats(
+        tuple(array.tobytes() for array in runs), count, width, height,
+    )
+
+
+def reference_region_sampler(labels, lines):
+    """矩形内のマスクで主線を除いた最多ラベルと割合を求める関数を返す。対応外の入力では None。"""
+    if (type(labels) is not np.ndarray or labels.dtype != np.int32
+            or type(lines) is not np.ndarray or lines.dtype != np.bool_
+            or labels.ndim != 2 or labels.shape != lines.shape):
+        return None
+    # 変更できないバッファは、GIL を解放して各候補の票を数えるときに使い回せる。
+    label_bytes, line_bytes = labels.tobytes(), lines.tobytes()
+    shape = labels.shape[::-1]
+
+    def sample(local, bounds):
+        return _native.reference_region_under(label_bytes, line_bytes, shape, local.tobytes(), bounds)
+
+    return sample
+
+
+def reference_context_similarity(previous, previous_local, previous_bounds,
+                                 current, current_local, current_bounds, radius):
+    """外接矩形内のマスクを使い、二つの部分のまわりの色の並びの類似度を返す。"""
+    def context(pixels, local, bounds):
+        y, x = _tracking_center(local)
+        x0, y0, x1, y1 = bounds
+        cy, cx = y + y0, x + x0
+        height, width = pixels.shape[:2]
+        top, left = max(0, cy - radius), max(0, cx - radius)
+        bottom, right = min(height, cy + radius + 1), min(width, cx + radius + 1)
+        region = np.zeros((bottom - top, right - left), dtype=bool)
+        sy, sx = max(top, y0), max(left, x0)
+        ey, ex = min(bottom, y1), min(right, x1)
+        region[sy - top:ey - top, sx - left:ex - left] = local[sy - y0:ey - y0, sx - x0:ex - x0]
+        return _tracking_context(pixels[top:bottom, left:right], region,
+                                 (cy - top, cx - left), radius)
+
+    return _native.context_similarity(
+        context(previous, previous_local, previous_bounds),
+        context(current, current_local, current_bounds),
+    )
 
 
 def refine_face(guide, filled, shift, bounds, radius, thresholds):

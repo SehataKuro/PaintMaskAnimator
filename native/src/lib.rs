@@ -24,6 +24,7 @@ mod palette;
 mod palette_labels;
 mod project_payload;
 mod project_zip;
+mod reference_check;
 mod timeline;
 mod tone_curve;
 
@@ -176,6 +177,22 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(display::filter_palette, module)?)?;
     module.add_class::<auto_paint::GuideSampler>()?;
     module.add_function(wrap_pyfunction!(auto_paint::label_runs, module)?)?;
+    module.add_function(wrap_pyfunction!(
+        reference_check::reference_color_stats,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(
+        reference_check::reference_line_art,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(
+        reference_check::reference_region_stats,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(
+        reference_check::reference_region_under,
+        module
+    )?)?;
     module.add_function(wrap_pyfunction!(auto_paint::connect_runs, module)?)?;
     module.add_function(wrap_pyfunction!(auto_paint::refine_face, module)?)?;
     module.add_function(wrap_pyfunction!(auto_paint::solve_local_shift, module)?)?;

@@ -42,6 +42,21 @@ def connect_runs(starts: bytes, ends: bytes, kinds: bytes, rows: bytes) -> tuple
 def label_runs(data: bytes, width: int, height: int, itemsize: int
                ) -> tuple[bytes, int, bytes, bytes, bytes, bytes]: ...
 
+def reference_color_stats(
+    rgba: bytes, width: int,
+) -> list[tuple[int, int, tuple[int, int, int, int]]]: ...
+
+def reference_line_art(rgba: bytes, line_max: int) -> bytearray: ...
+
+def reference_region_stats(
+    runs: tuple[bytes, bytes, bytes, bytes], count: int, width: int, height: int,
+) -> list[tuple[int, tuple[int, int, int, int], bool]]: ...
+
+def reference_region_under(
+    labels: bytes, lines: bytes, shape: tuple[int, int], mask: bytes,
+    bounds: tuple[int, int, int, int],
+) -> tuple[int | None, float]: ...
+
 def refine_face(
     values: bytes, labels: bytes, usable: bytes, excluded: bytes, sizes: bytes,
     points: bytes, width: int, height: int, radius: int,

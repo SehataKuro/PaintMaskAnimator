@@ -22,7 +22,7 @@ from typing import Optional, Tuple
 
 import numpy as np
 
-from . import native
+from .numpy_morphology import dilate_numpy
 
 #: ずれを数える窓の一辺の上限。これより大きい窓は間引いて計算する。
 #: ずれは粗くてよい（最後は実際に塗って重なりで選ぶ）ので、速さを優先する。
@@ -71,9 +71,7 @@ def shift_mask(mask, dy, dx):
 
 def _outline(region, lines, width=3):
     """``region`` の縁に接する線画だけを残す（遠くの動かない線を比べないため）。"""
-    from .bucket_fill import dilate
-
-    return lines & dilate(region, width) & ~region
+    return lines & dilate_numpy(region, width) & ~region
 
 
 def estimate_shifts(previous_lines, current_lines, region, count=3, margin=None):
@@ -100,6 +98,8 @@ def estimate_shifts(previous_lines, current_lines, region, count=3, margin=None)
         return []
     # 窓には領域全体が含まれるので、窓内の輪郭はここから計算できる。
     window = np.s_[max(0, y0 - margin):y1 + margin, max(0, x0 - margin):x1 + margin]
+    from . import native
+
     return native.estimate_shifts(
         previous_lines[window], current_lines[window], region[window], count, margin
     )
@@ -278,6 +278,8 @@ def warp_region(previous_lines, current_lines, region, shift=(0, 0)):
     oy = max(0, y0 + min(0, dy) - pad)
     ox = max(0, x0 + min(0, dx) - pad)
     window = np.s_[oy:y1 + max(0, dy) + pad, ox:x1 + max(0, dx) + pad]
+    from . import native
+
     warped = native.warp_region(
         previous_lines[window], current_lines[window], region[window], (dy, dx), (oy, ox)
     )
@@ -404,6 +406,8 @@ def estimate_color_shifts(
     bounds = mask_bounds(region)
     if bounds is None or count <= 0:
         return []
+    from . import native
+
     return native.estimate_color_shifts(
         previous_pixels, current_pixels, region, bounds, count, radius, margin
     )
@@ -486,6 +490,8 @@ def context_similarity(
     まわりがほぼ一色の白地なら、どこを比べても一致してしまい手がかりにならないので、
     そのときの色の一致は 0 とする（:func:`_agreement`）。
     """
+    from . import native
+
     return native.context_similarity(
         previous_pixels, previous_region, current_pixels, current_region, radius
     )
