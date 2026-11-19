@@ -209,6 +209,14 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(tone_curve::tone_curve_lut, module)?)?;
     module.add_function(wrap_pyfunction!(tone_curve::apply_tone_curve, module)?)?;
     module.add_function(wrap_pyfunction!(
+        tone_curve::tone_preview_background_mask,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(
+        tone_curve::apply_tone_preview_lut,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(
         palette::apply_color_reduction_palette,
         module
     )?)?;

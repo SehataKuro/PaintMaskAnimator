@@ -84,6 +84,13 @@ def apply_tone_curve(
     rgba: bytes, width: int, height: int, points: list[tuple[float, float]],
     background: tuple[int, int, int] | None = None,
 ) -> bytes: ...
+def tone_preview_background_mask(
+    rgba: bytes, width: int, height: int, background: tuple[int, int, int],
+) -> bytes: ...
+def apply_tone_preview_lut(
+    rgba: bytes, width: int, height: int, lut: bytes,
+    background: tuple[int, int, int] | None, mask: bytes | None,
+) -> bytes: ...
 def map_known_colors(
     rgba: bytes, codes: list[int], indices: list[int],
     palette: list[tuple[int, int, int]], line_max: int,

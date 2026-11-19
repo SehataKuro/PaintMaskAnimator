@@ -20,6 +20,7 @@ REQUIRED_API = (
     "border_background", "estimate_mixed_boundary_pixels", "snap_overlay_to_exact_rgbs",
     "local_color_variation", "median_cut_palette_from_samples", "normalize_tone_curve_points",
     "tone_curve_samples", "tone_curve_lut", "apply_tone_curve",
+    "tone_preview_background_mask", "apply_tone_preview_lut",
     "palette_color_counts", "hue_cluster_palette", "palette_training_samples",
     "select_palette_colors", "line_palette_labels", "apply_color_reduction_palette",
     "line_flow_scores", "connect_runs", "label_runs", "refine_face", "thin",
@@ -214,6 +215,21 @@ def tone_curve_lut(points):
 def apply_tone_curve(rgba, points, background_rgb):
     height, width = rgba.shape[:2]
     data = _native.apply_tone_curve(_rgba_bytes(rgba), width, height, points, background_rgb)
+    return np.ndarray(rgba.shape, dtype=np.uint8, buffer=data)
+
+
+def tone_preview_background_mask(rgba, background_rgb):
+    height, width = rgba.shape[:2]
+    data = _native.tone_preview_background_mask(_rgba_bytes(rgba), width, height, background_rgb)
+    return np.frombuffer(data, dtype=bool).reshape(height, width)
+
+
+def apply_tone_preview_lut(rgba, lut, background_rgb, mask=None):
+    height, width = rgba.shape[:2]
+    data = _native.apply_tone_preview_lut(
+        _rgba_bytes(rgba), width, height, lut.tobytes(), background_rgb,
+        None if mask is None else _rgba_bytes(mask),
+    )
     return np.ndarray(rgba.shape, dtype=np.uint8, buffer=data)
 
 

@@ -59,3 +59,40 @@ pub fn apply_tone_curve<'py>(
         .map_err(|error| PyValueError::new_err(error.to_string()))
     })
 }
+
+#[pyfunction]
+pub fn tone_preview_background_mask<'py>(
+    py: Python<'py>,
+    rgba: &[u8],
+    width: usize,
+    height: usize,
+    background: (u8, u8, u8),
+) -> PyResult<Bound<'py, PyBytes>> {
+    let (r, g, b) = background;
+    PyBytes::new_with(py, rgba.len() / 4, |output| {
+        py.detach(|| core::tone_preview_background_mask(rgba, width, height, [r, g, b], output))
+            .map_err(|error| PyValueError::new_err(error.to_string()))
+    })
+}
+
+#[pyfunction(signature = (rgba, width, height, lut, background, mask))]
+pub fn apply_tone_preview_lut<'py>(
+    py: Python<'py>,
+    rgba: &[u8],
+    width: usize,
+    height: usize,
+    lut: &[u8],
+    background: Option<(u8, u8, u8)>,
+    mask: Option<&[u8]>,
+) -> PyResult<Bound<'py, PyBytes>> {
+    let lut = lut
+        .try_into()
+        .map_err(|_| PyValueError::new_err("expected 256 LUT entries"))?;
+    let background = background.map(|(r, g, b)| [r, g, b]);
+    PyBytes::new_with(py, rgba.len(), |output| {
+        py.detach(|| {
+            core::apply_tone_preview_lut(rgba, width, height, lut, background, mask, output)
+        })
+        .map_err(|error| PyValueError::new_err(error.to_string()))
+    })
+}

@@ -112,29 +112,87 @@ pub fn apply_tone_curve(
     background: Option<[u8; 3]>,
     output: &mut [u8],
 ) -> Result<(), Error> {
+    apply_tone_preview_lut(
+        rgba,
+        width,
+        height,
+        &tone_curve_lut(points),
+        background,
+        None,
+        output,
+    )
+}
+
+/// `color_reduction_preview.apply_tone_preview_lut_numpy` と同じ RGBA8888 を書く。
+/// マスクを省略して背景色を渡すと、変換前 RGB から背景を判定する。
+pub fn apply_tone_preview_lut(
+    rgba: &[u8],
+    width: usize,
+    height: usize,
+    lut: &[u8; 256],
+    background: Option<[u8; 3]>,
+    mask: Option<&[u8]>,
+    output: &mut [u8],
+) -> Result<(), Error> {
     let pixels = rgba_pixels(rgba, width, height)?;
     if output.len() != rgba.len() {
         return Err(Error::Invalid("expected equally sized RGBA output".into()));
     }
-    let lut = tone_curve_lut(points);
+    if mask.is_some_and(|mask| mask.len() != pixels.len()) {
+        return Err(Error::Invalid("expected one mask byte per pixel".into()));
+    }
     let (output, _) = output.as_chunks_mut::<4>();
+    if let (Some(mask), Some([r, g, b])) = (mask, background) {
+        for ((&pixel, dest), &masked) in pixels.iter().zip(output).zip(mask) {
+            *dest = if masked != 0 {
+                [r, g, b, pixel[3]]
+            } else {
+                tone_curve_pixel(pixel, lut, None)
+            };
+        }
+    } else {
+        for (&pixel, dest) in pixels.iter().zip(output) {
+            *dest = tone_curve_pixel(pixel, lut, background);
+        }
+    }
+    Ok(())
+}
+
+/// `color_reduction_preview.tone_preview_background_mask_numpy` と同じ背景マスクを 0 / 1 で書く。
+pub fn tone_preview_background_mask(
+    rgba: &[u8],
+    width: usize,
+    height: usize,
+    background: [u8; 3],
+    output: &mut [u8],
+) -> Result<(), Error> {
+    let pixels = rgba_pixels(rgba, width, height)?;
+    if output.len() != pixels.len() {
+        return Err(Error::Invalid("expected one mask byte per pixel".into()));
+    }
     for (&pixel, dest) in pixels.iter().zip(output) {
-        *dest = tone_curve_pixel(pixel, &lut, background);
+        *dest = u8::from(near_background(pixel, background));
     }
     Ok(())
 }
 
 #[inline]
+fn near_background([r, g, b, _]: [u8; 4], [br, bg, bb]: [u8; 3]) -> bool {
+    let dr = i32::from(r) - i32::from(br);
+    let dg = i32::from(g) - i32::from(bg);
+    let db = i32::from(b) - i32::from(bb);
+    dr * dr + dg * dg + db * db <= 75
+}
+
+#[inline]
 pub(crate) fn tone_curve_pixel(
-    [r, g, b, a]: [u8; 4],
+    pixel: [u8; 4],
     lut: &[u8; 256],
     background: Option<[u8; 3]>,
 ) -> [u8; 4] {
+    let [r, g, b, a] = pixel;
     if let Some([br, bg, bb]) = background {
-        let dr = i32::from(i16::from(r) - i16::from(br));
-        let dg = i32::from(i16::from(g) - i16::from(bg));
-        let db = i32::from(i16::from(b) - i16::from(bb));
-        if dr * dr + dg * dg + db * db <= 75 {
+        if near_background(pixel, [br, bg, bb]) {
             return [br, bg, bb, a];
         }
     }
@@ -170,5 +228,21 @@ mod tests {
             [100, 100, 100, 127, lut[106], lut[106], lut[102], 255]
         );
         assert!(apply_tone_curve(&rgba, 1, 1, vec![], None, &mut output).is_err());
+    }
+    #[test]
+    fn preview_mask_and_fused_lut_match() {
+        let rgba = [105, 105, 105, 0, 105, 105, 106, 127];
+        let mut mask = [0; 2];
+        let mut output = [0; 8];
+        let background = [100; 3];
+        let lut = [42; 256];
+        tone_preview_background_mask(&rgba, 2, 1, background, &mut mask).unwrap();
+        assert_eq!(mask, [1, 0]);
+        for mask in [None, Some(mask.as_slice())] {
+            apply_tone_preview_lut(&rgba, 2, 1, &lut, Some(background), mask, &mut output).unwrap();
+            assert_eq!(output, [100, 100, 100, 0, 42, 42, 42, 127]);
+        }
+        assert!(tone_preview_background_mask(&rgba, 2, 1, background, &mut []).is_err());
+        assert!(apply_tone_preview_lut(&rgba, 2, 1, &lut, None, Some(&[1]), &mut output).is_err());
     }
 }

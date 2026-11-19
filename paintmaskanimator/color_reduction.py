@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from . import color_reduction_preview as preview_ops
+from . import color_reduction_preview as preview_ops, imaging
 from .i18n import tr
 from .canvas import PaintCanvas
 from .errors import OperationError
@@ -362,6 +362,7 @@ class ColorReductionDialog(QDialog):
         self._tone_drag_active = False
         self._tone_preview_source_rgba = None
         self._tone_preview_background_mask = None
+        self._tone_preview_background = None
         self._tone_adjusted_preview_image = self.source_image.copy()
         self._color_processing = False
         self._initial_preview = True
@@ -600,13 +601,36 @@ class ColorReductionDialog(QDialog):
     def _prepare_tone_preview_source(self):
         if self._tone_preview_source_rgba is not None:
             return
-        self._tone_preview_source_rgba = (
-            PaintCanvas._qimage_rgba_array(
-                self.source_image
-            )
+        self._tone_preview_source_rgba = imaging.qimage_rgba_array(
+            self.source_image, readonly=True
         )
-        self._tone_preview_background_mask = preview_ops.tone_preview_background_mask(
-            self._tone_preview_source_rgba, self.background_rgb
+        if (
+            self._tone_preview_source_rgba is not None
+            and preview_ops.is_tone_preview_background_rgb(self.background_rgb)
+        ):
+            self._tone_preview_background = tuple(self.background_rgb)
+        else:
+            self._tone_preview_background_mask = preview_ops.tone_preview_background_mask(
+                self._tone_preview_source_rgba, self.background_rgb
+            )
+
+    def _apply_tone_preview_lut(self, source_rgba, lut):
+        background = self.background_rgb
+        initial_background = self._tone_preview_background
+        if (
+            background is None
+            or (preview_ops.is_tone_preview_background_rgb(background)
+                and tuple(background) == initial_background)
+        ):
+            return preview_ops.apply_tone_preview_lut_from_source(source_rgba, lut, background)
+
+        # 背景設定が変わっても、復元対象は最初の背景色で決める。
+        if initial_background is not None and self._tone_preview_background_mask is None:
+            self._tone_preview_background_mask = preview_ops.tone_preview_background_mask(
+                source_rgba, initial_background
+            )
+        return preview_ops.apply_tone_preview_lut(
+            source_rgba, lut, self._tone_preview_background_mask, background
         )
 
     def _show_tone_curve_live_preview(self, force=False):
@@ -622,9 +646,7 @@ class ColorReductionDialog(QDialog):
             lut = PaintCanvas.tone_curve_lut(
                 self.tone_curve_points()
             )
-            result = preview_ops.apply_tone_preview_lut(
-                source_rgba, lut, self._tone_preview_background_mask, self.background_rgb
-            )
+            result = self._apply_tone_preview_lut(source_rgba, lut)
 
             preview = PaintCanvas._rgba_array_to_qimage(
                 result

@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from . import color_ops
+from . import color_ops, native
 from .errors import OperationError
 from .i18n import tr
 
@@ -44,7 +44,35 @@ def resolve_color_preview_settings(
     return cache_key, opaque_background, background_rgb
 
 
+def _packed_rgba(rgba):
+    return (
+        type(rgba) is np.ndarray and rgba.dtype == np.uint8
+        and rgba.ndim == 3 and rgba.shape[2] == 4 and rgba.flags.c_contiguous
+    )
+
+
+def is_tone_preview_background_rgb(background_rgb):
+    """ライブの Rust 計算にそのまま渡せる背景 RGB かを返す。"""
+    return (
+        type(background_rgb) in (tuple, list) and len(background_rgb) == 3
+        and all(type(value) is int and 0 <= value <= 255 for value in background_rgb)
+    )
+
+
+def _packed_lut(lut):
+    return type(lut) is np.ndarray and lut.dtype == np.uint8 and lut.shape == (256,)
+
+
 def tone_preview_background_mask(rgba, background_rgb):
+    """元画像の RGB が指定背景色に近い画素のマスクを返す。"""
+    if background_rgb is None:
+        return None
+    if _packed_rgba(rgba) and is_tone_preview_background_rgb(background_rgb):
+        return native.tone_preview_background_mask(rgba, tuple(background_rgb)).copy()
+    return tone_preview_background_mask_numpy(rgba, background_rgb)
+
+
+def tone_preview_background_mask_numpy(rgba, background_rgb):
     """元画像の RGB が指定背景色に近い画素のマスクを返す。"""
     if background_rgb is None:
         return None
@@ -58,6 +86,35 @@ def tone_preview_background_mask(rgba, background_rgb):
 
 
 def apply_tone_preview_lut(source_rgba, lut, background_mask, background_rgb):
+    """RGB に LUT を適用し、渡されたマスクに従って背景を復元する。"""
+    if _packed_rgba(source_rgba) and _packed_lut(lut):
+        if background_mask is None or background_rgb is None:
+            return native.apply_tone_preview_lut(source_rgba, lut, None).copy()
+        if (
+            is_tone_preview_background_rgb(background_rgb)
+            and type(background_mask) is np.ndarray and background_mask.dtype == np.bool_
+            and background_mask.shape == source_rgba.shape[:2]
+            and background_mask.flags.c_contiguous
+        ):
+            return native.apply_tone_preview_lut(
+                source_rgba, lut, tuple(background_rgb), background_mask
+            ).copy()
+    return apply_tone_preview_lut_numpy(source_rgba, lut, background_mask, background_rgb)
+
+
+def apply_tone_preview_lut_from_source(source_rgba, lut, background_rgb):
+    """変換前の RGB で背景を判定し、LUT 適用と背景復元を一巡で行う。"""
+    if (
+        _packed_rgba(source_rgba) and _packed_lut(lut)
+        and (background_rgb is None or is_tone_preview_background_rgb(background_rgb))
+    ):
+        background = None if background_rgb is None else tuple(background_rgb)
+        return native.apply_tone_preview_lut(source_rgba, lut, background)
+    mask = tone_preview_background_mask_numpy(source_rgba, background_rgb)
+    return apply_tone_preview_lut_numpy(source_rgba, lut, mask, background_rgb)
+
+
+def apply_tone_preview_lut_numpy(source_rgba, lut, background_mask, background_rgb):
     """RGB に LUT を適用し、背景色を復元した RGBA のコピーを返す。"""
     result = source_rgba.copy()
     result[:, :, :3] = lut[result[:, :, :3]]
