@@ -251,6 +251,7 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(py_erode, module)?)?;
     module.add_function(wrap_pyfunction!(py_label_regions, module)?)?;
     module.add_function(wrap_pyfunction!(py_line_flow_scores, module)?)?;
+    module.add_function(wrap_pyfunction!(py_line_flow_interpolate, module)?)?;
     module.add_function(wrap_pyfunction!(py_thin, module)?)?;
     module.add_function(wrap_pyfunction!(py_fill_target_mask, module)?)?;
     module.add_function(wrap_pyfunction!(fill_tracking::estimate_shifts, module)?)?;
@@ -362,6 +363,62 @@ fn py_line_flow_scores<'py>(
         .collect()
     });
     Ok(PyBytes::new(py, &bytes))
+}
+
+#[pyfunction(name = "line_flow_interpolate")]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn py_line_flow_interpolate<'py>(
+    py: Python<'py>,
+    dy: &[u8],
+    dx: &[u8],
+    width: usize,
+    height: usize,
+    block: usize,
+    ys: &[u8],
+    xs: &[u8],
+) -> PyResult<Option<(Bound<'py, PyBytes>, Bound<'py, PyBytes>)>> {
+    let cells = width
+        .checked_mul(height)
+        .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("invalid flow grid dimensions"))?;
+    check_size(dy, cells, 8)?;
+    check_size(dx, cells, 8)?;
+    check_size(ys, ys.len() / 8, 8)?;
+    check_size(xs, ys.len() / 8, 8)?;
+    let decode = |data: &[u8]| -> Vec<f64> {
+        data.chunks_exact(8)
+            .map(|chunk| f64::from_le_bytes(chunk.try_into().unwrap()))
+            .collect()
+    };
+    let interpolate = || {
+        pma_core::line_flow::interpolate_flow(
+            &decode(dy),
+            &decode(dx),
+            (width, height),
+            block,
+            &decode(ys),
+            &decode(xs),
+        )
+    };
+    let result = if ys.len() >= 8192 * 8 {
+        py.detach(interpolate)
+    } else {
+        interpolate()
+    };
+    match result {
+        Ok((dy, dx)) => {
+            let encode = |values: &[f64]| {
+                PyBytes::new_with(py, values.len() * 8, |buffer| {
+                    for (slot, value) in buffer.chunks_exact_mut(8).zip(values) {
+                        slot.copy_from_slice(&value.to_le_bytes());
+                    }
+                    Ok(())
+                })
+            };
+            Ok(Some((encode(&dy)?, encode(&dx)?)))
+        }
+        Err(pma_core::Error::Unsupported(_)) => Ok(None),
+        Err(error) => Err(pyo3::exceptions::PyValueError::new_err(error.to_string())),
+    }
 }
 
 #[pyfunction(name = "extend_line_ends")]

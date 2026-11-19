@@ -23,7 +23,7 @@ REQUIRED_API = (
     "tone_preview_background_mask", "apply_tone_preview_lut",
     "palette_color_counts", "hue_cluster_palette", "palette_training_samples",
     "select_palette_colors", "line_palette_labels", "apply_color_reduction_palette",
-    "line_flow_scores", "connect_runs", "label_runs", "refine_face", "thin",
+    "line_flow_scores", "line_flow_interpolate", "connect_runs", "label_runs", "refine_face", "thin",
     "render_quad_labels", "render_mesh_labels", "solve_local_shift", "certify_local_shift",
     "surface_guided_palette_labels", "map_known_colors", "region_neighbors",
     "FillSession", "LineCache", "compute_fill_region_once", "fill_target_mask", "extend_line_ends", "flood_fill", "dilate", "erode", "label_regions", "remove_line_noise", "decode_png", "encode_png", "ZipReader", "ZipWriter", "decode_v2_plan",
@@ -249,6 +249,21 @@ def filter_palette(rgba, visible, legacy, remap):
         [(rgb_tuple(child), rgb_tuple(parent)) for child, parent in remap.items()],
     )
     return np.frombuffer(data, dtype=np.uint8).reshape(rgba.shape)
+
+
+def line_flow_interpolate(dy, dx, block, ys, xs):
+    """broadcast 済みの座標で縦横のずれを補間する。"""
+    height, width = dy.shape
+    # NumPy の int64 + 0.5 と同様に、まず int64 を f64 に丸める。
+    result = _native.line_flow_interpolate(
+        dy.astype("<f8", copy=False).tobytes(), dx.astype("<f8", copy=False).tobytes(),
+        width, height, block,
+        ys.astype("<f8", copy=False).tobytes(), xs.astype("<f8", copy=False).tobytes(),
+    )
+    if result is None:
+        return None
+    return tuple(np.frombuffer(data, dtype="<f8").astype(np.float64).reshape(ys.shape)
+                 for data in result)
 
 
 def line_flow_scores(target, guide, block, base_y, base_x, reach):

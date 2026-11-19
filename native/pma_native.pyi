@@ -51,6 +51,10 @@ def refine_face(
 def thin(mask: bytes, width: int, height: int, iterations: int) -> bytes:
     """Zhang-Suen 細線化。線端の判定に使い、描画画像自体は変えない。"""
 
+def line_flow_interpolate(
+    dy: bytes, dx: bytes, width: int, height: int, block: int, ys: bytes, xs: bytes,
+) -> tuple[bytes, bytes] | None: ...
+
 def line_flow_scores(
     target: bytes, guide: bytes, width: int, height: int, block: int,
     base_y: bytes, base_x: bytes, reach: int,

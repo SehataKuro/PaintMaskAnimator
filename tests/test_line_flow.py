@@ -132,6 +132,7 @@ def test_native_full_flow_matches_numpy_exactly(shape, seed, monkeypatch):
 
 def test_backend_contract_includes_line_flow():
     assert "line_flow_scores" in native.REQUIRED_API
+    assert "line_flow_interpolate" in native.REQUIRED_API
 
 
 @needs_flow_native
@@ -144,3 +145,54 @@ def test_native_rejects_invalid_flow_buffers():
         pma_native.line_flow_scores(bytes(16), bytes(16), 4, 4, 0, offsets, offsets, 2)
     with pytest.raises(ValueError):
         pma_native.line_flow_scores(bytes(16), bytes(16), 4, 4, 4, b"", offsets, 2)
+
+
+@pytest.mark.skipif(not native.available(), reason="Rust 拡張が必要")
+@pytest.mark.parametrize("shape", [(1, 1), (1, 7), (5, 1), (5, 7)])
+def test_interpolation_matches_numpy_bits(shape, monkeypatch):
+    rng = np.random.default_rng(721)
+    dy, dx = (rng.normal(size=shape)[:, ::-1] for _ in range(2))
+    dy[0, 0] = -0.0
+    dx[-1, -1] = np.nextafter(0.0, 1.0)
+    flow = line_flow.Flow(dy, dx, dy, dx, (160, 224))
+    yr = rng.uniform(-70, 250, (128, 1))[::-1]
+    xr = rng.uniform(-70, 250, (1, 80))
+    yr[:6, 0] = [-np.inf, np.inf, 15.5, 47.5, 143.5, np.finfo(float).max]
+    xr[0, :5] = [-np.inf, np.inf, 15.5, 47.5, 207.5]
+    iy = rng.integers(-100, 280, 1000)
+    ix = rng.integers(-100, 280, 1000)
+    iy[:4] = [-(2**63), 2**63 - 1, 2**53 + 1, -2**53 - 1]
+
+    for ys, xs in [(yr, xr), (iy, ix), (iy, 15.5), (15, 47), (23.5, 29.5)]:
+        by, bx = np.broadcast_arrays(ys, xs)
+        expected = flow._at_numpy(ys, xs)
+        actual = native.line_flow_interpolate(dy, dx, line_flow.BLOCK, by, bx)
+        assert actual is not None
+        for result in (actual, flow.at(ys, xs)):
+            for got, want in zip(result, expected):
+                assert got.shape == want.shape
+                assert got.dtype == want.dtype == np.float64
+                assert got.flags.writeable
+                assert np.array_equal(got, want)
+                assert np.array_equal(got.view(np.uint64), want.view(np.uint64))
+
+    def fail_if_fallback(*args):
+        pytest.fail("対応する配列が NumPy へフォールバックした")
+
+    monkeypatch.setattr(flow, "_at_numpy", fail_if_fallback)
+    flow.at(yr, xr)
+
+
+@pytest.mark.skipif(not native.available(), reason="Rust 拡張が必要")
+def test_interpolation_numpy_fallback():
+    grid = np.arange(4.0).reshape(2, 2)
+    flow = line_flow.Flow(grid, grid, grid, grid, (64, 64))
+    ys = np.full(512, np.nan)
+    xs = np.full(512, 16.0)
+    assert native.line_flow_interpolate(grid, grid, line_flow.BLOCK, ys, xs) is None
+    with np.errstate(invalid="raise"), pytest.raises(FloatingPointError):
+        flow.at(ys, xs)
+
+    ys = np.linspace(-12, 52, 512, dtype=np.float32)
+    for got, want in zip(flow.at(ys, xs), flow._at_numpy(ys, xs)):
+        assert np.array_equal(got.view(np.uint64), want.view(np.uint64))
