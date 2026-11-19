@@ -568,6 +568,38 @@ class _ShiftProblem(dict):
 
 
 def _prepare_local_shift(target, guide, bounds, context=CONTEXT, margin=SEARCH_MARGIN, *, lazy=False):
+    """二値の局所ずれ窓を Rust で準備し、非二値は NumPy で処理する。"""
+    if target.boundary.dtype != np.bool_ or not native.available() or margin < 0:
+        return _prepare_local_shift_numpy(target, guide, bounds, context, margin, lazy=lazy)
+    wx0, wy0, wx1, wy1, tx0, ty0, tx1, ty1, step = _local_shift_geometry(
+        target, bounds, context, margin)
+    if not (wx0 <= tx0 <= tx1 <= wx1 and wy0 <= ty0 <= ty1 <= wy1):
+        return _prepare_local_shift_numpy(target, guide, bounds, context, margin, lazy=lazy)
+
+    # 余白付き窓の左上を基準に、対象矩形内の最初のサンプルへそろえる。
+    oy = (ty0 - wy0 + step - 1) // step
+    ox = (tx0 - wx0 + step - 1) // step
+    source = target.boundary[wy0 + oy * step:ty1:step, wx0 + ox * step:tx1:step]
+    wide = np.asarray(guide.wide_boundary[wy0:wy1:step, wx0:wx1:step], dtype=np.bool_)
+    shape = ((wy1 - wy0 + step - 1) // step, (wx1 - wx0 + step - 1) // step)
+    if wide.shape != shape:
+        return _prepare_local_shift_numpy(target, guide, bounds, context, margin, lazy=lazy)
+    limit = margin // step
+    prepared = native.prepare_local_shift(
+        source.tobytes(), source.shape, wide.tobytes(), wide.shape, (oy, ox), limit)
+    if prepared is None:
+        return None
+    before_bytes, size, total, ys, xs, dys, dxs = prepared
+    before = np.frombuffer(before_bytes, dtype=np.bool_).reshape(wide.shape).astype(np.float32)
+    return _shift_problem(
+        target, guide, (wx0, wy0, tx0, ty0, tx1, ty1), lazy,
+        before=before, before_bytes=before_bytes, size=size, total=total, step=step, limit=limit,
+        ys=np.asarray(ys, dtype=np.int_), xs=np.asarray(xs, dtype=np.int_),
+        dys=np.asarray(dys, dtype=np.int_), dxs=np.asarray(dxs, dtype=np.int_))
+
+
+def _local_shift_geometry(target, bounds, context, margin):
+    """画像で切り詰めた探索窓、対象矩形、間引き幅を返す。"""
     height, width = target.values.shape
     x0, y0, x1, y1 = bounds
     tx0, ty0 = max(0, x0 - context), max(0, y0 - context)
@@ -575,6 +607,13 @@ def _prepare_local_shift(target, guide, bounds, context=CONTEXT, margin=SEARCH_M
     wx0, wy0 = max(0, tx0 - margin), max(0, ty0 - margin)
     wx1, wy1 = min(width, tx1 + margin), min(height, ty1 + margin)
     step = max(1, int(np.ceil(max(wx1 - wx0, wy1 - wy0) / _MAX_WINDOW)))
+    return wx0, wy0, wx1, wy1, tx0, ty0, tx1, ty1, step
+
+
+def _prepare_local_shift_numpy(target, guide, bounds, context=CONTEXT, margin=SEARCH_MARGIN, *, lazy=False):
+    """局所ずれの窓を従来の NumPy 演算で準備する。"""
+    wx0, wy0, wx1, wy1, tx0, ty0, tx1, ty1, step = _local_shift_geometry(
+        target, bounds, context, margin)
     target_boundary = target.boundary
     binary = target_boundary.dtype == np.bool_
     boundary = np.zeros((wy1 - wy0, wx1 - wx0), dtype=np.bool_ if binary else np.float32)
@@ -591,10 +630,15 @@ def _prepare_local_shift(target, guide, bounds, context=CONTEXT, margin=SEARCH_M
     xs = np.r_[0:limit + 1, size[1] - limit:size[1]]
     dys = np.where(ys >= size[0] // 2, ys - size[0], ys)
     dxs = np.where(xs >= size[1] // 2, xs - size[1], xs)
-    problem = _ShiftProblem(before=before, before_bytes=boundary.tobytes() if binary else None,
-                size=size, total=total, step=step,
-                limit=limit, ys=ys, xs=xs, dys=dys, dxs=dxs,
-                device_spec=(target, guide, wx0, wy0, tx0, ty0, tx1, ty1))
+    return _shift_problem(
+        target, guide, (wx0, wy0, tx0, ty0, tx1, ty1), lazy,
+        before=before, before_bytes=boundary.tobytes() if binary else None,
+        size=size, total=total, step=step, limit=limit, ys=ys, xs=xs, dys=dys, dxs=dxs)
+
+
+def _shift_problem(target, guide, crop, lazy, **fields):
+    """探索窓と遅延用の切り出し情報を一つの辞書にまとめる。"""
+    problem = _ShiftProblem(**fields, device_spec=(target, guide, *crop))
     if not lazy:
         problem['after']
     return problem

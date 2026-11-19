@@ -283,3 +283,54 @@ pub fn solve_local_shift(
     })
     .map_err(|error| PyValueError::new_err(error.to_string()))
 }
+
+type PreparedShift<'py> = (
+    Bound<'py, PyBytes>,
+    (usize, usize),
+    f64,
+    Vec<i64>,
+    Vec<i64>,
+    Vec<i64>,
+    Vec<i64>,
+);
+
+/// 間引き済みの二値窓を検査し、局所相関の準備結果を Python に返す。
+#[pyfunction]
+pub fn prepare_local_shift<'py>(
+    py: Python<'py>,
+    target: &[u8],
+    target_shape: (usize, usize),
+    wide: &[u8],
+    wide_shape: (usize, usize),
+    offset: (usize, usize),
+    limit: usize,
+) -> PyResult<Option<PreparedShift<'py>>> {
+    for (window, (height, width)) in [(target, target_shape), (wide, wide_shape)] {
+        if height.checked_mul(width) != Some(window.len()) {
+            return Err(PyValueError::new_err("invalid local shift window size"));
+        }
+    }
+    let prepared = py
+        .detach(|| {
+            pma_core::local_shift::prepare_local_shift(
+                target,
+                target_shape,
+                wide,
+                wide_shape,
+                offset,
+                limit,
+            )
+        })
+        .map_err(|error| PyValueError::new_err(error.to_string()))?;
+    Ok(prepared.map(|window| {
+        (
+            PyBytes::new(py, &window.before),
+            window.size,
+            window.total,
+            window.ys,
+            window.xs,
+            window.dys,
+            window.dxs,
+        )
+    }))
+}

@@ -293,6 +293,12 @@ def select_palette_colors(training: bytes, priority: bytes, clustered: bytes, co
 def line_palette_labels(rgb: bytes, width: int, height: int, visible: bytes, palette: bytes) -> bytes: ...
 def apply_color_reduction_palette(rgba: bytes, width: int, height: int, palette: bytes, threshold: int, opaque: bool, background: tuple[int, int, int] | None, points: list[tuple[float, float]] | None, line: bool) -> bytes: ...
 
+def prepare_local_shift(
+    target: bytes, target_shape: tuple[int, int],
+    wide: bytes, wide_shape: tuple[int, int],
+    offset: tuple[int, int], limit: int,
+) -> tuple[bytes, tuple[int, int], float, list[int], list[int], list[int], list[int]] | None: ...
+
 def solve_local_shift(
     before: bytes, exact: bytes, wide: bytes, width: int, height: int,
     fast_size: tuple[int, int], dys: list[int], dxs: list[int], total: float,

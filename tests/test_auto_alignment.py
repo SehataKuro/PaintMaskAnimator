@@ -503,3 +503,83 @@ def test_local_shift_numpy_fallback(monkeypatch):
         expected = auto_paint._solve_local_shift_numpy(problem)
         assert actual == expected
         assert actual[0].gap == expected[0].gap
+
+
+def test_prepare_local_shift_matches_numpy(monkeypatch):
+    """画像端、間引き、探索幅、遅延キーを含めて二つの実装を照合する。"""
+    rng = np.random.default_rng(682)
+    rust_prepare = auto_paint.native.prepare_local_shift
+    calls = []
+
+    def record(*args):
+        calls.append(args[1])
+        return rust_prepare(*args)
+
+    monkeypatch.setattr(auto_paint.native, "prepare_local_shift", record)
+    steps = set()
+    none_cases = 0
+    for index in range(140):
+        height, width = [(1, 1), (1, 25), (480, 800), (780, 490), (71, 53)][index % 5]
+        bounds_x = sorted(rng.integers(0, width + 1, 2).tolist())
+        bounds_y = sorted(rng.integers(0, height + 1, 2).tolist())
+        if index % 3 == 0:
+            bounds_x, bounds_y = (0, width), (0, height)
+        bounds = bounds_x[0], bounds_y[0], bounds_x[1], bounds_y[1]
+        context = int(rng.integers(0, 41))
+        margin = int(rng.integers(0, 120))
+        target = SimpleNamespace(
+            values=np.empty((height, width), dtype=np.uint8),
+            boundary=rng.random((height, width)) < rng.choice([0, 0.001, 0.2, 0.9, 1]),
+        )
+        guide = SimpleNamespace(
+            boundary=rng.random((height, width)) < 0.2,
+            wide_boundary=rng.random((height, width)) < rng.choice([0, 0.01, 0.5, 1]),
+        )
+        lazy = bool(index % 2)
+        expected = auto_paint._prepare_local_shift_numpy(
+            target, guide, bounds, context, margin, lazy=lazy)
+        actual = auto_paint._prepare_local_shift(target, guide, bounds, context, margin, lazy=lazy)
+        assert len(calls) == index + 1
+        assert (actual is None) == (expected is None)
+        if actual is None:
+            none_cases += 1
+            continue
+
+        steps.add(actual["step"])
+        assert tuple(actual) == tuple(expected)
+        assert ("after" in actual) == (not lazy)
+        assert "boundaries" not in actual
+        for key in (*expected, "after", "boundaries"):
+            left, right = actual[key], expected[key]
+            if key == "boundaries":
+                for a, b in zip(left, right, strict=True):
+                    assert a.dtype == b.dtype
+                    assert np.array_equal(a, b)
+            elif isinstance(right, np.ndarray):
+                assert left.dtype == right.dtype
+                assert left.flags.writeable == right.flags.writeable
+                assert np.array_equal(left, right)
+            elif key == "device_spec":
+                assert left[0] is right[0] and left[1] is right[1]
+                assert left[2:] == right[2:]
+            else:
+                assert type(left) is type(right)
+                assert left == right
+    assert {1, 2, 3} <= steps
+    assert none_cases > 0
+
+
+def test_prepare_local_shift_numpy_fallback(monkeypatch):
+    """非二値と拡張が使えない場合には NumPy 版を呼ぶ。"""
+    target, guide = pair()
+    prepare_numpy = auto_paint._prepare_local_shift_numpy
+    bounds = (80, 80, 112, 112)
+    monkeypatch.setattr(auto_paint, "_prepare_local_shift_numpy", lambda *a, **kw: "numpy")
+    monkeypatch.setattr(auto_paint.native, "available", lambda: False)
+    assert auto_paint._prepare_local_shift(target, guide, bounds) == "numpy"
+    monkeypatch.setattr(auto_paint.native, "available", lambda: True)
+    target.boundary = target.boundary.astype(np.float32) * 0.75
+    assert auto_paint._prepare_local_shift(target, guide, bounds) == "numpy"
+    result = prepare_numpy(target, guide, bounds)
+    assert result["before_bytes"] is None
+    assert result["total"] == float(result["before"].sum())

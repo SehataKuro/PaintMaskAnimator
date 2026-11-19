@@ -26,7 +26,7 @@ REQUIRED_API = (
     "line_flow_scores", "line_flow_interpolate", "connect_runs", "label_runs", "refine_face", "thin",
     "reference_color_stats", "reference_line_art", "reference_region_stats", "reference_region_under",
     "render_quad_labels", "render_mesh_labels", "splat_mask_labels", "mask_labels_to_rgba",
-    "solve_local_shift",
+    "solve_local_shift", "prepare_local_shift",
     "surface_guided_palette_labels", "map_known_colors", "region_neighbors",
     "FillSession", "LineCache", "compute_fill_region_once", "fill_target_mask", "extend_line_ends", "flood_fill", "dilate", "erode", "label_regions", "remove_line_noise", "decode_png", "encode_png", "ZipReader", "ZipWriter", "decode_v2_plan",
 )
@@ -924,6 +924,13 @@ def apply_color_reduction_palette(rgba, palette, threshold, opaque, background, 
         _rgba_bytes(rgba), width, height, _rgba_bytes(palette), threshold, opaque, background, points, line,
     )
     return np.ndarray(rgba.shape, dtype=np.uint8, buffer=data)
+
+def prepare_local_shift(target: bytes, target_shape: tuple[int, int],
+                        wide: bytes, wide_shape: tuple[int, int],
+                        offset: tuple[int, int], limit: int):
+    """間引き済みの行優先二値窓から相関寸法と探索インデックスを返す。"""
+    return _native.prepare_local_shift(target, target_shape, wide, wide_shape, offset, limit)
+
 
 def solve_local_shift(before: bytes, exact: bytes, wide: bytes, width: int, height: int,
                       fast_size: tuple[int, int], dys: list[int], dxs: list[int],

@@ -5,6 +5,131 @@ fn invalid() -> Error {
     Error::Invalid("invalid local shift buffers or parameters".into())
 }
 
+/// 二値窓について `_prepare_local_shift` が作る相関用の入力。
+pub struct ShiftPreparation {
+    /// 余白を含む探索窓に配置した、行優先の二値マスク。
+    pub before: Vec<u8>,
+    /// `_correlation_size` と同じ FFT の（行数、列数）。
+    pub size: (usize, usize),
+    /// NumPy の float32 和を Python の float に変換した値に相当する画素数。
+    pub total: f64,
+    /// `ys` と同じ順序の行インデックス。
+    pub ys: Vec<i64>,
+    /// `xs` と同じ順序の列インデックス。
+    pub xs: Vec<i64>,
+    /// `dys` と同じ周期補正後の行インデックス。
+    pub dys: Vec<i64>,
+    /// `dxs` と同じ周期補正後の列インデックス。
+    pub dxs: Vec<i64>,
+}
+
+fn fft_size(length: usize) -> Result<usize, Error> {
+    (length.max(1)..=isize::MAX as usize)
+        .find(|&candidate| smooth(candidate))
+        .ok_or_else(invalid)
+}
+
+fn shift_axis(
+    length: usize,
+    first: usize,
+    last: usize,
+    limit: usize,
+) -> Result<(usize, Vec<i64>, Vec<i64>), Error> {
+    let padding = if length > 2 * limit {
+        limit
+            .saturating_sub(first)
+            .max(limit.saturating_sub(length - 1 - last))
+    } else {
+        limit
+    };
+    let size = fft_size(length.checked_add(padding).ok_or_else(invalid)?)?;
+    let size_i64 = size as i64;
+    let limit_i64 = limit as i64;
+    let indices: Vec<_> = (0..=limit_i64)
+        .chain(size_i64 - limit_i64..size_i64)
+        .collect();
+    let shifts = indices
+        .iter()
+        .map(|&index| {
+            if index >= size_i64 / 2 {
+                index - size_i64
+            } else {
+                index
+            }
+        })
+        .collect();
+    Ok((size, indices, shifts))
+}
+
+/// NumPy の `_prepare_local_shift` と同じ二値の相関窓、FFT 寸法、探索インデックスを返す。
+/// 対象と見本は間引き済みの行優先 0/1 マスクで、寸法は（行数、列数）。
+/// 見本窓の画素数は、float32 で整数を厳密に表現できる 2²⁴ 以下。
+/// offset は見本の探索窓内で対象窓を置く（行、列）。limit は間引き後の探索幅。
+/// 対象か見本に線がなければ `None` を返す。
+pub fn prepare_local_shift(
+    target: &[u8],
+    (target_height, target_width): (usize, usize),
+    wide: &[u8],
+    (height, width): (usize, usize),
+    (oy, ox): (usize, usize),
+    limit: usize,
+) -> Result<Option<ShiftPreparation>, Error> {
+    if target_height.checked_mul(target_width) != Some(target.len())
+        || height.checked_mul(width) != Some(wide.len())
+        || oy > height
+        || ox > width
+        || target_height > height - oy
+        || target_width > width - ox
+        || wide.len() > 1 << 24
+        || limit > (isize::MAX as usize / size_of::<i64>() - 1) / 2
+    {
+        return Err(invalid());
+    }
+    if target.is_empty() {
+        return Ok(None);
+    }
+
+    let (mut top, mut left, mut bottom, mut right) = (height, width, 0, 0);
+    let mut total = 0;
+    for (y, row) in target.chunks_exact(target_width).enumerate() {
+        let mut first = target_width;
+        let mut last = 0;
+        for (x, &pixel) in row.iter().enumerate() {
+            if pixel != 0 {
+                total += 1;
+                first = first.min(x);
+                last = x;
+            }
+        }
+        if first < target_width {
+            top = top.min(y + oy);
+            bottom = y + oy;
+            left = left.min(first + ox);
+            right = right.max(last + ox);
+        }
+    }
+    if total == 0 || !wide.iter().any(|&pixel| pixel != 0) {
+        return Ok(None);
+    }
+
+    let (rows, ys, dys) = shift_axis(height, top, bottom, limit)?;
+    let (cols, xs, dxs) = shift_axis(width, left, right, limit)?;
+    let mut before = vec![0; wide.len()];
+    for (y, row) in target.chunks_exact(target_width).enumerate() {
+        let start = (y + oy) * width + ox;
+        before[start..start + target_width].copy_from_slice(row);
+    }
+    Ok(Some(ShiftPreparation {
+        before,
+        size: (rows, cols),
+        total: f64::from(total),
+        ys,
+        xs,
+        dys,
+        dxs,
+    }))
+}
+
 fn direct_counts(
     points: &[(usize, usize)],
     exact: &[u8],
@@ -173,6 +298,67 @@ fn smooth(mut n: usize) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prepare_one_pixel() {
+        let window = prepare_local_shift(&[1], (1, 1), &[1], (1, 1), (0, 0), 0)
+            .unwrap()
+            .unwrap();
+        assert_eq!(window.before, [1]);
+        assert_eq!(window.total, 1.0);
+        assert_eq!(window.size, (1, 1));
+        assert_eq!(window.ys, [0]);
+        assert_eq!(window.dys, [-1]);
+        assert_eq!(window.dxs, [-1]);
+    }
+
+    #[test]
+    fn prepare_empty_windows() {
+        use super::prepare_local_shift as prepare;
+        assert!(prepare(&[], (0, 0), &[], (0, 0), (0, 0), 0)
+            .unwrap()
+            .is_none());
+        assert!(prepare(&[], (0, 1), &[1], (1, 1), (1, 0), 0)
+            .unwrap()
+            .is_none());
+        assert!(prepare(&[0], (1, 1), &[1], (1, 1), (0, 0), 1)
+            .unwrap()
+            .is_none());
+        assert!(prepare(&[1], (1, 1), &[0], (1, 1), (0, 0), 1)
+            .unwrap()
+            .is_none());
+        assert!(prepare(&[1], (1, 1), &[1], (1, 1), (0, 1), 1).is_err());
+    }
+
+    #[test]
+    fn prepare_sampled_row_at_edge() {
+        // 元の幅9の窓で step=2、x=3..9 の対象から x=4,6,8 を採った行。
+        let window = prepare_local_shift(&[1, 0, 1], (1, 3), &[1; 5], (1, 5), (0, 2), 1)
+            .unwrap()
+            .unwrap();
+        assert_eq!(window.before, [0, 0, 1, 0, 1]);
+        assert_eq!(window.total, 2.0);
+        assert_eq!(window.size, (2, 6));
+        assert_eq!(window.xs, [0, 1, 5]);
+        assert_eq!(window.dxs, [0, 1, -1]);
+    }
+
+    #[test]
+    fn prepare_limit_larger_than_window() {
+        let window = prepare_local_shift(&[1], (1, 1), &[1; 2], (1, 2), (0, 1), 5)
+            .unwrap()
+            .unwrap();
+        assert_eq!(window.size, (6, 8));
+        assert_eq!(window.xs, [0, 1, 2, 3, 4, 5, 3, 4, 5, 6, 7]);
+        assert_eq!(window.dxs, [0, 1, 2, 3, -4, -3, 3, -4, -3, -2, -1]);
+    }
+
+    #[test]
+    fn local_fft_sizes() {
+        for (length, expected) in [(1, 1), (7, 8), (13, 15), (31, 32), (383, 384), (433, 450)] {
+            assert_eq!(fft_size(length).unwrap(), expected);
+        }
+    }
 
     // 画素ごとの巡回位置を直接決め、64画素ずつ AND と popcount で集計する。
     fn direct_table_384(before: &[u8], guide: &[u8], shifts: &[usize]) -> Vec<usize> {
