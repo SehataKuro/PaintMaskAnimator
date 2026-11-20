@@ -145,19 +145,13 @@ class KeyFrameMixin(CanvasMembers):
         target.has_content = False
         clear_pending(target)
         target.image = blank_image()
-        target.visible = bool(template.visible)
-        target.opacity = float(template.opacity)
-        target.alpha_locked = bool(
-            template.alpha_locked
-        )
-        target.color_filter_enabled = bool(
-            template.color_filter_enabled
-        )
-        target.color_filter_rgb = (
-            tuple(template.color_filter_rgb)
-            if template.color_filter_rgb
-            is not None
-            else None
+        self._document.set_position_track_properties(
+            column, layer_index,
+            visible=bool(template.visible), opacity=float(template.opacity),
+            alpha_locked=bool(template.alpha_locked),
+            color_filter_enabled=bool(template.color_filter_enabled),
+            color_filter_rgb=(tuple(template.color_filter_rgb)
+                              if template.color_filter_rgb is not None else None),
         )
         target.has_content = False
         target.is_blank_key = True
@@ -283,16 +277,13 @@ class KeyFrameMixin(CanvasMembers):
             source_layer = self.frames[start].layers[layer_index]
             copied = source_layer.clone()
 
-            layer.visible = bool(copied.visible)
-            layer.opacity = float(copied.opacity)
-            layer.alpha_locked = bool(copied.alpha_locked)
-            layer.color_filter_enabled = bool(
-                copied.color_filter_enabled
-            )
-            layer.color_filter_rgb = (
-                tuple(copied.color_filter_rgb)
-                if copied.color_filter_rgb is not None
-                else None
+            self._document.set_position_track_properties(
+                current, layer_index,
+                visible=bool(copied.visible), opacity=float(copied.opacity),
+                alpha_locked=bool(copied.alpha_locked),
+                color_filter_enabled=bool(copied.color_filter_enabled),
+                color_filter_rgb=(tuple(copied.color_filter_rgb)
+                                  if copied.color_filter_rgb is not None else None),
             )
             layer.image = (
                 as_qimage(copied.image).copy()

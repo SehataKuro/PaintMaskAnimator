@@ -13,7 +13,8 @@ from typing import Any, NamedTuple, cast
 
 from . import constants
 
-from .models import ArchiveHint, Cell, Frame, Layer, Track, make_frame
+from .document_changes import ChangeSet, Selection, TrackProperties, TrackStructure
+from .models import ArchiveHint, Cell, Frame, Layer, TRACK_FIELDS, Track, make_frame, next_layer_name
 from .timeline_metadata import set_dense_import
 from .pma_image import PmaImage, copy_image, snapshot_image, to_pma_image
 from .utils import blank_image
@@ -228,6 +229,163 @@ class Document:
             for index, slot in enumerate(frame.layers):
                 if slot.__dict__.get("_pending_detached", False):
                     slot.attach_track(self.tracks[index])
+
+    def _column_count(self):
+        return len(self.frames[0].layers) if self.frames else 0
+
+    def _valid_columns(self, indices):
+        count = self._column_count()
+        return (bool(indices) and all(0 <= index < count for index in indices)
+                and all(len(frame.layers) == count for frame in self.frames))
+
+    def _valid_track_slots(self, slots):
+        return (bool(slots) and len(slots) == len(self.frames)
+                and all(isinstance(slot, Layer) for slot in slots))
+
+    def add_track(self):
+        """Append a new empty drawing column with one shared Track."""
+        if not self.frames:
+            return ChangeSet()
+        name = next_layer_name(layer.name for layer in self.layers)
+        shared_blank = blank_image()
+        slots = [Layer(name, shared_blank.copy()) for _ in self.frames]
+        for slot in slots[1:]:
+            slot.share_track_with(slots[0])
+        slots[0]._track.connected = True
+        index = self._column_count()
+        return self.insert_track(index, slots, active=index)
+
+    def insert_track(self, index, slots, *, active=None, staged=False):
+        """Insert a prepared column. Mixed image imports publish after assembly."""
+        slots = tuple(slots)
+        count = self._column_count()
+        if (not self._valid_track_slots(slots) or not 0 <= index <= count
+                or any(len(frame.layers) != count for frame in self.frames)
+                or (active is not None and not 0 <= active <= count)):
+            return ChangeSet()
+        for frame, slot in zip(self.frames, slots):
+            frame.layers.insert(index, slot)
+        if not staged:
+            track = slots[0]._track
+            if track.connected and all(slot._track is track for slot in slots):
+                self.sync_columns()
+            else:
+                self.install_legacy_frames(self.frames)
+        changes = (TrackStructure("insert", (), (index,)),)
+        if active is not None:
+            changes += (Selection(active),)
+        return ChangeSet(changes)
+
+    def remove_tracks(self, indices, *, active=None):
+        indices = tuple(sorted(set(indices)))
+        count = self._column_count()
+        if not self._valid_columns(indices) or len(indices) == count:
+            return ChangeSet()
+        if active is None:
+            active = min(indices[0], count - len(indices) - 1)
+        if not 0 <= active < count - len(indices):
+            return ChangeSet()
+        for frame in self.frames:
+            for index in reversed(indices):
+                release_slots([frame.layers[index]])
+                frame.layers.pop(index)
+        self.sync_columns()
+        return ChangeSet((TrackStructure("remove", indices, ()), Selection(active)))
+
+    def duplicate_tracks(self, names):
+        """Duplicate indexed columns, including each column's drawing bank."""
+        indices = tuple(sorted(names))
+        if not self._valid_columns(indices):
+            return ChangeSet()
+        copies = [(index, self.capture_column(index)) for index in reversed(indices)]
+        for index, slots in copies:
+            slots[0].name = names[index]
+        for index, slots in copies:
+            for frame, slot in zip(self.frames, slots):
+                frame.layers.insert(index + 1, slot)
+        self.sync_columns()
+        inserted = tuple(index + offset for offset, index in enumerate(indices, 1))
+        return ChangeSet((
+            TrackStructure("duplicate", indices, inserted), Selection(inserted[-1]),
+        ))
+
+    def move_tracks(self, order):
+        """Reorder columns by a permutation of their previous indices."""
+        order = tuple(order)
+        count = self._column_count()
+        if (len(order) != count or sorted(order) != list(range(count))
+                or order == tuple(range(count)) or not self._valid_columns(order)
+                or self.active_layer_index not in order):
+            return ChangeSet()
+        active = order.index(self.active_layer_index)
+        for frame in self.frames:
+            frame.layers = [frame.layers[index] for index in order]
+        self.sync_columns()
+        return ChangeSet((TrackStructure("move", order, tuple(range(count))), Selection(active)))
+
+    def merge_tracks(self, indices, slots, *, staged=False):
+        """Replace consecutive columns with artwork prepared by the caller.
+
+        The canvas can defer normalization until its brush stroke is committed.
+        """
+        indices = tuple(indices)
+        slots = tuple(slots)
+        if (len(indices) < 2 or not self._valid_columns(indices)
+                or indices != tuple(range(indices[0], indices[-1] + 1))
+                or not self._valid_track_slots(slots)):
+            return ChangeSet()
+        start, stop = indices[0], indices[-1] + 1
+        for frame, slot in zip(self.frames, slots):
+            release_slots(frame.layers[start:stop])
+            frame.layers[start:stop] = [slot]
+        if staged:
+            self.sync_columns()
+        else:
+            self.install_legacy_frames(self.frames)
+        return ChangeSet((TrackStructure("merge", indices, (start,)), Selection(start)))
+
+    def set_track_properties(self, indices, *, notify_unchanged=False, **settings):
+        """Edit column settings, including detached positions awaiting install."""
+        indices = tuple(dict.fromkeys(indices))
+        if any(field not in TRACK_FIELDS for field in settings):
+            raise ValueError("Unknown track property")
+        if not self._valid_columns(indices) or not settings:
+            return ChangeSet()
+        tracks_by_index = {
+            index: tuple(dict.fromkeys(frame.layers[index]._track for frame in self.frames))
+            for index in indices
+        }
+        fields_by_track = {
+            track: self._changed_track_fields(track, settings)
+            for tracks in tracks_by_index.values() for track in tracks
+        }
+        changes = []
+        for index, tracks in tracks_by_index.items():
+            affected = {field for track in tracks for field in fields_by_track[track]}
+            fields = tuple(field for field in settings if notify_unchanged or field in affected)
+            if fields:
+                changes.append(TrackProperties((index,), fields))
+        for track, fields in fields_by_track.items():
+            for field in fields:
+                setattr(track, field, settings[field])
+        return ChangeSet(tuple(changes))
+
+    @staticmethod
+    def _changed_track_fields(track, settings):
+        return tuple(field for field, value in settings.items()
+                     if getattr(track, field) != value)
+
+    def set_position_track_properties(self, frame, index, **settings):
+        """Preserve position-based settings copies during compound cell edits."""
+        if any(field not in TRACK_FIELDS for field in settings):
+            raise ValueError("Unknown track property")
+        if not 0 <= frame < len(self.frames) or not 0 <= index < len(self.frames[frame].layers):
+            return ChangeSet()
+        track = self.frames[frame].layers[index]._track
+        fields = self._changed_track_fields(track, settings)
+        for field, value in settings.items():
+            setattr(track, field, value)
+        return ChangeSet((TrackProperties((index,), fields),)) if fields else ChangeSet()
 
     def capture_column(self, index):
         frames = [Frame([frame.layers[index]], frame.duration) for frame in self.frames]

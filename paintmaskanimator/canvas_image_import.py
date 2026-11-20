@@ -275,8 +275,8 @@ class ImageImportMixin(CanvasMembers):
         if not name:
             name = Path(decoded[0][0]).stem or f"Image {len(self.layers)}"
         insert_index = len(self.frames[0].layers)
-        for frame in self.frames:
-            frame.layers.append(Layer(name, blank_image(), is_draft=bool(draft)))
+        slots = [Layer(name, blank_image(), is_draft=bool(draft)) for _ in self.frames]
+        self._document.insert_track(insert_index, slots, staged=True)
         for offset, (_, image) in enumerate(decoded):
             if progress_callback:
                 progress_callback(offset, len(decoded), tr("{value} / {len} 枚を配置しています").format(value=offset + 1, len=len(decoded)))

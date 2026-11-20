@@ -557,26 +557,15 @@ class LineOpsController:
         paint_index = source_index + 1
         line_index = source_index + 2
 
-        for frame in self.window.canvas.frames:
-            source_layer = frame.layers[source_index]
-            source_layer.visible = False
-
-            paint_layer = Layer(
-                "Paint",
-                blank_image(),
-                visible=True,
-                opacity=1.0,
-                has_content=False,
-            )
-            line_layer = Layer(
-                "LINE",
-                blank_image(),
-                visible=True,
-                opacity=1.0,
-                has_content=False,
-            )
-            frame.layers.insert(paint_index, paint_layer)
-            frame.layers.insert(line_index, line_layer)
+        document = self.window.canvas._document
+        document.set_track_properties((source_index,), visible=False)
+        paint_slots = []
+        line_slots = []
+        for _ in self.window.canvas.frames:
+            paint_slots.append(Layer("Paint", blank_image()))
+            line_slots.append(Layer("LINE", blank_image()))
+        document.insert_track(paint_index, paint_slots, staged=True)
+        document.insert_track(line_index, line_slots, staged=True)
 
         separated = {}
         for frame_index, frame in enumerate(self.window.canvas.frames):

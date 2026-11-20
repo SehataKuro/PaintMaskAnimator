@@ -607,12 +607,12 @@ class MainWindow(
         if image is None:
             self.status(tr("レイアウト用紙の画像を読み込めませんでした。"), "warning")
             return
-        for frame in self.canvas.frames:
-            layer = Layer(
-                layout_paper.layer_name(), self.canvas._placed_imported_image(image), is_draft=True
-            )
-            layer.has_content = True
-            frame.layers.insert(0, layer)
+        slots = [
+            Layer(layout_paper.layer_name(), self.canvas._placed_imported_image(image),
+                  is_draft=True, has_content=True)
+            for _ in self.canvas.frames
+        ]
+        self.canvas._document.insert_track(0, slots, staged=True)
         self.canvas.active_layer_index = 1
         self.refresh_ui()
 

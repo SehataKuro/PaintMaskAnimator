@@ -7,6 +7,7 @@ keeps numbered (imported) images consistent with the cells that reference them.
 They run against a live ``PaintCanvas``.
 """
 from dataclasses import replace
+from .canvas_changes import publish_track_changes
 from .pma_image import as_qimage, copy_image
 from .document import replace_slot, release_slots
 from .document import mark_pending, clear_pending
@@ -17,7 +18,7 @@ from .document import (
     clear_slot, archive_hint, apply_number_mapping, apply_numbered_images, copy_drawing_reference,
     import_drawing_reference,
 )
-from .models import Cell, Frame, Layer, make_frame, next_layer_name
+from .models import Cell, Frame, make_frame
 from .timeline import TimelineWidget
 from .utils import blank_image
 from .logging_setup import get_logger
@@ -31,66 +32,23 @@ log = get_logger(__name__)
 
 class TimelineStructureMixin(CanvasMembers):
     def set_layer_visibility(self, li, on):
-        if li < 0:
-            return
-        changed = False
-        for f in self.frames:
-            if li < len(f.layers) and f.layers[li].visible != bool(on):
-                f.layers[li].visible = bool(on)
-                changed = True
-        if changed:
-            # Onion signatures include visibility. Keep images for the other
-            # layers (and for switching back); no pixels changed here.
-            self._playback_frame_cache.clear()
-            self.update()
+        changes = self._document.set_track_properties((li,), visible=bool(on))
+        publish_track_changes(self, changes)
 
     def set_layer_opacity(self, li, opacity):
         """表示用のレイヤー不透明度。画像内のRGBA値は変更しない。"""
         if li < 0:
             return
         opacity = max(0.0, min(1.0, float(opacity)))
-        changed = False
-        for frame in self.frames:
-            if li < len(frame.layers) and frame.layers[li].opacity != opacity:
-                frame.layers[li].opacity = opacity
-                changed = True
-        if changed:
-            self._playback_frame_cache.clear()
-            self.update()
+        changes = self._document.set_track_properties((li,), opacity=opacity)
+        publish_track_changes(self, changes)
 
     def add_layer(self):
         self._commit_brush_stroke()
-        # 全フレーム・全画像の文書スナップショットを作らず、
-        # 追加レイヤーだけをUndo対象にして大量コマ時の待ち時間を抑える。
-        old_active = int(self.active_layer_index)
-        insert_index = len(self.layers)
-        name = next_layer_name(layer.name for layer in self.layers)
-        self.push_undo(LayerRemoveUndo(insert_index, old_active))
+        # 追加列だけを Undo 対象にし、全コマの画像スナップショットを作らない。
+        self.push_undo(LayerRemoveUndo(len(self.layers), int(self.active_layer_index)))
+        publish_track_changes(self, self._document.add_track())
 
-        # QImageの暗黙共有を使い、空画像バッファをコマ数分確保しない。
-        shared_blank = blank_image()
-        owner = None
-        for frame in self.frames:
-            added = Layer(
-                name,
-                shared_blank.copy(),
-                visible=True,
-                opacity=1.0,
-            )
-            # 足したレイヤーも、全コマで1つの Track を共有する。
-            if owner is None:
-                owner = added
-            else:
-                added.share_track_with(owner)
-            frame.layers.append(added)
-        if owner is not None:
-            owner._track.connected = True
-        self._document.sync_columns()
-        self.active_layer_index = insert_index
-        self._onion_cache.clear()
-        self.changed.emit()
-        self.selectionChanged.emit()
-        self.update()
     def delete_layer(self):
         if len(self.layers) <= 1:
             return
@@ -99,15 +57,9 @@ class TimelineStructureMixin(CanvasMembers):
         target_active = max(0, index - 1)
         stored_layers = self._document.capture_column(index)
         self.push_undo(LayerInsertUndo(index, stored_layers, target_active))
-        for frame in self.frames:
-            release_slots([frame.layers[index]])
-            frame.layers.pop(index)
-        self._document.sync_columns()
-        self.active_layer_index = target_active
-        self._onion_cache.clear()
-        self.changed.emit()
-        self.selectionChanged.emit()
-        self.update()
+        changes = self._document.remove_tracks((index,), active=target_active)
+        publish_track_changes(self, changes)
+
     @staticmethod
     def _clear_timeline_layer_cell(layer):
         clear_slot(layer)
@@ -666,8 +618,9 @@ class TimelineStructureMixin(CanvasMembers):
             self._ensure_frame_count(dense_end)
             for index in range(target_column + 1, dense_end):
                 replace_slot(self.frames[index], layer_index, target.clone_reference())
-            target.visible = copied.visible
-            target.opacity = copied.opacity
+            self._document.set_position_track_properties(
+                target_column, layer_index, visible=copied.visible, opacity=copied.opacity,
+            )
             self._clear_timeline_layer_cell(
                 self.frames[source_column].layers[layer_index]
             )

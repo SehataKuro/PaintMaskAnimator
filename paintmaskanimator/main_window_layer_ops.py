@@ -12,7 +12,7 @@ from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import QApplication, QMessageBox
 from .display_image_cache import display_images, model_image_key
 from .i18n import tr
-from .document import release_slots
+from .canvas_changes import publish_track_changes
 from .models import Layer, default_layer_name
 from .utils import blank_image
 from .progress import close_counter, create_counter, update_counter
@@ -54,22 +54,11 @@ class LayerOpsController:
         indices = self._indices_from_rows(rows)
         if not indices:
             return
-        self.window.canvas.push_doc_undo()
         canvas = self.window.canvas
-        for index in sorted(indices, reverse=True):
-            layers = canvas._document.capture_column(index)
-            for frame, layer in zip(canvas.frames, layers):
-                frame.layers.insert(index + 1, layer)
-            layers[0].name = tr("{name} コピー").format(name=layers[0].name)
-            canvas._document.sync_columns()
-        self.window.canvas.active_layer_index = min(
-            len(self.window.canvas.layers) - 1,
-            max(indices) + len(indices),
-        )
-        self.window.canvas._onion_cache.clear()
-        self.window.canvas.changed.emit()
-        self.window.canvas.selectionChanged.emit()
-        self.window.canvas.update()
+        canvas.push_doc_undo()
+        names = {index: tr("{name} コピー").format(name=canvas.frames[0].layers[index].name)
+                 for index in indices}
+        publish_track_changes(canvas, canvas._document.duplicate_tracks(names))
 
     def merge_rows(self, rows):
         indices = self._indices_from_rows(rows)
@@ -86,7 +75,6 @@ class LayerOpsController:
             )
             return
 
-        base_index = indices[0]
         top_index = indices[-1]
         result_name = self.window.canvas.layers[top_index].name
         frame_count = len(self.window.canvas.frames)
@@ -197,22 +185,9 @@ class LayerOpsController:
             QApplication.restoreOverrideCursor()
             close_counter(progress)
 
-        for frame_index, frame in enumerate(self.window.canvas.frames):
-            for layer_index in reversed(indices):
-                release_slots([frame.layers[layer_index]])
-                frame.layers.pop(layer_index)
-            frame.layers.insert(base_index, merged_layers[frame_index])
-
-        self.window.canvas._document.sync_columns()
-        self.window.canvas.install_legacy_frames()
-        self.window.canvas.active_layer_index = base_index
-        self.window.canvas._onion_cache.clear()
-        self.window.canvas._color_filter_cache.clear()
-        self.window.canvas._color_index_cache.clear()
-        self.window.canvas._silhouette_cache.clear()
-        self.window.canvas.changed.emit()
-        self.window.canvas.selectionChanged.emit()
-        self.window.canvas.update()
+        canvas = self.window.canvas
+        changes = canvas._document.merge_tracks(indices, merged_layers, staged=True)
+        publish_track_changes(canvas, changes)
         self.window.used_color.refresh_with_counter(
             tr("結合後の使用色を更新しています")
         )
@@ -228,20 +203,9 @@ class LayerOpsController:
                 tr("すべてのレイヤーは削除できません。1つ以上残してください。"),
             )
             return
-        self.window.canvas.push_doc_undo()
-        for frame in self.window.canvas.frames:
-            for index in sorted(indices, reverse=True):
-                release_slots([frame.layers[index]])
-                frame.layers.pop(index)
-        self.window.canvas._document.sync_columns()
-        self.window.canvas.active_layer_index = min(
-            indices[0],
-            len(self.window.canvas.layers) - 1,
-        )
-        self.window.canvas._onion_cache.clear()
-        self.window.canvas.changed.emit()
-        self.window.canvas.selectionChanged.emit()
-        self.window.canvas.update()
+        canvas = self.window.canvas
+        canvas.push_doc_undo()
+        publish_track_changes(canvas, canvas._document.remove_tracks(indices))
         self.window.used_color.refresh_with_counter(tr("削除後の使用色を更新しています"))
 
     def move_row(self, source_rows, destination_row):
@@ -271,28 +235,14 @@ class LayerOpsController:
         if destination_row == rows[0]:
             return
 
-        # 現在レイヤーを視覚行番号で記憶し、移動後も同じレイヤーを選択する。
-        active_visual_row = count - 1 - self.window.canvas.active_layer_index
-        visual_order = list(range(count))
+        visual_order = list(reversed(range(count)))
         moved_order = visual_order[rows[0]:rows[-1] + 1]
         del visual_order[rows[0]:rows[-1] + 1]
         visual_order[destination_row:destination_row] = moved_order
-        new_active_visual_row = visual_order.index(active_visual_row)
 
-        self.window.canvas.push_doc_undo()
-        for frame in self.window.canvas.frames:
-            visual_layers = list(reversed(frame.layers))
-            moved_layers = visual_layers[rows[0]:rows[-1] + 1]
-            del visual_layers[rows[0]:rows[-1] + 1]
-            visual_layers[destination_row:destination_row] = moved_layers
-            frame.layers = list(reversed(visual_layers))
-
-        self.window.canvas._document.sync_columns()
-        self.window.canvas.active_layer_index = count - 1 - new_active_visual_row
-        self.window.canvas._onion_cache.clear()
-        self.window.canvas.changed.emit()
-        self.window.canvas.selectionChanged.emit()
-        self.window.canvas.update()
+        canvas = self.window.canvas
+        canvas.push_doc_undo()
+        publish_track_changes(canvas, canvas._document.move_tracks(reversed(visual_order)))
 
     def rename_row(self, row, name):
         if getattr(self.window, "_closing", False) or row < 0:
@@ -302,11 +252,12 @@ class LayerOpsController:
         if not (0 <= index < len(layers)):
             return
         name = name.strip() or default_layer_name(index)
-        self.window.canvas.push_doc_undo()
-        for frame in self.window.canvas.frames:
-            if index < len(frame.layers):
-                frame.layers[index].name = name
-        self.window.canvas.changed.emit()
+        canvas = self.window.canvas
+        canvas.push_doc_undo()
+        changes = canvas._document.set_track_properties(
+            (index,), name=name, notify_unchanged=True,
+        )
+        publish_track_changes(canvas, changes)
 
     def on_selected(self, row):
         if getattr(self.window, "_closing", False) or row < 0:
@@ -356,20 +307,10 @@ class LayerOpsController:
             bool(getattr(layers[index], "is_draft", False))
             for index in indices
         )
-        self.window.canvas.push_doc_undo()
-        for frame in self.window.canvas.frames:
-            for index in indices:
-                if index < len(frame.layers):
-                    frame.layers[index].is_draft = new_state
-        self.window.canvas._onion_cache.clear()
-        self.window.canvas._color_filter_cache.clear()
-        self.window.canvas._color_index_cache.clear()
-        self.window.canvas._silhouette_cache.clear()
-        self.window._used_color_cache.clear()
-        self.window._used_color_layer_cache.clear()
-        self.window.canvas.changed.emit()
-        self.window.canvas.selectionChanged.emit()
-        self.window.canvas.update()
+        canvas = self.window.canvas
+        canvas.push_doc_undo()
+        changes = canvas._document.set_track_properties(indices, is_draft=new_state)
+        publish_track_changes(canvas, changes, window=self.window)
         self.window.used_color._refresh_without_delay()
         self.window.statusBar().showMessage(
             # One whole sentence per state: a translator cannot reorder around

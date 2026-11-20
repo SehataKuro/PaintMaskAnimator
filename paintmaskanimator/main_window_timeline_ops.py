@@ -481,18 +481,13 @@ class TimelineOpsController:
                     content=kind == "content", blank=kind == "blank")
             else:
                 copy_drawing_reference(target, copied, content=kind == "content", blank=kind == "blank")
-            target.visible = bool(copied.visible)
-            target.opacity = float(copied.opacity)
-            target.alpha_locked = bool(
-                copied.alpha_locked
-            )
-            target.color_filter_enabled = bool(
-                copied.color_filter_enabled
-            )
-            target.color_filter_rgb = (
-                tuple(copied.color_filter_rgb)
-                if copied.color_filter_rgb is not None
-                else None
+            self.window.canvas._document.set_position_track_properties(
+                target_start, target_layer,
+                visible=bool(copied.visible), opacity=float(copied.opacity),
+                alpha_locked=bool(copied.alpha_locked),
+                color_filter_enabled=bool(copied.color_filter_enabled),
+                color_filter_rgb=(tuple(copied.color_filter_rgb)
+                                  if copied.color_filter_rgb is not None else None),
             )
             target.blank_start = kind == "blank"
             for index in range(target_start + 1, target_start + exposure):
@@ -645,11 +640,13 @@ class TimelineOpsController:
         for index in range(int(destination_column) + 1, int(destination_column) + block[2]):
             self.window.canvas._ensure_frame_count(index + 1)
             self.window.canvas.frames[index].layers[destination_layer] = target.clone_reference()
-        target.visible = copied.visible
-        target.opacity = copied.opacity
-        target.alpha_locked = copied.alpha_locked
-        target.color_filter_enabled = copied.color_filter_enabled
-        target.color_filter_rgb = copied.color_filter_rgb
+        self.window.canvas._document.set_position_track_properties(
+            int(destination_column), destination_layer,
+            visible=copied.visible, opacity=copied.opacity,
+            alpha_locked=copied.alpha_locked,
+            color_filter_enabled=copied.color_filter_enabled,
+            color_filter_rgb=copied.color_filter_rgb,
+        )
         self.window.canvas.current_frame = int(destination_column)
         self.window.canvas.active_layer_index = destination_layer
         self.window.canvas._cell_structure_dirty = True

@@ -942,13 +942,11 @@ class ImportController:
         first_new_layer = len(self.window.canvas.frames[0].layers)
         for name, visible, opacity, key_images in imported:
             layer_index = len(self.window.canvas.frames[0].layers)
-            for frame in self.window.canvas.frames:
-                frame.layers.append(Layer(
-                    name,
-                    blank_image(),
-                    visible=visible,
-                    opacity=opacity,
-                ))
+            slots = [
+                Layer(name, blank_image(), visible=visible, opacity=opacity)
+                for _ in self.window.canvas.frames
+            ]
+            self.window.canvas._document.insert_track(layer_index, slots, staged=True)
             for offset, image in enumerate(key_images):
                 target = self.window.canvas.frames[start_frame + offset].layers[layer_index]
                 target.image = self.window.canvas._placed_imported_image(image)

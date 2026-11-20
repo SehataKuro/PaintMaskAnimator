@@ -12,6 +12,7 @@ import numpy as np
 from PySide6.QtCore import QRectF
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
+from .canvas_changes import publish_track_changes
 from .pma_image import as_qimage, image_rgba
 from . import theme, preferences
 from .i18n import tr
@@ -433,22 +434,11 @@ class ColorInteractionController:
         else:
             color = QColor(selected_color)
         rgb = (color.red(), color.green(), color.blue())
-        layer_index = self.window.canvas.active_layer_index
-        changed = False
-
-        for frame in self.window.canvas.frames:
-            if layer_index >= len(frame.layers):
-                continue
-            layer = frame.layers[layer_index]
-            if (not layer.color_filter_enabled) or layer.color_filter_rgb != rgb:
-                layer.color_filter_enabled = True
-                layer.color_filter_rgb = rgb
-                changed = True
-
-        if changed:
-            self.window.canvas._color_filter_cache.clear()
-            self.window.canvas.changed.emit()
-            self.window.canvas.update()
+        canvas = self.window.canvas
+        changes = canvas._document.set_track_properties(
+            (canvas.active_layer_index,), color_filter_enabled=True, color_filter_rgb=rgb,
+        )
+        publish_track_changes(canvas, changes)
         self.window.statusBar().showMessage(
             tr("選択レイヤーを #{value:02X}{value2:02X}{value3:02X} だけ表示しています。元画像は変更されません。").format(value=rgb[0], value2=rgb[1], value3=rgb[2]),
             3500,
@@ -457,21 +447,12 @@ class ColorInteractionController:
     def clear_selected_color_filter(self):
         if not self.window.canvas.frames:
             return
-        layer_index = self.window.canvas.active_layer_index
-        changed = False
-        for frame in self.window.canvas.frames:
-            if layer_index >= len(frame.layers):
-                continue
-            layer = frame.layers[layer_index]
-            if layer.color_filter_enabled or layer.color_filter_rgb is not None:
-                layer.color_filter_enabled = False
-                layer.color_filter_rgb = None
-                changed = True
-
-        if changed:
-            self.window.canvas._color_filter_cache.clear()
-            self.window.canvas.changed.emit()
-            self.window.canvas.update()
+        canvas = self.window.canvas
+        changes = canvas._document.set_track_properties(
+            (canvas.active_layer_index,), color_filter_enabled=False, color_filter_rgb=None,
+        )
+        publish_track_changes(canvas, changes)
+        if changes:
             self.window.statusBar().showMessage(tr("選択レイヤーの特定色表示を解除しました。"), 2500)
         else:
             self.window.statusBar().showMessage(tr("選択レイヤーには特定色表示が設定されていません。"), 2500)
