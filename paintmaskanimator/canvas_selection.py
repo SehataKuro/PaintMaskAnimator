@@ -286,6 +286,7 @@ class SelectionMixin(CanvasMembers):
     def begin_selection_transform(self, mode):
         if not self.selection_polygon:
             return False
+        self._commit_brush_stroke()
         image = self.active_layer.image
         bounds = QRect(0, 0, image.width, image.height)
         selection_rect = self.selection_bounds().intersected(bounds)
@@ -773,6 +774,7 @@ class SelectionMixin(CanvasMembers):
         image = self.active_layer.image
         rect = self.selection_bounds().intersected(QRect(0, 0, image.width, image.height))
         if rect.isEmpty(): return False
+        self._commit_brush_stroke()
         # 外接矩形をそのまま写すと、自動選択・反転・投げ縄の外側の画素まで入る。
         QApplication.clipboard().setImage(self._masked_selection_source(rect))
         return True
@@ -783,6 +785,7 @@ class SelectionMixin(CanvasMembers):
         以前は消すときに多角形しか見ていなかったので、マスクで持つ選択
         （自動選択・反転）では消える範囲が選択の形とずれていた。
         """
+        self._commit_brush_stroke()
         if not self.copy_selection():
             return False
         if self.selection_polygon:
@@ -803,6 +806,7 @@ class SelectionMixin(CanvasMembers):
         """選択範囲の中を消す（透明にする）。選択が無ければ何もしない。"""
         if not self.selection_polygon or self.transform_active:
             return False
+        self._commit_brush_stroke()
         self.ensure_editable_key()
         image = self.active_layer.image
         width, height = image.width, image.height
@@ -838,6 +842,7 @@ class SelectionMixin(CanvasMembers):
     def paste_clipboard(self):
         image=imaging.without_color_space(QApplication.clipboard().image())
         if image.isNull(): return
+        self._commit_brush_stroke()
         self.ensure_editable_key()
         rect=self.selection_bounds()
         pos=rect.topLeft() if self.selection_polygon else QPoint(OUTSIDE_MARGIN,OUTSIDE_MARGIN)

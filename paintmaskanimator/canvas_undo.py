@@ -161,6 +161,7 @@ class UndoMixin(CanvasMembers):
         いま辿っていた未来は入れ替わりにブランチとして保存されるので、
         行ったり来たりできる。
         """
+        self._commit_brush_stroke()
         branches = self.history_branches
         if isinstance(branch, int):
             if not (0 <= branch < len(branches)):
@@ -202,6 +203,7 @@ class UndoMixin(CanvasMembers):
         self.update()
 
     def push_doc_undo(self):
+        self._commit_brush_stroke()
         self.push_undo(DocUndo(self.document_snapshot()))
 
     def push_layer_undo(self):
@@ -408,6 +410,7 @@ class UndoMixin(CanvasMembers):
         self.update()
 
     def undo(self):
+        self._commit_brush_stroke()
         if self.transform_active and (not self.undo_stack or not isinstance(self.undo_stack[-1], TransformUndo)):
             self.cancel_selection_transform()
             return
@@ -423,6 +426,7 @@ class UndoMixin(CanvasMembers):
             return
 
     def redo(self):
+        self._commit_brush_stroke()
         if self.transform_active and (not self.redo_stack or not isinstance(self.redo_stack[-1], TransformUndo)):
             return
         while self.redo_stack:

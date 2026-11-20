@@ -152,7 +152,7 @@ def test_all_save_paths_include_unplaced_bank(tmp_path, monkeypatch, save_mode):
                         "mask_format": 2, "canvas": {"width": 2, "height": 2},
                         "frames": []}
     canvas = SimpleNamespace(frames=doc.frames, _document=doc,
-                             drawing=False)
+                             drawing=False, _commit_brush_stroke=lambda: None)
     window = SimpleNamespace(canvas=canvas, build_project_metadata=metadata,
                              png_cache=project_io.PngCache())
     owner = AutosaveController(window)
@@ -227,6 +227,7 @@ def test_painting_retained_slot_allocates_tail_and_keeps_rescued_drawing(monkeyp
     canvas = SimpleNamespace(frames=doc.frames, current_frame=0, active_layer_index=0,
                              active_layer=layer, timeline_mode=mode,
                              _document=doc, _playback_active=False,
+                             _commit_brush_stroke=lambda: None,
                              timeline_block_at=lambda *_args: None)
     canvas._next_drawing_number = lambda index: canvas_key_frame.KeyFrameMixin._next_drawing_number(canvas, index)
     monkeypatch.setattr(canvas_key_frame, "blank_image", lambda: image(0))
@@ -259,6 +260,7 @@ def test_new_drawing_detaches_shared_unused_slot_payload():
     canvas = SimpleNamespace(frames=doc.frames, current_frame=0, active_layer_index=0,
                              active_layer=first, timeline_mode="sheet",
                              _document=doc, _playback_active=False,
+                             _commit_brush_stroke=lambda: None,
                              timeline_block_at=lambda *_args: None,
                              _next_drawing_number=lambda _index: 1)
     assert KeyFrameMixin.ensure_editable_key(canvas)

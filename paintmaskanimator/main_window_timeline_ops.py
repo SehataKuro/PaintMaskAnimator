@@ -774,6 +774,7 @@ class TimelineOpsController:
 
     def copy_cell_to_clipboard(self, visual_row, column):
         """セルを控える。絵・露出・番号ごと複製して持つ。"""
+        self.window.canvas._commit_brush_stroke()
         block = self._cell_block(visual_row, column)
         if block is None:
             self.window.statusBar().showMessage(

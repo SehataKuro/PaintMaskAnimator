@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 from paintmaskanimator import constants  # noqa: E402
 from paintmaskanimator.frame_scope import FrameScope, apply_over_scope  # noqa: E402
 from dense_fixtures import hold
+from image_edit_helpers import edit_qimage
 from paintmaskanimator.document import create_drawing, project_v1_state
 from paintmaskanimator.main_window import MainWindow  # noqa: E402
 from paintmaskanimator.models import make_frame  # noqa: E402
@@ -88,7 +89,8 @@ def paint(canvas, route):
         kind = LayerRegionUndo
     else:
         canvas.push_layer_undo()
-        canvas.active_layer.image.to_qimage().setPixelColor(5, 5, QColor("blue"))
+        with edit_qimage(canvas.active_layer.image) as image:
+            image.setPixelColor(5, 5, QColor("blue"))
         kind = LayerUndo
     assert isinstance(canvas.undo_stack[-1], kind)
     # Phase 4 第3段階で (layer, 番号) 単位へ。

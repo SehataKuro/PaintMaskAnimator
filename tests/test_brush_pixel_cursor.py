@@ -39,17 +39,19 @@ def test_click_paints_immediately_and_matches_pixel_preview(canvas, size, phase)
     mask, rect = stamp_mask(point, size)
     outline = stamp_outline(point, size)
     mouse(canvas, QMouseEvent.Type.MouseButtonPress, point)
+    work = canvas._stroke_work_image.copy(rect.translated(-canvas._stroke_work_rect.topLeft()))
     painted = 0
     for y in range(rect.height()):
         for x in range(rect.width()):
             expected = mask.pixelColor(x, y).alpha() != 0
             pixel_center = QPointF(rect.x() + x + .5, rect.y() + y + .5)
             assert outline.contains(pixel_center) == expected
-            assert (canvas.active_layer.image.to_qimage().pixelColor(rect.x() + x, rect.y() + y).alpha() != 0) == expected
+            assert (work.pixelColor(x, y).alpha() != 0) == expected
             painted += expected
     assert painted > 0
     mouse(canvas, QMouseEvent.Type.MouseButtonRelease, point)
     assert len(canvas.undo_stack) == 1
+    assert canvas.active_layer.image.read_qimage(*rect.getRect()) == work
     canvas.undo()
     for y in range(rect.height()):
         for x in range(rect.width()):

@@ -382,6 +382,7 @@ class ProjectIOController:
         return False
 
     def write(self, path):
+        self.window.canvas._commit_brush_stroke()
         project_path = Path(path)
 
         try:
@@ -484,6 +485,7 @@ class ProjectIOController:
         return self._saved_signature != self._content_signature()
 
     def confirm_save_before_close(self):
+        self.window.canvas._commit_brush_stroke()
         if not self.has_unsaved_changes():
             return True
         dialog = QMessageBox(self.window)
@@ -505,6 +507,7 @@ class ProjectIOController:
         return clicked is discard_button
 
     def confirm_save_before_dropped(self):
+        self.window.canvas._commit_brush_stroke()
         if not self.has_unsaved_changes():
             return True
         dialog = QMessageBox(self.window)
@@ -548,6 +551,7 @@ class ProjectIOController:
             metadata = loaded.metadata
             ui_state = prepare_ui_state(metadata)
 
+            self.window.canvas._commit_brush_stroke()
             self.window.palette.clear_categories()
             self.window._pending_palette_categories = metadata.get(
                 "used_color_categories", {}

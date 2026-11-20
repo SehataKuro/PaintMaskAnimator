@@ -7,6 +7,7 @@ from PySide6.QtGui import QColor, QMouseEvent, QPainter
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog
 
+from image_edit_helpers import edit_qimage
 from paintmaskanimator import bucket_fill, utils
 from paintmaskanimator.canvas import PaintCanvas
 from paintmaskanimator.color_picker_dialog import ColorPickerDialog
@@ -27,7 +28,8 @@ def drawing(qtbot):
         i for i, layer in enumerate(canvas.frames[0].layers) if not layer.is_paper
     )
     canvas.ensure_editable_key()
-    canvas.active_layer.image.to_qimage().fill(Qt.GlobalColor.transparent)
+    with edit_qimage(canvas.active_layer.image) as image:
+        image.fill(Qt.GlobalColor.transparent)
     canvas.main_color = QColor("red")
     canvas.color_mode = "main"
     canvas.pen_size = 3

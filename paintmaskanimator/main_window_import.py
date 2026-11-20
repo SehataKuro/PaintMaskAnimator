@@ -448,6 +448,7 @@ class ImportController:
 
         CLIP STUDIO とカットフォルダーの読み込みで共通。失敗したら元へ戻す。
         """
+        self.window.canvas._commit_brush_stroke()
         old_state = {
             "width": constants.CANVAS_WIDTH,
             "height": constants.CANVAS_HEIGHT,

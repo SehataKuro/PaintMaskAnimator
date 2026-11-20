@@ -88,6 +88,7 @@ class AutosaveController:
             log.exception("autosave failed")
 
     def save(self):
+        self.window.canvas._commit_brush_stroke()
         # Explicit synchronous saves must not collide with a periodic write.
         if self._pending is not None:
             self._pending.result()

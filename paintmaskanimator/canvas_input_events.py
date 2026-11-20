@@ -139,6 +139,10 @@ class InputEventMixin(CanvasMembers):
     def keyReleaseEvent(self,e):
         super().keyReleaseEvent(e)
 
+    def focusOutEvent(self, event):
+        self._commit_brush_stroke()
+        super().focusOutEvent(event)
+
     def mousePressEvent(self,e):
         self.setFocus()
         self.last_widget = e.position()
@@ -156,6 +160,7 @@ class InputEventMixin(CanvasMembers):
             e.accept()
             return
         if e.button() == Qt.MouseButton.MiddleButton:
+            self._commit_brush_stroke()
             self.middle_hand = True
             self.drawing = True
             self.update_tool_cursor()
@@ -233,6 +238,7 @@ class InputEventMixin(CanvasMembers):
             if e.modifiers() & Qt.KeyboardModifier.ShiftModifier:
                 self._begin_brush_straight_line(p)
                 return
+            self._commit_brush_stroke()
             self._brush_started_with_content = bool(self.active_layer.has_content)
             self.ensure_editable_key()
             self._begin_opaque_brush_stroke()
@@ -459,7 +465,7 @@ class InputEventMixin(CanvasMembers):
 
         if t == "brush":
             raw_release = self.widget_to_canvas(e.position())
-            if self.drawing and self.last_canvas is not None:
+            if self._stroke_work_image is not None and self.drawing and self.last_canvas is not None:
                 self._finish_stabilized_brush(
                     raw_release,
                     1.0,
@@ -467,14 +473,7 @@ class InputEventMixin(CanvasMembers):
                 self._brush_line_anchor = (
                     (self.current_frame, self.active_layer_index), QPointF(raw_release),
                 )
-            self._stop_brush_follow_timer()
-            self._finish_opaque_brush_stroke()
-            self._reset_brush_stabilizer()
-            self._cell_structure_dirty = (
-                not self._brush_started_with_content
-                and bool(self.active_layer.has_content)
-            )
-            self.cellChanged.emit(self.current_frame, self.active_layer_index)
+            self._commit_brush_stroke()
         elif t == "line" and self.line_curve_stage == 1:
             self.drawing = False
             self.line_end = self.widget_to_canvas(e.position())
@@ -578,6 +577,7 @@ class InputEventMixin(CanvasMembers):
         if self.effective_tool() != "brush":e.ignore();return
         p=self.widget_to_canvas(e.position()); pressure=max(.001,float(e.pressure()))
         if e.type()==e.Type.TabletPress and self.inside(p):
+            self._commit_brush_stroke()
             self._brush_started_with_content = bool(self.active_layer.has_content)
             self.ensure_editable_key()
             self._begin_opaque_brush_stroke()
@@ -604,7 +604,7 @@ class InputEventMixin(CanvasMembers):
             )
             e.accept()
         elif e.type()==e.Type.TabletRelease:
-            if self.drawing and self.last_canvas is not None:
+            if self._stroke_work_image is not None and self.drawing and self.last_canvas is not None:
                 self._finish_stabilized_brush(
                     p,
                     max(
@@ -615,14 +615,6 @@ class InputEventMixin(CanvasMembers):
                 self._brush_line_anchor = (
                     (self.current_frame, self.active_layer_index), QPointF(p),
                 )
-            self._stop_brush_follow_timer()
-            self._finish_opaque_brush_stroke()
-            self._reset_brush_stabilizer()
-            self.drawing=False
-            self._cell_structure_dirty = (
-                not self._brush_started_with_content
-                and bool(self.active_layer.has_content)
-            )
-            self.cellChanged.emit(self.current_frame,self.active_layer_index)
+            self._commit_brush_stroke()
             e.accept()
         else:e.ignore()

@@ -17,6 +17,8 @@ from PySide6.QtCore import QPoint, QPointF
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtWidgets import QApplication, QMessageBox
 
+from image_edit_helpers import edit_qimage
+
 from paintmaskanimator import constants, layout_paper, project_io
 from paintmaskanimator.clip_animation import (
     ClipAnimationDocument, ClipAnimationLayer, ClipCelKey, build_pma_frames,
@@ -248,7 +250,8 @@ def paint(c, route="full"):
         c.flood_fill(QPoint(5, 5))
     else:
         c.push_layer_undo()
-        c.active_layer.image.to_qimage().setPixelColor(5, 5, QColor("blue"))
+        with edit_qimage(c.active_layer.image) as target:
+            target.setPixelColor(5, 5, QColor("blue"))
         c.cellChanged.emit(c.current_frame, c.active_layer_index)
 
 

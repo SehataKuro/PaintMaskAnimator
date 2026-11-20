@@ -55,6 +55,7 @@ def test_white_brush_clears_to_transparent(qapp):
     canvas.ensure_editable_key()
     canvas._begin_opaque_brush_stroke()
     canvas.draw_line(QPointF(40, 40), QPointF(160, 160), 1.0)
+    canvas._finish_opaque_brush_stroke()
 
     blue = _rgba(canvas.active_layer.image.to_qimage())
     assert np.any(blue[:, :, 3] == 255), "blue stroke should be opaque"
@@ -62,6 +63,7 @@ def test_white_brush_clears_to_transparent(qapp):
     canvas.main_color = QColor("#ffffff")
     canvas._begin_opaque_brush_stroke()
     canvas.draw_line(QPointF(40, 40), QPointF(160, 160), 1.0)
+    canvas._finish_opaque_brush_stroke()
 
     after = _rgba(canvas.active_layer.image.to_qimage())
     # No pure-white opaque pixels are baked into the layer.

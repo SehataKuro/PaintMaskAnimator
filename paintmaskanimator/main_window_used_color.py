@@ -48,6 +48,7 @@ class UsedColorController:
         self.refresh(request=self.window._used_color_request)
 
     def undo(self):
+        self.window.canvas._commit_brush_stroke()
         if not self.window.canvas.undo_stack:
             return
         self.window.canvas.undo()
@@ -55,6 +56,7 @@ class UsedColorController:
         self.refresh_history_panel()
 
     def redo(self):
+        self.window.canvas._commit_brush_stroke()
         if not self.window.canvas.redo_stack:
             return
         self.window.canvas.redo()
@@ -72,6 +74,7 @@ class UsedColorController:
             steps = int(delta)
         except (TypeError, ValueError):
             return
+        self.window.canvas._commit_brush_stroke()
         if steps < 0:
             for _ in range(-steps):
                 if not self.window.canvas.undo_stack:

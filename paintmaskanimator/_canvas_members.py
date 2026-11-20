@@ -97,6 +97,7 @@ class CanvasMembers(_MembersBase):
         _eyedropper_preview_ns: int
         _eyedropper_sample_pixel: tuple[int, int] | None
         _finish_opaque_brush_stroke: Any
+        _commit_brush_stroke: Any
         _finish_stabilized_brush: Any
         _hue_cluster_palette_from_samples: Any
         _invalidate_exposure_index: Any
@@ -191,6 +192,10 @@ class CanvasMembers(_MembersBase):
         _stop_brush_follow_timer: Any
         _stroke_before_region: Any
         _stroke_before_tiles: Any
+        _stroke_target: Any
+        _stroke_work_image: Any
+        _stroke_work_rect: Any
+        _grow_stroke_work: Any
         _stroke_dirty_rect: Any
         _stroke_prev_has_content: Any
         _stroke_undo_frame: Any

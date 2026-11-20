@@ -98,11 +98,11 @@ class PaintToolsMixin(CanvasMembers):
             int(math.floor(min(a.y(), b.y()))) - margin,
         )
         right = min(
-            as_qimage(self.active_layer.image).width(),
+            self.active_layer.image.width,
             int(math.ceil(max(a.x(), b.x()))) + margin + 1,
         )
         bottom = min(
-            as_qimage(self.active_layer.image).height(),
+            self.active_layer.image.height,
             int(math.ceil(max(a.y(), b.y()))) + margin + 1,
         )
         if right <= left or bottom <= top:
@@ -115,7 +115,7 @@ class PaintToolsMixin(CanvasMembers):
             bottom - top,
         ).toAlignedRect()
         self._ensure_before_region(rect)
-        before_region = self._stroke_before_region(rect)
+        work = self._stroke_work_image
         overlay = QImage(
             rect.width(),
             rect.height(),
@@ -154,7 +154,7 @@ class PaintToolsMixin(CanvasMembers):
         )
         if sub_only:
             overlay_rgba = self._qimage_rgba_array(overlay)
-            base_region = before_region
+            base_region = self._stroke_before_region(rect)
             base_rgba = self._qimage_rgba_array(base_region)
 
             selected_rgbs = self.selected_mask_colors()
@@ -204,7 +204,7 @@ class PaintToolsMixin(CanvasMembers):
             overlay,
             rect.topLeft(),
             exact_colors=(source_color,),
-            brush=True,
+            brush=work is not None,
         )
         color_set = getattr(
             self,
@@ -214,7 +214,8 @@ class PaintToolsMixin(CanvasMembers):
         if color_set is not None:
             color_set.update(colors)
 
-        self.active_layer.has_content = True
+        if work is None:
+            self.active_layer.has_content = True
         self._update_stroke_region(a, b, draw_width)
 
     @staticmethod
@@ -825,6 +826,7 @@ class PaintToolsMixin(CanvasMembers):
             previous = point
 
     def _begin_brush_straight_line(self, point):
+        self._commit_brush_stroke()
         anchor = getattr(self, "_brush_line_anchor", None)
         key = (self.current_frame, self.active_layer_index)
         self._brush_shift_line = True
@@ -927,7 +929,6 @@ class PaintToolsMixin(CanvasMembers):
             overlay,
             QPoint(0, 0),
             exact_colors=(source_color,),
-            brush=True,
         )
         self._emit_actual_paint_colors(colors)
 

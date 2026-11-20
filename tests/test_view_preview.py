@@ -128,15 +128,18 @@ def test_label_regions_numpy_numbers_in_first_appearance_order():
 # ----------------------------------------------------------------------
 def test_map_stroke_converts_only_pending_pixels(qapp, monkeypatch):
     from PySide6.QtCore import QRect
+    from image_edit_helpers import edit_qimage
     from paintmaskanimator.canvas import PaintCanvas
 
     canvas = PaintCanvas()
     layer = canvas.active_layer
-    layer.image.to_qimage().fill(QColor(*NORMAL))
+    with edit_qimage(layer.image) as image:
+        image.fill(QColor(*NORMAL))
     canvas.set_view_preview(map_colors=True)
     original = canvas.view_layer_image(layer, canvas.active_layer_index, layer.image.to_qimage())
     canvas._begin_opaque_brush_stroke()
     canvas.drawing = True
+    work = canvas._stroke_work_image
     converted = []
     real_map = view_preview.map_color_pixels
 
@@ -148,14 +151,14 @@ def test_map_stroke_converts_only_pending_pixels(qapp, monkeypatch):
     try:
         for x, color in [(30, QColor(*SHADOW)), (600, QColor(0, 0, 0, 0))]:
             canvas._ensure_before_region(QRect(x, 30, 4, 4))
-            layer.image.to_qimage().setPixelColor(x, 30, color)
-            shown = canvas.view_layer_image(layer, canvas.active_layer_index, layer.image.to_qimage())
+            work.setPixelColor(x, 30, color)
+            shown = canvas.view_layer_image(layer, canvas.active_layer_index, work)
             assert shown.pixelColor(0, 0) == original.pixelColor(0, 0)
             if color.alpha() == 0:
                 assert shown.pixelColor(x, 30).alpha() == 0
             else:
                 assert shown.pixelColor(x, 30) != original.pixelColor(x, 30)
-            assert canvas.view_layer_image(layer, canvas.active_layer_index, layer.image.to_qimage()) is shown
+            assert canvas.view_layer_image(layer, canvas.active_layer_index, work) is shown
         assert converted == [(4, 4), (4, 4)]
         assert original.pixelColor(600, 30).alpha() == 255
     finally:

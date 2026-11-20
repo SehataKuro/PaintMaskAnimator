@@ -37,6 +37,7 @@ from PySide6.QtGui import (
     QPixmap,
     QPolygonF,
     QRegion,
+    QTransform,
 )
 from PySide6.QtWidgets import QPushButton, QWidget
 from .pma_image import as_qimage, copy_image
@@ -278,8 +279,10 @@ class PaintCanvas(
         # ブラシ確定時にタイムライン全体を作り直さないための状態。
         self._brush_started_with_content = True
         self._brush_blended_colors = set()
-        # Undo用の変更前画素はタイル単位で遅延保存する。全画面サイズの
-        # QImageをストローク開始時に確保しない。
+        # Undo用の変更前画素はタイル単位で遅延保存する。
+        self._stroke_work_image = None
+        self._stroke_work_rect = QRect()
+        self._stroke_target = None
         self._stroke_before_tiles = None
         self._stroke_dirty_rect = None
         self._stroke_undo_frame = 0
@@ -364,6 +367,7 @@ class PaintCanvas(
     # the many existing `self.frames` / `self.current_frame` call sites keep
     # working unchanged.
     def install_legacy_frames(self, frames=None, sequence_archive=None):
+        self._commit_brush_stroke()
         self._document.install_legacy_frames(
             self.frames if frames is None else frames,
             sequence_archive,
@@ -374,16 +378,23 @@ class PaintCanvas(
     def frames(self): return self._document.frames
     @frames.setter
     def frames(self, value):
+        self._commit_brush_stroke()
         self._document.install_legacy_frames(value)
         self._invalidate_exposure_index()
     @property
     def current_frame(self): return self._document.current_frame
     @current_frame.setter
-    def current_frame(self, value): self._document.current_frame = value
+    def current_frame(self, value):
+        if value != self._document.current_frame:
+            self._commit_brush_stroke()
+        self._document.current_frame = value
     @property
     def active_layer_index(self): return self._document.active_layer_index
     @active_layer_index.setter
-    def active_layer_index(self, value): self._document.active_layer_index = value
+    def active_layer_index(self, value):
+        if value != self._document.active_layer_index:
+            self._commit_brush_stroke()
+        self._document.active_layer_index = value
     @property
     def layers(self): return self._document.layers
     @property
@@ -526,6 +537,7 @@ class PaintCanvas(
 
     def set_tool(self, t):
         if t != self.tool or t == "shape":
+            self._commit_brush_stroke()
             self.abort_skewer_fill()
             self._stop_brush_follow_timer()
             self.line_start = None
@@ -846,8 +858,8 @@ class PaintCanvas(
         )
 
         if brush:
-            destination_image = as_qimage(destination)
-            paint_at = QPoint(destination_x, destination_y)
+            destination_image = self._stroke_work_image
+            paint_at = QPoint(destination_x, destination_y) - self._stroke_work_rect.topLeft()
         else:
             destination_image = destination.read_qimage(destination_x, destination_y, width, height)
             paint_at = QPoint()
@@ -863,7 +875,7 @@ class PaintCanvas(
             )
             blend_mask = active_mask & ~source_white
             base_rgba = self._qimage_rgba_array(
-                destination_image.copy(destination_x, destination_y, width, height)
+                destination_image.copy(paint_at.x(), paint_at.y(), width, height)
                 if brush else destination_image
             )
             base_rgb = base_rgba[:, :, :3].astype(np.float32)
@@ -956,13 +968,14 @@ class PaintCanvas(
         tiles = self._stroke_before_tiles
         if tiles is None:
             return
-        live = self.active_layer.image
+        live = self._stroke_target
         bounds = QRect(
             0, 0, live.width, live.height
         )
         rect = QRect(rect).intersected(bounds)
         if rect.isEmpty():
             return
+        self._grow_stroke_work(rect, bounds)
         tile_size = 256
         first_x = rect.left() // tile_size
         last_x = rect.right() // tile_size
@@ -980,9 +993,19 @@ class PaintCanvas(
                     tile_size,
                 ).intersected(bounds)
                 tiles[key] = (tile_rect, live.read_qimage(*tile_rect.getRect()))
-        self._stroke_dirty_rect = self._stroke_dirty_rect.united(rect)
+        dirty = rect
+        scale = self._stroke_work_image.devicePixelRatio()
+        if scale != 1:
+            # QPainter stamps in logical coordinates, while writeback uses
+            # physical pixels. Keep the existing undo tile selection.
+            physical = QRectF(
+                rect.x() * scale, rect.y() * scale,
+                rect.width() * scale, rect.height() * scale,
+            ).toAlignedRect()
+            dirty = rect.united(physical.intersected(bounds))
+        self._stroke_dirty_rect = self._stroke_dirty_rect.united(dirty)
         if getattr(self, "_stroke_view_preview", None) is not None:
-            self._stroke_view_dirty = self._stroke_view_dirty.united(rect)
+            self._stroke_view_dirty = self._stroke_view_dirty.united(dirty)
 
 
     def selected_mask_colors(self):
@@ -1399,10 +1422,11 @@ class PaintCanvas(
             self.update()
 
 
-    def silhouette_layer_image(self, layer, apply_palette_filter=True):
+    def silhouette_layer_image(self, layer, apply_palette_filter=True, source=None):
         base = self.filtered_layer_image(
             layer,
             apply_palette_filter,
+            source,
         )
         if base is None:
             return QImage()
@@ -1459,7 +1483,7 @@ class PaintCanvas(
         _bounded_cache_put(self._color_index_cache, index_key, indexed, 24)
         return indexed
 
-    def filtered_layer_image(self, layer, apply_palette_filter=True):
+    def filtered_layer_image(self, layer, apply_palette_filter=True, source=None):
         """Return a cached display-only image honoring this layer's palette visibility."""
         visible = (
             getattr(self, "visible_color_rgbs", None)
@@ -1475,7 +1499,8 @@ class PaintCanvas(
             dict(getattr(self, "preview_color_remap", None) or {})
             if apply_palette_filter else {}
         )
-        source = as_qimage(layer.image)
+        if source is None:
+            source = as_qimage(layer.image)
         if visible is None and legacy_rgb is None and not remap:
             return source
         rgb = legacy_rgb
@@ -1506,7 +1531,7 @@ class PaintCanvas(
         _bounded_cache_put(self._color_filter_cache, key, filtered, 96)
         return filtered
 
-    def _layer_display_source(self, layer, layer_index):
+    def _layer_display_source(self, layer, layer_index, source=None):
         """画面に出すレイヤー画像。比較表示のときは色塗り前の初期状態。
 
         初期状態を保持していないセルは今の絵をそのまま出す（:mod:`bucket_fill`
@@ -1515,19 +1540,20 @@ class PaintCanvas(
         """
         if self.show_initial_state and layer.initial_image is not None:
             return as_qimage(layer.initial_image)
-        return self._display_layer_image(layer, layer_index)
+        if source is None:
+            return self._display_layer_image(layer, layer_index)
+        return self._display_layer_image(layer, layer_index, source)
 
-    def _display_layer_image(self, layer, layer_index):
+    def _display_layer_image(self, layer, layer_index, source=None):
         """パレット/シルエット等の表示フィルタを適用したレイヤー画像を返す。
 
         消しゴム(白)は既にレイヤーデータ上で alpha=0 のため、疑似透明の表示変換は
-        不要。ストローク中もアクティブレイヤーの実画素へ直接合成しているので、
-        ここで ``layer.image`` を返せばそのまま最新の描画結果が表示される。
+        不要。画面描画ではストローク中の作業画像を source に渡せる。
         """
         # 下書きレイヤーは色数削減の対象外。プレビューの色をそのまま出力する
         # ため、パレット絞り込みやシルエット等の表示変換を一切適用しない。
         if getattr(layer, "is_draft", False):
-            return as_qimage(layer.image)
+            return as_qimage(layer.image) if source is None else source
         apply_palette_filter = (
             layer_index == self.active_layer_index
         )
@@ -1538,11 +1564,13 @@ class PaintCanvas(
             return self.silhouette_layer_image(
                 layer,
                 apply_palette_filter,
+                source,
             )
 
         return self.filtered_layer_image(
             layer,
             apply_palette_filter,
+            source,
         )
 
     def view_layer_image(self, layer, layer_index, image):
@@ -1566,7 +1594,7 @@ class PaintCanvas(
             return image
         stroke_preview = getattr(self, "_stroke_view_preview", None)
         if (map_colors and stroke_preview is not None
-                and image is as_qimage(layer.image) and stroke_preview[0] is layer
+                and image is self._stroke_work_image and stroke_preview[0] is layer
                 and stroke_preview[1] == preview.key()):
             # 筆が触れた範囲だけを変換し、ストローク専用の表示画像へ戻す。
             # 過去のプレビューキャッシュは共有しない。
@@ -1724,7 +1752,17 @@ class PaintCanvas(
             layer = self.frames[key_frame].layers[layer_index]
             if not layer.visible:
                 continue
-            draw_image = self._layer_display_source(layer, layer_index)
+            source = None
+            if (layer.image is self._stroke_target
+                    and not self._stroke_work_rect.isEmpty()
+                    and not (self.show_initial_state and layer.initial_image is not None)):
+                bounds = QRect(0, 0, layer.image.width, layer.image.height)
+                if self._stroke_work_rect != bounds:
+                    if self._draw_stroke_crop(painter, target_rect, layer, layer_index, bounds):
+                        continue
+                    self._expand_stroke_work(bounds)
+                source = self._stroke_work_image
+            draw_image = self._layer_display_source(layer, layer_index, source)
             draw_image = self.view_layer_image(layer, layer_index, draw_image)
             if draw_image is None:
                 continue
@@ -1732,6 +1770,35 @@ class PaintCanvas(
             painter.setOpacity(layer.opacity)
             painter.drawImage(target_rect, draw_image)
         painter.setOpacity(1.0)
+
+    def _draw_stroke_crop(self, painter, target, layer, index, bounds):
+        """At pixel alignment, replace just the cropped part of this layer."""
+        transform = painter.deviceTransform()
+        origin = transform.map(target.topLeft())
+        if (not self.drawing or self.flip_horizontal or self.flip_vertical
+                or self.view_preview.active
+                or transform.type() not in (
+                    QTransform.TransformationType.TxNone, QTransform.TransformationType.TxTranslate,
+                )
+                or target.width() != bounds.width() or target.height() != bounds.height()
+                or target.topLeft() != QPointF(target.topLeft().toPoint())
+                or origin != QPointF(origin.toPoint())):
+            return False
+        base = as_qimage(layer.image)
+        if self._display_layer_image(layer, index, base) is not base:
+            return False
+        patch_rect = self._stroke_work_rect.translated(target.topLeft().toPoint())
+        painter.save()
+        painter.setOpacity(layer.opacity)
+        painter.setClipRegion(
+            QRegion(target.toRect()).subtracted(QRegion(patch_rect)),
+            Qt.ClipOperation.IntersectClip,
+        )
+        painter.drawImage(target, base)
+        painter.restore()
+        painter.setOpacity(layer.opacity)
+        painter.drawImage(patch_rect.topLeft(), self._stroke_work_image)
+        return True
     def _active_tool_panel(self):
         window: Any = self.window()
         return window.tools if hasattr(window, "tools") else None
@@ -1767,7 +1834,7 @@ class PaintCanvas(
         p.setOpacity(1)
         # 再生中は表示領域サイズの合成キャッシュを使用し、
         # 大画像をレイヤーごとに毎フレーム再縮小しない。
-        if self._playback_active:
+        if self._playback_active and self._stroke_work_image is None:
             playback_image = self.playback_frame_image(
                 self.current_frame,
                 wr,

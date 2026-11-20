@@ -992,6 +992,7 @@ class MainWindow(
         d=CanvasSizeDialog(constants.CANVAS_WIDTH,constants.CANVAS_HEIGHT,tr("キャンバスサイズの変更"),self)
         if d.exec():self.canvas.push_doc_undo();self.replace_doc(*d.values(),preserve=True)
     def replace_doc(self,w,h,preserve=False):
+        self.canvas._commit_brush_stroke()
         old_frames=self.canvas.frames if preserve else None;oldw,oldh=constants.CANVAS_WIDTH,constants.CANVAS_HEIGHT;constants.CANVAS_WIDTH,constants.CANVAS_HEIGHT=w,h
         if preserve:
             new=[]
@@ -1187,7 +1188,9 @@ class MainWindow(
     def crop_image(self,fi):return self.canvas.composite(fi,True).copy(OUTSIDE_MARGIN,OUTSIDE_MARGIN,constants.CANVAS_WIDTH,constants.CANVAS_HEIGHT)
     def save_png(self):
         path,_=QFileDialog.getSaveFileName(self,tr("PNG保存"),"frame.png","PNG (*.png)");
-        if path:imaging.without_color_space(self.crop_image(self.canvas.current_frame)).save(path if path.lower().endswith('.png') else path+'.png','PNG')  # pyright: ignore[reportCallIssue,reportArgumentType]  # QImage.save accepts a str format at runtime
+        if path:
+            self.canvas._commit_brush_stroke()
+            imaging.without_color_space(self.crop_image(self.canvas.current_frame)).save(path if path.lower().endswith('.png') else path+'.png','PNG')  # pyright: ignore[reportCallIssue,reportArgumentType]  # QImage.save accepts a str format at runtime
     def exposure_images(self):
         out=[]
         for i,f in enumerate(self.canvas.frames):
@@ -1209,6 +1212,7 @@ class MainWindow(
     def save_tga(self):
         path,_=QFileDialog.getSaveFileName(self,tr("TGA保存"),"frame.tga","TGA (*.tga)")
         if not path:return
+        self.canvas._commit_brush_stroke()
         if not path.lower().endswith(".tga"):path+=".tga"
         if not self.save_tga_image(self.crop_image(self.canvas.current_frame),Path(path)):
             QMessageBox.warning(self,tr("TGA保存"),tr("TGAを保存できませんでした。Pillowの導入を確認してください。"))

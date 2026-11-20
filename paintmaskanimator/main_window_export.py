@@ -53,6 +53,7 @@ class ExportController:
 
     def canvas_image(self):
         """今表示しているコマの、キャンバス範囲の合成画像。"""
+        self.window.canvas._commit_brush_stroke()
         return self.window.crop_image(self.window.canvas.current_frame)
 
     @staticmethod
@@ -231,6 +232,7 @@ class ExportController:
     def cut_folder(self):
         from .cut_folder_dialog import CutFolderExportDialog
 
+        self.window.canvas._commit_brush_stroke()
         cels, images, skipped = self.cut_folder_cels()
         project = self.window.current_project_path
         hint = cut_folder.guess_cut_number(Path(project).stem) if project else ""
@@ -345,6 +347,7 @@ class ExportController:
             return
         if not path.lower().endswith(".psd"):
             path += ".psd"
+        self.window.canvas._commit_brush_stroke()
         try:
             psd = PSDImage.new(
                 "RGB",
@@ -493,6 +496,7 @@ class ExportController:
             )
             return
 
+        self.window.canvas._commit_brush_stroke()
         keys = []
         for layer_index, safe_layer_name in enumerate(safe_layer_names):
             for frame_index, frame in enumerate(self.window.canvas.frames):
@@ -618,6 +622,7 @@ class ExportController:
         path,_=QFileDialog.getSaveFileName(self.window,tr('MP4書き出し'),'animation.mp4','MP4 (*.mp4)')
         if not path:return
         if not path.lower().endswith('.mp4'):path+='.mp4'
+        self.window.canvas._commit_brush_stroke()
         with tempfile.TemporaryDirectory() as td:
             total = sum(max(1, int(frame.duration)) for frame in self.window.canvas.frames)
             progress = create_counter(
@@ -745,6 +750,7 @@ class ExportController:
 
     def write_shadow_sequence(self, folder_name, destination):
         """``destination`` の下へ、種類ごとのフォルダーを作って書き出す。"""
+        self.window.canvas._commit_brush_stroke()
         materials = self.shadow_materials(folder_name)
         if not materials:
             self.window.statusBar().showMessage(

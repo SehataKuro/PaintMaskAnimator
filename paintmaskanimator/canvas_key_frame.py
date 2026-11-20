@@ -230,6 +230,7 @@ class KeyFrameMixin(CanvasMembers):
 
     def ensure_editable_key(self):
         """保持セルでは露出元を編集し、未使用／○は内容キーへ変換する。"""
+        self._commit_brush_stroke()
         block = self.timeline_block_at(
             self.current_frame, self.active_layer_index,
         )

@@ -59,6 +59,7 @@ class TimelineStructureMixin(CanvasMembers):
             self.update()
 
     def add_layer(self):
+        self._commit_brush_stroke()
         # 全フレーム・全画像の文書スナップショットを作らず、
         # 追加レイヤーだけをUndo対象にして大量コマ時の待ち時間を抑える。
         old_active = int(self.active_layer_index)
@@ -93,6 +94,7 @@ class TimelineStructureMixin(CanvasMembers):
     def delete_layer(self):
         if len(self.layers) <= 1:
             return
+        self._commit_brush_stroke()
         index = int(self.active_layer_index)
         target_active = max(0, index - 1)
         stored_layers = self._document.capture_column(index)
@@ -567,6 +569,7 @@ class TimelineStructureMixin(CanvasMembers):
 
     def apply_sequence_only_entries(self):
         """連番で追加した番号をシートの保持区間、または末尾へ反映する。"""
+        self._commit_brush_stroke()
         pending = []
         for column, frame in enumerate(self.frames):
             for layer_index, layer in enumerate(frame.layers):
