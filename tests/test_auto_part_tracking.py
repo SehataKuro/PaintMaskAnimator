@@ -138,3 +138,75 @@ def test_composed_flow_rejects_an_inconsistent_return_path():
     _sy, _sx, by, bx, _inside = invalid.coordinates(ys, xs)
     region = np.ones((30, 40), dtype=bool)
     assert not _in_mask(by, bx, 60, 70, region).any()
+
+
+def test_tiled_native_matches_numpy_with_random_windows(monkeypatch):
+    from types import SimpleNamespace
+
+    import pma_native
+
+    rng = np.random.default_rng(692)
+    shape = (40, 140)
+    cream = int(auto_paint.fill_tracking._labels(np.array([[CREAM]], dtype=np.uint8))[0, 0])
+    yellow = int(auto_paint.fill_tracking._labels(np.array([[YELLOW]], dtype=np.uint8))[0, 0])
+    tracker = PartTracker(shape)
+    original = pma_native.tiled_part_color
+    calls = []
+
+    def record(*args):
+        calls.append(None)
+        return original(*args)
+
+    monkeypatch.setattr(pma_native, "tiled_part_color", record)
+    for case in ("accept", "hit", "known", "tile_share", "global_count",
+                 "global_share", "area", "unpaintable", "confirmed", "outside"):
+        local = rng.random((24, 128)) > 0.08
+        filled = SimpleNamespace(bounds=(0, 0, 128, 24), local=local)
+        flag = np.ones(shape, dtype=bool)
+        black = rng.random(shape) < 0.15
+        zeros = np.zeros(shape, dtype=bool)
+        target = SimpleNamespace(values=np.zeros(shape, dtype=np.int64),
+                                 black=black, wide_boundary=flag)
+        source = SimpleNamespace(values=np.zeros(shape, dtype=np.int64),
+                                 black=flag, wide_boundary=flag, wide_primary=flag,
+                                 boundary=rng.random(shape) < 0.01)
+        values = np.full(shape, cream, dtype=np.int64)
+        labels = rng.integers(0, 3, shape, dtype=np.int32)
+        sizes = np.full(3, 90, dtype=np.int64)
+        reference = SimpleNamespace(initial=source, values=values, black=zeros, primary=zeros,
+                                    open=rng.random(shape) < 0.02, confirmed=None,
+                                    undecided=rng.random(shape) < 0.03,
+                                    regions=SimpleNamespace(labels=labels, sizes=sizes))
+        dy, dx = map(int, rng.integers(0, 5, 2))
+        paths = [(dy, dx, -dy, -dx)] * 2
+        if case == "hit":
+            source.wide_boundary = zeros
+        elif case == "known":
+            reference.open[:] = True
+        elif case == "tile_share":
+            values[:, ::3] = yellow
+        elif case == "global_count":
+            # 採用できる最初の区画からも一部の画素を除き、全体の半数を下回る。
+            values[:, 30 + dx:68 + dx] = 0
+            paths[1] = None
+        elif case == "global_share":
+            values[:, 64 + dx:] = yellow
+        elif case == "area":
+            sizes[:] = int(local.sum()) * 4
+        elif case == "unpaintable":
+            values[:] = 0xff0000ff
+        elif case == "confirmed":
+            reference.confirmed = zeros
+        elif case == "outside":
+            paths[0] = (-25, -65, 25, 65)
+            paths[1] = (dy, -dx, -dy, dx)
+        monkeypatch.setattr(tracker.alignment, "track_many", lambda *args, paths=paths: paths)
+        expected = CREAM[:3] if case == "accept" else None
+        assert tracker._tiled_color_numpy(0, target, filled, reference) == expected, case
+        before = len(calls)
+        assert tracker._tiled_color(0, target, filled, reference) == expected, case
+        assert len(calls) == before + 1, case
+        if case == "accept":
+            reference.values = values.astype(np.int32).astype(np.uint32)
+            assert tracker._tiled_color(0, target, filled, reference) == expected
+            assert len(calls) == before + 1

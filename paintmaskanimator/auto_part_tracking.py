@@ -236,9 +236,8 @@ class PartTracker:
                 return None
         return reference_check._to_rgb(value)
 
-    def _tiled_color(self, index, target, filled, guide):
-        """滑らかな動きで合わない部位は、小区画を独立に追跡して色だけを集計する。"""
-        from . import auto_paint as ap
+    def _tiled_inputs(self, index, target, filled, guide):
+        """部位を小区画に分け、採色に使う往復のずれを求める。"""
         source = guide.initial
         if source is None:
             return None
@@ -253,10 +252,8 @@ class PartTracker:
         if any(left.values.shape != self.shape or right.values.shape != self.shape
                for left, right in steps):
             return None
-        height, width = self.shape
         x0, y0, x1, y1 = filled.bounds
         outline = bucket_fill.dilate(filled.local, 1) & ~bucket_fill.erode(filled.local, 1)
-        samples, labels = [], set()
         size = int(filled.local.sum())
         tile_size = 64 if size < 262144 else 96
         tiles = []
@@ -274,6 +271,34 @@ class PartTracker:
                 initial = (tx, ty, tx + sub.shape[1], ty + sub.shape[0])
                 tiles.append((tx, ty, sub, oy, ox, initial))
         paths = self.alignment.track_many(steps, [tile[-1] for tile in tiles], self.shape)
+        return tiles, paths, size
+
+    def _tiled_color(self, index, target, filled, guide):
+        """小区画を独立に追跡し、移動先の窓から部位の色を選ぶ。"""
+        from . import auto_paint as ap
+
+        inputs = self._tiled_inputs(index, target, filled, guide)
+        if inputs is None:
+            return None
+        if ap.native is not None:
+            result = ap.native.tiled_part_color(target, filled, guide, *inputs)
+            if result is not NotImplemented:
+                return result
+        return self._tiled_color_numpy(index, target, filled, guide, inputs=inputs)
+
+    def _tiled_color_numpy(self, index, target, filled, guide, *, inputs=None):
+        """位置合わせ後の採色と集計を NumPy で行う。"""
+        from . import auto_paint as ap
+
+        if inputs is None:
+            inputs = self._tiled_inputs(index, target, filled, guide)
+            if inputs is None:
+                return None
+        tiles, paths, size = inputs
+        source = guide.initial
+        height, width = self.shape
+        x0, y0 = filled.bounds[:2]
+        samples, labels = [], set()
         for (tx, ty, sub, oy, ox, _initial), path in zip(tiles, paths):
             if path is None:
                 continue

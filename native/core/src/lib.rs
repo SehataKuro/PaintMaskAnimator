@@ -17,6 +17,7 @@ pub mod project;
 pub mod reference_check;
 pub mod regions;
 pub mod thin;
+pub mod tiled_color;
 pub mod tone_curve;
 
 pub use error::Error;

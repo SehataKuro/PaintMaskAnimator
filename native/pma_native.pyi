@@ -57,6 +57,17 @@ def reference_region_under(
     bounds: tuple[int, int, int, int],
 ) -> tuple[int | None, float]: ...
 
+_TileRect = tuple[int, int, int, int]
+_TileWindow = tuple[_TileRect, bytes]
+_TileInput = tuple[
+    _TileRect, bytes, bytes, _TileRect, tuple[int, int, int, int],
+    _TileWindow, _TileWindow, tuple[bytes, bytes], tuple[bytes, bytes, bytes, bytes, bytes],
+    bytes | None, bytes, bytes,
+]
+def tiled_part_color(
+    tiles: list[_TileInput], local: _TileWindow, size: int, sizes: bytes,
+) -> tuple[int, int, int] | None: ...
+
 def refine_face(
     values: bytes, labels: bytes, usable: bytes, excluded: bytes, sizes: bytes,
     points: bytes, width: int, height: int, radius: int,

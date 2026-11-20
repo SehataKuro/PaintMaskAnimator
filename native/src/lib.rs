@@ -25,6 +25,7 @@ mod palette_labels;
 mod project_payload;
 mod project_zip;
 mod reference_check;
+mod tiled_color;
 mod timeline;
 mod tone_curve;
 
@@ -195,6 +196,7 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     )?)?;
     module.add_function(wrap_pyfunction!(auto_paint::connect_runs, module)?)?;
     module.add_function(wrap_pyfunction!(auto_paint::refine_face, module)?)?;
+    module.add_function(wrap_pyfunction!(tiled_color::tiled_part_color, module)?)?;
     module.add_function(wrap_pyfunction!(auto_paint::solve_local_shift, module)?)?;
     module.add_function(wrap_pyfunction!(auto_paint::prepare_local_shift, module)?)?;
     module.add_function(wrap_pyfunction!(

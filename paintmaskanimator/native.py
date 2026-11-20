@@ -27,6 +27,7 @@ REQUIRED_API = (
     "reference_color_stats", "reference_line_art", "reference_region_stats", "reference_region_under",
     "render_quad_labels", "render_mesh_labels", "splat_mask_labels", "mask_labels_to_rgba",
     "solve_local_shift", "prepare_local_shift",
+    "tiled_part_color",
     "surface_guided_palette_labels", "map_known_colors", "region_neighbors",
     "FillSession", "LineCache", "compute_fill_region_once", "fill_target_mask", "extend_line_ends", "flood_fill", "dilate", "erode", "label_regions", "remove_line_noise", "decode_png", "encode_png", "ZipReader", "ZipWriter", "decode_v2_plan",
 )
@@ -395,6 +396,68 @@ def refine_face(guide, filled, shift, bounds, radius, thresholds):
         np.ascontiguousarray(guide.regions.sizes, dtype=np.uint64).tobytes(),
         np.ascontiguousarray(points, dtype=np.int64).tobytes(),
         ax1 - ax0, ay1 - ay0, radius, thresholds,
+    )
+
+
+def _tiled_window(bounds, shape, margin=0):
+    """画像内に切り詰めた窓を、矩形と配列のスライスで返す。"""
+    x0, y0, x1, y1 = bounds
+    height, width = shape
+    left, right = max(0, min(width, x0 - margin)), max(0, min(width, x1 + margin))
+    top, bottom = max(0, min(height, y0 - margin)), max(0, min(height, y1 + margin))
+    return (left, top, right - left, bottom - top), np.s_[top:bottom, left:right]
+
+
+def tiled_part_color(target, filled, guide, tiles, paths, size):
+    """採色に必要な区画窓をまとめて渡し、部位の RGB または None を返す。"""
+    source = guide.initial
+    wide = (source.wide_boundary, source.wide_primary)
+    excluded = (source.boundary, guide.open, guide.undecided, guide.black, guide.primary)
+    confirmed = guide.confirmed
+    masks = (target.black, source.black, *wide, *excluded)
+    if confirmed is not None:
+        masks += (confirmed,)
+    shape = target.black.shape
+    values, labels = guide.values, guide.regions.labels
+    if (values.dtype != np.int64 or labels.dtype != np.int32
+            or values.shape != shape or labels.shape != shape
+            or filled.local.dtype != np.bool_
+            or any(mask.dtype != np.bool_ or mask.shape != shape for mask in masks)
+            or (size < 4096 and guide.regions.sizes.dtype != np.int64)):
+        return NotImplemented
+
+    windows = []
+    for (tx, ty, sub, oy, ox, bounds), path in zip(tiles, paths):
+        if path is None:
+            continue
+        shift = tuple(map(int, path))
+        if any(not -(1 << 31) <= delta < (1 << 31) for delta in shift):
+            return NotImplemented
+        dy, dx, _, _ = shift
+        _, _, x1, y1 = bounds
+        moved = tx + dx, ty + dy, x1 + dx, y1 + dy
+        dest, roi = _tiled_window(moved, shape)
+        if not dest[2] or not dest[3]:
+            continue
+        target_black, target_roi = _tiled_window(bounds, shape, 1)
+        source_black, source_roi = _tiled_window(moved, shape, 1)
+        outline = np.zeros(sub.shape, dtype=np.bool_)
+        outline[oy, ox] = True
+        windows.append((
+            (tx, ty, x1 - tx, y1 - ty), sub.tobytes(), outline.tobytes(), dest, shift,
+            (target_black, target.black[target_roi].tobytes()),
+            (source_black, source.black[source_roi].tobytes()),
+            tuple(mask[roi].tobytes() for mask in wide),
+            tuple(mask[roi].tobytes() for mask in excluded),
+            None if confirmed is None else confirmed[roi].tobytes(),
+            values[roi].tobytes(), labels[roi].tobytes(),
+        ))
+    if not windows:
+        return None
+    x0, y0, x1, y1 = filled.bounds
+    return _native.tiled_part_color(
+        windows, ((x0, y0, x1 - x0, y1 - y0), filled.local.tobytes()), size,
+        guide.regions.sizes.tobytes() if size < 4096 else b"",
     )
 
 
