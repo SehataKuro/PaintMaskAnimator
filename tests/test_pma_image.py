@@ -216,3 +216,27 @@ def test_legacy_snapshot_copies_images_without_changing_their_type(wrap):
         assert as_qimage(duplicate).cacheKey() == as_qimage(image).cacheKey()
         as_qimage(duplicate).fill(0)
         assert as_qimage(image).pixelColor(0, 0) == QColor("red")
+
+
+@pytest.mark.parametrize("kind", ["qimage", "pma_image", "none"])
+def test_helpers_preserve_png_source_metadata(kind):
+    qt_image = QImage(2, 1, QImage.Format.Format_ARGB32_Premultiplied)
+    qt_image.fill(QColor(201, 18, 63, 128))
+    qt_image.setText("Description", "PNG metadata")
+    qt_image.setDotsPerMeterX(3937)
+    image = {"qimage": qt_image, "pma_image": PmaImage.from_qimage(qt_image),
+             "none": None}[kind]
+
+    source = as_qimage(image)
+    duplicate = copy_image(image)
+    if image is None:
+        assert source is duplicate is None
+        return
+
+    assert source is (image.to_qimage() if kind == "pma_image" else image)
+    assert type(duplicate) is type(image)
+    copied = as_qimage(duplicate)
+    assert copied is not source
+    assert copied.cacheKey() == source.cacheKey()
+    assert copied.text("Description") == "PNG metadata"
+    assert copied.dotsPerMeterX() == 3937

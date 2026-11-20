@@ -8,6 +8,7 @@ from bisect import bisect_right
 
 from .i18n import tr
 from .document import project_v1_state
+from .pma_image import as_qimage, copy_image
 from .timeline_metadata import reference_for, set_dense_import
 
 
@@ -112,10 +113,10 @@ def build_payload(snapshot, *, include_default_local_images=False):
 
     def artwork(cell, path):
         entry = {"image": path, "initial": None, "cell_name": cell.cell_name}
-        pngs.append((path, cell.image, "画像を書き出せませんでした: {name}"))
+        pngs.append((path, as_qimage(cell.image), "画像を書き出せませんでした: {name}"))
         if cell.initial_image is not None:
             entry["initial"] = f"initial/{path}"
-            pngs.append((entry["initial"], cell.initial_image,
+            pngs.append((entry["initial"], as_qimage(cell.initial_image),
                          "初期状態の画像を書き出せませんでした: {name}"))
         return entry
 
@@ -181,13 +182,14 @@ def build_payload(snapshot, *, include_default_local_images=False):
                 from PySide6.QtGui import QImage
                 cell = slot._cell
                 local = {"column": column, "retained_number": slot.sequence_number}
-                keep_image = (include_default_local_images or cell.image.isNull()
-                              or not cell.image.hasAlphaChannel()
+                image = as_qimage(cell.image)
+                keep_image = (include_default_local_images or image.isNull()
+                              or not image.hasAlphaChannel()
                               or cell.initial_image is not None or cell.cell_name is not None)
                 if not keep_image:
-                    transparent = QImage(cell.image.size(), cell.image.format())
+                    transparent = QImage(image.size(), image.format())
                     transparent.fill(0)
-                    keep_image = cell.image != transparent
+                    keep_image = image != transparent
                 if keep_image:
                     local.update(artwork(cell,
                         f"compatibility/layer_{li:04d}/position_{column:06d}.png"))
@@ -207,8 +209,8 @@ def build_payload(snapshot, *, include_default_local_images=False):
             if source is not None and candidates and source not in candidates:
                 # Compare live source artwork with the bank artwork used on load.
                 # This pixel comparison belongs only to payload preparation.
-                original = frames[source].layers[li].image
-                bank = track.cells[value].image
+                original = as_qimage(frames[source].layers[li].image)
+                bank = as_qimage(track.cells[value].image)
                 if original is not bank and original != bank:
                     continue
                 index = bisect_right(candidates, source)
@@ -285,7 +287,7 @@ def _decode_payload(payload, archive, png_cache=None):
         if payload.get("mask_format", 1) >= io.CURRENT_MASK_FORMAT or paper or draft:
             seeded.append((result, blob))
         assert result is not None  # decoded above; only a None input stays None
-        return QImage(result)
+        return copy_image(result)
 
     images = [image(path, paper, draft) for path, paper, draft in requests]
     require(error is None)
@@ -340,7 +342,7 @@ def _decode_payload(payload, archive, png_cache=None):
             slot.tween_member = position.get("tween_member")
             if imported is not None:
                 slot.__dict__["_v2_length_imported"] = imported
-            legacy = LegacyLayerV1(track.name, slot.image,
+            legacy = LegacyLayerV1(track.name, as_qimage(slot.image),
                 has_content=legacy_kind == "CELL", is_blank_key=legacy_kind == "BLANK",
                 sequence_number=legacy_number, sequence_only=pending,
                 exposure=exposure, tween=deepcopy(slot.tween), tween_member=slot.tween_member)
@@ -480,7 +482,7 @@ def _decode_payload_python(payload, archive, png_cache=None):
         if payload.get("mask_format", 1) >= io.CURRENT_MASK_FORMAT or track.is_paper or track.is_draft:
             seeded.append((result, blob))
         assert result is not None  # decoded above; only a None input stays None
-        return QImage(result)
+        return copy_image(result)
 
     def artwork(entry, track, optional=False):
         name = entry.get("cell_name")
@@ -604,7 +606,7 @@ def _decode_payload_python(payload, archive, png_cache=None):
                 slot.__dict__["_v2_length_imported"] = guard["imported"]
                 input_length = integer(length.get("input_length", length["length"]),
                                    1, io.MAX_PROJECT_FRAMES)
-            legacy = LegacyLayerV1(track.name, slot.image,
+            legacy = LegacyLayerV1(track.name, as_qimage(slot.image),
                 has_content=legacy_kind == "CELL", is_blank_key=legacy_kind == "BLANK",
                 sequence_number=legacy_number, sequence_only=state is not None,
                 exposure=exposure, tween=deepcopy(slot.tween), tween_member=slot.tween_member)

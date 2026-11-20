@@ -19,6 +19,7 @@ from .constants import APP_DISPLAY_NAME
 from . import config, constants, project_io
 from .errors import OperationError, OPERATION_ERRORS as _OPERATION_ERRORS
 from .logging_setup import get_logger
+from .pma_image import as_qimage
 
 if TYPE_CHECKING:
     from .main_window import MainWindow
@@ -425,7 +426,7 @@ class ProjectIOController:
                 value.cacheKey() if hasattr(value, "cacheKey") else (
                     copy.deepcopy(value) if isinstance(value, (dict, list, set)) else value)
                 for field in fields(layer)
-                for value in (getattr(layer, field.name),)
+                for value in (as_qimage(getattr(layer, field.name)),)
             )
         canvas = self.window.canvas
         frames = tuple((frame.duration, tuple(layer_signature(layer) for layer in frame.layers))
@@ -442,8 +443,8 @@ class ProjectIOController:
         ):
             metadata.pop(key, None)
         cells = tuple(
-            (li, number, cell.image.cacheKey(),
-             cell.initial_image.cacheKey() if cell.initial_image is not None else None,
+            (li, number, as_qimage(cell.image).cacheKey(),
+             as_qimage(cell.initial_image).cacheKey() if cell.initial_image is not None else None,
              cell.cell_name)
             for li, layer in enumerate(canvas.frames[0].layers)
             for number, cell in sorted(layer._track.cells.items())
@@ -469,8 +470,8 @@ class ProjectIOController:
                 if not ((slot.has_content or slot.sequence_only)
                         and slot.sequence_number is not None):
                     cell = slot._cell
-                    local.append((cell.image.cacheKey(),
-                                  cell.initial_image.cacheKey()
+                    local.append((as_qimage(cell.image).cacheKey(),
+                                  as_qimage(cell.initial_image).cacheKey()
                                   if cell.initial_image is not None else None,
                                   cell.cell_name))
         return frames, archive, cells, copy.deepcopy(metadata), tuple(compatibility), tuple(local)

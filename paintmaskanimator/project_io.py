@@ -35,6 +35,7 @@ from .constants import (
 from .imaging import white_to_transparent_qimage, without_color_space
 from .models import Frame, default_layer_name
 from .legacy_v1 import raw_v1_slot as Layer
+from .pma_image import PmaImage, as_qimage, copy_image
 from .tween_groups import sanitize_spec
 from .utils import blank_image
 from .logging_setup import get_logger
@@ -101,14 +102,14 @@ class ProjectSnapshot:
     document: Document
     width: int
     height: int
-    thumbnail: QImage | None = None
+    thumbnail: QImage | PmaImage | None = None
 
     @classmethod
     def capture(cls, metadata, document, thumbnail=None):
         from . import constants
         return cls(deepcopy(metadata), document.clone_graph(),
                    constants.CANVAS_WIDTH, constants.CANVAS_HEIGHT,
-                   QImage(thumbnail) if thumbnail is not None else None)
+                   copy_image(thumbnail))
 
 
 def build_v2_payload(snapshot, *, include_default_local_images=False):
@@ -537,10 +538,11 @@ def read_project_archive(path, png_cache=None, *, _allow_v2=False):
         migrated = {}
 
         def migrate_white(image):
+            image = as_qimage(image)
             key = image.cacheKey()
             if key not in migrated:
                 migrated[key] = white_to_transparent_qimage(image)
-            return QImage(migrated[key])
+            return copy_image(migrated[key])
 
         prefetched = _prefetch_pngs(
             archive,
@@ -617,7 +619,7 @@ def read_project_archive(path, png_cache=None, *, _allow_v2=False):
                 if image_path in prefetched:
                     image_bytes, image = prefetched[image_path]
                     # セルごとに別の QImage にする（画素は書き込むまで共有される）。
-                    image = QImage(image)
+                    image = copy_image(image)
                 else:
                     image_bytes = archive.read(image_path)
                     image = _decode_png(image_bytes)
@@ -774,7 +776,7 @@ def read_project_archive(path, png_cache=None, *, _allow_v2=False):
                 )
             if image_path in prefetched:
                 image_bytes, image = prefetched[image_path]
-                image = QImage(image)
+                image = copy_image(image)
             else:
                 image_bytes = archive.read(image_path)
                 image = _decode_png(image_bytes)
@@ -831,6 +833,7 @@ def read_project_archive(path, png_cache=None, *, _allow_v2=False):
 
 def _thumbnail_png(image):
     """``image`` を長辺 ``THUMBNAIL_SIZE`` 以下に縮めた PNG のバイト列。"""
+    image = as_qimage(image)
     if image is None or image.isNull():
         return None
     if max(image.width(), image.height()) > THUMBNAIL_SIZE:
@@ -859,7 +862,7 @@ def legacy_fixture_build_v1_payload(frames, sequence_archive=None):
     pending_pngs = []
 
     def write_png(image_name, image, message):
-        pending_pngs.append((image_name, image, message))
+        pending_pngs.append((image_name, as_qimage(image), message))
 
     for frame_index, frame in enumerate(frames):
         frame_data = {
