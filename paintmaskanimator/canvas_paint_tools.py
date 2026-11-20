@@ -14,6 +14,7 @@ from typing import Any
 from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, Qt
 from PySide6.QtGui import QColor, QImage, QPainter, QPainterPath, QPen, QPolygonF
 from PySide6.QtWidgets import QApplication
+from .pma_image import as_qimage, copy_image
 from .i18n import tr
 from ._canvas_members import CanvasMembers
 from . import bucket_fill, imaging
@@ -97,11 +98,11 @@ class PaintToolsMixin(CanvasMembers):
             int(math.floor(min(a.y(), b.y()))) - margin,
         )
         right = min(
-            self.active_layer.image.width(),
+            as_qimage(self.active_layer.image).width(),
             int(math.ceil(max(a.x(), b.x()))) + margin + 1,
         )
         bottom = min(
-            self.active_layer.image.height(),
+            as_qimage(self.active_layer.image).height(),
             int(math.ceil(max(a.y(), b.y()))) + margin + 1,
         )
         if right <= left or bottom <= top:
@@ -341,7 +342,7 @@ class PaintToolsMixin(CanvasMembers):
             key_frame = self.resolve_key_frame(frame, layer_index)
             if key_frame is None:
                 return fallback
-            initial = self.frames[key_frame].layers[layer_index].initial_image
+            initial = as_qimage(self.frames[key_frame].layers[layer_index].initial_image)
             # 初期状態を保持していないセルは、今の絵で判定するしかない。
             if initial is None or initial.size() != fallback.size():
                 return fallback
@@ -368,10 +369,11 @@ class PaintToolsMixin(CanvasMembers):
             layer = self.frames[key_frame].layers[layer_index]
             if not layer.visible or layer.is_paper:
                 continue
-            if layer.image is None or layer.image.isNull():
+            image = as_qimage(layer.image)
+            if image is None or image.isNull():
                 continue
             painter.setOpacity(layer.opacity)
-            painter.drawImage(0, 0, layer.image)
+            painter.drawImage(0, 0, image)
         painter.end()
         return result
 
@@ -434,7 +436,7 @@ class PaintToolsMixin(CanvasMembers):
         ``accept(結果)`` で塗ってよいかを決め、偽ならその領域を2つ目に返す。
         """
         drag = self._bucket_drag
-        active = self.active_layer.image
+        active = as_qimage(self.active_layer.image)
         if (drag is not None and drag["frame"] == self.current_frame
                 and drag["layer"] == self.active_layer_index
                 and drag["pixels_key"] == active.cacheKey()):
@@ -476,7 +478,7 @@ class PaintToolsMixin(CanvasMembers):
         self._write_rgba_patch(patch, fill_rect)
         if drag is not None:
             drag["pixels"] = (image, pixels)
-            drag["pixels_key"] = self.active_layer.image.cacheKey()
+            drag["pixels_key"] = as_qimage(self.active_layer.image).cacheKey()
         self.active_layer.has_content = True
         if written_colors:
             self._emit_actual_paint_colors(written_colors)
@@ -492,9 +494,10 @@ class PaintToolsMixin(CanvasMembers):
         self.finish_bucket_drag()
         layer = self.active_layer
         # 画像は暗黙共有なので、ここでは複製しない（塗った時点で分かれる）。
-        before = QImage(layer.image)
-        converted, layer_pixels = self._layer_fill_pixels(before)
-        width, height = before.width(), before.height()
+        before = copy_image(layer.image)
+        before_image = as_qimage(before)
+        converted, layer_pixels = self._layer_fill_pixels(before_image)
+        width, height = before_image.width(), before_image.height()
         x, y = int(p.x()), int(p.y())
         if not (0 <= x < width and 0 <= y < height):
             self._bucket_drag = None
@@ -523,7 +526,7 @@ class PaintToolsMixin(CanvasMembers):
             "last": QPointF(p),
             "line_cache": {},
             "pixels": (converted, layer_pixels),
-            "pixels_key": layer.image.cacheKey(),
+            "pixels_key": as_qimage(layer.image).cacheKey(),
             "reference_pixels": {},
         }
         # 最初の1か所はクリックと同じ（開いた領域も設定どおりに塗る）。
@@ -608,7 +611,7 @@ class PaintToolsMixin(CanvasMembers):
         )
         self.push_undo(LayerRegionUndo(
             drag["frame"], drag["layer"], rect,
-            drag["before"].copy(rect), drag["has_content"],
+            as_qimage(drag["before"]).copy(rect), drag["has_content"],
             layer_name=self.frames[drag["frame"]].layers[drag["layer"]].name,
             number=self.frames[drag["frame"]].layers[drag["layer"]].sequence_number,
         ))
@@ -636,13 +639,13 @@ class PaintToolsMixin(CanvasMembers):
         return bool(checkbox is not None and checkbox.isChecked())
 
     def _seed_in_bounds(self, start_x, start_y, image=None):
-        image = image if image is not None else self.active_layer.image
+        image = image if image is not None else as_qimage(self.active_layer.image)
         return 0 <= start_x < image.width() and 0 <= start_y < image.height()
 
     def _write_rgba_patch(self, patch, rect):
         """RGBA8888 の部分配列を、アクティブレイヤーの rect へそのまま書き戻す。"""
         patch_image = imaging.rgba_array_to_qimage(patch)
-        painter = QPainter(self.active_layer.image)
+        painter = QPainter(as_qimage(self.active_layer.image))
         painter.setCompositionMode(
             QPainter.CompositionMode.CompositionMode_Source
         )
@@ -651,7 +654,7 @@ class PaintToolsMixin(CanvasMembers):
 
     def auto_select_region(self, point, modifiers=Qt.KeyboardModifier.NoModifier):
         """バケツと同じ連続領域判定で選択マスクを作成・加減算する。"""
-        image = self.active_layer.image.convertToFormat(
+        image = as_qimage(self.active_layer.image).convertToFormat(
             QImage.Format.Format_RGBA8888
         )
         width, height = image.width(), image.height()
@@ -881,8 +884,8 @@ class PaintToolsMixin(CanvasMembers):
         if not self.push_layer_region_undo(undo_rect):
             return
         overlay = QImage(
-            self.active_layer.image.width(),
-            self.active_layer.image.height(),
+            as_qimage(self.active_layer.image).width(),
+            as_qimage(self.active_layer.image).height(),
             QImage.Format.Format_ARGB32_Premultiplied,
         )
         overlay.fill(Qt.GlobalColor.transparent)
@@ -1048,8 +1051,8 @@ class PaintToolsMixin(CanvasMembers):
             fill_color = QColor(outline_color)
 
         overlay = QImage(
-            self.active_layer.image.width(),
-            self.active_layer.image.height(),
+            as_qimage(self.active_layer.image).width(),
+            as_qimage(self.active_layer.image).height(),
             QImage.Format.Format_ARGB32_Premultiplied,
         )
         overlay.fill(Qt.GlobalColor.transparent)
@@ -1132,7 +1135,7 @@ class PaintToolsMixin(CanvasMembers):
         margin = int(math.ceil(outline_width / 2.0)) + 2
         rect = polygon.boundingRect().adjusted(
             -margin, -margin, margin, margin
-        ).toAlignedRect().intersected(self.active_layer.image.rect())
+        ).toAlignedRect().intersected(as_qimage(self.active_layer.image).rect())
         if rect.isEmpty():
             return
         local_polygon = QPolygonF([
@@ -1190,7 +1193,7 @@ class PaintToolsMixin(CanvasMembers):
             window.tools if hasattr(window, "tools") else None,
         )
         reference = self._bucket_reference_image(
-            options, self.current_frame, self.active_layer_index, self.active_layer.image,
+            options, self.current_frame, self.active_layer_index, as_qimage(self.active_layer.image),
         )
         reference_owner, reference_pixels = self._layer_fill_pixels(reference.copy(rect))
         if options.target_color != bucket_fill.TARGET_ALL:

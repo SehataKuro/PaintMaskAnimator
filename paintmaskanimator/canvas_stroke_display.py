@@ -9,6 +9,7 @@ warm-up that avoids first-stroke jank. They run against a live ``PaintCanvas``.
 import numpy as np
 from PySide6.QtCore import QPoint, QPointF, QRect, Qt
 from PySide6.QtGui import QColor, QImage, QPainter, QPen
+from .pma_image import as_qimage
 from ._canvas_members import CanvasMembers
 from . import imaging
 from .logging_setup import get_logger
@@ -30,7 +31,7 @@ class StrokeDisplayMixin(CanvasMembers):
         self._stroke_view_dirty = QRect()
         if self.view_preview.map_colors:
             image = self._display_layer_image(self.active_layer, self.active_layer_index)
-            if image is self.active_layer.image:
+            if image is as_qimage(self.active_layer.image):
                 self._stroke_view_preview = (
                     self.active_layer, self.view_preview.key(),
                     self.view_layer_image(self.active_layer, self.active_layer_index, image).copy(),
@@ -45,7 +46,7 @@ class StrokeDisplayMixin(CanvasMembers):
         result = QImage(
             rect.width(),
             rect.height(),
-            self.active_layer.image.format(),
+            as_qimage(self.active_layer.image).format(),
         )
         result.fill(Qt.GlobalColor.transparent)
         painter = QPainter(result)

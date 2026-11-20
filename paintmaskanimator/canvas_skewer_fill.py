@@ -21,6 +21,7 @@ import numpy as np
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QImage, QPainter
 
+from .pma_image import as_qimage
 from . import bucket_fill, frame_scope, imaging
 from ._canvas_members import CanvasMembers
 from .i18n import tr
@@ -111,7 +112,7 @@ class SkewerFillMixin(CanvasMembers):
                 tr("串刺し塗り：このコマには塗れる絵がありません。")
             )
             return
-        pivot_image = self.frames[key_frame].layers[layer_index].image
+        pivot_image = as_qimage(self.frames[key_frame].layers[layer_index].image)
 
         options = self.bucket_options()
         selection_mask = self.selection_mask_bool(
@@ -226,7 +227,7 @@ class SkewerFillMixin(CanvasMembers):
                         ),
                     )
                     done += 1
-                    image = self.frames[frame_index].layers[layer_index].image
+                    image = as_qimage(self.frames[frame_index].layers[layer_index].image)
                     if id(image) in session.regions:
                         queue.pop(0)
                         continue
@@ -345,7 +346,7 @@ class SkewerFillMixin(CanvasMembers):
             self.abort_skewer_fill(tr("絵が変わったため、串刺し塗りを取り消しました。"))
             return True
         frame_index, layer_index = session.pending
-        image = self.frames[frame_index].layers[layer_index].image
+        image = as_qimage(self.frames[frame_index].layers[layer_index].image)
         self._skewer_remember(session, image, session.guess)
         session.previous[session.direction] = session.guess.mask
         session.previous_pixels[session.direction] = session.guess_pixels
@@ -369,11 +370,11 @@ class SkewerFillMixin(CanvasMembers):
         if session.pending is None:
             return
         frame_index, layer_index = session.pending
-        pending_image = self.frames[frame_index].layers[layer_index].image
+        pending_image = as_qimage(self.frames[frame_index].layers[layer_index].image)
         key_frame = self.resolve_key_frame(self.current_frame, layer_index)
         if (
             key_frame is None
-            or self.frames[key_frame].layers[layer_index].image is not pending_image
+            or as_qimage(self.frames[key_frame].layers[layer_index].image) is not pending_image
         ):
             # 別のコマを見ているときは、待っているコマへ戻す。
             self._skewer_wait_for(session, session.pending)
@@ -413,7 +414,7 @@ class SkewerFillMixin(CanvasMembers):
             if int(image.cacheKey()) != cache_key:
                 return False
         live = {
-            id(self.frames[frame_index].layers[layer_index].image)
+            id(as_qimage(self.frames[frame_index].layers[layer_index].image))
             for frame_index, layer_index in cells
         }
         return all(image_id in live for image_id in session.images)
@@ -437,11 +438,11 @@ class SkewerFillMixin(CanvasMembers):
         written_colors = set()
 
         def op(context):
-            planned = session.regions.get(id(context.layer.image))
+            planned = session.regions.get(id(as_qimage(context.layer.image)))
             if planned is None:
                 return None
             bounds, mask, islands = planned
-            image, pixels = self._layer_fill_pixels(context.layer.image)
+            image, pixels = self._layer_fill_pixels(as_qimage(context.layer.image))
             x0, y0, x1, y1 = bounds
             patch = pixels[y0:y1, x0:x1]
             written_colors.update(self._fill_patch(patch, mask, session.replacement))

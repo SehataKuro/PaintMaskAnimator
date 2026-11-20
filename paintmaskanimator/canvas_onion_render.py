@@ -8,6 +8,7 @@ instance and are called from its ``paintEvent``.
 import numpy as np
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QImage, QPainter, QPen
+from .pma_image import as_qimage
 from ._canvas_members import CanvasMembers
 from . import imaging, native
 from .utils import blank_image
@@ -45,7 +46,7 @@ class OnionRenderMixin(CanvasMembers):
                 continue
             layer = self.frames[key_frame].layers[layer_index]
             signature.append((
-                layer_index, key_frame, int(layer.image.cacheKey()), bool(layer.visible),
+                layer_index, key_frame, int(as_qimage(layer.image).cacheKey()), bool(layer.visible),
                 float(layer.opacity),
                 bool(layer.color_filter_enabled),
                 tuple(layer.color_filter_rgb) if layer.color_filter_rgb is not None else None,

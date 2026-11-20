@@ -33,6 +33,11 @@ class PmaImage:
         result._image = QImage(self._image)
         return result
 
+    # 7-2f の後に消すか見直す。legacy_v1 の画像ペイロードの複製に使う。
+    def __copy__(self) -> "PmaImage":
+        """汎用の浅い複製でも、書き込み時に画素を分離できるようにする。"""
+        return self.copy()
+
     def rgba(self) -> np.ndarray:
         """読み取り専用の RGBA 配列を (高さ, 幅, 4) の uint8 で返す。"""
         rgba = imaging.qimage_rgba_array(self._image, readonly=True)

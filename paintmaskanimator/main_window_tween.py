@@ -6,7 +6,7 @@ or tween" actions.
 
 A collaborator rather than a mixin -- see ``main_window_export.py`` for why.
 """
-from .pma_image import as_qimage
+from .pma_image import as_qimage, snapshot_image
 from .document import clear_pending
 from .document import create_drawing
 from typing import TYPE_CHECKING
@@ -555,7 +555,7 @@ class TweenController:
                 )
                 return
 
-        original = self.window.canvas.transform_original_layer.copy()
+        original = as_qimage(snapshot_image(self.window.canvas.transform_original_layer))
         source = self.window.canvas.transform_source
         generated_images = []
         total_steps = exposure + 2

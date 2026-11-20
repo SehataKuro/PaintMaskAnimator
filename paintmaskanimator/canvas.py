@@ -39,6 +39,7 @@ from PySide6.QtGui import (
     QRegion,
 )
 from PySide6.QtWidgets import QPushButton, QWidget
+from .pma_image import as_qimage, copy_image
 from .i18n import tr
 from .constants import OUTSIDE_MARGIN
 from . import constants
@@ -437,11 +438,11 @@ class PaintCanvas(
             return DocUndo(self.document_snapshot())
         if isinstance(entry, InitialStateUndo):
             cells = [
-                (fi, li, QImage(image) if (image := self.frames[fi].layers[li].initial_image) is not None else None)
+                (fi, li, copy_image(self.frames[fi].layers[li].initial_image))
                 for fi, li, _ in entry.cells if _cell_exists(fi, li)
             ]
             archived = [
-                (li, number, QImage(image) if (image := self._document.tracks[li].cells[number].initial_image) is not None else None)
+                (li, number, copy_image(self._document.tracks[li].cells[number].initial_image))
                 for li, number, _ in entry.archived if 0 <= li < len(self._document.tracks)
                 and number in self._document.tracks[li].legacy_archive_hints
                 and drawing(self._document.tracks[li], number) is not None
@@ -462,7 +463,7 @@ class PaintCanvas(
                 entry.frame if fi is None else fi,
                 entry.layer,
                 QRect(entry.rect),
-                layer.image.copy(entry.rect),
+                as_qimage(layer.image).copy(entry.rect),
                 bool(layer.has_content),
                 layer_name=entry.layer_name, number=entry.number,
             )
@@ -475,7 +476,7 @@ class PaintCanvas(
                 entry.frame if fi is None else fi,
                 entry.layer,
                 tuple(
-                    (QRect(rect), layer.image.copy(QRect(rect)))
+                    (QRect(rect), as_qimage(layer.image).copy(QRect(rect)))
                     for rect, _image in entry.tiles
                 ),
                 bool(layer.has_content),
@@ -493,7 +494,7 @@ class PaintCanvas(
                     continue
                 resolved_fi, layer = target.column, target
                 snapshot = (fi if resolved_fi is None else resolved_fi,
-                            li, QImage(layer.image), bool(layer.has_content), number)
+                            li, copy_image(layer.image), bool(layer.has_content), number)
                 current.append(snapshot if scoped else (snapshot[0], *snapshot[2:]))
             if not current:
                 return None
@@ -516,7 +517,7 @@ class PaintCanvas(
             return LayerUndo(
                 entry.frame if fi is None else fi,
                 entry.layer,
-                QImage(layer.image),
+                copy_image(layer.image),
                 layer.has_content,
                 layer_name=entry.layer_name, number=entry.number,
             )
@@ -795,7 +796,7 @@ class PaintCanvas(
         if overlay is None or overlay.isNull():
             return ()
 
-        destination_image = self.active_layer.image
+        destination_image = as_qimage(self.active_layer.image)
         if (
             destination_image is None
             or destination_image.isNull()
@@ -948,7 +949,7 @@ class PaintCanvas(
         tiles = self._stroke_before_tiles
         if tiles is None:
             return
-        live = self.active_layer.image
+        live = as_qimage(self.active_layer.image)
         bounds = QRect(
             0, 0, live.width(), live.height()
         )
@@ -1027,8 +1028,8 @@ class PaintCanvas(
         ):
             return
 
-        target_width = self.active_layer.image.width()
-        target_height = self.active_layer.image.height()
+        target_width = as_qimage(self.active_layer.image).width()
+        target_height = as_qimage(self.active_layer.image).height()
         use_proxy = (
             not full_resolution
             and self._tp_uses_proxy(target_width, target_height)
@@ -1107,8 +1108,8 @@ class PaintCanvas(
             self.transform_quality_active = self.transform_quality
             self.transform_tp_line_colors = tuple(sorted(self.selected_used_colors()))
             if self.transform_quality_active:
-                target_width = self.active_layer.image.width()
-                target_height = self.active_layer.image.height()
+                target_width = as_qimage(self.active_layer.image).width()
+                target_height = as_qimage(self.active_layer.image).height()
                 if self._tp_uses_proxy(target_width, target_height):
                     self._clear_tp_transform_masks(clear_proxy=False)
                 else:
@@ -1133,8 +1134,8 @@ class PaintCanvas(
             and not self._tp_preview_progress_busy
             and self._tp_geometry_cache_fill_overlay is not None
         ):
-            target_width = self.active_layer.image.width()
-            target_height = self.active_layer.image.height()
+            target_width = as_qimage(self.active_layer.image).width()
+            target_height = as_qimage(self.active_layer.image).height()
             self.transform_preview_image(
                 self.transform_source,
                 target_width,
@@ -1182,8 +1183,8 @@ class PaintCanvas(
         if self.transform_active:
             self.transform_tp_line_colors = tuple(sorted(normalized))
             if self.transform_quality_active:
-                target_width = self.active_layer.image.width()
-                target_height = self.active_layer.image.height()
+                target_width = as_qimage(self.active_layer.image).width()
+                target_height = as_qimage(self.active_layer.image).height()
                 self._clear_tp_transform_masks(clear_proxy=False)
                 if not self._tp_uses_proxy(target_width, target_height):
                     self._prepare_tp_transform_masks()
@@ -1351,7 +1352,7 @@ class PaintCanvas(
             layer = self.frames[key_frame].layers[layer_index]
             if not layer.visible or float(layer.opacity) <= 0.0:
                 continue
-            source = layer.image
+            source = as_qimage(layer.image)
             if not (0 <= x < source.width() and 0 <= y < source.height()):
                 continue
             # 使用色の表示OFFなどで見えていない画素は飛ばすが、
@@ -1467,15 +1468,16 @@ class PaintCanvas(
             dict(getattr(self, "preview_color_remap", None) or {})
             if apply_palette_filter else {}
         )
+        source = as_qimage(layer.image)
         if visible is None and legacy_rgb is None and not remap:
-            return layer.image
+            return source
         rgb = legacy_rgb
         try:
-            image_key = int(layer.image.cacheKey())
+            image_key = int(source.cacheKey())
         except (AttributeError, RuntimeError, TypeError) as exc:
             log.debug("cacheKey() unavailable, using id() fallback: %s", exc)
-            image_key = id(layer.image)
-        width, height = layer.image.width(), layer.image.height()
+            image_key = id(source)
+        width, height = source.width(), source.height()
         visible_key = None if visible is None else tuple(sorted(visible))
         remap_key = tuple(sorted(remap.items())) if remap else None
         key = (image_key, width, height, rgb, visible_key, remap_key)
@@ -1484,8 +1486,8 @@ class PaintCanvas(
             return cached
 
         if width <= 0 or height <= 0:
-            return layer.image
-        rgba = layer.image.convertToFormat(QImage.Format.Format_RGBA8888)
+            return source
+        rgba = source.convertToFormat(QImage.Format.Format_RGBA8888)
         ptr = imaging.qimage_buffer(rgba)
         rows = np.frombuffer(ptr, dtype=np.uint8).reshape((height, rgba.bytesPerLine()))
         pixels = rows[:, :width * 4].reshape((height, width, 4))
@@ -1505,7 +1507,7 @@ class PaintCanvas(
         パレット絞り込みなどの表示フィルタは掛けない。
         """
         if self.show_initial_state and layer.initial_image is not None:
-            return layer.initial_image
+            return as_qimage(layer.initial_image)
         return self._display_layer_image(layer, layer_index)
 
     def _display_layer_image(self, layer, layer_index):
@@ -1518,7 +1520,7 @@ class PaintCanvas(
         # 下書きレイヤーは色数削減の対象外。プレビューの色をそのまま出力する
         # ため、パレット絞り込みやシルエット等の表示変換を一切適用しない。
         if getattr(layer, "is_draft", False):
-            return layer.image
+            return as_qimage(layer.image)
         apply_palette_filter = (
             layer_index == self.active_layer_index
         )
@@ -1557,7 +1559,7 @@ class PaintCanvas(
             return image
         stroke_preview = getattr(self, "_stroke_view_preview", None)
         if (map_colors and stroke_preview is not None
-                and image is layer.image and stroke_preview[0] is layer
+                and image is as_qimage(layer.image) and stroke_preview[0] is layer
                 and stroke_preview[1] == preview.key()):
             # 筆が触れた範囲だけを変換し、ストローク専用の表示画像へ戻す。
             # 過去のプレビューキャッシュは共有しない。
@@ -1811,7 +1813,7 @@ class PaintCanvas(
             if transform_preview is not None:
                 if quality_ready and self.transform_original_layer is not None:
                     transform_preview = self._merge_quality_transform(
-                        self.transform_original_layer,
+                        as_qimage(self.transform_original_layer),
                         transform_preview,
                     )
                 if transform_preview is None:

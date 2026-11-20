@@ -42,7 +42,7 @@ from PySide6.QtWidgets import (
     QProgressDialog,
 )
 from .i18n import tr
-from .pma_image import as_qimage
+from .pma_image import as_qimage, copy_image
 from .optional_deps import PILImage
 from .constants import APP_DISPLAY_NAME, OUTSIDE_MARGIN
 from . import color_ops, constants, imaging, layout_paper, preferences, pressure_settings, project_io, session_state, theme, updater
@@ -1002,7 +1002,7 @@ class MainWindow(
                     if l.cell_id not in resized_images:
                         ni = blank_image()
                         painter = QPainter(ni)
-                        painter.drawImage(rect, l.image, rect)
+                        painter.drawImage(rect, as_qimage(l.image), rect)
                         painter.end()
                         resized_images[l.cell_id] = ni
                     ni = resized_images[l.cell_id]
@@ -1014,7 +1014,7 @@ class MainWindow(
                         payload = position.legacy
                         saved_image = blank_image()
                         painter = QPainter(saved_image)
-                        painter.drawImage(rect, payload.image, rect)
+                        painter.drawImage(rect, as_qimage(payload.image), rect)
                         painter.end()
                         copied.__dict__["_v1_position"] = replace(
                             position, legacy=replace(payload, image=saved_image))
@@ -1058,11 +1058,11 @@ class MainWindow(
                     if (number in track.cells and number in track.legacy_archive_hints
                             and track.cells[number].initial_image is None
                             and cell.initial_image is not None):
-                        track.cells[number].initial_image = QImage(cell.initial_image)
+                        track.cells[number].initial_image = copy_image(cell.initial_image)
                     if number not in track.cells:
                         track.cells[number] = Cell(
-                            QImage(cell.image),
-                            QImage(cell.initial_image) if cell.initial_image is not None else None,
+                            copy_image(cell.image),
+                            copy_image(cell.initial_image),
                             cell.cell_name,
                         )
         if not preserve:

@@ -1,5 +1,6 @@
 import math
 from pathlib import Path
+from .pma_image import as_qimage
 from .i18n import tr
 from .constants import CTRL_KEY_LABEL, HOLD_ZOOM_KEY_LABEL
 from PySide6.QtCore import QEvent, QItemSelectionModel, QPointF, QRectF, QSize, Qt, Signal
@@ -2754,7 +2755,7 @@ class TimelineWidget(QWidget):
                         # 開閉のたびに集め直さずに済むよう、全行の絵を覚えておく。
                         if source_key_layer is not None:
                             self.table._thumb_sources[(visual_row, col)] = (
-                                source_key_layer.image, int(exposure)
+                                as_qimage(source_key_layer.image), int(exposure)
                             )
                         text = (
                             "◆"
