@@ -1,6 +1,7 @@
 """レイヤーやセルの画素を保持する画像コンテナ。"""
 
 from collections.abc import Iterable
+from itertools import count
 from operator import index
 
 import numpy as np
@@ -8,16 +9,20 @@ from PySide6.QtCore import QRect
 from PySide6.QtGui import QImage, QPainter
 
 from . import imaging
+from .display_image_cache import display_images
+
+_generations = count(1)
 
 
 class PmaImage:
-    """段階7-1では Qt の暗黙共有を使って画像を保持する。"""
+    """Qt の暗黙共有を使って画素を保持する。"""
 
-    __slots__ = ("_image",)
+    __slots__ = ("_image", "_generation")
 
     def __init__(self, image: QImage):
         """内部形式に揃えた画像を保持する。"""
         self._image = image.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
+        self._generation = next(_generations)
 
     @classmethod
     def blank(cls, width: int, height: int) -> "PmaImage":
@@ -36,10 +41,16 @@ class PmaImage:
         """画像の高さを画素単位で返す。"""
         return self._image.height()
 
+    @property
+    def generation(self) -> int:
+        """画素の世代を返す。複製は書き込みまで同じ世代を共有する。"""
+        return self._generation
+
     def copy(self) -> "PmaImage":
         """画素を暗黙共有し、書き込み時に分離する複製を返す。"""
         result = type(self).__new__(type(self))
         result._image = QImage(self._image)
+        result._generation = self._generation
         return result
 
     # 7-2f の後に消すか見直す。legacy_v1 の画像ペイロードの複製に使う。
@@ -74,11 +85,19 @@ class PmaImage:
     def write_qimages(self, patches: Iterable[tuple[int, int, QImage]]) -> None:
         """(x, y, QImage) の列を順に置換する。Undo のタイルは一つの painter で処理する。"""
         painter = QPainter()
+        width, height = self.width, self.height
+        display_key = (self.generation, width, height)
         try:
             for x, y, patch in patches:
-                if patch.isNull():
+                if (
+                    patch.isNull() or not width or not height
+                    or x >= width or y >= height
+                    or x + patch.width() <= 0 or y + patch.height() <= 0
+                ):
                     continue
                 if not painter.isActive():
+                    # Drop the shared display handle before Qt makes the image writable.
+                    display_images.forget(display_key)
                     if not painter.begin(self._image):
                         return
                     painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
@@ -92,6 +111,9 @@ class PmaImage:
         finally:
             if painter.isActive():
                 painter.end()
+                # The patch iterable may have looked up this generation during the batch.
+                display_images.forget(display_key)
+                self._generation = next(_generations)
 
     def write_rgba(self, rgba: np.ndarray, x: int = 0, y: int = 0) -> None:
         """RGBA を Qt の乗算済み形式に丸めて書く。範囲外は ValueError、範囲内の空領域は no-op。"""
@@ -115,7 +137,7 @@ class PmaImage:
         self.write_qimage(imaging.rgba_array_to_qimage(rgba), x, y)
 
     def to_qimage(self) -> QImage:
-        """内部の QImage を返す。段階7-3では複製を返す仕様に変わる。"""
+        """読み取り用の QImage を返す。画素更新は write_qimage / write_rgba を使う。"""
         return self._image
 
     @classmethod

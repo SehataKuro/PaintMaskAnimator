@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import QApplication, QMessageBox
-from .pma_image import as_qimage
+from .display_image_cache import display_images, model_image_key
 from .i18n import tr
 from .document import release_slots
 from .models import Layer, default_layer_name
@@ -141,7 +141,7 @@ class LayerOpsController:
                     signature_parts.append((
                         int(layer_index),
                         int(key_frame),
-                        int(as_qimage(source_layer.image).cacheKey()),
+                        model_image_key(source_layer.image),
                         round(float(source_layer.opacity), 6),
                     ))
 
@@ -170,7 +170,7 @@ class LayerOpsController:
                             )
                         )
                         # 表示フィルターはデータへ焼き込まず、元画像を結合する。
-                        painter.drawImage(0, 0, as_qimage(source_layer.image))
+                        painter.drawImage(0, 0, display_images.get(source_layer.image))
                     painter.end()
 
                     merged_layers[frame_index] = Layer(

@@ -6,10 +6,12 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest  # noqa: E402
-from PySide6.QtCore import Qt  # noqa: E402
+from PySide6.QtCore import QRect, Qt  # noqa: E402
+from PySide6.QtGui import QColor, QImage  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from dense_fixtures import hold, length, clear_range
+from image_edit_helpers import edit_qimage
 from paintmaskanimator.main_window import MainWindow  # noqa: E402
 from paintmaskanimator.models import make_frame  # noqa: E402
 from paintmaskanimator.timeline import (  # noqa: E402
@@ -246,15 +248,13 @@ def test_ruler_seek_clamps_without_changing_duration(window, qapp):
 
 def test_auto_select_builds_a_selection(window):
     from PySide6.QtCore import QPoint
-    from PySide6.QtGui import QColor, QPainter
+    from PySide6.QtGui import QColor
 
     canvas = window.canvas
     canvas.current_frame = 0
     canvas.active_layer_index = 0
-    image = canvas.active_layer.image.to_qimage()
-    painter = QPainter(image)
-    painter.fillRect(40, 40, 60, 60, QColor("black"))
-    painter.end()
+    with edit_qimage(canvas.active_layer.image, QRect(40, 40, 60, 60)) as patch:
+        patch.fill(QColor("black"))
     assert canvas.auto_select_region(QPoint(60, 60)) is True
     assert canvas.selection_polygon
 
@@ -311,22 +311,21 @@ def test_blank_fully_covered_by_the_moved_cell_disappears(window):
 
 def test_moving_cells_keeps_pixels_shared_and_undo_restores_them(window):
     """セルの移動は画素を複製しない（重さの原因だった）が、Undo で元に戻る。"""
-    from PySide6.QtGui import QColor, QPainter
+    from PySide6.QtGui import QColor
 
     canvas = window.canvas
     for column in (0, 3, 9):
-        image = canvas.frames[column].layers[0].image.to_qimage()
-        painter = QPainter(image)
-        painter.fillRect(0, 0, 4, 4, QColor(column * 20, 10, 200))
-        painter.end()
+        source = canvas.frames[column].layers[0].image
+        with edit_qimage(source, QRect(0, 0, 4, 4)) as patch:
+            patch.fill(QColor(column * 20, 10, 200))
     keys = {
-        column: canvas.frames[column].layers[0].image.to_qimage().cacheKey()
+        column: canvas.frames[column].layers[0].image.generation
         for column in (0, 3, 9)
     }
     # 2 の先頭（3）へ 1 を落とすと、以降のキーが右へ1つずつ送られる。
     assert canvas.move_timeline_cell(9, 0, 3, 0)
     moved = {
-        column: canvas.frames[column].layers[0].image.to_qimage().cacheKey()
+        column: canvas.frames[column].layers[0].image.generation
         for column, frame in enumerate(canvas.frames)
         if frame.layers[0].has_content
     }
@@ -334,9 +333,9 @@ def test_moving_cells_keeps_pixels_shared_and_undo_restores_them(window):
 
     canvas.undo()
     for column, key in keys.items():
-        image = canvas.frames[column].layers[0].image.to_qimage()
-        assert image.cacheKey() == key
-        assert image.pixelColor(1, 1) == QColor(column * 20, 10, 200)
+        image = canvas.frames[column].layers[0].image
+        assert image.generation == key
+        assert image.to_qimage().pixelColor(1, 1) == QColor(column * 20, 10, 200)
 
 
 def test_transport_boundary_buttons(window):
@@ -490,3 +489,51 @@ def test_exposure_extension_keeps_history_and_round_trips(window, monkeypatch, c
     canvas.redo()
     assert [(l.layers[0].sequence_number, l.layers[0].blank_start,
              l.layers[0].has_content, l.layers[0].is_blank_key) for l in canvas.frames] == extended
+
+
+def test_thumbnail_checks_generation_before_converting(window, monkeypatch):
+    from paintmaskanimator.display_image_cache import display_images
+    from paintmaskanimator.pma_image import PmaImage
+
+    table = window.timeline.table
+    source = PmaImage.blank(16, 8)
+    original_to_qimage = PmaImage.to_qimage
+    calls = []
+
+    def detached(image):
+        calls.append(image.width * image.height * 4)
+        return original_to_qimage(image).copy()
+
+    monkeypatch.setattr(PmaImage, "to_qimage", detached)
+    blank = table._thumbnail(source, 10, 5, 1)
+    display_images.clear()
+    assert table._thumbnail(source.copy(), 10, 5, 1) is blank
+    assert calls == [512]
+
+    patch = original_to_qimage(source).copy()
+    patch.fill(0xFFFF0000)
+    source.write_qimage(patch, 0, 0)
+    red = table._thumbnail(source, 10, 5, 1)
+    assert red.toImage().pixelColor(0, 0).name() == "#ff0000"
+    assert table._thumbnail(source, 10, 5, 2).width() == 20
+    assert calls == [512, 512]
+
+
+def test_same_size_thumbnail_leaves_model_pixels_unshared(window):
+    from paintmaskanimator.display_image_cache import display_images, model_image_key
+    from paintmaskanimator.pma_image import PmaImage
+
+    source = PmaImage.blank(16, 8)
+    red = QImage(1, 1, QImage.Format.Format_ARGB32_Premultiplied)
+    red.fill(QColor("red"))
+    source.write_qimage(red, 0, 0)
+    key = model_image_key(source)
+    table = window.timeline.table
+    thumbnail = table._thumbnail(source, 16, 8, 1)
+    display_images.forget(key)
+    assert thumbnail.toImage().cacheKey() != source.to_qimage().cacheKey()
+    blue = red.copy()
+    blue.fill(QColor("blue"))
+    source.write_qimage(blue, 0, 0)
+    assert thumbnail.toImage().pixelColor(0, 0) == QColor("red")
+    assert table._thumbnail(source, 16, 8, 1).toImage().pixelColor(0, 0) == QColor("blue")

@@ -206,10 +206,10 @@ def _group_shared_images(doc, cells):
     """同じ絵（``Cell``）を指すセルをまとめる。
 
     接続済みの同番号セルは Track の bank にある同じ ``Cell`` を参照し、
-    結果として同じ ``QImage`` を指す。セルごとに個別処理すると同じ絵を何度も
+    結果として同じ ``PmaImage`` を指す。セルごとに個別処理すると同じ絵を何度も
     処理することになるので、共有グループは1回だけ処理して結果を全員へ配る。
 
-    判定は ``QImage`` の同一性で行う。``Cell`` の共有はこれを含むうえ、
+    判定は ``PmaImage`` の同一性で行う。``Cell`` の共有はこれを含むうえ、
     取り込み経路などが ``Cell`` を通さず同じ画像を指す場合も拾えるため
     （Issue #31 Phase 1 では、共有の判定をこれまでより狭めない）。
     """
@@ -221,13 +221,14 @@ def _group_shared_images(doc, cells):
         origin = layer.__dict__.get("_content_origin")
         if (origin is not None and origin == layer.sequence_number
                 and origin in layer._track.cells):
-            key = id(as_qimage(layer._track.cells[origin].image))
+            key = layer._track.cells[origin].image
         else:
-            key = id(as_qimage(layer.image))
+            key = layer.image
         position = index_of.get(key)
         if position is None:
             index_of[key] = len(groups)
-            groups.append(((frame_index, layer_index), [(frame_index, layer_index)]))
+            cell = (frame_index, layer_index)
+            groups.append((cell, [cell]))
         else:
             groups[position][1].append((frame_index, layer_index))
     return groups

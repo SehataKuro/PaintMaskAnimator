@@ -22,6 +22,7 @@ mixin must never reuse one. Type-only member declarations for attributes set in
 ``_canvas_members.py``; a genuinely undefined name still surfaces there.
 """
 import dataclasses
+from functools import partial
 import math
 import numpy as np
 import time
@@ -40,7 +41,8 @@ from PySide6.QtGui import (
     QTransform,
 )
 from PySide6.QtWidgets import QPushButton, QWidget
-from .pma_image import as_qimage, copy_image
+from .display_image_cache import display_images
+from .pma_image import PmaImage, as_qimage, copy_image
 from .i18n import tr
 from .constants import OUTSIDE_MARGIN
 from . import constants
@@ -90,6 +92,18 @@ log = get_logger(__name__)
 #: レイヤーは1枚で数百MBになるため、件数だけでなく画素数でも制限する
 #: （最低1件は保持する）。
 _CACHE_PIXEL_BUDGET = 120_000_000
+
+
+def _display_source_key(source):
+    if isinstance(source, PmaImage):
+        return (("model", source.generation), source.width, source.height)
+    return (("qt", int(source.cacheKey())), source.width(), source.height())
+
+
+def _display_qimage(source):
+    while callable(source):
+        source = source()
+    return display_images.get(source) if isinstance(source, PmaImage) else source
 
 
 def _bounded_cache_put(cache, key, value, max_entries):
@@ -1423,23 +1437,14 @@ class PaintCanvas(
 
 
     def silhouette_layer_image(self, layer, apply_palette_filter=True, source=None):
-        base = self.filtered_layer_image(
-            layer,
-            apply_palette_filter,
-            source,
-        )
-        if base is None:
-            return QImage()
+        source = layer.image if source is None else source
         if not self.silhouette_non_background:
-            return base
-        try:
-            key = (int(base.cacheKey()), base.width(), base.height())
-        except (AttributeError, RuntimeError, TypeError) as exc:
-            log.debug("cacheKey() unavailable, using id() fallback: %s", exc)
-            key = (id(base), base.width(), base.height())
+            return self.filtered_layer_image(layer, apply_palette_filter, source)
+        key = (_display_source_key(source), self._palette_filter_key(layer, apply_palette_filter))
         cached = self._silhouette_cache.get(key)
         if cached is not None:
             return cached
+        base = self.filtered_layer_image(layer, apply_palette_filter, source)
         rgba = base.convertToFormat(QImage.Format.Format_RGBA8888)
         width, height = rgba.width(), rgba.height()
         ptr = imaging.qimage_buffer(rgba)
@@ -1457,68 +1462,50 @@ class PaintCanvas(
 
     def _color_index_for_image(self, image):
         """Return the cached RGBA/pixel index used by palette filtering."""
-        try:
-            image_key = int(image.cacheKey())
-        except (AttributeError, RuntimeError, TypeError) as exc:
-            log.debug("cacheKey() unavailable, using id() fallback: %s", exc)
-            image_key = id(image)
-        width, height = image.width(), image.height()
-        index_key = (image_key, width, height)
+        if isinstance(image, PmaImage):
+            width, height = image.width, image.height
+            index_key = (("model", image.generation), width, height)
+        else:
+            width, height = image.width(), image.height()
+            index_key = (("qt", int(image.cacheKey())), width, height)
         indexed = self._color_index_cache.get(index_key)
         if indexed is not None:
             return indexed
 
         if width <= 0 or height <= 0:
-            return image, None, None
+            return None, None
+        if isinstance(image, PmaImage):
+            image = display_images.get(image)
         # ARGB32（非プレマルチプライ）は uint32 で見ると 0xAARRGGBB なので、
         # 0xRRGGBB の索引とアルファの判定がそれぞれ1回の演算で求まる。
         argb = image.convertToFormat(QImage.Format.Format_ARGB32)
         values = np.frombuffer(
-            imaging.qimage_buffer(argb), dtype=np.uint32
+            imaging.qimage_buffer(argb, const=True), dtype=np.uint32
         ).reshape((height, argb.bytesPerLine() // 4))[:, :width]
         packed = values & np.uint32(0x00FFFFFF)
         opaque = values >= np.uint32(0x01000000)
-        # 先頭要素は元画像（暗黙共有なのでコピーは発生しない）。
-        indexed = (image, packed, opaque)
+        indexed = (packed, opaque)
         _bounded_cache_put(self._color_index_cache, index_key, indexed, 24)
         return indexed
 
     def filtered_layer_image(self, layer, apply_palette_filter=True, source=None):
         """Return a cached display-only image honoring this layer's palette visibility."""
-        visible = (
-            getattr(self, "visible_color_rgbs", None)
-            if apply_palette_filter else None
-        )
-        legacy_rgb = (
-            tuple(int(value) for value in layer.color_filter_rgb[:3])
-            if getattr(layer, "color_filter_enabled", False) and layer.color_filter_rgb is not None
-            else None
-        )
-        # 使用色の親子プレビュー：表示時のみ子色を親色へ塗り替える（非破壊）。
-        remap = (
-            dict(getattr(self, "preview_color_remap", None) or {})
-            if apply_palette_filter else {}
-        )
-        if source is None:
-            source = as_qimage(layer.image)
-        if visible is None and legacy_rgb is None and not remap:
-            return source
-        rgb = legacy_rgb
-        try:
-            image_key = int(source.cacheKey())
-        except (AttributeError, RuntimeError, TypeError) as exc:
-            log.debug("cacheKey() unavailable, using id() fallback: %s", exc)
-            image_key = id(source)
-        width, height = source.width(), source.height()
-        visible_key = None if visible is None else tuple(sorted(visible))
-        remap_key = tuple(sorted(remap.items())) if remap else None
-        key = (image_key, width, height, rgb, visible_key, remap_key)
+        source = layer.image if source is None else source
+        rgb, visible_key, remap_key = self._palette_filter_key(layer, apply_palette_filter)
+        if rgb is None and visible_key is None and not remap_key:
+            return _display_qimage(source)
+        source_key = _display_source_key(source)
+        key = (source_key, *source_key[-2:], rgb, visible_key, remap_key)
         cached = self._color_filter_cache.get(key)
         if cached is not None:
             return cached
 
+        source = _display_qimage(source)
+        width, height = source.width(), source.height()
         if width <= 0 or height <= 0:
             return source
+        visible = None if visible_key is None else set(visible_key)
+        remap = dict(remap_key)
         rgba = source.convertToFormat(QImage.Format.Format_RGBA8888)
         ptr = imaging.qimage_buffer(rgba)
         rows = np.frombuffer(ptr, dtype=np.uint8).reshape((height, rgba.bytesPerLine()))
@@ -1531,18 +1518,40 @@ class PaintCanvas(
         _bounded_cache_put(self._color_filter_cache, key, filtered, 96)
         return filtered
 
-    def _layer_display_source(self, layer, layer_index, source=None):
-        """画面に出すレイヤー画像。比較表示のときは色塗り前の初期状態。
+    def _palette_filter_key(self, layer, apply_palette_filter):
+        visible = self.visible_color_rgbs if apply_palette_filter else None
+        legacy_rgb = (
+            tuple(int(value) for value in layer.color_filter_rgb[:3])
+            if layer.color_filter_enabled and layer.color_filter_rgb is not None
+            else None
+        )
+        remap = (self.preview_color_remap or {}) if apply_palette_filter else {}
+        return legacy_rgb, None if visible is None else tuple(sorted(visible)), tuple(sorted(remap.items()))
 
-        初期状態を保持していないセルは今の絵をそのまま出す（:mod:`bucket_fill`
-        などの既存の約束と同じ）。初期状態は塗る前の線画そのものなので、
-        パレット絞り込みなどの表示フィルタは掛けない。
-        """
+    def _layer_uses_raw_display(self, layer, layer_index):
+        if layer.is_draft:
+            return True
+        return (
+            (not self.silhouette_non_background or layer.is_paper)
+            and self._palette_filter_key(layer, layer_index == self.active_layer_index)
+            == (None, None, ())
+        )
+
+    def _model_display_source(self, layer, layer_index):
+        """表示用ソースと画素の由来を返す。派生画像は必要時に作る。"""
         if self.show_initial_state and layer.initial_image is not None:
-            return as_qimage(layer.initial_image)
-        if source is None:
-            return self._display_layer_image(layer, layer_index)
-        return self._display_layer_image(layer, layer_index, source)
+            return layer.initial_image, _display_source_key(layer.initial_image)
+        source = layer.image
+        source_key = _display_source_key(source)
+        if self._layer_uses_raw_display(layer, layer_index):
+            return source, source_key
+        filter_key = self._palette_filter_key(layer, layer_index == self.active_layer_index)
+        silhouette = self.silhouette_non_background and not layer.is_paper
+        identity, width, height = source_key
+        return (
+            partial(self._display_layer_image, layer, layer_index),
+            ((identity, filter_key, silhouette), width, height),
+        )
 
     def _display_layer_image(self, layer, layer_index, source=None):
         """パレット/シルエット等の表示フィルタを適用したレイヤー画像を返す。
@@ -1553,7 +1562,7 @@ class PaintCanvas(
         # 下書きレイヤーは色数削減の対象外。プレビューの色をそのまま出力する
         # ため、パレット絞り込みやシルエット等の表示変換を一切適用しない。
         if getattr(layer, "is_draft", False):
-            return as_qimage(layer.image) if source is None else source
+            return display_images.get(layer.image) if source is None else _display_qimage(source)
         apply_palette_filter = (
             layer_index == self.active_layer_index
         )
@@ -1573,7 +1582,7 @@ class PaintCanvas(
             source,
         )
 
-    def view_layer_image(self, layer, layer_index, image):
+    def view_layer_image(self, layer, layer_index, image, *, source_key=None):
         """``image`` に表示プレビュー（露光量・チャンネル・隣接色分け）を掛けた複製。
 
         画面に描くときだけ使う。:meth:`composite` は書き出しやサムネイルにも
@@ -1581,7 +1590,7 @@ class PaintCanvas(
         描いている最中も割り当て済みの色を維持する。
         """
         preview = self.view_preview
-        if image is None or image.isNull() or not preview.active:
+        if image is None or not preview.active:
             return image
         if getattr(layer, "is_draft", False):
             return image
@@ -1611,15 +1620,14 @@ class PaintCanvas(
                     painter.end()
                 self._stroke_view_dirty = QRect()
             return result
-        try:
-            image_key = int(image.cacheKey())
-        except (AttributeError, RuntimeError, TypeError) as exc:
-            log.debug("cacheKey() unavailable, using id() fallback: %s", exc)
-            image_key = id(image)
-        key = (image_key, image.width(), image.height(), preview.key(), map_colors)
+        source_key = _display_source_key(image) if source_key is None else source_key
+        key = (*source_key, preview.key(), map_colors)
         cached = self._view_preview_cache.get(key)
         if cached is not None:
             return cached
+        image = _display_qimage(image)
+        if image.isNull():
+            return image
         rgba = image.convertToFormat(QImage.Format.Format_RGBA8888)
         width, height = rgba.width(), rgba.height()
         rows = np.frombuffer(
@@ -1690,24 +1698,29 @@ class PaintCanvas(
         return result
 
 
-    def _display_image_for_rect(self, image, target_rect):
+    def _display_image_for_rect(self, image, target_rect, *, source_key=None):
         """Keep bounded, device-resolution previews; source pixels stay intact."""
-        if image is None or image.isNull():
+        if image is None:
             return image
+        source_key = _display_source_key(image) if source_key is None else source_key
+        _, image_width, image_height = source_key
+        if not image_width or not image_height:
+            return _display_qimage(image)
         if self.drawing:
+            image = _display_qimage(image)
             return image.mirrored(self.flip_horizontal, self.flip_vertical) if (
                 self.flip_horizontal or self.flip_vertical
             ) else image
         ratio = max(1.0, float(self.devicePixelRatioF()))
-        width = min(image.width(), max(1, round(target_rect.width() * ratio)))
-        height = min(image.height(), max(1, round(target_rect.height() * ratio)))
-        if (width, height) == (image.width(), image.height()) and not (
+        width = min(image_width, max(1, round(target_rect.width() * ratio)))
+        height = min(image_height, max(1, round(target_rect.height() * ratio)))
+        if (width, height) == (image_width, image_height) and not (
             self.flip_horizontal or self.flip_vertical
         ):
-            return image
+            return _display_qimage(image)
         mode = preferences.display_shrink_mode()
         key = (
-            int(image.cacheKey()), width, height,
+            source_key, width, height,
             self.flip_horizontal, self.flip_vertical, mode,
         )
         cache = getattr(self, "_display_image_cache", None)
@@ -1718,6 +1731,7 @@ class PaintCanvas(
         if cached is not None:
             cache[key] = cached
             return cached
+        image = _display_qimage(image)
         if mode == display_shrink.MODE_KEEP_LINES:
             # 縮小だけを任せる。拡大や等倍はニアレストのままでよい。
             result = display_shrink.shrink_keeping_lines(image, width, height)
@@ -1725,7 +1739,11 @@ class PaintCanvas(
             result = image.scaled(width, height, Qt.AspectRatioMode.IgnoreAspectRatio,
                                   Qt.TransformationMode.FastTransformation)
         if self.flip_horizontal or self.flip_vertical:
-            result = result.mirrored(self.flip_horizontal, self.flip_vertical)
+            # A 1×1 mirror can still share the source buffer.
+            if image_width == image_height == 1:
+                result = result.copy()
+            else:
+                result = result.mirrored(self.flip_horizontal, self.flip_vertical)
         size = result.sizeInBytes()
         budget = 64 * 1024 * 1024
         if size <= budget:
@@ -1762,11 +1780,25 @@ class PaintCanvas(
                         continue
                     self._expand_stroke_work(bounds)
                 source = self._stroke_work_image
-            draw_image = self._layer_display_source(layer, layer_index, source)
-            draw_image = self.view_layer_image(layer, layer_index, draw_image)
+            if source is None:
+                draw_image, source_key = self._model_display_source(layer, layer_index)
+                if self.view_preview.active:
+                    draw_image = partial(
+                        self.view_layer_image, layer, layer_index, draw_image, source_key=source_key,
+                    )
+                    identity, width, height = source_key
+                    source_key = (
+                        (identity, self.view_preview.key(), layer.is_draft, layer.is_paper,
+                         layer_index == self.active_layer_index),
+                        width, height,
+                    )
+            else:
+                draw_image = self._display_layer_image(layer, layer_index, source)
+                draw_image = self.view_layer_image(layer, layer_index, draw_image)
+                source_key = None
             if draw_image is None:
                 continue
-            draw_image = self._display_image_for_rect(draw_image, target_rect)
+            draw_image = self._display_image_for_rect(draw_image, target_rect, source_key=source_key)
             painter.setOpacity(layer.opacity)
             painter.drawImage(target_rect, draw_image)
         painter.setOpacity(1.0)
@@ -1784,9 +1816,10 @@ class PaintCanvas(
                 or target.topLeft() != QPointF(target.topLeft().toPoint())
                 or origin != QPointF(origin.toPoint())):
             return False
-        base = as_qimage(layer.image)
-        if self._display_layer_image(layer, index, base) is not base:
+        if not self._layer_uses_raw_display(layer, index):
             return False
+        # The stroke path reads the live base without retaining another handle.
+        base = as_qimage(layer.image)
         patch_rect = self._stroke_work_rect.translated(target.topLeft().toPoint())
         painter.save()
         painter.setOpacity(layer.opacity)

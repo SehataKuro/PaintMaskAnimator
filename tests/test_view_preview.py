@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from PySide6.QtCore import QPointF
+from PySide6.QtCore import QPointF, QRect
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QAbstractSpinBox, QApplication
+
+from image_edit_helpers import edit_qimage
 
 from paintmaskanimator import view_preview
 from paintmaskanimator.view_preview import ViewPreview
@@ -187,10 +189,11 @@ def window(qapp, tmp_path, monkeypatch):
 
 def painted_layer(window):
     layer = window.canvas.frames[0].layers[window.canvas.active_layer_index]
-    layer.image.to_qimage().fill(QColor(*NORMAL))
-    for y in range(10, 20):
-        for x in range(10, 20):
-            layer.image.to_qimage().setPixelColor(x, y, QColor(*SHADOW))
+    with edit_qimage(layer.image) as patch:
+        patch.fill(QColor(*NORMAL))
+        for y in range(10, 20):
+            for x in range(10, 20):
+                patch.setPixelColor(x, y, QColor(*SHADOW))
     layer.has_content = True
     return layer
 
@@ -216,8 +219,9 @@ def test_map_colors_remain_stable_during_the_stroke(qapp, monkeypatch):
 
     canvas = PaintCanvas()
     layer = canvas.frames[0].layers[canvas.active_layer_index]
-    layer.image.to_qimage().fill(QColor(*NORMAL))
-    layer.image.to_qimage().setPixelColor(15, 15, QColor(*SHADOW))
+    with edit_qimage(layer.image) as patch:
+        patch.fill(QColor(*NORMAL))
+        patch.setPixelColor(15, 15, QColor(*SHADOW))
     canvas.set_view_preview(map_colors=True)
     before = canvas.view_layer_image(layer, canvas.active_layer_index, layer.image.to_qimage())
     normal_color = before.pixelColor(0, 0)
@@ -229,7 +233,8 @@ def test_map_colors_remain_stable_during_the_stroke(qapp, monkeypatch):
     monkeypatch.setattr(view_preview, "label_regions", unexpected_labels)
     canvas.drawing = True
     try:
-        layer.image.to_qimage().setPixelColor(30, 30, QColor(*SHADOW))
+        with edit_qimage(layer.image, QRect(30, 30, 1, 1)) as patch:
+            patch.fill(QColor(*SHADOW))
         shown = canvas.view_layer_image(layer, canvas.active_layer_index, layer.image.to_qimage())
         assert shown.pixelColor(0, 0) == normal_color
         assert shown.pixelColor(30, 30) == shadow_color

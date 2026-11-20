@@ -14,6 +14,7 @@ from typing import Any
 from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, Qt
 from PySide6.QtGui import QColor, QImage, QPainter, QPainterPath, QPen, QPolygonF
 from PySide6.QtWidgets import QApplication
+from .display_image_cache import display_images, model_image_key
 from .pma_image import as_qimage, copy_image
 from .i18n import tr
 from ._canvas_members import CanvasMembers
@@ -317,65 +318,61 @@ class PaintToolsMixin(CanvasMembers):
         画素は返した QImage のバッファを指すので、使い終わるまで QImage を
         手放さないように両方を返す。
         """
-        image = self._bucket_reference_image(
-            options, frame, layer_index, layer_image
-        )
-        if image is layer_image:
+        key, source = self._bucket_reference_source(options, frame, layer_index, layer_image)
+        if key is None:
             return layer_image, layer_pixels
         drag = self._bucket_drag
         if drag is not None:
-            key = image.cacheKey()
             cached = drag["reference_pixels"].get(key)
-            if cached is None:
-                cached = self._layer_fill_pixels(image)
-                drag["reference_pixels"].clear()
-                drag["reference_pixels"][key] = cached
-            return cached
-        return self._layer_fill_pixels(image)
+            if cached is not None:
+                return cached
+        image = self._render_bucket_reference(key, source, layer_image)
+        pixels = self._layer_fill_pixels(image)
+        if drag is not None:
+            drag["reference_pixels"].clear()
+            drag["reference_pixels"][key] = pixels
+        return pixels
 
     def _bucket_reference_image(self, options, frame, layer_index, fallback):
-        """参照レイヤーの設定に合う絵を返す。無ければ ``fallback`` のまま。"""
-        reference = getattr(
-            options, "reference", bucket_fill.REFERENCE_LAYER
-        )
-        if reference == bucket_fill.REFERENCE_CANVAS:
-            return self._bucket_canvas_reference(frame, fallback)
+        key, source = self._bucket_reference_source(options, frame, layer_index, fallback)
+        return self._render_bucket_reference(key, source, fallback)
+
+    def _bucket_reference_source(self, options, frame, layer_index, fallback):
+        """参照元と画素のキーを決める。キーが None なら呼び出し元の画素を使う。"""
+        reference = getattr(options, "reference", bucket_fill.REFERENCE_LAYER)
+        width, height = fallback.width(), fallback.height()
         if reference == bucket_fill.REFERENCE_INITIAL:
             key_frame = self.resolve_key_frame(frame, layer_index)
-            if key_frame is None:
-                return fallback
-            initial = as_qimage(self.frames[key_frame].layers[layer_index].initial_image)
-            # 初期状態を保持していないセルは、今の絵で判定するしかない。
-            if initial is None or initial.size() != fallback.size():
-                return fallback
-            return initial
-        return fallback
+            if key_frame is not None:
+                initial = self.frames[key_frame].layers[layer_index].initial_image
+                if initial is not None and (initial.width, initial.height) == (width, height):
+                    return ("initial", model_image_key(initial)), initial
+        if reference == bucket_fill.REFERENCE_CANVAS and 0 <= frame < len(self.frames):
+            sources = []
+            for index in range(len(self.frames[frame].layers)):
+                key_frame = self.resolve_key_frame(frame, index)
+                if key_frame is None:
+                    continue
+                layer = self.frames[key_frame].layers[index]
+                image = layer.image
+                if layer.visible and not layer.is_paper and image.width and image.height:
+                    sources.append((image, layer.opacity))
+            signature = tuple((model_image_key(image), opacity) for image, opacity in sources)
+            return ("canvas", width, height, signature), sources
+        return None, None
 
-    def _bucket_canvas_reference(self, frame, fallback):
-        """表示しているレイヤーを重ねた絵。別のレイヤーの線でも区切れるように。
-
-        用紙レイヤーは外す。キャンバス一面の不透明な色で覆われると、透明を
-        たどる対象色が働かなくなるため。表示プレビューを通さない生の絵を重ねる。
-        """
-        if not (0 <= frame < len(self.frames)):
+    @staticmethod
+    def _render_bucket_reference(key, source, fallback):
+        if key is None:
             return fallback
-        result = QImage(
-            fallback.size(), QImage.Format.Format_ARGB32_Premultiplied
-        )
+        if key[0] == "initial":
+            return display_images.get(source)
+        result = QImage(fallback.size(), QImage.Format.Format_ARGB32_Premultiplied)
         result.fill(Qt.GlobalColor.transparent)
         painter = QPainter(result)
-        for layer_index in range(len(self.frames[frame].layers)):
-            key_frame = self.resolve_key_frame(frame, layer_index)
-            if key_frame is None:
-                continue
-            layer = self.frames[key_frame].layers[layer_index]
-            if not layer.visible or layer.is_paper:
-                continue
-            image = as_qimage(layer.image)
-            if image is None or image.isNull():
-                continue
-            painter.setOpacity(layer.opacity)
-            painter.drawImage(0, 0, image)
+        for image, opacity in source:
+            painter.setOpacity(opacity)
+            painter.drawImage(0, 0, display_images.get(image))
         painter.end()
         return result
 
@@ -438,13 +435,13 @@ class PaintToolsMixin(CanvasMembers):
         ``accept(結果)`` で塗ってよいかを決め、偽ならその領域を2つ目に返す。
         """
         drag = self._bucket_drag
-        active = as_qimage(self.active_layer.image)
+        active = self.active_layer.image
         if (drag is not None and drag["frame"] == self.current_frame
                 and drag["layer"] == self.active_layer_index
-                and drag["pixels_key"] == active.cacheKey()):
+                and drag["pixels_key"] == model_image_key(active)):
             image, pixels = drag["pixels"]
         else:
-            image, pixels = self._layer_fill_pixels(active)
+            image, pixels = self._layer_fill_pixels(as_qimage(active))
         start_x, start_y = int(p.x()), int(p.y())
         selection_mask = self.selection_mask_bool(image.width(), image.height())
         options = self.bucket_options()
@@ -480,7 +477,7 @@ class PaintToolsMixin(CanvasMembers):
         self._write_rgba_patch(patch, fill_rect)
         if drag is not None:
             drag["pixels"] = (image, pixels)
-            drag["pixels_key"] = as_qimage(self.active_layer.image).cacheKey()
+            drag["pixels_key"] = model_image_key(self.active_layer.image)
         self.active_layer.has_content = True
         if written_colors:
             self._emit_actual_paint_colors(written_colors)
@@ -528,7 +525,7 @@ class PaintToolsMixin(CanvasMembers):
             "last": QPointF(p),
             "line_cache": {},
             "pixels": (converted, layer_pixels),
-            "pixels_key": as_qimage(layer.image).cacheKey(),
+            "pixels_key": model_image_key(layer.image),
             "reference_pixels": {},
         }
         # 最初の1か所はクリックと同じ（開いた領域も設定どおりに塗る）。

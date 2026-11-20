@@ -1,6 +1,6 @@
 import math
 from pathlib import Path
-from .pma_image import as_qimage
+from .display_image_cache import display_images, model_image_key
 from .i18n import tr
 from .constants import CTRL_KEY_LABEL, HOLD_ZOOM_KEY_LABEL
 from PySide6.QtCore import QEvent, QItemSelectionModel, QPointF, QRectF, QSize, Qt, Signal
@@ -1010,17 +1010,21 @@ class TimelineTable(QTableWidget):
         painter.end()
 
     def _thumbnail(self, image, width, height, ratio):
-        """縮小した絵をキャッシュする。絵が描き変わると cacheKey も変わる。"""
-        key = (image.cacheKey(), int(width), int(height), round(ratio, 2))
+        """縮小した絵をキャッシュする。絵の世代・表示寸法・DPR で引く。"""
+        key = (model_image_key(image), int(width), int(height), round(ratio, 2))
         pixmap = self._thumb_cache.get(key)
         if pixmap is None:
             if len(self._thumb_cache) > 512:
                 self._thumb_cache.clear()
-            scaled = image.scaled(
+            source = display_images.get(image)
+            scaled = source.scaled(
                 max(1, int(width * ratio)), max(1, int(height * ratio)),
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
+            # Qt can share source pixels through both a same-size scale and QPixmap.
+            if scaled.size() == source.size():
+                scaled = scaled.copy()
             pixmap = QPixmap.fromImage(scaled)
             pixmap.setDevicePixelRatio(ratio)
             self._thumb_cache[key] = pixmap
@@ -1037,7 +1041,7 @@ class TimelineTable(QTableWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         for (row, column), (image, exposure) in self._thumb_sources.items():
-            if row not in self._expanded_rows or image is None or image.isNull():
+            if row not in self._expanded_rows or image is None or not image.width or not image.height:
                 continue
             left = self.columnViewportPosition(column)
             span_width = self.columnWidth(column) * max(1, int(exposure))
@@ -1052,7 +1056,7 @@ class TimelineTable(QTableWidget):
             area_width = span_width - (14 if int(exposure) > 1 else 7)
             if area_height < 10 or area_width < 10:
                 continue
-            aspect = image.width() / float(max(1, image.height()))
+            aspect = image.width / float(image.height)
             height = float(area_height)
             width = height * aspect
             if width > area_width:
@@ -2755,7 +2759,7 @@ class TimelineWidget(QWidget):
                         # 開閉のたびに集め直さずに済むよう、全行の絵を覚えておく。
                         if source_key_layer is not None:
                             self.table._thumb_sources[(visual_row, col)] = (
-                                as_qimage(source_key_layer.image), int(exposure)
+                                source_key_layer.image, int(exposure)
                             )
                         text = (
                             "◆"

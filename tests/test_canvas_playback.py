@@ -5,9 +5,11 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QRectF  # noqa: E402
+from PySide6.QtCore import QRect, QRectF  # noqa: E402
 from PySide6.QtGui import QColor, QImage  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
+
+from image_edit_helpers import edit_qimage  # noqa: E402
 
 from paintmaskanimator.canvas import PaintCanvas  # noqa: E402
 from paintmaskanimator.canvas_playback import PlaybackMixin  # noqa: E402
@@ -47,6 +49,8 @@ class _Playback(PlaybackMixin):
         self.playback_range_end = None
         self.silhouette_non_background = False
         self.show_initial_state = False
+        self.visible_color_rgbs = None
+        self.preview_color_remap = {}
         self.view_preview = ViewPreview()
         self._playback_active = False
         self._playback_resolved_keys = []
@@ -78,9 +82,11 @@ class _Playback(PlaybackMixin):
         return layer.image.to_qimage()
 
     # 比較表示の切り替えは画面側の約束なので、本物をそのまま使う。
-    _layer_display_source = PaintCanvas._layer_display_source
+    _model_display_source = PaintCanvas._model_display_source
+    _layer_uses_raw_display = PaintCanvas._layer_uses_raw_display
+    _palette_filter_key = PaintCanvas._palette_filter_key
 
-    def view_layer_image(self, layer, layer_index, image):
+    def view_layer_image(self, layer, layer_index, image, *, source_key=None):
         return image
 
 
@@ -163,8 +169,8 @@ def test_frame_image_uses_fallback_resolution_flip_and_cache(qapp):
     playback = _Playback()
     layer = _layer("red", visible=True)
     # Distinguish the left and right pixels so mirroring is observable.
-    layer.image.to_qimage().setPixelColor(0, 0, QColor("red"))
-    layer.image.to_qimage().setPixelColor(1, 0, QColor("blue"))
+    with edit_qimage(layer.image, QRect(1, 0, 1, 1)) as patch:
+        patch.fill(QColor("blue"))
     playback.frames = [SimpleNamespace(layers=[layer])]
     playback.flip_horizontal = True
 

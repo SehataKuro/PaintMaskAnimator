@@ -85,7 +85,7 @@ class CanvasMembers(_MembersBase):
         _current_stroke_color: Any
         _curved_mesh_points: Any
         _display_layer_image: Any
-        _layer_display_source: Any
+        _model_display_source: Any
         _document: Document
         _draw_onion_range: Any
         _draw_stabilized_brush_to: Any

@@ -360,3 +360,141 @@ def tint_onion_reference(rgba, color, enabled, selected):
         mapped += 255 * lum[:, :, None]
         result[:, :, :3] = np.clip(mapped, 0, 255).astype(np.uint8)
     return result
+
+
+def test_model_display_and_onion_hits_skip_qimage_conversion(qapp, monkeypatch):
+    from paintmaskanimator.display_image_cache import display_images
+    from paintmaskanimator.pma_image import PmaImage
+
+    original_to_qimage = PmaImage.to_qimage
+    conversions = []
+    display_images.clear()
+
+    def detached(source):
+        conversions.append(source.width * source.height * 4)
+        return original_to_qimage(source).copy()
+
+    monkeypatch.setattr(PmaImage, "to_qimage", detached)
+    canvas = PaintCanvas()
+    canvas.frames = [Frame([Layer("A", image(), has_content=True)])]
+    model = canvas.active_layer.image
+    rect = QRectF(0, 0, 16, 8)
+
+    assert canvas._display_image_for_rect(model, rect).pixelColor(0, 0) == QColor("red")
+    assert conversions == [8192]
+    display_images.clear()
+    assert canvas._display_image_for_rect(model, rect).pixelColor(0, 0) == QColor("red")
+    assert conversions == [8192]
+
+    def onion():
+        return canvas._tinted_onion_image(0, QColor("white"), color_enabled=False, target_size=(16, 8))
+
+    first = onion()
+    assert onion() is first
+    assert conversions == [8192, 8192]
+    canvas.push_layer_undo()
+    model.write_qimage(image("blue"), 0, 0)
+    blue = onion()
+    assert blue != first
+    canvas.undo()
+    assert onion() == first
+    canvas.redo()
+    assert onion() == blue
+    assert all(size == 8192 for size in conversions)
+
+
+def test_filtered_preview_hits_skip_evicted_upstream_images(qapp, monkeypatch):
+    from paintmaskanimator.display_image_cache import display_images
+    from paintmaskanimator.pma_image import PmaImage
+
+    canvas = PaintCanvas()
+    canvas.frames = [Frame([Layer("A", image(), has_content=True)])]
+    canvas.visible_color_rgbs = {(255, 0, 0)}
+    canvas.silhouette_non_background = True
+    canvas.set_view_preview(exposure=1.0)
+    rect = QRectF(0, 0, 16, 8)
+
+    def render():
+        surface = image("transparent", 16, 8)
+        painter = QPainter(surface)
+        try:
+            canvas.draw_frame_direct(painter, rect, 0)
+        finally:
+            painter.end()
+        return surface
+
+    original = PmaImage.to_qimage
+    reads = []
+
+    def detached(source):
+        reads.append(source.generation)
+        return original(source).copy()
+
+    monkeypatch.setattr(PmaImage, "to_qimage", detached)
+    display_images.clear()
+    first = render()
+    assert first.pixelColor(0, 0) == QColor("black")
+    assert reads == [canvas.active_layer.image.generation]
+
+    display_images.clear()
+    canvas._color_filter_cache.clear()
+    canvas._silhouette_cache.clear()
+    canvas._display_image_cache.clear()
+    canvas._display_image_cache_bytes = 0
+    assert render() == first  # The preview still hits.
+
+    canvas._view_preview_cache.clear()
+    assert render() == first  # Only the scaled image still hits.
+    assert reads == [canvas.active_layer.image.generation]
+
+    canvas.active_layer.image.write_qimage(image("blue"), 0, 0)
+    assert render().pixelColor(0, 0) == QColor("transparent")
+    assert reads[-1] == canvas.active_layer.image.generation
+    assert len(reads) == 2
+
+
+@pytest.mark.parametrize("write", ["write_qimage", "write_qimages", "write_rgba"])
+def test_display_cache_releases_generation_on_write(qapp, write):
+    from paintmaskanimator.display_image_cache import display_images, model_image_key
+    from paintmaskanimator.pma_image import PmaImage
+
+    source = PmaImage.blank(64, 32)
+    other = PmaImage.blank(32, 16)
+    display_images.clear()
+    try:
+        baseline = display_images.get(other).sizeInBytes()
+        for color in ("red", "blue", "green"):
+            key = model_image_key(source)
+            size = display_images.get(source).sizeInBytes()
+            assert display_images.bytes_used == baseline + size
+            patch = image(color, 1, 1)
+            if write == "write_qimage":
+                source.write_qimage(patch, 3, 4)
+            elif write == "write_qimages":
+                source.write_qimages(((3, 4, patch), (4, 4, patch)))
+            else:
+                rgba = np.array([[QColor(color).getRgb()]], dtype=np.uint8)
+                source.write_rgba(rgba, 3, 4)
+            assert key not in display_images._entries
+            assert display_images.bytes_used == baseline
+            assert display_images.get(source).pixelColor(3, 4) == QColor(color)
+    finally:
+        display_images.clear()
+
+
+def test_single_pixel_mirror_cache_owns_its_pixels(qapp):
+    from paintmaskanimator.display_image_cache import display_images
+    from paintmaskanimator.pma_image import PmaImage
+
+    canvas = PaintCanvas()
+    canvas.flip_horizontal = True
+    source = PmaImage.from_qimage(image("red", 1, 1))
+    try:
+        mirrored = canvas._display_image_for_rect(source, QRectF(0, 0, 1, 1))
+        assert mirrored.cacheKey() != source.to_qimage().cacheKey()
+        source.write_qimage(image("blue", 1, 1), 0, 0)
+        assert mirrored.pixelColor(0, 0) == QColor("red")
+        assert canvas._display_image_for_rect(source, QRectF(0, 0, 1, 1)).pixelColor(0, 0) == QColor("blue")
+    finally:
+        display_images.clear()
+        canvas.close()

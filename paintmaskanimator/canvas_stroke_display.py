@@ -38,16 +38,14 @@ class StrokeDisplayMixin(CanvasMembers):
         self._brush_blended_colors = set()
         self._stroke_view_preview = None
         self._stroke_view_dirty = QRect()
-        if self.view_preview.map_colors:
-            original = as_qimage(target)
-            image = self._display_layer_image(
-                self.active_layer, self.active_layer_index, original,
+        if self.view_preview.map_colors and self._layer_uses_raw_display(
+            self.active_layer, self.active_layer_index,
+        ):
+            preview = self.view_layer_image(self.active_layer, self.active_layer_index, target)
+            self._stroke_view_preview = (
+                self.active_layer, self.view_preview.key(),
+                as_qimage(preview).copy(),
             )
-            if image is original:
-                self._stroke_view_preview = (
-                    self.active_layer, self.view_preview.key(),
-                    self.view_layer_image(self.active_layer, self.active_layer_index, image).copy(),
-                )
 
     def _expand_stroke_work(self, rect):
         """Read the expanded crop and carry over the pixels already painted."""

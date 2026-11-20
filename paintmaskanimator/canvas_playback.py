@@ -7,6 +7,8 @@ instance.
 """
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QImage, QPainter
+from .display_image_cache import display_images
+from .pma_image import PmaImage
 from ._canvas_members import CanvasMembers
 from .utils import workspace_size
 from .logging_setup import get_logger
@@ -144,10 +146,12 @@ class PlaybackMixin(CanvasMembers):
             if not layer.visible:
                 continue
 
-            draw_image = self.view_layer_image(
-                layer, layer_index,
-                self._layer_display_source(layer, layer_index),
-            )
+            source, source_key = self._model_display_source(layer, layer_index)
+            draw_image = self.view_layer_image(layer, layer_index, source, source_key=source_key)
+            if callable(draw_image):
+                draw_image = draw_image()
+            if isinstance(draw_image, PmaImage):
+                draw_image = display_images.get(draw_image)
             if self.flip_horizontal or getattr(self, "flip_vertical", False):
                 draw_image = draw_image.mirrored(
                     self.flip_horizontal, getattr(self, "flip_vertical", False)

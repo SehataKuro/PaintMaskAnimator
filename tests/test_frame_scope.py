@@ -291,3 +291,50 @@ def test_canvas_undo_restores_every_scoped_cell(qapp):
         frame.layers[0].image.to_qimage().pixelColor(0, 0) == QColor("red")
         for frame in canvas.frames
     )
+
+
+@pytest.mark.parametrize("independent", [False, True])
+def test_edit_scope_uses_model_identity_even_with_qimage_copy(qapp, monkeypatch, independent):
+    original_to_qimage = PmaImage.to_qimage
+    monkeypatch.setattr(PmaImage, "to_qimage", lambda image: original_to_qimage(image).copy())
+    doc = FakeDoc(frame_count=2)
+    first, second = (frame.layers[0] for frame in doc.frames)
+    second.image = first.image.copy() if independent else first.image
+    assert first.image.generation == second.image.generation
+
+    calls = []
+
+    def op(context):
+        calls.append(context.frame)
+        return make_image("red") if context.frame == 0 else None
+
+    result = apply_over_scope(doc, FrameScope.all_frames(doc), op, label="テスト")
+    assert calls == ([0, 1] if independent else [0])
+    assert result.changed_cells == (1 if independent else 2)
+    assert second.image.to_qimage().pixelColor(0, 0) == QColor(
+        "white" if independent else "red"
+    )
+
+
+@pytest.mark.parametrize("replace", [False, True])
+@pytest.mark.parametrize("at_end", [False, True])
+def test_scope_applies_plan_if_progress_changes_source(qapp, replace, at_end):
+    doc = FakeDoc(frame_count=2)
+    first = doc.frames[0].layers[0]
+    original = first.image
+
+    def progress(done, total, cell):
+        if done == (total if at_end else 0):
+            if replace:
+                first.image = original.copy()  # Same generation, different editing target.
+            else:
+                original.write_qimage(make_image("blue"), 0, 0)
+
+    result = apply_over_scope(
+        doc, FrameScope.all_frames(doc), fill_op("red"), label="test", progress=progress,
+    )
+    assert not result.cancelled
+    assert result.changed_cells == 2
+    assert doc.undo_stack
+    assert first.image.to_qimage().pixelColor(0, 0) == QColor("red")
+    assert doc.frames[1].layers[0].image.to_qimage().pixelColor(0, 0) == QColor("red")

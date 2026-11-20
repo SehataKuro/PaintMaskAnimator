@@ -5,8 +5,11 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtCore import QRect  # noqa: E402
 from PySide6.QtGui import QColor  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
+
+from image_edit_helpers import edit_qimage  # noqa: E402
 
 from paintmaskanimator.main_window import MainWindow  # noqa: E402
 
@@ -30,9 +33,8 @@ def window(qapp, tmp_path, monkeypatch):
 def paint(window, color, origin=(10, 10), size=3):
     layer = window.canvas.frames[0].layers[0]
     x0, y0 = origin
-    for y in range(y0, y0 + size):
-        for x in range(x0, x0 + size):
-            layer.image.to_qimage().setPixelColor(x, y, QColor(color))
+    with edit_qimage(layer.image, QRect(x0, y0, size, size)) as patch:
+        patch.fill(QColor(color))
     layer.has_content = True
 
 

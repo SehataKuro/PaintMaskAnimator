@@ -182,24 +182,21 @@ class UndoMixin(CanvasMembers):
         # 巻き戻しで redo_stack に溜まった「いま辿っていた未来」を保存する。
         self._archive_redo_branch(len(self.undo_stack))
         self.redo_stack[:] = branch.entries
-        # 分岐を行き来すると多数の QImage が生成・破棄され、QImage.cacheKey() が
-        # 使い回されることがある。表示キャッシュはこのキーで引くため、別分岐の
-        # 表示（矩形状の描画パッチ）が残って見えることがある。分岐切り替え時は
-        # キャッシュを捨て、次の描画で実ピクセルから作り直させる。
         self._invalidate_display_caches()
         return True
 
     def _invalidate_display_caches(self):
-        """QImage.cacheKey() で引く表示派生キャッシュを一括で捨てる。
-
-        分岐を行き来すると QImage が生成・破棄され cacheKey() が使い回されるため、
-        別状態の派生画像が残って見えることがある。分岐切り替え時に捨て、次の描画で
-        実ピクセルから作り直させる。
-        """
+        """分岐復元後に表示の派生キャッシュを作り直す。"""
         self._color_filter_cache.clear()
         self._color_index_cache.clear()
         self._silhouette_cache.clear()
         self._onion_cache.clear()
+        self._view_preview_cache.clear()
+        self._playback_frame_cache.clear()
+        scaled = getattr(self, "_display_image_cache", None)
+        if scaled is not None:
+            scaled.clear()
+            self._display_image_cache_bytes = 0
         self.update()
 
     def push_doc_undo(self):

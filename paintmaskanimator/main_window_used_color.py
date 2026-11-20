@@ -13,7 +13,8 @@ from typing import TYPE_CHECKING
 import numpy as np
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtWidgets import QDialog, QFileDialog, QMessageBox
-from .pma_image import as_qimage
+from .display_image_cache import model_image_key
+from .pma_image import PmaImage, as_qimage
 from . import imaging, native, replacement_sets
 from .hsv_adjust_dialog import HsvAdjustDialog
 from .i18n import tr
@@ -119,12 +120,7 @@ class UsedColorController:
             panel.refresh()
 
     def _cache_key(self, image):
-        image = as_qimage(image)
-        try:
-            return (int(image.cacheKey()), image.width(), image.height())
-        except (AttributeError, RuntimeError, TypeError) as exc:
-            log.debug("cacheKey() unavailable, using id() fallback: %s", exc)
-            return (id(image), image.width(), image.height())
+        return model_image_key(image)
 
     def _layer_signature(self, layer_index):
         signature = []
@@ -155,7 +151,7 @@ class UsedColorController:
         # Palette filtering needs the same full-image RGB index. Build it while
         # the used-color scan is already running so the first visibility toggle
         # can reuse it instead of scanning every pixel again.
-        _rgba, packed, opaque = self.window.canvas._color_index_for_image(as_qimage(image))
+        packed, opaque = self.window.canvas._color_index_for_image(image)
         if packed is None or opaque is None:
             return []
         visible_pixels = packed[opaque]
@@ -401,9 +397,7 @@ class UsedColorController:
                 erased = matches & destination_is_eraser[safe_indices]
                 if erased.any():
                     pixels[:, :, 3][erased] = 0
-            produced = rgba.convertToFormat(
-                QImage.Format.Format_ARGB32_Premultiplied
-            )
+            produced = PmaImage.from_qimage(rgba)
             cache_removals.add(old_cache_key)
             if old_cached_colors is not None:
                 old_colors, exceeded = old_cached_colors

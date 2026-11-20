@@ -174,6 +174,22 @@ def test_low_confidence_frame_waits_for_a_click_and_esc_skips_it(window):
     )
 
 
+def test_waiting_frame_can_change_before_manual_selection(window):
+    prepare(window, 2)
+    outlined_cell(window, 1, origin=(8, 4), size=20)
+    canvas = window.canvas
+    canvas.flood_fill(QPoint(8, 8))
+    assert canvas.skewer_fill_pending()
+
+    # Change only the unplanned cell while the session is waiting for a seed.
+    outlined_cell(window, 1, origin=(10, 4), size=20)
+    canvas.flood_fill(QPoint(13, 8))
+
+    assert not canvas.skewer_fill_pending()
+    assert canvas.frames[0].layers[0].image.to_qimage().pixelColor(8, 8) == QColor("#3355ff")
+    assert canvas.frames[1].layers[0].image.to_qimage().pixelColor(13, 8) == QColor("#3355ff")
+
+
 def test_click_on_the_waiting_frame_fills_it_and_continues(window):
     prepare(window, 3)
     outlined_cell(window, 1, origin=(8, 4), size=20)

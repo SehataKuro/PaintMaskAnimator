@@ -264,3 +264,52 @@ def test_helpers_preserve_png_source_metadata(kind):
     assert copied.cacheKey() == source.cacheKey()
     assert copied.text("Description") == "PNG metadata"
     assert copied.dotsPerMeterX() == 3937
+
+
+def test_generation_tracks_pixel_writes_across_copies():
+    original = _blank(3, 2)
+    duplicate = original.copy()
+    independent = _blank(3, 2)
+    initial = original.generation
+    assert duplicate.generation == initial < independent.generation
+    with pytest.raises(AttributeError):
+        original.generation = 0
+
+    patch = QImage(1, 1, QImage.Format.Format_ARGB32_Premultiplied)
+    patch.fill(QColor("red"))
+    duplicate.write_qimages([(0, 0, QImage()), (3, 0, patch), (-1, 1, patch)])
+    duplicate.write_rgba(np.empty((0, 3, 4), dtype=np.uint8))
+    assert duplicate.generation == initial
+
+    duplicate.write_qimage(patch, 0, 0)
+    assert original.generation == initial < independent.generation < duplicate.generation
+    assert not original.rgba().any()
+    assert duplicate.rgba()[0, 0].tolist() == [255, 0, 0, 255]
+
+    original.write_rgba(np.full((2, 3, 4), 255, dtype=np.uint8))
+    assert original.generation > duplicate.generation
+    replacement = PmaImage.from_qimage(original.to_qimage())
+    assert replacement.generation > original.generation
+    assert np.array_equal(replacement.rgba(), original.rgba())
+
+
+def test_display_image_cache_reuses_copies_and_evicts_by_bytes(monkeypatch):
+    from paintmaskanimator.display_image_cache import DisplayImageCache
+
+    original_to_qimage = PmaImage.to_qimage
+    monkeypatch.setattr(PmaImage, "to_qimage", lambda image: original_to_qimage(image).copy())
+    cache = DisplayImageCache(budget=32)
+    first, second, third = (_blank(2, 2) for _ in range(3))
+    first_qt = cache.get(first)
+    cache.get(second)
+    assert cache.get(first.copy()) is first_qt
+    cache.get(third)
+    assert (cache.hits, cache.misses, cache.converted_bytes, cache.bytes_used) == (1, 3, 48, 32)
+    assert cache.get(first) is first_qt
+    cache.get(second)
+    assert cache.misses == 4
+
+    first.write_rgba(np.full((1, 1, 4), 255, dtype=np.uint8))
+    assert cache.get(first).pixelColor(0, 0) == QColor("white")
+    assert first_qt.pixelColor(0, 0).alpha() == 0
+    assert cache.misses == 5
