@@ -19,6 +19,7 @@ mod fill_decisions;
 mod fill_session;
 mod fill_tracking;
 mod flow_color;
+mod image;
 mod map_colors;
 mod mask_transform;
 mod palette;
@@ -167,6 +168,7 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(py_decode_png, module)?)?;
     module.add_function(wrap_pyfunction!(py_encode_png, module)?)?;
     module.add_class::<clip::ClipAnimationReader>()?;
+    module.add_class::<image::PyRgbaImage>()?;
     module.add_class::<project_zip::ZipReader>()?;
     module.add_class::<project_zip::ZipWriter>()?;
     module.add_function(wrap_pyfunction!(project_payload::decode_v2_plan, module)?)?;

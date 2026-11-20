@@ -1280,3 +1280,50 @@ def test_color_reduction_palette_edge_cases():
         color_ops._line_palette_labels_numpy(rgb, visible, palette),
         np.int16,
     )
+
+
+@needs_native
+def test_rgba_image_round_trip_and_copy_on_write():
+    from pma_native import RgbaImage
+
+    rgba = np.arange(60, dtype=np.uint8).reshape(3, 5, 4)
+    image = RgbaImage(5, 3, rgba.tobytes())
+    snapshot = image.copy()
+    generation = image.generation
+    assert (image.width, image.height) == (5, 3)
+    assert snapshot.generation == generation
+    assert RgbaImage(5, 3, rgba.tobytes()).generation != generation
+    original_bytes = image.rgba_bytes()
+    array = np.frombuffer(original_bytes, dtype=np.uint8).reshape(rgba.shape)
+    np.testing.assert_array_equal(array, rgba)
+    assert not array.flags.writeable
+    assert image.read_rect(1, 0, 2, 3) == rgba[:, 1:3].tobytes()
+
+    patch = np.full((2, 3, 4), [59, 133, 250, 0], dtype=np.uint8)
+    image.write_rect(2, 1, 3, 2, patch.tobytes())
+    expected = rgba.copy()
+    expected[1:, 2:] = patch
+    assert image.rgba_bytes() == expected.tobytes()
+    assert snapshot.rgba_bytes() == original_bytes == rgba.tobytes()
+    assert snapshot.generation == generation != image.generation
+
+
+@needs_native
+def test_rgba_image_validates_before_writing():
+    from pma_native import RgbaImage
+
+    image = RgbaImage.blank(2, 3)
+    generation = image.generation
+    with pytest.raises(ValueError):
+        RgbaImage(2, 3, b"")
+    with pytest.raises(ValueError):
+        image.read_rect(2, 0, 1, 1)
+    with pytest.raises(ValueError):
+        image.write_rect(0, 0, 1, 2, bytes(7))
+    with pytest.raises(TypeError):
+        image.write_rect(0, 0, 1, 1, bytearray(4))
+    image.write_rect(2, 0, 0, 3, b"")
+    assert image.rgba_bytes() == bytes(24)
+    assert image.generation == generation
+    empty = RgbaImage.blank(0, 3)
+    assert (empty.width, empty.height, empty.rgba_bytes()) == (0, 3, b"")

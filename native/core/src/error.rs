@@ -9,6 +9,10 @@ pub enum Error {
     Invalid(String),
     /// ZIP の破損または zipfile に戻す形式。
     Archive(String),
+    /// RGBA 画像の寸法・矩形・バッファの不正、または画素バッファの確保失敗。
+    Image(&'static str),
+    /// RGBA 画像の世代番号を使い切った。
+    ImageGenerationExhausted,
     /// RGBA8888 の画素数が指定のバイト上限を超えた。
     TooLarge {
         width: u32,
@@ -21,6 +25,8 @@ impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Archive(message) => write!(f, "不正な ZIP: {message}"),
+            Self::Image(message) => write!(f, "RGBA 画像: {message}"),
+            Self::ImageGenerationExhausted => write!(f, "RGBA 画像の世代番号を使い切りました"),
             Self::Unsupported(message) => write!(f, "未対応の PNG: {message}"),
             Self::Invalid(message) => write!(f, "不正な PNG: {message}"),
             Self::TooLarge {
