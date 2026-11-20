@@ -42,6 +42,7 @@ from PySide6.QtWidgets import (
     QProgressDialog,
 )
 from .i18n import tr
+from .pma_image import as_qimage
 from .optional_deps import PILImage
 from .constants import APP_DISPLAY_NAME, OUTSIDE_MARGIN
 from . import color_ops, constants, imaging, layout_paper, preferences, pressure_settings, project_io, session_state, theme, updater
@@ -608,7 +609,7 @@ class MainWindow(
             return
         for frame in self.canvas.frames:
             layer = Layer(layout_paper.layer_name(), blank_image(), is_draft=True)
-            self.canvas._place_imported_image(image, layer.image)
+            self.canvas._place_imported_image(image, as_qimage(layer.image))
             layer.has_content = True
             frame.layers.insert(0, layer)
         self.canvas.active_layer_index = 1

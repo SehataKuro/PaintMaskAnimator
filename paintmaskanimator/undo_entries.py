@@ -21,12 +21,13 @@ from dataclasses import dataclass, field
 from typing import Any, List, Optional, Sequence, Tuple
 
 from .i18n import tr
+from .pma_image import as_qimage
 
 
 def _image_bytes(image) -> int:
-    """Best-effort in-memory size of a QImage (0 when it is not one)."""
+    """Best-effort in-memory size of the underlying Qt image."""
     try:
-        return int(image.sizeInBytes())
+        return int(as_qimage(image).sizeInBytes())
     except (AttributeError, TypeError):
         return 0
 

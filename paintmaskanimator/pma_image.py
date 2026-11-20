@@ -91,6 +91,14 @@ def copy_image(image: QImage | PmaImage | None) -> QImage | PmaImage | None:
 
 
 # 7-2f の後に削除または見直す。
+def snapshot_image(image: QImage | PmaImage | None) -> QImage | PmaImage | None:
+    """同じ型で保存する。QImage は従来の全体コピーを使い、None はそのまま返す。"""
+    if image is None:
+        return None
+    return image.copy()
+
+
+# 7-2f の後に削除または見直す。
 def image_rgba(image: QImage | PmaImage | None) -> np.ndarray | None:
     """読み取り用途の RGBA 配列を返す。QImage は従来の変換を使う。"""
     if image is None:

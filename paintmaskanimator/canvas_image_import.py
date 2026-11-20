@@ -11,6 +11,7 @@ from pathlib import Path
 from PySide6.QtCore import QPoint
 from PySide6.QtGui import QImage, QImageReader, QPainter
 from .i18n import tr
+from .pma_image import as_qimage
 from .optional_deps import PILImage
 from .constants import MAX_IMAGE_DIMENSION, MAX_SINGLE_IMAGE_PIXELS, OUTSIDE_MARGIN
 from .errors import OperationError
@@ -87,6 +88,7 @@ class ImageImportMixin(CanvasMembers):
         return natural_path_key(*args, **kwargs)
 
     def _place_imported_image(self, image, target):
+        """Draw the decoded QImage into the caller-provided Qt image."""
         x = OUTSIDE_MARGIN + (constants.CANVAS_WIDTH - image.width()) // 2
         y = OUTSIDE_MARGIN + (constants.CANVAS_HEIGHT - image.height()) // 2
         painter = QPainter(target)
@@ -277,13 +279,12 @@ class ImageImportMixin(CanvasMembers):
             if progress_callback:
                 progress_callback(offset, len(decoded), tr("{value} / {len} 枚を配置しています").format(value=offset + 1, len=len(decoded)))
             layer = self.frames[start_frame + offset].layers[insert_index]
-            self._place_imported_image(image, layer.image)
+            self._place_imported_image(image, as_qimage(layer.image))
             layer.has_content = True
             layer.sequence_number = offset + 1
         self.install_legacy_frames()
         self._sequence_source_bank = [
-            self.frames[start_frame + offset]
-            .layers[insert_index].image.copy()
+            as_qimage(self.frames[start_frame + offset].layers[insert_index].image).copy()
             for offset in range(len(decoded))
         ]
         self._sequence_source_bank_layer_index = int(insert_index)

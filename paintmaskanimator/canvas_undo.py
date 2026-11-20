@@ -12,6 +12,7 @@ from .constants import MAX_UNDO, MAX_UNDO_BYTES
 from ._canvas_members import CanvasMembers
 from . import constants
 from .models import Layer, default_layer_name
+from .pma_image import as_qimage, snapshot_image
 from .timeline_metadata import set_dense_import
 from .utils import blank_image
 from .logging_setup import get_logger
@@ -209,7 +210,7 @@ class UndoMixin(CanvasMembers):
         self.push_undo(LayerUndo(
             int(self.current_frame),
             int(self.active_layer_index),
-            layer.image.copy(),
+            snapshot_image(layer.image),
             bool(layer.has_content),
             layer_name=layer.name, number=layer.sequence_number,
         ))
@@ -217,14 +218,15 @@ class UndoMixin(CanvasMembers):
     def push_layer_region_undo(self, rect):
         """Store only the part of the active layer an operation can change."""
         layer = self.active_layer
-        rect = QRect(rect).intersected(layer.image.rect())
+        image = as_qimage(layer.image)
+        rect = QRect(rect).intersected(image.rect())
         if rect.isEmpty():
             return False
         self.push_undo(LayerRegionUndo(
             int(self.current_frame),
             int(self.active_layer_index),
             rect,
-            layer.image.copy(rect),
+            image.copy(rect),
             bool(layer.has_content),
             layer_name=layer.name, number=layer.sequence_number,
         ))
@@ -265,7 +267,7 @@ class UndoMixin(CanvasMembers):
             if isinstance(e, LayerUndo):
                 layer.image = e.image
             else:
-                painter = QPainter(layer.image)
+                painter = QPainter(as_qimage(layer.image))
                 painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
                 patches = e.tiles if isinstance(e, LayerTilesUndo) else ((e.rect, e.image),)
                 for rect, image in patches:

@@ -5,7 +5,7 @@ import pytest
 from PySide6.QtGui import QColor, QImage, QPainter
 
 from paintmaskanimator import imaging
-from paintmaskanimator.pma_image import PmaImage, as_qimage, copy_image, image_rgba
+from paintmaskanimator.pma_image import PmaImage, as_qimage, copy_image, image_rgba, snapshot_image
 
 
 def _blank(width, height):
@@ -157,7 +157,7 @@ def test_helpers_use_pma_image_operations():
     assert image.rgba()[0, 0].tolist() == [255, 0, 0, 255]
 
 
-@pytest.mark.parametrize("helper", [as_qimage, copy_image, image_rgba])
+@pytest.mark.parametrize("helper", [as_qimage, copy_image, image_rgba, snapshot_image])
 def test_helpers_accept_none(helper):
     assert helper(None) is None
 
@@ -178,3 +178,21 @@ def test_helpers_accept_null_qimage(wrap):
     assert pixels.shape == (0, 0, 4)
     assert pixels.dtype == np.uint8
     assert pixels.flags.writeable == (not wrap)
+
+
+@pytest.mark.parametrize("wrap", [False, True])
+def test_snapshot_image_preserves_type_and_copy_semantics(wrap):
+    qt_image = QImage(2, 1, QImage.Format.Format_ARGB32_Premultiplied)
+    qt_image.fill(QColor("red"))
+    image = PmaImage.from_qimage(qt_image) if wrap else qt_image
+
+    snapshot = snapshot_image(image)
+    assert type(snapshot) is type(image)
+    assert as_qimage(snapshot) is not as_qimage(image)
+    assert as_qimage(snapshot) == qt_image
+    if wrap:
+        assert as_qimage(snapshot).cacheKey() == as_qimage(image).cacheKey()
+    else:
+        assert as_qimage(snapshot).cacheKey() != qt_image.cacheKey()
+    as_qimage(snapshot).fill(0)
+    assert as_qimage(image).pixelColor(0, 0) == QColor("red")

@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QApplication, QDialog, QFileDialog, QLabel, QMessageBox, QProgressBar, QVBoxLayout,
 )
 from .i18n import tr
+from .pma_image import as_qimage
 from .optional_deps import PILImage, PSDImage
 from .constants import (
     MAX_IMAGE_DIMENSION,
@@ -950,7 +951,7 @@ class ImportController:
                 ))
             for offset, image in enumerate(key_images):
                 target = self.window.canvas.frames[start_frame + offset].layers[layer_index]
-                self.window.canvas._place_imported_image(image, target.image)
+                self.window.canvas._place_imported_image(image, as_qimage(target.image))
                 target.has_content = True
                 target.sequence_number = offset + 1
         self.window.canvas.current_frame = start_frame
