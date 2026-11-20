@@ -5,22 +5,17 @@ creation, frame deletion, and cell move/copy against the timeline widget.
 
 A collaborator rather than a mixin -- see ``main_window_export.py`` for why.
 """
-from dataclasses import replace
 
-from .document import replace_slot
-from .document import clear_pending
+from .canvas_changes import publish_editable_position, publish_frame_changes
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QItemSelectionModel, QTimer
 from .i18n import tr
-from .utils import blank_image
 from .document import (
     is_pending,
-    place_number, create_drawing, archive_hint, copy_drawing_reference, import_drawing_reference,
 )
 from .undo_entries import ExposureUndo
 from .normalize_dialog import NormalizeNumbersDialog
-from .timeline import TimelineWidget
 from .logging_setup import get_logger
 
 if TYPE_CHECKING:
@@ -216,13 +211,10 @@ class TimelineOpsController:
         layer_indices = sorted({int(index) for index in layer_indices})
         if not layer_indices:
             return
-        self.window.canvas.push_doc_undo()
-        for layer_index in layer_indices:
-            self.window.canvas.normalize_sequence_numbers(layer_index)
-        self.window.canvas._cell_structure_dirty = True
-        self.window.canvas.changed.emit()
-        self.window.canvas.selectionChanged.emit()
-        self.window.canvas.update()
+        canvas = self.window.canvas
+        canvas.push_doc_undo()
+        changes = canvas._document.normalize_sheet_numbers(layer_indices)
+        publish_frame_changes(canvas, changes, notify_selection=True, clear_onion=False)
         self.window.statusBar().showMessage(
             tr("番号をタイムラインの順番に正規化しました。"), 2500
         )
@@ -261,17 +253,10 @@ class TimelineOpsController:
         if block is None:
             return
         _kind, start, _exposure = block
-        layer = self.window.canvas.frames[int(start)].layers[layer_index]
-        self.window.canvas.push_doc_undo()
-        if layer.has_content and layer.sequence_number is not None:
-            self.window.canvas._document.put_archive_hint(
-                layer._track, int(layer.sequence_number), archive_hint(layer),
-            )
-        self.window.canvas._clear_timeline_layer_cell(layer)
-        self.window.canvas._cell_structure_dirty = True
-        self.window.canvas.changed.emit()
-        self.window.canvas.selectionChanged.emit()
-        self.window.canvas.update()
+        canvas = self.window.canvas
+        canvas.push_doc_undo()
+        changes = canvas._document.clear_sheet_span(layer_index, start, start + 1, archive=True)
+        publish_frame_changes(canvas, changes, notify_selection=True, clear_onion=False)
 
     def _restore_selection(self, cells):
         table = self.window.timeline.table
@@ -330,168 +315,19 @@ class TimelineOpsController:
         if row_delta == 0 and column_delta == 0:
             return
 
-        layer_count = len(self.window.canvas.layers)
-        blocks = {}
-        for visual_row, column in selected_cells:
-            layer_index = layer_count - 1 - visual_row
-            if not (0 <= layer_index < layer_count):
-                continue
-            kind, start, exposure = TimelineWidget.timeline_span_at(
-                self.window.canvas.frames,
-                layer_index,
-                column,
+        canvas = self.window.canvas
+        layer_count = len(canvas.layers)
+        positions = ((layer_count - 1 - row, column) for row, column in selected_cells)
+        moves = canvas._document.prepare_sheet_moves(positions, -row_delta, column_delta)
+        if moves is None:
+            self.window.statusBar().showMessage(
+                tr("移動先がタイムライン範囲外です。"), 2500
             )
-            if (
-                kind in ("content", "blank")
-                and start is not None
-            ):
-                key = (layer_index, int(start))
-                if key not in blocks:
-                    layer = self.window.canvas.frames[
-                        int(start)
-                    ].layers[layer_index]
-                    blocks[key] = (
-                        kind,
-                        max(1, int(exposure)),
-                        layer.clone(),
-                    )
-
-        if not blocks:
+            return
+        if not moves:
             return
 
-        moves = []
-        for (
-            source_layer,
-            source_start,
-        ), (
-            kind,
-            exposure,
-            copied,
-        ) in blocks.items():
-            source_visual_row = (
-                layer_count - 1 - source_layer
-            )
-            target_visual_row = (
-                source_visual_row + row_delta
-            )
-            target_layer = (
-                layer_count - 1 - target_visual_row
-            )
-            target_start = (
-                source_start + column_delta
-            )
-            if (
-                target_start < 0
-                or not (0 <= target_layer < layer_count)
-            ):
-                self.window.statusBar().showMessage(
-                    tr("移動先がタイムライン範囲外です。"),
-                    2500,
-                )
-                return
-            moves.append(
-                (
-                    source_layer,
-                    source_start,
-                    target_layer,
-                    target_start,
-                    kind,
-                    exposure,
-                    copied,
-                )
-            )
-
-        self.window.canvas.push_doc_undo()
-
-        # 元位置を未使用セルへ戻す。
-        for (
-            source_layer,
-            source_start,
-            _target_layer,
-            _target_start,
-            _kind,
-            _exposure,
-            _copied,
-        ) in moves:
-            for index in range(source_start, source_start + _exposure):
-                self.window.canvas._clear_timeline_layer_cell(
-                    self.window.canvas.frames[index].layers[source_layer])
-
-        maximum_end = max(
-            target_start + exposure
-            for (
-                _source_layer,
-                _source_start,
-                _target_layer,
-                target_start,
-                _kind,
-                exposure,
-                _copied,
-            ) in moves
-        )
-        self.window.canvas._ensure_frame_count(maximum_end)
-
-        # 移動先と重なる既存露出を切り、既存の明示コマを消す。
-        for (
-            _source_layer,
-            _source_start,
-            target_layer,
-            target_start,
-            _kind,
-            exposure,
-            _copied,
-        ) in moves:
-            target_end = target_start + exposure - 1
-            for column in range(
-                target_start,
-                target_end + 1,
-            ):
-                target = self.window.canvas.frames[
-                    column
-                ].layers[target_layer]
-                if (
-                    target.has_content
-                    or getattr(
-                        target,
-                        "is_blank_key",
-                        False,
-                    )
-                ):
-                    self.window.canvas._clear_timeline_layer_cell(
-                        target
-                    )
-
-        # 相対位置を保って配置。
-        for (
-            _source_layer,
-            _source_start,
-            target_layer,
-            target_start,
-            kind,
-            exposure,
-            copied,
-        ) in moves:
-            target = self.window.canvas.frames[
-                target_start
-            ].layers[target_layer]
-            if _source_layer != target_layer:
-                import_drawing_reference(
-                    self.window.canvas.frames, {},
-                    target_start, target_layer, copied, preferred_frame=int(destination_column),
-                    content=kind == "content", blank=kind == "blank")
-            else:
-                copy_drawing_reference(target, copied, content=kind == "content", blank=kind == "blank")
-            self.window.canvas._document.set_position_track_properties(
-                target_start, target_layer,
-                visible=bool(copied.visible), opacity=float(copied.opacity),
-                alpha_locked=bool(copied.alpha_locked),
-                color_filter_enabled=bool(copied.color_filter_enabled),
-                color_filter_rgb=(tuple(copied.color_filter_rgb)
-                                  if copied.color_filter_rgb is not None else None),
-            )
-            target.blank_start = kind == "blank"
-            for index in range(target_start + 1, target_start + exposure):
-                self.window.canvas.frames[index].layers[target_layer] = target.clone_reference()
+        canvas.push_doc_undo()
 
         moved_cells = [
             (
@@ -505,22 +341,11 @@ class TimelineOpsController:
             )
         ]
 
-        self.window.canvas.current_frame = max(
-            0,
-            int(destination_column),
-        )
-        self.window.canvas.active_layer_index = max(
-            0,
-            min(
-                layer_count - 1,
-                layer_count - 1 - int(destination_row),
-            ),
-        )
-        self.window.canvas._cell_structure_dirty = True
-        self.window.canvas._onion_cache.clear()
-        self.window.canvas.changed.emit()
-        self.window.canvas.selectionChanged.emit()
-        self.window.canvas.update()
+        active_layer = max(0, min(layer_count - 1, layer_count - 1 - int(destination_row)))
+        changes = canvas._document.move_sheet_cells(moves, int(destination_column), active_layer)
+        if not changes:
+            return
+        publish_frame_changes(canvas, changes)
         QTimer.singleShot(
             0,
             lambda cells=tuple(moved_cells):
@@ -540,61 +365,15 @@ class TimelineOpsController:
         ):
             return
         canvas = self.window.canvas
-        block = canvas.timeline_block_at(key_column, layer_index)
-        if block is None:
+        prepared = canvas._document.prepare_exposure_resize(layer_index, key_column, boundary_column, edge)
+        if prepared is None:
             return
-        _kind, key_column, old_exposure = block
-        old_end = key_column + old_exposure - 1
-        source = canvas.frames[key_column].layers[layer_index].clone_slot()
         if edge == "left":
-            previous = [col for col in canvas.timeline_step_columns(layer_index) if col < key_column]
-            minimum = 0
-            if previous:
-                prev = canvas.timeline_block_at(previous[-1], layer_index)
-                if prev is not None:
-                    minimum = prev[1] + prev[2]
-            new_start = max(minimum, min(boundary_column, old_end))
-            if new_start == key_column:
-                return
             canvas.push_doc_undo()
-            for col in range(min(key_column, new_start), old_end + 1):
-                if col < new_start:
-                    canvas._clear_timeline_layer_cell(canvas.frames[col].layers[layer_index])
-                else:
-                    slot = source.clone_reference()
-                    slot.blank_start = bool(slot.is_blank_key and col == new_start)
-                    if col != new_start:
-                        slot.tween = None
-                        slot.tween_member = None
-                    replace_slot(canvas.frames[col], layer_index, slot)
-            canvas.current_frame = new_start
         else:
-            new_end = max(key_column, boundary_column)
-            if new_end == old_end:
-                return
-            canvas.push_undo(ExposureUndo.capture(canvas, layer_index, key_column))
-            following = [col for col in canvas.timeline_step_columns(layer_index)
-                         if col > key_column]
-            if following and new_end >= following[0]:
-                shift = new_end + 1 - following[0]
-                frame_count = len(canvas.frames)
-                canvas._shift_timeline_layer_right(layer_index, following[0], shift)
-                canvas._ensure_frame_count(frame_count + shift)
-            canvas._ensure_frame_count(new_end + 1)
-            for col in range(key_column + 1, max(old_end, new_end) + 1):
-                if col > new_end:
-                    canvas._clear_timeline_layer_cell(canvas.frames[col].layers[layer_index])
-                elif col > old_end:
-                    slot = source.clone_reference()
-                    slot.blank_start = False
-                    slot.tween = None
-                    slot.tween_member = None
-                    replace_slot(canvas.frames[col], layer_index, slot)
-            canvas.current_frame = key_column
-        canvas.active_layer_index = layer_index
-        canvas.changed.emit()
-        canvas.selectionChanged.emit()
-        canvas.update()
+            canvas.push_undo(ExposureUndo.capture(canvas, layer_index, prepared[0]))
+        changes = canvas._document.resize_sheet_exposure(layer_index, edge, prepared)
+        publish_frame_changes(canvas, changes, clear_onion=False, mark_dirty=False)
 
     def move_cell(self, source_row, source_column, destination_row, destination_column):
         layer_count = len(self.window.canvas.layers)
@@ -631,28 +410,12 @@ class TimelineOpsController:
         block = self.window.canvas.timeline_block_at(int(source_column), source_layer)
         if block is None or block[0] != "content":
             return
-        source = self.window.canvas.frames[int(block[1])].layers[source_layer]
-        self.window.canvas.push_doc_undo()
-        self.window.canvas._ensure_frame_count(int(destination_column) + 1)
-        target = self.window.canvas.frames[int(destination_column)].layers[destination_layer]
-        copied = source.clone()
-        copy_drawing_reference(target, copied)
-        for index in range(int(destination_column) + 1, int(destination_column) + block[2]):
-            self.window.canvas._ensure_frame_count(index + 1)
-            self.window.canvas.frames[index].layers[destination_layer] = target.clone_reference()
-        self.window.canvas._document.set_position_track_properties(
-            int(destination_column), destination_layer,
-            visible=copied.visible, opacity=copied.opacity,
-            alpha_locked=copied.alpha_locked,
-            color_filter_enabled=copied.color_filter_enabled,
-            color_filter_rgb=copied.color_filter_rgb,
-        )
-        self.window.canvas.current_frame = int(destination_column)
-        self.window.canvas.active_layer_index = destination_layer
-        self.window.canvas._cell_structure_dirty = True
-        self.window.canvas.changed.emit()
-        self.window.canvas.selectionChanged.emit()
-        self.window.canvas.update()
+        canvas = self.window.canvas
+        if int(destination_column) < 0:
+            return
+        canvas.push_doc_undo()
+        changes = canvas._document.copy_sheet_cell(int(source_column), int(destination_column), source_layer)
+        publish_frame_changes(canvas, changes, clear_onion=False)
 
     def recall_sequence_number(self, visual_row, column, number):
         """既存の絵番号をシートの指定位置へ再配置する。"""
@@ -673,15 +436,8 @@ class TimelineOpsController:
                 return
             _, source = resolved
         self.window.canvas.push_doc_undo()
-        self.window.canvas._ensure_frame_count(int(column) + 1)
-        target = self.window.canvas.frames[int(column)].layers[layer_index]
-        place_number(target, source, number)
-        self.window.canvas.current_frame = int(column)
-        self.window.canvas.active_layer_index = layer_index
-        self.window.canvas._cell_structure_dirty = True
-        self.window.canvas.changed.emit()
-        self.window.canvas.selectionChanged.emit()
-        self.window.canvas.update()
+        changes = self.window.canvas._document.recall_sheet_number(int(column), layer_index, number, source)
+        publish_frame_changes(self.window.canvas, changes, clear_onion=False)
 
     def select_exposure(self, column, visual_row):
         previous_layer = self.window.canvas.active_layer_index
@@ -702,8 +458,8 @@ class TimelineOpsController:
             return
         column = max(0, int(column))
         if column >= len(self.window.canvas.frames):
-            self.window.canvas._ensure_frame_count(column + 1)
-            self.window.canvas._cell_structure_dirty = True
+            changes = self.window.canvas._document.ensure_frame_count(column + 1)
+            publish_editable_position(self.window.canvas, changes)
         self.window.canvas.select_exposure(column, visual_row)
         # タイムラインの別レイヤーのコマを選んだ場合も、そのレイヤーの使用色へ即時更新。
         if self.window.canvas.active_layer_index != previous_layer:
@@ -743,14 +499,10 @@ class TimelineOpsController:
         _kind, start, exposure = block
         return layer_index, int(start), int(exposure)
 
-    def _after_cell_edit(self):
-        canvas = self.window.canvas
-        canvas._cell_structure_dirty = True
-        canvas._onion_cache.clear()
-        canvas.changed.emit()
-        canvas.selectionChanged.emit()
-        canvas.update()
-        self.window.refresh_ui()
+    def _after_cell_edit(self, changes):
+        if changes:
+            publish_frame_changes(self.window.canvas, changes, notify_selection=True)
+            self.window.refresh_ui()
 
     def clear_cell(self, visual_row, column):
         """セルを未使用に戻す（トラックラベルを削除／削除）。
@@ -764,10 +516,9 @@ class TimelineOpsController:
         layer_index, start, _exposure = block
         canvas = self.window.canvas
         canvas.push_doc_undo()
-        for index in range(start, start + _exposure):
-            canvas._clear_timeline_layer_cell(canvas.frames[index].layers[layer_index])
-        self._after_cell_edit()
-        return True
+        changes = canvas._document.clear_sheet_span(layer_index, start, start + _exposure)
+        self._after_cell_edit(changes)
+        return bool(changes)
 
     def copy_cell_to_clipboard(self, visual_row, column):
         """セルを控える。絵・露出・番号ごと複製して持つ。"""
@@ -808,28 +559,9 @@ class TimelineOpsController:
         layer_index, column = target
         canvas = self.window.canvas
         canvas.push_doc_undo()
-        existing = canvas.frames[column].layers[layer_index]
-        pasted = source.clone()
-        pasted.name = existing.name
-        pasted.visible = existing.visible
-        pasted.opacity = existing.opacity
-        # トゥイーンの帯は貼り付け先では組み直せないので持ち込まない。
-        pasted.tween = None
-        pasted.tween_member = None
-        import_drawing_reference(
-            canvas.frames, {}, column, layer_index, pasted,
-            preferred_frame=canvas.current_frame)
-        existing.tween = None
-        existing.tween_member = None
         length = getattr(self.window, "_timeline_cell_clipboard_length", 1)
-        canvas._ensure_frame_count(column + length)
-        for index in range(column + 1, column + length):
-            # A later existing key truncates the pasted exposure.
-            block = canvas.timeline_block_at(index, layer_index)
-            if block is not None and block[1] == index:
-                break
-            replace_slot(canvas.frames[index], layer_index, existing.clone_reference())
-        self._after_cell_edit()
+        changes = canvas._document.paste_sheet_cell(column, layer_index, source, length)
+        self._after_cell_edit(changes)
         self.window.statusBar().showMessage(tr("セルを貼り付けました。"), 2000)
         return True
 
@@ -841,12 +573,8 @@ class TimelineOpsController:
         layer_index, column = target
         canvas = self.window.canvas
         canvas.push_doc_undo()
-        layer = canvas.frames[column].layers[layer_index]
-        canvas._clear_timeline_layer_cell(layer)
-        create_drawing(layer, blank_image(), number=None)
-        canvas.current_frame = column
-        canvas.active_layer_index = layer_index
-        self._after_cell_edit()
+        changes = canvas._document.new_sheet_cell(column, layer_index)
+        self._after_cell_edit(changes)
         return True
 
     def new_number_here(self, visual_row, column):
@@ -870,32 +598,10 @@ class TimelineOpsController:
                 tr("番号のある絵を選んでください。"), 2400
             )
             return False
-        numbers = [
-            layer.sequence_number
-            for frame in canvas.frames
-            if (layer := frame.layers[layer_index]).has_content
-            and isinstance(layer.sequence_number, int)
-        ]
-        numbers.extend(source._track.cells)
-        new_number = max(numbers, default=0) + 1
         canvas.push_doc_undo()
-        selected = source.clone()
-        selected.detach_cell()
-        source._track.cells[new_number] = selected._cell
-        selected.share_track_with(source)
-        selected.sequence_number = new_number
-        if selected._track.connected:
-            selected.__dict__.pop("_cell", None)
-        selected.cell_name = None
-        selected.tween = None
-        selected.tween_member = None
-        selected.is_blank_key = False
-        selected.has_content = True
-        clear_pending(selected)
-        replace_slot(canvas.frames[column], layer_index, selected)
-        canvas.current_frame = column
-        canvas.active_layer_index = layer_index
-        self._after_cell_edit()
+        changes = canvas._document.new_sheet_number(column, layer_index)
+        self._after_cell_edit(changes)
+        new_number = canvas.frames[column].layers[layer_index].sequence_number
         self.window.statusBar().showMessage(
             tr("この位置を新しい番号 {number} にしました。").format(number=new_number),
             2400,
@@ -922,21 +628,8 @@ class TimelineOpsController:
             return False
         canvas = self.window.canvas
         canvas.push_doc_undo()
-        head = canvas.frames[start].layers[layer_index]
-        copied = head.clone()
-        copied.detach_cell()
-        number = max(head._track.cells, default=0) + 1
-        head._track.cells[number] = copied._cell
-        for position in range(column, start + exposure):
-            slot = canvas.frames[position].layers[layer_index]
-            slot.sequence_number = number
-            slot.has_content = True
-            slot.is_blank_key = False
-            slot.blank_start = False
-            clear_pending(slot)
-            slot.tween = None
-            slot.tween_member = None
-        self._after_cell_edit()
+        changes = canvas._document.split_sheet_clip(column, layer_index)
+        self._after_cell_edit(changes)
         return True
 
     def merge_clip(self, visual_row, column):
@@ -952,23 +645,9 @@ class TimelineOpsController:
                 tr("前に結合できるセルがありません。"), 2400
             )
             return False
-        _kind, previous_start, _previous_length = previous
         canvas.push_doc_undo()
-        source = canvas.frames[previous_start].layers[layer_index]
-        for position in range(start, start + exposure):
-            slot = source.clone_slot()
-            slot.tween = None
-            slot.tween_member = None
-            slot.blank_start = False
-            position_info = slot.__dict__.get("_v1_position")
-            if position_info is not None and position_info.legacy is not None:
-                # Cloned save keys must not reach beyond the merged region.
-                slot.__dict__["_v1_position"] = replace(
-                    position_info, legacy=replace(
-                        position_info.legacy,
-                        exposure=min(position_info.legacy.exposure, start + exposure - position)))
-            replace_slot(canvas.frames[position], layer_index, slot)
-        self._after_cell_edit()
+        changes = canvas._document.merge_sheet_clip(start, layer_index)
+        self._after_cell_edit(changes)
         return True
 
     def insert_frame_at(self, visual_row, column):
@@ -978,24 +657,10 @@ class TimelineOpsController:
             return False
         layer_index, column = target
         canvas = self.window.canvas
-        block = canvas.timeline_block_at(column, layer_index)
-        fill = (canvas.frames[column].layers[layer_index].clone_reference()
-                if block is not None and column > block[1] else None)
         canvas.push_doc_undo()
-        canvas._ensure_frame_count(len(canvas.frames) + 1)
-        canvas._shift_timeline_layer_right(layer_index, column, 1, extend_containing=True)
-        if fill is not None:
-            # Extending the visible reference does not replace the hidden PNG
-            # already retained at the insertion position.
-            position = canvas.frames[column].layers[layer_index].__dict__.get("_v1_position")
-            if position is not None:
-                fill.__dict__["_v1_position"] = position
-            fill.tween = None
-            fill.tween_member = None
-            fill.blank_start = False
-            replace_slot(canvas.frames[column], layer_index, fill)
-        self._after_cell_edit()
-        return True
+        changes = canvas._document.insert_track_frame(column, layer_index)
+        self._after_cell_edit(changes)
+        return bool(changes)
 
     def delete_frame_at(self, visual_row, column):
         """そのコマを削除して、以降を1コマ詰める。"""
@@ -1005,7 +670,6 @@ class TimelineOpsController:
         layer_index, column = target
         canvas = self.window.canvas
         canvas.push_doc_undo()
-        canvas._shift_timeline_layer_left(layer_index, column + 1)
-        canvas.current_frame = min(column, len(canvas.frames) - 1)
-        self._after_cell_edit()
-        return True
+        changes = canvas._document.delete_track_frame(column, layer_index)
+        self._after_cell_edit(changes)
+        return bool(changes)

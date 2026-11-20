@@ -26,8 +26,43 @@ class Selection:
 
 
 @dataclass(frozen=True)
+class FrameStructure:
+    """Frame counts before and after an edit, with its first affected index."""
+
+    operation: Literal["extend", "duplicate", "trim"]
+    before: int
+    after: int
+    start: int
+
+
+@dataclass(frozen=True)
+class SheetSpans:
+    """Affected interval on a track, in half-open frame coordinates."""
+
+    layer_index: int
+    start: int
+    stop: int
+
+
+@dataclass(frozen=True)
+class Cursor:
+    """Apply the canvas's existing frame transition."""
+
+    frame: int
+    notify: bool = True
+
+
+@dataclass(frozen=True)
+class ExposureIndexReset:
+    """The legacy frame graph was normalized."""
+
+
+@dataclass(frozen=True)
 class ChangeSet:
-    changes: tuple[Union[TrackStructure, TrackProperties, Selection], ...] = ()
+    changes: tuple[Union[
+        TrackStructure, TrackProperties, Selection, FrameStructure,
+        SheetSpans, Cursor, ExposureIndexReset,
+    ], ...] = ()
 
     def __bool__(self):
         return bool(self.changes)

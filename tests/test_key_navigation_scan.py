@@ -2,6 +2,7 @@
 from types import SimpleNamespace
 
 from paintmaskanimator.canvas_timeline_ops import TimelineStructureMixin
+from paintmaskanimator.document import Document
 from paintmaskanimator.timeline import TimelineWidget
 
 
@@ -25,7 +26,9 @@ def test_sparse_key_scan_matches_spans_without_resolving_each_column(monkeypatch
         raise AssertionError("Key navigation must scan explicit keys directly")
 
     monkeypatch.setattr(TimelineWidget, "timeline_span_at", unexpected_resolution)
-    canvas = SimpleNamespace(frames=frames, active_layer_index=0)
+    model = SimpleNamespace(frames=frames)
+    model.timeline_step_columns = lambda layer_index: Document.timeline_step_columns(model, layer_index)
+    canvas = SimpleNamespace(frames=frames, active_layer_index=0, _document=model)
     assert TimelineStructureMixin.timeline_step_columns(canvas) == expected == [3, 80, 280]
     assert TimelineStructureMixin.timeline_step_columns(canvas, -1) == []
     assert TimelineStructureMixin.timeline_step_columns(canvas, 1) == []

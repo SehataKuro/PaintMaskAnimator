@@ -227,7 +227,7 @@ def test_doc_undo_bytes_count_each_bank_image_and_initial_once():
 @pytest.mark.parametrize("mode", ["sheet", "sequence"])
 def test_painting_retained_slot_allocates_tail_and_keeps_rescued_drawing(monkeypatch, mode):
     from types import SimpleNamespace
-    from paintmaskanimator import canvas_key_frame
+    from paintmaskanimator import canvas_key_frame, document
 
     doc = Document()
     layer = slot(12, is_blank_key=True)
@@ -238,8 +238,7 @@ def test_painting_retained_slot_allocates_tail_and_keeps_rescued_drawing(monkeyp
                              _document=doc, _playback_active=False,
                              _commit_brush_stroke=lambda: None,
                              timeline_block_at=lambda *_args: None)
-    canvas._next_drawing_number = lambda index: canvas_key_frame.KeyFrameMixin._next_drawing_number(canvas, index)
-    monkeypatch.setattr(canvas_key_frame, "blank_image", lambda: image(0))
+    monkeypatch.setattr(document, "blank_image", lambda: image(0))
     assert canvas_key_frame.KeyFrameMixin.ensure_editable_key(canvas)
     assert layer.sequence_number == 13
     assert layer._cell is doc.tracks[0].cells[13]

@@ -26,7 +26,7 @@ def setup(qtbot, blank=False):
     controller = TimelineOpsController(SimpleNamespace(canvas=canvas))
     controller._cell_target = lambda row, col: (0, col)
     controller._cell_block = lambda row, col: (0, *canvas.timeline_block_at(col, 0)[1:])
-    controller._after_cell_edit = lambda: None
+    controller._after_cell_edit = lambda *_: None
     return canvas, controller
 
 

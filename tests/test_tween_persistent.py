@@ -199,3 +199,31 @@ def test_invalid_spec_is_ignored():
     assert tween_groups.sanitize_spec("nope") is None
     spec = tween_groups.sanitize_spec({"id": "x", "length": 3})
     assert spec is not None and spec["mode"] == "free"
+
+
+def test_release_signal_order_and_history(window, monkeypatch):
+    monkeypatch.setattr(window.project, "confirm_save_before_close", lambda: True)
+    _start_and_commit(window)
+    canvas = window.canvas
+    canvas.changed.disconnect()
+    canvas.selectionChanged.disconnect()
+    canvas.cellChanged.disconnect()
+    events = []
+    canvas.changed.connect(lambda: events.append("changed"))
+    canvas.selectionChanged.connect(lambda: events.append("selection"))
+    canvas.cellChanged.connect(lambda *_: events.append("cell"))
+    monkeypatch.setattr(canvas, "update", lambda: events.append("update"))
+    numbers = [slot.sequence_number for slot in _layers(window)]
+    tween_id = _layers(window)[0].tween["id"]
+
+    window.tween.release(_row(window), 0)
+
+    assert events == ["changed", "update"]
+    assert [slot.sequence_number for slot in _layers(window)] == numbers
+    assert tween_groups.group_length(canvas.frames, 0, 0) is None
+    canvas.undo()
+    assert _layers(window)[0].tween["id"] == tween_id
+    assert tween_groups.group_length(canvas.frames, 0, 0) == LENGTH
+    canvas.redo()
+    assert tween_groups.group_length(canvas.frames, 0, 0) is None
+    assert [slot.sequence_number for slot in _layers(window)] == numbers

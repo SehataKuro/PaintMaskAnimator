@@ -7,8 +7,7 @@ or tween" actions.
 A collaborator rather than a mixin -- see ``main_window_export.py`` for why.
 """
 from .pma_image import as_qimage, snapshot_image
-from .document import clear_pending
-from .document import create_drawing
+from .canvas_changes import publish_editable_position, publish_frame_changes, publish_tween_commit
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QPoint, QPointF, Qt
@@ -306,20 +305,6 @@ class TweenController:
         self.window.canvas.apply_undo_entry(DocUndo(reedit["snapshot"]))
         self.window.refresh_ui()
 
-    def _member_numbers(self, layer_index, key_column, exposure, previous):
-        """中割りのセルの番号。直し直しなら前の番号、なければ末尾に足す。"""
-        count = max(0, int(exposure) - 1)
-        if previous and len(previous) == count:
-            return [int(number) for number in previous]
-        used = {
-            int(frame.layers[layer_index].sequence_number)
-            for frame in self.window.canvas.frames
-            if frame.layers[layer_index].sequence_number is not None
-        }
-        used.update(self.window.canvas.frames[0].layers[layer_index]._track.cells)
-        next_number = max(used, default=0) + 1
-        return list(range(next_number, next_number + count))
-
     def edit(self, visual_row, key_column):
         """確定済みのトゥイーンを、保存した変形の形から編集し直す。"""
         canvas = self.window.canvas
@@ -350,10 +335,7 @@ class TweenController:
         # 元の形の絵（通常生成は先頭、逆生成は末尾）をキーへ戻し、
         # 区間を 1 枚のキーにまとめてから変形を始める。
         original = as_qimage((members[-1] if reverse else key).image).copy()
-        key.image = original
-        key.tween = None
-        for offset in range(1, length):
-            canvas.frames[key_column + offset].layers[layer_index] = key.clone_reference()
+        changes = canvas._document.reopen_tween(key_column, layer_index, length, original)
         mode = "mesh" if spec.get("mode") == "mesh" else "free"
         if mode == "mesh":
             self.window.tools.transform_mesh_grid_x.setValue(
@@ -362,7 +344,7 @@ class TweenController:
             self.window.tools.transform_mesh_grid_y.setValue(
                 int(spec.get("mesh_rows", 4))
             )
-        canvas._cell_structure_dirty = True
+        publish_editable_position(canvas, changes)
         self._start(
             layer_index, key_column, length, mode, reedit["snapshot"],
             reverse=reverse,
@@ -382,12 +364,8 @@ class TweenController:
         if not length:
             return
         canvas.push_doc_undo()
-        canvas.frames[key_column].layers[layer_index].tween = None
-        for offset in range(1, length):
-            canvas.frames[key_column + offset].layers[layer_index].tween_member = None
-        canvas._cell_structure_dirty = True
-        canvas.changed.emit()
-        canvas.update()
+        changes = canvas._document.release_tween(key_column, layer_index, length)
+        publish_frame_changes(canvas, changes, clear_onion=False)
         self.window.statusBar().showMessage(
             tr("トゥイーンを解除し、中割りを通常のセルにしました。"), 2500
         )
@@ -431,7 +409,6 @@ class TweenController:
 
         layer_index = int(pending["layer_index"])
         key_column = int(pending["key_col"])
-        end_column = int(pending["end_col"])
         exposure = max(2, int(pending["exposure"]))
         reverse_generation = bool(
             pending.get(
@@ -656,46 +633,22 @@ class TweenController:
                 total_steps,
                 tr("生成した画像をタイムラインへ登録しています"),
             )
-            self.window.canvas._ensure_frame_count(end_column + 1)
-            reedit = pending.get("reedit") or {}
-            tween_id = reedit.get("id") or tween_groups.new_id()
-            member_numbers = self._member_numbers(
-                layer_index, key_column, exposure, reedit.get("numbers"),
-            )
-            for offset, image in enumerate(generated_images):
-                frame_index = key_column + offset
-                layer = self.window.canvas.frames[frame_index].layers[layer_index]
-                if offset > 0:
-                    create_drawing(layer, image, number=member_numbers[offset - 1])
-                else:
-                    layer.image = image
-                layer.has_content = True
-                layer.is_blank_key = False
-                if offset == 0:
-                    layer.tween = tween_groups.make_spec(
-                        tween_id, exposure, transform_mode, reverse_generation,
-                        start_points, final_points,
-                        self.window.canvas.transform_mesh_cols,
-                        self.window.canvas.transform_mesh_rows,
-                        getattr(
-                            self.window.canvas,
-                            "transform_mesh_reference_points", [],
-                        ),
-                    )
-                    layer.tween_member = None
-                else:
-                    # 中割りは番号を持つ通常の絵として書き出される。
-                    # 直し直しでは、元の番号をそのまま使う（リテイク対策）。
-                    layer.sequence_number = member_numbers[offset - 1]
-                    clear_pending(layer)
-                    layer.cell_name = None
-                    layer.tween = None
-                    layer.tween_member = tween_id
-
             if undo_snapshot is None:
                 raise OperationError(
                     tr("トゥイーン開始前のUndo情報を取得できませんでした。")
                 )
+            reedit = pending.get("reedit") or {}
+            tween_id = reedit.get("id") or tween_groups.new_id()
+            spec = tween_groups.make_spec(
+                tween_id, exposure, transform_mode, reverse_generation,
+                start_points, final_points,
+                self.window.canvas.transform_mesh_cols,
+                self.window.canvas.transform_mesh_rows,
+                getattr(self.window.canvas, "transform_mesh_reference_points", []),
+            )
+            changes = self.window.canvas._document.install_tween(
+                key_column, layer_index, generated_images, spec, reedit.get("numbers"),
+            )
             self.window.canvas.push_undo(DocUndo(undo_snapshot))
 
             update_counter(
@@ -738,24 +691,7 @@ class TweenController:
         self.window.canvas.lasso = []
         self.window.canvas.rect_start = None
         self.window.canvas.rect_end = None
-        self.window.canvas.current_frame = (
-            key_column
-            if reverse_generation
-            else end_column
-        )
-        self.window.canvas.active_layer_index = layer_index
-        self.window.canvas._onion_cache.clear()
-        self.window.canvas._color_filter_cache.clear()
-        self.window.canvas._color_index_cache.clear()
-        self.window.canvas._silhouette_cache.clear()
-        self._close_tween_command_popup()
-
-        # 補間では使用色自体は増えないため、全コマ色走査は省略する。
-        self.window._suppress_used_color_refresh_once = True
-        self.window.canvas.changed.emit()
-        self.window.canvas.selectionChanged.emit()
-        self.window.canvas._update_selection_clear_overlay()
-        self.window.canvas.update()
+        publish_tween_commit(self.window, changes, self._close_tween_command_popup)
         quality_note = (
             tr("（TPクオリティ適用）")
             if quality_active else ""

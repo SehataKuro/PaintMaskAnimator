@@ -13,6 +13,7 @@ from PySide6.QtGui import QImage, QPainter
 from PySide6.QtWidgets import (
     QApplication, QDialog, QFileDialog, QLabel, QMessageBox, QProgressBar, QVBoxLayout,
 )
+from .canvas_changes import publish_remap_changes
 from .i18n import tr
 from .optional_deps import PILImage, PSDImage
 from .constants import (
@@ -824,27 +825,14 @@ class ImportController:
 
         self.window.timeline_ops.set_mode("sheet")
         self.window.canvas.push_doc_undo()
-        for _column, layer_index, states, source_bank in prepared:
-            self.window.time_remap._apply_time_remap_states_to_layer(
-                states,
-                start_frame,
-                end_frame,
-                layer_index,
-                source_bank,
-                current_frame,
-            )
-            self.window.time_remap.keep_unplaced_in_archive(layer_index, source_bank)
-        self.window.canvas.current_frame = start_frame
-        self.window.canvas.active_layer_index = prepared[0][1]
-        self.window.canvas._onion_cache.clear()
-        self.window.canvas._color_filter_cache.clear()
-        self.window.canvas._color_index_cache.clear()
-        self.window.canvas._silhouette_cache.clear()
-        self.window._used_color_cache.clear()
-        self.window.canvas.changed.emit()
-        self.window.canvas.selectionChanged.emit()
-        self.window.canvas.update()
-        self.window.used_color.schedule_refresh()
+        changes = self.window.canvas._document.apply_sheet_remap(
+            start_frame, end_frame,
+            [(layer_index, states, bank) for _column, layer_index, states, bank in prepared],
+            current_frame,
+        )
+        if not changes:
+            return False
+        publish_remap_changes(self.window, changes)
         self.window.statusBar().showMessage(
             tr("XDTSの{len}個のCELLを{value}～{value2}フレームへ反映しました。").format(len=len(prepared), value=start_frame + 1, value2=end_frame + 1),
             4200,
