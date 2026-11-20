@@ -13,6 +13,8 @@ pub enum Error {
     Image(&'static str),
     /// RGBA 画像の世代番号を使い切った。
     ImageGenerationExhausted,
+    /// タイムラインの出力寸法がバッファの上限を超えた。
+    TimelineSizeOverflow,
     /// RGBA8888 の画素数が指定のバイト上限を超えた。
     TooLarge {
         width: u32,
@@ -27,6 +29,7 @@ impl std::fmt::Display for Error {
             Self::Archive(message) => write!(f, "不正な ZIP: {message}"),
             Self::Image(message) => write!(f, "RGBA 画像: {message}"),
             Self::ImageGenerationExhausted => write!(f, "RGBA 画像の世代番号を使い切りました"),
+            Self::TimelineSizeOverflow => write!(f, "capacity overflow"),
             Self::Unsupported(message) => write!(f, "未対応の PNG: {message}"),
             Self::Invalid(message) => write!(f, "不正な PNG: {message}"),
             Self::TooLarge {

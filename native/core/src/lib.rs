@@ -4,6 +4,7 @@ pub mod auto_paint;
 pub mod color_stats;
 pub mod colors;
 pub mod display;
+pub mod document;
 pub mod error;
 pub mod fill;
 pub mod flow_color;
