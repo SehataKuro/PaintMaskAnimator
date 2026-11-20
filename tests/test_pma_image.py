@@ -5,7 +5,7 @@ import pytest
 from PySide6.QtGui import QColor, QImage, QPainter
 
 from paintmaskanimator import imaging
-from paintmaskanimator.pma_image import PmaImage
+from paintmaskanimator.pma_image import PmaImage, as_qimage, copy_image, image_rgba
 
 
 def _blank(width, height):
@@ -117,3 +117,46 @@ def test_write_rgba_rejects_invalid_input(patch, x, y):
     with pytest.raises(ValueError):
         image.write_rgba(patch, x=x, y=y)
     assert image.to_qimage().cacheKey() == key
+
+
+def test_helpers_preserve_qimage_identity_copy_and_rgba():
+    image = QImage(2, 1, QImage.Format.Format_ARGB32)
+    image.fill(QColor(201, 18, 63, 128))
+
+    assert as_qimage(image) is image
+    duplicate = copy_image(image)
+    assert isinstance(duplicate, QImage)
+    assert duplicate is not image
+    assert duplicate.cacheKey() == QImage(image).cacheKey()
+    assert duplicate.format() == image.format()
+
+    pixels = image_rgba(image)
+    np.testing.assert_array_equal(pixels, imaging.qimage_rgba_array(image))
+    assert pixels.flags.writeable
+
+    duplicate.fill(0)
+    assert image.pixelColor(0, 0) == QColor(201, 18, 63, 128)
+
+
+def test_helpers_use_pma_image_operations():
+    image = _blank(2, 1)
+    image.write_rgba(np.array([[[255, 0, 0, 255]]], dtype=np.uint8))
+
+    assert as_qimage(image) is image.to_qimage()
+    duplicate = copy_image(image)
+    assert isinstance(duplicate, PmaImage)
+    assert duplicate is not image
+    assert as_qimage(duplicate) is not as_qimage(image)
+    assert as_qimage(duplicate).cacheKey() == as_qimage(image).cacheKey()
+
+    pixels = image_rgba(image)
+    np.testing.assert_array_equal(pixels, image.rgba())
+    assert not pixels.flags.writeable
+
+    duplicate.write_rgba(np.zeros((1, 1, 4), dtype=np.uint8))
+    assert image.rgba()[0, 0].tolist() == [255, 0, 0, 255]
+
+
+@pytest.mark.parametrize("helper", [as_qimage, copy_image, image_rgba])
+def test_helpers_accept_none(helper):
+    assert helper(None) is None

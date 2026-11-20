@@ -7,9 +7,9 @@ keeps numbered (imported) images consistent with the cells that reference them.
 They run against a live ``PaintCanvas``.
 """
 from dataclasses import replace
+from .pma_image import as_qimage, copy_image
 from .document import replace_slot, release_slots
 from .document import mark_pending, clear_pending
-from PySide6.QtGui import QImage
 from ._canvas_members import CanvasMembers
 from .cell_numbering import normalization_mapping
 from .document import (
@@ -498,9 +498,9 @@ class TimelineStructureMixin(CanvasMembers):
                 return False
             layer = by_number[number]
             snapshots[number] = (
-                layer.image.copy(), bool(layer.has_content),
+                as_qimage(layer.image).copy(), bool(layer.has_content),
                 bool(layer.is_blank_key), layer.cell_name,
-                QImage(layer.initial_image) if layer.initial_image is not None else None
+                as_qimage(copy_image(layer.initial_image)),
             )
         if first_number < second_number:
             source_for_number = {
@@ -682,7 +682,9 @@ class TimelineStructureMixin(CanvasMembers):
             return
         self.ensure_editable_key()
         self.push_layer_undo()
-        self.active_layer.image = self.active_layer.image.mirrored(horizontal, not horizontal)
+        self.active_layer.image = as_qimage(self.active_layer.image).mirrored(
+            horizontal, not horizontal
+        )
         self.active_layer.has_content = True
         self.cellChanged.emit(self.current_frame, self.active_layer_index)
         self.update()

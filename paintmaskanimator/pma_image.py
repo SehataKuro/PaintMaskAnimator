@@ -74,3 +74,27 @@ class PmaImage:
     def from_qimage(cls, image: QImage) -> "PmaImage":
         """QImage から画像を作る。内部形式が同じなら画素を暗黙共有する。"""
         return cls(image)
+
+
+# 7-2f の後に削除または見直す。
+def as_qimage(image: QImage | PmaImage | None) -> QImage | None:
+    """内部の QImage を返す。QImage と None はそのまま返す。"""
+    return image.to_qimage() if isinstance(image, PmaImage) else image
+
+
+# 7-2f の後に削除または見直す。
+def copy_image(image: QImage | PmaImage | None) -> QImage | PmaImage | None:
+    """画素を暗黙共有する同じ型の複製を返す。None はそのまま返す。"""
+    if image is None:
+        return None
+    return image.copy() if isinstance(image, PmaImage) else QImage(image)
+
+
+# 7-2f の後に削除または見直す。
+def image_rgba(image: QImage | PmaImage | None) -> np.ndarray | None:
+    """読み取り用途の RGBA 配列を返す。QImage は従来の変換を使う。"""
+    if image is None:
+        return None
+    if isinstance(image, PmaImage):
+        return image.rgba()
+    return imaging.qimage_rgba_array(image)

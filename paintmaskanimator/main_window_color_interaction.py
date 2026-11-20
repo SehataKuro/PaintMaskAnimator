@@ -12,6 +12,7 @@ import numpy as np
 from PySide6.QtCore import QRectF
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
+from .pma_image import as_qimage, image_rgba
 from . import theme, preferences
 from .i18n import tr
 from .time_display import frame_position
@@ -143,7 +144,7 @@ class ColorInteractionController:
                     break
                 if not cached_exceeded:
                     continue
-            if self.window.line_ops._image_contains_rgb(layer.image, rgb):
+            if self.window.line_ops._image_contains_rgb(as_qimage(layer.image), rgb):
                 target_frame = frame_index
                 break
 
@@ -160,7 +161,7 @@ class ColorInteractionController:
         self.window.timeline.select_current(target_frame, layer_index)
         self.set_selected_used_colors({rgb})
         layer = self.window.canvas.frames[target_frame].layers[layer_index]
-        rgba = self.window.canvas._qimage_rgba_array(layer.image)
+        rgba = image_rgba(layer.image)
         target = np.asarray(rgb, dtype=np.uint8)
         matching = (
             (rgba[:, :, 3] > 0)

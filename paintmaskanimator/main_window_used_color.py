@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtWidgets import QDialog, QFileDialog, QMessageBox
+from .pma_image import as_qimage
 from . import imaging, native, replacement_sets
 from .hsv_adjust_dialog import HsvAdjustDialog
 from .i18n import tr
@@ -115,6 +116,7 @@ class UsedColorController:
             panel.refresh()
 
     def _cache_key(self, image):
+        image = as_qimage(image)
         try:
             return (int(image.cacheKey()), image.width(), image.height())
         except (AttributeError, RuntimeError, TypeError) as exc:
@@ -150,7 +152,7 @@ class UsedColorController:
         # Palette filtering needs the same full-image RGB index. Build it while
         # the used-color scan is already running so the first visibility toggle
         # can reuse it instead of scanning every pixel again.
-        _rgba, packed, opaque = self.window.canvas._color_index_for_image(image)
+        _rgba, packed, opaque = self.window.canvas._color_index_for_image(as_qimage(image))
         if packed is None or opaque is None:
             return []
         visible_pixels = packed[opaque]
@@ -359,7 +361,7 @@ class UsedColorController:
             layer = context.layer
             old_cache_key = self._cache_key(layer.image)
             old_cached_colors = self.window._used_color_cache.get(old_cache_key)
-            rgba = layer.image.convertToFormat(
+            rgba = as_qimage(layer.image).convertToFormat(
                 QImage.Format.Format_RGBA8888
             )
             width, height = rgba.width(), rgba.height()

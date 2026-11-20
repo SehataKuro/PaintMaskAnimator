@@ -14,6 +14,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage
 from PySide6.QtWidgets import QApplication, QCheckBox, QFileDialog, QMessageBox
 
+from .pma_image import as_qimage, copy_image
 from . import clip_animation, cut_folder, preferences
 from .errors import OPERATION_ERRORS, OperationError
 from .frame_scope import FrameScope, resolve_cells
@@ -115,12 +116,13 @@ class InitialStateController:
                             ))
                         loaded[source] = image.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
                     image = loaded[source]
-                if image.size() != layer.image.size():
+                cell_size = as_qimage(layer.image).size()
+                if image.size() != cell_size:
                     raise OperationError(tr(
                         "線画のサイズが現在のセルと一致しません：{name}\n"
                         "線画：{width} × {height}px／現在のセル：{expected_width} × {expected_height}px"
                     ).format(name=source_name, width=image.width(), height=image.height(),
-                             expected_width=layer.image.width(), expected_height=layer.image.height()))
+                             expected_width=cell_size.width(), expected_height=cell_size.height()))
                 return image
 
             # Dense holds share artwork, but import's count and history retain
@@ -164,7 +166,7 @@ class InitialStateController:
             return 0
 
         def snapshot(image):
-            return QImage(image) if image is not None else None
+            return as_qimage(copy_image(image))
 
         canvas.push_undo(InitialStateUndo(
             [(fi, li, snapshot(canvas.frames[fi].layers[li].initial_image)) for fi, li, _ in cells],
@@ -228,7 +230,7 @@ class InitialStateController:
         for frame, layer in cells:
             cell = canvas.frames[frame].layers[layer]
             # 画素は書き込むまで共有される（コピーの費用はかからない）。
-            cell.initial_image = QImage(cell.image)
+            cell.initial_image = copy_image(cell.image)
         status.showMessage(
             tr("{count}セルを色塗り前の初期状態として保持しました。保存するとプロジェクトに"
                "入ります。").format(count=len(cells)),

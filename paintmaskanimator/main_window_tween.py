@@ -6,6 +6,7 @@ or tween" actions.
 
 A collaborator rather than a mixin -- see ``main_window_export.py`` for why.
 """
+from .pma_image import as_qimage
 from .document import clear_pending
 from .document import create_drawing
 from typing import TYPE_CHECKING
@@ -348,7 +349,7 @@ class TweenController:
             reedit["numbers"] = None
         # 元の形の絵（通常生成は先頭、逆生成は末尾）をキーへ戻し、
         # 区間を 1 枚のキーにまとめてから変形を始める。
-        original = (members[-1] if reverse else key).image.copy()
+        original = as_qimage((members[-1] if reverse else key).image).copy()
         key.image = original
         key.tween = None
         for offset in range(1, length):

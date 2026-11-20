@@ -22,6 +22,7 @@ import tempfile
 from pathlib import Path
 from PySide6.QtWidgets import (QApplication, QDialog, QFileDialog, QInputDialog,
                                QMessageBox)
+from .pma_image import as_qimage, image_rgba
 from .i18n import tr
 from .memo_window import MEMO_FILE_NAME
 from . import movie_slate, native
@@ -224,7 +225,7 @@ class ExportController:
                 seen.add(number)
                 cel = cut_folder.CelSource(layer_index, name, number)
                 cels.append(cel)
-                images[cel] = layer.image
+                images[cel] = as_qimage(layer.image)
         return cels, images, skipped
 
     def cut_folder(self):
@@ -366,7 +367,7 @@ class ExportController:
                     if not layer.has_content or layer.sequence_only:
                         continue
                     key_number += 1
-                    source = layer.image.copy(
+                    source = as_qimage(layer.image).copy(
                         OUTSIDE_MARGIN,
                         OUTSIDE_MARGIN,
                         constants.CANVAS_WIDTH,
@@ -539,7 +540,7 @@ class ExportController:
                     len(keys),
                     tr("{number}枚目を書き出しています").format(number=number),
                 )
-                image = layer.image.copy(
+                image = as_qimage(layer.image).copy(
                     OUTSIDE_MARGIN,
                     OUTSIDE_MARGIN,
                     constants.CANVAS_WIDTH,
@@ -704,7 +705,7 @@ class ExportController:
                 if number in seen:
                     continue
                 seen.add(number)
-                pixels = imaging.qimage_rgba_array(layer.image)
+                pixels = image_rgba(layer.image)
                 images = {
                     kind: imaging.rgba_array_to_qimage(array)
                     for kind, array in shadow_export.materials(

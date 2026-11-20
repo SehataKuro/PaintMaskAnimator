@@ -12,6 +12,7 @@ import math
 import re
 from pathlib import Path
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
+from .pma_image import as_qimage
 from . import sheet, timesheet_file
 from .i18n import tr
 from .main_window_import import ImportController
@@ -335,10 +336,10 @@ class TimeRemapController:
             return [image.copy() for image in stored_bank]
 
         if track.connected:
-            return [track.cells[n].image.copy() if n in track.cells else None
+            return [as_qimage(track.cells[n].image).copy() if n in track.cells else None
                     for n in range(1, max(track.cells, default=0) + 1)]
 
-        numbered_bank = {n: cell.image.copy() for n, cell in track.cells.items()}
+        numbered_bank = {n: as_qimage(cell.image).copy() for n, cell in track.cells.items()}
         for frame in self.window.canvas.frames:
             if layer_index >= len(frame.layers):
                 continue
@@ -350,7 +351,7 @@ class TimeRemapController:
                 and int(number) >= 1
                 and int(number) not in numbered_bank
             ):
-                numbered_bank[int(number)] = layer.image.copy()
+                numbered_bank[int(number)] = as_qimage(layer.image).copy()
         if numbered_bank:
             # 本当に抜けている番号は None にしておき、参照されたら
             # 「存在しない絵番号」として止める（勝手に詰めない）。
@@ -366,8 +367,10 @@ class TimeRemapController:
             if layer_index >= len(frame.layers):
                 continue
             layer = frame.layers[layer_index]
-            if layer.has_content and not layer.image.isNull():
-                bank.append(layer.image.copy())
+            if layer.has_content:
+                image = as_qimage(layer.image)
+                if not image.isNull():
+                    bank.append(image.copy())
         return bank
 
     @staticmethod

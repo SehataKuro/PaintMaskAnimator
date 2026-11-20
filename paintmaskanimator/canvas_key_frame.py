@@ -5,6 +5,7 @@ the previous/next key, resolve which key backs a given exposure cell, and ensure
 the active cell is an editable key before painting. They run against a live
 ``PaintCanvas`` instance.
 """
+from .pma_image import as_qimage
 from .document import clear_pending
 # (nothing was used)
 from ._canvas_members import CanvasMembers
@@ -293,7 +294,7 @@ class KeyFrameMixin(CanvasMembers):
                 else None
             )
             layer.image = (
-                copied.image.copy()
+                as_qimage(copied.image).copy()
                 if kind == "content"
                 else blank_image()
             )
