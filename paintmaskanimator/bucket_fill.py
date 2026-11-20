@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Optional, Tuple
+from weakref import ref
 
 import numpy as np
 
@@ -600,6 +601,62 @@ class CompactFill:
     result_bounds: Optional[Tuple[int, int, int, int]]
     _sample_mask_key: object = field(default=None, repr=False, compare=False)
 
+    def __post_init__(self):
+        # キャッシュに載る局所マスク・島の配列は生成後に寸法を変えない。
+        self._mask_bytes = self._count_mask_bytes()
+        # 同じ結果が複数のキャッシュやレコードに入った分も計上する。
+        self._byte_owners = None
+
+    def _count_mask_bytes(self):
+        """局所マスクと島の配列のサイズを数える。"""
+        return (0 if self.local is None else self.local.nbytes) + sum(
+            local.nbytes for _color, _box, local in self.islands
+        )
+
+    def __setattr__(self, name, value):
+        """計上済みのマスクの差し替えや圧縮 runs の変更を反映する。"""
+        if name == "_native_runs":
+            delta = len(value) - len(getattr(self, name, b""))
+            self._adjust_owner_bytes(delta)
+        object.__setattr__(self, name, value)
+        if name in ("local", "islands") and "_mask_bytes" in self.__dict__:
+            old = self._mask_bytes
+            self._mask_bytes = self._count_mask_bytes()
+            self._adjust_owner_bytes(self._mask_bytes - old)
+
+    def _adjust_owner_bytes(self, delta):
+        """結果を保持しているキャッシュに、登録一件ごとの差分を加える。"""
+        if delta and self._byte_owners:
+            for owner_ref in self._byte_owners:
+                owner = owner_ref()
+                if owner is not None:
+                    owner._fill_bytes += delta
+
+    def _add_byte_owner(self, owner):
+        """結果を一件分計上し、キャッシュを弱参照で登録する。"""
+        if self._byte_owners is None:
+            self._byte_owners = []
+        self._byte_owners.append(ref(owner))
+        owner._fill_bytes += self._mask_bytes + len(getattr(self, "_native_runs", b""))
+
+    def _remove_byte_owner(self, owner):
+        """退去したレコード一件分の計上と登録を取り消す。"""
+        self._byte_owners.remove(ref(owner))
+        owner._fill_bytes -= self._mask_bytes + len(getattr(self, "_native_runs", b""))
+
+    def __getstate__(self):
+        """コピー・保存する結果には元のキャッシュへの登録を含めない。"""
+        state = self.__dict__.copy()
+        del state["_byte_owners"]
+        del state["_mask_bytes"]
+        return state
+
+    def __setstate__(self, state):
+        """復元した結果のサイズを計算し、キャッシュへの登録を初期化する。"""
+        for name, value in state.items():
+            object.__setattr__(self, name, value)
+        self.__post_init__()
+
     @classmethod
     def from_result(cls, result):
         bounds = result.bounds
@@ -624,9 +681,7 @@ class CompactFill:
 
     @property
     def nbytes(self):
-        return (0 if self.local is None else self.local.nbytes) + sum(
-            local.nbytes for _color, _box, local in self.islands
-        )
+        return self._mask_bytes
 
     def materialize(self, shape):
         region = None
@@ -667,6 +722,11 @@ class _RegionIndex:
         region[y0:y1, x0:x1] = self.labels[y0:y1, x0:x1] == label
         return region
 
+    @property
+    def nbytes(self):
+        """Python 側の索引を挿入・退去するときに配列分を数える。"""
+        return self.labels.nbytes + self.x0.nbytes + self.y0.nbytes + self.x1.nbytes + self.y1.nbytes
+
 
 class _NativeRegionIndex(_RegionIndex):
     def __init__(self, state, category):
@@ -690,6 +750,9 @@ class BucketSession:
         self._indices = {}
         self._results = {}
         self._result_bytes = 0
+        # Python の索引分と、結果マスクおよび遅延生成した runs の合計。
+        self._index_bytes = 0
+        self._fill_bytes = 0
         self.gpu_regions = gpu_regions
         self._native_session = None
 
@@ -702,13 +765,9 @@ class BucketSession:
     @property
     def nbytes(self):
         """共有マスクは Rust 側で一度だけ数える。"""
-        total = self.pixels.nbytes
-        total += sum(array.nbytes for index in self._indices.values()
-                     if not isinstance(index, _NativeRegionIndex)
-                     for array in (index.labels, index.x0, index.y0, index.x1, index.y1))
-        total += sum(array.nbytes for pair in self._lines.values() for array in pair)
-        total += sum(result.nbytes + len(getattr(result, "_native_runs", b""))
-                     for result in self._results.values())
+        total = self.pixels.nbytes + self._index_bytes + self._fill_bytes
+        if self._lines:
+            total += sum(array.nbytes for pair in self._lines.values() for array in pair)
         if self._native_session is not None:
             total += self._native_session.nbytes()
         return total
@@ -723,10 +782,18 @@ class BucketSession:
         removed = [c for c in self._prepared if c not in categories]
         for category in removed:
             del self._prepared[category]
-            self._indices.pop(category, None)
+            index = self._indices.pop(category, None)
+            if index is not None and not isinstance(index, _NativeRegionIndex):
+                self._index_bytes -= index.nbytes
         if removed:
-            self._results.clear()
-            self._result_bytes = 0
+            self._clear_results()
+
+    def _clear_results(self):
+        """結果を全件退去し、マスクだけを使う結果キャッシュの上限用集計も戻す。"""
+        for result in self._results.values():
+            result._remove_byte_owner(self)
+        self._results.clear()
+        self._result_bytes = 0
 
     def prepare(self, category):
         state = self._native()
@@ -741,9 +808,12 @@ class BucketSession:
 
     def index(self, category, passable):
         if category not in self._indices:
-            self._indices[category] = (
-                _NativeRegionIndex(self._native(), category) if self.gpu_regions is None
-                else _RegionIndex(passable, self.gpu_regions))
+            if self.gpu_regions is None:
+                self._indices[category] = _NativeRegionIndex(self._native(), category)
+            else:
+                index = _RegionIndex(passable, self.gpu_regions)
+                self._indices[category] = index
+                self._index_bytes += index.nbytes
         return self._indices[category]
 
     def compact(self, x, y):
@@ -760,11 +830,12 @@ class BucketSession:
             result = self._compact_indexed(x, y, category, passable, _gaps)
             if result is None:
                 result = CompactFill.from_result(self.compute(x, y))
-            if self._result_bytes + result.nbytes > 32 * 1024 * 1024:
-                self._results.clear()
-                self._result_bytes = 0
+            size = result.nbytes
+            if self._result_bytes + size > 32 * 1024 * 1024:
+                self._clear_results()
             self._results[key] = result
-            self._result_bytes += result.nbytes
+            self._result_bytes += size
+            result._add_byte_owner(self)
         return self._results[key]
 
     def _compact_indexed(self, x, y, category, passable, gaps):

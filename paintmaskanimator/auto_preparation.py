@@ -61,6 +61,9 @@ class ReferenceRegions:
         self.regions = OrderedDict()
         self.region_hits = 0
         self.max_region_bytes = 32 * 1024 * 1024
+        # 領域レコードごとの結果（runs を含む）と、種マスクの合計。
+        self._fill_bytes = 0
+        self._seedable_bytes = 0
         self.gpu_regions = gpu_regions
 
     @staticmethod
@@ -81,8 +84,21 @@ class ReferenceRegions:
 
     @property
     def region_nbytes(self):
-        return sum(result.nbytes + seedable.nbytes + len(getattr(result, "_native_runs", b""))
-                   for records in self.regions.values() for result, seedable in records)
+        return self._fill_bytes + self._seedable_bytes
+
+    def _append_region(self, key, result, seedable):
+        """領域レコードを末尾に追加し、その配列を計上する。"""
+        self.regions.setdefault(key, []).append((result, seedable))
+        self.regions.move_to_end(key)
+        result._add_byte_owner(self)
+        self._seedable_bytes += seedable.nbytes
+
+    def _evict_region(self):
+        """最も古いキーの全レコードを退去し、計上から外す。"""
+        _key, records = self.regions.popitem(last=False)
+        for result, seedable in records:
+            result._remove_byte_owner(self)
+            self._seedable_bytes -= seedable.nbytes
 
     def session(self, geometry, options):
         key = self.key(geometry, options)
@@ -99,11 +115,11 @@ class ReferenceRegions:
 
     def trim(self):
         while self.regions and self.region_nbytes > self.max_region_bytes:
-            self.regions.popitem(last=False)
+            self._evict_region()
         while self.sessions and (len(self.sessions) > self.capacity or self.nbytes > self.max_bytes):
             self.sessions.popitem(last=False)
         while self.regions and self.nbytes > self.max_bytes:
-            self.regions.popitem(last=False)
+            self._evict_region()
 
     def compact(self, geometry, x, y, options, *, active=None):
         key = self.key(geometry, options)
@@ -135,7 +151,6 @@ class ReferenceRegions:
                 # 種と取り違えないよう、探索可能な元の連結成分だけを記録する。
                 x0, y0, x1, y1 = result.bounds
                 seedable = result.local & passable[y0:y1, x0:x1]
-                self.regions.setdefault(key, []).append((result, seedable))
-                self.regions.move_to_end(key)
+                self._append_region(key, result, seedable)
         self.trim()
         return result
