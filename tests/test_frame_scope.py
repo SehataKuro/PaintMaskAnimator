@@ -20,6 +20,7 @@ from paintmaskanimator.frame_scope import (  # noqa: E402
     resolve_cells,
 )
 from paintmaskanimator.models import Frame, Layer  # noqa: E402
+from paintmaskanimator.pma_image import PmaImage  # noqa: E402
 from paintmaskanimator.undo_entries import ScopedBatchUndo  # noqa: E402
 
 
@@ -131,15 +132,21 @@ def test_blank_key_cells_are_skipped(qapp):
     assert resolve_cells(doc, FrameScope.all_frames(doc)) == [(1, 0)]
 
 
-def test_shared_images_are_processed_once_and_stay_shared(qapp):
+@pytest.mark.parametrize("wrap", [False, True])
+def test_shared_images_are_processed_once_and_stay_shared(qapp, wrap):
     doc = FakeDoc(frame_count=2)
     # 同じQImageを共有する素材（同一画像を1回処理）。
-    doc.frames[1].layers[0].image = doc.frames[0].layers[0].image
+    first = doc.frames[0].layers[0]
+    if wrap:
+        first.image = PmaImage.from_qimage(first.image)
+    image = first.image.to_qimage() if wrap else first.image
+    doc.frames[1].layers[0].image = image
 
     calls = []
 
     def op(context):
         calls.append((context.frame, context.layer_index))
+        assert context.image is image
         return make_image("red")
 
     result = apply_over_scope(
@@ -148,6 +155,10 @@ def test_shared_images_are_processed_once_and_stay_shared(qapp):
     assert calls == [(0, 0)]
     assert result.changed_cells == 2
     assert doc.frames[0].layers[0].image is doc.frames[1].layers[0].image
+    for _frame, _layer, snapshot, _has_content, _number in result.undo.cells:
+        assert isinstance(snapshot, QImage)
+        assert snapshot.cacheKey() != image.cacheKey()
+        assert snapshot.pixelColor(0, 0) == QColor("white")
 
 
 def test_returning_none_leaves_the_cell_untouched(qapp):

@@ -28,6 +28,7 @@ from . import imaging, line_noise
 from .i18n import tr
 from .time_display import frame_position
 from .models import Layer
+from .pma_image import as_qimage, image_rgba
 from .frame_scope import resolve_cells
 from .utils import blank_image
 from .errors import OPERATION_ERRORS
@@ -362,6 +363,8 @@ class LineOpsController:
 
     def _replacement_mapping_for_aligned_images(self, source_image, target_image):
         """Return source->target RGB mapping when every aligned pixel is consistent."""
+        source_image = as_qimage(source_image)
+        target_image = as_qimage(target_image)
         if (
             source_image.isNull()
             or target_image.isNull()
@@ -521,7 +524,7 @@ class LineOpsController:
             source = frame.layers[source_index]
             if not source.has_content:
                 continue
-            pixels = imaging.qimage_rgba_array(source.image)
+            pixels = image_rgba(source.image)
             height, width = pixels.shape[:2]
             visible = pixels[:, :, 3] > 0
             rgb24 = (
@@ -593,7 +596,7 @@ class LineOpsController:
                 frame.layers[paint_index] = paint.clone_reference()
                 continue
 
-            pixels = imaging.qimage_rgba_array(source.image)
+            pixels = image_rgba(source.image)
             height, width = pixels.shape[:2]
 
             visible = pixels[:, :, 3] > 0
@@ -793,7 +796,8 @@ class LineOpsController:
             対象セルの決定・進捗・Undo のまとめ上げはランナー側が持つ。
             """
             layer = context.layer
-            pixels = imaging.qimage_rgba_array(layer.image)
+            # この配列に直接書き込むため、従来の可変コピーを作る。
+            pixels = imaging.qimage_rgba_array(as_qimage(layer.image))
             height, width = pixels.shape[:2]
             if width <= 0 or height <= 0:
                 return None

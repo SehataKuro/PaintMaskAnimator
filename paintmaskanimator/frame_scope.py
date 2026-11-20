@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, List, Optional, Tuple
 
 from .logging_setup import get_logger
+from .pma_image import as_qimage
 from .undo_entries import ScopedBatchUndo
 
 log = get_logger(__name__)
@@ -137,7 +138,7 @@ class LayerContext:
 
     @property
     def image(self):
-        return self.layer.image
+        return as_qimage(self.layer.image)
 
 
 @dataclass
@@ -220,9 +221,9 @@ def _group_shared_images(doc, cells):
         origin = layer.__dict__.get("_content_origin")
         if (origin is not None and origin == layer.sequence_number
                 and origin in layer._track.cells):
-            key = id(layer._track.cells[origin].image)
+            key = id(as_qimage(layer._track.cells[origin].image))
         else:
-            key = id(layer.image)
+            key = id(as_qimage(layer.image))
         position = index_of.get(key)
         if position is None:
             index_of[key] = len(groups)
@@ -320,7 +321,7 @@ def apply_over_scope(
         for frame_index, layer_index in (shared_cells[:1] if numbered else shared_cells):
             layer = doc.frames[frame_index].layers[layer_index]
             undo_cells.append((
-                int(frame_index), int(layer_index), layer.image.copy(),
+                int(frame_index), int(layer_index), as_qimage(layer.image).copy(),
                 bool(layer.has_content), number if numbered else None,
             ))
 

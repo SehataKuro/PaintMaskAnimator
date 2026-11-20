@@ -160,3 +160,21 @@ def test_helpers_use_pma_image_operations():
 @pytest.mark.parametrize("helper", [as_qimage, copy_image, image_rgba])
 def test_helpers_accept_none(helper):
     assert helper(None) is None
+
+
+@pytest.mark.parametrize("wrap", [False, True])
+def test_helpers_accept_null_qimage(wrap):
+    image = QImage()
+    source = PmaImage.from_qimage(image) if wrap else image
+    qt_image = source.to_qimage() if wrap else image
+
+    assert as_qimage(source) is qt_image
+    duplicate = copy_image(source)
+    assert type(duplicate) is type(source)
+    assert as_qimage(duplicate) is not qt_image
+    assert as_qimage(duplicate).isNull()
+
+    pixels = image_rgba(source)
+    assert pixels.shape == (0, 0, 4)
+    assert pixels.dtype == np.uint8
+    assert pixels.flags.writeable == (not wrap)
