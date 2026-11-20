@@ -1072,8 +1072,8 @@ class PaintCanvas(
         ):
             return
 
-        target_width = as_qimage(self.active_layer.image).width()
-        target_height = as_qimage(self.active_layer.image).height()
+        target_width = self.active_layer.image.width
+        target_height = self.active_layer.image.height
         use_proxy = (
             not full_resolution
             and self._tp_uses_proxy(target_width, target_height)
@@ -1152,8 +1152,8 @@ class PaintCanvas(
             self.transform_quality_active = self.transform_quality
             self.transform_tp_line_colors = tuple(sorted(self.selected_used_colors()))
             if self.transform_quality_active:
-                target_width = as_qimage(self.active_layer.image).width()
-                target_height = as_qimage(self.active_layer.image).height()
+                target_width = self.active_layer.image.width
+                target_height = self.active_layer.image.height
                 if self._tp_uses_proxy(target_width, target_height):
                     self._clear_tp_transform_masks(clear_proxy=False)
                 else:
@@ -1178,8 +1178,8 @@ class PaintCanvas(
             and not self._tp_preview_progress_busy
             and self._tp_geometry_cache_fill_overlay is not None
         ):
-            target_width = as_qimage(self.active_layer.image).width()
-            target_height = as_qimage(self.active_layer.image).height()
+            target_width = self.active_layer.image.width
+            target_height = self.active_layer.image.height
             self.transform_preview_image(
                 self.transform_source,
                 target_width,
@@ -1227,8 +1227,8 @@ class PaintCanvas(
         if self.transform_active:
             self.transform_tp_line_colors = tuple(sorted(normalized))
             if self.transform_quality_active:
-                target_width = as_qimage(self.active_layer.image).width()
-                target_height = as_qimage(self.active_layer.image).height()
+                target_width = self.active_layer.image.width
+                target_height = self.active_layer.image.height
                 self._clear_tp_transform_masks(clear_proxy=False)
                 if not self._tp_uses_proxy(target_width, target_height):
                     self._prepare_tp_transform_masks()
@@ -1396,8 +1396,7 @@ class PaintCanvas(
             layer = self.frames[key_frame].layers[layer_index]
             if not layer.visible or float(layer.opacity) <= 0.0:
                 continue
-            source = as_qimage(layer.image)
-            if not (0 <= x < source.width() and 0 <= y < source.height()):
+            if not (0 <= x < layer.image.width and 0 <= y < layer.image.height):
                 continue
             # 使用色の表示OFFなどで見えていない画素は飛ばすが、
             # 表示不透明度やシルエット色はスポイト色へ混ぜない。
@@ -1406,7 +1405,7 @@ class PaintCanvas(
                 continue
             if display_source.pixelColor(x, y).alpha() == 0:
                 continue
-            candidate = source.pixelColor(x, y)
+            candidate = display_images.get(layer.image).pixelColor(x, y)
             if candidate.alpha() > 0:
                 color = QColor(candidate)
                 break
@@ -1818,8 +1817,7 @@ class PaintCanvas(
             return False
         if not self._layer_uses_raw_display(layer, index):
             return False
-        # The stroke path reads the live base without retaining another handle.
-        base = as_qimage(layer.image)
+        base = display_images.get(layer.image)
         patch_rect = self._stroke_work_rect.translated(target.topLeft().toPoint())
         painter.save()
         painter.setOpacity(layer.opacity)

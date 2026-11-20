@@ -454,7 +454,7 @@ def test_filtered_preview_hits_skip_evicted_upstream_images(qapp, monkeypatch):
 
 
 @pytest.mark.parametrize("write", ["write_qimage", "write_qimages", "write_rgba"])
-def test_display_cache_releases_generation_on_write(qapp, write):
+def test_display_cache_moves_written_generation_without_reconverting(qapp, write):
     from paintmaskanimator.display_image_cache import display_images, model_image_key
     from paintmaskanimator.pma_image import PmaImage
 
@@ -475,9 +475,14 @@ def test_display_cache_releases_generation_on_write(qapp, write):
             else:
                 rgba = np.array([[QColor(color).getRgb()]], dtype=np.uint8)
                 source.write_rgba(rgba, 3, 4)
+            # 古い世代は残さず、書いた矩形だけ差し替えた画像を新しい世代で持つ。
             assert key not in display_images._entries
-            assert display_images.bytes_used == baseline
+            assert model_image_key(source) in display_images._entries
+            assert display_images.bytes_used == baseline + size
+            misses = display_images.misses
             assert display_images.get(source).pixelColor(3, 4) == QColor(color)
+            assert display_images.misses == misses
+            assert display_images.get(source) == source.to_qimage()
     finally:
         display_images.clear()
 
@@ -498,3 +503,24 @@ def test_single_pixel_mirror_cache_owns_its_pixels(qapp):
     finally:
         display_images.clear()
         canvas.close()
+
+
+def test_display_cache_rect_update_matches_full_conversion(qapp):
+    from paintmaskanimator.display_image_cache import display_images
+    from paintmaskanimator.imaging import qimage_rgba_array
+    from paintmaskanimator.pma_image import PmaImage
+
+    rng = np.random.default_rng(7)
+    source = PmaImage.blank(40, 30)
+    display_images.clear()
+    try:
+        display_images.get(source)
+        for x, y, w, h in ((0, 0, 40, 30), (3, 5, 7, 9), (33, 21, 7, 9)):
+            source.write_rgba(rng.integers(0, 256, (h, w, 4), dtype=np.uint8), x, y)
+            misses = display_images.misses
+            shown = display_images.get(source)
+            assert display_images.misses == misses
+            assert np.array_equal(qimage_rgba_array(shown), qimage_rgba_array(source.to_qimage()))
+            assert bytes(shown.constBits()) == bytes(source.to_qimage().constBits())
+    finally:
+        display_images.clear()

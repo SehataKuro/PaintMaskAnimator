@@ -423,9 +423,9 @@ def test_tracks_a_region_split_in_two_without_stopping(window):
     prepare(window, 3, size=20)
     black = QColor("black")
     for frame_index in (1, 2):
-        image = window.canvas.frames[frame_index].layers[0].image.to_qimage()
-        for y in range(4, 24):
-            image.setPixelColor(14, y, black)
+        with edit_qimage(window.canvas.frames[frame_index].layers[0].image) as image:
+            for y in range(4, 24):
+                image.setPixelColor(14, y, black)
 
     window.canvas.flood_fill(QPoint(8, 8))
 

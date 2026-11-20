@@ -83,8 +83,9 @@ def test_legacy_white_migrates_to_transparent(qapp, tmp_path):
         (layer for layer in frames[0].layers if getattr(layer, "is_paper", False)),
         None,
     )
-    content.image.to_qimage().setPixelColor(0, 0, QColor(255, 255, 255, 255))
-    content.image.to_qimage().setPixelColor(1, 0, QColor(0, 0, 255, 255))
+    with edit_qimage(content.image) as edited:
+        edited.setPixelColor(0, 0, QColor(255, 255, 255, 255))
+        edited.setPixelColor(1, 0, QColor(0, 0, 255, 255))
     content.has_content = True
 
     # Simulate a legacy file: write, then strip the mask_format marker.
@@ -133,7 +134,8 @@ def test_draft_layer_roundtrip_preserves_white(qapp, tmp_path):
     draft.is_draft = True
     draft.has_content = True
     # Draft layers keep imported pixels as-is, including opaque white.
-    draft.image.to_qimage().setPixelColor(0, 0, QColor(255, 255, 255, 255))
+    with edit_qimage(draft.image) as edited:
+        edited.setPixelColor(0, 0, QColor(255, 255, 255, 255))
 
     path = tmp_path / "draft.pmap"
     project_io.legacy_fixture_write_archive(path, _metadata(), frames)
@@ -170,7 +172,8 @@ def test_current_save_is_mask_format_2(qapp, tmp_path):
         layer for layer in frames[0].layers
         if not getattr(layer, "is_paper", False)
     )
-    content.image.to_qimage().setPixelColor(2, 2, QColor(255, 255, 255, 255))
+    with edit_qimage(content.image) as edited:
+        edited.setPixelColor(2, 2, QColor(255, 255, 255, 255))
     content.has_content = True
 
     metadata = dict(_metadata())
@@ -375,7 +378,7 @@ def test_blank_cells_share_one_image_and_do_not_hit_pixel_limit(qapp, tmp_path, 
 
     _meta, loaded, _w, _h = project_io.read_project_archive(path)
     keys = {
-        layer.image.to_qimage().cacheKey()
+        layer.image.generation
         for frame in loaded
         for layer in frame.layers
     }
@@ -838,10 +841,12 @@ def test_rust_zip_project_results_match_zipfile(qapp, tmp_path, monkeypatch, cas
             metadata, frames, width, height = project_io.read_project_archive(path)
             # 内部保持オブジェクトを除くメタデータと全レイヤー画素を比較する。
             metadata.pop("_loaded_sequence_archive", None)
-            pixels = [(layer.name, layer.visible, layer.opacity,
-                       layer.image.to_qimage().width(), layer.image.to_qimage().height(),
-                       bytes(layer.image.to_qimage().constBits()))
-                      for frame in frames for layer in frame.layers]
+            pixels = []
+            for frame in frames:
+                for layer in frame.layers:
+                    image = layer.image.to_qimage()
+                    pixels.append((layer.name, layer.visible, layer.opacity,
+                                   image.width(), image.height(), bytes(image.constBits())))
             return ("ok", metadata, pixels, width, height)
         except Exception as error:
             return ("error", type(error), str(error))

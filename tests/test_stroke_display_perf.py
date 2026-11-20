@@ -49,14 +49,14 @@ def test_brush_runtime_warmup_is_idempotent_and_non_mutating(qapp):
     from paintmaskanimator.canvas import PaintCanvas
 
     canvas = PaintCanvas()
-    image_key = int(canvas.active_layer.image.to_qimage().cacheKey())
+    image_key = int(canvas.active_layer.image.generation)
     undo_count = len(canvas.undo_stack)
 
     canvas.warm_up_brush_runtime()
     canvas.warm_up_brush_runtime()
 
     assert canvas._brush_runtime_warmed
-    assert int(canvas.active_layer.image.to_qimage().cacheKey()) == image_key
+    assert int(canvas.active_layer.image.generation) == image_key
     assert len(canvas.undo_stack) == undo_count
     assert not canvas.active_layer.has_content
 

@@ -14,7 +14,7 @@ log = get_logger(__name__)
 REQUIRED_API = (
     "enclosed_by", "enclosed_islands", "guess_target_categories", "skewer_seed",
     "track_fill_region", "estimate_shifts", "warp_region", "estimate_color_shifts", "tracking_region_center", "context_similarity",
-    "TimelineCell", "resolve_timeline", "SheetEntry", "sheet_entries", "ClipAnimationReader", "GuideSampler",
+    "RgbaImage", "TimelineCell", "resolve_timeline", "SheetEntry", "sheet_entries", "ClipAnimationReader", "GuideSampler",
     "tint_onion", "unique_colors", "filter_palette",
     "image_alpha_statistics", "binarize_alpha_for_pixel_art", "opaque_rgb_color_count",
     "border_background", "estimate_mixed_boundary_pixels", "snap_overlay_to_exact_rgbs",
@@ -57,6 +57,9 @@ try:
 except ImportError as error:
     raise ImportError(REBUILD_MESSAGE) from error
 validate_backend(_native)
+
+
+RgbaImage = _native.RgbaImage
 
 
 def available() -> bool:

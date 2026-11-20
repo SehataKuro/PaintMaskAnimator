@@ -1,4 +1,7 @@
 """Functional test for autosave write/clear (config dir redirected to tmp)."""
+
+from image_edit_helpers import edit_qimage
+
 import os
 from typing import Any
 import logging
@@ -120,9 +123,12 @@ def test_periodic_save_keeps_ui_responsive_and_captures_snapshot(qapp, tmp_path,
         qapp.processEvents()
         assert serviced
         layer.name = "after"
-        layer.image.to_qimage().fill(QColor("blue"))
-        archived.image.to_qimage().fill(QColor("green"))
-        archived.initial_image.to_qimage().fill(QColor("blue"))
+        with edit_qimage(layer.image) as edited:
+            edited.fill(QColor("blue"))
+        with edit_qimage(archived.image) as edited:
+            edited.fill(QColor("green"))
+        with edit_qimage(archived.initial_image) as edited:
+            edited.fill(QColor("blue"))
         archived.cell_name = "after"
         from paintmaskanimator.document import clear_pending
         clear_pending(layer)
@@ -207,8 +213,10 @@ def test_autosave_snapshot_keeps_compatibility_and_local_independent(qapp, tmp_p
         first.__dict__["_v1_position"] = replace(
             position, legacy=replace(position.legacy, exposure=11), input_length=13)
         first.__dict__.pop("_dense_import", None)
-        local.image.to_qimage().fill(QColor("yellow"))
-        local.initial_image.to_qimage().fill(QColor("red"))
+        with edit_qimage(local.image) as edited:
+            edited.fill(QColor("yellow"))
+        with edit_qimage(local.initial_image) as edited:
+            edited.fill(QColor("red"))
         local.cell_name = "changed"
         release.set()
         owner._pending.result(timeout=10)

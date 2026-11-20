@@ -98,15 +98,22 @@ def test_signature_does_not_scan_or_encode_pixels(window, monkeypatch):
     def fail(*_args):
         pytest.fail("dirty tracking compared or encoded image pixels")
 
-    for name in ("__eq__", "__ne__", "bits", "constBits", "scanLine",
-                 "constScanLine", "pixel", "pixelColor", "save"):
-        monkeypatch.setattr(QImage, name, fail)
-    monkeypatch.setattr(project_io, "encode_png", fail)
+    def forbid_pixel_access(patcher):
+        for name in ("__eq__", "__ne__", "bits", "constBits", "scanLine",
+                     "constScanLine", "pixel", "pixelColor", "save"):
+            patcher.setattr(QImage, name, fail)
+        patcher.setattr(project_io, "encode_png", fail)
+
     window.project.mark_saved()
-    assert not window.project.has_unsaved_changes()
+    with monkeypatch.context() as patcher:
+        forbid_pixel_access(patcher)
+        assert not window.project.has_unsaved_changes()
+    # 編集そのもの（パッチの画素を Rust へ書く）は画素を読むので、判定の外で行う。
     with edit_qimage(window.canvas.frames[0].layers[0].image) as patch:
         patch.fill(QColor("magenta"))
-    assert window.project.has_unsaved_changes()
+    with monkeypatch.context() as patcher:
+        forbid_pixel_access(patcher)
+        assert window.project.has_unsaved_changes()
 
 
 def test_signature_avoids_save_projection(window, monkeypatch):

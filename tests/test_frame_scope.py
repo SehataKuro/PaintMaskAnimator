@@ -147,7 +147,8 @@ def test_shared_images_are_processed_once_and_stay_shared(qapp, wrap):
 
     def op(context):
         calls.append((context.frame, context.layer_index))
-        assert context.image is image
+        assert context.layer.image is first.image
+        assert context.image == image
         return make_image("red")
 
     result = apply_over_scope(

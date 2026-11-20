@@ -1,4 +1,7 @@
 """使用色の色相・彩度・明度調整（Issue #22）。"""
+
+from image_edit_helpers import edit_qimage
+
 import os
 
 import pytest
@@ -35,7 +38,8 @@ def paint(window, color, origin=(10, 10), size=4):
     x0, y0 = origin
     for y in range(y0, y0 + size):
         for x in range(x0, x0 + size):
-            layer.image.to_qimage().setPixelColor(x, y, QColor(color))
+            with edit_qimage(layer.image) as edited:
+                edited.setPixelColor(x, y, QColor(color))
     create_drawing(layer, layer.image, number=layer.sequence_number)
 
 
@@ -80,7 +84,8 @@ def test_accepting_applies_to_every_frame(window, monkeypatch, dense_hold):
     window.canvas._ensure_frame_count(3)
     for frame_index in range(3):
         layer = window.canvas.frames[frame_index].layers[0]
-        layer.image.to_qimage().setPixelColor(10, 10, QColor(255, 0, 0))
+        with edit_qimage(layer.image) as edited:
+            edited.setPixelColor(10, 10, QColor(255, 0, 0))
         create_drawing(layer, layer.image, number=layer.sequence_number)
 
     if dense_hold:

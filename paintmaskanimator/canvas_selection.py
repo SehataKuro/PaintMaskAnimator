@@ -31,8 +31,8 @@ class SelectionMixin(CanvasMembers):
         """Return a boolean mask for the active selection in the requested local area."""
         if not self.selection_polygon:
             return None
-        width = int(width if width is not None else as_qimage(self.active_layer.image).width())
-        height = int(height if height is not None else as_qimage(self.active_layer.image).height())
+        width = int(width if width is not None else self.active_layer.image.width)
+        height = int(height if height is not None else self.active_layer.image.height)
         if width <= 0 or height <= 0:
             return np.zeros((max(0, height), max(0, width)), dtype=bool)
         if self.selection_mask_override is not None:
@@ -173,7 +173,7 @@ class SelectionMixin(CanvasMembers):
         return QRect(
             OUTSIDE_MARGIN, OUTSIDE_MARGIN,
             constants.CANVAS_WIDTH, constants.CANVAS_HEIGHT,
-        ).intersected(as_qimage(self.active_layer.image).rect())
+        ).intersected(QRect(0, 0, self.active_layer.image.width, self.active_layer.image.height))
 
     def select_all(self):
         """キャンバス全体を選択する（Ctrl+A）。"""
@@ -200,8 +200,8 @@ class SelectionMixin(CanvasMembers):
         """選択範囲を反転する（Ctrl+Shift+I）。選択が無ければ何もしない。"""
         if not self.selection_polygon or self.transform_active:
             return False
-        image = as_qimage(self.active_layer.image)
-        width, height = image.width(), image.height()
+        image = self.active_layer.image
+        width, height = image.width, image.height
         current = self.selection_mask_bool(width, height)
         if current is None:
             return False
@@ -312,8 +312,8 @@ class SelectionMixin(CanvasMembers):
         self.transform_source_rect = QRectF(rect)
         self.transform_source = self._masked_selection_source(rect)
         if self.transform_quality_active:
-            target_width = as_qimage(self.active_layer.image).width()
-            target_height = as_qimage(self.active_layer.image).height()
+            target_width = self.active_layer.image.width
+            target_height = self.active_layer.image.height
             use_proxy = self._tp_uses_proxy(target_width, target_height)
             if PILImage is None or PILImageFilter is None:
                 # Keep the transform usable even when Pillow is unavailable,
@@ -578,8 +578,8 @@ class SelectionMixin(CanvasMembers):
                 else getattr(self, "transform_apply_all_frames", False)
             )
         if quality_active:
-            target_width = as_qimage(self.active_layer.image).width()
-            target_height = as_qimage(self.active_layer.image).height()
+            target_width = self.active_layer.image.width
+            target_height = self.active_layer.image.height
             if self._tp_uses_proxy(target_width, target_height):
                 # 大画像の表示中キャッシュは縮小代理画像なので、確定時だけ
                 # 原寸マスクを生成する。代理画像を確定結果へ流用しない。

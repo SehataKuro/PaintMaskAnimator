@@ -8,6 +8,9 @@
 移行の各段階で、意図して変える場合はテストごと書き換える（そのときに
 何が変わるのかを、差分として見えるようにするのが狙い）。
 """
+
+from image_edit_helpers import edit_qimage
+
 import os
 
 import pytest
@@ -42,7 +45,8 @@ def window(qapp, tmp_path, monkeypatch):
 def put_cell(window, column, number, *, exposure=1, layer_index=0, color="#101010"):
     """コマ ``column`` に絵番号 ``number`` のセルを置く。"""
     layer = window.canvas.frames[column].layers[layer_index]
-    layer.image.to_qimage().setPixelColor(10, 10, QColor(color))
+    with edit_qimage(layer.image) as edited:
+        edited.setPixelColor(10, 10, QColor(color))
     layer.has_content = True
     layer.is_blank_key = False
     layer._track.cells.setdefault(int(number), layer._cell)
@@ -133,7 +137,8 @@ def test_editing_one_cell_shows_on_every_frame_with_that_number(window):
     put_cell(window, 0, 1)
     put_cell(window, 4, 1)
 
-    window.canvas.frames[0].layers[0].image.to_qimage().setPixelColor(20, 20, QColor("#ff0000"))
+    with edit_qimage(window.canvas.frames[0].layers[0].image) as edited:
+        edited.setPixelColor(20, 20, QColor("#ff0000"))
 
     assert window.canvas.frames[4].layers[0].image.to_qimage().pixelColor(20, 20) == QColor(
         "#ff0000"

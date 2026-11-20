@@ -7,6 +7,9 @@ Undo 1回で戻ることをここで固定する。
 """
 from __future__ import annotations
 
+from image_edit_helpers import edit_qimage
+
+
 import pytest
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication
@@ -36,11 +39,13 @@ def window(qapp, tmp_path, monkeypatch):
 def paint_cell(window, frame_index, color, *, size=3, origin=(10, 10)):
     """コマの左上付近を白地の上から塗り、キーフレーム化する。"""
     layer = window.canvas.frames[frame_index].layers[0]
-    layer.image.to_qimage().fill(QColor("white"))
+    with edit_qimage(layer.image) as edited:
+        edited.fill(QColor("white"))
     x0, y0 = origin
     for y in range(y0, y0 + size):
         for x in range(x0, x0 + size):
-            layer.image.to_qimage().setPixelColor(x, y, QColor(color))
+            with edit_qimage(layer.image) as edited:
+                edited.setPixelColor(x, y, QColor(color))
     create_drawing(layer, layer.image, number=layer.sequence_number)
     return layer
 

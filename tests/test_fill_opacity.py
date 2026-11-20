@@ -3,6 +3,9 @@
 100%は選択RGBをそのまま書き込み、100%未満は下地RGB（透明は白）と混色する。
 アルファは常に255で、ブラシなど他のツールは100%のまま。
 """
+
+from image_edit_helpers import edit_qimage
+
 import os
 
 import numpy as np
@@ -51,9 +54,10 @@ def test_bucket_full_opacity_writes_exact_rgb(qapp):
 
 def test_bucket_half_opacity_mixes_with_underlying_color(qapp):
     canvas = _canvas("bucket")
-    painter = QPainter(canvas.active_layer.image.to_qimage())
-    painter.fillRect(0, 0, 40, 40, QColor(200, 0, 0))
-    painter.end()
+    with edit_qimage(canvas.active_layer.image) as edited:
+        painter = QPainter(edited)
+        painter.fillRect(0, 0, 40, 40, QColor(200, 0, 0))
+        painter.end()
     canvas.fill_opacity = 0.5
     canvas.main_color = QColor(0, 0, 200)
     canvas.flood_fill(QPointF(10, 10))
@@ -67,9 +71,10 @@ def test_bucket_half_opacity_mixes_with_underlying_color(qapp):
 
 def test_lasso_fill_half_opacity_mixes_with_underlying_color(qapp):
     canvas = _canvas("lasso_fill")
-    painter = QPainter(canvas.active_layer.image.to_qimage())
-    painter.fillRect(0, 0, 80, 80, QColor(200, 0, 0))
-    painter.end()
+    with edit_qimage(canvas.active_layer.image) as edited:
+        painter = QPainter(edited)
+        painter.fillRect(0, 0, 80, 80, QColor(200, 0, 0))
+        painter.end()
     canvas.fill_opacity = 0.5
     canvas.main_color = QColor(0, 0, 200)
     canvas.fill_lasso_polygon([

@@ -72,10 +72,10 @@ class TransformMaskMixin(CanvasMembers):
         if source is None or source.isNull() or not self.transform_points:
             return False
         target_width = int(
-            target_width if target_width is not None else as_qimage(self.active_layer.image).width()
+            target_width if target_width is not None else self.active_layer.image.width
         )
         target_height = int(
-            target_height if target_height is not None else as_qimage(self.active_layer.image).height()
+            target_height if target_height is not None else self.active_layer.image.height
         )
         bbox, _raw_selection = self._tp_transform_bbox(target_width, target_height)
         if bbox.isEmpty():
@@ -376,8 +376,8 @@ class TransformMaskMixin(CanvasMembers):
             return None
         source = source_image.convertToFormat(QImage.Format.Format_RGBA8888)
         sw, sh = source.width(), source.height()
-        cw = int(target_width if target_width is not None else as_qimage(self.active_layer.image).width())
-        ch = int(target_height if target_height is not None else as_qimage(self.active_layer.image).height())
+        cw = int(target_width if target_width is not None else self.active_layer.image.width)
+        ch = int(target_height if target_height is not None else self.active_layer.image.height)
         if sw <= 0 or sh <= 0 or cw <= 0 or ch <= 0:
             return None
         sp = imaging.qimage_buffer(source)
@@ -846,12 +846,12 @@ class TransformMaskMixin(CanvasMembers):
         target_width = int(
             target_width
             if target_width is not None
-            else as_qimage(self.active_layer.image).width()
+            else self.active_layer.image.width
         )
         target_height = int(
             target_height
             if target_height is not None
-            else as_qimage(self.active_layer.image).height()
+            else self.active_layer.image.height
         )
         canvas_rect = QRectF(0, 0, target_width, target_height)
 

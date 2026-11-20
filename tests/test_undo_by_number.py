@@ -1,4 +1,7 @@
 """Drawing history follows a drawing number after sheet edits."""
+
+from image_edit_helpers import edit_qimage
+
 # ruff: noqa: F811
 import pytest
 from PySide6.QtCore import QRect
@@ -20,7 +23,8 @@ def test_move_undo_redo(window, kind):
             [rect, layer.image.to_qimage().copy()] if kind is LayerRegionUndo else
             [((rect, layer.image.to_qimage().copy()),)])
     c.push_undo(kind(0, 0, *args, True, layer_name="A", number=3))
-    layer.image.to_qimage().fill(QColor("blue"))
+    with edit_qimage(layer.image) as edited:
+        edited.fill(QColor("blue"))
     c.frames.insert(0, make_frame(["A", "B"]))
     other = put(c, 0, 7, "green")
     c.undo()
@@ -40,7 +44,8 @@ def test_archive(window):
     c.install_legacy_frames()
     cell = layer._cell
     c.push_layer_undo()
-    layer.image.to_qimage().fill(QColor("blue"))
+    with edit_qimage(layer.image) as edited:
+        edited.fill(QColor("blue"))
     c._document.put_archive_hint(layer._track, 3, ArchiveHint())
     clear_slot(layer)
     c.current_frame = 2
@@ -76,7 +81,8 @@ def test_unnumbered_legacy(window, mode, paper, draft):
     c.push_layer_undo()
     assert c.undo_stack[-1].number is None
     assert c.sequence_entry_columns(0) == before
-    layer.image.to_qimage().fill(QColor("blue"))
+    with edit_qimage(layer.image) as edited:
+        edited.fill(QColor("blue"))
     layer.sequence_number = 9
     c.undo()
     assert layer.image.to_qimage().pixelColor(5, 5) == QColor("red")
@@ -92,7 +98,8 @@ def test_paint_unused_paper_cell_assigns_number(window):
 
     c.ensure_editable_key()
     c.push_layer_undo()
-    layer.image.to_qimage().setPixelColor(5, 5, QColor("blue"))
+    with edit_qimage(layer.image) as edited:
+        edited.setPixelColor(5, 5, QColor("blue"))
 
     assert layer.has_content
     assert layer.sequence_number == 1

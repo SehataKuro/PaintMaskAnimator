@@ -1,4 +1,7 @@
 """選んだ1コマだけを新しい絵番号へ分ける操作。"""
+
+from image_edit_helpers import edit_qimage
+
 import os
 
 import pytest
@@ -38,7 +41,8 @@ def visual_row(window, layer_index=0):
 
 def paint(window, column=1, number=1, exposure=4):
     layer = window.canvas.frames[column].layers[0]
-    layer.image.to_qimage().setPixelColor(10, 10, QColor("#123456"))
+    with edit_qimage(layer.image) as edited:
+        edited.setPixelColor(10, 10, QColor("#123456"))
     layer.has_content = True
     layer._track.cells.setdefault(number, layer._cell)
     layer.sequence_number = number
@@ -51,7 +55,7 @@ def snapshot(window):
     return (
         window.time_remap.timeline_states(0),
         [[(layer.sequence_number, length(window.canvas, fi, li), layer.has_content,
-           layer.is_blank_key, layer.cell_id, layer.image.to_qimage().cacheKey())
+           layer.is_blank_key, layer.cell_id, layer.image.generation)
           for li, layer in enumerate(frame.layers)] for fi, frame in enumerate(window.canvas.frames)],
     )
 
@@ -85,9 +89,11 @@ def test_middle_preserves_the_original_drawing_and_detaches_the_new_one(window):
     assert selected.has_content
     assert not selected.is_blank_key
     assert not selected.sequence_only
-    selected.image.to_qimage().setPixelColor(10, 10, QColor("#abcdef"))
+    with edit_qimage(selected.image) as edited:
+        edited.setPixelColor(10, 10, QColor("#abcdef"))
     assert as_qimage(head.image) == before_image
-    tail.image.to_qimage().setPixelColor(10, 10, QColor("#fedcba"))
+    with edit_qimage(tail.image) as edited:
+        edited.setPixelColor(10, 10, QColor("#fedcba"))
     assert head.image.to_qimage().pixelColor(10, 10) == QColor("#fedcba")
     assert selected.image.to_qimage().pixelColor(10, 10) == QColor("#abcdef")
     assert window.canvas.current_frame == 2

@@ -1,3 +1,5 @@
+from image_edit_helpers import edit_qimage
+
 from paintmaskanimator.timeline_span import span_at
 from paintmaskanimator.document import Document, project_v1_state
 import os
@@ -639,8 +641,9 @@ def test_held_frames_use_shared_image_budget(monkeypatch):
     doc = Document()
     doc.install_legacy_frames(frames)
     frames, _ = project_v1_state(doc.frames)
-    assert frames[1].layers[0].image.to_qimage().cacheKey() == frames[120].layers[0].image.to_qimage().cacheKey()
-    frames[1].layers[0].image.to_qimage().fill(QColor("blue"))
+    assert frames[1].layers[0].image.generation == frames[120].layers[0].image.generation
+    with edit_qimage(frames[1].layers[0].image) as edited:
+        edited.fill(QColor("blue"))
     assert frames[120].layers[0].image.to_qimage().pixelColor(0, 0).alpha() == 0
     monkeypatch.setattr(clip_module, "MAX_PROJECT_DECODED_PIXELS", 7)
     with pytest.raises(ClipImportError, match="PMA"):
@@ -1244,7 +1247,8 @@ def test_native_clip_can_restore_initial_line_art_without_replacing_paint(qapp, 
         # 読み込みが済んだ時点で、線画は初期状態として保持されている。
         assert cell.initial_image.to_qimage().pixelColor(0, 0) == QColor(10, 20, 30, 255)
         cell.image = QImage(cell.image.to_qimage())
-        cell.image.to_qimage().fill(QColor("red"))
+        with edit_qimage(cell.image) as edited:
+            edited.fill(QColor("red"))
         exposure = span_at(frames, 0, 0)[2]
         assert window.initial_state.import_clip_line_art(path) == 1
         assert canvas.frames is frames and span_at(frames, 0, 0)[2] == exposure

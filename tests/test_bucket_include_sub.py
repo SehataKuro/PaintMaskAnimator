@@ -1,4 +1,7 @@
 """バケツの「サブカラーを含み塗り」は、使用色パネルの選択ではなくサブカラーを含む。"""
+
+from image_edit_helpers import edit_qimage
+
 import os
 from typing import Any
 
@@ -46,11 +49,11 @@ def _canvas_with_tools(include_sub):
 
 def _draw_lines(canvas):
     """左右を分ける黒い主線と、左側の領域に接する赤い線を描く。"""
-    image = canvas.active_layer.image.to_qimage()
-    painter = QPainter(image)
-    painter.fillRect(60, 0, 4, image.height(), QColor("black"))
-    painter.fillRect(20, 0, 3, image.height(), QColor(255, 0, 0))
-    painter.end()
+    with edit_qimage(canvas.active_layer.image) as image:
+        painter = QPainter(image)
+        painter.fillRect(60, 0, 4, image.height(), QColor("black"))
+        painter.fillRect(20, 0, 3, image.height(), QColor(255, 0, 0))
+        painter.end()
 
 
 @pytest.mark.parametrize("include_sub", [True, False])

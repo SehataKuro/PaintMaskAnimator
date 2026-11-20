@@ -1,4 +1,7 @@
 """Cell の3属性と、シート順での旧データ統一（Issue #31 Phase 5-4）。"""
+
+from image_edit_helpers import edit_qimage
+
 from types import SimpleNamespace
 
 import pytest
@@ -73,11 +76,13 @@ def test_all_attributes_survive_independent_copy(operation):
         other.detach_cell()
     else:
         other = original.clone()
-    assert other.image.to_qimage().cacheKey() == original.image.to_qimage().cacheKey()
-    assert other.initial_image.to_qimage().cacheKey() == original.initial_image.to_qimage().cacheKey()
+    assert other.image.generation == original.image.generation
+    assert other.initial_image.generation == original.initial_image.generation
     assert other.cell_name == "原画"
-    other.image.to_qimage().setPixelColor(0, 0, QColor("green"))
-    other.initial_image.to_qimage().setPixelColor(0, 0, QColor("yellow"))
+    with edit_qimage(other.image) as edited:
+        edited.setPixelColor(0, 0, QColor("green"))
+    with edit_qimage(other.initial_image) as edited:
+        edited.setPixelColor(0, 0, QColor("yellow"))
     other.cell_name = "別"
     assert original.image.to_qimage().pixelColor(0, 0) == QColor("red")
     assert original.initial_image.to_qimage().pixelColor(0, 0) == QColor("blue")

@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 from PySide6.QtCore import QRect
-from PySide6.QtGui import QColor, QImage, QPainter
+from PySide6.QtGui import QColor, QColorSpace, QImage, QPainter
 
 from image_edit_helpers import edit_qimage
 
@@ -23,11 +23,11 @@ def test_copy_shares_pixels_until_write():
 
     assert (original.width, original.height) == (3, 2)
     assert duplicate.to_qimage() is not original.to_qimage()
-    assert duplicate.to_qimage().cacheKey() == original.to_qimage().cacheKey()
+    assert duplicate.generation == original.generation
 
     duplicate.write_rgba(np.array([[[255, 0, 0, 255]]], dtype=np.uint8), x=2, y=1)
 
-    assert duplicate.to_qimage().cacheKey() != original.to_qimage().cacheKey()
+    assert duplicate.generation != original.generation
     assert not original.rgba().any()
     assert duplicate.rgba()[1, 2].tolist() == [255, 0, 0, 255]
 
@@ -140,10 +140,10 @@ def test_null_image_returns_readonly_rgba():
 )
 def test_write_rgba_rejects_invalid_input(patch, x, y):
     image = _blank(2, 2)
-    key = image.to_qimage().cacheKey()
+    key = image.generation
     with pytest.raises(ValueError):
         image.write_rgba(patch, x=x, y=y)
-    assert image.to_qimage().cacheKey() == key
+    assert image.generation == key
 
 
 def test_helpers_preserve_qimage_identity_copy_and_rgba():
@@ -169,12 +169,13 @@ def test_helpers_use_pma_image_operations():
     image = _blank(2, 1)
     image.write_rgba(np.array([[[255, 0, 0, 255]]], dtype=np.uint8))
 
-    assert as_qimage(image) is image.to_qimage()
+    assert as_qimage(image) == image.to_qimage()
+    assert as_qimage(image) is not image.to_qimage()
     duplicate = copy_image(image)
     assert isinstance(duplicate, PmaImage)
     assert duplicate is not image
     assert as_qimage(duplicate) is not as_qimage(image)
-    assert as_qimage(duplicate).cacheKey() == as_qimage(image).cacheKey()
+    assert duplicate.generation == image.generation
 
     pixels = image_rgba(image)
     np.testing.assert_array_equal(pixels, image.rgba())
@@ -195,7 +196,11 @@ def test_helpers_accept_null_qimage(wrap):
     source = PmaImage.from_qimage(image) if wrap else image
     qt_image = source.to_qimage() if wrap else image
 
-    assert as_qimage(source) is qt_image
+    if wrap:
+        assert as_qimage(source).isNull()
+        assert as_qimage(source) is not qt_image
+    else:
+        assert as_qimage(source) is qt_image
     duplicate = copy_image(source)
     assert type(duplicate) is type(source)
     assert as_qimage(duplicate) is not qt_image
@@ -218,7 +223,11 @@ def test_snapshot_image_preserves_type_and_copy_semantics(wrap):
     assert as_qimage(snapshot) is not as_qimage(image)
     assert as_qimage(snapshot) == qt_image
     assert as_qimage(snapshot).cacheKey() != as_qimage(image).cacheKey()
-    as_qimage(snapshot).fill(0)
+    if wrap:
+        with edit_qimage(snapshot) as edited:
+            edited.fill(0)
+    else:
+        snapshot.fill(0)
     assert as_qimage(image).pixelColor(0, 0) == QColor("red")
 
 
@@ -234,11 +243,12 @@ def test_legacy_snapshot_copies_images_without_changing_their_type(wrap):
 
     snapshot = snapshot_layer(original)
 
-    for duplicate in (snapshot.image, snapshot.initial_image):
+    for duplicate, source in ((snapshot.image, original.image), (snapshot.initial_image, original.initial_image)):
         assert type(duplicate) is type(original.image)
         assert as_qimage(duplicate) is not as_qimage(original.image)
-        assert as_qimage(duplicate).cacheKey() == as_qimage(image).cacheKey()
-        as_qimage(duplicate).fill(0)
+        assert duplicate.generation == source.generation
+        with edit_qimage(duplicate) as edited:
+            edited.fill(0)
         assert as_qimage(image).pixelColor(0, 0) == QColor("red")
 
 
@@ -257,11 +267,17 @@ def test_helpers_preserve_png_source_metadata(kind):
         assert source is duplicate is None
         return
 
-    assert source is (image.to_qimage() if kind == "pma_image" else image)
+    if kind == "pma_image":
+        assert source is not image.to_qimage()
+        assert source == image.to_qimage()
+        assert duplicate.generation == image.generation
+    else:
+        assert source is image
     assert type(duplicate) is type(image)
     copied = as_qimage(duplicate)
     assert copied is not source
-    assert copied.cacheKey() == source.cacheKey()
+    if kind == "qimage":
+        assert copied.cacheKey() == source.cacheKey()
     assert copied.text("Description") == "PNG metadata"
     assert copied.dotsPerMeterX() == 3937
 
@@ -313,3 +329,31 @@ def test_display_image_cache_reuses_copies_and_evicts_by_bytes(monkeypatch):
     assert cache.get(first).pixelColor(0, 0) == QColor("white")
     assert first_qt.pixelColor(0, 0).alpha() == 0
     assert cache.misses == 5
+
+
+
+def test_to_qimage_pixels_and_attributes_are_independent():
+    qt_image = QImage(2, 1, QImage.Format.Format_ARGB32_Premultiplied)
+    qt_image.fill(QColor(201, 18, 63, 128))
+    qt_image.setColorSpace(QColorSpace(QColorSpace.NamedColorSpace.SRgb))
+    qt_image.setDevicePixelRatio(2)
+    qt_image.setDotsPerMeterX(2900)
+    qt_image.setDotsPerMeterY(3700)
+    qt_image.setOffset(qt_image.rect().bottomRight())
+    qt_image.setText("Description", "PNG metadata")
+    image = PmaImage.from_qimage(qt_image)
+    generation = image.generation
+
+    edited = image.to_qimage()
+    edited.fill(0)
+    edited.setColorSpace(QColorSpace())
+    edited.setText("Description", "temporary")
+
+    assert image.generation == generation
+    for preserved in (image.to_qimage(), image.read_qimage(0, 0, 1, 1)):
+        assert preserved.pixel(0, 0) == qt_image.pixel(0, 0)
+        assert preserved.colorSpace() == qt_image.colorSpace()
+        assert preserved.devicePixelRatio() == 2
+        assert (preserved.dotsPerMeterX(), preserved.dotsPerMeterY()) == (2900, 3700)
+        assert preserved.offset() == qt_image.offset()
+        assert preserved.text("Description") == "PNG metadata"

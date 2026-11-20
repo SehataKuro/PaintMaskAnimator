@@ -1,4 +1,7 @@
 """カットフォルダーを開く: 書き出したフォルダーがそのまま読み戻せる。"""
+
+from image_edit_helpers import edit_qimage
+
 import os
 
 import pytest
@@ -61,7 +64,8 @@ def _draw_timeline(window):
         layer.sequence_number = None
     for frame, number, exposure in ((0, 1, 2), (3, 2, 1)):
         layer = layers[frame]
-        layer.image.to_qimage().fill(COLORS[number])
+        with edit_qimage(layer.image) as edited:
+            edited.fill(COLORS[number])
         layer.has_content = True
         layer._track.cells.setdefault(number, layer._cell)
         layer.sequence_number = number

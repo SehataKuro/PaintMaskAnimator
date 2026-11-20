@@ -1,4 +1,7 @@
 """Live install/projection tests independent of removed sparse Layer inputs."""
+
+from image_edit_helpers import edit_qimage
+
 from PySide6.QtGui import QImage, QColor
 
 from paintmaskanimator.document import Document, project_v1_state
@@ -125,10 +128,12 @@ def test_single_clone_detaches_hidden_position_payload_and_pending_snapshot():
     assert copied.__dict__["_dense_import"] == source.__dict__["_dense_import"]
     position = copied.__dict__["_v1_position"]
     position.legacy.tween["points"].append(2)
-    position.legacy.image.to_qimage().fill(QColor("black"))
+    with edit_qimage(position.legacy.image) as edited:
+        edited.fill(QColor("black"))
     assert source.__dict__["_v1_position"].legacy.tween == {"points": [1]}
     assert as_qimage(source.__dict__["_v1_position"].legacy.image) == image("red")
-    copied.image.to_qimage().fill(QColor("blue"))
+    with edit_qimage(copied.image) as edited:
+        edited.fill(QColor("blue"))
     assert as_qimage(source.image) == image("red")
 
 

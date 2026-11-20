@@ -5,7 +5,7 @@ from PySide6.QtGui import QImage, QImageReader
 
 from . import native
 from .imaging import without_color_space
-from .pma_image import as_qimage
+from .pma_image import PmaImage, as_qimage
 
 
 def encode_png(image):
@@ -13,6 +13,14 @@ def encode_png(image):
 
     PNG のバイト列を返し、失敗したら None。
     """
+    if isinstance(image, PmaImage) and image.width and image.height:
+        pixels, dots_per_meter = image._png_source()
+        if pixels is not None:
+            # モデルの画素は Qt で正規化したストレート RGBA なので、Qt 画像を経由せずに渡す。
+            try:
+                return native.encode_png(pixels, image.width, image.height, *dots_per_meter)
+            except ValueError:
+                pass
     image = without_color_space(as_qimage(image))
     if image.format() != QImage.Format.Format_ARGB32_Premultiplied or image.textKeys():
         return _encode_png_qt(image)

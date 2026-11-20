@@ -141,7 +141,7 @@ def test_full_layer_inverse_shares_pixels_but_survives_later_painting():
         patch.fill(QColor("red"))
     entry = LayerUndo(0, 0, QImage(canvas.active_layer.image.to_qimage()), True)
     inverse = canvas.current_state_for(entry)
-    assert inverse.image.to_qimage().cacheKey() == canvas.active_layer.image.to_qimage().cacheKey()
+    assert inverse.image.generation == canvas.active_layer.image.generation
     with edit_qimage(canvas.active_layer.image, QRect(0, 0, 2, 2)) as patch:
         patch.fill(QColor("blue"))
     assert inverse.image.to_qimage().pixelColor(0, 0) == QColor("red")

@@ -1,4 +1,7 @@
 """Copy ownership contracts; no widget or full-size image allocations."""
+
+from image_edit_helpers import edit_qimage
+
 from PySide6.QtCore import QRect
 from PySide6.QtGui import QColor, QImage, QPainter
 
@@ -32,7 +35,8 @@ def test_slot_shares_drawing_and_display():
     copied = source.clone_slot()
     assert copied.cell_id == source.cell_id
     assert copied.track_id == source.track_id
-    copied.image.to_qimage().fill(QColor("blue"))
+    with edit_qimage(copied.image) as edited:
+        edited.fill(QColor("blue"))
     assert source.image.to_qimage().pixelColor(0, 0) == QColor("blue")
     copied.opacity = 0.5
     assert source.opacity == 0.5
@@ -61,8 +65,10 @@ def test_independent_clone_fill_and_settings():
     assert copied.track_id != source.track_id
     assert copied.image is not source.image
     assert copied.initial_image is not source.initial_image
-    copied.image.to_qimage().fill(QColor("blue"))
-    copied.initial_image.to_qimage().fill(QColor("black"))
+    with edit_qimage(copied.image) as edited:
+        edited.fill(QColor("blue"))
+    with edit_qimage(copied.initial_image) as edited:
+        edited.fill(QColor("black"))
     copied.cell_name = "changed"
     copied.name = "B"
     copied.opacity = 0.2
@@ -77,9 +83,10 @@ def test_independent_clone_painter():
     source = layer()
     copied = source.clone()
     for target in (copied.image, copied.initial_image):
-        painter = QPainter(target.to_qimage())
-        painter.fillRect(QRect(0, 0, 4, 4), QColor("blue"))
-        painter.end()
+        with edit_qimage(target) as edited:
+            painter = QPainter(edited)
+            painter.fillRect(QRect(0, 0, 4, 4), QColor("blue"))
+            painter.end()
     assert source.image.to_qimage().pixelColor(0, 0) == QColor("red")
     assert source.initial_image.to_qimage().pixelColor(0, 0) == QColor("green")
 
@@ -106,9 +113,11 @@ def test_graph_is_independent_from_live_edits():
     doc.install_legacy_frames(doc.frames, archive)
     copied = doc.clone_graph()
     copied_hints = copied.tracks[0].legacy_archive_hints
-    doc.active_layer.image.to_qimage().fill(QColor("black"))
+    with edit_qimage(doc.active_layer.image) as edited:
+        edited.fill(QColor("black"))
     doc.active_layer.image = image("blue")
-    doc.active_layer.initial_image.to_qimage().fill(QColor("black"))
+    with edit_qimage(doc.active_layer.initial_image) as edited:
+        edited.fill(QColor("black"))
     doc.active_layer.initial_image = image("blue")
     doc.active_layer.cell_name = "changed"
     doc.active_layer.opacity = 0.2

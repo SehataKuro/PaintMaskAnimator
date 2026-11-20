@@ -1,4 +1,7 @@
 """追加したショートカット：Space 短押しで再生、選択範囲の消去、表示・ブラシサイズほか。"""
+
+from image_edit_helpers import edit_qimage
+
 import os
 
 import pytest
@@ -117,10 +120,10 @@ def test_shift_space_tap_does_not_play(window, clock):
 def test_delete_clears_inside_the_selection_and_undoes(window):
     canvas = window.canvas
     canvas.ensure_editable_key()
-    image = canvas.active_layer.image.to_qimage()
-    painter = QPainter(image)
-    painter.fillRect(image.rect(), QColor("#40c070"))
-    painter.end()
+    with edit_qimage(canvas.active_layer.image) as image:
+        painter = QPainter(image)
+        painter.fillRect(image.rect(), QColor("#40c070"))
+        painter.end()
     canvas.active_layer.has_content = True
     m = OUTSIDE_MARGIN
     canvas.selection_polygon = [

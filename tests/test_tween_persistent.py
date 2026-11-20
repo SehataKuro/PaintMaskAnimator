@@ -1,6 +1,9 @@
 """あとから直せるトゥイーン：確定・編集し直し・キャンセル・解除・保存。"""
 from __future__ import annotations
 
+from image_edit_helpers import edit_qimage
+
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -43,10 +46,11 @@ def window(qapp, monkeypatch):
     key.has_content = True
     key.sequence_number = 1
     hold(canvas, 0, LENGTH)
-    painter = QPainter(key.image.to_qimage())
-    painter.setPen(QPen(QColor("black"), 8))
-    painter.drawEllipse(300, 200, 200, 200)
-    painter.end()
+    with edit_qimage(key.image) as edited:
+        painter = QPainter(edited)
+        painter.setPen(QPen(QColor("black"), 8))
+        painter.drawEllipse(300, 200, 200, 200)
+        painter.end()
     # 後ろにもう 1 枚（番号 2）。中割りの番号はこの後ろに足される。
     other = canvas.frames[8].layers[0]
     other.has_content = True

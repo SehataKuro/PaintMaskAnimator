@@ -116,13 +116,15 @@ def test_shift_line_can_be_canceled(drawing):
 @pytest.mark.parametrize("target", bucket_fill.TARGET_COLORS)
 def test_lasso_target_uses_selected_reference(drawing, reference, target):
     panel, canvas = drawing
-    painter = QPainter(canvas.active_layer.image.to_qimage())
-    painter.fillRect(10, 10, 35, 60, QColor("black"))
-    painter.end()
+    with edit_qimage(canvas.active_layer.image) as edited:
+        painter = QPainter(edited)
+        painter.fillRect(10, 10, 35, 60, QColor("black"))
+        painter.end()
     canvas.active_layer.initial_image = canvas.active_layer.image.to_qimage().copy()
     canvas.add_layer()
     canvas.ensure_editable_key()
-    canvas.active_layer.image.to_qimage().fill(Qt.GlobalColor.transparent)
+    with edit_qimage(canvas.active_layer.image) as edited:
+        edited.fill(Qt.GlobalColor.transparent)
     canvas.active_layer.initial_image = canvas.frames[0].layers[canvas.active_layer_index-1].image.to_qimage().copy()
     panel.bucket_reference.setCurrentIndex(panel.bucket_reference.findData(reference))
     panel.bucket_target_color.setCurrentIndex(panel.bucket_target_color.findData(target))
@@ -159,9 +161,10 @@ def test_lasso_with_no_matching_target_does_not_add_undo(drawing):
 
 def test_lasso_boundary_option_works_with_explicit_black_target(drawing):
     panel, canvas = drawing
-    painter = QPainter(canvas.active_layer.image.to_qimage())
-    painter.fillRect(10, 10, 35, 60, QColor("black"))
-    painter.end()
+    with edit_qimage(canvas.active_layer.image) as edited:
+        painter = QPainter(edited)
+        painter.fillRect(10, 10, 35, 60, QColor("black"))
+        painter.end()
     panel.bucket_target_color.setCurrentIndex(panel.bucket_target_color.findData(bucket_fill.TARGET_BLACK))
     panel.lasso_inside_boundary.setChecked(True)
     canvas.fill_lasso_polygon([

@@ -131,14 +131,14 @@ def test_dragging_fills_areas_closed_by_the_frame_edge(window):
 
     canvas = window.canvas
     canvas.ensure_editable_key()
-    image = canvas.active_layer.image.to_qimage()
-    image.fill(QColor("white"))
-    painter = QPainter(image)
-    painter.setPen(QPen(QColor("black"), 3))
-    for left in (40, 140, 240):  # 上端に3つの「山」。上はフレームの端で閉じる
-        painter.drawLine(left, 0, left + 40, 60)
-        painter.drawLine(left + 40, 60, left + 80, 0)
-    painter.end()
+    with edit_qimage(canvas.active_layer.image) as image:
+        image.fill(QColor("white"))
+        painter = QPainter(image)
+        painter.setPen(QPen(QColor("black"), 3))
+        for left in (40, 140, 240):  # 上端に3つの「山」。上はフレームの端で閉じる
+            painter.drawLine(left, 0, left + 40, 60)
+            painter.drawLine(left + 40, 60, left + 80, 0)
+        painter.end()
     canvas.active_layer.has_content = True
     canvas.set_tool("bucket")
     canvas.color_mode = "main"

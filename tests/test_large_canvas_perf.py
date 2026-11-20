@@ -1,4 +1,7 @@
 """大きなキャンバス向けの最適化が、結果を変えずに効いていることの確認。"""
+
+from image_edit_helpers import edit_qimage
+
 import numpy as np
 import pytest
 
@@ -63,16 +66,18 @@ def test_layer_clone_shares_pixels_until_written(qapp):
     image.fill(QColor(10, 20, 30))
     layer = Layer("A", image)
     clone = layer.clone()
-    assert clone.image.to_qimage().cacheKey() == layer.image.to_qimage().cacheKey()
+    assert clone.image.generation == layer.image.generation
 
-    painter = QPainter(clone.image.to_qimage())
-    painter.fillRect(0, 0, 4, 4, QColor(200, 0, 0))
-    painter.end()
+    with edit_qimage(clone.image) as edited:
+        painter = QPainter(edited)
+        painter.fillRect(0, 0, 4, 4, QColor(200, 0, 0))
+        painter.end()
     assert layer.image.to_qimage().pixelColor(1, 1) == QColor(10, 20, 30)
 
     other = layer.clone()
-    pixels = np.frombuffer(imaging.qimage_buffer(other.image.to_qimage()), dtype=np.uint8)
-    pixels[:] = 0
+    with edit_qimage(other.image) as edited:
+        pixels = np.frombuffer(imaging.qimage_buffer(edited), dtype=np.uint8)
+        pixels[:] = 0
     assert layer.image.to_qimage().pixelColor(1, 1) == QColor(10, 20, 30)
     assert other.image.to_qimage().pixelColor(1, 1).alpha() == 0
 

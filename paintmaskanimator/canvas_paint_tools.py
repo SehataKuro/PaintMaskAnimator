@@ -878,8 +878,8 @@ class PaintToolsMixin(CanvasMembers):
         if not self.push_layer_region_undo(undo_rect):
             return
         overlay = QImage(
-            as_qimage(self.active_layer.image).width(),
-            as_qimage(self.active_layer.image).height(),
+            self.active_layer.image.width,
+            self.active_layer.image.height,
             QImage.Format.Format_ARGB32_Premultiplied,
         )
         overlay.fill(Qt.GlobalColor.transparent)
@@ -1045,8 +1045,8 @@ class PaintToolsMixin(CanvasMembers):
             fill_color = QColor(outline_color)
 
         overlay = QImage(
-            as_qimage(self.active_layer.image).width(),
-            as_qimage(self.active_layer.image).height(),
+            self.active_layer.image.width,
+            self.active_layer.image.height,
             QImage.Format.Format_ARGB32_Premultiplied,
         )
         overlay.fill(Qt.GlobalColor.transparent)
@@ -1129,7 +1129,7 @@ class PaintToolsMixin(CanvasMembers):
         margin = int(math.ceil(outline_width / 2.0)) + 2
         rect = polygon.boundingRect().adjusted(
             -margin, -margin, margin, margin
-        ).toAlignedRect().intersected(as_qimage(self.active_layer.image).rect())
+        ).toAlignedRect().intersected(QRect(0, 0, self.active_layer.image.width, self.active_layer.image.height))
         if rect.isEmpty():
             return
         local_polygon = QPolygonF([

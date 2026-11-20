@@ -561,7 +561,8 @@ def test_removal_paths_keep_v1_payload_and_reload_behavior(window, tmp_path, mon
         (0, 12): slot(12, "green", has_content=True),
         (0, 13): slot(13, "cyan", has_content=True),
     }
-    raw_archive[0, 1].image.to_qimage().setPixelColor(5, 5, QColor("blue"))
+    with edit_qimage(raw_archive[0, 1].image) as edited:
+        edited.setPixelColor(5, 5, QColor("blue"))
     # open adds one trailing empty frame; clear_slot preserves local initial images.
     raw_frames = [Frame([slot(initial_image=image("blue") if i in (0, 2, 4) else None)])
                   for i in range(8)]

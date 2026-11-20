@@ -2,6 +2,9 @@
 
 バケツでは1ドットの隙間からこぼれてしまう囲いを、隙間を閉じて塗る。
 """
+
+from image_edit_helpers import edit_qimage
+
 import os
 
 import pytest
@@ -37,12 +40,14 @@ def draw_leaky_box(window, left=10, top=10, size=20, gap_at=None):
     layer = window.canvas.frames[0].layers[0]
     black = QColor(0, 0, 0)
     for offset in range(size):
-        layer.image.to_qimage().setPixelColor(left + offset, top, black)
-        layer.image.to_qimage().setPixelColor(left + offset, top + size, black)
-        layer.image.to_qimage().setPixelColor(left, top + offset, black)
-        layer.image.to_qimage().setPixelColor(left + size, top + offset, black)
+        with edit_qimage(layer.image) as edited:
+            edited.setPixelColor(left + offset, top, black)
+            edited.setPixelColor(left + offset, top + size, black)
+            edited.setPixelColor(left, top + offset, black)
+            edited.setPixelColor(left + size, top + offset, black)
     if gap_at is not None:
-        layer.image.to_qimage().setPixelColor(left + gap_at, top, QColor(0, 0, 0, 0))
+        with edit_qimage(layer.image) as edited:
+            edited.setPixelColor(left + gap_at, top, QColor(0, 0, 0, 0))
     layer.has_content = True
     return layer
 

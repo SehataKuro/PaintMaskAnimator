@@ -1,4 +1,7 @@
 """タイムラインのセル右クリックメニューと、その操作（Issue #48）。"""
+
+from image_edit_helpers import edit_qimage
+
 import os
 
 import pytest
@@ -36,7 +39,8 @@ def visual_row(window, layer_index=0):
 
 def paint(window, column, layer_index=0, color="#ff0000"):
     layer = window.canvas.frames[column].layers[layer_index]
-    layer.image.to_qimage().setPixelColor(10, 10, QColor(color))
+    with edit_qimage(layer.image) as edited:
+        edited.setPixelColor(10, 10, QColor(color))
     layer.has_content = True
     return layer
 
