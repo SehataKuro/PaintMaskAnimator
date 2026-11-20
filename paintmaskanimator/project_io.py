@@ -32,7 +32,7 @@ from .constants import (
 from .imaging import white_to_transparent_qimage
 from .models import Frame, default_layer_name
 from .legacy_v1 import raw_v1_slot as Layer
-from .pma_image import ImageInput, as_qimage, copy_image
+from .pma_image import ImageInput, PmaImage, copy_image, image_key
 from .pma_image_io import _decode_png, thumbnail_png
 from .pma_image_io import _decode_png_qt as _decode_png_qt
 from .pma_image_io import _encode_png_qt as _encode_png_qt
@@ -137,9 +137,8 @@ def legacy_fixture_write_snapshot(path, snapshot, png_cache=None):
 class PngCache:
     """変更のないセルの PNG を保存のたびに再エンコードしないためのキャッシュ。
 
-    キーは ``cacheKey()``。Qt の画像は画素を書き換えると（QPainter や
-    ``bits()`` 経由でも）キーが変わるので、キーが同じなら前回のPNGをそのまま
-    使える。保存のたびに今回使ったセルだけを残し、消えたセルの分は捨てる。
+    モデルの画素世代でキーを引く。Qt 画像が渡された場合は別の名前空間で
+    Qt のキーを使う。保存のたびに今回使ったセルだけを残す。
     """
 
     def __init__(self):
@@ -156,10 +155,10 @@ class PngCache:
         self._entries.clear()
 
     def remember(self, image, data):
-        self._entries[int(as_qimage(image).cacheKey())] = bytes(data)
+        self._entries[image_key(image)] = bytes(data)
 
     def encode_many(self, images, used_keys=None):
-        """``images`` の PNG を ``{cacheKey: bytes | None}`` で返す。
+        """``images`` の PNG を ``{image_key: bytes | None}`` で返す。
 
         キャッシュに無いものだけを、複数のスレッドで同時にエンコードする。
         Rust の PNG エンコードも Qt の PNG 保存も実行中 GIL を手放すので、コア数に近い倍率で速くなる
@@ -167,9 +166,8 @@ class PngCache:
         """
         result = {}
         missing = {}
-        for payload in images:
-            image = as_qimage(payload)
-            key = int(image.cacheKey())
+        for image in images:
+            key = image_key(image)
             if used_keys is not None:
                 used_keys.add(key)
             data = self._entries.get(key)
@@ -186,6 +184,18 @@ class PngCache:
     def retain_only(self, keys):
         for key in [key for key in self._entries if key not in keys]:
             del self._entries[key]
+
+
+def _install_decoded_image(image, installed, seeded, blob=None):
+    """Give each cell its own handle to the generation shared by the decoder."""
+    key = image_key(image)
+    if key not in installed:
+        installed[key] = PmaImage.from_qimage(image)
+    model_image = installed[key]
+    # A white migration with no changed pixels may share this decoded image.
+    if blob is not None:
+        seeded[model_image.generation] = (model_image, blob)
+    return model_image.copy()
 
 
 def parallel_map(function, items):
@@ -370,7 +380,7 @@ def read_project_archive(path, png_cache=None, *, _allow_v2=False):
     """
     # 途中で読み込みに失敗したときに今のキャッシュを壊さないよう、
     # 成功してから差し替える。
-    seeded = []
+    seeded = {}
     project_path = Path(path)
     with _open_project_zip(project_path) as archive:
         archive_entries = archive.infolist()
@@ -473,13 +483,13 @@ def read_project_archive(path, png_cache=None, *, _allow_v2=False):
         decoded = {}
         # 旧形式の白→透明の変換も、共有している画像ごとに1回だけ行う。
         migrated = {}
+        installed = {}
 
         def migrate_white(image):
-            image = as_qimage(image)
-            key = image.cacheKey()
+            key = image_key(image)
             if key not in migrated:
                 migrated[key] = white_to_transparent_qimage(image)
-            return copy_image(migrated[key])
+            return migrated[key]
 
         prefetched = _prefetch_pngs(
             archive,
@@ -523,9 +533,8 @@ def read_project_archive(path, png_cache=None, *, _allow_v2=False):
                 raise OperationError(
                     tr("初期状態の画像を復元できません: {path}").format(path=line_path)
                 )
-            if png_cache is not None:
-                seeded.append((line_image, line_bytes))
-            return line_image
+            return _install_decoded_image(line_image, installed, seeded,
+                                          line_bytes if png_cache is not None else None)
 
         for frame_data in frame_entries:
             loaded_layers = []
@@ -555,8 +564,6 @@ def read_project_archive(path, png_cache=None, *, _allow_v2=False):
                     )
                 if image_path in prefetched:
                     image_bytes, image = prefetched[image_path]
-                    # セルごとに別の画像オブジェクトにする（画素は書き込むまで共有される）。
-                    image = copy_image(image)
                 else:
                     image_bytes = archive.read(image_path)
                     image = _decode_png(image_bytes)
@@ -577,8 +584,9 @@ def read_project_archive(path, png_cache=None, *, _allow_v2=False):
                     and not is_draft
                 ):
                     image = migrate_white(image)
-                elif png_cache is not None:
-                    seeded.append((image, image_bytes))
+                    image_bytes = None
+                image = _install_decoded_image(image, installed, seeded,
+                                               image_bytes if png_cache is not None else None)
 
                 filter_rgb = layer_data.get("color_filter_rgb")
                 exposure = int(layer_data.get("exposure", 1))
@@ -713,7 +721,6 @@ def read_project_archive(path, png_cache=None, *, _allow_v2=False):
                 )
             if image_path in prefetched:
                 image_bytes, image = prefetched[image_path]
-                image = copy_image(image)
             else:
                 image_bytes = archive.read(image_path)
                 image = _decode_png(image_bytes)
@@ -728,8 +735,9 @@ def read_project_archive(path, png_cache=None, *, _allow_v2=False):
             is_draft = bool(archive_data.get("is_draft", False))
             if needs_white_migration and not is_draft:
                 image = migrate_white(image)
-            elif png_cache is not None:
-                seeded.append((image, image_bytes))
+                image_bytes = None
+            image = _install_decoded_image(image, installed, seeded,
+                                           image_bytes if png_cache is not None else None)
             opacity = float(archive_data.get("opacity", 1.0))
             if not math.isfinite(opacity):
                 raise OperationError(tr("連番保管セルの不透明度が不正です。"))
@@ -763,7 +771,7 @@ def read_project_archive(path, png_cache=None, *, _allow_v2=False):
         metadata["_loaded_sequence_archive"] = loaded_sequence_archive
     if png_cache is not None:
         png_cache.clear()
-        for image, image_bytes in seeded:
+        for image, image_bytes in seeded.values():
             png_cache.remember(image, image_bytes)
     return metadata, loaded_frames, width, height
 
@@ -783,7 +791,7 @@ def legacy_fixture_build_v1_payload(frames, sequence_archive=None):
     pending_pngs = []
 
     def write_png(image_name, image, message):
-        pending_pngs.append((image_name, as_qimage(image), message))
+        pending_pngs.append((image_name, copy_image(image), message))
 
     for frame_index, frame in enumerate(frames):
         frame_data = {
@@ -935,7 +943,7 @@ def legacy_fixture_write_archive(
                 (image for _name, image, _message in pending_pngs), used_keys
             )
             for image_name, image, message in pending_pngs:
-                data = encoded.get(int(image.cacheKey()))
+                data = encoded.get(image_key(image))
                 if data is None:
                     raise OperationError(message.format(name=image_name))
                 archive.writestr(

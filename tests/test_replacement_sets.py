@@ -9,6 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtGui import QColor  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+from image_edit_helpers import edit_qimage  # noqa: E402
 from paintmaskanimator import replacement_sets  # noqa: E402
 from paintmaskanimator.main_window import MainWindow  # noqa: E402
 
@@ -62,8 +63,9 @@ def test_a_file_that_is_not_a_replacement_set_is_rejected(tmp_path):
 
 def test_loading_registers_the_colours_the_image_uses(window, tmp_path):
     layer = window.canvas.frames[0].layers[0]
-    for x in range(10, 14):
-        layer.image.to_qimage().setPixelColor(x, 10, QColor(255, 0, 0))
+    with edit_qimage(layer.image) as image:
+        for x in range(10, 14):
+            image.setPixelColor(x, 10, QColor(255, 0, 0))
     layer.has_content = True
     window.used_color.refresh()
 
@@ -80,8 +82,9 @@ def test_loading_registers_the_colours_the_image_uses(window, tmp_path):
 
 def test_saving_what_the_panel_holds(window, tmp_path, monkeypatch):
     layer = window.canvas.frames[0].layers[0]
-    for x in range(10, 14):
-        layer.image.to_qimage().setPixelColor(x, 10, QColor(0, 128, 0))
+    with edit_qimage(layer.image) as image:
+        for x in range(10, 14):
+            image.setPixelColor(x, 10, QColor(0, 128, 0))
     layer.has_content = True
     window.used_color.refresh()
     window.palette.register_replacements({(0, 128, 0): (9, 9, 9)})

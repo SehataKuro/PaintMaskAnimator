@@ -113,7 +113,9 @@ def frames_from_rows(rows, durations=None):
 
 def assert_payload_equal(a, b):
     assert a[:2] == b[:2]
-    assert [(name, img, error) for name, img, error in a[2]] == b[2]
+    assert [(name, as_qimage(img), error) for name, img, error in a[2]] == [
+        (name, as_qimage(img), error) for name, img, error in b[2]
+    ]
 
 
 def test_writer_reader_and_hidden_payload_roundtrip(tmp_path):

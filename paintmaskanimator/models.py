@@ -5,7 +5,7 @@ from weakref import WeakSet
 
 from .pma_image import PmaImage, copy_image, to_pma_image
 from .timeline_metadata import set_dense_import, timeline_metadata
-from .utils import blank_image
+from .utils import blank_model_image
 
 
 @dataclass(frozen=True)
@@ -53,7 +53,7 @@ class Cell:
         object.__setattr__(self, name, value)
 
     def __init__(self, image=None, initial_image=None, cell_name=None):
-        self.image = image if image is not None else blank_image()
+        self.image = image if image is not None else blank_model_image()
         self.initial_image = initial_image
         self.cell_name = cell_name
 
@@ -251,7 +251,7 @@ class Layer:
         copied = self.clone_slot()
         copied.__dict__.pop("_dense_import", None)
         copied.__dict__["_v1_position"] = V1Position(replace(
-            snapshot_layer(self), image=to_pma_image(blank_image()), initial_image=None,
+            snapshot_layer(self), image=blank_model_image(), initial_image=None,
             cell_name=None, has_content=False, is_blank_key=False,
             sequence_number=None, sequence_only=False, exposure=1,
             tween=None, tween_member=None))
@@ -451,4 +451,4 @@ def next_layer_name(existing):
 
 def make_frame(layer_names=None):
     names = layer_names or [default_layer_name(0)]
-    return Frame([Layer(name, blank_image()) for name in names])
+    return Frame([Layer(name, blank_model_image()) for name in names])

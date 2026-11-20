@@ -12,14 +12,14 @@ from typing import TYPE_CHECKING
 from types import SimpleNamespace
 from pathlib import Path
 from PySide6.QtCore import QTimer
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QImage
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 from .i18n import tr
 from .constants import APP_DISPLAY_NAME
 from . import config, constants, project_io
 from .errors import OperationError, OPERATION_ERRORS as _OPERATION_ERRORS
 from .logging_setup import get_logger
-from .pma_image import as_qimage
+from .pma_image import PmaImage, image_key
 
 if TYPE_CHECKING:
     from .main_window import MainWindow
@@ -422,13 +422,21 @@ class ProjectIOController:
 
     def _content_signature(self):
         """Track document content without encoding or scanning image pixels."""
+        scalar_types = {bool, int, float, str, tuple, type(None)}
+        image_types = (PmaImage, QImage)
+        mutable_types = (dict, list, set)
+
         def layer_signature(layer):
-            return tuple(
-                value.cacheKey() if hasattr(value, "cacheKey") else (
-                    copy.deepcopy(value) if isinstance(value, (dict, list, set)) else value)
-                for field in fields(layer)
-                for value in (as_qimage(getattr(layer, field.name)),)
-            )
+            values = []
+            for field in fields(layer):
+                value = getattr(layer, field.name)
+                if type(value) not in scalar_types:
+                    if isinstance(value, image_types):
+                        value = image_key(value)
+                    elif isinstance(value, mutable_types):
+                        value = copy.deepcopy(value)
+                values.append(value)
+            return tuple(values)
         canvas = self.window.canvas
         frames = tuple((frame.duration, tuple(layer_signature(layer) for layer in frame.layers))
                        for frame in canvas.frames)
@@ -444,8 +452,8 @@ class ProjectIOController:
         ):
             metadata.pop(key, None)
         cells = tuple(
-            (li, number, as_qimage(cell.image).cacheKey(),
-             as_qimage(cell.initial_image).cacheKey() if cell.initial_image is not None else None,
+            (li, number, image_key(cell.image),
+             image_key(cell.initial_image) if cell.initial_image is not None else None,
              cell.cell_name)
             for li, layer in enumerate(canvas.frames[0].layers)
             for number, cell in sorted(layer._track.cells.items())
@@ -471,8 +479,8 @@ class ProjectIOController:
                 if not ((slot.has_content or slot.sequence_only)
                         and slot.sequence_number is not None):
                     cell = slot._cell
-                    local.append((as_qimage(cell.image).cacheKey(),
-                                  as_qimage(cell.initial_image).cacheKey()
+                    local.append((image_key(cell.image),
+                                  image_key(cell.initial_image)
                                   if cell.initial_image is not None else None,
                                   cell.cell_name))
         return frames, archive, cells, copy.deepcopy(metadata), tuple(compatibility), tuple(local)

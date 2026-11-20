@@ -8,7 +8,7 @@ from bisect import bisect_right
 
 from .i18n import tr
 from .document import project_v1_state
-from .pma_image import PmaImage, as_qimage, copy_image, is_transparent_image
+from .pma_image import PmaImage, as_qimage, image_key, is_transparent_image
 from .timeline_metadata import reference_for, set_dense_import
 
 
@@ -110,13 +110,14 @@ def build_payload(snapshot, *, include_default_local_images=False):
                    canvas={"width": snapshot.width, "height": snapshot.height},
                    frame_durations=[frame.duration for frame in frames], tracks=[])
     pngs = []
+    transparent = {}
 
     def artwork(cell, path):
         entry = {"image": path, "initial": None, "cell_name": cell.cell_name}
-        pngs.append((path, as_qimage(cell.image), "画像を書き出せませんでした: {name}"))
+        pngs.append((path, cell.image.copy(), "画像を書き出せませんでした: {name}"))
         if cell.initial_image is not None:
             entry["initial"] = f"initial/{path}"
-            pngs.append((entry["initial"], as_qimage(cell.initial_image),
+            pngs.append((entry["initial"], cell.initial_image.copy(),
                          "初期状態の画像を書き出せませんでした: {name}"))
         return entry
 
@@ -181,12 +182,14 @@ def build_payload(snapshot, *, include_default_local_images=False):
             if not ((slot.has_content or slot.sequence_only) and slot.sequence_number is not None):
                 cell = slot._cell
                 local = {"column": column, "retained_number": slot.sequence_number}
-                image = as_qimage(cell.image)
-                keep_image = (include_default_local_images or image.isNull()
-                              or not image.hasAlphaChannel()
+                image = cell.image
+                keep_image = (include_default_local_images or not image.width or not image.height
                               or cell.initial_image is not None or cell.cell_name is not None)
                 if not keep_image:
-                    keep_image = not is_transparent_image(image)
+                    generation = image.generation
+                    if generation not in transparent:
+                        transparent[generation] = is_transparent_image(as_qimage(image))
+                    keep_image = not transparent[generation]
                 if keep_image:
                     local.update(artwork(cell,
                         f"compatibility/layer_{li:04d}/position_{column:06d}.png"))
@@ -206,9 +209,9 @@ def build_payload(snapshot, *, include_default_local_images=False):
             if source is not None and candidates and source not in candidates:
                 # Compare live source artwork with the bank artwork used on load.
                 # This pixel comparison belongs only to payload preparation.
-                original = as_qimage(frames[source].layers[li].image)
-                bank = as_qimage(track.cells[value].image)
-                if original is not bank and original != bank:
+                original = frames[source].layers[li].image
+                bank = track.cells[value].image
+                if original.generation != bank.generation and as_qimage(original) != as_qimage(bank):
                     continue
                 index = bisect_right(candidates, source)
                 resolved[column] = (value, candidates[max(0, index - 1)])
@@ -253,7 +256,7 @@ def _decode_payload(payload, archive, png_cache=None):
         payload, [i.filename for i in archive.infolist()],
         (io.MAX_PROJECT_FRAMES, io.MAX_PROJECT_LAYERS, io.MAX_PROJECT_LAYER_CELLS))
     width, height = plan["width"], plan["height"]
-    decoded, seeded = {}, []
+    decoded, installed, seeded = {}, {}, {}
 
     def blank():
         return PmaImage.blank(width, height)
@@ -277,10 +280,9 @@ def _decode_payload(payload, archive, png_cache=None):
         if payload.get("mask_format", 1) < io.CURRENT_MASK_FORMAT and not (
                 paper or draft):
             result = io.white_to_transparent_qimage(result)
-        if payload.get("mask_format", 1) >= io.CURRENT_MASK_FORMAT or paper or draft:
-            seeded.append((result, blob))
-        assert result is not None  # decoded above; only a None input stays None
-        return copy_image(result)
+            blob = None
+        return io._install_decoded_image(result, installed, seeded,
+                                         blob if png_cache is not None else None)
 
     images = [image(path, paper, draft) for path, paper, draft in requests]
     require(error is None)
@@ -354,7 +356,7 @@ def _decode_payload(payload, archive, png_cache=None):
         metadata.pop(key, None)
     if png_cache is not None:
         png_cache.clear()
-        for result, blob in seeded:
+        for result, blob in seeded.values():
             png_cache.remember(result, blob)
     return io.LoadedProject(metadata, document, width, height, 2)
 
@@ -439,7 +441,7 @@ def _decode_payload_python(payload, archive, png_cache=None):
         normalized = PurePosixPath(name)
         require(not normalized.is_absolute() and ".." not in normalized.parts
                 and "\\" not in name and ":" not in name)
-    decoded, seeded = {}, []
+    decoded, installed, seeded = {}, {}, {}
 
     def blank():
         return PmaImage.blank(width, height)
@@ -468,10 +470,9 @@ def _decode_payload_python(payload, archive, png_cache=None):
         if payload.get("mask_format", 1) < io.CURRENT_MASK_FORMAT and not (
                 track.is_paper or track.is_draft):
             result = io.white_to_transparent_qimage(result)
-        if payload.get("mask_format", 1) >= io.CURRENT_MASK_FORMAT or track.is_paper or track.is_draft:
-            seeded.append((result, blob))
-        assert result is not None  # decoded above; only a None input stays None
-        return copy_image(result)
+            blob = None
+        return io._install_decoded_image(result, installed, seeded,
+                                         blob if png_cache is not None else None)
 
     def artwork(entry, track, optional=False):
         name = entry.get("cell_name")
@@ -634,7 +635,7 @@ def _decode_payload_python(payload, archive, png_cache=None):
         metadata.pop(key, None)
     if png_cache is not None:
         png_cache.clear()
-        for result, blob in seeded:
+        for result, blob in seeded.values():
             png_cache.remember(result, blob)
     return io.LoadedProject(metadata, document, width, height, 2)
 
@@ -656,7 +657,8 @@ def write_snapshot(path, snapshot, png_cache=None):
                    for t in payload["tracks"]) > io.MAX_PROJECT_LAYER_CELLS):
         raise OperationError(tr("プロジェクト内のセル数が多すぎます。"))
     for _, image, _ in pngs:
-        if (image.isNull() or image.width() != snapshot.width or image.height() != snapshot.height):
+        if (not image.width or not image.height
+                or image.width != snapshot.width or image.height != snapshot.height):
             raise OperationError(tr("プロジェクト内の画像サイズがキャンバスと一致しません。"))
     cache = png_cache if png_cache is not None else io.PngCache()
     used = set()
@@ -673,7 +675,7 @@ def write_snapshot(path, snapshot, png_cache=None):
             if thumbnail is not None:
                 archive.writestr(io.THUMBNAIL_NAME, thumbnail, compress_type=zipfile.ZIP_STORED)
             for name, image, message in pngs:
-                blob = encoded.get(int(image.cacheKey()))
+                blob = encoded.get(image_key(image))
                 if blob is None:
                     raise OperationError(tr(message).format(name=name))
                 archive.writestr(name, blob, compress_type=zipfile.ZIP_STORED)

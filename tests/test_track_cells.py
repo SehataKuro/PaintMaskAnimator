@@ -2,6 +2,7 @@
 import pytest
 from PySide6.QtGui import QImage
 
+from image_edit_helpers import edit_qimage
 from paintmaskanimator.document import ArchiveHint, Document, clear_slot, clone_frame_graph, project_v1_state
 from paintmaskanimator.models import Cell, Frame, Layer
 from paintmaskanimator.pma_image import as_qimage
@@ -195,8 +196,12 @@ def test_unplaced_images_attributes_and_membership_change_signature():
     previous = owner._content_signature()
     cell = doc.tracks[0].cells[9] = Cell(image(), image(), "nine")
     assert owner._content_signature() != previous
-    for edit in (lambda: cell.image.to_qimage().fill(0xffabcdef),
-                 lambda: cell.initial_image.to_qimage().fill(0xff000000),
+    def fill(model_image, color):
+        with edit_qimage(model_image) as patch:
+            patch.fill(color)
+
+    for edit in (lambda: fill(cell.image, 0xffabcdef),
+                 lambda: fill(cell.initial_image, 0xff000000),
                  lambda: setattr(cell, "cell_name", "changed"),
                  lambda: doc.tracks[0].cells.pop(9)):
         previous = owner._content_signature()

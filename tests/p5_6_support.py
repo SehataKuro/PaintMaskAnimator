@@ -7,6 +7,7 @@ from zipfile import ZipFile
 
 from PySide6.QtGui import QColor, QImage
 
+from image_edit_helpers import edit_qimage
 from paintmaskanimator import project_io
 from paintmaskanimator.legacy_v1 import raw_v1_slot
 from paintmaskanimator.models import Frame
@@ -204,7 +205,8 @@ def capture(w, path, temp):
     c.current_frame = len(c.frames) - 1
     c.ensure_editable_key()
     c.push_layer_undo()
-    c.active_layer.image.to_qimage().setPixelColor(0, 0, QColor("magenta"))
+    with edit_qimage(c.active_layer.image) as patch:
+        patch.setPixelColor(0, 0, QColor("magenta"))
     c.cellChanged.emit(c.current_frame, c.active_layer_index)
     result["paint"] = observe(w)
     c.undo()

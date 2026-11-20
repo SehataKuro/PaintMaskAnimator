@@ -11,6 +11,7 @@ from paintmaskanimator import constants, project_io  # noqa: E402
 from paintmaskanimator.errors import OperationError  # noqa: E402
 from paintmaskanimator.document import Document  # noqa: E402
 from paintmaskanimator.models import make_frame  # noqa: E402
+from image_edit_helpers import edit_qimage
 from paintmaskanimator.pma_image import as_qimage
 
 
@@ -261,10 +262,8 @@ def test_png_cache_reencodes_only_changed_cells(qapp, tmp_path, monkeypatch):
     for frame in frames:
         for layer in frame.layers:
             layer.cell_name = "cache-local"
-    # Shared transparent artwork is encoded once per cacheKey.
-    cell_count = len({
-        layer.image.to_qimage().cacheKey() for frame in frames for layer in frame.layers
-    })
+    # The shared blank template requires one encode, as it did with Qt keys.
+    cell_count = 1
     cache = project_io.PngCache()
     calls = _count_png_encodes(monkeypatch)
     path = tmp_path / "cached.pman"
@@ -277,9 +276,10 @@ def test_png_cache_reencodes_only_changed_cells(qapp, tmp_path, monkeypatch):
     assert calls["count"] == cell_count
 
     # 描き換えたセルだけがエンコードし直され、その内容が保存される。
-    painter = QPainter(frames[1].layers[0].image.to_qimage())
-    painter.fillRect(0, 0, 3, 3, QColor("#ff0000"))
-    painter.end()
+    with edit_qimage(frames[1].layers[0].image) as patch:
+        painter = QPainter(patch)
+        painter.fillRect(0, 0, 3, 3, QColor("#ff0000"))
+        painter.end()
     _write_v2(path, _metadata(), frames, None, cache)
     assert calls["count"] == cell_count + 1
     _meta, loaded, _w, _h = _read_v2(path)
@@ -332,9 +332,10 @@ def test_parallel_save_and_open_keep_every_cell_distinct(qapp, tmp_path):
             if layer.is_paper:
                 continue
             color = QColor(10 + frame_index * 20, 30 + layer_index * 40, 200)
-            painter = QPainter(layer.image.to_qimage())
-            painter.fillRect(frame_index * 3, layer_index * 3, 3, 3, color)
-            painter.end()
+            with edit_qimage(layer.image) as patch:
+                painter = QPainter(patch)
+                painter.fillRect(frame_index * 3, layer_index * 3, 3, 3, color)
+                painter.end()
             layer.has_content = True
             expected[(frame_index, layer_index)] = color
     metadata = _metadata()
@@ -387,9 +388,10 @@ def test_distinct_cells_still_hit_pixel_limit(qapp, tmp_path, monkeypatch):
     frames = [make_frame() for _ in range(4)]
     for index, frame in enumerate(frames):
         layer = next(layer for layer in frame.layers if not layer.is_paper)
-        painter = QPainter(layer.image.to_qimage())
-        painter.fillRect(index, 0, 1, 1, QColor("#ff0000"))
-        painter.end()
+        with edit_qimage(layer.image) as patch:
+            painter = QPainter(patch)
+            painter.fillRect(index, 0, 1, 1, QColor("#ff0000"))
+            painter.end()
         layer.has_content = True
     path = tmp_path / "distinct.pman"
     _write_v2(path, _metadata(), frames)
@@ -978,3 +980,43 @@ def test_rust_zip_writer_utf8_and_timestamp(tmp_path):
         assert info.flag_bits == 0x800
         assert info.date_time == (2026, 11, 17, 12, 34, 56)
         assert info.external_attr == 0o600 << 16
+
+
+@pytest.mark.parametrize("version", [1, 2])
+def test_save_shares_generations_when_qimage_conversion_returns_copies(
+    qapp, tmp_path, monkeypatch, version,
+):
+    from zipfile import ZipFile
+
+    from PySide6.QtGui import QColor
+
+    from paintmaskanimator.models import Frame, Layer
+    from paintmaskanimator.pma_image import PmaImage
+
+    monkeypatch.setattr(constants, "CANVAS_WIDTH", 8)
+    monkeypatch.setattr(constants, "CANVAS_HEIGHT", 8)
+    original = PmaImage.blank(8, 8)
+    frames = [Frame([Layer(name, original.copy(), cell_name=name)]) for name in ("a", "b")]
+    frames[0].layers[0].initial_image = original.copy()
+    path = tmp_path / "shared.pman"
+    calls = _count_png_encodes(monkeypatch)
+
+    def save():
+        if version == 1:
+            project_io.legacy_fixture_write_archive(path, _metadata(), frames)
+        else:
+            _write_v2(path, _metadata(), frames)
+        with ZipFile(path) as archive:
+            return [(name, archive.read(name)) for name in archive.namelist()]
+
+    expected = save()
+    assert calls["count"] == 1
+    to_qimage = PmaImage.to_qimage
+    monkeypatch.setattr(PmaImage, "to_qimage", lambda image: to_qimage(image).copy())
+    assert save() == expected
+    assert calls["count"] == 2
+
+    with edit_qimage(frames[1].layers[0].image) as patch:
+        patch.setPixelColor(0, 0, QColor("red"))
+    assert save() != expected
+    assert calls["count"] == 4

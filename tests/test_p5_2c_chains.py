@@ -153,7 +153,8 @@ def test_unplaced_undo_columns_pending_modes_docundo_save_reload(
         raw_frames, raw_archive, raw_pngs = legacy_expected_payload(canvas, kind)
         assert expected[:2] == (raw_frames, raw_archive)
         assert set(expected[2]) == {name for name, _, _ in raw_pngs}
-        for name, pixels, _ in raw_pngs:
+        for name, payload_image, _ in raw_pngs:
+            pixels = as_qimage(payload_image)
             assert QImage.fromData(expected[2][name]).convertToFormat(pixels.format()) == pixels
     else:
         tracks = expected[0]

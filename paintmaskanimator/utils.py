@@ -14,6 +14,7 @@ from .logging_setup import get_logger
 log = get_logger(__name__)
 
 if TYPE_CHECKING:
+    from .pma_image import PmaImage
     from PySide6.QtWidgets import QWidget as _DragBase
 else:
     _DragBase = object
@@ -187,6 +188,7 @@ def on_double_click(widget, callback):
 class _BlankTemplate:
     size: "tuple[int, int] | None" = None
     image: "QImage | None" = None
+    model_image: "PmaImage | None" = None
 
 
 def blank_image(fill: Any = Qt.GlobalColor.transparent):
@@ -201,10 +203,22 @@ def blank_image(fill: Any = Qt.GlobalColor.transparent):
             template.fill(fill)
             _BlankTemplate.size = (w, h)
             _BlankTemplate.image = template
+            _BlankTemplate.model_image = None
         return QImage(template)
     im = QImage(w, h, QImage.Format.Format_ARGB32_Premultiplied)
     im.fill(fill)
     return im
+
+
+def blank_model_image():
+    """Give model cells independent handles to the shared blank pixels."""
+    from .pma_image import PmaImage
+
+    template = _BlankTemplate.model_image
+    if template is None or _BlankTemplate.size != workspace_size():
+        template = PmaImage.from_qimage(blank_image())
+        _BlankTemplate.model_image = template
+    return template.copy()
 
 
 def paper_image():

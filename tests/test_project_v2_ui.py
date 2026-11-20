@@ -7,6 +7,7 @@ import pytest
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QMessageBox
 
+from image_edit_helpers import edit_qimage
 from paintmaskanimator import project_io
 from p5_6_support import ROOT
 from test_project_boundaries import window as _window
@@ -51,7 +52,8 @@ def test_signature_includes_live_local_artwork_and_compatibility(window):
     assert window.project.open(ROOT / "v1" / "hidden-retained.pman")
     slot = next(s for f in window.canvas.frames for s in f.layers if not s.has_content)
     signature = window.project._content_signature()
-    slot._cell.image.to_qimage().fill(QColor("magenta"))
+    with edit_qimage(slot._cell.image) as patch:
+        patch.fill(QColor("magenta"))
     assert window.project._content_signature() != signature
     window.project.mark_saved()
     assert window.project.open(ROOT / "v1" / "pending-collision-2-2.pman")
@@ -102,7 +104,8 @@ def test_signature_does_not_scan_or_encode_pixels(window, monkeypatch):
     monkeypatch.setattr(project_io, "encode_png", fail)
     window.project.mark_saved()
     assert not window.project.has_unsaved_changes()
-    window.canvas.frames[0].layers[0].image.to_qimage().fill(QColor("magenta"))
+    with edit_qimage(window.canvas.frames[0].layers[0].image) as patch:
+        patch.fill(QColor("magenta"))
     assert window.project.has_unsaved_changes()
 
 

@@ -149,6 +149,13 @@ class PmaImage:
 ImageInput = QImage | PmaImage | None
 
 
+def image_key(image: QImage | PmaImage) -> tuple[str, int]:
+    """Identify shared pixels without converting a model image to Qt."""
+    if isinstance(image, PmaImage):
+        return ("pma", image.generation)
+    return ("qt", image.cacheKey())
+
+
 def to_pma_image(image: QImage | PmaImage | None) -> PmaImage | None:
     """モデルへ渡された画像を格納形式に揃える。"""
     if image is None or isinstance(image, PmaImage):

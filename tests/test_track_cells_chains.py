@@ -5,6 +5,7 @@ from PySide6.QtGui import QColor, QImage, QPainter
 from paintmaskanimator.models import Frame, Layer
 from paintmaskanimator.legacy_v1 import raw_v1_slot, LegacyLayerV1
 from dense_fixtures import length
+from image_edit_helpers import edit_qimage
 from paintmaskanimator.project_io import legacy_fixture_write_archive
 from test_track_cells import image, small_window  # noqa: F401
 from paintmaskanimator.pma_image import as_qimage
@@ -88,9 +89,10 @@ def test_load_duplicate_split_paint_move_paste_delete_undo_save_reload(
     canvas.current_frame = 2
     canvas.ensure_editable_key()  # Existing keys need no conversion.
     canvas.push_layer_undo()
-    painter = QPainter(canvas.active_layer.image.to_qimage())
-    painter.fillRect(0, 0, 2, 2, QColor(0xffabcdef))
-    painter.end()
+    with edit_qimage(canvas.active_layer.image) as patch:
+        painter = QPainter(patch)
+        painter.fillRect(0, 0, 2, 2, QColor(0xffabcdef))
+        painter.end()
     check(True)
     canvas.undo()
     check()

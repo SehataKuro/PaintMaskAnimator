@@ -10,6 +10,7 @@ from PySide6.QtGui import QCursor  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+from image_edit_helpers import edit_qimage
 from paintmaskanimator import main_window_tool_hold, preferences  # noqa: E402
 from paintmaskanimator.main_window import MainWindow  # noqa: E402
 
@@ -186,7 +187,8 @@ def test_edited_drop_can_cancel_without_opening(window, monkeypatch):
     prompts = []
     monkeypatch.setattr(QMessageBox, "exec", lambda dialog: prompts.append(dialog.text()))
     monkeypatch.setattr(window.project, "open", lambda path: pytest.fail("Cancelled drop must not open"))
-    window.canvas.active_layer.image.to_qimage().setPixelColor(5, 5, QColor("red"))
+    with edit_qimage(window.canvas.active_layer.image) as patch:
+        patch.setPixelColor(5, 5, QColor("red"))
     assert window.project.has_unsaved_changes()
     assert not window.project.open_dropped("next.pman")
     assert len(prompts) == 1
@@ -196,7 +198,8 @@ def test_save_and_open_reset_drop_guard(window, tmp_path):
     from PySide6.QtGui import QColor
     project = window.project
     path = tmp_path / "saved.pman"
-    window.canvas.active_layer.image.to_qimage().setPixelColor(5, 5, QColor("red"))
+    with edit_qimage(window.canvas.active_layer.image) as patch:
+        patch.setPixelColor(5, 5, QColor("red"))
     assert project.has_unsaved_changes()
     assert project.write(path)
     assert not project.has_unsaved_changes()

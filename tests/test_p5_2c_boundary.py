@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QApplication
 from paintmaskanimator import constants, project_io
 from paintmaskanimator.document import Document, project_v1_state
 from paintmaskanimator.main_window import MainWindow
+from paintmaskanimator.pma_image import as_qimage
 from paintmaskanimator.models import Cell, Frame
 from paintmaskanimator.legacy_v1 import raw_v1_slot as Layer
 
@@ -45,7 +46,7 @@ def projection_observation():
     frame_data, archive_data, pngs = project_io.legacy_fixture_build_v1_payload(frames, archive)
     return {"frames": frame_data, "archive": archive_data,
             "pngs": [[name, img.width(), img.height(), img.pixelColor(0, 0).name()]
-                     for name, img, _ in pngs]}
+                     for name, payload, _ in pngs for img in (as_qimage(payload),)]}
 
 
 @pytest.fixture(scope="module")
