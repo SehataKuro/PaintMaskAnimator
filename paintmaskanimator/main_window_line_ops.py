@@ -581,8 +581,8 @@ class LineOpsController:
                 continue
             if source.cell_id in separated:
                 line, paint = separated[source.cell_id]
-                frame.layers[line_index] = line.clone_reference()
-                frame.layers[paint_index] = paint.clone_reference()
+                document.stage_drawing_reference(frame_index, line_index, line)
+                document.stage_drawing_reference(frame_index, paint_index, paint)
                 continue
 
             pixels = image_rgba(source.image)
@@ -662,15 +662,13 @@ class LineOpsController:
                 QImage.Format.Format_RGBA8888,
             ).copy().convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
 
-            frame.layers[line_index].image = line_image
-            frame.layers[line_index].has_content = bool(np.any(line_mask))
-
-            frame.layers[paint_index].image = paint_image
-            frame.layers[paint_index].has_content = bool(np.any(paint_pixels[:, :, 3] > 0))
             number = len(separated) + 1
-            for target_index in (line_index, paint_index):
-                if frame.layers[target_index].has_content:
-                    frame.layers[target_index].sequence_number = number
+            document.stage_numbered_drawing(
+                frame_index, line_index, line_image, bool(np.any(line_mask)), number,
+            )
+            document.stage_numbered_drawing(
+                frame_index, paint_index, paint_image, bool(np.any(paint_pixels[:, :, 3] > 0)), number,
+            )
             separated[source.cell_id] = (frame.layers[line_index], frame.layers[paint_index])
 
         self.window.canvas._document.sync_columns()

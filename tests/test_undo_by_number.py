@@ -148,3 +148,30 @@ def test_label(window, qapp):
         assert history_label_for(e) == "Draw"
     finally:
         i18n.install(qapp, i18n.DEFAULT_LANGUAGE)
+
+
+def test_undo_after_number_reuse_restores_the_current_bank_owner(window):
+    c = window.canvas
+    original = put(c, 0, 3, "red")
+    c.push_layer_undo()
+    track = original._track
+    clear_slot(original)
+    track.cells.pop(3)
+    reused = put(c, 2, 3, "green")
+    assert reused._track is track
+    c.current_frame = 1
+    events = []
+    c.cellChanged.disconnect()
+    c.cellChanged.connect(lambda *pos: events.append(pos))
+
+    c.undo()
+    assert c.current_frame == 2
+    assert events == [(2, 0)]
+    assert reused.image.to_qimage().pixelColor(5, 5) == QColor("red")
+    assert [history_label_for(e) for e in c.redo_stack] == ["描画（A の 3番）"]
+
+    c.redo()
+    assert c.current_frame == 2
+    assert events == [(2, 0), (2, 0)]
+    assert reused.image.to_qimage().pixelColor(5, 5) == QColor("green")
+    assert not c.redo_stack

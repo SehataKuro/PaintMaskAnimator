@@ -14,6 +14,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage
 from PySide6.QtWidgets import QApplication, QCheckBox, QFileDialog, QMessageBox
 
+from .canvas_changes import publish_initial_images
 from .pma_image import as_qimage, copy_image
 from . import clip_animation, cut_folder, preferences
 from .errors import OPERATION_ERRORS, OperationError
@@ -173,13 +174,11 @@ class InitialStateController:
             [(li, number, snapshot(canvas._document.tracks[li].cells[number].initial_image))
              for li, number, _ in archived],
         ))
-        for fi, li, image in cells:
-            canvas.frames[fi].layers[li].initial_image = QImage(image)
-        for li, number, image in archived:
-            canvas._document.tracks[li].cells[number].initial_image = QImage(image)
-        canvas._playback_frame_cache.clear()
-        canvas.changed.emit()
-        canvas.update()
+        changes = canvas._document.set_initial_images(
+            ((fi, li, QImage(image)) for fi, li, image in cells),
+            ((li, number, QImage(image)) for li, number, image in archived),
+        )
+        publish_initial_images(canvas, changes)
         count = len(cells) + len(archived)
         status.showMessage(tr(
             "{count}セルの線画を初期状態として読み込みました。対応する線画がない{missing}セルは変更していません。"
@@ -227,10 +226,7 @@ class InitialStateController:
             )
             if answer != QMessageBox.StandardButton.Yes:
                 return 0
-        for frame, layer in cells:
-            cell = canvas.frames[frame].layers[layer]
-            # 画素は書き込むまで共有される（コピーの費用はかからない）。
-            cell.initial_image = copy_image(cell.image)
+        canvas._document.keep_initial_images(cells)
         status.showMessage(
             tr("{count}セルを色塗り前の初期状態として保持しました。保存するとプロジェクトに"
                "入ります。").format(count=len(cells)),
@@ -254,8 +250,7 @@ class InitialStateController:
         )
         if answer != QMessageBox.StandardButton.Yes:
             return 0
-        for frame, layer in cells:
-            canvas.frames[frame].layers[layer].initial_image = None
+        canvas._document.set_initial_images((frame, layer, None) for frame, layer in cells)
         self.set_compare(False)
         status.showMessage(tr("{count}セルの初期状態を消しました。").format(count=kept), 4000)
         return kept

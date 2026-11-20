@@ -29,7 +29,7 @@ class Selection:
 class FrameStructure:
     """Frame counts before and after an edit, with its first affected index."""
 
-    operation: Literal["extend", "duplicate", "trim"]
+    operation: Literal["extend", "duplicate", "trim", "restore"]
     before: int
     after: int
     start: int
@@ -58,10 +58,34 @@ class ExposureIndexReset:
 
 
 @dataclass(frozen=True)
+class DrawingPixels:
+    """Changed artwork in image coordinates. Empty rectangles mean replacement."""
+
+    layer_index: int
+    number: int | None
+    frame: int | None
+    rects: tuple[tuple[int, int, int, int], ...]
+
+
+@dataclass(frozen=True)
+class DrawingAttributes:
+    layer_index: int
+    number: int | None
+    frame: int | None
+    fields: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class DocumentRestored:
+    width: int
+    height: int
+
+
+@dataclass(frozen=True)
 class ChangeSet:
     changes: tuple[Union[
         TrackStructure, TrackProperties, Selection, FrameStructure,
-        SheetSpans, Cursor, ExposureIndexReset,
+        SheetSpans, Cursor, ExposureIndexReset, DrawingAttributes, DrawingPixels, DocumentRestored,
     ], ...] = ()
 
     def __bool__(self):

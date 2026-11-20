@@ -249,3 +249,40 @@ def test_clip_dialog_menu_and_cancel(window, monkeypatch):
     monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *args: ("", ""))
     assert window.initial_state.import_clip_line_art_dialog() == 0
     assert len(window.canvas.undo_stack) == before
+
+
+def test_initial_state_notification_order_and_history(window, tmp_path, monkeypatch):
+    from paintmaskanimator.undo_entries import history_label_for
+
+    canvas = window.canvas
+    write(tmp_path, "A/A2.png")
+    write(tmp_path, "A/A3.png")
+    events = []
+    for signal, name in ((canvas.changed, "changed"), (canvas.selectionChanged, "selection"),
+                         (canvas.cellChanged, "cell"), (canvas.selectionCleared, "cleared")):
+        signal.disconnect()
+        signal.connect(lambda *_, name=name: events.append(name))
+    monkeypatch.setattr(canvas, "update", lambda: events.append("update"))
+
+    assert window.initial_state.keep(confirm=False) == 2
+    assert events == []
+    monkeypatch.setattr(QMessageBox, "question", lambda *_: QMessageBox.StandardButton.Yes)
+    assert window.initial_state.clear() == 2
+    assert events == ["update"]
+    assert not canvas.undo_stack
+
+    events.clear()
+    assert window.initial_state.import_line_art(tmp_path) == 3
+    assert events == ["changed", "update"]
+    label = history_label_for(canvas.undo_stack[-1])
+    assert label == "初期状態の読み込み"
+    events.clear()
+    canvas.undo()
+    assert events == ["changed", "update"]
+    assert not canvas.undo_stack
+    assert [history_label_for(entry) for entry in canvas.redo_stack] == [label]
+    events.clear()
+    canvas.redo()
+    assert events == ["changed", "update"]
+    assert not canvas.redo_stack
+    assert [history_label_for(entry) for entry in canvas.undo_stack] == [label]

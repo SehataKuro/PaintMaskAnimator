@@ -15,11 +15,14 @@ from . import constants
 from .cell_numbering import normalization_mapping
 
 from .document_changes import (
-    ChangeSet, Cursor, ExposureIndexReset, FrameStructure, Selection, SheetSpans,
-    TrackProperties, TrackStructure,
+    ChangeSet, Cursor, DocumentRestored, DrawingAttributes, DrawingPixels,
+    ExposureIndexReset, FrameStructure, Selection, SheetSpans, TrackProperties, TrackStructure,
 )
 from .timeline_span import span_at
-from .models import ArchiveHint, Cell, Frame, Layer, TRACK_FIELDS, Track, make_frame, next_layer_name
+from .models import (
+    ArchiveHint, Cell, Frame, Layer, TRACK_FIELDS, Track, default_layer_name,
+    make_frame, next_layer_name,
+)
 from .timeline_metadata import set_dense_import
 from .pma_image import PmaImage, copy_image, snapshot_image, to_pma_image
 from .utils import blank_image
@@ -180,6 +183,288 @@ class Document:
     @property
     def active_layer(self):
         return self.layers[self.active_layer_index]
+
+    def write_drawing_patch(self, frame, layer_index, patch, rect, *,
+                            number=None, rgba=False, has_content=None, stroke_image=None):
+        """Commit an image-coordinate patch at a position or directly to a bank.
+
+        Pass a frame for the position's current drawing, or pass a drawing
+        number with no frame to address the bank without placing the drawing.
+        """
+        if frame is None:
+            cell = self.tracks[layer_index].cells.get(number)
+            if cell is None:
+                return ChangeSet()
+            slot = None
+            image = cell.image
+        else:
+            slot = self.frames[frame].layers[layer_index]
+            number = slot.sequence_number
+            # The brush retains the image it prepared when the stroke began.
+            image = slot.image if stroke_image is None else stroke_image
+        x, y, _, _ = rect
+        if rgba:
+            image.write_rgba(patch, x, y)
+        else:
+            image.write_qimage(patch, x, y)
+        if slot is not None and has_content is not None:
+            slot.has_content = has_content
+        return ChangeSet((DrawingPixels(layer_index, number, frame, (rect,)),))
+
+    def replace_drawing_image(self, frame, layer_index, image, *, has_content):
+        slot = self.frames[frame].layers[layer_index]
+        slot.image = image
+        slot.has_content = has_content
+        return ChangeSet((DrawingPixels(layer_index, slot.sequence_number, frame, ()),))
+
+    def replace_drawing_images(self, groups):
+        """Install one computed image per group, retaining its shared identity."""
+        changes = []
+        for positions, image in groups:
+            image = to_pma_image(image)
+            for frame, layer_index in positions:
+                changes.extend(self.replace_drawing_image(
+                    frame, layer_index, image, has_content=True,
+                ).changes)
+        return ChangeSet(tuple(changes))
+
+    def set_drawing_content(self, frame, layer_index, has_content):
+        slot = self.frames[frame].layers[layer_index]
+        slot.has_content = has_content
+        return ChangeSet((DrawingAttributes(
+            layer_index, slot.sequence_number, frame, ("has_content",)),))
+
+    def stage_drawing_reference(self, frame, layer_index, source):
+        """Clone a reference into a staged column before legacy installation."""
+        self.frames[frame].layers[layer_index] = source.clone_reference()
+        return ChangeSet((SheetSpans(layer_index, frame, frame + 1),))
+
+    def stage_numbered_drawing(self, frame, layer_index, image, has_content, number):
+        """Populate a staged slot before installing its column's drawing bank."""
+        slot = self.frames[frame].layers[layer_index]
+        slot.image = image
+        slot.has_content = has_content
+        if has_content:
+            slot.sequence_number = number
+        return ChangeSet((DrawingPixels(layer_index, slot.sequence_number, frame, ()),))
+
+    def retain_resized_bank(self, old_first_frame):
+        """Carry archive hints and drawings omitted by the sheet resize."""
+        changes = []
+        for index, old_slot in enumerate(old_first_frame.layers):
+            track = self.tracks[index]
+            track.legacy_archive_hints = deepcopy(old_slot._track.legacy_archive_hints)
+            for number, cell in old_slot._track.cells.items():
+                existing = track.cells.get(number)
+                if existing is None:
+                    track.cells[number] = Cell(
+                        copy_image(cell.image), copy_image(cell.initial_image), cell.cell_name,
+                    )
+                    changes.append(DrawingPixels(index, number, None, ()))
+                elif (number in track.legacy_archive_hints and existing.initial_image is None
+                      and cell.initial_image is not None):
+                    existing.initial_image = copy_image(cell.initial_image)
+                    changes.append(DrawingAttributes(index, number, None, ("initial_image",)))
+        return ChangeSet(tuple(changes))
+
+    def set_initial_images(self, positions=(), archived=(), *, restoring=False):
+        """Apply initial images in position order, then in archive order.
+
+        Restoration uses the first surviving reference to each drawing.
+        Import retains its last-write policy.
+        """
+        changes = []
+        restored = set()
+        for frame, layer_index, image in positions:
+            if not (0 <= frame < len(self.frames)
+                    and 0 <= layer_index < len(self.frames[frame].layers)):
+                continue
+            slot = self.frames[frame].layers[layer_index]
+            if restoring and slot.cell_id in restored:
+                continue
+            slot.initial_image = image
+            if restoring:
+                restored.add(slot.cell_id)
+            changes.append(DrawingAttributes(
+                layer_index, slot.sequence_number, frame, ("initial_image",)))
+        for layer_index, number, image in archived:
+            if not 0 <= layer_index < len(self.tracks):
+                continue
+            track = self.tracks[layer_index]
+            cell = track.cells.get(number) if number in track.legacy_archive_hints else None
+            if cell is None or (restoring and id(cell) in restored):
+                continue
+            cell.initial_image = image
+            if restoring:
+                restored.add(id(cell))
+            changes.append(DrawingAttributes(layer_index, number, None, ("initial_image",)))
+        return ChangeSet(tuple(changes))
+
+    def keep_initial_images(self, positions):
+        return self.set_initial_images(
+            (frame, layer_index, copy_image(self.frames[frame].layers[layer_index].image))
+            for frame, layer_index in positions
+        )
+
+    def resolve_numbered_target(self, frame, layer_index, number, *, sheet):
+        """Resolve a borrowed Cell/Track target without creating missing drawings."""
+        def at(fi):
+            if 0 <= fi < len(self.frames) and 0 <= layer_index < len(self.frames[fi].layers):
+                return self.frames[fi].layers[layer_index]
+            return None
+
+        layer = at(frame)
+        if number is None:
+            return DrawingTarget(layer._cell, layer._track, frame, layer, number) if layer is not None else None
+        if (layer is not None and layer.has_content
+                and layer.sequence_number == number):
+            return DrawingTarget(layer._cell, layer._track, frame, layer, number)
+        for fi in range(len(self.frames)):
+            layer = at(fi)
+            if (layer is not None and layer.has_content
+                    and layer.sequence_number == number
+                    and (not sheet or not is_pending(layer))):
+                return DrawingTarget(layer._cell, layer._track, fi, layer, number)
+        if 0 <= layer_index < len(self.tracks):
+            track = self.tracks[layer_index]
+            cell = drawing(track, number)
+            if cell is not None:
+                return DrawingTarget(cell, track, None, None, number)
+        return None
+
+    def link_layer_tracks(self):
+        """Reconcile slot tracks after loading or restoring a graph."""
+        if not self.frames:
+            return ChangeSet()
+        if any(not layer._track.connected for frame in self.frames for layer in frame.layers):
+            self.sync_columns()
+            self.install_legacy_frames(self.frames)
+            return ChangeSet((ExposureIndexReset(),))
+        self.sync_columns()
+        for frame in self.frames:
+            for li, layer in enumerate(frame.layers):
+                track = self.tracks[li]
+                if layer._track is not track:
+                    number = layer.sequence_number
+                    if number is not None and (layer.has_content or layer.sequence_only):
+                        track.cells.setdefault(int(number), layer._cell)
+                    layer.attach_track(track)
+                    if layer.has_content or layer.sequence_only:
+                        layer.__dict__.pop("_cell", None)
+        return ChangeSet()
+
+    def restore_drawing(self, frame, layer_index, number, image, has_content, *,
+                        sheet, patches=None):
+        target = self.resolve_numbered_target(frame, layer_index, number, sheet=sheet)
+        if target is None:
+            return ChangeSet()
+        if patches is None:
+            target.image = image
+            rects = ()
+        else:
+            target.image.write_qimages((x, y, patch) for (x, y, _, _), patch in patches)
+            rects = tuple(rect for rect, _ in patches)
+        target.has_content = bool(has_content)
+        frame = target.column
+        pixels = DrawingPixels(layer_index, number, frame, rects)
+        if frame is None:
+            return ChangeSet((pixels,))
+        return ChangeSet((Cursor(frame, notify=False), Selection(layer_index), pixels))
+
+    def restore_batch_drawing(self, frame, layer_index, image, has_content, number, *, sheet):
+        """Yield changes as slots are restored, in sheet observation order."""
+        target = self.resolve_numbered_target(frame, layer_index, number, sheet=sheet)
+        if target is None:
+            return
+        target.image = image
+        if number is None:
+            target.has_content = has_content
+            yield ChangeSet((DrawingPixels(layer_index, number, frame, ()),))
+            return
+        if target.column is None:
+            target.has_content = has_content
+            yield ChangeSet((DrawingPixels(layer_index, number, None, ()),))
+        for sheet_frame, candidate in enumerate(self.frames):
+            if not 0 <= layer_index < len(candidate.layers):
+                continue
+            slot = candidate.layers[layer_index]
+            former_content = (
+                slot._track is target.track
+                and slot.sequence_number == number
+                and slot.__dict__.get("_content_origin") == number
+            )
+            if slot.cell_id == target.cell_id or former_content:
+                slot.has_content = has_content
+                yield ChangeSet((DrawingPixels(layer_index, number, sheet_frame, ()),))
+
+    def restore_exposure(self, e):
+        before = len(self.frames)
+        self.ensure_frame_count(e.frame_count)
+        for frame in self.frames[e.frame_count:]:
+            release_slots(frame.layers)
+        del self.frames[e.frame_count:]
+        for frame, values in zip(self.frames[e.column:], e.references):
+            slot = frame.layers[e.layer]
+            content, blank, start, number, pending, tween, member, imported, position = values
+            slot.has_content = False
+            slot.sequence_number = number
+            slot.has_content = content
+            slot.is_blank_key = blank
+            slot.blank_start = start
+            slot.set_pending(pending)
+            slot.tween = deepcopy(tween)
+            slot.tween_member = member
+            if imported is None:
+                slot.__dict__.pop("_dense_import", None)
+            else:
+                set_dense_import(slot, imported)
+            if position is None:
+                slot.__dict__.pop("_v1_position", None)
+            else:
+                slot.__dict__["_v1_position"] = position
+        return ChangeSet((
+            FrameStructure("restore", before, len(self.frames), e.column),
+            SheetSpans(e.layer, e.column, len(self.frames)),
+            Cursor(e.current_frame), Selection(e.active_layer),
+        ))
+
+    def restore_snapshot(self, snapshot):
+        width, height = self.restore(snapshot)
+        return ChangeSet((DocumentRestored(width, height), ExposureIndexReset()))
+
+    def restore_removed_track(self, e):
+        index = e.index
+        for frame in self.frames:
+            if 0 <= index < len(frame.layers) and len(frame.layers) > 1:
+                release_slots([frame.layers[index]])
+                frame.layers.pop(index)
+        self.sync_columns()
+        active = max(0, min(int(e.target_active), len(self.layers) - 1))
+        return ChangeSet((TrackStructure("remove", (index,), ()), Selection(active)))
+
+    def restore_inserted_track(self, e):
+        index = e.index
+        copied, _ = clone_frame_graph([Frame([layer]) for layer in e.layers])
+        stored_layers = [frame.layers[0] for frame in copied]
+        for frame_index, frame in enumerate(self.frames):
+            if frame_index < len(stored_layers):
+                layer = stored_layers[frame_index]
+            else:
+                layer = Layer(
+                    default_layer_name(index),
+                    blank_image(),
+                    visible=True,
+                    opacity=1.0,
+                )
+            if stored_layers:
+                layer.share_track_with(stored_layers[0])
+            frame.layers.insert(
+                max(0, min(int(index), len(frame.layers))),
+                layer,
+            )
+        self.sync_columns()
+        active = max(0, min(int(e.target_active), len(self.layers) - 1))
+        return ChangeSet((TrackStructure("insert", (), (index,)), Selection(active)))
 
     def _track_slots(self, track):
         for column, frame in enumerate(self.frames):

@@ -936,10 +936,10 @@ class ImportController:
             ]
             self.window.canvas._document.insert_track(layer_index, slots, staged=True)
             for offset, image in enumerate(key_images):
-                target = self.window.canvas.frames[start_frame + offset].layers[layer_index]
-                target.image = self.window.canvas._placed_imported_image(image)
-                target.has_content = True
-                target.sequence_number = offset + 1
+                self.window.canvas._document.stage_numbered_drawing(
+                    start_frame + offset, layer_index, self.window.canvas._placed_imported_image(image),
+                    True, offset + 1,
+                )
         self.window.canvas.current_frame = start_frame
         self.window.canvas.install_legacy_frames()
         self.window.canvas.active_layer_index = first_new_layer

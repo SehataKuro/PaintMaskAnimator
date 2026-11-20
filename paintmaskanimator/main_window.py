@@ -42,7 +42,7 @@ from PySide6.QtWidgets import (
     QProgressDialog,
 )
 from .i18n import tr
-from .pma_image import as_qimage, copy_image, to_pma_image
+from .pma_image import as_qimage, to_pma_image
 from .optional_deps import PILImage
 from .constants import APP_DISPLAY_NAME, OUTSIDE_MARGIN
 from . import color_ops, constants, imaging, layout_paper, preferences, pressure_settings, project_io, session_state, theme, updater
@@ -55,7 +55,7 @@ from .history_panel import HistoryPanel
 from .memo_window import MemoWindow
 from .subview import SubViewWidget
 from .color_reduction import ColorReductionDialog
-from .models import Cell, Frame, Layer, make_frame
+from .models import Frame, Layer, make_frame
 from .pressure import PressureDialog
 from .timeline import TimelineWidget
 from .toolpanel import ToolPanel, ToolSelectorPanel
@@ -1050,23 +1050,7 @@ class MainWindow(
         self.canvas.active_layer_index=0
         self.canvas.install_legacy_frames()
         if preserve and old_frames:
-            # Legacy resize only transforms sheet payloads. Preserve the rest
-            # of the bank just as it preserves the compatibility archive.
-            for li, old_layer in enumerate(old_frames[0].layers):
-                track = self.canvas.frames[0].layers[li]._track
-                from copy import deepcopy
-                track.legacy_archive_hints = deepcopy(old_layer._track.legacy_archive_hints)
-                for number, cell in old_layer._track.cells.items():
-                    if (number in track.cells and number in track.legacy_archive_hints
-                            and track.cells[number].initial_image is None
-                            and cell.initial_image is not None):
-                        track.cells[number].initial_image = copy_image(cell.initial_image)
-                    if number not in track.cells:
-                        track.cells[number] = Cell(
-                            copy_image(cell.image),
-                            copy_image(cell.initial_image),
-                            cell.cell_name,
-                        )
+            self.canvas._document.retain_resized_bank(old_frames[0])
         if not preserve:
             self.created_app_version = constants.APP_VERSION
             self.current_project_path = None

@@ -11,9 +11,8 @@ Undo のまとめ方もその場ごとに組み立てられていた。新しい
 表す :class:`FrameScope` の2つだけ。走査順・保持コマの重複除去・共有画像の扱い・
 進捗通知・キャンセル・Undo へのまとめ上げは :func:`apply_over_scope` が持つ。
 
-UI から独立している（QWidget を触らない）ので、GUI なしで単体テストできる。
-``doc`` に要求するのは ``frames`` 属性だけで、``resolve_key_frame`` と
-``push_undo`` は在れば使う。
+UI から独立しているので、GUI なしで単体テストできる。編集先は Document
+またはそれを持つキャンバス。resolve_key_frame と push_undo は在れば使う。
 """
 from __future__ import annotations
 
@@ -21,7 +20,8 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, List, Optional, Tuple
 
 from .logging_setup import get_logger
-from .pma_image import as_qimage, to_pma_image
+from .pma_image import as_qimage
+from .document_changes import ChangeSet
 from .undo_entries import ScopedBatchUndo
 
 log = get_logger(__name__)
@@ -155,6 +155,7 @@ class ScopeResult:
     cancelled: bool = False
     #: 走査したセル数（変更の有無を問わない）。
     visited_cells: int = 0
+    changes: ChangeSet = field(default_factory=ChangeSet, compare=False, repr=False)
 
     @property
     def changed(self) -> bool:
@@ -326,19 +327,16 @@ def apply_over_scope(
                 bool(layer.has_content), number if numbered else None,
             ))
 
-    for _lead_cell, shared_cells, produced, changed_pixels in pending:
-        image = to_pma_image(produced)
+    document = getattr(doc, "_document", doc)
+    result.changes = document.replace_drawing_images(
+        (shared_cells, produced) for _, shared_cells, produced, _ in pending
+    )
+    for _, shared_cells, _, changed_pixels in pending:
+        result.changed_cells += len(shared_cells)
+        result.changed_pixels += changed_pixels
         for frame_index, layer_index in shared_cells:
-            layer = doc.frames[frame_index].layers[layer_index]
-            # 同じ絵を指すセルは1つの Cell を共有しているので、書き込みは
-            # グループの先頭1回で全員に行き渡る。共有が切れていた場合に
-            # そなえ、ここでも結び直しておく。
-            layer.image = image
-            layer.has_content = True
-            result.changed_cells += 1
             result.changed_frames.append(int(frame_index))
             result.changed_cell_list.append((int(frame_index), int(layer_index)))
-        result.changed_pixels += changed_pixels
 
     if push_undo:
         entry = ScopedBatchUndo(undo_cells, label)

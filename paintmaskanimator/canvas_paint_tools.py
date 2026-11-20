@@ -14,6 +14,7 @@ from typing import Any
 from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, Qt
 from PySide6.QtGui import QColor, QImage, QPainter, QPainterPath, QPen, QPolygonF
 from PySide6.QtWidgets import QApplication
+from .canvas_changes import publish_content_edit, publish_drawing_pixels
 from .display_image_cache import display_images, model_image_key
 from .pma_image import as_qimage, copy_image
 from .i18n import tr
@@ -216,7 +217,7 @@ class PaintToolsMixin(CanvasMembers):
             color_set.update(colors)
 
         if work is None:
-            self.active_layer.has_content = True
+            self._document.set_drawing_content(self.current_frame, self.active_layer_index, True)
         self._update_stroke_region(a, b, draw_width)
 
     @staticmethod
@@ -474,15 +475,14 @@ class PaintToolsMixin(CanvasMembers):
         ))
         written_colors.update(self._fill_islands(patch, result.islands, result.bounds))
         written_colors = tuple(sorted(written_colors))
-        self._write_rgba_patch(patch, fill_rect)
+        changes = self._write_rgba_patch(patch, fill_rect)
         if drag is not None:
             drag["pixels"] = (image, pixels)
             drag["pixels_key"] = model_image_key(self.active_layer.image)
-        self.active_layer.has_content = True
+        self._document.set_drawing_content(self.current_frame, self.active_layer_index, True)
         if written_colors:
             self._emit_actual_paint_colors(written_colors)
-        self.cellChanged.emit(self.current_frame, self.active_layer_index)
-        self.update()
+        publish_drawing_pixels(self, changes)
         return result.mask, None
 
     # ------------------------------------------------------------------
@@ -643,7 +643,10 @@ class PaintToolsMixin(CanvasMembers):
 
     def _write_rgba_patch(self, patch, rect):
         """RGBA8888 の部分配列を、アクティブレイヤーの rect へそのまま書き戻す。"""
-        self.active_layer.image.write_rgba(patch, rect.x(), rect.y())
+        return self._document.write_drawing_patch(
+            self.current_frame, self.active_layer_index, patch, rect.getRect(),
+            rgba=True,
+        )
 
     def auto_select_region(self, point, modifiers=Qt.KeyboardModifier.NoModifier):
         """バケツと同じ連続領域判定で選択マスクを作成・加減算する。"""
@@ -929,11 +932,8 @@ class PaintToolsMixin(CanvasMembers):
         )
         self._emit_actual_paint_colors(colors)
 
-        self.active_layer.has_content = True
-        self.cellChanged.emit(
-            self.current_frame,
-            self.active_layer_index,
-        )
+        changes = self._document.set_drawing_content(self.current_frame, self.active_layer_index, True)
+        publish_content_edit(self, changes)
         if getattr(self, "_brush_shift_line", False):
             self._brush_line_anchor = (
                 (self.current_frame, self.active_layer_index), QPointF(self.line_end),
@@ -1094,11 +1094,8 @@ class PaintToolsMixin(CanvasMembers):
         )
         self._emit_actual_paint_colors(colors)
 
-        self.active_layer.has_content = True
-        self.cellChanged.emit(
-            self.current_frame,
-            self.active_layer_index,
-        )
+        changes = self._document.set_drawing_content(self.current_frame, self.active_layer_index, True)
+        publish_content_edit(self, changes)
         self.shape_start = None
         self.shape_end = None
         self.drawing = False
@@ -1278,10 +1275,7 @@ class PaintToolsMixin(CanvasMembers):
             opacity=getattr(self, "fill_opacity", 1.0),
         )
 
-        self.active_layer.has_content = True
+        changes = self._document.set_drawing_content(self.current_frame, self.active_layer_index, True)
         self._emit_actual_paint_colors(colors)
-        self.cellChanged.emit(
-            self.current_frame,
-            self.active_layer_index,
-        )
+        publish_content_edit(self, changes)
         self.update()

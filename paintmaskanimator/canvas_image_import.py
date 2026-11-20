@@ -280,10 +280,9 @@ class ImageImportMixin(CanvasMembers):
         for offset, (_, image) in enumerate(decoded):
             if progress_callback:
                 progress_callback(offset, len(decoded), tr("{value} / {len} 枚を配置しています").format(value=offset + 1, len=len(decoded)))
-            layer = self.frames[start_frame + offset].layers[insert_index]
-            layer.image = self._placed_imported_image(image)
-            layer.has_content = True
-            layer.sequence_number = offset + 1
+            self._document.stage_numbered_drawing(
+                start_frame + offset, insert_index, self._placed_imported_image(image), True, offset + 1,
+            )
         self.install_legacy_frames()
         self._sequence_source_bank = [
             as_qimage(self.frames[start_frame + offset].layers[insert_index].image).copy()

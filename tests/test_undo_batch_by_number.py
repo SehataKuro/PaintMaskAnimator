@@ -39,12 +39,23 @@ def test_scoped_one_image_and_metadata(window):
     for fi in (0, 2, 3):
         c.frames[fi].layers[0].has_content = fi == 0
     signals = []
-    c.cellChanged.connect(lambda *args: signals.append(args))
+    content_at_notification = []
+
+    def record(*args):
+        signals.append(args)
+        content_at_notification.append(
+            tuple(c.frames[fi].layers[0].has_content for fi in (0, 2, 3))
+        )
+
+    c.cellChanged.connect(record)
     c.current_frame, c.active_layer_index = 1, 1
     c.undo()
     colors(c, "red")
     assert all(c.frames[fi].layers[0].has_content for fi in (0, 2, 3))
     assert signals == [(0, 0), (2, 0), (3, 0)]
+    assert content_at_notification == [
+        (True, False, False), (True, True, False), (True, True, True),
+    ]
     assert c.current_frame == 1 and c.active_layer_index == 0
 
 

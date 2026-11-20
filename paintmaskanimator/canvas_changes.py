@@ -1,7 +1,8 @@
 """Translate document changes into the canvas's existing notifications."""
+from . import constants
 from .document_changes import (
-    ChangeSet, Cursor, ExposureIndexReset, FrameStructure, Selection, SheetSpans,
-    TrackProperties, TrackStructure,
+    ChangeSet, Cursor, DocumentRestored, DrawingAttributes, DrawingPixels, ExposureIndexReset,
+    FrameStructure, Selection, SheetSpans, TrackProperties, TrackStructure,
 )
 
 
@@ -84,6 +85,13 @@ def publish_duration_change(canvas, changes: ChangeSet):
     canvas.changed.emit()
 
 
+def publish_initial_images(canvas, changes: ChangeSet, *, restoring=False):
+    if restoring or any(isinstance(change, DrawingAttributes) for change in changes.changes):
+        canvas._playback_frame_cache.clear()
+        canvas.changed.emit()
+        canvas.update()
+
+
 def publish_editable_cursor(canvas, changes: ChangeSet):
     for change in changes.changes:
         if isinstance(change, Cursor):
@@ -132,3 +140,74 @@ def publish_tween_commit(window, changes: ChangeSet, close_popup):
     canvas.selectionChanged.emit()
     canvas._update_selection_clear_overlay()
     canvas.update()
+
+
+def publish_drawing_cells(canvas, changes: ChangeSet):
+    for change in changes.changes:
+        if isinstance(change, DrawingPixels) and change.frame is not None:
+            canvas.cellChanged.emit(change.frame, change.layer_index)
+
+
+def publish_drawing_pixels(canvas, changes: ChangeSet, *, empty_stroke=None):
+    publish_drawing_cells(canvas, changes)
+    if not changes and empty_stroke is not None:
+        canvas.cellChanged.emit(*empty_stroke)
+    canvas.update()
+
+
+def _apply_restored_selection(canvas, changes: ChangeSet):
+    for change in changes.changes:
+        if isinstance(change, Cursor):
+            canvas.current_frame = change.frame
+        elif isinstance(change, Selection):
+            canvas.active_layer_index = change.layer_index
+
+
+def publish_restored_drawing(canvas, changes: ChangeSet):
+    if changes:
+        _apply_restored_selection(canvas, changes)
+        publish_drawing_cells(canvas, changes)
+        canvas.selectionChanged.emit()
+        canvas.update()
+
+
+def finish_restored_batch(canvas, *, scoped, first_layer=None):
+    if scoped:
+        if first_layer is not None:
+            canvas.active_layer_index = max(0, min(int(first_layer), len(canvas.layers) - 1))
+        canvas._onion_cache.clear()
+    canvas.selectionChanged.emit()
+    canvas.update()
+
+
+def publish_restored_exposure(canvas, changes: ChangeSet):
+    if changes:
+        _apply_restored_selection(canvas, changes)
+        canvas._invalidate_display_caches()
+        canvas.changed.emit()
+        canvas.selectionChanged.emit()
+        canvas.update()
+
+
+def publish_restored_document(canvas, changes: ChangeSet):
+    for change in changes.changes:
+        if isinstance(change, DocumentRestored):
+            constants.CANVAS_WIDTH = change.width
+            constants.CANVAS_HEIGHT = change.height
+        elif isinstance(change, ExposureIndexReset):
+            canvas._invalidate_exposure_index()
+    canvas.link_layer_tracks()
+    canvas.changed.emit()
+    canvas.update()
+
+
+def publish_scope_changes(canvas, changes: ChangeSet):
+    publish_drawing_cells(canvas, changes)
+    canvas.changed.emit()
+    canvas.update()
+
+
+def publish_content_edit(canvas, changes: ChangeSet):
+    for change in changes.changes:
+        if isinstance(change, DrawingAttributes) and "has_content" in change.fields:
+            canvas.cellChanged.emit(change.frame, change.layer_index)

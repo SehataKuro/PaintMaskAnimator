@@ -8,6 +8,8 @@ runtime.
 import numpy as np
 from PySide6.QtCore import QPoint, QPointF, QRect, Qt
 from PySide6.QtGui import QColor, QImage, QPainter, QPen
+from .document_changes import ChangeSet
+from .canvas_changes import publish_drawing_pixels
 from ._canvas_members import CanvasMembers
 from .pma_image import as_qimage
 from . import imaging
@@ -135,12 +137,15 @@ class StrokeDisplayMixin(CanvasMembers):
         layer = self.frames[frame].layers[index]
         dirty = self._stroke_dirty_rect
         colors = tuple(self._brush_blended_colors)
+        changes = ChangeSet()
         entry = None
         if not dirty.isEmpty():
             local = dirty.translated(-self._stroke_work_rect.topLeft())
             patch = work if local == work.rect() else work.copy(local)
-            self._stroke_target.write_qimage(patch, dirty.x(), dirty.y())
-            layer.has_content = True
+            changes = self._document.write_drawing_patch(
+                frame, index, patch, dirty.getRect(), has_content=True,
+                stroke_image=self._stroke_target,
+            )
             entry = LayerTilesUndo(
                 frame, index, tuple(self._stroke_before_tiles.values()),
                 self._stroke_prev_has_content,
@@ -157,19 +162,19 @@ class StrokeDisplayMixin(CanvasMembers):
         self._emit_actual_paint_colors(colors)
         if entry is not None:
             self.push_undo(entry)
+        return changes
 
     def _commit_brush_stroke(self):
         """Finish an input stroke and notify the canvas observers."""
         if self._stroke_work_image is None:
             return
         frame, index = self._stroke_undo_frame, self._stroke_undo_layer
-        self._finish_opaque_brush_stroke()
+        changes = self._finish_opaque_brush_stroke()
         layer = self.frames[frame].layers[index]
         self._cell_structure_dirty = (
             not self._brush_started_with_content and bool(layer.has_content)
         )
-        self.cellChanged.emit(frame, index)
-        self.update()
+        publish_drawing_pixels(self, changes, empty_stroke=(frame, index))
 
     def warm_up_brush_runtime(self):
         """Prime Qt/numpy brush primitives without touching the document."""

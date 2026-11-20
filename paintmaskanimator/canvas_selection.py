@@ -12,6 +12,8 @@ from typing import Any
 from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, Qt
 from PySide6.QtGui import QColor, QImage, QPainter, QPolygonF, QRegion
 from PySide6.QtWidgets import QApplication
+from .canvas_changes import publish_drawing_cells, publish_drawing_pixels
+from .document_changes import ChangeSet
 from .i18n import tr
 from .pma_image import as_qimage, snapshot_image
 from .time_display import frame_position
@@ -360,7 +362,9 @@ class SelectionMixin(CanvasMembers):
             )
             painter.drawPolygon(QPolygonF(self.selection_polygon))
         painter.end()
-        image.write_qimage(patch, rect.x(), rect.y())
+        self._document.write_drawing_patch(
+            self.current_frame, self.active_layer_index, patch, rect.getRect(),
+        )
 
         if mode == "mesh":
             cols = max(2, int(getattr(self, "transform_mesh_cols", 4)))
@@ -631,7 +635,7 @@ class SelectionMixin(CanvasMembers):
             content_by_number.setdefault(number, set()).add(bool(hc))
         undo_cells = []
         recorded_numbers = set()
-        changed_frames = []
+        changes = []
         progress = None
         if all_frames and window is not None:
             progress = create_counter(
@@ -691,22 +695,18 @@ class SelectionMixin(CanvasMembers):
             if number is None or key not in recorded_numbers:
                 undo_cells.append((frame_index, original, original_has_content, number))
                 recorded_numbers.add(key)
-            layer.image = base
-            layer.has_content = True
-            changed_frames.append(frame_index)
+            changes.extend(self._document.replace_drawing_image(
+                frame_index, layer_index, base, has_content=True,
+            ).changes)
 
         if progress is not None:
             close_counter(progress)
 
-        for frame_index in changed_frames:
-            # 描画系ツールと同様にセル変更を通知する。これがないと
-            # ヒストリーパネル（cellChanged/changedで更新）が確定後も
-            # 再描画されず、変形の履歴が一覧に現れない。
-            self.cellChanged.emit(frame_index, layer_index)
+        publish_drawing_cells(self, ChangeSet(tuple(changes)))
 
         self._discard_transform_history()
         if undo_cells:
-            if len(changed_frames) == 1:
+            if len(changes) == 1:
                 frame_index, image, has_content, number = undo_cells[0]
                 self.push_undo(
                     LayerUndo(frame_index, layer_index, image, has_content,
@@ -722,9 +722,9 @@ class SelectionMixin(CanvasMembers):
             and 0 <= current_index < len(self.frames)
             and 0 <= layer_index < len(self.frames[current_index].layers)
         ):
-            layer = self.frames[current_index].layers[layer_index]
-            layer.image = original_current
-            layer.has_content = original_current_has_content
+            self._document.replace_drawing_image(
+                current_index, layer_index, original_current, has_content=original_current_has_content,
+            )
 
         self._reset_selection_transform()
         self.transform_apply_all_frames = False
@@ -751,9 +751,9 @@ class SelectionMixin(CanvasMembers):
                 and 0 <= layer_index < len(self.frames[frame_index].layers)
             ):
                 layer = self.frames[frame_index].layers[layer_index]
-                layer.image = self.transform_original_layer
-                layer.has_content = getattr(
-                    self, "transform_original_has_content", layer.has_content
+                self._document.replace_drawing_image(
+                    frame_index, layer_index, self.transform_original_layer,
+                    has_content=getattr(self, "transform_original_has_content", layer.has_content),
                 )
         self._reset_selection_transform()
         self.transform_apply_all_frames = False
@@ -797,9 +797,10 @@ class SelectionMixin(CanvasMembers):
             return False
         clear = QImage(rect.size(), QImage.Format.Format_ARGB32_Premultiplied)
         clear.fill(Qt.GlobalColor.transparent)
-        image.write_qimage(clear, rect.x(), rect.y())
-        self.cellChanged.emit(self.current_frame, self.active_layer_index)
-        self.update()
+        changes = self._document.write_drawing_patch(
+            self.current_frame, self.active_layer_index, clear, rect.getRect(),
+        )
+        publish_drawing_pixels(self, changes)
         return True
 
     def delete_selection_contents(self):
@@ -834,9 +835,10 @@ class SelectionMixin(CanvasMembers):
         painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_DestinationIn)
         painter.drawImage(0, 0, keep)
         painter.end()
-        image.write_qimage(clear, rect.x(), rect.y())
-        self.cellChanged.emit(self.current_frame, self.active_layer_index)
-        self.update()
+        changes = self._document.write_drawing_patch(
+            self.current_frame, self.active_layer_index, clear, rect.getRect(),
+        )
+        publish_drawing_pixels(self, changes)
         return True
 
     def paste_clipboard(self):
@@ -846,7 +848,6 @@ class SelectionMixin(CanvasMembers):
         self.ensure_editable_key()
         rect=self.selection_bounds()
         pos=rect.topLeft() if self.selection_polygon else QPoint(OUTSIDE_MARGIN,OUTSIDE_MARGIN)
-        destination = self.active_layer.image
         undo = self._capture_layer_region_undo(QRect(pos, image.size()))
         if undo is None:
             return
@@ -856,6 +857,8 @@ class SelectionMixin(CanvasMembers):
         painter = QPainter(patch)
         painter.drawImage(pos - changed_rect.topLeft(), image)
         painter.end()
-        destination.write_qimage(patch, changed_rect.x(), changed_rect.y())
-        self.active_layer.has_content=True
-        self.cellChanged.emit(self.current_frame,self.active_layer_index);self.update()
+        changes = self._document.write_drawing_patch(
+            self.current_frame, self.active_layer_index, patch, changed_rect.getRect(),
+            has_content=True,
+        )
+        publish_drawing_pixels(self, changes)

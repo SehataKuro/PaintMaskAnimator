@@ -6,7 +6,9 @@ moving timeline cells, exposure blocks, and the sequence-number bookkeeping that
 keeps numbered (imported) images consistent with the cells that reference them.
 They run against a live ``PaintCanvas``.
 """
-from .canvas_changes import publish_duration_change, publish_frame_changes, publish_track_changes
+from .canvas_changes import (
+    publish_drawing_pixels, publish_duration_change, publish_frame_changes, publish_track_changes,
+)
 from .pma_image import as_qimage
 from ._canvas_members import CanvasMembers
 from .cell_numbering import normalization_mapping
@@ -178,29 +180,12 @@ class TimelineStructureMixin(CanvasMembers):
         return bool(changes)
 
     def link_layer_tracks(self):
-        """同じレイヤーのセルを、1つの ``Track``（表示の設定）へ結ぶ。
-
-        先頭コマのセルが持つ設定を、そのレイヤーの設定とする。レイヤーの
-        追加・削除・並べ替えや、読み込み・Undo の復元のあとに呼ぶ
-        （Issue #31 Phase 2）。
-        """
-        if not self.frames:
-            return
         if any(not layer._track.connected for frame in self.frames for layer in frame.layers):
-            self._document.sync_columns()
-            self.install_legacy_frames()
-            return
-        self._document.sync_columns()
-        for frame in self.frames:
-            for li, layer in enumerate(frame.layers):
-                track = self._document.tracks[li]
-                if layer._track is not track:
-                    number = layer.sequence_number
-                    if number is not None and (layer.has_content or layer.sequence_only):
-                        track.cells.setdefault(int(number), layer._cell)
-                    layer.attach_track(track)
-                    if layer.has_content or layer.sequence_only:
-                        layer.__dict__.pop("_cell", None)
+            # 組み直しの前に描きかけのストロークを確定する（install_legacy_frames と同じ）。
+            self._commit_brush_stroke()
+        changes = self._document.link_layer_tracks()
+        if changes:
+            self._invalidate_exposure_index()
 
     def delete_sequence_entry(self, layer_index, number):
         if not self.frames or not 0 <= int(layer_index) < len(self.frames[0].layers):
@@ -223,12 +208,11 @@ class TimelineStructureMixin(CanvasMembers):
             return
         self.ensure_editable_key()
         self.push_layer_undo()
-        self.active_layer.image = as_qimage(self.active_layer.image).mirrored(
-            horizontal, not horizontal
+        image = as_qimage(self.active_layer.image).mirrored(horizontal, not horizontal)
+        changes = self._document.replace_drawing_image(
+            self.current_frame, self.active_layer_index, image, has_content=True,
         )
-        self.active_layer.has_content = True
-        self.cellChanged.emit(self.current_frame, self.active_layer_index)
-        self.update()
+        publish_drawing_pixels(self, changes)
 
     def move_timeline_cell(self, source_frame, source_layer, destination_frame, destination_layer):
         prepared = self._document.prepare_sheet_move(

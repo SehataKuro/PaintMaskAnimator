@@ -13,6 +13,7 @@ from PySide6.QtGui import QColor, QImage  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from paintmaskanimator.canvas import PaintCanvas  # noqa: E402
+from paintmaskanimator.document import Document
 from paintmaskanimator.frame_scope import (  # noqa: E402
     FrameScope,
     ScopeCancelled,
@@ -36,8 +37,8 @@ def make_image(color):
     return image
 
 
-class FakeDoc:
-    """``frames`` / ``push_undo`` だけを持つ最小のドキュメント。"""
+class FakeDoc(Document):
+    """未接続のテスト用フレームを持ち、Undo を記録するドキュメント。"""
 
     def __init__(self, frame_count=3, layer_count=1, color="white"):
         self.frames = [

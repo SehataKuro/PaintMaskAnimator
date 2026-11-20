@@ -48,7 +48,7 @@ from .constants import OUTSIDE_MARGIN
 from . import constants
 from . import (color_ops, colors, display_shrink, geometry, imaging, native,
                preferences, view_preview)
-from .document import drawing, is_pending, Document, DrawingTarget
+from .document import drawing, Document
 from .brush_raster import stamp_outline
 from .toolpanel import tool_label
 from .utils import blank_image, magnifier_cursor, tool_cursor, workspace_size
@@ -414,30 +414,9 @@ class PaintCanvas(
     @property
     def active_layer(self): return self._document.active_layer
     def _resolve_numbered_target(self, frame, layer_index, number):
-        """Resolve a borrowed Cell/Track target without creating missing drawings."""
-        def at(fi):
-            if 0 <= fi < len(self.frames) and 0 <= layer_index < len(self.frames[fi].layers):
-                return self.frames[fi].layers[layer_index]
-            return None
-
-        layer = at(frame)
-        if number is None:
-            return DrawingTarget(layer._cell, layer._track, frame, layer, number) if layer is not None else None
-        if (layer is not None and layer.has_content
-                and layer.sequence_number == number):
-            return DrawingTarget(layer._cell, layer._track, frame, layer, number)
-        for fi in range(len(self.frames)):
-            layer = at(fi)
-            if (layer is not None and layer.has_content
-                    and layer.sequence_number == number
-                    and (self.timeline_mode != "sheet" or not is_pending(layer))):
-                return DrawingTarget(layer._cell, layer._track, fi, layer, number)
-        if 0 <= layer_index < len(self._document.tracks):
-            track = self._document.tracks[layer_index]
-            cell = drawing(track, number)
-            if cell is not None:
-                return DrawingTarget(cell, track, None, None, number)
-        return None
+        return self._document.resolve_numbered_target(
+            frame, layer_index, number, sheet=self.timeline_mode == "sheet",
+        )
 
     def _resolve_drawing_undo_target(self, entry):
         return self._resolve_numbered_target(entry.frame, entry.layer, entry.number)
@@ -946,7 +925,10 @@ class PaintCanvas(
         painter.end()
 
         if not brush:
-            destination.write_qimage(destination_image, destination_x, destination_y)
+            self._document.write_drawing_patch(
+                self.current_frame, self.active_layer_index, destination_image,
+                (destination_x, destination_y, destination_image.width(), destination_image.height()),
+            )
 
         if written_rgb.size == 0:
             return ()

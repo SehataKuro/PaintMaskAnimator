@@ -10,9 +10,8 @@ Each entry also reports ``nbytes``, letting the stack be bounded by memory
 rather than by entry count alone (a 4K full-layer snapshot and a 32x32 tile
 patch are not remotely the same cost).
 
-The classes are deliberately dumb records: the logic that captures the inverse
-state and re-applies an entry lives on ``PaintCanvas`` (``current_state_for`` /
-``apply_undo_entry``), because it needs the live document.
+PaintCanvas captures the inverse state and dispatches each record. Document
+restores model state, and PaintCanvas restores palette and transform state.
 """
 from __future__ import annotations
 

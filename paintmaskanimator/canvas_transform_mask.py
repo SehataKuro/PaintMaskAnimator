@@ -21,6 +21,7 @@ from .pma_image import as_qimage
 from .optional_deps import PILImage, PILImageFilter
 from .constants import TP_MASK_MAX_TRANSFORM_COLORS, TP_MASK_PROXY_SUBSAMPLES
 from ._canvas_members import CanvasMembers
+from .canvas_changes import publish_drawing_pixels
 from . import geometry, imaging, mask_transform
 from .utils import workspace_size
 from .logging_setup import get_logger
@@ -114,7 +115,12 @@ class TransformMaskMixin(CanvasMembers):
             dist2=(xx-o.x())**2+(yy-o.y())**2; weight=np.exp(-dist2/(2*(radius/2.5)**2)); dx+=(n.x()-o.x())*weight;dy+=(n.y()-o.y())*weight;ws+=weight
         sx=np.clip(np.rint(xx-dx/np.maximum(ws,.001)),0,w-1).astype(np.int32); sy=np.clip(np.rint(yy-dy/np.maximum(ws,.001)),0,h-1).astype(np.int32)
         out=arr[sy,sx]; q=QImage(out.data,w,h,out.strides[0],QImage.Format.Format_RGBA8888).copy().convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
-        self.active_layer.image=q; self.active_layer.has_content=True; self.mesh_original=None; self.mesh_points=[]; self.cellChanged.emit(self.current_frame,self.active_layer_index); self.update()
+        changes = self._document.replace_drawing_image(
+            self.current_frame, self.active_layer_index, q, has_content=True,
+        )
+        self.mesh_original = None
+        self.mesh_points = []
+        publish_drawing_pixels(self, changes)
 
     def cancel_mesh(self):
         self.mesh_original=None; self.mesh_points=[]; self.mesh_active=-1; self.update()
