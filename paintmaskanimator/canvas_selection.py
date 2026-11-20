@@ -218,7 +218,7 @@ class SelectionMixin(CanvasMembers):
         self._clear_selection_state()
 
     def _masked_selection_source(self, rect):
-        source = as_qimage(self.active_layer.image).copy(rect)
+        source = self.active_layer.image.read_qimage(*rect.getRect())
         if not self.selection_polygon:
             return source
         if self.selection_mask_override is not None:
@@ -286,15 +286,13 @@ class SelectionMixin(CanvasMembers):
     def begin_selection_transform(self, mode):
         if not self.selection_polygon:
             return False
-        selection_rect = self.selection_bounds().intersected(
-            as_qimage(self.active_layer.image).rect()
-        )
+        image = self.active_layer.image
+        bounds = QRect(0, 0, image.width, image.height)
+        selection_rect = self.selection_bounds().intersected(bounds)
         # 選択境界ぴったりで切り出すと、縮小時のサンプリングで
         # 外周画素が透明側へ丸められて欠ける。変形元だけに透明な
         # 安全余白を持たせ、選択マスク自体の形状は変更しない。
-        rect = selection_rect.adjusted(-2, -2, 2, 2).intersected(
-            as_qimage(self.active_layer.image).rect()
-        )
+        rect = selection_rect.adjusted(-2, -2, 2, 2).intersected(bounds)
         if rect.isEmpty():
             return False
         if self.transform_active:
@@ -338,7 +336,10 @@ class SelectionMixin(CanvasMembers):
         self.transform_drag_start = QPointF()
         self.transform_drag_points = []
 
-        painter = QPainter(as_qimage(self.active_layer.image))
+        image = self.active_layer.image
+        patch = image.read_qimage(*rect.getRect())
+        painter = QPainter(patch)
+        painter.translate(-rect.x(), -rect.y())
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor(0, 0, 0, 255))
@@ -358,6 +359,7 @@ class SelectionMixin(CanvasMembers):
             )
             painter.drawPolygon(QPolygonF(self.selection_polygon))
         painter.end()
+        image.write_qimage(patch, rect.x(), rect.y())
 
         if mode == "mesh":
             cols = max(2, int(getattr(self, "transform_mesh_cols", 4)))
@@ -459,11 +461,12 @@ class SelectionMixin(CanvasMembers):
         self.update()
 
     def _selection_source_from_image(self, image):
-        image = as_qimage(image)
-        rect = self.transform_source_rect.toAlignedRect().intersected(image.rect())
+        rect = self.transform_source_rect.toAlignedRect().intersected(
+            QRect(0, 0, image.width, image.height)
+        )
         if rect.isEmpty():
             return None
-        source = image.copy(rect)
+        source = image.read_qimage(*rect.getRect())
         if self.selection_polygon:
             if self.selection_mask_override is not None:
                 mask = self._bool_mask_image(self.selection_mask_bool(
@@ -758,8 +761,8 @@ class SelectionMixin(CanvasMembers):
 
     def selection_bounds(self):
         if not self.selection_polygon:
-            image = as_qimage(self.active_layer.image)
-            return QRectF(0, 0, image.width(), image.height()).toAlignedRect()
+            image = self.active_layer.image
+            return QRect(0, 0, image.width, image.height)
         if self.selection_mask_rect is not None:
             return QRectF(self.selection_mask_rect).toAlignedRect()
         xs=[p.x() for p in self.selection_polygon]; ys=[p.y() for p in self.selection_polygon]
@@ -767,7 +770,8 @@ class SelectionMixin(CanvasMembers):
 
     def copy_selection(self):
         """選択範囲の形どおりに切り抜いてコピーする（外側は透明）。"""
-        rect=self.selection_bounds().intersected(as_qimage(self.active_layer.image).rect())
+        image = self.active_layer.image
+        rect = self.selection_bounds().intersected(QRect(0, 0, image.width, image.height))
         if rect.isEmpty(): return False
         # 外接矩形をそのまま写すと、自動選択・反転・投げ縄の外側の画素まで入る。
         QApplication.clipboard().setImage(self._masked_selection_source(rect))
@@ -784,10 +788,13 @@ class SelectionMixin(CanvasMembers):
         if self.selection_polygon:
             return self.delete_selection_contents()
         # 選択が無いときは、これまでどおりレイヤー全体を切り取る。
-        rect = as_qimage(self.active_layer.image).rect()
+        image = self.active_layer.image
+        rect = QRect(0, 0, image.width, image.height)
         if not self.push_layer_region_undo(rect):
             return False
-        as_qimage(self.active_layer.image).fill(Qt.GlobalColor.transparent)
+        clear = QImage(rect.size(), QImage.Format.Format_ARGB32_Premultiplied)
+        clear.fill(Qt.GlobalColor.transparent)
+        image.write_qimage(clear, rect.x(), rect.y())
         self.cellChanged.emit(self.current_frame, self.active_layer_index)
         self.update()
         return True
@@ -797,8 +804,8 @@ class SelectionMixin(CanvasMembers):
         if not self.selection_polygon or self.transform_active:
             return False
         self.ensure_editable_key()
-        image = as_qimage(self.active_layer.image)
-        width, height = image.width(), image.height()
+        image = self.active_layer.image
+        width, height = image.width, image.height
         mask = self.selection_mask_bool(width, height)
         if mask is None or not mask.any():
             return False
@@ -807,8 +814,10 @@ class SelectionMixin(CanvasMembers):
             int(xs.min()), int(ys.min()),
             int(xs.max() - xs.min() + 1), int(ys.max() - ys.min() + 1),
         )
-        if not self.push_layer_region_undo(rect):
+        undo = self._capture_layer_region_undo(rect)
+        if undo is None:
             return False
+        self.push_undo(undo)
         # 自動選択や反転の選択はマスクで持っているので、多角形ではなくマスクで消す。
         clear = QImage(rect.width(), rect.height(), QImage.Format.Format_ARGB32)
         clear.fill(Qt.GlobalColor.transparent)
@@ -816,14 +825,12 @@ class SelectionMixin(CanvasMembers):
             ~mask[rect.top():rect.bottom() + 1, rect.left():rect.right() + 1]
         )
         painter = QPainter(clear)
-        painter.drawImage(0, 0, image, rect.x(), rect.y(), rect.width(), rect.height())
+        source = undo.image
+        painter.drawImage(clear.rect(), source, source.rect())
         painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_DestinationIn)
         painter.drawImage(0, 0, keep)
         painter.end()
-        painter = QPainter(image)
-        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
-        painter.drawImage(rect.topLeft(), clear)
-        painter.end()
+        image.write_qimage(clear, rect.x(), rect.y())
         self.cellChanged.emit(self.current_frame, self.active_layer_index)
         self.update()
         return True
@@ -834,10 +841,16 @@ class SelectionMixin(CanvasMembers):
         self.ensure_editable_key()
         rect=self.selection_bounds()
         pos=rect.topLeft() if self.selection_polygon else QPoint(OUTSIDE_MARGIN,OUTSIDE_MARGIN)
-        changed_rect = QRect(pos, image.size()).intersected(
-            as_qimage(self.active_layer.image).rect()
-        )
-        if not self.push_layer_region_undo(changed_rect): return
-        p=QPainter(as_qimage(self.active_layer.image));p.drawImage(pos,image);p.end()
+        destination = self.active_layer.image
+        undo = self._capture_layer_region_undo(QRect(pos, image.size()))
+        if undo is None:
+            return
+        self.push_undo(undo)
+        changed_rect = undo.rect
+        patch = QImage(undo.image)
+        painter = QPainter(patch)
+        painter.drawImage(pos - changed_rect.topLeft(), image)
+        painter.end()
+        destination.write_qimage(patch, changed_rect.x(), changed_rect.y())
         self.active_layer.has_content=True
         self.cellChanged.emit(self.current_frame,self.active_layer_index);self.update()

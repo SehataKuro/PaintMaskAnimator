@@ -139,7 +139,7 @@ class CanvasMembers(_MembersBase):
         _paint_rgb_palette: Any
         _pil_l_to_qimage: Any
         _pil_rgba_to_qimage: Any
-        _place_imported_image: Any
+        _placed_imported_image: Any
         _playback_active: Any
         _playback_cache_dimensions: Any
         _playback_cache_limit: Any
@@ -378,6 +378,7 @@ class CanvasMembers(_MembersBase):
         previous_key_frame: Any
         push_doc_undo: Any
         push_layer_region_undo: Any
+        _capture_layer_region_undo: Any
         push_layer_undo: Any
         push_undo: Any
         raster_triangle: Any

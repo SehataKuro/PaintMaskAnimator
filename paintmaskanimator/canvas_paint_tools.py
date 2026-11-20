@@ -204,6 +204,7 @@ class PaintToolsMixin(CanvasMembers):
             overlay,
             rect.topLeft(),
             exact_colors=(source_color,),
+            brush=True,
         )
         color_set = getattr(
             self,
@@ -611,7 +612,7 @@ class PaintToolsMixin(CanvasMembers):
         )
         self.push_undo(LayerRegionUndo(
             drag["frame"], drag["layer"], rect,
-            as_qimage(drag["before"]).copy(rect), drag["has_content"],
+            drag["before"].read_qimage(*rect.getRect()), drag["has_content"],
             layer_name=self.frames[drag["frame"]].layers[drag["layer"]].name,
             number=self.frames[drag["frame"]].layers[drag["layer"]].sequence_number,
         ))
@@ -644,13 +645,7 @@ class PaintToolsMixin(CanvasMembers):
 
     def _write_rgba_patch(self, patch, rect):
         """RGBA8888 の部分配列を、アクティブレイヤーの rect へそのまま書き戻す。"""
-        patch_image = imaging.rgba_array_to_qimage(patch)
-        painter = QPainter(as_qimage(self.active_layer.image))
-        painter.setCompositionMode(
-            QPainter.CompositionMode.CompositionMode_Source
-        )
-        painter.drawImage(rect.topLeft(), patch_image)
-        painter.end()
+        self.active_layer.image.write_rgba(patch, rect.x(), rect.y())
 
     def auto_select_region(self, point, modifiers=Qt.KeyboardModifier.NoModifier):
         """バケツと同じ連続領域判定で選択マスクを作成・加減算する。"""
@@ -932,6 +927,7 @@ class PaintToolsMixin(CanvasMembers):
             overlay,
             QPoint(0, 0),
             exact_colors=(source_color,),
+            brush=True,
         )
         self._emit_actual_paint_colors(colors)
 

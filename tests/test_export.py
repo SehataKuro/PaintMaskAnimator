@@ -8,6 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtGui import QColor, QImage  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+from image_edit_helpers import edit_qimage
 from paintmaskanimator import main_window_export  # noqa: E402
 from paintmaskanimator.main_window import MainWindow  # noqa: E402
 
@@ -61,7 +62,8 @@ def _painted_window(qapp):
     window = MainWindow()
     canvas = window.canvas
     cell = canvas.frames[0].layers[0]
-    cell.image.to_qimage().fill(QColor(12, 34, 56, 255))
+    with edit_qimage(cell.image) as patch:
+        patch.fill(QColor(12, 34, 56, 255))
     cell.has_content = True
     return window
 

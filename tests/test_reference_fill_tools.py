@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from PySide6.QtCore import QPoint
+from PySide6.QtCore import QPoint, QRect
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication
 
+from image_edit_helpers import edit_qimage
 from paintmaskanimator import bucket_fill, fill_tracking, imaging, reference_check
 from paintmaskanimator.document import create_drawing
 from paintmaskanimator.main_window import MainWindow
@@ -78,19 +79,19 @@ def scattered(height, width, seed=7):
 
 
 def draw_outline(layer, x0, y0, size, fill=None):
-    image = layer.image.to_qimage()
-    image.fill(QColor("white"))
-    black = QColor("black")
-    for x in range(x0, x0 + size):
-        image.setPixelColor(x, y0, black)
-        image.setPixelColor(x, y0 + size - 1, black)
-    for y in range(y0, y0 + size):
-        image.setPixelColor(x0, y, black)
-        image.setPixelColor(x0 + size - 1, y, black)
-    if fill is not None:
-        for y in range(y0 + 1, y0 + size - 1):
-            for x in range(x0 + 1, x0 + size - 1):
-                image.setPixelColor(x, y, QColor(fill))
+    with edit_qimage(layer.image) as image:
+        image.fill(QColor("white"))
+        black = QColor("black")
+        for x in range(x0, x0 + size):
+            image.setPixelColor(x, y0, black)
+            image.setPixelColor(x, y0 + size - 1, black)
+        for y in range(y0, y0 + size):
+            image.setPixelColor(x0, y, black)
+            image.setPixelColor(x0 + size - 1, y, black)
+        if fill is not None:
+            for y in range(y0 + 1, y0 + size - 1):
+                for x in range(x0 + 1, x0 + size - 1):
+                    image.setPixelColor(x, y, QColor(fill))
     create_drawing(layer, layer.image, number=layer.sequence_number)
 
 
@@ -131,9 +132,8 @@ def test_enclosed_islands_ignores_colours_without_a_replacement():
 def test_bucket_repaints_enclosed_marks_with_their_replacement(window):
     layer = window.canvas.frames[0].layers[0]
     draw_outline(layer, 4, 4, 16)
-    for y in range(10, 13):
-        for x in range(10, 13):
-            layer.image.to_qimage().setPixelColor(x, y, QColor("#ff0000"))
+    with edit_qimage(layer.image, QRect(10, 10, 3, 3)) as patch:
+        patch.fill(QColor("#ff0000"))
     window.palette.replacements[(255, 0, 0)] = QColor("#f0a7a0")
     window.canvas.set_tool("bucket")
     window.canvas.color_mode = "main"
@@ -151,7 +151,8 @@ def test_bucket_repaints_enclosed_marks_with_their_replacement(window):
 def test_bucket_leaves_marks_alone_when_the_option_is_off(window):
     layer = window.canvas.frames[0].layers[0]
     draw_outline(layer, 4, 4, 16)
-    layer.image.to_qimage().setPixelColor(11, 11, QColor("#ff0000"))
+    with edit_qimage(layer.image, QRect(11, 11, 1, 1)) as patch:
+        patch.fill(QColor("#ff0000"))
     window.palette.replacements[(255, 0, 0)] = QColor("#f0a7a0")
     window.canvas.set_tool("bucket")
     window.canvas.main_color = QColor("#ffdfd4")
@@ -268,10 +269,11 @@ def test_shift_esc_without_a_waiting_fill_does_nothing(window):
 # ----------------------------------------------------------------------
 def test_colour_replacement_stays_inside_the_selection(window):
     layer = window.canvas.frames[0].layers[0]
-    layer.image.to_qimage().fill(QColor("white"))
-    for y in range(0, 10):
-        for x in range(0, 40):
-            layer.image.to_qimage().setPixelColor(x, y, QColor("#ff0000"))
+    with edit_qimage(layer.image) as patch:
+        patch.fill(QColor("white"))
+        for y in range(0, 10):
+            for x in range(0, 40):
+                patch.setPixelColor(x, y, QColor("#ff0000"))
     create_drawing(layer, layer.image, number=layer.sequence_number)
     height, width = layer.image.to_qimage().height(), layer.image.to_qimage().width()
     selection = np.zeros((height, width), dtype=bool)
@@ -287,8 +289,9 @@ def test_colour_replacement_stays_inside_the_selection(window):
 
 def test_colour_replacement_reports_when_the_selection_has_no_match(window):
     layer = window.canvas.frames[0].layers[0]
-    layer.image.to_qimage().fill(QColor("white"))
-    layer.image.to_qimage().setPixelColor(30, 5, QColor("#ff0000"))
+    with edit_qimage(layer.image) as patch:
+        patch.fill(QColor("white"))
+        patch.setPixelColor(30, 5, QColor("#ff0000"))
     create_drawing(layer, layer.image, number=layer.sequence_number)
     selection = np.zeros((layer.image.to_qimage().height(), layer.image.to_qimage().width()), dtype=bool)
     selection[0:10, 0:20] = True
@@ -431,10 +434,11 @@ def test_reference_check_lists_findings_and_jumps_to_them(window, dense_hold):
         color = QColor(fill)
         pixels = frame_with_patch((color.red(), color.green(), color.blue()))
         height, width = layer.image.to_qimage().height(), layer.image.to_qimage().width()
-        layer.image.to_qimage().fill(QColor("white"))
-        for y in range(min(height, 120)):
-            for x in range(min(width, 120)):
-                layer.image.to_qimage().setPixelColor(x, y, QColor(*pixels[y, x, :3]))
+        with edit_qimage(layer.image) as patch:
+            patch.fill(QColor("white"))
+            for y in range(min(height, 120)):
+                for x in range(min(width, 120)):
+                    patch.setPixelColor(x, y, QColor(*pixels[y, x, :3]))
         create_drawing(layer, layer.image, number=layer.sequence_number)
     if dense_hold:
         from dense_fixtures import hold

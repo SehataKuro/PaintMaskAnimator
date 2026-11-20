@@ -5,12 +5,15 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QPointF  # noqa: E402
+from PySide6.QtCore import QPointF, QRect  # noqa: E402
 from PySide6.QtGui import QColor, QPainter  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+from dense_fixtures import hold
+from image_edit_helpers import edit_qimage
 from paintmaskanimator.constants import OUTSIDE_MARGIN as M  # noqa: E402
 from paintmaskanimator.main_window import MainWindow  # noqa: E402
+from paintmaskanimator.pma_image import PmaImage
 
 GREEN = QColor("#40c070")
 
@@ -27,10 +30,8 @@ def canvas(qapp, tmp_path, monkeypatch):
     window = MainWindow()
     canvas = window.canvas
     canvas.ensure_editable_key()
-    image = canvas.active_layer.image.to_qimage()
-    painter = QPainter(image)
-    painter.fillRect(image.rect(), GREEN)
-    painter.end()
+    with edit_qimage(canvas.active_layer.image) as patch:
+        patch.fill(GREEN)
     canvas.active_layer.has_content = True
     try:
         yield canvas
@@ -82,3 +83,33 @@ def test_cut_without_a_selection_cuts_the_whole_layer(canvas):
     assert canvas.active_layer.image.to_qimage().pixelColor(M + 50, M + 50).alpha() == 0
     canvas.undo()
     assert canvas.active_layer.image.to_qimage().pixelColor(M + 50, M + 50) == GREEN
+
+
+def test_paste_and_region_history_update_the_shared_drawing(canvas, monkeypatch):
+    canvas.timeline_mode = "sheet"
+    hold(canvas, 0, 2)
+    image = canvas.frames[0].layers[0].image
+    shared = canvas.frames[1].layers[0]
+    assert shared.image is image
+
+    rect = QRect(M, M, 3, 3)
+    source = image.read_qimage(*rect.getRect())
+    clip = source.copy()
+    clip.fill(QColor(255, 0, 0, 128))
+    expected = source.copy()
+    painter = QPainter(expected)
+    painter.drawImage(0, 0, clip)
+    painter.end()
+    QApplication.clipboard().setImage(clip)
+
+    to_qimage = PmaImage.to_qimage
+    monkeypatch.setattr(PmaImage, "to_qimage", lambda image: to_qimage(image).copy())
+    canvas.paste_clipboard()
+    assert canvas.active_layer.image is shared.image is image
+    assert shared.image.read_qimage(*rect.getRect()) == expected
+    canvas.undo()
+    assert shared.image is image
+    assert shared.image.read_qimage(*rect.getRect()) == source
+    canvas.redo()
+    assert shared.image is image
+    assert shared.image.read_qimage(*rect.getRect()) == expected

@@ -7,12 +7,11 @@ against a live ``PaintCanvas`` instance and its ``_document`` + stacks.
 from copy import deepcopy
 from .document import release_slots
 from PySide6.QtCore import QRect, QPointF
-from PySide6.QtGui import QPainter
 from .constants import MAX_UNDO, MAX_UNDO_BYTES
 from ._canvas_members import CanvasMembers
 from . import constants
 from .models import Layer, default_layer_name
-from .pma_image import as_qimage, snapshot_image
+from .pma_image import snapshot_image
 from .timeline_metadata import set_dense_import
 from .utils import blank_image
 from .logging_setup import get_logger
@@ -217,20 +216,26 @@ class UndoMixin(CanvasMembers):
 
     def push_layer_region_undo(self, rect):
         """Store only the part of the active layer an operation can change."""
-        layer = self.active_layer
-        image = as_qimage(layer.image)
-        rect = QRect(rect).intersected(image.rect())
-        if rect.isEmpty():
+        entry = self._capture_layer_region_undo(rect)
+        if entry is None:
             return False
-        self.push_undo(LayerRegionUndo(
+        self.push_undo(entry)
+        return True
+
+    def _capture_layer_region_undo(self, rect):
+        layer = self.active_layer
+        image = layer.image
+        rect = QRect(rect).intersected(QRect(0, 0, image.width, image.height))
+        if rect.isEmpty():
+            return None
+        return LayerRegionUndo(
             int(self.current_frame),
             int(self.active_layer_index),
             rect,
-            image.copy(rect),
+            image.read_qimage(*rect.getRect()),
             bool(layer.has_content),
             layer_name=layer.name, number=layer.sequence_number,
-        ))
-        return True
+        )
 
     def apply_undo_entry(self, e):
         if isinstance(e, TransformUndo):
@@ -267,12 +272,10 @@ class UndoMixin(CanvasMembers):
             if isinstance(e, LayerUndo):
                 layer.image = e.image
             else:
-                painter = QPainter(as_qimage(layer.image))
-                painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
                 patches = e.tiles if isinstance(e, LayerTilesUndo) else ((e.rect, e.image),)
-                for rect, image in patches:
-                    painter.drawImage(QRect(rect).topLeft(), image)
-                painter.end()
+                layer.image.write_qimages(
+                    (rect.x(), rect.y(), image) for rect, image in patches
+                )
             layer.has_content = bool(e.has_content)
             if fi is not None:
                 self.current_frame = fi

@@ -463,7 +463,7 @@ class PaintCanvas(
                 entry.frame if fi is None else fi,
                 entry.layer,
                 QRect(entry.rect),
-                as_qimage(layer.image).copy(entry.rect),
+                layer.image.read_qimage(*entry.rect.getRect()),
                 bool(layer.has_content),
                 layer_name=entry.layer_name, number=entry.number,
             )
@@ -476,7 +476,7 @@ class PaintCanvas(
                 entry.frame if fi is None else fi,
                 entry.layer,
                 tuple(
-                    (QRect(rect), as_qimage(layer.image).copy(QRect(rect)))
+                    (QRect(rect), layer.image.read_qimage(*QRect(rect).getRect()))
                     for rect, _image in entry.tiles
                 ),
                 bool(layer.has_content),
@@ -786,6 +786,8 @@ class PaintCanvas(
         top_left=None,
         exact_colors=None,
         opacity=1.0,
+        *,
+        brush=False,
     ):
         """選択RGBをそのままレイヤーへ直書きする。
 
@@ -796,11 +798,8 @@ class PaintCanvas(
         if overlay is None or overlay.isNull():
             return ()
 
-        destination_image = as_qimage(self.active_layer.image)
-        if (
-            destination_image is None
-            or destination_image.isNull()
-        ):
+        destination = self.active_layer.image
+        if destination is None:
             return ()
 
         point = (
@@ -817,11 +816,11 @@ class PaintCanvas(
         destination_y = max(0, origin_y)
         width = min(
             overlay.width() - source_x,
-            destination_image.width() - destination_x,
+            destination.width - destination_x,
         )
         height = min(
             overlay.height() - source_y,
-            destination_image.height() - destination_y,
+            destination.height - destination_y,
         )
         if width <= 0 or height <= 0:
             return ()
@@ -846,6 +845,12 @@ class PaintCanvas(
             exact_colors,
         )
 
+        if brush:
+            destination_image = as_qimage(destination)
+            paint_at = QPoint(destination_x, destination_y)
+        else:
+            destination_image = destination.read_qimage(destination_x, destination_y, width, height)
+            paint_at = QPoint()
         amount = max(0.0, min(1.0, float(opacity)))
         result_rgba = np.zeros_like(overlay_rgba)
         # 100%は下地を参照せず正規RGBを直書きする（近似色を生成しない）。
@@ -858,9 +863,8 @@ class PaintCanvas(
             )
             blend_mask = active_mask & ~source_white
             base_rgba = self._qimage_rgba_array(
-                destination_image.copy(
-                    destination_x, destination_y, width, height
-                )
+                destination_image.copy(destination_x, destination_y, width, height)
+                if brush else destination_image
             )
             base_rgb = base_rgba[:, :, :3].astype(np.float32)
             base_rgb[base_rgba[:, :, 3] == 0] = 255.0
@@ -901,7 +905,7 @@ class PaintCanvas(
             QPainter.CompositionMode.CompositionMode_SourceOver
         )
         painter.drawImage(
-            QPoint(destination_x, destination_y),
+            paint_at,
             result_image,
         )
         if erase_rgba is not None:
@@ -910,10 +914,13 @@ class PaintCanvas(
                 QPainter.CompositionMode.CompositionMode_DestinationOut
             )
             painter.drawImage(
-                QPoint(destination_x, destination_y),
+                paint_at,
                 erase_image,
             )
         painter.end()
+
+        if not brush:
+            destination.write_qimage(destination_image, destination_x, destination_y)
 
         if written_rgb.size == 0:
             return ()
@@ -949,9 +956,9 @@ class PaintCanvas(
         tiles = self._stroke_before_tiles
         if tiles is None:
             return
-        live = as_qimage(self.active_layer.image)
+        live = self.active_layer.image
         bounds = QRect(
-            0, 0, live.width(), live.height()
+            0, 0, live.width, live.height
         )
         rect = QRect(rect).intersected(bounds)
         if rect.isEmpty():
@@ -972,7 +979,7 @@ class PaintCanvas(
                     tile_size,
                     tile_size,
                 ).intersected(bounds)
-                tiles[key] = (tile_rect, live.copy(tile_rect))
+                tiles[key] = (tile_rect, live.read_qimage(*tile_rect.getRect()))
         self._stroke_dirty_rect = self._stroke_dirty_rect.united(rect)
         if getattr(self, "_stroke_view_preview", None) is not None:
             self._stroke_view_dirty = self._stroke_view_dirty.united(rect)

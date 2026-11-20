@@ -87,8 +87,9 @@ class ImageImportMixin(CanvasMembers):
     def _natural_path_key(*args, **kwargs):
         return natural_path_key(*args, **kwargs)
 
-    def _place_imported_image(self, image, target):
-        """Draw the decoded QImage into the caller-provided Qt image."""
+    def _placed_imported_image(self, image):
+        """Build a workspace image with the decoded image centered in it."""
+        target = blank_image()
         x = OUTSIDE_MARGIN + (constants.CANVAS_WIDTH - image.width()) // 2
         y = OUTSIDE_MARGIN + (constants.CANVAS_HEIGHT - image.height()) // 2
         painter = QPainter(target)
@@ -96,6 +97,7 @@ class ImageImportMixin(CanvasMembers):
         painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
         painter.drawImage(QPoint(x, y), image)
         painter.end()
+        return target
 
     def _make_white_transparent(self, image):
         """Convert exact #FFFFFF pixels to fully transparent before placement."""
@@ -279,7 +281,7 @@ class ImageImportMixin(CanvasMembers):
             if progress_callback:
                 progress_callback(offset, len(decoded), tr("{value} / {len} 枚を配置しています").format(value=offset + 1, len=len(decoded)))
             layer = self.frames[start_frame + offset].layers[insert_index]
-            self._place_imported_image(image, as_qimage(layer.image))
+            layer.image = self._placed_imported_image(image)
             layer.has_content = True
             layer.sequence_number = offset + 1
         self.install_legacy_frames()

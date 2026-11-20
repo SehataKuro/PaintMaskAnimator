@@ -4,10 +4,11 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QPoint, QRect
-from PySide6.QtGui import QColor, QImage, QPainter
+from PySide6.QtGui import QColor, QImage
 from PySide6.QtWidgets import QApplication
 
 from dense_fixtures import hold
+from image_edit_helpers import edit_qimage
 from paintmaskanimator.canvas import PaintCanvas
 from paintmaskanimator.undo_entries import LayerRegionUndo, LayerUndo
 from paintmaskanimator.pma_image import as_qimage
@@ -34,7 +35,8 @@ def test_playback_created_cell_can_be_undone_and_redone(blank_key):
     assert len(canvas.undo_stack) == 1
     number = canvas.active_layer.sequence_number
     canvas.push_layer_undo()
-    canvas.active_layer.image.to_qimage().fill(QColor("red"))
+    with edit_qimage(canvas.active_layer.image) as patch:
+        patch.fill(QColor("red"))
     # Playback can move away before history is traversed.
     canvas.playback_advance()
     canvas.set_playback_active(False)
@@ -69,9 +71,8 @@ def test_region_undo_redo_restores_only_requested_area():
     before = canvas.active_layer.image.to_qimage().copy(rect)
     assert canvas.push_layer_region_undo(rect)
 
-    painter = QPainter(canvas.active_layer.image.to_qimage())
-    painter.fillRect(rect, QColor("red"))
-    painter.end()
+    with edit_qimage(canvas.active_layer.image, rect) as patch:
+        patch.fill(QColor("red"))
     canvas.active_layer.has_content = True
 
     assert isinstance(canvas.undo_stack[-1], LayerRegionUndo)
@@ -86,9 +87,8 @@ def test_small_bucket_fill_replaces_full_snapshot_with_region():
     _app()
     canvas = PaintCanvas()
     source_rect = QRect(100, 100, 20, 16)
-    painter = QPainter(canvas.active_layer.image.to_qimage())
-    painter.fillRect(source_rect, QColor("red"))
-    painter.end()
+    with edit_qimage(canvas.active_layer.image, source_rect) as patch:
+        patch.fill(QColor("red"))
     canvas.active_layer.has_content = True
     canvas.main_color = QColor("blue")
 
@@ -137,13 +137,13 @@ def test_undo_stack_always_keeps_one_entry_however_large(monkeypatch):
 def test_full_layer_inverse_shares_pixels_but_survives_later_painting():
     _app()
     canvas = PaintCanvas()
-    canvas.active_layer.image.to_qimage().fill(QColor("red"))
+    with edit_qimage(canvas.active_layer.image) as patch:
+        patch.fill(QColor("red"))
     entry = LayerUndo(0, 0, QImage(canvas.active_layer.image.to_qimage()), True)
     inverse = canvas.current_state_for(entry)
     assert inverse.image.to_qimage().cacheKey() == canvas.active_layer.image.to_qimage().cacheKey()
-    painter = QPainter(canvas.active_layer.image.to_qimage())
-    painter.fillRect(QRect(0, 0, 2, 2), QColor("blue"))
-    painter.end()
+    with edit_qimage(canvas.active_layer.image, QRect(0, 0, 2, 2)) as patch:
+        patch.fill(QColor("blue"))
     assert inverse.image.to_qimage().pixelColor(0, 0) == QColor("red")
     assert canvas.active_layer.image.to_qimage().pixelColor(0, 0) == QColor("blue")
 

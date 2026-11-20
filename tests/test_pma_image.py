@@ -2,7 +2,10 @@
 
 import numpy as np
 import pytest
+from PySide6.QtCore import QRect
 from PySide6.QtGui import QColor, QImage, QPainter
+
+from image_edit_helpers import edit_qimage
 
 from paintmaskanimator import imaging
 from paintmaskanimator.pma_image import PmaImage, as_qimage, copy_image, image_rgba, snapshot_image
@@ -46,15 +49,39 @@ def test_rgba_is_readonly_red_snapshot():
     assert pixels.tolist() == [[[255, 0, 0, 255]]]
 
 
-def test_to_qimage_supports_in_place_painting():
-    image = _blank(1, 1)
-    qimage = image.to_qimage()
-    painter = QPainter(qimage)
-    painter.fillRect(qimage.rect(), QColor(0, 0, 255))
-    painter.end()
+def test_rectangle_qimage_is_independent_until_writeback():
+    image = _blank(3, 2)
+    with edit_qimage(image, QRect(2, 1, 1, 1)) as patch:
+        painter = QPainter(patch)
+        painter.fillRect(patch.rect(), QColor(0, 0, 255))
+        painter.end()
+        assert not image.rgba().any()
 
-    assert image.to_qimage() is qimage
-    assert image.rgba().tolist() == [[[0, 0, 255, 255]]]
+    assert image.read_rgba(2, 1, 1, 1).tolist() == [[[0, 0, 255, 255]]]
+    with pytest.raises(RuntimeError), edit_qimage(image) as patch:
+        patch.fill(0)
+        raise RuntimeError("discard")
+    assert image.read_rgba(2, 1, 1, 1).tolist() == [[[0, 0, 255, 255]]]
+
+
+def test_rectangle_padding_clipping_and_empty():
+    image = _blank(2, 2)
+    source = QImage(2, 2, QImage.Format.Format_ARGB32_Premultiplied)
+    source.fill(QColor(201, 18, 63, 128))
+    source.setDevicePixelRatio(2)
+    image.write_qimage(source, -1, 1)
+
+    patch = image.read_qimage(-1, 0, 3, 2)
+    assert patch.format() == source.format()
+    assert patch.pixel(1, 1) == source.pixel(1, 0)
+    assert patch.pixel(0, 1) == patch.pixel(2, 1) == 0
+    pixels = image.read_rgba(-1, 0, 3, 2)
+    pixels.fill(0)
+    assert image.read_qimage(0, 1, 1, 1).pixel(0, 0) == source.pixel(1, 0)
+    assert image.read_qimage(0, 0, 0, 0).isNull()
+    assert image.read_rgba(0, 0, 0, 2).shape == (2, 0, 4)
+    image.write_qimage(QImage(), 0, 1)
+    assert image.read_qimage(0, 1, 1, 1).pixel(0, 0) == source.pixel(1, 0)
 
 
 @pytest.mark.parametrize("width", [1, 63, 64, 65])

@@ -1,9 +1,11 @@
 """レイヤーやセルの画素を保持する画像コンテナ。"""
 
+from collections.abc import Iterable
 from operator import index
 
 import numpy as np
-from PySide6.QtGui import QImage
+from PySide6.QtCore import QRect
+from PySide6.QtGui import QImage, QPainter
 
 from . import imaging
 
@@ -51,8 +53,48 @@ class PmaImage:
         rgba.setflags(write=False)
         return rgba
 
+    def read_qimage(self, x: int, y: int, w: int, h: int) -> QImage:
+        """乗算済み ARGB の独立した矩形を返す。画像外は透明で、空矩形は null。"""
+        if w <= 0 or h <= 0:
+            return QImage()
+        return self._image.copy(x, y, w, h)
+
+    def read_rgba(self, x: int, y: int, w: int, h: int) -> np.ndarray:
+        """変更可能なストレート RGBA uint8 (h, w, 4) の複製を返す。画像外は透明。"""
+        if w <= 0 or h <= 0:
+            return np.empty((max(0, h), max(0, w), 4), dtype=np.uint8)
+        if self._image.isNull():
+            return np.zeros((h, w, 4), dtype=np.uint8)
+        return imaging.qimage_rgba_array(self.read_qimage(x, y, w, h))
+
+    def write_qimage(self, patch: QImage, x: int, y: int) -> None:
+        """画素座標 (x, y) から Source で置換する。画像外はクリップし、null は無視する。"""
+        self.write_qimages(((x, y, patch),))
+
+    def write_qimages(self, patches: Iterable[tuple[int, int, QImage]]) -> None:
+        """(x, y, QImage) の列を順に置換する。Undo のタイルは一つの painter で処理する。"""
+        painter = QPainter()
+        try:
+            for x, y, patch in patches:
+                if patch.isNull():
+                    continue
+                if not painter.isActive():
+                    if not painter.begin(self._image):
+                        return
+                    painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+                    scale = self._image.devicePixelRatio()
+                    if scale != 1:
+                        painter.scale(1 / scale, 1 / scale)
+                if patch.devicePixelRatio() == 1:
+                    painter.drawImage(x, y, patch)
+                else:
+                    painter.drawImage(QRect(x, y, patch.width(), patch.height()), patch, patch.rect())
+        finally:
+            if painter.isActive():
+                painter.end()
+
     def write_rgba(self, rgba: np.ndarray, x: int = 0, y: int = 0) -> None:
-        """左上 (x, y) から RGBA を上書きする。範囲内の空領域は何もしない。"""
+        """RGBA を Qt の乗算済み形式に丸めて書く。範囲外は ValueError、範囲内の空領域は no-op。"""
         if (
             not isinstance(rgba, np.ndarray)
             or rgba.dtype != np.uint8
@@ -70,13 +112,7 @@ class PmaImage:
         if width == 0 or height == 0:
             return
 
-        patch = imaging.rgba_array_to_qimage(rgba)
-        source = np.frombuffer(imaging.qimage_buffer(patch, const=True), dtype=np.uint8)
-        source = source.reshape(height, patch.bytesPerLine())
-        # bits() が共有中の画素を分離する。形式を揃えてから行単位で上書きする。
-        destination = np.frombuffer(imaging.qimage_buffer(self._image), dtype=np.uint8)
-        destination = destination.reshape(self.height, self._image.bytesPerLine())
-        destination[y:y + height, x * 4:(x + width) * 4] = source[:, :width * 4]
+        self.write_qimage(imaging.rgba_array_to_qimage(rgba), x, y)
 
     def to_qimage(self) -> QImage:
         """内部の QImage を返す。段階7-3では複製を返す仕様に変わる。"""
@@ -125,7 +161,7 @@ def snapshot_image(image: QImage | PmaImage | None) -> QImage | PmaImage | None:
     if image is None:
         return None
     if isinstance(image, PmaImage):
-        return PmaImage.from_qimage(image.to_qimage().copy())
+        return PmaImage.from_qimage(image.read_qimage(0, 0, image.width, image.height))
     return image.copy()
 
 

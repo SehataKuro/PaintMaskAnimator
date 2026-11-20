@@ -7,9 +7,10 @@
 from __future__ import annotations
 
 from dense_fixtures import hold, length
+from image_edit_helpers import edit_qimage
 
 import pytest
-from PySide6.QtCore import QPoint, QPointF, Qt
+from PySide6.QtCore import QPoint, QPointF, QRect, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication
@@ -39,16 +40,17 @@ def window(qapp, tmp_path, monkeypatch):
 def outlined_cell(window, frame_index, *, origin=(4, 4), size=8):
     """白地に閉じた黒枠を1つ描いたコマを作る。枠の内側が塗りの対象になる。"""
     layer = window.canvas.frames[frame_index].layers[0]
-    layer.image.to_qimage().fill(QColor("white"))
-    x0, y0 = origin
-    x1, y1 = x0 + size, y0 + size
-    black = QColor("black")
-    for x in range(x0, x1):
-        layer.image.to_qimage().setPixelColor(x, y0, black)
-        layer.image.to_qimage().setPixelColor(x, y1 - 1, black)
-    for y in range(y0, y1):
-        layer.image.to_qimage().setPixelColor(x0, y, black)
-        layer.image.to_qimage().setPixelColor(x1 - 1, y, black)
+    with edit_qimage(layer.image) as patch:
+        patch.fill(QColor("white"))
+        x0, y0 = origin
+        x1, y1 = x0 + size, y0 + size
+        black = QColor("black")
+        for x in range(x0, x1):
+            patch.setPixelColor(x, y0, black)
+            patch.setPixelColor(x, y1 - 1, black)
+        for y in range(y0, y1):
+            patch.setPixelColor(x0, y, black)
+            patch.setPixelColor(x1 - 1, y, black)
     create_drawing(layer, layer.image.to_qimage().copy(), number=frame_index + 1)
     return layer
 
@@ -101,7 +103,8 @@ def test_unchecked_checkbox_touches_only_the_current_cell(window):
 def test_frames_already_holding_another_colour_are_skipped(window):
     prepare(window, 2)
     # 2コマ目は種の位置が既に別の色。基準（白＝背景）と一致しないので対象外。
-    window.canvas.frames[1].layers[0].image.to_qimage().setPixelColor(8, 8, QColor("#ff0000"))
+    with edit_qimage(window.canvas.frames[1].layers[0].image, QRect(8, 8, 1, 1)) as patch:
+        patch.fill(QColor("#ff0000"))
 
     window.canvas.flood_fill(QPoint(8, 8))
 
@@ -236,7 +239,8 @@ def test_clicking_a_held_cell_does_not_create_a_new_cell(window):
 def test_reports_when_the_clicked_region_cannot_be_filled(window):
     prepare(window, 2)
     for frame in window.canvas.frames:
-        frame.layers[0].image.to_qimage().fill(QColor("white"))
+        with edit_qimage(frame.layers[0].image) as patch:
+            patch.fill(QColor("white"))
     window.tools.bucket_require_closed.setChecked(True)
     depth = len(window.canvas.undo_stack)
     messages = []
@@ -271,9 +275,9 @@ def test_target_colour_applies_while_tracking(window):
     for frame_index in range(3):
         layer = outlined_cell(window, frame_index, origin=(4 + 3 * frame_index, 4), size=20)
         # 枠の右半分を別の色にしておく（「すべての色」なら左半分しか塗れない）。
-        for x in range(4 + 3 * frame_index + 10, 4 + 3 * frame_index + 19):
-            for y in range(5, 23):
-                layer.image.to_qimage().setPixelColor(x, y, QColor("#ffd0a0"))
+        rect = QRect(4 + 3 * frame_index + 10, 5, 9, 18)
+        with edit_qimage(layer.image, rect) as patch:
+            patch.fill(QColor("#ffd0a0"))
     window.canvas.set_tool("bucket")
     window.canvas.color_mode = "main"
     window.canvas.main_color = QColor("#3355ff")
@@ -339,13 +343,14 @@ def test_tracks_an_area_closed_by_the_frame_edge(window):
     window.canvas._ensure_frame_count(4)
     for frame_index in range(4):
         layer = window.canvas.frames[frame_index].layers[0]
-        layer.image.to_qimage().fill(QColor("white"))
-        left = 40 + frame_index * 120
-        painter = QPainter(layer.image.to_qimage())
-        painter.setPen(QPen(QColor("black"), 3))
-        painter.drawLine(left, bottom, left + 60, bottom - 90)
-        painter.drawLine(left + 60, bottom - 90, left + 120, bottom)
-        painter.end()
+        with edit_qimage(layer.image) as patch:
+            patch.fill(QColor("white"))
+            left = 40 + frame_index * 120
+            painter = QPainter(patch)
+            painter.setPen(QPen(QColor("black"), 3))
+            painter.drawLine(left, bottom, left + 60, bottom - 90)
+            painter.drawLine(left + 60, bottom - 90, left + 120, bottom)
+            painter.end()
         create_drawing(layer, layer.image.to_qimage().copy(), number=frame_index + 1)
     window.canvas.set_tool("bucket")
     window.canvas.color_mode = "main"
@@ -371,15 +376,16 @@ def test_tracking_works_with_line_extension(window):
     window.canvas._ensure_frame_count(4)
     for frame_index in range(4):
         layer = window.canvas.frames[frame_index].layers[0]
-        layer.image.to_qimage().fill(QColor("white"))
-        left = 60 + frame_index * 90
-        top = height - 200
-        painter = QPainter(layer.image.to_qimage())
-        painter.setPen(QPen(QColor("black"), 3))
-        painter.drawLine(left, top, left + 140, top)
-        painter.drawLine(left, top, left - 15, height - 40)          # 下端の手前で途切れる
-        painter.drawLine(left + 140, top, left + 155, height - 40)
-        painter.end()
+        with edit_qimage(layer.image) as patch:
+            patch.fill(QColor("white"))
+            left = 60 + frame_index * 90
+            top = height - 200
+            painter = QPainter(patch)
+            painter.setPen(QPen(QColor("black"), 3))
+            painter.drawLine(left, top, left + 140, top)
+            painter.drawLine(left, top, left - 15, height - 40)          # 下端の手前で途切れる
+            painter.drawLine(left + 140, top, left + 155, height - 40)
+            painter.end()
         create_drawing(layer, layer.image.to_qimage().copy(), number=frame_index + 1)
     window.canvas.set_tool("bucket")
     window.canvas.color_mode = "main"

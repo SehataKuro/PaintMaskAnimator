@@ -608,8 +608,9 @@ class MainWindow(
             self.status(tr("レイアウト用紙の画像を読み込めませんでした。"), "warning")
             return
         for frame in self.canvas.frames:
-            layer = Layer(layout_paper.layer_name(), blank_image(), is_draft=True)
-            self.canvas._place_imported_image(image, as_qimage(layer.image))
+            layer = Layer(
+                layout_paper.layer_name(), self.canvas._placed_imported_image(image), is_draft=True
+            )
             layer.has_content = True
             frame.layers.insert(0, layer)
         self.canvas.active_layer_index = 1

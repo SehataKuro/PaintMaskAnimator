@@ -22,7 +22,7 @@ import tempfile
 from pathlib import Path
 from PySide6.QtWidgets import (QApplication, QDialog, QFileDialog, QInputDialog,
                                QMessageBox)
-from .pma_image import as_qimage, image_rgba
+from .pma_image import image_rgba
 from .i18n import tr
 from .memo_window import MEMO_FILE_NAME
 from . import movie_slate, native
@@ -225,7 +225,7 @@ class ExportController:
                 seen.add(number)
                 cel = cut_folder.CelSource(layer_index, name, number)
                 cels.append(cel)
-                images[cel] = as_qimage(layer.image)
+                images[cel] = layer.image
         return cels, images, skipped
 
     def cut_folder(self):
@@ -280,7 +280,7 @@ class ExportController:
                     progress, number - 1, len(plan.files),
                     tr("{number}枚目を書き出しています").format(number=number),
                 )
-                image = imaging.without_color_space(images[cel].copy(
+                image = imaging.without_color_space(images[cel].read_qimage(
                     OUTSIDE_MARGIN,
                     OUTSIDE_MARGIN,
                     constants.CANVAS_WIDTH,
@@ -367,7 +367,7 @@ class ExportController:
                     if not layer.has_content or layer.sequence_only:
                         continue
                     key_number += 1
-                    source = as_qimage(layer.image).copy(
+                    source = layer.image.read_qimage(
                         OUTSIDE_MARGIN,
                         OUTSIDE_MARGIN,
                         constants.CANVAS_WIDTH,
@@ -540,7 +540,7 @@ class ExportController:
                     len(keys),
                     tr("{number}枚目を書き出しています").format(number=number),
                 )
-                image = as_qimage(layer.image).copy(
+                image = layer.image.read_qimage(
                     OUTSIDE_MARGIN,
                     OUTSIDE_MARGIN,
                     constants.CANVAS_WIDTH,
