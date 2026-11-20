@@ -20,9 +20,6 @@ from .i18n import tr
 from .document import Document, project_v1_state
 from .errors import OperationError
 
-from PySide6.QtCore import QBuffer, QByteArray, QIODevice, Qt
-from PySide6.QtGui import QImage, QImageReader
-
 from .constants import (
     MAX_PROJECT_ARCHIVE_BYTES,
     MAX_PROJECT_DECODED_PIXELS,
@@ -32,10 +29,14 @@ from .constants import (
     MAX_PROJECT_LAYERS,
     MAX_PROJECT_METADATA_BYTES,
 )
-from .imaging import white_to_transparent_qimage, without_color_space
+from .imaging import white_to_transparent_qimage
 from .models import Frame, default_layer_name
 from .legacy_v1 import raw_v1_slot as Layer
-from .pma_image import PmaImage, as_qimage, copy_image
+from .pma_image import ImageInput, as_qimage, copy_image
+from .pma_image_io import _decode_png, thumbnail_png
+from .pma_image_io import _decode_png_qt as _decode_png_qt
+from .pma_image_io import _encode_png_qt as _encode_png_qt
+from .pma_image_io import encode_png as encode_png
 from .tween_groups import sanitize_spec
 from .utils import blank_image
 from .logging_setup import get_logger
@@ -96,13 +97,13 @@ def load_project(path, png_cache=None):
 
 @dataclass(frozen=True)
 class ProjectSnapshot:
-    """Detached save-owned graph; QImages share pixels through Qt COW."""
+    """Detached save-owned graph; images share pixels through Qt COW."""
 
     metadata: dict
     document: Document
     width: int
     height: int
-    thumbnail: QImage | PmaImage | None = None
+    thumbnail: ImageInput = None
 
     @classmethod
     def capture(cls, metadata, document, thumbnail=None):
@@ -136,7 +137,7 @@ def legacy_fixture_write_snapshot(path, snapshot, png_cache=None):
 class PngCache:
     """変更のないセルの PNG を保存のたびに再エンコードしないためのキャッシュ。
 
-    キーは ``QImage.cacheKey()``。QImage は画素を書き換えると（QPainter や
+    キーは ``cacheKey()``。Qt の画像は画素を書き換えると（QPainter や
     ``bits()`` 経由でも）キーが変わるので、キーが同じなら前回のPNGをそのまま
     使える。保存のたびに今回使ったセルだけを残し、消えたセルの分は捨てる。
     """
@@ -155,18 +156,19 @@ class PngCache:
         self._entries.clear()
 
     def remember(self, image, data):
-        self._entries[int(image.cacheKey())] = bytes(data)
+        self._entries[int(as_qimage(image).cacheKey())] = bytes(data)
 
     def encode_many(self, images, used_keys=None):
         """``images`` の PNG を ``{cacheKey: bytes | None}`` で返す。
 
         キャッシュに無いものだけを、複数のスレッドで同時にエンコードする。
-        Rust の PNG エンコードも QImage.save も実行中 GIL を手放すので、コア数に近い倍率で速くなる
+        Rust の PNG エンコードも Qt の PNG 保存も実行中 GIL を手放すので、コア数に近い倍率で速くなる
         （1920x1080 で1枚約60ms かかり、全セルの書き出しが数十秒になっていた）。
         """
         result = {}
         missing = {}
-        for image in images:
+        for payload in images:
+            image = as_qimage(payload)
             key = int(image.cacheKey())
             if used_keys is not None:
                 used_keys.add(key)
@@ -189,7 +191,7 @@ class PngCache:
 def parallel_map(function, items):
     """``map`` を複数スレッドで行う（順番は保つ）。数が少なければそのまま回す。
 
-    QImage のエンコード・デコードのように、GIL を手放す Qt の処理に使う。
+    画像のエンコード・デコードのように、GIL を手放す Qt の処理に使う。
     """
     items = list(items)
     workers = min(_MAX_WORKERS, os.cpu_count() or 1, len(items))
@@ -200,71 +202,6 @@ def parallel_map(function, items):
 
 
 _MAX_WORKERS = 8
-
-
-def encode_png(image):
-    """Rust（pma_core::project::png）で書き、GIL を手放す。キャンバスの形式以外は Qt に回す。
-
-    PNG のバイト列を返し、失敗したら None。
-    """
-    image = without_color_space(image)
-    if image.format() != QImage.Format.Format_ARGB32_Premultiplied or image.textKeys():
-        return _encode_png_qt(image)
-    rgba = image.convertToFormat(QImage.Format.Format_RGBA8888)
-    # 不変 bytes を1回作り、GILを手放している間も安全に借用する。
-    pixels = bytes(rgba.constBits())
-    try:
-        return native.encode_png(pixels, rgba.width(), rgba.height(),
-                                 image.dotsPerMeterX(), image.dotsPerMeterY())
-    except ValueError:
-        return _encode_png_qt(image)
-
-
-def _encode_png_qt(image):
-    """Rust で書けない形式と、テストでの突き合わせ用。失敗したら None。"""
-    image = without_color_space(image)
-    data = QByteArray()
-    buffer = QBuffer(data)
-    buffer.open(QIODevice.OpenModeFlag.WriteOnly)
-    try:
-        if not image.save(buffer, "PNG"):
-            return None
-    finally:
-        buffer.close()
-    return bytes(data.data())
-
-
-def _decode_png(data):
-    """Rust（pma_core::project::png）で読み、GIL を手放す。読めないものは Qt に回す。"""
-    limit_mb = QImageReader.allocationLimit()
-    max_bytes = limit_mb * 1024 * 1024 if limit_mb > 0 else (1 << 64) - 1
-    try:
-        width, height, pixels = native.decode_png(data, max_bytes)
-    except ValueError:
-        return _decode_png_qt(data)
-    image = QImage(pixels, width, height, width * 4, QImage.Format.Format_RGBA8888)
-    return without_color_space(image.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied))
-
-
-def _decode_png_qt(data):
-    """PNG を読み、キャンバスと同じ形式（乗算済み ARGB）にする。失敗なら null。
-
-    Rust で読めない PNG と、テストでの突き合わせ用。
-
-    QImage.fromData は読み込み中も GIL を握ったままなので、スレッドに分けても
-    速くならない。QImageReader.read は GIL を手放すので、こちらを使う。
-    """
-    buffer = QBuffer()
-    buffer.setData(QByteArray(data))
-    buffer.open(QIODevice.OpenModeFlag.ReadOnly)
-    try:
-        image = QImageReader(buffer, b"png").read()
-    finally:
-        buffer.close()
-    if image.isNull():
-        return image
-    # Projects saved before profiles were stripped still carry them.
-    return without_color_space(image.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied))
 
 
 def _prefetch_pngs(archive, entries, width, height, decoded):
@@ -618,7 +555,7 @@ def read_project_archive(path, png_cache=None, *, _allow_v2=False):
                     )
                 if image_path in prefetched:
                     image_bytes, image = prefetched[image_path]
-                    # セルごとに別の QImage にする（画素は書き込むまで共有される）。
+                    # セルごとに別の画像オブジェクトにする（画素は書き込むまで共有される）。
                     image = copy_image(image)
                 else:
                     image_bytes = archive.read(image_path)
@@ -832,23 +769,7 @@ def read_project_archive(path, png_cache=None, *, _allow_v2=False):
 
 
 def _thumbnail_png(image):
-    """``image`` を長辺 ``THUMBNAIL_SIZE`` 以下に縮めた PNG のバイト列。"""
-    image = as_qimage(image)
-    if image is None or image.isNull():
-        return None
-    if max(image.width(), image.height()) > THUMBNAIL_SIZE:
-        image = image.scaled(
-            THUMBNAIL_SIZE, THUMBNAIL_SIZE,
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        )
-    image = without_color_space(image)
-    data = QByteArray()
-    buffer = QBuffer(data)
-    buffer.open(QIODevice.OpenModeFlag.WriteOnly)
-    ok = image.save(buffer, "PNG")
-    buffer.close()
-    return bytes(data.data()) if ok else None
+    return thumbnail_png(image, THUMBNAIL_SIZE)
 
 
 def legacy_fixture_build_v1_payload(frames, sequence_archive=None):
@@ -982,7 +903,7 @@ def legacy_fixture_write_archive(
     stored without zip compression: they are already deflated, so compressing
     them again only costs time.
 
-    ``thumbnail`` (a QImage, e.g. the current frame) is shrunk and stored as
+    ``thumbnail`` (an image, e.g. the current frame) is shrunk and stored as
     the first entry so the OS file-icon extensions can find it cheaply.
     """
     project_path = Path(project_path)

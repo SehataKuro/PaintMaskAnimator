@@ -17,11 +17,13 @@ from paintmaskanimator import project_io as io, project_v2 as v2
 from paintmaskanimator.errors import OperationError
 from paintmaskanimator.native import decode_v2_plan
 from paintmaskanimator.models import Cell
+from paintmaskanimator.pma_image import as_qimage
 
 ROOT = Path(__file__).parent / "fixtures/projects/v2"
 
 
 def value_state(value):
+    value = as_qimage(value)
     if isinstance(value, QImage):
         image = value.convertToFormat(QImage.Format.Format_RGBA8888)
         return (image.width(), image.height(), bytes(image.constBits()),
@@ -55,7 +57,7 @@ def graph_state(loaded, cache):
                 getattr(slot.__dict__["_timeline_metadata"], k) for k in
                 ("has_content", "is_blank_key", "blank_start", "sequence_number", "sequence_only"))
             # Compare cache membership and exact PNG bytes against every live image.
-            state["cached"] = tuple(None if image is None else cache._entries.get(int(image.cacheKey()))
+            state["cached"] = tuple(None if image is None else cache._entries.get(int(image.to_qimage().cacheKey()))
                                     for image in (slot.image, slot.initial_image))
             slots.append(state)
         frames.append((frame.duration, slots))

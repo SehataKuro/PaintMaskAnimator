@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, List, Optional, Tuple
 
 from .logging_setup import get_logger
-from .pma_image import as_qimage
+from .pma_image import as_qimage, to_pma_image
 from .undo_entries import ScopedBatchUndo
 
 log = get_logger(__name__)
@@ -326,12 +326,13 @@ def apply_over_scope(
             ))
 
     for _lead_cell, shared_cells, produced, changed_pixels in pending:
+        image = to_pma_image(produced)
         for frame_index, layer_index in shared_cells:
             layer = doc.frames[frame_index].layers[layer_index]
             # 同じ絵を指すセルは1つの Cell を共有しているので、書き込みは
             # グループの先頭1回で全員に行き渡る。共有が切れていた場合に
             # そなえ、ここでも結び直しておく。
-            layer.image = produced
+            layer.image = image
             layer.has_content = True
             result.changed_cells += 1
             result.changed_frames.append(int(frame_index))

@@ -20,7 +20,7 @@ def canvas():
 
 def test_custom_background_sample_selects_background(canvas):
     for layer in canvas.frames[0].layers:
-        layer.image.fill(QColor(0, 0, 0, 0))
+        layer.image.to_qimage().fill(QColor(0, 0, 0, 0))
     canvas.transparent_display_color = QColor("#ff00ff")
     canvas.main_color = QColor("#123456")
     sampled = []

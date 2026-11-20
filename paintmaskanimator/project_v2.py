@@ -8,7 +8,7 @@ from bisect import bisect_right
 
 from .i18n import tr
 from .document import project_v1_state
-from .pma_image import as_qimage, copy_image
+from .pma_image import PmaImage, as_qimage, copy_image, is_transparent_image
 from .timeline_metadata import reference_for, set_dense_import
 
 
@@ -91,7 +91,7 @@ def compatibility_scalars(sheet, blank_starts, pending, projected, inputs, resol
 
 
 def build_payload(snapshot, *, include_default_local_images=False):
-    """Return a new metadata dictionary and ordered (path, QImage, error) PNGs.
+    """Return a new metadata dictionary and ordered (path, image, error) PNGs.
 
     The snapshot must contain an installed dense document. This builder never
     numbers drawings, synthesizes hints, encodes images or mutates metadata.
@@ -179,7 +179,6 @@ def build_payload(snapshot, *, include_default_local_images=False):
                              source if source >= 0 else None))
             # Only live local Cells are collected, never old.legacy artwork.
             if not ((slot.has_content or slot.sequence_only) and slot.sequence_number is not None):
-                from PySide6.QtGui import QImage
                 cell = slot._cell
                 local = {"column": column, "retained_number": slot.sequence_number}
                 image = as_qimage(cell.image)
@@ -187,9 +186,7 @@ def build_payload(snapshot, *, include_default_local_images=False):
                               or not image.hasAlphaChannel()
                               or cell.initial_image is not None or cell.cell_name is not None)
                 if not keep_image:
-                    transparent = QImage(image.size(), image.format())
-                    transparent.fill(0)
-                    keep_image = image != transparent
+                    keep_image = not is_transparent_image(image)
                 if keep_image:
                     local.update(artwork(cell,
                         f"compatibility/layer_{li:04d}/position_{column:06d}.png"))
@@ -229,8 +226,6 @@ def _decode_payload(payload, archive, png_cache=None):
     """Build a private dense graph directly, without legacy installation."""
     import math
     import struct
-    from PySide6.QtCore import Qt
-    from PySide6.QtGui import QImage
     from . import project_io as io
     from .document import Document
     from .errors import OperationError
@@ -261,9 +256,7 @@ def _decode_payload(payload, archive, png_cache=None):
     decoded, seeded = {}, []
 
     def blank():
-        image = QImage(width, height, QImage.Format.Format_ARGB32_Premultiplied)
-        image.fill(Qt.GlobalColor.transparent)
-        return image
+        return PmaImage.blank(width, height)
 
     def image(path, paper, draft):
         try:
@@ -342,7 +335,7 @@ def _decode_payload(payload, archive, png_cache=None):
             slot.tween_member = position.get("tween_member")
             if imported is not None:
                 slot.__dict__["_v2_length_imported"] = imported
-            legacy = LegacyLayerV1(track.name, as_qimage(slot.image),
+            legacy = LegacyLayerV1(track.name, slot.image,
                 has_content=legacy_kind == "CELL", is_blank_key=legacy_kind == "BLANK",
                 sequence_number=legacy_number, sequence_only=pending,
                 exposure=exposure, tween=deepcopy(slot.tween), tween_member=slot.tween_member)
@@ -371,8 +364,6 @@ def _decode_payload_python(payload, archive, png_cache=None):
     import math
     import struct
     from pathlib import PurePosixPath
-    from PySide6.QtCore import Qt
-    from PySide6.QtGui import QImage
     from . import project_io as io
     from .document import Document
     from .errors import OperationError
@@ -451,9 +442,7 @@ def _decode_payload_python(payload, archive, png_cache=None):
     decoded, seeded = {}, []
 
     def blank():
-        image = QImage(width, height, QImage.Format.Format_ARGB32_Premultiplied)
-        image.fill(Qt.GlobalColor.transparent)
-        return image
+        return PmaImage.blank(width, height)
 
     def image(path, track):
         require(isinstance(path, str) and bool(path))
@@ -606,7 +595,7 @@ def _decode_payload_python(payload, archive, png_cache=None):
                 slot.__dict__["_v2_length_imported"] = guard["imported"]
                 input_length = integer(length.get("input_length", length["length"]),
                                    1, io.MAX_PROJECT_FRAMES)
-            legacy = LegacyLayerV1(track.name, as_qimage(slot.image),
+            legacy = LegacyLayerV1(track.name, slot.image,
                 has_content=legacy_kind == "CELL", is_blank_key=legacy_kind == "BLANK",
                 sequence_number=legacy_number, sequence_only=state is not None,
                 exposure=exposure, tween=deepcopy(slot.tween), tween_member=slot.tween_member)

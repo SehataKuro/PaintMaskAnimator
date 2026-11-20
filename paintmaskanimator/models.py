@@ -3,10 +3,9 @@ from dataclasses import dataclass
 from typing import ClassVar, List, Optional
 from weakref import WeakSet
 
-from PySide6.QtGui import QImage
-
-from .utils import blank_image
+from .pma_image import PmaImage, copy_image, to_pma_image
 from .timeline_metadata import set_dense_import, timeline_metadata
+from .utils import blank_image
 
 
 @dataclass(frozen=True)
@@ -43,6 +42,15 @@ class Cell:
     """
 
     __slots__ = ("image", "initial_image", "cell_name")
+
+    image: PmaImage | None
+    initial_image: PmaImage | None
+
+    def __setattr__(self, name, value):
+        # Layer のプロパティと Cell への直接代入が同じ境界を通る。
+        if name in ("image", "initial_image"):
+            value = to_pma_image(value)
+        object.__setattr__(self, name, value)
 
     def __init__(self, image=None, initial_image=None, cell_name=None):
         self.image = image if image is not None else blank_image()
@@ -168,8 +176,8 @@ class Layer:
                 # membership for batch metadata restoration (not drawing).
                 cell = track.cells[number]
                 self.__dict__["_cell"] = Cell(
-                    QImage(cell.image),
-                    QImage(cell.initial_image) if cell.initial_image is not None else None,
+                    copy_image(cell.image),
+                    copy_image(cell.initial_image),
                     cell.cell_name)
                 self.__dict__["_content_origin"] = number
         if (name == "has_content" and value) or (name == "is_blank_key" and value):
@@ -182,7 +190,7 @@ class Layer:
             self.__dict__.pop("_dense_import", None)
 
     name: str
-    image: QImage
+    image: PmaImage | None
     visible: bool = True
     opacity: float = 1.0
     is_paper: bool = False
@@ -205,7 +213,7 @@ class Layer:
     # 色塗り前の初期状態（カットフォルダーから読み込んだままの絵など）。自動塗りは
     # ここから黒の主線と色トレス線を取り出して部分を分ける。塗りかけの色や、仕上げ色で
     # 塗りつぶした色トレス線に惑わされないように保持する。比較表示にも使う。
-    initial_image: Optional[QImage] = None
+    initial_image: Optional[PmaImage] = None
 
     def clone_slot(self):
         """Copy position metadata without creating a Cell or Track.
@@ -243,7 +251,7 @@ class Layer:
         copied = self.clone_slot()
         copied.__dict__.pop("_dense_import", None)
         copied.__dict__["_v1_position"] = V1Position(replace(
-            snapshot_layer(self), image=blank_image(), initial_image=None,
+            snapshot_layer(self), image=to_pma_image(blank_image()), initial_image=None,
             cell_name=None, has_content=False, is_blank_key=False,
             sequence_number=None, sequence_only=False, exposure=1,
             tween=None, tween_member=None))
@@ -254,12 +262,12 @@ class Layer:
 
     def clone(self):
         """Clone one drawing and its display settings independently (Qt COW)."""
-        # QImage は暗黙共有。QImage(image) は画素をコピーせず参照を共有し、
+        # 画像を複製しても画素は暗黙共有され、
         # どちらかに書き込んだ時点（QPainter や bits()）で初めて複製される。
         # 大きなキャンバスでは Undo の文書スナップショットやコマの複製で
         # 全レイヤーを即座にコピーすると数百MB単位の確保になるため。
         copied = Layer(
-            self.name, QImage(self.image), self.visible, self.opacity,
+            self.name, copy_image(self.image), self.visible, self.opacity,
             self.is_paper, self.has_content, self.alpha_locked, self.blank_start,
             self.color_filter_enabled,
             tuple(self.color_filter_rgb) if self.color_filter_rgb is not None else None,
@@ -270,7 +278,7 @@ class Layer:
             str(self.cell_name) if self.cell_name is not None else None,
             copy.deepcopy(self.tween) if self.tween is not None else None,
             self.tween_member,
-            QImage(self.initial_image) if self.initial_image is not None else None,
+            copy_image(self.initial_image),
         )
         # Undo のスナップショットが、あとの表示設定の変更で汚れないようにする。
         copied.detach_track()
@@ -389,13 +397,13 @@ class Layer:
     def detach_cell(self):
         """共有をやめ、いまの絵を自分だけのものにする。
 
-        シート操作（このコマだけ別の絵にする・消す）で使う。``QImage`` は
+        シート操作（このコマだけ別の絵にする・消す）で使う。``画像`` は
         暗黙共有なので、ここでは画素を複製しない。
         """
         current = self._cell
         self.__dict__["_cell"] = Cell(
-            QImage(current.image) if current.image is not None else None,
-            QImage(current.initial_image) if current.initial_image is not None else None,
+            copy_image(current.image),
+            copy_image(current.initial_image),
             current.cell_name,
         )
 

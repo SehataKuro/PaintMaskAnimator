@@ -56,14 +56,14 @@ def test_white_brush_clears_to_transparent(qapp):
     canvas._begin_opaque_brush_stroke()
     canvas.draw_line(QPointF(40, 40), QPointF(160, 160), 1.0)
 
-    blue = _rgba(canvas.active_layer.image)
+    blue = _rgba(canvas.active_layer.image.to_qimage())
     assert np.any(blue[:, :, 3] == 255), "blue stroke should be opaque"
 
     canvas.main_color = QColor("#ffffff")
     canvas._begin_opaque_brush_stroke()
     canvas.draw_line(QPointF(40, 40), QPointF(160, 160), 1.0)
 
-    after = _rgba(canvas.active_layer.image)
+    after = _rgba(canvas.active_layer.image.to_qimage())
     # No pure-white opaque pixels are baked into the layer.
     baked_white = (
         (after[:, :, 3] == 255)
@@ -86,13 +86,13 @@ def test_white_bucket_fill_clears_region(qapp):
     canvas.color_mode = "main"
     canvas.ensure_editable_key()
     canvas.flood_fill(QPointF(10, 10))
-    filled = _rgba(canvas.active_layer.image)
+    filled = _rgba(canvas.active_layer.image.to_qimage())
     assert np.any(filled[:, :, 3] == 255)
 
     # Now bucket white over it -> region becomes transparent, not white.
     canvas.main_color = QColor("#ffffff")
     canvas.flood_fill(QPointF(10, 10))
-    after = _rgba(canvas.active_layer.image)
+    after = _rgba(canvas.active_layer.image.to_qimage())
     baked_white = (
         (after[:, :, 3] == 255)
         & np.all(after[:, :, :3] == 255, axis=2)

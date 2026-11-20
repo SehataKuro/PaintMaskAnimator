@@ -37,12 +37,12 @@ def draw_leaky_box(window, left=10, top=10, size=20, gap_at=None):
     layer = window.canvas.frames[0].layers[0]
     black = QColor(0, 0, 0)
     for offset in range(size):
-        layer.image.setPixelColor(left + offset, top, black)
-        layer.image.setPixelColor(left + offset, top + size, black)
-        layer.image.setPixelColor(left, top + offset, black)
-        layer.image.setPixelColor(left + size, top + offset, black)
+        layer.image.to_qimage().setPixelColor(left + offset, top, black)
+        layer.image.to_qimage().setPixelColor(left + offset, top + size, black)
+        layer.image.to_qimage().setPixelColor(left, top + offset, black)
+        layer.image.to_qimage().setPixelColor(left + size, top + offset, black)
     if gap_at is not None:
-        layer.image.setPixelColor(left + gap_at, top, QColor(0, 0, 0, 0))
+        layer.image.to_qimage().setPixelColor(left + gap_at, top, QColor(0, 0, 0, 0))
     layer.has_content = True
     return layer
 
@@ -77,7 +77,7 @@ def test_it_fills_a_box_that_leaks_through_a_one_dot_gap(window):
     window.canvas.set_tool("closed_fill")
     window.canvas.flood_fill(QPoint(20, 20))
 
-    image = window.canvas.frames[0].layers[0].image
+    image = window.canvas.frames[0].layers[0].image.to_qimage()
     # 囲いの中は塗られ、外へはこぼれない。
     assert image.pixelColor(20, 20) == QColor("#ff0000")
     assert image.pixelColor(2, 2) != QColor("#ff0000")
@@ -97,7 +97,7 @@ def test_the_bucket_leaks_through_the_same_gap_without_its_aids(window):
     window.canvas.set_tool("bucket")
     window.canvas.flood_fill(QPoint(20, 20))
 
-    image = window.canvas.frames[0].layers[0].image
+    image = window.canvas.frames[0].layers[0].image.to_qimage()
     assert image.pixelColor(2, 2) == QColor("#00ff00")
 
 
@@ -111,6 +111,6 @@ def test_the_closed_fill_holds_the_same_gap(window):
     window.canvas.set_tool("closed_fill")
     window.canvas.flood_fill(QPoint(20, 20))
 
-    image = window.canvas.frames[0].layers[0].image
+    image = window.canvas.frames[0].layers[0].image.to_qimage()
     assert image.pixelColor(20, 20) == QColor("#0000ff")
     assert image.pixelColor(2, 2) != QColor("#0000ff")

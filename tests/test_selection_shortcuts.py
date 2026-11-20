@@ -31,7 +31,7 @@ def window(qapp, tmp_path, monkeypatch):
 
 
 def _mask(window):
-    image = window.canvas.active_layer.image
+    image = window.canvas.active_layer.image.to_qimage()
     return window.canvas.selection_mask_bool(image.width(), image.height())
 
 

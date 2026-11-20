@@ -14,6 +14,7 @@ from PySide6.QtWidgets import QApplication
 from paintmaskanimator.document import create_drawing
 from paintmaskanimator.main_window import MainWindow
 from paintmaskanimator.undo_entries import ScopedBatchUndo
+from paintmaskanimator.pma_image import as_qimage
 
 
 @pytest.fixture(scope="module")
@@ -35,11 +36,11 @@ def window(qapp, tmp_path, monkeypatch):
 def paint_cell(window, frame_index, color, *, size=3, origin=(10, 10)):
     """コマの左上付近を白地の上から塗り、キーフレーム化する。"""
     layer = window.canvas.frames[frame_index].layers[0]
-    layer.image.fill(QColor("white"))
+    layer.image.to_qimage().fill(QColor("white"))
     x0, y0 = origin
     for y in range(y0, y0 + size):
         for x in range(x0, x0 + size):
-            layer.image.setPixelColor(x, y, QColor(color))
+            layer.image.to_qimage().setPixelColor(x, y, QColor(color))
     create_drawing(layer, layer.image, number=layer.sequence_number)
     return layer
 
@@ -58,13 +59,13 @@ def test_color_replacement_applies_to_every_frame_and_undoes_once(window, dense_
         hold(window.canvas, len(window.canvas.frames) - 1, 2)
 
     before = [
-        frame.layers[0].image.copy() for frame in window.canvas.frames
+        frame.layers[0].image.to_qimage().copy() for frame in window.canvas.frames
     ]
 
     assert window.used_color.apply_palette_replacements({(255, 0, 0): (0, 0, 255)})
 
     for frame in window.canvas.frames:
-        assert frame.layers[0].image.pixelColor(10, 10) == QColor("#0000ff")
+        assert frame.layers[0].image.to_qimage().pixelColor(10, 10) == QColor("#0000ff")
 
     entry = window.canvas.undo_stack[-1]
     assert isinstance(entry, ScopedBatchUndo)
@@ -72,7 +73,7 @@ def test_color_replacement_applies_to_every_frame_and_undoes_once(window, dense_
 
     window.canvas.undo()
     for frame, original in zip(window.canvas.frames, before):
-        assert frame.layers[0].image == original
+        assert as_qimage(frame.layers[0].image) == original
 
 
 def test_color_replacement_reports_no_match_without_touching_the_stack(window):
@@ -93,7 +94,7 @@ def test_dust_removal_over_all_frames_is_one_undo_entry(window, dense_hold):
         hold(window.canvas, len(window.canvas.frames) - 1, 2)
 
     before = [
-        frame.layers[0].image.copy() for frame in window.canvas.frames
+        frame.layers[0].image.to_qimage().copy() for frame in window.canvas.frames
     ]
 
     window.tools.dust_mode.setCurrentIndex(
@@ -106,7 +107,7 @@ def test_dust_removal_over_all_frames_is_one_undo_entry(window, dense_hold):
     window.line_ops.remove_dust_fill_surrounding()
 
     for frame in window.canvas.frames:
-        assert frame.layers[0].image.pixelColor(20, 20) == QColor("white")
+        assert frame.layers[0].image.to_qimage().pixelColor(20, 20) == QColor("white")
 
     entry = window.canvas.undo_stack[-1]
     assert isinstance(entry, ScopedBatchUndo)
@@ -115,7 +116,7 @@ def test_dust_removal_over_all_frames_is_one_undo_entry(window, dense_hold):
 
     window.canvas.undo()
     for frame, original in zip(window.canvas.frames, before):
-        assert frame.layers[0].image == original
+        assert as_qimage(frame.layers[0].image) == original
 
 
 def test_dust_removal_without_all_frames_touches_only_the_current_cell(window):
@@ -133,10 +134,10 @@ def test_dust_removal_without_all_frames_touches_only_the_current_cell(window):
 
     window.line_ops.remove_dust_fill_surrounding()
 
-    assert window.canvas.frames[0].layers[0].image.pixelColor(20, 20) == QColor(
+    assert window.canvas.frames[0].layers[0].image.to_qimage().pixelColor(20, 20) == QColor(
         "white"
     )
-    assert window.canvas.frames[1].layers[0].image.pixelColor(20, 20) == QColor(
+    assert window.canvas.frames[1].layers[0].image.to_qimage().pixelColor(20, 20) == QColor(
         "#000000"
     )
 
@@ -178,7 +179,7 @@ def test_deleting_a_used_color_erases_it_instead_of_painting_white(window):
 
     window.used_color.apply_palette_delete({(255, 0, 0)})
 
-    pixel = window.canvas.frames[0].layers[0].image.pixelColor(10, 10)
+    pixel = window.canvas.frames[0].layers[0].image.to_qimage().pixelColor(10, 10)
     assert pixel.alpha() == 0
 
 
@@ -191,25 +192,25 @@ def test_range_starting_inside_dense_hold_updates_shared_art_and_undo(window):
     paint_cell(window, 0, "red")
     hold(canvas, 0, 3)
     paint_cell(window, 3, "green")
-    before = [frame.layers[0].image.copy() for frame in canvas.frames]
+    before = [frame.layers[0].image.to_qimage().copy() for frame in canvas.frames]
     scope = FrameScope.cells((1, 2), (0,))
     assert resolve_cells(canvas, scope) == [(0, 0)]
     visited = []
 
     def recolor(context):
         visited.append((context.frame, context.layer_index))
-        result = context.layer.image.copy()
+        result = context.layer.image.to_qimage().copy()
         result.setPixelColor(10, 10, QColor("blue"))
         return result
 
     assert apply_over_scope(canvas, scope, recolor, label="範囲色置換")
     assert visited == [(0, 0)]
-    assert all(frame.layers[0].image.pixelColor(10, 10) == QColor("blue")
+    assert all(frame.layers[0].image.to_qimage().pixelColor(10, 10) == QColor("blue")
                for frame in canvas.frames[:3])
-    assert canvas.frames[3].layers[0].image == before[3]
+    assert as_qimage(canvas.frames[3].layers[0].image) == before[3]
     assert len(canvas.undo_stack[-1].cells) == 1
     canvas.undo()
-    assert [frame.layers[0].image for frame in canvas.frames] == before
+    assert [frame.layers[0].image.to_qimage() for frame in canvas.frames] == before
     canvas.redo()
-    assert all(frame.layers[0].image.pixelColor(10, 10) == QColor("blue")
+    assert all(frame.layers[0].image.to_qimage().pixelColor(10, 10) == QColor("blue")
                for frame in canvas.frames[:3])

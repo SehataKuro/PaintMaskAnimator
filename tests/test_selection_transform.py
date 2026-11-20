@@ -3,6 +3,7 @@ from PySide6.QtGui import QColor, QImage
 from PySide6.QtWidgets import QApplication
 
 from paintmaskanimator.canvas import PaintCanvas
+from paintmaskanimator.pma_image import as_qimage
 
 
 def test_quality_transform_places_moved_art_over_existing_art():
@@ -63,7 +64,7 @@ def test_mesh_history_restores_grid_and_cancel_discards_geometry():
     canvas.set_transform_quality(False)
     canvas.selection_polygon = [QPointF(10, 10), QPointF(30, 10),
                                 QPointF(30, 30), QPointF(10, 30)]
-    original = canvas.active_layer.image.copy()
+    original = canvas.active_layer.image.to_qimage().copy()
     assert canvas.begin_selection_transform("mesh")
     before = list(canvas.transform_points)
     old_cols, old_rows = canvas.transform_mesh_cols, canvas.transform_mesh_rows
@@ -75,7 +76,7 @@ def test_mesh_history_restores_grid_and_cancel_discards_geometry():
     canvas.redo()
     assert len(canvas.transform_points) == 30
     canvas.cancel_selection_transform()
-    assert canvas.active_layer.image == original
+    assert as_qimage(canvas.active_layer.image) == original
     assert not canvas.undo_stack
     assert not canvas.redo_stack
     canvas.deleteLater()

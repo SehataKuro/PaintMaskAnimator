@@ -112,6 +112,9 @@ def create_v1(case, path):
 
 
 def pixels(img):
+    from paintmaskanimator.pma_image import as_qimage
+
+    img = as_qimage(img)
     if img is None:
         return None
     rgba = img.convertToFormat(QImage.Format.Format_RGBA8888_Premultiplied)
@@ -201,7 +204,7 @@ def capture(w, path, temp):
     c.current_frame = len(c.frames) - 1
     c.ensure_editable_key()
     c.push_layer_undo()
-    c.active_layer.image.setPixelColor(0, 0, QColor("magenta"))
+    c.active_layer.image.to_qimage().setPixelColor(0, 0, QColor("magenta"))
     c.cellChanged.emit(c.current_frame, c.active_layer_index)
     result["paint"] = observe(w)
     c.undo()

@@ -18,7 +18,7 @@ def _app():
 def _paint(canvas, rect, color):
     """1手ぶんの編集（Undoエントリ付き）を行う。"""
     canvas.push_layer_region_undo(rect)
-    painter = QPainter(canvas.active_layer.image)
+    painter = QPainter(canvas.active_layer.image.to_qimage())
     painter.fillRect(rect, QColor(color))
     painter.end()
     canvas.active_layer.has_content = True
@@ -51,19 +51,19 @@ def test_switch_history_branch_restores_the_other_future():
     _paint(canvas, red_rect, "red")
     canvas.undo()
     _paint(canvas, blue_rect, "blue")
-    assert canvas.active_layer.image.pixelColor(blue_rect.center()) == QColor("blue")
+    assert canvas.active_layer.image.to_qimage().pixelColor(blue_rect.center()) == QColor("blue")
 
     assert canvas.switch_history_branch(0) is True
     # 青の未来が入れ替わりに分岐として残り、赤へ進めるようになる。
     assert len(canvas.history_branches) == 1
     assert canvas.redo_stack
     canvas.redo()
-    assert canvas.active_layer.image.pixelColor(red_rect.center()) == QColor("red")
+    assert canvas.active_layer.image.to_qimage().pixelColor(red_rect.center()) == QColor("red")
 
     # 元の（青の）分岐へも戻れる。
     assert canvas.switch_history_branch(0) is True
     canvas.redo()
-    assert canvas.active_layer.image.pixelColor(blue_rect.center()) == QColor("blue")
+    assert canvas.active_layer.image.to_qimage().pixelColor(blue_rect.center()) == QColor("blue")
 
 
 def test_switch_history_branch_invalidates_display_cache():
@@ -169,8 +169,8 @@ def test_clicking_branch_block_lands_on_that_state():
     assert canvas.switch_history_branch(green_block["value"]) is True
     for _ in range(green_block["steps"]):
         canvas.redo()
-    assert canvas.active_layer.image.pixelColor(green_rect.center()) == QColor("green")
-    assert canvas.active_layer.image.pixelColor(red_rect.center()) == QColor("red")
+    assert canvas.active_layer.image.to_qimage().pixelColor(green_rect.center()) == QColor("green")
+    assert canvas.active_layer.image.to_qimage().pixelColor(red_rect.center()) == QColor("red")
     panel.deleteLater()
 
 

@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QApplication
 from dense_fixtures import hold
 from paintmaskanimator.canvas import PaintCanvas
 from paintmaskanimator.undo_entries import LayerRegionUndo, LayerUndo
+from paintmaskanimator.pma_image import as_qimage
 
 
 def _app():
@@ -33,7 +34,7 @@ def test_playback_created_cell_can_be_undone_and_redone(blank_key):
     assert len(canvas.undo_stack) == 1
     number = canvas.active_layer.sequence_number
     canvas.push_layer_undo()
-    canvas.active_layer.image.fill(QColor("red"))
+    canvas.active_layer.image.to_qimage().fill(QColor("red"))
     # Playback can move away before history is traversed.
     canvas.playback_advance()
     canvas.set_playback_active(False)
@@ -50,14 +51,14 @@ def test_playback_created_cell_can_be_undone_and_redone(blank_key):
             for f in canvas.frames] == [
                 (f.layers[0].has_content, f.layers[0].is_blank_key, f.layers[0].sequence_number)
                 for f in before[0]]
-    assert restored.image == original.image
+    assert as_qimage(restored.image) == as_qimage(original.image)
 
     canvas.redo()
     canvas.redo()
     restored = canvas.frames[1].layers[0]
     assert restored.has_content
     assert restored.sequence_number == number
-    assert restored.image.pixelColor(0, 0) == QColor("red")
+    assert restored.image.to_qimage().pixelColor(0, 0) == QColor("red")
     canvas.close()
 
 
@@ -65,10 +66,10 @@ def test_region_undo_redo_restores_only_requested_area():
     _app()
     canvas = PaintCanvas()
     rect = QRect(100, 110, 24, 18)
-    before = canvas.active_layer.image.copy(rect)
+    before = canvas.active_layer.image.to_qimage().copy(rect)
     assert canvas.push_layer_region_undo(rect)
 
-    painter = QPainter(canvas.active_layer.image)
+    painter = QPainter(canvas.active_layer.image.to_qimage())
     painter.fillRect(rect, QColor("red"))
     painter.end()
     canvas.active_layer.has_content = True
@@ -76,16 +77,16 @@ def test_region_undo_redo_restores_only_requested_area():
     assert isinstance(canvas.undo_stack[-1], LayerRegionUndo)
     assert canvas.undo_stack[-1].image.size() == rect.size()
     canvas.undo()
-    assert canvas.active_layer.image.copy(rect) == before
+    assert canvas.active_layer.image.to_qimage().copy(rect) == before
     canvas.redo()
-    assert canvas.active_layer.image.pixelColor(rect.center()) == QColor("red")
+    assert canvas.active_layer.image.to_qimage().pixelColor(rect.center()) == QColor("red")
 
 
 def test_small_bucket_fill_replaces_full_snapshot_with_region():
     _app()
     canvas = PaintCanvas()
     source_rect = QRect(100, 100, 20, 16)
-    painter = QPainter(canvas.active_layer.image)
+    painter = QPainter(canvas.active_layer.image.to_qimage())
     painter.fillRect(source_rect, QColor("red"))
     painter.end()
     canvas.active_layer.has_content = True
@@ -98,9 +99,9 @@ def test_small_bucket_fill_replaces_full_snapshot_with_region():
     assert entry.rect == source_rect
     assert entry.image.size() == source_rect.size()
     canvas.undo()
-    assert canvas.active_layer.image.pixelColor(105, 105) == QColor("red")
+    assert canvas.active_layer.image.to_qimage().pixelColor(105, 105) == QColor("red")
     canvas.redo()
-    assert canvas.active_layer.image.pixelColor(105, 105) == QColor("blue")
+    assert canvas.active_layer.image.to_qimage().pixelColor(105, 105) == QColor("blue")
 
 
 def test_undo_stack_is_bounded_by_bytes_not_only_by_count(monkeypatch):
@@ -136,15 +137,15 @@ def test_undo_stack_always_keeps_one_entry_however_large(monkeypatch):
 def test_full_layer_inverse_shares_pixels_but_survives_later_painting():
     _app()
     canvas = PaintCanvas()
-    canvas.active_layer.image.fill(QColor("red"))
-    entry = LayerUndo(0, 0, QImage(canvas.active_layer.image), True)
+    canvas.active_layer.image.to_qimage().fill(QColor("red"))
+    entry = LayerUndo(0, 0, QImage(canvas.active_layer.image.to_qimage()), True)
     inverse = canvas.current_state_for(entry)
-    assert inverse.image.cacheKey() == canvas.active_layer.image.cacheKey()
-    painter = QPainter(canvas.active_layer.image)
+    assert inverse.image.to_qimage().cacheKey() == canvas.active_layer.image.to_qimage().cacheKey()
+    painter = QPainter(canvas.active_layer.image.to_qimage())
     painter.fillRect(QRect(0, 0, 2, 2), QColor("blue"))
     painter.end()
-    assert inverse.image.pixelColor(0, 0) == QColor("red")
-    assert canvas.active_layer.image.pixelColor(0, 0) == QColor("blue")
+    assert inverse.image.to_qimage().pixelColor(0, 0) == QColor("red")
+    assert canvas.active_layer.image.to_qimage().pixelColor(0, 0) == QColor("blue")
 
 
 def test_controller_defers_palette_scan_until_after_repeated_undo_redo():

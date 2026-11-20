@@ -39,7 +39,7 @@ def three_boxes(window):
     """白地に、横に並んだ3つの黒枠（内側は 6〜13 px 四方）を描く。"""
     canvas = window.canvas
     canvas.ensure_editable_key()
-    image = canvas.active_layer.image
+    image = canvas.active_layer.image.to_qimage()
     image.fill(QColor("white"))
     black = QColor("black")
     for left in (40, 80, 120):
@@ -66,7 +66,7 @@ def drag(canvas, points):
 
 
 def pixel(window, x, y):
-    return window.canvas.active_layer.image.pixelColor(x, y)
+    return window.canvas.active_layer.image.to_qimage().pixelColor(x, y)
 
 
 def test_dragging_fills_every_enclosed_area_it_crosses(window):
@@ -130,7 +130,7 @@ def test_dragging_fills_areas_closed_by_the_frame_edge(window):
 
     canvas = window.canvas
     canvas.ensure_editable_key()
-    image = canvas.active_layer.image
+    image = canvas.active_layer.image.to_qimage()
     image.fill(QColor("white"))
     painter = QPainter(image)
     painter.setPen(QPen(QColor("black"), 3))
@@ -169,7 +169,7 @@ def test_drag_cache_keeps_the_same_pixels_for_every_reference(window, monkeypatc
         for point in points[1:]:
             canvas.continue_bucket_drag(QPointF(*point))
         canvas.finish_bucket_drag()
-        return canvas.active_layer.image.copy()
+        return canvas.active_layer.image.to_qimage().copy()
     cached = stroke()
     original_extension = bucket_fill.extend_line_ends
     monkeypatch.setattr(bucket_fill, "extend_line_ends",
@@ -192,7 +192,7 @@ def test_drag_reuses_conversion_and_invalidates_after_external_edit(window, monk
     canvas.begin_bucket_drag(QPointF(50, 50))
     canvas.continue_bucket_drag(QPointF(90, 50))
     assert len(calls) == 1
-    canvas.active_layer.image.setPixelColor(200, 200, QColor("red"))
+    canvas.active_layer.image.to_qimage().setPixelColor(200, 200, QColor("red"))
     canvas.continue_bucket_drag(QPointF(130, 50))
     canvas.finish_bucket_drag()
     assert len(calls) == 2

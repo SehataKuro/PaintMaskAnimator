@@ -257,13 +257,13 @@ def test_quality_transform_applies_to_every_frame(canvas):
         canvas._ensure_frame_count(len(canvas.frames) + 1)
     for index, frame in enumerate(canvas.frames):
         layer = frame.layers[0]
-        rgba = imaging.qimage_rgba_array(layer.image).copy()
+        rgba = imaging.qimage_rgba_array(layer.image.to_qimage()).copy()
         rgba[:, :] = (0, 0, 0, 0)
         top = 40 + index * 3
         rgba[top:top + 90, 60:150] = (*FILL, 255)
         rgba[top:top + 90, 100:104] = (*LINE, 255)
         layer.image = imaging.rgba_array_to_qimage(rgba).convertToFormat(
-            layer.image.format()
+            layer.image.to_qimage().format()
         )
         layer.has_content = True
 
@@ -290,7 +290,7 @@ def test_quality_transform_applies_to_every_frame(canvas):
     canvas.commit_selection_transform(all_frames=True)
 
     for index, frame in enumerate(canvas.frames):
-        rendered = imaging.qimage_rgba_array(frame.layers[0].image)
+        rendered = imaging.qimage_rgba_array(frame.layers[0].image.to_qimage())
         alpha = rendered[:, :, 3]
         assert not np.any((alpha > 0) & (alpha < 255)), index
         colors = {
@@ -305,12 +305,12 @@ def test_quality_transform_applies_to_every_frame(canvas):
 
 def _commit_a_rotation(canvas):
     layer = canvas.frames[0].layers[0]
-    rgba = imaging.qimage_rgba_array(layer.image).copy()
+    rgba = imaging.qimage_rgba_array(layer.image.to_qimage()).copy()
     rgba[:, :] = (0, 0, 0, 0)
     rgba[40:130, 60:150] = (*FILL, 255)
     rgba[40:130, 100:104] = (*LINE, 255)
     layer.image = imaging.rgba_array_to_qimage(rgba).convertToFormat(
-        layer.image.format()
+        layer.image.to_qimage().format()
     )
     layer.has_content = True
     canvas.selection_polygon = [
@@ -333,7 +333,7 @@ def _commit_a_rotation(canvas):
 
 
 def _committed_pixels(canvas):
-    rendered = imaging.qimage_rgba_array(canvas.frames[0].layers[0].image)
+    rendered = imaging.qimage_rgba_array(canvas.frames[0].layers[0].image.to_qimage())
     alpha = rendered[:, :, 3]
     return (
         int(np.count_nonzero(alpha > 0)),
@@ -355,12 +355,12 @@ def test_commit_uses_full_resolution_even_after_a_proxy_preview(monkeypatch):
     monkeypatch.setattr(imaging, "TP_MASK_PROXY_THRESHOLD", 64)
     proxied = _commit_a_rotation(PaintCanvas())
     assert proxied._tp_uses_proxy(
-        proxied.active_layer.image.width(), proxied.active_layer.image.height()
+        proxied.active_layer.image.to_qimage().width(), proxied.active_layer.image.to_qimage().height()
     )
     proxied.transform_preview_image(
         proxied.transform_source,
-        proxied.active_layer.image.width(),
-        proxied.active_layer.image.height(),
+        proxied.active_layer.image.to_qimage().width(),
+        proxied.active_layer.image.to_qimage().height(),
         quality=True,
         preview_only=True,
     )

@@ -151,7 +151,7 @@ def test_helpers_use_pma_image_operations():
 
     pixels = image_rgba(image)
     np.testing.assert_array_equal(pixels, image.rgba())
-    assert not pixels.flags.writeable
+    assert pixels.flags.writeable
 
     duplicate.write_rgba(np.zeros((1, 1, 4), dtype=np.uint8))
     assert image.rgba()[0, 0].tolist() == [255, 0, 0, 255]
@@ -177,7 +177,7 @@ def test_helpers_accept_null_qimage(wrap):
     pixels = image_rgba(source)
     assert pixels.shape == (0, 0, 4)
     assert pixels.dtype == np.uint8
-    assert pixels.flags.writeable == (not wrap)
+    assert pixels.flags.writeable
 
 
 @pytest.mark.parametrize("wrap", [False, True])
@@ -190,10 +190,7 @@ def test_snapshot_image_preserves_type_and_copy_semantics(wrap):
     assert type(snapshot) is type(image)
     assert as_qimage(snapshot) is not as_qimage(image)
     assert as_qimage(snapshot) == qt_image
-    if wrap:
-        assert as_qimage(snapshot).cacheKey() == as_qimage(image).cacheKey()
-    else:
-        assert as_qimage(snapshot).cacheKey() != qt_image.cacheKey()
+    assert as_qimage(snapshot).cacheKey() != as_qimage(image).cacheKey()
     as_qimage(snapshot).fill(0)
     assert as_qimage(image).pixelColor(0, 0) == QColor("red")
 
@@ -211,8 +208,8 @@ def test_legacy_snapshot_copies_images_without_changing_their_type(wrap):
     snapshot = snapshot_layer(original)
 
     for duplicate in (snapshot.image, snapshot.initial_image):
-        assert type(duplicate) is type(image)
-        assert as_qimage(duplicate) is not as_qimage(image)
+        assert type(duplicate) is type(original.image)
+        assert as_qimage(duplicate) is not as_qimage(original.image)
         assert as_qimage(duplicate).cacheKey() == as_qimage(image).cacheKey()
         as_qimage(duplicate).fill(0)
         assert as_qimage(image).pixelColor(0, 0) == QColor("red")

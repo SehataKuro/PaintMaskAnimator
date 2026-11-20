@@ -5,19 +5,17 @@ and which layer is active — independent of any widget, event loop, or
 rendering. The PaintCanvas widget delegates its state to a Document instance
 so that this core model can be reasoned about and tested without a GUI.
 
-Frames/Layers still carry QImage payloads (a Qt data type, not a widget); the
-constraint here is *UI independence*, not total Qt independence.
+Frames and layers carry PmaImage payloads.
 """
 from copy import deepcopy
 from dataclasses import dataclass, replace
 from typing import Any, NamedTuple, cast
 
 from . import constants
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QImage
 
 from .models import ArchiveHint, Cell, Frame, Layer, Track, make_frame
 from .timeline_metadata import set_dense_import
+from .pma_image import PmaImage, copy_image, snapshot_image, to_pma_image
 from .utils import blank_image
 from .legacy_v1 import (LegacyLayerV1, legacy_layer_to_slot, snapshot_layer,
                         expand_legacy, compress_v1, V1Position)
@@ -252,8 +250,7 @@ class Document:
                     image = blank_image()
                 else:
                     width, height = canvas_size
-                    image = QImage(int(width), int(height), QImage.Format.Format_ARGB32_Premultiplied)
-                    image.fill(Qt.GlobalColor.transparent)
+                    image = PmaImage.blank(int(width), int(height))
                 slot = Layer(template.name, image)
                 slot.__dict__["_legacy_missing"] = True
                 frame.layers.append(slot)
@@ -294,8 +291,8 @@ class Document:
                                        if getattr(layer, name) is not None), None))
                 rescued = not content and not any(layer.sequence_only for layer in candidates)
                 track.cells[number] = Cell(
-                    QImage(owner.image) if rescued else owner.image,
-                    QImage(attrs[0]) if rescued and attrs[0] is not None else attrs[0],
+                    copy_image(owner.image) if rescued else owner.image,
+                    copy_image(attrs[0]) if rescued else attrs[0],
                     attrs[1],
                 )
             next_number = max(track.cells, default=0) + 1
@@ -366,8 +363,8 @@ def clone_frame_graph(frames, sequence_archive=None):
     def clone_cell(cell):
         if id(cell) not in cells:
             cells[id(cell)] = Cell(
-                QImage(cell.image),
-                QImage(cell.initial_image) if cell.initial_image is not None else None,
+                copy_image(cell.image),
+                copy_image(cell.initial_image),
                 cell.cell_name,
             )
         return cells[id(cell)]
@@ -425,7 +422,7 @@ def clear_slot(layer, *, blank=False):
     layer.sequence_number = None
     if position is not None and position.legacy is not None and not position.legacy.has_content:
         initial = position.legacy.initial_image
-        layer.initial_image = QImage(initial) if initial is not None else None
+        layer.initial_image = copy_image(initial)
     layer.image = blank_image()
     layer.has_content = False
     layer.is_blank_key = blank
@@ -443,12 +440,13 @@ def create_drawing(layer, image, *, number):
     No detach, clearing, copying, numbering policy or undo is implicit here.
     Passing None supports detached legacy construction before installation.
     """
+    image = to_pma_image(image)
     if layer._track.connected:
         if number is None:
             number = max(layer._track.cells, default=0) + 1
         previous = layer._cell
         layer._track.cells[int(number)] = Cell(
-            image, QImage(previous.initial_image) if previous.initial_image is not None else None,
+            image, copy_image(previous.initial_image),
             previous.cell_name)
     layer.sequence_number = number
     layer.image = image
@@ -468,7 +466,7 @@ def place_number(target, source, number):
     target.detach_cell()
     target.sequence_number = None
     target.image = source.image
-    target.initial_image = (QImage(copied.initial_image) if copied.initial_image is not None else None)
+    target.initial_image = copy_image(copied.initial_image)
     target.has_content = bool(copied.has_content)
     target.is_blank_key = not bool(copied.has_content)
     target.cell_name = getattr(copied, "cell_name", None)
@@ -546,8 +544,8 @@ def import_drawing_reference(frames, archive, fi, li, source, *, preferred_frame
         cell = target._track.cells.get(int(number))
         if cell is None:
             cell = target._track.cells[int(number)] = Cell()
-        cell.image = QImage(owner.image)
-        cell.initial_image = QImage(initial) if initial is not None else None
+        cell.image = copy_image(owner.image)
+        cell.initial_image = copy_image(initial)
         cell.cell_name = name
     copy_drawing_reference(target, copied, content=content, blank=blank)
 
@@ -619,12 +617,12 @@ def apply_numbered_images(frames, layer_index, source_for_number, snapshots):
                 source_for_number[number]
             ]
             if track is None or not track.connected:
-                layer.image = image.copy()
+                layer.image = snapshot_image(image)
             layer.has_content = has_content
             layer.is_blank_key = is_blank
             if track is None or not track.connected:
                 layer.cell_name = cell_name
-                layer.initial_image = QImage(initial_image) if initial_image is not None else None
+                layer.initial_image = copy_image(initial_image)
 
 
 def assign_numbers_to_unnumbered(frames, layer_index):
@@ -677,7 +675,7 @@ def project_v1_state(frames, sequence_archive=None) -> tuple[list[Any], dict[Any
                           alpha_locked=track.alpha_locked,
                           color_filter_enabled=track.color_filter_enabled,
                           color_filter_rgb=deepcopy(track.color_filter_rgb),
-                          initial_image=QImage(cell.initial_image) if cell.initial_image is not None else None,
+                          initial_image=copy_image(cell.initial_image),
                           cell_name=cell.cell_name, has_content=hint.has_content,
                           is_blank_key=hint.is_blank_key, exposure=hint.exposure,
                           sequence_number=number, sequence_only=hint.sequence_only,
@@ -698,9 +696,8 @@ def project_v1_state(frames, sequence_archive=None) -> tuple[list[Any], dict[Any
                                   tween_member=slot.tween_member)
                 if slot.has_content and (old.legacy.has_content
                                          or span_at(frames, li, column)[1] == column):
-                    payload = replace(payload, image=QImage(slot.image),
-                                      initial_image=QImage(slot.initial_image)
-                                      if slot.initial_image is not None else None,
+                    payload = replace(payload, image=copy_image(slot.image),
+                                      initial_image=copy_image(slot.initial_image),
                                       cell_name=slot.cell_name)
             if old is not None and old.legacy is None:
                 payload = None

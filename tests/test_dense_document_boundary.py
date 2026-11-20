@@ -7,6 +7,8 @@ from paintmaskanimator.models import Frame
 from paintmaskanimator.sheet import sheet_numbers
 from paintmaskanimator.timeline_resolution import resolve_exposures
 from paintmaskanimator.timeline_span import span_at
+from paintmaskanimator.pma_image import as_qimage
+from dense_fixtures import qt_legacy_rows
 
 
 def image(color):
@@ -24,20 +26,20 @@ def test_install_dense_roundtrip_hidden_payload_and_clone():
     frames = [Frame([raw(7, has_content=True, exposure=3)], 2),
               Frame([raw(19, image=image("cyan"), initial_image=image("green"),
                          cell_name="hidden")]), Frame([raw()])]
-    baseline = snapshot_frames(frames)
+    baseline = qt_legacy_rows(snapshot_frames(frames))
     doc = Document()
     doc.install_legacy_frames(frames)
     assert sheet_numbers(doc.frames, 0) == [7, 7, 7]
     assert span_at(doc.frames, 0, 2) == ("content", 0, 3)
     projected, _ = project_v1_state(doc.frames)
-    assert snapshot_frames(projected) == baseline
+    assert qt_legacy_rows(snapshot_frames(projected)) == baseline
     copied = doc.clone_graph()
     assert copied.frames[0].duration == 2
     assert copied.frames[1].layers[0]._track is copied.frames[0].layers[0]._track
     assert copied.frames[0].layers[0]._track is not doc.tracks[0]
     doc.install_legacy_frames(doc.frames)
     assert sheet_numbers(doc.frames, 0) == [7, 7, 7]
-    assert snapshot_frames(project_v1_state(doc.frames)[0]) == baseline
+    assert qt_legacy_rows(snapshot_frames(project_v1_state(doc.frames)[0])) == baseline
 
 
 def test_pending_sheet_and_resolved_are_distinct():
@@ -93,7 +95,7 @@ def test_v1_archive_reader_installs_dense_without_live_exposure(tmp_path):
     assert not hasattr(reopened.frames[0].layers[0], "exposure")
     projected, _ = project_v1_state(reopened.frames)
     assert projected[1].layers[0].cell_name == "hidden"
-    assert projected[1].layers[0].image == image("cyan")
+    assert as_qimage(projected[1].layers[0].image) == image("cyan")
 
 
 def test_projection_keeps_unplaced_bank_attributes_and_settings():
@@ -106,8 +108,8 @@ def test_projection_keeps_unplaced_bank_attributes_and_settings():
     _, archive = project_v1_state(doc.frames)
     saved = archive[(0, 12)]
     assert saved.cell_name == "unplaced"
-    assert saved.initial_image == image("green")
-    assert saved.image == image("blue")
+    assert as_qimage(saved.initial_image) == image("green")
+    assert as_qimage(saved.image) == image("blue")
     assert not saved.visible and saved.opacity == 0.5
 
 
@@ -123,21 +125,21 @@ def test_single_clone_detaches_hidden_position_payload_and_pending_snapshot():
     assert copied.__dict__["_dense_import"] == source.__dict__["_dense_import"]
     position = copied.__dict__["_v1_position"]
     position.legacy.tween["points"].append(2)
-    position.legacy.image.fill(QColor("black"))
+    position.legacy.image.to_qimage().fill(QColor("black"))
     assert source.__dict__["_v1_position"].legacy.tween == {"points": [1]}
-    assert source.__dict__["_v1_position"].legacy.image == image("red")
-    copied.image.fill(QColor("blue"))
-    assert source.image == image("red")
+    assert as_qimage(source.__dict__["_v1_position"].legacy.image) == image("red")
+    copied.image.to_qimage().fill(QColor("blue"))
+    assert as_qimage(source.image) == image("red")
 
 
 def test_refresh_and_track_attachment_preserve_pending_visible_exception():
     doc = Document()
     doc.install_legacy_frames([Frame([raw(7, has_content=True)]),
                                Frame([raw(99, has_content=True, sequence_only=True)])])
-    baseline = snapshot_frames(project_v1_state(doc.frames)[0])
+    baseline = qt_legacy_rows(snapshot_frames(project_v1_state(doc.frames)[0]))
     doc.install_legacy_frames(doc.frames)
     assert sheet_numbers(doc.frames, 0) == [7, None]
-    assert snapshot_frames(project_v1_state(doc.frames)[0]) == baseline
+    assert qt_legacy_rows(snapshot_frames(project_v1_state(doc.frames)[0])) == baseline
     copied = doc.clone_graph()
     assert sheet_numbers(copied.frames, 0) == [7, None]
-    assert snapshot_frames(project_v1_state(copied.frames)[0]) == baseline
+    assert qt_legacy_rows(snapshot_frames(project_v1_state(copied.frames)[0])) == baseline

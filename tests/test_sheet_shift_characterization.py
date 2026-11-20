@@ -87,7 +87,7 @@ def put(canvas, column, number, exposure=1, layer_index=0):
     layer.is_blank_key = number is None
     clear_pending(layer)
     if number is not None:
-        image = layer.image.copy()
+        image = layer.image.to_qimage().copy()
         image.setPixelColor(5, 5, QColor(COLORS[number]))
         create_drawing(layer, image, number=number)
     hold(canvas, column, exposure, layer_index)
@@ -121,7 +121,7 @@ def layer_state(canvas, layer_index=0):
         cells.append((layer.sequence_number, layer.exposure, layer.has_content,
                       layer.is_blank_key, layer.sequence_only))
         if layer.has_content:
-            pixels[column] = layer.image.pixelColor(5, 5).name()
+            pixels[column] = layer.image.to_qimage().pixelColor(5, 5).name()
     return cells, pixels
 
 
@@ -168,7 +168,7 @@ def test_menu_and_canvas_delete(window, column):
     if column == 5:
         assert 2 in canvas._document.tracks[0].legacy_archive_hints
         archived = canvas._document.tracks[0].cells[2]
-        assert archived.image.pixelColor(5, 5).name() == COLORS[2]
+        assert archived.image.to_qimage().pixelColor(5, 5).name() == COLORS[2]
     if column == 4:
         # 未使用の1コマだけの場合は何も削除せず、Undoも増やさない。
         canvas.frames = [make_frame(["Only"])]
@@ -223,7 +223,7 @@ def test_time_remap_and_undo(window, states):
         )
     check(canvas, expected)
     if len(states) != 2:
-        assert canvas._document.tracks[0].cells[2].image.pixelColor(5, 5).name() == COLORS[2]
+        assert canvas._document.tracks[0].cells[2].image.to_qimage().pixelColor(5, 5).name() == COLORS[2]
     canvas.undo()
     # J1-A: DocUndo restores the compatibility archive with the sheet.
     assert state(canvas) == before

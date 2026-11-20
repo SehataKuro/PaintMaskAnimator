@@ -32,7 +32,7 @@ def paint(window, color, origin=(10, 10), size=3):
     x0, y0 = origin
     for y in range(y0, y0 + size):
         for x in range(x0, x0 + size):
-            layer.image.setPixelColor(x, y, QColor(color))
+            layer.image.to_qimage().setPixelColor(x, y, QColor(color))
     layer.has_content = True
 
 

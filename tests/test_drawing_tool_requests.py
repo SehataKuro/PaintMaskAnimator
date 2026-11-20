@@ -27,7 +27,7 @@ def drawing(qtbot):
         i for i, layer in enumerate(canvas.frames[0].layers) if not layer.is_paper
     )
     canvas.ensure_editable_key()
-    canvas.active_layer.image.fill(Qt.GlobalColor.transparent)
+    canvas.active_layer.image.to_qimage().fill(Qt.GlobalColor.transparent)
     canvas.main_color = QColor("red")
     canvas.color_mode = "main"
     canvas.pen_size = 3
@@ -67,12 +67,12 @@ def test_shape_tool_draws_lines_and_curves(drawing, kind):
     drag(canvas, (20, 20), (100, 20))
     if kind == "curve":
         assert canvas.line_curve_stage == 2
-        assert canvas.active_layer.image.pixelColor(60, 20).alpha() == 0
+        assert canvas.active_layer.image.to_qimage().pixelColor(60, 20).alpha() == 0
         mouse(canvas, QMouseEvent.Type.MouseButtonPress, 60, 100)
         mouse(canvas, QMouseEvent.Type.MouseButtonRelease, 60, 100)
-        assert canvas.active_layer.image.pixelColor(60, 60) == QColor("red")
+        assert canvas.active_layer.image.to_qimage().pixelColor(60, 60) == QColor("red")
     else:
-        assert canvas.active_layer.image.pixelColor(60, 20) == QColor("red")
+        assert canvas.active_layer.image.to_qimage().pixelColor(60, 20) == QColor("red")
     assert canvas.line_curve_stage == 0
 
 
@@ -82,13 +82,13 @@ def test_shift_brush_ignores_detour_and_commits_one_straight_line(drawing):
     panel.select_tool("brush")
     mouse(canvas, QMouseEvent.Type.MouseButtonPress, 20, 20, True)
     mouse(canvas, QMouseEvent.Type.MouseMove, 60, 90, True)
-    assert canvas.active_layer.image.pixelColor(60, 90).alpha() == 0
+    assert canvas.active_layer.image.to_qimage().pixelColor(60, 90).alpha() == 0
     mouse(canvas, QMouseEvent.Type.MouseButtonRelease, 100, 20, True)
-    assert canvas.active_layer.image.pixelColor(60, 20) == QColor("red")
-    assert canvas.active_layer.image.pixelColor(60, 90).alpha() == 0
+    assert canvas.active_layer.image.to_qimage().pixelColor(60, 20) == QColor("red")
+    assert canvas.active_layer.image.to_qimage().pixelColor(60, 90).alpha() == 0
     assert canvas.effective_tool() == "brush"
     canvas.undo()
-    assert canvas.active_layer.image.pixelColor(60, 20).alpha() == 0
+    assert canvas.active_layer.image.to_qimage().pixelColor(60, 20).alpha() == 0
 
 
 def test_shift_click_connects_previous_brush_endpoint(drawing):
@@ -96,7 +96,7 @@ def test_shift_click_connects_previous_brush_endpoint(drawing):
     panel.select_tool("brush")
     drag(canvas, (20, 20), (30, 20))
     drag(canvas, (100, 20), (100, 20), True)
-    assert canvas.active_layer.image.pixelColor(65, 20) == QColor("red")
+    assert canvas.active_layer.image.to_qimage().pixelColor(65, 20) == QColor("red")
 
 
 def test_shift_line_can_be_canceled(drawing):
@@ -106,7 +106,7 @@ def test_shift_line_can_be_canceled(drawing):
     mouse(canvas, QMouseEvent.Type.MouseMove, 100, 20, True)
     QTest.keyClick(canvas, Qt.Key.Key_Escape)
     mouse(canvas, QMouseEvent.Type.MouseButtonRelease, 100, 20)
-    assert canvas.active_layer.image.pixelColor(60, 20).alpha() == 0
+    assert canvas.active_layer.image.to_qimage().pixelColor(60, 20).alpha() == 0
     assert canvas.effective_tool() == "brush"
 
 
@@ -114,14 +114,14 @@ def test_shift_line_can_be_canceled(drawing):
 @pytest.mark.parametrize("target", bucket_fill.TARGET_COLORS)
 def test_lasso_target_uses_selected_reference(drawing, reference, target):
     panel, canvas = drawing
-    painter = QPainter(canvas.active_layer.image)
+    painter = QPainter(canvas.active_layer.image.to_qimage())
     painter.fillRect(10, 10, 35, 60, QColor("black"))
     painter.end()
-    canvas.active_layer.initial_image = canvas.active_layer.image.copy()
+    canvas.active_layer.initial_image = canvas.active_layer.image.to_qimage().copy()
     canvas.add_layer()
     canvas.ensure_editable_key()
-    canvas.active_layer.image.fill(Qt.GlobalColor.transparent)
-    canvas.active_layer.initial_image = canvas.frames[0].layers[canvas.active_layer_index-1].image.copy()
+    canvas.active_layer.image.to_qimage().fill(Qt.GlobalColor.transparent)
+    canvas.active_layer.initial_image = canvas.frames[0].layers[canvas.active_layer_index-1].image.to_qimage().copy()
     panel.bucket_reference.setCurrentIndex(panel.bucket_reference.findData(reference))
     panel.bucket_target_color.setCurrentIndex(panel.bucket_target_color.findData(target))
     panel.select_tool("lasso_fill")
@@ -130,8 +130,8 @@ def test_lasso_target_uses_selected_reference(drawing, reference, target):
     canvas.fill_lasso_polygon([
         QPointF(15, 15), QPointF(80, 15), QPointF(80, 65), QPointF(15, 65),
     ])
-    left = canvas.active_layer.image.pixelColor(25, 30)
-    right = canvas.active_layer.image.pixelColor(60, 30)
+    left = canvas.active_layer.image.to_qimage().pixelColor(25, 30)
+    right = canvas.active_layer.image.to_qimage().pixelColor(60, 30)
     black_targets = {
         bucket_fill.TARGET_BLACK, bucket_fill.TARGET_SURROUNDED_BY_TRANSPARENT,
         bucket_fill.TARGET_SURROUNDED_BY_WHITE_TRANSPARENT,
@@ -152,12 +152,12 @@ def test_lasso_with_no_matching_target_does_not_add_undo(drawing):
     before = len(canvas.undo_stack)
     canvas.fill_lasso_polygon([QPointF(10, 10), QPointF(80, 10), QPointF(80, 80)])
     assert len(canvas.undo_stack) == before
-    assert canvas.active_layer.image.pixelColor(50, 30).alpha() == 0
+    assert canvas.active_layer.image.to_qimage().pixelColor(50, 30).alpha() == 0
 
 
 def test_lasso_boundary_option_works_with_explicit_black_target(drawing):
     panel, canvas = drawing
-    painter = QPainter(canvas.active_layer.image)
+    painter = QPainter(canvas.active_layer.image.to_qimage())
     painter.fillRect(10, 10, 35, 60, QColor("black"))
     painter.end()
     panel.bucket_target_color.setCurrentIndex(panel.bucket_target_color.findData(bucket_fill.TARGET_BLACK))
@@ -165,8 +165,8 @@ def test_lasso_boundary_option_works_with_explicit_black_target(drawing):
     canvas.fill_lasso_polygon([
         QPointF(15, 15), QPointF(80, 15), QPointF(80, 65), QPointF(15, 65),
     ])
-    assert canvas.active_layer.image.pixelColor(25, 30) == QColor("red")
-    assert canvas.active_layer.image.pixelColor(60, 30).alpha() == 0
+    assert canvas.active_layer.image.to_qimage().pixelColor(25, 30) == QColor("red")
+    assert canvas.active_layer.image.to_qimage().pixelColor(60, 30).alpha() == 0
 
 
 def test_modal_color_picker_eyedropper_receives_escape(qtbot, monkeypatch):
@@ -232,6 +232,6 @@ def test_pen_shift_drag_draws_straight_line(drawing):
             accept=lambda: None, ignore=lambda: None,
         )
         canvas.tabletEvent(event)
-    assert canvas.active_layer.image.pixelColor(60, 20) == QColor("red")
-    assert canvas.active_layer.image.pixelColor(60, 90).alpha() == 0
+    assert canvas.active_layer.image.to_qimage().pixelColor(60, 20) == QColor("red")
+    assert canvas.active_layer.image.to_qimage().pixelColor(60, 90).alpha() == 0
     assert canvas.effective_tool() == "brush"

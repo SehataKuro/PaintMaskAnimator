@@ -51,7 +51,7 @@ def test_signature_includes_live_local_artwork_and_compatibility(window):
     assert window.project.open(ROOT / "v1" / "hidden-retained.pman")
     slot = next(s for f in window.canvas.frames for s in f.layers if not s.has_content)
     signature = window.project._content_signature()
-    slot._cell.image.fill(QColor("magenta"))
+    slot._cell.image.to_qimage().fill(QColor("magenta"))
     assert window.project._content_signature() != signature
     window.project.mark_saved()
     assert window.project.open(ROOT / "v1" / "pending-collision-2-2.pman")
@@ -102,7 +102,7 @@ def test_signature_does_not_scan_or_encode_pixels(window, monkeypatch):
     monkeypatch.setattr(project_io, "encode_png", fail)
     window.project.mark_saved()
     assert not window.project.has_unsaved_changes()
-    window.canvas.frames[0].layers[0].image.fill(QColor("magenta"))
+    window.canvas.frames[0].layers[0].image.to_qimage().fill(QColor("magenta"))
     assert window.project.has_unsaved_changes()
 
 
@@ -132,7 +132,7 @@ def test_signature_tracks_compatibility_inputs_and_local_state(window, change):
         slot = next(s for f in window.canvas.frames for s in f.layers
                     if not ((s.has_content or s.sequence_only) and s.sequence_number is not None))
         if change == "initial":
-            slot._cell.initial_image = slot._cell.image.copy()
+            slot._cell.initial_image = slot._cell.image.to_qimage().copy()
         else:
             slot._cell.cell_name = "changed-local"
     assert window.project.has_unsaved_changes()

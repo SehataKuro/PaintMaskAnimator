@@ -17,6 +17,7 @@ from paintmaskanimator.main_window import MainWindow
 from paintmaskanimator.models import Frame
 from paintmaskanimator.timeline_span import span_at
 from paintmaskanimator.undo_entries import DocUndo
+from paintmaskanimator.pma_image import as_qimage
 
 
 def cell(number, **kw):
@@ -141,8 +142,8 @@ def test_writer_reader_and_hidden_payload_roundtrip(tmp_path):
                          project_io.legacy_fixture_build_v1_payload(loaded_again))
     frames[1].layers[0].image.fill(QColor("black"))
     frames[1].layers[0].initial_image.fill(QColor("black"))
-    assert rows[1][0].image == image("cyan")
-    assert rows[1][0].initial_image == image("green")
+    assert as_qimage(rows[1][0].image) == image("cyan")
+    assert as_qimage(rows[1][0].initial_image) == image("green")
     assert recovered[1].layers[0].cell_name == "invisible"
 
 
@@ -263,8 +264,8 @@ def test_adjacent_blanks_old_boundaries_and_local_invisible_payload():
     assert [row[0].blank_start for row in dense.positions] == [True, False, True, False, False]
     packed = compress_v1(dense.sheet[:4] + (refs(3),), dense.positions)
     assert packed[0][0].exposure == packed[2][0].exposure == 2
-    assert packed[1][0].image == image("cyan")
-    assert packed[1][0].initial_image == image("green")
+    assert as_qimage(packed[1][0].image) == image("cyan")
+    assert as_qimage(packed[1][0].initial_image) == image("green")
     assert packed[1][0].cell_name == "hidden"
     assert packed[1][0].sequence_number == 19
     assert not packed[1][0].has_content

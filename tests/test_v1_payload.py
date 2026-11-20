@@ -7,6 +7,8 @@ import zipfile
 
 from PySide6.QtGui import QImage
 
+from paintmaskanimator.pma_image import as_qimage
+
 from paintmaskanimator import native, project_io
 from paintmaskanimator.models import Frame, Layer, TRACK_FIELDS
 from paintmaskanimator.legacy_v1 import raw_v1_slot
@@ -118,8 +120,9 @@ def test_build_payload_does_not_mutate_document():
             values = []
             for field in fields(Layer):
                 value = getattr(layer, field.name)
-                values.append((field.name, (id(value), value.cacheKey())
-                               if isinstance(value, QImage) else copy.deepcopy(value)))
+                image = as_qimage(value)
+                values.append((field.name, (id(value), image.cacheKey())
+                               if isinstance(image, QImage) else copy.deepcopy(value)))
             return id(layer), id(layer._cell), id(layer._track), values
         return (id(frames), [(id(frame), frame.duration, id(frame.layers),
                              [layer_state(layer) for layer in frame.layers]) for frame in frames],

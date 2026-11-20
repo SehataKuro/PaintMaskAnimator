@@ -45,7 +45,7 @@ def _draw_cels(window, count):
     canvas._ensure_frame_count(count)
     for index in range(count):
         layer = canvas.frames[index].layers[0]
-        layer.image.fill(QColor(255, 0, 0, 255))
+        layer.image.to_qimage().fill(QColor(255, 0, 0, 255))
         layer.has_content = True
         layer.is_blank_key = False
         layer._track.cells[index + 1] = layer._cell
@@ -106,7 +106,7 @@ def test_every_exported_cel_is_written_without_a_colour_profile(window, tmp_path
     monkeypatch.setattr(QMessageBox, "information", lambda *_a, **_k: None)
     _draw_cels(window, 2)
     imported = window.canvas.frames[1].layers[0]
-    imported.image.setColorSpace(QColorSpace(QColorSpace.NamedColorSpace.SRgb))
+    imported.image.to_qimage().setColorSpace(QColorSpace(QColorSpace.NamedColorSpace.SRgb))
     cels, images, _ = window.export.cut_folder_cels()
     plan = cf.plan_export(
         cf.pma_standard_layout(), {"title": "PMA", "episode": "1", "cut": "5"}, cels
@@ -119,7 +119,7 @@ def test_every_exported_cel_is_written_without_a_colour_profile(window, tmp_path
     written = QImage(str(root / "A0002.png"))
     assert QColor(written.pixel(0, 0)) == QColor(255, 0, 0, 255)
     # Exporting must not strip the profile from the cel being edited.
-    assert imported.image.colorSpace().isValid()
+    assert imported.image.to_qimage().colorSpace().isValid()
 
 
 @pytest.mark.parametrize("kind", ["builtin", "user"])

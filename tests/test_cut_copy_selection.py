@@ -27,7 +27,7 @@ def canvas(qapp, tmp_path, monkeypatch):
     window = MainWindow()
     canvas = window.canvas
     canvas.ensure_editable_key()
-    image = canvas.active_layer.image
+    image = canvas.active_layer.image.to_qimage()
     painter = QPainter(image)
     painter.fillRect(image.rect(), GREEN)
     painter.end()
@@ -51,7 +51,7 @@ def test_cut_with_an_inverted_selection_follows_the_mask(canvas):
     bounds = canvas.selection_bounds()
     assert canvas.cut_selection()
 
-    image = canvas.active_layer.image
+    image = canvas.active_layer.image.to_qimage()
     assert image.pixelColor(M + 20, M + 20) == GREEN, "選択の外（元の四角の中）は残る"
     assert image.pixelColor(M + 100, M + 100).alpha() == 0, "選択の中は消える"
 
@@ -62,7 +62,7 @@ def test_cut_with_an_inverted_selection_follows_the_mask(canvas):
     assert clip.pixelColor(M + 100 - bounds.x(), M + 100 - bounds.y()).alpha() == 255
 
     canvas.undo()
-    assert canvas.active_layer.image.pixelColor(M + 100, M + 100) == GREEN
+    assert canvas.active_layer.image.to_qimage().pixelColor(M + 100, M + 100) == GREEN
 
 
 def test_copy_of_a_polygon_selection_is_masked(canvas):
@@ -73,12 +73,12 @@ def test_copy_of_a_polygon_selection_is_masked(canvas):
     clip = QApplication.clipboard().image()
     assert clip.pixelColor(2, 2).alpha() == 255, "三角の中は入る"
     assert clip.pixelColor(36, 36).alpha() == 0, "三角の外（外接矩形の隅）は入らない"
-    assert canvas.active_layer.image.pixelColor(M + 12, M + 12) == GREEN, "コピーは消さない"
+    assert canvas.active_layer.image.to_qimage().pixelColor(M + 12, M + 12) == GREEN, "コピーは消さない"
 
 
 def test_cut_without_a_selection_cuts_the_whole_layer(canvas):
     canvas.clear_selection()
     assert canvas.cut_selection()
-    assert canvas.active_layer.image.pixelColor(M + 50, M + 50).alpha() == 0
+    assert canvas.active_layer.image.to_qimage().pixelColor(M + 50, M + 50).alpha() == 0
     canvas.undo()
-    assert canvas.active_layer.image.pixelColor(M + 50, M + 50) == GREEN
+    assert canvas.active_layer.image.to_qimage().pixelColor(M + 50, M + 50) == GREEN

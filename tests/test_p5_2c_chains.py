@@ -13,6 +13,7 @@ from paintmaskanimator.models import Frame
 from paintmaskanimator.project_io import legacy_fixture_build_v1_payload
 from test_pending_slots import assert_pending_graph
 from test_track_cells import image, small_window  # noqa: F401
+from paintmaskanimator.pma_image import as_qimage
 
 
 def payload(path):
@@ -58,7 +59,7 @@ def graph(canvas):
         canvas.current_frame,
         [[(s.sequence_number, s.has_content, s.is_blank_key, s.exposure, s.sequence_only)
           for s in frame.layers] for frame in project_v1_state(canvas.frames)[0]],
-        [{n: (QImage(c.image), QImage(c.initial_image) if c.initial_image is not None else None,
+        [{n: (QImage(c.image.to_qimage()), QImage(c.initial_image.to_qimage()) if c.initial_image is not None else None,
               c.cell_name) for n, c in track.cells.items()}
          for track in canvas._document.tracks],
         [dict(track.legacy_archive_hints) for track in canvas._document.tracks],
@@ -96,17 +97,17 @@ def test_unplaced_undo_columns_pending_modes_docundo_save_reload(
     canvas.current_frame = 3
     canvas.undo()
     assert canvas.current_frame == 3
-    assert canvas._document.tracks[0].cells[1].image.pixel(0, 0) == 0xff123456
+    assert canvas._document.tracks[0].cells[1].image.to_qimage().pixel(0, 0) == 0xff123456
     assert not any(s.layers[0].has_content for s in canvas.frames)
     canvas.redo()
     assert canvas.current_frame == 3
-    assert canvas._document.tracks[0].cells[1].image.pixel(0, 0) == 0xffabcdef
+    assert canvas._document.tracks[0].cells[1].image.to_qimage().pixel(0, 0) == 0xffabcdef
     canvas.undo()
 
     window.layers.duplicate_rows([0])
     original, copied = canvas._document.tracks
     assert copied.cells[8] is not original.cells[8]
-    assert copied.cells[8].initial_image == original.cells[8].initial_image
+    assert as_qimage(copied.cells[8].initial_image) == as_qimage(original.cells[8].initial_image)
     window.layers.move_row([1], 0)
     assert canvas._document.tracks == [copied, original]
     canvas.active_layer_index = 0
@@ -142,8 +143,8 @@ def test_unplaced_undo_columns_pending_modes_docundo_save_reload(
         assert track.is_draft == bool(kind.get("is_draft"))
         assert track.is_paper == bool(kind.get("is_paper"))
         assert track.cells[number].cell_name == "eight"
-        assert track.cells[number].initial_image.pixel(0, 0) == 0xff112233
-        assert track.cells[number].image.pixel(0, 0) == 0xff8899aa
+        assert track.cells[number].initial_image.to_qimage().pixel(0, 0) == 0xff112233
+        assert track.cells[number].image.to_qimage().pixel(0, 0) == 0xff8899aa
 
     reference = tmp_path / "normal.pman"
     assert window.project.write(reference)

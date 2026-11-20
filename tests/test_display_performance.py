@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QApplication
 from paintmaskanimator import native, timeline_resolution
 from paintmaskanimator.canvas import PaintCanvas
 from paintmaskanimator.models import Frame, Layer
+from paintmaskanimator.pma_image import as_qimage
 
 
 @pytest.fixture(scope="module")
@@ -277,7 +278,7 @@ def test_onion_preview_preserves_full_size_render_and_visibility(
     canvas.onion_all_layers = all_layers
     canvas.selected_used_color_rgbs = {(255, 0, 0)}
     color = QColor(27, 187, 48)
-    original = QImage(canvas.frames[0].layers[0].image)
+    original = QImage(canvas.frames[0].layers[0].image.to_qimage())
     full = canvas._tinted_onion_image(0, color, True, selected_only)
     same_size = canvas._tinted_onion_image(0, color, True, selected_only, (64, 32))
     assert same_size == full
@@ -293,7 +294,7 @@ def test_onion_preview_preserves_full_size_render_and_visibility(
         assert hidden.pixelColor(0, 0).alpha() == 0
     canvas.set_layer_visibility(0, True)
     assert canvas._tinted_onion_image(0, color, True, selected_only, (16, 8)) is preview
-    assert canvas.frames[0].layers[0].image == original
+    assert as_qimage(canvas.frames[0].layers[0].image) == original
     canvas.close()
 
 

@@ -19,8 +19,8 @@ def window():
 def test_title_tracks_edit_revert_and_save(window, tmp_path):
     project = window.project
     assert not window.windowTitle().endswith(" *")
-    original = QImage(window.canvas.active_layer.image)
-    window.canvas.active_layer.image.setPixelColor(1, 1, QColor("red"))
+    original = QImage(window.canvas.active_layer.image.to_qimage())
+    window.canvas.active_layer.image.to_qimage().setPixelColor(1, 1, QColor("red"))
     window._title_timer.timeout.emit()
     assert window.windowTitle().endswith(" *")
     window.canvas.active_layer.image = original

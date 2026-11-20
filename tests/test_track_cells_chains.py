@@ -7,6 +7,7 @@ from paintmaskanimator.legacy_v1 import raw_v1_slot, LegacyLayerV1
 from dense_fixtures import length
 from paintmaskanimator.project_io import legacy_fixture_write_archive
 from test_track_cells import image, small_window  # noqa: F401
+from paintmaskanimator.pma_image import as_qimage
 
 
 @pytest.mark.parametrize("kind", [{}, {"is_draft": True}, {"is_paper": True}],
@@ -50,18 +51,18 @@ def test_load_duplicate_split_paint_move_paste_delete_undo_save_reload(
         assert tracks[0].is_paper == bool(kind.get("is_paper"))
         assert tracks[0].is_draft == bool(kind.get("is_draft"))
         assert set(tracks[0].cells) == ({8, 10, 11, 12} if split_done else {8, 10, 11})
-        assert tracks[0].cells[8].image.pixel(0, 0) == 0xff8899aa
+        assert tracks[0].cells[8].image.to_qimage().pixel(0, 0) == 0xff8899aa
         assert tracks[0].cells[8].cell_name == "archived"
-        assert tracks[0].cells[10].image.pixelColor(0, 0).alpha() == 0
+        assert tracks[0].cells[10].image.to_qimage().pixelColor(0, 0).alpha() == 0
         assert tracks[0].cells[10].initial_image is None
         assert tracks[0].cells[10].cell_name is None
-        assert tracks[0].cells[11].image.pixel(0, 0) == 0xff123456
+        assert tracks[0].cells[11].image.to_qimage().pixel(0, 0) == 0xff123456
         if split_done:
             assert tracks[0].cells[12] is not tracks[0].cells[11]
-            assert tracks[0].cells[12].image.pixel(0, 0) == (0xffabcdef if painted else 0xff123456)
-            assert tracks[0].cells[12].initial_image == tracks[0].cells[11].initial_image
+            assert tracks[0].cells[12].image.to_qimage().pixel(0, 0) == (0xffabcdef if painted else 0xff123456)
+            assert as_qimage(tracks[0].cells[12].initial_image) == as_qimage(tracks[0].cells[11].initial_image)
             assert tracks[0].cells[12].cell_name == "legacy"
-        assert tracks[0].cells[11].initial_image.pixel(0, 0) == 0xff112233
+        assert tracks[0].cells[11].initial_image.to_qimage().pixel(0, 0) == 0xff112233
         assert tracks[0].cells[11].cell_name == "legacy"
         for frame in canvas.frames:
             for layer in frame.layers:
@@ -87,7 +88,7 @@ def test_load_duplicate_split_paint_move_paste_delete_undo_save_reload(
     canvas.current_frame = 2
     canvas.ensure_editable_key()  # Existing keys need no conversion.
     canvas.push_layer_undo()
-    painter = QPainter(canvas.active_layer.image)
+    painter = QPainter(canvas.active_layer.image.to_qimage())
     painter.fillRect(0, 0, 2, 2, QColor(0xffabcdef))
     painter.end()
     check(True)
@@ -104,7 +105,7 @@ def test_load_duplicate_split_paint_move_paste_delete_undo_save_reload(
     assert window.timeline_ops.paste_cell_from_clipboard(0, 0)
     check(True)
     assert canvas.frames[0].layers[1].sequence_number == 12
-    assert canvas._document.tracks[1].cells[12].image.pixel(0, 0) == 0xffabcdef
+    assert canvas._document.tracks[1].cells[12].image.to_qimage().pixel(0, 0) == 0xffabcdef
     assert window.timeline_ops.clear_cell(0, 0)
     check(True)
     assert not any(f.layers[1].has_content for f in canvas.frames)
@@ -132,7 +133,7 @@ def test_load_duplicate_split_paint_move_paste_delete_undo_save_reload(
             [(frame.duration, [(layer.sequence_number, layer.blank_start,
                                 layer.has_content, layer.is_blank_key, layer.sequence_only)
                                for layer in frame.layers]) for frame in canvas.frames],
-            [{n: (QImage(cell.image), QImage(cell.initial_image)
+            [{n: (QImage(cell.image.to_qimage()), QImage(cell.initial_image.to_qimage())
                    if cell.initial_image is not None else None, cell.cell_name)
               for n, cell in track.cells.items()} for track in canvas._document.tracks],
         )
@@ -147,7 +148,7 @@ def test_load_duplicate_split_paint_move_paste_delete_undo_save_reload(
     check(True, dirty=False)
     assert state() == before_save
     assert not window.project.has_unsaved_changes()
-    assert canvas._document.tracks[1].cells[12].image.pixel(0, 0) == 0xffabcdef
+    assert canvas._document.tracks[1].cells[12].image.to_qimage().pixel(0, 0) == 0xffabcdef
     assert canvas._document.tracks[1].cells[12].cell_name == "legacy"
 
 
@@ -211,7 +212,7 @@ def test_registration_consumes_local_cell(small_window, operation):  # noqa: F81
             _, archive = project_v1_state(canvas.frames)
             target = archive[(0, 1)]
         assert target.cell_name == "one"
-        assert target.initial_image.pixel(0, 0) == 0xffaabbcc
+        assert target.initial_image.to_qimage().pixel(0, 0) == 0xffaabbcc
     if operation == "undo_view":
         assert target.cell is canvas._document.tracks[0].cells[1]
         assert target.column is None

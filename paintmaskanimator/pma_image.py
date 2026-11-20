@@ -17,6 +17,13 @@ class PmaImage:
         """内部形式に揃えた画像を保持する。"""
         self._image = image.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
 
+    @classmethod
+    def blank(cls, width: int, height: int) -> "PmaImage":
+        """指定寸法の透明画像を作る。"""
+        image = QImage(width, height, QImage.Format.Format_ARGB32_Premultiplied)
+        image.fill(0)
+        return cls(image)
+
     @property
     def width(self) -> int:
         """画像の幅を画素単位で返す。"""
@@ -81,6 +88,23 @@ class PmaImage:
         return cls(image)
 
 
+ImageInput = QImage | PmaImage | None
+
+
+def to_pma_image(image: QImage | PmaImage | None) -> PmaImage | None:
+    """モデルへ渡された画像を格納形式に揃える。"""
+    if image is None or isinstance(image, PmaImage):
+        return image
+    return PmaImage.from_qimage(image)
+
+
+def is_transparent_image(image: QImage) -> bool:
+    """同じ形式の透明画像と比較する。"""
+    transparent = QImage(image.size(), image.format())
+    transparent.fill(0)
+    return image == transparent
+
+
 # 7-2f の後に削除または見直す。
 def as_qimage(image: QImage | PmaImage | None) -> QImage | None:
     """内部の QImage を返す。QImage と None はそのまま返す。"""
@@ -97,17 +121,17 @@ def copy_image(image: QImage | PmaImage | None) -> QImage | PmaImage | None:
 
 # 7-2f の後に削除または見直す。
 def snapshot_image(image: QImage | PmaImage | None) -> QImage | PmaImage | None:
-    """同じ型で保存する。QImage は従来の全体コピーを使い、None はそのまま返す。"""
+    """画素を複製する。同じ型を返し、None はそのまま返す。"""
     if image is None:
         return None
+    if isinstance(image, PmaImage):
+        return PmaImage.from_qimage(image.to_qimage().copy())
     return image.copy()
 
 
 # 7-2f の後に削除または見直す。
 def image_rgba(image: QImage | PmaImage | None) -> np.ndarray | None:
-    """読み取り用途の RGBA 配列を返す。QImage は従来の変換を使う。"""
+    """従来と同じ、書き込み可能な RGBA 配列の複製を返す。"""
     if image is None:
         return None
-    if isinstance(image, PmaImage):
-        return image.rgba()
-    return imaging.qimage_rgba_array(image)
+    return imaging.qimage_rgba_array(as_qimage(image))

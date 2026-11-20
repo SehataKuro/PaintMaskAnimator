@@ -81,12 +81,12 @@ def paint_window_cel(window):
     layer = window.canvas.frames[0].layers[0]
     for y in range(10, 20):
         for x in range(10, 20):
-            layer.image.setPixelColor(
+            layer.image.to_qimage().setPixelColor(
                 OUTSIDE_MARGIN + x, OUTSIDE_MARGIN + y, QColor(*NORMAL_RGB)
             )
     for y in range(15, 20):
         for x in range(15, 20):
-            layer.image.setPixelColor(
+            layer.image.to_qimage().setPixelColor(
                 OUTSIDE_MARGIN + x, OUTSIDE_MARGIN + y, QColor(*SHADOW_RGB)
             )
     layer.has_content = True

@@ -61,18 +61,18 @@ def test_import_matches_numbers_not_frame_positions_and_preserves_work(window, t
     canvas = window.canvas
     canvas.current_frame = 2
     old_frames = canvas.frames
-    old_keys = [(cell.sequence_number, cell.blank_start, cell.image.cacheKey())
+    old_keys = [(cell.sequence_number, cell.blank_start, cell.image.to_qimage().cacheKey())
                 for frame in canvas.frames for cell in frame.layers]
     assert window.initial_state.import_line_art(tmp_path) == 3
     assert canvas.frames is old_frames
     assert canvas.current_frame == 2
-    assert [(cell.sequence_number, cell.blank_start, cell.image.cacheKey())
+    assert [(cell.sequence_number, cell.blank_start, cell.image.to_qimage().cacheKey())
             for frame in canvas.frames for cell in frame.layers] == old_keys
-    assert canvas.frames[0].layers[0].initial_image.pixelColor(0, 0) == QColor("black")
-    assert canvas.frames[2].layers[0].initial_image.cacheKey() == canvas.frames[0].layers[0].initial_image.cacheKey()
+    assert canvas.frames[0].layers[0].initial_image.to_qimage().pixelColor(0, 0) == QColor("black")
+    assert canvas.frames[2].layers[0].initial_image.to_qimage().cacheKey() == canvas.frames[0].layers[0].initial_image.to_qimage().cacheKey()
     assert project_v1_state(canvas.frames)[0][1].layers[0].initial_image is None
-    assert canvas.frames[0].layers[1].initial_image.pixelColor(0, 0) == QColor("yellow")
-    assert canvas._document.tracks[0].cells[3].initial_image.pixelColor(0, 0) == QColor("white")
+    assert canvas.frames[0].layers[1].initial_image.to_qimage().pixelColor(0, 0) == QColor("yellow")
+    assert canvas._document.tracks[0].cells[3].initial_image.to_qimage().pixelColor(0, 0) == QColor("white")
     assert isinstance(canvas.undo_stack[-1], InitialStateUndo)
     window.initial_state.set_compare(True)
     assert canvas.show_initial_state
@@ -87,13 +87,13 @@ def test_import_is_one_undo_and_redo_restores_previous_initials(window, tmp_path
     assert window.initial_state.import_line_art(tmp_path) == 3
     assert len(canvas.undo_stack) == before + 1
     canvas.undo()
-    assert canvas.frames[0].layers[0].initial_image.pixelColor(0, 0) == QColor("magenta")
-    assert canvas.frames[2].layers[0].initial_image.pixelColor(0, 0) == QColor("magenta")
+    assert canvas.frames[0].layers[0].initial_image.to_qimage().pixelColor(0, 0) == QColor("magenta")
+    assert canvas.frames[2].layers[0].initial_image.to_qimage().pixelColor(0, 0) == QColor("magenta")
     assert canvas._document.tracks[0].cells[3].initial_image is None
     canvas.redo()
-    assert canvas.frames[0].layers[0].initial_image.pixelColor(0, 0) == QColor("black")
+    assert canvas.frames[0].layers[0].initial_image.to_qimage().pixelColor(0, 0) == QColor("black")
     assert canvas._document.tracks[0].cells[3].initial_image is not None
-    assert canvas.frames[0].layers[0].image.pixelColor(0, 0) == QColor("red")
+    assert canvas.frames[0].layers[0].image.to_qimage().pixelColor(0, 0) == QColor("red")
 
 
 @pytest.mark.parametrize("failure", ["size", "broken", "missing_folder"])
@@ -155,9 +155,9 @@ def test_imported_initials_survive_project_save(window, tmp_path):
     loaded = project_io.load_project(path)
     assert loaded.format_version == 2
     frames = loaded.document.frames
-    assert frames[0].layers[0].image.pixelColor(0, 0) == QColor("red")
-    assert frames[0].layers[0].initial_image.pixelColor(0, 0) == QColor("black")
-    assert loaded.document.tracks[0].cells[3].initial_image.pixelColor(0, 0) == QColor("white")
+    assert frames[0].layers[0].image.to_qimage().pixelColor(0, 0) == QColor("red")
+    assert frames[0].layers[0].initial_image.to_qimage().pixelColor(0, 0) == QColor("black")
+    assert loaded.document.tracks[0].cells[3].initial_image.to_qimage().pixelColor(0, 0) == QColor("white")
 
 
 def test_archived_initial_is_retained_when_placing_cel_on_sheet(window, tmp_path):
@@ -167,8 +167,8 @@ def test_archived_initial_is_retained_when_placing_cel_on_sheet(window, tmp_path
     window.timeline_ops.recall_sequence_number(1, 1, 3)
     placed = window.canvas.frames[1].layers[0]
     assert placed.sequence_number == 3
-    assert placed.image.pixelColor(0, 0) == QColor("green")
-    assert placed.initial_image.pixelColor(0, 0) == QColor("white")
+    assert placed.image.to_qimage().pixelColor(0, 0) == QColor("green")
+    assert placed.initial_image.to_qimage().pixelColor(0, 0) == QColor("white")
 
 
 def test_draft_paper_and_unnumbered_cels_are_not_matched_by_position(window, tmp_path, monkeypatch):
@@ -198,24 +198,24 @@ def test_clip_import_matches_cel_numbers_and_archives_with_one_undo(window, monk
     clip_document(monkeypatch)
     canvas = window.canvas
     frames = canvas.frames
-    before = [(cell.sequence_number, cell.blank_start, cell.image.cacheKey())
+    before = [(cell.sequence_number, cell.blank_start, cell.image.to_qimage().cacheKey())
               for frame in frames for cell in frame.layers]
     undo_count = len(canvas.undo_stack)
     assert window.initial_state.import_clip_line_art("lines.clip") == 3
     assert canvas.frames is frames
-    assert before == [(cell.sequence_number, cell.blank_start, cell.image.cacheKey())
+    assert before == [(cell.sequence_number, cell.blank_start, cell.image.to_qimage().cacheKey())
                       for frame in frames for cell in frame.layers]
-    assert frames[0].layers[0].initial_image.pixelColor(0, 0) == QColor("black")
-    assert frames[2].layers[0].initial_image.pixelColor(0, 0) == QColor("black")
+    assert frames[0].layers[0].initial_image.to_qimage().pixelColor(0, 0) == QColor("black")
+    assert frames[2].layers[0].initial_image.to_qimage().pixelColor(0, 0) == QColor("black")
     assert project_v1_state(frames)[0][1].layers[0].initial_image is None
-    assert frames[0].layers[1].initial_image.pixelColor(0, 0) == QColor("yellow")
-    assert canvas._document.tracks[0].cells[3].initial_image.pixelColor(0, 0) == QColor("white")
+    assert frames[0].layers[1].initial_image.to_qimage().pixelColor(0, 0) == QColor("yellow")
+    assert canvas._document.tracks[0].cells[3].initial_image.to_qimage().pixelColor(0, 0) == QColor("white")
     assert len(canvas.undo_stack) == undo_count + 1
     canvas.undo()
     assert frames[0].layers[0].initial_image is None
     assert canvas._document.tracks[0].cells[3].initial_image is None
     canvas.redo()
-    assert frames[0].layers[0].initial_image.pixelColor(0, 0) == QColor("black")
+    assert frames[0].layers[0].initial_image.to_qimage().pixelColor(0, 0) == QColor("black")
 
 
 @pytest.mark.parametrize("failure", ["size", "parser", "duplicate"])
@@ -232,7 +232,7 @@ def test_clip_import_failure_keeps_all_initials_and_work(window, monkeypatch, fa
     assert window.initial_state.import_clip_line_art("lines.clip") == 0
     assert errors and len(window.canvas.undo_stack) == before
     assert window.canvas.frames[0].layers[0].initial_image is None
-    assert window.canvas.frames[0].layers[1].initial_image.pixelColor(0, 0) == QColor("yellow")
+    assert window.canvas.frames[0].layers[1].initial_image.to_qimage().pixelColor(0, 0) == QColor("yellow")
     assert window.canvas._document.tracks[0].cells[3].initial_image is None
     assert QApplication.overrideCursor() is None
 

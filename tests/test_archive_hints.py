@@ -132,18 +132,18 @@ def test_unplaced_drawing_and_initial_history_use_bank_without_cursor_move():
         canvas.cellChanged.connect(lambda *args: signals.append(args))
         canvas.push_undo(LayerUndo(0, 0, red, True, number=9))
         canvas.undo()
-        assert track.cells[9].image.pixelColor(0, 0) == QColor('red')
+        assert track.cells[9].image.to_qimage().pixelColor(0, 0) == QColor('red')
         assert track.legacy_archive_hints[9].has_content
         assert not canvas.layers[0].has_content
         assert canvas.current_frame == 0 and not signals
         canvas.redo()
-        assert track.cells[9].image.pixelColor(0, 0) == QColor('blue')
+        assert track.cells[9].image.to_qimage().pixelColor(0, 0) == QColor('blue')
         assert not track.legacy_archive_hints[9].has_content
         canvas.push_undo(InitialStateUndo([], [(0, 9, red)]))
         canvas.undo()
-        assert track.cells[9].initial_image.pixelColor(0, 0) == QColor('red')
+        assert track.cells[9].initial_image.to_qimage().pixelColor(0, 0) == QColor('red')
         canvas.redo()
-        assert track.cells[9].initial_image.pixelColor(0, 0) == QColor('blue')
+        assert track.cells[9].initial_image.to_qimage().pixelColor(0, 0) == QColor('blue')
         before = set(track.cells)
         assert canvas._resolve_numbered_target(0, 0, 99) is None
         assert set(track.cells) == before

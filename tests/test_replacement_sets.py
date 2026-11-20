@@ -63,7 +63,7 @@ def test_a_file_that_is_not_a_replacement_set_is_rejected(tmp_path):
 def test_loading_registers_the_colours_the_image_uses(window, tmp_path):
     layer = window.canvas.frames[0].layers[0]
     for x in range(10, 14):
-        layer.image.setPixelColor(x, 10, QColor(255, 0, 0))
+        layer.image.to_qimage().setPixelColor(x, 10, QColor(255, 0, 0))
     layer.has_content = True
     window.used_color.refresh()
 
@@ -81,7 +81,7 @@ def test_loading_registers_the_colours_the_image_uses(window, tmp_path):
 def test_saving_what_the_panel_holds(window, tmp_path, monkeypatch):
     layer = window.canvas.frames[0].layers[0]
     for x in range(10, 14):
-        layer.image.setPixelColor(x, 10, QColor(0, 128, 0))
+        layer.image.to_qimage().setPixelColor(x, 10, QColor(0, 128, 0))
     layer.has_content = True
     window.used_color.refresh()
     window.palette.register_replacements({(0, 128, 0): (9, 9, 9)})

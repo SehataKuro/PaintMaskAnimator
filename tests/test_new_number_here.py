@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 from tests.dense_fixtures import hold, length  # noqa: E402
 
 from paintmaskanimator.main_window import MainWindow  # noqa: E402
+from paintmaskanimator.pma_image import as_qimage
 
 
 @pytest.fixture(scope="module")
@@ -37,7 +38,7 @@ def visual_row(window, layer_index=0):
 
 def paint(window, column=1, number=1, exposure=4):
     layer = window.canvas.frames[column].layers[0]
-    layer.image.setPixelColor(10, 10, QColor("#123456"))
+    layer.image.to_qimage().setPixelColor(10, 10, QColor("#123456"))
     layer.has_content = True
     layer._track.cells.setdefault(number, layer._cell)
     layer.sequence_number = number
@@ -50,7 +51,7 @@ def snapshot(window):
     return (
         window.time_remap.timeline_states(0),
         [[(layer.sequence_number, length(window.canvas, fi, li), layer.has_content,
-           layer.is_blank_key, layer.cell_id, layer.image.cacheKey())
+           layer.is_blank_key, layer.cell_id, layer.image.to_qimage().cacheKey())
           for li, layer in enumerate(frame.layers)] for fi, frame in enumerate(window.canvas.frames)],
     )
 
@@ -60,7 +61,7 @@ def test_middle_preserves_the_original_drawing_and_detaches_the_new_one(window):
     source.cell_name = "original"
     source.tween = {"id": "original-tween"}
     source.tween_member = "original-tween"
-    before_image = source.image.copy()
+    before_image = source.image.to_qimage().copy()
     paint(window, 5, number=5, exposure=1)
     other_frames = [frame.layers[1:] for frame in window.canvas.frames]
     frame_count = len(window.canvas.frames)
@@ -79,16 +80,16 @@ def test_middle_preserves_the_original_drawing_and_detaches_the_new_one(window):
     assert tail.cell_name == "original"
     assert head.cell_id == tail.cell_id != selected.cell_id
     assert head.track_id == tail.track_id == selected.track_id
-    assert selected.image == before_image
+    assert as_qimage(selected.image) == before_image
     assert selected.cell_name is selected.tween is selected.tween_member is None
     assert selected.has_content
     assert not selected.is_blank_key
     assert not selected.sequence_only
-    selected.image.setPixelColor(10, 10, QColor("#abcdef"))
-    assert head.image == before_image
-    tail.image.setPixelColor(10, 10, QColor("#fedcba"))
-    assert head.image.pixelColor(10, 10) == QColor("#fedcba")
-    assert selected.image.pixelColor(10, 10) == QColor("#abcdef")
+    selected.image.to_qimage().setPixelColor(10, 10, QColor("#abcdef"))
+    assert as_qimage(head.image) == before_image
+    tail.image.to_qimage().setPixelColor(10, 10, QColor("#fedcba"))
+    assert head.image.to_qimage().pixelColor(10, 10) == QColor("#fedcba")
+    assert selected.image.to_qimage().pixelColor(10, 10) == QColor("#abcdef")
     assert window.canvas.current_frame == 2
     assert window.canvas.active_layer_index == 0
 

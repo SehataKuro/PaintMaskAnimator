@@ -19,6 +19,7 @@ from paintmaskanimator.project_io import (  # noqa: E402
     ProjectSnapshot, load_project, write_project_snapshot,
 )
 from paintmaskanimator.timeline import TimelineCellDelegate  # noqa: E402
+from paintmaskanimator.pma_image import as_qimage
 
 LENGTH = 6
 
@@ -42,7 +43,7 @@ def window(qapp, monkeypatch):
     key.has_content = True
     key.sequence_number = 1
     hold(canvas, 0, LENGTH)
-    painter = QPainter(key.image)
+    painter = QPainter(key.image.to_qimage())
     painter.setPen(QPen(QColor("black"), 8))
     painter.drawEllipse(300, 200, 200, 200)
     painter.end()
@@ -109,7 +110,7 @@ def test_commit_keeps_the_tween_as_one_span(window):
 
 def test_edit_starts_from_the_saved_shape_and_cancel_restores(window):
     _start_and_commit(window)
-    before_images = [layer.image.copy() for layer in _layers(window)]
+    before_images = [layer.image.to_qimage().copy() for layer in _layers(window)]
     spec = dict(_layers(window)[0].tween)
 
     window.tween.edit(_row(window), 0)
@@ -130,21 +131,21 @@ def test_edit_starts_from_the_saved_shape_and_cancel_restores(window):
     assert tween_groups.group_length(window.canvas.frames, 0, 0) == LENGTH
     assert [layer.sequence_number for layer in layers] == [1, 3, 4, 5, 6, 7]
     assert all(
-        layer.image == image for layer, image in zip(layers, before_images)
+        as_qimage(layer.image) == image for layer, image in zip(layers, before_images)
     )
 
 
 def test_edit_and_recommit_keeps_id_and_numbers(window):
     _start_and_commit(window)
     first_id = _layers(window)[0].tween["id"]
-    last_before = _layers(window)[-1].image.copy()
+    last_before = _layers(window)[-1].image.to_qimage().copy()
 
     window.tween.edit(_row(window), 0)
     _commit(window, dx=40.0, dy=-20.0)
     layers = _layers(window)
     assert layers[0].tween["id"] == first_id
     assert [layer.sequence_number for layer in layers] == [1, 3, 4, 5, 6, 7]
-    assert layers[-1].image != last_before
+    assert as_qimage(layers[-1].image) != last_before
     # Undo で直す前の確定済みトゥイーンへ戻る。
     window.canvas.undo()
     assert tween_groups.group_length(window.canvas.frames, 0, 0) == LENGTH

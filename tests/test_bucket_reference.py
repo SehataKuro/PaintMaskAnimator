@@ -53,7 +53,7 @@ def canvas(qapp):
         if not getattr(layer, "is_paper", False)
     )
     canvas.ensure_editable_key()
-    draw_box(canvas.active_layer.image)
+    draw_box(canvas.active_layer.image.to_qimage())
     canvas.active_layer.has_content = True
     canvas.add_layer()
     canvas.ensure_editable_key()
@@ -76,7 +76,7 @@ def set_reference(host, value):
 
 
 def color_at(canvas, point):
-    return canvas.active_layer.image.pixelColor(*point)
+    return canvas.active_layer.image.to_qimage().pixelColor(*point)
 
 
 def test_layer_reference_does_not_see_the_line_layer(canvas):
@@ -99,27 +99,27 @@ def test_canvas_reference_stops_at_a_line_on_another_layer(canvas):
     # 判定に使っただけで、下のレイヤーには触れない。
     assert painted == paint_canvas.active_layer_index
     lower = paint_canvas.frames[paint_canvas.current_frame].layers[painted - 1]
-    assert lower.image.pixelColor(*INSIDE) == QColor("white")
+    assert lower.image.to_qimage().pixelColor(*INSIDE) == QColor("white")
 
 
 def test_initial_state_reference_ignores_a_later_line(canvas):
     """「色塗り前の初期状態」：あとで引いた仕切り線を見ずに塗る。"""
     host, paint_canvas = canvas
     layer = paint_canvas.active_layer
-    draw_box(layer.image)
+    draw_box(layer.image.to_qimage())
     layer.has_content = True
     # 塗る前の絵を保持してから、枠の内側を上下に分ける線を引く。
-    layer.initial_image = QImage(layer.image)
+    layer.initial_image = QImage(layer.image.to_qimage())
     for x in range(BOX[0], BOX[2] + 1):
-        layer.image.setPixelColor(x, 50, QColor("black"))
+        layer.image.to_qimage().setPixelColor(x, 50, QColor("black"))
 
     set_reference(host, bucket_fill.REFERENCE_LAYER)
     paint_canvas.flood_fill(QPointF(45, 45))
     assert color_at(paint_canvas, (45, 55)) != BLUE, "仕切り線で止まる"
 
-    draw_box(layer.image)
+    draw_box(layer.image.to_qimage())
     for x in range(BOX[0], BOX[2] + 1):
-        layer.image.setPixelColor(x, 50, QColor("black"))
+        layer.image.to_qimage().setPixelColor(x, 50, QColor("black"))
     set_reference(host, bucket_fill.REFERENCE_INITIAL)
     paint_canvas.flood_fill(QPointF(45, 45))
     assert color_at(paint_canvas, (45, 45)) == BLUE

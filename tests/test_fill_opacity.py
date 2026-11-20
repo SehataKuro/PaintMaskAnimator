@@ -46,28 +46,28 @@ def test_bucket_full_opacity_writes_exact_rgb(qapp):
     canvas = _canvas("bucket")
     canvas.main_color = QColor(0, 0, 200)
     canvas.flood_fill(QPointF(10, 10))
-    assert _rgba(canvas.active_layer.image)[10, 10].tolist() == [0, 0, 200, 255]
+    assert _rgba(canvas.active_layer.image.to_qimage())[10, 10].tolist() == [0, 0, 200, 255]
 
 
 def test_bucket_half_opacity_mixes_with_underlying_color(qapp):
     canvas = _canvas("bucket")
-    painter = QPainter(canvas.active_layer.image)
+    painter = QPainter(canvas.active_layer.image.to_qimage())
     painter.fillRect(0, 0, 40, 40, QColor(200, 0, 0))
     painter.end()
     canvas.fill_opacity = 0.5
     canvas.main_color = QColor(0, 0, 200)
     canvas.flood_fill(QPointF(10, 10))
-    after = _rgba(canvas.active_layer.image)
+    after = _rgba(canvas.active_layer.image.to_qimage())
     assert after[10, 10].tolist() == [100, 0, 100, 255]
     # 透明な下地は白とみなして混色する。
     canvas.flood_fill(QPointF(100, 100))
-    after = _rgba(canvas.active_layer.image)
+    after = _rgba(canvas.active_layer.image.to_qimage())
     assert after[100, 100].tolist() == [128, 128, 228, 255]
 
 
 def test_lasso_fill_half_opacity_mixes_with_underlying_color(qapp):
     canvas = _canvas("lasso_fill")
-    painter = QPainter(canvas.active_layer.image)
+    painter = QPainter(canvas.active_layer.image.to_qimage())
     painter.fillRect(0, 0, 80, 80, QColor(200, 0, 0))
     painter.end()
     canvas.fill_opacity = 0.5
@@ -75,7 +75,7 @@ def test_lasso_fill_half_opacity_mixes_with_underlying_color(qapp):
     canvas.fill_lasso_polygon([
         QPointF(10, 10), QPointF(60, 10), QPointF(60, 60), QPointF(10, 60),
     ])
-    after = _rgba(canvas.active_layer.image)
+    after = _rgba(canvas.active_layer.image.to_qimage())
     assert after[30, 30].tolist() == [100, 0, 100, 255]
     # 範囲外は変わらない。
     assert after[70, 70].tolist() == [200, 0, 0, 255]

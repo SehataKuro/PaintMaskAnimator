@@ -75,7 +75,7 @@ class _Playback(PlaybackMixin):
 
     def _display_layer_image(self, layer, layer_index):
         self.display_calls.append((layer, layer_index))
-        return layer.image
+        return layer.image.to_qimage()
 
     # 比較表示の切り替えは画面側の約束なので、本物をそのまま使う。
     _layer_display_source = PaintCanvas._layer_display_source
@@ -163,8 +163,8 @@ def test_frame_image_uses_fallback_resolution_flip_and_cache(qapp):
     playback = _Playback()
     layer = _layer("red", visible=True)
     # Distinguish the left and right pixels so mirroring is observable.
-    layer.image.setPixelColor(0, 0, QColor("red"))
-    layer.image.setPixelColor(1, 0, QColor("blue"))
+    layer.image.to_qimage().setPixelColor(0, 0, QColor("red"))
+    layer.image.to_qimage().setPixelColor(1, 0, QColor("blue"))
     playback.frames = [SimpleNamespace(layers=[layer])]
     playback.flip_horizontal = True
 

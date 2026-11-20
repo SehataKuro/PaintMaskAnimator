@@ -56,14 +56,14 @@ def test_brush_runtime_warmup_is_idempotent_and_non_mutating(qapp):
     from paintmaskanimator.canvas import PaintCanvas
 
     canvas = PaintCanvas()
-    image_key = int(canvas.active_layer.image.cacheKey())
+    image_key = int(canvas.active_layer.image.to_qimage().cacheKey())
     undo_count = len(canvas.undo_stack)
 
     canvas.warm_up_brush_runtime()
     canvas.warm_up_brush_runtime()
 
     assert canvas._brush_runtime_warmed
-    assert int(canvas.active_layer.image.cacheKey()) == image_key
+    assert int(canvas.active_layer.image.to_qimage().cacheKey()) == image_key
     assert len(canvas.undo_stack) == undo_count
     assert not canvas.active_layer.has_content
 
@@ -85,13 +85,13 @@ def test_stroke_is_visible_through_layer_image(qapp, monkeypatch, tmp_path):
         # in-progress stamps are already visible.
         assert (
             canvas._display_layer_image(canvas.active_layer, idx)
-            is canvas.active_layer.image
+            is canvas.active_layer.image.to_qimage()
         )
-        painted = _rgba(canvas.active_layer.image)
+        painted = _rgba(canvas.active_layer.image.to_qimage())
         assert np.any(painted[:, :, 3] == 255)
 
         canvas._finish_opaque_brush_stroke()
-        assert np.array_equal(_rgba(canvas.active_layer.image), painted)
+        assert np.array_equal(_rgba(canvas.active_layer.image.to_qimage()), painted)
     finally:
         window.close()
         window.deleteLater()
@@ -111,9 +111,9 @@ def test_brush_undo_stores_only_touched_tiles(qapp, monkeypatch, tmp_path):
     window = MainWindow()
     try:
         canvas = window.canvas
-        before = _rgba(canvas.active_layer.image)
+        before = _rgba(canvas.active_layer.image.to_qimage())
         _draw_test_stroke(canvas)
-        painted = _rgba(canvas.active_layer.image)
+        painted = _rgba(canvas.active_layer.image.to_qimage())
         canvas._finish_opaque_brush_stroke()
 
         entry = canvas.undo_stack[-1]
@@ -126,14 +126,14 @@ def test_brush_undo_stores_only_touched_tiles(qapp, monkeypatch, tmp_path):
             rect.width() * rect.height() for rect, _image in tiles
         )
         assert stored_pixels < (
-            canvas.active_layer.image.width()
-            * canvas.active_layer.image.height()
+            canvas.active_layer.image.to_qimage().width()
+            * canvas.active_layer.image.to_qimage().height()
         )
 
         canvas.undo()
-        assert np.array_equal(_rgba(canvas.active_layer.image), before)
+        assert np.array_equal(_rgba(canvas.active_layer.image.to_qimage()), before)
         canvas.redo()
-        assert np.array_equal(_rgba(canvas.active_layer.image), painted)
+        assert np.array_equal(_rgba(canvas.active_layer.image.to_qimage()), painted)
     finally:
         window.close()
 
@@ -165,9 +165,9 @@ def test_brush_is_always_opaque(qapp, monkeypatch, tmp_path):
         end = QPointF(210, 200)
         canvas._begin_opaque_brush_stroke()
         canvas.draw_line(start, end, 1.0)
-        once = canvas.active_layer.image.pixelColor(200, 200)
+        once = canvas.active_layer.image.to_qimage().pixelColor(200, 200)
         canvas.draw_line(start, end, 1.0)
-        twice = canvas.active_layer.image.pixelColor(200, 200)
+        twice = canvas.active_layer.image.to_qimage().pixelColor(200, 200)
         canvas._finish_opaque_brush_stroke()
 
         assert once == twice

@@ -42,7 +42,7 @@ from PySide6.QtWidgets import (
     QProgressDialog,
 )
 from .i18n import tr
-from .pma_image import as_qimage, copy_image
+from .pma_image import as_qimage, copy_image, to_pma_image
 from .optional_deps import PILImage
 from .constants import APP_DISPLAY_NAME, OUTSIDE_MARGIN
 from . import color_ops, constants, imaging, layout_paper, preferences, pressure_settings, project_io, session_state, theme, updater
@@ -1004,7 +1004,7 @@ class MainWindow(
                         painter = QPainter(ni)
                         painter.drawImage(rect, as_qimage(l.image), rect)
                         painter.end()
-                        resized_images[l.cell_id] = ni
+                        resized_images[l.cell_id] = to_pma_image(ni)
                     ni = resized_images[l.cell_id]
                     copied = l.clone()
                     copied.image = ni
@@ -1017,7 +1017,7 @@ class MainWindow(
                         painter.drawImage(rect, as_qimage(payload.image), rect)
                         painter.end()
                         copied.__dict__["_v1_position"] = replace(
-                            position, legacy=replace(payload, image=saved_image))
+                            position, legacy=replace(payload, image=to_pma_image(saved_image)))
                     ls.append(copied)
                 new.append(Frame(ls,f.duration))
             self.canvas.frames=new

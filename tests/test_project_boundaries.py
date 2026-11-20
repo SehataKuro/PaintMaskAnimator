@@ -72,10 +72,10 @@ def test_snapshot_v1_bytes_and_live_independence(tmp_path, monkeypatch, case):
         track.visible = not track.visible
         track.color_filter_rgb = [3, 4, 5]
         for cell in track.cells.values():
-            cell.image.fill(QColor("blue"))
+            cell.image.to_qimage().fill(QColor("blue"))
             if cell.initial_image is not None:
-                cell.initial_image.fill(QColor("green"))
-            cell.initial_image = QImage(cell.image)
+                cell.initial_image.to_qimage().fill(QColor("green"))
+            cell.initial_image = QImage(cell.image.to_qimage())
             cell.cell_name = "after"
         for hint in track.legacy_archive_hints.values():
             if hint.tween is not None:
@@ -85,9 +85,9 @@ def test_snapshot_v1_bytes_and_live_independence(tmp_path, monkeypatch, case):
     for frame in doc.frames:
         frame.duration += 1
         for slot in frame.layers:
-            slot.image.fill(QColor("red"))
+            slot.image.to_qimage().fill(QColor("red"))
             if slot.initial_image is not None:
-                slot.initial_image.fill(QColor("yellow"))
+                slot.initial_image.to_qimage().fill(QColor("yellow"))
             slot.cell_name = "local after"
             slot.set_pending(not slot.sequence_only)
             slot.sequence_number = 999

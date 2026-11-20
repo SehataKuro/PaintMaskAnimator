@@ -22,6 +22,7 @@ from paintmaskanimator.frame_scope import (  # noqa: E402
 from paintmaskanimator.models import Frame, Layer  # noqa: E402
 from paintmaskanimator.pma_image import PmaImage  # noqa: E402
 from paintmaskanimator.undo_entries import ScopedBatchUndo  # noqa: E402
+from paintmaskanimator.pma_image import as_qimage
 
 
 @pytest.fixture(scope="session")
@@ -72,8 +73,8 @@ def test_current_frame_scope_touches_one_cell(qapp):
         doc, FrameScope.current_frame(doc), fill_op("red"), label="テスト"
     )
     assert result.changed_cells == 1
-    assert doc.frames[0].layers[0].image.pixelColor(0, 0) == QColor("red")
-    assert doc.frames[1].layers[0].image.pixelColor(0, 0) == QColor("white")
+    assert doc.frames[0].layers[0].image.to_qimage().pixelColor(0, 0) == QColor("red")
+    assert doc.frames[1].layers[0].image.to_qimage().pixelColor(0, 0) == QColor("white")
 
 
 def test_all_frames_scope_touches_every_key_frame(qapp):
@@ -84,7 +85,7 @@ def test_all_frames_scope_touches_every_key_frame(qapp):
     assert result.changed_cells == 3
     assert result.changed_frames == [0, 1, 2]
     assert all(
-        frame.layers[0].image.pixelColor(0, 0) == QColor("red")
+        frame.layers[0].image.to_qimage().pixelColor(0, 0) == QColor("red")
         for frame in doc.frames
     )
 
@@ -138,9 +139,9 @@ def test_shared_images_are_processed_once_and_stay_shared(qapp, wrap):
     # 同じQImageを共有する素材（同一画像を1回処理）。
     first = doc.frames[0].layers[0]
     if wrap:
-        first.image = PmaImage.from_qimage(first.image)
-    image = first.image.to_qimage() if wrap else first.image
-    doc.frames[1].layers[0].image = image
+        first.image = PmaImage.from_qimage(first.image.to_qimage())
+    image = first.image.to_qimage()
+    doc.frames[1].layers[0].image = first.image
 
     calls = []
 
@@ -172,8 +173,8 @@ def test_returning_none_leaves_the_cell_untouched(qapp):
     )
     assert result.changed_cells == 1
     assert result.visited_cells == 3
-    assert doc.frames[0].layers[0].image.pixelColor(0, 0) == QColor("white")
-    assert doc.frames[1].layers[0].image.pixelColor(0, 0) == QColor("red")
+    assert doc.frames[0].layers[0].image.to_qimage().pixelColor(0, 0) == QColor("white")
+    assert doc.frames[1].layers[0].image.to_qimage().pixelColor(0, 0) == QColor("red")
 
 
 def test_cancel_leaves_no_partial_application(qapp):
@@ -198,7 +199,7 @@ def test_cancel_leaves_no_partial_application(qapp):
     assert result.changed_cells == 0
     assert doc.undo_stack == []
     assert all(
-        frame.layers[0].image.pixelColor(0, 0) == QColor("white")
+        frame.layers[0].image.to_qimage().pixelColor(0, 0) == QColor("white")
         for frame in doc.frames
     )
 
@@ -216,7 +217,7 @@ def test_op_raising_scope_cancelled_also_rolls_back(qapp):
     )
     assert result.cancelled
     assert all(
-        frame.layers[0].image.pixelColor(0, 0) == QColor("white")
+        frame.layers[0].image.to_qimage().pixelColor(0, 0) == QColor("white")
         for frame in doc.frames
     )
 
@@ -269,7 +270,7 @@ def test_canvas_undo_restores_every_scoped_cell(qapp):
     from paintmaskanimator.document import create_drawing
     for column, frame in enumerate(canvas.frames):
         create_drawing(frame.layers[0], frame.layers[0].image, number=column + 1)
-    before = [frame.layers[0].image.copy() for frame in canvas.frames]
+    before = [frame.layers[0].image.to_qimage().copy() for frame in canvas.frames]
 
     result = apply_over_scope(
         canvas,
@@ -282,11 +283,11 @@ def test_canvas_undo_restores_every_scoped_cell(qapp):
 
     canvas.undo()
     assert all(
-        frame.layers[0].image == original
+        as_qimage(frame.layers[0].image) == original
         for frame, original in zip(canvas.frames, before)
     )
     canvas.redo()
     assert all(
-        frame.layers[0].image.pixelColor(0, 0) == QColor("red")
+        frame.layers[0].image.to_qimage().pixelColor(0, 0) == QColor("red")
         for frame in canvas.frames
     )

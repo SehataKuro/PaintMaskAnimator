@@ -251,7 +251,7 @@ def test_auto_select_builds_a_selection(window):
     canvas = window.canvas
     canvas.current_frame = 0
     canvas.active_layer_index = 0
-    image = canvas.active_layer.image
+    image = canvas.active_layer.image.to_qimage()
     painter = QPainter(image)
     painter.fillRect(40, 40, 60, 60, QColor("black"))
     painter.end()
@@ -315,18 +315,18 @@ def test_moving_cells_keeps_pixels_shared_and_undo_restores_them(window):
 
     canvas = window.canvas
     for column in (0, 3, 9):
-        image = canvas.frames[column].layers[0].image
+        image = canvas.frames[column].layers[0].image.to_qimage()
         painter = QPainter(image)
         painter.fillRect(0, 0, 4, 4, QColor(column * 20, 10, 200))
         painter.end()
     keys = {
-        column: canvas.frames[column].layers[0].image.cacheKey()
+        column: canvas.frames[column].layers[0].image.to_qimage().cacheKey()
         for column in (0, 3, 9)
     }
     # 2 の先頭（3）へ 1 を落とすと、以降のキーが右へ1つずつ送られる。
     assert canvas.move_timeline_cell(9, 0, 3, 0)
     moved = {
-        column: canvas.frames[column].layers[0].image.cacheKey()
+        column: canvas.frames[column].layers[0].image.to_qimage().cacheKey()
         for column, frame in enumerate(canvas.frames)
         if frame.layers[0].has_content
     }
@@ -334,7 +334,7 @@ def test_moving_cells_keeps_pixels_shared_and_undo_restores_them(window):
 
     canvas.undo()
     for column, key in keys.items():
-        image = canvas.frames[column].layers[0].image
+        image = canvas.frames[column].layers[0].image.to_qimage()
         assert image.cacheKey() == key
         assert image.pixelColor(1, 1) == QColor(column * 20, 10, 200)
 

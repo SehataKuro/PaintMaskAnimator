@@ -126,8 +126,8 @@ def color_resize_observation(window, monkeypatch):
     window.replace_doc(6, 7, preserve=True)
     track = canvas.frames[0].layers[0]._track
     return {"colors": [list(c) for c in colors],
-            "sizes": {str(n): [c.image.width(), c.image.height(),
-                               None if c.initial_image is None else [c.initial_image.width(), c.initial_image.height()],
+            "sizes": {str(n): [c.image.to_qimage().width(), c.image.to_qimage().height(),
+                               None if c.initial_image is None else [c.initial_image.to_qimage().width(), c.initial_image.to_qimage().height()],
                                c.cell_name] for n, c in sorted(track.cells.items())}}
 
 

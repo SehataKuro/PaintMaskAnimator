@@ -63,18 +63,18 @@ def test_layer_clone_shares_pixels_until_written(qapp):
     image.fill(QColor(10, 20, 30))
     layer = Layer("A", image)
     clone = layer.clone()
-    assert clone.image.cacheKey() == layer.image.cacheKey()
+    assert clone.image.to_qimage().cacheKey() == layer.image.to_qimage().cacheKey()
 
-    painter = QPainter(clone.image)
+    painter = QPainter(clone.image.to_qimage())
     painter.fillRect(0, 0, 4, 4, QColor(200, 0, 0))
     painter.end()
-    assert layer.image.pixelColor(1, 1) == QColor(10, 20, 30)
+    assert layer.image.to_qimage().pixelColor(1, 1) == QColor(10, 20, 30)
 
     other = layer.clone()
-    pixels = np.frombuffer(imaging.qimage_buffer(other.image), dtype=np.uint8)
+    pixels = np.frombuffer(imaging.qimage_buffer(other.image.to_qimage()), dtype=np.uint8)
     pixels[:] = 0
-    assert layer.image.pixelColor(1, 1) == QColor(10, 20, 30)
-    assert other.image.pixelColor(1, 1).alpha() == 0
+    assert layer.image.to_qimage().pixelColor(1, 1) == QColor(10, 20, 30)
+    assert other.image.to_qimage().pixelColor(1, 1).alpha() == 0
 
 
 def test_new_document_dialog_allows_10000_square(qapp):

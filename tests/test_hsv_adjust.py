@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QApplication, QDialog  # noqa: E402
 from paintmaskanimator import hsv_adjust_dialog  # noqa: E402
 from paintmaskanimator.document import create_drawing
 from paintmaskanimator.main_window import MainWindow  # noqa: E402
+from paintmaskanimator.pma_image import as_qimage
 
 
 @pytest.fixture(scope="module")
@@ -34,7 +35,7 @@ def paint(window, color, origin=(10, 10), size=4):
     x0, y0 = origin
     for y in range(y0, y0 + size):
         for x in range(x0, x0 + size):
-            layer.image.setPixelColor(x, y, QColor(color))
+            layer.image.to_qimage().setPixelColor(x, y, QColor(color))
     create_drawing(layer, layer.image, number=layer.sequence_number)
 
 
@@ -79,7 +80,7 @@ def test_accepting_applies_to_every_frame(window, monkeypatch, dense_hold):
     window.canvas._ensure_frame_count(3)
     for frame_index in range(3):
         layer = window.canvas.frames[frame_index].layers[0]
-        layer.image.setPixelColor(10, 10, QColor(255, 0, 0))
+        layer.image.to_qimage().setPixelColor(10, 10, QColor(255, 0, 0))
         create_drawing(layer, layer.image, number=layer.sequence_number)
 
     if dense_hold:
@@ -97,12 +98,12 @@ def test_accepting_applies_to_every_frame(window, monkeypatch, dense_hold):
     assert window.used_color.adjust_used_color_hsv({(255, 0, 0)})
 
     for frame in window.canvas.frames:
-        assert frame.layers[0].image.pixelColor(10, 10) == QColor(0, 255, 0)
+        assert frame.layers[0].image.to_qimage().pixelColor(10, 10) == QColor(0, 255, 0)
 
 
 def test_cancelling_leaves_the_image_and_the_preview_alone(window, monkeypatch):
     paint(window, "#ff0000")
-    before = window.canvas.frames[0].layers[0].image.copy()
+    before = window.canvas.frames[0].layers[0].image.to_qimage().copy()
 
     def cancel(dialog):
         dialog.hue.setValue(120)
@@ -114,7 +115,7 @@ def test_cancelling_leaves_the_image_and_the_preview_alone(window, monkeypatch):
 
     assert not window.used_color.adjust_used_color_hsv({(255, 0, 0)})
 
-    assert window.canvas.frames[0].layers[0].image == before
+    assert as_qimage(window.canvas.frames[0].layers[0].image) == before
     assert not window.canvas.preview_color_remap
 
 

@@ -42,7 +42,7 @@ def window(qapp, tmp_path, monkeypatch):
 def put_cell(window, column, number, *, exposure=1, layer_index=0, color="#101010"):
     """コマ ``column`` に絵番号 ``number`` のセルを置く。"""
     layer = window.canvas.frames[column].layers[layer_index]
-    layer.image.setPixelColor(10, 10, QColor(color))
+    layer.image.to_qimage().setPixelColor(10, 10, QColor(color))
     layer.has_content = True
     layer.is_blank_key = False
     layer._track.cells.setdefault(int(number), layer._cell)
@@ -133,9 +133,9 @@ def test_editing_one_cell_shows_on_every_frame_with_that_number(window):
     put_cell(window, 0, 1)
     put_cell(window, 4, 1)
 
-    window.canvas.frames[0].layers[0].image.setPixelColor(20, 20, QColor("#ff0000"))
+    window.canvas.frames[0].layers[0].image.to_qimage().setPixelColor(20, 20, QColor("#ff0000"))
 
-    assert window.canvas.frames[4].layers[0].image.pixelColor(20, 20) == QColor(
+    assert window.canvas.frames[4].layers[0].image.to_qimage().pixelColor(20, 20) == QColor(
         "#ff0000"
     )
 
@@ -236,7 +236,7 @@ def test_a_batch_edit_touches_a_shared_drawing_once(window):
     )
 
     for column in (0, 6):
-        assert window.canvas.frames[column].layers[0].image.pixelColor(
+        assert window.canvas.frames[column].layers[0].image.to_qimage().pixelColor(
             10, 10
         ) == QColor("#0000ff")
 

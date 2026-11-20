@@ -65,7 +65,7 @@ def sheet_with_archived_four(window, placed=(1, 2, 3), archived=(4,)):
 
 
 def pixel(canvas, column):
-    return canvas.frames[column].layers[0].image.pixelColor(5, 5).name()
+    return canvas.frames[column].layers[0].image.to_qimage().pixelColor(5, 5).name()
 
 
 def test_source_bank_includes_archived_cells(window):
@@ -86,7 +86,7 @@ def test_applying_a_remap_uses_archived_numbers_and_keeps_unused_ones(window):
     ], "シートに無かった4番も正しい絵で並ぶ"
     assert 3 in canvas._document.tracks[0].legacy_archive_hints, "使わなかった3番は連番保管セルに残す"
     assert 4 not in canvas._document.tracks[0].legacy_archive_hints, "並べた4番は保管から外す"
-    assert canvas._document.tracks[0].cells[3].image.pixelColor(5, 5).name() == COLORS[3]
+    assert canvas._document.tracks[0].cells[3].image.to_qimage().pixelColor(5, 5).name() == COLORS[3]
 
 
 def test_a_real_gap_is_reported_instead_of_renumbering(window):

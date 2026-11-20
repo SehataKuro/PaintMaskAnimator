@@ -11,6 +11,7 @@ from paintmaskanimator import constants, project_io  # noqa: E402
 from paintmaskanimator.errors import OperationError  # noqa: E402
 from paintmaskanimator.document import Document  # noqa: E402
 from paintmaskanimator.models import make_frame  # noqa: E402
+from paintmaskanimator.pma_image import as_qimage
 
 
 @pytest.fixture(scope="session")
@@ -81,8 +82,8 @@ def test_legacy_white_migrates_to_transparent(qapp, tmp_path):
         (layer for layer in frames[0].layers if getattr(layer, "is_paper", False)),
         None,
     )
-    content.image.setPixelColor(0, 0, QColor(255, 255, 255, 255))
-    content.image.setPixelColor(1, 0, QColor(0, 0, 255, 255))
+    content.image.to_qimage().setPixelColor(0, 0, QColor(255, 255, 255, 255))
+    content.image.to_qimage().setPixelColor(1, 0, QColor(0, 0, 255, 255))
     content.has_content = True
 
     # Simulate a legacy file: write, then strip the mask_format marker.
@@ -107,7 +108,7 @@ def test_legacy_white_migrates_to_transparent(qapp, tmp_path):
         layer for layer in loaded[0].layers
         if not getattr(layer, "is_paper", False)
     )
-    rgba = out_content.image.convertToFormat(QImage.Format.Format_RGBA8888)
+    rgba = out_content.image.to_qimage().convertToFormat(QImage.Format.Format_RGBA8888)
     assert rgba.pixelColor(0, 0).alpha() == 0  # legacy white erased
     assert rgba.pixelColor(1, 0) == QColor(0, 0, 255, 255)  # colour preserved
     if paper is not None:
@@ -115,7 +116,7 @@ def test_legacy_white_migrates_to_transparent(qapp, tmp_path):
             layer for layer in loaded[0].layers
             if getattr(layer, "is_paper", False)
         )
-        assert out_paper.image.pixelColor(
+        assert out_paper.image.to_qimage().pixelColor(
             constants.CANVAS_WIDTH // 2, constants.CANVAS_HEIGHT // 2
         ).alpha() == 255  # paper stays opaque white
 
@@ -131,7 +132,7 @@ def test_draft_layer_roundtrip_preserves_white(qapp, tmp_path):
     draft.is_draft = True
     draft.has_content = True
     # Draft layers keep imported pixels as-is, including opaque white.
-    draft.image.setPixelColor(0, 0, QColor(255, 255, 255, 255))
+    draft.image.to_qimage().setPixelColor(0, 0, QColor(255, 255, 255, 255))
 
     path = tmp_path / "draft.pmap"
     project_io.legacy_fixture_write_archive(path, _metadata(), frames)
@@ -156,7 +157,7 @@ def test_draft_layer_roundtrip_preserves_white(qapp, tmp_path):
         if getattr(layer, "is_draft", False)
     )
     assert out.is_draft is True
-    rgba = out.image.convertToFormat(QImage.Format.Format_RGBA8888)
+    rgba = out.image.to_qimage().convertToFormat(QImage.Format.Format_RGBA8888)
     assert rgba.pixelColor(0, 0) == QColor(255, 255, 255, 255)
 
 
@@ -168,7 +169,7 @@ def test_current_save_is_mask_format_2(qapp, tmp_path):
         layer for layer in frames[0].layers
         if not getattr(layer, "is_paper", False)
     )
-    content.image.setPixelColor(2, 2, QColor(255, 255, 255, 255))
+    content.image.to_qimage().setPixelColor(2, 2, QColor(255, 255, 255, 255))
     content.has_content = True
 
     metadata = dict(_metadata())
@@ -182,7 +183,7 @@ def test_current_save_is_mask_format_2(qapp, tmp_path):
         layer for layer in loaded[0].layers
         if not getattr(layer, "is_paper", False)
     )
-    rgba = out_content.image.convertToFormat(QImage.Format.Format_RGBA8888)
+    rgba = out_content.image.to_qimage().convertToFormat(QImage.Format.Format_RGBA8888)
     # No legacy migration on a current-format file: white stays as stored.
     assert rgba.pixelColor(2, 2) == QColor(255, 255, 255, 255)
 
@@ -262,7 +263,7 @@ def test_png_cache_reencodes_only_changed_cells(qapp, tmp_path, monkeypatch):
             layer.cell_name = "cache-local"
     # Shared transparent artwork is encoded once per cacheKey.
     cell_count = len({
-        layer.image.cacheKey() for frame in frames for layer in frame.layers
+        layer.image.to_qimage().cacheKey() for frame in frames for layer in frame.layers
     })
     cache = project_io.PngCache()
     calls = _count_png_encodes(monkeypatch)
@@ -276,14 +277,14 @@ def test_png_cache_reencodes_only_changed_cells(qapp, tmp_path, monkeypatch):
     assert calls["count"] == cell_count
 
     # 描き換えたセルだけがエンコードし直され、その内容が保存される。
-    painter = QPainter(frames[1].layers[0].image)
+    painter = QPainter(frames[1].layers[0].image.to_qimage())
     painter.fillRect(0, 0, 3, 3, QColor("#ff0000"))
     painter.end()
     _write_v2(path, _metadata(), frames, None, cache)
     assert calls["count"] == cell_count + 1
     _meta, loaded, _w, _h = _read_v2(path)
-    assert loaded[1].layers[0].image.pixelColor(1, 1) == QColor("#ff0000")
-    assert loaded[0].layers[0].image.pixelColor(1, 1) != QColor("#ff0000")
+    assert loaded[1].layers[0].image.to_qimage().pixelColor(1, 1) == QColor("#ff0000")
+    assert loaded[0].layers[0].image.to_qimage().pixelColor(1, 1) != QColor("#ff0000")
 
 
 def test_png_cache_is_seeded_on_read(qapp, tmp_path, monkeypatch):
@@ -303,7 +304,7 @@ def test_png_cache_is_seeded_on_read(qapp, tmp_path, monkeypatch):
     )
     assert calls["count"] == 0
     _meta, reloaded, _w, _h = _read_v2(tmp_path / "copy.pman")
-    assert reloaded[0].layers[0].image == loaded[0].layers[0].image
+    assert as_qimage(reloaded[0].layers[0].image) == as_qimage(loaded[0].layers[0].image)
 
 
 def test_png_cache_drops_cells_no_longer_saved(qapp, tmp_path):
@@ -331,7 +332,7 @@ def test_parallel_save_and_open_keep_every_cell_distinct(qapp, tmp_path):
             if layer.is_paper:
                 continue
             color = QColor(10 + frame_index * 20, 30 + layer_index * 40, 200)
-            painter = QPainter(layer.image)
+            painter = QPainter(layer.image.to_qimage())
             painter.fillRect(frame_index * 3, layer_index * 3, 3, 3, color)
             painter.end()
             layer.has_content = True
@@ -343,7 +344,7 @@ def test_parallel_save_and_open_keep_every_cell_distinct(qapp, tmp_path):
 
     _meta, loaded, _w, _h = _read_v2(path, project_io.PngCache())
     for (frame_index, layer_index), color in expected.items():
-        image = loaded[frame_index].layers[layer_index].image
+        image = loaded[frame_index].layers[layer_index].image.to_qimage()
         assert image.pixelColor(frame_index * 3 + 1, layer_index * 3 + 1) == color
         # 他のセルの印は入っていない。
         other = (frame_index + 1) % len(frames)
@@ -373,7 +374,7 @@ def test_blank_cells_share_one_image_and_do_not_hit_pixel_limit(qapp, tmp_path, 
 
     _meta, loaded, _w, _h = project_io.read_project_archive(path)
     keys = {
-        layer.image.cacheKey()
+        layer.image.to_qimage().cacheKey()
         for frame in loaded
         for layer in frame.layers
     }
@@ -386,7 +387,7 @@ def test_distinct_cells_still_hit_pixel_limit(qapp, tmp_path, monkeypatch):
     frames = [make_frame() for _ in range(4)]
     for index, frame in enumerate(frames):
         layer = next(layer for layer in frame.layers if not layer.is_paper)
-        painter = QPainter(layer.image)
+        painter = QPainter(layer.image.to_qimage())
         painter.fillRect(index, 0, 1, 1, QColor("#ff0000"))
         painter.end()
         layer.has_content = True
@@ -584,14 +585,16 @@ def test_png_interlaced_matches_qt(qapp):
 def test_png_fallback_and_allocation_limit(qapp, monkeypatch):
     from PySide6.QtGui import QImageReader
 
-    original = project_io._decode_png_qt
+    from paintmaskanimator import pma_image_io
+
+    original = pma_image_io._decode_png_qt
     calls = []
 
     def qt_decode(data):
         calls.append(data)
         return original(data)
 
-    monkeypatch.setattr(project_io, "_decode_png_qt", qt_decode)
+    monkeypatch.setattr(pma_image_io, "_decode_png_qt", qt_decode)
     data = _pillow_png("I;16")
     project_io._decode_png(data)
     assert calls == [data]
@@ -834,8 +837,8 @@ def test_rust_zip_project_results_match_zipfile(qapp, tmp_path, monkeypatch, cas
             # 内部保持オブジェクトを除くメタデータと全レイヤー画素を比較する。
             metadata.pop("_loaded_sequence_archive", None)
             pixels = [(layer.name, layer.visible, layer.opacity,
-                       layer.image.width(), layer.image.height(),
-                       bytes(layer.image.constBits()))
+                       layer.image.to_qimage().width(), layer.image.to_qimage().height(),
+                       bytes(layer.image.to_qimage().constBits()))
                       for frame in frames for layer in frame.layers]
             return ("ok", metadata, pixels, width, height)
         except Exception as error:

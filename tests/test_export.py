@@ -61,7 +61,7 @@ def _painted_window(qapp):
     window = MainWindow()
     canvas = window.canvas
     cell = canvas.frames[0].layers[0]
-    cell.image.fill(QColor(12, 34, 56, 255))
+    cell.image.to_qimage().fill(QColor(12, 34, 56, 255))
     cell.has_content = True
     return window
 

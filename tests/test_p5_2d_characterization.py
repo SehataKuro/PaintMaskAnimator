@@ -26,6 +26,7 @@ from paintmaskanimator.legacy_v1 import LegacyLayerV1, legacy_layer_to_slot, sna
 from paintmaskanimator.main_window import MainWindow
 from paintmaskanimator.models import Cell, Frame
 from paintmaskanimator.undo_entries import DocUndo, history_label_for
+from paintmaskanimator.pma_image import as_qimage
 
 
 BASELINE = Path(__file__).with_name("p5_2d_characterization_expected.json")
@@ -42,6 +43,7 @@ def slot(number=None, color="transparent", **kwargs):
 
 
 def pixels(img):
+    img = as_qimage(img)
     if img is None:
         return None
     rgba = img.convertToFormat(QImage.Format.Format_RGBA8888)
@@ -72,16 +74,16 @@ def history(stack):
                         continue
                     seen.add(id(cell))
                 item = cell if cell is not None else saved
-                total += item.image.sizeInBytes()
+                total += item.image.to_qimage().sizeInBytes()
                 if item.initial_image is not None:
-                    total += item.initial_image.sizeInBytes()
+                    total += item.initial_image.to_qimage().sizeInBytes()
         for track in getattr(entry.snapshot, "tracks", ()):
             for cell in track.cells.values():
                 if id(cell) not in seen:
                     seen.add(id(cell))
-                    total += cell.image.sizeInBytes()
+                    total += cell.image.to_qimage().sizeInBytes()
                     if cell.initial_image is not None:
-                        total += cell.initial_image.sizeInBytes()
+                        total += cell.initial_image.to_qimage().sizeInBytes()
         return total
     return [[type(entry).__name__, history_label_for(entry), logical_bytes(entry)]
             for entry in stack]
@@ -246,7 +248,7 @@ def paint(c, route="full"):
         c.flood_fill(QPoint(5, 5))
     else:
         c.push_layer_undo()
-        c.active_layer.image.setPixelColor(5, 5, QColor("blue"))
+        c.active_layer.image.to_qimage().setPixelColor(5, 5, QColor("blue"))
         c.cellChanged.emit(c.current_frame, c.active_layer_index)
 
 
@@ -272,8 +274,8 @@ def test_refresh_installs_detached_conflicts_once(window):
     r.take("second")
     assert r.states[1]["graph"] == r.states[2]["graph"]
     assert all(c._document.tracks[0].cells[n] is cell for n, cell in cells.items())
-    assert c.frames[0].layers[0].image == image("yellow")
-    assert c.frames[0].layers[0].initial_image == image("blue")
+    assert as_qimage(c.frames[0].layers[0].image) == image("yellow")
+    assert as_qimage(c.frames[0].layers[0].initial_image) == image("blue")
     assert c.frames[0].layers[0].cell_name == "first"
     golden("refresh", r.states)
 
@@ -323,10 +325,10 @@ def test_docundo_restores_connected_and_detached_graphs(window, detached):
     r.take("redo")
     c.undo()
     r.take("reuse")
-    assert c.frames[0].layers[0].image == image("yellow")
+    assert as_qimage(c.frames[0].layers[0].image) == image("yellow")
     assert graph(snapshot_view, size=[snapshot.width, snapshot.height]) == frozen
     assert snapshot.frames[0].layers[0]._track.connected is not detached
-    assert snapshot.frames[0].layers[0].image == image("red" if detached else "yellow")
+    assert as_qimage(snapshot.frames[0].layers[0].image) == image("red" if detached else "yellow")
     golden(f"docundo/{detached}", r.states)
 
 
@@ -407,7 +409,7 @@ def test_open_legacy_conflicts_before_first_edit(window, tmp_path):
     assert window.project.open(path)
     r.take("open")
     assert c.frames[6].layers[0].sequence_number == 13
-    assert c.active_layer.image == image("yellow")
+    assert as_qimage(c.active_layer.image) == image("yellow")
     paint(c)
     r.take("paint")
     c.undo()
@@ -556,7 +558,7 @@ def test_removal_paths_keep_v1_payload_and_reload_behavior(window, tmp_path, mon
         (0, 12): slot(12, "green", has_content=True),
         (0, 13): slot(13, "cyan", has_content=True),
     }
-    raw_archive[0, 1].image.setPixelColor(5, 5, QColor("blue"))
+    raw_archive[0, 1].image.to_qimage().setPixelColor(5, 5, QColor("blue"))
     # open adds one trailing empty frame; clear_slot preserves local initial images.
     raw_frames = [Frame([slot(initial_image=image("blue") if i in (0, 2, 4) else None)])
                   for i in range(8)]

@@ -206,7 +206,7 @@ class AppDriver:
     def pixel(self, canvas_point: tuple[float, float], layer_index: int = 0) -> QColor:
         x, y = canvas_point
         layer = self.canvas.layers[layer_index]
-        return layer.image.pixelColor(round(x), round(y))
+        return layer.image.to_qimage().pixelColor(round(x), round(y))
 
     def canvas_center(self) -> tuple[float, float]:
         from paintmaskanimator.utils import workspace_size

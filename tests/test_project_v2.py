@@ -8,6 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 
 from paintmaskanimator import project_io
+from paintmaskanimator.pma_image import as_qimage
 from paintmaskanimator.project_v2 import compatibility_scalars, placement_keys
 from p5_6_support import CASES, ROOT, pixels
 from test_project_boundaries import graph_state
@@ -47,7 +48,7 @@ def test_v2_builder_preserves_snapshot_and_all_numbered_artwork(case):
             if "image" in local:
                 assert pixels(paths[local["image"]]) == pixels(slot.image)
             else:
-                assert slot.image.pixelColor(0, 0).alpha() == 0
+                assert slot.image.to_qimage().pixelColor(0, 0).alpha() == 0
                 assert slot.initial_image is None and slot.cell_name is None
             assert local["retained_number"] == slot.sequence_number
     # Mutable nested JSON is save-owned, even when the caller alters the result.
@@ -573,7 +574,7 @@ def test_v2_default_blank_has_no_png_and_fits_zero_pixel_budget(tmp_path, monkey
     loaded = project_io.load_project(path)
     assert len(loaded.document.frames) == 6
     assert not loaded.document.tracks[0].cells
-    assert all(frame.layers[0].image == image for frame in loaded.document.frames)
+    assert all(as_qimage(frame.layers[0].image) == image for frame in loaded.document.frames)
 
 
 @pytest.mark.parametrize("boundary", ["reader", "writer"])
