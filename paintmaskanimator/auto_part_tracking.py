@@ -177,11 +177,30 @@ class PartTracker:
             self._path(index, target, adjacent[0])
 
     def _flow_color(self, index, target, filled, guide):
+        """共有変形場で部位を照合し、移動先の色を返す。"""
         from . import auto_paint as ap
+
+        if ap.native is None or not ap.native.has_flow_part_color():
+            return self._flow_color_numpy(index, target, filled, guide)
+        if guide.initial is None:
+            return None
+        pair = self._path(index, target, guide)
+        if pair is None:
+            return None
+        result = ap.native.flow_part_color(self.shape, target, filled, guide, pair)
+        if result is NotImplemented:
+            return self._flow_color_numpy(index, target, filled, guide, pair=pair)
+        return result
+
+    def _flow_color_numpy(self, index, target, filled, guide, *, pair=None):
+        """共有変形場の座標から輪郭と色を NumPy で判定する。"""
+        from . import auto_paint as ap
+
         source = guide.initial
         if source is None:
             return None
-        pair = self._path(index, target, guide)
+        if pair is None:
+            pair = self._path(index, target, guide)
         if pair is None:
             return None
         height, width = self.shape

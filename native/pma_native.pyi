@@ -68,6 +68,22 @@ def tiled_part_color(
     tiles: list[_TileInput], local: _TileWindow, size: int, sizes: bytes,
 ) -> tuple[int, int, int] | None: ...
 
+_FlowCoordinates = tuple[tuple[bytes, bytes, bytes, bytes], bytes]
+_FlowOutline = tuple[
+    _TileWindow, _FlowCoordinates, _TileWindow, tuple[bytes, bytes],
+    _TileRect, tuple[bytes, bytes], _TileWindow,
+]
+_FlowInterior = tuple[
+    _TileWindow, _FlowCoordinates, _TileRect, tuple[bytes, bytes, bytes, bytes, bytes],
+    bytes | None, bytes, bytes,
+]
+
+def flow_outline_matches(outline: _FlowOutline, part: _TileRect) -> bool: ...
+
+def flow_part_color(
+    interior: _FlowInterior, sizes: bytes,
+) -> tuple[int, int, int] | None: ...
+
 def refine_face(
     values: bytes, labels: bytes, usable: bytes, excluded: bytes, sizes: bytes,
     points: bytes, width: int, height: int, radius: int,

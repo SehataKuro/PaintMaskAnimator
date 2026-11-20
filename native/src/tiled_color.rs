@@ -22,7 +22,7 @@ type TileInput<'a> = (
     Bytes<'a>,
 );
 
-fn area((left, top, width, height): Rect) -> Option<usize> {
+pub(crate) fn area((left, top, width, height): Rect) -> Option<usize> {
     if left < 0 || top < 0 || width < 0 || height < 0 {
         return None;
     }

@@ -6,8 +6,8 @@ use std::collections::{HashMap, HashSet};
 /// 行優先の矩形窓の位置と大きさ。`(左, 上, 幅, 高さ)` を画素単位で表す。
 pub type Rect = (i32, i32, i32, i32);
 
-fn offset((left, top, width, height): Rect, y: i64, x: i64) -> Option<usize> {
-    let (y, x) = (y - i64::from(top), x - i64::from(left));
+pub(crate) fn offset((left, top, width, height): Rect, y: i64, x: i64) -> Option<usize> {
+    let (y, x) = (y.checked_sub(top.into())?, x.checked_sub(left.into())?);
     (y >= 0 && y < i64::from(height) && x >= 0 && x < i64::from(width))
         .then(|| y as usize * width as usize + x as usize)
 }
@@ -40,7 +40,7 @@ pub struct Tile<'a> {
     pub labels: &'a [u8],
 }
 
-fn near_black((rect, black): (Rect, &[u8]), y: i64, x: i64) -> bool {
+pub(crate) fn near_black((rect, black): (Rect, &[u8]), y: i64, x: i64) -> bool {
     // 窓は画像端で切ってある。端の画素を繰り返し参照しても OR の結果は同じ。
     (y - 1..=y + 1)
         .any(|ny| (x - 1..=x + 1).any(|nx| offset(rect, ny, nx).is_some_and(|i| black[i] != 0)))
@@ -85,12 +85,21 @@ impl Tile<'_> {
 }
 
 fn majority(counts: &HashMap<i64, usize>, total: usize, threshold: f64) -> Option<[u8; 3]> {
-    let (&value, &count) = counts
-        .iter()
-        .max_by_key(|&(value, count)| (*count, std::cmp::Reverse(*value)))?;
+    let (value, count) = most_frequent(counts)?;
     if (count as f64) / (total as f64) < threshold {
         return None;
     }
+    paintable_rgb(value)
+}
+
+pub(crate) fn most_frequent(counts: &HashMap<i64, usize>) -> Option<(i64, usize)> {
+    counts
+        .iter()
+        .map(|(&value, &count)| (value, count))
+        .max_by_key(|&(value, count)| (count, std::cmp::Reverse(value)))
+}
+
+pub(crate) fn paintable_rgb(value: i64) -> Option<[u8; 3]> {
     let [r, g, b, ..] = value.to_le_bytes();
     let rgb = [r, g, b];
     let strong = rgb.iter().filter(|&&v| v >= 215).count();

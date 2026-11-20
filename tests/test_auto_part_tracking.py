@@ -210,3 +210,124 @@ def test_tiled_native_matches_numpy_with_random_windows(monkeypatch):
             reference.values = values.astype(np.int32).astype(np.uint32)
             assert tracker._tiled_color(0, target, filled, reference) == expected
             assert len(calls) == before + 1
+
+
+def _flow_case(rng, failure=None):
+    """端に接する部位と、乱数でずらした移動先の見本を作る。"""
+    from types import SimpleNamespace
+
+    shape = (80, 90)
+    height, width = map(int, rng.integers(12, 29, size=2))
+    dy, dx = map(int, rng.integers(2, 8, size=2))
+    local = np.ones((height, width), dtype=bool)
+    local[0, :int(rng.integers(1, 5))] = False
+    region = np.zeros(shape, dtype=bool)
+    region[:height, :width] = local
+    from_mask = bucket_fill.dilate(region, 1) & ~region
+    to_mask = np.roll(from_mask, (dy, dx), axis=(0, 1))
+    to_region = np.roll(region, (dy, dx), axis=(0, 1))
+    zeros = np.zeros(shape, dtype=bool)
+    source = SimpleNamespace(
+        boundary=to_mask, wide_boundary=to_mask.copy(), wide_primary=to_mask, black=to_mask,
+    )
+    values = np.zeros(shape, dtype=np.int64)
+    values[to_region] = int.from_bytes(bytes(CREAM), "little")
+    size = int(local.sum())
+    # 同じラベルが何度出ても面積は一度だけ加算される。
+    regions = SimpleNamespace(labels=np.zeros(shape, dtype=np.int32),
+                              sizes=np.array([size], dtype=np.int64))
+    reference = SimpleNamespace(initial=source, values=values, black=zeros, primary=zeros,
+                                open=zeros, undecided=zeros, confirmed=None, regions=regions)
+    target = SimpleNamespace(black=from_mask, boundary=from_mask.copy())
+    filled = SimpleNamespace(bounds=(0, 0, width, height), local=local)
+    if failure == "outline_points":
+        target.boundary[:] = False
+        target.boundary.flat[np.flatnonzero(from_mask)[:7]] = True
+    elif failure == "hits":
+        source.wide_boundary[:] = False
+    elif failure == "quadrant":
+        y, x = np.nonzero(from_mask)
+        bad = (y >= height / 2) & (x >= width / 2)
+        assert 4 <= int(bad.sum()) <= len(y) / 2
+        source.wide_boundary[y[bad] + dy, x[bad] + dx] = False
+    elif failure == "known":
+        reference.confirmed = zeros
+    elif failure == "majority":
+        selected = np.flatnonzero(to_region)[::4]
+        values.flat[selected] = int.from_bytes(bytes(YELLOW), "little")
+    elif failure == "paintable":
+        values[to_region] = 0xff000000
+    elif failure == "zero":
+        values[to_region] = 0
+    elif failure == "area":
+        regions.sizes[0] = size * 4 + 1
+    elif failure == "matched_area":
+        regions.sizes[0] = size * 4
+    elif failure == "out_of_image":
+        dy = shape[0]
+
+    def flow(y, x):
+        return line_flow.Flow(np.full((1, 1), y, dtype=np.float64),
+                              np.full((1, 1), x, dtype=np.float64),
+                              np.ones((1, 1)), np.ones((1, 1)), shape)
+
+    pair = _FlowPair(flow(dy, dx), flow(-dy, -dx), 0, 0)
+    return shape, target, filled, reference, pair
+
+
+def test_flow_color_matches_numpy_for_translated_parts_and_thresholds(monkeypatch):
+    rng = np.random.default_rng(610)
+    extension = auto_paint.native._native
+    native_outline = extension.flow_outline_matches
+    calls = []
+
+    def counted(*args):
+        calls.append(None)
+        return native_outline(*args)
+
+    monkeypatch.setattr(extension, "flow_outline_matches", counted)
+    for failure in (None, "outline_points", "hits", "quadrant", "known", "majority",
+                    "paintable", "zero", "area", "matched_area", "out_of_image"):
+        for _ in range(5):
+            shape, target, filled, reference, pair = _flow_case(rng, failure)
+            tracker = PartTracker(shape)
+            monkeypatch.setattr(tracker, "_path", lambda *_, pair=pair: pair)
+            args = (1, target, filled, reference)
+            expected = CREAM[:3] if failure is None else None
+            assert tracker._flow_color_numpy(*args) == expected, failure
+            before = len(calls)
+            assert tracker._flow_color(*args) == expected, failure
+            assert len(calls) - before == (failure != "outline_points"), failure
+
+
+def test_flow_color_skips_interior_coordinates_when_outline_fails(monkeypatch):
+    shape, target, filled, reference, pair = _flow_case(np.random.default_rng(610), "hits")
+    tracker = PartTracker(shape)
+    monkeypatch.setattr(tracker, "_path", lambda *_: pair)
+    coordinates = type(pair).coordinates
+    calls = []
+
+    def counted(self, ys, xs):
+        calls.append(ys.size)
+        return coordinates(self, ys, xs)
+
+    monkeypatch.setattr(type(pair), "coordinates", counted)
+    assert tracker._flow_color(1, target, filled, reference) is None
+    assert calls == [int(target.boundary.sum())]
+
+
+def test_flow_color_uses_numpy_for_unsupported_value_dtype(monkeypatch):
+    shape, target, filled, reference, pair = _flow_case(np.random.default_rng(610))
+    tracker = PartTracker(shape)
+    monkeypatch.setattr(tracker, "_path", lambda *_: pair)
+    reference.values = reference.values.astype(np.uint32)
+    assert auto_paint.native.flow_part_color(shape, target, filled, reference, pair) is NotImplemented
+    assert tracker._flow_color(1, target, filled, reference) == CREAM[:3]
+
+
+def test_flow_color_uses_numpy_when_the_entry_is_unavailable(monkeypatch):
+    shape, target, filled, reference, pair = _flow_case(np.random.default_rng(611))
+    tracker = PartTracker(shape)
+    monkeypatch.setattr(tracker, "_path", lambda *_: pair)
+    monkeypatch.delattr(auto_paint.native._native, "flow_part_color")
+    assert tracker._flow_color(1, target, filled, reference) == CREAM[:3]

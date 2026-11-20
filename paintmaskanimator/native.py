@@ -28,6 +28,8 @@ REQUIRED_API = (
     "render_quad_labels", "render_mesh_labels", "splat_mask_labels", "mask_labels_to_rgba",
     "solve_local_shift", "prepare_local_shift",
     "tiled_part_color",
+    "flow_outline_matches",
+    "flow_part_color",
     "surface_guided_palette_labels", "map_known_colors", "region_neighbors",
     "FillSession", "LineCache", "compute_fill_region_once", "fill_target_mask", "extend_line_ends", "flood_fill", "dilate", "erode", "label_regions", "remove_line_noise", "decode_png", "encode_png", "ZipReader", "ZipWriter", "decode_v2_plan",
 )
@@ -458,6 +460,111 @@ def tiled_part_color(target, filled, guide, tiles, paths, size):
     return _native.tiled_part_color(
         windows, ((x0, y0, x1 - x0, y1 - y0), filled.local.tobytes()), size,
         guide.regions.sizes.tobytes() if size < 4096 else b"",
+    )
+
+
+def has_flow_part_color():
+    """変形場の採色を行う拡張の入口が利用できるかを返す。"""
+    return (callable(getattr(_native, "flow_outline_matches", None))
+            and callable(getattr(_native, "flow_part_color", None)))
+
+
+def _flow_window(coordinates, shape, margin=0):
+    """画像内の有効な往路座標の外接窓を返す。"""
+    sy, sx, _by, _bx, consistent = coordinates
+    height, width = shape
+    inside = consistent & (sy >= 0) & (sy < height) & (sx >= 0) & (sx < width)
+    if not inside.any():
+        return _tiled_window((0, 0, 0, 0), shape)
+    y, x = sy[inside], sx[inside]
+    bounds = int(x.min()), int(y.min()), int(x.max()) + 1, int(y.max()) + 1
+    return _tiled_window(bounds, shape, margin)
+
+
+def _flow_coordinates(pair, ys, xs):
+    """点順を保って補間し、入口が読める座標の dtype を確認する。"""
+    arrays = pair.coordinates(ys, xs)
+    if (len(arrays) != 5 or any(a.shape != ys.shape for a in arrays)
+            or any(a.dtype != np.int64 for a in arrays[:4])
+            or arrays[4].dtype != np.bool_):
+        return None
+    return arrays
+
+
+def _flow_coordinate_bytes(coordinates):
+    """往復の4座標と経路の有効マスクを行優先で渡す。"""
+    return tuple(a.tobytes() for a in coordinates[:4]), coordinates[4].tobytes()
+
+
+def flow_part_color(shape, target, filled, guide, pair):
+    """輪郭照合を通った部位の内部を補間し、採用色の RGB を返す。"""
+    from . import bucket_fill
+
+    source = guide.initial
+    wide = (source.wide_boundary, source.wide_primary)
+    excluded = (source.boundary, guide.open, guide.undecided, guide.black, guide.primary)
+    confirmed = guide.confirmed
+    masks = (target.boundary, target.black, source.black, *wide, *excluded)
+    if confirmed is not None:
+        masks += (confirmed,)
+    values = guide.values
+    if (values.dtype != np.int64 or values.shape != shape or filled.local.dtype != np.bool_
+            or any(mask.dtype != np.bool_ or mask.shape != shape for mask in masks)):
+        return NotImplemented
+
+    rect, roi = _tiled_window(filled.bounds, shape, 1)
+    ax0, ay0, aw, ah = rect
+    x0, y0, x1, y1 = filled.bounds
+    local = np.zeros((ah, aw), dtype=bool)
+    local[y0 - ay0:y1 - ay0, x0 - ax0:x1 - ax0] = filled.local
+    dilated = bucket_fill.dilate(local, 1)
+    # 補間する点を決めるため、この窓で target.boundary との積を取る。
+    outline = dilated & ~local
+    boundary = target.boundary[roi]
+    oy, ox = np.nonzero(outline & boundary)
+    if oy.size < 8:
+        return None
+    outline_xy = _flow_coordinates(pair, oy + ay0, ox + ax0)
+    if outline_xy is None:
+        return NotImplemented
+    source_outline, outline_roi = _flow_window(outline_xy, shape)
+    bx, by, bw, bh = source_outline
+    black_rect, black_roi = source_outline, outline_roi
+    if bw:
+        black_rect, black_roi = _tiled_window((bx, by, bx + bw, by + bh), shape, 1)
+    band = dilated & ~bucket_fill.erode(local, 2)
+    part = (x0, y0, x1 - x0, y1 - y0)
+    if not _native.flow_outline_matches(
+        ((rect, outline.tobytes()), _flow_coordinate_bytes(outline_xy),
+         (rect, band.tobytes()), (boundary.tobytes(), target.black[roi].tobytes()),
+         source_outline, tuple(mask[outline_roi].tobytes() for mask in wide),
+         (black_rect, source.black[black_roi].tobytes())),
+        part,
+    ):
+        return None
+
+    ys, xs = np.nonzero(filled.local)
+    labels, sizes = b"", b""
+    if ys.size < 4096:
+        regions = guide.regions
+        if (regions.labels.dtype != np.int32 or regions.labels.shape != shape
+                or regions.sizes.dtype != np.int64 or regions.sizes.ndim != 1):
+            return NotImplemented
+        sizes = regions.sizes.tobytes()
+
+    inside_xy = _flow_coordinates(pair, ys + y0, xs + x0)
+    if inside_xy is None:
+        return NotImplemented
+    source_inside, inside_roi = _flow_window(inside_xy, shape)
+    if ys.size < 4096:
+        labels = regions.labels[inside_roi].tobytes()
+    return _native.flow_part_color(
+        ((part, filled.local.tobytes()),
+         _flow_coordinate_bytes(inside_xy), source_inside,
+         tuple(mask[inside_roi].tobytes() for mask in excluded),
+         None if confirmed is None else confirmed[inside_roi].tobytes(),
+         values[inside_roi].tobytes(), labels),
+        sizes,
     )
 
 

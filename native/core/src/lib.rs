@@ -6,6 +6,7 @@ pub mod colors;
 pub mod display;
 pub mod error;
 pub mod fill;
+pub mod flow_color;
 pub mod line_flow;
 pub mod line_noise;
 pub mod local_shift;

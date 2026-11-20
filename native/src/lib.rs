@@ -18,6 +18,7 @@ mod display;
 mod fill_decisions;
 mod fill_session;
 mod fill_tracking;
+mod flow_color;
 mod map_colors;
 mod mask_transform;
 mod palette;
@@ -197,6 +198,8 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(auto_paint::connect_runs, module)?)?;
     module.add_function(wrap_pyfunction!(auto_paint::refine_face, module)?)?;
     module.add_function(wrap_pyfunction!(tiled_color::tiled_part_color, module)?)?;
+    module.add_function(wrap_pyfunction!(flow_color::flow_outline_matches, module)?)?;
+    module.add_function(wrap_pyfunction!(flow_color::flow_part_color, module)?)?;
     module.add_function(wrap_pyfunction!(auto_paint::solve_local_shift, module)?)?;
     module.add_function(wrap_pyfunction!(auto_paint::prepare_local_shift, module)?)?;
     module.add_function(wrap_pyfunction!(
