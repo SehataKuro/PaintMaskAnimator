@@ -1,7 +1,8 @@
-"""Compare the private Rust Document with the active Python Document."""
+"""Compare the private Rust Document with the Python document oracle."""
 
 import json
 from dataclasses import asdict
+from unittest.mock import patch
 from zipfile import ZipFile
 
 import numpy as np
@@ -10,9 +11,19 @@ import pytest
 from paintmaskanimator import project_io, utils
 from paintmaskanimator.document_changes import Cursor, Selection
 from paintmaskanimator.native import resolve_timeline
-from paintmaskanimator.project_v2 import build_payload
+from paintmaskanimator.project_v2 import _decode_core_document, build_payload
 from pma_native.pma_native import _compare_document_v2
+from python_document_oracle import Document as OracleDocument
 from v2_golden_support import CASES, ROOT, V2_ROOT
+
+
+def _load_oracle(path):
+    # v1 constructs the document in project_io, and v2 imports its class lazily.
+    with patch.object(project_io, "Document", OracleDocument), patch(
+            "paintmaskanimator.document.Document", OracleDocument):
+        loaded = project_io.load_project(path)
+    assert type(loaded.document) is OracleDocument
+    return loaded
 
 
 def _project(loaded):
@@ -54,16 +65,67 @@ def _apply_selection(doc, changes):
 @pytest.mark.parametrize("case", CASES)
 def test_document_v2_golden(case):
     path = V2_ROOT / f"{case}.pman"
-    loaded = project_io.load_project(path)
+    loaded = _load_oracle(path)
     _, artwork = _project(loaded)
     with ZipFile(path) as archive:
         source = archive.read("project.json").decode()
     _compare(loaded, source, artwork)
 
 
+@pytest.mark.parametrize("override_selection", [False, True])
+@pytest.mark.parametrize("case", CASES)
+def test_core_document_v2_archive(case, override_selection):
+    path = V2_ROOT / f"{case}.pman"
+    loaded = _load_oracle(path)
+    with ZipFile(path) as archive:
+        source = json.loads(archive.read("project.json"))
+        document, width, height = _decode_core_document(source, archive)
+    assert (width, height) == (loaded.width, loaded.height)
+    if override_selection:
+        loaded.metadata.update(
+            current_frame=(loaded.document.current_frame + 1) % len(loaded.document.frames),
+            active_layer_index=(loaded.document.active_layer_index + 1) % len(loaded.document.tracks),
+        )
+    _compare_core_projection(loaded, document)
+
+
+def _compare_core_projection(loaded, document):
+    expected, artwork = _project(loaded)
+    payload, images = document.project_v2(json.dumps(loaded.metadata))
+    assert json.loads(payload) == expected
+    assert json.dumps(json.loads(payload), ensure_ascii=False, indent=2) == json.dumps(
+        expected, ensure_ascii=False, indent=2,
+    )
+    assert [(name, image.width, image.height, image.rgba_bytes()) for name, image in images] == artwork
+
+
+def test_core_v2_archive_applies_legacy_mask_per_image_request(tmp_path):
+    from PySide6.QtGui import QColor, QImage
+
+    track = {"cells": [{"number": 1, "image": "art.png"}], "sheet": [1]}
+    source = {
+        "format": "PaintMaskAnimatorProject", "format_version": 2, "mask_format": 1,
+        "canvas": {"width": 1, "height": 1},
+        "frame_durations": [1],
+        "tracks": [track, dict(track, is_paper=True)],
+    }
+    image = QImage(1, 1, QImage.Format.Format_ARGB32_Premultiplied)
+    image.fill(QColor("white"))
+    path = tmp_path / "shared-legacy-mask.pman"
+    with ZipFile(path, "w") as archive:
+        archive.writestr("project.json", json.dumps(source))
+        archive.writestr("art.png", project_io.encode_png(image))
+    loaded = _load_oracle(path)
+    with ZipFile(path) as archive:
+        document, _, _ = _decode_core_document(source, archive)
+    _compare_core_projection(loaded, document)
+    assert loaded.document.tracks[0].cells[1].image.rgba().tobytes() == bytes(4)
+    assert loaded.document.tracks[1].cells[1].image.rgba().tobytes() == bytes([255] * 4)
+
+
 @pytest.mark.parametrize("path", sorted((ROOT / "v1").glob("*.pman")), ids=lambda path: path.stem)
 def test_document_v1_after_python_import(path):
-    loaded = project_io.load_project(path)
+    loaded = _load_oracle(path)
     payload, artwork = _project(loaded)
     _compare(loaded, json.dumps(payload), artwork)
 
@@ -73,7 +135,7 @@ def _rgba(image):
 
 
 def test_document_edits(monkeypatch):
-    loaded = project_io.load_project(V2_ROOT / "basic-bank-sheet.pman")
+    loaded = _load_oracle(V2_ROOT / "basic-bank-sheet.pman")
     monkeypatch.setattr(utils, "workspace_size", lambda: (loaded.width, loaded.height))
     payload, artwork = _project(loaded)
     doc = loaded.document
@@ -110,7 +172,7 @@ def test_document_edits(monkeypatch):
 
 
 def test_pending_placement():
-    loaded = project_io.load_project(V2_ROOT / "pending-compat.pman")
+    loaded = _load_oracle(V2_ROOT / "pending-compat.pman")
     payload, artwork = _project(loaded)
     changes = loaded.document.place_pending_entries()
     _apply_selection(loaded.document, changes)
@@ -120,8 +182,19 @@ def test_pending_placement():
     )
 
 
+def test_python_oracle_reference_clone_clears_legacy_pending():
+    loaded = _load_oracle(V2_ROOT / "pending-compat.pman")
+    slot = next(slot for frame in loaded.document.frames for slot in frame.layers
+                if slot.sequence_only)
+    held = slot.clone_reference()
+    assert held.sequence_only
+    position = held.__dict__["_v1_position"]
+    assert position.pending is False
+    assert position.legacy.sequence_only is False
+
+
 def test_move_sheet_cell(monkeypatch):
-    loaded = project_io.load_project(V2_ROOT / "basic-bank-sheet.pman")
+    loaded = _load_oracle(V2_ROOT / "basic-bank-sheet.pman")
     monkeypatch.setattr(utils, "workspace_size", lambda: (loaded.width, loaded.height))
     payload, artwork = _project(loaded)
     doc = loaded.document
@@ -135,7 +208,7 @@ def test_move_sheet_cell(monkeypatch):
 
 
 def test_replace_drawing_image():
-    loaded = project_io.load_project(V2_ROOT / "basic-bank-sheet.pman")
+    loaded = _load_oracle(V2_ROOT / "basic-bank-sheet.pman")
     payload, artwork = _project(loaded)
     doc = loaded.document
     image = doc.frames[0].layers[0].image.copy()
@@ -160,14 +233,22 @@ def test_replace_drawing_image():
     ],
 )
 def test_move_sheet_cells(monkeypatch, case, positions, layer_delta, column_delta, cursor, active_layer):
-    loaded = project_io.load_project(V2_ROOT / f"{case}.pman")
+    loaded = _load_oracle(V2_ROOT / f"{case}.pman")
     monkeypatch.setattr(utils, "workspace_size", lambda: (loaded.width, loaded.height))
-    payload, artwork = _project(loaded)
     doc = loaded.document
+    if layer_delta:
+        doc.tracks[0].opacity = 0.25
+        doc.tracks[1].opacity = 0.75
+    payload, artwork = _project(loaded)
     moves = doc.prepare_sheet_moves(positions, layer_delta, column_delta)
     assert len(moves) == 2
     operations = [[source, layer, target, dest] for layer, source, dest, target, *_ in moves]
     changes = doc.move_sheet_cells(moves, cursor, active_layer)
+    if layer_delta:
+        _, _, destination_layer, destination_frame, *_ = moves[0]
+        destination = doc.frames[destination_frame].layers[destination_layer]
+        assert destination.opacity == 0.25
+        assert destination.__dict__["_v1_position"].legacy.opacity == 0.75
     _apply_selection(doc, changes)
     _compare(
         loaded, json.dumps(payload), artwork, [["move_sheet_cells", operations, cursor, active_layer]],
@@ -176,7 +257,7 @@ def test_move_sheet_cells(monkeypatch, case, positions, layer_delta, column_delt
 
 
 def test_patch_content_and_replace_group():
-    loaded = project_io.load_project(V2_ROOT / "basic-bank-sheet.pman")
+    loaded = _load_oracle(V2_ROOT / "basic-bank-sheet.pman")
     doc = loaded.document
     payload, artwork = _project(loaded)
     pixel = [33, 44, 55, 255]
@@ -205,7 +286,7 @@ def _legacy_project(path, frames, archive):
         "format": "PaintMaskAnimatorProject", "format_version": 1,
         "mask_format": 2, "canvas": {"width": 4, "height": 3}, "frames": [],
     }, frames, archive)
-    return project_io.load_project(path)
+    return _load_oracle(path)
 
 
 def test_legacy_unnumbered_duplicate_and_split(tmp_path, monkeypatch):
@@ -353,7 +434,7 @@ def test_review_patch_and_replace_image(initial_image_document):
 
 
 def test_review_recall_blank(initial_image_document):
-    from paintmaskanimator.document import DrawingTarget
+    from python_document_oracle import DrawingTarget
 
     doc = initial_image_document.document
 
@@ -569,10 +650,15 @@ def test_clear_created_hold(tmp_path, monkeypatch, command):
     from p5_6_support import image, slot
 
     monkeypatch.setattr(utils, "workspace_size", lambda: (4, 3))
+    held = slot()
+    following = slot()
+    if command == "duplicate_frame":
+        held = slot(color="green", initial_image=image("yellow"), cell_name="複製元の保持")
+        following = slot(color="magenta", initial_image=image("cyan"), cell_name="移動先の保持")
     loaded = _legacy_project(tmp_path / "create-hold.pman", [
         Frame([slot(1, "red", has_content=True, exposure=4, initial_image=image("blue")), slot()]),
-        Frame([slot(), slot()]),
-        Frame([slot(), slot()]),
+        Frame([held, slot()]),
+        Frame([following, slot()]),
         Frame([slot(), slot()]),
     ], {})
     doc = loaded.document
@@ -585,7 +671,17 @@ def test_clear_created_hold(tmp_path, monkeypatch, command):
         create = ([command, 1, layer], lambda: doc.create_blank_key(1, layer))
     else:
         layer, hold = 0, 2
-        create = ([command, 1], lambda: doc.duplicate_frame(1))
+
+        def duplicate_held_frame():
+            before = doc.frames[1].layers[0].__dict__["_v1_position"].legacy
+            assert before.cell_name == "複製元の保持"
+            assert tuple(before.image.rgba()[0, 0]) == (0, 128, 0, 255)
+            changes = doc.duplicate_frame(1)
+            assert doc.frames[hold].layers[layer].sequence_number == 1
+            assert tuple(doc.frames[hold].layers[layer].image.rgba()[0, 0]) == (255, 0, 0, 255)
+            return changes
+
+        create = ([command, 1], duplicate_held_frame)
     assert doc.tracks[0].cells[1].initial_image is not None
     _compare_edits(loaded, [
         create,
@@ -593,6 +689,37 @@ def test_clear_created_hold(tmp_path, monkeypatch, command):
          lambda: doc.clear_sheet_span(layer, hold, hold + 1)),
     ])
     assert doc.frames[hold].layers[layer].initial_image is None
+    if command == "duplicate_frame":
+        cleared = doc.frames[hold].layers[layer]
+        assert cleared.sequence_number is None
+        assert cleared.cell_name is None
+        assert not np.any(cleared.image.rgba())
+        _, pngs = _project(loaded)
+        pixels = {path: rgba for path, _, _, rgba in pngs}
+        assert pixels["layers/layer_0000/cell_000001.png"][:4] == bytes((255, 0, 0, 255))
+        assert pixels["initial/layers/layer_0000/cell_000001.png"][:4] == bytes((0, 0, 255, 255))
+
+
+def test_core_document_projection_shares_image_generation():
+    from pma_native.pma_native import RgbaImage, _CoreDocument
+
+    rgba = bytes((10, 20, 30, 255))
+    image = RgbaImage(1, 1, rgba)
+    source = {
+        "canvas": {"width": 1, "height": 1},
+        "frame_durations": [1],
+        "tracks": [{"cells": [{"number": 1, "image": "input.png"}], "sheet": [1]}],
+    }
+    document = _CoreDocument.from_v2(json.dumps(source), ["input.png"], [image])
+    _, pngs = document.project_v2("{}")
+    assert len(pngs) == 1
+    projected = pngs[0][1]
+    assert projected.generation == image.generation
+    projected.write_rect(0, 0, 1, 1, bytes((40, 50, 60, 255)))
+    _, pngs = document.project_v2("{}")
+    assert pngs[0][1].generation == image.generation
+    assert pngs[0][1].rgba_bytes() == image.rgba_bytes() == rgba
+    assert projected.generation != image.generation
 
 
 @pytest.mark.parametrize("local_pending_artwork", [False, True])
@@ -611,7 +738,7 @@ def test_clear_placed_pending_blank(tmp_path, monkeypatch, local_pending_artwork
     project_io.write_project_snapshot(v2_path, project_io.ProjectSnapshot(
         loaded.metadata, loaded.document, loaded.width, loaded.height,
     ))
-    payload, artwork = _project(project_io.load_project(v2_path))
+    payload, artwork = _project(_load_oracle(v2_path))
     if local_pending_artwork:
         track = payload["tracks"][0]
         # The v2 decoder also accepts the pending number from a local entry.
@@ -626,7 +753,7 @@ def test_clear_placed_pending_blank(tmp_path, monkeypatch, local_pending_artwork
             archive.writestr("project.json", json.dumps(payload))
             for name, contents in entries.items():
                 archive.writestr(name, contents)
-    loaded = project_io.load_project(v2_path)
+    loaded = _load_oracle(v2_path)
     doc = loaded.document
     source = doc.frames[3].layers[0]
     assert source.is_blank_key and source.sequence_only and source.initial_image is not None

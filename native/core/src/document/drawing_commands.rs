@@ -101,13 +101,12 @@ impl Document {
         rgba: &[u8],
         has_content: bool,
     ) -> Result<ChangeSet, Error> {
-        let mut edited = self.clone();
-        let track = *edited.track_order.get(layer_index).ok_or_else(missing)?;
+        let track = *self.track_order.get(layer_index).ok_or_else(missing)?;
         let target = DrawingTarget::Frame(frame);
-        let (_, number, _) = edited.artwork_target(track, target)?;
-        let changes = edited.write_drawing_patch(layer_index, target, rect, rgba)?;
-        edited.update_drawing_content(frame, track, number, has_content)?;
-        *self = edited;
+        let (_, number, _) = self.artwork_target(track, target)?;
+        self.validate_drawing_content(frame, track, number, has_content)?;
+        let changes = self.write_drawing_patch(layer_index, target, rect, rgba)?;
+        self.update_drawing_content(frame, track, number, has_content)?;
         Ok(changes)
     }
 
@@ -210,6 +209,25 @@ impl Document {
             frame: Some(frame),
             fields: vec!["has_content"],
         }])
+    }
+
+    fn validate_drawing_content(
+        &self,
+        frame: usize,
+        track: TrackId,
+        number: Option<CellNumber>,
+        has_content: bool,
+    ) -> Result<(), Error> {
+        let position = &self.sheet[&self.frame_order[frame]].positions[&track];
+        let numbered = matches!(position.reference, Reference::Number(_));
+        let changes_content =
+            has_content != (numbered || position.compatibility.unnumbered_content);
+        if let Some(number) = number.filter(|_| changes_content && (has_content || numbered)) {
+            if !self.tracks[&track].cells.contains_key(&number) {
+                return Err(missing());
+            }
+        }
+        Ok(())
     }
 
     fn update_drawing_content(
@@ -352,6 +370,21 @@ mod tests {
             position.compatibility.local.as_ref().unwrap().image.rgba(),
             pixel
         );
+        let original = position
+            .compatibility
+            .local
+            .as_ref()
+            .unwrap()
+            .image
+            .rgba()
+            .as_ptr();
+        let replacement = [77, 88, 99, 255];
+        doc.write_drawing_patch_with_content(0, 0, rect, &replacement, true)
+            .unwrap();
+        let position = doc.position_mut(0, track);
+        let image = &position.compatibility.local.as_ref().unwrap().image;
+        assert_eq!(image.rgba().as_ptr(), original);
+        assert_eq!(image.rgba(), replacement);
     }
 
     // tests/test_core_document_compare.py:test_patch_content_and_replace_group

@@ -1,7 +1,10 @@
 """Frame operations on the document require no widget or signal receiver."""
+import pytest
+
 from paintmaskanimator.document import Document
-from paintmaskanimator.document_changes import ChangeSet, Cursor, FrameStructure, SheetSpans
+from paintmaskanimator.document_changes import ChangeSet, Cursor, ExposureIndexReset, FrameStructure, SheetSpans
 from paintmaskanimator.models import Frame, Layer
+from paintmaskanimator.pma_image import PmaImage
 from paintmaskanimator.sheet import sheet_numbers
 from paintmaskanimator.utils import blank_image
 
@@ -34,6 +37,22 @@ def test_invalid_frame_commands_and_forward_extension():
     assert doc.advance_frame() == ChangeSet((FrameStructure("extend", 1, 2, 1), Cursor(1)))
     assert sheet_numbers(doc.frames, 0) == [None, None]
     assert doc.frames[1].layers[0]._track is doc.frames[0].layers[0]._track
+
+
+@pytest.mark.parametrize("connected", [False, True])
+def test_delete_frame_resets_exposure_index_before_other_changes_only_when_connecting(connected):
+    doc = Document()
+    image = PmaImage.blank(4, 3)
+    frames = [Frame([Layer("A", image, has_content=True, sequence_number=7)]),
+              Frame([Layer("A", image)])]
+    if connected:
+        doc.install_legacy_frames(frames, canvas_size=(4, 3))
+    else:
+        doc.frames = frames
+    reset = () if connected else (ExposureIndexReset(),)
+    assert doc.delete_frame(0, 0) == ChangeSet((
+        *reset, FrameStructure("trim", 2, 1, 1), SheetSpans(0, 0, 2), Cursor(0),
+    ))
 
 
 def test_remap_validates_every_column_before_growing_or_changing_the_sheet():

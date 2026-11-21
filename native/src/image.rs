@@ -5,6 +5,19 @@ use pyo3::{exceptions::PyValueError, prelude::*, types::PyBytes};
 #[pyclass(module = "pma_native", name = "RgbaImage")]
 pub(crate) struct PyRgbaImage(RgbaImage);
 
+impl PyRgbaImage {
+    /// 画素と世代を共有するコア画像を返す。
+    pub(crate) fn share(&self) -> RgbaImage {
+        self.0.clone()
+    }
+}
+
+impl From<RgbaImage> for PyRgbaImage {
+    fn from(image: RgbaImage) -> Self {
+        Self(image)
+    }
+}
+
 fn image_error(error: pma_core::Error) -> PyErr {
     PyValueError::new_err(error.to_string())
 }

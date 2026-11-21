@@ -225,17 +225,12 @@ def build_payload(snapshot, *, include_default_local_images=False):
     return payload, pngs
 
 
-def _decode_payload(payload, archive, png_cache=None):
-    """Build a private dense graph directly, without legacy installation."""
+def _decode_v2_images(payload, archive, *, seed_cache=False):
+    """Validate the read plan and decode its images in request order."""
     import math
     import struct
     from . import project_io as io
-    from .document import Document
     from .errors import OperationError
-    from .legacy_v1 import DenseReference, LegacyLayerV1, V1Position
-    from .models import ArchiveHint, Cell, Frame, Layer, Track, default_layer_name
-    from .tween_groups import sanitize_spec
-
     from .native import decode_v2_plan
 
     def require(ok):
@@ -252,14 +247,12 @@ def _decode_payload(payload, archive, png_cache=None):
             for child in value:
                 finite(child)
     finite(payload)
+    names = [i.filename for i in archive.infolist()]
     plan, requests, error = decode_v2_plan(
-        payload, [i.filename for i in archive.infolist()],
+        payload, names,
         (io.MAX_PROJECT_FRAMES, io.MAX_PROJECT_LAYERS, io.MAX_PROJECT_LAYER_CELLS))
     width, height = plan["width"], plan["height"]
     decoded, installed, seeded = {}, {}, {}
-
-    def blank():
-        return PmaImage.blank(width, height)
 
     def image(path, paper, draft):
         try:
@@ -282,10 +275,40 @@ def _decode_payload(payload, archive, png_cache=None):
             result = io.white_to_transparent_qimage(result)
             blob = None
         return io._install_decoded_image(result, installed, seeded,
-                                         blob if png_cache is not None else None)
+                                         blob if seed_cache else None)
 
     images = [image(path, paper, draft) for path, paper, draft in requests]
     require(error is None)
+    return plan, names, images, seeded
+
+
+def _decode_core_document(payload, archive):
+    """Install a private Rust document from the existing v2 image requests."""
+    import json
+    from pma_native.pma_native import _CoreDocument
+
+    plan, names, images, _ = _decode_v2_images(payload, archive)
+    document = _CoreDocument.from_v2(
+        json.dumps(payload, ensure_ascii=False, allow_nan=False),
+        names,
+        [image._image for image in images],
+    )
+    return document, plan["width"], plan["height"]
+
+
+def _decode_payload(payload, archive, png_cache=None):
+    """Build a private dense graph directly, without legacy installation."""
+    from . import project_io as io
+    from .document import Document
+    from .legacy_v1 import DenseReference, LegacyLayerV1, V1Position
+    from .models import ArchiveHint, Cell, Frame, Layer, Track, default_layer_name
+    from .tween_groups import sanitize_spec
+
+    plan, _, images, seeded = _decode_v2_images(payload, archive, seed_cache=png_cache is not None)
+    width, height = plan["width"], plan["height"]
+
+    def blank():
+        return PmaImage.blank(width, height)
 
     def artwork(values):
         image_index, initial_index, name = values
