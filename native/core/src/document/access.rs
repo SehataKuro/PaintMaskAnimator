@@ -88,6 +88,29 @@ impl Document {
         Ok(())
     }
 
+    /// Python の restore（clone_frame_graph で写した文書）と同じ値で、写しの文書を戻す。
+    ///
+    /// clone_frame_graph は位置を clone_slot で写して列へつなぎ直し（配置待ちの所属は列が
+    /// 持つ）、バンクを参照する位置の使われない局所の絵は写さない。画素は共有する。
+    pub fn restore_from(&mut self, snapshot: &Document) {
+        let blank = self.blank.take();
+        *self = snapshot.clone();
+        self.blank = blank.or_else(|| self.blank.take());
+        for position in self
+            .sheet
+            .values_mut()
+            .flat_map(|row| row.positions.values_mut())
+        {
+            position.compatibility.pending_detached = false;
+            if position.references_bank() {
+                position.compatibility.local = None;
+                position.compatibility.local_share = None;
+                position.compatibility.local_bank = false;
+            }
+        }
+        self.drop_single_shares();
+    }
+
     /// 命令が作る空画像の雛形を設定する（Python の blank_model_image() の画像）。
     pub fn set_blank_image(&mut self, image: RgbaImage) {
         self.blank = Some(image);

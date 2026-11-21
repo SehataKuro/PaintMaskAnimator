@@ -281,3 +281,124 @@ def test_shift_left_review_cases(monkeypatch):
     plain.delete_track_frame(1, 1)
     assert plain_following._cell is plain.frames[4].layers[1]._cell
     assert following._cell is live.frames[4].layers[1]._cell
+
+
+def test_create_blank_key_uses_core_command_and_matches_python(monkeypatch):
+    # 保持の途中を分ける場合と、未使用のセルに作る場合（直前のキーから伸ばす）。
+    for column, layer_index in ((2, 0), (8, 1)):
+        plain, live = _pair(hold=5, count=10)
+        calls = _round_trips(live, monkeypatch)
+        held, plain_held = live.frames[3].layers[0], plain.frames[3].layers[0]
+        assert (live.create_blank_key(column, layer_index)
+                == plain.create_blank_key(column, layer_index))
+        assert calls == []
+        assert _signature(live) == _signature(plain)
+        assert (any(s is held for f in live.frames for s in f.layers)
+                == any(s is plain_held for f in plain.frames for s in f.layers))
+        # 後ろの保持の位置は空キーの位置と同じ局所の Cell を共有する。
+        head = live.frames[column].layers[layer_index]
+        plain_head = plain.frames[column].layers[layer_index]
+        if column + 1 < 5:
+            assert plain.frames[column + 1].layers[layer_index]._cell is plain_head._cell
+            assert live.frames[column + 1].layers[layer_index]._cell is head._cell
+
+
+def _plain_flags(document):
+    """素の Layer の配置待ちの所属の印（_pending_detached）。live は素の状態に落として読む。"""
+    frames = document._demote().plain.frames if hasattr(document, "_demote") else document.frames
+    return [[bool(slot.__dict__.get("_pending_detached")) for slot in frame.layers]
+            for frame in frames]
+
+
+def test_create_blank_key_at_the_last_frame(monkeypatch):
+    # 保持の最後のセル（保持が文書の最後のコマで終わる）と、最後のコマの未使用セル。
+    for shape, column, layer_index in (({"hold": 5, "count": 10}, 9, 0),
+                                       ({"hold": 3, "count": 9}, 8, 1)):
+        plain, live = _pair(**shape)
+        calls = _round_trips(live, monkeypatch)
+        assert (live.create_blank_key(column, layer_index)
+                == plain.create_blank_key(column, layer_index))
+        assert calls == []
+        assert _signature(live) == _signature(plain)
+        assert len(live.frames) == len(plain.frames)
+
+
+def test_create_blank_key_fills_a_gap_from_the_previous_key(monkeypatch):
+    # 直前のキー（4コマ目）との間が3つある未使用セル。間の位置は直前のキーの写しになる。
+    plain, live = _pair(hold=5, count=10)
+    for document in (plain, live):
+        document.clear_sheet_span(1, 5, 8)
+    live._promote()
+    assert live._live()["graph"] is None
+    calls = _round_trips(live, monkeypatch)
+    gap, plain_gap = live.frames[6].layers[1], plain.frames[6].layers[1]
+    assert live.create_blank_key(8, 1) == plain.create_blank_key(8, 1)
+    assert calls == []
+    assert _signature(live) == _signature(plain)
+    assert (any(s is gap for f in live.frames for s in f.layers)
+            == any(s is plain_gap for f in plain.frames for s in f.layers))
+    assert (gap.has_content, gap.sequence_number) == (plain_gap.has_content,
+                                                      plain_gap.sequence_number)
+    assert _plain_flags(live) == _plain_flags(plain)
+
+
+def test_create_blank_key_keeps_pending_detached_of_the_blank_position(monkeypatch):
+    # B 列 [1,1,空,空,空] で 4コマ目に空キー（2・3 は直前のキーの写し、配置待ちは写しが持つ）、
+    # 続けて 3コマ目（保持の途中）に空キー。空キーの位置はその場で書き換わるので印が残る。
+    plain, live = _pair(hold=5, count=5)
+    for document in (plain, live):
+        document.clear_sheet_span(1, 2, 5)
+    live._promote()
+    calls = _round_trips(live, monkeypatch)
+    for column in (4, 3):
+        assert live.create_blank_key(column, 1) == plain.create_blank_key(column, 1)
+        assert _signature(live) == _signature(plain)
+    assert calls == []
+    assert _plain_flags(live) == _plain_flags(plain)
+
+
+def test_restore_snapshot_uses_core_and_matches_python(monkeypatch):
+    plain, live = _pair(hold=5, count=10)
+    for document in (plain, live):
+        document.create_blank_key(7, 0)
+    live._promote()
+    expected = plain.snapshot()
+    snapshot = live.snapshot()
+    assert snapshot.__dict__["_value"] is None
+    runs = []
+    original = document_live.Document._run
+
+    def run(self, name, args, kwargs):
+        runs.append(name)
+        return original(self, name, args, kwargs)
+    monkeypatch.setattr(document_live.Document, "_run", run)
+    # 写しのあとに構造と画素を変える。
+    patch = QImage(2, 2, QImage.Format.Format_ARGB32_Premultiplied)
+    patch.fill(QColor(0, 255, 0, 255))
+    for document in (plain, live):
+        document.duplicate_frame(2)
+        document.write_drawing_patch(0, 0, patch, (0, 0, 2, 2))
+    old_frames, plain_old_frames = live.frames, plain.frames
+    old_tracks, plain_old_tracks = live.tracks, plain.tracks
+    old_slot = live.frames[1].layers[0]
+    plain_old_slot = plain.frames[1].layers[0]
+    for _ in range(2):
+        assert live.restore_snapshot(snapshot) == plain.restore_snapshot(expected)
+        assert "restore_snapshot" not in runs
+        assert snapshot.__dict__["_value"] is None
+        assert _signature(live) == _signature(plain)
+        # 戻す前の並び・位置は文書から外れ、戻す前の値のまま。
+        assert len(old_frames) == len(plain_old_frames) == 11
+        assert len(old_tracks) == len(plain_old_tracks)
+        assert (live.frames is old_frames) == (plain.frames is plain_old_frames)
+        assert (any(s is old_slot for f in live.frames for s in f.layers)
+                == any(s is plain_old_slot for f in plain.frames for s in f.layers))
+        assert (old_slot.has_content, old_slot.sequence_number) == (
+            plain_old_slot.has_content, plain_old_slot.sequence_number)
+        # 戻したあとに描いても写しは汚れない。
+        for document in (plain, live):
+            document.write_drawing_patch(0, 0, patch, (2, 2, 2, 2))
+        assert (live.frames[0].layers[0].image.read_rgba(0, 0, 4, 4)
+                == plain.frames[0].layers[0].image.read_rgba(0, 0, 4, 4)).all()
+    assert (snapshot.frames[0].layers[0].image.read_rgba(0, 0, 4, 4)
+            == expected.frames[0].layers[0].image.read_rgba(0, 0, 4, 4)).all()

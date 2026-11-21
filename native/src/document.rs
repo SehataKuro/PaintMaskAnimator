@@ -111,6 +111,11 @@ impl PyCoreDocument {
             .map_err(value_error)
     }
 
+    /// Python の restore と同じ値で、写しの文書（snapshot）を戻す。
+    fn restore_from(&mut self, snapshot: PyRef<'_, PyCoreDocument>) {
+        self.0.restore_from(&snapshot.0);
+    }
+
     /// 命令が作る空画像の雛形を設定する（Python の blank_model_image() の画像）。
     fn set_blank_image(&mut self, image: PyRef<'_, PyRgbaImage>) {
         self.0.set_blank_image(image.share());

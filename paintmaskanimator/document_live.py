@@ -1368,6 +1368,18 @@ class Document:
         changes = _CORE_COMMANDS["duplicate_frame"](self, column)
         return self._run("duplicate_frame", (column,), {}) if changes is None else changes
 
+    def create_blank_key(self, column, layer_index):
+        changes = _CORE_COMMANDS["create_blank_key"](self, column, layer_index)
+        if changes is None:
+            return self._run("create_blank_key", (column, layer_index), {})
+        return changes
+
+    def restore_snapshot(self, snapshot):
+        changes = _CORE_COMMANDS["restore_snapshot"](self, snapshot)
+        if changes is None:
+            return self._run("restore_snapshot", (snapshot,), {})
+        return changes
+
     def snapshot(self):
         """Copy the entire drawing bank, including unplaced drawings.
 
@@ -1866,11 +1878,12 @@ def _detach_plan(document, replaced, cleared):
     return plan
 
 
-def _detach(document, plan, moved=None, between=None):
+def _detach(document, plan, moved=None, between=None, release=True):
     """_detach_plan で用意したオブジェクトを、命令の前の値の素のオブジェクトにして文書から外す。
 
     moved は位置 → 局所の Cell が移った先の位置（外す Layer が、文書に残る同じ Cell を
-    指すように）。between は Cell を外したあと、Layer を外す前に呼ぶ。
+    指すように）。between は Cell を外したあと、Layer を外す前に呼ぶ。release が偽なら、
+    外す Layer の配置待ちを解かない（今の手順が replace_slot を通さず直接入れ替える場合）。
     """
     from .document import clear_pending
     live = document._live()
@@ -1916,7 +1929,8 @@ def _detach(document, plan, moved=None, between=None):
         elif local in cells and cells[local] is not None:
             stand.__dict__["_cell"] = cells[local]
         # 今の手順（replace_slot）は外す位置の配置待ちを解く。
-        clear_pending(stand)
+        if release:
+            clear_pending(stand)
         stand.__dict__["_track"] = track_proxy
         _transplant(layer, stand)
 
@@ -2111,13 +2125,140 @@ def _rekey_locals(document, moves):
                 cache.put("image", (new_key, initial), image)
 
 
+def _core_create_blank_key(document, column, layer_index):
+    """create_blank_key を Rust の命令で当てる。今の手順と同じにできなければ None。
+
+    今の手順は、空キーにする位置をその場で書き換え（detach_cell で局所の Cell が替わる）、
+    その後ろ（保持の途中で分けた残り）や前（未使用のセルの直前のキーからの間）の位置に
+    clone_reference() を直接入れる（replace_slot を通さないので、外れた古い Layer は配置待ちを
+    解かれず、その札は列に残る）。キーを選んだとき（後ろへ寄せてから書き換える）と、
+    局所の絵を共有する位置がある場合は今の経路。
+    """
+    live = document._live()
+    if (live["graph"] is not None or live.get("trial") or type(column) is not int
+            or type(layer_index) is not int):
+        return None
+    state = live["state"]
+    frame_ids = list(state.frame_ids)
+    count = len(frame_ids)
+    if not (0 <= column < count and 0 <= layer_index < len(state.track_ids)):
+        return None
+    tid = state.track_ids[layer_index]
+    block = document.timeline_block_at(column, layer_index)
+    if block is not None:
+        start, exposure = block[1], max(1, block[2])
+        if column == start:
+            return None  # キーを選んだとき（後ろへ寄せる）
+        head = start + min(max(1, column - start), exposure - 1)
+        replaced = list(range(head + 1, start + exposure))
+        first = start
+    else:
+        head = column
+        previous = None
+        for candidate in range(column - 1, -1, -1):
+            values = state.position(frame_ids[candidate], tid)[0]
+            if values["has_content"] or values["is_blank_key"]:
+                previous = candidate
+                break
+        replaced = [] if previous is None else list(range(previous + 1, column))
+        first = column if previous is None else previous
+    stop = max([head, *replaced]) + 1
+    if stop > count:
+        return None  # 保持が文書の末尾より先まで続く（今の手順がコマを足す）
+    # 今の手順は元にする位置（保持の先頭・直前のキー）を clone() するので、バンクを参照せず
+    # 局所の絵の無い位置には、そこで空の Cell ができる（写しとも共有する）。
+    values = state.position(frame_ids[first], tid)[0]
+    number = values["sequence_number"]
+    if (first != head and values["local"] is None
+            and not (number is not None and (values["has_content"] or values["sequence_only"]))):
+        return None
+    keys = [(frame_ids[index], tid) for index in range(first, stop)]
+    if any(state.position(*key)[0].get("local_share") is not None for key in keys):
+        return None
+    replaced_keys = [(frame_ids[index], tid) for index in replaced]
+    plan = _detach_plan(document, replaced_keys, [(frame_ids[head], tid)])
+    if plan is None:
+        return None
+    # 直接入れ替えるので、外れる配置待ちの位置の札は列に残る（今の手順の pending_slots）。
+    kept = []
+    for key in replaced_keys:
+        values = state.position(*key)[0]
+        token = live.get("tokens", {}).get(key)
+        if token is not None and values["sequence_only"] and not values.get("pending_detached"):
+            kept.append(token)
+    rows = frame_ids[first:stop]
+    result = _apply_core_command(document, ["create_blank_key", column, layer_index],
+                                 lambda ids: rows)
+    if result is None:
+        return None
+    changes, new_ids = result
+    tokens = live.setdefault("tokens", {})
+    for fid in new_ids:
+        for track in state.track_ids:
+            tokens[fid, track] = PendingToken()
+    for key in replaced_keys:
+        tokens[key] = PendingToken()
+    if kept:
+        extra = live.setdefault("extra_pending", {})
+        extra.setdefault(tid, WeakSet()).update(kept)
+    state.pending.clear()
+    _detach(document, plan, release=False)
+    return changes
+
+
+def _core_restore_snapshot(document, snapshot):
+    """restore_snapshot を、遅延の写しの Rust の文書から戻す。今の手順と同じにできなければ None。
+
+    今の手順（restore）は写しを clone_frame_graph でもう一度写して、文書のコマ・列を新しい
+    オブジェクトに入れ替える（古いオブジェクトは今の値のまま文書から外れる）。写しの中身を
+    まだ作っていない遅延の写しだけを扱う。
+    """
+    from .document_changes import ChangeSet, DocumentRestored, ExposureIndexReset
+    live = document._live()
+    lazy = _LAZY_SNAPSHOT[0] if _LAZY_SNAPSHOT else None
+    if (lazy is None or type(snapshot) is not lazy or live["graph"] is not None
+            or live.get("trial")):
+        return None
+    core = snapshot.__dict__.get("_core")
+    if core is None:
+        return None
+    current, active, width, height = tuple.__getitem__(snapshot, slice(1, 5))
+    # 文書に入っている窓口を、今の値の素のオブジェクトにして外す（素のグラフへ書き出す）。
+    graph = document._demote()
+    live = document._live()
+    for (kind, key), image in live["cache"].items():
+        if kind == "image":
+            live["cache"].pop(kind, key)
+            _unbind(image)
+    # 今の手順は frames・tracks に新しいリストを入れるので、渡した並びの窓口は古い並びに固定する。
+    document._retire_view("frames_view", graph.plain.frames)
+    document._retire_view("tracks_view", graph.plain.tracks)
+    target = live["core"]
+    target.set_blank_image(_blank_handle())
+    target.restore_from(core)
+    state = _CoreState(target)
+    live.update({
+        "graph": None, "state": state, "cursor": [current, active],
+        "next_ids": state.next_ids, "last_keys": {}, "extra_pending": {},
+        "tokens": {(fid, tid): PendingToken() for fid in state.frame_ids
+                   for tid in state.track_ids},
+    })
+    live["cache"] = _Cache()
+    document._sync_selection()
+    # 今の手順は写しの位置を clone_slot で作るので timeline_revision が進む。
+    Layer.timeline_revision += 1
+    return ChangeSet((DocumentRestored(width, height), ExposureIndexReset()))
+
+
 # Rust の命令で当てる操作（名前 → 関数(document, *args)、当てられなければ None）。
 _CORE_COMMANDS = {"duplicate_frame": _core_duplicate_frame,
                   "delete_frame": _core_delete_frame,
                   "delete_track_frame": _core_delete_track_frame,
                   "insert_track_frame": _core_insert_track_frame,
                   "ensure_frame_count": _core_ensure_frame_count,
-                  "advance_frame": _core_advance_frame}
+                  "advance_frame": _core_advance_frame,
+                  "restore_snapshot": _core_restore_snapshot,
+                  "create_blank_key": _core_create_blank_key}
 
 
 def _blank_handle():

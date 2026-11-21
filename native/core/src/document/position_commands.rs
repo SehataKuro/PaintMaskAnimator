@@ -702,12 +702,27 @@ impl Document {
                         || position.compatibility.unnumbered_content
                 });
                 if let Some(previous) = previous {
+                    // Python は previous.clone_reference() を直接入れる（replace_slot を通さない
+                    // ので配置待ちの所属は写しが持ち、局所の Cell は previous と共有する）。
                     let prior = edited.position_mut(previous, track).clone();
-                    let held = held_reference(
+                    let mut held = held_reference(
                         prior,
                         &edited.tracks[&track].settings,
                         self.blank_artwork()?,
                     );
+                    held.compatibility.pending_detached = true;
+                    if previous + 1 < column && held.compatibility.local.is_some() {
+                        let share = edited
+                            .position_mut(previous, track)
+                            .compatibility
+                            .local_share;
+                        let share = share.unwrap_or_else(|| edited.next_local_share());
+                        edited
+                            .position_mut(previous, track)
+                            .compatibility
+                            .local_share = Some(share);
+                        held.compatibility.local_share = Some(share);
+                    }
                     for index in previous + 1..column {
                         *edited.position_mut(index, track) = held.clone();
                     }
@@ -725,14 +740,16 @@ impl Document {
         } else {
             prior.compatibility.local.as_ref()
         };
-        let local = match artwork {
-            Some(cell) if cell.initial_image.is_some() || cell.cell_name.is_some() => Some(Cell {
-                image: crate::image::RgbaImage::blank(edited.width, edited.height)?,
-                initial_image: cell.initial_image.clone(),
-                cell_name: cell.cell_name.clone(),
-            }),
-            _ => None,
-        };
+        // Python は detach_cell で今の絵の写しを局所の Cell にし、画像だけ空にする（初期画像と
+        // セル名は残る）。今の絵が無ければ空の Cell。
+        let local = Some(Cell {
+            image: edited.blank_artwork()?,
+            initial_image: artwork.and_then(|cell| cell.initial_image.clone()),
+            cell_name: artwork.and_then(|cell| cell.cell_name.clone()),
+        });
+        // 今の手順は空キーの位置をその場で書き換えるので、clear_pending・detach_cell が外さない
+        // 印（_pending_detached・_legacy_missing・_v2_length_imported・_v2_resolve_source）は残る。
+        let kept = &prior.compatibility;
         let blank = Position {
             reference: Reference::Blank,
             tween: prior.tween,
@@ -740,22 +757,36 @@ impl Document {
             compatibility: super::compatibility::PositionCompatibility {
                 retained_number,
                 local,
+                pending_detached: kept.pending_detached,
+                legacy_missing: kept.legacy_missing,
+                length_imported: kept.length_imported,
+                resolved_source: kept.resolved_source,
                 ..Default::default()
             },
             ..Position::default()
         };
-        let held = held_reference(
+        // Python は空キーの位置の clone_reference() を直接入れる（配置待ちの所属は写しが持ち、
+        // 局所の Cell は空キーの位置と共有する）。
+        let mut held = held_reference(
             blank.clone(),
             &edited.tracks[&track].settings,
             self.blank_artwork()?,
         );
-        *edited.position_mut(head, track) = Position {
+        held.compatibility.pending_detached = true;
+        let mut head_position = Position {
             blank_start: true,
             ..blank
         };
+        if head + 1 < end {
+            let share = edited.next_local_share();
+            head_position.compatibility.local_share = Some(share);
+            held.compatibility.local_share = Some(share);
+        }
+        *edited.position_mut(head, track) = head_position;
         for index in head + 1..end {
             *edited.position_mut(index, track) = held.clone();
         }
+        edited.drop_single_shares();
         let after = edited.frame_order.len();
         let mut changes = Vec::new();
         if after > before {
