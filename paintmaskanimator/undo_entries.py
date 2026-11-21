@@ -89,6 +89,10 @@ class DocUndo(UndoEntry):
 
     @property
     def nbytes(self) -> int:
+        # Rust 正本の文書（document_live）の遅延の写しは、中身を作らずに同じ値を返す。
+        image_bytes = getattr(self.snapshot, "image_bytes", None)
+        if image_bytes is not None:
+            return image_bytes()
         try:
             frames = self.snapshot[0]
         except (TypeError, IndexError):

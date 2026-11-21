@@ -101,6 +101,11 @@ impl PyCoreDocument {
         Ok((json, images.into_iter().map(PyRgbaImage::from).collect()))
     }
 
+    /// 文書の写しを返す。画素バッファは書き込みまで共有する（Undo の記録用）。
+    fn copy(&self) -> Self {
+        Self(self.0.clone())
+    }
+
     /// 参照元の表示インデックスを (列数, コマ優先順の i64 のバイト列) で返す。
     ///
     /// Python の resolve_timeline と同じ値（pma-core の resolve_sources）。

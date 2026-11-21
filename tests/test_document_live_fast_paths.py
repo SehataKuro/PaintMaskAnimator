@@ -140,3 +140,41 @@ def test_review_cases_match_python():
         slot.clone()
         assert "_cell" in slot.__dict__
     assert _signature(live) == _signature(plain)
+
+
+def test_snapshot_is_lazy_and_matches_python(monkeypatch):
+    from paintmaskanimator.document import DocumentSnapshot
+    from paintmaskanimator.undo_entries import DocUndo
+
+    plain, live = _pair()
+    calls = _round_trips(live, monkeypatch)
+    expected = plain.snapshot()
+    snapshot = live.snapshot()
+    assert calls == [] and type(snapshot) is not DocumentSnapshot
+    assert isinstance(snapshot, DocumentSnapshot)
+    # 大きさは中身を作らずに求め、今の手順の値と同じ。
+    assert DocUndo(snapshot).nbytes == DocUndo(expected).nbytes
+    assert snapshot.__dict__["_value"] is None
+    # 写しを取ったあとの描き込みは写しに入らない。
+    patch = QImage(2, 2, QImage.Format.Format_ARGB32_Premultiplied)
+    patch.fill(QColor(0, 0, 255, 255))
+    live.write_drawing_patch(0, 0, patch, (0, 0, 2, 2))
+    plain.write_drawing_patch(0, 0, patch, (0, 0, 2, 2))
+    assert (snapshot.frames[0].layers[0].image.read_rgba(0, 0, 2, 2)
+            == expected.frames[0].layers[0].image.read_rgba(0, 0, 2, 2)).all()
+
+    def signature(snap):
+        frames = [[(s.has_content, s.sequence_number, s.sequence_only, s.name) for s in f.layers]
+                  for f in snap.frames]
+        return len(snap), snap[1:5], frames, [sorted(track.cells) for track in snap.tracks]
+    assert signature(snapshot) == signature(expected)
+    assert snapshot == tuple(snapshot) and snapshot[:5][1:] == expected[:5][1:]
+    other = live.snapshot()
+    assert snapshot == snapshot and not (snapshot != snapshot)
+    assert (other == snapshot) == (tuple(other) == tuple(snapshot))
+    # 戻すと、今の手順と同じ状態になる。
+    live.restore_snapshot(snapshot)
+    plain.restore_snapshot(expected)
+    assert _signature(live) == _signature(plain)
+    assert (live.frames[0].layers[0].image.read_rgba(0, 0, 2, 2)
+            == plain.frames[0].layers[0].image.read_rgba(0, 0, 2, 2)).all()

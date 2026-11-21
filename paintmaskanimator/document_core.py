@@ -15,7 +15,7 @@ from .legacy_v1 import DenseReference, LegacyLayerV1, V1Position
 from .models import ArchiveHint, Cell, Frame, Layer, PendingToken, Track
 from .native import _native
 from .pma_image import PmaImage, attributes_tag, tag_attributes
-from .timeline_metadata import set_dense_import
+from .timeline_metadata import metadata_for, set_dense_import
 
 _KNOWN_SLOT_KEYS = frozenset((
     "_cell", "_track", "_timeline_metadata", "_pending_token", "_pending_detached",
@@ -169,6 +169,20 @@ def _local_groups(slots):
     return {key: number for number, key in enumerate(shared)}
 
 
+def slot_metadata(slot):
+    """位置の (has_content, is_blank_key, sequence_number, sequence_only, blank_start)。
+
+    素の Layer では metadata_for を一度だけ呼んで読む（Layer のメタデータの読み取りは
+    項目ごとに metadata_for を呼ぶが、値は同じ）。
+    """
+    if type(slot) is Layer:
+        data = metadata_for(slot)
+        return (data.has_content, data.is_blank_key, data.sequence_number, data.sequence_only,
+                data.blank_start)
+    return (slot.has_content, slot.is_blank_key, slot.sequence_number, slot.sequence_only,
+            slot.blank_start)
+
+
 def _is_bank_cell(slot, cell):
     track = slot.__dict__.get("_track")
     return (not _owns_local(slot) and track is not None
@@ -177,10 +191,10 @@ def _is_bank_cell(slot, cell):
 
 def _owns_local(slot):
     """位置が局所の絵を使う（バンクを参照しない）か。Layer._cell と同じ条件。"""
-    number = slot.sequence_number
+    has_content, _, number, sequence_only, _ = slot_metadata(slot)
     track = slot.__dict__.get("_track")
     bank = (track is not None and track.connected and number is not None
-            and (slot.has_content or slot.sequence_only))
+            and (has_content or sequence_only))
     return not bank
 
 
@@ -207,8 +221,8 @@ def _position(slot, track, images, groups):
         raise GraphError(f"位置の未知の属性: {sorted(unknown)}")
     if data.get("_track") is not track:
         raise GraphError("列の Track と異なる Track を持つ位置")
-    number = slot.sequence_number
-    bank = number is not None and (slot.has_content or slot.sequence_only)
+    has_content, is_blank_key, number, sequence_only, blank_start = slot_metadata(slot)
+    bank = number is not None and (has_content or sequence_only)
     local = data.get("_cell")
     imported = data.get("_dense_import")
     source = data.get("_v2_resolve_source")
@@ -227,9 +241,9 @@ def _position(slot, track, images, groups):
     else:
         share = None
     return {
-        "has_content": bool(slot.has_content), "is_blank_key": bool(slot.is_blank_key),
-        "sequence_number": number, "sequence_only": bool(slot.sequence_only),
-        "blank_start": bool(slot.blank_start), "tween": slot.tween,
+        "has_content": bool(has_content), "is_blank_key": bool(is_blank_key),
+        "sequence_number": number, "sequence_only": bool(sequence_only),
+        "blank_start": bool(blank_start), "tween": slot.tween,
         "tween_member": slot.tween_member,
         "local": local, "local_share": share, "local_bank": local_bank,
         "content_origin": data.get("_content_origin"),

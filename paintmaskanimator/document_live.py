@@ -22,7 +22,10 @@ from collections.abc import MutableMapping, MutableSequence, MutableSet
 from copy import deepcopy
 from weakref import WeakSet, ref
 
-from .document_core import GraphError, graph_payload, model_image
+from .document_core import (
+    _NO_IMAGE, GraphError, _plain_settings, _settings, graph_from_core, graph_payload, model_image,
+    plain_slot, plain_track, slot_metadata,
+)
 from .models import ArchiveHint, Cell, Frame, Layer, Track, TRACK_FIELDS
 from .native import _native
 from .pma_image import PmaImage, tag_attributes
@@ -953,10 +956,10 @@ class _Graph:
 
 def _slot_owns_local(slot):
     """位置が局所の絵を持つ（バンクを参照しない）か。今の Layer._cell と同じ条件。"""
-    number = slot.sequence_number
+    has_content, _, number, sequence_only, _ = slot_metadata(slot)
     track = slot.__dict__.get("_track")
     bank = (track is not None and track.connected and number is not None
-            and (slot.has_content or slot.sequence_only))
+            and (has_content or sequence_only))
     return not bank and "_cell" in slot.__dict__
 
 
@@ -1029,7 +1032,6 @@ class Document:
 
     def _materialize(self):
         from .document import GraphDocument
-        from .document_core import plain_slot, plain_track
         live = self._live()
         state, cache = live["state"], live["cache"]
         graph = _Graph(object.__new__(GraphDocument))
@@ -1299,6 +1301,16 @@ class Document:
         live["cursor"][1] = value
         self._sync_selection()
 
+    def snapshot(self):
+        """Copy the entire drawing bank, including unplaced drawings.
+
+        Rust の状態では Rust の文書の写し（画素は書き込みまで共有）だけを取り、
+        今の手順（clone_frame_graph）の値は読まれたときに写しから作る。今の手順が
+        文書に局所の絵を作る位置（局所の絵の無い位置）があるときは今の経路で取る。
+        """
+        snapshot = _capture_snapshot(self)
+        return self._run("snapshot", (), {}) if snapshot is None else snapshot
+
     @property
     def layers(self):
         """Layers of the current frame."""
@@ -1399,7 +1411,6 @@ class Document:
     def _plain_copy(self, fid, tid):
         """位置の素の Layer を返す。列と絵は文書の窓口を参照する（今の Layer と同じく、
         clone_slot などの写しは同じ列・同じ絵を指す）。読むだけの処理に使う。"""
-        from .document_core import plain_slot, plain_track
         state = self._live()["state"]
         cached = state.slot_copies.get((fid, tid))
         if cached is not None:
@@ -1428,7 +1439,6 @@ class Document:
         Track の設定の代入には副作用が無いので、Rust へ戻すときの値（document_core の
         _settings と JSON）が同じなら、全体を書き出して戻すのと同じ結果になる。
         """
-        from .document_core import _plain_settings, _settings
         live = self._live()
         state = live["state"]
         if live["graph"] is not None or state is None:
@@ -1529,6 +1539,144 @@ class Document:
             return item
 
         return convert(value)
+
+
+def _snapshot_bytes(state):
+    """遅延の写しの DocUndo.nbytes（clone_frame_graph の結果の Cell の画像の大きさの和）。
+
+    局所の絵の無い位置（今の手順が文書に絵を作る）があれば None。
+    """
+    def size(handles, index):
+        if index is None:
+            return 0
+        handle = handles[index]
+        return handle.width * handle.height * 4
+
+    def cell_bytes(values, handles):
+        index = values["image"]
+        if index is not None and handles[index].generation == _NO_IMAGE.generation:
+            # 画像が None の Cell。今の手順はその時点の作業領域の大きさの空画像を作る。
+            raise _NeedsEager
+        return size(handles, index) + size(handles, values["initial_image"])
+
+    try:
+        return _snapshot_bytes_of(state, cell_bytes)
+    except _NeedsEager:
+        return None
+
+
+class _NeedsEager(Exception):
+    """遅延の写しでは今の snapshot と同じにできない（今の経路で取る）。"""
+
+
+def _snapshot_bytes_of(state, cell_bytes):
+    total = 0
+    for tid in state.track_ids:
+        data, handles = state.track(tid)
+        total += sum(cell_bytes(values, handles) for _, values in data["cells"])
+    seen = set()
+    for fid in state.frame_ids:
+        for tid in state.track_ids:
+            values, handles = state.position(fid, tid)
+            if values["sequence_number"] is not None and (
+                    values["has_content"] or values["sequence_only"]):
+                continue  # バンクの絵（上で数えた）
+            if values["local"] is None:
+                return None
+            group = values.get("local_share")
+            key = ("share", group) if group is not None else (fid, tid)
+            if key not in seen:
+                seen.add(key)
+                total += cell_bytes(values["local"], handles)
+    return total
+
+
+def _capture_snapshot(document):
+    """Rust の状態なら遅延の DocumentSnapshot を返す。取れなければ None。"""
+    from . import constants
+    live = document._live()
+    state = live["state"]
+    if live["graph"] is not None or state is None:
+        return None
+    nbytes = _snapshot_bytes(state)
+    if nbytes is None:
+        return None
+    frame, layer = live["cursor"]
+    # 今の手順は写しを取るとき（clone_slot）に timeline_revision を進める（キャッシュの判定）。
+    Layer.timeline_revision += 1
+    return _lazy_snapshot_class()._capture(
+        live["core"].copy(), frame, layer, constants.CANVAS_WIDTH, constants.CANVAS_HEIGHT,
+        nbytes)
+
+
+_LAZY_SNAPSHOT = []
+
+
+def _lazy_snapshot_class():
+    """_LazySnapshot（document.DocumentSnapshot の派生）。document との循環 import を避けて作る。"""
+    if _LAZY_SNAPSHOT:
+        return _LAZY_SNAPSHOT[0]
+    from .document import DocumentSnapshot
+
+    def delegate(name):
+        def method(self, *args, **kwargs):
+            # 相手も遅延の写しなら、相手も中身にしてから比べる（C の tuple の比較は相手の
+            # 仮の中身を直に読むため）。
+            args = tuple(arg._resolved() if isinstance(arg, cls) else arg for arg in args)
+            return getattr(self._resolved(), name)(*args, **kwargs)
+        method.__name__ = name
+        return method
+
+    def field(index):
+        return property(lambda self: self._resolved()[index])
+
+    namespace = {
+        "__doc__": """Rust の文書の写しから、読まれたときに中身を作る DocumentSnapshot。
+
+        中身は今の Document.snapshot と同じ値（写しから素のグラフを作って
+        clone_frame_graph を当てる）。tuple としての読み取りはすべて中身に任せる。
+        """,
+        "_capture": classmethod(_capture_lazy),
+        "_resolved": _resolve_lazy,
+        "image_bytes": lambda self: self.__dict__["_nbytes"],
+        "__getitem__": lambda self, index: self._resolved()[index],
+        "__iter__": lambda self: iter(self._resolved()),
+        "__reduce_ex__": lambda self, protocol: self._resolved().__reduce_ex__(protocol),
+        "__copy__": lambda self: self,
+        "_replace": lambda self, **kwargs: self._resolved()._replace(**kwargs),
+        "_asdict": lambda self: self._resolved()._asdict(),
+        "_make": classmethod(lambda _cls, iterable: DocumentSnapshot._make(iterable)),
+        "__hash__": lambda self: hash(self._resolved()),
+    }
+    for name in ("__len__", "__contains__", "__eq__", "__ne__", "__lt__", "__le__",
+                 "__gt__", "__ge__", "__add__", "__mul__", "__rmul__", "__repr__",
+                 "count", "index"):
+        namespace[name] = delegate(name)
+    for index, name in enumerate(DocumentSnapshot._fields):
+        namespace[name] = field(index)
+    cls = type("_LazySnapshot", (DocumentSnapshot,), namespace)
+    _LAZY_SNAPSHOT.append(cls)
+    return cls
+
+
+def _capture_lazy(cls, core, frame, layer, width, height, nbytes):
+    snapshot = tuple.__new__(cls, (None, frame, layer, width, height, None))
+    values = snapshot.__dict__
+    values["_core"], values["_value"], values["_nbytes"] = core, None, nbytes
+    return snapshot
+
+
+def _resolve_lazy(self):
+    values = self.__dict__
+    if values["_value"] is None:
+        from .document import DocumentSnapshot, clone_frame_graph
+        frames, _, _, _, _ = graph_from_core(values["_core"])
+        copied, _ = clone_frame_graph(frames)
+        tracks = [layer._track for layer in copied[0].layers] if copied else []
+        current, active, width, height = tuple.__getitem__(self, slice(1, 5))
+        values["_value"] = DocumentSnapshot(copied, current, active, width, height, tracks)
+        values["_core"] = None
+    return values["_value"]
 
 
 def _note_plain(reason):
