@@ -1387,6 +1387,26 @@ class Document:
             return self._run("create_blank_key", (column, layer_index), {})
         return changes
 
+    def clear_sheet_span(self, layer_index, start, stop, *, archive=False):
+        changes = None if archive else _CORE_COMMANDS["clear_sheet_span"](
+            self, layer_index, start, stop)
+        if changes is None:
+            return self._run("clear_sheet_span", (layer_index, start, stop),
+                             {"archive": archive})
+        return changes
+
+    def new_sheet_cell(self, column, layer_index):
+        changes = _CORE_COMMANDS["new_sheet_cell"](self, column, layer_index)
+        if changes is None:
+            return self._run("new_sheet_cell", (column, layer_index), {})
+        return changes
+
+    def new_sheet_number(self, column, layer_index):
+        changes = _CORE_COMMANDS["new_sheet_number"](self, column, layer_index)
+        if changes is None:
+            return self._run("new_sheet_number", (column, layer_index), {})
+        return changes
+
     def restore_snapshot(self, snapshot):
         changes = _CORE_COMMANDS["restore_snapshot"](self, snapshot)
         if changes is None:
@@ -2224,6 +2244,90 @@ def _core_create_blank_key(document, column, layer_index):
     return changes
 
 
+def _core_clear_sheet_span(document, layer_index, start, stop):
+    """clear_sheet_span（archive なし）を Rust の命令で当てる。今の手順と同じにできなければ None。
+
+    今の手順は範囲の位置をその場で消す（clear_slot。Layer はそのまま、detach_cell で局所の
+    Cell が替わり、画像は新しい空画像になる）。局所の絵を共有する位置がある場合は今の経路。
+    """
+    live = document._live()
+    if (live["graph"] is not None or live.get("trial")
+            or any(type(value) is not int for value in (layer_index, start, stop))):
+        return None
+    state = live["state"]
+    frame_ids = list(state.frame_ids)
+    if not (0 <= layer_index < len(state.track_ids) and 0 <= start < stop <= len(frame_ids)):
+        return None
+    tid = state.track_ids[layer_index]
+    keys = [(frame_ids[index], tid) for index in range(start, stop)]
+    plan = _detach_plan(document, [], keys)
+    if plan is None:
+        return None
+    result = _apply_core_command(document, ["clear_sheet_span", layer_index, start, stop],
+                                 lambda ids: ids[start:stop])
+    if result is None:
+        return None
+    changes, _ = result
+    state.pending.clear()
+    _detach(document, plan)
+    return changes
+
+
+def _core_position_command(document, name, column, layer_index, replace):
+    """一つの位置だけを書き換える命令を Rust で当てる。今の手順と同じにできなければ None。
+
+    replace が真なら今の手順は位置に新しい Layer を入れ直す（replace_slot。古い Layer は外れ、
+    配置待ちを解かれる）。偽ならその場で書き換える（clear_slot。局所の Cell・画像が替わる）。
+    """
+    live = document._live()
+    if (live["graph"] is not None or live.get("trial") or type(column) is not int
+            or type(layer_index) is not int):
+        return None
+    state = live["state"]
+    frame_ids = list(state.frame_ids)
+    if not (0 <= column < len(frame_ids) and 0 <= layer_index < len(state.track_ids)):
+        return None
+    key = (frame_ids[column], state.track_ids[layer_index])
+    plan = _detach_plan(document, [key] if replace else [], [] if replace else [key])
+    if plan is None:
+        return None
+    result = _apply_core_command(document, [name, column, layer_index],
+                                 lambda ids: ids[column:column + 1])
+    if result is None:
+        return None
+    changes, _ = result
+    # 新しい番号の絵がバンクに入るので、列の写しも取り直す。
+    state.refresh_track(key[1])
+    state.forget_track(key[1])
+    if replace:
+        live.setdefault("tokens", {})[key] = PendingToken()
+    state.pending.clear()
+    _detach(document, plan)
+    return changes
+
+
+def _core_new_sheet_cell(document, column, layer_index):
+    """new_sheet_cell を Rust の命令で（位置をその場で消して空の絵を作る）。"""
+    return _core_position_command(document, "new_sheet_cell", column, layer_index, False)
+
+
+def _core_new_sheet_number(document, column, layer_index):
+    """new_sheet_number を Rust の命令で（位置に新しい番号の新しい Layer を入れ直す）。"""
+    live = document._live()
+    if (live["graph"] is not None or type(column) is not int or type(layer_index) is not int):
+        return None
+    state = live["state"]
+    if not (0 <= column < len(state.frame_ids) and 0 <= layer_index < len(state.track_ids)):
+        return None
+    block = document.timeline_block_at(column, layer_index)
+    if block is None or block[0] != "content":
+        return None  # 今の手順は何もしない
+    values = state.position(state.frame_ids[block[1]], state.track_ids[layer_index])[0]
+    if values["sequence_number"] is None:
+        return None
+    return _core_position_command(document, "new_sheet_number", column, layer_index, True)
+
+
 def _core_restore_snapshot(document, snapshot):
     """restore_snapshot を、遅延の写しの Rust の文書から戻す。今の手順と同じにできなければ None。
 
@@ -2276,7 +2380,10 @@ _CORE_COMMANDS = {"duplicate_frame": _core_duplicate_frame,
                   "ensure_frame_count": _core_ensure_frame_count,
                   "advance_frame": _core_advance_frame,
                   "restore_snapshot": _core_restore_snapshot,
-                  "create_blank_key": _core_create_blank_key}
+                  "create_blank_key": _core_create_blank_key,
+                  "clear_sheet_span": _core_clear_sheet_span,
+                  "new_sheet_cell": _core_new_sheet_cell,
+                  "new_sheet_number": _core_new_sheet_number}
 
 
 def _blank_handle():

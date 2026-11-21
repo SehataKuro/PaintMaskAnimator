@@ -423,3 +423,60 @@ def test_link_layer_tracks_runs_in_place(monkeypatch):
     assert live.link_layer_tracks() == plain.link_layer_tracks()
     assert _signature(live) == _signature(plain)
     assert _plain_flags(live) == _plain_flags(plain)
+
+
+def _same_position(live, plain, column, layer_index, run):
+    """位置の Layer・局所の Cell・画像の同一性と値・列のバンクが、今の手順と同じになること。"""
+    slot, plain_slot = live.frames[column].layers[layer_index], plain.frames[column].layers[layer_index]
+    cell, plain_cell = slot._cell, plain_slot._cell
+    image, plain_image = slot.image, plain_slot.image
+    assert run(live) == run(plain)
+    assert _signature(live) == _signature(plain)
+    assert ((live.frames[column].layers[layer_index] is slot)
+            == (plain.frames[column].layers[layer_index] is plain_slot))
+    assert (slot._cell is cell) == (plain_slot._cell is plain_cell)
+    assert (slot.image is image) == (plain_slot.image is plain_image)
+    assert (slot.has_content, slot.sequence_number) == (plain_slot.has_content,
+                                                        plain_slot.sequence_number)
+    assert sorted(live.tracks[layer_index].cells) == sorted(plain.tracks[layer_index].cells)
+    assert _plain_flags(live) == _plain_flags(plain)
+    assert _v1_records(live) == _v1_records(plain)
+
+
+def _v1_records(document):
+    """素の Layer の旧形式の記録（_v1_position）の有無と区切りの印。live は素の状態に落として読む。"""
+    frames = document._demote().plain.frames if hasattr(document, "_demote") else document.frames
+    records = []
+    for frame in frames:
+        row = []
+        for slot in frame.layers:
+            v1 = slot.__dict__.get("_v1_position")
+            row.append(None if v1 is None else (v1.key_start, v1.blank_start, v1.pending,
+                                                v1.legacy is not None))
+        records.append(row)
+    return records
+
+
+def test_clear_sheet_span_uses_core_command_and_matches_python(monkeypatch):
+    for shape, args in (({"hold": 5, "count": 10}, (0, 2, 4)),
+                        ({"hold": 5, "count": 10}, (1, 0, 10)),
+                        ({"hold": 3, "count": 9}, (1, 4, 9))):
+        plain, live = _pair(**shape)
+        calls = _round_trips(live, monkeypatch)
+        _same_position(live, plain, args[1], args[0],
+                       lambda document, args=args: document.clear_sheet_span(*args))
+        assert len(calls) == 1  # 最後の _plain_flags だけが素の状態に落とす
+
+
+def test_new_sheet_cell_and_number_use_core_command_and_match_python(monkeypatch):
+    for name, shape, (column, layer_index) in (
+            ("new_sheet_cell", {"hold": 5, "count": 10}, (3, 0)),
+            ("new_sheet_cell", {"hold": 3, "count": 9}, (2, 1)),
+            ("new_sheet_number", {"hold": 5, "count": 10}, (3, 0)),
+            ("new_sheet_number", {"hold": 5, "count": 10}, (0, 1))):
+        plain, live = _pair(**shape)
+        calls = _round_trips(live, monkeypatch)
+        _same_position(live, plain, column, layer_index,
+                       lambda document, name=name, column=column, layer_index=layer_index: (
+                           getattr(document, name)(column, layer_index)))
+        assert len(calls) == 1

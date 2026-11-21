@@ -648,16 +648,21 @@ impl Document {
             cell_name: None,
             ..cell.clone()
         };
+        // Python は元の位置を clone するので旧位置の記録は残る。取り込み時の密な参照は、
+        // 番号が変わる（sequence_number の付け替え）ので捨てられる。
+        let legacy = source.compatibility.legacy.clone();
         let number = self.next_drawing_number(layer_index)?;
         self.tracks
             .get_mut(&track)
             .ok_or_else(invalid)?
             .cells
             .insert(number, new_cell);
-        *self.position_mut(column, track) = Position {
+        let mut position = Position {
             reference: Reference::Number(number),
             ..Position::default()
         };
+        position.compatibility.legacy = legacy;
+        *self.position_mut(column, track) = position;
         self.current_frame = self.frame_order[column];
         self.active_layer = track;
         Ok(vec![
