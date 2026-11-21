@@ -140,6 +140,9 @@ pub fn apply_operations(document: &mut Document, operations: &Value) -> Result<S
             [name, frame, layer] if name == "delete_frame" => {
                 edited.delete_frame(index(frame)?, index(layer)?)
             }
+            [name, frame, layer] if name == "delete_track_frame" => {
+                edited.delete_track_frame(index(frame)?, index(layer)?)
+            }
             [name, frame, layer] if name == "insert_track_frame" => {
                 edited.insert_track_frame(index(frame)?, index(layer)?)
             }

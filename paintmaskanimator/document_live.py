@@ -1338,6 +1338,18 @@ class Document:
         live["cursor"][1] = value
         self._sync_selection()
 
+    def delete_frame(self, column, layer_index):
+        changes = _CORE_COMMANDS["delete_frame"](self, column, layer_index)
+        if changes is None:
+            return self._run("delete_frame", (column, layer_index), {})
+        return changes
+
+    def delete_track_frame(self, column, layer_index):
+        changes = _CORE_COMMANDS["delete_track_frame"](self, column, layer_index)
+        if changes is None:
+            return self._run("delete_track_frame", (column, layer_index), {})
+        return changes
+
     def duplicate_frame(self, column):
         changes = _CORE_COMMANDS["duplicate_frame"](self, column)
         return self._run("duplicate_frame", (column,), {}) if changes is None else changes
@@ -1839,8 +1851,12 @@ def _detach_plan(document, replaced, cleared):
     return plan
 
 
-def _detach(document, plan):
-    """_detach_plan で用意したオブジェクトを、命令の前の値の素のオブジェクトにして文書から外す。"""
+def _detach(document, plan, moved=None, between=None):
+    """_detach_plan で用意したオブジェクトを、命令の前の値の素のオブジェクトにして文書から外す。
+
+    moved は位置 → 局所の Cell が移った先の位置（外す Layer が、文書に残る同じ Cell を
+    指すように）。between は Cell を外したあと、Layer を外す前に呼ぶ。
+    """
     from .document import clear_pending
     live = document._live()
     cache = live["cache"]
@@ -1869,6 +1885,8 @@ def _detach(document, plan):
                 _transplant(cell, stand)
                 stand = cell
         cells[local] = stand
+    if between is not None:
+        between()
     for key, layer, values, handles, token in plan["layers"]:
         cache.pop("layer", key)
         track_proxy = document._track(key[1])
@@ -1878,6 +1896,8 @@ def _detach(document, plan):
         local = ("local", *key)
         if values.get("local_bank"):
             stand.__dict__["_cell"] = document._cell(("bank", key[1], int(values["sequence_number"])))
+        elif moved and key in moved and values["local"] is not None:
+            stand.__dict__["_cell"] = document._cell(("local", *moved[key]))
         elif local in cells and cells[local] is not None:
             stand.__dict__["_cell"] = cells[local]
         # 今の手順（replace_slot）は外す位置の配置待ちを解く。
@@ -1886,8 +1906,101 @@ def _detach(document, plan):
         _transplant(layer, stand)
 
 
+def _core_delete_frame(document, column, layer_index):
+    """delete_frame を Rust の命令で当てる。今の手順と同じにできなければ None。"""
+    return _core_shift_left(document, "delete_frame", column, layer_index)
+
+
+def _core_delete_track_frame(document, column, layer_index):
+    """delete_track_frame を Rust の命令で当てる。今の手順と同じにできなければ None。"""
+    return _core_shift_left(document, "delete_track_frame", column, layer_index)
+
+
+def _core_shift_left(document, name, column, layer_index):
+    """列の column の位置を消して後ろを前へ寄せる命令（delete_frame・delete_track_frame）。
+
+    今の手順（_shift_timeline_layer_left）は列の column 以降の位置を次の位置の clone_slot
+    で入れ直し（古い Layer は文書から外れ、局所の Cell は写しとともに一つ前の位置へ移る）、
+    最後の位置をその場で消す。delete_frame が末尾の空いたコマを取り除く場合と、局所の絵を
+    共有する位置がある場合は今の経路。
+    """
+    live = document._live()
+    if (live["graph"] is not None or live.get("trial") or type(column) is not int
+            or type(layer_index) is not int):
+        return None
+    state = live["state"]
+    frame_ids = list(state.frame_ids)
+    count = len(frame_ids)
+    if not (0 <= column < count and 0 <= layer_index < len(state.track_ids)):
+        return None
+    tid = state.track_ids[layer_index]
+    if any(state.position(fid, tid)[0].get("local_share") is not None
+           for fid in frame_ids[column:]):
+        return None
+    block = document.timeline_block_at(column, layer_index)
+    operation = [name, column, layer_index]
+    if name == "delete_frame":
+        if block is None and count == 1:
+            return None  # 今の手順は何もしない
+        # 末尾のコマを取り除くかは、写しに当てて確かめる（取り除いたコマの付け替えはまだ無い）。
+        trial = live["core"].copy()
+        trial.set_blank_image(_blank_handle())
+        try:
+            trial.apply_command(json.dumps(operation))
+        except ValueError:
+            return None
+        if len(json.loads(trial.frames_graph([])[0])["frame_order"]) != count:
+            return None
+    replaced = [(fid, tid) for fid in frame_ids[column:count - 1]]
+    plan = _detach_plan(document, replaced[:1], [] if replaced else [(frame_ids[column], tid)])
+    if plan is None:
+        return None
+    # 消す位置より後ろの Layer も入れ直される（局所の Cell は一つ前へ移るので外さない）。
+    cache = live["cache"]
+    for key in replaced[1:]:
+        layer = cache._objects.get(("layer", key))
+        if layer is not None:
+            values, handles = state.position(*key)
+            plan["layers"].append((key, layer, values, handles, live.get("tokens", {}).get(key)))
+    first = column if block is None else min(column, block[1])
+    result = _apply_core_command(document, operation, lambda ids: frame_ids[first:])
+    if result is None:
+        return None
+    changes, _ = result
+    state.refresh_track(tid)
+    state.forget_track(tid)
+    moves = [((frame_ids[index], tid), (frame_ids[index - 1], tid))
+             for index in range(column + 1, count)]
+    # 消す位置の局所の Cell を外し、後ろの局所の Cell・画像の窓口を一つ前の位置へ付け替えて
+    # （前から順に、移り先を空けてから）、入れ直された Layer を外す（局所の Cell は移った先）。
+    _detach(document, plan, moved=dict(moves), between=lambda: _rekey_locals(document, moves))
+    tokens = live.setdefault("tokens", {})
+    for key in replaced:
+        tokens[key] = PendingToken()
+    return changes
+
+
+def _rekey_locals(document, moves):
+    """局所の Cell・画像の窓口を、移った先の位置のキーへ付け替える。"""
+    live = document._live()
+    cache, core = live["cache"], live["core"]
+    for old, new in moves:
+        old_key, new_key = ("local", *old), ("local", *new)
+        cell = cache.pop("cell", old_key)
+        if cell is not None:
+            _setm(cell, "_key", new_key)
+            cache.put("cell", new_key, cell)
+        for initial in (False, True):
+            image = cache.pop("image", (old_key, initial))
+            if image is not None:
+                _bind(image, _native._CellImage(core, False, new[0], new[1], initial))
+                cache.put("image", (new_key, initial), image)
+
+
 # Rust の命令で当てる操作（名前 → 関数(document, *args)、当てられなければ None）。
-_CORE_COMMANDS = {"duplicate_frame": _core_duplicate_frame}
+_CORE_COMMANDS = {"duplicate_frame": _core_duplicate_frame,
+                  "delete_frame": _core_delete_frame,
+                  "delete_track_frame": _core_delete_track_frame}
 
 
 def _blank_handle():

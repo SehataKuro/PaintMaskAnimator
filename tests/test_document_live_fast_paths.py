@@ -206,3 +206,42 @@ def test_duplicate_frame_uses_core_command_and_matches_python(monkeypatch):
     assert (moved.has_content, moved.sequence_number) == (old_plain.has_content,
                                                           old_plain.sequence_number)
     assert any(slot is tail for frame in live.frames for slot in frame.layers)
+
+
+def test_delete_frame_uses_core_command_and_matches_python(monkeypatch):
+    plain, live = _pair(hold=3, count=9)
+    # 末尾のコマが空かない削除（最後のコマにほかの列の絵がある）。
+    calls = _round_trips(live, monkeypatch)
+    deleted, plain_deleted = live.frames[1].layers[1], plain.frames[1].layers[1]
+    # 5コマ目の列 B は絵の無い位置（局所の Cell を持つ）。
+    following, plain_following = live.frames[5].layers[1], plain.frames[5].layers[1]
+    cell = following._cell
+    image = following.image
+    assert live.delete_frame(1, 1) == plain.delete_frame(1, 1)
+    assert calls == []
+    assert _signature(live) == _signature(plain)
+    for slot, plain_slot in ((deleted, plain_deleted), (following, plain_following)):
+        assert (any(s is slot for f in live.frames for s in f.layers)
+                == any(s is plain_slot for f in plain.frames for s in f.layers))
+        assert (slot.has_content, slot.sequence_number, slot.sequence_only) == (
+            plain_slot.has_content, plain_slot.sequence_number, plain_slot.sequence_only)
+    # 局所の Cell と画像は写しとともに一つ前の位置へ移る。
+    assert plain.frames[4].layers[1]._cell is plain_following._cell
+    assert live.frames[4].layers[1]._cell is cell
+    assert (live.frames[4].layers[1].image is image) == (
+        plain.frames[4].layers[1].image is plain_following.image)
+
+
+def test_delete_track_frame_uses_core_command_and_matches_python(monkeypatch):
+    plain, live = _pair(hold=3, count=9)
+    calls = _round_trips(live, monkeypatch)
+    following, plain_following = live.frames[5].layers[1], plain.frames[5].layers[1]
+    cell = following._cell
+    assert live.delete_track_frame(1, 1) == plain.delete_track_frame(1, 1)
+    assert calls == []
+    assert _signature(live) == _signature(plain)
+    assert len(live.frames) == len(plain.frames)
+    assert plain.frames[4].layers[1]._cell is plain_following._cell
+    assert live.frames[4].layers[1]._cell is cell
+    assert not any(s is following for f in live.frames for s in f.layers)
+    assert not any(s is plain_following for f in plain.frames for s in f.layers)

@@ -390,6 +390,75 @@ impl Document {
         Ok(changes)
     }
 
+    /// Python の _shift_timeline_layer_left(layer_index, column + 1) と同様に、列の column 以降を
+    /// 一コマ前へ寄せ、最後の位置を消す。start は column を含む保持の先頭（なければ column）。
+    pub(super) fn shift_track_left(
+        &mut self,
+        column: usize,
+        layer_index: usize,
+        start: usize,
+    ) -> Result<(), Error> {
+        let before = self.frame_order.len();
+        let track = self.track_order[layer_index];
+        let last = self.cleared_position(before - 1, track)?;
+        // Python は次の位置の clone_slot を replace_slot で入れる（attach_track が配置待ちの
+        // 所属を列へ戻す）。
+        let shifted: Vec<_> = self.frame_order[column + 1..]
+            .iter()
+            .map(|frame| {
+                let mut position = self.sheet[frame].positions[&track].clone();
+                position.compatibility.pending_detached = false;
+                position
+            })
+            .chain(std::iter::once(last))
+            .collect();
+        for (offset, pos) in shifted.into_iter().enumerate() {
+            *self.position_mut(column + offset, track) = pos;
+        }
+        if start < column {
+            let updated = self.display_spans(start, &[layer_index])?.pop().flatten();
+            let position = self.position_mut(start, track);
+            if let Some((span, legacy)) = updated.zip(
+                position
+                    .compatibility
+                    .legacy
+                    .as_mut()
+                    .and_then(|pos| pos.legacy.as_mut()),
+            ) {
+                legacy.state.exposure = span.len();
+            }
+        }
+        Ok(())
+    }
+
+    /// Python の delete_track_frame と同様に、列の一コマを消して後ろを前へ寄せる（コマは減らさない）。
+    pub fn delete_track_frame(
+        &mut self,
+        column: usize,
+        layer_index: usize,
+    ) -> Result<ChangeSet, Error> {
+        if column >= self.frame_order.len() || layer_index >= self.track_order.len() {
+            return Err(invalid());
+        }
+        let span = self.display_spans(column, &[layer_index])?.pop().flatten();
+        let start = span.as_ref().map_or(column, |span| span.start);
+        let mut edited = self.clone();
+        edited.shift_track_left(column, layer_index, start)?;
+        let stop = edited.frame_order.len();
+        *self = edited;
+        Ok(vec![
+            Change::SheetSpans {
+                layer_index,
+                start,
+                stop,
+            },
+            Change::Cursor {
+                frame: column,
+                notify: true,
+            },
+        ])
+    }
+
     /// Python の delete_frame と同様に、一列のコマを詰めて全列で未使用の末尾を切る。
     pub fn delete_frame(&mut self, column: usize, layer_index: usize) -> Result<ChangeSet, Error> {
         let before = self.frame_order.len();
@@ -416,28 +485,7 @@ impl Document {
                     .insert(number, hint);
             }
         }
-        let last = edited.cleared_position(before - 1, track)?;
-        let shifted: Vec<_> = edited.frame_order[column + 1..]
-            .iter()
-            .map(|frame| edited.sheet[frame].positions[&track].clone())
-            .chain(std::iter::once(last))
-            .collect();
-        for (offset, pos) in shifted.into_iter().enumerate() {
-            *edited.position_mut(column + offset, track) = pos;
-        }
-        if start < column {
-            let updated = edited.display_spans(start, &[layer_index])?.pop().flatten();
-            let position = edited.position_mut(start, track);
-            if let Some((span, legacy)) = updated.zip(
-                position
-                    .compatibility
-                    .legacy
-                    .as_mut()
-                    .and_then(|pos| pos.legacy.as_mut()),
-            ) {
-                legacy.state.exposure = span.len();
-            }
-        }
+        edited.shift_track_left(column, layer_index, start)?;
         let after = edited.trim_unused_tail()?;
         let cursor = column.min(after - 1);
         edited.current_frame = edited.frame_order[cursor];
