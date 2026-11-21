@@ -221,6 +221,55 @@ impl Document {
         ])
     }
 
+    /// Python の V1Position(snapshot_layer(slot)) と同じ記録。記録があればそれを写す。
+    pub(super) fn legacy_snapshot(&self, slot: &Position, track: TrackId) -> LegacyPosition {
+        if let Some(legacy) = &slot.compatibility.legacy {
+            return legacy.clone();
+        }
+        let artwork = if slot.references_bank() {
+            slot.number()
+                .and_then(|number| self.tracks[&track].cells.get(&number).cloned())
+        } else {
+            slot.compatibility.local.clone()
+        };
+        // snapshot_layer は has_content をそのまま写す（番号の無い内容の位置も内容あり）。
+        let mut state = archive_hint(slot, 1);
+        state.has_content |= slot.compatibility.unnumbered_content;
+        LegacyPosition {
+            legacy: Some(LegacySlot {
+                settings: self.tracks[&track].settings.clone(),
+                state,
+                number: slot.number(),
+                artwork,
+            }),
+            key_start: false,
+            blank_start: false,
+            pending: false,
+            input_length: None,
+        }
+    }
+
+    /// 位置を消した写しの記録（Python の V1Position(snapshot_layer(clear_slot した写し))）。
+    pub(super) fn cleared_snapshot(
+        &self,
+        column: usize,
+        track: TrackId,
+    ) -> Result<LegacyPosition, Error> {
+        let cleared = self.cleared_position(column, track)?;
+        Ok(LegacyPosition {
+            legacy: Some(LegacySlot {
+                settings: self.tracks[&track].settings.clone(),
+                state: archive_hint(&cleared, 1),
+                number: None,
+                artwork: cleared.compatibility.local,
+            }),
+            key_start: false,
+            blank_start: false,
+            pending: false,
+            input_length: None,
+        })
+    }
+
     /// Python の blank_image() と同じ空画像（雛形があれば画素・世代・札を共有する）。
     pub(super) fn blank_artwork(&self) -> Result<RgbaImage, Error> {
         match &self.blank {
@@ -296,9 +345,28 @@ impl Document {
             .checked_add(amount)
             .ok_or(Error::TimelineSizeOverflow)?;
         self.ensure_frame_count(required)?;
-        let mut legacy: Vec<_> = original
+        // Python は各位置の _v1_position を、無ければその位置の写し（snapshot_layer）で作る。
+        // 写しは絵を読むので、局所の絵が無くバンクも参照しない位置には空の Cell ができる
+        // （その写しは一つ後ろへ移って文書に入る）。
+        let mut original = original;
+        let blank = self.blank_artwork()?;
+        for slot in original.iter_mut() {
+            if !slot.references_bank() && slot.compatibility.local.is_none() {
+                slot.compatibility.local = Some(Cell {
+                    image: blank.clone(),
+                    initial_image: None,
+                    cell_name: None,
+                });
+            }
+        }
+        let snapshots: Vec<_> = original
             .iter()
-            .map(|slot| slot.compatibility.legacy.clone())
+            .map(|slot| self.legacy_snapshot(slot, track))
+            .collect();
+        let mut legacy: Vec<_> = snapshots
+            .iter()
+            .cloned()
+            .map(Some)
             .chain(std::iter::repeat_n(None, amount))
             .collect();
         for offset in (0..original.len()).rev() {
@@ -307,21 +375,9 @@ impl Document {
             if original[offset].pending
                 || (entry.kind != SHEET_EMPTY && entry.key as usize == index)
             {
-                legacy[offset + amount] = original[offset].compatibility.legacy.clone();
+                legacy[offset + amount] = Some(snapshots[offset].clone());
                 // 移動元には、移動前のキーを消去した時点の初期画像を残す。
-                let cleared = self.cleared_position(index, track)?;
-                legacy[offset] = Some(LegacyPosition {
-                    legacy: Some(LegacySlot {
-                        settings: self.tracks[&track].settings.clone(),
-                        state: archive_hint(&cleared, 1),
-                        number: None,
-                        artwork: cleared.compatibility.local,
-                    }),
-                    key_start: false,
-                    blank_start: false,
-                    pending: false,
-                    input_length: None,
-                });
+                legacy[offset] = Some(self.cleared_snapshot(index, track)?);
             }
         }
         for (offset, legacy) in legacy
@@ -329,15 +385,25 @@ impl Document {
             .enumerate()
             .take(self.frame_order.len() - column)
         {
+            // Python は一つ前の位置の clone_slot を replace_slot で入れる（attach_track が配置
+            // 待ちの所属を列へ戻し、_v2_resolve_source は写しに残る）。それ以外はその場で消す。
             let mut position = match offset
                 .checked_sub(amount)
                 .and_then(|index| original.get(index))
             {
-                Some(source) => source.clone(),
+                Some(source) => {
+                    let mut moved = source.clone();
+                    moved.compatibility.pending_detached = false;
+                    moved
+                }
                 None => self.cleared_position(column + offset, track)?,
             };
-            position.compatibility.legacy = legacy;
-            position.compatibility.resolved_source = None;
+            // 記録の無い位置（伸ばした末尾）は、消した写しの記録にする。
+            let legacy = match legacy {
+                Some(legacy) => legacy,
+                None => self.cleared_snapshot(column + offset, track)?,
+            };
+            position.compatibility.legacy = Some(legacy);
             *self.position_mut(column + offset, track) = position;
         }
         Ok(())

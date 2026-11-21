@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use super::changes::{Change, ChangeSet, FrameOperation, TrackOperation};
 use super::model::{
-    layer_name, CellNumber, Document, Frame, FrameId, Position, Reference, Track, TrackId,
+    layer_name, Cell, CellNumber, Document, Frame, FrameId, Position, Reference, Track, TrackId,
     TrackSettings,
 };
 use crate::Error;
@@ -448,12 +448,20 @@ impl Document {
         self.frame_order
             .try_reserve(count - before)
             .map_err(|_| Error::TimelineSizeOverflow)?;
+        // Python の make_frame は Layer(name, blank_model_image()) を作るので、新しい位置は
+        // 空画像の局所の Cell を持つ。
+        let mut empty = Position::default();
+        empty.compatibility.local = Some(Cell {
+            image: self.blank_artwork()?,
+            initial_image: None,
+            cell_name: None,
+        });
         let blank = Frame {
             duration: 1,
             positions: self
                 .track_order
                 .iter()
-                .map(|&id| (id, Position::default()))
+                .map(|&id| (id, empty.clone()))
                 .collect(),
         };
         for number in self.next_frame_id..next {

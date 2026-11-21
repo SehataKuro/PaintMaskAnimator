@@ -245,3 +245,39 @@ def test_delete_track_frame_uses_core_command_and_matches_python(monkeypatch):
     assert live.frames[4].layers[1]._cell is cell
     assert not any(s is following for f in live.frames for s in f.layers)
     assert not any(s is plain_following for f in plain.frames for s in f.layers)
+
+
+def test_insert_track_frame_uses_core_command_and_matches_python(monkeypatch):
+    plain, live = _pair(hold=3, count=9)
+    calls = _round_trips(live, monkeypatch)
+    # 保持の先頭（4コマ目は列 B の保持の先頭ではないので 3コマ目）に挿入する。
+    moving, plain_moving = live.frames[5].layers[1], plain.frames[5].layers[1]
+    cell = moving._cell
+    assert live.insert_track_frame(3, 1) == plain.insert_track_frame(3, 1)
+    assert calls == []
+    assert _signature(live) == _signature(plain)
+    assert len(live.frames) == len(plain.frames)
+    assert plain.frames[6].layers[1]._cell is plain_moving._cell
+    assert live.frames[6].layers[1]._cell is cell
+    assert (any(s is moving for f in live.frames for s in f.layers)
+            == any(s is plain_moving for f in plain.frames for s in f.layers))
+    assert (moving._cell is cell) == (plain_moving._cell is plain.frames[6].layers[1]._cell)
+
+
+def test_shift_left_review_cases(monkeypatch):
+    # 最後のコマを消す（その場で消し、局所の Cell は外れる）。
+    plain, live = _pair(hold=3, count=9)
+    last, plain_last = live.frames[8].layers[1], plain.frames[8].layers[1]
+    cell, plain_cell = last._cell, plain_last._cell
+    assert live.delete_track_frame(8, 1) == plain.delete_track_frame(8, 1)
+    assert _signature(live) == _signature(plain)
+    assert (live.frames[8].layers[1] is last) == (plain.frames[8].layers[1] is plain_last)
+    assert (live.frames[8].layers[1]._cell is cell) == (
+        plain.frames[8].layers[1]._cell is plain_cell)
+    # 外れた Layer は、文書の一つ前の位置へ移った同じ Cell を指す。
+    plain, live = _pair(hold=3, count=9)
+    following, plain_following = live.frames[5].layers[1], plain.frames[5].layers[1]
+    live.delete_track_frame(1, 1)
+    plain.delete_track_frame(1, 1)
+    assert plain_following._cell is plain.frames[4].layers[1]._cell
+    assert following._cell is live.frames[4].layers[1]._cell

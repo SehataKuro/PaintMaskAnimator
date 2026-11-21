@@ -125,6 +125,12 @@ impl Position {
         }
     }
 
+    /// バンクの絵を参照するか。Python の Layer._cell がバンクの Cell を返す条件
+    /// （番号があり、内容キーか配置待ち）。
+    pub fn references_bank(&self) -> bool {
+        self.number().is_some() && (matches!(self.reference, Reference::Number(_)) || self.pending)
+    }
+
     /// Python の sequence_number に対応する番号を返す。旧未使用枠の保持番号も含む。
     pub fn number(&self) -> Option<CellNumber> {
         match self.reference {

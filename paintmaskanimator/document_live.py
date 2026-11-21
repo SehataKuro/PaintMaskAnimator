@@ -1350,6 +1350,20 @@ class Document:
             return self._run("delete_track_frame", (column, layer_index), {})
         return changes
 
+    def ensure_frame_count(self, count):
+        changes = _CORE_COMMANDS["ensure_frame_count"](self, count)
+        return self._run("ensure_frame_count", (count,), {}) if changes is None else changes
+
+    def advance_frame(self):
+        changes = _CORE_COMMANDS["advance_frame"](self)
+        return self._run("advance_frame", (), {}) if changes is None else changes
+
+    def insert_track_frame(self, column, layer_index):
+        changes = _CORE_COMMANDS["insert_track_frame"](self, column, layer_index)
+        if changes is None:
+            return self._run("insert_track_frame", (column, layer_index), {})
+        return changes
+
     def duplicate_frame(self, column):
         changes = _CORE_COMMANDS["duplicate_frame"](self, column)
         return self._run("duplicate_frame", (column,), {}) if changes is None else changes
@@ -1807,7 +1821,6 @@ def _core_duplicate_frame(document, column):
     result = _apply_core_command(document, ["duplicate_frame", column], lambda ids: touched)
     if result is None:
         return None
-    _detach(document, plan)
     changes, new_ids = result
     tokens = live.setdefault("tokens", {})
     for fid in new_ids:
@@ -1815,6 +1828,8 @@ def _core_duplicate_frame(document, column):
             tokens[fid, tid] = PendingToken()
     for key in replaced:
         tokens[key] = PendingToken()
+    state.pending.clear()
+    _detach(document, plan)
     return changes
 
 
@@ -1941,7 +1956,8 @@ def _core_shift_left(document, name, column, layer_index):
     operation = [name, column, layer_index]
     if name == "delete_frame":
         if block is None and count == 1:
-            return None  # 今の手順は何もしない
+            from .document_changes import ChangeSet
+            return ChangeSet()  # 今の手順は何もしない
         # 末尾のコマを取り除くかは、写しに当てて確かめる（取り除いたコマの付け替えはまだ無い）。
         trial = live["core"].copy()
         trial.set_blank_image(_blank_handle())
@@ -1973,11 +1989,109 @@ def _core_shift_left(document, name, column, layer_index):
              for index in range(column + 1, count)]
     # 消す位置の局所の Cell を外し、後ろの局所の Cell・画像の窓口を一つ前の位置へ付け替えて
     # （前から順に、移り先を空けてから）、入れ直された Layer を外す（局所の Cell は移った先）。
-    _detach(document, plan, moved=dict(moves), between=lambda: _rekey_locals(document, moves))
     tokens = live.setdefault("tokens", {})
     for key in replaced:
         tokens[key] = PendingToken()
+    state.pending.clear()
+    _detach(document, plan, moved=dict(moves), between=lambda: _rekey_locals(document, moves))
     return changes
+
+
+def _core_insert_track_frame(document, column, layer_index):
+    """insert_track_frame を Rust の命令で当てる。今の手順と同じにできなければ None。
+
+    今の手順（_shift_timeline_layer_right）は列の column より後ろの位置を一つ前の位置の
+    clone_slot で入れ直し（古い Layer は文書から外れ、局所の Cell は写しとともに一つ後ろの
+    位置へ移る）、column の位置をその場で消す。保持の途中に挿入するときは column に保持の
+    参照（clone_reference、元の局所の Cell を共有する）を入れ直すので、その場合と、局所の
+    絵を共有する位置がある場合は今の経路。
+    """
+    live = document._live()
+    if (live["graph"] is not None or live.get("trial") or type(column) is not int
+            or type(layer_index) is not int):
+        return None
+    state = live["state"]
+    frame_ids = list(state.frame_ids)
+    count = len(frame_ids)
+    if not (0 <= column < count and 0 <= layer_index < len(state.track_ids)):
+        return None
+    tid = state.track_ids[layer_index]
+    if any(state.position(fid, tid)[0].get("local_share") is not None
+           for fid in frame_ids[column:]):
+        return None
+    block = document.timeline_block_at(column, layer_index)
+    if block is not None and column > block[1]:
+        return None  # 保持の途中（fill あり）
+    replaced = [(fid, tid) for fid in frame_ids[column + 1:]]
+    plan = _detach_plan(document, [], [])
+    if plan is None:
+        return None
+    cache = live["cache"]
+    for key in replaced:
+        layer = cache._objects.get(("layer", key))
+        if layer is not None:
+            values, handles = state.position(*key)
+            plan["layers"].append((key, layer, values, handles, live.get("tokens", {}).get(key)))
+    first = column if block is None else min(column, block[1])
+    result = _apply_core_command(document, ["insert_track_frame", column, layer_index],
+                                 lambda ids: frame_ids[first:])
+    if result is None:
+        return None
+    changes, new_ids = result
+    after = state.frame_ids
+    # 局所の Cell は一つ後ろへ移る（後ろから順に、移り先を空けてから）。
+    moves = [((after[index], tid), (after[index + 1], tid))
+             for index in range(count - 1, column - 1, -1)]
+    tokens = live.setdefault("tokens", {})
+    for fid in new_ids:
+        for track in state.track_ids:
+            tokens[fid, track] = PendingToken()
+    for key in replaced:
+        tokens[key] = PendingToken()
+    state.pending.clear()
+    _detach(document, plan, moved=dict(moves), between=lambda: _rekey_locals(document, moves))
+    return changes
+
+
+def _core_ensure_frame_count(document, count):
+    """ensure_frame_count を Rust の命令で当てる。今の手順と同じにできなければ None。
+
+    今の手順は新しいコマ（make_frame、各位置は空画像の局所の Cell）を末尾に足すだけで、
+    既存のオブジェクトは変えない。
+    """
+    from .document_changes import ChangeSet
+    live = document._live()
+    if live["graph"] is not None or live.get("trial") or type(count) is not int:
+        return None
+    state = live["state"]
+    if count <= len(state.frame_ids):
+        return ChangeSet()
+    result = _apply_core_command(document, ["ensure_frame_count", count], lambda ids: [])
+    if result is None:
+        return None
+    changes, new_ids = result
+    tokens = live.setdefault("tokens", {})
+    for fid in new_ids:
+        for tid in state.track_ids:
+            tokens[fid, tid] = PendingToken()
+    state.pending.clear()
+    return changes
+
+
+def _core_advance_frame(document):
+    """advance_frame を Rust の命令で当てる（今の手順と同じく、現在コマ＋1 まで伸ばす）。"""
+    from .document_changes import ChangeSet, Cursor
+    live = document._live()
+    if live["graph"] is not None or live.get("trial"):
+        return None
+    current = live["cursor"][0]
+    if type(current) is not int:
+        return None
+    column = current + 1
+    changes = _core_ensure_frame_count(document, column + 1)
+    if changes is None:
+        return None
+    return ChangeSet((*changes.changes, Cursor(column)))
 
 
 def _rekey_locals(document, moves):
@@ -2000,7 +2114,10 @@ def _rekey_locals(document, moves):
 # Rust の命令で当てる操作（名前 → 関数(document, *args)、当てられなければ None）。
 _CORE_COMMANDS = {"duplicate_frame": _core_duplicate_frame,
                   "delete_frame": _core_delete_frame,
-                  "delete_track_frame": _core_delete_track_frame}
+                  "delete_track_frame": _core_delete_track_frame,
+                  "insert_track_frame": _core_insert_track_frame,
+                  "ensure_frame_count": _core_ensure_frame_count,
+                  "advance_frame": _core_advance_frame}
 
 
 def _blank_handle():

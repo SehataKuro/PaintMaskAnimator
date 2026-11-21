@@ -349,7 +349,10 @@ def model_image(handle):
     if handle.generation == _NO_IMAGE.generation:
         return None
     image = PmaImage.__new__(PmaImage)
-    image._image = handle
+    # 同じ添字の画像（to_graph は同じ画素の画像を一つにまとめる）を持つ絵どうしで、Python の
+    # 画像オブジェクトを共有しないよう写しを持たせる（画素は書き込みまで共有）。共有すると、
+    # 一方への書き込みが他方の絵にも届いてしまう。
+    image._image = handle.copy()
     image._attributes = tag_attributes(handle.tag)
     return image
 
