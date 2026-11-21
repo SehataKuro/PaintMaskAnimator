@@ -15,6 +15,7 @@ mod clip;
 mod color_stats;
 mod colors;
 mod display;
+mod document_compare;
 mod fill_decisions;
 mod fill_session;
 mod fill_tracking;
@@ -172,6 +173,10 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<project_zip::ZipReader>()?;
     module.add_class::<project_zip::ZipWriter>()?;
     module.add_function(wrap_pyfunction!(project_payload::decode_v2_plan, module)?)?;
+    module.add_function(wrap_pyfunction!(
+        document_compare::_compare_document_v2,
+        module
+    )?)?;
     module.add_class::<timeline::TimelineCell>()?;
     module.add_class::<timeline::SheetEntry>()?;
     module.add_function(wrap_pyfunction!(timeline::sheet_entries, module)?)?;
