@@ -116,6 +116,7 @@ impl Document {
                 },
                 ..Position::default()
             };
+            let blank = self.blank_artwork()?;
             let source_settings = &self.tracks[&source].settings;
             let settings = &mut edited.tracks.get_mut(&track).ok_or_else(invalid)?.settings;
             settings.visible = source_settings.visible;
@@ -123,7 +124,7 @@ impl Document {
             settings.alpha_locked = source_settings.alpha_locked;
             settings.color_filter_enabled = source_settings.color_filter_enabled;
             settings.color_filter_rgb = source_settings.color_filter_rgb;
-            let held = held_reference(head.clone(), settings);
+            let held = held_reference(head.clone(), settings, blank);
             *edited.position_mut(target.start, track) = head;
             for column in target.start + 1..target.end {
                 *edited.position_mut(column, track) = held.clone();
@@ -236,7 +237,11 @@ impl Document {
             reference: Reference::Number(number),
             ..Position::default()
         };
-        let held = held_reference(position.clone(), &edited.tracks[&track].settings);
+        let held = held_reference(
+            position.clone(),
+            &edited.tracks[&track].settings,
+            self.blank_artwork()?,
+        );
         *edited.position_mut(column, track) = position;
         edited.set_placement_length(column, track, 1, false);
         let mut stop = column + 1;
@@ -315,7 +320,11 @@ impl Document {
             }
             edited.ensure_frame_count(fill_end)?;
             let prior = edited.position_mut(previous.start, source_track).clone();
-            let held = held_reference(prior, &edited.tracks[&source_track].settings);
+            let held = held_reference(
+                prior,
+                &edited.tracks[&source_track].settings,
+                self.blank_artwork()?,
+            );
             for index in span.start..fill_end {
                 *edited.position_mut(index, source_track) = held.clone();
             }
@@ -694,7 +703,11 @@ impl Document {
                 });
                 if let Some(previous) = previous {
                     let prior = edited.position_mut(previous, track).clone();
-                    let held = held_reference(prior, &edited.tracks[&track].settings);
+                    let held = held_reference(
+                        prior,
+                        &edited.tracks[&track].settings,
+                        self.blank_artwork()?,
+                    );
                     for index in previous + 1..column {
                         *edited.position_mut(index, track) = held.clone();
                     }
@@ -731,7 +744,11 @@ impl Document {
             },
             ..Position::default()
         };
-        let held = held_reference(blank.clone(), &edited.tracks[&track].settings);
+        let held = held_reference(
+            blank.clone(),
+            &edited.tracks[&track].settings,
+            self.blank_artwork()?,
+        );
         *edited.position_mut(head, track) = Position {
             blank_start: true,
             ..blank

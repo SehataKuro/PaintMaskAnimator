@@ -174,6 +174,9 @@ pub struct Document {
     pub(super) active_layer: TrackId,
     pub(super) next_frame_id: u64,
     pub(super) next_track_id: u64,
+    /// 命令が作る空画像の雛形（Python の blank_model_image() と同じ画素・世代・札）。
+    /// 無いか大きさが違えば、その都度新しい空画像を作る。
+    pub(super) blank: Option<RgbaImage>,
 }
 
 impl Document {

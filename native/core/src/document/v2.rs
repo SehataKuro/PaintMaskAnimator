@@ -323,6 +323,7 @@ pub fn from_plan(payload: &Value, plan: &V2Plan, images: &[RgbaImage]) -> Result
     Ok(Document {
         next_frame_id: frame_order.len() as u64,
         next_track_id: track_order.len() as u64,
+        blank: None,
         width,
         height,
         frame_order,

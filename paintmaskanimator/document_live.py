@@ -26,7 +26,7 @@ from .document_core import (
     _NO_IMAGE, GraphError, _plain_settings, _settings, graph_from_core, graph_payload, model_image,
     plain_slot, plain_track, slot_metadata,
 )
-from .models import ArchiveHint, Cell, Frame, Layer, Track, TRACK_FIELDS
+from .models import ArchiveHint, Cell, Frame, Layer, PendingToken, Track, TRACK_FIELDS
 from .native import _native
 from .pma_image import PmaImage, tag_attributes
 
@@ -110,6 +110,43 @@ class _CoreState:
     def refresh_track(self, track_id):
         text, handles = self.core.track_graph(track_id)
         self.tracks[track_id] = (json.loads(text), list(handles))
+        self.revision += 1
+
+    def reload_rows(self, frame_ids):
+        """構造の命令のあと、並び・次の ID と指定したコマの行だけを Rust から取り直す。"""
+        text, handles = self.core.frames_graph(list(frame_ids))
+        payload = json.loads(text)
+        handles = list(handles)
+        previous = set(self.frame_ids)
+        self.frame_ids = payload["frame_order"]
+        self.track_ids = payload["track_order"]
+        self.next_ids = (payload["next_frame_id"], payload["next_track_id"])
+        current = set(self.frame_ids)
+        stale = set(frame_ids) | (previous - current)
+        for fid in previous - current:
+            self.durations.pop(fid, None)
+            for tid in self.track_ids:
+                self.positions.pop((fid, tid), None)
+        for frame in payload["frames"]:
+            for tid, position in zip(self.track_ids, frame["positions"]):
+                self.positions[frame["id"], tid] = (position, handles)
+            self.durations[frame["id"]] = frame["duration"]
+        self.frame_index = {fid: index for index, fid in enumerate(self.frame_ids)}
+        self.track_index = {tid: index for index, tid in enumerate(self.track_ids)}
+        self.share_leaders = {}
+        for fid in self.frame_ids:
+            for tid in self.track_ids:
+                group = self.positions[fid, tid][0].get("local_share")
+                if group is not None:
+                    self.share_leaders.setdefault(group, (fid, tid))
+        for cache in (self.slot_copies, self.slot_dicts):
+            for key in [key for key in cache if key[0] in stale]:
+                del cache[key]
+        for fid in stale:
+            self.layer_lists.pop(fid, None)
+        self.view_lists.clear()
+        self.resolved = None
+        self.pending.clear()
         self.revision += 1
 
     def forget_track(self, track_id):
@@ -1301,6 +1338,10 @@ class Document:
         live["cursor"][1] = value
         self._sync_selection()
 
+    def duplicate_frame(self, column):
+        changes = _CORE_COMMANDS["duplicate_frame"](self, column)
+        return self._run("duplicate_frame", (column,), {}) if changes is None else changes
+
     def snapshot(self):
         """Copy the entire drawing bank, including unplaced drawings.
 
@@ -1677,6 +1718,188 @@ def _resolve_lazy(self):
         values["_value"] = DocumentSnapshot(copied, current, active, width, height, tracks)
         values["_core"] = None
     return values["_value"]
+
+
+def _changes_from_json(text):
+    """Rust の命令が返した変更（Python の ChangeSet と同じ種類名・フィールド）を ChangeSet にする。"""
+    from . import document_changes as changes
+    (group,) = json.loads(text)
+    items = []
+    for notice in group:
+        notice = dict(notice)
+        cls = getattr(changes, notice.pop("kind"))
+        for name in ("indices", "fields", "before", "after"):
+            if isinstance(notice.get(name), list):
+                notice[name] = tuple(notice[name])
+        if isinstance(notice.get("rects"), list):
+            notice["rects"] = tuple(tuple(rect) for rect in notice["rects"])
+        items.append(cls(**notice))
+    return changes.ChangeSet(tuple(items))
+
+
+def _apply_core_command(document, operation, rows):
+    """Rust の文書に構造の命令を当て、窓口が読む写しを行ごとに取り直す。
+
+    rows(frame_ids_before) は、命令で中身が変わり得る既存のコマ ID の列を返す。新しいコマの
+    行は自動で読む。命令が当てられなければ None（文書は変わっていない）。
+    """
+    live = document._live()
+    state = live["state"]
+    before = list(state.frame_ids)
+    changed = rows(before)
+    try:
+        live["core"].set_blank_image(_blank_handle())
+        text = live["core"].apply_command(json.dumps(operation))
+    except ValueError:
+        return None
+    order = json.loads(live["core"].frames_graph([])[0])["frame_order"]
+    known = set(before)
+    new_ids = [fid for fid in order if fid not in known]
+    state.reload_rows([*changed, *new_ids])
+    # 今の Python の手順はどれも Layer の代入を通るので timeline_revision を進める。
+    Layer.timeline_revision += 1
+    # 選択は Python の値が正（命令は Rust の選択を動かすことがある）。
+    document._sync_selection()
+    return _changes_from_json(text), new_ids
+
+
+def _core_duplicate_frame(document, column):
+    """duplicate_frame を Rust の命令で当てる。今の手順と同じにできなければ None。
+
+    保持の途中のコマを複製すると、今の手順は既存の位置に新しい Layer を入れ直す（古い
+    オブジェクトは文書から外れる）。その付け替えはまだ無いので、その場合は今の経路。
+    """
+    live = document._live()
+    if live["graph"] is not None or live.get("trial") or type(column) is not int:
+        return None
+    state = live["state"]
+    if not 0 <= column < len(state.frame_ids):
+        return None
+    # 保持の途中なら、今の手順は複製の後ろの保持の位置に新しい Layer を入れ直し（古い
+    # オブジェクトは文書から外れる）、保持の最後の位置をその場で消す（局所の絵が替わる）。
+    replaced, cleared = [], []
+    last = column + 1
+    for layer_index, tid in enumerate(state.track_ids):
+        block = document.timeline_block_at(column, layer_index)
+        if block is not None and block[1] < column:
+            end = block[1] + block[2]
+            last = max(last, end)
+            replaced += [(state.frame_ids[i], tid) for i in range(column + 1, end - 1)]
+            if end - 1 > column:
+                cleared.append((state.frame_ids[end - 1], tid))
+    plan = _detach_plan(document, replaced, cleared)
+    if plan is None:
+        return None
+    # 読み直すのは複製元から保持の終わりまでの行（共有の組の印が変わる位置を含む）。
+    touched = state.frame_ids[column:last]
+    result = _apply_core_command(document, ["duplicate_frame", column], lambda ids: touched)
+    if result is None:
+        return None
+    _detach(document, plan)
+    changes, new_ids = result
+    tokens = live.setdefault("tokens", {})
+    for fid in new_ids:
+        for tid in state.track_ids:
+            tokens[fid, tid] = PendingToken()
+    for key in replaced:
+        tokens[key] = PendingToken()
+    return changes
+
+
+def _detach_plan(document, replaced, cleared):
+    """今の手順が文書から外すオブジェクト（入れ直す位置の Layer とその局所の絵、その場で
+    消す位置の局所の絵）を、命令の前の値で用意する。用意できなければ None。
+
+    外すのは窓口として渡したもの（表にあるもの）だけでよい（誰も持っていなければ見えない）。
+    局所の絵を他の位置と共有する位置は、外す Cell の同一性を保てないので None。
+    """
+    live = document._live()
+    state, cache = live["state"], live["cache"]
+    plan = {"layers": [], "cells": []}
+    for key, whole in [*((key, True) for key in replaced), *((key, False) for key in cleared)]:
+        values, handles = state.position(*key)
+        if values.get("local_share") is not None:
+            return None
+        local = ("local", *key)
+        images = {}
+        for initial in (False, True):
+            image = cache._objects.get(("image", (local, initial)))
+            if image is not None:
+                try:
+                    images[initial] = (image, image._image.copy())
+                except ValueError:
+                    return None
+        cell = cache._objects.get(("cell", local))
+        if cell is not None or images:
+            plan["cells"].append((local, cell, images, values, handles))
+        layer = cache._objects.get(("layer", key)) if whole else None
+        if layer is not None:
+            token = live.get("tokens", {}).get(key)
+            plan["layers"].append((key, layer, values, handles, token))
+    return plan
+
+
+def _detach(document, plan):
+    """_detach_plan で用意したオブジェクトを、命令の前の値の素のオブジェクトにして文書から外す。"""
+    from .document import clear_pending
+    live = document._live()
+    cache = live["cache"]
+    cells = {}
+    for local, cell, images, values, handles in plan["cells"]:
+        for initial, (image, pixels) in images.items():
+            cache.pop("image", (local, initial))
+            image.__class__ = PmaImage
+            object.__setattr__(image, "_image", pixels)
+            object.__setattr__(image, "_attributes", tag_attributes(pixels.tag))
+        data = values["local"]
+        if data is None:
+            stand = None
+        else:
+            stand = Cell.__new__(Cell)
+            for initial, name in ((False, "image"), (True, "initial_image")):
+                found = images.get(initial)
+                index = data[name]
+                value = (found[0] if found else
+                         None if index is None else model_image(handles[index]))
+                object.__setattr__(stand, name, value)
+            stand.cell_name = data["cell_name"]
+        if cell is not None:
+            cache.pop("cell", local)
+            if stand is not None:
+                _transplant(cell, stand)
+                stand = cell
+        cells[local] = stand
+    for key, layer, values, handles, token in plan["layers"]:
+        cache.pop("layer", key)
+        track_proxy = document._track(key[1])
+        temporary = plain_track(*live["state"].track(key[1]))
+        stand = plain_slot(values, temporary, handles)
+        _restore_token(stand, temporary, token)
+        local = ("local", *key)
+        if values.get("local_bank"):
+            stand.__dict__["_cell"] = document._cell(("bank", key[1], int(values["sequence_number"])))
+        elif local in cells and cells[local] is not None:
+            stand.__dict__["_cell"] = cells[local]
+        # 今の手順（replace_slot）は外す位置の配置待ちを解く。
+        clear_pending(stand)
+        stand.__dict__["_track"] = track_proxy
+        _transplant(layer, stand)
+
+
+# Rust の命令で当てる操作（名前 → 関数(document, *args)、当てられなければ None）。
+_CORE_COMMANDS = {"duplicate_frame": _core_duplicate_frame}
+
+
+def _blank_handle():
+    """今の blank_model_image() の Rust の画像（札付き）。Rust の命令が作る空画像の雛形。
+
+    今の手順の空画像（blank_image()・blank_model_image()）は雛形の画素と世代を共有するので、
+    Rust の命令もこの雛形を使い回す。
+    """
+    from .pma_image import attributes_tag
+    from .utils import blank_model_image
+    image = blank_model_image()
+    return image._image.with_tag(attributes_tag(image._attributes))
 
 
 def _note_plain(reason):

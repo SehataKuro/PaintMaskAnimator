@@ -1,7 +1,7 @@
 use crate::image::PyRgbaImage;
 use pma_core::document::access::{ArtworkSlot, ImageField};
 use pma_core::document::model::{CellNumber, Document, FrameId, TrackId};
-use pma_core::document::v2;
+use pma_core::document::{comparison, v2};
 use pma_core::image::{Rect, RgbaImage};
 use pma_core::project::payload::decode_v2_plan;
 use pyo3::{exceptions::PyValueError, prelude::*, types::PyBytes};
@@ -99,6 +99,30 @@ impl PyCoreDocument {
             (value.to_string(), images)
         });
         Ok((json, images.into_iter().map(PyRgbaImage::from).collect()))
+    }
+
+    /// 構造の命令を一つ当て、Python の ChangeSet と同じ種類名・フィールドの JSON を返す。
+    ///
+    /// `operation` は比較テストと同じ ["命令名", 引数...] の JSON。失敗時は文書を変えない。
+    fn apply_command(&mut self, py: Python<'_>, operation: &str) -> PyResult<String> {
+        let operations = v2::parse_json(&format!("[{operation}]")).map_err(value_error)?;
+        let document = &mut self.0;
+        py.detach(|| comparison::apply_operations(document, &operations))
+            .map_err(value_error)
+    }
+
+    /// 命令が作る空画像の雛形を設定する（Python の blank_model_image() の画像）。
+    fn set_blank_image(&mut self, image: PyRef<'_, PyRgbaImage>) {
+        self.0.set_blank_image(image.share());
+    }
+
+    /// 指定したコマの行を to_graph と同じ JSON で、並びと次の ID とともに返す。
+    fn frames_graph(&self, frames: Vec<u64>) -> PyResult<(String, Vec<PyRgbaImage>)> {
+        let frames: Vec<_> = frames.into_iter().map(FrameId).collect();
+        self.0
+            .frames_graph(&frames)
+            .map(graph_output)
+            .map_err(value_error)
     }
 
     /// 文書の写しを返す。画素バッファは書き込みまで共有する（Undo の記録用）。

@@ -13,25 +13,25 @@ from paintmaskanimator.native import resolve_timeline
 from paintmaskanimator.pma_image import PmaImage
 
 
-def _frames():
+def _frames(hold=2, count=6):
     frames = []
-    for column in range(6):
+    for column in range(count):
         layers = []
         for index, name in enumerate(("A", "B")):
             layer = Layer(name, PmaImage.blank(8, 8))
             if column % 3 != 2 or index == 0:
                 layer.has_content = True
-                layer.sequence_number = column // 2 + 1
+                layer.sequence_number = column // hold + 1
             layers.append(layer)
         frames.append(Frame(layers))
     return frames
 
 
-def _pair():
+def _pair(**shape):
     plain = GraphDocument()
-    plain.install_legacy_frames(_frames())
+    plain.install_legacy_frames(_frames(**shape))
     live = document_live.Document()
-    live.install_legacy_frames(_frames())
+    live.install_legacy_frames(_frames(**shape))
     assert live._live()["graph"] is None
     return plain, live
 
@@ -178,3 +178,31 @@ def test_snapshot_is_lazy_and_matches_python(monkeypatch):
     assert _signature(live) == _signature(plain)
     assert (live.frames[0].layers[0].image.read_rgba(0, 0, 2, 2)
             == plain.frames[0].layers[0].image.read_rgba(0, 0, 2, 2)).all()
+
+
+def test_duplicate_frame_uses_core_command_and_matches_python(monkeypatch):
+    plain, live = _pair()
+    calls = _round_trips(live, monkeypatch)
+    # キーのコマの複製（保持の途中ではない）。局所の絵は元の位置と同じ Cell を共有する。
+    held_before = live.frames[2].layers[1]
+    assert live.duplicate_frame(2) == plain.duplicate_frame(2)
+    assert calls == []
+    assert _signature(live) == _signature(plain)
+    assert live.frames[2].layers[1] is held_before
+    assert live.frames[3].layers[1]._cell is live.frames[2].layers[1]._cell
+    assert plain.frames[3].layers[1]._cell is plain.frames[2].layers[1]._cell
+    # 保持の途中の複製：保持の後ろの位置は新しい Layer になり、古い Layer は文書から外れる。
+    plain, live = _pair(hold=5, count=10)
+    calls = _round_trips(live, monkeypatch)
+    moved = live.frames[2].layers[0]
+    old_plain = plain.frames[2].layers[0]
+    tail = live.frames[4].layers[0]
+    assert live.duplicate_frame(1) == plain.duplicate_frame(1)
+    assert calls == []
+    assert _signature(live) == _signature(plain)
+    in_live = any(slot is moved for frame in live.frames for slot in frame.layers)
+    in_plain = any(slot is old_plain for frame in plain.frames for slot in frame.layers)
+    assert in_live == in_plain
+    assert (moved.has_content, moved.sequence_number) == (old_plain.has_content,
+                                                          old_plain.sequence_number)
+    assert any(slot is tail for frame in live.frames for slot in frame.layers)

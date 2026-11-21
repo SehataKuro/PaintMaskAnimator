@@ -88,6 +88,36 @@ impl Document {
         Ok(())
     }
 
+    /// 命令が作る空画像の雛形を設定する（Python の blank_model_image() の画像）。
+    pub fn set_blank_image(&mut self, image: RgbaImage) {
+        self.blank = Some(image);
+    }
+
+    /// 指定したコマの行を to_graph のコマと同じ JSON で、コマ・列の並びと次の ID とともに返す。
+    pub fn frames_graph(&self, frames: &[FrameId]) -> Result<(Value, Vec<RgbaImage>), Error> {
+        let mut output = Output::default();
+        let rows = frames
+            .iter()
+            .map(|id| {
+                let row = self.sheet.get(id).ok_or_else(|| missing("コマ"))?;
+                let positions: Vec<_> = self
+                    .track_order
+                    .iter()
+                    .map(|track| graph::position_json(&row.positions[track], &mut output))
+                    .collect();
+                Ok(serde_json::json!({"id": id.0, "duration": row.duration, "positions": positions}))
+            })
+            .collect::<Result<Vec<_>, Error>>()?;
+        let value = serde_json::json!({
+            "frame_order": self.frame_order.iter().map(|id| id.0).collect::<Vec<_>>(),
+            "track_order": self.track_order.iter().map(|id| id.0).collect::<Vec<_>>(),
+            "next_frame_id": self.next_frame_id,
+            "next_track_id": self.next_track_id,
+            "frames": rows,
+        });
+        Ok((value, output.images))
+    }
+
     /// 列の設定・バンク・旧連番保管を to_graph の列と同じ JSON と画像列で返す。
     pub fn track_graph(&self, track: TrackId) -> Result<(Value, Vec<RgbaImage>), Error> {
         let mut output = Output::default();

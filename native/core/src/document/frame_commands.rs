@@ -35,18 +35,24 @@ pub(super) fn archive_hint(position: &Position, exposure: usize) -> ArchiveHint 
 pub(super) fn held_reference(
     mut held: Position,
     settings: &super::model::TrackSettings,
+    blank: RgbaImage,
 ) -> Position {
     held.tween = None;
     held.tween_member = None;
     held.blank_start = false;
+    // Python の clone_reference は _dense_import を外し、_v2_resolve_source は残す。
     held.compatibility.dense_import = None;
-    held.compatibility.resolved_source = None;
     held.compatibility.legacy = Some(LegacyPosition {
         legacy: Some(LegacySlot {
             settings: settings.clone(),
             state: archive_hint(&Position::default(), 1),
             number: None,
-            artwork: None,
+            // Python の clone_reference は旧形式の記録の画像を空画像にする。
+            artwork: Some(Cell {
+                image: blank,
+                initial_image: None,
+                cell_name: None,
+            }),
         }),
         key_start: false,
         blank_start: false,
@@ -116,14 +122,21 @@ impl Document {
         } else {
             prior.compatibility.local.as_ref()
         };
+        // Python の clear_slot は detach_cell で局所の Cell を必ず作り、画像を空にする
+        // （初期画像は元の絵のものを残す）。位置をその場で書き換えるので、clear_slot が
+        // 外さない印（_pending_detached・_legacy_missing・_v2_length_imported・
+        // _v2_resolve_source）は残す。
         let mut cleared = Position::default();
-        if let Some(initial_image) = artwork.and_then(|cell| cell.initial_image.clone()) {
-            cleared.compatibility.local = Some(Cell {
-                image: RgbaImage::blank(self.width, self.height)?,
-                initial_image: Some(initial_image),
-                cell_name: None,
-            });
-        }
+        let kept = &prior.compatibility;
+        cleared.compatibility.pending_detached = kept.pending_detached;
+        cleared.compatibility.legacy_missing = kept.legacy_missing;
+        cleared.compatibility.length_imported = kept.length_imported;
+        cleared.compatibility.resolved_source = kept.resolved_source;
+        cleared.compatibility.local = Some(Cell {
+            image: self.blank_artwork()?,
+            initial_image: artwork.and_then(|cell| cell.initial_image.clone()),
+            cell_name: None,
+        });
         Ok(cleared)
     }
 
@@ -151,7 +164,26 @@ impl Document {
         let layers: Vec<_> = (0..self.track_order.len()).collect();
         let spans = self.display_spans(column, &layers)?;
         let mut edited = self.clone();
-        let row = self.sheet[&source].clone();
+        let mut row = self.sheet[&source].clone();
+        // Python の clone_slot は局所の Cell を作らず元の位置と共有し、attach_track が
+        // 配置待ちの所属を列へ戻す。共有の組が無ければ元と複製で新しい組を作る。
+        let mut next_share = edited.next_local_share();
+        for (track, position) in row.positions.iter_mut() {
+            position.compatibility.pending_detached = false;
+            if position.compatibility.local.is_some()
+                && position.compatibility.local_share.is_none()
+            {
+                position.compatibility.local_share = Some(next_share);
+                edited
+                    .sheet
+                    .get_mut(&source)
+                    .and_then(|source| source.positions.get_mut(track))
+                    .expect("複製元の位置")
+                    .compatibility
+                    .local_share = Some(next_share);
+                next_share += 1;
+            }
+        }
         edited.ensure_frame_count(before + 1)?;
         // 直前の伸長で追加した行を挿入位置へ移す。
         let id = edited.frame_order.pop().expect("追加済み");
@@ -161,13 +193,18 @@ impl Document {
         for (track, span) in self.track_order.clone().into_iter().zip(spans) {
             if let Some(span) = span.filter(|span| span.start < column) {
                 let source = &row.positions[&track];
-                let held = held_reference(source.clone(), &self.tracks[&track].settings);
+                let held = held_reference(
+                    source.clone(),
+                    &self.tracks[&track].settings,
+                    self.blank_artwork()?,
+                );
                 for target in at..span.end {
                     *edited.position_mut(target, track) = held.clone();
                 }
                 *edited.position_mut(span.end, track) = edited.cleared_position(span.end, track)?;
             }
         }
+        edited.drop_single_shares();
         edited.current_frame = id;
         *self = edited;
         Ok(vec![
@@ -182,6 +219,47 @@ impl Document {
                 notify: true,
             },
         ])
+    }
+
+    /// Python の blank_image() と同じ空画像（雛形があれば画素・世代・札を共有する）。
+    pub(super) fn blank_artwork(&self) -> Result<RgbaImage, Error> {
+        match &self.blank {
+            Some(image) if image.width() == self.width && image.height() == self.height => {
+                Ok(image.clone())
+            }
+            _ => RgbaImage::blank(self.width, self.height),
+        }
+    }
+
+    /// 位置が一つだけになった共有の組を外す（Python では共有していない Cell）。
+    pub(super) fn drop_single_shares(&mut self) {
+        let mut counts = std::collections::BTreeMap::new();
+        for position in self.sheet.values().flat_map(|row| row.positions.values()) {
+            if let Some(share) = position.compatibility.local_share {
+                *counts.entry(share).or_insert(0usize) += 1;
+            }
+        }
+        for position in self
+            .sheet
+            .values_mut()
+            .flat_map(|row| row.positions.values_mut())
+        {
+            if let Some(share) = position.compatibility.local_share {
+                if counts[&share] == 1 {
+                    position.compatibility.local_share = None;
+                }
+            }
+        }
+    }
+
+    /// まだ使われていない局所の共有の組の番号。
+    pub(super) fn next_local_share(&self) -> u64 {
+        self.sheet
+            .values()
+            .flat_map(|row| row.positions.values())
+            .filter_map(|position| position.compatibility.local_share)
+            .max()
+            .map_or(0, |share| share + 1)
     }
 
     pub(super) fn trim_unused_tail(&mut self) -> Result<usize, Error> {

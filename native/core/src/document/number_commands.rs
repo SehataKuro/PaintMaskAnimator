@@ -379,7 +379,11 @@ impl Document {
         position.compatibility.retained_number = copied.compatibility.retained_number;
         // 番号付き配置待ちはバンクを参照する。配置後の空キーや番号だけの
         // 位置は新しい局所セルになり、配置待ちの局所画像を引き継がない。
-        let held = held_reference(position.clone(), &self.tracks[&track].settings);
+        let held = held_reference(
+            position.clone(),
+            &self.tracks[&track].settings,
+            self.blank_artwork()?,
+        );
         *self.position_mut(target, track) = position;
         self.set_placement_length(target, track, length, false);
         for column in target + 1..dense_end {

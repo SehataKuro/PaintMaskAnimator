@@ -651,6 +651,7 @@ impl Document {
             height,
             next_frame_id,
             next_track_id,
+            blank: None,
             frame_order,
             track_order,
             sheet,
