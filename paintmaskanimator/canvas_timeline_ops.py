@@ -180,7 +180,7 @@ class TimelineStructureMixin(CanvasMembers):
         return bool(changes)
 
     def link_layer_tracks(self):
-        if any(not layer._track.connected for frame in self.frames for layer in frame.layers):
+        if self._document.has_unlinked_tracks():
             # 組み直しの前に描きかけのストロークを確定する（install_legacy_frames と同じ）。
             self._commit_brush_stroke()
         changes = self._document.link_layer_tracks()

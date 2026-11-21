@@ -1368,6 +1368,14 @@ class Document:
         changes = _CORE_COMMANDS["duplicate_frame"](self, column)
         return self._run("duplicate_frame", (column,), {}) if changes is None else changes
 
+    def has_unlinked_tracks(self):
+        """Rust の状態では列の窓口はいつも文書へ公開済み（connected）なので、位置をなめない。"""
+        live = self._live()
+        if live["graph"] is None and not live.get("trial"):
+            return False
+        from .document import GraphDocument
+        return GraphDocument.has_unlinked_tracks(self)
+
     def link_layer_tracks(self):
         """Rust の状態では位置はいつも自分の列につながっているので、配置待ちの所属を位置が持つ
         位置（pending_detached）が無ければ、今の手順は tracks に新しいリストを入れるだけ。"""

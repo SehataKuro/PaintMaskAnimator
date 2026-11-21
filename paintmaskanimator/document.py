@@ -332,6 +332,10 @@ class Document:
                 return DrawingTarget(cell, track, None, None, number)
         return None
 
+    def has_unlinked_tracks(self):
+        """文書へ公開していない列（connected でない Track）につながった位置があるか。"""
+        return any(not layer._track.connected for frame in self.frames for layer in frame.layers)
+
     def link_layer_tracks(self):
         """Reconcile slot tracks after loading or restoring a graph."""
         if not self.frames:

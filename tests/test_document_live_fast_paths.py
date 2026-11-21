@@ -480,3 +480,20 @@ def test_new_sheet_cell_and_number_use_core_command_and_match_python(monkeypatch
                        lambda document, name=name, column=column, layer_index=layer_index: (
                            getattr(document, name)(column, layer_index)))
         assert len(calls) == 1
+
+
+def test_has_unlinked_tracks_answers_without_walking_positions(monkeypatch):
+    plain, live = _pair()
+    calls = _round_trips(live, monkeypatch)
+    cached = len(live._live()["cache"].items())
+    assert live.has_unlinked_tracks() is plain.has_unlinked_tracks() is False
+    # Rust の状態では位置の窓口を作らず、素の状態にも落とさない。
+    assert len(live._live()["cache"].items()) == cached
+    assert calls == []
+    # 素の状態では今の手順と同じく位置を見る。
+    live._demote()
+    assert live.has_unlinked_tracks() is False
+    unlinked = GraphDocument()
+    unlinked.install_legacy_frames(_frames())
+    unlinked.frames[0].layers[0]._track.connected = False
+    assert unlinked.has_unlinked_tracks() is True
