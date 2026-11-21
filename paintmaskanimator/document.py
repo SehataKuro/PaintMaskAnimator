@@ -505,7 +505,7 @@ class Document:
 
     def clone_graph(self):
         """Copy the full Track graph, preserving sharing and unplaced cells."""
-        copied = object.__new__(Document)
+        copied = object.__new__(GraphDocument)
         copied.frames, _ = clone_frame_graph(self.frames)
         copied.current_frame = self.current_frame
         copied.active_layer_index = self.active_layer_index
@@ -2524,3 +2524,10 @@ def project_v1_state(frames, sequence_archive=None) -> tuple[list[Any], dict[Any
     projected = compress_v1(rows, positions)
     return [Frame(cast(Any, list(row)), frame.duration)
             for row, frame in zip(projected, frames)], archive
+
+
+# 段階8-4：Rust の文書を正本にする Document（document_live）は、まだ環境変数
+# PMA_CORE_DOCUMENT=1 のときだけ使う。既定は上の Python の Document のまま。
+GraphDocument = Document
+if __import__("os").environ.get("PMA_CORE_DOCUMENT") == "1":
+    from .document_live import Document  # noqa: E402,F811

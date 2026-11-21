@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+from weakref import WeakSet
 
 from . import constants
 from .legacy_v1 import DenseReference, LegacyLayerV1, V1Position
@@ -242,13 +243,34 @@ def _position(slot, track, images, groups):
     }
 
 
+class _PlainView:
+    """Rust を正本にする文書（document_live）を、一時的に素のグラフとして見る。"""
+
+    def __init__(self, document):
+        self.document = document
+        self.live = hasattr(type(document), "_demote")
+
+    def __enter__(self):
+        return self.document._demote().plain if self.live else self.document
+
+    def __exit__(self, *exc):
+        if self.live:
+            self.document._promote()
+
+
 def graph_payload(document, width=None, height=None, ids=None, selection=None):
     """文書グラフを (JSON 文字列, Rust の画像の列) にする。
 
     表せない状態（未接続の列、列と異なる Track、絵と空キーが同時の位置など）は
     GraphError にする。``ids`` は (コマ ID の列, 列 ID の列, 次のコマ ID, 次の列 ID)。
     ``selection`` を渡すと、文書の選択の代わりに (コマ, 列) を Rust に渡す。
+    Rust を正本にする文書を渡したときは、その素のグラフを写す。
     """
+    with _PlainView(document) as plain:
+        return _graph_payload(plain, width, height, ids, selection)
+
+
+def _graph_payload(document, width, height, ids, selection):
     images = _Images()
     try:
         # 同じ Track・Frame・Layer のオブジェクトが二か所にある状態は、Rust では別々の
@@ -341,7 +363,11 @@ def _plain_settings(values):
 def plain_track(data, handles=None, image=None):
     """to_graph の列の値から、接続済みの素の Track を作る。"""
     image = image or _decoder(handles)
-    track = Track(**_plain_settings(data["settings"]))
+    # Track() を呼ばずに作る（Cell と同じく、書き出しは今の文書の割り当てに数えない）。
+    track = Track.__new__(Track)
+    for name, value in _plain_settings(data["settings"]).items():
+        setattr(track, name, value)
+    track.pending_slots = WeakSet()
     track.cells = {n: _plain_cell(values, image) for n, values in data["cells"]}
     track.legacy_archive_hints = {
         n: ArchiveHint(h["has_content"], h["is_blank_key"], h["exposure"],
@@ -527,15 +553,17 @@ def graph_signature(document):
 
 def roundtrip_mismatch(document):
     """Rust へ写して戻した文書の署名が一致しなければ、その説明を返す。"""
-    try:
-        core = core_document(document)
-    except GraphError as exc:
-        return f"unrepresentable: {exc}"
-    frames, tracks, current, active, _ = graph_from_core(core)
-    copied = object.__new__(type(document))
-    copied.frames, copied.tracks = frames, tracks
-    copied.current_frame, copied.active_layer_index = current, active
-    before, after = graph_signature(document), graph_signature(copied)
+    from .document import GraphDocument
+    with _PlainView(document) as plain:
+        try:
+            core = core_document(plain)
+        except GraphError as exc:
+            return f"unrepresentable: {exc}"
+        frames, tracks, current, active, _ = graph_from_core(core)
+        copied = object.__new__(GraphDocument)
+        copied.frames, copied.tracks = frames, tracks
+        copied.current_frame, copied.active_layer_index = current, active
+        before, after = graph_signature(plain), graph_signature(copied)
     if before == after:
         return None
     return _first_difference(before, after)
