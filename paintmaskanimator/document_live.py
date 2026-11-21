@@ -20,12 +20,19 @@ import inspect
 import json
 from collections.abc import MutableMapping, MutableSequence, MutableSet
 from copy import deepcopy
-from weakref import WeakSet
+from weakref import WeakSet, ref
 
 from .document_core import GraphError, graph_payload, model_image
 from .models import ArchiveHint, Cell, Frame, Layer, Track, TRACK_FIELDS
 from .native import _native
 from .pma_image import PmaImage, tag_attributes
+
+class _NeedsGraph(BaseException):
+    """窓口のまま試す操作（_TRY_IN_PLACE）が、素のグラフを要る書き込みに来た印。
+
+    操作の中の ``except Exception`` に捕まらないよう BaseException にする。
+    """
+
 
 class StaleDocumentObject(LookupError):
     """文書から消えたコマ・列・絵の窓口に書こうとした。"""
@@ -55,6 +62,19 @@ class _CoreState:
                 self.positions[frame["id"], track_id] = (position, self.handles)
         self.durations = {frame["id"]: frame["duration"] for frame in payload["frames"]}
         self.tracks = {track["id"]: (track, self.handles) for track in payload["tracks"]}
+        # 読み取り用の写し（位置の素の Layer・その __dict__・列の素の Track）。Rust の状態が
+        # 変わる（_promote で作り直す）までは使い回す。写しへの書き込みは文書に届かない
+        # ので、使い回しても見え方は毎回作るのと同じ。
+        self.slot_copies = {}
+        # 窓口の並び（コマ ID → 位置の窓口の列、コマの窓口の列）。
+        self.layer_lists = {}
+        self.view_lists = {}
+        self.slot_dicts = {}
+        self.plain_tracks = {}
+        # resolve_sources の表（native.resolve_timeline と同じ形）。
+        self.resolved = None
+        # 列 ID → (配置待ちの札の列, その id の集合)。_PendingView が使う。
+        self.pending = {}
         self.frame_index = {fid: index for index, fid in enumerate(self.frame_ids)}
         self.track_index = {tid: index for index, tid in enumerate(self.track_ids)}
         # 局所の絵を共有する組（Python では同じ Cell）→ 組の先頭（表示順で最初）の位置。
@@ -88,6 +108,13 @@ class _CoreState:
         text, handles = self.core.track_graph(track_id)
         self.tracks[track_id] = (json.loads(text), list(handles))
         self.revision += 1
+
+    def forget_track(self, track_id):
+        """列を書き換えたあと、その列から作った読み取り用の写しを捨てる。"""
+        self.plain_tracks.pop(track_id, None)
+        for cache in (self.slot_copies, self.slot_dicts):
+            for key in [key for key in cache if key[1] == track_id]:
+                del cache[key]
 
 
 # ----------------------------------------------------------------------
@@ -145,6 +172,8 @@ def _meta(proxy):
     スロット（Cell.image・Track.name）に置く。Layer・Frame はインスタンスの辞書に置く。
     """
     cls = type(proxy)
+    if cls is LiveLayer or cls is LiveFrame:
+        return object.__getattribute__(proxy, "_live_meta")
     if issubclass(cls, LiveCell):
         return _CELL_SLOT.__get__(proxy, Cell)
     if issubclass(cls, LiveTrack):
@@ -382,24 +411,35 @@ class _PendingView(MutableSet):
     def __init__(self, track):
         self._track = track
 
-    def _tokens(self):
+    def _parts(self):
+        """(文書の位置の札の列, その id の集合, 文書の外の位置の札の WeakSet)。"""
         owner = _m(self._track, "_owner")
         tid = _m(self._track, "_key")[0]
         live = owner._live()
         state = live["state"]
-        tokens = live.get("tokens", {})
-        result = []
-        for fid in state.frame_ids:
-            data = state.position(fid, tid)[0]
-            if data["sequence_only"] and not data.get("pending_detached"):
-                token = tokens.get((fid, tid))
-                if token is not None:
-                    result.append(token)
-        result.extend(live.get("extra_pending", {}).get(tid, ()))
-        return result
+        extra = live.get("extra_pending", {}).get(tid, ())
+        # 文書の位置の札は Rust の状態が変わる（_promote で作り直す）までは同じ。
+        # 文書の外の札は WeakSet のまま毎回読む（消えた札は見せない）。
+        cached = state.pending.get(tid)
+        if cached is None:
+            tokens = live.get("tokens", {})
+            result = []
+            for fid in state.frame_ids:
+                data = state.position(fid, tid)[0]
+                if data["sequence_only"] and not data.get("pending_detached"):
+                    token = tokens.get((fid, tid))
+                    if token is not None:
+                        result.append(token)
+            cached = state.pending[tid] = (result, {id(token) for token in result})
+        return cached[0], cached[1], extra
+
+    def _tokens(self):
+        own, _, extra = self._parts()
+        return [*own, *extra]
 
     def __contains__(self, token):
-        return any(token is item for item in self._tokens())
+        _, own, extra = self._parts()
+        return id(token) in own or any(token is item for item in extra)
 
     def __iter__(self):
         return iter(self._tokens())
@@ -408,9 +448,17 @@ class _PendingView(MutableSet):
         return len(self._tokens())
 
     def add(self, token):
+        ref(token)  # 今の WeakSet と同じく、弱参照にできない値は TypeError。
+        if token in self:
+            # 今の WeakSet と同じく、入っている札を足しても何も変えない。
+            return
         _core_edit(self._track, lambda track: track.pending_slots.add(token))
 
     def discard(self, token):
+        ref(token)  # 今の WeakSet と同じく、弱参照にできない値は TypeError。
+        if token not in self:
+            # 入っていない札を外しても何も変えない（全体を書き出さない）。
+            return
         _core_edit(self._track, lambda track: track.pending_slots.discard(token))
 
     def __repr__(self):
@@ -453,6 +501,8 @@ class LiveTrack(Track):
             setattr(target, name, value)
             return
         owner = _m(self, "_owner")
+        if name in TRACK_FIELDS and owner._set_track_setting(_m(self, "_key")[0], name, value):
+            return
 
         def edit(track):
             converted = value
@@ -478,6 +528,10 @@ class LiveTrack(Track):
 
 
 _METADATA = ("has_content", "is_blank_key", "blank_start", "sequence_number", "sequence_only")
+_POSITION_FIELDS = frozenset((*_METADATA, "tween", "tween_member"))
+# 同じ値なら何もしない代入（_unchanged_position）。sequence_only は接続済みの位置への
+# 代入そのものが AttributeError なので含めない。
+_SKIPPABLE = _POSITION_FIELDS - {"sequence_only"}
 _LAYER_CELL_FIELDS = ("image", "initial_image", "cell_name")
 _LAYER_READS = frozenset(("clone", "clone_slot", "clone_reference"))
 
@@ -490,15 +544,16 @@ class LiveLayer(Layer):
     """
 
     def __getattribute__(self, name):
+        meta = object.__getattribute__(self, "_live_meta")
         if name in _META:
-            return _m(self, name)
+            return meta[name]
         if name in _INTERNAL:
             return object.__getattribute__(self, name)
-        target = _delegate(self)
+        target = meta["_detached"] or meta["_plain"]
         if target is not None:
             return getattr(target, name)
-        owner, key = _m(self, "_owner"), _m(self, "_key")
-        if name in _METADATA or name in ("tween", "tween_member"):
+        owner, key = meta["_owner"], meta["_key"]
+        if name in _POSITION_FIELDS:
             value = owner._position_value(*key)
             if value is None:
                 raise StaleDocumentObject("文書にない位置")
@@ -519,6 +574,12 @@ class LiveLayer(Layer):
         if name == "cell_id":
             return id(owner._cell(owner._artwork_key(*key)))
         if name in _LAYER_READS:
+            if name != "clone_slot":
+                # clone・clone_reference は絵を読む。今の Layer._cell と同じく、局所の絵が
+                # 無ければ先に文書へ作らせる（写しの上に作って文書に残らないことがないように）。
+                owner._cell(owner._artwork_key(*key))
+                return lambda *args, **kwargs: getattr(
+                    owner._plain_copy(*_m(self, "_key")), name)(*args, **kwargs)
             return getattr(owner._plain_copy(*key), name)
         attribute = getattr(Layer, name, None)
         if callable(attribute) and not name.startswith("_"):
@@ -539,7 +600,13 @@ class LiveLayer(Layer):
         if target is not None:
             setattr(target, name, value)
             return
-        owner = _m(self, "_owner")
+        owner, key = _m(self, "_owner"), _m(self, "_key")
+        if name in TRACK_FIELDS:
+            # Layer の表示設定は接続済みの列（Track）への書き込み（models._track_property）。
+            setattr(owner._track(key[1]), name, value)
+            return
+        if name in _SKIPPABLE and _unchanged_position(owner, key, name, value):
+            return
         _core_edit(self, lambda slot: setattr(slot, name, owner._plain_value(value)))
 
     def __delattr__(self, name):
@@ -568,6 +635,34 @@ class LiveLayer(Layer):
         return f"LiveLayer{_m(self, '_key')}"
 
 
+def _unchanged_position(owner, key, name, value):
+    """位置のメタデータへの書き込みが、今の Layer.__setattr__ で何も変えないか。
+
+    同じ値の代入は、timeline_revision も _dense_import も変えない。ただし内容キー・
+    空キーを立てる代入は _content_origin を外すので、それが無いときだけ。
+    has_content を外す代入は、今 has_content でなければ何もしない（局所への複製なし）。
+    """
+    data = owner._position_value(*key)
+    if data is None:
+        return False
+    values = data[0]
+    current = values[name]
+    if name == "tween":
+        current = owner._tween(key, current)
+    if type(current) is not type(value) or current != value:
+        return False
+    if name == "tween":
+        # 中の値の 1・1.0・True は == で等しいが、Rust（JSON）では別の値。
+        try:
+            if json.dumps(current, allow_nan=False) != json.dumps(value, allow_nan=False):
+                return False
+        except (TypeError, ValueError):
+            return False
+    if name in ("has_content", "is_blank_key") and value and values["content_origin"] is not None:
+        return False
+    return True
+
+
 class _SlotDictView(MutableMapping):
     """Rust の状態の位置の __dict__。読みは素の写し、書きは素のグラフで当てて戻す。"""
 
@@ -581,9 +676,13 @@ class _SlotDictView(MutableMapping):
         layer = self._layer
         key = _m(layer, "_key")
         owner = self._owner()
-        values = dict(owner._plain_copy(*key).__dict__)
-        if "tween" in values:
-            values["tween"] = layer.tween
+        state = owner._live()["state"]
+        values = state.slot_dicts.get(key)
+        if values is None:
+            values = dict(owner._plain_copy(*key).__dict__)
+            if "tween" in values:
+                values["tween"] = layer.tween
+            state.slot_dicts[key] = values
         return values
 
     def __getitem__(self, key):
@@ -607,7 +706,7 @@ class _SlotDictView(MutableMapping):
         return key in self._read()
 
     def copy(self):
-        return self._read()
+        return dict(self._read())
 
 
 class _LayersView(MutableSequence):
@@ -627,10 +726,15 @@ class _LayersView(MutableSequence):
             return self._frame.layers
         owner = self._owner()
         fid = _m(self._frame, "_key")[0]
-        return [owner._layer(fid, tid) for tid in owner._track_ids()]
+        state = owner._live()["state"]
+        items = state.layer_lists.get(fid)
+        if items is None:
+            items = state.layer_lists[fid] = [owner._layer(fid, tid) for tid in state.track_ids]
+        return items
 
     def __getitem__(self, index):
-        return self._items()[index]
+        items = self._items()
+        return list(items[index]) if isinstance(index, slice) else items[index]
 
     def __len__(self):
         return len(self._items())
@@ -665,14 +769,15 @@ class LiveFrame(Frame):
     """文書のコマの窓口。key は (コマ ID,)。"""
 
     def __getattribute__(self, name):
+        meta = object.__getattribute__(self, "_live_meta")
         if name in _META:
-            return _m(self, name)
+            return meta[name]
         if name in _INTERNAL:
             return object.__getattribute__(self, name)
-        target = _delegate(self)
+        target = meta["_detached"] or meta["_plain"]
         if target is not None:
             return getattr(target, name)
-        owner, key = _m(self, "_owner"), _m(self, "_key")
+        owner, key = meta["_owner"], meta["_key"]
         if name == "layers":
             view = object.__getattribute__(self, "__dict__").get("_layers_view")
             if view is None:
@@ -725,8 +830,34 @@ class _FramesView(MutableSequence):
     def _ids(self):
         return self._owner._frame_ids()
 
+    def _all(self):
+        """Rust の状態での窓口の並び。状態が変わるまで使い回す。"""
+        state = self._owner._live()["state"]
+        items = state.view_lists.get(self._name)
+        if items is None:
+            items = state.view_lists[self._name] = [self._item(i) for i in self._ids()]
+        return items
+
     def _item(self, item_id):
         return self._owner._frame(item_id)
+
+    def _resolve_sources(self):
+        """Rust の状態なら、native.resolve_timeline と同じ表を Rust の文書から求める。
+
+        素の状態・入れ替え前の並びでは None（呼び出し側が今の手順で求める）。
+        """
+        if self._frozen is not None or self._name != "frames":
+            return None
+        live = self._owner._live()
+        if live["graph"] is not None:
+            return None
+        import numpy as np
+        state = live["state"]
+        if state.resolved is None:
+            state.resolved = live["core"].resolve_sources()
+        width, data = state.resolved
+        # 呼ぶたびに新しい（読み取り専用の）配列を返す。native.resolve_timeline と同じ。
+        return np.frombuffer(data, dtype=np.int64).reshape(len(state.frame_ids), width)
 
     def __getitem__(self, index):
         if self._frozen is not None:
@@ -735,18 +866,18 @@ class _FramesView(MutableSequence):
         if graph is not None:
             # 素の状態では素のグラフの並びをそのまま使う。
             return getattr(graph.plain, self._name)[index]
-        ids = self._ids()
-        if isinstance(index, slice):
-            return [self._item(item_id) for item_id in ids[index]]
-        return self._item(ids[index])
+        items = self._all()
+        return list(items[index]) if isinstance(index, slice) else items[index]
 
     def __len__(self):
         if self._frozen is not None:
             return len(self._frozen)
-        graph = self._owner._live()["graph"]
+        live = self._owner._live()
+        graph = live["graph"]
         if graph is not None:
             return len(getattr(graph.plain, self._name))
-        return len(self._ids())
+        state = live["state"]
+        return len(state.frame_ids if self._name == "frames" else state.track_ids)
 
     def _edit(self, edit):
         if self._frozen is not None:
@@ -889,6 +1020,9 @@ class Document:
         """素の状態にして、そのグラフを返す。Rust の状態なら書き出す。"""
         live = self._live()
         if live["graph"] is None:
+            if live.get("trial"):
+                # 窓口のまま試している操作が、素のグラフを要る書き込みに来た。
+                raise _NeedsGraph
             live["graph"] = self._materialize()
             live["state"] = None
         return live["graph"]
@@ -1184,7 +1318,11 @@ class Document:
         return self._live()["state"].track_ids
 
     def _proxy(self, kind, cls, key):
-        return self._live()["cache"].get(kind, key, lambda: _make(cls, self, key))
+        cache = self._live()["cache"]
+        obj = cache._objects.get((kind, key))
+        if obj is None:
+            obj = cache._objects[kind, key] = _make(cls, self, key)
+        return obj
 
     def _frame(self, fid):
         return self._proxy("frame", LiveFrame, (fid,))
@@ -1263,11 +1401,16 @@ class Document:
         clone_slot などの写しは同じ列・同じ絵を指す）。読むだけの処理に使う。"""
         from .document_core import plain_slot, plain_track
         state = self._live()["state"]
+        cached = state.slot_copies.get((fid, tid))
+        if cached is not None:
+            return cached
         data = state.position(fid, tid)
         track = state.track(tid)
         if data is None or track is None:
             raise StaleDocumentObject("文書にない位置")
-        plain = plain_track(*track)
+        plain = state.plain_tracks.get(tid)
+        if plain is None:
+            plain = state.plain_tracks[tid] = plain_track(*track)
         slot = plain_slot(data[0], plain, data[1])
         _restore_token(slot, plain, self._live().get("tokens", {}).get((fid, tid)))
         values = slot.__dict__
@@ -1276,7 +1419,43 @@ class Document:
             values["_cell"] = self._cell(("bank", tid, int(data[0]["sequence_number"])))
         elif values.get("_cell") is not None:
             values["_cell"] = self._cell(state.local_key(fid, tid))
+        state.slot_copies[fid, tid] = slot
         return slot
+
+    def _set_track_setting(self, tid, name, value):
+        """列の表示設定を、その列だけ Rust へ書く。書けなければ False（今の経路で書く）。
+
+        Track の設定の代入には副作用が無いので、Rust へ戻すときの値（document_core の
+        _settings と JSON）が同じなら、全体を書き出して戻すのと同じ結果になる。
+        """
+        from .document_core import _plain_settings, _settings
+        live = self._live()
+        state = live["state"]
+        if live["graph"] is not None or state is None:
+            return False
+        entry = state.track(tid)
+        if entry is None:
+            return False
+        before = entry[0]["settings"]
+        probe = Track.__new__(Track)
+        for field, current in _plain_settings(before).items():
+            setattr(probe, field, current)
+        setattr(probe, name, self._plain_value(value))
+        try:
+            text = json.dumps(_settings(probe), ensure_ascii=False, allow_nan=False)
+            previous = json.dumps(before, ensure_ascii=False, allow_nan=False)
+            if text == previous:
+                return True
+            live["core"].set_track_settings_graph(tid, text)
+        except (GraphError, TypeError, ValueError):
+            return False
+        log = live.get("trial_log")
+        if log is not None:
+            # 窓口のまま試している操作の中。やり直すときに戻す。
+            log.append((tid, previous))
+        state.refresh_track(tid)
+        state.forget_track(tid)
+        return True
 
     def _plain_value(self, value):
         """窓口を、今の素のグラフの対応するオブジェクトに写す。窓口でなければそのまま。"""
@@ -1462,16 +1641,73 @@ def _reuse_images(cell, key, cached):
             object.__setattr__(cell, name, image)
 
 
+# 文書を書き換えない操作。素のグラフへ書き出さず、文書そのもの（窓口）に今の Python の
+# 手順を当てる。窓口の読み取りは今の値と同じなので結果も同じで、戻り値は初めから窓口。
+_IN_PLACE = frozenset((
+    "resolve_numbered_target", "_track_slots", "placed_numbers", "unplaced_numbers",
+    "pending_entries", "archive_hints", "legacy_drawing_state", "_valid_position",
+    "timeline_block_at", "_span_bounds", "timeline_step_columns", "prepare_sheet_move",
+    "prepare_sheet_moves", "prepare_exposure_resize", "sequence_entry_columns",
+    "sequence_move_sources", "next_drawing_number", "editable_cursor",
+    "tween_member_numbers", "_column_count", "_valid_columns", "_valid_track_slots",
+))
+
+
+# 書き込みが無いか、あっても同じ値の代入・列の表示設定・同じ画素の上書き（何度当てても
+# 同じ結果）だけで済むことが多い操作。まず窓口のまま当て、素のグラフを要る書き込みに
+# 来たら（_NeedsGraph）、最初から今の経路でやり直す。素のグラフを要る書き込みより前に
+# 文書の外へ副作用を出さない操作だけを入れる。
+_TRY_IN_PLACE = frozenset((
+    "write_drawing_patch", "set_drawing_content", "make_position_editable",
+    "set_track_properties", "set_position_track_properties", "restore_drawing",
+))
+
+
+def _try_in_place(document, plain, args, kwargs):
+    """窓口のまま当てる。素のグラフが要るなら _NeedsGraph（文書は変えていない）。"""
+    live = document._live()
+    live["trial"] = True
+    live["trial_log"] = log = []
+    try:
+        return plain(document, *args, **kwargs)
+    except _NeedsGraph:
+        # 試しに書いた列の表示設定を戻してから、今の経路でやり直させる（やり直しの
+        # 操作が「変わった項目」を試す前の値で判断するように）。
+        state = live["state"]
+        for tid, previous in reversed(log):
+            live["core"].set_track_settings_graph(tid, previous)
+            state.refresh_track(tid)
+            state.forget_track(tid)
+        raise
+    finally:
+        live["trial"] = False
+        live["trial_log"] = None
+
+
 def _install_methods():
     from .document import GraphDocument
     for name, value in vars(GraphDocument).items():
+        if isinstance(value, staticmethod) and name not in vars(Document):
+            # 操作が self 越しに呼ぶ静的な補助（_changed_track_fields など）。
+            setattr(Document, name, value)
+            continue
         if not _is_document_method(name, value) or name in vars(Document):
             continue
 
-        def method(self, *args, _name=name, _plain=value, **kwargs):
-            if not isinstance(self, Document):
+        def method(self, *args, _name=name, _plain=value, _in_place=name in _IN_PLACE,
+                   _try=name in _TRY_IN_PLACE, **kwargs):
+            if _in_place or not isinstance(self, Document):
                 # テストなどが素の入れ物を self にして呼ぶ場合は、今の Python の手順のまま。
                 return _plain(self, *args, **kwargs)
+            live = self._live()
+            if live.get("trial"):
+                # 窓口のまま試している操作の中。書き込みが素のグラフを要れば外側がやり直す。
+                return _plain(self, *args, **kwargs)
+            if _try and live["graph"] is None:
+                try:
+                    return _try_in_place(self, _plain, args, kwargs)
+                except _NeedsGraph:
+                    pass
             return self._run(_name, args, kwargs)
         method.__name__ = name
         method.__doc__ = value.__doc__

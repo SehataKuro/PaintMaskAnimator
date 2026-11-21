@@ -85,6 +85,12 @@ def note_dense_import():
 
 def resolve_timeline(frames):
     """Read Rust-owned cell metadata directly, without packing NumPy inputs."""
+    # Rust が正本の文書の並び（document_live）なら、Rust の文書から一度で求める。
+    resolve_sources = getattr(frames, "_resolve_sources", None)
+    if resolve_sources is not None:
+        result = resolve_sources()
+        if result is not None:
+            return result
     if not _dense_import_seen:
         # どの位置にも _dense_import が無いので、下の行づくりはどの位置でも
         # メタデータをそのまま渡すのと同じになる（メタデータの無い位置を除く）。

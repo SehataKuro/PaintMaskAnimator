@@ -101,6 +101,17 @@ impl PyCoreDocument {
         Ok((json, images.into_iter().map(PyRgbaImage::from).collect()))
     }
 
+    /// 参照元の表示インデックスを (列数, コマ優先順の i64 のバイト列) で返す。
+    ///
+    /// Python の resolve_timeline と同じ値（pma-core の resolve_sources）。
+    fn resolve_sources<'py>(&self, py: Python<'py>) -> PyResult<(usize, Bound<'py, PyBytes>)> {
+        let (width, sources) = py
+            .detach(|| self.0.resolve_sources())
+            .map_err(value_error)?;
+        let bytes: Vec<u8> = sources.into_iter().flat_map(i64::to_ne_bytes).collect();
+        Ok((width, PyBytes::new(py, &bytes)))
+    }
+
     /// コマ ID と列 ID を表示順で返す。
     fn order(&self) -> (Vec<u64>, Vec<u64>) {
         (
