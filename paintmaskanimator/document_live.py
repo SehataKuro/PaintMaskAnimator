@@ -1368,6 +1368,19 @@ class Document:
         changes = _CORE_COMMANDS["duplicate_frame"](self, column)
         return self._run("duplicate_frame", (column,), {}) if changes is None else changes
 
+    def link_layer_tracks(self):
+        """Rust の状態では位置はいつも自分の列につながっているので、配置待ちの所属を位置が持つ
+        位置（pending_detached）が無ければ、今の手順は tracks に新しいリストを入れるだけ。"""
+        from .document_changes import ChangeSet
+        live = self._live()
+        if live["graph"] is None and not live.get("trial"):
+            state = live["state"]
+            if state.frame_ids and not any(values.get("pending_detached")
+                                           for values, _ in state.positions.values()):
+                self._retire_view("tracks_view")
+                return ChangeSet()
+        return self._run("link_layer_tracks", (), {})
+
     def create_blank_key(self, column, layer_index):
         changes = _CORE_COMMANDS["create_blank_key"](self, column, layer_index)
         if changes is None:
@@ -1915,10 +1928,15 @@ def _detach(document, plan, moved=None, between=None, release=True):
         cells[local] = stand
     if between is not None:
         between()
+    # 素の Layer を作るための仮の Track（配置待ちの札の出し入れと、あとで付け替える _cell にだけ
+    # 使い、外した Layer は今の列の窓口を指す）。列ごとに一つ作って使い回す。
+    temporaries = {}
     for key, layer, values, handles, token in plan["layers"]:
         cache.pop("layer", key)
         track_proxy = document._track(key[1])
-        temporary = plain_track(*live["state"].track(key[1]))
+        temporary = temporaries.get(key[1])
+        if temporary is None:
+            temporary = temporaries[key[1]] = plain_track(*live["state"].track(key[1]))
         stand = plain_slot(values, temporary, handles)
         _restore_token(stand, temporary, token)
         local = ("local", *key)

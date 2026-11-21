@@ -402,3 +402,24 @@ def test_restore_snapshot_uses_core_and_matches_python(monkeypatch):
                 == plain.frames[0].layers[0].image.read_rgba(0, 0, 4, 4)).all()
     assert (snapshot.frames[0].layers[0].image.read_rgba(0, 0, 4, 4)
             == expected.frames[0].layers[0].image.read_rgba(0, 0, 4, 4)).all()
+
+
+def test_link_layer_tracks_runs_in_place(monkeypatch):
+    plain, live = _pair(hold=5, count=10)
+    calls = _round_trips(live, monkeypatch)
+    old_tracks, plain_old_tracks = live.tracks, plain.tracks
+    assert live.link_layer_tracks() == plain.link_layer_tracks()
+    assert calls == []
+    # 今の手順は tracks に新しいリストを入れる（中身の列は同じ）。
+    assert (live.tracks is old_tracks) == (plain.tracks is plain_old_tracks)
+    assert [t is o for t, o in zip(live.tracks, old_tracks)] == [True, True]
+    assert _signature(live) == _signature(plain)
+    # 配置待ちの所属を位置が持つ位置があれば、今の経路（列へつなぎ直す）。
+    for document in (plain, live):
+        document.clear_sheet_span(1, 2, 10)
+        document.create_blank_key(9, 1)
+    live._promote()
+    assert live._live()["graph"] is None
+    assert live.link_layer_tracks() == plain.link_layer_tracks()
+    assert _signature(live) == _signature(plain)
+    assert _plain_flags(live) == _plain_flags(plain)
