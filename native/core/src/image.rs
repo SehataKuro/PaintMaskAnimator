@@ -63,6 +63,7 @@ pub struct RgbaImage {
     height: usize,
     pixels: Arc<Vec<u8>>,
     generation: u64,
+    tag: u32,
 }
 
 impl RgbaImage {
@@ -88,7 +89,23 @@ impl RgbaImage {
             height,
             pixels: Arc::new(pixels),
             generation: next_generation()?,
+            tag: 0,
         })
+    }
+
+    /// 呼び出し側が画像に添える札を返す。既定は 0。複製と書き込みで保たれる。
+    ///
+    /// Python の窓口は Qt の画像属性（解像度・色空間など）の表の番号に使う。
+    pub fn tag(&self) -> u32 {
+        self.tag
+    }
+
+    /// 画素と世代を共有し、札だけを変えた複製を返す。
+    pub fn with_tag(&self, tag: u32) -> Self {
+        Self {
+            tag,
+            ..self.clone()
+        }
     }
 
     /// 画像の幅を画素数で返す。

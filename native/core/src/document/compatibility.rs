@@ -121,4 +121,19 @@ pub struct PositionCompatibility {
     pub length_imported: Option<bool>,
     /// 画像解決の参照元例外。
     pub resolved_source: Option<ResolvedSource>,
+    /// 旧呼び出しが内容を外したとき、外す前に参照していた番号。Python の _content_origin。
+    pub content_origin: Option<CellNumber>,
+    /// 旧入力で列が足りず補った位置か。Python の _legacy_missing。
+    pub legacy_missing: bool,
+    /// 配置待ちの所属を列でなく位置自身が持つ複製か。Python の _pending_detached。
+    pub pending_detached: bool,
+    /// 局所画像を他の位置と同じ一枚として共有する組の番号。Python では同じ Cell。
+    ///
+    /// 組の画像は位置ごとの値で持ち、Python へ戻すときは組の先頭（表示順で最初の位置）の
+    /// 値を組全体の一枚にする。
+    pub local_share: Option<u64>,
+    /// バンクを参照する位置が、参照先のバンクの絵そのものを局所の絵として持つか。
+    ///
+    /// Python では使われない `_cell` が参照先の Cell と同じオブジェクト。`local` は None。
+    pub local_bank: bool,
 }

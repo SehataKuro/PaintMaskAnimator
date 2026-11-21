@@ -10,6 +10,12 @@ pub mod model;
 /// v2 の読込計画と文書の変換。
 pub mod v2;
 
+/// Python の文書グラフと文書の相互変換。
+pub mod graph;
+
+/// Python の文書窓口が使う ID で引く読み書き。
+pub mod access;
+
 mod v2_placement;
 
 /// 構造操作が発行する変更一覧。

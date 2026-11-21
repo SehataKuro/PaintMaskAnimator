@@ -47,6 +47,26 @@ class _ImageAttributes:
             image.setText(key, value)
 
 
+# Rust の画像に添える札と Qt 属性の対応。0 は属性なし（_attributes が None）。
+_ATTRIBUTE_TAGS: list[_ImageAttributes] = []
+
+
+def attributes_tag(attributes: "_ImageAttributes | None") -> int:
+    """Qt 属性を Rust の画像に添える札にする。同じ属性には同じ札を返す。"""
+    if attributes is None:
+        return 0
+    for number, known in enumerate(_ATTRIBUTE_TAGS, start=1):
+        if known == attributes:
+            return number
+    _ATTRIBUTE_TAGS.append(attributes)
+    return len(_ATTRIBUTE_TAGS)
+
+
+def tag_attributes(tag: int) -> "_ImageAttributes | None":
+    """attributes_tag の逆。"""
+    return None if tag == 0 else _ATTRIBUTE_TAGS[tag - 1]
+
+
 def _straight_bytes(image: QImage) -> bytes:
     if image.isNull():
         return b""

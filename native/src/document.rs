@@ -1,7 +1,10 @@
 use crate::image::PyRgbaImage;
-use pma_core::document::{model::Document, v2};
+use pma_core::document::access::{ArtworkSlot, ImageField};
+use pma_core::document::model::{CellNumber, Document, FrameId, TrackId};
+use pma_core::document::v2;
+use pma_core::image::{Rect, RgbaImage};
 use pma_core::project::payload::decode_v2_plan;
-use pyo3::{exceptions::PyValueError, prelude::*};
+use pyo3::{exceptions::PyValueError, prelude::*, types::PyBytes};
 
 /// Python の文書窓口が所有するコア文書。
 #[pyclass(module = "pma_native", name = "_CoreDocument")]
@@ -9,6 +12,30 @@ pub(crate) struct PyCoreDocument(Document);
 
 fn value_error(error: impl ToString) -> PyErr {
     PyValueError::new_err(error.to_string())
+}
+
+fn shared(images: &[PyRef<'_, PyRgbaImage>]) -> Vec<RgbaImage> {
+    images.iter().map(|image| image.share()).collect()
+}
+
+fn graph_output<V: ToString>((value, images): (V, Vec<RgbaImage>)) -> (String, Vec<PyRgbaImage>) {
+    (
+        value.to_string(),
+        images.into_iter().map(PyRgbaImage::from).collect(),
+    )
+}
+
+fn cell_number(number: i64) -> PyResult<CellNumber> {
+    CellNumber::new(number).map_err(value_error)
+}
+
+fn artwork_slot(bank: bool, first: u64, second: i64) -> PyResult<ArtworkSlot> {
+    Ok(if bank {
+        ArtworkSlot::Bank(TrackId(first), cell_number(second)?)
+    } else {
+        let track = u64::try_from(second).map_err(value_error)?;
+        ArtworkSlot::Local(FrameId(first), TrackId(track))
+    })
 }
 
 #[pymethods]
@@ -32,6 +59,141 @@ impl PyCoreDocument {
         })
     }
 
+    /// Python の文書グラフ（document_core.graph_payload の JSON）と画像の列から文書を作る。
+    #[staticmethod]
+    fn from_graph(
+        py: Python<'_>,
+        graph_json: &str,
+        images: Vec<PyRef<'_, PyRgbaImage>>,
+    ) -> PyResult<Self> {
+        let artwork = shared(&images);
+        py.detach(|| {
+            let graph = v2::parse_json(graph_json)?;
+            Document::from_graph(&graph, &artwork)
+        })
+        .map(Self)
+        .map_err(value_error)
+    }
+
+    /// 中身を文書グラフから作り直す。窓口が持つこの文書への参照は保たれる。失敗時は変えない。
+    fn replace_from_graph(
+        &mut self,
+        py: Python<'_>,
+        graph_json: &str,
+        images: Vec<PyRef<'_, PyRgbaImage>>,
+    ) -> PyResult<()> {
+        let artwork = shared(&images);
+        self.0 = py
+            .detach(|| {
+                let graph = v2::parse_json(graph_json)?;
+                Document::from_graph(&graph, &artwork)
+            })
+            .map_err(value_error)?;
+        Ok(())
+    }
+
+    /// from_graph と同じ形の JSON と、添字で参照する共有画像の列を返す。
+    fn to_graph(&self, py: Python<'_>) -> PyResult<(String, Vec<PyRgbaImage>)> {
+        let (json, images) = py.detach(|| {
+            let (value, images) = self.0.to_graph();
+            (value.to_string(), images)
+        });
+        Ok((json, images.into_iter().map(PyRgbaImage::from).collect()))
+    }
+
+    /// コマ ID と列 ID を表示順で返す。
+    fn order(&self) -> (Vec<u64>, Vec<u64>) {
+        (
+            self.0.frame_order().iter().map(|id| id.0).collect(),
+            self.0.track_order().iter().map(|id| id.0).collect(),
+        )
+    }
+
+    /// 現在コマと選択列の表示インデックスを返す。
+    fn selection_index(&self) -> (Option<usize>, Option<usize>) {
+        let (frame, track) = self.0.selection();
+        (self.0.frame_index(frame), self.0.track_index(track))
+    }
+
+    /// 現在コマと選択列を表示インデックスで設定する。
+    fn set_selection_index(&mut self, frame: usize, track: usize) -> PyResult<()> {
+        self.0
+            .set_selection_index(frame, track)
+            .map_err(value_error)
+    }
+
+    /// 一つの位置を to_graph の位置と同じ JSON と画像列で返す。
+    fn position_graph(&self, frame: u64, track: u64) -> PyResult<(String, Vec<PyRgbaImage>)> {
+        self.0
+            .position_graph(FrameId(frame), TrackId(track))
+            .map(graph_output)
+            .map_err(value_error)
+    }
+
+    /// 一つの位置を from_graph の位置と同じ JSON で置き換える。
+    fn set_position_graph(
+        &mut self,
+        frame: u64,
+        track: u64,
+        value: &str,
+        images: Vec<PyRef<'_, PyRgbaImage>>,
+    ) -> PyResult<()> {
+        let value = v2::parse_json(value).map_err(value_error)?;
+        self.0
+            .set_position_graph(FrameId(frame), TrackId(track), &value, &shared(&images))
+            .map_err(value_error)
+    }
+
+    /// 列の設定・バンク・旧連番保管を JSON と画像列で返す。
+    fn track_graph(&self, track: u64) -> PyResult<(String, Vec<PyRgbaImage>)> {
+        self.0
+            .track_graph(TrackId(track))
+            .map(graph_output)
+            .map_err(value_error)
+    }
+
+    /// 列の表示設定を JSON で置き換える。
+    fn set_track_settings_graph(&mut self, track: u64, value: &str) -> PyResult<()> {
+        let value = v2::parse_json(value).map_err(value_error)?;
+        self.0
+            .set_track_settings_graph(TrackId(track), &value)
+            .map_err(value_error)
+    }
+
+    /// バンクの一枚を JSON で置き換える。"null" なら取り除く。
+    fn set_cell_graph(
+        &mut self,
+        track: u64,
+        number: i64,
+        value: &str,
+        images: Vec<PyRef<'_, PyRgbaImage>>,
+    ) -> PyResult<()> {
+        let value = v2::parse_json(value).map_err(value_error)?;
+        self.0
+            .set_cell_graph(
+                TrackId(track),
+                cell_number(number)?,
+                &value,
+                &shared(&images),
+            )
+            .map_err(value_error)
+    }
+
+    /// 旧連番保管の一件を JSON で置き換える。"null" なら取り除く。
+    fn set_hint_graph(&mut self, track: u64, number: i64, value: &str) -> PyResult<()> {
+        let value = v2::parse_json(value).map_err(value_error)?;
+        self.0
+            .set_hint_graph(TrackId(track), cell_number(number)?, &value)
+            .map_err(value_error)
+    }
+
+    /// コマの尺を設定する。
+    fn set_frame_duration(&mut self, frame: u64, duration: i64) -> PyResult<()> {
+        self.0
+            .set_frame_duration(FrameId(frame), duration)
+            .map_err(value_error)
+    }
+
     /// 保存用 JSON と、ZIP に書く順のパス・共有画像を返す。
     fn project_v2(
         &self,
@@ -52,5 +214,149 @@ impl PyCoreDocument {
                 .map(|entry| (entry.path, entry.image.into()))
                 .collect(),
         ))
+    }
+}
+
+/// 文書のセルの画像を指す窓口。RgbaImage と同じ読み書きの口を持ち、書き込みは文書に届く。
+///
+/// PmaImage の `_image` に入れて使う。指す絵が無くなっていれば ValueError。
+#[pyclass(module = "pma_native", name = "_CellImage")]
+pub(crate) struct PyCellImage {
+    document: Py<PyCoreDocument>,
+    slot: ArtworkSlot,
+    field: ImageField,
+}
+
+impl PyCellImage {
+    fn with<T>(&self, py: Python<'_>, read: impl FnOnce(&RgbaImage) -> T) -> PyResult<T> {
+        let document = self
+            .document
+            .bind(py)
+            .try_borrow()
+            .map_err(|_| value_error("文書を書き換え中です"))?;
+        document
+            .0
+            .artwork_image(self.slot, self.field)
+            .map(read)
+            .ok_or_else(|| value_error("文書にない絵の画像"))
+    }
+}
+
+#[pymethods]
+impl PyCellImage {
+    /// 文書・絵・画像の種類を指定して窓口を作る。bank なら (列 ID, 番号)、局所なら (コマ ID, 列 ID)。
+    #[new]
+    fn new(
+        document: Py<PyCoreDocument>,
+        bank: bool,
+        first: u64,
+        second: i64,
+        initial: bool,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            document,
+            slot: artwork_slot(bank, first, second)?,
+            field: if initial {
+                ImageField::Initial
+            } else {
+                ImageField::Image
+            },
+        })
+    }
+
+    /// 指す絵の画像があるか。文書を書き換え中なら ValueError。
+    fn exists(&self, py: Python<'_>) -> PyResult<bool> {
+        let document = self
+            .document
+            .bind(py)
+            .try_borrow()
+            .map_err(|_| value_error("文書を書き換え中です"))?;
+        Ok(document.0.artwork_image(self.slot, self.field).is_some())
+    }
+
+    /// 画像の幅を返す。
+    #[getter]
+    fn width(&self, py: Python<'_>) -> PyResult<usize> {
+        self.with(py, RgbaImage::width)
+    }
+
+    /// 画像の高さを返す。
+    #[getter]
+    fn height(&self, py: Python<'_>) -> PyResult<usize> {
+        self.with(py, RgbaImage::height)
+    }
+
+    /// 画像の現在の世代を返す。
+    #[getter]
+    fn generation(&self, py: Python<'_>) -> PyResult<u64> {
+        self.with(py, RgbaImage::generation)
+    }
+
+    /// 画像の札（Qt 属性の表の番号）を返す。
+    #[getter]
+    fn tag(&self, py: Python<'_>) -> PyResult<u32> {
+        self.with(py, RgbaImage::tag)
+    }
+
+    /// 画素を共有する独立した RgbaImage を返す。
+    fn copy(&self, py: Python<'_>) -> PyResult<PyRgbaImage> {
+        self.with(py, |image| PyRgbaImage::from(image.clone()))
+    }
+
+    /// 全画素を不変の bytes で返す。
+    fn rgba_bytes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        // 画素バッファの参照だけを取り、文書の借用は bytes を作る前に手放す。
+        let image = self.with(py, RgbaImage::clone)?;
+        Ok(PyBytes::new(py, image.rgba()))
+    }
+
+    /// 矩形内の画素を行優先の bytes で返す。
+    fn read_rect<'py>(
+        &self,
+        py: Python<'py>,
+        x: usize,
+        y: usize,
+        width: usize,
+        height: usize,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let rect = Rect {
+            x,
+            y,
+            width,
+            height,
+        };
+        let pixels = self
+            .with(py, |image| image.copy_rgba_rect(rect))?
+            .map_err(value_error)?;
+        Ok(PyBytes::new(py, &pixels))
+    }
+
+    /// 矩形内の画素を行優先の bytes で上書きする。文書の絵に直接書く。
+    fn write_rect(
+        &self,
+        py: Python<'_>,
+        x: usize,
+        y: usize,
+        width: usize,
+        height: usize,
+        pixels: &Bound<'_, PyBytes>,
+    ) -> PyResult<()> {
+        let rect = Rect {
+            x,
+            y,
+            width,
+            height,
+        };
+        let mut document = self
+            .document
+            .bind(py)
+            .try_borrow_mut()
+            .map_err(|_| value_error("文書を使用中です"))?;
+        document
+            .0
+            .artwork_image_mut(self.slot, self.field)
+            .ok_or_else(|| value_error("文書にない絵の画像"))?
+            .write_rgba(rect, pixels.as_bytes())
+            .map_err(value_error)
     }
 }

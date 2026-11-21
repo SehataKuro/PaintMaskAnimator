@@ -13,6 +13,6 @@ png = "0.18.1"
 # flate2 の純 Rust バックエンド（miniz_oxide）で、C ライブラリは入らない。
 zip = { version = "9.6.1", default-features = false, features = ["deflate-flate2"] }
 # project.json の解釈（段階3-4）。値の型（serde_json::Value）として使う。純 Rust。
-serde_json = "1"
+serde_json = { version = "1", features = ["float_roundtrip"] }
 # 追跡の相関（段階4-4b）。実数 FFT。純 Rust（rustfft）で C ライブラリは入らない。
 realfft = "3.5.1"

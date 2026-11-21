@@ -69,6 +69,17 @@ impl PyRgbaImage {
         Self(self.0.clone())
     }
 
+    /// 呼び出し側が添える札（Qt 属性の表の番号）を返す。
+    #[getter]
+    fn tag(&self) -> u32 {
+        self.0.tag()
+    }
+
+    /// 画素と世代を共有し、札だけを変えた複製を返す。
+    fn with_tag(&self, tag: u32) -> Self {
+        Self(self.0.with_tag(tag))
+    }
+
     /// 全画素を不変の bytes で返す。
     fn rgba_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
         PyBytes::new(py, self.0.rgba())
