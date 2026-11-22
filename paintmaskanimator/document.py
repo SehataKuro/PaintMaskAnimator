@@ -25,7 +25,7 @@ from .models import (
 )
 from .timeline_metadata import set_dense_import
 from .pma_image import PmaImage, copy_image, snapshot_image, to_pma_image
-from .utils import blank_image
+from .utils import blank_image, blank_model_image
 from .legacy_v1 import (LegacyLayerV1, legacy_layer_to_slot, snapshot_layer,
                         expand_legacy, compress_v1, V1Position)
 
@@ -1909,8 +1909,9 @@ class Document:
         if not self.frames:
             return ChangeSet()
         name = next_layer_name(layer.name for layer in self.layers)
-        shared_blank = blank_image()
-        slots = [Layer(name, shared_blank.copy()) for _ in self.frames]
+        # 空画像は make_frame と同じく共有の雛形の画素に独立した取っ手を配る（書き込み時に
+        # 分かれる）。QImage.copy() は深い写しなので、コマごとに作業領域全体を確保していた。
+        slots = [Layer(name, blank_model_image()) for _ in self.frames]
         for slot in slots[1:]:
             slot.share_track_with(slots[0])
         slots[0]._track.connected = True
