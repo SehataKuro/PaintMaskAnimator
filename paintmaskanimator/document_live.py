@@ -756,6 +756,9 @@ class _LayersView(MutableSequence):
         self._frame = frame
         # 素の状態に落ちてコマが素の型に戻っても文書を引けるよう、作った時に覚える。
         self._document = _m(frame, "_owner")
+        # 今の手順がコマの layers に新しいリストを入れたあと（move_tracks）、それまでに渡した
+        # 並びは入れ替え前のリストのまま（文書から外れた素のリスト）。
+        self._frozen = None
 
     def _owner(self):
         # 窓口のコマなら今の持ち主を引く（restore で外れた文書へ付け替わることがある）。
@@ -765,6 +768,8 @@ class _LayersView(MutableSequence):
         return self._document
 
     def _items(self):
+        if self._frozen is not None:
+            return self._frozen
         # 素の状態（途中で表せなくなった）では、素のコマの並びをそのまま返す。
         if not isinstance(self._frame, LiveFrame):
             return self._frame.layers
@@ -784,6 +789,9 @@ class _LayersView(MutableSequence):
         return len(self._items())
 
     def _edit(self, edit):
+        if self._frozen is not None:
+            # 入れ替え前のリストへの書き込みは文書に届かない（値はそのまま入る）。
+            return edit(self._frozen, _AS_IS)
         owner = self._owner()
         if not isinstance(self._frame, LiveFrame):
             # 素の状態ではコマの並びにそのまま当てる。
@@ -807,6 +815,17 @@ class _LayersView(MutableSequence):
 
     def __repr__(self):
         return repr(self._items())
+
+
+class _AsIs:
+    """_LayersView の書き込みで、値を文書の素の値に変えずにそのまま入れる。"""
+
+    @staticmethod
+    def _plain_value(value):
+        return value
+
+
+_AS_IS = _AsIs()
 
 
 class LiveFrame(Frame):
@@ -1436,6 +1455,17 @@ class Document:
     def restore_removed_track(self, e):
         changes = _CORE_COMMANDS["restore_removed_track"](self, e)
         return self._run("restore_removed_track", (e,), {}) if changes is None else changes
+
+    def duplicate_tracks(self, names):
+        changes = _CORE_COMMANDS["duplicate_tracks"](self, names)
+        return self._run("duplicate_tracks", (names,), {}) if changes is None else changes
+
+    def move_tracks(self, order):
+        # 画面からは reversed(...) が来る。Rust の命令で当てられず今の経路へ戻るときに
+        # 使い切った並びを渡さないよう、先に固める（今の手順も最初に tuple にする）。
+        order = tuple(order)
+        changes = _CORE_COMMANDS["move_tracks"](self, order)
+        return self._run("move_tracks", (order,), {}) if changes is None else changes
 
     def restore_inserted_track(self, e):
         changes = _CORE_COMMANDS["restore_inserted_track"](self, e)
@@ -2318,6 +2348,119 @@ def _core_restore_inserted_track(document, e):
     return changes
 
 
+def _has_no_image(cell, handles):
+    """Cell の絵が None（Rust では 0×0 の番兵）か。"""
+    index = cell["image"]
+    return index is not None and handles[index].generation == _NO_IMAGE.generation
+
+
+def _core_duplicate_tracks(document, names):
+    """duplicate_tracks を Rust の命令で当てる。今の手順と同じにできなければ None。
+
+    今の手順は各列を capture_column で写し（独立したバンク）、名前を替えて元の列の直後に
+    入れ、sync_columns で tracks に新しいリストを入れる。既存の位置・コマ・列のオブジェクト
+    は変えない。どこかに pending_detached の位置がある（sync_columns がつなぎ直す）、複製
+    する列に配置待ちの位置・局所の絵の共有の組・列の外の配置待ちの札がある、なら今の経路。
+    """
+    live = document._live()
+    if live["graph"] is not None or live.get("trial"):
+        return None
+    state = live["state"]
+    count = len(state.track_ids)
+    try:
+        items = sorted(dict(names).items())
+    except (TypeError, ValueError):
+        return None
+    if (not items or not state.frame_ids
+            or any(type(index) is not int or not 0 <= index < count or type(name) is not str
+                   for index, name in items)):
+        return None
+    track_ids = {state.track_ids[index] for index, _ in items}
+    for (_, tid), (values, handles) in state.positions.items():
+        if values.get("pending_detached"):
+            return None
+        if tid in track_ids and (values["sequence_only"] or values.get("local_share") is not None):
+            return None
+        # 今の手順の capture_column（clone_frame_graph）は絵が None の位置に空の絵を作って
+        # 写す。Rust の複製は絵の無いまま写すので、そういう位置があれば今の経路。
+        if (tid in track_ids and values["local"] is not None
+                and _has_no_image(values["local"], handles)):
+            return None
+    for tid in track_ids:
+        data, handles = state.track(tid)
+        if any(_has_no_image(cell, handles) for _, cell in data["cells"]):
+            return None
+    if any(live.get("extra_pending", {}).get(tid) for tid in track_ids):
+        return None
+    before = set(state.track_ids)
+    old_tracks = list(document.tracks)
+    result = _apply_core_command(
+        document, ["duplicate_tracks", [[index, name] for index, name in items]],
+        lambda ids: list(ids))
+    if result is None:
+        return None
+    changes, _ = result
+    tokens = live.setdefault("tokens", {})
+    for tid in [tid for tid in state.track_ids if tid not in before]:
+        state.refresh_track(tid)
+        for fid in state.frame_ids:
+            tokens[fid, tid] = PendingToken()
+    state.pending.clear()
+    document._retire_view("tracks_view", old_tracks)
+    return changes
+
+
+def _core_move_tracks(document, order):
+    """move_tracks を Rust の命令で当てる。今の手順と同じにできなければ None。
+
+    今の手順は各コマの layers に並べ替えた新しいリストを入れ、sync_columns で tracks に新しい
+    リストを入れる。位置・列・コマのオブジェクトと値は変わらず、Layer の代入も通らない
+    （timeline_revision は進まない）。それまでに渡したコマの並び・列の並びは入れ替え前の
+    リストのまま。pending_detached の位置がある（sync_columns がつなぎ直す）、局所の絵の
+    共有の組が複数の列にまたがる（組の先頭が変わる）なら今の経路。
+    """
+    live = document._live()
+    if live["graph"] is not None or live.get("trial"):
+        return None
+    state = live["state"]
+    count = len(state.track_ids)
+    try:
+        order = tuple(order)
+    except TypeError:
+        return None
+    if (not state.frame_ids or len(order) != count
+            or any(type(index) is not int for index in order)
+            or sorted(order) != list(range(count)) or order == tuple(range(count))):
+        return None
+    columns = {}
+    for (_, tid), (values, _) in state.positions.items():
+        if values.get("pending_detached"):
+            return None
+        group = values.get("local_share")
+        if group is not None and columns.setdefault(group, tid) != tid:
+            return None
+    old_tracks = list(document.tracks)
+    # 渡したコマの並びの窓口は、入れ替え前の中身に固定する。
+    held = []
+    for (kind, _), frame in live["cache"].items():
+        view = frame.__dict__.get("_layers_view") if kind == "frame" else None
+        if view is not None:
+            held.append((frame, view, list(view)))
+    try:
+        live["core"].set_blank_image(_blank_handle())
+        text = live["core"].apply_command(json.dumps(["move_tracks", list(order)]))
+    except ValueError:
+        return None
+    for frame, view, items in held:
+        view._frozen = items
+        del frame.__dict__["_layers_view"]
+    state.reload_rows([])
+    state.layer_lists.clear()
+    document._sync_selection()
+    document._retire_view("tracks_view", old_tracks)
+    return _changes_from_json(text)
+
+
 def _retire_columns(document, track_ids, frozen_core, old_state):
     """列 track_ids の窓口を、文書から外れた別の Document（写し frozen_core が正本）へ移す。
 
@@ -2693,6 +2836,8 @@ _CORE_COMMANDS = {"add_track": _core_add_track,
                   "remove_tracks": _core_remove_tracks,
                   "restore_removed_track": _core_restore_removed_track,
                   "restore_inserted_track": _core_restore_inserted_track,
+                  "move_tracks": _core_move_tracks,
+                  "duplicate_tracks": _core_duplicate_tracks,
                   "duplicate_frame": _core_duplicate_frame,
                   "delete_frame": _core_delete_frame,
                   "delete_track_frame": _core_delete_track_frame,

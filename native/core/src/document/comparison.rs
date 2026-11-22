@@ -158,6 +158,24 @@ pub fn apply_operations(document: &mut Document, operations: &Value) -> Result<S
             }
             [name, layer, label] if name == "duplicate_tracks" => edited
                 .duplicate_tracks(&[(index(layer)?, label.as_str().ok_or_else(invalid)?.into())]),
+            // 複数の列を一度に複製する形（Python の duplicate_tracks({列: 名前, ...})）。
+            [name, pairs] if name == "duplicate_tracks" => {
+                let names = pairs
+                    .as_array()
+                    .ok_or_else(invalid)?
+                    .iter()
+                    .map(|pair| {
+                        let [layer, label] = pair.as_array().ok_or_else(invalid)?.as_slice() else {
+                            return Err(invalid());
+                        };
+                        Ok((
+                            index(layer)?,
+                            label.as_str().ok_or_else(invalid)?.to_owned(),
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, Error>>()?;
+                edited.duplicate_tracks(&names)
+            }
             [name, layers, source] if name == "merge_tracks" => {
                 let prepared = prepared_track(&edited, index(source)?)?;
                 edited.merge_tracks(&indices(layers)?, prepared)

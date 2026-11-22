@@ -910,3 +910,130 @@ def test_restore_inserted_track_out_of_range_or_unshared_takes_the_current_path(
     assert calls
     assert _signature(live) == _signature(plain)
     assert [layer.name for layer in live.layers] == [layer.name for layer in plain.layers]
+
+
+def test_move_tracks_uses_core_command_and_matches_python(monkeypatch):
+    plain, live = _pair(hold=3, count=7)
+    for document in (plain, live):
+        document.add_track()
+        document.active_layer_index = 2
+    live._promote()
+    calls = _round_trips(live, monkeypatch)
+    old_tracks, plain_old_tracks = live.tracks, plain.tracks
+    old_layers, plain_old_layers = live.frames[1].layers, plain.frames[1].layers
+    slots = [list(frame.layers) for frame in live.frames]
+    revision = Layer.timeline_revision
+    assert live.move_tracks([2, 0, 1]) == plain.move_tracks([2, 0, 1])
+    assert calls == []
+    assert Layer.timeline_revision == revision
+    assert _signature(live) == _signature(plain)
+    assert [layer.name for layer in live.layers] == [layer.name for layer in plain.layers]
+    assert live.active_layer_index == plain.active_layer_index
+    # 位置のオブジェクトはそのまま並びだけ変わる。
+    assert all(frame.layers[0] is row[2] and frame.layers[1] is row[0]
+               for frame, row in zip(live.frames, slots))
+    assert all(slot._track is live.tracks[0] for slot in (f.layers[0] for f in live.frames))
+    # 渡した並びは入れ替え前のまま（今の手順はリストを入れ替える）。
+    assert (live.tracks is old_tracks) == (plain.tracks is plain_old_tracks)
+    assert [t.name for t in old_tracks] == [t.name for t in plain_old_tracks] == ["A", "B", "C"]
+    assert (live.frames[1].layers is old_layers) == (plain.frames[1].layers is plain_old_layers)
+    assert [s.name for s in old_layers] == [s.name for s in plain_old_layers] == ["A", "B", "C"]
+    # 入れ替え前の並びへの書き込みは文書に届かない。
+    for layers in (old_layers, plain_old_layers):
+        del layers[0]
+    assert [s.name for s in old_layers] == ["B", "C"]
+    assert [s.name for s in live.frames[1].layers] == [s.name for s in plain.frames[1].layers]
+    # 続けて Undo（restore_snapshot）でも同じ。
+    snapshot, expected = live.snapshot(), plain.snapshot()
+    assert live.move_tracks([1, 2, 0]) == plain.move_tracks([1, 2, 0])
+    assert calls == []
+    assert live.restore_snapshot(snapshot) == plain.restore_snapshot(expected)
+    assert _signature(live) == _signature(plain)
+    assert [layer.name for layer in live.layers] == [layer.name for layer in plain.layers]
+    # 並びが同じ・不正なら何もしない。
+    for order in ([0, 1, 2], [0, 0, 1], [0, 1]):
+        assert live.move_tracks(order) == plain.move_tracks(order)
+    assert _signature(live) == _signature(plain)
+
+
+def test_move_tracks_with_pending_detached_positions_takes_the_current_path(monkeypatch):
+    plain, live = _pair(hold=5, count=10)
+    for document in (plain, live):
+        document.clear_sheet_span(1, 2, 10)
+        document.create_blank_key(9, 1)
+    live._promote()
+    assert any(values.get("pending_detached")
+               for values, _ in live._live()["state"].positions.values())
+    calls = _round_trips(live, monkeypatch)
+    # 画面と同じく使い切りの並びで渡しても、今の経路へそのまま届く。
+    assert live.move_tracks(reversed([0, 1])) == plain.move_tracks(reversed([0, 1]))
+    assert calls
+    assert _signature(live) == _signature(plain)
+    assert _plain_flags(live) == _plain_flags(plain)
+
+
+def test_duplicate_tracks_uses_core_command_and_matches_python(monkeypatch):
+    plain, live = _pair(hold=3, count=7)
+    for document in (plain, live):
+        document.add_track()
+    live._promote()
+    patch = QImage(2, 2, QImage.Format.Format_ARGB32_Premultiplied)
+    patch.fill(QColor(0, 0, 255, 255))
+    for document in (plain, live):
+        document.frames[0].layers[1].image.write_qimage(patch, 3, 3)
+    calls = _round_trips(live, monkeypatch)
+    old_tracks, plain_old_tracks = live.tracks, plain.tracks
+    slots = [list(frame.layers) for frame in live.frames]
+    names = {1: "B コピー", 0: "A コピー"}
+    assert live.duplicate_tracks(names) == plain.duplicate_tracks(names)
+    assert calls == []
+    assert _signature(live) == _signature(plain)
+    assert [layer.name for layer in live.layers] == [layer.name for layer in plain.layers]
+    assert live.active_layer_index == plain.active_layer_index
+    assert (live.tracks is old_tracks) == (plain.tracks is plain_old_tracks)
+    assert len(old_tracks) == len(plain_old_tracks) == 3
+    for index in range(5):
+        assert (_column_signature([frame.layers[index] for frame in live.frames], monkeypatch)
+                == _column_signature([frame.layers[index] for frame in plain.frames], monkeypatch))
+    # 既存の位置はそのまま、複製は独立した列とバンク。
+    assert all(frame.layers[0] is row[0] and frame.layers[2] is row[1] and frame.layers[4] is row[2]
+               for frame, row in zip(live.frames, slots))
+    copy = [frame.layers[3] for frame in live.frames]
+    assert all(slot._track is live.tracks[3] for slot in copy)
+    assert live.tracks[3] is not live.tracks[2]
+    for document in (plain, live):
+        document.frames[0].layers[3].image.write_qimage(patch, 0, 0)
+    assert not live.frames[0].layers[2].image.read_rgba(0, 0, 1, 1).any()
+    assert live.frames[0].layers[3].image.read_rgba(0, 0, 1, 1).any()
+    assert _signature(live) == _signature(plain)
+
+
+def test_duplicate_tracks_with_imageless_positions_takes_the_current_path(monkeypatch):
+    # 今の手順は局所の絵が無い位置に空の絵を作って写すので、Rust の複製（絵なしで写す）は使わない。
+    def frames():
+        return [Frame([Layer(name, None) for name in ("A", "B", "C")]) for _ in range(2)]
+    plain = GraphDocument()
+    plain.install_legacy_frames(frames())
+    live = document_live.Document()
+    live.install_legacy_frames(frames())
+    live._promote()
+    calls = _round_trips(live, monkeypatch)
+    names = {0: "Copy", 2: "Other"}
+    assert live.duplicate_tracks(names) == plain.duplicate_tracks(names)
+    assert calls
+    assert _signature(live) == _signature(plain)
+    for index in range(5):
+        assert (_column_signature([frame.layers[index] for frame in live.frames], monkeypatch)
+                == _column_signature([frame.layers[index] for frame in plain.frames], monkeypatch))
+
+
+def test_duplicate_tracks_with_pending_positions_takes_the_current_path(monkeypatch):
+    plain, live = _pair(hold=5, count=10)
+    for document in (plain, live):
+        document.add_track()
+        document.insert_sequence_blank(1, 1)
+    live._promote()
+    calls = _round_trips(live, monkeypatch)
+    assert live.duplicate_tracks({1: "B2"}) == plain.duplicate_tracks({1: "B2"})
+    assert calls
+    assert _signature(live) == _signature(plain)
