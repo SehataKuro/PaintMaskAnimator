@@ -181,6 +181,52 @@ impl Document {
         ]);
         Ok(changes)
     }
+
+    /// Python の move_sequence_image と同様に、列 layer_index の番号 first の絵を番号 second へ
+    /// 動かし、その間の番号の絵を一つずつ詰める。
+    ///
+    /// 変わるのはバンクの絵の番号だけで、シートの位置（参照する番号・印）と旧連番保管の札は
+    /// 変えない（位置の has_content・is_blank_key を書き換える形は呼び元で弾く前提）。
+    /// first と second が同じ、列が範囲外、間の番号がバンクに無い場合はエラーで文書を変えない。
+    pub fn move_sequence_image(
+        &mut self,
+        layer_index: usize,
+        first: CellNumber,
+        second: CellNumber,
+    ) -> Result<ChangeSet, Error> {
+        let track = *self.track_order.get(layer_index).ok_or_else(invalid)?;
+        if first == second {
+            return Err(invalid());
+        }
+        let (low, high) = (first.min(second).get(), first.max(second).get());
+        let bank = &self.tracks[&track].cells;
+        let numbers = (low..=high)
+            .map(CellNumber::new)
+            .collect::<Result<Vec<_>, Error>>()?;
+        if numbers.iter().any(|number| !bank.contains_key(number)) {
+            return Err(invalid());
+        }
+        // 番号 n の新しい絵は source(n) の絵（Python の source_for_number）。
+        let step = if first < second { 1 } else { -1 };
+        let source = |number: CellNumber| -> Result<CellNumber, Error> {
+            if number == second {
+                Ok(first)
+            } else {
+                CellNumber::new(number.get() + step)
+            }
+        };
+        let mut moved = Vec::with_capacity(numbers.len());
+        for &number in &numbers {
+            moved.push((number, bank[&source(number)?].clone()));
+        }
+        let cells = &mut self.tracks.get_mut(&track).unwrap().cells;
+        cells.extend(moved);
+        Ok(vec![Change::SheetSpans {
+            layer_index,
+            start: 0,
+            stop: self.frame_order.len(),
+        }])
+    }
 }
 
 impl Document {
@@ -445,6 +491,64 @@ mod tests {
                 .generation(),
             initial.generation()
         );
+    }
+
+    // tests/test_document_live_fast_paths.py:test_move_sequence_image_uses_core_command_and_matches_python
+    #[test]
+    fn moving_a_sequence_image_rotates_only_the_bank() {
+        let cells =
+            [1, 2, 3, 4].map(|number| json!({"number": number, "image": format!("{number}.png")}));
+        let input = json!({
+            "canvas": {"width": 1, "height": 1},
+            "frame_durations": [1, 1, 1, 1],
+            "tracks": [{"cells": cells, "sheet": [1, 2, 3, 4]}],
+        });
+        let names: Vec<String> = (1..=4).map(|n| format!("{n}.png")).collect();
+        let plan = decode_v2_plan(&input, &names).unwrap();
+        let images: Vec<_> = (0..plan.images.len())
+            .map(|_| RgbaImage::blank(1, 1).unwrap())
+            .collect();
+        let mut doc = v2::from_plan(&input, &plan, &images).unwrap();
+        let track = doc.track_order[0];
+        let generations = |doc: &Document| {
+            (1..=4)
+                .map(|n| {
+                    doc.tracks[&track].cells[&CellNumber::new(n).unwrap()]
+                        .image
+                        .generation()
+                })
+                .collect::<Vec<_>>()
+        };
+        let before = generations(&doc);
+        let references = |doc: &Document| {
+            doc.frame_order
+                .iter()
+                .map(|id| doc.sheet[id].positions[&track].reference)
+                .collect::<Vec<_>>()
+        };
+        let sheet = references(&doc);
+        let n = |value| CellNumber::new(value).unwrap();
+        assert_eq!(
+            doc.move_sequence_image(0, n(1), n(3)).unwrap(),
+            [Change::SheetSpans {
+                layer_index: 0,
+                start: 0,
+                stop: 4
+            }]
+        );
+        assert_eq!(
+            generations(&doc),
+            [before[1], before[2], before[0], before[3]]
+        );
+        assert_eq!(references(&doc), sheet);
+        doc.move_sequence_image(0, n(3), n(1)).unwrap();
+        assert_eq!(generations(&doc), before);
+        // 同じ番号・バンクに無い番号・範囲外の列はエラーで変えない。
+        let kept = doc.clone();
+        assert!(doc.move_sequence_image(0, n(2), n(2)).is_err());
+        assert!(doc.move_sequence_image(0, n(3), n(5)).is_err());
+        assert!(doc.move_sequence_image(1, n(1), n(2)).is_err());
+        assert_eq!(generations(&doc), generations(&kept));
     }
 
     // tests/test_normalize_numbers.py:test_unused_and_archived_numbers_go_last

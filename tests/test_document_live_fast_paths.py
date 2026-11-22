@@ -1278,6 +1278,75 @@ def test_paste_sheet_cell_twice_and_undo_match_python(monkeypatch):
     assert _whole_signature(live) == _whole_signature(plain)
 
 
+def _paint_numbers(document, layer_index, hold):
+    # 番号ごとに違う色を左上に塗る（動いた絵を画素で見分ける）。
+    for number in sorted(document.tracks[layer_index].cells):
+        patch = QImage(2, 2, QImage.Format.Format_ARGB32_Premultiplied)
+        patch.fill(QColor(number * 20, 255 - number * 20, 7, 255))
+        document.write_drawing_patch((number - 1) * hold, layer_index, patch, (0, 0, 2, 2))
+
+
+def _move_sequence_image(document, layer_index, first, second):
+    sources = document.sequence_move_sources(layer_index, first, second, sheet_mode=True)
+    return document.move_sequence_image(layer_index, first, second, sources)
+
+
+def test_move_sequence_image_uses_core_command_and_matches_python(monkeypatch):
+    for shape, moves in (({"hold": 2, "count": 8}, ((0, 1, 3), (0, 3, 1))),
+                         ({"hold": 3, "count": 9}, ((0, 3, 1), (0, 1, 2))),
+                         ({"hold": 2, "count": 8}, ((0, 4, 2), (0, 2, 4), (0, 1, 4)))):
+        plain, live = _pair(**shape)
+        for document in (plain, live):
+            _paint_numbers(document, 0, shape["hold"])
+        live._promote()
+        slots = [frame.layers[0] for frame in live.frames]
+        for layer_index, first, second in moves:
+            bank = {n: (cell, cell.image) for n, cell in live.tracks[layer_index].cells.items()}
+            plain_bank = {n: (cell, cell.image)
+                          for n, cell in plain.tracks[layer_index].cells.items()}
+            calls = _round_trips(live, monkeypatch)
+            assert (_move_sequence_image(live, layer_index, first, second)
+                    == _move_sequence_image(plain, layer_index, first, second))
+            assert calls == []
+            monkeypatch.undo()
+            assert _signature(live) == _signature(plain)
+            assert all(frame.layers[0] is slot for frame, slot in zip(live.frames, slots))
+            # バンクの Cell・画像は同じオブジェクトのまま、動いた先の番号へ移る。
+            moved = {n: [m for m, cell in live.tracks[layer_index].cells.items()
+                         if cell is pair[0] and cell.image is pair[1]]
+                     for n, pair in bank.items()}
+            plain_moved = {n: [m for m, cell in plain.tracks[layer_index].cells.items()
+                               if cell is pair[0] and cell.image is pair[1]]
+                           for n, pair in plain_bank.items()}
+            assert moved == plain_moved
+            assert ([frame.layers[0].image.read_rgba(0, 0, 1, 1).tolist() for frame in live.frames]
+                    == [frame.layers[0].image.read_rgba(0, 0, 1, 1).tolist()
+                        for frame in plain.frames])
+        # 動いた絵の画像へ書くと、動いた先の番号の位置に映る。
+        patch = QImage(1, 1, QImage.Format.Format_ARGB32_Premultiplied)
+        patch.fill(QColor(1, 2, 3, 255))
+        for document in (plain, live):
+            document.tracks[0].cells[1].image.write_qimage(patch, 5, 5)
+        assert ([frame.layers[0].image.read_rgba(5, 5, 1, 1).tolist() for frame in live.frames]
+                == [frame.layers[0].image.read_rgba(5, 5, 1, 1).tolist()
+                    for frame in plain.frames])
+        assert _whole_signature(live) == _whole_signature(plain)
+
+
+def test_move_sequence_image_with_a_blank_key_takes_the_current_path(monkeypatch):
+    plain, live = _pair(hold=2, count=8)
+    for document in (plain, live):
+        _paint_numbers(document, 0, 2)
+        document.create_blank_key(2, 0)  # 番号2 の保持の頭を空キーにする
+    live._promote()
+    calls = _round_trips(live, monkeypatch)
+    assert _move_sequence_image(live, 0, 1, 3) == _move_sequence_image(plain, 0, 1, 3)
+    assert calls
+    monkeypatch.undo()
+    assert _signature(live) == _signature(plain)
+    assert _whole_signature(live) == _whole_signature(plain)
+
+
 def test_has_unlinked_tracks_answers_without_walking_positions(monkeypatch):
     plain, live = _pair()
     calls = _round_trips(live, monkeypatch)

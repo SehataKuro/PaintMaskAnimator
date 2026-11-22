@@ -226,6 +226,9 @@ pub fn apply_operations(document: &mut Document, operations: &Value) -> Result<S
             [name, layers] if name == "normalize_sheet_numbers" => {
                 edited.normalize_sheet_numbers(&indices(layers)?)
             }
+            [name, layer, first, second] if name == "move_sequence_image" => {
+                edited.move_sequence_image(index(layer)?, number(first)?, number(second)?)
+            }
             [name, layer, n] if name == "insert_sequence_blank" => {
                 edited.insert_sequence_blank(index(layer)?, n.as_i64().ok_or_else(invalid)?)
             }

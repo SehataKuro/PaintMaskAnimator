@@ -1405,6 +1405,14 @@ class Document:
             return self._run("delete_sequence_entry", (layer_index, number), {})
         return changes
 
+    def move_sequence_image(self, layer_index, first_number, second_number, by_number):
+        changes = _CORE_COMMANDS["move_sequence_image"](self, layer_index, first_number,
+                                                        second_number, by_number)
+        if changes is None:
+            return self._run("move_sequence_image",
+                             (layer_index, first_number, second_number, by_number), {})
+        return changes
+
     def copy_sheet_cell(self, source_column, destination_column, layer_index):
         changes = _CORE_COMMANDS["copy_sheet_cell"](self, source_column, destination_column,
                                                     layer_index)
@@ -3629,6 +3637,57 @@ def _core_merge_sheet_clip(document, column, layer_index):
     return changes
 
 
+def _core_move_sequence_image(document, layer_index, first_number, second_number, by_number):
+    """move_sequence_image を Rust の命令で当てる。今の手順と同じにできなければ None。
+
+    今の手順は列のバンクの Cell を番号の間で付け替え（track.cells.update。Cell・画像の
+    オブジェクトは変えない）、その番号を指す位置に動かし元の has_content・is_blank_key を
+    代入する。動かす番号の絵と、その番号を指す位置がすべて番号付きの内容（空キーでない）で
+    代入が値を変えない場合だけを当てる（位置は変えず、バンクの窓口を付け替える）。番号が
+    by_number・バンクに無い、位置が局所の絵・配置待ち・共有・旧形式の記録を持つ場合は今の経路。
+    """
+    live = document._live()
+    if (live["graph"] is not None or live.get("trial")
+            or any(type(value) is not int for value in (layer_index, first_number, second_number))
+            or first_number == second_number or not isinstance(by_number, dict)):
+        return None
+    state = live["state"]
+    tracks = list(state.track_ids)
+    if not (0 <= layer_index < len(tracks)) or not document.tracks[layer_index].connected:
+        return None
+    tid = tracks[layer_index]
+    low, high = sorted((first_number, second_number))
+    numbers = range(low, high + 1)
+    bank = {number for number, _ in state.track(tid)[0]["cells"]}
+    if low < 1 or any(number not in bank or number not in by_number for number in numbers):
+        return None
+    # 今の手順は by_number の値から has_content・is_blank_key を写して代入する。
+    for number in numbers:
+        source = by_number[number]
+        if source.has_content is not True or source.is_blank_key is not False:
+            return None
+    for fid in state.frame_ids:
+        values = state.position(fid, tid)[0]
+        if values["sequence_number"] in numbers and (
+                values["has_content"] is not True or values["is_blank_key"] is not False
+                or values["local"] is not None or _blocks_core_edit(values)):
+            return None
+    step = 1 if first_number < second_number else -1
+    source_for_number = {number: number + step for number in numbers if number != second_number}
+    source_for_number[second_number] = first_number
+    result = _apply_core_command(
+        document, ["move_sequence_image", layer_index, first_number, second_number],
+        lambda ids: [])
+    if result is None:
+        return None
+    changes, _ = result
+    _rekey_bank(document, tid, {source: number for number, source in source_for_number.items()})
+    state.refresh_track(tid)
+    state.forget_track(tid)
+    state.pending.clear()
+    return changes
+
+
 def _core_copy_sheet_cell(document, source_column, destination_column, layer_index):
     """copy_sheet_cell を Rust の命令で当てる。今の手順と同じにできなければ None。
 
@@ -3968,6 +4027,7 @@ _CORE_COMMANDS = {"add_track": _core_add_track,
                   "set_sheet_duration": _core_set_sheet_duration,
                   "merge_sheet_clip": _core_merge_sheet_clip,
                   "copy_sheet_cell": _core_copy_sheet_cell,
+                  "move_sequence_image": _core_move_sequence_image,
                   "paste_sheet_cell": _core_paste_sheet_cell,
                   "new_sheet_number": _core_new_sheet_number}
 

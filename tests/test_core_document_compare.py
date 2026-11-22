@@ -331,6 +331,41 @@ def test_copy_sheet_cell(monkeypatch, case, source, destination, layer):
     )
 
 
+@pytest.mark.parametrize(
+    ("case", "layer", "first", "second"),
+    [
+        ("pending-compat", 0, 1, 2),
+        ("pending-compat", 0, 2, 1),
+        ("pending-compat", 2, 1, 9),     # 間の番号がバンクに無い
+        ("paper-draft", 1, 8, 9),
+        ("paper-draft", 1, 9, 8),
+        ("paper-draft", 0, 3, 4),        # 空キーの番号
+    ],
+)
+def test_move_sequence_image(monkeypatch, case, layer, first, second):
+    loaded = _load_oracle(V2_ROOT / f"{case}.pman")
+    monkeypatch.setattr(utils, "workspace_size", lambda: (loaded.width, loaded.height))
+    payload, artwork = _project(loaded)
+    doc = loaded.document
+    low, high = sorted((first, second))
+    if layer >= len(doc.frames[0].layers) or any(
+            number not in doc.frames[0].layers[layer]._track.cells
+            for number in range(low, high + 1)):
+        pytest.skip("バンクに無い番号の移動は Rust の命令で扱わない")
+    sources = doc.sequence_move_sources(layer, first, second, sheet_mode=True)
+    if any(slot.sequence_number in range(low, high + 1)
+           and (not slot.has_content or slot.is_blank_key)
+           for slot in (frame.layers[layer] for frame in doc.frames)) or any(
+            not sources[number].has_content or sources[number].is_blank_key
+            for number in range(low, high + 1)):
+        pytest.skip("位置の印を書き換える移動は Rust の命令で扱わない")
+    changes = doc.move_sequence_image(layer, first, second, sources)
+    _compare(
+        loaded, json.dumps(payload), artwork,
+        [["move_sequence_image", layer, first, second]], [_notices(changes)],
+    )
+
+
 def test_replace_drawing_image():
     loaded = _load_oracle(V2_ROOT / "basic-bank-sheet.pman")
     payload, artwork = _project(loaded)
