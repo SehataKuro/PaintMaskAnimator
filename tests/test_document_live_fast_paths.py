@@ -777,7 +777,11 @@ def test_move_sheet_cell_uses_core_command_and_matches_python(monkeypatch):
                         ({"hold": 5, "count": 10}, (5, 0, 2, 0)),
                         ({"hold": 5, "count": 10}, (5, 0, 12, 0)),
                         ({"hold": 3, "count": 9}, (3, 0, 4, 1)),
-                        ({"hold": 3, "count": 9}, (6, 0, 1, 0))):
+                        ({"hold": 3, "count": 9}, (6, 0, 1, 0)),
+                        # 移動先がキーの頭（移動先の列の後ろを右へ送る）。同じ列・列またぎ。
+                        ({"hold": 3, "count": 9}, (0, 0, 6, 0)),
+                        ({"hold": 3, "count": 9}, (0, 0, 3, 1)),
+                        ({"hold": 2, "count": 8}, (4, 1, 0, 0))):
         plain, live = _pair(**shape)
         live._promote()
         monkeypatch.setattr(pma_image, "_last_import", None)
@@ -927,6 +931,49 @@ def test_resize_sheet_exposure_detaches_unshifted_tail_windows_like_python(monke
         (plain, *expected), (live, *result) = documents
         assert result == expected
         assert calls == []
+        assert _whole_signature(live) == _whole_signature(plain)
+
+
+def test_move_sheet_cell_onto_a_key_detaches_overwritten_locals_like_python(monkeypatch):
+    # 幅3の絵を、長さ1のキーと空きが続く位置へ動かす（移動先の列の後ろを右へ送る）。送りで
+    # 一つ後ろへ移る局所の Cell の移り先が移動した絵で上書きされる位置では、その Cell は文書
+    # から外れ、取り出していた Layer・画像は読めて、描いても文書は変わらない。
+    from paintmaskanimator import pma_image, utils
+
+    def frames():
+        rows = []
+        for column in range(8):
+            a = (_colored_layer("A", (255, 0, 0, 255), number=1) if column < 3
+                 else _colored_layer("A", (0, 0, 0, 0), content=False))
+            b = (_colored_layer("B", (0, 255, 0, 255), number=1) if column == 3
+                 else _colored_layer("B", (0, 0, 0, 0), content=False))
+            rows.append(Frame([a, b]))
+        return rows
+    patch = QImage(2, 2, QImage.Format.Format_ARGB32_Premultiplied)
+    patch.fill(QColor(0, 0, 255, 255))
+    for args in ((0, 0, 3, 1), (0, 1, 3, 1)):
+        documents = []
+        for factory in (GraphDocument, document_live.Document):
+            document = factory()
+            document.install_legacy_frames(frames())
+            if factory is not GraphDocument:
+                document._promote()
+            monkeypatch.setattr(pma_image, "_last_import", None)
+            monkeypatch.setattr(utils._BlankTemplate, "model_image", None)
+            utils.blank_model_image()
+            slots = [frame.layers[1] for frame in document.frames]
+            images = [slot.image for slot in slots]
+            prepared = document.prepare_sheet_move(*args)
+            changes = document.move_sheet_cell(prepared)
+            kept = [any(slot is frame.layers[1] for frame in document.frames) for slot in slots]
+            pixels = [tuple(image.read_rgba(0, 0, 1, 1)[0, 0]) for image in images]
+            for slot, image, stays in zip(slots, images, kept):
+                if not stays:
+                    slot.image.write_qimage(patch, 0, 0)
+                    image.write_qimage(patch, 4, 4)
+            documents.append((document, changes, kept, pixels))
+        (plain, *expected), (live, *result) = documents
+        assert result == expected
         assert _whole_signature(live) == _whole_signature(plain)
 
 

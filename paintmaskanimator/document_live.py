@@ -3121,9 +3121,11 @@ def _core_move_sheet_cell(document, prepared):
     （replace_slot）、(D) 移動先の保持がかかっていれば移動先から先をその場で消し、(F) 同じ列
     なら移動先へ用意した写しを入れ直し（replace_slot）、列またぎなら移動先をその場で書き換える。
     入れ直しで外れる Layer は、その時点までに消されていれば消された状態、でなければ命令の
-    前の値で外れ、配置待ちを解かれる。番号付きの内容の移動だけを当て、空キーの移動、移動先の
-    キーを右へ送る形、空キーを追わせる形（_follow_blanks）、局所の絵・共有・旧形式の記録を
-    持つ位置、用意した値が今の文書と食い違う場合は今の経路。
+    前の値で外れ、配置待ちを解かれる。移動先がキーの頭なら、移動先の列の移動先から後ろを一つ
+    右へ送る（送った先は clone_slot の入れ直しで、古い Layer は命令の前の値で外れ、局所の Cell
+    は写しとともに後ろへ移る）。番号付きの内容の移動だけを当て、空キーの移動、同じ列で元の
+    範囲・埋めた範囲にかかる送り、空キーを追わせる形（_follow_blanks）、局所の絵・共有・
+    旧形式の記録を持つ位置、用意した値が今の文書と食い違う場合は今の経路。
     """
     live = document._live()
     if (live["graph"] is not None or live.get("trial") or type(prepared) is not tuple
@@ -3180,8 +3182,9 @@ def _core_move_sheet_cell(document, prepared):
             if (after["sequence_number"] is not None
                     and after["sequence_number"] == before["sequence_number"]):
                 return None
-    # (D) 移動先の位置の保持（A・B のあとの状態）。右へ送る形は今の経路。
-    occupied = None
+    # (D) 移動先の位置の保持（A・B のあとの状態）。移動先がキーの頭なら、今の手順は移動先の
+    # 列の移動先から後ろを一つ右へ送る（_shift_timeline_layer_right）。
+    occupied, shift_limit = None, None
     if sl == dl and sf <= df < max(se, fill.stop):
         if df in fill:
             occupied = (previous[1], fill.stop)
@@ -3192,21 +3195,54 @@ def _core_move_sheet_cell(document, prepared):
             if sl == dl and fill and previous is not None and block[1] == previous[1]:
                 occupied = (previous[1], fill.stop)
             if block[1] == df and block[1] != sf:
-                return None
+                # 同じ列では、送る範囲が元の範囲・埋めた範囲より後ろのときだけ（送りの前の
+                # 状態が命令の前と同じ）。配置待ち・局所の絵の共有があれば今の経路。
+                if sl == dl and (df < se or df < fill.stop):
+                    return None
+                last = df
+                for column in range(df, count):
+                    values = state.position(frame_ids[column], target_id)[0]
+                    if values["sequence_only"] or values.get("local_share") is not None:
+                        return None
+                    if values["has_content"] or values["is_blank_key"]:
+                        last = column
+                # 今の手順の送りは、最初に伸ばした長さまでしか送らない。
+                shift_limit = max(df + 1, count, end, last + 2)
+                occupied = None
     drange = range(df, occupied[1]) if occupied is not None and occupied[0] < df else range(0)
-    # (E) 移動先の範囲に空キーの保持があれば、今の手順は空キーを動かした絵の後ろへ追わせる。
-    for column in range(df + 1, min(end, count)):
-        block = block_at(column, dl)
+    # (E) 移動先の範囲に空キーの保持があれば、今の手順は空キーを動かした絵の後ろへ追わせる
+    # （送る形では、送ったあとの位置で見る）。
+    for column in range(df + 1, min(end, count + (shift_limit is not None))):
+        block = block_at(column - (shift_limit is not None), dl)
         if block is not None and block[0] == "blank":
             return None
     sources = range(sf, se)
     frange = range(df, end)
-    replaced, cleared_before, in_place = [], set(), []
+    replaced, cleared_before, in_place, moved, starts = [], set(), [], [], set()
+    if shift_limit is not None:
+        for index in range(df, count):
+            key = (frame_ids[index], target_id)
+            # 局所の Cell は送りで一つ後ろの写しへ移る。移り先が移動した絵で上書きされる
+            # 位置（df+1〜end-1）なら、その Cell は文書から外れる（命令の前の値で外す）。
+            if index + 1 < shift_limit and not df < index + 1 < end:
+                moved.append(index)
+            if index == df:
+                if sl == dl:
+                    # 送りで消され（記録はキーの頭を消した写し）、写しの入れ直しで外れる。
+                    replaced.append(key)
+                    cleared_before.add(key)
+                    starts.add(key)
+                elif index not in moved:
+                    in_place.append(key)  # Layer は残り、局所の Cell だけ外れる
+            else:
+                replaced.append(key)
     for index in range(min(count, max(se, fill.stop, end, drange.stop))):
         for tid in dict.fromkeys((source_id, target_id)):
             key = (frame_ids[index], tid)
             if key in replaced or key in in_place:
                 continue
+            if shift_limit is not None and tid == target_id and index >= df:
+                continue  # 送る列の位置は上で分けた（下の検査は replaced・in_place で通る）
             if tid == source_id and index in fill:
                 replaced.append(key)
                 if index in sources:
@@ -3218,7 +3254,9 @@ def _core_move_sheet_cell(document, prepared):
             elif ((tid == source_id and index in sources)
                   or (tid == target_id and (index in drange or index in frange))):
                 in_place.append(key)
-    for key in [*replaced, *in_place]:
+    # 列またぎで送る形の移動先の位置（文書に残りその場で書き換わる）も同じく見る。
+    extra = ([(frame_ids[df], target_id)] if shift_limit is not None and sl != dl else [])
+    for key in [*replaced, *in_place, *extra]:
         values = state.position(*key)[0]
         if (values.get("local_share") is not None or values.get("pending_detached")
                 or values["sequence_only"] or values["local_bank"]
@@ -3240,11 +3278,22 @@ def _core_move_sheet_cell(document, prepared):
                     return None
         if images:
             banks.append((bank, None, images, {"local": None}, None))
-    plan = _detach_plan(document, replaced, in_place)
+    moved_keys = {(frame_ids[index], target_id) for index in moved}
+    plan = _detach_plan(document, [key for key in replaced if key not in moved_keys], in_place)
     if plan is None:
         return None
     plan["cells"].extend(banks)
-    rows = list(dict.fromkeys(key[0] for key in [*replaced, *in_place]))
+    # 送る位置の局所の Cell は一つ後ろへ移るので外さない（Layer だけ外す）。
+    cache = live["cache"]
+    for key in replaced:
+        if key in moved_keys:
+            layer = cache._objects.get(("layer", key))
+            if layer is not None:
+                values, handles = state.position(*key)
+                plan["layers"].append((key, layer, values, handles,
+                                       live.get("tokens", {}).get(key)))
+    rows = list(dict.fromkeys([*(key[0] for key in [*replaced, *in_place]),
+                               *(frame_ids[df:] if shift_limit is not None else ())]))
     result = _apply_core_command(document, ["move_sheet_cell", sf, sl, df, dl],
                                  lambda ids: rows)
     if result is None:
@@ -3261,11 +3310,21 @@ def _core_move_sheet_cell(document, prepared):
             tokens[fid, track] = PendingToken()
     state.pending.clear()
     layers = {key: layer for key, layer, *_ in plan["layers"]}
-    _detach(document, plan)
+    if moved:
+        after = state.frame_ids
+        moves = [((after[index], target_id), (after[index + 1], target_id))
+                 for index in reversed(moved)]
+        _detach(document, plan, moved=dict(moves),
+                between=lambda: _rekey_locals(document, moves))
+    else:
+        _detach(document, plan)
     from .document import clear_slot
+    from .legacy_v1 import V1Position, snapshot_layer
     for key in cleared_before:
         if key in layers:
             clear_slot(layers[key])
+            if key in starts:
+                layers[key].__dict__["_v1_position"] = V1Position(snapshot_layer(layers[key]))
     return changes
 
 
