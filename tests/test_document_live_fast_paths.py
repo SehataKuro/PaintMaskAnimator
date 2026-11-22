@@ -768,6 +768,82 @@ def test_move_sheet_cells_across_tracks_detaches_replaced_bank_images(monkeypatc
     assert _whole_signature(live) == _whole_signature(plain)
 
 
+def test_move_sheet_cell_uses_core_command_and_matches_python(monkeypatch):
+    # (元のコマ, 元の列, 移動先のコマ, 移動先の列)。前の保持で埋める・保持の途中へ・末尾の先へ・
+    # 列またぎ。命令の前に取り出した Layer は、今の手順と同じ状態で外れるか残る。
+    from paintmaskanimator import pma_image, utils
+    from paintmaskanimator.document_core import _slot_signature
+    for shape, args in (({"hold": 5, "count": 10}, (5, 0, 7, 0)),
+                        ({"hold": 5, "count": 10}, (5, 0, 2, 0)),
+                        ({"hold": 5, "count": 10}, (5, 0, 12, 0)),
+                        ({"hold": 3, "count": 9}, (3, 0, 4, 1)),
+                        ({"hold": 3, "count": 9}, (6, 0, 1, 0))):
+        plain, live = _pair(**shape)
+        live._promote()
+        monkeypatch.setattr(pma_image, "_last_import", None)
+        monkeypatch.setattr(utils._BlankTemplate, "model_image", None)
+        utils.blank_model_image()
+        fates, results = [], []
+        for document in (plain, live):
+            slots = [[frame.layers[index] for frame in document.frames] for index in range(2)]
+            prepared = document.prepare_sheet_move(*args)
+            if document is live:
+                calls = _round_trips(live, monkeypatch)
+            results.append(document.move_sheet_cell(prepared))
+            fates.append([(index, column, _slot_signature(slot, slot._track)[:8])
+                          for index, row in enumerate(slots) for column, slot in enumerate(row)
+                          if not any(slot is layer for frame in document.frames
+                                     for layer in frame.layers)])
+        assert results[1] == results[0]
+        assert calls == []
+        assert fates[1] == fates[0]
+        assert _whole_signature(live) == _whole_signature(plain)
+
+
+def test_move_sheet_cell_where_the_fill_changes_the_destination_takes_the_current_path(monkeypatch):
+    # 前の保持で埋めると後ろの同じ番号の範囲とつながる形、埋めが元の範囲の外のキーを上書きして
+    # 今の手順が移動先を右へ送る形、雛形の前の保持が空キーの形。今の手順と同じ結果になる。
+    from paintmaskanimator import pma_image, utils
+    colors = {1: (255, 0, 0, 255), 2: (0, 255, 0, 255), 3: (0, 0, 255, 255)}
+
+    def column(numbers):
+        def frames():
+            rows = []
+            for number in numbers:
+                if number == "b":
+                    layer = _colored_layer("A", (0, 0, 0, 0), content=False, blank=True)
+                elif number is None:
+                    layer = _colored_layer("A", (0, 0, 0, 0), content=False)
+                else:
+                    layer = _colored_layer("A", colors[number], number=number)
+                rows.append(Frame([layer]))
+            return rows
+        return frames
+    merge = column([1, 1, 2, 2, 1, 1])
+    shift = column([1, 1, 2, 2, None, 3, 3, 3, 3, None, None, None])
+    blank = column(["b", None, 2, 2, None, None])
+    for frames, (sf, df) in ((merge, (2, 3)), (column([1, 1, 1, 1, 2, 2, 1, 1]), (4, 2)),
+                             (shift, (2, 6)), (shift, (2, 8)), (blank, (2, 3))):
+        documents = []
+        for factory in (GraphDocument, document_live.Document):
+            document = factory()
+            document.install_legacy_frames(frames())
+            if factory is not GraphDocument:
+                document._promote()
+            monkeypatch.setattr(pma_image, "_last_import", None)
+            monkeypatch.setattr(utils._BlankTemplate, "model_image", None)
+            utils.blank_model_image()
+            slots = [frame.layers[0] for frame in document.frames]
+            prepared = document.prepare_sheet_move(sf, 0, df, 0)
+            changes = document.move_sheet_cell(prepared)
+            kept = [any(slot is frame.layers[0] for frame in document.frames) for slot in slots]
+            documents.append((document, changes, kept))
+        (plain, expected, plain_kept), (live, result, live_kept) = documents
+        assert result == expected
+        assert live_kept == plain_kept
+        assert _whole_signature(live) == _whole_signature(plain)
+
+
 def test_has_unlinked_tracks_answers_without_walking_positions(monkeypatch):
     plain, live = _pair()
     calls = _round_trips(live, monkeypatch)

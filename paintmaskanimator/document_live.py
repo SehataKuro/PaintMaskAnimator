@@ -1405,6 +1405,12 @@ class Document:
             return self._run("delete_sequence_entry", (layer_index, number), {})
         return changes
 
+    def move_sheet_cell(self, prepared):
+        changes = _CORE_COMMANDS["move_sheet_cell"](self, prepared)
+        if changes is None:
+            return self._run("move_sheet_cell", (prepared,), {})
+        return changes
+
     def move_sheet_cells(self, moves, destination_column, active_layer):
         moves = tuple(moves)
         changes = _CORE_COMMANDS["move_sheet_cells"](self, moves, destination_column, active_layer)
@@ -3101,6 +3107,162 @@ def _core_move_sheet_cells(document, moves, destination_column, active_layer):
     return changes
 
 
+def _core_move_sheet_cell(document, prepared):
+    """move_sheet_cell を Rust の命令で当てる。今の手順と同じにできなければ None。
+
+    今の手順は (A) 元の範囲の位置をその場で消し、(B) 前の保持が元の範囲に接していれば
+    元の範囲（同じ列で右へ動かすなら移動先まで）に前の保持の clone_reference() を入れ直し
+    （replace_slot）、(D) 移動先の保持がかかっていれば移動先から先をその場で消し、(F) 同じ列
+    なら移動先へ用意した写しを入れ直し（replace_slot）、列またぎなら移動先をその場で書き換える。
+    入れ直しで外れる Layer は、その時点までに消されていれば消された状態、でなければ命令の
+    前の値で外れ、配置待ちを解かれる。番号付きの内容の移動だけを当て、空キーの移動、移動先の
+    キーを右へ送る形、空キーを追わせる形（_follow_blanks）、局所の絵・共有・旧形式の記録を
+    持つ位置、用意した値が今の文書と食い違う場合は今の経路。
+    """
+    live = document._live()
+    if (live["graph"] is not None or live.get("trial") or type(prepared) is not tuple
+            or len(prepared) != 9):
+        return None
+    sf, sl, df, dl, moving, previous, tail, tail_blank, kind = prepared
+    if (any(type(value) is not int for value in (sf, sl, df, dl)) or kind != "content"
+            or tail_blank is not None or type(moving) is not list or not moving):
+        return None
+    state = live["state"]
+    frame_ids = list(state.frame_ids)
+    count, tracks = len(frame_ids), list(state.track_ids)
+    span = len(moving)
+    se, end = sf + span, df + span
+    if not (0 <= sl < len(tracks) and 0 <= dl < len(tracks) and 0 <= sf and se <= count
+            and 0 <= df):
+        return None
+    block_at = document.timeline_block_at
+    if (block_at(sf, sl) != (kind, sf, span)
+            or previous != (block_at(sf - 1, sl) if sf else None)
+            or tail != (block_at(se, sl) if se < count else None)):
+        return None
+    source_id, target_id = tracks[sl], tracks[dl]
+    head = state.position(frame_ids[sf], source_id)[0]
+    copied = moving[0]
+    if (not copied.has_content or copied.is_blank_key or copied.sequence_only
+            or copied.sequence_number is None or copied.sequence_number != head["sequence_number"]
+            or _move_settings(copied) != _move_settings(document.tracks[sl])):
+        return None
+    data, handles = state.track(source_id)
+    cell = dict(data["cells"]).get(copied.sequence_number)
+    if cell is None or not _same_generations(copied, cell, handles):
+        return None
+    # (B) 前の保持で埋める範囲。
+    fill = range(0)
+    if previous is not None and previous[1] + previous[2] == sf:
+        fill_end = se
+        if sl == dl and df > sf:
+            fill_end = max(fill_end, df)
+            if tail is not None:
+                fill_end = min(fill_end, tail[1])
+        fill = range(sf, fill_end)
+        before = state.position(frame_ids[previous[1]], source_id)[0]
+        # 埋める雛形が局所の絵を持つ（今の手順の clone_reference は局所の Cell を共有し、
+        # Rust は位置ごとに写す）、埋めが元の範囲の外のキー・保持を上書きする（A・B のあとの
+        # 移動先の保持が命令の前と変わる）、埋めた保持が後ろの同じ番号の範囲とつながる
+        # （表示の範囲が伸びる）なら今の経路。
+        if previous[0] != "content" or before["local"] is not None:
+            return None
+        if any(block_at(index, sl) is not None for index in range(se, min(fill.stop, count))):
+            return None
+        if fill.stop < count:
+            after = state.position(frame_ids[fill.stop], source_id)[0]
+            if (after["sequence_number"] is not None
+                    and after["sequence_number"] == before["sequence_number"]):
+                return None
+    # (D) 移動先の位置の保持（A・B のあとの状態）。右へ送る形は今の経路。
+    occupied = None
+    if sl == dl and sf <= df < max(se, fill.stop):
+        if df in fill:
+            occupied = (previous[1], fill.stop)
+    elif df < count:
+        block = block_at(df, dl)
+        if block is not None:
+            occupied = (block[1], block[1] + block[2])
+            if sl == dl and fill and previous is not None and block[1] == previous[1]:
+                occupied = (previous[1], fill.stop)
+            if block[1] == df and block[1] != sf:
+                return None
+    drange = range(df, occupied[1]) if occupied is not None and occupied[0] < df else range(0)
+    # (E) 移動先の範囲に空キーの保持があれば、今の手順は空キーを動かした絵の後ろへ追わせる。
+    for column in range(df + 1, min(end, count)):
+        block = block_at(column, dl)
+        if block is not None and block[0] == "blank":
+            return None
+    sources = range(sf, se)
+    frange = range(df, end)
+    replaced, cleared_before, in_place = [], set(), []
+    for index in range(min(count, max(se, fill.stop, end, drange.stop))):
+        for tid in dict.fromkeys((source_id, target_id)):
+            key = (frame_ids[index], tid)
+            if key in replaced or key in in_place:
+                continue
+            if tid == source_id and index in fill:
+                replaced.append(key)
+                if index in sources:
+                    cleared_before.add(key)
+            elif tid == source_id and sl == dl and index in frange:
+                replaced.append(key)
+                if index in sources or index in drange:
+                    cleared_before.add(key)
+            elif ((tid == source_id and index in sources)
+                  or (tid == target_id and (index in drange or index in frange))):
+                in_place.append(key)
+    for key in [*replaced, *in_place]:
+        values = state.position(*key)[0]
+        if (values.get("local_share") is not None or values.get("pending_detached")
+                or values["sequence_only"] or values["local_bank"]
+                or any(values.get(name) is not None for name in _SPLIT_RECORDS)
+                or values.get("legacy_missing")
+                or (key[0] in {frame_ids[i] for i in sources if i < count}
+                    and key[1] == source_id and values["local"] is not None)):
+            return None
+    banks = []
+    if sl != dl:
+        bank = ("bank", target_id, copied.sequence_number)
+        images = {}
+        for initial in (False, True):
+            image = live["cache"]._objects.get(("image", (bank, initial)))
+            if image is not None:
+                try:
+                    images[initial] = (image, image._image.copy())
+                except ValueError:
+                    return None
+        if images:
+            banks.append((bank, None, images, {"local": None}, None))
+    plan = _detach_plan(document, replaced, in_place)
+    if plan is None:
+        return None
+    plan["cells"].extend(banks)
+    rows = list(dict.fromkeys(key[0] for key in [*replaced, *in_place]))
+    result = _apply_core_command(document, ["move_sheet_cell", sf, sl, df, dl],
+                                 lambda ids: rows)
+    if result is None:
+        return None
+    changes, new_ids = result
+    for tid in {source_id, target_id}:
+        state.refresh_track(tid)
+        state.forget_track(tid)
+    tokens = live.setdefault("tokens", {})
+    for key in replaced:
+        tokens[key] = PendingToken()
+    for fid in new_ids:
+        for track in state.track_ids:
+            tokens[fid, track] = PendingToken()
+    state.pending.clear()
+    layers = {key: layer for key, layer, *_ in plan["layers"]}
+    _detach(document, plan)
+    from .document import clear_slot
+    for key in cleared_before:
+        if key in layers:
+            clear_slot(layers[key])
+    return changes
+
+
 def _core_position_command(document, name, column, layer_index, replace):
     """一つの位置だけを書き換える命令を Rust で当てる。今の手順と同じにできなければ None。
 
@@ -3249,6 +3411,7 @@ _CORE_COMMANDS = {"add_track": _core_add_track,
                   "insert_sequence_blank": _core_insert_sequence_blank,
                   "delete_sequence_entry": _core_delete_sequence_entry,
                   "move_sheet_cells": _core_move_sheet_cells,
+                  "move_sheet_cell": _core_move_sheet_cell,
                   "new_sheet_number": _core_new_sheet_number}
 
 
