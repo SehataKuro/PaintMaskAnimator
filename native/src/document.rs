@@ -125,6 +125,31 @@ impl PyCoreDocument {
             .map_err(value_error)
     }
 
+    /// 番号 number の絵（cell はバンクの一枚の JSON、画像は images の添字）を
+    /// column・layer に貼る（paste_sheet_cell）。
+    ///
+    /// apply_command と同じ形の JSON を返す。失敗時は文書を変えない。
+    fn paste_sheet_cell(
+        &mut self,
+        column: usize,
+        layer: usize,
+        number: i64,
+        cell: &str,
+        images: Vec<PyRef<'_, PyRgbaImage>>,
+        length: usize,
+    ) -> PyResult<String> {
+        let cell = v2::parse_json(cell).map_err(value_error)?;
+        comparison::paste_sheet_cell(
+            &mut self.0,
+            (column, layer),
+            number,
+            &cell,
+            &shared(&images),
+            length,
+        )
+        .map_err(value_error)
+    }
+
     /// Python の restore と同じ値で、写しの文書（snapshot）を戻す。
     fn restore_from(&mut self, snapshot: PyRef<'_, PyCoreDocument>) {
         self.0.restore_from(&snapshot.0);

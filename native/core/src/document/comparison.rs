@@ -4,7 +4,8 @@ use super::changes::{Change, FrameOperation, TrackOperation};
 use super::commands::{PreparedTrack, TrackProperty};
 use super::drawing_commands::{DrawingImageGroup, DrawingTarget};
 use super::frame_commands::RemapColumn;
-use super::model::{CellNumber, Document};
+use super::graph::optional_cell_value;
+use super::model::{Cell, CellNumber, Document};
 use super::position_commands::SheetMove;
 use crate::{
     image::{Rect, RgbaImage},
@@ -194,6 +195,22 @@ pub fn apply_operations(document: &mut Document, operations: &Value) -> Result<S
                 edited.paste_numbered_cell(
                     (index(source)?, index(source_layer)?),
                     (index(frame)?, index(layer)?),
+                    index(length)?,
+                )
+            }
+            // 文書の外の絵（クリップボードの写し）を貼る形。初期画像は無し。
+            [name, frame, layer, length, n, width, height, rgba, cell_name]
+                if name == "paste_sheet_cell" =>
+            {
+                let incoming = Cell {
+                    image: RgbaImage::from_rgba(index(width)?, index(height)?, &bytes(rgba)?)?,
+                    initial_image: None,
+                    cell_name: cell_name.as_str().map(Into::into),
+                };
+                edited.paste_sheet_cell(
+                    (index(frame)?, index(layer)?),
+                    number(n)?,
+                    &incoming,
                     index(length)?,
                 )
             }
@@ -444,6 +461,26 @@ pub fn insert_track_from(
 ) -> Result<String, Error> {
     let prepared = prepared_track(source, source_layer)?;
     let result = document.insert_track(at, prepared, Some(active))?;
+    let changes: Vec<Value> = result.into_iter().map(notice).collect();
+    Ok(json!([changes]).to_string())
+}
+
+/// 番号 `number` の絵（`cell` は to_graph のバンクの一枚と同じ JSON、画像は `images` の
+/// 添字）を、`document` の `column`・`layer` に Document::paste_sheet_cell で貼る。
+///
+/// Python の paste_sheet_cell（クリップボードの写しを貼る）用。結果は apply_operations と
+/// 同じ形の JSON（操作一つ分）。失敗時は文書を変えない。
+pub fn paste_sheet_cell(
+    document: &mut Document,
+    destination: (usize, usize),
+    number: i64,
+    cell: &Value,
+    images: &[RgbaImage],
+    length: usize,
+) -> Result<String, Error> {
+    let incoming = optional_cell_value(cell, images)?.ok_or_else(invalid)?;
+    let number = CellNumber::new(number)?;
+    let result = document.paste_sheet_cell(destination, number, &incoming, length)?;
     let changes: Vec<Value> = result.into_iter().map(notice).collect();
     Ok(json!([changes]).to_string())
 }

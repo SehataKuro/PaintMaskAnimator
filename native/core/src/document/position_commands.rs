@@ -204,14 +204,9 @@ impl Document {
         destination: (usize, usize),
         length: usize,
     ) -> Result<ChangeSet, Error> {
-        let (column, layer_index) = destination;
         let (source_column, source_layer) = source;
         let source_track = *self.track_order.get(source_layer).ok_or_else(invalid)?;
-        let track = *self.track_order.get(layer_index).ok_or_else(invalid)?;
         let source_id = self.frame_order.get(source_column).ok_or_else(invalid)?;
-        if length == 0 || column >= self.frame_order.len() {
-            return Err(invalid());
-        }
         let source = &self.sheet[source_id].positions[&source_track];
         let Reference::Number(number) = source.reference else {
             return Err(invalid());
@@ -219,7 +214,31 @@ impl Document {
         let incoming = self.tracks[&source_track]
             .cells
             .get(&number)
-            .ok_or_else(invalid)?;
+            .ok_or_else(invalid)?
+            .clone();
+        self.paste_sheet_cell(destination, number, &incoming, length)
+    }
+
+    /// Python の paste_sheet_cell と同様に、番号 `number` の絵 `incoming`（クリップボードの
+    /// 写しなど、文書の外の絵でもよい）を `destination` に貼り、後ろへ `length` コマまで保持を
+    /// 入れる（後ろのキーの頭に当たったらそこで止める。足りなければコマを延ばす）。
+    ///
+    /// 画素と属性の競合は Python と同じ順で解決する（現在のコマが同じ番号の内容を持てば
+    /// その絵の画素、無ければ最初の位置の画素。初期画像・セル名は並びで最初の値）。
+    /// 貼り先の頭は新しい位置として作る（blank_start・旧入力の印・配置待ちの印は引き継が
+    /// ない）ので、そうした印を持つ絵や貼り先は呼び元が今の手順へ回す前提。
+    pub fn paste_sheet_cell(
+        &mut self,
+        destination: (usize, usize),
+        number: CellNumber,
+        incoming: &Cell,
+        length: usize,
+    ) -> Result<ChangeSet, Error> {
+        let (column, layer_index) = destination;
+        let track = *self.track_order.get(layer_index).ok_or_else(invalid)?;
+        if length == 0 || column >= self.frame_order.len() {
+            return Err(invalid());
+        }
         let cell = self.imported_cell(track, number, column, incoming, Some(self.current_frame));
         let end = column
             .checked_add(length)

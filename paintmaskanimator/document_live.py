@@ -1413,6 +1413,12 @@ class Document:
                              {})
         return changes
 
+    def paste_sheet_cell(self, column, layer_index, source, length):
+        changes = _CORE_COMMANDS["paste_sheet_cell"](self, column, layer_index, source, length)
+        if changes is None:
+            return self._run("paste_sheet_cell", (column, layer_index, source, length), {})
+        return changes
+
     def merge_sheet_clip(self, column, layer_index):
         changes = _CORE_COMMANDS["merge_sheet_clip"](self, column, layer_index)
         if changes is None:
@@ -3681,6 +3687,126 @@ def _core_copy_sheet_cell(document, source_column, destination_column, layer_ind
     return changes
 
 
+def _core_paste_sheet_cell(document, column, layer_index, source, length):
+    """paste_sheet_cell を Rust の命令で当てる。今の手順と同じにできなければ None。
+
+    今の手順は列のバンクの番号の Cell をその場で書き換え（import_drawing_reference。画像・
+    初期画像は新しいオブジェクトになり、古い画像は古い画素のまま外れる）、貼り先の頭を
+    その場で書き換えてその番号を指させ（copy_drawing_reference）、後ろの保持の位置には頭の
+    clone_reference() を replace_slot で入れ直す（古い Layer は外れ、配置待ちを解く）。
+    クリップボードの写し（素の Layer で、自前の列のバンクに番号付きの内容を持つ）だけを当て、
+    空キー・配置待ち・blank_start を持つ絵、貼り先の頭・保持の位置・同じ番号の位置が今の
+    経路でしか同じにできない印を持つ場合は今の経路。
+    """
+    from .models import Layer, Track
+    from .pma_image import attributes_tag
+    live = document._live()
+    if (live["graph"] is not None or live.get("trial")
+            or any(type(value) is not int for value in (column, layer_index, length))
+            or length < 1 or type(source) is not Layer):
+        return None
+    track = source._track
+    number = source.sequence_number
+    if (type(track) is not Track or not track.connected or type(number) is not int
+            or number < 1 or number not in track.cells or "_cell" in source.__dict__
+            or source.has_content is not True or source.sequence_only or source.is_blank_key
+            or source.blank_start or type(source.cell_name) not in (str, type(None))):
+        return None
+    state = live["state"]
+    frame_ids = list(state.frame_ids)
+    count, tracks = len(frame_ids), list(state.track_ids)
+    current, active = document.current_frame, document.active_layer_index
+    # 現在のコマ・列が範囲外だと _sync_selection が Rust の選択を合わせられない。
+    if not (0 <= column < count and 0 <= layer_index < len(tracks)
+            and type(current) is int and 0 <= current < count
+            and type(active) is int and 0 <= active < len(tracks)
+            and document.tracks[layer_index].connected):
+        return None
+    tid = tracks[layer_index]
+    head_key = (frame_ids[column], tid)
+    if _blocks_core_edit(state.position(*head_key)[0]):
+        return None
+    # 今の手順は後ろのキーの頭に当たったらそこで止める。貼った頭の番号しだいで古い保持の
+    # 位置もキーの頭になるので、止まる位置は命令のあとに決まる。外す用意は届き得る範囲で作る。
+    reach = [(frame_ids[index], tid) for index in range(column + 1, min(column + length, count))]
+    if any(_blocks_core_edit(state.position(*key)[0]) for key in reach):
+        return None
+    # 同じ番号の位置は画素・属性の持ち主の候補になる（今の手順は has_content の位置だけを
+    # 見る）。Rust と同じ候補にできない位置があれば今の経路。
+    for fid in frame_ids:
+        if fid == head_key[0]:
+            continue
+        values = state.position(fid, tid)[0]
+        if values["sequence_number"] == number and (
+                not values["has_content"] or values["local"] is not None
+                or _blocks_core_edit(values, allow_bank=True)):
+            return None
+    images = [source.image, source.initial_image]
+    try:
+        handles = [image._image.copy().with_tag(attributes_tag(image._attributes))
+                   for image in images if image is not None]
+    except ValueError:
+        return None
+    cell_value = json.dumps({"image": 0, "initial_image": None if images[1] is None else 1,
+                             "cell_name": source.cell_name}, ensure_ascii=False)
+    plan = _detach_plan(document, reach, [head_key])
+    if plan is None:
+        return None
+    # 今の手順はバンクの Cell の画像・初期画像に新しいオブジェクトを入れるので、今の窓口は
+    # 命令の前の画素の独立した画像として外す。
+    cache = live["cache"]
+    bank_key = ("bank", tid, number)
+    retired = []
+    for initial in (False, True):
+        image = cache._objects.get(("image", (bank_key, initial)))
+        if image is not None:
+            try:
+                retired.append((initial, image, image._image.copy()))
+            except ValueError:
+                return None
+    rows = [key[0] for key in (head_key, *reach)]
+    document._sync_selection()
+    result = _apply_core_command(
+        document, None, lambda ids: rows,
+        lambda core: core.paste_sheet_cell(column, layer_index, number, cell_value, handles,
+                                           length))
+    if result is None:
+        return None
+    changes, new_ids = result
+    for initial, image, pixels in retired:
+        cache.pop("image", (bank_key, initial))
+        image.__class__ = PmaImage
+        object.__setattr__(image, "_image", pixels)
+        object.__setattr__(image, "_attributes", tag_attributes(pixels.tag))
+    state.refresh_track(tid)
+    state.forget_track(tid)
+    # 入れ直されたのは、頭の後ろでキーの頭に当たるまでの位置（止まった位置から先は元の
+    # まま）。前の保持と同じ番号なら頭は前の保持とつながるので、頭の位置ではなく、その位置が
+    # キーの頭かどうかで見る（Rust の止め方と同じ）。
+    held = []
+    for index, key in enumerate(reach, column + 1):
+        block = document.timeline_block_at(index, layer_index)
+        if block is None or block[1] == index:
+            break
+        held.append(key)
+    kept = {("local", *key) for key in reach[len(held):]}
+    plan["layers"] = [entry for entry in plan["layers"] if entry[0] in held]
+    plan["cells"] = [entry for entry in plan["cells"] if entry[0] not in kept]
+    tokens = live.setdefault("tokens", {})
+    for key in held:
+        tokens[key] = PendingToken()
+    for fid in new_ids:
+        for other in state.track_ids:
+            tokens[fid, other] = PendingToken()
+    state.pending.clear()
+    _detach(document, plan)
+    # 止まる位置を決めるとき（timeline_block_at）に、外す前の Layer でコマの並びの控えが
+    # 作り直されている。外した Layer を指さないよう、触った行の控えを捨てる。
+    for fid in rows:
+        state.layer_lists.pop(fid, None)
+    return changes
+
+
 def _blocks_core_edit(values, allow_bank=False):
     """位置が今の経路でしか同じにできない印（配置待ち・局所の絵の共有・旧形式の記録）を持つか。"""
     return (values.get("local_share") is not None or values.get("pending_detached")
@@ -3842,6 +3968,7 @@ _CORE_COMMANDS = {"add_track": _core_add_track,
                   "set_sheet_duration": _core_set_sheet_duration,
                   "merge_sheet_clip": _core_merge_sheet_clip,
                   "copy_sheet_cell": _core_copy_sheet_cell,
+                  "paste_sheet_cell": _core_paste_sheet_cell,
                   "new_sheet_number": _core_new_sheet_number}
 
 

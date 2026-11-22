@@ -1172,6 +1172,112 @@ def test_copy_sheet_cell_more_shapes_and_undo_match_python(monkeypatch):
         assert _whole_signature(live) == _whole_signature(plain)
 
 
+def _clipboard(document, column, layer_index, rgba):
+    """画面の操作と同じくセルを複製して控え、その絵を塗り替える（控えたあとに文書の絵を
+    描き替えた形も、文書の外の絵として同じに扱う）。"""
+    clip = document.frames[column].layers[layer_index].clone()
+    image = QImage(8, 8, QImage.Format.Format_ARGB32_Premultiplied)
+    image.fill(QColor(*rgba))
+    clip._track.cells[clip.sequence_number].image = PmaImage(image)
+    return clip
+
+
+def test_paste_sheet_cell_uses_core_command_and_matches_python(monkeypatch):
+    # (貼り先のコマ, 列, 長さ, 控えるコマ, 控える列, 現在のコマ)。保持の途中・キーの頭・空き・
+    # 末尾の先へ、後ろのキーで止まる長さ、別の列の番号、現在のコマが同じ番号の内容を持つ
+    # （画素はその位置の絵）形。命令の前に取り出した Layer・バンクの画像は今の手順と同じ
+    # 状態で外れるか残る。
+    from paintmaskanimator.document_core import _slot_signature
+    for shape, args, clip_at, current in (
+            ({"hold": 5, "count": 10}, (2, 0, 3), (0, 0), 0),
+            ({"hold": 5, "count": 10}, (2, 0, 6), (6, 0), 9),
+            ({"hold": 5, "count": 10}, (2, 1, 2), (6, 0), 7),
+            ({"hold": 5, "count": 10}, (8, 1, 5), (0, 1), 0),
+            ({"hold": 3, "count": 9}, (5, 0, 1), (0, 0), 1),
+            ({"hold": 3, "count": 9}, (2, 1, 4), (7, 0), 4),
+            ({"hold": 5, "count": 10}, (8, 0, 4), (6, 0), 0)):
+        plain, live = _pair(**shape)
+        live._promote()
+        fates, results, banks = [], [], []
+        for document in (plain, live):
+            clip = _clipboard(document, *clip_at, (0, 200, 0, 255))
+            document.current_frame = current
+            slots = [[frame.layers[index] for frame in document.frames] for index in range(2)]
+            number = clip.sequence_number
+            old = document.tracks[args[1]].cells.get(number)
+            old_image = None if old is None else old.image
+            if document is live:
+                calls = _round_trips(live, monkeypatch)
+            results.append(document.paste_sheet_cell(*args[:2], clip, args[2]))
+            fates.append([(index, column, _slot_signature(slot, slot._track)[:8])
+                          for index, row in enumerate(slots) for column, slot in enumerate(row)
+                          if not any(slot is layer for frame in document.frames
+                                     for layer in frame.layers)])
+            cell = document.tracks[args[1]].cells[number]
+            banks.append((old is None or cell is old,
+                          old_image is None or cell.image is not old_image,
+                          None if old_image is None else old_image.rgba().tobytes(),
+                          cell.image.rgba().tobytes()))
+        assert results[1] == results[0]
+        assert calls == []
+        assert fates[1] == fates[0]
+        assert banks[1] == banks[0]
+        assert _signature(live) == _signature(plain)
+        assert _whole_signature(live) == _whole_signature(plain)
+
+
+def test_paste_sheet_cell_unusual_clipboards_take_the_current_path(monkeypatch):
+    # 番号の無い絵・空キー・配置待ちの位置への貼り付けは今の経路で、今の手順と同じになる。
+    def unnumbered(document):
+        clip = _clipboard(document, 0, 0, (0, 0, 200, 255))
+        clip.sequence_number = None
+        return clip
+
+    def blank(document):
+        clip = _clipboard(document, 0, 0, (0, 0, 200, 255))
+        clip.is_blank_key = True
+        return clip
+    for make, args in ((unnumbered, (4, 1, 2)), (blank, (4, 1, 2))):
+        plain, live = _pair(hold=3, count=9)
+        live._promote()
+        calls = _round_trips(live, monkeypatch)
+        assert (live.paste_sheet_cell(*args[:2], make(live), args[2])
+                == plain.paste_sheet_cell(*args[:2], make(plain), args[2]))
+        assert calls
+        assert _whole_signature(live) == _whole_signature(plain)
+
+
+def test_paste_sheet_cell_with_active_layer_out_of_range_takes_the_current_path(monkeypatch):
+    # 選択中の列が範囲外だと Rust の選択を合わせられないので今の経路で、今の手順と同じになる。
+    plain, live = _pair(hold=3, count=9)
+    live._promote()
+    for document in (plain, live):
+        document.active_layer_index = 5
+    calls = _round_trips(live, monkeypatch)
+    assert (live.paste_sheet_cell(4, 1, _clipboard(live, 0, 0, (0, 0, 200, 255)), 2)
+            == plain.paste_sheet_cell(4, 1, _clipboard(plain, 0, 0, (0, 0, 200, 255)), 2))
+    assert calls
+    assert _whole_signature(live) == _whole_signature(plain)
+
+
+def test_paste_sheet_cell_twice_and_undo_match_python(monkeypatch):
+    # 貼った保持の上へもう一度貼る（後ろは配置待ちが解かれた入れ直しの位置）。Undo も今の
+    # 手順と同じになる。
+    plain, live = _pair(hold=5, count=10)
+    live._promote()
+    before = [document.snapshot() for document in (plain, live)]
+    for args, clip_at, rgba in (((3, 0, 4), (0, 0), (200, 0, 0, 255)),
+                                ((4, 0, 2), (6, 0), (0, 0, 200, 255))):
+        assert (live.paste_sheet_cell(*args[:2], _clipboard(live, *clip_at, rgba), args[2])
+                == plain.paste_sheet_cell(*args[:2], _clipboard(plain, *clip_at, rgba), args[2]))
+        assert _signature(live) == _signature(plain)
+        assert _whole_signature(live) == _whole_signature(plain)
+    plain.restore_snapshot(before[0])
+    live.restore_snapshot(before[1])
+    assert _signature(live) == _signature(plain)
+    assert _whole_signature(live) == _whole_signature(plain)
+
+
 def test_has_unlinked_tracks_answers_without_walking_positions(monkeypatch):
     plain, live = _pair()
     calls = _round_trips(live, monkeypatch)
