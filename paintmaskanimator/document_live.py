@@ -1399,6 +1399,12 @@ class Document:
             return self._run("insert_sequence_blank", (layer_index, after_number), {})
         return changes
 
+    def delete_sequence_entry(self, layer_index, number):
+        changes = _CORE_COMMANDS["delete_sequence_entry"](self, layer_index, number)
+        if changes is None:
+            return self._run("delete_sequence_entry", (layer_index, number), {})
+        return changes
+
     def split_sheet_clip(self, column, layer_index):
         changes = _CORE_COMMANDS["split_sheet_clip"](self, column, layer_index)
         if changes is None:
@@ -2862,6 +2868,84 @@ def _core_insert_sequence_blank(document, layer_index, after_number):
     return changes
 
 
+def _core_delete_sequence_entry(document, layer_index, number):
+    """delete_sequence_entry を Rust の命令で当てる。今の手順と同じにできなければ None。
+
+    今の手順はその番号を指す位置をその場で消し（clear_slot。Layer はそのまま、局所の Cell が
+    替わり、画像は新しい空画像）、旧連番保管の札とバンクの絵を取り除く（外れた Cell・画像は
+    命令の前の値のまま）。末尾の空いたコマを取り除く場合、消す位置が局所の絵を共有する・
+    バンクの絵を局所の絵として持つ場合は今の経路。
+    """
+    live = document._live()
+    if (live["graph"] is not None or live.get("trial") or type(layer_index) is not int
+            or type(number) is not int):
+        return None
+    state = live["state"]
+    frame_ids = list(state.frame_ids)
+    count = len(frame_ids)
+    if not (0 <= layer_index < len(state.track_ids)) or not count or number < 1:
+        return None
+    tid = state.track_ids[layer_index]
+    keys = []
+    for fid in frame_ids:
+        values = state.position(fid, tid)[0]
+        if values["sequence_number"] == number:
+            if values.get("local_share") is not None or values["local_bank"]:
+                return None
+            keys.append((fid, tid))
+    data, handles = state.track(tid)
+    cell = next((cell for n, cell in data["cells"] if n == number), None)
+    if not keys and cell is None:
+        return None  # 今の手順は札だけ取り除く（何も変わらなければ空の ChangeSet）
+    operation = ["delete_sequence_entry", layer_index, number]
+    # 末尾のコマを取り除くかは、写しに当てて確かめる（取り除いたコマの付け替えはまだ無い）。
+    # ほかの列が末尾のコマを使っていれば取り除かないので、写しは要らない。
+    last = count - 1
+    if not any(document.timeline_block_at(last, index) is not None
+               for index in range(len(state.track_ids)) if index != layer_index):
+        if not _keeps_frame_count(live, operation, count):
+            return None
+    plan = _detach_plan(document, [], keys)
+    if plan is None:
+        return None
+    if cell is not None:
+        # 取り除くバンクの絵の窓口も、命令の前の値の素の Cell・画像にして外す。
+        bank = ("bank", tid, number)
+        cache = live["cache"]
+        images = {}
+        for initial in (False, True):
+            image = cache._objects.get(("image", (bank, initial)))
+            if image is not None:
+                try:
+                    images[initial] = (image, image._image.copy())
+                except ValueError:
+                    return None
+        window = cache._objects.get(("cell", bank))
+        if window is not None or images:
+            plan["cells"].append((bank, window, images, {"local": cell}, handles))
+    rows = [key[0] for key in keys]
+    result = _apply_core_command(document, operation, lambda ids: rows)
+    if result is None:
+        return None
+    changes, _ = result
+    state.refresh_track(tid)
+    state.forget_track(tid)
+    state.pending.clear()
+    _detach(document, plan)
+    return changes
+
+
+def _keeps_frame_count(live, operation, count):
+    """命令を写しに当てて、コマの数が変わらないか確かめる。"""
+    trial = live["core"].copy()
+    trial.set_blank_image(_blank_handle())
+    try:
+        trial.apply_command(json.dumps(operation))
+    except ValueError:
+        return False
+    return len(json.loads(trial.frames_graph([])[0])["frame_order"]) == count
+
+
 def _core_position_command(document, name, column, layer_index, replace):
     """一つの位置だけを書き換える命令を Rust で当てる。今の手順と同じにできなければ None。
 
@@ -3008,6 +3092,7 @@ _CORE_COMMANDS = {"add_track": _core_add_track,
                   "new_sheet_cell": _core_new_sheet_cell,
                   "split_sheet_clip": _core_split_sheet_clip,
                   "insert_sequence_blank": _core_insert_sequence_blank,
+                  "delete_sequence_entry": _core_delete_sequence_entry,
                   "new_sheet_number": _core_new_sheet_number}
 
 

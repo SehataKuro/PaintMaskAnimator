@@ -643,6 +643,52 @@ def test_insert_sequence_blank_drops_dense_import_of_shifted_numbers_like_python
     assert _whole_signature(live) == _whole_signature(plain)
 
 
+def test_delete_sequence_entry_uses_core_command_and_matches_python(monkeypatch):
+    for shape, (layer_index, number, column) in (({"hold": 5, "count": 10}, (0, 2, 5)),
+                                                 ({"hold": 3, "count": 9}, (0, 1, 1)),
+                                                 ({"hold": 3, "count": 9}, (1, 2, 3))):
+        plain, live = _pair(**shape)
+        calls = _round_trips(live, monkeypatch)
+        _same_position(live, plain, column, layer_index,
+                       lambda document, layer_index=layer_index, number=number: (
+                           document.delete_sequence_entry(layer_index, number)))
+        assert len(calls) == 1  # 最後の _plain_flags だけが素の状態に落とす
+
+
+def test_delete_sequence_entry_detaches_the_removed_bank_artwork(monkeypatch):
+    # 取り除いたバンクの Cell・画像は、命令の前の画素のまま文書から外れる。
+    plain, live = _pair(hold=5, count=10)
+    live._promote()
+    patch = QImage(2, 2, QImage.Format.Format_ARGB32_Premultiplied)
+    patch.fill(QColor(0, 0, 255, 255))
+    held = []
+    for document in (plain, live):
+        document.write_drawing_patch(5, 0, patch, (0, 0, 2, 2))
+        cell = document.tracks[0].cells[2]
+        held.append((cell, cell.image))
+    calls = _round_trips(live, monkeypatch)
+    assert live.delete_sequence_entry(0, 2) == plain.delete_sequence_entry(0, 2)
+    assert calls == []
+    for document, (cell, image) in zip((plain, live), held):
+        assert 2 not in document.tracks[0].cells
+        assert cell.image is image
+        assert image.read_rgba(0, 0, 1, 1).any()
+        image.write_qimage(patch, 4, 4)
+        assert not document.frames[5].layers[0].image.read_rgba(4, 4, 1, 1).any()
+    assert _whole_signature(live) == _whole_signature(plain)
+
+
+def test_delete_sequence_entry_that_trims_frames_takes_the_current_path(monkeypatch):
+    plain, live = _pair(hold=2, count=6)
+    for document in (plain, live):
+        document.delete_sequence_entry(1, 3)  # B の最後の番号を消す（A は残る）
+    live._promote()
+    calls = _round_trips(live, monkeypatch)
+    assert live.delete_sequence_entry(0, 3) == plain.delete_sequence_entry(0, 3)
+    assert calls
+    assert _whole_signature(live) == _whole_signature(plain)
+
+
 def test_has_unlinked_tracks_answers_without_walking_positions(monkeypatch):
     plain, live = _pair()
     calls = _round_trips(live, monkeypatch)
