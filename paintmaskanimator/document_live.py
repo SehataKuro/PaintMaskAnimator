@@ -1393,6 +1393,18 @@ class Document:
         changes = _CORE_COMMANDS["duplicate_frame"](self, column)
         return self._run("duplicate_frame", (column,), {}) if changes is None else changes
 
+    def insert_sequence_blank(self, layer_index, after_number):
+        changes = _CORE_COMMANDS["insert_sequence_blank"](self, layer_index, after_number)
+        if changes is None:
+            return self._run("insert_sequence_blank", (layer_index, after_number), {})
+        return changes
+
+    def split_sheet_clip(self, column, layer_index):
+        changes = _CORE_COMMANDS["split_sheet_clip"](self, column, layer_index)
+        if changes is None:
+            return self._run("split_sheet_clip", (column, layer_index), {})
+        return changes
+
     def has_unlinked_tracks(self):
         """Rust の状態では列の窓口はいつも文書へ公開済み（connected）なので、位置をなめない。"""
         live = self._live()
@@ -2704,6 +2716,152 @@ def _core_clear_sheet_span(document, layer_index, start, stop):
     return changes
 
 
+def _core_split_sheet_clip(document, column, layer_index):
+    """split_sheet_clip を Rust の命令で当てる。今の手順と同じにできなければ None。
+
+    今の手順は保持の先頭の絵を写して新しい番号でバンクに入れ、column から保持の終わりまでの
+    位置をその場で書き換えてその番号を指させる（Layer はそのまま、配置待ちを解き、中割りの
+    印を消す）。Layer・局所の Cell・画像のオブジェクトは変えない。分けられない（保持の先頭・
+    保持の外）とき、先頭が番号付きの内容でないとき、保持の位置が局所の絵や旧形式の記録を
+    持つときは今の経路。
+    """
+    live = document._live()
+    if (live["graph"] is not None or live.get("trial") or type(column) is not int
+            or type(layer_index) is not int):
+        return None
+    state = live["state"]
+    frame_ids = list(state.frame_ids)
+    if not (0 <= column < len(frame_ids) and 0 <= layer_index < len(state.track_ids)):
+        return None
+    block = document.timeline_block_at(column, layer_index)
+    if block is None or column <= block[1]:
+        return None  # 今の手順は何もしない
+    _kind, start, exposure = block
+    stop = start + exposure
+    if stop > len(frame_ids):
+        return None
+    tid = state.track_ids[layer_index]
+    # 今の手順は先頭を clone() して写す（内容の位置ならバンクの絵、そうでなければ局所の絵）。
+    # Rust は残った番号でもバンクを優先するので、先頭は番号付きの内容に限る。
+    head = state.position(frame_ids[start], tid)[0]
+    if not (head["has_content"] and head["sequence_number"] is not None):
+        return None
+    # 今の手順は書き換える位置の番号と印だけを変え、局所の Cell（Layer._cell）や旧形式の記録は
+    # 残す。Rust はそれらを消すので、そういうものを持つ位置があれば今の経路。
+    for index in range(start, stop):
+        values = state.position(frame_ids[index], tid)[0]
+        if (values["local"] is not None or values["local_bank"]
+                or values.get("local_share") is not None or values.get("pending_detached")
+                or any(values.get(name) is not None for name in _SPLIT_RECORDS)
+                or values.get("legacy_missing")):
+            return None
+    result = _apply_core_command(document, ["split_sheet_clip", column, layer_index],
+                                 lambda ids: ids[column:stop])
+    if result is None:
+        return None
+    changes, _ = result
+    # 新しい番号の絵がバンクに入るので、列の写しも取り直す。
+    state.refresh_track(tid)
+    state.forget_track(tid)
+    state.pending.clear()
+    return changes
+
+
+_SPLIT_RECORDS = ("v1_position", "dense_import", "content_origin", "resolve_source",
+                  "length_imported")
+
+
+def _rekey_bank(document, tid, mapping):
+    """列のバンクの Cell・画像の窓口を、送った先の番号のキーへ付け替える（今の手順は
+    track.cells の Cell を新しい番号へ移すだけで、Cell・画像のオブジェクトは変えない）。"""
+    live = document._live()
+    cache, core = live["cache"], live["core"]
+    moved = []
+    for old, new in mapping.items():
+        old_key = ("bank", tid, old)
+        cell = cache.pop("cell", old_key)
+        images = [(initial, cache.pop("image", (old_key, initial))) for initial in (False, True)]
+        moved.append((new, cell, images))
+    for new, cell, images in moved:
+        new_key = ("bank", tid, new)
+        if cell is not None:
+            _setm(cell, "_key", new_key)
+            cache.put("cell", new_key, cell)
+        for initial, image in images:
+            if image is not None:
+                _bind(image, _native._CellImage(core, True, tid, new, initial))
+                cache.put("image", (new_key, initial), image)
+
+
+def _core_insert_sequence_blank(document, layer_index, after_number):
+    """insert_sequence_blank を Rust の命令で当てる。今の手順と同じにできなければ None。
+
+    今の手順は after_number の後ろの番号を一つずつ送り（位置の番号をその場で書き換え、
+    バンクの Cell は新しい番号へ移るだけ）、空の絵を新しい番号でバンクに入れ、末尾に足した
+    コマの位置を配置待ちの空キーにする。既存の Layer・Cell・画像のオブジェクトは変えない。
+    バンクが空で番号付きの位置がある（今の手順は番号を 1 にしない）、番号でない
+    after_number、送る番号の絵を局所の絵として共有する位置がある、なら今の経路。
+    """
+    live = document._live()
+    if (live["graph"] is not None or live.get("trial") or type(layer_index) is not int
+            or type(after_number) is not int):
+        return None
+    state = live["state"]
+    if not (0 <= layer_index < len(state.track_ids)) or not state.frame_ids:
+        return None
+    tid = state.track_ids[layer_index]
+    numbers = [number for number, _ in state.track(tid)[0]["cells"]]
+    rows = []
+    for fid in state.frame_ids:
+        values = state.position(fid, tid)[0]
+        if values.get("local_share") is not None or values.get("pending_detached"):
+            return None
+        if (values["sequence_number"] is not None or values.get("v1_position") is not None
+                or values.get("dense_import") is not None):
+            rows.append(fid)
+        if values["sequence_number"] is not None:
+            if not numbers and values["sequence_number"] >= 1 and (
+                    values["has_content"] or values["sequence_only"]):
+                return None
+    insert_number = 1 if not numbers else max(1, after_number + 1)
+    mapping = {number: number + 1 for number in numbers if number >= insert_number}
+    # 今の手順は番号を代入するので（Layer.__setattr__）その位置の _dense_import が消えるが、
+    # Rust は取り込み時の記録を残す。送る番号の位置が記録を持つなら今の経路。
+    for fid in rows:
+        values = state.position(fid, tid)[0]
+        if (values.get("dense_import") is not None
+                and values["sequence_number"] in mapping):
+            return None
+    # 新しい番号の絵は今の手順と同じく Cell(blank_image()) で作る（取り込みは直前の取り込み
+    # しだいで雛形と画素・世代を共有する。PmaImage の _last_import）。Rust の命令のあとで
+    # その絵に置き換える。
+    from .models import Cell
+    from .pma_image import attributes_tag
+    from .utils import blank_image
+    image = Cell(blank_image()).image
+    handle = image._image.copy().with_tag(attributes_tag(image._attributes))
+    cell_value = json.dumps({"image": 0, "initial_image": None, "cell_name": None})
+
+    def apply(core):
+        text = core.apply_command(json.dumps(
+            ["insert_sequence_blank", layer_index, after_number]))
+        core.set_cell_graph(tid, insert_number, cell_value, [handle])
+        return text
+    result = _apply_core_command(document, None, lambda ids: rows, apply)
+    if result is None:
+        return None
+    changes, new_ids = result
+    _rekey_bank(document, tid, mapping)
+    state.refresh_track(tid)
+    state.forget_track(tid)
+    tokens = live.setdefault("tokens", {})
+    for fid in new_ids:
+        for track in state.track_ids:
+            tokens[fid, track] = PendingToken()
+    state.pending.clear()
+    return changes
+
+
 def _core_position_command(document, name, column, layer_index, replace):
     """一つの位置だけを書き換える命令を Rust で当てる。今の手順と同じにできなければ None。
 
@@ -2848,6 +3006,8 @@ _CORE_COMMANDS = {"add_track": _core_add_track,
                   "create_blank_key": _core_create_blank_key,
                   "clear_sheet_span": _core_clear_sheet_span,
                   "new_sheet_cell": _core_new_sheet_cell,
+                  "split_sheet_clip": _core_split_sheet_clip,
+                  "insert_sequence_blank": _core_insert_sequence_blank,
                   "new_sheet_number": _core_new_sheet_number}
 
 

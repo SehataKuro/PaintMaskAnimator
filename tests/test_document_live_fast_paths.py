@@ -482,6 +482,167 @@ def test_new_sheet_cell_and_number_use_core_command_and_match_python(monkeypatch
         assert len(calls) == 1
 
 
+def test_split_sheet_clip_uses_core_command_and_matches_python(monkeypatch):
+    for shape, (column, layer_index) in (({"hold": 5, "count": 10}, (2, 0)),
+                                         ({"hold": 5, "count": 10}, (4, 0)),
+                                         ({"hold": 3, "count": 9}, (1, 1)),
+                                         ({"hold": 5, "count": 10}, (7, 1))):
+        plain, live = _pair(**shape)
+        calls = _round_trips(live, monkeypatch)
+        _same_position(live, plain, column, layer_index,
+                       lambda document, column=column, layer_index=layer_index: (
+                           document.split_sheet_clip(column, layer_index)))
+        assert len(calls) == 1  # 最後の _plain_flags だけが素の状態に落とす
+
+
+def test_split_sheet_clip_keeps_old_local_artwork_detached(monkeypatch):
+    # 分けた位置の局所の絵の窓口は、命令の前の画素のまま文書から外れる。
+    plain, live = _pair(hold=5, count=10)
+    patch = QImage(2, 2, QImage.Format.Format_ARGB32_Premultiplied)
+    patch.fill(QColor(0, 0, 255, 255))
+    for document in (plain, live):
+        document.split_sheet_clip(3, 0)
+        document.write_drawing_patch(3, 0, patch, (0, 0, 2, 2))
+    head, plain_head = live.frames[0].layers[0].image, plain.frames[0].layers[0].image
+    assert not head.read_rgba(0, 0, 1, 1).any() and not plain_head.read_rgba(0, 0, 1, 1).any()
+    assert (live.frames[4].layers[0].image.read_rgba(0, 0, 1, 1).any()
+            == plain.frames[4].layers[0].image.read_rgba(0, 0, 1, 1).any())
+    assert _signature(live) == _signature(plain)
+
+
+def test_insert_sequence_blank_uses_core_command_and_matches_python(monkeypatch):
+    for shape, (layer_index, after) in (({"hold": 2, "count": 6}, (0, 1)),
+                                        ({"hold": 2, "count": 6}, (1, 0)),
+                                        ({"hold": 3, "count": 9}, (0, 3)),
+                                        ({"hold": 3, "count": 9}, (1, 9))):
+        plain, live = _pair(**shape)
+        live._promote()
+        bank = {number: (cell, cell.image) for number, cell in live.tracks[layer_index].cells.items()}
+        plain_bank = {number: (cell, cell.image)
+                      for number, cell in plain.tracks[layer_index].cells.items()}
+        slots = [frame.layers[layer_index] for frame in live.frames]
+        calls = _round_trips(live, monkeypatch)
+        assert (live.insert_sequence_blank(layer_index, after)
+                == plain.insert_sequence_blank(layer_index, after))
+        assert calls == []
+        assert _signature(live) == _signature(plain)
+        assert all(frame.layers[layer_index] is slot for frame, slot in zip(live.frames, slots))
+        # 送った番号のバンクの Cell・画像は、同じオブジェクトのまま新しい番号へ移る。
+        moved = {number: [n for n, cell in live.tracks[layer_index].cells.items()
+                          if cell is pair[0] and cell.image is pair[1]]
+                 for number, pair in bank.items()}
+        plain_moved = {number: [n for n, cell in plain.tracks[layer_index].cells.items()
+                                if cell is pair[0] and cell.image is pair[1]]
+                       for number, pair in plain_bank.items()}
+        assert moved == plain_moved
+        assert sorted(live.tracks[layer_index].cells) == sorted(plain.tracks[layer_index].cells)
+        # バンクの番号の並び（dict の挿入順）は比べない（graph_signature と同じ。Rust は番号順に
+        # 持ち、保存は番号順に並べ直す）。署名の画像の番号は出てきた順なので、並びをそろえる。
+        for track in plain.tracks:
+            track.cells = dict(sorted(track.cells.items()))
+        for index in range(2):
+            assert (_column_signature([frame.layers[index] for frame in live.frames], monkeypatch)
+                    == _column_signature([frame.layers[index] for frame in plain.frames],
+                                         monkeypatch))
+        assert _plain_flags(live) == _plain_flags(plain)
+        assert _v1_records(live) == _v1_records(plain)
+
+
+def _whole_signature(document):
+    """文書全体の署名。バンクは番号順に並べ、画像の世代は文書全体で出てきた順に振り直す。
+    live は素の状態に落として読む（命令のあとに呼ぶ）。"""
+    from paintmaskanimator import document_core
+    if hasattr(document, "_demote"):
+        document = document._demote().plain
+    for track in document.tracks:
+        track.cells = dict(sorted(track.cells.items()))
+    original = document_core._image_signature
+    seen = {}
+
+    def image_signature(image):
+        value = original(image)
+        if isinstance(value, tuple) and len(value) == 4:
+            value = (value[0], value[1], seen.setdefault(value[2], len(seen)), value[3])
+        return value
+    document_core._image_signature = image_signature
+    try:
+        return document_core.graph_signature(document)
+    finally:
+        document_core._image_signature = original
+
+
+def _colored_layer(name, rgba, *, content=True, number=None, blank=False):
+    image = QImage(8, 8, QImage.Format.Format_ARGB32_Premultiplied)
+    image.fill(QColor(*rgba))
+    layer = Layer(name, PmaImage(image))
+    layer.has_content, layer.sequence_number, layer.is_blank_key = content, number, blank
+    return layer
+
+
+def test_split_sheet_clip_with_local_artwork_takes_the_current_path(monkeypatch):
+    # 先頭が番号を残した空キー（局所の絵を写す）、番号の無い内容の保持（局所の絵）では、
+    # 今の手順は局所の Cell を残して写すので、Rust の命令は使わない。
+    def retained():
+        return ([Frame([_colored_layer("A", (255, 0, 0, 255), number=1)]) for _ in range(2)]
+                + [Frame([_colored_layer("A", (0, 0, 255, 255), content=False, number=1,
+                                         blank=True)]) for _ in range(3)])
+
+    def unnumbered():
+        return [Frame([_colored_layer("A", (0, 255, 0, 255))]) for _ in range(3)]
+    for frames, column in ((retained, 3), (unnumbered, 1)):
+        plain = GraphDocument()
+        plain.install_legacy_frames(frames())
+        live = document_live.Document()
+        live.install_legacy_frames(frames())
+        live._promote()
+        calls = _round_trips(live, monkeypatch)
+        assert live.split_sheet_clip(column, 0) == plain.split_sheet_clip(column, 0)
+        assert calls
+        assert _whole_signature(live) == _whole_signature(plain)
+
+
+def test_insert_sequence_blank_imports_the_blank_like_python(monkeypatch):
+    # 今の手順の Cell(blank_image()) は直前の取り込みしだいで雛形と世代を共有する。
+    from paintmaskanimator import pma_image
+    for colored in (False, True):
+        documents = []
+        for factory in (GraphDocument, document_live.Document):
+            document = factory()
+            document.install_legacy_frames(_frames(hold=2, count=6))
+            if factory is not GraphDocument:
+                document._promote()
+                calls = _round_trips(document, monkeypatch)
+            monkeypatch.setattr(pma_image, "_last_import", None)
+            if colored:
+                image = QImage(4, 4, QImage.Format.Format_ARGB32_Premultiplied)
+                image.fill(QColor(9, 9, 9, 255))
+                PmaImage(image)
+            documents.append((document, document.insert_sequence_blank(0, 1)))
+        (plain, expected), (live, result) = documents
+        assert result == expected
+        assert calls == []
+        assert _whole_signature(live) == _whole_signature(plain)
+
+
+def test_insert_sequence_blank_drops_dense_import_of_shifted_numbers_like_python():
+    # 今の手順は送った番号を代入するので、その位置の取り込み時の記録（_dense_import）が消える。
+    from paintmaskanimator.legacy_v1 import BLANK, EMPTY
+    from paintmaskanimator.timeline_metadata import set_dense_import
+    documents = []
+    for factory in (GraphDocument, document_live.Document):
+        frames = _frames(hold=2, count=6)
+        for column in (0, 4):
+            slot = frames[column].layers[0]
+            set_dense_import(slot, ((True, False, slot.sequence_number, False, False),
+                                    BLANK, EMPTY))
+        document = factory()
+        document.install_legacy_frames(frames)
+        documents.append((document, document.insert_sequence_blank(0, 1)))
+    (plain, expected), (live, result) = documents
+    assert result == expected
+    assert _whole_signature(live) == _whole_signature(plain)
+
+
 def test_has_unlinked_tracks_answers_without_walking_positions(monkeypatch):
     plain, live = _pair()
     calls = _round_trips(live, monkeypatch)
