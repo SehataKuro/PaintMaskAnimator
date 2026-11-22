@@ -1437,6 +1437,10 @@ class Document:
         changes = _CORE_COMMANDS["restore_removed_track"](self, e)
         return self._run("restore_removed_track", (e,), {}) if changes is None else changes
 
+    def restore_inserted_track(self, e):
+        changes = _CORE_COMMANDS["restore_inserted_track"](self, e)
+        return self._run("restore_inserted_track", (e,), {}) if changes is None else changes
+
     def add_track(self):
         changes = _CORE_COMMANDS["add_track"](self)
         return self._run("add_track", (), {}) if changes is None else changes
@@ -1868,11 +1872,12 @@ def _changes_from_json(text):
     return changes.ChangeSet(tuple(items))
 
 
-def _apply_core_command(document, operation, rows):
+def _apply_core_command(document, operation, rows, apply=None):
     """Rust の文書に構造の命令を当て、窓口が読む写しを行ごとに取り直す。
 
     rows(frame_ids_before) は、命令で中身が変わり得る既存のコマ ID の列を返す。新しいコマの
-    行は自動で読む。命令が当てられなければ None（文書は変わっていない）。
+    行は自動で読む。命令が当てられなければ None（文書は変わっていない）。apply(core) を
+    渡すと、operation の代わりにそれで命令を当てる（apply_command と同じ形の JSON を返す）。
     """
     live = document._live()
     state = live["state"]
@@ -1880,7 +1885,8 @@ def _apply_core_command(document, operation, rows):
     changed = rows(before)
     try:
         live["core"].set_blank_image(_blank_handle())
-        text = live["core"].apply_command(json.dumps(operation))
+        text = (live["core"].apply_command(json.dumps(operation)) if apply is None
+                else apply(live["core"]))
     except ValueError:
         return None
     order = json.loads(live["core"].frames_graph([])[0])["frame_order"]
@@ -2232,6 +2238,79 @@ def _core_add_track(document):
     (tid,) = [tid for tid in state.track_ids if tid not in before]
     state.refresh_track(tid)
     tokens = live.setdefault("tokens", {})
+    for fid in state.frame_ids:
+        tokens[fid, tid] = PendingToken()
+    state.pending.clear()
+    document._retire_view("tracks_view", old_tracks)
+    return changes
+
+
+def _core_restore_inserted_track(document, e):
+    """restore_inserted_track（列の削除の Undo）を Rust の命令で当てる。できなければ None。
+
+    今の手順は外した列の写し e.layers を clone_frame_graph で写し、一つの Track を共有させて
+    各コマの列 e.index に入れ、sync_columns で tracks に新しいリストを入れる。写しを一列だけの
+    Rust の文書にし、その列を insert_track で入れる。写しのコマ数が文書と違う（足りない分を
+    新しい Layer で埋める）、写しが一つの Track を共有していない、e.index が範囲外、写しや
+    文書に配置待ち・pending_detached の位置がある、写しに局所の絵の共有の組がある、なら
+    今の経路。
+    """
+    from .document import GraphDocument
+    live = document._live()
+    if live["graph"] is not None or live.get("trial"):
+        return None
+    state = live["state"]
+    layers = list(getattr(e, "layers", None) or ())
+    if (not state.frame_ids or len(layers) != len(state.frame_ids)
+            or not all(isinstance(layer, Layer) for layer in layers)):
+        return None
+    try:
+        index, target = int(e.index), int(e.target_active)
+    except (TypeError, ValueError):
+        return None
+    if any(values.get("pending_detached") for values, _ in state.positions.values()):
+        return None
+    count = len(state.track_ids)
+    # 今の手順は通知に丸める前の e.index を入れるので、範囲外なら今の経路。
+    if not 0 <= index <= count:
+        return None
+    # 記録の列（capture_column の写し）は一つの Track を共有している。そのまま Rust の文書に
+    # する（写しを取り直すのと同じ値になり、Rust の文書は画素を書き込みまで共有し、記録の
+    # オブジェクトは変えない）。共有していない記録は今の経路。
+    if not all(layer._track is layers[0]._track for layer in layers):
+        return None
+    stored = layers
+    track = stored[0]._track
+    if (track.pending_slots or not track.connected
+            or any(layer.sequence_only or layer.__dict__.get("_pending_detached")
+                   for layer in stored)):
+        return None
+    plain = object.__new__(GraphDocument)
+    plain.frames = [Frame([layer]) for layer in stored]
+    plain.tracks = [track]
+    plain.current_frame = plain.active_layer_index = 0
+    try:
+        text, images = graph_payload(plain)
+        if any(position.get("local_share") is not None
+               for frame in json.loads(text)["frames"] for position in frame["positions"]):
+            return None
+        source = _native._CoreDocument.from_graph(text, images)
+    except (GraphError, ValueError, KeyError, TypeError):
+        return None
+    at = index
+    active = max(0, min(target, count))
+    before = set(state.track_ids)
+    old_tracks = list(document.tracks)
+    result = _apply_core_command(
+        document, None, lambda ids: list(ids),
+        apply=lambda core: core.insert_track_from(source, 0, at, active))
+    if result is None:
+        return None
+    changes, _ = result
+    (tid,) = [tid for tid in state.track_ids if tid not in before]
+    state.refresh_track(tid)
+    tokens = live.setdefault("tokens", {})
+    # 今の手順は写しの位置を新しく作るので、札も新しい（記録の位置の札は使わない）。
     for fid in state.frame_ids:
         tokens[fid, tid] = PendingToken()
     state.pending.clear()
@@ -2613,6 +2692,7 @@ def _core_restore_snapshot(document, snapshot):
 _CORE_COMMANDS = {"add_track": _core_add_track,
                   "remove_tracks": _core_remove_tracks,
                   "restore_removed_track": _core_restore_removed_track,
+                  "restore_inserted_track": _core_restore_inserted_track,
                   "duplicate_frame": _core_duplicate_frame,
                   "delete_frame": _core_delete_frame,
                   "delete_track_frame": _core_delete_track_frame,

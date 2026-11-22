@@ -802,3 +802,111 @@ def test_capture_column_reads_pixels_written_through_the_image(monkeypatch):
     for got, want in zip(captured, expected):
         assert (got.image.read_rgba(0, 0, 8, 8) == want.image.read_rgba(0, 0, 8, 8)).all()
     assert captured[0].image.read_rgba(3, 3, 1, 1).any()
+
+
+def _delete_column(document, index, target):
+    """canvas.delete_layer と同じ手順（写しを取ってから消す）。Undo の記録を返す。"""
+    from paintmaskanimator.undo_entries import LayerInsertUndo
+    entry = LayerInsertUndo(index, document.capture_column(index), target)
+    document.remove_tracks((index,), active=target)
+    return entry
+
+
+def test_restore_inserted_track_uses_core_command_and_matches_python(monkeypatch):
+    plain, live = _pair(hold=3, count=7)
+    for document in (plain, live):
+        document.add_track()
+    live._promote()
+    patch = QImage(2, 2, QImage.Format.Format_ARGB32_Premultiplied)
+    patch.fill(QColor(0, 0, 255, 255))
+    for document in (plain, live):
+        document.frames[0].layers[1].image.write_qimage(patch, 3, 3)
+    calls = _round_trips(live, monkeypatch)
+    entries = [_delete_column(document, 1, 0) for document in (plain, live)]
+    old_tracks, plain_old_tracks = live.tracks, plain.tracks
+    assert live.restore_inserted_track(entries[1]) == plain.restore_inserted_track(entries[0])
+    assert calls == []
+    assert _signature(live) == _signature(plain)
+    assert [layer.name for layer in live.layers] == [layer.name for layer in plain.layers]
+    assert live.active_layer_index == plain.active_layer_index
+    assert (live.tracks is old_tracks) == (plain.tracks is plain_old_tracks)
+    assert len(old_tracks) == len(plain_old_tracks) == 2
+    for a, b in zip(live.frames, plain.frames):
+        assert (a.layers[1].image.read_rgba(0, 0, 8, 8)
+                == b.layers[1].image.read_rgba(0, 0, 8, 8)).all()
+    assert live.frames[0].layers[1].image.read_rgba(3, 3, 1, 1).any()
+    # 列の中身（バンク・隠し属性・絵の名前など）も今の手順と同じ。
+    assert (_column_signature([frame.layers[1] for frame in live.frames], monkeypatch)
+            == _column_signature([frame.layers[1] for frame in plain.frames], monkeypatch))
+    # 戻した列は一つの Track を共有し、Undo の記録の写しとは別のオブジェクト。
+    column = [frame.layers[1] for frame in live.frames]
+    assert all(slot._track is live.tracks[1] for slot in column)
+    assert not any(slot is layer for slot in column for layer in entries[1].layers)
+    # 戻した列に描いても、記録の写しは変わらない（もう一度戻せる）。
+    before = entries[1].layers[0].image.read_rgba(0, 0, 8, 8).copy()
+    for document in (plain, live):
+        document.frames[0].layers[1].image.write_qimage(patch, 0, 0)
+    assert (entries[1].layers[0].image.read_rgba(0, 0, 8, 8) == before).all()
+    # 真ん中の列も同じ（Redo → Undo の順）。
+    for document in (plain, live):
+        document.remove_tracks((1,), active=0)
+    assert live.restore_inserted_track(entries[1]) == plain.restore_inserted_track(entries[0])
+    assert calls == []
+    assert _signature(live) == _signature(plain)
+    assert [layer.name for layer in live.layers] == [layer.name for layer in plain.layers]
+
+
+def test_restore_inserted_track_with_fewer_layers_takes_the_current_path(monkeypatch):
+    from paintmaskanimator.undo_entries import LayerInsertUndo
+    plain, live = _pair(hold=3, count=7)
+    for document in (plain, live):
+        document.add_track()
+    live._promote()
+    entries = [LayerInsertUndo(2, document.capture_column(2)[:4], 1) for document in (plain, live)]
+    for document in (plain, live):
+        document.remove_tracks((2,), active=1)
+    calls = _round_trips(live, monkeypatch)
+    assert live.restore_inserted_track(entries[1]) == plain.restore_inserted_track(entries[0])
+    assert calls
+    assert _signature(live) == _signature(plain)
+    assert [layer.name for layer in live.layers] == [layer.name for layer in plain.layers]
+
+
+def test_restore_inserted_track_with_pending_positions_takes_the_current_path(monkeypatch):
+    plain, live = _pair(hold=5, count=10)
+    for document in (plain, live):
+        document.add_track()
+        document.insert_sequence_blank(1, 1)
+    live._promote()
+    entries = [_delete_column(document, 1, 0) for document in (plain, live)]
+    assert any(layer.sequence_only for layer in entries[1].layers)
+    calls = _round_trips(live, monkeypatch)
+    assert live.restore_inserted_track(entries[1]) == plain.restore_inserted_track(entries[0])
+    assert calls
+    assert _signature(live) == _signature(plain)
+
+
+def test_restore_inserted_track_out_of_range_or_unshared_takes_the_current_path(monkeypatch):
+    from paintmaskanimator.undo_entries import LayerInsertUndo
+    plain, live = _pair(hold=3, count=7)
+    for document in (plain, live):
+        document.add_track()
+    live._promote()
+    entries = [_delete_column(document, 2, 1) for document in (plain, live)]
+    calls = _round_trips(live, monkeypatch)
+    # 範囲外の index：今の手順は通知に丸める前の値を入れる。
+    wide = [LayerInsertUndo(5, entry.layers, entry.target_active) for entry in entries]
+    assert live.restore_inserted_track(wide[1]) == plain.restore_inserted_track(wide[0])
+    assert calls
+    assert _signature(live) == _signature(plain)
+    for document in (plain, live):
+        document.remove_tracks((2,), active=1)
+    live._promote()
+    calls.clear()
+    # 一つの Track を共有していない記録。
+    for entry in entries:
+        entry.layers[3].detach_track()
+    assert live.restore_inserted_track(entries[1]) == plain.restore_inserted_track(entries[0])
+    assert calls
+    assert _signature(live) == _signature(plain)
+    assert [layer.name for layer in live.layers] == [layer.name for layer in plain.layers]

@@ -386,3 +386,21 @@ pub fn apply_operations(document: &mut Document, operations: &Value) -> Result<S
     *document = edited;
     Ok(json!(changes).to_string())
 }
+
+/// 別の文書 `source` の列 `source_layer` を、`document` の列 `at` へ insert_track で入れる。
+///
+/// Python の restore_inserted_track（外した列の写しを戻す）用。`source` は戻す列だけを
+/// 持つ文書で、コマ数は `document` と同じであること。結果は apply_operations と同じ形の
+/// JSON（操作一つ分）。失敗時は文書を変えない。
+pub fn insert_track_from(
+    document: &mut Document,
+    source: &Document,
+    source_layer: usize,
+    at: usize,
+    active: usize,
+) -> Result<String, Error> {
+    let prepared = prepared_track(source, source_layer)?;
+    let result = document.insert_track(at, prepared, Some(active))?;
+    let changes: Vec<Value> = result.into_iter().map(notice).collect();
+    Ok(json!([changes]).to_string())
+}

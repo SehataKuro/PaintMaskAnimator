@@ -568,6 +568,39 @@ mod tests {
         }
     }
 
+    // tests/test_document_live_fast_paths.py:test_restore_inserted_track_uses_core_command_and_matches_python
+    #[test]
+    fn insert_track_from_copies_a_column_of_another_document() {
+        let mut doc = document();
+        doc.ensure_frame_count(3).unwrap();
+        let mut source = document();
+        source.ensure_frame_count(3).unwrap();
+        let id = source.track_order()[0];
+        source.tracks.get_mut(&id).unwrap().settings.name = "戻す列".into();
+        let before = v2::project(&doc, &json!({})).unwrap().payload;
+        // コマ数が違う・範囲外の列は失敗し、文書を変えない。
+        let short = document();
+        assert!(crate::document::comparison::insert_track_from(&mut doc, &short, 0, 0, 0).is_err());
+        assert!(
+            crate::document::comparison::insert_track_from(&mut doc, &source, 1, 0, 0).is_err()
+        );
+        assert!(
+            crate::document::comparison::insert_track_from(&mut doc, &source, 0, 2, 0).is_err()
+        );
+        assert_eq!(v2::project(&doc, &json!({})).unwrap().payload, before);
+        let text =
+            crate::document::comparison::insert_track_from(&mut doc, &source, 0, 0, 1).unwrap();
+        let changes: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(changes.as_array().unwrap().len(), 1);
+        assert_eq!(doc.track_order().len(), 2);
+        let inserted = doc.track_order()[0];
+        assert_eq!(doc.tracks[&inserted].settings.name, "戻す列");
+        assert_eq!(doc.selection().1, doc.track_order()[1]);
+        for frame in doc.frame_order().to_vec() {
+            assert!(doc.frame(frame).unwrap().positions.contains_key(&inserted));
+        }
+    }
+
     #[test]
     fn prepared_tracks_reject_an_out_of_bounds_resolution_source_atomically() {
         use crate::document::compatibility::{DenseImport, PositionGuard, ResolvedSource};

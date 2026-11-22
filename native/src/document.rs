@@ -111,6 +111,20 @@ impl PyCoreDocument {
             .map_err(value_error)
     }
 
+    /// 別の文書 source の列 source_layer を列 index へ挿入する（restore_inserted_track）。
+    ///
+    /// apply_command と同じ形の JSON を返す。失敗時は文書を変えない。
+    fn insert_track_from(
+        &mut self,
+        source: PyRef<'_, PyCoreDocument>,
+        source_layer: usize,
+        index: usize,
+        active: usize,
+    ) -> PyResult<String> {
+        comparison::insert_track_from(&mut self.0, &source.0, source_layer, index, active)
+            .map_err(value_error)
+    }
+
     /// Python の restore と同じ値で、写しの文書（snapshot）を戻す。
     fn restore_from(&mut self, snapshot: PyRef<'_, PyCoreDocument>) {
         self.0.restore_from(&snapshot.0);
