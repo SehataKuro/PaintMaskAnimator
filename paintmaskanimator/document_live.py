@@ -758,6 +758,10 @@ class _LayersView(MutableSequence):
         self._document = _m(frame, "_owner")
 
     def _owner(self):
+        # 窓口のコマなら今の持ち主を引く（restore で外れた文書へ付け替わることがある）。
+        frame = self._frame
+        if isinstance(frame, LiveFrame):
+            self._document = _m(frame, "_owner")
         return self._document
 
     def _items(self):
@@ -1273,14 +1277,16 @@ class Document:
         """frames・tracks を入れ替える。この文書が前に渡した並びの窓口を戻したときは、
         今の Python と同じく ``document.frames is value`` になるよう、その窓口を使い直す。"""
         view_name = f"{name}_view"
-        reuse = (isinstance(value, _FramesView) and value._owner is self
-                 and value._name == name)
+        reuse = (isinstance(value, _FramesView) and value._name == name
+                 and (value._owner is self or value.__dict__.get("_retired_from") is self))
         items = self._plain_value(list(value) if reuse else value)
         self._retire_view(view_name)
         graph = self._demote()
         setattr(graph.plain, name, items)
         if reuse:
             value._frozen = None
+            value._owner = self
+            value.__dict__.pop("_retired_from", None)
             self._live()[view_name] = value
             # _promote が「リストが入れ替わった」と見て、戻した窓口を固定し直さないように。
             if graph.lists is not None:
@@ -2336,6 +2342,43 @@ def _core_new_sheet_number(document, column, layer_index):
     return _core_position_command(document, "new_sheet_number", column, layer_index, True)
 
 
+def _retire_document(document, frozen_core):
+    """文書の今の状態を、文書から外れた別の Document（写し frozen_core が正本）へ移す。
+
+    今の手順は文書のコマ・列を新しいオブジェクトに入れ替え、古いオブジェクトは今の値のまま
+    文書から外れる。全部を素のグラフへ書き出す代わりに、今ある窓口（位置・コマ・列・絵・
+    画像・並び）の持ち主を外れた Document に付け替える。窓口のオブジェクトと値はそのまま
+    で、書き込みは外れた側の写しに当たり文書には届かない。外れた窓口を文書の操作に渡すと、
+    今と同じく持ち主が素の状態に落ちて素のオブジェクトとして扱われる（_plain_value）。
+    """
+    live = document._live()
+    retired = object.__new__(Document)
+    live["core"] = frozen_core
+    live["state"].core = frozen_core
+    retired.__dict__["_live_state"] = live
+    for (kind, key), obj in live["cache"].items():
+        if kind == "image":
+            # 今と同じく、今の画素を持つ独立した画像に戻す（同じオブジェクトのまま外れた側の
+            # 表に残すので、外れた絵からも同じ画像が返る。写し全体は持たない）。戻せない
+            # （もう無い絵）ものは写しの同じ絵へ結び直す（新しい文書の絵を読まないように）。
+            _unbind(obj)
+            if isinstance(obj, BoundImage):
+                (place, first, second), initial = key
+                _bind(obj, _native._CellImage(frozen_core, place == "bank", first, second,
+                                              initial))
+            continue
+        _setm(obj, "_owner", retired)
+        view = obj.__dict__.get("_layers_view") if kind == "frame" else None
+        if view is not None:
+            view._document = retired
+    for name in ("frames_view", "tracks_view"):
+        view = live.pop(name, None)
+        if view is not None:
+            # 文書に入れ直されたら（document.frames = 古い並び）今と同じく使い直す。
+            view._owner = retired
+            view.__dict__["_retired_from"] = document
+
+
 def _core_restore_snapshot(document, snapshot):
     """restore_snapshot を、遅延の写しの Rust の文書から戻す。今の手順と同じにできなければ None。
 
@@ -2353,27 +2396,18 @@ def _core_restore_snapshot(document, snapshot):
     if core is None:
         return None
     current, active, width, height = tuple.__getitem__(snapshot, slice(1, 5))
-    # 文書に入っている窓口を、今の値の素のオブジェクトにして外す（素のグラフへ書き出す）。
-    graph = document._demote()
-    live = document._live()
-    for (kind, key), image in live["cache"].items():
-        if kind == "image":
-            live["cache"].pop(kind, key)
-            _unbind(image)
-    # 今の手順は frames・tracks に新しいリストを入れるので、渡した並びの窓口は古い並びに固定する。
-    document._retire_view("frames_view", graph.plain.frames)
-    document._retire_view("tracks_view", graph.plain.tracks)
     target = live["core"]
+    _retire_document(document, target.copy())
     target.set_blank_image(_blank_handle())
     target.restore_from(core)
     state = _CoreState(target)
-    live.update({
-        "graph": None, "state": state, "cursor": [current, active],
-        "next_ids": state.next_ids, "last_keys": {}, "extra_pending": {},
+    document.__dict__["_live_state"] = {
+        "graph": None, "core": target, "state": state, "cache": _Cache(),
+        "cursor": [current, active], "next_ids": state.next_ids, "last_keys": {},
+        "extra_pending": {},
         "tokens": {(fid, tid): PendingToken() for fid in state.frame_ids
                    for tid in state.track_ids},
-    })
-    live["cache"] = _Cache()
+    }
     document._sync_selection()
     # 今の手順は写しの位置を clone_slot で作るので timeline_revision が進む。
     Layer.timeline_revision += 1

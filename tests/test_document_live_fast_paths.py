@@ -8,7 +8,7 @@ from PySide6.QtGui import QColor, QImage
 
 from paintmaskanimator import document_live
 from paintmaskanimator.document import GraphDocument
-from paintmaskanimator.models import Frame, Layer
+from paintmaskanimator.models import ArchiveHint, Frame, Layer
 from paintmaskanimator.native import resolve_timeline
 from paintmaskanimator.pma_image import PmaImage
 
@@ -497,3 +497,80 @@ def test_has_unlinked_tracks_answers_without_walking_positions(monkeypatch):
     unlinked.install_legacy_frames(_frames())
     unlinked.frames[0].layers[0]._track.connected = False
     assert unlinked.has_unlinked_tracks() is True
+
+
+def test_restore_snapshot_retires_proxies_without_writing_them_out(monkeypatch):
+    plain, live = _pair(hold=5, count=10)
+    live._promote()
+    expected, snapshot = plain.snapshot(), live.snapshot()
+    patch = QImage(2, 2, QImage.Format.Format_ARGB32_Premultiplied)
+    patch.fill(QColor(0, 0, 255, 255))
+    for document in (plain, live):
+        document.duplicate_frame(2)
+        document.write_drawing_patch(0, 0, patch, (0, 0, 2, 2))
+    olds = []
+    for document in (live, plain):
+        frame = document.frames[1]
+        slot = frame.layers[0]
+        olds.append((frame, frame.layers, slot, slot._track, slot.image, document.frames))
+    before = [old[4].read_rgba(0, 0, 4, 4).copy() for old in olds]
+    calls = _round_trips(live, monkeypatch)
+    assert live.restore_snapshot(snapshot) == plain.restore_snapshot(expected)
+    assert calls == []  # 全体を素のグラフへ書き出さない
+    assert _signature(live) == _signature(plain)
+    for (frame, layers, slot, track, image, frames), pixels in zip(olds, before):
+        # 外れた窓口は同じオブジェクトのまま、戻す前の値を持つ。
+        assert frame.layers is layers and layers[0] is slot and slot._track is track
+        assert slot.image is image
+        assert (image.read_rgba(0, 0, 4, 4) == pixels).all()
+        assert len(frames) == 11
+    live_old, plain_old = olds
+    assert ([layer.sequence_number for layer in live_old[1]]
+            == [layer.sequence_number for layer in plain_old[1]])
+    # 外れた窓口に書いても文書には届かない。
+    for old in (live_old, plain_old):
+        old[2].opacity = 0.5
+        old[4].write_rgba(np.full((2, 2, 4), 255, dtype=np.uint8), 0, 0)
+    assert _signature(live) == _signature(plain)
+    assert (live.frames[1].layers[0].image.read_rgba(0, 0, 4, 4)
+            == plain.frames[1].layers[0].image.read_rgba(0, 0, 4, 4)).all()
+    assert live_old[2].opacity == plain_old[2].opacity == 0.5
+    assert (live_old[4].read_rgba(0, 0, 2, 2) == 255).all()
+    assert (plain_old[4].read_rgba(0, 0, 2, 2) == 255).all()
+    # 戻したあとの並びは別物で、古い並びは古いコマを持つ。
+    for old, document in ((live_old, live), (plain_old, plain)):
+        assert document.frames is not old[5] and old[5][1] is old[0]
+    # 外れた列を文書の操作に渡すと、今と同じく文書にない列として扱う。
+    assert live.placed_numbers(live_old[3]) == plain.placed_numbers(plain_old[3])
+    assert live.placed_numbers(live.tracks[0]) == plain.placed_numbers(plain.tracks[0])
+    # 外れた列を素のグラフで当てる操作に渡しても、文書には届かない。
+    for old, document in ((live_old, live), (plain_old, plain)):
+        document.put_archive_hint(old[3], 1, ArchiveHint())
+    assert _signature(live) == _signature(plain)
+    assert live.archive_hints(live.tracks[0]) == plain.archive_hints(plain.tracks[0])
+
+
+def test_restore_snapshot_keeps_reassigned_and_held_views():
+    plain, live = _pair(hold=5, count=10)
+    live._promote()
+    expected, snapshot = plain.snapshot(), live.snapshot()
+    for document in (plain, live):
+        document.duplicate_frame(2)
+    held = []
+    for document in (live, plain):
+        layers = document.frames[1].layers
+        layers[0]  # 位置の窓口を作っておく
+        held.append((document.frames, document.tracks, layers, layers[0]))
+    # 全体の往復を一度挟む（コマの辞書から並びの窓口が外れる）。
+    for document in (live, plain):
+        document.set_drawing_content(0, 1, False)
+    assert live.restore_snapshot(snapshot) == plain.restore_snapshot(expected)
+    for (frames, tracks, layers, slot), document in zip(held, (live, plain)):
+        # 持ち続けた位置の並びは古い位置を返す。
+        assert layers[0] is slot and len(layers) == 2
+        assert all(layer is not slot for frame in document.frames for layer in frame.layers)
+        # 古い並びを入れ直すと、今と同じくその並びが文書の並びになる。
+        document.frames = frames
+        document.tracks = tracks
+        assert document.frames is frames and document.tracks is tracks
+    assert _signature(live) == _signature(plain)
