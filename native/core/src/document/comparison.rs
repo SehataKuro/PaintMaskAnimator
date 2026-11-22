@@ -249,6 +249,9 @@ pub fn apply_operations(document: &mut Document, operations: &Value) -> Result<S
                     (index(target_frame)?, index(target_layer)?),
                 )
             }
+            [name, column, layer, duration] if name == "set_sheet_duration" => {
+                edited.set_sheet_duration(index(column)?, index(layer)?, index(duration)?)
+            }
             [name, layer, edge, key, old_end, new_start, new_end]
                 if name == "resize_sheet_exposure" =>
             {

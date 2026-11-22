@@ -977,6 +977,68 @@ def test_move_sheet_cell_onto_a_key_detaches_overwritten_locals_like_python(monk
         assert _whole_signature(live) == _whole_signature(plain)
 
 
+def test_set_sheet_duration_uses_core_command_and_matches_python(monkeypatch):
+    # (コマ, 列, 長さ)。後ろのキーを上書きして伸ばす・縮める・末尾の先へ。命令の前に取り出した
+    # Layer は、今の手順と同じ状態で外れるか残る（伸ばした位置は直接代入で入れ直される）。
+    from paintmaskanimator import pma_image, utils
+    from paintmaskanimator.document_core import _slot_signature
+    for shape, args in (({"hold": 5, "count": 10}, (0, 0, 7)),
+                        ({"hold": 5, "count": 10}, (6, 0, 2)),
+                        ({"hold": 5, "count": 10}, (5, 0, 9)),
+                        ({"hold": 3, "count": 9}, (1, 0, 1)),
+                        ({"hold": 3, "count": 9}, (4, 0, 2))):
+        plain, live = _pair(**shape)
+        live._promote()
+        monkeypatch.setattr(pma_image, "_last_import", None)
+        monkeypatch.setattr(utils._BlankTemplate, "model_image", None)
+        utils.blank_model_image()
+        fates, results = [], []
+        for document in (plain, live):
+            slots = [[frame.layers[index] for frame in document.frames] for index in range(2)]
+            if document is live:
+                calls = _round_trips(live, monkeypatch)
+            results.append(document.set_sheet_duration(*args))
+            fates.append([(index, column, _slot_signature(slot, slot._track)[:8])
+                          for index, row in enumerate(slots) for column, slot in enumerate(row)
+                          if not any(slot is layer for frame in document.frames
+                                     for layer in frame.layers)])
+        assert results[1] == results[0]
+        assert calls == []
+        assert fates[1] == fates[0]
+        assert _whole_signature(live) == _whole_signature(plain)
+
+
+def test_core_set_sheet_duration_drops_shares_left_with_one_position():
+    # 空キーを伸ばして局所の絵の共有の組（2・3）を作り、前の保持を伸ばして 2 を上書きすると、
+    # 今の手順では 3 の Cell を持つ位置は一つだけになる（共有でなくなる）。
+    import json
+
+    def frames():
+        rows = []
+        for column in range(6):
+            if column < 2:
+                layer = _colored_layer("A", (255, 0, 0, 255), number=1)
+            elif column == 2:
+                layer = _colored_layer("A", (0, 0, 0, 0), content=False, blank=True)
+            else:
+                layer = _colored_layer("A", (0, 0, 0, 0), content=False)
+            rows.append(Frame([layer]))
+        return rows
+    live = document_live.Document()
+    live.install_legacy_frames(frames())
+    live._promote()
+    core = live._live()["core"]
+    core.apply_command(json.dumps(["set_sheet_duration", 2, 0, 2]))
+
+    def shares():
+        order = json.loads(core.frames_graph([])[0])["frame_order"]
+        graph = json.loads(core.frames_graph(order)[0])
+        return [frame["positions"][0]["local_share"] for frame in graph["frames"]]
+    assert shares()[2] is not None and shares()[2] == shares()[3]
+    core.apply_command(json.dumps(["set_sheet_duration", 0, 0, 3]))
+    assert shares()[3] is None
+
+
 def test_has_unlinked_tracks_answers_without_walking_positions(monkeypatch):
     plain, live = _pair()
     calls = _round_trips(live, monkeypatch)

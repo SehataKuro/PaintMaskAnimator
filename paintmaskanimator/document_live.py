@@ -1405,6 +1405,12 @@ class Document:
             return self._run("delete_sequence_entry", (layer_index, number), {})
         return changes
 
+    def set_sheet_duration(self, column, layer_index, duration):
+        changes = _CORE_COMMANDS["set_sheet_duration"](self, column, layer_index, duration)
+        if changes is None:
+            return self._run("set_sheet_duration", (column, layer_index, duration), {})
+        return changes
+
     def resize_sheet_exposure(self, layer_index, edge, prepared):
         changes = _CORE_COMMANDS["resize_sheet_exposure"](self, layer_index, edge, prepared)
         if changes is None:
@@ -3494,6 +3500,68 @@ def _core_resize_sheet_exposure(document, layer_index, edge, prepared):
     return changes
 
 
+def _core_set_sheet_duration(document, column, layer_index, duration):
+    """set_sheet_duration を Rust の命令で当てる。今の手順と同じにできなければ None。
+
+    今の手順は保持の頭の位置（Layer はそのまま）の clone_reference() を、伸ばした位置へ直接
+    代入し（replace_slot を通さない。古い Layer は命令の前の値で外れ、配置待ちは解かれない）、
+    縮めた位置をその場で消す。保持の頭が局所の絵を持つ（clone_reference が局所の Cell を
+    共有する）、触る位置が配置待ち・局所の絵の共有・旧形式の記録を持つ場合は今の経路。
+    """
+    live = document._live()
+    if (live["graph"] is not None or live.get("trial") or type(column) is not int
+            or type(layer_index) is not int):
+        return None
+    try:
+        duration = max(1, int(duration))
+    except (TypeError, ValueError):
+        return None
+    state = live["state"]
+    frame_ids = list(state.frame_ids)
+    count, tracks = len(frame_ids), list(state.track_ids)
+    if not (0 <= column < count and 0 <= layer_index < len(tracks)):
+        return None
+    block = document.timeline_block_at(column, layer_index)
+    if block is None:
+        from .document_changes import ChangeSet
+        return ChangeSet()
+    _kind, start, length = block
+    tid = tracks[layer_index]
+    head = state.position(frame_ids[start], tid)[0]
+    if head["local"] is not None or head.get("local_share") is not None or head["sequence_only"]:
+        return None
+    replaced = [index for index in range(start + 1, min(start + duration, count))]
+    cleared = [index for index in range(start + duration, start + length)]
+    for index in [*replaced, *cleared]:
+        values = state.position(frame_ids[index], tid)[0]
+        if (values.get("local_share") is not None or values.get("pending_detached")
+                or values["sequence_only"] or values["local_bank"]
+                or any(values.get(name) is not None for name in _SPLIT_RECORDS)
+                or values.get("legacy_missing")):
+            return None
+    replaced_keys = [(frame_ids[index], tid) for index in replaced]
+    cleared_keys = [(frame_ids[index], tid) for index in cleared]
+    plan = _detach_plan(document, replaced_keys, cleared_keys)
+    if plan is None:
+        return None
+    stop = min(start + max(length, duration), count)
+    result = _apply_core_command(document, ["set_sheet_duration", column, layer_index, duration],
+                                 lambda ids: ids[start:stop])
+    if result is None:
+        return None
+    changes, new_ids = result
+    tokens = live.setdefault("tokens", {})
+    for key in replaced_keys:
+        tokens[key] = PendingToken()
+    for fid in new_ids:
+        for track in state.track_ids:
+            tokens[fid, track] = PendingToken()
+    state.pending.clear()
+    # 今の手順は伸ばした位置へ直接代入するので、外れる Layer の配置待ちを解かない。
+    _detach(document, plan, release=False)
+    return changes
+
+
 def _core_position_command(document, name, column, layer_index, replace):
     """一つの位置だけを書き換える命令を Rust で当てる。今の手順と同じにできなければ None。
 
@@ -3644,6 +3712,7 @@ _CORE_COMMANDS = {"add_track": _core_add_track,
                   "move_sheet_cells": _core_move_sheet_cells,
                   "move_sheet_cell": _core_move_sheet_cell,
                   "resize_sheet_exposure": _core_resize_sheet_exposure,
+                  "set_sheet_duration": _core_set_sheet_duration,
                   "new_sheet_number": _core_new_sheet_number}
 
 

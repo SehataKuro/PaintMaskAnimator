@@ -426,6 +426,85 @@ impl Document {
         Ok(changes)
     }
 
+    /// Python の set_sheet_duration と同様に、`column` を含む保持の長さを `duration` にする。
+    ///
+    /// 伸ばした位置（後ろのキーも上書きする）にはキーの保持の参照を入れ、縮めた位置を消す。
+    /// 保持の外の位置なら何もしない。
+    pub fn set_sheet_duration(
+        &mut self,
+        column: usize,
+        layer_index: usize,
+        duration: usize,
+    ) -> Result<ChangeSet, Error> {
+        let track = *self.track_order.get(layer_index).ok_or_else(invalid)?;
+        let Some(span) = self.display_spans(column, &[layer_index])?[0].clone() else {
+            return Ok(Vec::new());
+        };
+        let duration = duration.max(1);
+        let (start, length) = (span.start, span.len());
+        let before = self.frame_order.len();
+        let end = start
+            .checked_add(duration)
+            .ok_or(Error::TimelineSizeOverflow)?;
+        let mut edited = self.clone();
+        edited.ensure_frame_count(end)?;
+        // 上書きする位置・消す位置が共有の組から抜け、残りが一つになった組は共有でなくなる。
+        let mut shares = std::collections::BTreeSet::new();
+        for index in start + 1..end.max(start + length) {
+            shares.extend(edited.position_mut(index, track).compatibility.local_share);
+        }
+        if duration > 1 {
+            // Python は保持の頭の clone_reference() を直接入れる（replace_slot を通さないので
+            // 配置待ちの所属は写しが持ち、局所の Cell は保持の頭と共有する）。
+            let source = edited.position_mut(start, track).clone();
+            let mut held = held_reference(
+                source,
+                &edited.tracks[&track].settings,
+                self.blank_artwork()?,
+            );
+            held.compatibility.pending_detached = true;
+            if held.compatibility.local.is_some() {
+                let share = edited.position_mut(start, track).compatibility.local_share;
+                let share = share.unwrap_or_else(|| edited.next_local_share());
+                edited.position_mut(start, track).compatibility.local_share = Some(share);
+                held.compatibility.local_share = Some(share);
+            }
+            for index in start + 1..end {
+                *edited.position_mut(index, track) = held.clone();
+            }
+        }
+        for index in end..start + length {
+            *edited.position_mut(index, track) = edited.cleared_position(index, track)?;
+        }
+        for share in shares {
+            let mut members = edited
+                .sheet
+                .values_mut()
+                .flat_map(|row| row.positions.values_mut())
+                .filter(|position| position.compatibility.local_share == Some(share));
+            if let (Some(only), None) = (members.next(), members.next()) {
+                only.compatibility.local_share = None;
+            }
+        }
+        let after = edited.frame_order.len();
+        let mut changes = Vec::new();
+        if after > before {
+            changes.push(Change::FrameStructure {
+                operation: FrameOperation::Extend,
+                before,
+                after,
+                start: before,
+            });
+        }
+        changes.push(Change::SheetSpans {
+            layer_index,
+            start,
+            stop: start + length.max(duration),
+        });
+        *self = edited;
+        Ok(changes)
+    }
+
     /// Python の resize_sheet_exposure と同様に、キーの保持の長さを左端または右端で変える。
     ///
     /// `key_column`〜`old_end` が今の保持、`new_start`〜`new_end` が変えたあとの保持。左端では

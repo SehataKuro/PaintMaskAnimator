@@ -241,6 +241,30 @@ def test_resize_sheet_exposure(monkeypatch, case, layer, key, boundary, edge):
     )
 
 
+@pytest.mark.parametrize(
+    ("case", "column", "layer", "duration"),
+    [
+        ("basic-bank-sheet", 0, 0, 4),   # 後ろの空キーを上書きして伸ばす
+        ("basic-bank-sheet", 1, 0, 1),   # 縮める
+        ("basic-bank-sheet", 5, 0, 4),   # 文書の末尾の先へ
+        ("basic-bank-sheet", 2, 0, 3),   # 空キー（局所の絵を共有する保持）
+        ("basic-bank-sheet", 4, 0, 3),   # 保持の外
+        ("paper-draft", 0, 1, 3),
+        ("paper-draft", 1, 0, 2),
+    ],
+)
+def test_set_sheet_duration(monkeypatch, case, column, layer, duration):
+    loaded = _load_oracle(V2_ROOT / f"{case}.pman")
+    monkeypatch.setattr(utils, "workspace_size", lambda: (loaded.width, loaded.height))
+    payload, artwork = _project(loaded)
+    doc = loaded.document
+    changes = doc.set_sheet_duration(column, layer, duration)
+    _compare(
+        loaded, json.dumps(payload), artwork,
+        [["set_sheet_duration", column, layer, duration]], [_notices(changes)],
+    )
+
+
 def test_replace_drawing_image():
     loaded = _load_oracle(V2_ROOT / "basic-bank-sheet.pman")
     payload, artwork = _project(loaded)
