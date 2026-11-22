@@ -844,6 +844,92 @@ def test_move_sheet_cell_where_the_fill_changes_the_destination_takes_the_curren
         assert _whole_signature(live) == _whole_signature(plain)
 
 
+def test_resize_sheet_exposure_uses_core_command_and_matches_python(monkeypatch):
+    # (列, キーのコマ, 境界のコマ, 端)。後ろのキーを右へ送る・縮める・末尾の先へ・左端。
+    # 命令の前に取り出した Layer は、今の手順と同じ状態で外れるか残る。
+    from paintmaskanimator import pma_image, utils
+    from paintmaskanimator.document_core import _slot_signature
+    for shape, args in (({"hold": 5, "count": 10}, (0, 0, 7, "right")),
+                        ({"hold": 5, "count": 10}, (0, 5, 6, "right")),
+                        ({"hold": 5, "count": 10}, (0, 5, 13, "right")),
+                        ({"hold": 3, "count": 9}, (0, 3, 4, "left")),
+                        ({"hold": 3, "count": 9}, (1, 3, 5, "left"))):
+        plain, live = _pair(**shape)
+        live._promote()
+        monkeypatch.setattr(pma_image, "_last_import", None)
+        monkeypatch.setattr(utils._BlankTemplate, "model_image", None)
+        utils.blank_model_image()
+        layer_index, key, boundary, edge = args
+        fates, results = [], []
+        for document in (plain, live):
+            slots = [[frame.layers[index] for frame in document.frames] for index in range(2)]
+            prepared = document.prepare_exposure_resize(layer_index, key, boundary, edge)
+            assert prepared is not None
+            if document is live:
+                calls = _round_trips(live, monkeypatch)
+            results.append(document.resize_sheet_exposure(layer_index, edge, prepared))
+            fates.append([(index, column, _slot_signature(slot, slot._track)[:8])
+                          for index, row in enumerate(slots) for column, slot in enumerate(row)
+                          if not any(slot is layer for frame in document.frames
+                                     for layer in frame.layers)])
+        assert results[1] == results[0]
+        assert calls == []
+        assert fates[1] == fates[0]
+        assert _whole_signature(live) == _whole_signature(plain)
+
+
+def test_resize_sheet_exposure_detaches_unshifted_tail_windows_like_python(monkeypatch):
+    # 後ろを送る形で、今の手順の送りは最初に伸ばした長さまでしか送らない。送られない末尾の
+    # 位置の窓口（Layer・局所の Cell・画像）は文書から外れ、外れた Layer に描いても文書は
+    # 変わらない。送りの途中で足したコマの旧形式の記録は、移ってきた位置を消した写しになる。
+    from paintmaskanimator import pma_image, utils
+
+    def frames():
+        rows = []
+        for column in range(8):
+            if column < 2:
+                layer = _colored_layer("A", (255, 0, 0, 255), number=1)
+            elif 3 <= column < 5:
+                layer = _colored_layer("A", (0, 255, 0, 255), number=2)
+                if column == 3:
+                    yellow = QImage(8, 8, QImage.Format.Format_ARGB32_Premultiplied)
+                    yellow.fill(QColor(255, 255, 0, 255))
+                    layer.initial_image = PmaImage(yellow)
+            else:
+                layer = _colored_layer("A", (0, 0, 0, 0), content=False)
+            rows.append(Frame([layer]))
+        return rows
+    for boundary, count in ((3, 8), (6, 8), (3, 5)):
+        documents = []
+        for factory in (GraphDocument, document_live.Document):
+            document = factory()
+            document.install_legacy_frames(frames()[:count])
+            if factory is not GraphDocument:
+                document._promote()
+            monkeypatch.setattr(pma_image, "_last_import", None)
+            monkeypatch.setattr(utils._BlankTemplate, "model_image", None)
+            utils.blank_model_image()
+            slots = [frame.layers[0] for frame in document.frames]
+            images = [slot.image for slot in slots]
+            prepared = document.prepare_exposure_resize(0, 0, boundary, "right")
+            if factory is not GraphDocument:
+                calls = _round_trips(document, monkeypatch)
+            changes = document.resize_sheet_exposure(0, "right", prepared)
+            kept = [any(slot is frame.layers[0] for frame in document.frames) for slot in slots]
+            placed = [any(image is frame.layers[0].image for frame in document.frames)
+                      for image in images]
+            patch = QImage(2, 2, QImage.Format.Format_ARGB32_Premultiplied)
+            patch.fill(QColor(0, 0, 255, 255))
+            for slot, stays in zip(slots, kept):
+                if not stays:
+                    slot.image.write_qimage(patch, 0, 0)
+            documents.append((document, changes, kept, placed))
+        (plain, *expected), (live, *result) = documents
+        assert result == expected
+        assert calls == []
+        assert _whole_signature(live) == _whole_signature(plain)
+
+
 def test_has_unlinked_tracks_answers_without_walking_positions(monkeypatch):
     plain, live = _pair()
     calls = _round_trips(live, monkeypatch)

@@ -398,10 +398,14 @@ impl Document {
                 }
                 None => self.cleared_position(column + offset, track)?,
             };
-            // 記録の無い位置（伸ばした末尾）は、消した写しの記録にする。
+            // 記録の無い位置（送りの中で伸ばした末尾）は、Python と同じく移ってきた位置を
+            // 消した写しの記録にする（位置を書き込んでから写す）。
             let legacy = match legacy {
                 Some(legacy) => legacy,
-                None => self.cleared_snapshot(column + offset, track)?,
+                None => {
+                    *self.position_mut(column + offset, track) = position.clone();
+                    self.cleared_snapshot(column + offset, track)?
+                }
             };
             position.compatibility.legacy = Some(legacy);
             *self.position_mut(column + offset, track) = position;

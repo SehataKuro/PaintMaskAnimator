@@ -207,6 +207,40 @@ def test_move_sheet_cell(monkeypatch):
     )
 
 
+@pytest.mark.parametrize(
+    ("case", "layer", "key", "boundary", "edge"),
+    [
+        ("basic-bank-sheet", 0, 0, 4, "right"),  # 後ろのキーを右へ送る
+        ("basic-bank-sheet", 0, 0, 0, "right"),  # 縮める
+        ("basic-bank-sheet", 0, 5, 6, "right"),  # 空きへ伸ばす
+        ("basic-bank-sheet", 0, 5, 9, "right"),  # 文書の末尾の先へ
+        ("basic-bank-sheet", 0, 2, 3, "right"),  # 空キーを伸ばす
+        ("basic-bank-sheet", 0, 5, 4, "left"),   # 前の保持の終わりまで
+        ("basic-bank-sheet", 0, 0, 1, "left"),   # 左端を縮める
+        ("basic-bank-sheet", 0, 3, 3, "left"),
+        ("paper-draft", 1, 1, 3, "right"),
+        ("paper-draft", 0, 3, 2, "left"),
+        ("paper-draft", 2, 0, 2, "right"),
+    ],
+)
+def test_resize_sheet_exposure(monkeypatch, case, layer, key, boundary, edge):
+    loaded = _load_oracle(V2_ROOT / f"{case}.pman")
+    monkeypatch.setattr(utils, "workspace_size", lambda: (loaded.width, loaded.height))
+    payload, artwork = _project(loaded)
+    doc = loaded.document
+    prepared = doc.prepare_exposure_resize(layer, key, boundary, edge)
+    if prepared is None:
+        pytest.skip("今の手順は何もしない")
+    key_column, old_end, new_start, new_end, _source = prepared
+    changes = doc.resize_sheet_exposure(layer, edge, prepared)
+    _apply_selection(doc, changes)
+    _compare(
+        loaded, json.dumps(payload), artwork,
+        [["resize_sheet_exposure", layer, edge, key_column, old_end, new_start, new_end]],
+        [_notices(changes)],
+    )
+
+
 def test_replace_drawing_image():
     loaded = _load_oracle(V2_ROOT / "basic-bank-sheet.pman")
     payload, artwork = _project(loaded)

@@ -1405,6 +1405,12 @@ class Document:
             return self._run("delete_sequence_entry", (layer_index, number), {})
         return changes
 
+    def resize_sheet_exposure(self, layer_index, edge, prepared):
+        changes = _CORE_COMMANDS["resize_sheet_exposure"](self, layer_index, edge, prepared)
+        if changes is None:
+            return self._run("resize_sheet_exposure", (layer_index, edge, prepared), {})
+        return changes
+
     def move_sheet_cell(self, prepared):
         changes = _CORE_COMMANDS["move_sheet_cell"](self, prepared)
         if changes is None:
@@ -3263,6 +3269,172 @@ def _core_move_sheet_cell(document, prepared):
     return changes
 
 
+def _core_resize_sheet_exposure(document, layer_index, edge, prepared):
+    """resize_sheet_exposure を Rust の命令で当てる。今の手順と同じにできなければ None。
+
+    今の手順は、左端なら新しい範囲の前をその場で消し、範囲の位置（キーを含む）に用意した
+    キーの写しの clone_reference() を入れ直す（replace_slot。古い Layer は命令の前の値で
+    外れる）。右端なら後ろのキーにかかる分だけ _shift_timeline_layer_right で後ろを右へ送り
+    （送った先は clone_slot の入れ直し、古い Layer は命令の前の値で外れ、局所の Cell は写しと
+    ともに後ろへ移る。空いた位置はその場で消す）、伸ばした位置を clone_reference() で入れ直し
+    （送りで消された位置は消された状態で外れる）、縮めた位置をその場で消す。キーが局所の絵を
+    持つ（空キーなど。clone_reference が局所の Cell を共有する）、触る位置が配置待ち・局所の
+    絵の共有・旧形式の記録を持つ、用意した値が今の文書と食い違う場合は今の経路。
+    """
+    live = document._live()
+    if (live["graph"] is not None or live.get("trial") or type(layer_index) is not int
+            or edge not in ("left", "right") or type(prepared) is not tuple
+            or len(prepared) != 5):
+        return None
+    key_column, old_end, new_start, new_end, source = prepared
+    if any(type(value) is not int for value in (key_column, old_end, new_start, new_end)):
+        return None
+    state = live["state"]
+    frame_ids = list(state.frame_ids)
+    count, tracks = len(frame_ids), list(state.track_ids)
+    if not (0 <= layer_index < len(tracks) and 0 <= key_column <= old_end < count
+            and 0 <= new_start <= new_end):
+        return None
+    if (edge == "left") != (new_end == old_end) or (edge == "right") != (new_start == key_column):
+        return None
+    block = document.timeline_block_at(key_column, layer_index)
+    if block is None or block[1:] != (key_column, old_end - key_column + 1):
+        return None
+    tid = tracks[layer_index]
+    head = state.position(frame_ids[key_column], tid)[0]
+    if (head["local"] is not None or bool(source.has_content) != head["has_content"]
+            or bool(source.is_blank_key) != head["is_blank_key"]
+            or source.sequence_number != head["sequence_number"]
+            or bool(source.sequence_only) or bool(source.blank_start) != head["blank_start"]
+            or _move_settings(source) != _move_settings(document.tracks[layer_index])):
+        return None
+    if head["has_content"]:
+        if source.sequence_number is None:
+            return None
+        data, handles = state.track(tid)
+        cell = dict(data["cells"]).get(source.sequence_number)
+        if cell is None or not _same_generations(source, cell, handles):
+            return None
+    replaced, cleared, emptied, starts, moves_from = [], [], set(), set(), None
+    if edge == "left":
+        for column in range(min(key_column, new_start), old_end + 1):
+            (cleared if column < new_start else replaced).append(column)
+    else:
+        # 今の手順の timeline_step_columns のうちキーより後ろの最初の列。キーの保持の後ろで
+        # 最初に始まる保持の列（全コマをなめない）。配置待ちの位置に当たれば今の経路。
+        following = None
+        for column in range(old_end + 1, count):
+            if state.position(frame_ids[column], tid)[0]["sequence_only"]:
+                return None
+            block = document.timeline_block_at(column, layer_index)
+            if block is not None:
+                if block[1] != column:
+                    return None
+                following = column
+                break
+        if following is not None and new_end >= following:
+            shift = new_end + 1 - following
+            # 今の手順の送り（_shift_timeline_layer_right）は、最初に伸ばした長さ（limit）まで
+            # しか送らない。送られない末尾の位置の局所の Cell は、写しが捨てられて外れる。
+            occupied = []
+            for column in range(following, count):
+                values = state.position(frame_ids[column], tid)[0]
+                if values["sequence_only"]:
+                    return None
+                if values["has_content"] or values["is_blank_key"]:
+                    occupied.append(column)
+            limit = max([following + shift, count] + [column + shift + 1 for column in occupied])
+            moves_from = (following, shift, limit)
+            # 送りで消された位置 [following, following+shift) は、伸ばした保持で入れ直される。
+            for column in range(old_end + 1, min(new_end + 1, count)):
+                replaced.append(column)
+                if column >= following:
+                    emptied.add(column)
+                    block = document.timeline_block_at(column, layer_index)
+                    if block is not None and block[1] == column:
+                        starts.add(column)
+            replaced.extend(range(following + shift, count))
+        else:
+            for column in range(key_column + 1, min(max(old_end, new_end) + 1, count)):
+                if column > new_end:
+                    cleared.append(column)
+                elif column > old_end:
+                    replaced.append(column)
+    start = min(key_column, new_start)
+    for column in range(start, count):
+        values = state.position(frame_ids[column], tid)[0]
+        if values.get("local_share") is not None:
+            return None
+        if column in replaced or column in cleared:
+            if (values.get("pending_detached") or values["sequence_only"]
+                    or values["local_bank"]
+                    or any(values.get(name) is not None for name in _SPLIT_RECORDS)
+                    or values.get("legacy_missing")):
+                return None
+    replaced_keys = [(frame_ids[column], tid) for column in replaced]
+    cleared_keys = [(frame_ids[column], tid) for column in cleared]
+    if moves_from is None:
+        plan = _detach_plan(document, replaced_keys, cleared_keys)
+        if plan is None:
+            return None
+    else:
+        # 送る位置の局所の Cell は後ろへ移るので外さない（insert_track_frame と同じ）。送る
+        # 位置より前で伸ばした保持に入れ直される位置は、局所の Cell ごと命令の前の値で外す。
+        following, shift, limit = moves_from
+        moved = [column for column in replaced
+                 if column >= following and column + shift < limit]
+        plan = _detach_plan(document, [(frame_ids[column], tid) for column in replaced
+                                       if column not in moved], [])
+        if plan is None:
+            return None
+        cache = live["cache"]
+        for key in [(frame_ids[column], tid) for column in moved]:
+            layer = cache._objects.get(("layer", key))
+            if layer is not None:
+                values, handles = state.position(*key)
+                plan["layers"].append((key, layer, values, handles,
+                                       live.get("tokens", {}).get(key)))
+    stop = count if moves_from is not None else min(max(old_end, new_end) + 1, count)
+    result = _apply_core_command(
+        document, ["resize_sheet_exposure", layer_index, edge, key_column, old_end, new_start,
+                   new_end],
+        lambda ids: ids[start:stop])
+    if result is None:
+        return None
+    changes, new_ids = result
+    state.refresh_track(tid)
+    state.forget_track(tid)
+    tokens = live.setdefault("tokens", {})
+    for key in replaced_keys:
+        tokens[key] = PendingToken()
+    for fid in new_ids:
+        for track in state.track_ids:
+            tokens[fid, track] = PendingToken()
+    state.pending.clear()
+    layers = {key: layer for key, layer, *_ in plan["layers"]}
+    if moves_from is None:
+        _detach(document, plan)
+    else:
+        after = state.frame_ids
+        moves = [((after[index], tid), (after[index + shift], tid))
+                 for index in reversed(moved)]
+        _detach(document, plan, moved=dict(moves),
+                between=lambda: _rekey_locals(document, moves))
+    from .document import clear_slot
+    from .legacy_v1 import V1Position, snapshot_layer
+    for column in emptied:
+        key = (frame_ids[column], tid)
+        if key in layers:
+            # 今の手順の送りは消した位置に記録を付け直す（キーの頭なら消した写し、ほかは
+            # 元の位置の写し）。その状態で伸ばした保持に入れ直されて外れる。
+            stand = layers[key]
+            record = V1Position(snapshot_layer(stand))
+            clear_slot(stand)
+            stand.__dict__["_v1_position"] = (V1Position(snapshot_layer(stand))
+                                              if column in starts else record)
+    return changes
+
+
 def _core_position_command(document, name, column, layer_index, replace):
     """一つの位置だけを書き換える命令を Rust で当てる。今の手順と同じにできなければ None。
 
@@ -3412,6 +3584,7 @@ _CORE_COMMANDS = {"add_track": _core_add_track,
                   "delete_sequence_entry": _core_delete_sequence_entry,
                   "move_sheet_cells": _core_move_sheet_cells,
                   "move_sheet_cell": _core_move_sheet_cell,
+                  "resize_sheet_exposure": _core_resize_sheet_exposure,
                   "new_sheet_number": _core_new_sheet_number}
 
 

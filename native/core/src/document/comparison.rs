@@ -249,6 +249,22 @@ pub fn apply_operations(document: &mut Document, operations: &Value) -> Result<S
                     (index(target_frame)?, index(target_layer)?),
                 )
             }
+            [name, layer, edge, key, old_end, new_start, new_end]
+                if name == "resize_sheet_exposure" =>
+            {
+                edited.resize_sheet_exposure(
+                    index(layer)?,
+                    match edge.as_str() {
+                        Some("left") => true,
+                        Some("right") => false,
+                        _ => return Err(invalid()),
+                    },
+                    index(key)?,
+                    index(old_end)?,
+                    index(new_start)?,
+                    index(new_end)?,
+                )
+            }
             [name, order] if name == "move_tracks" => edited.move_tracks(
                 &order
                     .as_array()

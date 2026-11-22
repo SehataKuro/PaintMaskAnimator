@@ -426,6 +426,126 @@ impl Document {
         Ok(changes)
     }
 
+    /// Python の resize_sheet_exposure と同様に、キーの保持の長さを左端または右端で変える。
+    ///
+    /// `key_column`〜`old_end` が今の保持、`new_start`〜`new_end` が変えたあとの保持。左端では
+    /// 新しい範囲の外を消し、範囲の位置をキーの保持の参照で入れ直す。右端では後ろのキーに
+    /// かかる分だけ後ろを右へ送り、伸ばした位置を保持の参照にし、縮めた位置を消す。
+    pub fn resize_sheet_exposure(
+        &mut self,
+        layer_index: usize,
+        left: bool,
+        key_column: usize,
+        old_end: usize,
+        new_start: usize,
+        new_end: usize,
+    ) -> Result<ChangeSet, Error> {
+        let track = *self.track_order.get(layer_index).ok_or_else(invalid)?;
+        let before = self.frame_order.len();
+        if key_column > old_end || old_end >= before || new_start > new_end {
+            return Err(invalid());
+        }
+        let source = self.sheet[&self.frame_order[key_column]].positions[&track].clone();
+        let blank = self.blank_artwork()?;
+        let mut edited = self.clone();
+        let mut stop = old_end.max(new_end) + 1;
+        let cursor;
+        if left {
+            if new_end != old_end {
+                return Err(invalid());
+            }
+            for column in key_column.min(new_start)..=old_end {
+                let position = if column < new_start {
+                    edited.cleared_position(column, track)?
+                } else {
+                    let mut held = held_reference(
+                        source.clone(),
+                        &edited.tracks[&track].settings,
+                        blank.clone(),
+                    );
+                    held.blank_start =
+                        source.reference_for(false) == Reference::Blank && column == new_start;
+                    held
+                };
+                *edited.position_mut(column, track) = position;
+            }
+            cursor = new_start;
+        } else {
+            if new_start != key_column {
+                return Err(invalid());
+            }
+            if let Some(following) = edited.step_column_after(track, key_column) {
+                if new_end >= following {
+                    let shift = new_end + 1 - following;
+                    let count = edited.frame_order.len();
+                    edited.shift_positions_right(following, layer_index, shift)?;
+                    edited.ensure_frame_count(
+                        count
+                            .checked_add(shift)
+                            .ok_or(Error::TimelineSizeOverflow)?,
+                    )?;
+                    stop = edited.frame_order.len();
+                }
+            }
+            edited
+                .ensure_frame_count(new_end.checked_add(1).ok_or(Error::TimelineSizeOverflow)?)?;
+            for column in key_column + 1..=old_end.max(new_end) {
+                if column > new_end {
+                    *edited.position_mut(column, track) = edited.cleared_position(column, track)?;
+                } else if column > old_end {
+                    *edited.position_mut(column, track) = held_reference(
+                        source.clone(),
+                        &edited.tracks[&track].settings,
+                        blank.clone(),
+                    );
+                }
+            }
+            cursor = key_column;
+        }
+        let after = edited.frame_order.len();
+        let mut changes = Vec::new();
+        if after > before {
+            changes.push(Change::FrameStructure {
+                operation: FrameOperation::Extend,
+                before,
+                after,
+                start: before,
+            });
+        }
+        changes.extend([
+            Change::SheetSpans {
+                layer_index,
+                start: key_column.min(new_start),
+                stop,
+            },
+            Change::Cursor {
+                frame: cursor,
+                notify: true,
+            },
+            Change::Selection { layer_index },
+        ]);
+        edited.current_frame = edited.frame_order[cursor];
+        edited.active_layer = track;
+        *self = edited;
+        Ok(changes)
+    }
+
+    /// Python の timeline_step_columns のうち、`after` より後ろの最初のキーの列。
+    fn step_column_after(&self, track: TrackId, after: usize) -> Option<usize> {
+        let mut previous = None;
+        for (column, id) in self.frame_order.iter().enumerate() {
+            let position = &self.sheet[id].positions[&track];
+            let reference = position.reference_for(false);
+            let starts = previous != Some(reference)
+                || (reference == Reference::Blank && position.blank_start);
+            if column > after && reference != Reference::Empty && starts && !position.pending {
+                return Some(column);
+            }
+            previous = Some(reference);
+        }
+        None
+    }
+
     fn follow_displaced_blanks(
         &mut self,
         column: usize,
