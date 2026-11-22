@@ -426,6 +426,77 @@ impl Document {
         Ok(changes)
     }
 
+    /// Python の merge_sheet_clip と同様に、`column` を含む保持を前の保持へつなぐ。
+    ///
+    /// 保持の位置を前の保持の頭の写し（中割りの印・blank_start を外し、旧保存の尺は結合した
+    /// 範囲を越えない）で入れ直す。保持の外の位置や前に保持が無いときは何もしない。
+    pub fn merge_sheet_clip(
+        &mut self,
+        column: usize,
+        layer_index: usize,
+    ) -> Result<ChangeSet, Error> {
+        let track = *self.track_order.get(layer_index).ok_or_else(invalid)?;
+        let Some(span) = self.display_spans(column, &[layer_index])?[0].clone() else {
+            return Ok(Vec::new());
+        };
+        let Some(start) = span.start.checked_sub(1) else {
+            return Ok(Vec::new());
+        };
+        let Some(previous) = self.display_spans(start, &[layer_index])?[0].clone() else {
+            return Ok(Vec::new());
+        };
+        let mut source = self.sheet[&self.frame_order[previous.start]].positions[&track].clone();
+        let mut edited = self.clone();
+        // Python は前の保持の頭の clone_slot() を入れる（局所の Cell は頭と共有する）。
+        if source.compatibility.local.is_some() {
+            let share = source
+                .compatibility
+                .local_share
+                .unwrap_or_else(|| edited.next_local_share());
+            source.compatibility.local_share = Some(share);
+            edited
+                .position_mut(previous.start, track)
+                .compatibility
+                .local_share = Some(share);
+        }
+        // Python の clone_slot() は内容・空キーの印を代入し直す（真なら _content_origin が
+        // 落ちる）。続く blank_start = False の代入は、値が変われば _dense_import を落とす。
+        let keyed = matches!(source.reference, Reference::Number(_) | Reference::Blank)
+            || source.compatibility.unnumbered_content;
+        for index in span.clone() {
+            let mut slot = source.clone();
+            slot.tween = None;
+            slot.tween_member = None;
+            if source.blank_start {
+                slot.compatibility.dense_import = None;
+            }
+            if keyed {
+                slot.compatibility.content_origin = None;
+            }
+            slot.blank_start = false;
+            // replace_slot の attach_track が配置待ちの所属を列へ戻す。
+            slot.compatibility.pending_detached = false;
+            if let Some(legacy) = slot
+                .compatibility
+                .legacy
+                .as_mut()
+                .and_then(|position| position.legacy.as_mut())
+            {
+                // 写した保存のキーが結合した範囲を越えないようにする。
+                legacy.state.exposure = legacy.state.exposure.min(span.end - index);
+            }
+            *edited.position_mut(index, track) = slot;
+        }
+        // 入れ直した位置が抜けて一つになった共有の組を外す（Python の Cell はもう共有しない）。
+        edited.drop_single_shares();
+        *self = edited;
+        Ok(vec![Change::SheetSpans {
+            layer_index,
+            start: previous.start,
+            stop: span.end,
+        }])
+    }
+
     /// Python の set_sheet_duration と同様に、`column` を含む保持の長さを `duration` にする。
     ///
     /// 伸ばした位置（後ろのキーも上書きする）にはキーの保持の参照を入れ、縮めた位置を消す。

@@ -1039,6 +1039,78 @@ def test_core_set_sheet_duration_drops_shares_left_with_one_position():
     assert shares()[3] is None
 
 
+def test_merge_sheet_clip_uses_core_command_and_matches_python(monkeypatch):
+    # 保持を前の保持へつなぐ。命令の前に取り出した Layer は今の手順と同じ状態で外れる。
+    from paintmaskanimator.document_core import _slot_signature
+    for shape, args in (({"hold": 5, "count": 10}, (5, 0)),
+                        ({"hold": 5, "count": 10}, (7, 1)),
+                        ({"hold": 3, "count": 9}, (3, 0)),
+                        ({"hold": 3, "count": 9}, (0, 0))):
+        plain, live = _pair(**shape)
+        live._promote()
+        fates, results = [], []
+        for document in (plain, live):
+            slots = [[frame.layers[index] for frame in document.frames] for index in range(2)]
+            if document is live:
+                calls = _round_trips(live, monkeypatch)
+            results.append(document.merge_sheet_clip(*args))
+            fates.append([(index, column, _slot_signature(slot, slot._track)[:8])
+                          for index, row in enumerate(slots) for column, slot in enumerate(row)
+                          if not any(slot is layer for frame in document.frames
+                                     for layer in frame.layers)])
+        assert results[1] == results[0]
+        assert calls == []
+        assert fates[1] == fates[0]
+        assert _whole_signature(live) == _whole_signature(plain)
+
+
+def test_merge_sheet_clip_onto_an_unnumbered_head_matches_python(monkeypatch):
+    # 前の保持の頭が番号の無い内容（読み込みでバンクに入った絵）でも、今の手順と同じになる。
+    def frames():
+        return ([Frame([_colored_layer("A", (0, 255, 0, 255))]) for _ in range(2)]
+                + [Frame([_colored_layer("A", (255, 0, 0, 255), number=1)]) for _ in range(3)])
+    plain = GraphDocument()
+    plain.install_legacy_frames(frames())
+    live = document_live.Document()
+    live.install_legacy_frames(frames())
+    live._promote()
+    calls = _round_trips(live, monkeypatch)
+    assert live.merge_sheet_clip(3, 0) == plain.merge_sheet_clip(3, 0)
+    assert calls == []
+    assert _whole_signature(live) == _whole_signature(plain)
+
+
+def test_merge_sheet_clip_with_local_artwork_head_takes_the_current_path(monkeypatch):
+    # 前の保持の頭が番号を残した空キー（局所の絵）なら Rust の命令は使わず、今の手順と同じになる。
+    def frames():
+        return ([Frame([_colored_layer("A", (0, 0, 255, 255), content=False, number=1,
+                                       blank=True)]) for _ in range(2)]
+                + [Frame([_colored_layer("A", (255, 0, 0, 255), number=2)]) for _ in range(3)])
+    plain = GraphDocument()
+    plain.install_legacy_frames(frames())
+    live = document_live.Document()
+    live.install_legacy_frames(frames())
+    live._promote()
+    calls = _round_trips(live, monkeypatch)
+    assert live.merge_sheet_clip(3, 0) == plain.merge_sheet_clip(3, 0)
+    assert calls
+    assert _whole_signature(live) == _whole_signature(plain)
+
+def test_merge_sheet_clip_after_a_gap_and_undo_match_python(monkeypatch):
+    # 前が空きの位置（B 列の 2 コマ目）、つないだあとの Undo も今の手順と同じになる。
+    for shape, args in (({"hold": 5, "count": 10}, (3, 1)),
+                        ({"hold": 3, "count": 9}, (6, 0))):
+        plain, live = _pair(**shape)
+        live._promote()
+        before = [document.snapshot() for document in (plain, live)]
+        assert live.merge_sheet_clip(*args) == plain.merge_sheet_clip(*args)
+        assert _signature(live) == _signature(plain)
+        plain.restore_snapshot(before[0])
+        live.restore_snapshot(before[1])
+        assert _signature(live) == _signature(plain)
+        assert _whole_signature(live) == _whole_signature(plain)
+
+
 def test_has_unlinked_tracks_answers_without_walking_positions(monkeypatch):
     plain, live = _pair()
     calls = _round_trips(live, monkeypatch)

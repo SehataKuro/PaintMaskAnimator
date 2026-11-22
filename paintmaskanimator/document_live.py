@@ -1405,6 +1405,12 @@ class Document:
             return self._run("delete_sequence_entry", (layer_index, number), {})
         return changes
 
+    def merge_sheet_clip(self, column, layer_index):
+        changes = _CORE_COMMANDS["merge_sheet_clip"](self, column, layer_index)
+        if changes is None:
+            return self._run("merge_sheet_clip", (column, layer_index), {})
+        return changes
+
     def set_sheet_duration(self, column, layer_index, duration):
         changes = _CORE_COMMANDS["set_sheet_duration"](self, column, layer_index, duration)
         if changes is None:
@@ -3562,6 +3568,61 @@ def _core_set_sheet_duration(document, column, layer_index, duration):
     return changes
 
 
+def _core_merge_sheet_clip(document, column, layer_index):
+    """merge_sheet_clip を Rust の命令で当てる。今の手順と同じにできなければ None。
+
+    今の手順は保持の位置を前の保持の頭の clone_slot() で入れ直す（replace_slot。古い Layer は
+    命令の前の値で外れ、配置待ちを解かれる）。前の保持の頭が局所の絵を持つ（clone_slot が
+    局所の Cell を共有する）・旧形式の記録を持つ、触る位置が配置待ち・局所の絵の共有・旧形式の
+    記録を持つ場合は今の経路。
+    """
+    live = document._live()
+    if (live["graph"] is not None or live.get("trial") or type(column) is not int
+            or type(layer_index) is not int):
+        return None
+    state = live["state"]
+    frame_ids = list(state.frame_ids)
+    count, tracks = len(frame_ids), list(state.track_ids)
+    if not (0 <= column < count and 0 <= layer_index < len(tracks)):
+        return None
+    block = document.timeline_block_at(column, layer_index)
+    previous = (document.timeline_block_at(block[1] - 1, layer_index)
+                if block is not None and block[1] > 0 else None)
+    if block is None or previous is None:
+        from .document_changes import ChangeSet
+        return ChangeSet()
+    _kind, start, exposure = block
+    tid = tracks[layer_index]
+    keys = [(frame_ids[index], tid) for index in range(start, start + exposure)]
+    head = state.position(frame_ids[previous[1]], tid)[0]
+    if head["local"] is not None or _blocks_core_edit(head, allow_bank=True):
+        return None
+    if any(_blocks_core_edit(state.position(*key)[0]) for key in keys):
+        return None
+    plan = _detach_plan(document, keys, [])
+    if plan is None:
+        return None
+    result = _apply_core_command(document, ["merge_sheet_clip", column, layer_index],
+                                 lambda ids: ids[start:start + exposure])
+    if result is None:
+        return None
+    changes, _ = result
+    tokens = live.setdefault("tokens", {})
+    for key in keys:
+        tokens[key] = PendingToken()
+    state.pending.clear()
+    _detach(document, plan)
+    return changes
+
+
+def _blocks_core_edit(values, allow_bank=False):
+    """位置が今の経路でしか同じにできない印（配置待ち・局所の絵の共有・旧形式の記録）を持つか。"""
+    return (values.get("local_share") is not None or values.get("pending_detached")
+            or values["sequence_only"] or (values["local_bank"] and not allow_bank)
+            or any(values.get(name) is not None for name in _SPLIT_RECORDS)
+            or values.get("legacy_missing"))
+
+
 def _core_position_command(document, name, column, layer_index, replace):
     """一つの位置だけを書き換える命令を Rust で当てる。今の手順と同じにできなければ None。
 
@@ -3713,6 +3774,7 @@ _CORE_COMMANDS = {"add_track": _core_add_track,
                   "move_sheet_cell": _core_move_sheet_cell,
                   "resize_sheet_exposure": _core_resize_sheet_exposure,
                   "set_sheet_duration": _core_set_sheet_duration,
+                  "merge_sheet_clip": _core_merge_sheet_clip,
                   "new_sheet_number": _core_new_sheet_number}
 
 

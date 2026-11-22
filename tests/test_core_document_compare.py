@@ -265,6 +265,45 @@ def test_set_sheet_duration(monkeypatch, case, column, layer, duration):
     )
 
 
+@pytest.mark.parametrize(
+    ("case", "column", "layer"),
+    [
+        ("basic-bank-sheet", 2, 0),   # 空キーを前の絵の保持へ
+        ("basic-bank-sheet", 3, 0),   # 空キーを前の空キーへ（局所の絵の共有）
+        ("basic-bank-sheet", 5, 0),   # 前が空き
+        ("basic-bank-sheet", 0, 0),   # 先頭
+        ("paper-draft", 1, 1),
+        ("paper-draft", 1, 0),
+    ],
+)
+def test_merge_sheet_clip(monkeypatch, case, column, layer):
+    loaded = _load_oracle(V2_ROOT / f"{case}.pman")
+    monkeypatch.setattr(utils, "workspace_size", lambda: (loaded.width, loaded.height))
+    payload, artwork = _project(loaded)
+    doc = loaded.document
+    changes = doc.merge_sheet_clip(column, layer)
+    _compare(
+        loaded, json.dumps(payload), artwork,
+        [["merge_sheet_clip", column, layer]], [_notices(changes)],
+    )
+
+
+@pytest.mark.parametrize("path", sorted((ROOT / "v1").glob("*.pman")), ids=lambda path: path.stem)
+def test_merge_sheet_clip_v1(monkeypatch, path):
+    # 旧保存（尺の切り詰め・_dense_import・_content_origin）を持つ位置をつなぐ。
+    loaded = _load_oracle(path)
+    monkeypatch.setattr(utils, "workspace_size", lambda: (loaded.width, loaded.height))
+    payload, artwork = _project(loaded)
+    doc = loaded.document
+    layers = len(doc.frames[0].layers) if doc.frames else 0
+    commands, notices = [], []
+    for layer in sorted({0, max(layers - 1, 0)}) if layers else ():
+        for column in range(len(doc.frames) - 1, 0, -2):
+            commands.append(["merge_sheet_clip", column, layer])
+            notices.append(_notices(doc.merge_sheet_clip(column, layer)))
+    _compare(loaded, json.dumps(payload), artwork, commands, notices)
+
+
 def test_replace_drawing_image():
     loaded = _load_oracle(V2_ROOT / "basic-bank-sheet.pman")
     payload, artwork = _project(loaded)

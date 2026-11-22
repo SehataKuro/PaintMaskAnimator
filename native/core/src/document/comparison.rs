@@ -249,6 +249,9 @@ pub fn apply_operations(document: &mut Document, operations: &Value) -> Result<S
                     (index(target_frame)?, index(target_layer)?),
                 )
             }
+            [name, column, layer] if name == "merge_sheet_clip" => {
+                edited.merge_sheet_clip(index(column)?, index(layer)?)
+            }
             [name, column, layer, duration] if name == "set_sheet_duration" => {
                 edited.set_sheet_duration(index(column)?, index(layer)?, index(duration)?)
             }
