@@ -249,6 +249,9 @@ pub fn apply_operations(document: &mut Document, operations: &Value) -> Result<S
                     (index(target_frame)?, index(target_layer)?),
                 )
             }
+            [name, source, destination, layer] if name == "copy_sheet_cell" => {
+                edited.copy_sheet_cell(index(source)?, index(destination)?, index(layer)?)
+            }
             [name, column, layer] if name == "merge_sheet_clip" => {
                 edited.merge_sheet_clip(index(column)?, index(layer)?)
             }

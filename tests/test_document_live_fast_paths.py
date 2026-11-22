@@ -1111,6 +1111,67 @@ def test_merge_sheet_clip_after_a_gap_and_undo_match_python(monkeypatch):
         assert _whole_signature(live) == _whole_signature(plain)
 
 
+def test_copy_sheet_cell_uses_core_command_and_matches_python(monkeypatch):
+    # (元のコマ, 移動先のコマ, 列)。保持の途中・キーの頭・空き・末尾の先へ写す。命令の前に
+    # 取り出した Layer は今の手順と同じ状態で外れるか残る。
+    from paintmaskanimator.document_core import _slot_signature
+    for shape, args in (({"hold": 5, "count": 10}, (1, 7, 0)),
+                        ({"hold": 5, "count": 10}, (6, 0, 0)),
+                        ({"hold": 5, "count": 10}, (0, 8, 1)),
+                        ({"hold": 3, "count": 9}, (0, 5, 0)),
+                        ({"hold": 3, "count": 9}, (4, 0, 1))):
+        plain, live = _pair(**shape)
+        live._promote()
+        fates, results = [], []
+        for document in (plain, live):
+            slots = [[frame.layers[index] for frame in document.frames] for index in range(2)]
+            if document is live:
+                calls = _round_trips(live, monkeypatch)
+            results.append(document.copy_sheet_cell(*args))
+            fates.append([(index, column, _slot_signature(slot, slot._track)[:8])
+                          for index, row in enumerate(slots) for column, slot in enumerate(row)
+                          if not any(slot is layer for frame in document.frames
+                                     for layer in frame.layers)])
+        assert results[1] == results[0]
+        assert calls == []
+        assert fates[1] == fates[0]
+        assert _whole_signature(live) == _whole_signature(plain)
+
+
+def test_copy_sheet_cell_that_overlaps_takes_the_current_path(monkeypatch):
+    # 元の範囲と重なる写しは今の経路で、今の手順と同じになる。
+    for frames, args in ((lambda: _frames(hold=5, count=10), (0, 2, 0)),
+                         (lambda: _frames(hold=3, count=9), (3, 1, 0))):
+        plain = GraphDocument()
+        plain.install_legacy_frames(frames())
+        live = document_live.Document()
+        live.install_legacy_frames(frames())
+        live._promote()
+        calls = _round_trips(live, monkeypatch)
+        assert live.copy_sheet_cell(*args) == plain.copy_sheet_cell(*args)
+        assert calls
+        assert _whole_signature(live) == _whole_signature(plain)
+
+
+def test_copy_sheet_cell_more_shapes_and_undo_match_python(monkeypatch):
+    # 元の範囲の直後・別の保持の途中・末尾から離れた先へ写し、続けて写した保持の上へもう一度
+    # 写す（2回目は配置待ちの位置なので今の経路）。Undo も今の手順と同じになる。
+    for shape, steps in (({"hold": 5, "count": 10}, [(0, 5, 0), (0, 6, 0)]),
+                         ({"hold": 3, "count": 9}, [(0, 4, 0)]),
+                         ({"hold": 3, "count": 9}, [(3, 12, 0)])):
+        plain, live = _pair(**shape)
+        live._promote()
+        before = [document.snapshot() for document in (plain, live)]
+        for args in steps:
+            assert live.copy_sheet_cell(*args) == plain.copy_sheet_cell(*args)
+            assert _signature(live) == _signature(plain)
+        assert _whole_signature(live) == _whole_signature(plain)
+        plain.restore_snapshot(before[0])
+        live.restore_snapshot(before[1])
+        assert _signature(live) == _signature(plain)
+        assert _whole_signature(live) == _whole_signature(plain)
+
+
 def test_has_unlinked_tracks_answers_without_walking_positions(monkeypatch):
     plain, live = _pair()
     calls = _round_trips(live, monkeypatch)

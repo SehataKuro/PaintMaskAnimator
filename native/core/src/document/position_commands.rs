@@ -426,6 +426,87 @@ impl Document {
         Ok(changes)
     }
 
+    /// Python の copy_sheet_cell と同様に、`source_column` を含む絵の保持を同じ列の
+    /// `destination_column` へ写す（移動先の頭を絵の参照にし、後ろへ保持の参照を入れる）。
+    /// 絵の保持でなければ何もしない。番号の無い絵の保持はまだ扱わず、エラーを返す。
+    /// 移動先の頭は新しい位置として作る（移動先の旧入力の印や配置待ちの印は引き継がない）ので、
+    /// そうした印を持つ移動先や、dense_import を持つ元の頭は呼び元が今の手順へ回す前提。
+    pub fn copy_sheet_cell(
+        &mut self,
+        source_column: usize,
+        destination_column: usize,
+        layer_index: usize,
+    ) -> Result<ChangeSet, Error> {
+        let track = *self.track_order.get(layer_index).ok_or_else(invalid)?;
+        let Some(span) = self.display_spans(source_column, &[layer_index])?[0].clone() else {
+            return Ok(Vec::new());
+        };
+        let original = self.sheet[&self.frame_order[span.start]].positions[&track].clone();
+        let before = self.frame_order.len();
+        let length = span.len();
+        let end = destination_column
+            .checked_add(length)
+            .ok_or(Error::TimelineSizeOverflow)?;
+        let bounds = |column: usize| -> Result<Option<std::ops::Range<usize>>, Error> {
+            if column < before {
+                Ok(self.display_spans(column, &[layer_index])?[0].clone())
+            } else {
+                Ok(None)
+            }
+        };
+        let start = bounds(destination_column)?.map_or(destination_column, |span| span.start);
+        let stop = bounds(end - 1)?.map_or(end, |span| span.end);
+        // 番号の無い絵（Python は写した局所の絵を新しい番号でバンクに入れる）は扱わない。
+        let number = match original.reference_for(false) {
+            Reference::Number(number) => number,
+            _ if original.compatibility.unnumbered_content => return Err(invalid()),
+            _ => return Ok(Vec::new()),
+        };
+        let mut edited = self.clone();
+        edited.ensure_frame_count(end)?;
+        let head = Position {
+            reference: Reference::Number(number),
+            blank_start: original.blank_start,
+            ..Position::default()
+        };
+        // Python は移動先の頭の clone_reference() を直接入れる（配置待ちの所属は写しが持つ）。
+        let mut held = held_reference(
+            head.clone(),
+            &edited.tracks[&track].settings,
+            self.blank_artwork()?,
+        );
+        held.compatibility.pending_detached = true;
+        *edited.position_mut(destination_column, track) = head;
+        for index in destination_column + 1..end {
+            *edited.position_mut(index, track) = held.clone();
+        }
+        edited.set_placement_length(destination_column, track, 1, false);
+        let after = edited.frame_order.len();
+        let mut changes = Vec::new();
+        if after > before {
+            changes.push(Change::FrameStructure {
+                operation: FrameOperation::Extend,
+                before,
+                after,
+                start: before,
+            });
+        }
+        changes.extend([
+            Change::SheetSpans {
+                layer_index,
+                start,
+                stop,
+            },
+            Change::Cursor {
+                frame: destination_column,
+                notify: true,
+            },
+            Change::Selection { layer_index },
+        ]);
+        *self = edited;
+        Ok(changes)
+    }
+
     /// Python の merge_sheet_clip と同様に、`column` を含む保持を前の保持へつなぐ。
     ///
     /// 保持の位置を前の保持の頭の写し（中割りの印・blank_start を外し、旧保存の尺は結合した

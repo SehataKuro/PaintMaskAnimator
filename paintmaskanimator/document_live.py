@@ -1405,6 +1405,14 @@ class Document:
             return self._run("delete_sequence_entry", (layer_index, number), {})
         return changes
 
+    def copy_sheet_cell(self, source_column, destination_column, layer_index):
+        changes = _CORE_COMMANDS["copy_sheet_cell"](self, source_column, destination_column,
+                                                    layer_index)
+        if changes is None:
+            return self._run("copy_sheet_cell", (source_column, destination_column, layer_index),
+                             {})
+        return changes
+
     def merge_sheet_clip(self, column, layer_index):
         changes = _CORE_COMMANDS["merge_sheet_clip"](self, column, layer_index)
         if changes is None:
@@ -3615,6 +3623,64 @@ def _core_merge_sheet_clip(document, column, layer_index):
     return changes
 
 
+def _core_copy_sheet_cell(document, source_column, destination_column, layer_index):
+    """copy_sheet_cell を Rust の命令で当てる。今の手順と同じにできなければ None。
+
+    今の手順は移動先の頭の位置をその場で書き換え（copy_drawing_reference。clear_slot のあと
+    写した絵の番号を指す）、頭のあとの保持の位置には頭の clone_reference() を直接入れ直す
+    （replace_slot を通さないので、古い Layer は命令の前の値で外れ、配置待ちは解かない）。
+    同じ列なので表示設定は変わらない。番号付きの内容の保持だけを当て、元の範囲と移動先の範囲が
+    重なる、頭が局所の絵を持つ、頭・触る位置が共有・配置待ち・旧形式の記録を持つ場合は今の経路
+    （触る位置の局所の絵は命令の前の値で外す）。
+    """
+    live = document._live()
+    if (live["graph"] is not None or live.get("trial")
+            or any(type(value) is not int
+                   for value in (source_column, destination_column, layer_index))):
+        return None
+    state = live["state"]
+    frame_ids = list(state.frame_ids)
+    count, tracks = len(frame_ids), list(state.track_ids)
+    if not (0 <= source_column < count and 0 <= layer_index < len(tracks)):
+        return None
+    block = document.timeline_block_at(source_column, layer_index)
+    if block is None or block[0] != "content" or destination_column < 0:
+        from .document_changes import ChangeSet
+        return ChangeSet()
+    _kind, start, exposure = block
+    stop = destination_column + exposure
+    if destination_column < start + exposure and start < stop:
+        return None
+    tid = tracks[layer_index]
+    head = state.position(frame_ids[start], tid)[0]
+    if (head["sequence_number"] is None or not head["has_content"] or head["local"] is not None
+            or _blocks_core_edit(head)):
+        return None
+    keys = [(frame_ids[index], tid) for index in range(destination_column, min(stop, count))]
+    if any(_blocks_core_edit(state.position(*key)[0]) for key in keys):
+        return None
+    plan = _detach_plan(document, keys[1:], keys[:1])
+    if plan is None:
+        return None
+    rows = [key[0] for key in keys]
+    result = _apply_core_command(
+        document, ["copy_sheet_cell", source_column, destination_column, layer_index],
+        lambda ids: rows)
+    if result is None:
+        return None
+    changes, new_ids = result
+    tokens = live.setdefault("tokens", {})
+    for key in keys[1:]:
+        tokens[key] = PendingToken()
+    for fid in new_ids:
+        for track in state.track_ids:
+            tokens[fid, track] = PendingToken()
+    state.pending.clear()
+    # 今の手順は保持の位置へ直接代入する（replace_slot を通さない）ので配置待ちを解かない。
+    _detach(document, plan, release=False)
+    return changes
+
+
 def _blocks_core_edit(values, allow_bank=False):
     """位置が今の経路でしか同じにできない印（配置待ち・局所の絵の共有・旧形式の記録）を持つか。"""
     return (values.get("local_share") is not None or values.get("pending_detached")
@@ -3775,6 +3841,7 @@ _CORE_COMMANDS = {"add_track": _core_add_track,
                   "resize_sheet_exposure": _core_resize_sheet_exposure,
                   "set_sheet_duration": _core_set_sheet_duration,
                   "merge_sheet_clip": _core_merge_sheet_clip,
+                  "copy_sheet_cell": _core_copy_sheet_cell,
                   "new_sheet_number": _core_new_sheet_number}
 
 

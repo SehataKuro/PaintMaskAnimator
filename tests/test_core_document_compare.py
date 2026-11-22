@@ -304,6 +304,33 @@ def test_merge_sheet_clip_v1(monkeypatch, path):
     _compare(loaded, json.dumps(payload), artwork, commands, notices)
 
 
+@pytest.mark.parametrize(
+    ("case", "source", "destination", "layer"),
+    [
+        ("basic-bank-sheet", 0, 4, 0),
+        ("basic-bank-sheet", 0, 1, 0),   # 重なる写し
+        ("basic-bank-sheet", 1, 9, 0),   # 末尾の先へ
+        ("basic-bank-sheet", 2, 0, 0),   # 空キー（何もしない）
+        ("paper-draft", 0, 2, 0),
+        ("paper-draft", 0, 1, 1),
+    ],
+)
+def test_copy_sheet_cell(monkeypatch, case, source, destination, layer):
+    loaded = _load_oracle(V2_ROOT / f"{case}.pman")
+    monkeypatch.setattr(utils, "workspace_size", lambda: (loaded.width, loaded.height))
+    payload, artwork = _project(loaded)
+    doc = loaded.document
+    head = doc.timeline_block_at(source, layer)
+    if (head is not None and head[0] == "content"
+            and doc.frames[head[1]].layers[layer].sequence_number is None):
+        pytest.skip("番号の無い絵の写しは Rust の命令で扱わない")
+    changes = doc.copy_sheet_cell(source, destination, layer)
+    _compare(
+        loaded, json.dumps(payload), artwork,
+        [["copy_sheet_cell", source, destination, layer]], [_notices(changes)],
+    )
+
+
 def test_replace_drawing_image():
     loaded = _load_oracle(V2_ROOT / "basic-bank-sheet.pman")
     payload, artwork = _project(loaded)
