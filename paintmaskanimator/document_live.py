@@ -1405,6 +1405,13 @@ class Document:
             return self._run("delete_sequence_entry", (layer_index, number), {})
         return changes
 
+    def move_sheet_cells(self, moves, destination_column, active_layer):
+        moves = tuple(moves)
+        changes = _CORE_COMMANDS["move_sheet_cells"](self, moves, destination_column, active_layer)
+        if changes is None:
+            return self._run("move_sheet_cells", (moves, destination_column, active_layer), {})
+        return changes
+
     def split_sheet_clip(self, column, layer_index):
         changes = _CORE_COMMANDS["split_sheet_clip"](self, column, layer_index)
         if changes is None:
@@ -2946,6 +2953,154 @@ def _keeps_frame_count(live, operation, count):
     return len(json.loads(trial.frames_graph([])[0])["frame_order"]) == count
 
 
+def _move_settings(obj):
+    """move_sheet_cells が写す表示設定。"""
+    rgb = obj.color_filter_rgb
+    return (bool(obj.visible), float(obj.opacity), bool(obj.alpha_locked),
+            bool(obj.color_filter_enabled), tuple(rgb) if rgb is not None else None)
+
+
+def _same_generations(copied, cell, handles):
+    """用意した写しの絵が、今のバンクの絵と同じ画像（世代）か。"""
+    for name in ("image", "initial_image"):
+        image, index = getattr(copied, name), cell[name]
+        if (image is None) != (index is None):
+            return False
+        if image is not None and image.generation != handles[index].generation:
+            return False
+    return True
+
+
+def _core_move_sheet_cells(document, moves, destination_column, active_layer):
+    """move_sheet_cells を Rust の命令で当てる。今の手順と同じにできなければ None。
+
+    今の手順は元の範囲の位置をその場で消し（clear_slot）、移動先の範囲の内容・空キーの位置も
+    その場で消し、移動先の先頭の位置はその場で書き換え（copy_drawing_reference・
+    import_drawing_reference）、先頭のあとの保持の位置には先頭の clone_reference() を入れ直す
+    （直接代入。古い Layer は消された状態で外れる）。moves は prepare_sheet_moves が
+    命令の前に用意したもので、今の文書と食い違う、内容が番号付きでない、移動先どうしが重なる、
+    局所の絵の共有・旧形式の記録を持つ位置がある、などは今の経路。
+    """
+    live = document._live()
+    if (live["graph"] is not None or live.get("trial") or type(destination_column) is not int
+            or type(active_layer) is not int or type(moves) is not tuple or not moves):
+        return None
+    state = live["state"]
+    frame_ids = list(state.frame_ids)
+    count, tracks = len(frame_ids), list(state.track_ids)
+    if not (0 <= destination_column and 0 <= active_layer < len(tracks)):
+        return None
+    operations, cleared, replaced, emptied, touched, banks = [], [], [], [], set(), []
+    targets = {}
+    for move in moves:
+        if type(move) is not tuple or len(move) != 7:
+            return None
+        source_layer, start, target_layer, target_start, kind, exposure, copied = move
+        if (any(type(value) is not int for value in (source_layer, start, target_layer,
+                                                       target_start, exposure))
+                or kind not in ("content", "blank") or exposure < 1 or target_start < 0
+                or not (0 <= source_layer < len(tracks) and 0 <= target_layer < len(tracks))
+                or start + exposure > count
+                or document.timeline_block_at(start, source_layer) != (kind, start, exposure)):
+            return None
+        source_id, target_id = tracks[source_layer], tracks[target_layer]
+        head = state.position(frame_ids[start], source_id)[0]
+        # 今の手順は用意した写し（copied）から当て、Rust は今の文書から当てる。同じであること。
+        if (bool(copied.has_content) != (kind == "content")
+                or bool(copied.is_blank_key) != (kind == "blank")
+                or copied.sequence_number != head["sequence_number"]
+                or bool(copied.sequence_only) or head["sequence_only"]
+                or (kind == "content" and copied.sequence_number is None)):
+            return None
+        source_track, target_track = document.tracks[source_layer], document.tracks[target_layer]
+        settings = [_move_settings(source_track), _move_settings(copied)]
+        if source_layer != target_layer:
+            # 今の手順は移動先の先頭の旧形式の記録を、表示設定を写す前の値で取る。
+            settings.append(_move_settings(target_track))
+        if any(value != settings[0] for value in settings):
+            return None
+        if kind == "blank":
+            # 今の手順の保持は先頭の局所の Cell を共有し（Rust は位置ごと）、記録は元の
+            # blank_start を持つ（Rust は真）。
+            if exposure > 1 or not copied.blank_start:
+                return None
+        else:
+            data, handles = state.track(source_id)
+            cell = dict(data["cells"]).get(copied.sequence_number)
+            if cell is None or not _same_generations(copied, cell, handles):
+                return None
+            if source_layer != target_layer:
+                # 今の手順は移動先のバンクの同じ番号の Cell に新しい画像を入れる（Cell は
+                # 残り、前の画像は文書から外れる）。その画像の窓口を命令の前の値で外す。
+                bank = ("bank", target_id, copied.sequence_number)
+                images = {}
+                for initial in (False, True):
+                    image = live["cache"]._objects.get(("image", (bank, initial)))
+                    if image is not None:
+                        try:
+                            images[initial] = (image, image._image.copy())
+                        except ValueError:
+                            return None
+                if images:
+                    banks.append((bank, None, images, {"local": None}, None))
+        span = targets.setdefault(target_id, [])
+        if any(target_start < stop and other < target_start + exposure
+               for other, stop in span):
+            return None
+        span.append((target_start, target_start + exposure))
+        operations.append([start, source_layer, target_start, target_layer])
+        touched.update((source_id, target_id))
+        cleared.extend((frame_ids[index], source_id) for index in range(start, start + exposure))
+        if target_start < count:
+            cleared.append((frame_ids[target_start], target_id))
+        for index in range(target_start + 1, min(target_start + exposure, count)):
+            replaced.append((frame_ids[index], target_id))
+    sources = set(cleared)
+    keys = set(cleared) | set(replaced)
+    for key in keys:
+        values = state.position(*key)[0]
+        if (values.get("local_share") is not None or values.get("pending_detached")
+                or values["sequence_only"] or values["local_bank"]
+                or any(values.get(name) is not None for name in _SPLIT_RECORDS)
+                or values.get("legacy_missing")):
+            return None
+    # 入れ直す位置のうち、今の手順が入れ直す前に消すもの（元の範囲か、内容・空キー）。
+    for key in replaced:
+        values = state.position(*key)[0]
+        if key in sources or values["has_content"] or values["is_blank_key"]:
+            emptied.append(key)
+    cleared = list(dict.fromkeys(key for key in cleared if key not in set(replaced)))
+    plan = _detach_plan(document, replaced, cleared)
+    if plan is None:
+        return None
+    plan["cells"].extend(banks)
+    rows = list(dict.fromkeys(key[0] for key in [*cleared, *replaced]))
+    result = _apply_core_command(
+        document, ["move_sheet_cells", operations, destination_column, active_layer],
+        lambda ids: rows)
+    if result is None:
+        return None
+    changes, new_ids = result
+    for tid in touched:
+        state.refresh_track(tid)
+        state.forget_track(tid)
+    tokens = live.setdefault("tokens", {})
+    for key in replaced:
+        tokens[key] = PendingToken()
+    for fid in new_ids:
+        for track in state.track_ids:
+            tokens[fid, track] = PendingToken()
+    state.pending.clear()
+    layers = {key: layer for key, layer, *_ in plan["layers"]}
+    # 今の手順は保持の位置へ直接代入する（replace_slot を通さない）ので配置待ちを解かない。
+    _detach(document, plan, release=False)
+    from .document import clear_slot
+    for key in emptied:
+        if key in layers:
+            clear_slot(layers[key])
+    return changes
+
+
 def _core_position_command(document, name, column, layer_index, replace):
     """一つの位置だけを書き換える命令を Rust で当てる。今の手順と同じにできなければ None。
 
@@ -3093,6 +3248,7 @@ _CORE_COMMANDS = {"add_track": _core_add_track,
                   "split_sheet_clip": _core_split_sheet_clip,
                   "insert_sequence_blank": _core_insert_sequence_blank,
                   "delete_sequence_entry": _core_delete_sequence_entry,
+                  "move_sheet_cells": _core_move_sheet_cells,
                   "new_sheet_number": _core_new_sheet_number}
 
 

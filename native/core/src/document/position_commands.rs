@@ -124,7 +124,9 @@ impl Document {
             settings.alpha_locked = source_settings.alpha_locked;
             settings.color_filter_enabled = source_settings.color_filter_enabled;
             settings.color_filter_rgb = source_settings.color_filter_rgb;
-            let held = held_reference(head.clone(), settings, blank);
+            let mut held = held_reference(head.clone(), settings, blank);
+            // Python の clone_reference（clone_slot）は配置待ちの所属を位置自身に持たせる。
+            held.compatibility.pending_detached = true;
             *edited.position_mut(target.start, track) = head;
             for column in target.start + 1..target.end {
                 *edited.position_mut(column, track) = held.clone();

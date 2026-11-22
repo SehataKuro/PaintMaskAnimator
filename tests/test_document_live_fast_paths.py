@@ -689,6 +689,85 @@ def test_delete_sequence_entry_that_trims_frames_takes_the_current_path(monkeypa
     assert _whole_signature(live) == _whole_signature(plain)
 
 
+def test_move_sheet_cells_uses_core_command_and_matches_python(monkeypatch):
+    # (選んだ位置, 列のずれ, コマのずれ, カーソル, 選ぶ列)
+    cases = (({"hold": 5, "count": 10}, [(0, 0)], 0, 2, 2, 0),
+             ({"hold": 5, "count": 10}, [(0, 5)], 0, 3, 8, 0),
+             ({"hold": 5, "count": 10}, [(0, 0)], 1, 5, 5, 1),
+             ({"hold": 3, "count": 9}, [(1, 3), (0, 3)], 0, 1, 4, 1),
+             ({"hold": 3, "count": 9}, [(1, 2)], 0, 6, 8, 1),
+             ({"hold": 3, "count": 9}, [(1, 0)], -1, 4, 4, 0))
+    from paintmaskanimator import pma_image, utils
+    for shape, positions, layer_delta, column_delta, cursor, active in cases:
+        plain, live = _pair(**shape)
+        live._promote()
+        slots = [[frame.layers[index] for frame in live.frames] for index in range(2)]
+        # 消した位置の空画像の世代は直前の取り込みしだい（空画像を作る Rust の命令に共通の
+        # 既知の差）なので、直前の取り込みを空画像の雛形にそろえてから比べる。
+        monkeypatch.setattr(pma_image, "_last_import", None)
+        monkeypatch.setattr(utils._BlankTemplate, "model_image", None)
+        utils.blank_model_image()
+        results = []
+        for document in (plain, live):
+            moves = document.prepare_sheet_moves(positions, layer_delta, column_delta)
+            if document is live:
+                calls = _round_trips(live, monkeypatch)
+            results.append(document.move_sheet_cells(moves, cursor, active))
+        assert results[1] == results[0]
+        assert calls == [] or positions == [(1, 2)]  # 移動先が文書の外へ伸びる形は今の経路
+        detached = [slot for column in slots for slot in column
+                    if not any(slot is layer for frame in live.frames for layer in frame.layers)]
+        assert all(type(slot) is Layer for slot in detached)
+        assert _whole_signature(live) == _whole_signature(plain)
+
+
+def test_move_sheet_cells_across_tracks_detaches_replaced_bank_images(monkeypatch):
+    # A の1番を B の列5へ、B の1番（初期画像あり）を C へ一緒に動かす。今の手順は B のバンクの
+    # 1番の Cell に新しい画像を入れ、前の画像（命令の前に取り出した窓口）は文書から外れる。
+    from paintmaskanimator import pma_image, utils
+
+    def frames():
+        rows = []
+        for column in range(8):
+            a = (_colored_layer("A", (255, 0, 0, 255), number=1) if 5 <= column < 7
+                 else _colored_layer("A", (0, 0, 0, 0), content=False))
+            if column < 2:
+                b = _colored_layer("B", (0, 0, 255, 255), number=1)
+                if column == 0:
+                    yellow = QImage(8, 8, QImage.Format.Format_ARGB32_Premultiplied)
+                    yellow.fill(QColor(255, 255, 0, 255))
+                    b.initial_image = PmaImage(yellow)
+            else:
+                b = _colored_layer("B", (0, 0, 0, 0), content=False)
+            rows.append(Frame([a, b, _colored_layer("C", (0, 0, 0, 0), content=False)]))
+        return rows
+    held, results = [], []
+    for factory in (GraphDocument, document_live.Document):
+        document = factory()
+        document.install_legacy_frames(frames())
+        if factory is not GraphDocument:
+            document._promote()
+        monkeypatch.setattr(pma_image, "_last_import", None)
+        monkeypatch.setattr(utils._BlankTemplate, "model_image", None)
+        utils.blank_model_image()
+        moves = document.prepare_sheet_moves([(0, 5), (1, 0)], 1, 0)
+        cell = document.tracks[1].cells[1]
+        held.append((cell, cell.image))
+        if factory is not GraphDocument:
+            calls = _round_trips(document, monkeypatch)
+        results.append((document, document.move_sheet_cells(moves, 5, 1)))
+    (plain, expected), (live, result) = results
+    assert result == expected
+    assert calls == []
+    for document, (cell, image) in zip((plain, live), held):
+        assert document.tracks[1].cells[1] is cell and cell.image is not image
+        assert tuple(image.read_rgba(0, 0, 1, 1)[0, 0]) == (0, 0, 255, 255)
+        assert document.frames[5].layers[1].initial_image is None
+        assert tuple(document.frames[5].layers[1].image.read_rgba(0, 0, 1, 1)[0, 0]) == (
+            255, 0, 0, 255)
+    assert _whole_signature(live) == _whole_signature(plain)
+
+
 def test_has_unlinked_tracks_answers_without_walking_positions(monkeypatch):
     plain, live = _pair()
     calls = _round_trips(live, monkeypatch)
