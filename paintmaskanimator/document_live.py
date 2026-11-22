@@ -1395,6 +1395,52 @@ class Document:
                 return ChangeSet()
         return self._run("link_layer_tracks", (), {})
 
+    def capture_column(self, index):
+        """列の写し（今の手順と同じく clone_frame_graph で作る、文書から外れた Layer の並び）。
+
+        Rust の状態では、全部を素に書き出さず、その列だけを _materialize と同じ手順で素の
+        オブジェクトにしてから写す。
+        """
+        live = self._live()
+        if (live["graph"] is None and not live.get("trial") and type(index) is int
+                and 0 <= index < len(live["state"].track_ids)):
+            from .document import clone_frame_graph
+            state = live["state"]
+            # _materialize と同じく、窓口の画像（今の画素を持つ）があればそれを入れてから写す。
+            cached = dict(live["cache"].items())
+            tid = state.track_ids[index]
+            track = plain_track(*state.track(tid))
+            for number, cell in track.cells.items():
+                _reuse_images(cell, ("bank", tid, number), cached)
+            for token in live.get("extra_pending", {}).get(tid, ()):
+                track.pending_slots.add(token)
+            shares, frames = {}, []
+            for fid in state.frame_ids:
+                data, handles = state.position(fid, tid)
+                slot = plain_slot(data, track, handles, shares=shares)
+                _restore_token(slot, track, live.get("tokens", {}).get((fid, tid)))
+                if _slot_owns_local(slot):
+                    _reuse_images(slot.__dict__["_cell"], state.local_key(fid, tid), cached)
+                frames.append(Frame([slot], state.durations[fid]))
+            copied, _ = clone_frame_graph(frames)
+            return [frame.layers[0] for frame in copied]
+        return self._run("capture_column", (index,), {})
+
+    def remove_tracks(self, indices, *, active=None):
+        indices = tuple(indices)
+        changes = _CORE_COMMANDS["remove_tracks"](self, indices, active=active)
+        if changes is None:
+            return self._run("remove_tracks", (indices,), {"active": active})
+        return changes
+
+    def restore_removed_track(self, e):
+        changes = _CORE_COMMANDS["restore_removed_track"](self, e)
+        return self._run("restore_removed_track", (e,), {}) if changes is None else changes
+
+    def add_track(self):
+        changes = _CORE_COMMANDS["add_track"](self)
+        return self._run("add_track", (), {}) if changes is None else changes
+
     def create_blank_key(self, column, layer_index):
         changes = _CORE_COMMANDS["create_blank_key"](self, column, layer_index)
         if changes is None:
@@ -2160,6 +2206,155 @@ def _core_advance_frame(document):
     return ChangeSet((*changes.changes, Cursor(column)))
 
 
+def _core_add_track(document):
+    """add_track を Rust の命令で当てる。今の手順と同じにできなければ None。
+
+    今の手順は新しい列（各位置は空画像の局所の Cell、一つの Track を共有）を末尾に足し、
+    sync_columns で tracks に新しいリストを入れる。既存の位置・コマ・列のオブジェクトは
+    変えない。ただし sync_columns は配置待ちの所属を位置が持つ位置（pending_detached）を
+    列へつなぎ直すので、そういう位置があれば今の経路。
+    """
+    live = document._live()
+    if live["graph"] is not None or live.get("trial"):
+        return None
+    state = live["state"]
+    if not state.frame_ids or any(values.get("pending_detached")
+                                  for values, _ in state.positions.values()):
+        return None
+    before = set(state.track_ids)
+    # 今の手順は tracks に新しいリストを入れるので、渡した並びの窓口は前の中身に固定する。
+    old_tracks = list(document.tracks)
+    # 新しい列の位置は全部のコマの行に入るので、全部の行を読み直す。
+    result = _apply_core_command(document, ["add_track"], lambda ids: list(ids))
+    if result is None:
+        return None
+    changes, _ = result
+    (tid,) = [tid for tid in state.track_ids if tid not in before]
+    state.refresh_track(tid)
+    tokens = live.setdefault("tokens", {})
+    for fid in state.frame_ids:
+        tokens[fid, tid] = PendingToken()
+    state.pending.clear()
+    document._retire_view("tracks_view", old_tracks)
+    return changes
+
+
+def _retire_columns(document, track_ids, frozen_core, old_state):
+    """列 track_ids の窓口を、文書から外れた別の Document（写し frozen_core が正本）へ移す。
+
+    今の手順（remove_tracks）は列の位置を frame.layers から外し、外れた Layer・Track・Cell・
+    画像は今の値のまま残る。C4b-9 の restore と同じく、書き出す代わりに窓口の持ち主を
+    外れた Document に付け替える。外れた側は命令の前の状態の写し old_state を読む。
+    """
+    live = document._live()
+    retired = object.__new__(Document)
+    old_state.core = frozen_core
+    cache = _Cache()
+    tokens = live.get("tokens", {})
+    retired.__dict__["_live_state"] = {
+        "graph": None, "core": frozen_core, "state": old_state, "cache": cache,
+        "cursor": list(live["cursor"]), "next_ids": old_state.next_ids, "last_keys": {},
+        "extra_pending": {tid: live["extra_pending"][tid] for tid in track_ids
+                          if tid in live.get("extra_pending", {})},
+        "tokens": {key: token for key, token in tokens.items() if key[1] in track_ids},
+    }
+
+    def removed(kind, key):
+        if kind in ("layer", "track"):
+            return key[-1] in track_ids if kind == "layer" else key[0] in track_ids
+        if kind == "cell":
+            return (key[1] if key[0] == "bank" else key[2]) in track_ids
+        if kind == "image":
+            place = key[0]
+            return (place[1] if place[0] == "bank" else place[2]) in track_ids
+        return False
+
+    for (kind, key), obj in live["cache"].items():
+        if not removed(kind, key):
+            continue
+        live["cache"].pop(kind, key)
+        cache.put(kind, key, obj)
+        if kind == "image":
+            # restore と同じく今の画素を持つ独立した画像に戻し、外れた側の表に残す。命令の
+            # あとの文書にはもうこの列の絵が無いので、写しの同じ絵へ結び直してから戻す。
+            (place, first, second), initial = key
+            _bind(obj, _native._CellImage(frozen_core, place == "bank", first, second, initial))
+            _unbind(obj)
+            continue
+        _setm(obj, "_owner", retired)
+    for key in [key for key in tokens if key[1] in track_ids]:
+        del tokens[key]
+    for tid in track_ids:
+        live.get("extra_pending", {}).pop(tid, None)
+
+
+def _core_remove_columns(document, indices, active):
+    """列を Rust の命令で消し、外れた列の窓口を外れた Document へ移す。できなければ None。
+
+    今の手順は外す位置の配置待ちを解き（release_slots）、sync_columns で tracks に新しい
+    リストを入れ、配置待ちの所属を位置が持つ位置をつなぎ直す。消す列に配置待ちの位置・
+    局所の絵の共有の組がある場合と、pending_detached の位置がある場合は今の経路。
+    """
+    live = document._live()
+    if live["graph"] is not None or live.get("trial"):
+        return None
+    state = live["state"]
+    count = len(state.track_ids)
+    if (not indices or any(type(index) is not int or not 0 <= index < count for index in indices)
+            or len(indices) >= count or not state.frame_ids):
+        return None
+    track_ids = {state.track_ids[index] for index in indices}
+    for (_, tid), (values, _) in state.positions.items():
+        if values.get("pending_detached"):
+            return None
+        if tid in track_ids and (values["sequence_only"] or values.get("local_share") is not None):
+            return None
+    if any(live.get("extra_pending", {}).get(tid) for tid in track_ids):
+        return None
+    operation = (["remove_tracks", sorted(indices)] if active is None
+                 else ["remove_tracks", sorted(indices), active])
+    old_tracks = list(document.tracks)
+    core = live["core"]
+    frozen = core.copy()
+    try:
+        core.set_blank_image(_blank_handle())
+        text = core.apply_command(json.dumps(operation))
+    except ValueError:
+        return None
+    # 命令が当たった文書の状態を先に入れ、窓口の付け替えはそのあと（途中で失敗しても、
+    # 文書の読み書きは命令のあとの状態にそろう）。今の手順は配置待ちでない位置の
+    # timeline_revision を進めない（release_slots は値が同じ、pop は代入を通らない）。
+    live["state"] = _CoreState(core)
+    _retire_columns(document, track_ids, frozen, state)
+    document._sync_selection()
+    document._retire_view("tracks_view", old_tracks)
+    return _changes_from_json(text)
+
+
+def _core_remove_tracks(document, indices, *, active=None):
+    """remove_tracks を Rust の命令で当てる。今の手順と同じにできなければ None。"""
+    indices = tuple(sorted(set(indices)))
+    if active is not None and type(active) is not int:
+        return None
+    return _core_remove_columns(document, indices, active)
+
+
+def _core_restore_removed_track(document, e):
+    """restore_removed_track（列の追加の Undo）を Rust の命令で当てる。"""
+    live = document._live()
+    if live["graph"] is not None or live.get("trial"):
+        return None
+    index, target = e.index, e.target_active
+    count = len(live["state"].track_ids)
+    if type(index) is not int or not 0 <= index < count or count < 2:
+        return None
+    try:
+        active = max(0, min(int(target), count - 2))
+    except (TypeError, ValueError):
+        return None
+    return _core_remove_columns(document, (index,), active)
+
+
 def _rekey_locals(document, moves):
     """局所の Cell・画像の窓口を、移った先の位置のキーへ付け替える。"""
     live = document._live()
@@ -2415,7 +2610,10 @@ def _core_restore_snapshot(document, snapshot):
 
 
 # Rust の命令で当てる操作（名前 → 関数(document, *args)、当てられなければ None）。
-_CORE_COMMANDS = {"duplicate_frame": _core_duplicate_frame,
+_CORE_COMMANDS = {"add_track": _core_add_track,
+                  "remove_tracks": _core_remove_tracks,
+                  "restore_removed_track": _core_restore_removed_track,
+                  "duplicate_frame": _core_duplicate_frame,
                   "delete_frame": _core_delete_frame,
                   "delete_track_frame": _core_delete_track_frame,
                   "insert_track_frame": _core_insert_track_frame,

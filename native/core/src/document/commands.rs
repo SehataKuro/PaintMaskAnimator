@@ -256,8 +256,16 @@ impl Document {
             cells: Default::default(),
             legacy_archive_hints: Default::default(),
         };
+        // Python の add_track は Layer(name, blank_model_image()) を作るので、新しい位置は
+        // 空画像の局所の Cell を持つ（ensure_frame_count と同じ）。
+        let mut empty = Position::default();
+        empty.compatibility.local = Some(Cell {
+            image: self.blank_artwork()?,
+            initial_image: None,
+            cell_name: None,
+        });
         for frame in self.sheet.values_mut() {
-            frame.positions.insert(id, Position::default());
+            frame.positions.insert(id, empty.clone());
         }
         self.next_track_id = next;
         self.track_order.push(id);
@@ -540,6 +548,24 @@ mod tests {
         doc.remove_tracks(&[0], None).unwrap();
         doc.add_track().unwrap();
         assert_ne!(doc.track_order()[1], added);
+    }
+
+    // tests/test_document_live_fast_paths.py:test_add_track_uses_core_command_and_matches_python
+    #[test]
+    fn added_track_positions_hold_blank_local_artwork_from_the_template() {
+        let mut doc = document();
+        let template = RgbaImage::blank(1, 1).unwrap();
+        doc.set_blank_image(template.clone());
+        doc.ensure_frame_count(3).unwrap();
+        doc.add_track().unwrap();
+        let added = doc.track_order()[1];
+        for frame in doc.frame_order().to_vec() {
+            let position = &doc.frame(frame).unwrap().positions[&added];
+            assert_eq!(position.reference, Reference::Empty);
+            let local = position.compatibility.local.as_ref().unwrap();
+            assert_eq!(local.image.generation(), template.generation());
+            assert!(local.initial_image.is_none() && local.cell_name.is_none());
+        }
     }
 
     #[test]

@@ -153,6 +153,9 @@ pub fn apply_operations(document: &mut Document, operations: &Value) -> Result<S
             [name, layers] if name == "remove_tracks" => {
                 edited.remove_tracks(&indices(layers)?, None)
             }
+            [name, layers, active] if name == "remove_tracks" => {
+                edited.remove_tracks(&indices(layers)?, Some(index(active)?))
+            }
             [name, layer, label] if name == "duplicate_tracks" => edited
                 .duplicate_tracks(&[(index(layer)?, label.as_str().ok_or_else(invalid)?.into())]),
             [name, layers, source] if name == "merge_tracks" => {

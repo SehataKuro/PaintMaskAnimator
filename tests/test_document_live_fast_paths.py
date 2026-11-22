@@ -574,3 +574,231 @@ def test_restore_snapshot_keeps_reassigned_and_held_views():
         document.tracks = tracks
         assert document.frames is frames and document.tracks is tracks
     assert _signature(live) == _signature(plain)
+
+
+def test_add_track_uses_core_command_and_matches_python(monkeypatch):
+    plain, live = _pair(hold=3, count=7)
+    calls = _round_trips(live, monkeypatch)
+    old_tracks, plain_old_tracks = live.tracks, plain.tracks
+    old_frames = list(live.frames)
+    old_layers = [list(frame.layers) for frame in live.frames]
+    assert live.add_track() == plain.add_track()
+    assert calls == []
+    assert _signature(live) == _signature(plain)
+    assert [layer.name for layer in live.layers] == [layer.name for layer in plain.layers]
+    # 今の手順は tracks に新しいリストを入れ、既存のコマ・位置のオブジェクトはそのまま。
+    assert (live.tracks is old_tracks) == (plain.tracks is plain_old_tracks)
+    assert len(old_tracks) == len(plain_old_tracks) == 2
+    assert all(a is b for a, b in zip(live.frames, old_frames))
+    assert all(frame.layers[:2] == row and all(x is y for x, y in zip(frame.layers, row))
+               for frame, row in zip(live.frames, old_layers))
+    # 新しい列は一つの Track を共有し、各位置は独立した空画像の局所の Cell を持つ。
+    column = [frame.layers[2] for frame in live.frames]
+    assert all(slot._track is live.tracks[2] for slot in column)
+    assert len({id(slot._cell) for slot in column}) == len(column)
+    assert not any(slot.image.rgba().any() for slot in column)
+    # 続けてもう一列。名前は今の手順と同じ。
+    assert live.add_track() == plain.add_track()
+    assert calls == []
+    assert [layer.name for layer in live.layers] == [layer.name for layer in plain.layers]
+    assert _signature(live) == _signature(plain)
+    # 一つの位置の絵を替えても、同じ列の他の位置の絵は変わらない。
+    width = column[1].image.width
+    assert width != 3
+    column[0].image = PmaImage.blank(3, 3)
+    assert column[0].image.width == 3 and live.frames[1].layers[2].image.width == width
+
+
+def test_add_track_with_pending_detached_positions_takes_the_current_path(monkeypatch):
+    plain, live = _pair(hold=5, count=10)
+    for document in (plain, live):
+        document.clear_sheet_span(1, 2, 10)
+        document.create_blank_key(9, 1)
+    live._promote()
+    assert live._live()["graph"] is None
+    assert any(values.get("pending_detached")
+               for values, _ in live._live()["state"].positions.values())
+    calls = _round_trips(live, monkeypatch)
+    assert live.add_track() == plain.add_track()
+    assert calls
+    assert _signature(live) == _signature(plain)
+    assert _plain_flags(live) == _plain_flags(plain)
+
+
+def _column_signature(layers, monkeypatch):
+    """列の写しの署名。画像の世代は文書ごとに違うので、出てきた順の番号に読み替える。"""
+    from paintmaskanimator import document_core
+    original = document_core._image_signature
+    seen = {}
+
+    def image_signature(image):
+        value = original(image)
+        if isinstance(value, tuple) and len(value) == 4:
+            value = (value[0], value[1], seen.setdefault(value[2], len(seen)), value[3])
+        return value
+    plain = object.__new__(GraphDocument)
+    plain.frames = [Frame([layer]) for layer in layers]
+    plain.tracks = [layers[0]._track]
+    plain.current_frame = plain.active_layer_index = 0
+    with monkeypatch.context() as patch:
+        patch.setattr(document_core, "_image_signature", image_signature)
+        return document_core.graph_signature(plain)
+
+
+def test_capture_column_reads_one_column_and_matches_python(monkeypatch):
+    plain, live = _pair(hold=5, count=10)
+    for document in (plain, live):
+        document.clear_sheet_span(1, 2, 6)
+        document.create_blank_key(8, 1)
+    live._promote()
+    calls = _round_trips(live, monkeypatch)
+    for index in (0, 1):
+        captured = live.capture_column(index)
+        expected = plain.capture_column(index)
+        assert calls == []
+        assert (_column_signature(captured, monkeypatch)
+                == _column_signature(expected, monkeypatch))
+        # 写しは文書から外れている（同じオブジェクトでなく、列も別）。
+        assert not any(slot is layer for slot in captured
+                       for frame in live.frames for layer in frame.layers)
+        assert captured[0]._track is not live.tracks[index]
+        assert ([len(slot._track.pending_slots) for slot in captured[:1]]
+                == [len(slot._track.pending_slots) for slot in expected[:1]])
+    before = _signature(live)
+    captured = live.capture_column(0)
+    captured[0].has_content = False
+    captured[0]._track.name = "Z"
+    assert _signature(live) == before and live.layers[0].name == "A"
+    assert _signature(live) == _signature(plain)
+
+
+def test_remove_tracks_uses_core_command_and_retires_the_column(monkeypatch):
+    plain, live = _pair(hold=3, count=7)
+    for document in (plain, live):
+        document.add_track()
+    live._promote()
+    calls = _round_trips(live, monkeypatch)
+    old_tracks, plain_old_tracks = live.tracks, plain.tracks
+    removed_track = live.tracks[1]
+    patch = QImage(2, 2, QImage.Format.Format_ARGB32_Premultiplied)
+    patch.fill(QColor(0, 255, 0, 255))
+    for document in (plain, live):
+        document.write_drawing_patch(0, 1, patch, (0, 0, 2, 2))
+    calls.clear()
+    removed_slot = live.frames[0].layers[1]
+    removed_cell = removed_slot._cell
+    removed_image = removed_slot.image
+    pixels = removed_image.read_rgba(0, 0, 4, 4).copy()
+    assert pixels.any()
+    values = (removed_slot.has_content, removed_slot.sequence_number, removed_track.name,
+              sorted(removed_track.cells))
+    kept = live.frames[0].layers[2]
+    assert live.remove_tracks([1]) == plain.remove_tracks([1])
+    assert calls == []
+    assert _signature(live) == _signature(plain)
+    assert [layer.name for layer in live.layers] == [layer.name for layer in plain.layers]
+    assert (live.tracks is old_tracks) == (plain.tracks is plain_old_tracks)
+    assert live.frames[0].layers[1] is kept
+    # 外れた位置・列・絵は今の値のまま、文書の外に残る。
+    assert not any(slot is removed_slot for frame in live.frames for slot in frame.layers)
+    assert (removed_slot.has_content, removed_slot.sequence_number, removed_track.name,
+            sorted(removed_track.cells)) == values
+    assert removed_slot._track is removed_track and removed_slot._cell is removed_cell
+    assert removed_slot.image is removed_image
+    # restore と同じく、外れた画像は今の画素を持つ独立した画像に戻る。
+    assert type(removed_image) is PmaImage
+    assert (removed_image.read_rgba(0, 0, 4, 4) == pixels).all()
+    # 外れたものへの書き込みは文書に届かない。
+    removed_track.name = "Z"
+    removed_slot.has_content = False
+    assert [layer.name for layer in live.layers] == [layer.name for layer in plain.layers]
+    assert _signature(live) == _signature(plain)
+    # 外れた位置を文書に戻すと、今と同じく素のオブジェクトとして扱われる。
+    assert removed_track.name == "Z" and not removed_slot.has_content
+
+
+def test_restore_removed_track_undoes_add_track(monkeypatch):
+    from paintmaskanimator.undo_entries import LayerRemoveUndo
+    plain, live = _pair(hold=3, count=7)
+    for document in (plain, live):
+        document.add_track()
+    live._promote()
+    calls = _round_trips(live, monkeypatch)
+    entry = LayerRemoveUndo(2, 1)
+    captured = live.capture_column(2)
+    assert live.restore_removed_track(entry) == plain.restore_removed_track(entry)
+    assert calls == []
+    assert _signature(live) == _signature(plain)
+    assert len(live.layers) == 2 and len(captured) == len(live.frames)
+
+
+def test_remove_tracks_with_pending_positions_takes_the_current_path(monkeypatch):
+    plain, live = _pair(hold=5, count=10)
+    for document in (plain, live):
+        document.add_track()
+        document.insert_sequence_blank(1, 1)
+    live._promote()
+    assert live._live()["graph"] is None
+    state = live._live()["state"]
+    assert any(values["sequence_only"] for (_, tid), (values, _) in state.positions.items()
+               if tid == state.track_ids[1])
+    calls = _round_trips(live, monkeypatch)
+    assert live.remove_tracks([1]) == plain.remove_tracks([1])
+    assert calls
+    assert _signature(live) == _signature(plain)
+
+
+def test_remove_several_tracks_with_active_uses_core_command(monkeypatch):
+    plain, live = _pair(hold=3, count=7)
+    for document in (plain, live):
+        document.add_track()
+        document.add_track()
+    live._promote()
+    calls = _round_trips(live, monkeypatch)
+    assert (live.remove_tracks([2, 0, 2], active=1)
+            == plain.remove_tracks([2, 0, 2], active=1))
+    assert calls == []
+    assert _signature(live) == _signature(plain)
+    assert [layer.name for layer in live.layers] == [layer.name for layer in plain.layers]
+    assert live.active_layer_index == plain.active_layer_index
+    # 範囲外の active は今の手順と同じく何もしない。
+    assert live.remove_tracks([0], active=5) == plain.remove_tracks([0], active=5)
+    assert _signature(live) == _signature(plain)
+
+
+def test_restore_snapshot_after_remove_tracks_matches_python(monkeypatch):
+    plain, live = _pair(hold=3, count=7)
+    for document in (plain, live):
+        document.add_track()
+    live._promote()
+    expected = plain.snapshot()
+    snapshot = live.snapshot()
+    calls = _round_trips(live, monkeypatch)
+    assert live.remove_tracks([1]) == plain.remove_tracks([1])
+    assert calls == []
+    assert live.restore_snapshot(snapshot) == plain.restore_snapshot(expected)
+    assert _signature(live) == _signature(plain)
+    assert [layer.name for layer in live.layers] == [layer.name for layer in plain.layers]
+    patch = QImage(2, 2, QImage.Format.Format_ARGB32_Premultiplied)
+    patch.fill(QColor(0, 0, 255, 255))
+    for document in (plain, live):
+        document.write_drawing_patch(0, 1, patch, (1, 1, 2, 2))
+    assert (live.frames[0].layers[1].image.read_rgba(0, 0, 4, 4)
+            == plain.frames[0].layers[1].image.read_rgba(0, 0, 4, 4)).all()
+
+
+def test_capture_column_reads_pixels_written_through_the_image(monkeypatch):
+    # ブラシの確定と同じく、画像へ直接書いた画素も写しに入る（delete_layer の Undo）。
+    plain, live = _pair(hold=3, count=7)
+    live._promote()
+    calls = _round_trips(live, monkeypatch)
+    patch = QImage(2, 2, QImage.Format.Format_ARGB32_Premultiplied)
+    patch.fill(QColor(0, 0, 255, 255))
+    for document in (plain, live):
+        document.frames[0].layers[1].image.write_qimage(patch, 3, 3)
+    captured = live.capture_column(1)
+    expected = plain.capture_column(1)
+    assert calls == []
+    for got, want in zip(captured, expected):
+        assert (got.image.read_rgba(0, 0, 8, 8) == want.image.read_rgba(0, 0, 8, 8)).all()
+    assert captured[0].image.read_rgba(3, 3, 1, 1).any()
