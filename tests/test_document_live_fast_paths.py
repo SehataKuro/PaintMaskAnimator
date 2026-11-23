@@ -413,6 +413,113 @@ def test_create_blank_key_keeps_pending_detached_of_the_blank_position(monkeypat
     assert _plain_flags(live) == _plain_flags(plain)
 
 
+def _held_windows(document, layer_index):
+    """列の各位置の Layer と局所の Cell（命令の前に持っておく窓口）。"""
+    return [(frame.layers[layer_index], frame.layers[layer_index]._cell)
+            for frame in document.frames]
+
+
+def _held_view(document, layer_index, held):
+    """持っておいた Layer・Cell が、命令のあと文書のどこにあるか（外れた Layer は値も）。"""
+    slots = [frame.layers[layer_index] for frame in document.frames]
+    cells = [slot._cell for slot in slots]
+    view = []
+    for layer, cell in held:
+        place = next((i for i, slot in enumerate(slots) if slot is layer), None)
+        values = None if place is not None else (
+            layer.has_content, layer.is_blank_key, layer.sequence_number, layer.sequence_only,
+            layer.blank_start)
+        shares = [i for i, other in enumerate(cells) if other is layer._cell]
+        cell_at = [i for i, other in enumerate(cells) if other is cell]
+        view.append((place, values, shares, cell_at))
+    return view
+
+
+def test_create_blank_key_at_a_key_shifts_the_track_and_matches_python(monkeypatch):
+    # キーを選んだとき：保持の後ろへ同じ長さの空キーを入れ、後ろの位置を寄せる。保持の長さ
+    # 1〜3、途中のキー・最後のキー（末尾の空いた位置は移り先が無く落ちる）・コマを足す場合。
+    for shape, column, layer_index in (({"hold": 2, "count": 6}, 2, 0),
+                                       ({"hold": 3, "count": 9}, 3, 0),
+                                       ({"hold": 3, "count": 9}, 6, 0),
+                                       ({"hold": 3, "count": 9}, 0, 1),
+                                       ({"hold": 1, "count": 6}, 4, 0),
+                                       ({"hold": 5, "count": 10}, 5, 0),
+                                       ({"hold": 5, "count": 10}, 0, 1)):
+        plain, live = _pair(**shape)
+        held = _held_windows(live, layer_index)
+        plain_held = _held_windows(plain, layer_index)
+        calls = _round_trips(live, monkeypatch)
+        assert (live.create_blank_key(column, layer_index)
+                == plain.create_blank_key(column, layer_index)), (shape, column)
+        assert calls == [], (shape, column)
+        assert len(live.frames) == len(plain.frames)
+        assert _signature(live) == _signature(plain), (shape, column)
+        assert (_held_view(live, layer_index, held)
+                == _held_view(plain, layer_index, plain_held)), (shape, column)
+        assert _plain_flags(live) == _plain_flags(plain)
+        live._promote()
+        assert _v1_records(live) == _v1_records(plain), (shape, column)
+        live._promote()
+        assert _whole_signature(live) == _whole_signature(plain), (shape, column)
+
+
+def _held_images(document, layer_index):
+    """列の各位置の Layer と画像（命令の前に持っておく窓口。局所の Cell は読まない）。"""
+    return [(frame.layers[layer_index], frame.layers[layer_index].image)
+            for frame in document.frames]
+
+
+def _held_image_view(document, layer_index, held):
+    """持っておいた Layer・画像が命令のあと文書のどこにあるか、外れた Layer の値と画素。"""
+    import hashlib
+    slots = [frame.layers[layer_index] for frame in document.frames]
+    view = []
+    for layer, image in held:
+        place = next((i for i, slot in enumerate(slots) if slot is layer), None)
+        values = None if place is not None else (
+            layer.has_content, layer.is_blank_key, layer.sequence_number, layer.sequence_only,
+            layer.blank_start, layer.initial_image is None,
+            hashlib.sha1(layer.image.rgba().tobytes()).hexdigest())
+        image_at = [i for i, slot in enumerate(slots) if slot.image is image]
+        view.append((place, values, image_at, hashlib.sha1(image.rgba().tobytes()).hexdigest()))
+    return view
+
+
+def test_create_blank_key_at_a_key_with_pending_and_bare_positions(monkeypatch):
+    # キーを選んだとき：局所の Cell を読んでいない位置（寄せた先に空の Cell ができる）、
+    # 画像の窓口、番号のある配置待ちの位置が後ろにある場合、E〜E+n-1 が末尾から落ちる場合。
+    from paintmaskanimator import pma_image, utils
+    for shape, column, layer_index, pending in (({"hold": 2, "count": 8}, 2, 0, False),
+                                                ({"hold": 3, "count": 9}, 0, 1, False),
+                                                ({"hold": 2, "count": 6}, 4, 1, False),
+                                                ({"hold": 2, "count": 8}, 0, 1, True),
+                                                ({"hold": 2, "count": 8}, 3, 1, True)):
+        plain, live = _pair(**shape)
+        for document in (plain, live):
+            _paint_numbers(document, 0, shape["hold"])
+            if pending:
+                document.frames[5].layers[1].set_pending(True)
+                document.insert_sequence_blank(0, 1)
+        live._promote()
+        held = _held_images(live, layer_index)
+        plain_held = _held_images(plain, layer_index)
+        monkeypatch.setattr(pma_image, "_last_import", None)
+        monkeypatch.setattr(utils._BlankTemplate, "model_image", None)
+        utils.blank_model_image()
+        calls = _round_trips(live, monkeypatch)
+        assert (live.create_blank_key(column, layer_index)
+                == plain.create_blank_key(column, layer_index)), (shape, column)
+        assert calls == [], (shape, column)
+        assert _signature(live) == _signature(plain), (shape, column)
+        assert (_held_image_view(live, layer_index, held)
+                == _held_image_view(plain, layer_index, plain_held)), (shape, column)
+        assert _plain_flags(live) == _plain_flags(plain)
+        live._promote()
+        assert _v1_records(live) == _v1_records(plain), (shape, column)
+        live._promote()
+        assert _whole_signature(live) == _whole_signature(plain), (shape, column)
+
+
 def test_restore_snapshot_uses_core_and_matches_python(monkeypatch):
     plain, live = _pair(hold=5, count=10)
     for document in (plain, live):
@@ -1393,6 +1500,13 @@ def test_move_sequence_image_with_a_blank_key_takes_the_current_path(monkeypatch
     plain, live = _pair(hold=2, count=8)
     for document in (plain, live):
         _paint_numbers(document, 0, 2)
+    # 空キーの空画像の世代は直前の取り込みしだい（空画像を作る Rust の命令に共通の既知の差）
+    # なので、直前の取り込みを空画像の雛形にそろえてから比べる。
+    from paintmaskanimator import pma_image, utils
+    monkeypatch.setattr(pma_image, "_last_import", None)
+    monkeypatch.setattr(utils._BlankTemplate, "model_image", None)
+    utils.blank_model_image()
+    for document in (plain, live):
         document.create_blank_key(2, 0)  # 番号2 の保持の頭を空キーにする
     live._promote()
     calls = _round_trips(live, monkeypatch)
@@ -2350,6 +2464,12 @@ def test_batch_restore_of_a_bank_only_drawing_runs_in_place(monkeypatch):
 
 def test_make_position_editable_on_empty_positions_uses_core_command(monkeypatch):
     plain, live = _pair(hold=2, count=10)
+    # 空キーの空画像の世代は直前の取り込みしだい（空画像を作る Rust の命令に共通の既知の差）
+    # なので、直前の取り込みを空画像の雛形にそろえてから比べる。
+    from paintmaskanimator import pma_image, utils
+    monkeypatch.setattr(pma_image, "_last_import", None)
+    monkeypatch.setattr(utils._BlankTemplate, "model_image", None)
+    utils.blank_model_image()
     for document in (plain, live):
         document.create_blank_key(4, 1)          # 列 B の 5 から空キー
         document.set_sheet_duration(5, 1, 3)     # 空キーを 5〜7 の 3 コマ保持にする

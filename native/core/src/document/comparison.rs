@@ -247,6 +247,9 @@ pub fn apply_operations(document: &mut Document, operations: &Value) -> Result<S
             [name, count] if name == "ensure_frame_count" => {
                 edited.ensure_frame_count(index(count)?)
             }
+            [name, column, layer, amount] if name == "shift_track_right" => {
+                edited.shift_track_right(index(column)?, index(layer)?, index(amount)?)
+            }
             [name, column] if name == "duplicate_frame" => edited.duplicate_frame(index(column)?),
             [name, column, layer] if name == "new_sheet_number" => {
                 edited.new_sheet_number(index(column)?, index(layer)?)

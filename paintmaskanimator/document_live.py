@@ -3286,8 +3286,8 @@ def _core_create_blank_key(document, column, layer_index):
     今の手順は、空キーにする位置をその場で書き換え（detach_cell で局所の Cell が替わる）、
     その後ろ（保持の途中で分けた残り）や前（未使用のセルの直前のキーからの間）の位置に
     clone_reference() を直接入れる（replace_slot を通さないので、外れた古い Layer は配置待ちを
-    解かれず、その札は列に残る）。キーを選んだとき（後ろへ寄せてから書き換える）と、
-    局所の絵を共有する位置がある場合は今の経路。
+    解かれず、その札は列に残る）。キーを選んだとき（後ろへ寄せてから書き換える）は
+    _core_blank_key_after_key。局所の絵を共有する位置がある場合は今の経路。
     """
     live = _live_of(document)
     if (live["graph"] is not None or live.get("trial") or type(column) is not int
@@ -3303,7 +3303,8 @@ def _core_create_blank_key(document, column, layer_index):
     if block is not None:
         start, exposure = block[1], max(1, block[2])
         if column == start:
-            return None  # キーを選んだとき（後ろへ寄せる）
+            # キーを選んだとき（保持の後ろへ寄せて同じ長さの空キーを入れる）。
+            return _core_blank_key_after_key(document, layer_index, start, exposure)
         head = start + min(max(1, column - start), exposure - 1)
         replaced = list(range(head + 1, start + exposure))
         first = start
@@ -3358,6 +3359,89 @@ def _core_create_blank_key(document, column, layer_index):
         extra.setdefault(tid, WeakSet()).update(kept)
     state.pending.clear()
     _detach(document, plan, release=False)
+    return changes
+
+
+def _core_blank_key_after_key(document, layer_index, start, exposure):
+    """create_blank_key でキーを選んだとき（保持 start〜start+exposure の後ろへ同じ長さの
+    空キーを入れる）を Rust の命令で当てる。今の手順と同じにできなければ None。
+
+    今の手順（E = start + exposure、n = exposure）：
+    - 保持の先頭を clone() する（局所の絵が無くバンクも参照しなければ文書に空の Cell を作る
+      ので、その場合は今の経路）。
+    - _shift_timeline_layer_right(layer, E, n)：E 以降の位置を n 後ろの位置へ clone_slot で
+      入れ直す（replace_slot。古い Layer は文書から外れ、局所の Cell は写しとともに n 後ろへ
+      移る。移り先がコマ数を超える位置の Cell は外れる）。空いた E〜E+n-1 はその場で消す。
+    - E の位置をその場で空キーにし、E+1〜E+n-1 には E の clone_reference() を直接入れる
+      （その場で消された古い Layer は、消したあとの値で外れる。その値は文書の写しに
+      shift_track_right を当てて読む）。
+    局所の絵を共有する位置がある場合は今の経路。
+    """
+    live = _live_of(document)
+    state = live["state"]
+    frame_ids = list(state.frame_ids)
+    count = len(frame_ids)
+    tid = state.track_ids[layer_index]
+    head, amount = start + exposure, exposure
+    if head > count:
+        return None
+    values = state.position(frame_ids[start], tid)[0]
+    number = values["sequence_number"]
+    if values["local"] is None and not (
+            number is not None and (values["has_content"] or values["sequence_only"])):
+        return None
+    if any(state.position(fid, tid)[0].get("local_share") is not None
+           for fid in frame_ids[start:]):
+        return None
+    # 後ろへ寄せた直後の形（写しで読む）。コマ数と、E+1〜E+n-1 の古い位置の値。
+    trial = live["core"].copy()
+    trial.set_blank_image(_blank_handle())
+    try:
+        trial.apply_command(json.dumps(["shift_track_right", head, layer_index, amount]))
+    except ValueError:
+        return None
+    length = max(len(json.loads(trial.frames_graph([])[0])["frame_order"]), head + amount)
+    cache = live["cache"]
+    tokens = live.get("tokens", {})
+    cleared_layers = {"layers": [], "cells": []}
+    for index in range(head + 1, min(head + amount, count)):
+        key = (frame_ids[index], tid)
+        layer = cache._objects.get(("layer", key))
+        if layer is not None:
+            text, handles = trial.position_graph(*key)
+            cleared_layers["layers"].append(
+                (key, layer, json.loads(text), list(handles), tokens.get(key)))
+    # 移り先がコマ数を超える位置の局所の Cell は外れる（命令の前の値で）。
+    dropped = [(frame_ids[index], tid) for index in range(head, count)
+               if index + amount >= length]
+    plan = _detach_plan(document, [], dropped)
+    if plan is None:
+        return None
+    replaced = [(frame_ids[index], tid) for index in range(head + amount, count)]
+    for key in replaced:
+        layer = cache._objects.get(("layer", key))
+        if layer is not None:
+            values, handles = state.position(*key)
+            plan["layers"].append((key, layer, values, handles, tokens.get(key)))
+    rows = frame_ids[start:]
+    result = _apply_core_command(document, ["create_blank_key", start, layer_index],
+                                 lambda ids: rows)
+    if result is None:
+        return None
+    changes, new_ids = result
+    after = state.frame_ids
+    # 局所の Cell は n 後ろへ移る（後ろから順に、移り先を空けてから）。
+    moves = [((after[index], tid), (after[index + amount], tid))
+             for index in range(count - 1, head - 1, -1) if index + amount < len(after)]
+    tokens = live.setdefault("tokens", {})
+    for fid in new_ids:
+        for track in state.track_ids:
+            tokens[fid, track] = PendingToken()
+    for index in range(head + 1, count):
+        tokens[frame_ids[index], tid] = PendingToken()
+    state.pending.clear()
+    _detach(document, plan, moved=dict(moves), between=lambda: _rekey_locals(document, moves))
+    _detach(document, cleared_layers, release=False)
     return changes
 
 

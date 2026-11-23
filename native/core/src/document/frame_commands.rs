@@ -413,6 +413,44 @@ impl Document {
         Ok(())
     }
 
+    /// 列の column 以降の位置を amount コマ後ろへ寄せ、空いた位置を消す（足りなければコマを
+    /// 足す）。column が保持の途中でない場合の Python の
+    /// _shift_timeline_layer_right(layer_index, column, amount) と同じ（保持の途中を入れ直す
+    /// 分岐は持たない。amount が 0 なら Python は 1 に丸めるが、ここでは失敗にする）。
+    ///
+    /// create_blank_key がキーを選んだときの途中の形（後ろへ寄せた直後の位置の値）を、
+    /// 文書の写しで読むために使う。失敗時は文書を変えない。
+    pub fn shift_track_right(
+        &mut self,
+        column: usize,
+        layer_index: usize,
+        amount: usize,
+    ) -> Result<ChangeSet, Error> {
+        let before = self.frame_order.len();
+        if column > before || layer_index >= self.track_order.len() || amount == 0 {
+            return Err(invalid());
+        }
+        let mut edited = self.clone();
+        edited.shift_positions_right(column, layer_index, amount)?;
+        let after = edited.frame_order.len();
+        let mut changes = Vec::new();
+        if after > before {
+            changes.push(Change::FrameStructure {
+                operation: FrameOperation::Extend,
+                before,
+                after,
+                start: before,
+            });
+        }
+        changes.push(Change::SheetSpans {
+            layer_index,
+            start: column,
+            stop: after,
+        });
+        *self = edited;
+        Ok(changes)
+    }
+
     /// Python の insert_track_frame と同様に、列の途中に一コマ挿入する。
     pub fn insert_track_frame(
         &mut self,
@@ -912,6 +950,66 @@ mod tests {
                 [CellNumber::new(number as i64).unwrap()]
             );
         }
+    }
+
+    // create_blank_key がキーを選んだときの途中の形（document_live が写しで読む）。
+    // tests/test_document_live_fast_paths.py:test_create_blank_key_at_a_key_shifts_the_track_and_matches_python
+    #[test]
+    fn shifting_a_track_right_moves_later_positions_and_matches_create_blank_key() {
+        let input = json!({
+            "canvas": {"width": 1, "height": 1},
+            "frame_durations": [1, 1, 1, 1],
+            "tracks": [
+                {"cells": [{"number": 1, "image": "1.png"}, {"number": 2, "image": "2.png"}],
+                 "sheet": [1, 1, 2, 2]},
+            ],
+        });
+        let names = ["1.png", "2.png"].map(str::to_owned);
+        let plan = decode_v2_plan(&input, &names).unwrap();
+        let images = vec![RgbaImage::blank(1, 1).unwrap(); plan.images.len()];
+        let doc = v2::from_plan(&input, &plan, &images).unwrap();
+        let mut shifted = doc.clone();
+        let changes = shifted.shift_track_right(2, 0, 2).unwrap();
+        assert_eq!(shifted.frame_order.len(), 6);
+        assert!(matches!(
+            changes.as_slice(),
+            [
+                Change::FrameStructure {
+                    before: 4,
+                    after: 6,
+                    ..
+                },
+                Change::SheetSpans {
+                    layer_index: 0,
+                    start: 2,
+                    stop: 6
+                }
+            ]
+        ));
+        let (_, entries) = shifted.sheet_entries().unwrap();
+        assert_eq!(
+            entries
+                .iter()
+                .map(|entry| entry.kind != SHEET_EMPTY)
+                .collect::<Vec<_>>(),
+            [true, true, false, false, true, true]
+        );
+        // 後ろへ寄せた形は create_blank_key(0, 0) が空キーを入れる前の形と同じ並び。
+        let mut blank = doc.clone();
+        blank.create_blank_key(0, 0).unwrap();
+        let track = doc.track_order[0];
+        for index in 4..6 {
+            assert_eq!(
+                shifted.sheet[&shifted.frame_order[index]].positions[&track].reference,
+                blank.sheet[&blank.frame_order[index]].positions[&track].reference
+            );
+        }
+        // 範囲の外・量 0 は失敗し、文書を変えない。
+        let mut rejected = doc.clone();
+        assert!(rejected.shift_track_right(5, 0, 1).is_err());
+        assert!(rejected.shift_track_right(0, 1, 1).is_err());
+        assert!(rejected.shift_track_right(0, 0, 0).is_err());
+        assert_eq!(rejected.frame_order, doc.frame_order);
     }
 
     // tests/test_dense_timeline_edits.py:test_insert_blank_middle_preserves_start
