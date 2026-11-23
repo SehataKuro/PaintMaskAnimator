@@ -3344,7 +3344,7 @@ def _core_create_blank_key(document, column, layer_index):
             kept.append(token)
     rows = frame_ids[first:stop]
     result = _apply_core_command(document, ["create_blank_key", column, layer_index],
-                                 lambda ids: rows)
+                                 lambda ids: rows, tracks=[tid])
     if result is None:
         return None
     changes, new_ids = result
@@ -3425,7 +3425,7 @@ def _core_blank_key_after_key(document, layer_index, start, exposure):
             plan["layers"].append((key, layer, values, handles, tokens.get(key)))
     rows = frame_ids[start:]
     result = _apply_core_command(document, ["create_blank_key", start, layer_index],
-                                 lambda ids: rows)
+                                 lambda ids: rows, tracks=[tid])
     if result is None:
         return None
     changes, new_ids = result
