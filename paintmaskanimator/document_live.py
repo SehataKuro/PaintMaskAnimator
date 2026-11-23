@@ -1881,6 +1881,21 @@ class Document:
         snapshot = _capture_snapshot(self)
         return self._run("snapshot", (), {}) if snapshot is None else snapshot
 
+    def clone_graph(self):
+        """Copy the full Track graph, preserving sharing and unplaced cells.
+
+        Rust の状態では、書き出し往復をせずに Rust の文書から素のグラフを作り、今の手順と
+        同じ clone_frame_graph を当てる（保存・自動保存の写し）。今の手順が文書に局所の絵を
+        作る位置があるときは今の経路。
+        """
+        from .document import GraphDocument
+        if not isinstance(self, Document) or self._live().get("trial"):
+            # 以前の口と同じ：素の入れ物を self にした呼び出しと、窓口のまま試している操作の中は
+            # 今の Python の手順のまま。
+            return GraphDocument.clone_graph(self)
+        copied = _core_clone_graph(self)
+        return self._run("clone_graph", (), {}) if copied is None else copied
+
     @property
     def layers(self):
         """Layers of the current frame."""
@@ -3364,6 +3379,29 @@ def _core_place_pending_entries(document):
             if values["sequence_only"] and values["sequence_number"] is not None:
                 return None
     return ChangeSet()
+
+
+def _core_clone_graph(document):
+    """clone_graph を書き出し往復なしで取る。今の手順と同じにできなければ None。
+
+    今の手順は素のグラフに clone_frame_graph を当てる（画像は写し、札・Track は新しく作る
+    ので、窓口の札や配置待ちの記録は写しに渡らない）。Rust の文書から作った素のグラフに
+    同じ手順を当てれば同じ値になる（遅延の Undo の写しと同じ形）。局所の絵の無い位置や
+    画像の無い Cell（今の手順が文書に絵を作る）があれば None。
+    """
+    from .document import GraphDocument, clone_frame_graph
+    live = document._live()
+    state = live["state"]
+    if live["graph"] is not None or state is None or live.get("trial"):
+        return None
+    if _snapshot_bytes(state) is None:
+        return None
+    frames, _, _, _, _ = graph_from_core(live["core"])
+    copied = object.__new__(GraphDocument)
+    copied.frames, _ = clone_frame_graph(frames)
+    copied.current_frame, copied.active_layer_index = live["cursor"]
+    copied.tracks = [layer._track for layer in copied.frames[0].layers] if copied.frames else []
+    return copied
 
 
 def _keeps_frame_count(live, operation, count):

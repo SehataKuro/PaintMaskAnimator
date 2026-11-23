@@ -2519,3 +2519,54 @@ def test_place_pending_entries_without_pending_runs_in_place(monkeypatch):
     assert live.place_pending_entries() == expected
     assert calls
     assert _whole_signature(live) == _whole_signature(plain)
+
+
+def test_clone_graph_copies_from_core_without_round_trip(monkeypatch):
+    # 保存の写しは書き出し往復なしで取り、今の手順の写しと同じ値。写しは文書から切り離れている。
+    from paintmaskanimator.models import Layer
+    from paintmaskanimator.project_io import ProjectSnapshot, build_v2_payload
+    plain, live = _pair(hold=2, count=6)
+    for document in (plain, live):
+        document.frames[2].layers[1].set_pending(True)
+        document.insert_sequence_blank(0, 1)
+    live._promote()
+    slots = [list(frame.layers) for frame in live.frames]
+    calls = _round_trips(live, monkeypatch)
+    before = Layer.timeline_revision
+    expected = plain.clone_graph()
+    step = Layer.timeline_revision - before
+    copied = live.clone_graph()
+    assert calls == []
+    assert Layer.timeline_revision - before == 2 * step
+    assert all(a is b for frame, row in zip(live.frames, slots) for a, b in zip(frame.layers, row))
+    assert (copied.current_frame, copied.active_layer_index) == (
+        expected.current_frame, expected.active_layer_index)
+    assert _whole_signature(copied) == _whole_signature(expected)
+    metadata, pngs = build_v2_payload(ProjectSnapshot({}, copied, 8, 8))
+    expected_metadata, expected_pngs = build_v2_payload(ProjectSnapshot({}, expected, 8, 8))
+    assert metadata == expected_metadata
+    assert [(path, error, image.read_rgba(0, 0, image.width, image.height).tobytes())
+            for path, image, error in pngs] == [
+        (path, error, image.read_rgba(0, 0, image.width, image.height).tobytes())
+        for path, image, error in expected_pngs]
+    # 写しを取ったあとの描き込みは写しに入らない。
+    original = copied.frames[0].layers[0].image.read_rgba(0, 0, 2, 2).copy()
+    patch = QImage(2, 2, QImage.Format.Format_ARGB32_Premultiplied)
+    patch.fill(QColor(0, 0, 255, 255))
+    live.write_drawing_patch(0, 0, patch, (0, 0, 2, 2))
+    assert (copied.frames[0].layers[0].image.read_rgba(0, 0, 2, 2) == original).all()
+    assert calls == []
+
+
+def test_clone_graph_falls_back_when_round_trip_needed(monkeypatch):
+    # 素の状態では今の経路。Rust の状態でも今の手順と同じにできなければ往復する。
+    from paintmaskanimator import document_live as module
+    plain, live = _pair()
+    live._demote()
+    assert _whole_signature(live.clone_graph()) == _whole_signature(plain.clone_graph())
+    plain, live = _pair()
+    live._promote()
+    monkeypatch.setattr(module, "_snapshot_bytes", lambda state: None)
+    calls = _round_trips(live, monkeypatch)
+    assert _whole_signature(live.clone_graph()) == _whole_signature(plain.clone_graph())
+    assert calls
