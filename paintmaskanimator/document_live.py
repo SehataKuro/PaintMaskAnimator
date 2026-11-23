@@ -1650,6 +1650,12 @@ class Document:
             return self._run("normalize_sheet_numbers", (layer_indices,), {})
         return changes
 
+    def place_pending_entries(self):
+        changes = _CORE_COMMANDS["place_pending_entries"](self)
+        if changes is None:
+            return self._run("place_pending_entries", (), {})
+        return changes
+
     def move_sequence_image(self, layer_index, first_number, second_number, by_number):
         changes = _CORE_COMMANDS["move_sequence_image"](self, layer_index, first_number,
                                                         second_number, by_number)
@@ -3341,6 +3347,25 @@ def _core_normalize_sheet_numbers(document, layer_indices):
     return changes
 
 
+def _core_place_pending_entries(document):
+    """place_pending_entries の、配置待ちの番号が一つも無い場合を書き出し往復なしで当てる。
+
+    今の手順は番号のある配置待ちの位置を集め、無ければ文書を変えずに空の ChangeSet を返す
+    （シートへの切り替え・読み込みのたびに呼ばれる）。配置待ちがあれば None（今の経路）。
+    """
+    from .document_changes import ChangeSet
+    live = document._live()
+    if live["graph"] is not None or live.get("trial"):
+        return None
+    state = live["state"]
+    for fid in state.frame_ids:
+        for tid in state.track_ids:
+            values = state.position(fid, tid)[0]
+            if values["sequence_only"] and values["sequence_number"] is not None:
+                return None
+    return ChangeSet()
+
+
 def _keeps_frame_count(live, operation, count):
     """命令を写しに当てて、コマの数が変わらないか確かめる。"""
     trial = live["core"].copy()
@@ -4516,6 +4541,7 @@ _CORE_COMMANDS = {"add_track": _core_add_track,
                   "insert_sequence_blank": _core_insert_sequence_blank,
                   "delete_sequence_entry": _core_delete_sequence_entry,
                   "normalize_sheet_numbers": _core_normalize_sheet_numbers,
+                  "place_pending_entries": _core_place_pending_entries,
                   "move_sheet_cells": _core_move_sheet_cells,
                   "move_sheet_cell": _core_move_sheet_cell,
                   "resize_sheet_exposure": _core_resize_sheet_exposure,

@@ -2489,3 +2489,33 @@ def test_normalize_sheet_numbers_with_v1_records_pending_and_undo(monkeypatch):
         assert live.restore_snapshot(snapshots[1]) == plain.restore_snapshot(snapshots[0])
         assert _whole_signature(live) == _whole_signature(plain)
         live._promote()
+
+
+def test_place_pending_entries_without_pending_runs_in_place(monkeypatch):
+    # 番号のある配置待ちが無ければ、今の手順は文書を変えずに空の変更を返す。あれば今の経路。
+    plain, live = _pair(hold=2, count=6)
+    live._promote()
+    slots = [list(frame.layers) for frame in live.frames]
+    calls = _round_trips(live, monkeypatch)
+    assert live.place_pending_entries() == plain.place_pending_entries()
+    assert calls == []
+    assert all(a is b for frame, row in zip(live.frames, slots) for a, b in zip(frame.layers, row))
+    assert _whole_signature(live) == _whole_signature(plain)
+    # 配置待ちはあるが番号が無い：まだ往復しない（条件の「番号がある」側を固定する）。
+    for document in (plain, live):
+        assert document.frames[2].layers[1].sequence_number is None
+        document.frames[2].layers[1].set_pending(True)
+    live._promote()
+    calls = _round_trips(live, monkeypatch)
+    assert live.place_pending_entries() == plain.place_pending_entries()
+    assert calls == []
+    assert _whole_signature(live) == _whole_signature(plain)
+    for document in (plain, live):
+        document.insert_sequence_blank(0, 1)
+    live._promote()
+    calls = _round_trips(live, monkeypatch)
+    expected = plain.place_pending_entries()
+    assert expected
+    assert live.place_pending_entries() == expected
+    assert calls
+    assert _whole_signature(live) == _whole_signature(plain)
