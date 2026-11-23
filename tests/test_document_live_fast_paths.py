@@ -2153,3 +2153,139 @@ def test_restore_snapshot_reuses_unchanged_values_after_painting(monkeypatch):
     assert _signature(live) == _signature(plain)
     assert images(live) == images(plain)
     assert live.frames[0].layers[0].image.rgba()[0, 0].tolist() == [255, 0, 0, 255]
+
+
+def _filled(rgba):
+    image = QImage(8, 8, QImage.Format.Format_ARGB32_Premultiplied)
+    image.fill(QColor(*rgba))
+    return image
+
+
+def _pixels(document):
+    return [[None if slot.image is None else slot.image.rgba().tobytes()
+             for slot in frame.layers] for frame in document.frames]
+
+
+def test_replace_drawing_image_replaces_the_bank_image_in_place(monkeypatch):
+    plain, live = _pair()
+    calls = _round_trips(live, monkeypatch)
+    old = live.frames[2].layers[0].image
+    before = old.rgba().tobytes()
+    image = PmaImage(_filled((255, 0, 0, 255)))
+    assert (live.replace_drawing_image(2, 0, image, has_content=True)
+            == plain.replace_drawing_image(2, 0, PmaImage(_filled((255, 0, 0, 255))),
+                                           has_content=True))
+    assert calls == []
+    # 今の手順と同じく、同じ番号の位置は入れた画像そのものを指し、前の画像は今の画素で外れる。
+    assert live.frames[2].layers[0].image is image and live.frames[3].layers[0].image is image
+    assert old.rgba().tobytes() == before
+    # 入れた画像への書き込みは文書の絵に届く。
+    blue = np.full((2, 2, 4), (0, 0, 255, 255), np.uint8)
+    image.write_rgba(blue, 0, 0)
+    plain.frames[2].layers[0].image.write_rgba(blue, 0, 0)
+    assert live.frames[3].layers[0].image.rgba()[0, 0].tolist() == [0, 0, 255, 255]
+    # 同じ番号の位置へ一つの画像を入れる一括の差し替え（QImage を渡す）。同じ画像を入れ直すのは何もしない。
+    groups = [([(4, 0), (5, 0)], _filled((0, 255, 0, 255))), ([(0, 0)], _filled((9, 9, 9, 255)))]
+    assert live.replace_drawing_images(groups) == plain.replace_drawing_images(groups)
+    assert live.replace_drawing_image(2, 0, image, has_content=True) == plain.replace_drawing_image(
+        2, 0, plain.frames[2].layers[0].image, has_content=True)
+    assert calls == []
+    assert live.frames[4].layers[0].image is live.frames[5].layers[0].image
+    assert _pixels(live) == _pixels(plain)
+    assert _whole_signature(live) == _whole_signature(plain)
+
+
+def test_restore_drawing_and_batch_restore_replace_the_bank_image_in_place(monkeypatch):
+    plain, live = _pair()
+    calls = _round_trips(live, monkeypatch)
+    cells = [(column, 0, _filled((column * 40, 0, 0, 255)), True,
+              plain.frames[column].layers[0].sequence_number) for column in (0, 2, 4)]
+    for frame, layer, image, content, number in cells:
+        expected = list(plain.restore_batch_drawing(frame, layer, image, content, number, sheet=True))
+        assert list(live.restore_batch_drawing(frame, layer, image, content, number,
+                                               sheet=True)) == expected
+    # 番号を記録しない戻しと、取り消し一回分の戻し（restore_drawing）。
+    image = _filled((1, 2, 3, 255))
+    assert (list(live.restore_batch_drawing(1, 0, image, True, None, sheet=True))
+            == list(plain.restore_batch_drawing(1, 0, image, True, None, sheet=True)))
+    image = _filled((4, 5, 6, 255))
+    assert (live.restore_drawing(4, 0, 3, image, True, sheet=True)
+            == plain.restore_drawing(4, 0, 3, image, True, sheet=True))
+    assert calls == []
+    assert _pixels(live) == _pixels(plain)
+    assert _whole_signature(live) == _whole_signature(plain)
+
+
+def test_image_replacement_that_needs_the_graph_takes_the_current_path(monkeypatch):
+    plain, live = _pair()
+    calls = _round_trips(live, monkeypatch)
+    # 番号の無い位置（局所の絵）への差し替えで has_content も変わる。
+    image = _filled((7, 7, 7, 255))
+    assert (live.replace_drawing_image(2, 1, image, has_content=True)
+            == plain.replace_drawing_image(2, 1, image, has_content=True))
+    assert calls
+    calls.clear()
+    # has_content を外す戻しは、位置に局所の写しを作る（今の経路）。
+    image = _filled((8, 8, 8, 255))
+    assert (list(live.restore_batch_drawing(0, 0, image, False, 1, sheet=True))
+            == list(plain.restore_batch_drawing(0, 0, image, False, 1, sheet=True)))
+    assert calls
+    # 別の番号の位置がすでに持つ画像（文書の絵の窓口）を入れるのも今の経路。
+    calls.clear()
+    shared = live.frames[4].layers[0].image
+    assert (live.replace_drawing_image(2, 0, shared, has_content=True)
+            == plain.replace_drawing_image(2, 0, plain.frames[4].layers[0].image,
+                                           has_content=True))
+    assert calls
+    assert _pixels(live) == _pixels(plain)
+
+
+def test_image_replacement_retries_with_the_same_groups_and_after_the_shortcut(monkeypatch):
+    plain, live = _pair()
+    # frame_scope と同じく生成式を渡す。2つめの組は局所の位置で、試しのやり直しになる。
+    groups = [([(0, 0), (1, 0)], _filled((0, 255, 0, 255))), ([(2, 1)], _filled((9, 9, 9, 255)))]
+    assert (live.replace_drawing_images(group for group in groups)
+            == plain.replace_drawing_images(group for group in groups))
+    assert _pixels(live) == _pixels(plain)
+    assert _signature(live) == _signature(plain)
+    # バンクの位置で has_content が変わる：近道で画像を入れたあと、今の経路でやり直す。
+    for document in (plain, live):
+        document.frames[4].layers[0].has_content = False
+    image = _filled((3, 3, 3, 255))
+    assert (live.replace_drawing_image(4, 0, image, has_content=True)
+            == plain.replace_drawing_image(4, 0, image, has_content=True))
+    assert _pixels(live) == _pixels(plain)
+    assert _whole_signature(live) == _whole_signature(plain)
+
+
+def test_initial_image_and_cell_assignment_use_the_shortcut(monkeypatch):
+    plain, live = _pair()
+    calls = _round_trips(live, monkeypatch)
+    red = np.full((2, 2, 4), (255, 0, 0, 255), np.uint8)
+    for document in (plain, live):
+        # もう一方の画像に描いたあとでも、その画素を保つ。
+        document.frames[0].layers[0].image.write_rgba(red, 0, 0)
+        document.frames[0].layers[0].initial_image = _filled((1, 1, 1, 255))
+        document.tracks[0].cells[2].image = _filled((2, 2, 2, 255))
+    assert calls == []
+    assert live.frames[0].layers[0].image.rgba()[0, 0].tolist() == [255, 0, 0, 255]
+    assert (live.frames[1].layers[0].initial_image.rgba().tobytes()
+            == plain.frames[1].layers[0].initial_image.rgba().tobytes())
+    assert _pixels(live) == _pixels(plain)
+    assert _whole_signature(live) == _whole_signature(plain)
+
+
+def test_batch_restore_of_a_bank_only_drawing_runs_in_place(monkeypatch):
+    from paintmaskanimator.models import Cell
+    plain, live = _pair()
+    for document in (plain, live):
+        document.tracks[0].cells[9] = Cell(PmaImage.blank(8, 8))
+    calls = _round_trips(live, monkeypatch)
+    image = _filled((5, 5, 5, 255))
+    expected = list(plain.restore_batch_drawing(0, 0, image, True, 9, sheet=True))
+    assert list(live.restore_batch_drawing(0, 0, image, True, 9, sheet=True)) == expected
+    assert expected and expected[0].changes[0].frame is None
+    assert calls == []
+    assert (live.tracks[0].cells[9].image.rgba().tobytes()
+            == plain.tracks[0].cells[9].image.rgba().tobytes())
+    assert _whole_signature(live) == _whole_signature(plain)

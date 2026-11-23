@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import inspect
 import json
-from collections.abc import MutableMapping, MutableSequence, MutableSet
+from collections.abc import Iterator, MutableMapping, MutableSequence, MutableSet
 from copy import deepcopy
 from weakref import WeakSet, ref
 
@@ -442,6 +442,9 @@ class LiveCell(Cell):
         if target is not None:
             setattr(target, name, value)
             return
+        if name in ("image", "initial_image") and _replace_bank_image(
+                _m(self, "_owner"), _m(self, "_key"), name, value):
+            return
         _core_edit(self, lambda cell: setattr(cell, name, value))
 
     def __repr__(self):
@@ -739,6 +742,10 @@ class LiveLayer(Layer):
             return
         if name in _SKIPPABLE and _unchanged_position(owner, key, name, value):
             return
+        if name in ("image", "initial_image") and _replace_bank_image(
+                owner, _slot_bank_key(owner, key), name, value):
+            # Layer の image・initial_image はその位置の絵（Layer._cell）への代入。
+            return
         _core_edit(self, lambda slot: setattr(slot, name, owner._plain_value(value)))
 
     def __delattr__(self, name):
@@ -792,6 +799,145 @@ def _unchanged_position(owner, key, name, value):
             return False
     if name in ("has_content", "is_blank_key") and value and values["content_origin"] is not None:
         return False
+    return True
+
+
+def _slot_bank_key(owner, key):
+    """位置の絵がバンクの一枚なら、そのキー ("bank", 列 ID, 番号)。今の Layer._cell と同じ判定。"""
+    data = owner._position_value(*key)
+    if data is None:
+        return None
+    values = data[0]
+    number = values["sequence_number"]
+    if number is not None and (values["has_content"] or values["sequence_only"]):
+        return ("bank", key[1], number)
+    return None
+
+
+def _bank_image_replaceable(owner, key, field, value):
+    """_replace_bank_image が近道で当てられるか（何も変えない）。"""
+    if key is None or key[0] != "bank":
+        return False
+    live = owner._live()
+    if live["graph"] is not None or owner._cell_value(key) is None:
+        return False
+    if value is not None and value is live["cache"]._objects.get(
+            ("image", (key, field == "initial_image"))):
+        return True
+    if isinstance(value, PmaImage):
+        return type(value) is PmaImage and type(value._image) is _native.RgbaImage
+    from PySide6.QtGui import QImage
+    return isinstance(value, QImage)
+
+
+def _batch_restore_plan(document, frame, layer_index, image, has_content, number, sheet):
+    """restore_batch_drawing を書き出し往復なしで当てる計画（何も変えない）。当てられなければ None。
+
+    今の手順の書き込みは、戻す絵への画像の代入と、DrawingTarget を通した has_content の
+    代入（位置、バンクだけの絵なら旧連番保管の札）と、その絵を指す位置（と、番号の絵から
+    外れて局所に写した位置）の has_content の代入だけ。画像の代入が近道で済み、has_content
+    の代入がどれも値を変えず、位置の絵の同一性（cell_id）を読むときに局所の絵を作る位置が
+    無いなら、Rust の状態のまま当てられる。計画は (戻す絵, 渡す変更の一覧の列)。戻す絵が
+    無ければ (None, ())。変更の一覧は今の手順が渡すのと同じ順（バンクだけの絵ならまずそれ、
+    続いてその絵を指す位置をシートの順に）。
+    """
+    from .document_changes import ChangeSet, DrawingPixels
+    live = document._live()
+    if live["graph"] is not None or live.get("trial"):
+        return None
+    target = document.resolve_numbered_target(frame, layer_index, number, sheet=sheet)
+    if target is None:
+        return None, ()
+    if not isinstance(target.cell, LiveCell):
+        return None
+    key = _m(target.cell, "_key")
+    if not _bank_image_replaceable(document, key, "image", image):
+        return None
+    state = live["state"]
+    if not 0 <= layer_index < len(state.track_ids):
+        return None
+    tid = state.track_ids[layer_index]
+    if key[1] != tid:
+        return None
+    if number is None:
+        # 番号の無い戻しは絵の画像と、その位置の has_content（DrawingTarget を通して bool で）。
+        if not (isinstance(target.slot, LiveLayer) and _unchanged_position(
+                document, _m(target.slot, "_key"), "has_content", bool(has_content))):
+            return None
+        return target, (ChangeSet((DrawingPixels(layer_index, number, frame, ()),)),)
+    changes = []
+    if target.column is None:
+        # バンクだけの絵。DrawingTarget の has_content は旧連番保管の札があればそれに書く。
+        for hint_number, hint in state.track(tid)[0]["hints"]:
+            if hint_number == number and hint["has_content"] != bool(has_content):
+                return None
+        changes.append(ChangeSet((DrawingPixels(layer_index, number, None, ()),)))
+    for sheet_frame, fid in enumerate(state.frame_ids):
+        values = state.position(fid, tid)[0]
+        slot_number = values["sequence_number"]
+        if slot_number is not None and (values["has_content"] or values["sequence_only"]):
+            slot_key = ("bank", tid, slot_number)
+        elif values["local"] is None:
+            return None
+        else:
+            slot_key = state.local_key(fid, tid)
+        if slot_key == key or (slot_number == number and values["content_origin"] == number):
+            if not _unchanged_position(document, (fid, tid), "has_content", has_content):
+                return None
+            changes.append(ChangeSet((DrawingPixels(layer_index, number, sheet_frame, ()),)))
+    return target, tuple(changes)
+
+
+def _restore_batch_in_place(target, image, changes):
+    """_batch_restore_plan の計画を当てる。今の手順と同じく、最初に取り出されたときに絵を戻す。"""
+    if target is None:
+        return
+    target.image = image
+    yield from changes
+
+
+def _replace_bank_image(owner, key, field, value):
+    """バンクの一枚の image・initial_image に、文書のどの絵にも結ばれていない画像を入れる近道。
+
+    今の手順（Cell.__setattr__）はその Cell の属性を value（PmaImage にそろえた画像）に
+    差し替えるだけで、前の画像オブジェクトは文書から外れて今の画素を持ち続け、value は
+    書き出し往復の _promote でその絵の窓口になる。Rust の状態ではその一枚だけを
+    set_cell_graph で置き換え、同じように前の画像を切り離して value を窓口にする（もう一方の
+    画像と札・セル名はそのまま）。いま窓口になっている画像を入れ直すのは何もしない（今の
+    手順も同じオブジェクトの代入）。当てられなければ False で、何も変えていない。
+
+    窓口のまま試している操作（_TRY_IN_PLACE）の中でも当てる。試しをやり直すときは今の
+    経路が同じ代入をもう一度当てるので、結果は初めから今の経路で当てたのと同じ。
+    """
+    if not _bank_image_replaceable(owner, key, field, value):
+        return False
+    from .pma_image import attributes_tag, to_pma_image
+    live = owner._live()
+    initial = field == "initial_image"
+    cache = live["cache"]
+    old = cache._objects.get(("image", (key, initial)))
+    if value is old:
+        return True
+    image = to_pma_image(value)
+    core, tid, number = live["core"], key[1], key[2]
+    cell = dict(owner._cell_value(key)[0])
+    other = "image" if initial else "initial_image"
+    handles = [image._image.copy().with_tag(attributes_tag(image._attributes))]
+    cell[field] = 0
+    if cell[other] is not None:
+        # 写しの値の画像は描いたあと古いことがあるので、文書の今の画像を取る。
+        handles.append(_native._CellImage(core, True, tid, number, not initial).copy())
+        cell[other] = 1
+    if old is not None:
+        # 前の画像は Rust を書き換える前に今の画素で切り離す（_promote と同じ）。
+        cache.pop("image", (key, initial))
+        _unbind(old)
+    core.set_cell_graph(tid, number, json.dumps(cell), handles)
+    state = live["state"]
+    state.refresh_track(tid)
+    state.forget_track(tid)
+    _bind(image, _native._CellImage(core, True, tid, number, initial))
+    cache.put("image", (key, initial), image)
     return True
 
 
@@ -1677,6 +1823,21 @@ class Document:
         if changes is None:
             return self._run("restore_snapshot", (snapshot,), {})
         return changes
+
+    def restore_batch_drawing(self, frame, layer_index, image, has_content, number, *, sheet):
+        """Yield changes as slots are restored, in sheet observation order.
+
+        Rust の状態で、戻す絵がバンクの一枚で画像の差し替えが近道（_replace_bank_image）で
+        済み、どの位置の has_content も変わらないなら、書き出し往復なしで当てる（変更の
+        一覧は今と同じ順に一つずつ渡す。_batch_restore_plan）。それ以外は今の経路。
+        """
+        # 今の手順と同じく、最初に取り出されたときに戻す絵を探して計画を立てる。
+        plan = _batch_restore_plan(self, frame, layer_index, image, has_content, number, sheet)
+        if plan is not None:
+            yield from _restore_batch_in_place(plan[0], image, plan[1])
+            return
+        yield from self._run("restore_batch_drawing",
+                             (frame, layer_index, image, has_content, number), {"sheet": sheet})
 
     def snapshot(self):
         """Copy the entire drawing bank, including unplaced drawings.
@@ -4304,6 +4465,7 @@ _IN_PLACE = frozenset((
 _TRY_IN_PLACE = frozenset((
     "write_drawing_patch", "set_drawing_content", "make_position_editable",
     "set_track_properties", "set_position_track_properties", "restore_drawing",
+    "replace_drawing_image", "replace_drawing_images",
 ))
 
 
@@ -4348,6 +4510,9 @@ def _install_methods():
                 # 窓口のまま試している操作の中。書き込みが素のグラフを要れば外側がやり直す。
                 return _plain(self, *args, **kwargs)
             if _try and live["graph"] is None:
+                # 生成器の引数（frame_scope は replace_drawing_images に生成式を渡す）は先に
+                # 並べる。試しが途中まで読んだあとのやり直しにも、同じ並びを渡すため。
+                args = tuple(list(arg) if isinstance(arg, Iterator) else arg for arg in args)
                 try:
                     return _try_in_place(self, _plain, args, kwargs)
                 except _NeedsGraph:
