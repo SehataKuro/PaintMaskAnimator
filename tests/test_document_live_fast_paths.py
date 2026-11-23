@@ -232,6 +232,62 @@ def test_delete_frame_uses_core_command_and_matches_python(monkeypatch):
         plain.frames[4].layers[1].image is plain_following.image)
 
 
+def test_delete_frame_that_trims_frames_uses_core_command_and_matches_python(monkeypatch):
+    # (コマ数を足す数, 消すコマ, 消す列)。
+    cases = ((0, 5, 0),   # A の最後のコマを消す（B の最後は空き、末尾の1コマが空く）
+             (3, 7, 1),   # 足した空きのコマの途中を消す（列を寄せた位置ごと末尾を切る）
+             (3, 6, 0),   # 空きの最初のコマを消す（局所の絵が切るコマへ移る）
+             (2, 7, 1))   # 最後のコマを消す（その場で消して切る）
+    for extra, column, layer_index in cases:
+        plain, live = _pair(hold=2, count=6)
+        for document in (plain, live):
+            document.ensure_frame_count(6 + extra)
+        live._promote()
+        count = len(live.frames)
+        held = [(live.frames[i], plain.frames[i]) for i in range(count)]
+        slots = [(live.frames[i].layers[j], plain.frames[i].layers[j])
+                 for i in range(count) for j in range(2)]
+        cells = [(live.frames[i].layers[j]._cell, plain.frames[i].layers[j]._cell)
+                 for i in range(count) for j in range(2)]
+        images = [(live.frames[i].layers[j].image, plain.frames[i].layers[j].image)
+                  for i in range(count) for j in range(2)]
+        calls = _round_trips(live, monkeypatch)
+        changes = live.delete_frame(column, layer_index)
+        assert changes == plain.delete_frame(column, layer_index)
+        assert calls == [], (extra, column, layer_index)
+        assert len(live.frames) == len(plain.frames) < count
+        monkeypatch.undo()
+
+        def where(obj, document):
+            return [(i, j) for i, frame in enumerate(document.frames)
+                    for j, slot in enumerate(frame.layers) if slot is obj]
+
+        for frame, plain_frame in held:
+            assert any(f is frame for f in live.frames) == any(f is plain_frame for f in plain.frames)
+            assert [(s.has_content, s.sequence_number, s.sequence_only, s.is_blank_key)
+                    for s in frame.layers] == [
+                (s.has_content, s.sequence_number, s.sequence_only, s.is_blank_key)
+                for s in plain_frame.layers]
+            # 外れたコマの位置が、誰が持っていた位置か（同一性の分け方）。
+            assert [[k for k, (a, _) in enumerate(slots) if a is s] for s in frame.layers] == [
+                [k for k, (_, b) in enumerate(slots) if b is s] for s in plain_frame.layers]
+            assert [[k for k, (a, _) in enumerate(cells) if a is s._cell] for s in frame.layers] == [
+                [k for k, (_, b) in enumerate(cells) if b is s._cell] for s in plain_frame.layers]
+        for slot, plain_slot in slots:
+            assert where(slot, live) == where(plain_slot, plain)
+            assert (slot.has_content, slot.sequence_number) == (
+                plain_slot.has_content, plain_slot.sequence_number)
+            assert [k for k, (a, _) in enumerate(cells) if a is slot._cell] == [
+                k for k, (_, b) in enumerate(cells) if b is plain_slot._cell]
+        for image, plain_image in images:
+            if image is None:
+                assert plain_image is None
+                continue
+            assert image.rgba().tobytes() == plain_image.rgba().tobytes()
+        assert _whole_signature(live) == _whole_signature(plain)
+
+
+
 def test_delete_track_frame_uses_core_command_and_matches_python(monkeypatch):
     plain, live = _pair(hold=3, count=9)
     calls = _round_trips(live, monkeypatch)
@@ -2674,3 +2730,62 @@ def test_content_changes_rust_cannot_represent_take_the_python_path(monkeypatch)
         assert ([(s.has_content, s.is_blank_key) for f in live.frames for s in f.layers]
                 == [(s.has_content, s.is_blank_key) for f in plain.frames for s in f.layers])
         assert _whole_signature(live) == _whole_signature(plain)
+
+
+def test_delete_frame_that_trims_frames_keeps_detached_pixels_like_python(monkeypatch):
+    # 末尾のコマに色の付いた局所の絵と初期画像、コマごとに違う尺。切られるコマへ局所の絵が
+    # 移る形・最後のコマを消す形を、全部持つ場合と位置だけ持つ場合で比べる。
+    def image(rgba):
+        result = PmaImage.blank(8, 8)
+        values = np.zeros((8, 8, 4), dtype=np.uint8)
+        values[:, :] = rgba
+        result.write_rgba(values)
+        return result
+
+    def frames():
+        result = []
+        for column in range(6):
+            a = Layer("A", image((200, 10 * column, 0, 255) if column < 3
+                                 else (0, 30 * column, 200, 255)))
+            if column < 3:
+                a.has_content, a.sequence_number = True, column + 1
+            else:
+                a.initial_image = image((5 * column, 1, 2, 255))
+            b = Layer("B", image((1, 2, 20 * column, 200)))
+            b.initial_image = image((9, 9, 10 * column, 255))
+            result.append(Frame([a, b], column + 1))
+        return result
+
+    def pixels(value):
+        return None if value is None else np.asarray(value.rgba()).tobytes()
+
+    for column, layer_index in ((3, 0), (4, 1), (5, 1), (2, 0)):
+        for whole in (True, False):
+            plain = GraphDocument()
+            plain.install_legacy_frames(frames())
+            live = document_live.Document()
+            live.install_legacy_frames(frames())
+            live._promote()
+            count = len(live.frames)
+            held = [(live.frames[i], plain.frames[i]) for i in range(count)]
+            slots = [(live.frames[i].layers[j], plain.frames[i].layers[j])
+                     for i in range(count) for j in range(2)]
+            if whole:
+                for slot, _ in slots:
+                    _ = (slot._cell, slot.image, slot.initial_image)  # 窓口を全部作っておく
+            calls = _round_trips(live, monkeypatch)
+            assert live.delete_frame(column, layer_index) == plain.delete_frame(column, layer_index)
+            assert calls == [], (column, layer_index, whole)
+            assert len(live.frames) == len(plain.frames) < count
+            monkeypatch.undo()
+            for frame, plain_frame in held:
+                assert frame.duration == plain_frame.duration
+                assert ([(pixels(s.image), pixels(s.initial_image)) for s in frame.layers]
+                        == [(pixels(s.image), pixels(s.initial_image))
+                            for s in plain_frame.layers])
+            for slot, plain_slot in slots:
+                assert (pixels(slot.image), pixels(slot.initial_image)) == (
+                    pixels(plain_slot.image), pixels(plain_slot.initial_image))
+                assert ([k for k, (a, _) in enumerate(slots) if a._cell is slot._cell]
+                        == [k for k, (_, b) in enumerate(slots) if b._cell is plain_slot._cell])
+            assert _whole_signature(live) == _whole_signature(plain)

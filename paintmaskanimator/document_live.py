@@ -2508,8 +2508,9 @@ def _core_shift_left(document, name, column, layer_index):
 
     今の手順（_shift_timeline_layer_left）は列の column 以降の位置を次の位置の clone_slot
     で入れ直し（古い Layer は文書から外れ、局所の Cell は写しとともに一つ前の位置へ移る）、
-    最後の位置をその場で消す。delete_frame が末尾の空いたコマを取り除く場合と、局所の絵を
-    共有する位置がある場合は今の経路。
+    最後の位置をその場で消す。delete_frame が末尾の空いたコマを取り除く場合は、取り除いた
+    コマの窓口を素のオブジェクトにして外す（_trim_plan・_retire_trimmed）。局所の絵を共有する
+    位置がある場合は今の経路。
     """
     live = document._live()
     if (live["graph"] is not None or live.get("trial") or type(column) is not int
@@ -2530,14 +2531,20 @@ def _core_shift_left(document, name, column, layer_index):
         if block is None and count == 1:
             from .document_changes import ChangeSet
             return ChangeSet()  # 今の手順は何もしない
-        # 末尾のコマを取り除くかは、写しに当てて確かめる（取り除いたコマの付け替えはまだ無い）。
+        # 末尾のコマを取り除くかは、写しに当てて確かめる。
         trial = live["core"].copy()
         trial.set_blank_image(_blank_handle())
         try:
             trial.apply_command(json.dumps(operation))
         except ValueError:
             return None
-        if len(json.loads(trial.frames_graph([])[0])["frame_order"]) != count:
+        kept = len(json.loads(trial.frames_graph([])[0])["frame_order"])
+    else:
+        kept = count
+    trimmed = None
+    if kept != count:
+        trimmed = _trim_plan(document, frame_ids, kept, column, layer_index)
+        if trimmed is None:
             return None
     replaced = [(fid, tid) for fid in frame_ids[column:count - 1]]
     plan = _detach_plan(document, replaced[:1], [] if replaced else [(frame_ids[column], tid)])
@@ -2551,7 +2558,7 @@ def _core_shift_left(document, name, column, layer_index):
             values, handles = state.position(*key)
             plan["layers"].append((key, layer, values, handles, live.get("tokens", {}).get(key)))
     first = column if block is None else min(column, block[1])
-    result = _apply_core_command(document, operation, lambda ids: frame_ids[first:])
+    result = _apply_core_command(document, operation, lambda ids: frame_ids[first:kept])
     if result is None:
         return None
     changes, _ = result
@@ -2565,7 +2572,11 @@ def _core_shift_left(document, name, column, layer_index):
     for key in replaced:
         tokens[key] = PendingToken()
     state.pending.clear()
-    _detach(document, plan, moved=dict(moves), between=lambda: _rekey_locals(document, moves))
+    gone = frozenset(frame_ids[kept:])
+    _detach(document, plan, moved=dict(moves),
+            between=lambda: _rekey_locals(document, moves, unbound=gone))
+    if trimmed is not None:
+        _retire_trimmed(document, trimmed)
     return changes
 
 
@@ -3001,8 +3012,12 @@ def _core_restore_removed_track(document, e):
     return _core_remove_columns(document, (index,), active)
 
 
-def _rekey_locals(document, moves):
-    """局所の Cell・画像の窓口を、移った先の位置のキーへ付け替える。"""
+def _rekey_locals(document, moves, unbound=frozenset()):
+    """局所の Cell・画像の窓口を、移った先の位置のキーへ付け替える。
+
+    unbound（コマ ID の集合）のコマへ移る画像は、Rust の絵へ結び直さずにキーだけ付け替える
+    （命令で取り除かれたコマ。_retire_trimmed があとで独立した画像に戻す）。
+    """
     live = document._live()
     cache, core = live["cache"], live["core"]
     for old, new in moves:
@@ -3014,8 +3029,148 @@ def _rekey_locals(document, moves):
         for initial in (False, True):
             image = cache.pop("image", (old_key, initial))
             if image is not None:
-                _bind(image, _native._CellImage(core, False, new[0], new[1], initial))
+                if new[0] not in unbound:
+                    _bind(image, _native._CellImage(core, False, new[0], new[1], initial))
                 cache.put("image", (new_key, initial), image)
+
+
+def _trim_plan(document, frame_ids, kept, column, layer_index):
+    """delete_frame が末尾のコマ frame_ids[kept:] を取り除く場合の、外す窓口の用意。
+
+    今の手順（_trim_unused_trailing_frames）は列を寄せたあと、全列で未使用になった末尾の
+    コマの位置の配置待ちを解き（release_slots）、コマを並びから外す。外れた Frame・Layer・
+    Cell・画像は、寄せたあと・外す前の値のまま残る。その値は命令の前の写しに
+    delete_track_frame（寄せるだけで末尾を切らない）を当てて読む。画像は命令の前の画素を
+    写して持つ（局所の絵は位置と一緒に移るので、画像の画素は変わらない）。外すコマに配置待ちの
+    位置・局所の絵の共有の組・局所の絵をバンクに置く位置がある場合は None（今の経路）。
+    """
+    live = document._live()
+    state, cache = live["state"], live["cache"]
+    gone = frame_ids[kept:]
+    for fid in gone:
+        for tid in state.track_ids:
+            values = state.position(fid, tid)[0]
+            if (values["sequence_only"] or values.get("pending_detached")
+                    or values.get("local_share") is not None or values.get("local_bank")):
+                return None
+    frozen = live["core"].copy()
+    try:
+        frozen.set_blank_image(_blank_handle())
+        frozen.apply_command(json.dumps(["delete_track_frame", column, layer_index]))
+        text, handles = frozen.frames_graph(list(gone))
+    except ValueError:
+        return None
+    payload = json.loads(text)
+    handles = list(handles)
+    rows = {frame["id"]: frame for frame in payload["frames"]}
+    if set(rows) != set(gone):
+        return None
+    for frame in rows.values():
+        for values in frame["positions"]:
+            if (values["sequence_only"] or values.get("pending_detached")
+                    or values.get("local_share") is not None or values.get("local_bank")):
+                return None
+    # 移った先が外すコマになり得るのは、消す列の column 以降の局所の画像と、外すコマの画像。
+    tid = state.track_ids[layer_index]
+    pixels = {}
+    for (kind, key), image in cache.items():
+        if kind != "image" or key[0][0] != "local":
+            continue
+        _, fid, owner = key[0]
+        if fid in gone or (owner == tid and state.frame_index.get(fid, -1) >= column):
+            try:
+                pixels[id(image)] = image._image.copy()
+            except ValueError:
+                return None
+    return {"gone": gone, "rows": rows, "handles": handles, "pixels": pixels,
+            "track_ids": list(state.track_ids)}
+
+
+def _retire_trimmed(document, plan):
+    """_trim_plan で用意した値で、取り除いたコマの窓口を素のオブジェクトにして文書から外す。"""
+    from .document import clear_pending
+    live = document._live()
+    cache = live["cache"]
+    gone, rows, handles = set(plan["gone"]), plan["rows"], plan["handles"]
+    track_ids = plan["track_ids"]
+
+    def values_at(fid, tid):
+        return rows[fid]["positions"][track_ids.index(tid)]
+
+    images = {}
+    for (kind, key), image in cache.items():
+        if kind == "image" and key[0][0] == "local" and key[0][1] in gone:
+            cache.pop(kind, key)
+            pixels = plan["pixels"].get(id(image))
+            if pixels is None:
+                # _trim_plan は外すコマの局所の画像を全部写すので、ここへは来ない（念のため）。
+                _unbind(image)
+            else:
+                image.__class__ = PmaImage
+                object.__setattr__(image, "_image", pixels)
+                object.__setattr__(image, "_attributes", tag_attributes(pixels.tag))
+            images[key] = image
+
+    def plain_cell(key):
+        data = values_at(key[1], key[2])["local"]
+        if data is None:
+            return None
+        stand = Cell.__new__(Cell)
+        for initial, name in ((False, "image"), (True, "initial_image")):
+            found = images.get((key, initial))
+            index = data[name]
+            value = (found if found is not None else
+                     None if index is None else model_image(handles[index]))
+            object.__setattr__(stand, name, value)
+        stand.cell_name = data["cell_name"]
+        return stand
+
+    cells = {}
+    for (kind, key), cell in cache.items():
+        if kind == "cell" and key[0] == "local" and key[1] in gone:
+            cache.pop(kind, key)
+            stand = plain_cell(key)
+            if stand is not None:
+                _transplant(cell, stand)
+                cells[key] = cell
+    for key in images:
+        local = key[0]
+        if local not in cells:
+            stand = plain_cell(local)
+            if stand is not None:
+                cells[local] = stand
+    temporaries = {}
+    tokens = live.get("tokens", {})
+
+    def plain_position(fid, tid):
+        temporary = temporaries.get(tid)
+        if temporary is None:
+            temporary = temporaries[tid] = plain_track(*live["state"].track(tid))
+        stand = plain_slot(values_at(fid, tid), temporary, handles)
+        local = ("local", fid, tid)
+        if local in cells:
+            stand.__dict__["_cell"] = cells[local]
+        elif "_cell" in stand.__dict__:
+            cells[local] = stand.__dict__["_cell"]
+        # 今の手順（release_slots）は外すコマの位置の配置待ちを解く。
+        clear_pending(stand)
+        stand.__dict__["_track"] = document._track(tid)
+        return stand
+
+    layers = {}
+    for (kind, key), layer in cache.items():
+        if kind == "layer" and key[0] in gone:
+            cache.pop(kind, key)
+            _transplant(layer, plain_position(*key))
+            layers[key] = layer
+    for (kind, key), frame in cache.items():
+        if kind == "frame" and key[0] in gone:
+            cache.pop(kind, key)
+            fid = key[0]
+            slots = [layers.get((fid, tid)) or plain_position(fid, tid) for tid in track_ids]
+            _transplant(frame, Frame(slots, rows[fid]["duration"]))
+    for key in [key for key in tokens if key[0] in gone]:
+        del tokens[key]
 
 
 def _core_create_blank_key(document, column, layer_index):
