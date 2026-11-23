@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use serde_json::{json, Value};
 
@@ -328,7 +329,10 @@ pub fn from_plan(payload: &Value, plan: &V2Plan, images: &[RgbaImage]) -> Result
         height,
         frame_order,
         track_order,
-        sheet,
+        sheet: sheet
+            .into_iter()
+            .map(|(id, row)| (id, Arc::new(row)))
+            .collect(),
         tracks,
         current_frame,
         active_layer,

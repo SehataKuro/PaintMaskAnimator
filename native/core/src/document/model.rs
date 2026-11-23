@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroI64;
+use std::sync::Arc;
 
 use serde_json::Value;
 
@@ -186,7 +187,10 @@ pub struct Frame {
 }
 
 /// フレーム ID ごとのシート行。
-pub type Sheet = BTreeMap<FrameId, Frame>;
+///
+/// 行は Arc で持ち、文書の写し（命令の失敗に備えた写し・Undo の写し）は行を共有する。
+/// 書き換える行だけを Arc::make_mut でその場で写す。
+pub type Sheet = BTreeMap<FrameId, Arc<Frame>>;
 
 /// Python Document に対応する文書。順序と安定 ID を別々に保持する。
 #[derive(Clone, Debug)]
@@ -234,7 +238,7 @@ impl Document {
 
     /// ID に対応するシート行を返す。
     pub fn frame(&self, id: FrameId) -> Option<&Frame> {
-        self.sheet.get(&id)
+        self.sheet.get(&id).map(|row| &**row)
     }
 
     /// Python の番号順の処理に対応し、未配置を含む絵の番号を昇順で返す。

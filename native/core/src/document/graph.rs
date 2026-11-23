@@ -4,6 +4,7 @@
 //! `paintmaskanimator/document_core.py` が同じ形を組み立て、読み戻す。
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use serde_json::{json, Value};
 
@@ -710,7 +711,10 @@ impl Document {
             blank: None,
             frame_order,
             track_order,
-            sheet,
+            sheet: sheet
+                .into_iter()
+                .map(|(id, row)| (id, Arc::new(row)))
+                .collect(),
             tracks,
             current_frame,
             active_layer,

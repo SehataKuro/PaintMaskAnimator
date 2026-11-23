@@ -5,6 +5,7 @@
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
 use serde_json::Value;
 
@@ -101,7 +102,7 @@ impl Document {
         let slot = self
             .sheet
             .get_mut(&frame)
-            .and_then(|row| row.positions.get_mut(&track))
+            .and_then(|row| Arc::make_mut(row).positions.get_mut(&track))
             .ok_or_else(|| missing("位置"))?;
         *slot = position;
         Ok(())
@@ -115,16 +116,25 @@ impl Document {
         let blank = self.blank.take();
         *self = snapshot.clone();
         self.blank = blank.or_else(|| self.blank.take());
-        for position in self
-            .sheet
-            .values_mut()
-            .flat_map(|row| row.positions.values_mut())
-        {
-            position.compatibility.pending_detached = false;
-            if position.references_bank() {
-                position.compatibility.local = None;
-                position.compatibility.local_share = None;
-                position.compatibility.local_bank = false;
+        for row in self.sheet.values_mut() {
+            // 書き換える位置のある行だけをその場で写す（ほかの行は写しと共有のまま）。
+            let dirty = row.positions.values().any(|position| {
+                position.compatibility.pending_detached
+                    || (position.references_bank()
+                        && (position.compatibility.local.is_some()
+                            || position.compatibility.local_share.is_some()
+                            || position.compatibility.local_bank))
+            });
+            if !dirty {
+                continue;
+            }
+            for position in Arc::make_mut(row).positions.values_mut() {
+                position.compatibility.pending_detached = false;
+                if position.references_bank() {
+                    position.compatibility.local = None;
+                    position.compatibility.local_share = None;
+                    position.compatibility.local_bank = false;
+                }
             }
         }
         self.drop_single_shares();
@@ -293,10 +303,8 @@ impl Document {
 
     /// コマの尺を設定する。
     pub fn set_frame_duration(&mut self, frame: FrameId, duration: i64) -> Result<(), Error> {
-        self.sheet
-            .get_mut(&frame)
-            .ok_or_else(|| missing("コマ"))?
-            .duration = duration;
+        Arc::make_mut(self.sheet.get_mut(&frame).ok_or_else(|| missing("コマ"))?).duration =
+            duration;
         Ok(())
     }
 
@@ -317,9 +325,7 @@ impl Document {
     fn slot_artwork_mut(&mut self, slot: ArtworkSlot) -> Option<&mut Cell> {
         match slot {
             ArtworkSlot::Bank(track, number) => self.tracks.get_mut(&track)?.cells.get_mut(&number),
-            ArtworkSlot::Local(frame, track) => self
-                .sheet
-                .get_mut(&frame)?
+            ArtworkSlot::Local(frame, track) => Arc::make_mut(self.sheet.get_mut(&frame)?)
                 .positions
                 .get_mut(&track)?
                 .compatibility

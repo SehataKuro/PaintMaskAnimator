@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use super::changes::{Change, ChangeSet, FrameOperation};
 use super::compatibility::{LegacyPosition, LegacySlot};
@@ -24,7 +25,7 @@ impl Document {
             .map(|(number, hint)| (mapped(number), hint))
             .collect();
         for row in self.sheet.values_mut() {
-            let position = row.positions.get_mut(&track).unwrap();
+            let position = Arc::make_mut(row).positions.get_mut(&track).unwrap();
             if let Reference::Number(number) = &mut position.reference {
                 *number = mapped(*number);
             }

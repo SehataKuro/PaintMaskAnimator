@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use super::changes::{Change, ChangeSet, FrameOperation, TrackOperation};
 use super::model::{
@@ -169,7 +170,7 @@ impl Document {
             let id = self.track_order.remove(index);
             self.tracks.remove(&id);
             for frame in self.sheet.values_mut() {
-                frame.positions.remove(&id);
+                Arc::make_mut(frame).positions.remove(&id);
             }
         }
         self.active_layer = self.track_order[active];
@@ -265,7 +266,7 @@ impl Document {
             cell_name: None,
         });
         for frame in self.sheet.values_mut() {
-            frame.positions.insert(id, empty.clone());
+            Arc::make_mut(frame).positions.insert(id, empty.clone());
         }
         self.next_track_id = next;
         self.track_order.push(id);
@@ -321,9 +322,7 @@ impl Document {
         self.tracks.insert(id, prepared.track);
         for (id_frame, position) in self.frame_order.iter().zip(prepared.positions) {
             // コマ順の各 ID に対応する行は常にシートに保持する。
-            self.sheet
-                .get_mut(id_frame)
-                .unwrap()
+            Arc::make_mut(self.sheet.get_mut(id_frame).unwrap())
                 .positions
                 .insert(id, position);
         }
@@ -425,7 +424,7 @@ impl Document {
         for id in self.track_order.drain(*start..=*end) {
             self.tracks.remove(&id);
             for frame in self.sheet.values_mut() {
-                frame.positions.remove(&id);
+                Arc::make_mut(frame).positions.remove(&id);
             }
         }
         self.install_track(*start, prepared);
@@ -464,14 +463,14 @@ impl Document {
             initial_image: None,
             cell_name: None,
         });
-        let blank = Frame {
+        let blank = Arc::new(Frame {
             duration: 1,
             positions: self
                 .track_order
                 .iter()
                 .map(|&id| (id, empty.clone()))
                 .collect(),
-        };
+        });
         for number in self.next_frame_id..next {
             let id = FrameId(number);
             self.sheet.insert(id, blank.clone());

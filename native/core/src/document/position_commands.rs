@@ -2,6 +2,7 @@ use super::changes::{Change, ChangeSet, FrameOperation};
 use super::frame_commands::held_reference;
 use super::model::{Cell, CellNumber, Document, FrameId, Position, Reference, TrackId};
 use crate::{image::RgbaImage, Error};
+use std::sync::Arc;
 
 /// 複数区間移動の始点と移動先。各組は（コマ、列）の表示インデックス。
 #[derive(Clone, Copy, Debug)]
@@ -648,13 +649,21 @@ impl Document {
             *edited.position_mut(index, track) = edited.cleared_position(index, track)?;
         }
         for share in shares {
-            let mut members = edited
-                .sheet
-                .values_mut()
-                .flat_map(|row| row.positions.values_mut())
-                .filter(|position| position.compatibility.local_share == Some(share));
-            if let (Some(only), None) = (members.next(), members.next()) {
-                only.compatibility.local_share = None;
+            // 組の位置が一つだけなら外す（その行だけをその場で写す）。
+            let mut members = edited.sheet.iter().flat_map(|(&frame, row)| {
+                row.positions
+                    .iter()
+                    .filter(|(_, position)| position.compatibility.local_share == Some(share))
+                    .map(move |(&track, _)| (frame, track))
+            });
+            if let (Some((frame, track)), None) = (members.next(), members.next()) {
+                let row = edited.sheet.get_mut(&frame).expect("組の位置の行");
+                Arc::make_mut(row)
+                    .positions
+                    .get_mut(&track)
+                    .expect("組の位置")
+                    .compatibility
+                    .local_share = None;
             }
         }
         let after = edited.frame_order.len();

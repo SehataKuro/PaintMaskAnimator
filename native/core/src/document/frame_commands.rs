@@ -1,8 +1,9 @@
 use std::ops::Range;
+use std::sync::Arc;
 
 use super::changes::{Change, ChangeSet, FrameOperation};
 use super::compatibility::{ArchiveHint, LegacyPosition, LegacySlot};
-use super::model::{Cell, CellNumber, Document, Position, Reference, TrackId};
+use super::model::{Cell, CellNumber, Document, Frame, Position, Reference, TrackId};
 use super::timeline::SHEET_EMPTY;
 use crate::{image::RgbaImage, Error};
 
@@ -98,7 +99,7 @@ impl Document {
         // コマと列の表示範囲は呼び出し元で検証し、すべての行は全列を持つ。
         self.sheet
             .get_mut(&self.frame_order[column])
-            .and_then(|row| row.positions.get_mut(&track))
+            .and_then(|row| Arc::make_mut(row).positions.get_mut(&track))
             .expect("コマと列が検証済み")
     }
 
@@ -164,7 +165,7 @@ impl Document {
         let layers: Vec<_> = (0..self.track_order.len()).collect();
         let spans = self.display_spans(column, &layers)?;
         let mut edited = self.clone();
-        let mut row = self.sheet[&source].clone();
+        let mut row = Frame::clone(&self.sheet[&source]);
         // Python の clone_slot は局所の Cell を作らず元の位置と共有し、attach_track が
         // 配置待ちの所属を列へ戻す。共有の組が無ければ元と複製で新しい組を作る。
         let mut next_share = edited.next_local_share();
@@ -177,7 +178,7 @@ impl Document {
                 edited
                     .sheet
                     .get_mut(&source)
-                    .and_then(|source| source.positions.get_mut(track))
+                    .and_then(|source| Arc::make_mut(source).positions.get_mut(track))
                     .expect("複製元の位置")
                     .compatibility
                     .local_share = Some(next_share);
@@ -189,7 +190,7 @@ impl Document {
         let id = edited.frame_order.pop().expect("追加済み");
         let at = column + 1;
         edited.frame_order.insert(at, id);
-        edited.sheet.insert(id, row.clone());
+        edited.sheet.insert(id, Arc::new(row.clone()));
         for (track, span) in self.track_order.clone().into_iter().zip(spans) {
             if let Some(span) = span.filter(|span| span.start < column) {
                 let source = &row.positions[&track];
@@ -288,13 +289,19 @@ impl Document {
                 *counts.entry(share).or_insert(0usize) += 1;
             }
         }
-        for position in self
-            .sheet
-            .values_mut()
-            .flat_map(|row| row.positions.values_mut())
-        {
-            if let Some(share) = position.compatibility.local_share {
-                if counts[&share] == 1 {
+        for row in self.sheet.values_mut() {
+            // 外す組の位置のある行だけをその場で写す（ほかの行は写しと共有のまま）。
+            let single = |position: &Position| {
+                position
+                    .compatibility
+                    .local_share
+                    .is_some_and(|share| counts[&share] == 1)
+            };
+            if !row.positions.values().any(single) {
+                continue;
+            }
+            for position in Arc::make_mut(row).positions.values_mut() {
+                if single(position) {
                     position.compatibility.local_share = None;
                 }
             }
