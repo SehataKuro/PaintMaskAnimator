@@ -1643,6 +1643,13 @@ class Document:
             return self._run("delete_sequence_entry", (layer_index, number), {})
         return changes
 
+    def normalize_sheet_numbers(self, layer_indices):
+        layer_indices = tuple(layer_indices)
+        changes = _CORE_COMMANDS["normalize_sheet_numbers"](self, layer_indices)
+        if changes is None:
+            return self._run("normalize_sheet_numbers", (layer_indices,), {})
+        return changes
+
     def move_sequence_image(self, layer_index, first_number, second_number, by_number):
         changes = _CORE_COMMANDS["move_sequence_image"](self, layer_index, first_number,
                                                         second_number, by_number)
@@ -3270,6 +3277,70 @@ def _core_delete_sequence_entry(document, layer_index, number):
     return changes
 
 
+def _core_normalize_sheet_numbers(document, layer_indices):
+    """normalize_sheet_numbers を Rust の命令で当てる。今の手順と同じにできなければ None。
+
+    今の手順（apply_number_mapping、normalize_archive_keys=True）はバンク・旧連番保管の札の
+    番号を写像で付け替え（バンクの Cell・画像のオブジェクトは新しい番号へ移るだけ）、位置の
+    番号をその場で書き換え（Layer はそのまま。番号が変わった位置は Layer.__setattr__ で
+    _dense_import が消える）、旧形式の記録の番号も写す。番号の無い内容キーには後ろの番号を
+    振って局所の絵をバンクへ移す。Rust は取り込み時の記録（dense_import）を残し、局所の絵の
+    窓口の付け替えはまだ無いので、次の場合は今の経路：番号の無い内容キーがある、番号が
+    変わる位置が dense_import を持つ、列の指定が不正・重なる・空。番号が変わる位置の
+    content_origin はどちらの手順も書き換えないが、安全側に倒して今の経路にする。
+    旧連番保管の札が写した先で同じ番号になると、今の手順は dict の並びで後の札を、Rust は
+    番号の大きい札を残す。窓口の文書の札は番号順に並ぶ（素に落とすと番号順）ので同じになる。
+    """
+    live = document._live()
+    if live["graph"] is not None or live.get("trial"):
+        return None
+    indices = tuple(layer_indices)
+    state = live["state"]
+    if (not indices or len(set(indices)) != len(indices)
+            or any(type(i) is not int or not 0 <= i < len(state.track_ids) for i in indices)):
+        return None
+    mappings, rows = {}, set()
+    for index in indices:
+        tid = state.track_ids[index]
+        sheet, numbers = [], set(n for n, _ in state.track(tid)[0]["cells"])
+        values_by_fid = {}
+        for fid in state.frame_ids:
+            values = state.position(fid, tid)[0]
+            values_by_fid[fid] = values
+            number = values["sequence_number"]
+            if number is None:
+                if values["has_content"] and not values["sequence_only"]:
+                    return None
+                continue
+            number = int(number)
+            numbers.add(number)
+            if values["has_content"] and not values["sequence_only"] and number not in sheet:
+                sheet.append(number)
+        ordered = sheet + sorted(numbers - set(sheet))
+        mapping = {old: new for new, old in enumerate(ordered, 1)}
+        for fid, values in values_by_fid.items():
+            number = values["sequence_number"]
+            changed = number is not None and mapping[int(number)] != number
+            if changed and (values.get("dense_import") is not None
+                            or values.get("content_origin") is not None):
+                return None
+            if changed or values.get("v1_position") is not None:
+                rows.add(fid)
+        mappings[tid] = {old: new for old, new in mapping.items() if old != new}
+    result = _apply_core_command(document, ["normalize_sheet_numbers", list(indices)],
+                                 lambda ids: [fid for fid in ids if fid in rows],
+                                 tracks=list(mappings))
+    if result is None:
+        return None
+    changes, _ = result
+    for tid, mapping in mappings.items():
+        _rekey_bank(document, tid, mapping)
+        state.refresh_track(tid)
+        state.forget_track(tid)
+    state.pending.clear()
+    return changes
+
+
 def _keeps_frame_count(live, operation, count):
     """命令を写しに当てて、コマの数が変わらないか確かめる。"""
     trial = live["core"].copy()
@@ -4444,6 +4515,7 @@ _CORE_COMMANDS = {"add_track": _core_add_track,
                   "split_sheet_clip": _core_split_sheet_clip,
                   "insert_sequence_blank": _core_insert_sequence_blank,
                   "delete_sequence_entry": _core_delete_sequence_entry,
+                  "normalize_sheet_numbers": _core_normalize_sheet_numbers,
                   "move_sheet_cells": _core_move_sheet_cells,
                   "move_sheet_cell": _core_move_sheet_cell,
                   "resize_sheet_exposure": _core_resize_sheet_exposure,

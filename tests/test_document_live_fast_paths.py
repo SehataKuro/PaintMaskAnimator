@@ -2365,3 +2365,127 @@ def test_make_position_editable_on_shared_and_numbered_shapes(monkeypatch):
             assert live.frames[2].layers[1].sequence_number == 10
         assert _whole_signature(live) == _whole_signature(plain), shape
         monkeypatch.undo()
+
+
+def _shuffled_frames():
+    # A 列 [3,3,1,空キー(番号2を残す),2,5]、B 列 [1,2,2,1,未使用,1]。5 と 3 はシートの
+    # 初出順で 1・2 になり、空キーの残す番号も写る。
+    rows = []
+    for a, b in ((3, 1), (3, 2), (1, 2), ("blank", 1), (2, None), (5, 1)):
+        layers = []
+        for name, number in (("A", a), ("B", b)):
+            if number == "blank":
+                layer = _colored_layer(name, (0, 0, 255, 255), content=False, number=2,
+                                       blank=True)
+            elif number is None:
+                layer = _colored_layer(name, (0, 0, 0, 0), content=False)
+            else:
+                layer = _colored_layer(name, (number * 40, 0, 0, 255), number=number)
+            layers.append(layer)
+        rows.append(Frame(layers))
+    return rows
+
+
+def test_normalize_sheet_numbers_uses_core_command_and_matches_python(monkeypatch):
+    for indices in ((0,), (1,), (0, 1), (1, 0)):
+        plain = GraphDocument()
+        plain.install_legacy_frames(_shuffled_frames())
+        live = document_live.Document()
+        live.install_legacy_frames(_shuffled_frames())
+        for document in (plain, live):
+            document.put_archive_hint(document.tracks[0], 5, ArchiveHint())
+        live._promote()
+        banks = [{number: (cell, cell.image) for number, cell in track.cells.items()}
+                 for track in live.tracks]
+        plain_banks = [{number: (cell, cell.image) for number, cell in track.cells.items()}
+                       for track in plain.tracks]
+        slots = [list(frame.layers) for frame in live.frames]
+        calls = _round_trips(live, monkeypatch)
+        assert live.normalize_sheet_numbers(indices) == plain.normalize_sheet_numbers(indices)
+        assert calls == []
+        assert _signature(live) == _signature(plain)
+        assert [list(frame.layers) for frame in live.frames] == slots
+        assert all(a is b for frame, row in zip(live.frames, slots)
+                   for a, b in zip(frame.layers, row))
+        # バンクの Cell・画像は、同じオブジェクトのまま新しい番号へ移る。
+        for bank, plain_bank, track, plain_track in zip(banks, plain_banks, live.tracks,
+                                                       plain.tracks):
+            moved = {number: [n for n, cell in track.cells.items()
+                              if cell is pair[0] and cell.image is pair[1]]
+                     for number, pair in bank.items()}
+            plain_moved = {number: [n for n, cell in plain_track.cells.items()
+                                    if cell is pair[0] and cell.image is pair[1]]
+                           for number, pair in plain_bank.items()}
+            assert moved == plain_moved
+        assert ({n: vars(h) for n, h in live.tracks[0].legacy_archive_hints.items()}
+                == {n: vars(h) for n, h in plain.tracks[0].legacy_archive_hints.items()})
+        assert _whole_signature(live) == _whole_signature(plain)
+
+
+def test_normalize_sheet_numbers_with_unnumbered_content_takes_the_current_path(monkeypatch):
+    # 番号の無い内容キー（局所の絵をバンクへ移す）、番号が変わる位置の取り込み時の記録、
+    # 列の指定が不正・重なる場合は今の経路。
+    from paintmaskanimator.legacy_v1 import BLANK, EMPTY
+    from paintmaskanimator.timeline_metadata import set_dense_import
+
+
+    def imported():
+        frames = _shuffled_frames()
+        slot = frames[0].layers[0]
+        set_dense_import(slot, ((True, False, 3, False, False), BLANK, EMPTY))
+        return frames
+    for frames, indices in ((_shuffled_frames, (1,)), (imported, (0,)),
+                            (_shuffled_frames, (0, 0)), (_shuffled_frames, (2,))):
+        plain = GraphDocument()
+        plain.install_legacy_frames(frames())
+        live = document_live.Document()
+        live.install_legacy_frames(frames())
+        if indices == (1,):
+            # 取り込みは番号の無い内容キーに番号を振るので、取り込んだあとに外す。
+            for document in (plain, live):
+                document.frames[1].layers[1].sequence_number = None
+        live._promote()
+        assert live._live()["graph"] is None
+        calls = _round_trips(live, monkeypatch)
+        assert live.normalize_sheet_numbers(indices) == plain.normalize_sheet_numbers(indices)
+        assert calls
+        assert _whole_signature(live) == _whole_signature(plain)
+
+
+def test_normalize_sheet_numbers_with_v1_records_pending_and_undo(monkeypatch):
+    # 旧形式の記録（番号も写る）・配置待ちの位置・バンクにしか無い番号があっても Rust の命令で
+    # 当て、Undo の写しへ戻してもう一度当てても今の手順と同じになる。
+    from paintmaskanimator.legacy_v1 import V1Position, snapshot_layer
+
+    def frames():
+        rows = [Frame([_colored_layer("A", (n * 40, 0, 0, 255), number=n),
+                       _colored_layer("B", (0, n * 40, 0, 255), number=n)])
+                for n in (3, 3, 1, 2, 2, 6)]
+        source = _colored_layer("A", (9, 9, 9, 255), number=3)
+        rows[1].layers[0].__dict__["_v1_position"] = V1Position(snapshot_layer(source),
+                                                                key_start=True)
+        return rows
+    documents = []
+    for factory in (GraphDocument, document_live.Document):
+        document = factory()
+        document.install_legacy_frames(frames())
+        document.frames[4].layers[0].set_pending(True)
+        # 6 はバンクにだけ残る番号にする。
+        document.clear_sheet_span(0, 5, 6)
+        documents.append(document)
+    plain, live = documents
+    live._promote()
+    snapshots = (plain.snapshot(), live.snapshot())
+    for _ in range(2):
+        calls = _round_trips(live, monkeypatch)
+        assert (live.normalize_sheet_numbers((0, 1))
+                == plain.normalize_sheet_numbers((0, 1)))
+        assert calls == []
+        assert _signature(live) == _signature(plain)
+        assert sorted(live.tracks[0].cells) == sorted(plain.tracks[0].cells)
+        assert _v1_records(live) == _v1_records(plain)
+        assert _whole_signature(live) == _whole_signature(plain)
+        live._promote()
+        assert live.restore_snapshot(snapshots[1]) == plain.restore_snapshot(snapshots[0])
+        assert _whole_signature(live) == _whole_signature(plain)
+        live._promote()
