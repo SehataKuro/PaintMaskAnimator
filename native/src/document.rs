@@ -199,6 +199,36 @@ impl PyCoreDocument {
         Ok((width, PyBytes::new(py, &bytes)))
     }
 
+    /// to_graph の並び・次の ID・尺と、位置・列の値の指紋を返す（pma-core の graph_fingerprints）。
+    ///
+    /// (コマ ID の並び, 列 ID の並び, (次のコマ ID, 次の列 ID), 尺の並び, 位置の指紋の
+    /// u64 の bytes, 列の指紋の u64 の bytes)。位置はコマ優先で frame_order × track_order。
+    #[allow(clippy::type_complexity)]
+    fn graph_fingerprints<'py>(
+        &self,
+        py: Python<'py>,
+    ) -> (
+        Vec<u64>,
+        Vec<u64>,
+        (u64, u64),
+        Vec<i64>,
+        Bound<'py, PyBytes>,
+        Bound<'py, PyBytes>,
+    ) {
+        let prints = py.detach(|| self.0.graph_fingerprints());
+        let bytes = |values: &[u64]| -> Vec<u8> {
+            values.iter().copied().flat_map(u64::to_ne_bytes).collect()
+        };
+        (
+            prints.frame_order.iter().map(|id| id.0).collect(),
+            prints.track_order.iter().map(|id| id.0).collect(),
+            prints.next_ids,
+            prints.durations,
+            PyBytes::new(py, &bytes(&prints.positions)),
+            PyBytes::new(py, &bytes(&prints.tracks)),
+        )
+    }
+
     /// 表示位置 column・表示列 track を含む保持の範囲を (空キーか, 頭, 長さ) で返す。
     ///
     /// Python の timeline_block_at と同じ（pma-core の timeline_block_at）。未使用なら None。

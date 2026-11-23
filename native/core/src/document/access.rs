@@ -3,6 +3,9 @@
 //! 値の形は graph.rs の from_graph / to_graph と同じ JSON。窓口は今の Python の
 //! 副作用を Python 側で再現し、保存先としてここを使う。
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
 use serde_json::Value;
 
 use super::graph::{self, Output};
@@ -125,6 +128,46 @@ impl Document {
             }
         }
         self.drop_single_shares();
+    }
+
+    /// to_graph の並び・次の ID・コマの尺と、位置・列の値の指紋を返す。
+    ///
+    /// 指紋は値の JSON（画像の添字はその位置・列の中で振り直す）と画像の (画素の世代, 札)
+    /// の並びのハッシュ。同じ指紋なら to_graph の値と画像の見え方が同じとみなせる（呼び出し
+    /// 側は読んだときの指紋と比べ、同じ位置・列の値を使い回す）。
+    pub fn graph_fingerprints(&self) -> GraphFingerprints {
+        let mut positions = Vec::with_capacity(self.frame_order.len() * self.track_order.len());
+        let mut text = String::new();
+        for id in &self.frame_order {
+            let row = &self.sheet[id];
+            for track in &self.track_order {
+                let mut output = Output::default();
+                text.clear();
+                graph::write_position(&mut text, &row.positions[track], &mut output);
+                positions.push(fingerprint(&text, &output.images));
+            }
+        }
+        let tracks = self
+            .track_order
+            .iter()
+            .map(|&id| {
+                let mut output = Output::default();
+                let text = graph::track_json(id, &self.tracks[&id], &mut output).to_string();
+                fingerprint(&text, &output.images)
+            })
+            .collect();
+        GraphFingerprints {
+            frame_order: self.frame_order.clone(),
+            track_order: self.track_order.clone(),
+            next_ids: (self.next_frame_id, self.next_track_id),
+            durations: self
+                .frame_order
+                .iter()
+                .map(|id| self.sheet[id].duration)
+                .collect(),
+            positions,
+            tracks,
+        }
     }
 
     /// 命令が作る空画像の雛形を設定する（Python の blank_model_image() の画像）。
@@ -308,6 +351,34 @@ impl Document {
     }
 }
 
+/// Document::graph_fingerprints の結果。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GraphFingerprints {
+    /// コマ ID の表示順。
+    pub frame_order: Vec<FrameId>,
+    /// 列 ID の表示順。
+    pub track_order: Vec<TrackId>,
+    /// 次のコマ ID と次の列 ID。
+    pub next_ids: (u64, u64),
+    /// frame_order の順のコマの尺。
+    pub durations: Vec<i64>,
+    /// 位置の指紋（コマ優先で frame_order × track_order）。
+    pub positions: Vec<u64>,
+    /// 列の指紋（track_order の順）。
+    pub tracks: Vec<u64>,
+}
+
+/// 値の JSON と画像の (画素の世代, 札) の並びのハッシュ（graph_fingerprints の指紋）。
+fn fingerprint(text: &str, images: &[RgbaImage]) -> u64 {
+    // DefaultHasher::new() は鍵が固定なので、同じ入力にはいつも同じ値を返す。
+    let mut hasher = DefaultHasher::new();
+    text.hash(&mut hasher);
+    for image in images {
+        (image.generation(), image.tag()).hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -401,6 +472,62 @@ mod tests {
         assert!(doc
             .frames_tracks_graph(&[FrameId(9)], &[TrackId(0)])
             .is_err());
+    }
+
+    // 指紋は値か画像（画素の世代・札）が変わった位置・列だけ変わり、複製では同じ。
+    #[test]
+    fn graph_fingerprints_change_only_where_values_change() {
+        let (doc, images) = document();
+        let prints = doc.graph_fingerprints();
+        let (positions, tracks) = (prints.positions.clone(), prints.tracks.clone());
+        assert_eq!(prints.frame_order, doc.frame_order);
+        assert_eq!(prints.durations.len(), doc.frame_order.len());
+        assert_eq!(
+            positions.len(),
+            doc.frame_order.len() * doc.track_order.len()
+        );
+        assert_eq!(tracks.len(), doc.track_order.len());
+        assert_eq!(doc.clone().graph_fingerprints(), prints);
+        let mut changed = doc.clone();
+        let (frame, track) = (FrameId(1), TrackId(0));
+        let (mut value, _) = changed.position_graph(frame, track).unwrap();
+        value["blank_start"] = json!(true);
+        changed
+            .set_position_graph(frame, track, &value, &images)
+            .unwrap();
+        let index = doc.frame_order.iter().position(|&id| id == frame).unwrap()
+            * doc.track_order.len()
+            + doc.track_order.iter().position(|&id| id == track).unwrap();
+        let GraphFingerprints {
+            positions: after,
+            tracks: after_tracks,
+            ..
+        } = changed.graph_fingerprints();
+        let differ: Vec<_> = (0..positions.len())
+            .filter(|&i| positions[i] != after[i])
+            .collect();
+        assert_eq!(differ, vec![index]);
+        assert_eq!(after_tracks, tracks);
+        // バンクの絵の画素の世代が変われば列の指紋が変わる（参照する位置の値は変わらない）。
+        let mut painted = doc.clone();
+        let slot = ArtworkSlot::Bank(track, CellNumber::new(1).unwrap());
+        let rect = Rect {
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+        };
+        painted
+            .artwork_image_mut(slot, ImageField::Image)
+            .unwrap()
+            .write_rgba(rect, &[1, 2, 3, 4])
+            .unwrap();
+        let painted = painted.graph_fingerprints();
+        assert_eq!(painted.positions, positions);
+        assert_ne!(painted.tracks, tracks);
+        let mut longer = doc.clone();
+        longer.set_frame_duration(frame, 3).unwrap();
+        assert_ne!(longer.graph_fingerprints().durations, prints.durations);
     }
 
     // 保持の範囲は同じ種別・番号の続く間で、配置待ちは未使用、空キーは空キー開始で切る。

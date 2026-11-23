@@ -65,6 +65,71 @@ class _CoreState:
                 self.positions[frame["id"], track_id] = (position, self.handles)
         self.durations = {frame["id"]: frame["duration"] for frame in payload["frames"]}
         self.tracks = {track["id"]: (track, self.handles) for track in payload["tracks"]}
+        # 値を読んだときの指紋（Rust の graph_fingerprints）。restored が使い回してよい値を
+        # 見分ける。値を取り直した位置・列は外す（その値の指紋は分からないので取り直させる）。
+        # 絵を描くと Rust の画像だけが変わり写しの値は古いままになるが、指紋は読んだときの
+        # ものなので、戻したあとの文書と違えば取り直しになる。
+        *_, position_prints, track_prints = self.core.graph_fingerprints()
+        self.prints = dict(zip(self.positions, memoryview(position_prints).cast("Q")))
+        self.track_prints = dict(zip(self.tracks, memoryview(track_prints).cast("Q")))
+        self._index()
+
+    @classmethod
+    def restored(cls, core, previous):
+        """core を戻した（restore_from）あとの写しを、previous の値を使い回して作る。
+
+        並び・次の ID・尺は Rust から読み、位置・列は previous が読んだときの指紋と今の
+        指紋が同じものだけ previous の値をそのまま使う（値は読み取り専用で、書き込みは
+        位置・列ごとに入れ替えるので共有してよい）。違う位置は列ごとにまとめて、違う列は
+        その列を Rust から取り直す。見え方は全体を読み直す（_CoreState(core)）のと同じ。
+        """
+        (frame_ids, track_ids, next_ids, durations, position_prints,
+         track_prints) = core.graph_fingerprints()
+        position_prints = memoryview(position_prints).cast("Q")
+        track_prints = memoryview(track_prints).cast("Q")
+        state = object.__new__(cls)
+        state.core = core
+        state.revision = 0
+        state.frame_ids = frame_ids
+        state.track_ids = track_ids
+        state.next_ids = tuple(next_ids)
+        state.durations = dict(zip(frame_ids, durations))
+        held, old = previous.prints, previous.positions
+        positions, prints = {}, {}
+        stale = {tid: [] for tid in track_ids}
+        index = 0
+        for fid in frame_ids:
+            for tid in track_ids:
+                key = (fid, tid)
+                prints[key] = value = position_prints[index]
+                index += 1
+                entry = old.get(key)
+                if entry is not None and held.get(key) == value:
+                    positions[key] = entry
+                else:
+                    stale[tid].append(fid)
+        for tid, fids in stale.items():
+            if not fids:
+                continue
+            text, handles = core.frames_tracks_graph(fids, [tid])
+            handles = list(handles)
+            for frame in json.loads(text)["frames"]:
+                positions[frame["id"], tid] = (frame["positions"][0], handles)
+        tracks, held = {}, previous.track_prints
+        for tid, value in zip(track_ids, track_prints):
+            if held.get(tid) == value and tid in previous.tracks:
+                tracks[tid] = previous.tracks[tid]
+            else:
+                text, handles = core.track_graph(tid)
+                tracks[tid] = (json.loads(text), list(handles))
+        state.positions, state.tracks = positions, tracks
+        state.prints = prints
+        state.track_prints = dict(zip(track_ids, track_prints))
+        state._index()
+        return state
+
+    def _index(self):
+        """位置・列の値から、読み取り用の写しの表と索引を作り直す。"""
         # 読み取り用の写し（位置の素の Layer・その __dict__・列の素の Track）。Rust の状態が
         # 変わる（_promote で作り直す）までは使い回す。写しへの書き込みは文書に届かない
         # ので、使い回しても見え方は毎回作るのと同じ。
@@ -105,11 +170,13 @@ class _CoreState:
     def refresh_position(self, frame_id, track_id):
         text, handles = self.core.position_graph(frame_id, track_id)
         self.positions[frame_id, track_id] = (json.loads(text), list(handles))
+        self.prints.pop((frame_id, track_id), None)
         self.revision += 1
 
     def refresh_track(self, track_id):
         text, handles = self.core.track_graph(track_id)
         self.tracks[track_id] = (json.loads(text), list(handles))
+        self.track_prints.pop(track_id, None)
         self.revision += 1
 
     def reload_rows(self, frame_ids, track_ids=None, full_ids=()):
@@ -149,10 +216,12 @@ class _CoreState:
             self.durations.pop(fid, None)
             for tid in self.track_ids:
                 self.positions.pop((fid, tid), None)
+                self.prints.pop((fid, tid), None)
         for frame in payload["frames"]:
             tracks, row_handles = row_tracks.get(frame["id"], (self.track_ids, handles))
             for tid, position in zip(tracks, frame["positions"]):
                 self.positions[frame["id"], tid] = (position, row_handles)
+                self.prints.pop((frame["id"], tid), None)
             self.durations[frame["id"]] = frame["duration"]
         self.frame_index = {fid: index for index, fid in enumerate(self.frame_ids)}
         self.track_index = {tid: index for index, tid in enumerate(self.track_ids)}
@@ -4044,10 +4113,12 @@ def _core_restore_snapshot(document, snapshot):
         return None
     current, active, width, height = tuple.__getitem__(snapshot, slice(1, 5))
     target = live["core"]
+    previous = live["state"]
     _retire_document(document, target.copy())
     target.set_blank_image(_blank_handle())
     target.restore_from(core)
-    state = _CoreState(target)
+    # 外れた文書は previous を読み続ける。戻したあとも同じ見え方の位置・列は値を使い回す。
+    state = _CoreState.restored(target, previous)
     document.__dict__["_live_state"] = {
         "graph": None, "core": target, "state": state, "cache": _Cache(),
         "cursor": [current, active], "next_ids": state.next_ids, "last_keys": {},

@@ -2098,3 +2098,58 @@ def test_timeline_block_at_after_v2_load_uses_core_and_matches_python(monkeypatc
                     assert GraphDocument.timeline_block_at(live, column, layer) == expected, case
                     assert live.timeline_block_at(column, layer) == expected, case
         assert calls and all(calls), case
+
+
+def _graph_value(value, handles):
+    """to_graph の値の画像の添字を、画像の (世代, 札, 幅, 高さ) に置き換える。"""
+    if isinstance(value, dict):
+        return {key: (handles[item].generation, handles[item].tag, handles[item].width,
+                      handles[item].height)
+                if key in ("image", "initial_image") and isinstance(item, int)
+                else _graph_value(item, handles) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_graph_value(item, handles) for item in value]
+    return value
+
+
+def test_restore_snapshot_reuses_unchanged_values_after_painting(monkeypatch):
+    plain, live = _pair(hold=5, count=10)
+    live._promote()
+    reused = []
+    original = document_live._CoreState.restored.__func__
+
+    def restored(cls, core, previous):
+        state = original(cls, core, previous)
+        reused.append(sum(previous.positions.get(key) is entry
+                          for key, entry in state.positions.items()))
+        fresh = cls(core)
+        assert (state.prints, state.track_prints) == (fresh.prints, fresh.track_prints)
+        # 使い回した値も、全体を読み直した値と同じ（画像は世代・札・大きさで比べる）。
+        for name in ("positions", "tracks"):
+            ours, theirs = getattr(state, name), getattr(fresh, name)
+            assert ours.keys() == theirs.keys()
+            for key, (values, handles) in theirs.items():
+                assert _graph_value(*ours[key]) == _graph_value(values, handles), (name, key)
+        return state
+    monkeypatch.setattr(document_live._CoreState, "restored", classmethod(restored))
+
+    def images(document):
+        return [[None if slot.image is None else slot.image.rgba().tobytes()
+                 for slot in frame.layers] for frame in document.frames]
+    red = np.full((2, 2, 4), (255, 0, 0, 255), np.uint8)
+    blue = np.full((2, 2, 4), (0, 0, 255, 255), np.uint8)
+    # 窓口の画像に直接描くと Rust の画像だけが変わり、写しの値は古い世代のまま残る。
+    # 写しの前に描いた列 A の絵は、写しのあとに変えない（戻しても見え方が同じなので
+    # 使い回す候補になるが、写しの値は古いので取り直す）。写しのあとに描いた画素は消える。
+    for document in (plain, live):
+        document.frames[0].layers[0].image.write_rgba(red, 0, 0)
+    expected, snapshot = plain.snapshot(), live.snapshot()
+    for document in (plain, live):
+        document.create_blank_key(7, 1)
+        document.frames[4].layers[1].image.write_rgba(blue, 0, 0)
+    assert images(live) == images(plain)
+    assert live.restore_snapshot(snapshot) == plain.restore_snapshot(expected)
+    assert reused and reused[0] > 0
+    assert _signature(live) == _signature(plain)
+    assert images(live) == images(plain)
+    assert live.frames[0].layers[0].image.rgba()[0, 0].tolist() == [255, 0, 0, 255]
