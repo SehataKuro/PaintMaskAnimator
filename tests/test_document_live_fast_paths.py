@@ -1902,3 +1902,63 @@ def test_duplicate_tracks_with_pending_positions_takes_the_current_path(monkeypa
     assert live.duplicate_tracks({1: "B2"}) == plain.duplicate_tracks({1: "B2"})
     assert calls
     assert _signature(live) == _signature(plain)
+
+
+def test_single_track_commands_reload_only_their_track(monkeypatch):
+    # 1つの列だけを書き換える命令（後ろを送る露出の変更・連番の空きの挿入・連番の削除）は、
+    # その列の位置だけを Rust から読み直す。ほかの列の写しはそのまま（同じ値のオブジェクト）
+    # で、読み直したあとの写しは Rust の文書全体と一致し、結果は今の手順と同じ。
+    import json
+    from paintmaskanimator import pma_image, utils
+
+    def normalized(value, handles):
+        if isinstance(value, dict):
+            return {key: (("img", handles[item].generation, handles[item].tag)
+                          if key in ("image", "initial_image") and isinstance(item, int)
+                          else normalized(item, handles))
+                    for key, item in value.items()}
+        if isinstance(value, list):
+            return [normalized(item, handles) for item in value]
+        return value
+
+    narrowed = []
+    original = document_live._CoreState.reload_rows
+
+    def spy(self, frame_ids, track_ids=None, full_ids=()):
+        narrowed.append(None if track_ids is None else list(track_ids))
+        return original(self, frame_ids, track_ids, full_ids)
+    monkeypatch.setattr(document_live._CoreState, "reload_rows", spy)
+    operations = (
+        lambda document: document.resize_sheet_exposure(
+            0, "right", document.prepare_exposure_resize(0, 0, 7, "right")),
+        lambda document: document.resize_sheet_exposure(
+            0, "right", document.prepare_exposure_resize(0, 5, 13, "right")),
+        lambda document: document.insert_sequence_blank(0, 1),
+        lambda document: document.delete_sequence_entry(1, 2),
+    )
+    for operation in operations:
+        plain, live = _pair(hold=5, count=10)
+        live._promote()
+        monkeypatch.setattr(pma_image, "_last_import", None)
+        monkeypatch.setattr(utils._BlankTemplate, "model_image", None)
+        utils.blank_model_image()
+        calls = _round_trips(live, monkeypatch)
+        state = live._live()["state"]
+        layer_index = 1 if operation is operations[-1] else 0
+        edited, other = state.track_ids[layer_index], state.track_ids[1 - layer_index]
+        kept = {fid: state.position(fid, other)[0] for fid in state.frame_ids}
+        del narrowed[:]
+        assert operation(live) == operation(plain)
+        assert narrowed == [[edited]]
+        state = live._live()["state"]
+        assert all(state.position(fid, other)[0] is values for fid, values in kept.items()
+                   if fid in state.frame_index)
+        core = live._live()["core"]
+        text, handles = core.frames_graph(list(state.frame_ids))
+        graph, handles = json.loads(text), list(handles)
+        for frame in graph["frames"]:
+            for tid, position in zip(graph["track_order"], frame["positions"]):
+                values, cached = state.position(frame["id"], tid)
+                assert normalized(values, cached) == normalized(position, handles)
+        assert calls == []
+        assert _whole_signature(live) == _whole_signature(plain)

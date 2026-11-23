@@ -112,11 +112,33 @@ class _CoreState:
         self.tracks[track_id] = (json.loads(text), list(handles))
         self.revision += 1
 
-    def reload_rows(self, frame_ids):
-        """構造の命令のあと、並び・次の ID と指定したコマの行だけを Rust から取り直す。"""
-        text, handles = self.core.frames_graph(list(frame_ids))
-        payload = json.loads(text)
-        handles = list(handles)
+    def reload_rows(self, frame_ids, track_ids=None, full_ids=()):
+        """構造の命令のあと、並び・次の ID と指定したコマの行だけを Rust から取り直す。
+
+        track_ids を渡すと、frame_ids の行はその列の位置だけを取り直す（命令がほかの列の
+        位置を変えない場合）。full_ids の行はいつもすべての列を取り直す（新しいコマ）。
+        """
+        frame_ids, full_ids = list(frame_ids), list(full_ids)
+        if track_ids is None:
+            frame_ids += full_ids
+            text, handles = self.core.frames_graph(frame_ids)
+            payload = json.loads(text)
+            handles = list(handles)
+            row_tracks = {}
+        else:
+            track_ids = list(track_ids)
+            text, handles = self.core.frames_tracks_graph(frame_ids, track_ids)
+            payload = json.loads(text)
+            handles = list(handles)
+            row_tracks = {frame["id"]: (track_ids, handles) for frame in payload["frames"]}
+            if full_ids:
+                text, full_handles = self.core.frames_graph(full_ids)
+                extra = json.loads(text)
+                full_handles = list(full_handles)
+                payload["frames"] += extra["frames"]
+                for frame in extra["frames"]:
+                    row_tracks[frame["id"]] = (extra["track_order"], full_handles)
+            frame_ids += full_ids
         previous = set(self.frame_ids)
         self.frame_ids = payload["frame_order"]
         self.track_ids = payload["track_order"]
@@ -128,8 +150,9 @@ class _CoreState:
             for tid in self.track_ids:
                 self.positions.pop((fid, tid), None)
         for frame in payload["frames"]:
-            for tid, position in zip(self.track_ids, frame["positions"]):
-                self.positions[frame["id"], tid] = (position, handles)
+            tracks, row_handles = row_tracks.get(frame["id"], (self.track_ids, handles))
+            for tid, position in zip(tracks, frame["positions"]):
+                self.positions[frame["id"], tid] = (position, row_handles)
             self.durations[frame["id"]] = frame["duration"]
         self.frame_index = {fid: index for index, fid in enumerate(self.frame_ids)}
         self.track_index = {tid: index for index, tid in enumerate(self.track_ids)}
@@ -1973,12 +1996,14 @@ def _changes_from_json(text):
     return changes.ChangeSet(tuple(items))
 
 
-def _apply_core_command(document, operation, rows, apply=None):
+def _apply_core_command(document, operation, rows, apply=None, tracks=None):
     """Rust の文書に構造の命令を当て、窓口が読む写しを行ごとに取り直す。
 
     rows(frame_ids_before) は、命令で中身が変わり得る既存のコマ ID の列を返す。新しいコマの
     行は自動で読む。命令が当てられなければ None（文書は変わっていない）。apply(core) を
     渡すと、operation の代わりにそれで命令を当てる（apply_command と同じ形の JSON を返す）。
+    tracks（列 ID の列）を渡すと、rows の行はその列の位置だけを読み直す（命令がほかの列の
+    位置を変えない場合だけ渡す。新しいコマの行はすべての列を読む）。
     """
     live = document._live()
     state = live["state"]
@@ -1993,7 +2018,7 @@ def _apply_core_command(document, operation, rows, apply=None):
     order = json.loads(live["core"].frames_graph([])[0])["frame_order"]
     known = set(before)
     new_ids = [fid for fid in order if fid not in known]
-    state.reload_rows([*changed, *new_ids])
+    state.reload_rows(changed, tracks, new_ids)
     # 今の Python の手順はどれも Layer の代入を通るので timeline_revision を進める。
     Layer.timeline_revision += 1
     # 選択は Python の値が正（命令は Rust の選択を動かすことがある）。
@@ -2906,7 +2931,7 @@ def _core_insert_sequence_blank(document, layer_index, after_number):
             ["insert_sequence_blank", layer_index, after_number]))
         core.set_cell_graph(tid, insert_number, cell_value, [handle])
         return text
-    result = _apply_core_command(document, None, lambda ids: rows, apply)
+    result = _apply_core_command(document, None, lambda ids: rows, apply, tracks=[tid])
     if result is None:
         return None
     changes, new_ids = result
@@ -2977,7 +3002,7 @@ def _core_delete_sequence_entry(document, layer_index, number):
         if window is not None or images:
             plan["cells"].append((bank, window, images, {"local": cell}, handles))
     rows = [key[0] for key in keys]
-    result = _apply_core_command(document, operation, lambda ids: rows)
+    result = _apply_core_command(document, operation, lambda ids: rows, tracks=[tid])
     if result is None:
         return None
     changes, _ = result
@@ -3491,7 +3516,7 @@ def _core_resize_sheet_exposure(document, layer_index, edge, prepared):
     result = _apply_core_command(
         document, ["resize_sheet_exposure", layer_index, edge, key_column, old_end, new_start,
                    new_end],
-        lambda ids: ids[start:stop])
+        lambda ids: ids[start:stop], tracks=[tid])
     if result is None:
         return None
     changes, new_ids = result

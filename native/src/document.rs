@@ -169,6 +169,20 @@ impl PyCoreDocument {
             .map_err(value_error)
     }
 
+    /// frames_graph と同じ形で、各行の位置を指定した列（tracks の順）のものだけ返す。
+    fn frames_tracks_graph(
+        &self,
+        frames: Vec<u64>,
+        tracks: Vec<u64>,
+    ) -> PyResult<(String, Vec<PyRgbaImage>)> {
+        let frames: Vec<_> = frames.into_iter().map(FrameId).collect();
+        let tracks: Vec<_> = tracks.into_iter().map(TrackId).collect();
+        self.0
+            .frames_tracks_graph(&frames, &tracks)
+            .map(graph_output)
+            .map_err(value_error)
+    }
+
     /// 文書の写しを返す。画素バッファは書き込みまで共有する（Undo の記録用）。
     fn copy(&self) -> Self {
         Self(self.0.clone())

@@ -118,16 +118,30 @@ impl Document {
 
     /// 指定したコマの行を to_graph のコマと同じ JSON で、コマ・列の並びと次の ID とともに返す。
     pub fn frames_graph(&self, frames: &[FrameId]) -> Result<(Value, Vec<RgbaImage>), Error> {
+        self.frames_tracks_graph(frames, &self.track_order)
+    }
+
+    /// frames_graph と同じ形で、各行の位置を指定した列（tracks の順）のものだけ返す。
+    ///
+    /// 一つの列だけを書き換える命令のあと、その列の位置だけを読み直すためのもの。並びと
+    /// 次の ID は frames_graph と同じく文書全体の値。無いコマ・列を指すとエラー。
+    pub fn frames_tracks_graph(
+        &self,
+        frames: &[FrameId],
+        tracks: &[TrackId],
+    ) -> Result<(Value, Vec<RgbaImage>), Error> {
         let mut output = Output::default();
         let rows = frames
             .iter()
             .map(|id| {
                 let row = self.sheet.get(id).ok_or_else(|| missing("コマ"))?;
-                let positions: Vec<_> = self
-                    .track_order
+                let positions = tracks
                     .iter()
-                    .map(|track| graph::position_json(&row.positions[track], &mut output))
-                    .collect();
+                    .map(|track| {
+                        let position = row.positions.get(track).ok_or_else(|| missing("列"))?;
+                        Ok(graph::position_json(position, &mut output))
+                    })
+                    .collect::<Result<Vec<_>, Error>>()?;
                 Ok(serde_json::json!({"id": id.0, "duration": row.duration, "positions": positions}))
             })
             .collect::<Result<Vec<_>, Error>>()?;
@@ -346,6 +360,26 @@ mod tests {
         assert!(doc.set_selection_index(2, 0).is_err());
         doc.set_selection_index(1, 0).unwrap();
         assert_eq!(doc.selection(), (FrameId(1), TrackId(0)));
+    }
+
+    // frames_tracks_graph は指定した列の位置だけを返し、並びは frames_graph と同じ。
+    // 無い列を指すとエラー。
+    #[test]
+    fn frames_tracks_graph_returns_only_the_given_tracks() {
+        let (doc, _) = document();
+        let frames = [FrameId(1), FrameId(0)];
+        let (whole, _) = doc.frames_graph(&frames).unwrap();
+        let (narrow, _) = doc.frames_tracks_graph(&frames, &[TrackId(0)]).unwrap();
+        assert_eq!(narrow, whole);
+        let (empty, images) = doc.frames_tracks_graph(&frames, &[]).unwrap();
+        assert_eq!(empty["frame_order"], whole["frame_order"]);
+        assert_eq!(empty["frames"][0]["id"], json!(1));
+        assert_eq!(empty["frames"][0]["positions"], json!([]));
+        assert!(images.is_empty());
+        assert!(doc.frames_tracks_graph(&frames, &[TrackId(5)]).is_err());
+        assert!(doc
+            .frames_tracks_graph(&[FrameId(9)], &[TrackId(0)])
+            .is_err());
     }
 
     // バンクの画像に書くと、同じ番号を参照する全位置の絵が変わり、元の画像は変わらない。
