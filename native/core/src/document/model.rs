@@ -139,6 +139,27 @@ impl Position {
         }
     }
 
+    /// Python の reference_for(layer)（resolve=False）が返す種別と番号。
+    /// 種別は絵なら Some(false)、空キーなら Some(true)、未使用なら None。
+    fn block_kind(&self) -> (Option<bool>, Option<CellNumber>) {
+        let reference = match &self.compatibility.dense_import {
+            Some(import) if import.guard.matches(self) => import.sheet,
+            _ if self.pending => Reference::Empty,
+            _ => match self.reference {
+                // Python の has_content は空キーなら立たず、番号なしの絵なら立つ。
+                Reference::Empty if self.compatibility.unnumbered_content => {
+                    return (Some(false), self.number());
+                }
+                reference => reference,
+            },
+        };
+        match reference {
+            Reference::Number(number) => (Some(false), Some(number)),
+            Reference::Blank => (Some(true), None),
+            Reference::Empty => (None, None),
+        }
+    }
+
     fn timeline_cell(&self, resolve: bool) -> TimelineCell {
         let reference = self.reference_for(resolve);
         TimelineCell {
@@ -238,6 +259,42 @@ impl Document {
     /// Python の build_xsheet と同じ表示用の項目をコマ優先順で返す。
     pub fn sheet_entries(&self) -> Result<(usize, Vec<SheetEntry>), Error> {
         timeline::sheet(&self.timeline_rows(false))
+    }
+
+    /// Python の timeline_block_at（span_at）と同じ、表示位置 column・表示列 track を含む
+    /// 保持の範囲を (空キーか, 頭の表示位置, 長さ) で返す。未使用・範囲外なら None。
+    ///
+    /// 位置の種別は Python の reference_for(resolve=False) と同じ（取り込み時の参照の照合、
+    /// 配置待ちは未使用、番号なしの絵は保持番号を番号として持つ）。
+    /// 同じ種別・番号の位置が続く間を一つの範囲とし、空キーは空キー開始の位置で切る。
+    pub fn timeline_block_at(&self, column: usize, track: usize) -> Option<(bool, usize, usize)> {
+        let track = *self.track_order.get(track)?;
+        let state = |index: usize| {
+            let position = &self.sheet[&self.frame_order[index]].positions[&track];
+            let (kind, number) = position.block_kind();
+            (kind, number, position.blank_start)
+        };
+        if column >= self.frame_order.len() {
+            return None;
+        }
+        let (kind, number, _) = state(column);
+        let blank = kind?;
+        let (mut start, mut end) = (column, column + 1);
+        while start > 0 {
+            let (previous, previous_number, _) = state(start - 1);
+            if (previous, previous_number) != (kind, number) || (blank && state(start).2) {
+                break;
+            }
+            start -= 1;
+        }
+        while end < self.frame_order.len() {
+            let (next, next_number, next_start) = state(end);
+            if (next, next_number) != (kind, number) || (blank && next_start) {
+                break;
+            }
+            end += 1;
+        }
+        Some((blank, start, end - start))
     }
 
     /// Python の resolve_timeline と同じ参照元の表示インデックスをコマ優先順で返す。

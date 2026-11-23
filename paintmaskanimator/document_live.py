@@ -1468,6 +1468,14 @@ class Document:
             return self._run("resize_sheet_exposure", (layer_index, edge, prepared), {})
         return changes
 
+    def timeline_block_at(self, column, layer_index):
+        """保持の範囲。Rust の状態なら Rust の文書から求める（GraphDocument と同じ値）。"""
+        block = _core_timeline_block_at(self, column, layer_index)
+        if block is _NO_CORE:
+            from .document import GraphDocument
+            return GraphDocument.timeline_block_at(self, column, layer_index)
+        return block
+
     def move_sheet_cell(self, prepared):
         changes = _CORE_COMMANDS["move_sheet_cell"](self, prepared)
         if changes is None:
@@ -3040,6 +3048,33 @@ def _same_generations(copied, cell, handles):
         if image is not None and image.generation != handles[index].generation:
             return False
     return True
+
+
+_NO_CORE = object()
+
+
+def _core_timeline_block_at(document, column, layer_index):
+    """timeline_block_at を Rust の文書で求める。求められなければ _NO_CORE。
+
+    span_at は位置の reference_for（取り込み時の参照の照合、配置待ちは未使用）を見る。
+    Rust の状態の窓口は位置の値（_dense_import を含む）を Rust の写しから読むので、Rust の
+    文書の同じ判定（pma-core の timeline_block_at）で同じ範囲が求まる。素の状態・窓口のまま
+    試している最中は今の手順。
+    """
+    live = document.__dict__.get("_live_state")
+    if live is None or live["graph"] is not None or live.get("trial"):
+        return _NO_CORE
+    # 今の手順（GraphDocument.timeline_block_at）と同じ順で int にする。
+    layer_index = int(layer_index)
+    column = int(column)
+    state = live["state"]
+    if not (0 <= column < len(state.frame_ids) and 0 <= layer_index < len(state.track_ids)):
+        return None
+    block = live["core"].timeline_block_at(column, layer_index)
+    if block is None:
+        return None
+    blank, start, length = block
+    return ("blank" if blank else "content", start, length)
 
 
 def _core_move_sheet_cells(document, moves, destination_column, active_layer):

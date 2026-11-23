@@ -1962,3 +1962,139 @@ def test_single_track_commands_reload_only_their_track(monkeypatch):
                 assert normalized(values, cached) == normalized(position, handles)
         assert calls == []
         assert _whole_signature(live) == _whole_signature(plain)
+
+
+def _block_frames():
+    # 列 A：番号1・1・2、空キー（○）・空キー開始・空キー、配置待ちの1、未使用、番号2。
+    # 列 B：番号3 が続き、末尾だけ未使用。
+    shapes = [((True, False, 1, False, False), (True, False, 3, False, False)),
+              ((True, False, 1, False, False), (True, False, 3, False, False)),
+              ((True, False, 2, False, False), (True, False, 3, False, False)),
+              ((False, True, None, False, False), (True, False, 3, False, False)),
+              ((False, True, None, False, True), (True, False, 3, False, False)),
+              ((False, True, None, False, False), (True, False, 3, False, False)),
+              ((True, False, 1, True, False), (True, False, 3, False, False)),
+              ((False, False, None, False, False), (True, False, 3, False, False)),
+              ((True, False, 2, False, False), (False, False, None, False, False))]
+    frames = []
+    for row in shapes:
+        layers = []
+        for name, (content, blank, number, pending, start) in zip(("A", "B"), row):
+            layer = Layer(name, PmaImage.blank(8, 8))
+            layer.has_content, layer.is_blank_key = content, blank
+            layer.sequence_number, layer.blank_start = number, start
+            layer.sequence_only = pending
+            layers.append(layer)
+        frames.append(Frame(layers))
+    return frames
+
+
+def test_timeline_block_at_uses_core_and_matches_python(monkeypatch):
+    plain = GraphDocument()
+    plain.install_legacy_frames(_block_frames())
+    live = document_live.Document()
+    live.install_legacy_frames(_block_frames())
+    calls = []
+    original = document_live._core_timeline_block_at
+
+    def counted(document, column, layer_index):
+        result = original(document, column, layer_index)
+        calls.append(result is not document_live._NO_CORE)
+        return result
+    monkeypatch.setattr(document_live, "_core_timeline_block_at", counted)
+    cases = [(column, layer) for column in range(-1, 11) for layer in range(-1, 3)]
+    for column, layer in cases:
+        expected = GraphDocument.timeline_block_at(live, column, layer)
+        assert live.timeline_block_at(column, layer) == expected
+        assert plain.timeline_block_at(column, layer) == expected
+    assert calls and all(calls)
+    assert live.timeline_block_at(4, 0) == ("blank", 4, 2)
+    assert live.timeline_block_at(6, 0) is None
+    assert live._live()["graph"] is None
+    # 書き換えたあとも Rust の文書の値で求まる。
+    live.set_sheet_duration(0, 0, 3)
+    plain.set_sheet_duration(0, 0, 3)
+    for column, layer in cases:
+        assert live.timeline_block_at(column, layer) == plain.timeline_block_at(column, layer)
+
+
+def _imported_block_frames():
+    # 取り込み時の参照（_dense_import）：署名が合えばその参照で見る。合わなければ今の値。
+    from paintmaskanimator.legacy_v1 import BLANK, EMPTY, DenseReference
+    from paintmaskanimator.timeline_metadata import set_dense_import
+    frames = _block_frames()
+
+    def signature(layer):
+        return (layer.has_content, layer.is_blank_key, layer.sequence_number,
+                layer.sequence_only, layer.blank_start)
+    layer = frames[1].layers[0]
+    set_dense_import(layer, (signature(layer), EMPTY, DenseReference("CELL", 1)))
+    layer = frames[7].layers[0]
+    set_dense_import(layer, (signature(layer), BLANK, EMPTY))
+    layer = frames[2].layers[1]
+    stale = (False, True, None, False, False)
+    set_dense_import(layer, (stale, EMPTY, EMPTY))
+    layer = frames[5].layers[1]
+    set_dense_import(layer, (signature(layer), DenseReference("CELL", 4), DenseReference("CELL", 3)))
+    return frames
+
+
+def test_timeline_block_at_with_import_references_uses_core_and_matches_python(monkeypatch):
+    plain = GraphDocument()
+    plain.install_legacy_frames(_imported_block_frames())
+    live = document_live.Document()
+    live.install_legacy_frames(_imported_block_frames())
+    calls = []
+    original = document_live._core_timeline_block_at
+
+    def counted(document, column, layer_index):
+        result = original(document, column, layer_index)
+        calls.append(result is not document_live._NO_CORE)
+        return result
+    monkeypatch.setattr(document_live, "_core_timeline_block_at", counted)
+    for column in range(-1, 11):
+        for layer in range(-1, 3):
+            expected = GraphDocument.timeline_block_at(live, column, layer)
+            assert live.timeline_block_at(column, layer) == expected
+            assert plain.timeline_block_at(column, layer) == expected
+    assert calls and all(calls)
+    assert live.timeline_block_at(0, 0) == ("content", 0, 1)
+    assert live.timeline_block_at(7, 0) == ("blank", 7, 1)
+    assert live.timeline_block_at(5, 1) == ("content", 5, 1)
+    assert live.timeline_block_at(2, 1) == ("content", 0, 5)
+    assert live._live()["graph"] is None
+
+
+def test_timeline_block_at_after_v2_load_uses_core_and_matches_python(monkeypatch):
+    # v2 の読込は全位置に取り込み時の参照（_dense_import）を付ける（番号なしの絵も含む）。
+    import pytest
+    from paintmaskanimator import document as document_module, project_io
+    from v2_golden_support import CASES, V2_ROOT
+    original = document_live._core_timeline_block_at
+    calls = []
+
+    def counted(document, column, layer_index):
+        result = original(document, column, layer_index)
+        calls.append(result is not document_live._NO_CORE)
+        return result
+    for case in CASES:
+        path = V2_ROOT / f"{case}.pman"
+        with monkeypatch.context() as patch:
+            patch.setattr(document_module, "Document", GraphDocument)
+            plain = project_io.load_project(path).document
+        with monkeypatch.context() as patch:
+            patch.setattr(document_module, "Document", document_live.Document)
+            live = project_io.load_project(path).document
+        if not isinstance(live, document_live.Document):
+            pytest.skip("v2 の読込が Rust 正本の文書を作らない")
+        assert any("_dense_import" in layer.__dict__ for frame in plain.frames
+                   for layer in frame.layers)
+        calls.clear()
+        with monkeypatch.context() as patch:
+            patch.setattr(document_live, "_core_timeline_block_at", counted)
+            for column in range(-1, len(plain.frames) + 1):
+                for layer in range(-1, len(plain.tracks) + 1):
+                    expected = plain.timeline_block_at(column, layer)
+                    assert GraphDocument.timeline_block_at(live, column, layer) == expected, case
+                    assert live.timeline_block_at(column, layer) == expected, case
+        assert calls and all(calls), case

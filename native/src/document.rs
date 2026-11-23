@@ -199,6 +199,13 @@ impl PyCoreDocument {
         Ok((width, PyBytes::new(py, &bytes)))
     }
 
+    /// 表示位置 column・表示列 track を含む保持の範囲を (空キーか, 頭, 長さ) で返す。
+    ///
+    /// Python の timeline_block_at と同じ（pma-core の timeline_block_at）。未使用なら None。
+    fn timeline_block_at(&self, column: usize, track: usize) -> Option<(bool, usize, usize)> {
+        self.0.timeline_block_at(column, track)
+    }
+
     /// コマ ID と列 ID を表示順で返す。
     fn order(&self) -> (Vec<u64>, Vec<u64>) {
         (

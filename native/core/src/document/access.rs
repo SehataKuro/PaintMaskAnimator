@@ -403,6 +403,71 @@ mod tests {
             .is_err());
     }
 
+    // 保持の範囲は同じ種別・番号の続く間で、配置待ちは未使用、空キーは空キー開始で切る。
+    #[test]
+    fn timeline_block_at_matches_python_span_at() {
+        let (doc, images) = document();
+        let mut value = doc.to_graph().0;
+        let base = value["frames"][0]["positions"][0].clone();
+        let make = |content: bool, blank: bool, number: Option<i64>, pending: bool, start: bool| {
+            let mut position = base.clone();
+            position["has_content"] = json!(content);
+            position["is_blank_key"] = json!(blank);
+            position["sequence_number"] = json!(number);
+            position["sequence_only"] = json!(pending);
+            position["blank_start"] = json!(start);
+            position
+        };
+        let positions = [
+            make(true, false, Some(1), false, false),
+            make(true, false, Some(1), false, false),
+            make(true, false, Some(2), false, false),
+            make(false, true, None, false, false),
+            make(false, true, None, false, true),
+            make(false, true, None, false, false),
+            make(true, false, Some(1), true, false),
+            make(false, false, None, false, false),
+            make(true, false, Some(2), false, false),
+        ];
+        let frame = value["frames"][0].clone();
+        value["frames"] = json!(positions
+            .iter()
+            .enumerate()
+            .map(|(index, position)| {
+                let mut frame = frame.clone();
+                frame["positions"] = json!([position]);
+                frame["id"] = json!(index);
+                frame
+            })
+            .collect::<Vec<_>>());
+        value["frame_order"] = json!((0..positions.len()).collect::<Vec<_>>());
+        value["next_frame_id"] = json!(positions.len());
+        value["tracks"][0]["cells"] = json!([
+            [1, {"image": 0, "initial_image": null, "cell_name": null}],
+            [2, {"image": 0, "initial_image": null, "cell_name": null}],
+        ]);
+        let doc = Document::from_graph(&value, &images).unwrap();
+        let blocks: Vec<_> = (0..10)
+            .map(|column| doc.timeline_block_at(column, 0))
+            .collect();
+        assert_eq!(
+            blocks,
+            [
+                Some((false, 0, 2)),
+                Some((false, 0, 2)),
+                Some((false, 2, 1)),
+                Some((true, 3, 1)),
+                Some((true, 4, 2)),
+                Some((true, 4, 2)),
+                None,
+                None,
+                Some((false, 8, 1)),
+                None,
+            ]
+        );
+        assert_eq!(doc.timeline_block_at(0, 1), None);
+    }
+
     // バンクの画像に書くと、同じ番号を参照する全位置の絵が変わり、元の画像は変わらない。
     #[test]
     fn artwork_images_write_in_place() {
