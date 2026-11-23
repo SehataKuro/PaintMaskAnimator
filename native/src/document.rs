@@ -95,8 +95,8 @@ impl PyCoreDocument {
     /// from_graph と同じ形の JSON と、添字で参照する共有画像の列を返す。
     fn to_graph(&self, py: Python<'_>) -> PyResult<(String, Vec<PyRgbaImage>)> {
         let (json, images) = py.detach(|| {
-            let (value, images) = self.0.to_graph();
-            (value.to_string(), images)
+            let (text, images) = self.0.to_graph_text();
+            (text, images)
         });
         Ok((json, images.into_iter().map(PyRgbaImage::from).collect()))
     }
@@ -164,7 +164,7 @@ impl PyCoreDocument {
     fn frames_graph(&self, frames: Vec<u64>) -> PyResult<(String, Vec<PyRgbaImage>)> {
         let frames: Vec<_> = frames.into_iter().map(FrameId).collect();
         self.0
-            .frames_graph(&frames)
+            .frames_tracks_graph_text(&frames, self.0.track_order())
             .map(graph_output)
             .map_err(value_error)
     }
@@ -178,7 +178,7 @@ impl PyCoreDocument {
         let frames: Vec<_> = frames.into_iter().map(FrameId).collect();
         let tracks: Vec<_> = tracks.into_iter().map(TrackId).collect();
         self.0
-            .frames_tracks_graph(&frames, &tracks)
+            .frames_tracks_graph_text(&frames, &tracks)
             .map(graph_output)
             .map_err(value_error)
     }
@@ -223,7 +223,7 @@ impl PyCoreDocument {
     /// 一つの位置を to_graph の位置と同じ JSON と画像列で返す。
     fn position_graph(&self, frame: u64, track: u64) -> PyResult<(String, Vec<PyRgbaImage>)> {
         self.0
-            .position_graph(FrameId(frame), TrackId(track))
+            .position_graph_text(FrameId(frame), TrackId(track))
             .map(graph_output)
             .map_err(value_error)
     }

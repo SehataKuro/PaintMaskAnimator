@@ -9,6 +9,11 @@ use super::graph::{self, Output};
 use super::model::{Cell, CellNumber, Document, FrameId, Position, Track, TrackId};
 use crate::{image::RgbaImage, Error};
 
+/// このモジュールが書いた JSON の文字列を値に戻す（書き出しの形は常に読める）。
+fn parse_written(text: &str) -> Value {
+    serde_json::from_str(text).expect("書き出した JSON は読める")
+}
+
 fn missing(what: &str) -> Error {
     Error::Invalid(format!("文書にない{what}"))
 }
@@ -59,9 +64,20 @@ impl Document {
         frame: FrameId,
         track: TrackId,
     ) -> Result<(Value, Vec<RgbaImage>), Error> {
+        let (text, images) = self.position_graph_text(frame, track)?;
+        Ok((parse_written(&text), images))
+    }
+
+    /// position_graph と同じ値を JSON の文字列で返す。
+    pub fn position_graph_text(
+        &self,
+        frame: FrameId,
+        track: TrackId,
+    ) -> Result<(String, Vec<RgbaImage>), Error> {
         let mut output = Output::default();
-        let value = graph::position_json(self.position_ref(frame, track)?, &mut output);
-        Ok((value, output.images))
+        let mut text = String::new();
+        graph::write_position(&mut text, self.position_ref(frame, track)?, &mut output);
+        Ok((text, output.images))
     }
 
     /// 一つの位置を from_graph の位置と同じ JSON で置き換える。
@@ -130,29 +146,34 @@ impl Document {
         frames: &[FrameId],
         tracks: &[TrackId],
     ) -> Result<(Value, Vec<RgbaImage>), Error> {
+        let (text, images) = self.frames_tracks_graph_text(frames, tracks)?;
+        Ok((parse_written(&text), images))
+    }
+
+    /// frames_tracks_graph と同じ値を JSON の文字列で返す（Value を組まずに書く。鍵は名前順）。
+    pub fn frames_tracks_graph_text(
+        &self,
+        frames: &[FrameId],
+        tracks: &[TrackId],
+    ) -> Result<(String, Vec<RgbaImage>), Error> {
+        use std::fmt::Write;
         let mut output = Output::default();
-        let rows = frames
-            .iter()
-            .map(|id| {
-                let row = self.sheet.get(id).ok_or_else(|| missing("コマ"))?;
-                let positions = tracks
-                    .iter()
-                    .map(|track| {
-                        let position = row.positions.get(track).ok_or_else(|| missing("列"))?;
-                        Ok(graph::position_json(position, &mut output))
-                    })
-                    .collect::<Result<Vec<_>, Error>>()?;
-                Ok(serde_json::json!({"id": id.0, "duration": row.duration, "positions": positions}))
-            })
-            .collect::<Result<Vec<_>, Error>>()?;
-        let value = serde_json::json!({
-            "frame_order": self.frame_order.iter().map(|id| id.0).collect::<Vec<_>>(),
-            "track_order": self.track_order.iter().map(|id| id.0).collect::<Vec<_>>(),
-            "next_frame_id": self.next_frame_id,
-            "next_track_id": self.next_track_id,
-            "frames": rows,
-        });
-        Ok((value, output.images))
+        let mut rows = String::new();
+        self.write_frames(&mut rows, frames, tracks, &mut output)?;
+        let ids = |ids: &mut dyn Iterator<Item = u64>| {
+            ids.map(|id| id.to_string()).collect::<Vec<_>>().join(",")
+        };
+        let mut text = String::with_capacity(rows.len() + 16 * self.frame_order.len() + 128);
+        write!(
+            text,
+            "{{\"frame_order\":[{}],\"frames\":{rows},\"next_frame_id\":{},\"next_track_id\":{},\"track_order\":[{}]}}",
+            ids(&mut self.frame_order.iter().map(|id| id.0)),
+            self.next_frame_id,
+            self.next_track_id,
+            ids(&mut self.track_order.iter().map(|id| id.0)),
+        )
+        .expect("String への書き込みは失敗しない");
+        Ok((text, output.images))
     }
 
     /// 列の設定・バンク・旧連番保管を to_graph の列と同じ JSON と画像列で返す。

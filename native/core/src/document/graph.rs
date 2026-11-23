@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 
 use super::compatibility::{
     ArchiveHint, DenseImport, LegacyPosition, LegacySlot, PositionCompatibility, PositionGuard,
@@ -409,71 +409,127 @@ fn position(value: &Value, images: &Images<'_>) -> Result<Position, Error> {
     })
 }
 
-pub(super) fn position_json(position: &Position, output: &mut Output) -> Value {
+/// JSON の値を文字列に足す（null はそのまま）。
+fn push_value(out: &mut String, value: &Value) {
+    if value.is_null() {
+        out.push_str("null");
+    } else {
+        out.push_str(&value.to_string());
+    }
+}
+
+fn push_bool(out: &mut String, value: bool) {
+    out.push_str(if value { "true" } else { "false" });
+}
+
+fn push_number<T: std::fmt::Display>(out: &mut String, value: Option<T>) {
+    use std::fmt::Write;
+    match value {
+        Some(value) => write!(out, "{value}").expect("String への書き込みは失敗しない"),
+        None => out.push_str("null"),
+    }
+}
+
+/// 位置を to_graph の位置の JSON（serde_json の Value と同じく鍵の名前順）で文字列に書く。
+///
+/// 位置の数だけ呼ばれるので、Value を組まずに直接書く（文書全体の書き出しの大半）。滅多に
+/// 値を持たない欄（局所の絵・旧形式の記録・取り込みの記録など）は Value を組んで書く。
+pub(super) fn write_position(out: &mut String, position: &Position, output: &mut Output) {
     let compatibility = &position.compatibility;
     let (content, blank) = reference_flags(position.reference, compatibility.unnumbered_content);
-    let mut result = Map::new();
-    result.insert("has_content".into(), json!(content));
-    result.insert("is_blank_key".into(), json!(blank));
-    result.insert("sequence_number".into(), number_json(position.number()));
-    result.insert("sequence_only".into(), json!(position.pending));
-    result.insert("blank_start".into(), json!(position.blank_start));
-    result.insert(
-        "tween".into(),
-        position.tween.clone().unwrap_or(Value::Null),
-    );
-    result.insert("tween_member".into(), json!(position.tween_member));
-    result.insert(
-        "local".into(),
-        compatibility
-            .local
-            .as_ref()
-            .map_or(Value::Null, |cell| output.cell(cell)),
-    );
-    result.insert(
-        "content_origin".into(),
-        number_json(compatibility.content_origin),
-    );
-    result.insert("legacy_missing".into(), json!(compatibility.legacy_missing));
-    result.insert(
-        "pending_detached".into(),
-        json!(compatibility.pending_detached),
-    );
-    result.insert("local_share".into(), json!(compatibility.local_share));
-    result.insert("local_bank".into(), json!(compatibility.local_bank));
-    result.insert(
-        "v1_position".into(),
-        compatibility
-            .legacy
-            .as_ref()
-            .map_or(Value::Null, |legacy| legacy_position_json(legacy, output)),
-    );
-    result.insert(
-        "dense_import".into(),
-        compatibility.dense_import.map_or(Value::Null, |import| {
-            json!([
+    out.push_str("{\"blank_start\":");
+    push_bool(out, position.blank_start);
+    out.push_str(",\"content_origin\":");
+    push_number(out, compatibility.content_origin.map(CellNumber::get));
+    out.push_str(",\"dense_import\":");
+    match compatibility.dense_import {
+        Some(import) => push_value(
+            out,
+            &json!([
                 guard_json(&import.guard),
                 dense_reference_json(import.sheet),
                 dense_reference_json(import.resolved),
-            ])
-        }),
-    );
-    result.insert(
-        "length_imported".into(),
-        json!(compatibility.length_imported),
-    );
-    result.insert(
-        "resolve_source".into(),
-        compatibility.resolved_source.map_or(Value::Null, |source| {
-            json!([
+            ]),
+        ),
+        None => out.push_str("null"),
+    }
+    out.push_str(",\"has_content\":");
+    push_bool(out, content);
+    out.push_str(",\"is_blank_key\":");
+    push_bool(out, blank);
+    out.push_str(",\"legacy_missing\":");
+    push_bool(out, compatibility.legacy_missing);
+    out.push_str(",\"length_imported\":");
+    match compatibility.length_imported {
+        Some(value) => push_bool(out, value),
+        None => out.push_str("null"),
+    }
+    out.push_str(",\"local\":");
+    match compatibility.local.as_ref() {
+        Some(cell) => push_value(out, &output.cell(cell)),
+        None => out.push_str("null"),
+    }
+    out.push_str(",\"local_bank\":");
+    push_bool(out, compatibility.local_bank);
+    out.push_str(",\"local_share\":");
+    push_number(out, compatibility.local_share);
+    out.push_str(",\"pending_detached\":");
+    push_bool(out, compatibility.pending_detached);
+    out.push_str(",\"resolve_source\":");
+    match compatibility.resolved_source {
+        Some(source) => push_value(
+            out,
+            &json!([
                 guard_json(&source.guard),
                 source.source_column,
                 source.column,
                 source.frame_count,
-            ])
-        }),
-    );
-    Value::Object(result)
+            ]),
+        ),
+        None => out.push_str("null"),
+    }
+    out.push_str(",\"sequence_number\":");
+    push_number(out, position.number().map(CellNumber::get));
+    out.push_str(",\"sequence_only\":");
+    push_bool(out, position.pending);
+    out.push_str(",\"tween\":");
+    match position.tween.as_ref() {
+        Some(tween) => push_value(out, tween),
+        None => out.push_str("null"),
+    }
+    out.push_str(",\"tween_member\":");
+    match position.tween_member.as_ref() {
+        Some(member) => push_value(out, &json!(member)),
+        None => out.push_str("null"),
+    }
+    out.push_str(",\"v1_position\":");
+    match compatibility.legacy.as_ref() {
+        Some(legacy) => push_value(out, &legacy_position_json(legacy, output)),
+        None => out.push_str("null"),
+    }
+    out.push('}');
+}
+
+/// コマの行（id・duration・指定した列の位置）を to_graph のコマの JSON で文字列に書く。
+pub(super) fn write_frame(
+    out: &mut String,
+    id: FrameId,
+    frame: &Frame,
+    positions: &[&Position],
+    output: &mut Output,
+) {
+    out.push_str("{\"duration\":");
+    push_number(out, Some(frame.duration));
+    out.push_str(",\"id\":");
+    push_number(out, Some(id.0));
+    out.push_str(",\"positions\":[");
+    for (index, position) in positions.iter().enumerate() {
+        if index > 0 {
+            out.push(',');
+        }
+        write_position(out, position, output);
+    }
+    out.push_str("]}");
 }
 
 /// 位置がバンクを参照する番号。Python の Layer._cell がバンクを引く条件と同じ。
@@ -667,25 +723,29 @@ impl Document {
     /// 添字は画素の受け渡しを減らすためのもので、絵どうしの同一性ではない（各絵の画像は
     /// 独立した値）。
     pub fn to_graph(&self) -> (Value, Vec<RgbaImage>) {
+        let (text, images) = self.to_graph_text();
+        let value = serde_json::from_str(&text).expect("文書の JSON は書き出した形のまま読める");
+        (value, images)
+    }
+
+    /// to_graph と同じ値を JSON の文字列で返す（Value を組まずに書く。鍵は名前順）。
+    ///
+    /// 画像の添字は to_graph と同じ順（列のバンク → コマの位置）で振る。
+    pub fn to_graph_text(&self) -> (String, Vec<RgbaImage>) {
         let mut output = Output::default();
         let tracks: Vec<_> = self
             .track_order
             .iter()
-            .map(|&id| track_json(id, &self.tracks[&id], &mut output))
+            .map(|&id| track_json(id, &self.tracks[&id], &mut output).to_string())
             .collect();
-        let frames: Vec<_> = self
-            .frame_order
-            .iter()
-            .map(|id| {
-                let frame = &self.sheet[id];
-                let positions: Vec<_> = self
-                    .track_order
-                    .iter()
-                    .map(|track| position_json(&frame.positions[track], &mut output))
-                    .collect();
-                json!({"id": id.0, "duration": frame.duration, "positions": positions})
-            })
-            .collect();
+        let mut frames = String::new();
+        self.write_frames(
+            &mut frames,
+            &self.frame_order,
+            &self.track_order,
+            &mut output,
+        )
+        .expect("並びのコマ・列は文書にある");
         let current = self
             .frame_order
             .iter()
@@ -694,17 +754,59 @@ impl Document {
             .track_order
             .iter()
             .position(|&id| id == self.active_layer);
-        let value = json!({
-            "width": self.width,
-            "height": self.height,
-            "current_frame": current,
-            "active_layer": active,
-            "next_frame_id": self.next_frame_id,
-            "next_track_id": self.next_track_id,
-            "tracks": tracks,
-            "frames": frames,
-        });
-        (value, output.images)
+        let mut out = String::with_capacity(frames.len() + 256);
+        out.push_str("{\"active_layer\":");
+        push_number(&mut out, active);
+        out.push_str(",\"current_frame\":");
+        push_number(&mut out, current);
+        out.push_str(",\"frames\":");
+        out.push_str(&frames);
+        out.push_str(",\"height\":");
+        push_number(&mut out, Some(self.height));
+        out.push_str(",\"next_frame_id\":");
+        push_number(&mut out, Some(self.next_frame_id));
+        out.push_str(",\"next_track_id\":");
+        push_number(&mut out, Some(self.next_track_id));
+        out.push_str(",\"tracks\":[");
+        out.push_str(&tracks.join(","));
+        out.push_str("],\"width\":");
+        push_number(&mut out, Some(self.width));
+        out.push('}');
+        (out, output.images)
+    }
+
+    /// コマの行の JSON の配列を書く（各行の位置は tracks の順）。無いコマ・列はエラー。
+    pub(super) fn write_frames(
+        &self,
+        out: &mut String,
+        frames: &[FrameId],
+        tracks: &[TrackId],
+        output: &mut Output,
+    ) -> Result<(), Error> {
+        out.reserve(frames.len() * tracks.len() * 360);
+        out.push('[');
+        let mut positions = Vec::with_capacity(tracks.len());
+        for (index, &id) in frames.iter().enumerate() {
+            let frame = self
+                .sheet
+                .get(&id)
+                .ok_or_else(|| Error::Invalid("文書にないコマ".into()))?;
+            positions.clear();
+            for track in tracks {
+                positions.push(
+                    frame
+                        .positions
+                        .get(track)
+                        .ok_or_else(|| Error::Invalid("文書にない列".into()))?,
+                );
+            }
+            if index > 0 {
+                out.push(',');
+            }
+            write_frame(out, id, frame, &positions, output);
+        }
+        out.push(']');
+        Ok(())
     }
 }
 
@@ -780,6 +882,35 @@ mod tests {
             RgbaImage::blank(2, 1).unwrap(),
             RgbaImage::from_rgba(2, 1, &[9; 8]).unwrap(),
         ]
+    }
+
+    // 直接書いた JSON は、同じ値を serde_json の Value で書いたもの（鍵は名前順）と同じ文字列。
+    // 行・位置の書き出しも、文書全体の中の同じ部分と同じ値。
+    #[test]
+    fn written_graph_text_matches_serde_json_output() {
+        let document = Document::from_graph(&sample(), &images()).unwrap();
+        let (text, shared) = document.to_graph_text();
+        let value: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(value.to_string(), text);
+        assert_eq!(shared.len(), 2);
+        let order = document.frame_order().to_vec();
+        let (rows, _) = document
+            .frames_tracks_graph_text(&order, document.track_order())
+            .unwrap();
+        let parsed: Value = serde_json::from_str(&rows).unwrap();
+        assert_eq!(parsed.to_string(), rows);
+        // 画像の添字は書き出しごとに振る（文書全体はバンクの画像が先）ので、添字の無い位置で比べる。
+        assert_eq!(
+            parsed["frames"][1]["positions"][0],
+            value["frames"][1]["positions"][0]
+        );
+        assert_eq!(parsed["frame_order"], json!([5, 0, 7, 2]));
+        let (position, _) = document
+            .position_graph_text(order[3], document.track_order()[0])
+            .unwrap();
+        let parsed: Value = serde_json::from_str(&position).unwrap();
+        assert_eq!(parsed.to_string(), position);
+        assert_eq!(parsed, value["frames"][3]["positions"][0]);
     }
 
     // Python の文書グラフ（隠し属性を含む）は Document を通しても同じ値に戻る。
