@@ -2289,3 +2289,79 @@ def test_batch_restore_of_a_bank_only_drawing_runs_in_place(monkeypatch):
     assert (live.tracks[0].cells[9].image.rgba().tobytes()
             == plain.tracks[0].cells[9].image.rgba().tobytes())
     assert _whole_signature(live) == _whole_signature(plain)
+
+
+
+def test_make_position_editable_on_empty_positions_uses_core_command(monkeypatch):
+    plain, live = _pair(hold=2, count=10)
+    for document in (plain, live):
+        document.create_blank_key(4, 1)          # 列 B の 5 から空キー
+        document.set_sheet_duration(5, 1, 3)     # 空キーを 5〜7 の 3 コマ保持にする
+        document.frames[7].layers[0].has_content = False   # 番号 4 が残る位置
+    calls = _round_trips(live, monkeypatch)
+    # 局所の絵のある空の位置、空キーの保持の途中（後ろも同じ番号になる）、番号の残る位置。
+    for current, layer, block in ((2, 1, None), (6, 1, ("blank", 5, 3)), (7, 0, None)):
+        assert live.timeline_block_at(current, layer) == plain.timeline_block_at(
+            current, layer) == block
+        old_image = live.frames[current].layers[layer].image
+        before = old_image.rgba().tobytes()
+        expected = plain.make_position_editable(current, layer, "sheet")
+        assert live.make_position_editable(current, layer, "sheet") == expected, (current, layer)
+        assert calls == [], (current, layer)
+        # 前の局所の絵の画像は、外したときの画素のまま文書から外れる。
+        assert old_image is not live.frames[current].layers[layer].image
+        assert old_image.rgba().tobytes() == before
+        assert _signature(live) == _signature(plain), (current, layer)
+        assert _pixels(live) == _pixels(plain)
+    assert live.frames[7].layers[1].sequence_number == plain.frames[7].layers[1].sequence_number
+    assert _whole_signature(live) == _whole_signature(plain)
+
+
+def _editable_pair(shape):
+    """make_position_editable を当てる前の形（列 B の 2 は局所の絵のある空の位置）。"""
+    from paintmaskanimator.models import Cell
+    plain, live = _pair(hold=2, count=6)
+    for document in (plain, live):
+        if shape in ("initial", "three"):
+            document.frames[2].layers[1].initial_image = PmaImage.blank(8, 8)
+            document.frames[2].layers[1].cell_name = "X"
+        if shape != "bank":
+            document.duplicate_frame(2)          # 2 と 3 が局所の絵の共有の組（先頭は 2）
+        if shape == "three":
+            document.duplicate_frame(2)          # 2・3・4 の組
+        if shape == "initial":
+            # 組の絵への書き込みは組の先頭の値に届く。
+            document.frames[2].layers[1].initial_image.write_rgba(
+                np.full((2, 2, 4), (0, 0, 255, 255), np.uint8), 0, 0)
+        if shape == "bank":
+            document.tracks[1].cells[9] = Cell(PmaImage.blank(8, 8))
+    return plain, live
+
+
+def test_make_position_editable_on_shared_and_numbered_shapes(monkeypatch):
+    for shape, current, fast in (("pair", 3, True), ("initial", 3, True), ("three", 4, True),
+                                 ("pair", 2, False), ("bank", 2, True)):
+        plain, live = _editable_pair(shape)
+        cells = [(live.frames[c].layers[1]._cell, plain.frames[c].layers[1]._cell)
+                 for c in range(len(plain.frames))]
+        calls = _round_trips(live, monkeypatch)
+        assert (live.make_position_editable(current, 1, "sheet")
+                == plain.make_position_editable(current, 1, "sheet")), shape
+        assert bool(calls) is not fast, (shape, current)
+        assert _signature(live) == _signature(plain), shape
+        assert _pixels(live) == _pixels(plain), shape
+        for column in range(len(plain.frames)):
+            ours, theirs = live.frames[column].layers[1], plain.frames[column].layers[1]
+            for name in ("initial_image", "cell_name"):
+                value, expected = getattr(ours, name), getattr(theirs, name)
+                if name == "initial_image" and value is not None:
+                    value, expected = value.rgba().tobytes(), expected.rgba().tobytes()
+                assert value == expected, (shape, column, name)
+            if column != current and fast:
+                # 組に残る位置の絵は描き始める前と同じ Cell（組の Cell の同一性も同じ）。
+                same = cells[column][1] is theirs._cell
+                assert (cells[column][0] is ours._cell) is same, (shape, column)
+        if shape == "bank":
+            assert live.frames[2].layers[1].sequence_number == 10
+        assert _whole_signature(live) == _whole_signature(plain), shape
+        monkeypatch.undo()

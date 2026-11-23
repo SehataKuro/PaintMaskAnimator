@@ -487,3 +487,19 @@ pub fn paste_sheet_cell(
     let changes: Vec<Value> = result.into_iter().map(notice).collect();
     Ok(json!([changes]).to_string())
 }
+
+/// 内容の無い位置に描き始める（make_empty_position_editable）。block は
+/// (空キーか, 先頭, 長さ)。apply_operations と同じ形の JSON を返す。失敗時は文書を変えない。
+pub fn make_empty_position_editable(
+    document: &mut Document,
+    position: (usize, usize),
+    number: i64,
+    block: Option<(bool, usize, usize)>,
+    image: RgbaImage,
+) -> Result<String, Error> {
+    let number = CellNumber::new(number)?;
+    let result =
+        document.make_empty_position_editable(position.0, position.1, number, block, image)?;
+    let changes: Vec<Value> = result.into_iter().map(notice).collect();
+    Ok(json!([changes]).to_string())
+}

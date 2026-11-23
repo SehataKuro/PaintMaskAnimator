@@ -1,7 +1,7 @@
 use super::changes::{Change, ChangeSet, FrameOperation};
 use super::frame_commands::held_reference;
 use super::model::{Cell, CellNumber, Document, FrameId, Position, Reference, TrackId};
-use crate::Error;
+use crate::{image::RgbaImage, Error};
 
 /// 複数区間移動の始点と移動先。各組は（コマ、列）の表示インデックス。
 #[derive(Clone, Copy, Debug)]
@@ -1051,6 +1051,100 @@ impl Document {
         ])
     }
 
+    /// Python の make_position_editable のうち、内容の無い位置に描き始める場合と同様に、
+    /// column・layer_index の位置を新しい番号 number の絵にする。
+    ///
+    /// 新しい絵の画像 image は呼び元が今の手順と同じ作り方で渡す（区間の先頭の絵の写し・
+    /// 空画像・位置の局所の絵の画像）。初期画像とセル名は位置の局所の絵（共有の組なら組の
+    /// 先頭の位置の値）から引き継ぐ。
+    /// block は呼び元が求めた保持の範囲（空キーか, 先頭, 長さ）。空キーの範囲なら、その位置の
+    /// 後ろから範囲の終わりまでの位置も同じ番号を指す（局所の絵はそのまま）。書き換えた位置は
+    /// 取り込み時の記録と、内容を外したときの番号（content_origin）を捨てる（Python の
+    /// Layer.__setattr__ と同じ）。その位置は局所の絵の共有の組から外れ、位置が一つだけに
+    /// なった組は外す。内容のある位置・配置待ち・すでにある番号は Err。
+    pub fn make_empty_position_editable(
+        &mut self,
+        column: usize,
+        layer_index: usize,
+        number: CellNumber,
+        block: Option<(bool, usize, usize)>,
+        image: RgbaImage,
+    ) -> Result<ChangeSet, Error> {
+        let track = *self.track_order.get(layer_index).ok_or_else(invalid)?;
+        if column >= self.frame_order.len() || self.tracks[&track].cells.contains_key(&number) {
+            return Err(invalid());
+        }
+        let (start, stop) = match block {
+            Some((_, start, length)) => (start, start.checked_add(length).ok_or_else(invalid)?),
+            None => (column, column + 1),
+        };
+        if !(start <= column && column < stop && stop <= self.frame_order.len()) {
+            return Err(invalid());
+        }
+        let followers = match block {
+            Some((true, _, _)) => column + 1..stop,
+            _ => column + 1..column + 1,
+        };
+        for index in column..followers.end {
+            let position = &self.sheet[&self.frame_order[index]].positions[&track];
+            if matches!(position.reference, Reference::Number(_))
+                || position.compatibility.unnumbered_content
+                || position.pending
+            {
+                return Err(invalid());
+            }
+        }
+        let editable = |position: &mut Position| {
+            position.reference = Reference::Number(number);
+            position.blank_start = false;
+            position.compatibility.retained_number = None;
+            position.compatibility.unnumbered_content = false;
+            position.compatibility.dense_import = None;
+            position.compatibility.content_origin = None;
+        };
+        // 共有の組の絵は組の先頭（表示順で最初の位置）の値が正本（Python では組で一つの Cell）。
+        let leader = self.sheet[&self.frame_order[column]].positions[&track]
+            .compatibility
+            .local_share
+            .and_then(|share| {
+                self.frame_order.iter().find_map(|id| {
+                    let other = &self.sheet[id].positions[&track];
+                    (other.compatibility.local_share == Some(share))
+                        .then(|| other.compatibility.local.clone())
+                        .flatten()
+                })
+            });
+        let position = self.position_mut(column, track);
+        // Python の detach_cell は位置の絵を新しい Cell にする（共有の組からも外れる）。
+        let local = position.compatibility.local.take();
+        let local = leader.or(local);
+        position.compatibility.local_share = None;
+        editable(position);
+        for index in followers {
+            editable(self.position_mut(index, track));
+        }
+        self.drop_single_shares();
+        let (initial_image, cell_name) =
+            local.map_or((None, None), |cell| (cell.initial_image, cell.cell_name));
+        self.tracks
+            .get_mut(&track)
+            .ok_or_else(invalid)?
+            .cells
+            .insert(
+                number,
+                Cell {
+                    image,
+                    initial_image,
+                    cell_name,
+                },
+            );
+        Ok(vec![Change::SheetSpans {
+            layer_index,
+            start,
+            stop,
+        }])
+    }
+
     /// Python の create_blank_key と同様に、区間の途中を空キーで分けるか、区間の後ろに空キーを挿入する。
     pub fn create_blank_key(
         &mut self,
@@ -1285,6 +1379,46 @@ mod tests {
     use crate::image::RgbaImage;
     use crate::project::payload::decode_v2_plan;
     use serde_json::json;
+
+    // tests/test_document_live_fast_paths.py:test_make_position_editable_on_empty_positions_uses_core_command
+    #[test]
+    fn drawing_inside_a_blank_hold_numbers_the_rest_of_the_hold() {
+        let input = json!({
+            "canvas": {"width": 1, "height": 1},
+            "frame_durations": [1, 1, 1, 1],
+            "tracks": [{
+                "cells": [{"number": 1, "image": "1.png"}],
+                "sheet": [1, "BLANK", null, null],
+            }],
+        });
+        let plan = decode_v2_plan(&input, &["1.png".into()]).unwrap();
+        let mut doc = v2::from_plan(&input, &plan, &[RgbaImage::blank(1, 1).unwrap()]).unwrap();
+        let number = CellNumber::new(2).unwrap();
+        let image = RgbaImage::blank(1, 1).unwrap();
+        // 内容のある位置・すでにある番号は扱わない（文書は変えない）。
+        assert!(doc
+            .make_empty_position_editable(0, 0, number, Some((false, 0, 1)), image.clone())
+            .is_err());
+        assert!(doc
+            .make_empty_position_editable(2, 0, CellNumber::new(1).unwrap(), None, image.clone())
+            .is_err());
+        let changes = doc
+            .make_empty_position_editable(2, 0, number, Some((true, 1, 3)), image)
+            .unwrap();
+        assert_eq!(
+            changes,
+            vec![Change::SheetSpans {
+                layer_index: 0,
+                start: 1,
+                stop: 4
+            }]
+        );
+        assert_eq!(
+            v2::project(&doc, &input).unwrap().payload["tracks"][0]["sheet"],
+            json!([1, "BLANK", 2, 2])
+        );
+        assert!(doc.tracks[&doc.track_order[0]].cells.contains_key(&number));
+    }
 
     // tests/test_core_document_compare.py:test_move_sheet_cells
     #[test]

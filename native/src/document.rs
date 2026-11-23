@@ -150,6 +150,23 @@ impl PyCoreDocument {
         .map_err(value_error)
     }
 
+    /// 内容の無い column・layer の位置を、新しい番号 number の絵（画像は image）にする
+    /// （make_position_editable の空の位置の場合）。block は (空キーか, 先頭, 長さ)。
+    ///
+    /// apply_command と同じ形の JSON を返す。失敗時は文書を変えない。
+    fn make_empty_position_editable(
+        &mut self,
+        column: usize,
+        layer: usize,
+        number: i64,
+        block: Option<(bool, usize, usize)>,
+        image: PyRef<'_, PyRgbaImage>,
+    ) -> PyResult<String> {
+        let image = shared(&[image]).pop().expect("一枚渡した");
+        comparison::make_empty_position_editable(&mut self.0, (column, layer), number, block, image)
+            .map_err(value_error)
+    }
+
     /// Python の restore と同じ値で、写しの文書（snapshot）を戻す。
     fn restore_from(&mut self, snapshot: PyRef<'_, PyCoreDocument>) {
         self.0.restore_from(&snapshot.0);

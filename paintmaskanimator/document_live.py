@@ -1824,6 +1824,25 @@ class Document:
             return self._run("restore_snapshot", (snapshot,), {})
         return changes
 
+    def make_position_editable(self, current, layer_index, mode):
+        """内容の無い位置に描き始める場合は Rust の命令で当てる（_core_make_position_editable）。
+        それ以外は今までどおり、まず窓口のまま試し（内容のある位置はふつう書き込みが無い）、
+        素のグラフが要れば今の経路。"""
+        from .document import GraphDocument
+        live = self._live()
+        if live.get("trial"):
+            return GraphDocument.make_position_editable(self, current, layer_index, mode)
+        changes = _core_make_position_editable(self, current, layer_index)
+        if changes is not None:
+            return changes
+        if self._live()["graph"] is None:
+            try:
+                return _try_in_place(self, GraphDocument.make_position_editable,
+                                     (current, layer_index, mode), {})
+            except _NeedsGraph:
+                pass
+        return self._run("make_position_editable", (current, layer_index, mode), {})
+
     def restore_batch_drawing(self, frame, layer_index, image, has_content, number, *, sheet):
         """Yield changes as slots are restored, in sheet observation order.
 
@@ -4197,6 +4216,118 @@ def _core_position_command(document, name, column, layer_index, replace):
     return changes
 
 
+def _editable_in_place(values):
+    """make_position_editable が Rust の命令で書き換えてよい位置の値か（配置待ち・バンクの絵を
+    局所に持つ位置は今の経路）。"""
+    return not (values["sequence_only"] or values.get("local_bank"))
+
+
+def _core_make_position_editable(document, current, layer_index):
+    """make_position_editable の、内容の無い位置に描き始める場合を Rust の命令で当てる。
+    今の手順と同じにできなければ None（内容のある位置もこちらでは扱わない）。
+
+    今の手順は位置の局所の絵を外して（detach_cell。局所の絵が無ければ先に空の絵を作る）写しを
+    持ち、保持の範囲の中なら区間の先頭の位置を clone して列の表示設定を書き（同じ列なので
+    同じ値）、新しい絵の画像を先頭の絵の写し（内容）か空画像（空キー）にする。番号が残って
+    いれば番号を外して空画像にする。その絵を次の番号でバンクに入れ、位置を内容キーにする。
+    空キーの範囲なら後ろの位置も同じ番号にする。画像は今と同じ順に同じ呼び方で作って Rust に
+    渡す（取り込みの世代の共有も同じになる）。
+    """
+    from . import document as graph_module
+    from .pma_image import attributes_tag, to_pma_image
+    # 今の手順（document.py の GraphDocument.make_position_editable）と同じく、document
+    # モジュールの blank_image・snapshot_image を引く（テストが差し替えることがある）。
+    blank_image, snapshot_image = graph_module.blank_image, graph_module.snapshot_image
+    live = document._live()
+    if (live["graph"] is not None or live.get("trial") or type(current) is not int
+            or type(layer_index) is not int):
+        return None
+    state = live["state"]
+    if not (0 <= current < len(state.frame_ids) and 0 <= layer_index < len(state.track_ids)):
+        return None
+    fid, tid = state.frame_ids[current], state.track_ids[layer_index]
+    values = state.position(fid, tid)[0]
+    if values["has_content"] or not _editable_in_place(values):
+        return None
+    group = values.get("local_share")
+    if group is not None and state.share_leaders.get(group) == (fid, tid):
+        # 組の先頭の位置が組から外れると、組の絵の窓口のキーが替わる（今の経路）。
+        return None
+    block = document.timeline_block_at(current, layer_index)
+    followers = []
+    if block is not None:
+        kind, start, length = block
+        if kind not in ("content", "blank") or not start <= current < start + length:
+            return None
+        source_key = (state.frame_ids[start], tid)
+        source_values = state.position(*source_key)[0]
+        if _slot_bank_key(document, source_key) is None and source_values["local"] is None:
+            # 先頭の位置の clone は、局所の絵が無ければ文書に作る（今の経路）。
+            return None
+        if kind == "blank":
+            followers = state.frame_ids[current + 1:start + length]
+            for follower in followers:
+                data = state.position(follower, tid)[0]
+                if data["has_content"] or not _editable_in_place(data):
+                    return None
+    number = document.next_drawing_number(layer_index)
+    if type(number) is not int or number in {n for n, _ in state.track(tid)[0]["cells"]}:
+        return None
+    # 組の位置の絵の窓口は組の先頭のキーなので、組から外れる位置には外す窓口が無い。
+    plan = ({"layers": [], "cells": []} if group is not None
+            else _detach_plan(document, [], [(fid, tid)]))
+    if plan is None:
+        return None
+    # 組が位置一つになると組を外すので、組の位置はすべて読み直す。
+    members = [] if group is None else [
+        frame for frame in state.frame_ids
+        if state.position(frame, tid)[0].get("local_share") == group]
+    core = live["core"]
+    # ここから今の手順と同じ順に画像を作る。
+    image = handle = None
+    if values["local"] is None:
+        # Layer._cell が作る空の絵（blank_model_image）を detach_cell が写す。
+        handle = _blank_handle()
+    else:
+        local = state.local_key(fid, tid)
+        handle = _native._CellImage(core, False, local[1], local[2], False).copy()
+    if block is not None:
+        copied = document.frames[start].layers[layer_index].clone()
+        document.set_position_track_properties(
+            current, layer_index,
+            visible=bool(copied.visible), opacity=float(copied.opacity),
+            alpha_locked=bool(copied.alpha_locked),
+            color_filter_enabled=bool(copied.color_filter_enabled),
+            color_filter_rgb=(tuple(copied.color_filter_rgb)
+                              if copied.color_filter_rgb is not None else None),
+        )
+        if live["graph"] is not None:
+            # 列の表示設定の書き込みが素のグラフを要した（同じ列の値なので起きないはず）。
+            return None
+        image = snapshot_image(copied.image) if kind == "content" else blank_image()
+    if values["sequence_number"] is not None:
+        image = blank_image()
+    if image is not None:
+        image = to_pma_image(image)
+        handle = image._image.copy().with_tag(attributes_tag(image._attributes))
+
+    def apply(core):
+        return core.make_empty_position_editable(
+            current, layer_index, number,
+            None if block is None else (block[0] == "blank", block[1], block[2]), handle)
+    rows = list(dict.fromkeys([fid, *followers, *members]))
+    result = _apply_core_command(document, None, lambda ids: rows, apply, tracks=[tid])
+    if result is None:
+        return None
+    changes, _ = result
+    # 新しい番号の絵がバンクに入るので、列の写しも取り直す。
+    state.refresh_track(tid)
+    state.forget_track(tid)
+    state.pending.clear()
+    _detach(document, plan)
+    return changes
+
+
 def _core_new_sheet_cell(document, column, layer_index):
     """new_sheet_cell を Rust の命令で（位置をその場で消して空の絵を作る）。"""
     return _core_position_command(document, "new_sheet_cell", column, layer_index, False)
@@ -4463,7 +4594,7 @@ _IN_PLACE = frozenset((
 # 来たら（_NeedsGraph）、最初から今の経路でやり直す。素のグラフを要る書き込みより前に
 # 文書の外へ副作用を出さない操作だけを入れる。
 _TRY_IN_PLACE = frozenset((
-    "write_drawing_patch", "set_drawing_content", "make_position_editable",
+    "write_drawing_patch", "set_drawing_content",
     "set_track_properties", "set_position_track_properties", "restore_drawing",
     "replace_drawing_image", "replace_drawing_images",
 ))
