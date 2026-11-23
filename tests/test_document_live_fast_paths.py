@@ -2789,3 +2789,76 @@ def test_delete_frame_that_trims_frames_keeps_detached_pixels_like_python(monkey
                 assert ([k for k, (a, _) in enumerate(slots) if a._cell is slot._cell]
                         == [k for k, (_, b) in enumerate(slots) if b._cell is plain_slot._cell])
             assert _whole_signature(live) == _whole_signature(plain)
+
+
+def test_recall_sheet_number_uses_core_command_and_matches_python(monkeypatch):
+    # (形, 置くコマ, 列, 番号を取るコマ, 置く前に消すか)。保持の途中・キーの頭・消した位置・
+    # コマ数より先（コマを足す）へ、バンクの絵の札と位置の Layer の両方を source にして置く。
+    for shape, column, layer_index, origin, clear in (
+            ({"hold": 5, "count": 10}, 7, 0, 0, False),
+            ({"hold": 5, "count": 10}, 2, 1, 4, False),
+            ({"hold": 3, "count": 9}, 4, 0, 0, True),
+            ({"hold": 3, "count": 9}, 12, 1, 3, False)):
+        for as_layer in (False, True):
+            plain, live = _pair(**shape)
+            live._promote()
+            results, held = [], []
+            for document in (plain, live):
+                if clear:
+                    document.clear_sheet_span(layer_index, column, column + 1)
+                number = document.frames[origin].layers[layer_index].sequence_number
+                source = (document.frames[origin].layers[layer_index] if as_layer
+                          else document.resolve_numbered_target(origin, layer_index, number,
+                                                                sheet=True))
+                slots = [frame.layers[layer_index] for frame in document.frames]
+                if document is live:
+                    calls = _round_trips(live, monkeypatch)
+                results.append(document.recall_sheet_number(column, layer_index, number, source))
+                held.append([any(slot is layer for frame in document.frames
+                                 for layer in frame.layers) for slot in slots])
+            assert results[1] == results[0]
+            assert calls == [], (shape, column, as_layer)
+            assert held[1] == held[0]
+            assert len(live.frames) == len(plain.frames)
+            assert _whole_signature(live) == _whole_signature(plain)
+            monkeypatch.undo()
+
+
+def test_recall_sheet_number_after_unsetting_content_matches_python(monkeypatch):
+    # 印を外した位置（_content_origin を持つ）へ置く形は今の経路で、今の手順と同じになる。
+    for column in (1, 2):
+        plain, live = _pair(hold=2, count=6)
+        live._promote()
+        results = []
+        for document in (plain, live):
+            document.set_drawing_content(column, 0, False)
+            source = document.resolve_numbered_target(0, 0, 1, sheet=True)
+            results.append(document.recall_sheet_number(column, 0, 1, source))
+        assert results[1] == results[0]
+        assert (live.frames[column].layers[0].__dict__.get("_content_origin")
+                == plain.frames[column].layers[0].__dict__.get("_content_origin"))
+        assert _whole_signature(live) == _whole_signature(plain)
+
+
+def test_recall_sheet_number_keeps_v2_resolve_source_like_python(monkeypatch):
+    # v2 の読み込みで _v2_resolve_source を持つ位置へ置く形は今の経路で、今の手順と同じく残す。
+    from paintmaskanimator import document as document_module, project_io
+    from v2_golden_support import V2_ROOT
+
+    def load(cls):
+        saved = document_module.Document
+        document_module.Document = cls
+        try:
+            return project_io.load_project(V2_ROOT / "pending-compat.pman").document
+        finally:
+            document_module.Document = saved
+
+    for number in (1, 9):
+        plain, live = load(GraphDocument), load(document_live.Document)
+        if live._live()["graph"] is not None:
+            live._promote()
+        assert live.frames[5].layers[2].__dict__.get("_v2_resolve_source") is not None
+        results = [document.recall_sheet_number(5, 2, number, document.frames[0].layers[2])
+                   for document in (plain, live)]
+        assert results[1] == results[0]
+        assert _whole_signature(live) == _whole_signature(plain)

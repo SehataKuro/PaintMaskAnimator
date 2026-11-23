@@ -1831,6 +1831,12 @@ class Document:
             return self._run("new_sheet_number", (column, layer_index), {})
         return changes
 
+    def recall_sheet_number(self, column, layer_index, number, source):
+        changes = _CORE_COMMANDS["recall_sheet_number"](self, column, layer_index, number, source)
+        if changes is None:
+            return self._run("recall_sheet_number", (column, layer_index, number, source), {})
+        return changes
+
     def restore_snapshot(self, snapshot):
         changes = _CORE_COMMANDS["restore_snapshot"](self, snapshot)
         if changes is None:
@@ -4790,6 +4796,72 @@ def _core_new_sheet_number(document, column, layer_index):
     return _core_position_command(document, "new_sheet_number", column, layer_index, True)
 
 
+def _core_recall_sheet_number(document, column, layer_index, number, source):
+    """recall_sheet_number を Rust の命令で（バンクにある番号を位置にその場で置く）。
+    今の手順と同じにできなければ None。
+
+    今の手順（place_number）は位置の局所の Cell を外し（文書から外れる）、番号を置いて
+    has_content を source の値にする。接続済みの列では局所の Cell を捨てるので、位置は
+    バンクの絵を指すか、空キーで番号を残すだけになる。Rust の命令は has_content を文書の
+    中から決める（同番号の配置待ち・表示中の絵、無ければ記録）ので、source の値と同じに
+    なる場合だけ当てる。column がコマ数より先なら、今の手順と同じく先にコマを足す（新しい
+    位置に置く）。配置待ち・局所の絵を共有する位置・バンクの絵を局所に持つ位置・
+    _content_origin や _v2_resolve_source を持つ位置は今の経路。
+    """
+    from .document import DrawingTarget
+    live = document._live()
+    if (live["graph"] is not None or live.get("trial") or type(column) is not int
+            or type(layer_index) is not int or type(number) is not int
+            or type(source) not in (DrawingTarget, LiveLayer)):
+        return None
+    state = live["state"]
+    if column < 0 or not 0 <= layer_index < len(state.track_ids):
+        return None
+    tid = state.track_ids[layer_index]
+    if number not in {n for n, _ in state.track(tid)[0]["cells"]}:
+        return None
+    grows = column >= len(state.frame_ids)
+    key = None if grows else (state.frame_ids[column], tid)
+    values = None if grows else state.position(*key)[0]
+    # 印を外した位置の _content_origin（今の手順は has_content・is_blank_key の代入で外すが、
+    # Rust の命令は残す）と、v2 の読み込みの _v2_resolve_source（今の手順は残すが、Rust の命令は
+    # 捨てる）を持つ位置も今の経路（独立レビューの指摘）。
+    if values is not None and (values["sequence_only"] or values.get("local_share") is not None
+                               or values.get("local_bank")
+                               or values.get("content_origin") is not None
+                               or values.get("resolve_source") is not None):
+        return None
+    # Rust の命令が決める has_content（position_commands.rs の recall_sheet_number と同じ）。
+    found = None
+    for fid in state.frame_ids:
+        other = state.position(fid, tid)[0]
+        if other["sequence_number"] == number and (other["sequence_only"] or other["has_content"]):
+            if found is None or other["sequence_only"]:
+                found = bool(other["has_content"])
+    if found is None:
+        hints = document.tracks[layer_index].legacy_archive_hints
+        found = hints[number].has_content if number in hints else True
+    copied = source if type(source) is DrawingTarget else source.clone()
+    if bool(copied.has_content) != found:
+        return None
+    # 足したコマの位置は新しいので、外す局所の Cell は無い。
+    plan = {"layers": [], "cells": []} if grows else _detach_plan(document, [], [key])
+    if plan is None:
+        return None
+    result = _apply_core_command(document, ["recall_sheet_number", column, layer_index, number],
+                                 lambda ids: [] if grows else [key[0]], tracks=[tid])
+    if result is None:
+        return None
+    changes, new_ids = result
+    tokens = live.setdefault("tokens", {})
+    for fid in new_ids:
+        for other in state.track_ids:
+            tokens[fid, other] = PendingToken()
+    state.pending.clear()
+    _detach(document, plan)
+    return changes
+
+
 def _retire_document(document, frozen_core):
     """文書の今の状態を、文書から外れた別の Document（写し frozen_core が正本）へ移す。
 
@@ -4895,7 +4967,8 @@ _CORE_COMMANDS = {"add_track": _core_add_track,
                   "copy_sheet_cell": _core_copy_sheet_cell,
                   "move_sequence_image": _core_move_sequence_image,
                   "paste_sheet_cell": _core_paste_sheet_cell,
-                  "new_sheet_number": _core_new_sheet_number}
+                  "new_sheet_number": _core_new_sheet_number,
+                  "recall_sheet_number": _core_recall_sheet_number}
 
 
 def _blank_handle():
