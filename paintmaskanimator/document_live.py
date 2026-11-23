@@ -1856,6 +1856,49 @@ class Document:
                 pass
         return self._run("make_position_editable", (current, layer_index, mode), {})
 
+    def _in_place_or_run(self, name, args, kwargs):
+        """_install_methods の _TRY_IN_PLACE の口と同じ：窓口のまま試し、素のグラフが要れば今の経路。"""
+        from .document import GraphDocument
+        plain = getattr(GraphDocument, name)
+        if self._live().get("trial"):
+            return plain(self, *args, **kwargs)
+        if self._live()["graph"] is None:
+            try:
+                return _try_in_place(self, plain, args, kwargs)
+            except _NeedsGraph:
+                pass
+        return self._run(name, args, kwargs)
+
+    def set_drawing_content(self, frame, layer_index, has_content):
+        """位置の has_content が変わるなら Rust の命令で当てる（_core_set_drawing_content）。
+        それ以外は今までどおり窓口のまま試し、素のグラフが要れば今の経路。"""
+        if not isinstance(self, Document):
+            from .document import GraphDocument
+            return GraphDocument.set_drawing_content(self, frame, layer_index, has_content)
+        if not self._live().get("trial"):
+            changes = _CORE_COMMANDS["set_drawing_content"](self, frame, layer_index, has_content)
+            if changes is not None:
+                return changes
+        return self._in_place_or_run("set_drawing_content", (frame, layer_index, has_content), {})
+
+    def restore_drawing(self, frame, layer_index, number, image, has_content, *,
+                        sheet, patches=None):
+        """戻す絵がバンクの一枚で位置の has_content が変わるなら、書き出し往復なしで当てる
+        （_core_restore_drawing）。それ以外は今までどおり窓口のまま試し、素のグラフが要れば
+        今の経路。"""
+        if not isinstance(self, Document):
+            from .document import GraphDocument
+            return GraphDocument.restore_drawing(
+                self, frame, layer_index, number, image, has_content, sheet=sheet, patches=patches)
+        if not self._live().get("trial"):
+            changes = _core_restore_drawing(self, frame, layer_index, number, image,
+                                            has_content, sheet, patches)
+            if changes is not None:
+                return changes
+        return self._in_place_or_run(
+            "restore_drawing", (frame, layer_index, number, image, has_content),
+            {"sheet": sheet, "patches": patches})
+
     def restore_batch_drawing(self, frame, layer_index, image, has_content, number, *, sheet):
         """Yield changes as slots are restored, in sheet observation order.
 
@@ -4350,6 +4393,114 @@ def _core_position_command(document, name, column, layer_index, replace):
     return changes
 
 
+def _core_set_drawing_content(document, frame, layer_index, has_content):
+    """set_drawing_content の、位置の has_content が変わる場合を Rust の命令で当てる。
+    今の手順と同じにできなければ None（値が変わらない代入もこちらでは扱わない）。
+
+    今の手順（Layer.__setattr__）は印を外すとき、番号の絵がバンクにあれば局所の Cell を
+    バンクの絵の写しに入れ替え（前の局所の Cell は文書から外れる）、外す前の番号を
+    _content_origin に残す。印を立てるときは _content_origin を外す。どちらも _dense_import を
+    捨て、timeline_revision を進める。配置待ち・局所の絵を共有する位置・バンクの絵を局所に
+    持つ位置は今の経路。
+    """
+    live = document._live()
+    if (live["graph"] is not None or live.get("trial") or type(frame) is not int
+            or type(layer_index) is not int or type(has_content) is not bool):
+        return None
+    state = live["state"]
+    if not (0 <= frame < len(state.frame_ids) and 0 <= layer_index < len(state.track_ids)):
+        return None
+    key = (state.frame_ids[frame], state.track_ids[layer_index])
+    values = state.position(*key)[0]
+    if (values["has_content"] == has_content or values["sequence_only"]
+            or values.get("local_share") is not None or values.get("local_bank")
+            or _content_change_diverges(values, has_content)):
+        return None
+    number = values["sequence_number"]
+    replaces_local = not has_content and number is not None
+    if replaces_local and number not in {n for n, _ in state.track(key[1])[0]["cells"]}:
+        return None
+    plan = _detach_plan(document, [], [key]) if replaces_local else {"layers": [], "cells": []}
+    if plan is None:
+        return None
+    result = _apply_core_command(
+        document, ["set_drawing_content", frame, layer_index, has_content],
+        lambda ids: [key[0]], tracks=[key[1]])
+    if result is None:
+        return None
+    changes, _ = result
+    state.pending.clear()
+    _detach(document, plan)
+    return changes
+
+
+def _content_change_diverges(values, has_content):
+    """Rust の位置の表現では、今の手順の has_content の代入と同じ形にならない位置か。
+
+    Rust は内容と空キーが同時に立った位置を持てず（今の手順は空キーの位置に内容を立てても
+    空キーのまま）、blank_start の位置の内容を外すと空キーにする（今の手順は空キーにしない）。
+    """
+    if has_content:
+        return bool(values["is_blank_key"])
+    return bool(values["blank_start"])
+
+
+def _core_restore_drawing(document, frame, layer_index, number, image, has_content, sheet,
+                          patches):
+    """restore_drawing の、位置の has_content が変わる場合を書き出し往復なしで当てる。
+    今の手順と同じにできなければ None（文書は変えていない）。
+
+    今の手順は戻す絵を探し（resolve_numbered_target）、画像を入れ替える（patches なら画素を
+    書く）。そのあと位置の has_content を代入する。画像はバンクの一枚の差し替えの近道
+    （_replace_bank_image）か画素の書き込みで、has_content は _core_set_drawing_content で当てる。
+    """
+    from .document import GraphDocument
+    from .document_changes import ChangeSet, Cursor, DrawingPixels, Selection
+    live = document._live()
+    if live["graph"] is not None or live.get("trial"):
+        return None
+    try:
+        target = _try_in_place(document, GraphDocument.resolve_numbered_target,
+                               (frame, layer_index, number), {"sheet": sheet})
+    except _NeedsGraph:
+        return None
+    if target is None or target.slot is None or type(target.column) is not int:
+        return None
+    column = target.column
+    content = bool(has_content)
+    state = live["state"]
+    if not (0 <= column < len(state.frame_ids) and 0 <= layer_index < len(state.track_ids)):
+        return None
+    key = (state.frame_ids[column], state.track_ids[layer_index])
+    values = state.position(*key)[0]
+    if (values["has_content"] == content or values["sequence_only"]
+            or values.get("local_share") is not None or values.get("local_bank")
+            or _content_change_diverges(values, content)):
+        return None
+    if not content and values["sequence_number"] is not None and values[
+            "sequence_number"] not in {n for n, _ in state.track(key[1])[0]["cells"]}:
+        return None
+    cell = target.cell
+    if not isinstance(cell, LiveCell) or _m(cell, "_key")[0] != "bank":
+        return None
+    if patches is None:
+        if not _replace_bank_image(document, _m(cell, "_key"), "image", image):
+            return None
+        rects = ()
+    else:
+        try:
+            _try_in_place(document, lambda doc: target.image.write_qimages(
+                (x, y, patch) for (x, y, _, _), patch in patches), (), {})
+        except _NeedsGraph:
+            return None
+        rects = tuple(rect for rect, _ in patches)
+    # 画像は入れ替えた。印が当てられなければ、今の経路が同じ代入をもう一度当てる。
+    if _CORE_COMMANDS["set_drawing_content"](document, column, layer_index, content) is None:
+        return None
+    return ChangeSet((Cursor(column, notify=False), Selection(layer_index),
+                      DrawingPixels(layer_index, number, column, rects)))
+
+
 def _editable_in_place(values):
     """make_position_editable が Rust の命令で書き換えてよい位置の値か（配置待ち・バンクの絵を
     局所に持つ位置は今の経路）。"""
@@ -4580,6 +4731,7 @@ _CORE_COMMANDS = {"add_track": _core_add_track,
                   "delete_sequence_entry": _core_delete_sequence_entry,
                   "normalize_sheet_numbers": _core_normalize_sheet_numbers,
                   "place_pending_entries": _core_place_pending_entries,
+                  "set_drawing_content": _core_set_drawing_content,
                   "move_sheet_cells": _core_move_sheet_cells,
                   "move_sheet_cell": _core_move_sheet_cell,
                   "resize_sheet_exposure": _core_resize_sheet_exposure,

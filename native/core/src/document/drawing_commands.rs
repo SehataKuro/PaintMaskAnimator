@@ -257,6 +257,8 @@ impl Document {
         position.compatibility.dense_import = None;
         position.compatibility.unnumbered_content = has_content && number.is_none();
         if has_content {
+            // Python の Layer.__setattr__ は内容の印を立てるとき _content_origin を外す。
+            position.compatibility.content_origin = None;
             if let Some(number) = number {
                 position.reference = Reference::Number(number);
             }
@@ -268,6 +270,8 @@ impl Document {
             };
             position.compatibility.retained_number = number;
             position.compatibility.local = artwork;
+            // 内容を外すときは、外す前に参照していた番号を残す（Python の _content_origin）。
+            position.compatibility.content_origin = number;
         }
         Ok(())
     }
@@ -385,6 +389,33 @@ mod tests {
         let image = &position.compatibility.local.as_ref().unwrap().image;
         assert_eq!(image.rgba().as_ptr(), original);
         assert_eq!(image.rgba(), replacement);
+    }
+
+    // tests/test_document_live_fast_paths.py:test_set_drawing_content_uses_core_command
+    #[test]
+    fn clearing_content_records_the_former_number_and_setting_it_forgets() {
+        let input = json!({
+            "canvas": {"width": 1, "height": 1},
+            "frame_durations": [1, 1],
+            "tracks": [{"cells": [{"number": 3, "image": "3.png"}], "sheet": [3, 3]}],
+        });
+        let plan = decode_v2_plan(&input, &["3.png".into()]).unwrap();
+        let blank = RgbaImage::blank(1, 1).unwrap();
+        let mut doc = v2::from_plan(&input, &plan, std::slice::from_ref(&blank)).unwrap();
+        let track = doc.track_order()[0];
+        doc.set_drawing_content(1, 0, false).unwrap();
+        let position = doc.position_mut(1, track);
+        assert_eq!(position.reference, Reference::Empty);
+        assert_eq!(
+            position.compatibility.content_origin.map(CellNumber::get),
+            Some(3)
+        );
+        assert_eq!(position.number().map(CellNumber::get), Some(3));
+        assert!(position.compatibility.local.is_some());
+        doc.set_drawing_content(1, 0, true).unwrap();
+        let position = doc.position_mut(1, track);
+        assert!(matches!(position.reference, Reference::Number(_)));
+        assert_eq!(position.compatibility.content_origin, None);
     }
 
     // tests/test_core_document_compare.py:test_patch_content_and_replace_group

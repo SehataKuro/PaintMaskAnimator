@@ -90,9 +90,9 @@ def test_unchanged_writes_and_pixels_skip_the_round_trip(monkeypatch):
     assert calls == []
     assert (live.frames[1].layers[0].image.read_rgba(1, 1, 2, 2)
             == plain.frames[1].layers[0].image.read_rgba(1, 1, 2, 2)).all()
-    # 変わる代入は今の経路（全体往復）で当てる。
+    # 変わる代入は Rust の命令で当てる（C4d-21、test_set_drawing_content_uses_core_command）。
     assert live.set_drawing_content(0, 1, False) == plain.set_drawing_content(0, 1, False)
-    assert calls
+    assert calls == []
     assert _signature(live) == _signature(plain)
 
 
@@ -2570,3 +2570,107 @@ def test_clone_graph_falls_back_when_round_trip_needed(monkeypatch):
     calls = _round_trips(live, monkeypatch)
     assert _whole_signature(live.clone_graph()) == _whole_signature(plain.clone_graph())
     assert calls
+
+
+def test_set_drawing_content_uses_core_command(monkeypatch):
+    # 印を外すと局所の絵はバンクの絵の写しになり（前の局所の絵は文書から外れる）、外す前の
+    # 番号を残す。立て直すと番号を外す。どちらも往復なしで今の手順と同じ。
+    from paintmaskanimator.models import Layer
+    plain, live = _pair(hold=2, count=6)
+    live._promote()
+    calls = _round_trips(live, monkeypatch)
+    slot = live.frames[1].layers[0]
+    local = slot.__dict__["_cell"] if "_cell" in slot.__dict__ else None
+    for frame, value in ((1, False), (3, False), (1, True), (0, False)):
+        before = Layer.timeline_revision
+        expected = plain.set_drawing_content(frame, 0, value)
+        step = Layer.timeline_revision - before
+        assert live.set_drawing_content(frame, 0, value) == expected
+        assert Layer.timeline_revision - before == 2 * step
+        assert calls == []
+        assert _whole_signature(live) == _whole_signature(plain)
+        live._promote()
+        calls.clear()
+    assert live.frames[1].layers[0] is slot
+    if local is not None:
+        assert local is not live.frames[1].layers[0].__dict__.get("_cell")
+    # 番号の無い位置の印も同じ。
+    plain, live = _pair()
+    live._promote()
+    calls = _round_trips(live, monkeypatch)
+    for frame, layer, value in ((0, 0, True), (0, 0, False)):
+        assert (live.set_drawing_content(frame, layer, value)
+                == plain.set_drawing_content(frame, layer, value))
+        assert _whole_signature(live) == _whole_signature(plain)
+        live._promote()
+        calls.clear()
+
+
+def test_restore_drawing_changing_content_runs_in_place(monkeypatch):
+    # バンクの絵の画像を戻して印を変える Undo は往復なし。窓口の画像は戻した画像になる。
+    plain, live = _pair(hold=2, count=6)
+    live._promote()
+    calls = _round_trips(live, monkeypatch)
+    number = live.frames[1].layers[0].sequence_number
+    image = QImage(live.frames[1].layers[0].image.to_qimage())
+    image.fill(QColor(0, 255, 0, 255))
+    for has_content in (False, True):
+        expected = plain.restore_drawing(1, 0, number, QImage(image), has_content, sheet=True)
+        assert live.restore_drawing(1, 0, number, QImage(image), has_content,
+                                    sheet=True) == expected
+        assert calls == []
+        assert _whole_signature(live) == _whole_signature(plain)
+        live._promote()
+        calls.clear()
+        assert (live.frames[1].layers[0].image.read_rgba(0, 0, 1, 1)
+                == plain.frames[1].layers[0].image.read_rgba(0, 0, 1, 1)).all()
+        calls.clear()
+    # 画素の書き込みで戻す形も同じ。
+    patch = QImage(2, 2, QImage.Format.Format_ARGB32_Premultiplied)
+    patch.fill(QColor(9, 9, 9, 255))
+    patches = [((0, 0, 2, 2), patch)]
+    expected = plain.restore_drawing(1, 0, number, None, False, sheet=True, patches=patches)
+    assert live.restore_drawing(1, 0, number, None, False, sheet=True,
+                                patches=patches) == expected
+    assert calls == []
+    assert _whole_signature(live) == _whole_signature(plain)
+
+
+def test_content_changes_rust_cannot_represent_take_the_python_path(monkeypatch):
+    # 空キーの位置に内容を立てる（今の手順は空キーのまま）と、blank_start の内容の位置の
+    # 内容を外す（今の手順は空キーにしない）は、Rust の位置の表現が違う形になるので今の経路。
+    from paintmaskanimator.models import Frame, Layer
+    from paintmaskanimator.pma_image import PmaImage
+
+    def build(content, blank, number, start):
+        frames = []
+        for _ in range(2):
+            layer = Layer("A", PmaImage.blank(8, 8))
+            layer.sequence_number = number
+            layer.has_content = content
+            layer.is_blank_key = blank
+            layer.blank_start = start
+            frames.append(Frame([layer]))
+        return frames
+
+    cases = (((False, True, None, True), "set", True),
+             ((False, True, 1, True), "set", True),
+             ((True, False, 2, True), "set", False),
+             ((True, False, 2, True), "restore", False))
+    for spec, kind, value in cases:
+        plain, live = GraphDocument(), document_live.Document()
+        plain.install_legacy_frames(build(*spec))
+        live.install_legacy_frames(build(*spec))
+        live._promote()
+        calls = _round_trips(live, monkeypatch)
+        if kind == "set":
+            expected = plain.set_drawing_content(1, 0, value)
+            assert live.set_drawing_content(1, 0, value) == expected
+        else:
+            image = plain.frames[1].layers[0].image.to_qimage().copy()
+            expected = plain.restore_drawing(1, 0, spec[2], image, value, sheet=True)
+            assert live.restore_drawing(1, 0, spec[2], image, value, sheet=True) == expected
+        assert calls
+        assert ([(s.has_content, s.is_blank_key) for f in live.frames for s in f.layers]
+                == [(s.has_content, s.is_blank_key) for f in plain.frames for s in f.layers])
+        assert _whole_signature(live) == _whole_signature(plain)
