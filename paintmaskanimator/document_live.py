@@ -145,13 +145,18 @@ class _CoreState:
         self.pending = {}
         self.frame_index = {fid: index for index, fid in enumerate(self.frame_ids)}
         self.track_index = {tid: index for index, tid in enumerate(self.track_ids)}
-        # 局所の絵を共有する組（Python では同じ Cell）→ 組の先頭（表示順で最初）の位置。
+        self._index_shares()
+
+    def _index_shares(self):
+        """局所の絵を共有する組（Python では同じ Cell）→ 組の先頭（表示順で最初）の位置。"""
         self.share_leaders = {}
         for fid in self.frame_ids:
             for tid in self.track_ids:
                 group = self.positions[fid, tid][0].get("local_share")
                 if group is not None:
                     self.share_leaders.setdefault(group, (fid, tid))
+        # refresh_position が組のある位置を取り直したら立てる（次の reload_rows で作り直す）。
+        self.shares_dirty = False
 
     def local_key(self, frame_id, track_id):
         """位置の局所の絵のキー。共有の組なら組の先頭の位置のキー。"""
@@ -169,7 +174,13 @@ class _CoreState:
 
     def refresh_position(self, frame_id, track_id):
         text, handles = self.core.position_graph(frame_id, track_id)
-        self.positions[frame_id, track_id] = (json.loads(text), list(handles))
+        position = json.loads(text)
+        old = self.positions.get((frame_id, track_id))
+        if position.get("local_share") is not None or (
+                old is not None and old[0].get("local_share") is not None):
+            # share_leaders はここでは作り直さない（今までどおり）。次の reload_rows で作り直す。
+            self.shares_dirty = True
+        self.positions[frame_id, track_id] = (position, list(handles))
         self.prints.pop((frame_id, track_id), None)
         self.revision += 1
 
@@ -206,7 +217,11 @@ class _CoreState:
                 for frame in extra["frames"]:
                     row_tracks[frame["id"]] = (extra["track_order"], full_handles)
             frame_ids += full_ids
+        previous_frames, previous_tracks = self.frame_ids, self.track_ids
         previous = set(self.frame_ids)
+        # 共有の組の先頭は、並びが変わらず、取り直す・消える位置の前後どちらにも組が無ければ
+        # 変わらない（そのときは表を作り直さない）。
+        shares = getattr(self, "shares_dirty", True)
         self.frame_ids = payload["frame_order"]
         self.track_ids = payload["track_order"]
         self.next_ids = (payload["next_frame_id"], payload["next_track_id"])
@@ -215,22 +230,29 @@ class _CoreState:
         for fid in previous - current:
             self.durations.pop(fid, None)
             for tid in self.track_ids:
-                self.positions.pop((fid, tid), None)
+                old = self.positions.pop((fid, tid), None)
+                if old is not None and old[0].get("local_share") is not None:
+                    shares = True
                 self.prints.pop((fid, tid), None)
+        positions = self.positions
         for frame in payload["frames"]:
             tracks, row_handles = row_tracks.get(frame["id"], (self.track_ids, handles))
             for tid, position in zip(tracks, frame["positions"]):
-                self.positions[frame["id"], tid] = (position, row_handles)
-                self.prints.pop((frame["id"], tid), None)
+                key = (frame["id"], tid)
+                if not shares:
+                    old = positions.get(key)
+                    if position.get("local_share") is not None or (
+                            old is not None and old[0].get("local_share") is not None):
+                        shares = True
+                positions[key] = (position, row_handles)
+                self.prints.pop(key, None)
             self.durations[frame["id"]] = frame["duration"]
-        self.frame_index = {fid: index for index, fid in enumerate(self.frame_ids)}
-        self.track_index = {tid: index for index, tid in enumerate(self.track_ids)}
-        self.share_leaders = {}
-        for fid in self.frame_ids:
-            for tid in self.track_ids:
-                group = self.positions[fid, tid][0].get("local_share")
-                if group is not None:
-                    self.share_leaders.setdefault(group, (fid, tid))
+        reordered = (self.frame_ids != previous_frames or self.track_ids != previous_tracks)
+        if reordered:
+            self.frame_index = {fid: index for index, fid in enumerate(self.frame_ids)}
+            self.track_index = {tid: index for index, tid in enumerate(self.track_ids)}
+        if reordered or shares:
+            self._index_shares()
         for cache in (self.slot_copies, self.slot_dicts):
             for key in [key for key in cache if key[0] in stale]:
                 del cache[key]
