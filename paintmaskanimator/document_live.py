@@ -317,6 +317,12 @@ def _m(proxy, name):
     return _meta(proxy)[name]
 
 
+def _live_of(document):
+    """document._live() と同じ。窓口の読み取りでよく呼ぶので、状態があればメソッドを経ない。"""
+    live = document.__dict__.get("_live_state")
+    return document._live() if live is None else live
+
+
 def _setm(proxy, name, value):
     _meta(proxy)[name] = value
 
@@ -420,14 +426,16 @@ class LiveCell(Cell):
     __slots__ = ()
 
     def __getattribute__(self, name):
-        if name in _META:
-            return _m(self, name)
+        # 内部情報は Cell.image のスロット（_meta と同じ。よく読まれるので一度だけ引く）。
         if name in _INTERNAL:
             return object.__getattribute__(self, name)
-        target = _delegate(self)
+        meta = _CELL_SLOT.__get__(self, Cell)
+        if name in _META:
+            return meta[name]
+        target = meta["_detached"] or meta["_plain"]
         if target is not None:
             return getattr(target, name)
-        owner, key = _m(self, "_owner"), _m(self, "_key")
+        owner, key = meta["_owner"], meta["_key"]
         if name in ("image", "initial_image"):
             return owner._bound_image(key, name == "initial_image")
         if name == "cell_name":
@@ -551,7 +559,7 @@ def _core_set_hint(track, number, hint, *, remove=False):
     if not isinstance(track, LiveTrack):
         return False
     owner = _m(track, "_owner")
-    live = owner._live()
+    live = _live_of(owner)
     state = live["state"]
     # 値 None の書き込みは今の手順では None を持つ（取り込みで失敗する）ので今の経路。
     if (live["graph"] is not None or live.get("trial") or type(number) is not int
@@ -585,7 +593,7 @@ class _PendingView(MutableSet):
         """(文書の位置の札の列, その id の集合, 文書の外の位置の札の WeakSet)。"""
         owner = _m(self._track, "_owner")
         tid = _m(self._track, "_key")[0]
-        live = owner._live()
+        live = _live_of(owner)
         state = live["state"]
         extra = live.get("extra_pending", {}).get(tid, ())
         # 文書の位置の札は Rust の状態が変わる（_promote で作り直す）までは同じ。
@@ -641,16 +649,19 @@ class LiveTrack(Track):
     __slots__ = ()
 
     def __getattribute__(self, name):
-        if name in _META:
-            return _m(self, name)
+        # 内部情報は Track.name のスロット（_meta と同じ。よく読まれるので一度だけ引く）。
         if name in _INTERNAL:
             return object.__getattribute__(self, name)
-        target = _delegate(self)
+        meta = _TRACK_SLOT.__get__(self, Track)
+        if name in _META:
+            return meta[name]
+        target = meta["_detached"] or meta["_plain"]
         if target is not None:
             return getattr(target, name)
-        owner, key = _m(self, "_owner"), _m(self, "_key")
+        owner, key = meta["_owner"], meta["_key"]
         if name in TRACK_FIELDS:
-            value = owner._track_value(key[0])
+            # owner._track_value(key[0]) と同じ。
+            value = _live_of(owner)["state"].tracks.get(key[0])
             if value is None:
                 raise StaleDocumentObject("文書にない列")
             value = value[0]["settings"][name]
@@ -724,7 +735,8 @@ class LiveLayer(Layer):
             return getattr(target, name)
         owner, key = meta["_owner"], meta["_key"]
         if name in _POSITION_FIELDS:
-            value = owner._position_value(*key)
+            # owner._position_value(*key) と同じ（よく読まれるので呼び出しを省く）。
+            value = _live_of(owner)["state"].positions.get(key)
             if value is None:
                 raise StaleDocumentObject("文書にない位置")
             value = value[0][name]
@@ -853,7 +865,7 @@ def _bank_image_replaceable(owner, key, field, value):
     """_replace_bank_image が近道で当てられるか（何も変えない）。"""
     if key is None or key[0] != "bank":
         return False
-    live = owner._live()
+    live = _live_of(owner)
     if live["graph"] is not None or owner._cell_value(key) is None:
         return False
     if value is not None and value is live["cache"]._objects.get(
@@ -877,7 +889,7 @@ def _batch_restore_plan(document, frame, layer_index, image, has_content, number
     続いてその絵を指す位置をシートの順に）。
     """
     from .document_changes import ChangeSet, DrawingPixels
-    live = document._live()
+    live = _live_of(document)
     if live["graph"] is not None or live.get("trial"):
         return None
     target = document.resolve_numbered_target(frame, layer_index, number, sheet=sheet)
@@ -947,7 +959,7 @@ def _replace_bank_image(owner, key, field, value):
     if not _bank_image_replaceable(owner, key, field, value):
         return False
     from .pma_image import attributes_tag, to_pma_image
-    live = owner._live()
+    live = _live_of(owner)
     initial = field == "initial_image"
     cache = live["cache"]
     old = cache._objects.get(("image", (key, initial)))
@@ -989,7 +1001,7 @@ class _SlotDictView(MutableMapping):
         layer = self._layer
         key = _m(layer, "_key")
         owner = self._owner()
-        state = owner._live()["state"]
+        state = _live_of(owner)["state"]
         values = state.slot_dicts.get(key)
         if values is None:
             values = dict(owner._plain_copy(*key).__dict__)
@@ -1043,12 +1055,19 @@ class _LayersView(MutableSequence):
     def _items(self):
         if self._frozen is not None:
             return self._frozen
-        # 素の状態（途中で表せなくなった）では、素のコマの並びをそのまま返す。
-        if not isinstance(self._frame, LiveFrame):
-            return self._frame.layers
-        owner = self._owner()
-        fid = _m(self._frame, "_key")[0]
-        state = owner._live()["state"]
+        frame = self._frame
+        if type(frame) is LiveFrame:
+            # 下の一般の手順と同じ（よく読まれるので _owner()・_m を経ない）。
+            meta = object.__getattribute__(frame, "_live_meta")
+            owner = self._document = meta["_owner"]
+            fid = meta["_key"][0]
+        else:
+            # 素の状態（途中で表せなくなった）では、素のコマの並びをそのまま返す。
+            if not isinstance(frame, LiveFrame):
+                return frame.layers
+            owner = self._owner()
+            fid = _m(frame, "_key")[0]
+        state = _live_of(owner)["state"]
         items = state.layer_lists.get(fid)
         if items is None:
             items = state.layer_lists[fid] = [owner._layer(fid, tid) for tid in state.track_ids]
@@ -1113,13 +1132,13 @@ class LiveFrame(Frame):
         target = meta["_detached"] or meta["_plain"]
         if target is not None:
             return getattr(target, name)
-        owner, key = meta["_owner"], meta["_key"]
         if name == "layers":
             view = object.__getattribute__(self, "__dict__").get("_layers_view")
             if view is None:
                 view = _LayersView(self)
                 object.__getattribute__(self, "__dict__")["_layers_view"] = view
             return view
+        owner, key = meta["_owner"], meta["_key"]
         if name == "duration":
             duration = owner._duration(key[0])
             if duration is None:
@@ -1168,7 +1187,7 @@ class _FramesView(MutableSequence):
 
     def _all(self):
         """Rust の状態での窓口の並び。状態が変わるまで使い回す。"""
-        state = self._owner._live()["state"]
+        state = _live_of(self._owner)["state"]
         items = state.view_lists.get(self._name)
         if items is None:
             items = state.view_lists[self._name] = [self._item(i) for i in self._ids()]
@@ -1184,7 +1203,7 @@ class _FramesView(MutableSequence):
         """
         if self._frozen is not None or self._name != "frames":
             return None
-        live = self._owner._live()
+        live = _live_of(self._owner)
         if live["graph"] is not None:
             return None
         import numpy as np
@@ -1198,17 +1217,21 @@ class _FramesView(MutableSequence):
     def __getitem__(self, index):
         if self._frozen is not None:
             return self._frozen[index]
-        graph = self._owner._live()["graph"]
+        live = _live_of(self._owner)
+        graph = live["graph"]
         if graph is not None:
             # 素の状態では素のグラフの並びをそのまま使う。
             return getattr(graph.plain, self._name)[index]
-        items = self._all()
+        # _all() と同じ（よく読まれるので呼び出しを省く）。
+        items = live["state"].view_lists.get(self._name)
+        if items is None:
+            items = self._all()
         return list(items[index]) if isinstance(index, slice) else items[index]
 
     def __len__(self):
         if self._frozen is not None:
             return len(self._frozen)
-        live = self._owner._live()
+        live = _live_of(self._owner)
         graph = live["graph"]
         if graph is not None:
             return len(getattr(graph.plain, self._name))
@@ -1336,7 +1359,7 @@ class Document:
 
     def __init__(self):
         from .document import GraphDocument
-        self._live()["graph"] = _Graph(GraphDocument())
+        _live_of(self)["graph"] = _Graph(GraphDocument())
         self._promote()
 
     # ------------------------------------------------------------------
@@ -1354,7 +1377,7 @@ class Document:
 
     def _demote(self):
         """素の状態にして、そのグラフを返す。Rust の状態なら書き出す。"""
-        live = self._live()
+        live = _live_of(self)
         if live["graph"] is None:
             if live.get("trial"):
                 # 窓口のまま試している操作が、素のグラフを要る書き込みに来た。
@@ -1365,7 +1388,7 @@ class Document:
 
     def _materialize(self):
         from .document import GraphDocument
-        live = self._live()
+        live = _live_of(self)
         state, cache = live["state"], live["cache"]
         graph = _Graph(object.__new__(GraphDocument))
         cached = dict(cache.items())
@@ -1432,7 +1455,7 @@ class Document:
 
     def _assign_ids(self, graph):
         plain = graph.plain
-        next_frame, next_track = self._live()["next_ids"]
+        next_frame, next_track = _live_of(self)["next_ids"]
 
         def assign(objects, known, start):
             used, result = set(), []
@@ -1454,7 +1477,7 @@ class Document:
 
     def _promote(self):
         """素のグラフを Rust に戻す。表せなければ素の状態のまま False を返す。"""
-        live = self._live()
+        live = _live_of(self)
         graph = live["graph"]
         if graph is None:
             return True
@@ -1541,7 +1564,7 @@ class Document:
         return True
 
     def _sync_selection(self):
-        live = self._live()
+        live = _live_of(self)
         frame, layer = live["cursor"]
         try:
             live["core"].set_selection_index(int(frame), int(layer))
@@ -1555,7 +1578,7 @@ class Document:
     def frames(self):
         # 素の状態でも並びの窓口を返す（窓口が素のグラフの並びを読む）。状態をまたいで
         # ``document.frames is document.frames`` を保つ。
-        live = self._live()
+        live = _live_of(self)
         view = live.get("frames_view")
         if view is None:
             view = live["frames_view"] = _FramesView(self)
@@ -1579,7 +1602,7 @@ class Document:
             value._frozen = None
             value._owner = self
             value.__dict__.pop("_retired_from", None)
-            self._live()[view_name] = value
+            _live_of(self)[view_name] = value
             # _promote が「リストが入れ替わった」と見て、戻した窓口を固定し直さないように。
             if graph.lists is not None:
                 graph.lists = ((items, graph.lists[1]) if name == "frames"
@@ -1589,7 +1612,7 @@ class Document:
     def tracks(self):
         # 素の状態でも並びの窓口を返す（窓口が素のグラフの並びを読む）。状態をまたいで
         # ``document.tracks is document.tracks`` を保つ。
-        live = self._live()
+        live = _live_of(self)
         view = live.get("tracks_view")
         if view is None:
             view = live["tracks_view"] = _TracksView(self)
@@ -1600,20 +1623,20 @@ class Document:
         self._assign_list("tracks", value)
 
     def _retire_view(self, name, items=None):
-        view = self._live().pop(name, None)
+        view = _live_of(self).pop(name, None)
         if view is not None:
             view._freeze(items)
 
     @property
     def current_frame(self):
-        graph = self._live()["graph"]
+        graph = _live_of(self)["graph"]
         if graph is not None:
             return graph.plain.current_frame
-        return self._live()["cursor"][0]
+        return _live_of(self)["cursor"][0]
 
     @current_frame.setter
     def current_frame(self, value):
-        live = self._live()
+        live = _live_of(self)
         if live["graph"] is not None:
             live["graph"].plain.current_frame = value
             return
@@ -1622,14 +1645,14 @@ class Document:
 
     @property
     def active_layer_index(self):
-        graph = self._live()["graph"]
+        graph = _live_of(self)["graph"]
         if graph is not None:
             return graph.plain.active_layer_index
-        return self._live()["cursor"][1]
+        return _live_of(self)["cursor"][1]
 
     @active_layer_index.setter
     def active_layer_index(self, value):
-        live = self._live()
+        live = _live_of(self)
         if live["graph"] is not None:
             live["graph"].plain.active_layer_index = value
             return
@@ -1760,7 +1783,7 @@ class Document:
 
     def has_unlinked_tracks(self):
         """Rust の状態では列の窓口はいつも文書へ公開済み（connected）なので、位置をなめない。"""
-        live = self._live()
+        live = _live_of(self)
         if live["graph"] is None and not live.get("trial"):
             return False
         from .document import GraphDocument
@@ -1770,7 +1793,7 @@ class Document:
         """Rust の状態では位置はいつも自分の列につながっているので、配置待ちの所属を位置が持つ
         位置（pending_detached）が無ければ、今の手順は tracks に新しいリストを入れるだけ。"""
         from .document_changes import ChangeSet
-        live = self._live()
+        live = _live_of(self)
         if live["graph"] is None and not live.get("trial"):
             state = live["state"]
             if state.frame_ids and not any(values.get("pending_detached")
@@ -1785,7 +1808,7 @@ class Document:
         Rust の状態では、全部を素に書き出さず、その列だけを _materialize と同じ手順で素の
         オブジェクトにしてから写す。
         """
-        live = self._live()
+        live = _live_of(self)
         if (live["graph"] is None and not live.get("trial") and type(index) is int
                 and 0 <= index < len(live["state"].track_ids)):
             from .document import clone_frame_graph
@@ -1879,7 +1902,7 @@ class Document:
         if not isinstance(self, Document):
             # テストなどが素の入れ物を self にして呼ぶ場合は、今の Python の手順のまま。
             return getattr(GraphDocument, name)(self, *args)
-        live = self._live()
+        live = _live_of(self)
         if (live["graph"] is None and not live.get("trial") and isinstance(track, LiveTrack)
                 and _m(track, "_owner") is self):
             return getattr(GraphDocument, name)(self, *args)
@@ -1904,13 +1927,13 @@ class Document:
         それ以外は今までどおり、まず窓口のまま試し（内容のある位置はふつう書き込みが無い）、
         素のグラフが要れば今の経路。"""
         from .document import GraphDocument
-        live = self._live()
+        live = _live_of(self)
         if live.get("trial"):
             return GraphDocument.make_position_editable(self, current, layer_index, mode)
         changes = _core_make_position_editable(self, current, layer_index)
         if changes is not None:
             return changes
-        if self._live()["graph"] is None:
+        if _live_of(self)["graph"] is None:
             try:
                 return _try_in_place(self, GraphDocument.make_position_editable,
                                      (current, layer_index, mode), {})
@@ -1922,9 +1945,9 @@ class Document:
         """_install_methods の _TRY_IN_PLACE の口と同じ：窓口のまま試し、素のグラフが要れば今の経路。"""
         from .document import GraphDocument
         plain = getattr(GraphDocument, name)
-        if self._live().get("trial"):
+        if _live_of(self).get("trial"):
             return plain(self, *args, **kwargs)
-        if self._live()["graph"] is None:
+        if _live_of(self)["graph"] is None:
             try:
                 return _try_in_place(self, plain, args, kwargs)
             except _NeedsGraph:
@@ -1937,7 +1960,7 @@ class Document:
         if not isinstance(self, Document):
             from .document import GraphDocument
             return GraphDocument.set_drawing_content(self, frame, layer_index, has_content)
-        if not self._live().get("trial"):
+        if not _live_of(self).get("trial"):
             changes = _CORE_COMMANDS["set_drawing_content"](self, frame, layer_index, has_content)
             if changes is not None:
                 return changes
@@ -1952,7 +1975,7 @@ class Document:
             from .document import GraphDocument
             return GraphDocument.restore_drawing(
                 self, frame, layer_index, number, image, has_content, sheet=sheet, patches=patches)
-        if not self._live().get("trial"):
+        if not _live_of(self).get("trial"):
             changes = _core_restore_drawing(self, frame, layer_index, number, image,
                                             has_content, sheet, patches)
             if changes is not None:
@@ -1994,7 +2017,7 @@ class Document:
         作る位置があるときは今の経路。
         """
         from .document import GraphDocument
-        if not isinstance(self, Document) or self._live().get("trial"):
+        if not isinstance(self, Document) or _live_of(self).get("trial"):
             # 以前の口と同じ：素の入れ物を self にした呼び出しと、窓口のまま試している操作の中は
             # 今の Python の手順のまま。
             return GraphDocument.clone_graph(self)
@@ -2014,13 +2037,13 @@ class Document:
     # 窓口が使う読み取り
     # ------------------------------------------------------------------
     def _frame_ids(self):
-        return self._live()["state"].frame_ids
+        return _live_of(self)["state"].frame_ids
 
     def _track_ids(self):
-        return self._live()["state"].track_ids
+        return _live_of(self)["state"].track_ids
 
     def _proxy(self, kind, cls, key):
-        cache = self._live()["cache"]
+        cache = _live_of(self)["cache"]
         obj = cache._objects.get((kind, key))
         if obj is None:
             obj = cache._objects[kind, key] = _make(cls, self, key)
@@ -2039,13 +2062,13 @@ class Document:
         return self._proxy("cell", LiveCell, key)
 
     def _duration(self, fid):
-        return self._live()["state"].durations.get(fid)
+        return _live_of(self)["state"].durations.get(fid)
 
     def _position_value(self, fid, tid):
-        return self._live()["state"].position(fid, tid)
+        return _live_of(self)["state"].position(fid, tid)
 
     def _track_value(self, tid):
-        return self._live()["state"].track(tid)
+        return _live_of(self)["state"].track(tid)
 
     def _tween(self, key, value):
         return json.loads(json.dumps(value))
@@ -2061,10 +2084,10 @@ class Document:
         if values["local"] is None:
             # 今の Layer._cell は局所の絵が無ければ空の絵を作る。
             _core_edit(self._layer(fid, tid), lambda slot: slot._cell)
-        return self._live()["state"].local_key(fid, tid)
+        return _live_of(self)["state"].local_key(fid, tid)
 
     def _cell_value(self, key):
-        state = self._live()["state"]
+        state = _live_of(self)["state"]
         if key[0] == "bank":
             track = state.track(key[1])
             if track is None:
@@ -2079,7 +2102,7 @@ class Document:
         return position[0]["local"], position[1]
 
     def _bound_image(self, key, initial):
-        live = self._live()
+        live = _live_of(self)
         cache = live["cache"]
         image = cache._objects.get(("image", (key, initial)))
         if image is not None:
@@ -2101,7 +2124,7 @@ class Document:
     def _plain_copy(self, fid, tid):
         """位置の素の Layer を返す。列と絵は文書の窓口を参照する（今の Layer と同じく、
         clone_slot などの写しは同じ列・同じ絵を指す）。読むだけの処理に使う。"""
-        state = self._live()["state"]
+        state = _live_of(self)["state"]
         cached = state.slot_copies.get((fid, tid))
         if cached is not None:
             return cached
@@ -2113,7 +2136,7 @@ class Document:
         if plain is None:
             plain = state.plain_tracks[tid] = plain_track(*track)
         slot = plain_slot(data[0], plain, data[1])
-        _restore_token(slot, plain, self._live().get("tokens", {}).get((fid, tid)))
+        _restore_token(slot, plain, _live_of(self).get("tokens", {}).get((fid, tid)))
         values = slot.__dict__
         values["_track"] = self._track(tid)
         if data[0].get("local_bank"):
@@ -2129,7 +2152,7 @@ class Document:
         Track の設定の代入には副作用が無いので、Rust へ戻すときの値（document_core の
         _settings と JSON）が同じなら、全体を書き出して戻すのと同じ結果になる。
         """
-        live = self._live()
+        live = _live_of(self)
         state = live["state"]
         if live["graph"] is not None or state is None:
             return False
@@ -2205,7 +2228,7 @@ class Document:
     def _live_value(self, value):
         """戻り値の素のオブジェクトを、Rust の状態の窓口に写す。"""
         from .document import DrawingTarget, PendingEntry
-        live = self._live()
+        live = _live_of(self)
         keys = live.pop("last_keys", {})
         classes = {"frame": LiveFrame, "layer": LiveLayer, "track": LiveTrack, "cell": LiveCell}
 
@@ -2284,7 +2307,7 @@ def _snapshot_bytes_of(state, cell_bytes):
 def _capture_snapshot(document):
     """Rust の状態なら遅延の DocumentSnapshot を返す。取れなければ None。"""
     from . import constants
-    live = document._live()
+    live = _live_of(document)
     state = live["state"]
     if live["graph"] is not None or state is None:
         return None
@@ -2395,7 +2418,7 @@ def _apply_core_command(document, operation, rows, apply=None, tracks=None):
     tracks（列 ID の列）を渡すと、rows の行はその列の位置だけを読み直す（命令がほかの列の
     位置を変えない場合だけ渡す。新しいコマの行はすべての列を読む）。
     """
-    live = document._live()
+    live = _live_of(document)
     state = live["state"]
     before = list(state.frame_ids)
     changed = rows(before)
@@ -2422,7 +2445,7 @@ def _core_duplicate_frame(document, column):
     保持の途中のコマを複製すると、今の手順は既存の位置に新しい Layer を入れ直す（古い
     オブジェクトは文書から外れる）。その付け替えはまだ無いので、その場合は今の経路。
     """
-    live = document._live()
+    live = _live_of(document)
     if live["graph"] is not None or live.get("trial") or type(column) is not int:
         return None
     state = live["state"]
@@ -2467,7 +2490,7 @@ def _detach_plan(document, replaced, cleared):
     外すのは窓口として渡したもの（表にあるもの）だけでよい（誰も持っていなければ見えない）。
     局所の絵を他の位置と共有する位置は、外す Cell の同一性を保てないので None。
     """
-    live = document._live()
+    live = _live_of(document)
     state, cache = live["state"], live["cache"]
     plan = {"layers": [], "cells": []}
     for key, whole in [*((key, True) for key in replaced), *((key, False) for key in cleared)]:
@@ -2501,7 +2524,7 @@ def _detach(document, plan, moved=None, between=None, release=True):
     外す Layer の配置待ちを解かない（今の手順が replace_slot を通さず直接入れ替える場合）。
     """
     from .document import clear_pending
-    live = document._live()
+    live = _live_of(document)
     cache = live["cache"]
     cells = {}
     for local, cell, images, values, handles in plan["cells"]:
@@ -2574,7 +2597,7 @@ def _core_shift_left(document, name, column, layer_index):
     コマの窓口を素のオブジェクトにして外す（_trim_plan・_retire_trimmed）。局所の絵を共有する
     位置がある場合は今の経路。
     """
-    live = document._live()
+    live = _live_of(document)
     if (live["graph"] is not None or live.get("trial") or type(column) is not int
             or type(layer_index) is not int):
         return None
@@ -2651,7 +2674,7 @@ def _core_insert_track_frame(document, column, layer_index):
     参照（clone_reference、元の局所の Cell を共有する）を入れ直すので、その場合と、局所の
     絵を共有する位置がある場合は今の経路。
     """
-    live = document._live()
+    live = _live_of(document)
     if (live["graph"] is not None or live.get("trial") or type(column) is not int
             or type(layer_index) is not int):
         return None
@@ -2705,7 +2728,7 @@ def _core_ensure_frame_count(document, count):
     既存のオブジェクトは変えない。
     """
     from .document_changes import ChangeSet
-    live = document._live()
+    live = _live_of(document)
     if live["graph"] is not None or live.get("trial") or type(count) is not int:
         return None
     state = live["state"]
@@ -2726,7 +2749,7 @@ def _core_ensure_frame_count(document, count):
 def _core_advance_frame(document):
     """advance_frame を Rust の命令で当てる（今の手順と同じく、現在コマ＋1 まで伸ばす）。"""
     from .document_changes import ChangeSet, Cursor
-    live = document._live()
+    live = _live_of(document)
     if live["graph"] is not None or live.get("trial"):
         return None
     current = live["cursor"][0]
@@ -2747,7 +2770,7 @@ def _core_add_track(document):
     変えない。ただし sync_columns は配置待ちの所属を位置が持つ位置（pending_detached）を
     列へつなぎ直すので、そういう位置があれば今の経路。
     """
-    live = document._live()
+    live = _live_of(document)
     if live["graph"] is not None or live.get("trial"):
         return None
     state = live["state"]
@@ -2783,7 +2806,7 @@ def _core_restore_inserted_track(document, e):
     今の経路。
     """
     from .document import GraphDocument
-    live = document._live()
+    live = _live_of(document)
     if live["graph"] is not None or live.get("trial"):
         return None
     state = live["state"]
@@ -2859,7 +2882,7 @@ def _core_duplicate_tracks(document, names):
     は変えない。どこかに pending_detached の位置がある（sync_columns がつなぎ直す）、複製
     する列に配置待ちの位置・局所の絵の共有の組・列の外の配置待ちの札がある、なら今の経路。
     """
-    live = document._live()
+    live = _live_of(document)
     if live["graph"] is not None or live.get("trial"):
         return None
     state = live["state"]
@@ -2916,7 +2939,7 @@ def _core_move_tracks(document, order):
     リストのまま。pending_detached の位置がある（sync_columns がつなぎ直す）、局所の絵の
     共有の組が複数の列にまたがる（組の先頭が変わる）なら今の経路。
     """
-    live = document._live()
+    live = _live_of(document)
     if live["graph"] is not None or live.get("trial"):
         return None
     state = live["state"]
@@ -2965,7 +2988,7 @@ def _retire_columns(document, track_ids, frozen_core, old_state):
     画像は今の値のまま残る。C4b-9 の restore と同じく、書き出す代わりに窓口の持ち主を
     外れた Document に付け替える。外れた側は命令の前の状態の写し old_state を読む。
     """
-    live = document._live()
+    live = _live_of(document)
     retired = object.__new__(Document)
     old_state.core = frozen_core
     cache = _Cache()
@@ -3014,7 +3037,7 @@ def _core_remove_columns(document, indices, active):
     リストを入れ、配置待ちの所属を位置が持つ位置をつなぎ直す。消す列に配置待ちの位置・
     局所の絵の共有の組がある場合と、pending_detached の位置がある場合は今の経路。
     """
-    live = document._live()
+    live = _live_of(document)
     if live["graph"] is not None or live.get("trial"):
         return None
     state = live["state"]
@@ -3060,7 +3083,7 @@ def _core_remove_tracks(document, indices, *, active=None):
 
 def _core_restore_removed_track(document, e):
     """restore_removed_track（列の追加の Undo）を Rust の命令で当てる。"""
-    live = document._live()
+    live = _live_of(document)
     if live["graph"] is not None or live.get("trial"):
         return None
     index, target = e.index, e.target_active
@@ -3080,7 +3103,7 @@ def _rekey_locals(document, moves, unbound=frozenset()):
     unbound（コマ ID の集合）のコマへ移る画像は、Rust の絵へ結び直さずにキーだけ付け替える
     （命令で取り除かれたコマ。_retire_trimmed があとで独立した画像に戻す）。
     """
-    live = document._live()
+    live = _live_of(document)
     cache, core = live["cache"], live["core"]
     for old, new in moves:
         old_key, new_key = ("local", *old), ("local", *new)
@@ -3106,7 +3129,7 @@ def _trim_plan(document, frame_ids, kept, column, layer_index):
     写して持つ（局所の絵は位置と一緒に移るので、画像の画素は変わらない）。外すコマに配置待ちの
     位置・局所の絵の共有の組・局所の絵をバンクに置く位置がある場合は None（今の経路）。
     """
-    live = document._live()
+    live = _live_of(document)
     state, cache = live["state"], live["cache"]
     gone = frame_ids[kept:]
     for fid in gone:
@@ -3151,7 +3174,7 @@ def _trim_plan(document, frame_ids, kept, column, layer_index):
 def _retire_trimmed(document, plan):
     """_trim_plan で用意した値で、取り除いたコマの窓口を素のオブジェクトにして文書から外す。"""
     from .document import clear_pending
-    live = document._live()
+    live = _live_of(document)
     cache = live["cache"]
     gone, rows, handles = set(plan["gone"]), plan["rows"], plan["handles"]
     track_ids = plan["track_ids"]
@@ -3244,7 +3267,7 @@ def _core_create_blank_key(document, column, layer_index):
     解かれず、その札は列に残る）。キーを選んだとき（後ろへ寄せてから書き換える）と、
     局所の絵を共有する位置がある場合は今の経路。
     """
-    live = document._live()
+    live = _live_of(document)
     if (live["graph"] is not None or live.get("trial") or type(column) is not int
             or type(layer_index) is not int):
         return None
@@ -3322,7 +3345,7 @@ def _core_clear_sheet_span(document, layer_index, start, stop):
     今の手順は範囲の位置をその場で消す（clear_slot。Layer はそのまま、detach_cell で局所の
     Cell が替わり、画像は新しい空画像になる）。局所の絵を共有する位置がある場合は今の経路。
     """
-    live = document._live()
+    live = _live_of(document)
     if (live["graph"] is not None or live.get("trial")
             or any(type(value) is not int for value in (layer_index, start, stop))):
         return None
@@ -3354,7 +3377,7 @@ def _core_split_sheet_clip(document, column, layer_index):
     保持の外）とき、先頭が番号付きの内容でないとき、保持の位置が局所の絵や旧形式の記録を
     持つときは今の経路。
     """
-    live = document._live()
+    live = _live_of(document)
     if (live["graph"] is not None or live.get("trial") or type(column) is not int
             or type(layer_index) is not int):
         return None
@@ -3403,7 +3426,7 @@ _SPLIT_RECORDS = ("v1_position", "dense_import", "content_origin", "resolve_sour
 def _rekey_bank(document, tid, mapping):
     """列のバンクの Cell・画像の窓口を、送った先の番号のキーへ付け替える（今の手順は
     track.cells の Cell を新しい番号へ移すだけで、Cell・画像のオブジェクトは変えない）。"""
-    live = document._live()
+    live = _live_of(document)
     cache, core = live["cache"], live["core"]
     moved = []
     for old, new in mapping.items():
@@ -3431,7 +3454,7 @@ def _core_insert_sequence_blank(document, layer_index, after_number):
     バンクが空で番号付きの位置がある（今の手順は番号を 1 にしない）、番号でない
     after_number、送る番号の絵を局所の絵として共有する位置がある、なら今の経路。
     """
-    live = document._live()
+    live = _live_of(document)
     if (live["graph"] is not None or live.get("trial") or type(layer_index) is not int
             or type(after_number) is not int):
         return None
@@ -3499,7 +3522,7 @@ def _core_delete_sequence_entry(document, layer_index, number):
     命令の前の値のまま）。末尾の空いたコマを取り除く場合、消す位置が局所の絵を共有する・
     バンクの絵を局所の絵として持つ場合は今の経路。
     """
-    live = document._live()
+    live = _live_of(document)
     if (live["graph"] is not None or live.get("trial") or type(layer_index) is not int
             or type(number) is not int):
         return None
@@ -3572,7 +3595,7 @@ def _core_normalize_sheet_numbers(document, layer_indices):
     旧連番保管の札が写した先で同じ番号になると、今の手順は dict の並びで後の札を、Rust は
     番号の大きい札を残す。窓口の文書の札は番号順に並ぶ（素に落とすと番号順）ので同じになる。
     """
-    live = document._live()
+    live = _live_of(document)
     if live["graph"] is not None or live.get("trial"):
         return None
     indices = tuple(layer_indices)
@@ -3629,7 +3652,7 @@ def _core_place_pending_entries(document):
     （シートへの切り替え・読み込みのたびに呼ばれる）。配置待ちがあれば None（今の経路）。
     """
     from .document_changes import ChangeSet
-    live = document._live()
+    live = _live_of(document)
     if live["graph"] is not None or live.get("trial"):
         return None
     state = live["state"]
@@ -3650,7 +3673,7 @@ def _core_clone_graph(document):
     画像の無い Cell（今の手順が文書に絵を作る）があれば None。
     """
     from .document import GraphDocument, clone_frame_graph
-    live = document._live()
+    live = _live_of(document)
     state = live["state"]
     if live["graph"] is not None or state is None or live.get("trial"):
         return None
@@ -3730,7 +3753,7 @@ def _core_move_sheet_cells(document, moves, destination_column, active_layer):
     命令の前に用意したもので、今の文書と食い違う、内容が番号付きでない、移動先どうしが重なる、
     局所の絵の共有・旧形式の記録を持つ位置がある、などは今の経路。
     """
-    live = document._live()
+    live = _live_of(document)
     if (live["graph"] is not None or live.get("trial") or type(destination_column) is not int
             or type(active_layer) is not int or type(moves) is not tuple or not moves):
         return None
@@ -3864,7 +3887,7 @@ def _core_move_sheet_cell(document, prepared):
     範囲・埋めた範囲にかかる送り、空キーを追わせる形（_follow_blanks）、局所の絵・共有・
     旧形式の記録を持つ位置、用意した値が今の文書と食い違う場合は今の経路。
     """
-    live = document._live()
+    live = _live_of(document)
     if (live["graph"] is not None or live.get("trial") or type(prepared) is not tuple
             or len(prepared) != 9):
         return None
@@ -4077,7 +4100,7 @@ def _core_resize_sheet_exposure(document, layer_index, edge, prepared):
     持つ（空キーなど。clone_reference が局所の Cell を共有する）、触る位置が配置待ち・局所の
     絵の共有・旧形式の記録を持つ、用意した値が今の文書と食い違う場合は今の経路。
     """
-    live = document._live()
+    live = _live_of(document)
     if (live["graph"] is not None or live.get("trial") or type(layer_index) is not int
             or edge not in ("left", "right") or type(prepared) is not tuple
             or len(prepared) != 5):
@@ -4239,7 +4262,7 @@ def _core_set_sheet_duration(document, column, layer_index, duration):
     縮めた位置をその場で消す。保持の頭が局所の絵を持つ（clone_reference が局所の Cell を
     共有する）、触る位置が配置待ち・局所の絵の共有・旧形式の記録を持つ場合は今の経路。
     """
-    live = document._live()
+    live = _live_of(document)
     if (live["graph"] is not None or live.get("trial") or type(column) is not int
             or type(layer_index) is not int):
         return None
@@ -4301,7 +4324,7 @@ def _core_merge_sheet_clip(document, column, layer_index):
     局所の Cell を共有する）・旧形式の記録を持つ、触る位置が配置待ち・局所の絵の共有・旧形式の
     記録を持つ場合は今の経路。
     """
-    live = document._live()
+    live = _live_of(document)
     if (live["graph"] is not None or live.get("trial") or type(column) is not int
             or type(layer_index) is not int):
         return None
@@ -4349,7 +4372,7 @@ def _core_move_sequence_image(document, layer_index, first_number, second_number
     代入が値を変えない場合だけを当てる（位置は変えず、バンクの窓口を付け替える）。番号が
     by_number・バンクに無い、位置が局所の絵・配置待ち・共有・旧形式の記録を持つ場合は今の経路。
     """
-    live = document._live()
+    live = _live_of(document)
     if (live["graph"] is not None or live.get("trial")
             or any(type(value) is not int for value in (layer_index, first_number, second_number))
             or first_number == second_number or not isinstance(by_number, dict)):
@@ -4401,7 +4424,7 @@ def _core_copy_sheet_cell(document, source_column, destination_column, layer_ind
     重なる、頭が局所の絵を持つ、頭・触る位置が共有・配置待ち・旧形式の記録を持つ場合は今の経路
     （触る位置の局所の絵は命令の前の値で外す）。
     """
-    live = document._live()
+    live = _live_of(document)
     if (live["graph"] is not None or live.get("trial")
             or any(type(value) is not int
                    for value in (source_column, destination_column, layer_index))):
@@ -4462,7 +4485,7 @@ def _core_paste_sheet_cell(document, column, layer_index, source, length):
     """
     from .models import Layer, Track
     from .pma_image import attributes_tag
-    live = document._live()
+    live = _live_of(document)
     if (live["graph"] is not None or live.get("trial")
             or any(type(value) is not int for value in (column, layer_index, length))
             or length < 1 or type(source) is not Layer):
@@ -4583,7 +4606,7 @@ def _core_position_command(document, name, column, layer_index, replace):
     replace が真なら今の手順は位置に新しい Layer を入れ直す（replace_slot。古い Layer は外れ、
     配置待ちを解かれる）。偽ならその場で書き換える（clear_slot。局所の Cell・画像が替わる）。
     """
-    live = document._live()
+    live = _live_of(document)
     if (live["graph"] is not None or live.get("trial") or type(column) is not int
             or type(layer_index) is not int):
         return None
@@ -4620,7 +4643,7 @@ def _core_set_drawing_content(document, frame, layer_index, has_content):
     捨て、timeline_revision を進める。配置待ち・局所の絵を共有する位置・バンクの絵を局所に
     持つ位置は今の経路。
     """
-    live = document._live()
+    live = _live_of(document)
     if (live["graph"] is not None or live.get("trial") or type(frame) is not int
             or type(layer_index) is not int or type(has_content) is not bool):
         return None
@@ -4673,7 +4696,7 @@ def _core_restore_drawing(document, frame, layer_index, number, image, has_conte
     """
     from .document import GraphDocument
     from .document_changes import ChangeSet, Cursor, DrawingPixels, Selection
-    live = document._live()
+    live = _live_of(document)
     if live["graph"] is not None or live.get("trial"):
         return None
     try:
@@ -4740,7 +4763,7 @@ def _core_make_position_editable(document, current, layer_index):
     # 今の手順（document.py の GraphDocument.make_position_editable）と同じく、document
     # モジュールの blank_image・snapshot_image を引く（テストが差し替えることがある）。
     blank_image, snapshot_image = graph_module.blank_image, graph_module.snapshot_image
-    live = document._live()
+    live = _live_of(document)
     if (live["graph"] is not None or live.get("trial") or type(current) is not int
             or type(layer_index) is not int):
         return None
@@ -4837,7 +4860,7 @@ def _core_new_sheet_cell(document, column, layer_index):
 
 def _core_new_sheet_number(document, column, layer_index):
     """new_sheet_number を Rust の命令で（位置に新しい番号の新しい Layer を入れ直す）。"""
-    live = document._live()
+    live = _live_of(document)
     if (live["graph"] is not None or type(column) is not int or type(layer_index) is not int):
         return None
     state = live["state"]
@@ -4865,7 +4888,7 @@ def _core_recall_sheet_number(document, column, layer_index, number, source):
     _content_origin や _v2_resolve_source を持つ位置は今の経路。
     """
     from .document import DrawingTarget
-    live = document._live()
+    live = _live_of(document)
     if (live["graph"] is not None or live.get("trial") or type(column) is not int
             or type(layer_index) is not int or type(number) is not int
             or type(source) not in (DrawingTarget, LiveLayer)):
@@ -4927,7 +4950,7 @@ def _retire_document(document, frozen_core):
     で、書き込みは外れた側の写しに当たり文書には届かない。外れた窓口を文書の操作に渡すと、
     今と同じく持ち主が素の状態に落ちて素のオブジェクトとして扱われる（_plain_value）。
     """
-    live = document._live()
+    live = _live_of(document)
     retired = object.__new__(Document)
     live["core"] = frozen_core
     live["state"].core = frozen_core
@@ -4963,7 +4986,7 @@ def _core_restore_snapshot(document, snapshot):
     まだ作っていない遅延の写しだけを扱う。
     """
     from .document_changes import ChangeSet, DocumentRestored, ExposureIndexReset
-    live = document._live()
+    live = _live_of(document)
     lazy = _LAZY_SNAPSHOT[0] if _LAZY_SNAPSHOT else None
     if (lazy is None or type(snapshot) is not lazy or live["graph"] is not None
             or live.get("trial")):
@@ -5174,7 +5197,7 @@ _TRY_IN_PLACE = frozenset((
 
 def _try_in_place(document, plain, args, kwargs):
     """窓口のまま当てる。素のグラフが要るなら _NeedsGraph（文書は変えていない）。"""
-    live = document._live()
+    live = _live_of(document)
     live["trial"] = True
     live["trial_log"] = log = []
     try:
@@ -5208,7 +5231,7 @@ def _install_methods():
             if _in_place or not isinstance(self, Document):
                 # テストなどが素の入れ物を self にして呼ぶ場合は、今の Python の手順のまま。
                 return _plain(self, *args, **kwargs)
-            live = self._live()
+            live = _live_of(self)
             if live.get("trial"):
                 # 窓口のまま試している操作の中。書き込みが素のグラフを要れば外側がやり直す。
                 return _plain(self, *args, **kwargs)
