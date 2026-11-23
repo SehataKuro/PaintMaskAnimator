@@ -2862,3 +2862,48 @@ def test_recall_sheet_number_keeps_v2_resolve_source_like_python(monkeypatch):
                    for document in (plain, live)]
         assert results[1] == results[0]
         assert _whole_signature(live) == _whole_signature(plain)
+
+
+def test_archive_hints_edit_without_round_trip_and_match_python(monkeypatch):
+    # 旧連番保管の一件の書き込み・上書き・取り除き（tween 付き・無い番号を含む）は往復なしで、
+    # 今の手順と同じ値になる。
+    plain, live = _pair(hold=2, count=6)
+    live._promote()
+    calls = _round_trips(live, monkeypatch)
+    results = []
+    for document in (plain, live):
+        track = document.tracks[1]
+        steps = [
+            document.put_archive_hint(track, 2, ArchiveHint(False, True, 3)),
+            document.put_archive_hint(track, 7, ArchiveHint(True, False, 2, True, None, None)),
+            document.put_archive_hint(track, 2, ArchiveHint(True, False, 1)),
+            document.remove_archive_hint(track, 7),
+            document.remove_archive_hint(track, 9),
+        ]
+        track.legacy_archive_hints[4] = ArchiveHint(False, False, 5)
+        del track.legacy_archive_hints[2]
+        results.append((steps, dict(document.archive_hints(track)),
+                        document.legacy_drawing_state(track, 4)))
+    assert results[1] == results[0]
+    assert calls == []
+    assert _whole_signature(live) == _whole_signature(plain)
+
+
+def test_archive_hint_none_value_and_plain_self_keep_current_path(monkeypatch):
+    # 値 None の書き込みは取り除きにならず今の経路（素のグラフに None を持つ）。素の入れ物を
+    # self にした呼び出しは今の Python の手順のまま（独立レビューの指摘）。
+    plain, live = _pair(hold=2, count=6)
+    live._promote()
+    for document in (plain, live):
+        document.put_archive_hint(document.tracks[0], 3, ArchiveHint(False, True, 2))
+    for document in (plain, live):
+        try:
+            document.put_archive_hint(document.tracks[0], 3, None)
+        except Exception:  # noqa: BLE001 - 今の経路は取り込みで失敗する
+            pass
+    graph = live._live()["graph"]
+    assert graph is not None and live.tracks[0].legacy_archive_hints == {3: None}
+    assert plain.tracks[0].legacy_archive_hints == {3: None}
+    other, _ = _pair(hold=2, count=4)
+    document_live.Document.put_archive_hint(other, other.tracks[0], 2, ArchiveHint())
+    assert document_live.Document.remove_archive_hint(other, other.tracks[0], 2) == ArchiveHint()

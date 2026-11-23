@@ -516,12 +516,15 @@ class _HintsView(MutableMapping):
         return self._hints()[number]
 
     def __setitem__(self, number, hint):
-        _core_edit(self._track, lambda track: track.legacy_archive_hints.__setitem__(number, hint))
+        if not _core_set_hint(self._track, number, hint):
+            _core_edit(self._track,
+                       lambda track: track.legacy_archive_hints.__setitem__(number, hint))
 
     def __delitem__(self, number):
         if number not in self._hints():
             raise KeyError(number)
-        _core_edit(self._track, lambda track: track.legacy_archive_hints.__delitem__(number))
+        if not _core_set_hint(self._track, number, None, remove=True):
+            _core_edit(self._track, lambda track: track.legacy_archive_hints.__delitem__(number))
 
     def __iter__(self):
         return iter(self._hints())
@@ -534,6 +537,38 @@ class _HintsView(MutableMapping):
 
     def __repr__(self):
         return f"LiveHints({self._hints()!r})"
+
+
+def _core_set_hint(track, number, hint, *, remove=False):
+    """列の旧連番保管の一件を Rust の文書に直接書く（remove なら取り除く）。書けなければ偽。
+
+    今の経路（_core_edit）は素のグラフに書き出して dict に書き、取り込み直す。取り込みは
+    document_core._hint の形の JSON を Rust の hint に読むので、同じ JSON を set_hint_graph で
+    その一件にだけ当てる。試している操作の中・素の状態・型の違う値・JSON にできない値・
+    Rust が受けない値は今の経路（素の手順のまま当たるか、今と同じ例外になる）。
+    """
+    from .document_core import _hint as hint_json
+    if not isinstance(track, LiveTrack):
+        return False
+    owner = _m(track, "_owner")
+    live = owner._live()
+    state = live["state"]
+    # 値 None の書き込みは今の手順では None を持つ（取り込みで失敗する）ので今の経路。
+    if (live["graph"] is not None or live.get("trial") or type(number) is not int
+            or (not remove and type(hint) is not ArchiveHint)):
+        return False
+    tid = _m(track, "_key")[0]
+    if state.track(tid) is None:
+        return False
+    try:
+        text = "null" if remove else json.dumps(hint_json(hint), ensure_ascii=False,
+                                                       allow_nan=False)
+        live["core"].set_hint_graph(tid, number, text)
+    except (TypeError, ValueError, OverflowError):
+        return False
+    state.refresh_track(tid)
+    state.forget_track(tid)
+    return True
 
 
 class _PendingView(MutableSet):
@@ -1830,6 +1865,27 @@ class Document:
         if changes is None:
             return self._run("new_sheet_number", (column, layer_index), {})
         return changes
+
+    def put_archive_hint(self, track, number, state):
+        """文書の列なら窓口のまま今の手順を当てる（書き込みは _core_set_hint）。"""
+        return Document._archive_hint_edit(self, "put_archive_hint", track, (track, number, state))
+
+    def remove_archive_hint(self, track, number):
+        """文書の列なら窓口のまま今の手順を当てる（取り除きは _core_set_hint）。"""
+        return Document._archive_hint_edit(self, "remove_archive_hint", track, (track, number))
+
+    def _archive_hint_edit(self, name, track, args):
+        from .document import GraphDocument
+        if not isinstance(self, Document):
+            # テストなどが素の入れ物を self にして呼ぶ場合は、今の Python の手順のまま。
+            return getattr(GraphDocument, name)(self, *args)
+        live = self._live()
+        if (live["graph"] is None and not live.get("trial") and isinstance(track, LiveTrack)
+                and _m(track, "_owner") is self):
+            return getattr(GraphDocument, name)(self, *args)
+        if live.get("trial"):
+            return getattr(GraphDocument, name)(self, *args)
+        return self._run(name, args, {})
 
     def recall_sheet_number(self, column, layer_index, number, source):
         changes = _CORE_COMMANDS["recall_sheet_number"](self, column, layer_index, number, source)
