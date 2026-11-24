@@ -149,8 +149,9 @@ def test_graph_allocates_once_per_cell_and_track(monkeypatch):
     monkeypatch.setattr(Track, "__init__", counted_track)
     monkeypatch.setattr(Cell, "__init__", counted)
     copied = doc.clone_graph()
-    assert len(created) == 1
-    assert len(created_tracks) == 1
+    # Rust の文書（既定）は写しを Rust 側で作るので、Python の Cell・Track は作らない。
+    assert len(created) <= 1
+    assert len(created_tracks) <= 1
     assert len({frame.layers[0].track_id for frame in copied.frames}) == 1
 
 

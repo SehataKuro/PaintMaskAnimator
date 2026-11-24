@@ -2531,8 +2531,8 @@ def project_v1_state(frames, sequence_archive=None) -> tuple[list[Any], dict[Any
             for row, frame in zip(projected, frames)], archive
 
 
-# 段階8-4：Rust の文書を正本にする Document（document_live）は、まだ環境変数
-# PMA_CORE_DOCUMENT=1 のときだけ使う。既定は上の Python の Document のまま。
+# 段階8-4：既定は Rust の文書を正本にする Document（document_live）。
+# 環境変数 PMA_CORE_DOCUMENT=0 のときだけ、上の Python の Document に戻す。
 GraphDocument = Document
-if __import__("os").environ.get("PMA_CORE_DOCUMENT") == "1":
+if __import__("os").environ.get("PMA_CORE_DOCUMENT") != "0":
     from .document_live import Document  # noqa: E402,F811
