@@ -29,6 +29,9 @@ pub mod frame_commands;
 /// 画素と初期画像を確定する描画操作。
 pub mod drawing_commands;
 
+/// コマの長さ変更の Undo で列の位置を記録の値に戻す操作。
+pub mod exposure_commands;
+
 /// シート位置の編集と複数区間移動の入力。
 pub mod position_commands;
 

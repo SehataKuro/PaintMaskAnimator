@@ -58,6 +58,27 @@ def release_slots(slots):
         clear_pending(slot)
 
 
+def restore_exposure_slot(slot, values):
+    """ExposureUndo の一つの位置の記録（references の一要素）を位置に戻す。"""
+    content, blank, start, number, pending, tween, member, imported, position = values
+    slot.has_content = False
+    slot.sequence_number = number
+    slot.has_content = content
+    slot.is_blank_key = blank
+    slot.blank_start = start
+    slot.set_pending(pending)
+    slot.tween = deepcopy(tween)
+    slot.tween_member = member
+    if imported is None:
+        slot.__dict__.pop("_dense_import", None)
+    else:
+        set_dense_import(slot, imported)
+    if position is None:
+        slot.__dict__.pop("_v1_position", None)
+    else:
+        slot.__dict__["_v1_position"] = position
+
+
 def replace_slot(frame, index, slot):
     """Install a position copy and release the overwritten pending token."""
     previous = frame.layers[index]
@@ -401,6 +422,17 @@ class Document:
                 slot.has_content = has_content
                 yield ChangeSet((DrawingPixels(layer_index, number, sheet_frame, ()),))
 
+    def exposure_references(self, layer, column):
+        """ExposureUndo の記録：列 layer の column から後ろの位置の値（restore_exposure が戻す）。"""
+        # Metadata only: never clone a Layer/Cell or retain drawing snapshots.
+        return tuple(
+            (slot.has_content, slot.is_blank_key, slot.blank_start,
+             slot.sequence_number, slot.sequence_only,
+             deepcopy(slot.tween), slot.tween_member,
+             slot.__dict__.get("_dense_import"), slot.__dict__.get("_v1_position"))
+            for frame in self.frames[column:]
+            for slot in (frame.layers[layer],))
+
     def restore_exposure(self, e):
         before = len(self.frames)
         self.ensure_frame_count(e.frame_count)
@@ -408,24 +440,7 @@ class Document:
             release_slots(frame.layers)
         del self.frames[e.frame_count:]
         for frame, values in zip(self.frames[e.column:], e.references):
-            slot = frame.layers[e.layer]
-            content, blank, start, number, pending, tween, member, imported, position = values
-            slot.has_content = False
-            slot.sequence_number = number
-            slot.has_content = content
-            slot.is_blank_key = blank
-            slot.blank_start = start
-            slot.set_pending(pending)
-            slot.tween = deepcopy(tween)
-            slot.tween_member = member
-            if imported is None:
-                slot.__dict__.pop("_dense_import", None)
-            else:
-                set_dense_import(slot, imported)
-            if position is None:
-                slot.__dict__.pop("_v1_position", None)
-            else:
-                slot.__dict__["_v1_position"] = position
+            restore_exposure_slot(frame.layers[e.layer], values)
         return ChangeSet((
             FrameStructure("restore", before, len(self.frames), e.column),
             SheetSpans(e.layer, e.column, len(self.frames)),

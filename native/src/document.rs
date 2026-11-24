@@ -1,7 +1,7 @@
 use crate::image::PyRgbaImage;
 use pma_core::document::access::{ArtworkSlot, ImageField};
 use pma_core::document::model::{CellNumber, Document, FrameId, TrackId};
-use pma_core::document::{comparison, v2};
+use pma_core::document::{comparison, graph, v2};
 use pma_core::image::{Rect, RgbaImage};
 use pma_core::project::payload::decode_v2_plan;
 use pyo3::{exceptions::PyValueError, prelude::*, types::PyBytes};
@@ -294,6 +294,30 @@ impl PyCoreDocument {
         self.0
             .set_position_graph(FrameId(frame), TrackId(track), &value, &shared(&images))
             .map_err(value_error)
+    }
+
+    /// コマの長さ変更の Undo：コマ数を frame_count に縮め、列 layer の column から後ろの位置を
+    /// 記録 references（JSON と画像列）の値に戻す（restore_exposure_positions）。
+    ///
+    /// (timeline_revision を進める回数, 値が変わり得る位置のコマ ID, 局所の絵を入れ替えた
+    /// 位置のコマ ID) を返す。失敗時は文書を変えない。
+    fn restore_exposure(
+        &mut self,
+        layer: usize,
+        column: usize,
+        frame_count: usize,
+        references: &str,
+        images: Vec<PyRef<'_, PyRgbaImage>>,
+    ) -> PyResult<(usize, Vec<u64>, Vec<u64>)> {
+        let value = v2::parse_json(references).map_err(value_error)?;
+        let references =
+            graph::exposure_references_value(&value, &shared(&images)).map_err(value_error)?;
+        let result = self
+            .0
+            .restore_exposure_positions(layer, column, frame_count, &references)
+            .map_err(value_error)?;
+        let ids = |frames: Vec<FrameId>| frames.into_iter().map(|frame| frame.0).collect();
+        Ok((result.revisions, ids(result.frames), ids(result.replaced)))
     }
 
     /// 列の設定・バンク・旧連番保管を JSON と画像列で返す。

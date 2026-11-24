@@ -1901,6 +1901,50 @@ class Document:
         changes = _CORE_COMMANDS["move_tracks"](self, order)
         return self._run("move_tracks", (order,), {}) if changes is None else changes
 
+    def exposure_references(self, layer, column):
+        """ExposureUndo の記録。Rust の状態では位置の写しの値から作る（窓口を一つずつ
+        読まない。窓口の読み取りも同じ写しの値を返す）。取り込みの参照・旧位置を持つ位置は、
+        今までどおり窓口から読む。"""
+        from .document import GraphDocument
+        live = _live_of(self) if isinstance(self, Document) else None
+        if (live is None or live["graph"] is not None or live.get("trial")
+                or type(layer) is not int or type(column) is not int or column < 0
+                or not 0 <= layer < len(live["state"].track_ids)):
+            return GraphDocument.exposure_references(self, layer, column)
+        state = live["state"]
+        tid = state.track_ids[layer]
+        positions, references, frames = state.positions, [], None
+        for index, fid in enumerate(state.frame_ids[column:], column):
+            values = positions.get((fid, tid))
+            if values is None:
+                return GraphDocument.exposure_references(self, layer, column)
+            values = values[0]
+            if values["dense_import"] is not None or values["v1_position"] is not None:
+                frames = self.frames if frames is None else frames
+                slot = frames[index].layers[layer]
+                references.append((
+                    slot.has_content, slot.is_blank_key, slot.blank_start,
+                    slot.sequence_number, slot.sequence_only,
+                    deepcopy(slot.tween), slot.tween_member,
+                    slot.__dict__.get("_dense_import"), slot.__dict__.get("_v1_position")))
+                continue
+            tween = values["tween"]
+            references.append((
+                values["has_content"], values["is_blank_key"], values["blank_start"],
+                values["sequence_number"], values["sequence_only"],
+                None if tween is None else deepcopy(self._tween((fid, tid), tween)),
+                values["tween_member"], None, None))
+        return tuple(references)
+
+    def restore_exposure(self, e):
+        """コマ数が変わらなければ、その列の位置だけを書き換えて往復なしで当てる
+        （_core_restore_exposure）。それ以外は今の経路。"""
+        if not isinstance(self, Document):
+            from .document import GraphDocument
+            return GraphDocument.restore_exposure(self, e)
+        changes = _core_restore_exposure(self, e)
+        return self._run("restore_exposure", (e,), {}) if changes is None else changes
+
     def restore_inserted_track(self, e):
         changes = _CORE_COMMANDS["restore_inserted_track"](self, e)
         return self._run("restore_inserted_track", (e,), {}) if changes is None else changes
@@ -3193,19 +3237,37 @@ def _trim_plan(document, frame_ids, kept, column, layer_index):
     位置・局所の絵の共有の組・局所の絵をバンクに置く位置がある場合は None（今の経路）。
     """
     live = _live_of(document)
+    frozen = live["core"].copy()
+    try:
+        frozen.set_blank_image(_blank_handle())
+        frozen.apply_command(json.dumps(["delete_track_frame", column, layer_index]))
+    except ValueError:
+        return None
+    tid = live["state"].track_ids[layer_index]
+    return _tail_plan(document, frame_ids[kept:], frozen,
+                      lambda fid, owner: owner == tid
+                      and live["state"].frame_index.get(fid, -1) >= column)
+
+
+def _tail_plan(document, gone, frozen, moved=lambda fid, owner: False):
+    """末尾のコマ gone を取り除く場合の、外す窓口の用意（_retire_trimmed に渡す）。
+
+    外れたコマの窓口は、取り除いたときの値（frozen の文書の値）の素のオブジェクトになる。
+    画像は命令の前の画素を写して持つ（外すコマの局所の画像と、moved(コマ ID, 列 ID) が
+    真の局所の画像）。外すコマに配置待ちの位置・局所の絵の共有の組・局所の絵をバンクに
+    置く位置がある場合は None（今の経路）。
+    """
+    live = _live_of(document)
     state, cache = live["state"], live["cache"]
-    gone = frame_ids[kept:]
+    gone = list(gone)
     for fid in gone:
         for tid in state.track_ids:
             values = state.position(fid, tid)[0]
             if (values["sequence_only"] or values.get("pending_detached")
                     or values.get("local_share") is not None or values.get("local_bank")):
                 return None
-    frozen = live["core"].copy()
     try:
-        frozen.set_blank_image(_blank_handle())
-        frozen.apply_command(json.dumps(["delete_track_frame", column, layer_index]))
-        text, handles = frozen.frames_graph(list(gone))
+        text, handles = frozen.frames_graph(gone)
     except ValueError:
         return None
     payload = json.loads(text)
@@ -3219,13 +3281,12 @@ def _trim_plan(document, frame_ids, kept, column, layer_index):
                     or values.get("local_share") is not None or values.get("local_bank")):
                 return None
     # 移った先が外すコマになり得るのは、消す列の column 以降の局所の画像と、外すコマの画像。
-    tid = state.track_ids[layer_index]
     pixels = {}
     for (kind, key), image in cache.items():
         if kind != "image" or key[0][0] != "local":
             continue
         _, fid, owner = key[0]
-        if fid in gone or (owner == tid and state.frame_index.get(fid, -1) >= column):
+        if fid in gone or moved(fid, owner):
             try:
                 pixels[id(image)] = image._image.copy()
             except ValueError:
@@ -4888,6 +4949,109 @@ def _core_restore_drawing(document, frame, layer_index, number, image, has_conte
                       DrawingPixels(layer_index, number, column, rects)))
 
 
+def _core_restore_exposure(document, e):
+    """restore_exposure（コマの長さ変更の Undo）を書き出し往復なしで当てる。今の手順と同じに
+    できなければ None（文書は変えていない）。
+
+    今の手順は、記録の列の位置ごとに has_content・番号・空キー・配置待ち・補間などを
+    Layer の代入で戻す（document.restore_exposure_slot。代入の副作用で局所の絵の入れ替えや
+    _content_origin・_dense_import の出し入れ、timeline_revision の更新が起きる）。Rust の
+    restore_exposure（pma-core の restore_exposure_positions）が同じ代入の副作用を再現して
+    位置を戻す（末尾のコマを取り除く場合は先に取り除き、外れたコマの窓口は今の値の素の
+    オブジェクトにする。足す場合は ensure_frame_count と同じコマを先に足す）。列の外の
+    配置待ちがある場合、取り除くコマに配置待ちなどがある場合、Rust が当てられない位置
+    （局所の絵を共有する位置など）がある場合は今の経路。
+    """
+    from .document_changes import ChangeSet, Cursor, FrameStructure, Selection, SheetSpans
+    from .document_core import _Images, _legacy, _reference
+    live = _live_of(document)
+    if live["graph"] is not None or live.get("trial"):
+        return None
+    state, core = live["state"], live["core"]
+    layer, column, count = e.layer, e.column, e.frame_count
+    if (type(layer) is not int or type(column) is not int or type(count) is not int
+            or not 0 <= layer < len(state.track_ids) or count <= 0
+            or not 0 <= column <= count):
+        return None
+    tid = state.track_ids[layer]
+    if live.get("extra_pending", {}).get(tid):
+        return None
+    before = len(state.frame_ids)
+    trimmed = None
+    if count < before:
+        # 今の手順は末尾のコマを取り除いてから位置を戻す。外れるコマは今の値のまま。
+        trimmed = _tail_plan(document, state.frame_ids[count:], core)
+        if trimmed is None:
+            return None
+    images = _Images()
+    try:
+        references = []
+        for content, blank, start, number, pending, tween, member, imported, position in (
+                e.references):
+            references.append({
+                "has_content": bool(content), "is_blank_key": bool(blank),
+                "blank_start": bool(start), "sequence_number": number,
+                "sequence_only": bool(pending), "tween": tween, "tween_member": member,
+                "dense_import": None if imported is None else [
+                    list(imported[0]), _reference(imported[1]), _reference(imported[2])],
+                "v1_position": None if position is None else _legacy(position, images),
+            })
+        text = json.dumps(references)
+    except (GraphError, TypeError, AttributeError, ValueError, IndexError):
+        return None
+    # 今の手順が局所の絵を入れ替える位置（内容があり、番号の絵がバンクにある）の窓口を、
+    # 命令の前の値で用意する。
+    bank = {n for n, _ in state.track(tid)[0]["cells"]}
+    keys = [(fid, tid) for fid in state.frame_ids[column:count][:len(references)]]
+    plan = _detach_plan(document, [], [
+        key for key in keys
+        if state.position(*key)[0]["has_content"]
+        and state.position(*key)[0]["sequence_number"] in bank])
+    if plan is None:
+        return None
+    try:
+        # 足すコマの位置の空画像（ensure_frame_count と同じ）。
+        core.set_blank_image(_blank_handle())
+        revisions, frames, replaced = core.restore_exposure(
+            layer, column, count, text, images.images)
+    except ValueError:
+        return None
+    new_ids = []
+    if count > before:
+        known = set(state.frame_ids)
+        new_ids = [fid for fid in core.order()[0] if fid not in known]
+        tokens = live.setdefault("tokens", {})
+        for fid in new_ids:
+            for track_id in state.track_ids:
+                tokens[fid, track_id] = PendingToken()
+    replaced = set(replaced)
+    plan["cells"] = [entry for entry in plan["cells"] if entry[0][1] in replaced]
+    _detach(document, plan)
+    if trimmed is not None:
+        _retire_trimmed(document, trimmed)
+    for _, _, _, _, _, _, _, imported, _ in e.references:
+        if imported is not None:
+            # 今の手順の set_dense_import と同じく、取り込みの参照を付けたことを知らせる。
+            _native_note_dense_import()
+    Layer.timeline_revision += revisions
+    if frames or trimmed is not None or new_ids:
+        known = set(new_ids)
+        state.reload_rows([fid for fid in frames if fid not in known], [tid], new_ids)
+    if trimmed is not None or new_ids:
+        state.pending.clear()
+        document._sync_selection()
+    return ChangeSet((
+        FrameStructure("restore", before, count, column),
+        SheetSpans(layer, column, count),
+        Cursor(e.current_frame), Selection(e.active_layer),
+    ))
+
+
+def _native_note_dense_import():
+    from . import native
+    native.note_dense_import()
+
+
 def _editable_in_place(values):
     """make_position_editable が Rust の命令で書き換えてよい位置の値か（配置待ち・バンクの絵を
     局所に持つ位置は今の経路）。"""
@@ -5328,6 +5492,7 @@ _IN_PLACE = frozenset((
     "prepare_sheet_moves", "prepare_exposure_resize", "sequence_entry_columns",
     "sequence_move_sources", "next_drawing_number", "editable_cursor",
     "tween_member_numbers", "_column_count", "_valid_columns", "_valid_track_slots",
+    "exposure_references",
 ))
 
 

@@ -1045,6 +1045,94 @@ def test_resize_sheet_exposure_uses_core_command_and_matches_python(monkeypatch)
         assert _whole_signature(live) == _whole_signature(plain)
 
 
+def _exposure_values(entries):
+    """ExposureUndo の記録を値で比べる形にする（旧位置の画像はオブジェクトでなく画素で）。"""
+    def image(value):
+        return None if value is None else (value.width, value.height, value.rgba().tobytes())
+
+    def legacy(position):
+        if position is None:
+            return None
+        slot = position.legacy
+        fields = None if slot is None else tuple(
+            image(getattr(slot, name)) if name in ("image", "initial_image")
+            else getattr(slot, name) for name in type(slot).__dataclass_fields__)
+        return (fields, position.key_start, position.blank_start, position.pending,
+                position.input_length)
+    return [[(*item[:8], legacy(item[8])) for item in references] for references in entries]
+
+
+def test_restore_exposure_runs_in_place_and_matches_python(monkeypatch):
+    # コマの長さ変更（右端）の Undo・Redo。記録（exposure_references）と戻し（restore_exposure）
+    # は往復なしで、今の手順と同じ値・同じ版番号の進み・同じ窓口の外れ方になる。
+    from paintmaskanimator import pma_image, utils
+    from paintmaskanimator.document_core import _slot_signature
+    from paintmaskanimator.models import Layer as ModelLayer
+    from paintmaskanimator.undo_entries import ExposureUndo
+    for shape, args in (({"hold": 5, "count": 10}, (0, 0, 7)),
+                        ({"hold": 5, "count": 10}, (0, 5, 6)),
+                        ({"hold": 3, "count": 9}, (1, 3, 5))):
+        plain, live = _pair(**shape)
+        live._promote()
+        layer_index, key, boundary = args
+        entries, results, revisions, fates = [], [], [], []
+        for document in (plain, live):
+            monkeypatch.setattr(pma_image, "_last_import", None)
+            monkeypatch.setattr(utils._BlankTemplate, "model_image", None)
+            utils.blank_model_image()
+            prepared = document.prepare_exposure_resize(layer_index, key, boundary, "right")
+            column = prepared[0]
+            if document is live:
+                calls = _round_trips(live, monkeypatch)
+
+            def capture(document=document, column=column, layer_index=layer_index):
+                return ExposureUndo(layer_index, column, 1, len(document.frames), 0, layer_index,
+                                    document.exposure_references(layer_index, column))
+            undo = capture()
+            document.resize_sheet_exposure(layer_index, "right", prepared)
+            redo = capture()
+            slots = [frame.layers[layer_index] for frame in document.frames]
+            cells = [slot.__dict__.get("_cell") for slot in slots]
+            before = ModelLayer.timeline_revision
+            results.append([document.restore_exposure(undo)])
+            middle = capture()
+            results[-1].append(document.restore_exposure(redo))
+            revisions.append(ModelLayer.timeline_revision - before)
+            entries.append((undo.references, redo.references, middle.references))
+            fates.append([(column, _slot_signature(slot, slot._track)[:8])
+                          for column, slot in enumerate(slots)
+                          if not any(slot is layer for frame in document.frames
+                                     for layer in frame.layers)])
+            fates[-1].append([index for index, (slot, cell) in enumerate(zip(slots, cells))
+                              if slot.__dict__.get("_cell") is not cell])
+        assert calls == []
+        assert results[1] == results[0]
+        assert _exposure_values(entries[1]) == _exposure_values(entries[0])
+        assert revisions[1] == revisions[0]
+        assert fates[1] == fates[0]
+        assert _whole_signature(live) == _whole_signature(plain)
+
+
+def test_restore_exposure_that_rust_cannot_apply_takes_the_current_path(monkeypatch):
+    # 戻した値が Rust で表せない（絵と空キーが同時の）記録は今の経路で、結果は同じ。
+    from paintmaskanimator.undo_entries import ExposureUndo
+    plain, live = _pair(hold=5, count=10)
+    live._promote()
+    results = []
+    for document in (plain, live):
+        references = list(document.exposure_references(0, 5))
+        references[0] = (True, True, *references[0][2:])
+        undo = ExposureUndo(0, 5, 1, len(document.frames), 0, 0, tuple(references))
+        if document is live:
+            calls = _round_trips(live, monkeypatch)
+        try:
+            results.append(document.restore_exposure(undo))
+        except Exception as exc:  # 今の手順が失敗するなら、同じ失敗になること
+            results.append(type(exc))
+    assert calls
+    assert results[1] == results[0]
+
+
 def test_resize_sheet_exposure_detaches_unshifted_tail_windows_like_python(monkeypatch):
     # 後ろを送る形で、今の手順の送りは最初に伸ばした長さまでしか送らない。送られない末尾の
     # 位置の窓口（Layer・局所の Cell・画像）は文書から外れ、外れた Layer に描いても文書は

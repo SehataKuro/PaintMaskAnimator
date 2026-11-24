@@ -15,7 +15,6 @@ restores model state, and PaintCanvas restores palette and transform state.
 """
 from __future__ import annotations
 
-from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, List, Optional, Sequence, Tuple
 
@@ -66,13 +65,7 @@ class ExposureUndo(UndoEntry):
     @classmethod
     def capture(cls, canvas, layer, column):
         # Metadata only: never clone a Layer/Cell or retain drawing snapshots.
-        references = tuple(
-            (slot.has_content, slot.is_blank_key, slot.blank_start,
-             slot.sequence_number, slot.sequence_only,
-             deepcopy(slot.tween), slot.tween_member,
-             slot.__dict__.get("_dense_import"), slot.__dict__.get("_v1_position"))
-            for frame in canvas.frames[column:]
-            for slot in (frame.layers[layer],))
+        references = canvas._document.exposure_references(layer, column)
         block = canvas.timeline_block_at(column, layer)
         return cls(layer, column, block[2] if block else 1,
                    len(canvas.frames), canvas.current_frame, canvas.active_layer_index,

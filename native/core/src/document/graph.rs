@@ -637,6 +637,46 @@ pub(super) fn position_value(value: &Value, images: &[RgbaImage]) -> Result<Posi
     position(value, &Images { input: images })
 }
 
+/// ExposureUndo の記録の列（restore_exposure_positions の入力）を JSON と画像列から作る。
+///
+/// 各要素は位置の JSON と同じ名前の has_content・is_blank_key・blank_start・
+/// sequence_number・sequence_only・tween・tween_member・dense_import・v1_position を持つ。
+pub fn exposure_references_value(
+    value: &Value,
+    images: &[RgbaImage],
+) -> Result<Vec<super::exposure_commands::ExposureReference>, Error> {
+    let images = Images { input: images };
+    value
+        .as_array()
+        .ok_or_else(|| invalid("記録の列"))?
+        .iter()
+        .map(|item| {
+            Ok(super::exposure_commands::ExposureReference {
+                has_content: flag(item, "has_content")?,
+                is_blank_key: flag(item, "is_blank_key")?,
+                blank_start: flag(item, "blank_start")?,
+                number: optional_number(field(item, "sequence_number"))?,
+                pending: flag(item, "sequence_only")?,
+                tween: optional_json(field(item, "tween")),
+                tween_member: optional_string(field(item, "tween_member"))?,
+                dense_import: match field(item, "dense_import") {
+                    Value::Null => None,
+                    Value::Array(items) if items.len() == 3 => Some(DenseImport {
+                        guard: guard(&items[0])?,
+                        sheet: dense_reference(&items[1])?,
+                        resolved: dense_reference(&items[2])?,
+                    }),
+                    _ => return Err(invalid("dense_import")),
+                },
+                legacy: match field(item, "v1_position") {
+                    Value::Null => None,
+                    position => Some(legacy_position(position, &images)?),
+                },
+            })
+        })
+        .collect()
+}
+
 pub(super) fn settings_value(value: &Value) -> Result<TrackSettings, Error> {
     settings(value)
 }
