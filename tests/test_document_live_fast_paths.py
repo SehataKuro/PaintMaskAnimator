@@ -2502,12 +2502,11 @@ def test_restore_drawing_with_a_copy_of_a_bound_image_runs_in_place(monkeypatch)
 def test_image_replacement_that_needs_the_graph_takes_the_current_path(monkeypatch):
     plain, live = _pair()
     calls = _round_trips(live, monkeypatch)
-    # 番号の無い位置（局所の絵）への差し替えで has_content も変わる。
+    # 番号の無い位置への差し替えも、内容の印と一緒に Rust で当てる。
     image = _filled((7, 7, 7, 255))
     assert (live.replace_drawing_image(2, 1, image, has_content=True)
             == plain.replace_drawing_image(2, 1, image, has_content=True))
-    assert calls
-    calls.clear()
+    assert calls == []
     # has_content を外す戻しは、位置に局所の写しを作る。
     image = _filled((8, 8, 8, 255))
     assert (list(live.restore_batch_drawing(0, 0, image, False, 1, sheet=True))
@@ -2523,15 +2522,15 @@ def test_image_replacement_that_needs_the_graph_takes_the_current_path(monkeypat
     assert _pixels(live) == _pixels(plain)
 
 
-def test_image_replacement_retries_with_the_same_groups_and_after_the_shortcut(monkeypatch):
+def test_image_replacement_accepts_generated_groups_and_restores_numbered_content():
     plain, live = _pair()
-    # frame_scope と同じく生成式を渡す。2つめの組は局所の位置で、試しのやり直しになる。
+    # frame_scope と同じく生成式を渡す。2つめの組は局所の位置で、同じ一括命令に入る。
     groups = [([(0, 0), (1, 0)], _filled((0, 255, 0, 255))), ([(2, 1)], _filled((9, 9, 9, 255)))]
     assert (live.replace_drawing_images(group for group in groups)
             == plain.replace_drawing_images(group for group in groups))
     assert _pixels(live) == _pixels(plain)
     assert _signature(live) == _signature(plain)
-    # バンクの位置で has_content が変わる：近道で画像を入れたあと、今の経路でやり直す。
+    # バンクの位置で has_content が変わる：局所の画像を差し替えたあと、バンクの絵を参照する。
     for document in (plain, live):
         document.frames[4].layers[0].has_content = False
     image = _filled((3, 3, 3, 255))
@@ -2539,6 +2538,27 @@ def test_image_replacement_retries_with_the_same_groups_and_after_the_shortcut(m
             == plain.replace_drawing_image(4, 0, image, has_content=True))
     assert _pixels(live) == _pixels(plain)
     assert _whole_signature(live) == _whole_signature(plain)
+
+
+def test_generated_image_groups_preserve_identity_when_two_cells_share_an_image(monkeypatch):
+    plain, live = _pair()
+    calls = _round_trips(live, monkeypatch)
+    results = []
+    for doc in (plain, live):
+        image = PmaImage(_filled((12, 34, 56, 255)))
+        first = PmaImage(_filled((7, 8, 9, 255)))
+        groups = ((positions, value) for positions, value in [
+            ([(0, 1)], first),
+            ([(0, 0), (2, 0)], image),
+        ])
+        results.append(doc.replace_drawing_images(groups))
+        assert doc.frames[0].layers[1].image is first
+        assert doc.frames[0].layers[0].image is image
+        assert doc.frames[2].layers[0].image is image
+    assert calls
+    assert results[0] == results[1]
+    assert _whole_signature(live) == _whole_signature(plain)
+    assert _pixels(live) == _pixels(plain)
 
 
 def test_initial_image_and_cell_assignment_use_the_shortcut(monkeypatch):
@@ -3758,3 +3778,91 @@ def test_ensure_frame_count_matches_python(operation, monkeypatch, tmp_path):
             return {name: archive.read(name) for name in archive.namelist()}
 
     assert save(live, "live") == save(plain, "plain")
+
+
+@pytest.mark.parametrize("shape", ["local", "local_empty", "clear", "retained", "batch", "pending"])
+def test_replace_drawing_images_matches_graph_without_run(monkeypatch, tmp_path, shape):
+    from zipfile import ZipFile
+
+    from paintmaskanimator import constants, project_io, utils
+    from paintmaskanimator.errors import OperationError
+    from paintmaskanimator.project_v2 import build_payload
+
+    monkeypatch.setattr(constants, "CANVAS_WIDTH", 8)
+    monkeypatch.setattr(constants, "CANVAS_HEIGHT", 8)
+    monkeypatch.setattr(utils, "OUTSIDE_MARGIN", 0)
+
+    plain, live = _pair()
+    frame, layer = (2, 1) if shape in ("local", "local_empty", "batch") else (2, 0)
+    if shape == "retained":
+        for doc in (plain, live):
+            doc.set_drawing_content(frame, layer, False)
+    if shape == "pending":
+        for doc in (plain, live):
+            doc.frames[frame].layers[layer].set_pending(True)
+    assert live._live()["graph"] is None
+    saved = [doc.snapshot() for doc in (plain, live)]
+    calls = []
+    original = document_live.Document._run
+
+    def traced(self, name, args, kwargs):
+        calls.append(name)
+        return original(self, name, args, kwargs)
+
+    monkeypatch.setattr(document_live.Document, "_run", traced)
+    results = []
+    for doc in (plain, live):
+        slot = doc.frames[frame].layers[layer]
+        track = slot._track
+        cell, old = slot._cell, slot.image
+        old_pixels = old.rgba().tobytes()
+        token = slot.__dict__.get("_pending_token")
+        pending = token in track.pending_slots
+        image = PmaImage(_filled((12, 34, 56, 255)))
+        before = Layer.timeline_revision
+        if shape == "batch":
+            groups = iter([([[3, 0], (2, 0)], _filled((1, 9, 8, 255))),
+                           ([(frame, layer), (frame, layer)], image)])
+            changes = doc.replace_drawing_images(groups)
+        else:
+            changes = doc.replace_drawing_image(
+                frame, layer, image, has_content=shape not in ("local_empty", "clear", "pending"))
+        delta = Layer.timeline_revision - before
+        assert doc.frames[frame].layers[layer] is slot
+        assert slot._track is track
+        assert slot.__dict__.get("_pending_token") is token
+        assert (token in track.pending_slots) == pending
+        assert old.rgba().tobytes() == old_pixels
+        if shape == "clear":
+            assert track.cells[2] is cell
+            assert cell.image is image
+            assert slot.image is not image
+        elif shape == "retained":
+            assert slot._cell is track.cells[2]
+            assert cell.image is image
+        else:
+            assert slot._cell is cell
+            assert slot.image is image
+        path = tmp_path / ("live.pman" if doc is live else "plain.pman")
+        snapshot = project_io.ProjectSnapshot.capture({}, doc)
+        if shape in ("local", "batch"):
+            # 番号の無い内容キーは現行の v2 読込検証で拒まれる。保存用の値と同じ拒否を確認する。
+            payload, pngs = build_payload(snapshot)
+            with pytest.raises(OperationError):
+                project_io.write_project_snapshot(path, snapshot)
+            assert not path.exists()
+            files = payload, [(name, pixels.rgba().tobytes()) for name, pixels, _ in pngs]
+        else:
+            project_io.write_project_snapshot(path, snapshot)
+            with ZipFile(path) as archive:
+                files = {name: archive.read(name) for name in archive.namelist()}
+        results.append((changes, delta, files))
+    assert calls == []
+    assert live._live()["graph"] is None
+    assert results[0] == results[1]
+    assert _signature(live) == _signature(plain)
+    assert _pixels(live) == _pixels(plain)
+    expected, snapshot = saved
+    assert live.restore_snapshot(snapshot) == plain.restore_snapshot(expected)
+    assert _signature(live) == _signature(plain)
+    assert _pixels(live) == _pixels(plain)

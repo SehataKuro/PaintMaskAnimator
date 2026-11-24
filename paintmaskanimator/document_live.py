@@ -2079,6 +2079,33 @@ class Document:
                 return changes
         return self._in_place_or_run("set_drawing_content", (frame, layer_index, has_content), {})
 
+    def replace_drawing_image(self, frame, layer_index, image, *, has_content):
+        """一つの位置の画像と内容の印を差し替える。"""
+        from .document import GraphDocument
+        args = (frame, layer_index, image)
+        if not isinstance(self, Document):
+            return GraphDocument.replace_drawing_image(self, *args, has_content=has_content)
+        changes = _core_replace_drawing_images(
+            self, [([(frame, layer_index)], image)], single=True, has_content=has_content)
+        if changes is not None:
+            return changes
+        return self._in_place_or_run("replace_drawing_image", args, {"has_content": has_content})
+
+    def replace_drawing_images(self, groups):
+        """組ごとに同じ画像を、入力順に指定された位置へ入れる。"""
+        from .document import GraphDocument
+        if not isinstance(self, Document):
+            return GraphDocument.replace_drawing_images(self, groups)
+        live = _live_of(self)
+        if live["graph"] is None and not live.get("trial"):
+            # 試しの途中で従来経路に戻っても、外側の生成器をもう一度読まない。
+            if isinstance(groups, Iterator):
+                groups = list(groups)
+            changes = _core_replace_drawing_images(self, groups)
+            if changes is not None:
+                return changes
+        return self._in_place_or_run("replace_drawing_images", (groups,), {})
+
     def restore_drawing(self, frame, layer_index, number, image, has_content, *,
                         sheet, patches=None):
         """戻す絵がバンクの一枚で位置の has_content が変わるなら、書き出し往復なしで当てる
@@ -5034,6 +5061,132 @@ def _core_position_command(document, name, column, layer_index, replace):
     return changes
 
 
+def _core_replace_drawing_images(document, groups, *, single=False, has_content=True):
+    """変更前に位置と画像の所属を検査し、Rust の差し替えをまとめて当てる。
+
+    画像一つにつき Cell は一つ。同じ番号の保持や同じ位置の再指定でも通知は入力順に
+    残す。別の Cell に結ばれた画像、複数の Cell が持つ画像、局所の Cell の共有は
+    従来経路で扱う。
+    """
+    from PySide6.QtGui import QImage
+
+    from .pma_image import attributes_tag, to_pma_image
+
+    live = _live_of(document)
+    if (live["graph"] is not None or live.get("trial") or type(has_content) is not bool
+            or type(groups) not in (tuple, list)):
+        return None
+    state, cache = live["state"], live["cache"]
+    core = live["core"]
+    positions, tracks, assignments, image_keys = set(), set(), {}, {}
+    touched = {}
+    cleared = []
+    revisions = 0
+    command = []
+    for group in groups:
+        if type(group) not in (tuple, list) or len(group) != 2:
+            return None
+        coordinates, value = group
+        if type(coordinates) not in (tuple, list) or type(value) not in (QImage, PmaImage, BoundImage):
+            return None
+        image = None
+        targets = []
+        for coordinate in coordinates:
+            if type(coordinate) not in (tuple, list) or len(coordinate) != 2:
+                return None
+            frame, layer = coordinate
+            if (type(frame) is not int or type(layer) is not int
+                    or not 0 <= frame < len(state.frame_ids)
+                    or not 0 <= layer < len(state.track_ids)):
+                return None
+            key = state.frame_ids[frame], state.track_ids[layer]
+            values = state.position(*key)[0]
+            if values.get("local_share") is not None or values.get("local_bank"):
+                return None
+            changed = values["has_content"] != has_content
+            if changed and _content_change_diverges(values, has_content):
+                return None
+            number = values["sequence_number"]
+            bank = _slot_bank_key(document, key)
+            artwork = bank if bank is not None else ("local", *key)
+            if number is not None and (bank is not None or has_content):
+                if document._cell_value(("bank", key[1], number)) is None:
+                    return None
+            if single and bank is not None and not changed and (
+                    not has_content or values["content_origin"] is None):
+                # 既存の、バンクの一枚だけを書き換える近道を使う。
+                return None
+            if image is None:
+                image = to_pma_image(value)
+            if key in touched and touched[key] is not image:
+                return None
+            if key in touched and changed and number is not None and bank is None:
+                # 最初の代入でバンクを参照し、次の代入は別の絵に届く。
+                return None
+            if key not in touched:
+                revisions += changed
+                if changed and not has_content and bank is not None:
+                    cleared.append(key)
+            touched[key] = image
+            if (assignments.get(artwork, image) is not image
+                    or image_keys.get(id(image), artwork) != artwork):
+                return None
+            old = cache._objects.get(("image", (artwork, False)))
+            if old is not image and type(image._image) is not _native.RgbaImage:
+                return None
+            assignments[artwork] = image
+            image_keys[id(image)] = artwork
+            targets.append((frame, layer))
+            if bank is not None:
+                tracks.add(key[1])
+            if bank is None or changed or (has_content and values["content_origin"] is not None):
+                positions.add(key)
+        if image is not None:
+            handle = image._image.copy().with_tag(attributes_tag(image._attributes))
+            command.append((targets, handle))
+
+    plan = _detach_plan(document, [], cleared)
+    if plan is None:
+        return None
+    replaced = {}
+    for artwork, image in assignments.items():
+        old = cache._objects.get(("image", (artwork, False)))
+        if old is not None and old is not image:
+            replaced[artwork] = old, old._image.copy()
+    try:
+        if single:
+            coordinates, handle = command[0]
+            frame, layer = coordinates[0]
+            notices = core.replace_drawing_image(frame, layer, handle, has_content)
+        else:
+            notices = core.replace_drawing_images(command)
+    except ValueError:
+        return None
+
+    # Rust を書き換える前の画素で古い窓口を外し、渡された画像そのものを文書へ結ぶ。
+    for artwork, (old, handle) in replaced.items():
+        cache.pop("image", (artwork, False))
+        old.__class__ = PmaImage
+        object.__setattr__(old, "_image", handle)
+        object.__setattr__(old, "_attributes", tag_attributes(handle.tag))
+    for artwork, image in assignments.items():
+        _bind(image, _native._CellImage(core, artwork[0] == "bank", *artwork[1:], False))
+        cache.put("image", (artwork, False), image)
+    for key in positions:
+        state.refresh_position(*key)
+        state.slot_copies.pop(key, None)
+        state.slot_dicts.pop(key, None)
+    for tid in tracks:
+        state.refresh_track(tid)
+        state.forget_track(tid)
+    if positions:
+        state.resolved = None
+        state.pending.clear()
+    Layer.timeline_revision += revisions
+    _detach(document, plan)
+    return _changes_from_json(notices)
+
+
 def _core_set_drawing_content(document, frame, layer_index, has_content):
     """set_drawing_content の、位置の has_content が変わる場合を Rust の命令で当てる。
     今の手順と同じにできなければ None（値が変わらない代入もこちらでは扱わない）。
@@ -5779,7 +5932,6 @@ _IN_PLACE = frozenset((
 _TRY_IN_PLACE = frozenset((
     "write_drawing_patch", "set_drawing_content",
     "set_track_properties", "set_position_track_properties", "restore_drawing",
-    "replace_drawing_image", "replace_drawing_images",
 ))
 
 
@@ -5824,8 +5976,7 @@ def _install_methods():
                 # 窓口のまま試している操作の中。書き込みが素のグラフを要れば外側がやり直す。
                 return _plain(self, *args, **kwargs)
             if _try and live["graph"] is None:
-                # 生成器の引数（frame_scope は replace_drawing_images に生成式を渡す）は先に
-                # 並べる。試しが途中まで読んだあとのやり直しにも、同じ並びを渡すため。
+                # 生成器の引数は先に並べ、試しが途中まで読んでも同じ並びでやり直せるようにする。
                 args = tuple(list(arg) if isinstance(arg, Iterator) else arg for arg in args)
                 try:
                     return _try_in_place(self, _plain, args, kwargs)

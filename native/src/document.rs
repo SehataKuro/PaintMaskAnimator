@@ -1,5 +1,6 @@
 use crate::image::PyRgbaImage;
 use pma_core::document::access::{ArtworkSlot, ImageField};
+use pma_core::document::drawing_commands::DrawingImageGroup;
 use pma_core::document::model::{CellNumber, Document, FrameId, TrackId};
 use pma_core::document::{comparison, graph, v2};
 use pma_core::image::{Rect, RgbaImage};
@@ -7,6 +8,7 @@ use pma_core::project::payload::decode_v2_plan;
 use pyo3::{exceptions::PyValueError, prelude::*, types::PyBytes};
 
 type PositionKeys = Vec<(u64, u64)>;
+type PyDrawingImageGroup<'py> = (Vec<(usize, usize)>, PyRef<'py, PyRgbaImage>);
 type LegacyInstallOutput = (
     usize,
     PositionKeys,
@@ -125,6 +127,34 @@ impl PyCoreDocument {
         let operations = v2::parse_json(&format!("[{operation}]")).map_err(value_error)?;
         let document = &mut self.0;
         py.detach(|| comparison::apply_operations(document, &operations))
+            .map_err(value_error)
+    }
+
+    /// 位置の画像と内容の印を入力順に差し替え、ChangeSet の JSON を返す。
+    fn replace_drawing_image(
+        &mut self,
+        frame: usize,
+        layer: usize,
+        image: PyRef<'_, PyRgbaImage>,
+        has_content: bool,
+    ) -> PyResult<String> {
+        self.0
+            .replace_drawing_image(frame, layer, image.share(), has_content)
+            .map(comparison::command_notices)
+            .map_err(value_error)
+    }
+
+    /// 一括差し替えを当て、入力順の ChangeSet の JSON を返す。
+    fn replace_drawing_images(&mut self, groups: Vec<PyDrawingImageGroup<'_>>) -> PyResult<String> {
+        let images: Vec<_> = groups.iter().map(|(_, image)| image.share()).collect();
+        let groups: Vec<_> = groups
+            .iter()
+            .zip(&images)
+            .map(|((positions, _), image)| DrawingImageGroup { positions, image })
+            .collect();
+        self.0
+            .replace_drawing_images(&groups)
+            .map(comparison::command_notices)
             .map_err(value_error)
     }
 

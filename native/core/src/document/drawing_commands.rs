@@ -173,6 +173,16 @@ impl Document {
     ) -> Result<Change, Error> {
         let track = *self.track_order.get(layer_index).ok_or_else(missing)?;
         let (artwork, number, _) = self.artwork_target(track, DrawingTarget::Frame(frame))?;
+        let position = &self.sheet[&self.frame_order[frame]].positions[&track];
+        let current = matches!(position.reference, Reference::Number(_))
+            || position.compatibility.unnumbered_content;
+        if (has_content && matches!(position.reference, Reference::Blank))
+            || (!has_content && current && position.blank_start)
+            || position.compatibility.local_share.is_some()
+            || position.compatibility.local_bank
+        {
+            return Err(Error::Invalid("画像を差し替えられない位置です".into()));
+        }
         if let Some(cell) = self.artwork_mut(track, artwork) {
             cell.image = image;
         } else if let Artwork::Local(_) = artwork {
@@ -185,6 +195,9 @@ impl Document {
             return Err(missing());
         }
         self.update_drawing_content(frame, track, number, has_content)?;
+        if has_content {
+            self.position_mut(frame, track).compatibility.content_origin = None;
+        }
         Ok(Change::DrawingPixels {
             layer_index,
             number,
@@ -598,6 +611,44 @@ mod tests {
         assert_eq!(slot.number(), Some(number));
         assert_eq!(
             slot.compatibility.local.as_ref().unwrap().image.rgba(),
+            image.rgba()
+        );
+    }
+
+    #[test]
+    fn image_replacement_clears_content_origin_and_rejects_blank_keys_atomically() {
+        let input = json!({
+            "canvas": {"width": 1, "height": 1},
+            "frame_durations": [1, 1],
+            "tracks": [{"cells": [{"number": 3, "image": "3.png"}], "sheet": [3, "BLANK"]}],
+        });
+        let plan = decode_v2_plan(&input, &["3.png".into()]).unwrap();
+        let blank = RgbaImage::blank(1, 1).unwrap();
+        let mut doc = v2::from_plan(&input, &plan, &[blank]).unwrap();
+        let track = doc.track_order()[0];
+        let number = CellNumber::new(3).unwrap();
+        doc.position_mut(0, track).compatibility.content_origin = Some(number);
+        let image = RgbaImage::from_rgba(1, 1, &[33, 44, 55, 255]).unwrap();
+        let before = doc.graph_fingerprints();
+        let group = DrawingImageGroup {
+            positions: &[(0, 0), (1, 0)],
+            image: &image,
+        };
+        assert!(doc.replace_drawing_images(&[group]).is_err());
+        assert_eq!(doc.graph_fingerprints(), before);
+        assert_eq!(
+            doc.position_mut(0, track).compatibility.content_origin,
+            Some(number)
+        );
+
+        doc.replace_drawing_image(0, 0, image.clone(), true)
+            .unwrap();
+        assert_eq!(
+            doc.position_mut(0, track).compatibility.content_origin,
+            None
+        );
+        assert_eq!(
+            doc.track(track).unwrap().cells[&number].image.rgba(),
             image.rgba()
         );
     }
