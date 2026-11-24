@@ -788,22 +788,73 @@ def test_insert_sequence_blank_imports_the_blank_like_python(monkeypatch):
         assert _whole_signature(live) == _whole_signature(plain)
 
 
-def test_insert_sequence_blank_drops_dense_import_of_shifted_numbers_like_python():
-    # 今の手順は送った番号を代入するので、その位置の取り込み時の記録（_dense_import）が消える。
-    from paintmaskanimator.legacy_v1 import BLANK, EMPTY
+def test_insert_sequence_blank_drops_dense_import_of_shifted_numbers_like_python(
+        monkeypatch, tmp_path):
+    from zipfile import ZipFile
+
+    from paintmaskanimator import constants, project_io, utils
+    from paintmaskanimator.legacy_v1 import DenseReference
     from paintmaskanimator.timeline_metadata import set_dense_import
-    documents = []
-    for factory in (GraphDocument, document_live.Document):
-        frames = _frames(hold=2, count=6)
+
+    monkeypatch.setattr(constants, "CANVAS_WIDTH", 8)
+    monkeypatch.setattr(constants, "CANVAS_HEIGHT", 8)
+    monkeypatch.setattr(utils, "OUTSIDE_MARGIN", 0)
+    plain, live = _pair()
+    assert live._live()["graph"] is None
+    documents = (plain, live)
+    for doc in documents:
+        doc.frames[3].layers[0].set_pending(True)
         for column in (0, 4):
-            slot = frames[column].layers[0]
-            set_dense_import(slot, ((True, False, slot.sequence_number, False, False),
-                                    BLANK, EMPTY))
-        document = factory()
-        document.install_legacy_frames(frames)
-        documents.append((document, document.insert_sequence_blank(0, 1)))
-    (plain, expected), (live, result) = documents
-    assert result == expected
+            slot = doc.frames[column].layers[0]
+            ref = DenseReference("CELL", slot.sequence_number)
+            slot._cell.image = PmaImage(_filled((10 + column, 40, 60, 255)))
+            slot.initial_image = slot.image.copy()
+            set_dense_import(slot, ((True, False, slot.sequence_number, False, False), ref, ref))
+    snapshots = [doc.snapshot() for doc in documents]
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("insert_sequence_blank が _run を呼んだ")
+
+    results = []
+    with monkeypatch.context() as patch:
+        patch.setattr(document_live.Document, "_run", forbidden)
+        for doc in documents:
+            frames, tracks = doc.frames, doc.tracks
+            track = tracks[0]
+            bank = [(n, cell, cell.image, cell.initial_image) for n, cell in track.cells.items()]
+            old = [(frame, slot, slot._cell, slot.image, slot.__dict__["_pending_token"])
+                   for frame in frames for slot in frame.layers]
+            revision = Layer.timeline_revision
+            changes = doc.insert_sequence_blank(0, 1)
+            delta = Layer.timeline_revision - revision
+
+            assert doc.frames is frames and doc.tracks is tracks and tracks[0] is track
+            for index, (frame, slot, cell, image, token) in enumerate(old):
+                column, layer = divmod(index, 2)
+                assert frames[column] is frame and frame.layers[layer] is slot
+                assert slot._cell is cell and slot.image is image
+                assert slot.__dict__["_pending_token"] is token
+                assert (token in slot._track.pending_slots) is (column == 3 and layer == 0)
+            for n, cell, image, initial in bank:
+                assert track.cells[n if n == 1 else n + 1] is cell
+                assert cell.image is image and cell.initial_image is initial
+            assert frames[0].layers[0].__dict__.get("_dense_import") is not None
+            assert frames[4].layers[0].__dict__.get("_dense_import") is None
+            new = frames[-1].layers[0]
+            assert new._cell is track.cells[2] and new.is_blank_key and new.blank_start
+            assert new.__dict__["_pending_token"] in track.pending_slots
+            assert all(new.__dict__["_pending_token"] is not token for *_, token in old)
+            path = tmp_path / ("live.pman" if doc is live else "plain.pman")
+            project_io.write_project_snapshot(path, project_io.ProjectSnapshot.capture({}, doc))
+            with ZipFile(path) as archive:
+                files = {name: archive.read(name) for name in archive.namelist()}
+            results.append((changes, delta, files))
+    assert live._live()["graph"] is None
+    assert results[0] == results[1]
+    assert _signature(live) == _signature(plain)
+    assert _pixels(live) == _pixels(plain)
+    assert plain.restore_snapshot(snapshots[0]) == live.restore_snapshot(snapshots[1])
+    assert _pixels(live) == _pixels(plain)
     assert _whole_signature(live) == _whole_signature(plain)
 
 

@@ -12,7 +12,12 @@ fn invalid() -> Error {
 }
 
 impl Document {
-    fn apply_number_mapping(&mut self, track: TrackId, mapping: &BTreeMap<CellNumber, CellNumber>) {
+    fn apply_number_mapping(
+        &mut self,
+        track: TrackId,
+        mapping: &BTreeMap<CellNumber, CellNumber>,
+        clear_dense_import: bool,
+    ) {
         let mapped = |number: CellNumber| mapping.get(&number).copied().unwrap_or(number);
         // 呼び出し元で表示順から引いた列は、バンクとすべての行に存在する。
         let bank = self.tracks.get_mut(&track).unwrap();
@@ -26,6 +31,13 @@ impl Document {
             .collect();
         for row in self.sheet.values_mut() {
             let position = Arc::make_mut(row).positions.get_mut(&track).unwrap();
+            if clear_dense_import
+                && position
+                    .number()
+                    .is_some_and(|number| mapping.contains_key(&number))
+            {
+                position.compatibility.dense_import = None;
+            }
             if let Reference::Number(number) = &mut position.reference {
                 *number = mapped(*number);
             }
@@ -39,7 +51,6 @@ impl Document {
             {
                 legacy.number = legacy.number.map(mapped);
             }
-            // 取り込み時の署名は更新しない。変更された番号はライブ位置を使用する。
         }
     }
 
@@ -78,7 +89,7 @@ impl Document {
                     ))
                 })
                 .collect::<Result<BTreeMap<_, _>, Error>>()?;
-            edited.apply_number_mapping(track, &mapping);
+            edited.apply_number_mapping(track, &mapping, false);
             let mut last = mapping.len();
             for frame in 0..edited.frame_order.len() {
                 let position = &edited.sheet[&edited.frame_order[frame]].positions[&track];
@@ -123,13 +134,15 @@ impl Document {
     }
 
     /// Python の insert_sequence_blank 同様に、後続番号を送り配置待ちの空キーを追加する。
+    /// 画像を渡すと新しいバンクの Cell に使う。番号が変わる位置の取り込み記録を外す。
     pub fn insert_sequence_blank(
         &mut self,
         layer_index: usize,
         after_number: i64,
+        image: Option<RgbaImage>,
     ) -> Result<ChangeSet, Error> {
         let track = *self.track_order.get(layer_index).ok_or_else(invalid)?;
-        let bank = &self.tracks[&track];
+        let bank = self.tracks.get(&track).ok_or_else(invalid)?;
         let number = CellNumber::new(if bank.cells.is_empty() {
             1
         } else {
@@ -145,19 +158,27 @@ impl Document {
                 ))
             })
             .collect::<Result<BTreeMap<_, _>, Error>>()?;
-        let image = RgbaImage::blank(self.width, self.height)?;
+        let image = match image {
+            Some(image) => image,
+            None => RgbaImage::blank(self.width, self.height)?,
+        };
         let column = self.frame_order.len();
-        let mut changes = self.ensure_frame_count(column + 1)?;
-        self.apply_number_mapping(track, &mapping);
+        let stop = column.checked_add(1).ok_or(Error::TimelineSizeOverflow)?;
+        let mut changes = self.ensure_frame_count(stop)?;
+        self.apply_number_mapping(track, &mapping, true);
         // ensure_frame_count は列を変更しない。
-        self.tracks.get_mut(&track).unwrap().cells.insert(
-            number,
-            Cell {
-                image,
-                initial_image: None,
-                cell_name: None,
-            },
-        );
+        self.tracks
+            .get_mut(&track)
+            .ok_or_else(invalid)?
+            .cells
+            .insert(
+                number,
+                Cell {
+                    image,
+                    initial_image: None,
+                    cell_name: None,
+                },
+            );
         let mut position = Position {
             reference: Reference::Blank,
             blank_start: true,
@@ -172,7 +193,7 @@ impl Document {
             Change::SheetSpans {
                 layer_index,
                 start: 0,
-                stop: column + 1,
+                stop,
             },
             Change::Cursor {
                 frame: column,
@@ -270,9 +291,70 @@ impl Document {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::document::compatibility::{DenseImport, PositionGuard};
     use crate::document::v2;
     use crate::project::payload::decode_v2_plan;
     use serde_json::json;
+
+    #[test]
+    fn inserting_a_sequence_blank_clears_only_renumbered_dense_imports() {
+        let input = json!({
+            "canvas": {"width": 1, "height": 1},
+            "frame_durations": [1, 1, 1],
+            "tracks": [{
+                "cells": [{"number": 1, "image": "1.png"}, {"number": 2, "image": "2.png"}],
+                "sheet": [1, 2, 2],
+            }],
+        });
+        let plan = decode_v2_plan(&input, &["1.png".into(), "2.png".into()]).unwrap();
+        let images = vec![RgbaImage::blank(1, 1).unwrap(); plan.images.len()];
+        let mut doc = v2::from_plan(&input, &plan, &images).unwrap();
+        let track = doc.track_order[0];
+        for column in 0..3 {
+            let position = doc.position_mut(column, track);
+            position.compatibility.dense_import = Some(DenseImport {
+                guard: PositionGuard::capture(position),
+                sheet: Reference::Blank,
+                resolved: Reference::Empty,
+            });
+        }
+
+        let before = doc.to_graph().0;
+        assert!(doc.insert_sequence_blank(0, i64::MAX, None).is_err());
+        assert_eq!(doc.to_graph().0, before);
+        let two = CellNumber::new(2).unwrap();
+        let maximum = CellNumber::new(i64::MAX).unwrap();
+        let mut overflow = doc.clone();
+        let cells = &mut overflow.tracks.get_mut(&track).unwrap().cells;
+        let cell = cells.remove(&two).unwrap();
+        cells.insert(maximum, cell);
+        let before = overflow.to_graph().0;
+        assert!(overflow.insert_sequence_blank(0, 1, None).is_err());
+        assert_eq!(overflow.to_graph().0, before);
+
+        let three = CellNumber::new(3).unwrap();
+        let image = RgbaImage::blank(2, 3).unwrap();
+        let generation = image.generation();
+        let changes = doc.insert_sequence_blank(0, 1, Some(image)).unwrap();
+        assert_eq!(changes.len(), 4);
+        assert!(doc
+            .position_mut(0, track)
+            .compatibility
+            .dense_import
+            .is_some());
+        for column in 1..3 {
+            let position = doc.position_mut(column, track);
+            assert_eq!(position.number(), Some(three));
+            assert!(position.compatibility.dense_import.is_none());
+        }
+        let pending = doc.position_mut(3, track);
+        assert_eq!(pending.number(), Some(two));
+        assert!(pending.pending && pending.blank_start);
+        assert_eq!(
+            doc.tracks[&track].cells[&two].image.generation(),
+            generation
+        );
+    }
 
     // tests/test_normalize_numbers.py:test_mapping_follows_first_appearance_and_keeps_reuse
     // tests/test_core_document_compare.py:test_review_normalize_unnumbered

@@ -130,6 +130,23 @@ impl PyCoreDocument {
             .map_err(value_error)
     }
 
+    /// 空画像番号を挿入し、ChangeSet の JSON を返す。
+    fn insert_sequence_blank(
+        &mut self,
+        py: Python<'_>,
+        layer: usize,
+        after_number: i64,
+        image: PyRef<'_, PyRgbaImage>,
+    ) -> PyResult<String> {
+        let image = image.share();
+        py.detach(|| {
+            self.0
+                .insert_sequence_blank(layer, after_number, Some(image))
+        })
+        .map(comparison::command_notices)
+        .map_err(value_error)
+    }
+
     /// 位置の画像と内容の印を入力順に差し替え、ChangeSet の JSON を返す。
     fn replace_drawing_image(
         &mut self,

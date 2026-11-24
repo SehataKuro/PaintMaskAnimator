@@ -236,7 +236,7 @@ pub fn apply_operations(document: &mut Document, operations: &Value) -> Result<S
                 edited.move_sequence_image(index(layer)?, number(first)?, number(second)?)
             }
             [name, layer, n] if name == "insert_sequence_blank" => {
-                edited.insert_sequence_blank(index(layer)?, n.as_i64().ok_or_else(invalid)?)
+                edited.insert_sequence_blank(index(layer)?, n.as_i64().ok_or_else(invalid)?, None)
             }
             [name, frame, layer, content] if name == "set_drawing_content" => edited
                 .set_drawing_content(
