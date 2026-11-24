@@ -2401,12 +2401,27 @@ def _capture_lazy(cls, core, frame, layer, width, height, nbytes):
     return snapshot
 
 
+def _cloned_frames(core):
+    """Rust の文書 core から、その素のグラフに clone_frame_graph を当てたのと同じ値の frames を作る。
+
+    core の写しに restore_from（clone_frame_graph で写した文書と同じ値に整える）を当ててから
+    一度だけ組み立てる（素のグラフを作ってから Python で写し直さない）。画像は写しが
+    持つ新しいオブジェクトで、画素は共有する。今の手順は写すとき（clone_slot）に位置の形
+    しだいで timeline_revision を進めるので、キャッシュの判定のために1つ進める（遅延の
+    写しを取るときと同じ）。
+    """
+    copied = core.copy()
+    copied.restore_from(core)
+    frames, _, _, _, _ = graph_from_core(copied)
+    Layer.timeline_revision += 1
+    return frames
+
+
 def _resolve_lazy(self):
     values = self.__dict__
     if values["_value"] is None:
-        from .document import DocumentSnapshot, clone_frame_graph
-        frames, _, _, _, _ = graph_from_core(values["_core"])
-        copied, _ = clone_frame_graph(frames)
+        from .document import DocumentSnapshot
+        copied = _cloned_frames(values["_core"])
         tracks = [layer._track for layer in copied[0].layers] if copied else []
         current, active, width, height = tuple.__getitem__(self, slice(1, 5))
         values["_value"] = DocumentSnapshot(copied, current, active, width, height, tracks)
@@ -3774,20 +3789,19 @@ def _core_clone_graph(document):
     """clone_graph を書き出し往復なしで取る。今の手順と同じにできなければ None。
 
     今の手順は素のグラフに clone_frame_graph を当てる（画像は写し、札・Track は新しく作る
-    ので、窓口の札や配置待ちの記録は写しに渡らない）。Rust の文書から作った素のグラフに
-    同じ手順を当てれば同じ値になる（遅延の Undo の写しと同じ形）。局所の絵の無い位置や
+    ので、窓口の札や配置待ちの記録は写しに渡らない）。その値は _cloned_frames で Rust の
+    文書の写しから一度で作る（遅延の Undo の写しと同じ形）。局所の絵の無い位置や
     画像の無い Cell（今の手順が文書に絵を作る）があれば None。
     """
-    from .document import GraphDocument, clone_frame_graph
+    from .document import GraphDocument
     live = _live_of(document)
     state = live["state"]
     if live["graph"] is not None or state is None or live.get("trial"):
         return None
     if _snapshot_bytes(state) is None:
         return None
-    frames, _, _, _, _ = graph_from_core(live["core"])
     copied = object.__new__(GraphDocument)
-    copied.frames, _ = clone_frame_graph(frames)
+    copied.frames = _cloned_frames(live["core"])
     copied.current_frame, copied.active_layer_index = live["cursor"]
     copied.tracks = [layer._track for layer in copied.frames[0].layers] if copied.frames else []
     return copied

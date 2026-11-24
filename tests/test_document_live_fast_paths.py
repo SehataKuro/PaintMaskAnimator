@@ -2713,7 +2713,8 @@ def test_clone_graph_copies_from_core_without_round_trip(monkeypatch):
     step = Layer.timeline_revision - before
     copied = live.clone_graph()
     assert calls == []
-    assert Layer.timeline_revision - before == 2 * step
+    # 今の手順は写した位置の形しだいの量だけ進め、近道は1つ進める（意味は「進んだか」だけ）。
+    assert step > 0 and Layer.timeline_revision - before == step + 1
     assert all(a is b for frame, row in zip(live.frames, slots) for a, b in zip(frame.layers, row))
     assert (copied.current_frame, copied.active_layer_index) == (
         expected.current_frame, expected.active_layer_index)
@@ -3027,3 +3028,32 @@ def test_archive_hint_none_value_and_plain_self_keep_current_path(monkeypatch):
     other, _ = _pair(hold=2, count=4)
     document_live.Document.put_archive_hint(other, other.tracks[0], 2, ArchiveHint())
     assert document_live.Document.remove_archive_hint(other, other.tracks[0], 2) == ArchiveHint()
+
+
+def test_clone_graph_and_lazy_snapshot_build_once_from_core(monkeypatch):
+    # 保存の写しと遅延の Undo の写しの中身は、Rust で整えた写しから一度だけ組み立てる
+    # （素のグラフを Python で写し直さない）。値は今の手順と同じ。
+    from paintmaskanimator import document as document_module
+    plain, live = _pair(hold=2, count=6)
+    for document in (plain, live):
+        document.frames[2].layers[1].set_pending(True)
+        document.insert_sequence_blank(0, 1)
+    live._promote()
+    expected_graph, expected_snapshot = plain.clone_graph(), plain.snapshot()
+    snapshot = live.snapshot()
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("clone_frame_graph は呼ばない")
+    monkeypatch.setattr(document_module, "clone_frame_graph", forbidden)
+    calls = _round_trips(live, monkeypatch)
+    copied = live.clone_graph()
+    frames = snapshot.frames
+    assert calls == []
+    assert _whole_signature(copied) == _whole_signature(expected_graph)
+    graph = object.__new__(document_module.GraphDocument)
+    graph.frames, graph.tracks = frames, snapshot.tracks
+    graph.current_frame, graph.active_layer_index = snapshot[1], snapshot[2]
+    reference = object.__new__(document_module.GraphDocument)
+    reference.frames, reference.tracks = expected_snapshot.frames, expected_snapshot.tracks
+    reference.current_frame, reference.active_layer_index = expected_snapshot[1], expected_snapshot[2]
+    assert _whole_signature(graph) == _whole_signature(reference)
