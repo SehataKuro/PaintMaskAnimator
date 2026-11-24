@@ -265,6 +265,17 @@ impl Document {
         timeline::sheet(&self.timeline_rows(false))
     }
 
+    /// sheet_entries の列 track の分だけを、コマ順に返す（各列は独立に決まるので同じ値）。
+    ///
+    /// track は表示列にある列 ID であること（呼び出し元で検証する）。
+    pub(super) fn track_sheet_entries(&self, track: TrackId) -> Vec<SheetEntry> {
+        timeline::sheet_column(
+            self.frame_order
+                .iter()
+                .map(|id| Some(self.sheet[id].positions[&track].timeline_cell(false))),
+        )
+    }
+
     /// Python の timeline_block_at（span_at）と同じ、表示位置 column・表示列 track を含む
     /// 保持の範囲を (空キーか, 頭の表示位置, 長さ) で返す。未使用・範囲外なら None。
     ///

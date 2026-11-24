@@ -75,18 +75,17 @@ impl Document {
         if column >= self.frame_order.len() {
             return Ok(vec![None; layers.len()]);
         }
-        let (stride, entries) = self.sheet_entries()?;
+        // 求める列の分だけ項目を作る（シート全体は作らない）。
         Ok(layers
             .iter()
             .map(|&layer| {
-                let entry = &entries[column * stride + layer];
+                let entries = self.track_sheet_entries(self.track_order[layer]);
+                let entry = &entries[column];
                 if entry.kind == SHEET_EMPTY {
                     return None;
                 }
-                let stop = entries
+                let stop = entries[column..]
                     .iter()
-                    .skip(column * stride + layer)
-                    .step_by(stride)
                     .take_while(|next| next.key == entry.key)
                     .count()
                     + column;
@@ -337,7 +336,7 @@ impl Document {
         amount: usize,
     ) -> Result<(), Error> {
         let track = self.track_order[layer_index];
-        let (stride, entries) = self.sheet_entries()?;
+        let entries = self.track_sheet_entries(track);
         let original: Vec<_> = self.frame_order[column..]
             .iter()
             .map(|id| self.sheet[id].positions[&track].clone())
@@ -378,7 +377,7 @@ impl Document {
             .collect();
         for offset in (0..original.len()).rev() {
             let index = column + offset;
-            let entry = &entries[index * stride + layer_index];
+            let entry = &entries[index];
             if original[offset].pending
                 || (entry.kind != SHEET_EMPTY && entry.key as usize == index)
             {

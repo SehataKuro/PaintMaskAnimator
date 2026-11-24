@@ -1,5 +1,7 @@
 //! 密なコマ列から表示用シートと画像参照を解決する。
 
+use std::borrow::Borrow;
+
 use crate::Error;
 
 /// タイムライン上の一枠のメタデータ。
@@ -52,36 +54,55 @@ pub fn sheet(rows: &[Vec<TimelineCell>]) -> Result<(usize, Vec<SheetEntry>), Err
         number: None,
         key: -1,
     };
-    let mut entries = vec![empty.clone(); output_len::<SheetEntry>(rows.len(), layers)?];
+    let mut entries = vec![empty; output_len::<SheetEntry>(rows.len(), layers)?];
     for layer in 0..layers {
-        let mut previous = empty.clone();
-        for (frame, row) in rows.iter().enumerate() {
-            let current = match row.get(layer) {
-                Some(cell) if cell.has_content => SheetEntry {
-                    kind: SHEET_CELL,
-                    number: cell.sequence_number,
-                    key: if previous.kind == SHEET_CELL && previous.number == cell.sequence_number {
-                        previous.key
-                    } else {
-                        frame as i64
-                    },
-                },
-                Some(cell) if cell.is_blank_key => SheetEntry {
-                    kind: SHEET_BLANK,
-                    number: None,
-                    key: if previous.kind == SHEET_BLANK && !cell.blank_start {
-                        previous.key
-                    } else {
-                        frame as i64
-                    },
-                },
-                _ => empty.clone(),
-            };
-            entries[frame * layers + layer] = current.clone();
-            previous = current;
+        let column = sheet_column(rows.iter().map(|row| row.get(layer)));
+        for (frame, entry) in column.into_iter().enumerate() {
+            entries[frame * layers + layer] = entry;
         }
     }
     Ok((layers, entries))
+}
+
+/// sheet の一列分を、コマ順のシート項目で返す。
+///
+/// `cells` はその列のコマ順の枠（行にない枠は None）。各列の項目はその列の枠だけで
+/// 決まるので、sheet の同じ列と同じ値になる。
+pub fn sheet_column<C: Borrow<TimelineCell>>(
+    cells: impl IntoIterator<Item = Option<C>>,
+) -> Vec<SheetEntry> {
+    let empty = SheetEntry {
+        kind: SHEET_EMPTY,
+        number: None,
+        key: -1,
+    };
+    let mut entries: Vec<SheetEntry> = Vec::new();
+    for (frame, cell) in cells.into_iter().enumerate() {
+        let previous = entries.last().unwrap_or(&empty);
+        let current = match cell.as_ref().map(Borrow::borrow) {
+            Some(cell) if cell.has_content => SheetEntry {
+                kind: SHEET_CELL,
+                number: cell.sequence_number,
+                key: if previous.kind == SHEET_CELL && previous.number == cell.sequence_number {
+                    previous.key
+                } else {
+                    frame as i64
+                },
+            },
+            Some(cell) if cell.is_blank_key => SheetEntry {
+                kind: SHEET_BLANK,
+                number: None,
+                key: if previous.kind == SHEET_BLANK && !cell.blank_start {
+                    previous.key
+                } else {
+                    frame as i64
+                },
+            },
+            _ => empty.clone(),
+        };
+        entries.push(current);
+    }
+    entries
 }
 
 /// 画像解決用の密なコマ列から、列数とコマ優先順の参照元コマ番号を返す。
@@ -168,6 +189,29 @@ mod tests {
             resolve(&rows).unwrap(),
             (1, vec![0, 0, -1, 3, -1, -1, -1, 7])
         );
+    }
+
+    #[test]
+    fn sheet_column_matches_each_column_of_sheet() {
+        // 長さの違う行（行にない枠）も含め、sheet の各列と一列ずつ求めた値は同じ。
+        let rows = vec![
+            vec![drawing(1), blank(true), drawing(3)],
+            vec![drawing(1), blank(false)],
+            vec![TimelineCell::default(), blank(true), drawing(3)],
+            vec![drawing(2), drawing(1), drawing(4)],
+            vec![blank(true)],
+        ];
+        let (layers, entries) = sheet(&rows).unwrap();
+        for layer in 0..layers {
+            let column = sheet_column(rows.iter().map(|row| row.get(layer)));
+            let expected: Vec<_> = entries
+                .iter()
+                .skip(layer)
+                .step_by(layers)
+                .cloned()
+                .collect();
+            assert_eq!(column, expected);
+        }
     }
 
     #[test]
