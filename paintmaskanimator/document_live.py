@@ -3262,13 +3262,14 @@ def _trim_plan(document, frame_ids, kept, column, layer_index):
                       and live["state"].frame_index.get(fid, -1) >= column)
 
 
-def _tail_plan(document, gone, frozen, moved=lambda fid, owner: False):
+def _tail_plan(document, gone, frozen, moved=lambda fid, owner: False, *, released=False):
     """末尾のコマ gone を取り除く場合の、外す窓口の用意（_retire_trimmed に渡す）。
 
     外れたコマの窓口は、取り除いたときの値（frozen の文書の値）の素のオブジェクトになる。
     画像は命令の前の画素を写して持つ（外すコマの局所の画像と、moved(コマ ID, 列 ID) が
     真の局所の画像）。外すコマに配置待ちの位置・局所の絵の共有の組・局所の絵をバンクに
     置く位置がある場合は None（今の経路）。
+    released は、命令が frozen の末尾で配置待ちの札を解き終えている場合に渡す。
     """
     live = _live_of(document)
     state, cache = live["state"], live["cache"]
@@ -3276,7 +3277,7 @@ def _tail_plan(document, gone, frozen, moved=lambda fid, owner: False):
     for fid in gone:
         for tid in state.track_ids:
             values = state.position(fid, tid)[0]
-            if (values["sequence_only"] or values.get("pending_detached")
+            if ((values["sequence_only"] and not released) or values.get("pending_detached")
                     or values.get("local_share") is not None or values.get("local_bank")):
                 return None
     try:
@@ -3308,7 +3309,7 @@ def _tail_plan(document, gone, frozen, moved=lambda fid, owner: False):
             "track_ids": list(state.track_ids)}
 
 
-def _retire_trimmed(document, plan):
+def _retire_trimmed(document, plan, *, preserve_tokens=False):
     """_trim_plan で用意した値で、取り除いたコマの窓口を素のオブジェクトにして文書から外す。"""
     from .document import clear_pending
     live = _live_of(document)
@@ -3369,6 +3370,8 @@ def _retire_trimmed(document, plan):
         if temporary is None:
             temporary = temporaries[tid] = plain_track(*live["state"].track(tid))
         stand = plain_slot(values_at(fid, tid), temporary, handles)
+        if preserve_tokens:
+            _restore_token(stand, temporary, tokens.get((fid, tid)))
         local = ("local", fid, tid)
         if local in cells:
             stand.__dict__["_cell"] = cells[local]
@@ -3867,22 +3870,60 @@ def _core_normalize_sheet_numbers(document, layer_indices):
 
 
 def _core_place_pending_entries(document):
-    """place_pending_entries の、配置待ちの番号が一つも無い場合を書き出し往復なしで当てる。
+    """配置待ちの番号を置き、書き換えた位置の写しと外れた窓口を更新する。
 
-    今の手順は番号のある配置待ちの位置を集め、無ければ文書を変えずに空の ChangeSet を返す
-    （シートへの切り替え・読み込みのたびに呼ばれる）。配置待ちがあれば None（今の経路）。
+    先に Rust の写しに当て、局所の絵・位置・末尾のコマの窓口を外せるときだけ確定する。
+    その場で書き換える位置の札とバンクの窓口を保ち、入れ替える位置には新しい札を渡す。
     """
     from .document_changes import ChangeSet
     live = _live_of(document)
     if live["graph"] is not None or live.get("trial"):
         return None
     state = live["state"]
-    for fid in state.frame_ids:
+    if not any(values["sequence_only"] and values["sequence_number"] is not None
+               for values, _ in state.positions.values()):
+        return ChangeSet()
+    cursor = live["cursor"][0]
+    if type(cursor) is not int or cursor < 0:
+        return None
+    core = live["core"].copy()
+    try:
+        core.set_blank_image(_blank_handle())
+        text, revisions, changed, replaced, cleared, frozen = core.place_pending_entries(cursor)
+    except (ValueError, OverflowError):
+        return None
+    order = json.loads(core.frames_graph([])[0])["frame_order"]
+    kept = set(order)
+    gone = [fid for fid in state.frame_ids if fid not in kept]
+    tail = _tail_plan(document, gone, frozen, released=True) if gone else None
+    if gone and tail is None:
+        return None
+    plan = _detach_plan(document, replaced, cleared)
+    if plan is None:
+        return None
+    old = set(state.frame_ids)
+    rows = {fid for fid, _ in changed if fid in old and fid in kept}
+    tracks = sorted({tid for _, tid in changed})
+
+    def apply(current):
+        current.replace_from_document(core)
+        return text
+
+    revision = Layer.timeline_revision
+    changes, new_ids = _apply_core_command(document, None, lambda ids: sorted(rows),
+                                           apply, tracks=tracks)
+    tokens = live.setdefault("tokens", {})
+    for fid in new_ids:
         for tid in state.track_ids:
-            values = state.position(fid, tid)[0]
-            if values["sequence_only"] and values["sequence_number"] is not None:
-                return None
-    return ChangeSet()
+            tokens[fid, tid] = PendingToken()
+    # _detach は古い札を読む。新しい位置の札は外したあとで用意する。
+    _detach(document, plan)
+    for key in replaced:
+        tokens[key] = PendingToken()
+    if tail is not None:
+        _retire_trimmed(document, tail, preserve_tokens=True)
+    Layer.timeline_revision = revision + revisions
+    return changes
 
 
 def _core_clone_graph(document):

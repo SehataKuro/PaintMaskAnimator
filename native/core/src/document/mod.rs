@@ -38,6 +38,8 @@ pub mod position_commands;
 mod v2_order;
 
 mod number_commands;
+/// 配置待ちの番号をシートへ移す操作と窓口への更新情報。
+pub mod pending_commands;
 
 /// 比較テストのための操作列適用。
 pub mod comparison;

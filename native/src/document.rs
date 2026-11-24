@@ -6,6 +6,16 @@ use pma_core::image::{Rect, RgbaImage};
 use pma_core::project::payload::decode_v2_plan;
 use pyo3::{exceptions::PyValueError, prelude::*, types::PyBytes};
 
+type PositionKeys = Vec<(u64, u64)>;
+type PlacementOutput = (
+    String,
+    usize,
+    PositionKeys,
+    PositionKeys,
+    PositionKeys,
+    Option<PyCoreDocument>,
+);
+
 /// Python の文書窓口が所有するコア文書。
 #[pyclass(module = "pma_native", name = "_CoreDocument")]
 pub(crate) struct PyCoreDocument(Document);
@@ -330,6 +340,36 @@ impl PyCoreDocument {
             .map_err(value_error)?;
         let ids = |frames: Vec<FrameId>| frames.into_iter().map(|frame| frame.0).collect();
         Ok((result.revisions, ids(result.frames), ids(result.replaced)))
+    }
+
+    /// 配置待ちの番号を置き、窓口の更新に必要な通知と位置 ID を返す。
+    fn place_pending_entries(
+        &mut self,
+        py: Python<'_>,
+        cursor: usize,
+    ) -> PyResult<PlacementOutput> {
+        let result = py
+            .detach(|| self.0.place_pending_entries_with_updates(cursor))
+            .map_err(value_error)?;
+        let keys = |positions: std::collections::BTreeSet<(FrameId, TrackId)>| {
+            positions
+                .into_iter()
+                .map(|(frame, track)| (frame.0, track.0))
+                .collect()
+        };
+        Ok((
+            comparison::command_notices(result.changes),
+            result.revisions,
+            keys(result.changed),
+            keys(result.replaced),
+            keys(result.cleared),
+            result.before_trim.map(Self),
+        ))
+    }
+
+    /// 別の Rust 文書の状態に差し替え、画像窓口が持つこの文書への参照を保つ。
+    fn replace_from_document(&mut self, source: PyRef<'_, Self>) {
+        self.0 = source.0.clone();
     }
 
     /// 列の設定・バンク・旧連番保管を JSON と画像列で返す。

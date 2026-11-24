@@ -2781,7 +2781,7 @@ def test_normalize_sheet_numbers_with_v1_records_pending_and_undo(monkeypatch):
 
 
 def test_place_pending_entries_without_pending_runs_in_place(monkeypatch):
-    # 番号のある配置待ちが無ければ、今の手順は文書を変えずに空の変更を返す。あれば今の経路。
+    # 番号のある配置待ちが無ければ、今の手順は文書を変えずに空の変更を返す。
     plain, live = _pair(hold=2, count=6)
     live._promote()
     slots = [list(frame.layers) for frame in live.frames]
@@ -2806,7 +2806,7 @@ def test_place_pending_entries_without_pending_runs_in_place(monkeypatch):
     expected = plain.place_pending_entries()
     assert expected
     assert live.place_pending_entries() == expected
-    assert calls
+    assert calls == []
     assert _whole_signature(live) == _whole_signature(plain)
 
 
@@ -3351,5 +3351,157 @@ def test_restore_snapshot_falls_back_for_content_and_blank_key(monkeypatch):
     assert calls
     assert Layer.timeline_revision - revision == delta
     assert live._live()["graph"] is not None
+    assert _signature(live) == _signature(plain)
+    assert _pixels(live) == _pixels(plain)
+
+
+@pytest.mark.parametrize("shape", [
+    "split", "append", "collision", "blank", "blank_split", "empty_split",
+    "no_previous", "duplicate", "columns", "same_source", "pending_hold", "release_tail",
+])
+def test_place_pending_entries_matches_python(shape, monkeypatch, tmp_path):
+    from zipfile import ZipFile
+
+    from paintmaskanimator import constants, project_io, utils
+
+    monkeypatch.setattr(constants, "CANVAS_WIDTH", 8)
+    monkeypatch.setattr(constants, "CANVAS_HEIGHT", 8)
+    monkeypatch.setattr(utils, "OUTSIDE_MARGIN", 0)
+
+    def make(cls):
+        doc = cls()
+        rows = []
+        for column in range(8):
+            row = []
+            for layer in range(2):
+                length = 4 if shape != "collision" else 2
+                if shape in ("append", "blank", "same_source"):
+                    length = 1
+                number = 1 if column < length else None
+                source = 1 if shape == "same_source" else 6
+                pending = column == source and (layer == 0 or shape == "columns")
+                pending |= shape == "duplicate" and column == 7 and layer == 0
+                if pending:
+                    number = 7 if shape in ("no_previous", "same_source") else 2
+                if shape == "collision" and column == 2:
+                    number = 3
+                blank = pending and shape in ("blank", "blank_split")
+                content = (number is not None and not blank
+                           and not (pending and shape in ("empty_split", "same_source")))
+                pending |= shape == "release_tail" and column == 7 and layer == 1
+                image = PmaImage(_filled((100 + (number or 0), layer, 7, 255)))
+                row.append(Layer(str(layer), image, has_content=content,
+                                 is_blank_key=blank, sequence_number=number,
+                                 sequence_only=pending, initial_image=image.copy()))
+            rows.append(Frame(row))
+        doc.install_legacy_frames(rows, canvas_size=(8, 8))
+        if shape in ("collision", "pending_hold"):
+            from dataclasses import replace
+            from paintmaskanimator.legacy_v1 import V1Position, snapshot_layer
+            from paintmaskanimator.timeline_metadata import reference_for, set_dense_import
+
+            graph = doc._demote().plain if cls is document_live.Document else doc
+            if shape == "collision":
+                # 旧入力の長さで分けると次の明示キーに重なる。
+                slot = graph.frames[0].layers[0]
+                slot.__dict__["_v1_position"] = V1Position(
+                    replace(snapshot_layer(slot), exposure=4), key_start=True)
+                sheet = reference_for(slot)
+            else:
+                # 保持の末尾に、表示上は保持を続ける番号なしの配置待ちを置く。
+                slot = graph.frames[3].layers[0]
+                sheet = reference_for(slot)
+                slot.has_content = False
+                slot.sequence_number = None
+                slot.set_pending(True)
+            signature = (slot.has_content, slot.is_blank_key, slot.sequence_number,
+                         slot.sequence_only, slot.blank_start)
+            set_dense_import(slot, (signature, sheet, reference_for(slot, resolve=True)))
+            if cls is document_live.Document:
+                assert doc._promote()
+        return doc
+
+    plain, live = make(GraphDocument), make(document_live.Document)
+    assert live._live()["graph"] is None
+    plain.current_frame = live.current_frame = 7
+
+    def capture(doc):
+        frames = list(doc.frames)
+        slots = [list(frame.layers) for frame in frames]
+        return (frames, slots, [[slot._cell for slot in row] for row in slots],
+                [[slot.image for slot in row] for row in slots],
+                [[slot.__dict__["_pending_token"] for slot in row] for row in slots],
+                [{number: (cell, cell.image, cell.initial_image)
+                  for number, cell in track.cells.items()} for track in doc.tracks])
+
+    before = [capture(doc) for doc in (plain, live)]
+    # 文書外の Layer が同じ列に登録した札も残る。
+    extra = [doc.frames[0].layers[0].clone_slot() for doc in (plain, live)]
+    for doc, slot in zip((plain, live), extra):
+        slot.attach_track(doc.tracks[0])
+        slot.set_pending(True)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("place_pending_entries が _run を呼んだ")
+
+    monkeypatch.setattr(document_live.Document, "_run", forbidden)
+    revision = Layer.timeline_revision
+    expected = plain.place_pending_entries()
+    delta = Layer.timeline_revision - revision
+    revision = Layer.timeline_revision
+    assert live.place_pending_entries() == expected
+    assert Layer.timeline_revision - revision == delta
+    assert live.current_frame == plain.current_frame == 7
+    assert _signature(live) == _signature(plain)
+    assert _pixels(live) == _pixels(plain)
+
+    def ownership(doc, saved, external):
+        frames, slots, cells, images, tokens, banks = saved
+        result = []
+        for column, frame in enumerate(frames):
+            present = column < len(doc.frames)
+            result.append((present and doc.frames[column] is frame, [
+                (frame.layers[layer] is slot, slot._cell is cells[column][layer],
+                 slot.image is images[column][layer],
+                 slot.__dict__["_pending_token"] is tokens[column][layer],
+                 tokens[column][layer] in doc.tracks[layer].pending_slots)
+                for layer, slot in enumerate(slots[column])
+            ]))
+        for track, bank in zip(doc.tracks, banks):
+            for number, (cell, image, initial) in bank.items():
+                assert track.cells[number] is cell
+                assert cell.image is image
+                assert cell.initial_image is initial
+        assert external.__dict__["_pending_token"] in doc.tracks[0].pending_slots
+        return result
+
+    assert ownership(live, before[1], extra[1]) == ownership(plain, before[0], extra[0])
+    if shape in ("blank_split", "empty_split"):
+        for doc in (plain, live):
+            head, held = (doc.frames[column].layers[0] for column in (2, 3))
+            assert head._cell is held._cell
+            assert head.image is held.image
+            assert head.__dict__["_pending_token"] is not held.__dict__["_pending_token"]
+
+    def save(doc, name):
+        path = tmp_path / f"{name}.pman"
+        project_io.write_project_snapshot(path, project_io.ProjectSnapshot.capture({}, doc))
+        with ZipFile(path) as archive:
+            return {name: archive.read(name) for name in archive.namelist()}
+
+    assert save(live, "live") == save(plain, "plain")
+
+
+def test_place_pending_entries_keeps_shared_local_artwork_on_fallback(monkeypatch):
+    plain, live = _pair(hold=4)
+    for doc in (plain, live):
+        doc.insert_sequence_blank(0, 1)
+        graph = doc._demote().plain if doc is live else doc
+        source = graph.frames[-1].layers[0]
+        source.__dict__["_cell"] = graph.frames[5].layers[1]._cell
+    assert live._promote()
+    calls = _round_trips(live, monkeypatch)
+    assert live.place_pending_entries() == plain.place_pending_entries()
+    assert calls == [True]
     assert _signature(live) == _signature(plain)
     assert _pixels(live) == _pixels(plain)

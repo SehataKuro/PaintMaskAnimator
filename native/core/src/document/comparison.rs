@@ -127,6 +127,12 @@ fn notice(change: Change) -> Value {
     }
 }
 
+/// 操作一つの通知を、Python の ChangeSet と同じ種類名・フィールドを持つ JSON にする。
+pub fn command_notices(changes: Vec<Change>) -> String {
+    let notices: Vec<_> = changes.into_iter().map(notice).collect();
+    json!([notices]).to_string()
+}
+
 /// 比較用 JSON 操作列を適用し、Python ChangeSet と同じ種類名とフィールドを発行順で返す。
 /// 途中に不正な操作があれば文書全体を元の状態に保つ。
 pub fn apply_operations(document: &mut Document, operations: &Value) -> Result<String, Error> {
