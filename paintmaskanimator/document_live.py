@@ -3103,7 +3103,9 @@ def _core_remove_columns(document, indices, active):
     # 命令が当たった文書の状態を先に入れ、窓口の付け替えはそのあと（途中で失敗しても、
     # 文書の読み書きは命令のあとの状態にそろう）。今の手順は配置待ちでない位置の
     # timeline_revision を進めない（release_slots は値が同じ、pop は代入を通らない）。
-    live["state"] = _CoreState(core)
+    # 残る列の位置の値は変わらないので、指紋が同じ値は命令の前の写しから使い回す
+    # （restored は見え方が全体を読み直すのと同じ。違う位置・列だけ取り直す）。
+    live["state"] = _CoreState.restored(core, state)
     _retire_columns(document, track_ids, frozen, state)
     document._sync_selection()
     document._retire_view("tracks_view", old_tracks)
