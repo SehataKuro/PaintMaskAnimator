@@ -1765,6 +1765,18 @@ class Document:
             return self._run("normalize_sheet_numbers", (layer_indices,), {})
         return changes
 
+    def install_legacy_frames(self, frames, sequence_archive=None, *, canvas_size=None):
+        """旧形式のコマを整えて文書へ取り込む。"""
+        if not isinstance(self, Document):
+            from .document import GraphDocument
+            return GraphDocument.install_legacy_frames(
+                self, frames, sequence_archive, canvas_size=canvas_size)
+        if (_core_reinstall_legacy_frames(self, frames, sequence_archive)
+                or _install_detached_frames(self, frames, sequence_archive)):
+            return None
+        return self._run("install_legacy_frames", (frames, sequence_archive),
+                         {"canvas_size": canvas_size})
+
     def place_pending_entries(self):
         changes = _CORE_COMMANDS["place_pending_entries"](self)
         if changes is None:
@@ -3867,6 +3879,121 @@ def _core_normalize_sheet_numbers(document, layer_indices):
         state.forget_track(tid)
     state.pending.clear()
     return changes
+
+
+def _core_reinstall_legacy_frames(document, frames, archive):
+    """接続済みの現在の並びを再取り込みし、Frame と並びの窓口だけを入れ替える。"""
+    live = _live_of(document)
+    if (live["graph"] is not None or live.get("trial")
+            or (archive is not None and (type(archive) is not dict or archive))):
+        return False
+    state, cache = live["state"], live["cache"]
+    view = live.get("frames_view")
+    if frames is not view or view is None:
+        if (type(frames) not in (list, tuple) or len(frames) != len(state.frame_ids)
+                or any(type(frame) is not LiveFrame
+                       or frame is not cache._objects.get(("frame", (fid,)))
+                       for fid, frame in zip(state.frame_ids, frames))):
+            return False
+
+    core = live["core"]
+    # 外れる局所画像を取り出せるかは、元の文書を保ったまま調べる。
+    edited = core.copy()
+    try:
+        revisions, changed, moved, cleared, banks = edited.reinstall_legacy_frames()
+    except ValueError:
+        return False
+    plan = _detach_plan(document, (), cleared)
+    if plan is None:
+        return False
+
+    old_frames = list(view) if view is not None else None
+    old_tracks = list(live["tracks_view"]) if "tracks_view" in live else None
+    # 元の Frame は文書から外れるが、その layers と新しい Frame の layers は
+    # 同じ Layer を指す。以前渡した layers のビューも元のリストを読み続ける。
+    for fid in state.frame_ids:
+        frame = cache.pop("frame", (fid,))
+        if frame is not None:
+            layers_view = frame.layers
+            layers = list(layers_view)
+            layers_view._frozen = layers
+            _transplant(frame, Frame(layers, frame.duration))
+    document._retire_view("frames_view", old_frames)
+    document._retire_view("tracks_view", old_tracks)
+    state.view_lists.pop("frames", None)
+
+    if changed or banks:
+        core.replace_from_document(edited)
+        state.reload_rows(sorted({fid for fid, _ in changed}))
+        for tid in banks:
+            state.refresh_track(tid)
+            state.forget_track(tid)
+        _detach(document, plan)
+        for fid, tid, number in moved:
+            old_key, key = ("local", fid, tid), ("bank", tid, number)
+            cell = cache.pop("cell", old_key)
+            if cell is not None:
+                _setm(cell, "_key", key)
+                cache.put("cell", key, cell)
+            for initial in (False, True):
+                image = cache.pop("image", (old_key, initial))
+                if image is not None:
+                    _bind(image, _native._CellImage(core, True, tid, number, initial))
+                    cache.put("image", (key, initial), image)
+    Layer.timeline_revision += revisions
+    return True
+
+
+def _install_detached_frames(document, frames, archive):
+    """文書から独立した入力だけを整え、公開済みの Rust の文書と入れ替える。"""
+    from .document import GraphDocument
+
+    live = _live_of(document)
+    if (live["graph"] is not None or live.get("trial")
+            or (archive is not None and (type(archive) is not dict or archive))
+            or type(frames) not in (list, tuple) or not frames
+            or type(frames[0]) is not Frame or type(frames[0].layers) is not list):
+        return False
+    width = len(frames[0].layers)
+    if not width:
+        return False
+    for frame in frames:
+        if (type(frame) is not Frame or type(frame.layers) is not list
+                or len(frame.layers) != width):
+            return False
+        for slot in frame.layers:
+            if type(slot) is not Layer or {"_legacy_input", "_v1_position"} & slot.__dict__.keys():
+                return False
+            track = slot.__dict__.get("_track")
+            cell = slot.__dict__.get("_cell")
+            if (type(track) is not Track or getattr(track, "connected", True) is not False
+                    or type(cell) is not Cell
+                    or type(getattr(cell, "image", False)) not in (PmaImage, type(None))
+                    or type(getattr(cell, "initial_image", False)) not in (PmaImage, type(None))):
+                return False
+
+    # 旧入力の正規化は入力オブジェクトだけを触る。公開済みのグラフは書き出さず、
+    # Rust に取り込めたところで入れ替える。Frame は新規、入力の Layer は今の手順と同じく共有。
+    plain = object.__new__(GraphDocument)
+    plain.current_frame, plain.active_layer_index = live["cursor"]
+    plain.install_legacy_frames(frames)
+    incoming = object.__new__(Document)
+    fresh = _live_of(incoming)
+    fresh["graph"] = _Graph(plain)
+    fresh["next_ids"] = live["state"].next_ids
+    if not incoming._promote():
+        # 取り込めない場合も正規化は済んでいるので、入力に二度当てず素の状態に入れる。
+        graph = document._demote()
+        graph.plain.frames, graph.plain.tracks = plain.frames, plain.tracks
+        document._promote()
+        return True
+
+    _retire_document(document, live["core"])
+    for (kind, _), proxy in fresh["cache"].items():
+        if kind != "image":
+            _setm(proxy, "_owner", document)
+    document.__dict__["_live_state"] = fresh
+    return True
 
 
 def _core_place_pending_entries(document):

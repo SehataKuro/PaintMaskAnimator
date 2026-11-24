@@ -928,6 +928,61 @@ mod tests {
         ]
     }
 
+    #[test]
+    fn reinstall_legacy_frames_rescues_and_moves_cells_and_keeps_pending_reference() {
+        let mut input = sample();
+        input["frames"][0]["positions"][0]["local_share"] = Value::Null;
+        input["frames"][3]["positions"][0]["local"] =
+            json!({"image": 0, "initial_image": 1, "cell_name": "new"});
+        let mut document = Document::from_graph(&input, &images()).unwrap();
+        let result = document.reinstall_legacy_frames().unwrap();
+        assert_eq!(result.revisions, 2);
+        assert_eq!(
+            result.changed,
+            vec![(FrameId(0), TrackId(3)), (FrameId(2), TrackId(3))]
+        );
+        assert_eq!(
+            result.moved,
+            vec![(FrameId(2), TrackId(3), CellNumber::new(4).unwrap())]
+        );
+        assert_eq!(
+            document.frame_order(),
+            &[FrameId(5), FrameId(0), FrameId(7), FrameId(2)]
+        );
+        let (output, _) = document.to_graph();
+        let pending = &output["frames"][1]["positions"][0];
+        assert_eq!(pending["sequence_only"], json!(true));
+        assert_eq!(pending["pending_detached"], json!(false));
+        assert_eq!(pending["local_bank"], json!(false));
+        assert_eq!(
+            pending["dense_import"],
+            input["frames"][1]["positions"][0]["dense_import"]
+        );
+        assert_eq!(output["tracks"][0]["cells"][1][0], json!(3));
+        assert_eq!(output["tracks"][0]["cells"][1][1]["cell_name"], json!("x"));
+        assert_eq!(output["tracks"][0]["cells"][2][0], json!(4));
+        assert_eq!(
+            output["tracks"][0]["cells"][2][1]["cell_name"],
+            json!("new")
+        );
+    }
+
+    #[test]
+    fn reinstall_legacy_frames_error_leaves_document_unchanged() {
+        let mut input = sample();
+        input["frames"][0]["positions"][0]["local_share"] = Value::Null;
+        input["frames"][3]["positions"][0]["local"] =
+            json!({"image": 0, "initial_image": null, "cell_name": null});
+        input["tracks"][0]["cells"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!([i64::MAX, {"image": 0, "initial_image": null, "cell_name": null}]));
+        let mut document = Document::from_graph(&input, &images()).unwrap();
+        let before = document.to_graph_text().0;
+        assert!(document.reinstall_legacy_frames().is_err());
+        assert_eq!(document.to_graph_text().0, before);
+    }
+
     // 直接書いた JSON は、同じ値を serde_json の Value で書いたもの（鍵は名前順）と同じ文字列。
     // 行・位置の書き出しも、文書全体の中の同じ部分と同じ値。
     #[test]

@@ -3505,3 +3505,170 @@ def test_place_pending_entries_keeps_shared_local_artwork_on_fallback(monkeypatc
     assert calls == [True]
     assert _signature(live) == _signature(plain)
     assert _pixels(live) == _pixels(plain)
+
+
+@pytest.mark.parametrize("input_kind", ["view", "list", "tuple"])
+@pytest.mark.parametrize("pending", [False, True])
+def test_install_current_legacy_frames(monkeypatch, tmp_path, input_kind, pending):
+    from zipfile import ZipFile
+
+    from paintmaskanimator import constants, project_io, utils
+
+    monkeypatch.setattr(constants, "CANVAS_WIDTH", 8)
+    monkeypatch.setattr(constants, "CANVAS_HEIGHT", 8)
+    monkeypatch.setattr(utils, "OUTSIDE_MARGIN", 0)
+    plain, live = _pair()
+    saved = []
+    for document in (plain, live):
+        frames, tracks = document.frames, document.tracks
+        frame = frames[0]
+        layers = frame.layers
+        slot = layers[0]
+        slot.set_pending(pending)
+        token = slot.__dict__["_pending_token"]
+        saved.append((frames, tracks, frame, layers, slot, slot._cell, slot.image, token))
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("install_legacy_frames called _run")
+
+    monkeypatch.setattr(document_live.Document, "_run", unexpected)
+    revisions = []
+    for document, (frames, tracks, frame, layers, slot, cell, image, token) in zip(
+            (plain, live), saved):
+        source = frames if input_kind == "view" else {"list": list, "tuple": tuple}[input_kind](frames)
+        before = Layer.timeline_revision
+        assert document.install_legacy_frames(source, {}, canvas_size=(9, 11)) is None
+        revisions.append(Layer.timeline_revision - before)
+        assert document.frames is not frames and document.tracks is not tracks
+        assert frames[0] is frame and document.frames[0] is not frame
+        assert list(frame.layers) == list(layers) and document.frames[0].layers is not layers
+        assert document.frames[0].layers[0] is slot and document.tracks[0] is tracks[0]
+        assert slot._cell is cell and slot.image is image
+        assert slot.__dict__["_pending_token"] is token
+        assert (token in tracks[0].pending_slots) is pending
+
+    assert revisions == [int(pending)] * 2
+    assert _signature(live) == _signature(plain)
+    assert _pixels(live) == _pixels(plain)
+
+    def save(doc, name):
+        path = tmp_path / f"{name}.pman"
+        project_io.write_project_snapshot(path, project_io.ProjectSnapshot.capture({}, doc))
+        with ZipFile(path) as archive:
+            return {name: archive.read(name) for name in archive.namelist()}
+
+    assert save(live, "live") == save(plain, "plain")
+
+
+@pytest.mark.parametrize("shape", ["numberless", "retained", "detached_pending", "shadow"])
+def test_install_current_legacy_frames_normalizes_positions(shape, monkeypatch, tmp_path):
+    from zipfile import ZipFile
+
+    from paintmaskanimator import constants, project_io, utils
+    from paintmaskanimator.models import Cell
+
+    monkeypatch.setattr(constants, "CANVAS_WIDTH", 8)
+    monkeypatch.setattr(constants, "CANVAS_HEIGHT", 8)
+    monkeypatch.setattr(utils, "OUTSIDE_MARGIN", 0)
+    plain, live = _pair()
+    for document in (plain, live._demote().plain):
+        slot = document.frames[0].layers[0]
+        if shape in ("numberless", "retained"):
+            slot.has_content = False
+            slot.sequence_number = None if shape == "numberless" else 9
+            if shape == "numberless":
+                slot.has_content = True
+            slot.image = PmaImage(_filled((11, 22, 33, 255)))
+            slot.initial_image = PmaImage(_filled((44, 55, 66, 255)))
+            slot.cell_name = shape
+        elif shape == "detached_pending":
+            clone = slot.clone_slot()
+            clone.set_pending(True)
+            document.frames[0].layers[0] = clone
+        else:
+            slot.__dict__["_cell"] = Cell(PmaImage(_filled((77, 88, 99, 255))))
+    assert live._promote()
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("install_legacy_frames が _run を呼んだ")
+
+    monkeypatch.setattr(document_live.Document, "_run", forbidden)
+    saved = []
+    for document in (plain, live):
+        slot = document.frames[0].layers[0]
+        track = slot._track
+        token = slot.__dict__["_pending_token"]
+        cell, image = slot._cell, slot.image
+        shadow = slot.__dict__.get("_cell")
+        shadow_image = None if shadow is None else shadow.image
+        before = Layer.timeline_revision
+        assert document.install_legacy_frames(document.frames) is None
+        assert Layer.timeline_revision - before == int(shape in ("numberless", "detached_pending"))
+        assert document.frames[0].layers[0] is slot
+        assert slot._track is track and slot._cell is cell and slot.image is image
+        assert slot.__dict__["_pending_token"] is token
+        assert (token in track.pending_slots) == (shape == "detached_pending")
+        if shape == "numberless":
+            assert track.cells[slot.sequence_number] is cell
+        elif shape == "retained":
+            assert track.cells[9] is not cell and track.cells[9].image is not image
+            assert np.array_equal(track.cells[9].image.rgba(), image.rgba())
+        elif shape == "shadow":
+            assert "_cell" not in slot.__dict__
+            assert shadow.image is shadow_image
+            assert tuple(shadow_image.rgba()[0, 0]) == (77, 88, 99, 255)
+        path = tmp_path / f"{type(document).__module__}.pman"
+        project_io.write_project_snapshot(path, project_io.ProjectSnapshot.capture({}, document))
+        with ZipFile(path) as archive:
+            saved.append({name: archive.read(name) for name in archive.namelist()})
+    assert saved[0] == saved[1]
+    assert _signature(live) == _signature(plain)
+    assert _pixels(live) == _pixels(plain)
+
+
+def test_install_detached_legacy_frames_without_materializing_old_document(monkeypatch, tmp_path):
+    from zipfile import ZipFile
+
+    from paintmaskanimator import constants, project_io, utils
+
+    monkeypatch.setattr(constants, "CANVAS_WIDTH", 8)
+    monkeypatch.setattr(constants, "CANVAS_HEIGHT", 8)
+    monkeypatch.setattr(utils, "OUTSIDE_MARGIN", 0)
+    plain, live = _pair()
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("install_legacy_frames が旧文書を書き出した")
+
+    monkeypatch.setattr(document_live.Document, "_run", forbidden)
+    monkeypatch.setattr(document_live.Document, "_materialize", forbidden)
+    archives = []
+    revisions = []
+    for document in (plain, live):
+        old_frames, old_tracks = document.frames, document.tracks
+        old_frame, old_track = old_frames[0], old_tracks[0]
+        old_slot, old_image = old_frame.layers[0], old_frame.layers[0].image
+        image = PmaImage(_filled((13, 42, 71, 255)))
+        slot = Layer("C", image, has_content=True, sequence_only=True)
+        slot.set_pending(True)
+        pending_token = slot.__dict__["_pending_token"]
+        local = slot._cell
+        row = Frame([slot], 3)
+        before = Layer.timeline_revision
+        assert document.install_legacy_frames([row]) is None
+        revisions.append(Layer.timeline_revision - before)
+        assert document.frames[0] is not row and document.frames[0].duration == 3
+        assert document.frames[0].layers[0] is slot and document.tracks[0] is slot._track
+        assert slot.image is image and slot._cell is local
+        assert slot.__dict__["_pending_token"] is pending_token
+        assert pending_token in slot._track.pending_slots
+        assert old_frames[0] is old_frame and old_tracks[0] is old_track
+        assert old_frame.layers[0] is old_slot and old_slot.image is old_image
+        assert old_slot._track is old_track and old_track is not slot._track
+        path = tmp_path / f"{type(document).__module__}.pman"
+        project_io.write_project_snapshot(path, project_io.ProjectSnapshot.capture({}, document))
+        with ZipFile(path) as archive:
+            archives.append({name: archive.read(name) for name in archive.namelist()})
+    assert revisions == [2, 2]
+    assert _signature(live) == _signature(plain)
+    assert _pixels(live) == _pixels(plain)
+    assert archives[0] == archives[1]

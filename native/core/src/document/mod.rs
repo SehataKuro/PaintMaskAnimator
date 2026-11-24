@@ -12,6 +12,7 @@ pub mod v2;
 
 /// Python の文書グラフと文書の相互変換。
 pub mod graph;
+pub mod install_commands;
 
 /// Python の文書窓口が使う ID で引く読み書き。
 pub mod access;

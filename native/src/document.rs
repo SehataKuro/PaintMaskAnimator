@@ -7,6 +7,13 @@ use pma_core::project::payload::decode_v2_plan;
 use pyo3::{exceptions::PyValueError, prelude::*, types::PyBytes};
 
 type PositionKeys = Vec<(u64, u64)>;
+type LegacyInstallOutput = (
+    usize,
+    PositionKeys,
+    Vec<(u64, u64, i64)>,
+    PositionKeys,
+    Vec<u64>,
+);
 type PlacementOutput = (
     String,
     usize,
@@ -364,6 +371,30 @@ impl PyCoreDocument {
             keys(result.replaced),
             keys(result.cleared),
             result.before_trim.map(Self),
+        ))
+    }
+
+    /// 接続済みのコマを再公開し、位置とバンクの窓口の更新情報を返す。
+    fn reinstall_legacy_frames(&mut self) -> PyResult<LegacyInstallOutput> {
+        let result = self.0.reinstall_legacy_frames().map_err(value_error)?;
+        Ok((
+            result.revisions,
+            result
+                .changed
+                .into_iter()
+                .map(|(frame, track)| (frame.0, track.0))
+                .collect(),
+            result
+                .moved
+                .into_iter()
+                .map(|(frame, track, number)| (frame.0, track.0, number.get()))
+                .collect(),
+            result
+                .cleared
+                .into_iter()
+                .map(|(frame, track)| (frame.0, track.0))
+                .collect(),
+            result.banks.into_iter().map(|track| track.0).collect(),
         ))
     }
 
