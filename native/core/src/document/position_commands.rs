@@ -300,11 +300,12 @@ impl Document {
         let exclusive_end = column
             .checked_add(span.len())
             .ok_or(Error::TimelineSizeOverflow)?;
-        let source_track = self.track_order[source_layer];
+        let source_track = *self.track_order.get(source_layer).ok_or_else(invalid)?;
+        let track = *self.track_order.get(layer_index).ok_or_else(invalid)?;
+        let destination_stop = column.checked_add(1).ok_or(Error::TimelineSizeOverflow)?;
         let destination_span = self.display_spans(column, &[layer_index])?[0]
             .clone()
-            .unwrap_or(column..column + 1);
-        let track = self.track_order[layer_index];
+            .unwrap_or(column..destination_stop);
         let previous = if span.start > 0 {
             self.display_spans(span.start - 1, &[source_layer])?[0].clone()
         } else {
@@ -365,13 +366,13 @@ impl Document {
         if content {
             edited.follow_displaced_blanks(column, exclusive_end, layer_index, tail_blank)?;
         }
-        for (offset, mut position) in moving.into_iter().enumerate() {
-            let index = column + offset;
+        for (index, mut position) in (column..exclusive_end).zip(moving) {
             if track != source_track {
-                position = Position {
-                    reference,
-                    ..Position::default()
-                };
+                // 列またぎでは移動先をその場で消してから置く。移動先の clear_slot が残す
+                // 取り込み時の長さと画像解決の参照元は、写し元の値で置き換えない。
+                position = edited.cleared_position(index, track)?;
+                position.reference = reference;
+                position.compatibility.local = None;
                 if let Reference::Number(number) = reference {
                     let incoming = self.tracks[&source_track]
                         .cells
@@ -392,8 +393,15 @@ impl Document {
                         .insert(number, cell);
                 }
             }
-            position.blank_start = reference == Reference::Blank && offset == 0;
-            if offset == 0 {
+            let blank_start = reference == Reference::Blank && index == column;
+            if position.blank_start != blank_start {
+                position.compatibility.dense_import = None;
+                position.blank_start = blank_start;
+            }
+            if track == source_track {
+                position.compatibility.pending_detached = false;
+            }
+            if index == column {
                 position.tween = None;
                 position.tween_member = None;
             }
@@ -814,7 +822,8 @@ impl Document {
     ) -> Result<(), Error> {
         let track = self.track_order[layer_index];
         let mut blanks = std::collections::BTreeMap::new();
-        for index in column + 1..end {
+        let next = column.checked_add(1).ok_or(Error::TimelineSizeOverflow)?;
+        for index in next..end {
             if self.position_mut(index, track).reference_for(false) != Reference::Blank {
                 continue;
             }
@@ -1388,6 +1397,65 @@ mod tests {
     use crate::image::RgbaImage;
     use crate::project::payload::decode_v2_plan;
     use serde_json::json;
+
+    #[test]
+    fn moving_a_drawing_recreates_blank_coverage_and_preserves_its_import() {
+        let input = json!({
+            "canvas": {"width": 1, "height": 1},
+            "frame_durations": [1, 1, 1, 1, 1, 1, 1],
+            "tracks": [{
+                "cells": [{"number": 1, "image": "1.png"}],
+                "sheet": [1, 1, "BLANK", "BLANK", "BLANK", null, null],
+            }],
+        });
+        let plan = decode_v2_plan(&input, &["1.png".into()]).unwrap();
+        let mut doc = v2::from_plan(&input, &plan, &[RgbaImage::blank(1, 1).unwrap()]).unwrap();
+        let track = doc.track_order[0];
+        use super::super::compatibility::{DenseImport, PositionGuard};
+        for index in 0..5 {
+            let position = doc.position_mut(index, track);
+            position.compatibility.dense_import = Some(DenseImport {
+                guard: PositionGuard::capture(position),
+                sheet: position.reference,
+                resolved: position.reference,
+            });
+        }
+        let before = doc.to_graph().0;
+        assert!(doc.move_sheet_cell((0, 0), (usize::MAX, 0)).is_err());
+        assert_eq!(doc.to_graph().0, before);
+        assert_eq!(
+            doc.move_sheet_cell((0, 0), (1, 0)).unwrap(),
+            vec![
+                Change::SheetSpans {
+                    layer_index: 0,
+                    start: 0,
+                    stop: 7,
+                },
+                Change::Cursor {
+                    frame: 1,
+                    notify: true,
+                },
+                Change::Selection { layer_index: 0 },
+            ],
+        );
+        assert_eq!(doc.timeline_block_at(1, 0), Some((false, 1, 2)));
+        assert_eq!(doc.timeline_block_at(3, 0), Some((true, 3, 2)));
+        assert!(doc
+            .position_mut(0, track)
+            .compatibility
+            .dense_import
+            .is_none());
+        assert!(doc
+            .position_mut(1, track)
+            .compatibility
+            .dense_import
+            .is_some());
+        assert!(doc
+            .position_mut(3, track)
+            .compatibility
+            .dense_import
+            .is_none());
+    }
 
     // tests/test_document_live_fast_paths.py:test_make_position_editable_on_empty_positions_uses_core_command
     #[test]

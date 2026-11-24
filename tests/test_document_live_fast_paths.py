@@ -3917,3 +3917,117 @@ def test_replace_drawing_images_matches_graph_without_run(monkeypatch, tmp_path,
     assert live.restore_snapshot(snapshot) == plain.restore_snapshot(expected)
     assert _signature(live) == _signature(plain)
     assert _pixels(live) == _pixels(plain)
+
+
+@pytest.mark.parametrize(
+    "shape", ["right", "covered", "left", "fill", "shift", "shift_extend", "cross"]
+)
+def test_move_sheet_cell_with_import_records_without_run(monkeypatch, tmp_path, shape):
+    from zipfile import ZipFile
+
+    from paintmaskanimator import constants, project_io, utils
+    from paintmaskanimator.legacy_v1 import V1Position, snapshot_layer
+    from paintmaskanimator.timeline_metadata import reference_for, set_dense_import
+
+    monkeypatch.setattr(constants, "CANVAS_WIDTH", 8)
+    monkeypatch.setattr(constants, "CANVAS_HEIGHT", 8)
+    monkeypatch.setattr(utils, "OUTSIDE_MARGIN", 0)
+    source, destination, blank_length = {
+        "right": (0, 1, 3), "covered": (0, 1, 1), "left": (1, 0, 3),
+        "fill": (2, 9, 1), "shift": (0, 10, 0), "shift_extend": (0, 10, 0),
+        "cross": (0, 4, 0),
+    }[shape]
+    target = int(shape == "cross")
+    blank_start = source + 6
+    plain, live = GraphDocument(), document_live.Document()
+    for doc in (plain, live):
+        frames = []
+        for column in range(16):
+            number = 1 if source <= column < blank_start else 2 if 10 <= column < 13 else None
+            if shape == "fill" and column < source:
+                number = 4
+            if shape == "shift_extend" and column == 15:
+                number = 3
+            blank = blank_start <= column < blank_start + blank_length
+            slot = _colored_layer("A", (71, 89, 107, 255), content=number is not None,
+                                  number=number, blank=blank)
+            slot.blank_start = blank and column == blank_start
+            ref = reference_for(slot)
+            set_dense_import(slot, ((slot.has_content, blank, number, False, slot.blank_start),
+                                    ref, ref))
+            other = _colored_layer("B", (29, 37, 43, 255), number=1 if target else 3)
+            slot.__dict__["_v1_position"] = V1Position(snapshot_layer(slot))
+            if target and column == destination:
+                other.__dict__["_v2_length_imported"] = True
+                other.__dict__["_v2_resolve_source"] = (
+                    (True, False, 1, False, False), 1, column, 16)
+            frames.append(Frame([slot, other]))
+        doc.install_legacy_frames(frames)
+        doc.frames[0].layers[1].set_pending(True)
+    assert live._live()["graph"] is None
+    original = document_live.Document._run
+
+    def checked_run(self, name, args, kwargs):
+        assert name != "move_sheet_cell"
+        return original(self, name, args, kwargs)
+
+    monkeypatch.setattr(document_live.Document, "_run", checked_run)
+    results = []
+    for doc in (plain, live):
+        snapshot = doc.snapshot()
+        signature, pixels = _signature(doc), _pixels(doc)
+        slots = [frame.layers[0] for frame in doc.frames]
+        tokens = [slot.__dict__.get("_pending_token") for slot in slots]
+        track = doc.tracks[0]
+        drawing = track.cells[1]
+        image = drawing.image
+        pending = doc.frames[0].layers[1]
+        pending_token = pending.__dict__["_pending_token"]
+
+        dest_track = doc.tracks[target]
+        dest_drawing = dest_track.cells[1]
+        old_image = dest_drawing.image
+        old_pixels = old_image.rgba().tobytes()
+        dest_slot = doc.frames[destination].layers[target]
+        dest_token = dest_slot.__dict__.get("_pending_token")
+        prepared = doc.prepare_sheet_move(source, 0, destination, target)
+        incoming = prepared[4]
+        incoming_tokens = [slot.__dict__["_pending_token"] for slot in incoming]
+        imported = incoming[0].__dict__["_dense_import"]
+        before = Layer.timeline_revision
+        changes = doc.move_sheet_cell(prepared)
+        delta = Layer.timeline_revision - before
+        assert doc.tracks[0] is track
+        placed = doc.frames[destination].layers[target]
+        assert placed._cell is dest_drawing
+        assert drawing.image is image
+        assert old_image.rgba().tobytes() == old_pixels
+        if target:
+            assert placed is dest_slot
+            assert placed.__dict__.get("_pending_token") is dest_token
+            assert placed.__dict__.get("_v2_length_imported") is True
+            assert placed.__dict__.get("_v2_resolve_source") == (
+                (True, False, 1, False, False), 1, destination, 16)
+            assert placed.image.rgba().tobytes() == image.rgba().tobytes()
+        else:
+            assert placed.__dict__.get("_dense_import") == imported
+            for column, (slot, token) in enumerate(zip(incoming, incoming_tokens), destination):
+                assert doc.frames[column].layers[0] is slot
+                assert slot.__dict__["_pending_token"] is token
+        cleared = source + 5 if shape == "left" else source
+        assert doc.frames[cleared].layers[0].__dict__.get("_dense_import") is None
+        assert pending is doc.frames[0].layers[1]
+        assert pending_token in pending._track.pending_slots
+        fates = [(slot is doc.frames[i].layers[0],
+                  token is doc.frames[i].layers[0].__dict__.get("_pending_token"))
+                 for i, (slot, token) in enumerate(zip(slots, tokens))]
+        path = tmp_path / ("live.pman" if doc is live else "plain.pman")
+        project_io.write_project_snapshot(path, project_io.ProjectSnapshot.capture({}, doc))
+        with ZipFile(path) as archive:
+            saved = {name: archive.read(name) for name in archive.namelist()}
+        results.append((changes, delta, fates, _signature(doc), _pixels(doc), saved))
+        doc.restore_snapshot(snapshot)
+        assert _signature(doc) == signature
+        assert _pixels(doc) == pixels
+
+    assert results[0] == results[1]
