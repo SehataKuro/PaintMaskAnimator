@@ -894,7 +894,10 @@ def _bank_image_replaceable(owner, key, field, value):
             ("image", (key, field == "initial_image"))):
         return True
     if isinstance(value, PmaImage):
-        return type(value) is PmaImage and type(value._image) is _native.RgbaImage
+        # 窓口の画像の写し（PmaImage.copy は型を引き継ぐ）は型が BoundImage のままでも、
+        # 中身は独立した画素（RgbaImage）でどの絵にも結ばれていない。Undo の記録の画像がこの形。
+        return (type(value) in (PmaImage, BoundImage)
+                and type(value._image) is _native.RgbaImage)
     from PySide6.QtGui import QImage
     return isinstance(value, QImage)
 
@@ -4864,7 +4867,8 @@ def _core_restore_drawing(document, frame, layer_index, number, image, has_conte
             "sequence_number"] not in {n for n, _ in state.track(key[1])[0]["cells"]}:
         return None
     cell = target.cell
-    if not isinstance(cell, LiveCell) or _m(cell, "_key")[0] != "bank":
+    # 局所の絵は画素の差分（patches）なら窓口のまま書ける。画像ごとの差し替えはバンクの一枚だけ。
+    if not isinstance(cell, LiveCell) or (_m(cell, "_key")[0] != "bank" and patches is None):
         return None
     if patches is None:
         if not _replace_bank_image(document, _m(cell, "_key"), "image", image):

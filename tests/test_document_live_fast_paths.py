@@ -2386,6 +2386,30 @@ def test_restore_drawing_and_batch_restore_replace_the_bank_image_in_place(monke
     assert _whole_signature(live) == _whole_signature(plain)
 
 
+def test_restore_drawing_with_a_copy_of_a_bound_image_runs_in_place(monkeypatch):
+    # Undo の記録は窓口の画像を copy_image で写す。写しは型が BoundImage のままでも
+    # 独立した画素なので、近道で差し替える（今の経路と同じ結果）。
+    from paintmaskanimator.pma_image import copy_image
+    plain, live = _pair()
+    calls = _round_trips(live, monkeypatch)
+    red = np.full((2, 2, 4), (255, 0, 0, 255), np.uint8)
+    saved = [copy_image(document.frames[4].layers[0].image) for document in (plain, live)]
+    assert type(saved[1]) is document_live.BoundImage
+    for document in (plain, live):
+        document.frames[4].layers[0].image.write_rgba(red, 0, 0)
+    number = plain.frames[4].layers[0].sequence_number
+    assert (live.restore_drawing(4, 0, number, saved[1], True, sheet=True)
+            == plain.restore_drawing(4, 0, number, saved[0], True, sheet=True))
+    assert calls == []
+    assert live.frames[4].layers[0].image is saved[1]
+    assert _pixels(live) == _pixels(plain)
+    assert _whole_signature(live) == _whole_signature(plain)
+    # 差し替えた画像は窓口になり、描けば文書に届く。
+    for image in saved:
+        image.write_rgba(red, 1, 1)
+    assert _pixels(live) == _pixels(plain)
+
+
 def test_image_replacement_that_needs_the_graph_takes_the_current_path(monkeypatch):
     plain, live = _pair()
     calls = _round_trips(live, monkeypatch)
@@ -2811,6 +2835,28 @@ def test_restore_drawing_changing_content_runs_in_place(monkeypatch):
                                 patches=patches) == expected
     assert calls == []
     assert _whole_signature(live) == _whole_signature(plain)
+
+
+def test_restore_drawing_patches_on_a_local_drawing_changing_content_runs_in_place(monkeypatch):
+    # 番号の無い位置（局所の絵）へ画素の差分を戻して印を変える Undo も往復なし。
+    plain, live = _pair()
+    live._promote()
+    calls = _round_trips(live, monkeypatch)
+    assert live.frames[2].layers[1].sequence_number is None
+    assert not live.frames[2].layers[1].has_content
+    patch = QImage(2, 2, QImage.Format.Format_ARGB32_Premultiplied)
+    for has_content, color in ((True, (9, 9, 9, 255)), (False, (0, 200, 0, 255))):
+        patch.fill(QColor(*color))
+        patches = [((1, 1, 2, 2), QImage(patch))]
+        expected = plain.restore_drawing(2, 1, None, None, has_content, sheet=True,
+                                         patches=patches)
+        assert live.restore_drawing(2, 1, None, None, has_content, sheet=True,
+                                    patches=patches) == expected
+        assert calls == []
+        assert _pixels(live) == _pixels(plain)
+        assert _whole_signature(live) == _whole_signature(plain)
+        live._promote()
+        calls.clear()
 
 
 def test_content_changes_rust_cannot_represent_take_the_python_path(monkeypatch):
