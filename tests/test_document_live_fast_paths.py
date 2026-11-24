@@ -3672,3 +3672,89 @@ def test_install_detached_legacy_frames_without_materializing_old_document(monke
     assert _signature(live) == _signature(plain)
     assert _pixels(live) == _pixels(plain)
     assert archives[0] == archives[1]
+
+
+@pytest.mark.parametrize("operation", [
+    "plain_noop", "shared_noop", "bool_noop", "float_noop", "extend", "advance",
+])
+def test_ensure_frame_count_matches_python(operation, monkeypatch, tmp_path):
+    from zipfile import ZipFile
+
+    from paintmaskanimator import constants, project_io, utils
+
+    monkeypatch.setattr(constants, "CANVAS_WIDTH", 8)
+    monkeypatch.setattr(constants, "CANVAS_HEIGHT", 8)
+    monkeypatch.setattr(utils, "OUTSIDE_MARGIN", 0)
+    plain, live = _pair()
+    if operation in ("plain_noop", "shared_noop"):
+        # 直接編集で素の状態にいるが、従来経路と同じく再接続できる。
+        live._demote()
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("ensure_frame_count called _run")
+
+    revisions = []
+    results = []
+    for document in (plain, live):
+        document.current_frame = len(document.frames) - 1
+        frames, tracks = document.frames, document.tracks
+        waiting = frames[0].layers[0]
+        waiting.set_pending(True)
+        waiting.image.write_rgba(np.array([[[80, 40, 20, 255]]], dtype=np.uint8))
+        token = waiting.__dict__["_pending_token"]
+        if operation == "shared_noop":
+            # バンクの画像を別の位置の局所の絵が共有するため、再接続はできない。
+            frames[2].layers[1].image = waiting.image
+        if document is live and operation in ("extend", "advance"):
+            assert live._live()["graph"] is None
+        old = [(frame, [(slot, slot._cell, slot.image, slot.__dict__["_pending_token"])
+                        for slot in frame.layers]) for frame in frames]
+        track_objects = list(tracks)
+        with monkeypatch.context() as guard:
+            guard.setattr(document_live.Document, "_run", unexpected)
+            before = Layer.timeline_revision
+            if operation == "advance":
+                results.append(document.advance_frame())
+            else:
+                counts = {"bool_noop": True, "float_noop": len(old) - 0.5, "extend": len(old) + 2}
+                results.append(document.ensure_frame_count(counts.get(operation, len(old))))
+            revisions.append(Layer.timeline_revision - before)
+
+        assert document.frames is frames and document.tracks is tracks
+        for index, track in enumerate(track_objects):
+            assert document.tracks[index] is track
+        for column, (frame, slots) in enumerate(old):
+            assert document.frames[column] is frame
+            for index, (slot, cell, image, old_token) in enumerate(slots):
+                assert frame.layers[index] is slot
+                assert slot._cell is cell and slot.image is image
+                assert slot.__dict__["_pending_token"] is old_token
+        assert token in tracks[0].pending_slots
+        cells, images, tokens = set(), set(), {id(token)}
+        # 窓口の弱参照キャッシュから消えないよう、新しいオブジェクトも保持する。
+        new_objects = []
+        for frame in frames[len(old):]:
+            assert frame.duration == 1
+            for slot, track in zip(frame.layers, tracks):
+                cell, image = slot._cell, slot.image
+                new_token = slot.__dict__["_pending_token"]
+                assert slot._track is track and new_token not in track.pending_slots
+                assert id(cell) not in cells and id(image) not in images and id(new_token) not in tokens
+                cells.add(id(cell))
+                images.add(id(image))
+                tokens.add(id(new_token))
+                new_objects.append((cell, image, new_token))
+
+    assert (live._live()["graph"] is not None) is (operation == "shared_noop")
+    assert results[0] == results[1]
+    assert revisions == [0, 0]
+    assert _signature(live) == _signature(plain)
+    assert _pixels(live) == _pixels(plain)
+
+    def save(doc, name):
+        path = tmp_path / f"{name}.pman"
+        project_io.write_project_snapshot(path, project_io.ProjectSnapshot.capture({}, doc))
+        with ZipFile(path) as archive:
+            return {name: archive.read(name) for name in archive.namelist()}
+
+    assert save(live, "live") == save(plain, "plain")

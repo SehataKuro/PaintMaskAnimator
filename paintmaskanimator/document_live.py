@@ -2539,7 +2539,7 @@ def _changes_from_json(text):
     return changes.ChangeSet(tuple(items))
 
 
-def _apply_core_command(document, operation, rows, apply=None, tracks=None):
+def _apply_core_command(document, operation, rows, apply=None, tracks=None, *, revision_delta=1):
     """Rust の文書に構造の命令を当て、窓口が読む写しを行ごとに取り直す。
 
     rows(frame_ids_before) は、命令で中身が変わり得る既存のコマ ID の列を返す。新しいコマの
@@ -2547,6 +2547,7 @@ def _apply_core_command(document, operation, rows, apply=None, tracks=None):
     渡すと、operation の代わりにそれで命令を当てる（apply_command と同じ形の JSON を返す）。
     tracks（列 ID の列）を渡すと、rows の行はその列の位置だけを読み直す（命令がほかの列の
     位置を変えない場合だけ渡す。新しいコマの行はすべての列を読む）。
+    revision_delta は Layer.timeline_revision の増分。空の位置を足すだけの命令では 0。
     """
     live = _live_of(document)
     state = live["state"]
@@ -2562,8 +2563,7 @@ def _apply_core_command(document, operation, rows, apply=None, tracks=None):
     known = set(before)
     new_ids = [fid for fid in order if fid not in known]
     state.reload_rows(changed, tracks, new_ids)
-    # 今の Python の手順はどれも Layer の代入を通るので timeline_revision を進める。
-    Layer.timeline_revision += 1
+    Layer.timeline_revision += revision_delta
     # 選択は Python の値が正（命令は Rust の選択を動かすことがある）。
     document._sync_selection()
     return _changes_from_json(text), new_ids
@@ -2859,12 +2859,25 @@ def _core_ensure_frame_count(document, count):
     """
     from .document_changes import ChangeSet
     live = _live_of(document)
-    if live["graph"] is not None or live.get("trial") or type(count) is not int:
+    if live.get("trial") or type(count) not in (int, bool, float):
         return None
+    graph = live["graph"]
+    if graph is not None:
+        frames = getattr(graph.plain, "frames", None)
+        if type(frames) is not list or (frames and not count <= len(frames)):
+            return None
+        # 伸長不要。素の手順を呼ばず、従来どおり再接続だけ試す。公開済みの
+        # オブジェクトの付け直しと last_keys の解放も通常の経路と同じ。
+        changes = ChangeSet()
+        return document._live_value(changes) if document._promote() else changes
     state = live["state"]
     if count <= len(state.frame_ids):
         return ChangeSet()
-    result = _apply_core_command(document, ["ensure_frame_count", count], lambda ids: [])
+    if type(count) is not int:
+        return None
+    # 空位置の初期値の設定と Track の共有は Layer.timeline_revision を進めない。
+    result = _apply_core_command(
+        document, ["ensure_frame_count", count], lambda ids: [], revision_delta=0)
     if result is None:
         return None
     changes, new_ids = result
