@@ -172,6 +172,18 @@ impl PyCoreDocument {
         self.0.restore_from(&snapshot.0);
     }
 
+    /// 履歴の復元で一つの位置の内容の印を戻す。失敗時は文書を変えない。
+    fn restore_position_content(
+        &mut self,
+        frame: usize,
+        layer: usize,
+        has_content: bool,
+    ) -> PyResult<()> {
+        self.0
+            .restore_position_content(frame, layer, has_content)
+            .map_err(value_error)
+    }
+
     /// 命令が作る空画像の雛形を設定する（Python の blank_model_image() の画像）。
     fn set_blank_image(&mut self, image: PyRef<'_, PyRgbaImage>) {
         self.0.set_blank_image(image.share());

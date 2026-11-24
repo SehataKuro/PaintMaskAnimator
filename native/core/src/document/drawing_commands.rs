@@ -211,6 +211,36 @@ impl Document {
         }])
     }
 
+    /// 履歴の復元で位置の内容の印を代入する。Python と同じ値にできない場合は何も変えずエラーにする。
+    pub fn restore_position_content(
+        &mut self,
+        frame: usize,
+        layer_index: usize,
+        has_content: bool,
+    ) -> Result<(), Error> {
+        let track = *self.track_order.get(layer_index).ok_or_else(missing)?;
+        let (_, number, _) = self.artwork_target(track, DrawingTarget::Frame(frame))?;
+        let position = &self.sheet[&self.frame_order[frame]].positions[&track];
+        let compatibility = &position.compatibility;
+        let current =
+            matches!(position.reference, Reference::Number(_)) || compatibility.unnumbered_content;
+        if current == has_content {
+            if has_content && compatibility.content_origin.is_some() {
+                self.position_mut(frame, track).compatibility.content_origin = None;
+            }
+            return Ok(());
+        }
+        if position.pending
+            || compatibility.local_share.is_some()
+            || compatibility.local_bank
+            || (has_content && position.reference == Reference::Blank)
+            || (!has_content && position.blank_start && number.is_some())
+        {
+            return Err(Error::Invalid("位置の内容の印を同じ形で戻せません".into()));
+        }
+        self.update_drawing_content(frame, track, number, has_content)
+    }
+
     fn validate_drawing_content(
         &self,
         frame: usize,
@@ -416,6 +446,49 @@ mod tests {
         let position = doc.position_mut(1, track);
         assert!(matches!(position.reference, Reference::Number(_)));
         assert_eq!(position.compatibility.content_origin, None);
+    }
+
+    #[test]
+    fn restoring_batch_content_copies_the_current_bank_and_rejects_unrepresentable_positions() {
+        let input = json!({
+            "canvas": {"width": 1, "height": 1},
+            "frame_durations": [1, 1],
+            "tracks": [{"cells": [{"number": 3, "image": "3.png"}], "sheet": [3, 3]}],
+        });
+        let plan = decode_v2_plan(&input, &["3.png".into()]).unwrap();
+        let pixels = [3, 5, 7, 255];
+        let image = RgbaImage::from_rgba(1, 1, &pixels).unwrap();
+        let mut doc = v2::from_plan(&input, &plan, &[image]).unwrap();
+        let track = doc.track_order()[0];
+        doc.position_mut(1, track).blank_start = true;
+        let before = doc.graph_fingerprints();
+        assert!(doc.restore_position_content(1, 0, false).is_err());
+        assert!(doc.restore_position_content(2, 0, false).is_err());
+        assert_eq!(doc.graph_fingerprints(), before);
+
+        doc.restore_position_content(0, 0, false).unwrap();
+        let position = doc.position_mut(0, track);
+        assert_eq!(position.reference, Reference::Empty);
+        assert_eq!(
+            position.compatibility.content_origin,
+            CellNumber::new(3).ok()
+        );
+        assert_eq!(
+            position.compatibility.local.as_ref().unwrap().image.rgba(),
+            pixels
+        );
+        assert_eq!(doc.graph_fingerprints().positions[1], before.positions[1]);
+        doc.restore_position_content(0, 0, true).unwrap();
+        let position = doc.position_mut(0, track);
+        assert_eq!(
+            position.reference,
+            Reference::Number(CellNumber::new(3).unwrap())
+        );
+        assert_eq!(position.compatibility.content_origin, None);
+        assert_eq!(
+            position.compatibility.local.as_ref().unwrap().image.rgba(),
+            pixels
+        );
     }
 
     // tests/test_core_document_compare.py:test_patch_content_and_replace_group

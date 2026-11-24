@@ -903,21 +903,19 @@ def _bank_image_replaceable(owner, key, field, value):
 
 
 def _batch_restore_plan(document, frame, layer_index, image, has_content, number, sheet):
-    """restore_batch_drawing を書き出し往復なしで当てる計画（何も変えない）。当てられなければ None。
-
-    今の手順の書き込みは、戻す絵への画像の代入と、DrawingTarget を通した has_content の
-    代入（位置、バンクだけの絵なら旧連番保管の札）と、その絵を指す位置（と、番号の絵から
-    外れて局所に写した位置）の has_content の代入だけ。画像の代入が近道で済み、has_content
-    の代入がどれも値を変えず、位置の絵の同一性（cell_id）を読むときに局所の絵を作る位置が
-    無いなら、Rust の状態のまま当てられる。計画は (戻す絵, 渡す変更の一覧の列)。戻す絵が
-    無ければ (None, ())。変更の一覧は今の手順が渡すのと同じ順（バンクだけの絵ならまずそれ、
-    続いてその絵を指す位置をシートの順に）。
-    """
-    from .document_changes import ChangeSet, DrawingPixels
+    """一括の戻しを検査し、通知順の (コマ, 印を変えるか) を用意する。"""
+    from .document import GraphDocument
     live = _live_of(document)
     if live["graph"] is not None or live.get("trial"):
         return None
-    target = document.resolve_numbered_target(frame, layer_index, number, sheet=sheet)
+    if (type(frame) is not int or type(layer_index) is not int or type(has_content) is not bool
+            or (number is not None and type(number) is not int)):
+        return None
+    try:
+        target = _try_in_place(document, GraphDocument.resolve_numbered_target,
+                               (frame, layer_index, number), {"sheet": sheet})
+    except _NeedsGraph:
+        return None
     if target is None:
         return None, ()
     if not isinstance(target.cell, LiveCell):
@@ -926,25 +924,30 @@ def _batch_restore_plan(document, frame, layer_index, image, has_content, number
     if not _bank_image_replaceable(document, key, "image", image):
         return None
     state = live["state"]
-    if not 0 <= layer_index < len(state.track_ids):
-        return None
     tid = state.track_ids[layer_index]
     if key[1] != tid:
         return None
-    if number is None:
-        # 番号の無い戻しは絵の画像と、その位置の has_content（DrawingTarget を通して bool で）。
-        if not (isinstance(target.slot, LiveLayer) and _unchanged_position(
-                document, _m(target.slot, "_key"), "has_content", bool(has_content))):
+    bank = {n for n, _ in state.track(tid)[0]["cells"]}
+
+    def content_step(column):
+        position = (state.frame_ids[column], tid)
+        if _unchanged_position(document, position, "has_content", has_content):
+            return column, False
+        values = state.position(*position)[0]
+        if values["has_content"] == has_content:
+            return column, True  # 同じ True の代入でも _content_origin を外す。
+        if not _can_restore_batch_content(values, has_content, bank):
             return None
-        return target, (ChangeSet((DrawingPixels(layer_index, number, frame, ()),)),)
-    changes = []
+        return column, True
+
+    if number is None:
+        step = content_step(frame)
+        return None if step is None else (target, (step,))
+    steps = []
     if target.column is None:
-        # バンクだけの絵。DrawingTarget の has_content は旧連番保管の札があればそれに書く。
-        for hint_number, hint in state.track(tid)[0]["hints"]:
-            if hint_number == number and hint["has_content"] != bool(has_content):
-                return None
-        changes.append(ChangeSet((DrawingPixels(layer_index, number, None, ()),)))
-    for sheet_frame, fid in enumerate(state.frame_ids):
+        # バンクだけの絵の通知は、位置の通知より先に渡す。
+        steps.append((None, True))
+    for column, fid in enumerate(state.frame_ids):
         values = state.position(fid, tid)[0]
         slot_number = values["sequence_number"]
         if slot_number is not None and (values["has_content"] or values["sequence_only"]):
@@ -954,18 +957,26 @@ def _batch_restore_plan(document, frame, layer_index, image, has_content, number
         else:
             slot_key = state.local_key(fid, tid)
         if slot_key == key or (slot_number == number and values["content_origin"] == number):
-            if not _unchanged_position(document, (fid, tid), "has_content", has_content):
+            step = content_step(column)
+            if step is None:
                 return None
-            changes.append(ChangeSet((DrawingPixels(layer_index, number, sheet_frame, ()),)))
-    return target, tuple(changes)
+            steps.append(step)
+    return target, tuple(steps)
 
 
-def _restore_batch_in_place(target, image, changes):
-    """_batch_restore_plan の計画を当てる。今の手順と同じく、最初に取り出されたときに絵を戻す。"""
+def _restore_batch_in_place(document, target, image, has_content, number, layer_index, steps):
+    """画像を入れ、次の通知が求められるたびにその位置の印を戻す。"""
+    from .document_changes import ChangeSet, DrawingPixels
     if target is None:
         return
     target.image = image
-    yield from changes
+    for column, change in steps:
+        if column is None:
+            target.has_content = has_content
+        elif change and not _restore_batch_position_content(document, column, layer_index, has_content):
+            # 通知の間に状態が変わって Rust で当てられなくなっても、この位置の代入から続ける。
+            document.frames[column].layers[layer_index].has_content = has_content
+        yield ChangeSet((DrawingPixels(layer_index, number, column, ()),))
 
 
 def _replace_bank_image(owner, key, field, value):
@@ -2078,13 +2089,15 @@ class Document:
         """Yield changes as slots are restored, in sheet observation order.
 
         Rust の状態で、戻す絵がバンクの一枚で画像の差し替えが近道（_replace_bank_image）で
-        済み、どの位置の has_content も変わらないなら、書き出し往復なしで当てる（変更の
-        一覧は今と同じ順に一つずつ渡す。_batch_restore_plan）。それ以外は今の経路。
+        済み、各位置の has_content を Rust で同じように代入できるなら、書き出し往復なしで
+        当てる。一覧は今と同じ順に一つずつ渡す。それ以外は今の経路。
         """
         # 今の手順と同じく、最初に取り出されたときに戻す絵を探して計画を立てる。
         plan = _batch_restore_plan(self, frame, layer_index, image, has_content, number, sheet)
         if plan is not None:
-            yield from _restore_batch_in_place(plan[0], image, plan[1])
+            target, steps = plan
+            yield from _restore_batch_in_place(
+                self, target, image, has_content, number, layer_index, steps)
             return
         yield from self._run("restore_batch_drawing",
                              (frame, layer_index, image, has_content, number), {"sheet": sheet})
@@ -4881,6 +4894,47 @@ def _core_set_drawing_content(document, frame, layer_index, has_content):
     return changes
 
 
+def _can_restore_batch_content(values, has_content, bank):
+    number = values["sequence_number"]
+    return (not values["sequence_only"]
+            and values.get("local_share") is None and not values.get("local_bank")
+            and not _content_change_diverges(values, has_content)
+            and (number is None or number in bank))
+
+
+def _restore_batch_position_content(document, frame, layer_index, has_content):
+    """検査済みの位置に印を当て、置き換わる局所の絵を切り離す。"""
+    live = _live_of(document)
+    if live["graph"] is not None:
+        return False
+    state = live["state"]
+    if not (0 <= frame < len(state.frame_ids) and 0 <= layer_index < len(state.track_ids)):
+        return False
+    key = (state.frame_ids[frame], state.track_ids[layer_index])
+    values = state.position(*key)[0]
+    number = values["sequence_number"]
+    changed = values["has_content"] != has_content
+    replaces_local = changed and not has_content and number is not None
+    plan = _detach_plan(document, [], [key]) if replaces_local else {"layers": [], "cells": []}
+    if plan is None:
+        return False
+    try:
+        live["core"].restore_position_content(frame, layer_index, has_content)
+    except ValueError:
+        return False
+    # 位置の値だけが変わる。コマ・列の並びと窓口の一覧はそのまま使える。
+    state.refresh_position(*key)
+    state.slot_copies.pop(key, None)
+    state.slot_dicts.pop(key, None)
+    state.resolved = None
+    if changed:
+        Layer.timeline_revision += 1
+    state.pending.clear()
+    document._sync_selection()
+    _detach(document, plan)
+    return True
+
+
 def _content_change_diverges(values, has_content):
     """Rust の位置の表現では、今の手順の has_content の代入と同じ形にならない位置か。
 
@@ -5289,30 +5343,73 @@ def _retire_document(document, frozen_core):
             view.__dict__["_retired_from"] = document
 
 
-def _core_restore_snapshot(document, snapshot):
-    """restore_snapshot を、遅延の写しの Rust の文書から戻す。今の手順と同じにできなければ None。
+def _materialized_snapshot_core(snapshot, previous):
+    """写しの今の値を clone_frame_graph と同じ手順で写して Rust に取り込む。"""
+    from .document import GraphDocument
+    revision = Layer.timeline_revision
+    try:
+        frames = snapshot[0]
+        if (type(frames) is not list or not frames
+                or any(type(frame) is not Frame or type(frame.layers) is not list
+                       or any(type(slot) is not Layer for slot in frame.layers) for frame in frames)):
+            return None
+        for frame in frames:
+            for slot in frame.layers:
+                # 読み取りで Track や局所の Cell を作る形は、写しを書き換えるので従来経路。
+                track = slot.__dict__.get("_track")
+                if type(track) is not Track:
+                    return None
+                if (slot.__dict__.get("_cell") is None
+                        and not (track.connected and slot.sequence_number is not None
+                                 and (slot.has_content or slot.sequence_only))):
+                    return None
+        scratch = object.__new__(GraphDocument)
+        width, height = scratch.restore(snapshot)
+        first_frame, first_track = previous.next_ids
+        last_frame = first_frame + len(scratch.frames)
+        last_track = first_track + len(scratch.tracks)
+        current, active = scratch.current_frame, scratch.active_layer_index
+        selection = (current if _in_range(current, len(scratch.frames)) else 0,
+                     active if _in_range(active, len(scratch.tracks)) else 0)
+        text, images = graph_payload(
+            scratch, ids=(range(first_frame, last_frame), range(first_track, last_track),
+                          last_frame, last_track), selection=selection)
+        core = _native._CoreDocument.from_graph(text, images)
+    except (GraphError, ValueError, TypeError, AttributeError, KeyError, IndexError, OverflowError):
+        Layer.timeline_revision = revision
+        return None
+    return core, current, active, width, height
 
-    今の手順（restore）は写しを clone_frame_graph でもう一度写して、文書のコマ・列を新しい
-    オブジェクトに入れ替える（古いオブジェクトは今の値のまま文書から外れる）。写しの中身を
-    まだ作っていない遅延の写しだけを扱う。
-    """
+
+def _core_restore_snapshot(document, snapshot):
+    """写しを Rust の文書に戻し、古いコマ・列の窓口を元の値のまま文書から外す。"""
+    from .document import DocumentSnapshot
     from .document_changes import ChangeSet, DocumentRestored, ExposureIndexReset
     live = _live_of(document)
     lazy = _LAZY_SNAPSHOT[0] if _LAZY_SNAPSHOT else None
-    if (lazy is None or type(snapshot) is not lazy or live["graph"] is not None
-            or live.get("trial")):
+    if live["graph"] is not None or live.get("trial"):
         return None
-    core = snapshot.__dict__.get("_core")
-    if core is None:
-        return None
-    current, active, width, height = tuple.__getitem__(snapshot, slice(1, 5))
-    target = live["core"]
     previous = live["state"]
-    _retire_document(document, target.copy())
-    target.set_blank_image(_blank_handle())
-    target.restore_from(core)
-    # 外れた文書は previous を読み続ける。戻したあとも同じ見え方の位置・列は値を使い回す。
-    state = _CoreState.restored(target, previous)
+    source = snapshot.__dict__.get("_core") if type(snapshot) is lazy else None
+    if source is not None:
+        current, active, width, height = tuple.__getitem__(snapshot, slice(1, 5))
+        target = live["core"]
+        _retire_document(document, target.copy())
+        target.set_blank_image(_blank_handle())
+        target.restore_from(source)
+        state = _CoreState.restored(target, previous)
+        # 遅延の写しは局所の絵などを Rust で整える。
+        Layer.timeline_revision += 1
+    else:
+        if type(snapshot) not in (DocumentSnapshot, tuple, lazy):
+            return None
+        prepared = _materialized_snapshot_core(snapshot, previous)
+        if prepared is None:
+            return None
+        target, current, active, width, height = prepared
+        target.set_blank_image(_blank_handle())
+        state = _CoreState(target)
+        _retire_document(document, live["core"])
     document.__dict__["_live_state"] = {
         "graph": None, "core": target, "state": state, "cache": _Cache(),
         "cursor": [current, active], "next_ids": state.next_ids, "last_keys": {},
@@ -5321,8 +5418,6 @@ def _core_restore_snapshot(document, snapshot):
                    for tid in state.track_ids},
     }
     document._sync_selection()
-    # 今の手順は写しの位置を clone_slot で作るので timeline_revision が進む。
-    Layer.timeline_revision += 1
     return ChangeSet((DocumentRestored(width, height), ExposureIndexReset()))
 
 

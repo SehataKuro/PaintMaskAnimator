@@ -4,6 +4,7 @@
 列の表示設定は列だけ Rust へ書く、窓口のまま試して素のグラフが要る書き込みでやり直す。
 """
 import numpy as np
+import pytest
 from PySide6.QtGui import QColor, QImage
 
 from paintmaskanimator import document_live
@@ -2507,11 +2508,11 @@ def test_image_replacement_that_needs_the_graph_takes_the_current_path(monkeypat
             == plain.replace_drawing_image(2, 1, image, has_content=True))
     assert calls
     calls.clear()
-    # has_content を外す戻しは、位置に局所の写しを作る（今の経路）。
+    # has_content を外す戻しは、位置に局所の写しを作る。
     image = _filled((8, 8, 8, 255))
     assert (list(live.restore_batch_drawing(0, 0, image, False, 1, sheet=True))
             == list(plain.restore_batch_drawing(0, 0, image, False, 1, sheet=True)))
-    assert calls
+    assert calls == []
     # 別の番号の位置がすでに持つ画像（文書の絵の窓口）を入れるのも今の経路。
     calls.clear()
     shared = live.frames[4].layers[0].image
@@ -2863,11 +2864,19 @@ def test_clone_graph_falls_back_when_round_trip_needed(monkeypatch):
 
 def test_set_drawing_content_uses_core_command(monkeypatch):
     # 印を外すと局所の絵はバンクの絵の写しになり（前の局所の絵は文書から外れる）、外す前の
-    # 番号を残す。立て直すと番号を外す。どちらも往復なしで今の手順と同じ。
+    # 番号を残す。立て直すと _content_origin を外す。どちらも往復なしで今の手順と同じ。
     from paintmaskanimator.models import Layer
     plain, live = _pair(hold=2, count=6)
     live._promote()
     calls = _round_trips(live, monkeypatch)
+    commands = []
+    apply_core_command = document_live._apply_core_command
+
+    def apply(document, operation, *args, **kwargs):
+        commands.append(operation)
+        return apply_core_command(document, operation, *args, **kwargs)
+
+    monkeypatch.setattr(document_live, "_apply_core_command", apply)
     slot = live.frames[1].layers[0]
     local = slot.__dict__["_cell"] if "_cell" in slot.__dict__ else None
     for frame, value in ((1, False), (3, False), (1, True), (0, False)):
@@ -2875,6 +2884,7 @@ def test_set_drawing_content_uses_core_command(monkeypatch):
         expected = plain.set_drawing_content(frame, 0, value)
         step = Layer.timeline_revision - before
         assert live.set_drawing_content(frame, 0, value) == expected
+        assert commands.pop() == ["set_drawing_content", frame, 0, value]
         assert Layer.timeline_revision - before == 2 * step
         assert calls == []
         assert _whole_signature(live) == _whole_signature(plain)
@@ -3191,3 +3201,155 @@ def test_clone_graph_and_lazy_snapshot_build_once_from_core(monkeypatch):
     reference.frames, reference.tracks = expected_snapshot.frames, expected_snapshot.tracks
     reference.current_frame, reference.active_layer_index = expected_snapshot[1], expected_snapshot[2]
     assert _whole_signature(graph) == _whole_signature(reference)
+
+
+def test_batch_restore_changes_content_in_sheet_order(monkeypatch):
+    plain, live = _pair()
+    for doc in (plain, live):
+        doc.tracks[0].legacy_archive_hints[1] = ArchiveHint(has_content=False)
+    slots = [tuple(frame.layers[0] for frame in doc.frames[:2]) for doc in (plain, live)]
+    cells = [group[0]._cell for group in slots]
+    old_images = [cell.image for cell in cells]
+    old_pixels = [image.rgba().tobytes() for image in old_images]
+    tokens = [tuple(slot.__dict__["_pending_token"] for slot in group) for group in slots]
+    calls = []
+    original = document_live.Document._run
+    synced = []
+    sync_selection = document_live.Document._sync_selection
+
+    def run(self, name, args, kwargs):
+        calls.append(name)
+        return original(self, name, args, kwargs)
+
+    def sync(self):
+        synced.append(self)
+        sync_selection(self)
+
+    monkeypatch.setattr(document_live.Document, "_run", run)
+    monkeypatch.setattr(document_live.Document, "_sync_selection", sync)
+    for content, color in ((False, (8, 9, 10, 255)), (True, (20, 21, 22, 255))):
+        images = [PmaImage(_filled(color)) for _ in range(2)]
+        steps = [doc.restore_batch_drawing(0, 0, image, content, 1, sheet=True)
+                 for doc, image in zip((plain, live), images)]
+        while True:
+            revision = Layer.timeline_revision
+            expected = next(steps[0], None)
+            delta = Layer.timeline_revision - revision
+            revision = Layer.timeline_revision
+            state = live._live()["state"]
+            list(live.tracks[0].pending_slots)
+            assert state.pending
+            synced.clear()
+            assert next(steps[1], None) == expected
+            assert calls == []
+            assert Layer.timeline_revision - revision == delta
+            if delta:
+                assert not state.pending
+                assert synced == [live]
+            assert _signature(live) == _signature(plain)
+            assert _pixels(live) == _pixels(plain)
+            if expected is None:
+                break
+        for doc, group, cell, image, held_tokens in zip((plain, live), slots, cells, images, tokens):
+            assert all(doc.frames[i].layers[0] is slot for i, slot in enumerate(group))
+            assert all(slot.__dict__["_pending_token"] is token
+                       for slot, token in zip(group, held_tokens))
+            assert doc.tracks[0].cells[1] is cell
+            assert cell.image is image
+            assert all((slot._cell is cell) == content for slot in group)
+            assert doc.tracks[0].legacy_archive_hints[1].has_content == content
+    # 番号を記録していない戻しは、共有中のバンク画像を戻して指定位置だけ印を外す。
+    images = [PmaImage(_filled((30, 31, 32, 255))) for _ in range(2)]
+    assert list(live.restore_batch_drawing(0, 0, images[1], False, None, sheet=True)) == list(
+        plain.restore_batch_drawing(0, 0, images[0], False, None, sheet=True))
+    assert calls == []
+    for group, cell, image in zip(slots, cells, images):
+        assert not group[0].has_content and group[1].has_content
+        assert group[0]._cell is not cell and group[1]._cell is cell
+        assert group[0].image is not image and group[1].image is image
+    assert _signature(live) == _signature(plain)
+    assert _pixels(live) == _pixels(plain)
+    assert _whole_signature(live) == _whole_signature(plain)
+    assert [image.rgba().tobytes() for image in old_images] == old_pixels
+
+
+def test_batch_restore_rust_rejection_continues_from_the_current_position(monkeypatch):
+    plain, live = _pair(hold=3)
+    core_type = type(live._live()["core"])
+    restore = core_type.restore_position_content
+    attempts = []
+
+    def reject_second(core, frame, layer, has_content):
+        attempts.append(frame)
+        if frame == 1:
+            assert not live.frames[0].layers[0].has_content
+            assert live.frames[1].layers[0].has_content
+            assert live.tracks[0].cells[1].image is images[1]
+            raise ValueError("restore_position_content rejected the second slot")
+        return restore(core, frame, layer, has_content)
+
+    monkeypatch.setattr(core_type, "restore_position_content", reject_second)
+    images = [PmaImage(_filled((41, 42, 43, 255))) for _ in range(2)]
+    expected, actual = [doc.restore_batch_drawing(0, 0, image, False, 1, sheet=True)
+                        for doc, image in zip((plain, live), images)]
+    for change in expected:
+        assert next(actual) == change
+        assert _signature(live) == _signature(plain)
+        assert _pixels(live) == _pixels(plain)
+        assert live.tracks[0].cells[1].image is images[1]
+    assert next(actual, None) is None
+    assert attempts == [0, 1, 2]
+    assert _whole_signature(live) == _whole_signature(plain)
+
+
+@pytest.mark.parametrize("kind", ["plain", "materialized", "tuple"])
+def test_restore_materialized_and_plain_snapshots_without_round_trip(monkeypatch, kind):
+    plain, live = _pair()
+    snapshots = [doc.snapshot() for doc in (plain, live)]
+    # 読み出した写しには編集もできる。捕獲時の Rust の値に戻してはいけない。
+    for snapshot in snapshots:
+        snapshot.frames[0].layers[0].image = PmaImage(_filled((51, 52, 53, 255)))
+        snapshot.frames[0].duration = 3
+    calls = _round_trips(live, monkeypatch)
+    source = snapshots[1] if kind == "materialized" else snapshots[0]
+    if kind == "tuple":
+        source = tuple(source)[:5]
+    for _ in range(2):
+        old = [doc.frames[0].layers[0] for doc in (plain, live)]
+        old_images = [slot.image for slot in old]
+        revision = Layer.timeline_revision
+        expected = plain.restore_snapshot(snapshots[0])
+        delta = Layer.timeline_revision - revision
+        revision = Layer.timeline_revision
+        assert live.restore_snapshot(source) == expected
+        assert calls == []
+        assert Layer.timeline_revision - revision == delta
+        assert _signature(live) == _signature(plain)
+        assert _pixels(live) == _pixels(plain)
+        for doc, slot, image, snapshot in zip((plain, live), old, old_images,
+                                               (snapshots[0], source)):
+            restored = doc.frames[0].layers[0]
+            stored = snapshot[0][0].layers[0]
+            assert restored is not slot and restored is not stored
+            assert slot.image is image
+            assert restored.image is not image and restored.image is not stored.image
+            assert restored._cell is doc.frames[1].layers[0]._cell
+            assert restored.__dict__["_pending_token"] is not stored.__dict__["_pending_token"]
+    assert _whole_signature(live) == _whole_signature(plain)
+
+
+def test_restore_snapshot_falls_back_for_content_and_blank_key(monkeypatch):
+    plain, live = _pair()
+    snapshot = plain.snapshot()
+    snapshot.frames[0].layers[0].is_blank_key = True
+    calls = _round_trips(live, monkeypatch)
+    revision = Layer.timeline_revision
+    expected = plain.restore_snapshot(snapshot)
+    delta = Layer.timeline_revision - revision
+    revision = Layer.timeline_revision
+    assert live.restore_snapshot(snapshot) == expected
+    assert calls
+    assert Layer.timeline_revision - revision == delta
+    assert live._live()["graph"] is not None
+    assert _signature(live) == _signature(plain)
+    assert _pixels(live) == _pixels(plain)
