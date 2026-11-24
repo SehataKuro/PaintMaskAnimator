@@ -1194,6 +1194,8 @@ class _FramesView(MutableSequence):
     """文書のコマ（または列）の並び。並びを変える書き込みは素のグラフで当てて戻す。"""
 
     _name = "frames"
+    # 窓口の表の種類と型（_item の Document._frame と同じ）。
+    _kind = ("frame", LiveFrame)
 
     def __init__(self, owner):
         self._owner = owner
@@ -1209,10 +1211,28 @@ class _FramesView(MutableSequence):
 
     def _all(self):
         """Rust の状態での窓口の並び。状態が変わるまで使い回す。"""
-        state = _live_of(self._owner)["state"]
+        live = _live_of(self._owner)
+        state = live["state"]
         items = state.view_lists.get(self._name)
         if items is None:
-            items = state.view_lists[self._name] = [self._item(i) for i in self._ids()]
+            # [self._item(i) for i in self._ids()] と同じ（Document._proxy を一つずつ呼ぶと
+            # Undo のあとの読み直しで窓口を作り直すたびに手間が重なるので、表を直接引く）。
+            kind, cls = self._kind
+            objects, owner = live["cache"]._objects, self._owner
+            items = []
+            for item_id in (state.frame_ids if self._name == "frames" else state.track_ids):
+                key = (kind, (item_id,))
+                obj = objects.get(key)
+                if obj is None:
+                    if cls is LiveFrame:
+                        # _make と同じ（コマの窓口は _install_meta の型の判定を省ける）。
+                        obj = object.__new__(LiveFrame)
+                        object.__setattr__(obj, "_live_meta", _new_meta(owner, (item_id,)))
+                    else:
+                        obj = _make(cls, owner, (item_id,))
+                    objects[key] = obj
+                items.append(obj)
+            state.view_lists[self._name] = items
         return items
 
     def _item(self, item_id):
@@ -1295,6 +1315,7 @@ class _TracksView(_FramesView):
     """文書の列の並び。"""
 
     _name = "tracks"
+    _kind = ("track", LiveTrack)
 
     def _ids(self):
         return self._owner._track_ids()
