@@ -265,3 +265,50 @@ def test_retained_positions_follow_python_slices():
         positions = [rng.randrange(-20, 20) for _ in range(rng.randrange(0, 6))]
         expected = [sum(keep[:position]) for position in positions]
         assert native.history_retained_positions(keep, positions) == expected
+
+
+def _branches(rng):
+    return [
+        HistoryBranch(rng.randrange(0, 12), [_Entry(i, 0) for i in range(rng.choice([0, 1, 1, 2, 3, 6]))],
+                      f"b{index}")
+        for index in range(rng.randrange(0, 15))
+    ]
+
+
+def test_branch_columns_match_python():
+    from paintmaskanimator import history_panel
+
+    rng = random.Random(65)
+    for _ in range(400):
+        branches = _branches(rng)
+        assert history_panel.branch_columns(branches) == history_panel.branch_columns_python(branches)
+    assert history_panel.branch_columns([]) == []
+    # 分岐点が負でも（今の手順では来ないが）同じ並びと列になる。
+    for _ in range(100):
+        branches = _branches(rng)
+        for branch in branches:
+            branch.position = rng.randrange(-8, 4)
+        assert history_panel.branch_columns(branches) == history_panel.branch_columns_python(branches)
+
+
+def test_history_panel_nodes_match_python(qapp, monkeypatch):
+    """パネルが組み立てるブロックの並びが、Python 版の列の割り当てと同じになる。"""
+    from paintmaskanimator import history_panel
+
+    rng = random.Random(66)
+    panel = history_panel.HistoryPanel()
+    try:
+        for _ in range(40):
+            canvas = _History()
+            canvas.undo_stack[:] = [_Entry(i, 0) for i in range(rng.randrange(0, 12))]
+            canvas.redo_stack[:] = [_Entry(i, 0) for i in range(rng.randrange(0, 4))]
+            canvas.history_branches[:] = _branches(rng)
+            panel.set_canvas(canvas)
+            rust = [dict(node) for node in panel.graph._nodes]
+            with monkeypatch.context() as patch:
+                patch.setattr(history_panel, "branch_columns", history_panel.branch_columns_python)
+                panel.refresh()
+                python = [dict(node) for node in panel.graph._nodes]
+            assert rust == python
+    finally:
+        panel.deleteLater()

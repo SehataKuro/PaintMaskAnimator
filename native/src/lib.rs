@@ -293,6 +293,7 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     )?)?;
     module.add_function(wrap_pyfunction!(history::history_branch_overflow, module)?)?;
     module.add_function(wrap_pyfunction!(history::history_switch_steps, module)?)?;
+    module.add_function(wrap_pyfunction!(history::history_branch_columns, module)?)?;
     module.add_function(wrap_pyfunction!(
         history::history_retained_positions,
         module

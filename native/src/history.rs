@@ -32,3 +32,9 @@ pub fn history_switch_steps(position: i64, undo_len: usize) -> Option<usize> {
 pub fn history_retained_positions(keep: Vec<bool>, positions: Vec<i64>) -> Vec<usize> {
     core::retained_positions(&keep, &positions)
 }
+
+/// ヒストリーパネルで分岐を置く列。並べた順に (一覧の添字, 列)。
+#[pyfunction]
+pub fn history_branch_columns(branches: Vec<(i64, usize)>) -> Vec<(usize, usize)> {
+    core::branch_columns(&branches)
+}

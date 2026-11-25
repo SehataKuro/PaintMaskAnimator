@@ -32,7 +32,7 @@ REQUIRED_API = (
     "flow_part_color",
     "surface_guided_palette_labels", "map_known_colors", "region_neighbors",
     "history_trim_count", "history_shift_branch_positions", "history_branch_overflow",
-    "history_switch_steps", "history_retained_positions",
+    "history_switch_steps", "history_retained_positions", "history_branch_columns",
     "FillSession", "LineCache", "compute_fill_region_once", "fill_target_mask", "extend_line_ends", "flood_fill", "dilate", "erode", "label_regions", "remove_line_noise", "decode_png", "encode_png", "ZipReader", "ZipWriter", "decode_v2_plan",
 )
 TIMELINE_API_VERSION = 2
@@ -1145,3 +1145,8 @@ def history_switch_steps(position: int, undo_len: int):
 def history_retained_positions(keep, positions) -> list:
     """一部の件を除いたあとの分岐点：分岐点より前に残る件の数（負の分岐点は末尾から数える）。"""
     return _native.history_retained_positions(keep, positions)
+
+
+def history_branch_columns(branches) -> list:
+    """ヒストリーパネルで分岐を置く列。``(分岐点, 件数)`` の並びから、並べた順に ``(添字, 列)``。"""
+    return _native.history_branch_columns(branches)

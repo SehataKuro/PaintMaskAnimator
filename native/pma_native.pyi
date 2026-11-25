@@ -379,3 +379,6 @@ def history_switch_steps(position: int, undo_len: int) -> int | None:
 def history_retained_positions(keep: list[bool], positions: list[int]) -> list[int]:
     """一部の件を除いたあとの分岐点（分岐点より前に残る件の数）。"""
 
+def history_branch_columns(branches: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """ヒストリーパネルで分岐を置く列。並べた順に (一覧の添字, 列)。"""
+

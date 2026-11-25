@@ -102,6 +102,39 @@ pub fn retained_positions(keep: &[bool], positions: &[i64]) -> Vec<usize> {
         .collect()
 }
 
+/// ヒストリーパネルで分岐を置く列。
+///
+/// `branches` は分岐の一覧の順に `(分岐点, 件数)`。分岐点・一覧の順で並べ、件数 0 の分岐は
+/// 飛ばし、行範囲（分岐点+1 〜 分岐点+件数）が重ならない分岐は同じ列を使い回す。列は 1 から。
+/// 並べた順に `(一覧の添字, 列)` を返す。`history_panel.branch_columns_python` と一致する。
+pub fn branch_columns(branches: &[(i64, usize)]) -> Vec<(usize, usize)> {
+    let mut order: Vec<usize> = (0..branches.len()).collect();
+    order.sort_by_key(|&index| (branches[index].0, index));
+    let mut spans: Vec<Vec<(i128, i128)>> = Vec::new();
+    let mut out = Vec::new();
+    for index in order {
+        let (position, total) = branches[index];
+        if total == 0 {
+            continue;
+        }
+        let start = position as i128 + 1;
+        let end = position as i128 + total as i128;
+        let mut col = 0;
+        loop {
+            if col == spans.len() {
+                spans.push(Vec::new());
+            }
+            if spans[col].iter().all(|&(s, e)| end < s || start > e) {
+                spans[col].push((start, end));
+                break;
+            }
+            col += 1;
+        }
+        out.push((index, col + 1));
+    }
+    out
+}
+
 /// Undo 列の1件。論理バイトは上限での切り詰めに使う。
 pub trait HistoryItem {
     /// 持っている画像の論理バイト（幅×高さ×4 の和）。
@@ -547,5 +580,13 @@ mod tests {
         assert_eq!(bytes(history.redo_entries()), vec![3]);
         assert_eq!(history.branches().len(), 1);
         assert_eq!(history.branches()[0].position, 2);
+    }
+
+    #[test]
+    fn branch_columns_reuse_columns_for_disjoint_rows() {
+        // 一覧の順に（分岐点, 件数）。分岐点・一覧の順に並べて列を決める。
+        let columns = branch_columns(&[(3, 1), (0, 2), (0, 1), (5, 0), (2, 1)]);
+        assert_eq!(columns, vec![(1, 1), (2, 2), (4, 1), (0, 1)]);
+        assert!(branch_columns(&[]).is_empty());
     }
 }

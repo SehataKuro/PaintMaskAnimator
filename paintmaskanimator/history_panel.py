@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from . import native
 from .i18n import tr
 from .undo_entries import history_label_for
 from .logging_setup import get_logger
@@ -45,6 +46,44 @@ def _block_rect(col, row):
     x = _MARGIN + col * _COL_PITCH
     y = _MARGIN + row * _ROW_PITCH
     return QRectF(x, y, _BLOCK_W, _BLOCK_H)
+
+
+def branch_columns(branches):
+    """分岐を置く列を、分岐点・一覧の順に ``(一覧の添字, 列)`` で返す（件数0の分岐は飛ばす）。
+
+    行範囲（分岐点+1 〜 分岐点+件数）が重ならない分岐は同じ列を使い回す。列は 1 から。
+    割り当ては Rust（``pma_core::document::history::branch_columns``）が決める。
+    """
+    return native.history_branch_columns(
+        [(int(branch.position), len(branch.entries)) for branch in branches]
+    )
+
+
+def branch_columns_python(branches):
+    """:func:`branch_columns` の Python 版。Rust との突き合わせ用（テスト専用）。"""
+    col_spans = {}  # col -> [(row_start, row_end), ...]
+
+    def alloc_col(start, end):
+        col = 1
+        while True:
+            spans = col_spans.setdefault(col, [])
+            if all(end < s or start > e for s, e in spans):
+                spans.append((start, end))
+                return col
+            col += 1
+
+    indexed = sorted(
+        enumerate(branches),
+        key=lambda pair: (int(pair[1].position), pair[0]),
+    )
+    columns = []
+    for branch_index, branch in indexed:
+        total = len(branch.entries)
+        if total == 0:
+            continue
+        position = int(branch.position)
+        columns.append((branch_index, alloc_col(position + 1, position + total)))
+    return columns
 
 
 class _HistoryGraph(QWidget):
@@ -299,30 +338,12 @@ class HistoryPanel(QWidget):
 
         # 分岐を列に割り当てる。行範囲が重ならない分岐は同じ列を使い回すが、
         # 同じ分岐点から出た複数の分岐は必ず別の列になり、横に並ぶ。
-        col_spans = {}  # col -> [(row_start, row_end), ...]
-
-        def alloc_col(start, end):
-            col = 1
-            while True:
-                spans = col_spans.setdefault(col, [])
-                if all(end < s or start > e for s, e in spans):
-                    spans.append((start, end))
-                    return col
-                col += 1
-
-        indexed = sorted(
-            enumerate(branches),
-            key=lambda pair: (int(pair[1].position), pair[0]),
-        )
-        for branch_index, branch in indexed:
+        for branch_index, col in branch_columns(branches):
+            branch = branches[branch_index]
             entries = branch.entries
             total = len(entries)
-            if total == 0:
-                continue
             position = int(branch.position)
             start_row = position + 1
-            end_row = position + total
-            col = alloc_col(start_row, end_row)
 
             # entries は redo_stack のコピー。末尾が分岐直後の1手なので、
             # 分岐点に近い順（末尾→先頭）に上から並べる。
