@@ -325,9 +325,10 @@ def _decode_payload(payload, archive, png_cache=None):
             result = references[key] = DenseReference(*values)
         return result
 
-    document = object.__new__(Document)
-    document.frames = [Frame([], duration) for duration in plan["durations"]]
-    document.tracks = []
+    # 保存時の検証もここを通る。組み立て中は素のリストに足し、
+    # 全列がそろってから一度だけ公開する。
+    frames = [Frame([], duration) for duration in plan["durations"]]
+    tracks = []
     for li, data in enumerate(plan["tracks"]):
         original = payload["tracks"][li]
         name, visible, opacity, paper, draft, filter_enabled, rgb = data["display"]
@@ -369,11 +370,17 @@ def _decode_payload(payload, archive, png_cache=None):
             signature = (content, blank_key, number, pending, start)
             set_dense_import(slot, (signature, dense(ref), dense(resolve_ref)))
             if has_resolved:
-                slot.__dict__["_v2_resolve_source"] = (signature, source, column, len(document.frames))
-            document.frames[column].layers.append(slot)
-        document.tracks.append(track)
+                slot.__dict__["_v2_resolve_source"] = (signature, source, column, len(frames))
+            frames[column].layers.append(slot)
+        tracks.append(track)
+    document = object.__new__(Document)
+    document.frames = frames
+    document.tracks = tracks
     document.current_frame = plan["current_frame"]
     document.active_layer_index = plan["active_layer_index"]
+    promote = getattr(document, "_promote", None)
+    if promote is not None:
+        promote()
     metadata = deepcopy(payload)
     for key in ("tracks", "frame_durations"):
         metadata.pop(key, None)

@@ -1987,8 +1987,7 @@ class Document:
 
     def exposure_references(self, layer, column):
         """ExposureUndo の記録。Rust の状態では位置の写しの値から作る（窓口を一つずつ
-        読まない。窓口の読み取りも同じ写しの値を返す）。取り込みの参照・旧位置を持つ位置は、
-        今までどおり窓口から読む。"""
+        読まない）。取り込みの参照と旧位置は、窓口の辞書が参照する同じ素の Layer から読む。"""
         from .document import GraphDocument
         live = _live_of(self) if isinstance(self, Document) else None
         if (live is None or live["graph"] is not None or live.get("trial")
@@ -1997,27 +1996,22 @@ class Document:
             return GraphDocument.exposure_references(self, layer, column)
         state = live["state"]
         tid = state.track_ids[layer]
-        positions, references, frames = state.positions, [], None
-        for index, fid in enumerate(state.frame_ids[column:], column):
+        positions, references = state.positions, []
+        for fid in state.frame_ids[column:]:
             values = positions.get((fid, tid))
             if values is None:
                 return GraphDocument.exposure_references(self, layer, column)
             values = values[0]
+            imported = legacy = None
             if values["dense_import"] is not None or values["v1_position"] is not None:
-                frames = self.frames if frames is None else frames
-                slot = frames[index].layers[layer]
-                references.append((
-                    slot.has_content, slot.is_blank_key, slot.blank_start,
-                    slot.sequence_number, slot.sequence_only,
-                    deepcopy(slot.tween), slot.tween_member,
-                    slot.__dict__.get("_dense_import"), slot.__dict__.get("_v1_position")))
-                continue
+                metadata = self._plain_copy(fid, tid).__dict__
+                imported, legacy = metadata.get("_dense_import"), metadata.get("_v1_position")
             tween = values["tween"]
             references.append((
                 values["has_content"], values["is_blank_key"], values["blank_start"],
                 values["sequence_number"], values["sequence_only"],
                 None if tween is None else deepcopy(self._tween((fid, tid), tween)),
-                values["tween_member"], None, None))
+                values["tween_member"], imported, legacy))
         return tuple(references)
 
     def restore_exposure(self, e):

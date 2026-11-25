@@ -1138,8 +1138,18 @@ def test_restore_exposure_runs_in_place_and_matches_python(monkeypatch):
                 calls = _round_trips(live, monkeypatch)
 
             def capture(document=document, column=column, layer_index=layer_index):
+                original = document_live.LiveLayer.__getattribute__
+
+                def read(live_layer, name):
+                    if name == "__dict__":
+                        pytest.fail("exposure_references read a LiveLayer dictionary")
+                    return original(live_layer, name)
+
+                with monkeypatch.context() as guard:
+                    guard.setattr(document_live.LiveLayer, "__getattribute__", read)
+                    references = document.exposure_references(layer_index, column)
                 return ExposureUndo(layer_index, column, 1, len(document.frames), 0, layer_index,
-                                    document.exposure_references(layer_index, column))
+                                    references)
             undo = capture()
             document.resize_sheet_exposure(layer_index, "right", prepared)
             redo = capture()
@@ -5107,3 +5117,92 @@ def test_staged_columns_skip_graph_payload_until_install(monkeypatch, tmp_path, 
         changes = [doc.restore_snapshot(snap) for doc, snap in zip(docs, snapshots)]
         assert changes[0] == changes[1]
         check_documents()
+
+
+def test_v2_open_publishes_complete_graph_once(monkeypatch, tmp_path):
+    from zipfile import ZipFile
+
+    from paintmaskanimator import constants, document, project_io, utils
+    from paintmaskanimator.pma_image import image_key
+
+    monkeypatch.setattr(constants, "CANVAS_WIDTH", 8)
+    monkeypatch.setattr(constants, "CANVAS_HEIGHT", 8)
+    monkeypatch.setattr(utils, "OUTSIDE_MARGIN", 0)
+    plain = GraphDocument()
+    first = _filled((100, 20, 30, 255))
+    plain.install_legacy_frames([
+        Frame([
+            Layer(f"L{index}", PmaImage(first), has_content=True, sequence_number=1)
+            for index in range(4)
+        ])
+        for _ in range(4)
+    ])
+    plain.current_frame, plain.active_layer_index = 2, 3
+    plain.frames[3].layers[2].set_pending(True)
+    plain.set_initial_images([(0, 0, _filled((23, 45, 67, 255)))])
+    snapshot = project_io.ProjectSnapshot.capture(
+        {"current_frame": 2, "active_layer_index": 3}, plain)
+
+    def save_and_open(path, cls):
+        with monkeypatch.context() as mode:
+            mode.setattr(document, "Document", cls)
+            revision = Layer.timeline_revision
+            project_io.write_project_snapshot(path, snapshot)
+            cache = project_io.PngCache()
+            loaded = project_io.load_project(path, cache)
+            return loaded, Layer.timeline_revision - revision, cache
+
+    expected, expected_revision, expected_cache = save_and_open(
+        tmp_path / "python.pman", GraphDocument)
+
+    promote = document_live.Document._promote
+    attempts = []
+
+    def publish(doc):
+        graph = doc._live()["graph"].plain
+        attempts.append((len(graph.tracks), tuple(len(frame.layers) for frame in graph.frames)))
+        return promote(doc)
+
+    with monkeypatch.context() as guard:
+        guard.setattr(document_live.Document, "_promote", publish)
+        guard.setattr(document_live.Document, "_materialize",
+                      lambda *_: pytest.fail("v2 open wrote out a partial graph"))
+        actual, revision, cache = save_and_open(tmp_path / "rust.pman", document_live.Document)
+
+    # One complete graph for the writer's read-back validation, one for open.
+    assert attempts == [(4, (4, 4, 4, 4))] * 2
+    assert revision == expected_revision
+    assert actual.metadata == expected.metadata
+    live, plain = actual.document, expected.document
+    assert sorted(cache._entries.values()) == sorted(expected_cache._entries.values())
+    for live_track, plain_track in zip(live.tracks, plain.tracks):
+        cell, expected_cell = live_track.cells[1], plain_track.cells[1]
+        assert cache._entries[image_key(cell.image)] == expected_cache._entries[
+            image_key(expected_cell.image)]
+    assert live._live()["graph"] is None
+    assert (live.current_frame, live.active_layer_index) == (2, 3)
+    assert _signature(live) == _signature(plain)
+    assert _pixels(live) == _pixels(plain)
+    held, pending = live.frames[0].layers[2], live.frames[3].layers[2]
+    assert held._cell is pending._cell is live.tracks[2].cells[1]
+    assert held.image is pending.image
+    assert pending.__dict__["_pending_token"] in live.tracks[2].pending_slots
+
+    def contents(path, doc):
+        project_io.write_project_snapshot(
+            path, project_io.ProjectSnapshot.capture(actual.metadata, doc))
+        with ZipFile(path) as archive:
+            return {name: archive.read(name) for name in archive.namelist()}
+
+    results = []
+    for doc in (plain, live):
+        before = doc.snapshot()
+        changes = doc.write_drawing_patch(0, 0, _filled((31, 63, 127, 255)),
+                                          (0, 0, 8, 8), has_content=True)
+        after = doc.snapshot()
+        undo = doc.restore_snapshot(before)
+        restored = contents(tmp_path / "undo.pman", doc)
+        redo = doc.restore_snapshot(after)
+        saved = contents(tmp_path / "redo.pman", doc)
+        results.append((changes, undo, restored, redo, saved, _signature(doc), _pixels(doc)))
+    assert results[0] == results[1]
