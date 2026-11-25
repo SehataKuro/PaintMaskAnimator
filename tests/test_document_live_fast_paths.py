@@ -578,7 +578,7 @@ def test_link_layer_tracks_runs_in_place(monkeypatch):
     assert (live.tracks is old_tracks) == (plain.tracks is plain_old_tracks)
     assert [t is o for t, o in zip(live.tracks, old_tracks)] == [True, True]
     assert _signature(live) == _signature(plain)
-    # 配置待ちの所属を位置が持つ位置があれば、今の経路（列へつなぎ直す）。
+    # 配置待ちの所属を位置が持つ位置も、列へつなぎ直す。
     for document in (plain, live):
         document.clear_sheet_span(1, 2, 10)
         document.create_blank_key(9, 1)
@@ -4029,5 +4029,80 @@ def test_move_sheet_cell_with_import_records_without_run(monkeypatch, tmp_path, 
         doc.restore_snapshot(snapshot)
         assert _signature(doc) == signature
         assert _pixels(doc) == pixels
+
+    assert results[0] == results[1]
+
+
+@pytest.mark.parametrize("shape", ["linked", "detached", "graph"])
+def test_link_layer_tracks_preserves_state(shape, monkeypatch, tmp_path):
+    from zipfile import ZipFile
+
+    from paintmaskanimator import constants, project_io
+    from paintmaskanimator.legacy_v1 import DenseReference
+    from paintmaskanimator.timeline_metadata import set_dense_import
+
+    monkeypatch.setattr(constants, "CANVAS_WIDTH", 8)
+    monkeypatch.setattr(constants, "CANVAS_HEIGHT", 8)
+    plain, live = _pair(hold=5, count=10)
+    patch = QImage(2, 2, QImage.Format.Format_ARGB32_Premultiplied)
+    patch.fill(QColor(255, 0, 0, 255))
+    results = []
+    for document in (plain, live):
+        document.write_drawing_patch(0, 0, patch, (0, 0, 2, 2))
+        snapshot = document.snapshot()
+        before_state = _signature(document), _pixels(document)
+        graph = document._demote().plain if document is live else document
+        slot = graph.frames[1].layers[0]
+        slot.set_pending(True)
+        if shape == "detached":
+            slot = graph.frames[1].layers[0] = slot.clone_slot()
+            reference = DenseReference("CELL", slot.sequence_number)
+            set_dense_import(slot, ((True, False, slot.sequence_number, True, False),
+                                    DenseReference(), reference))
+            other = graph.frames[2].layers[0]
+            graph.frames[2].layers[0] = other.clone_slot()
+        if document is live and shape != "graph":
+            assert live._promote()
+        frames, tracks = document.frames, document.tracks
+        frame, track = frames[1], tracks[0]
+        layers = frame.layers
+        slot = layers[0]
+        token = slot.__dict__["_pending_token"]
+        other = document.frames[2].layers[0]
+        other_token = other.__dict__["_pending_token"]
+        bank_cell = track.cells[1]
+        image = bank_cell.image
+        dense = slot.__dict__.get("_dense_import")
+        assert (token in track.pending_slots) == (shape != "detached")
+        with monkeypatch.context() as guard:
+            guard.setattr(document_live.Document, "_run",
+                          lambda *args: pytest.fail("link_layer_tracks used _run"))
+            guard.setattr(document_live.Document, "_demote",
+                          lambda *args: pytest.fail("link_layer_tracks demoted"))
+            before = Layer.timeline_revision
+            changes = document.link_layer_tracks()
+            delta = Layer.timeline_revision - before
+        assert delta == int(shape == "detached")
+        if document is live:
+            assert live._live()["graph"] is None
+        assert frames is document.frames and frame is document.frames[1]
+        assert layers[0] is frame.layers[0] is slot
+        assert tracks is not document.tracks and tracks[0] is document.tracks[0] is track
+        assert token is slot.__dict__["_pending_token"] and token in track.pending_slots
+        assert not slot.__dict__.get("_pending_detached")
+        assert other is document.frames[2].layers[0]
+        assert other_token is other.__dict__["_pending_token"]
+        assert not other.__dict__.get("_pending_detached")
+        assert other_token not in track.pending_slots
+        assert slot.__dict__.get("_dense_import") == dense
+        assert slot._cell is track.cells[1] is bank_cell and bank_cell.image is image
+        path = tmp_path / f"{type(document).__module__}.pman"
+        project_io.write_project_snapshot(path, project_io.ProjectSnapshot.capture({}, document))
+        with ZipFile(path) as archive:
+            saved = {name: archive.read(name) for name in archive.namelist()}
+        after_state = _signature(document), _pixels(document)
+        undo = document.restore_snapshot(snapshot)
+        assert (_signature(document), _pixels(document)) == before_state
+        results.append((changes, after_state, saved, undo))
 
     assert results[0] == results[1]

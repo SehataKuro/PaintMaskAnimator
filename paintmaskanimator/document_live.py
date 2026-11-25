@@ -1859,17 +1859,53 @@ class Document:
         return GraphDocument.has_unlinked_tracks(self)
 
     def link_layer_tracks(self):
-        """Rust の状態では位置はいつも自分の列につながっているので、配置待ちの所属を位置が持つ
-        位置（pending_detached）が無ければ、今の手順は tracks に新しいリストを入れるだけ。"""
+        """列の並びを更新し、位置が持つ配置待ちの所属を列へ戻す。"""
         from .document_changes import ChangeSet
         live = _live_of(self)
-        if live["graph"] is None and not live.get("trial"):
+        graph = live["graph"]
+        if live.get("trial"):
+            return self._run("link_layer_tracks", (), {})
+        if graph is None:
             state = live["state"]
-            if state.frame_ids and not any(values.get("pending_detached")
-                                           for values, _ in state.positions.values()):
+            if state.frame_ids:
+                tokens = live["tokens"]
+                revisions = 0
+                for fid, tid in live["core"].link_layer_tracks():
+                    key = (fid, tid)
+                    values, _ = state.positions[key]
+                    # attach_track は札を一度外してから付け直す。配置待ちならその分だけ進む。
+                    revisions += values["sequence_only"]
+                    if values["dense_import"] is not None:
+                        _native_note_dense_import()
+                    if key not in tokens:
+                        tokens[key] = PendingToken()
+                    state.refresh_position(fid, tid)
+                    state.slot_copies.pop(key, None)
+                    state.slot_dicts.pop(key, None)
+                    state.pending.pop(tid, None)
                 self._retire_view("tracks_view")
-                return ChangeSet()
-        return self._run("link_layer_tracks", (), {})
+                Layer.timeline_revision += revisions
+        else:
+            plain = graph.plain
+            frames = plain.frames
+            if frames:
+                first = frames[0]
+                if (type(first) is not Frame
+                        or any(type(slot) is not Layer for slot in first.layers)):
+                    return self._run("link_layer_tracks", (), {})
+                tracks = [slot.__dict__.get("_track") for slot in first.layers]
+                if (any(type(track) is not Track or not track.connected for track in tracks)
+                        or any(type(frame) is not Frame or len(frame.layers) != len(tracks)
+                               or any(type(slot) is not Layer
+                                      or slot.__dict__.get("_track") is not track
+                                      or slot.__dict__.get("_pending_detached")
+                                      for slot, track in zip(frame.layers, tracks))
+                               for frame in frames)):
+                    return self._run("link_layer_tracks", (), {})
+                plain.tracks = tracks
+            # _run と同じく、素のグラフでの処理後に Rust へ戻せるか試す。
+            self._promote()
+        return ChangeSet()
 
     def capture_column(self, index):
         """列の写し（今の手順と同じく clone_frame_graph で作る、文書から外れた Layer の並び）。

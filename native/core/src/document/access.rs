@@ -108,6 +108,29 @@ impl Document {
         Ok(())
     }
 
+    /// 位置が持つ配置待ちの所属を列に戻し、印を外した位置の ID を返す。
+    ///
+    /// 位置の列は既に確定している。配置待ち自体と局所の絵、列のバンクはそのまま保つ。
+    pub fn link_layer_tracks(&mut self) -> Vec<(FrameId, TrackId)> {
+        let mut linked = Vec::new();
+        for (&frame, row) in &mut self.sheet {
+            if !row
+                .positions
+                .values()
+                .any(|position| position.compatibility.pending_detached)
+            {
+                continue;
+            }
+            for (&track, position) in &mut Arc::make_mut(row).positions {
+                if position.compatibility.pending_detached {
+                    position.compatibility.pending_detached = false;
+                    linked.push((frame, track));
+                }
+            }
+        }
+        linked
+    }
+
     /// Python の restore（clone_frame_graph で写した文書）と同じ値で、写しの文書を戻す。
     ///
     /// clone_frame_graph は位置を clone_slot で写して列へつなぎ直し（配置待ちの所属は列が
@@ -413,6 +436,33 @@ mod tests {
                        {"duration": 1, "positions": [position]}],
         });
         (Document::from_graph(&value, &images).unwrap(), images)
+    }
+
+    #[test]
+    fn link_layer_tracks_clears_only_detached_membership() {
+        let (mut doc, images) = document();
+        let mut snapshot = doc.clone();
+        assert!(doc.link_layer_tracks().is_empty());
+        assert!(Arc::ptr_eq(
+            &doc.sheet[&FrameId(0)],
+            &snapshot.sheet[&FrameId(0)]
+        ));
+        let (frame, track) = (FrameId(1), TrackId(0));
+        let (mut expected, _) = doc.position_graph(frame, track).unwrap();
+        expected["sequence_only"] = json!(true);
+        let mut detached = expected.clone();
+        detached["pending_detached"] = json!(true);
+        doc.set_position_graph(frame, track, &detached, &images)
+            .unwrap();
+        snapshot = doc.clone();
+        assert_eq!(doc.link_layer_tracks(), vec![(frame, track)]);
+        assert_eq!(doc.position_graph(frame, track).unwrap().0, expected);
+        assert_eq!(snapshot.position_graph(frame, track).unwrap().0, detached);
+        assert!(Arc::ptr_eq(
+            &doc.sheet[&FrameId(0)],
+            &snapshot.sheet[&FrameId(0)]
+        ));
+        assert!(doc.link_layer_tracks().is_empty());
     }
 
     // 位置・列・バンクの値は ID で読み書きでき、失敗した書き込みは文書を変えない。

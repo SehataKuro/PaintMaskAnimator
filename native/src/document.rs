@@ -231,6 +231,15 @@ impl PyCoreDocument {
             .map_err(value_error)
     }
 
+    /// 配置待ちの所属を列へ戻し、付け直した位置の ID を返す。
+    fn link_layer_tracks(&mut self) -> Vec<(u64, u64)> {
+        self.0
+            .link_layer_tracks()
+            .into_iter()
+            .map(|(frame, track)| (frame.0, track.0))
+            .collect()
+    }
+
     /// Python の restore と同じ値で、写しの文書（snapshot）を戻す。
     fn restore_from(&mut self, snapshot: PyRef<'_, PyCoreDocument>) {
         self.0.restore_from(&snapshot.0);
