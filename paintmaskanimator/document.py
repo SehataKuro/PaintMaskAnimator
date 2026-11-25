@@ -2089,8 +2089,9 @@ class Document:
                 if canvas_size is None:
                     image = blank_image()
                 else:
-                    width, height = canvas_size
-                    image = PmaImage.blank(int(width), int(height))
+                    # width は列の数なので、画像の大きさは別の名前で受ける。
+                    image_width, image_height = canvas_size
+                    image = PmaImage.blank(int(image_width), int(image_height))
                 slot = Layer(template.name, image)
                 slot.__dict__["_legacy_missing"] = True
                 frame.layers.append(slot)

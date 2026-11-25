@@ -1050,3 +1050,24 @@ def test_opened_document_makes_blanks_at_the_file_canvas_size(qapp, monkeypatch,
     sizes = {(layer.image.width, layer.image.height)
              for frame in document.frames for layer in frame.layers}
     assert sizes == {(loaded.width, loaded.height)}
+
+
+@pytest.mark.parametrize("live", [False, True])
+def test_install_legacy_frames_pads_ragged_frames_at_the_canvas_size(qapp, live):
+    """コマごとに列の数がそろわない v1 の内容も、足りない列を指定の大きさの空画像で埋める。
+
+    以前は列の数を入れた変数をキャンバスの幅で上書きし、埋める繰り返しが終わらずに落ちていた。
+    """
+    from paintmaskanimator import document_live
+    from paintmaskanimator.document import GraphDocument
+    from paintmaskanimator.models import Frame, Layer
+    from paintmaskanimator.pma_image import PmaImage
+    frames = [Frame([Layer("A", PmaImage.blank(4, 3)), Layer("B", PmaImage.blank(4, 3))]),
+              Frame([Layer("A", PmaImage.blank(4, 3))])]
+    document = document_live.Document() if live else GraphDocument()
+    document.install_legacy_frames(frames, canvas_size=(4, 3))
+    assert [len(frame.layers) for frame in document.frames] == [2, 2]
+    padded = document.frames[1].layers[1]
+    assert padded.name == "B"
+    assert (padded.image.width, padded.image.height) == (4, 3)
+    assert padded.__dict__.get("_legacy_missing") is True
