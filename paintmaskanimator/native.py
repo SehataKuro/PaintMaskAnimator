@@ -31,6 +31,7 @@ REQUIRED_API = (
     "flow_outline_matches",
     "flow_part_color",
     "surface_guided_palette_labels", "map_known_colors", "region_neighbors",
+    "history_trim_count", "history_shift_branch_positions", "history_branch_overflow",
     "FillSession", "LineCache", "compute_fill_region_once", "fill_target_mask", "extend_line_ends", "flood_fill", "dilate", "erode", "label_regions", "remove_line_noise", "decode_png", "encode_png", "ZipReader", "ZipWriter", "decode_v2_plan",
 )
 TIMELINE_API_VERSION = 2
@@ -1118,3 +1119,18 @@ def solve_local_shift(before: bytes, exact: bytes, wide: bytes, width: int, heig
     return _native.solve_local_shift(
         before, exact, wide, width, height, fast_size, dys, dxs, total, step,
         motion_penalty, near_line_weight, share_motion)
+
+
+def history_trim_count(entry_bytes, max_entries: int, max_bytes: int) -> int:
+    """Undo 列の古い側から捨てる件数（件数→論理バイトの順、最低1件は残す）。"""
+    return _native.history_trim_count(entry_bytes, max_entries, max_bytes)
+
+
+def history_shift_branch_positions(positions, removed: int) -> list:
+    """古い側が ``removed`` 件削られたあとの分岐点。捨てる分岐は ``None``。"""
+    return _native.history_shift_branch_positions(positions, removed)
+
+
+def history_branch_overflow(count: int, max_branches: int) -> int:
+    """分岐を足したあと、上限を超えて古い側から捨てる本数（上限 0 なら捨てない）。"""
+    return _native.history_branch_overflow(count, max_branches)

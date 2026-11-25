@@ -21,8 +21,11 @@ mod v2_placement;
 
 /// 構造操作が発行する変更一覧。
 pub mod changes;
+
 /// 文書の構造と描画を更新する操作。
 pub mod commands;
+/// Undo の履歴の上限と分岐の判断。
+pub mod history;
 
 /// コマ操作とタイムリマップの入力。
 pub mod frame_commands;

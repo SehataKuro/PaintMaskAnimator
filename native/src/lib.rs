@@ -21,6 +21,7 @@ mod fill_decisions;
 mod fill_session;
 mod fill_tracking;
 mod flow_color;
+mod history;
 mod image;
 mod map_colors;
 mod mask_transform;
@@ -285,6 +286,12 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
         colors::median_cut_palette_from_samples,
         module
     )?)?;
+    module.add_function(wrap_pyfunction!(history::history_trim_count, module)?)?;
+    module.add_function(wrap_pyfunction!(
+        history::history_shift_branch_positions,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(history::history_branch_overflow, module)?)?;
     module.add_function(wrap_pyfunction!(py_flood_fill, module)?)?;
     module.add_function(wrap_pyfunction!(py_remove_line_noise, module)?)?;
     module.add_function(wrap_pyfunction!(py_dilate, module)?)?;

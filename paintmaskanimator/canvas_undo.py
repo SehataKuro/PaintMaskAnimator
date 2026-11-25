@@ -10,6 +10,7 @@ from .canvas_changes import (
     publish_track_changes,
 )
 from PySide6.QtCore import QRect, QPointF
+from . import native
 from .constants import MAX_UNDO, MAX_UNDO_BYTES
 from ._canvas_members import CanvasMembers
 from .pma_image import snapshot_image
@@ -83,7 +84,18 @@ def trim_undo_stack(stack):
 
     Bounded by entry count *and* retained image bytes, whichever binds first;
     at least one entry always survives so a single huge edit stays undoable.
+    何件捨てるかは Rust（``pma_core::document::history::trim_count``）が決める。
     """
+    removed = native.history_trim_count(
+        [entry.nbytes for entry in stack], MAX_UNDO, MAX_UNDO_BYTES,
+    )
+    if removed:
+        del stack[:removed]
+    return stack
+
+
+def trim_undo_stack_python(stack):
+    """:func:`trim_undo_stack` の Python 版。Rust との突き合わせ用（テスト専用）。"""
     if len(stack) > MAX_UNDO:
         del stack[:-MAX_UNDO]
     total = sum(entry.nbytes for entry in stack)
@@ -128,7 +140,23 @@ class UndoMixin(CanvasMembers):
         self.history_branches.clear()
 
     def _shift_history_branches(self, delta):
-        """undo_stackの古い側が削られた分だけ分岐点をずらす（範囲外は破棄）。"""
+        """undo_stackの古い側が削られた分だけ分岐点をずらす（範囲外は破棄）。
+
+        付け替え先は Rust（``shift_branch_positions``）が決める。``delta`` は負（削った件数）。
+        """
+        branches = self.history_branches
+        positions = native.history_shift_branch_positions(
+            [branch.position for branch in branches], -int(delta),
+        )
+        shifted = []
+        for branch, position in zip(branches, positions):
+            if position is not None:
+                branch.position = position
+                shifted.append(branch)
+        branches[:] = shifted
+
+    def _shift_history_branches_python(self, delta):
+        """:meth:`_shift_history_branches` の Python 版（テスト専用）。"""
         branches = self.history_branches
         shifted = []
         for branch in branches:
@@ -149,8 +177,9 @@ class UndoMixin(CanvasMembers):
         )
         branches = self.history_branches
         branches.append(branch)
-        if len(branches) > MAX_HISTORY_BRANCHES:
-            del branches[:-MAX_HISTORY_BRANCHES]
+        overflow = native.history_branch_overflow(len(branches), MAX_HISTORY_BRANCHES)
+        if overflow:
+            del branches[:overflow]
         return branch
 
     def switch_history_branch(self, branch):

@@ -362,3 +362,14 @@ def splat_mask_labels(
 def mask_labels_to_rgba(
     labels: bytes, width: int, height: int, palette: bytes, transparent_white: bool,
 ) -> bytes: ...
+
+
+def history_trim_count(entry_bytes: list[int], max_entries: int, max_bytes: int) -> int:
+    """Undo 列の古い側から捨てる件数（件数→論理バイトの順、最低1件は残す）。"""
+
+def history_shift_branch_positions(positions: list[int], removed: int) -> list[int | None]:
+    """古い側が removed 件削られたあとの分岐点。捨てる分岐は None。"""
+
+def history_branch_overflow(count: int, max_branches: int) -> int:
+    """分岐を足したあと、上限を超えて古い側から捨てる本数（上限 0 なら捨てない）。"""
+
