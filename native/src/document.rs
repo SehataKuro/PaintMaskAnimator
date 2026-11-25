@@ -225,6 +225,39 @@ impl PyCoreDocument {
             .map_err(value_error)
     }
 
+    /// 配置前の画像と番号を登録し、通知と世代の増分を返す。
+    fn stage_numbered_drawing(
+        &mut self,
+        frame: usize,
+        layer: usize,
+        image: PyRef<'_, PyRgbaImage>,
+        content: bool,
+        number: Option<i64>,
+    ) -> PyResult<(String, usize)> {
+        let number = number
+            .map(CellNumber::new)
+            .transpose()
+            .map_err(value_error)?;
+        self.0
+            .stage_numbered_drawing(frame, layer, image.share(), content, number)
+            .map(|(changes, delta)| (comparison::command_notices(changes), delta))
+            .map_err(value_error)
+    }
+
+    /// 同じ列のバンク参照を配置前の位置に複製する。
+    fn stage_drawing_reference(
+        &mut self,
+        frame: usize,
+        layer: usize,
+        source: usize,
+        blank: PyRef<'_, PyRgbaImage>,
+    ) -> PyResult<(String, usize)> {
+        self.0
+            .stage_drawing_reference(frame, layer, source, blank.share())
+            .map(|(changes, delta)| (comparison::command_notices(changes), delta))
+            .map_err(value_error)
+    }
+
     /// 新しい中割りに割り当てる番号を返す。
     fn tween_numbers(&self, layer: usize, count: usize) -> PyResult<Vec<i64>> {
         self.0

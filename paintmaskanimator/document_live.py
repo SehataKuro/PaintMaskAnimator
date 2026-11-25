@@ -1551,6 +1551,14 @@ class Document:
             graph.lists = (getattr(plain, "frames", None), getattr(plain, "tracks", None))
         if not getattr(plain, "frames", None) or getattr(plain, "tracks", None) is None:
             return False
+        # 配置中は先頭コマだけで公開済みの列数との不一致が分かる。各 stage の後に
+        # ID を振り直し、全位置の局所 Cell の共有を調べてから失敗する手間を省く。
+        if type(plain.frames) is list and type(plain.tracks) is list:
+            first = plain.frames[0]
+            layers = getattr(first, "layers", None) if type(first) is Frame else None
+            if type(layers) is list and len(layers) != len(plain.tracks):
+                _note_plain("列の数と位置の数が異なるコマ")
+                return False
         frame_ids, track_ids, next_frame, next_track = self._assign_ids(graph)
         # 選択は Python の値が正。範囲外の途中の値でも Rust には範囲内の値を渡す。
         frame, layer = (getattr(plain, "current_frame", 0), getattr(plain, "active_layer_index", 0))
@@ -2028,6 +2036,24 @@ class Document:
     def add_track(self):
         changes = _CORE_COMMANDS["add_track"](self)
         return self._run("add_track", (), {}) if changes is None else changes
+
+    def stage_numbered_drawing(self, frame, layer_index, image, has_content, number):
+        from .document import GraphDocument
+
+        args = frame, layer_index, image, has_content, number
+        if not isinstance(self, Document) or _live_of(self).get("trial"):
+            return GraphDocument.stage_numbered_drawing(self, *args)
+        changes = _core_stage_numbered_drawing(self, *args)
+        return self._run("stage_numbered_drawing", args, {}) if changes is None else changes
+
+    def stage_drawing_reference(self, frame, layer_index, source):
+        from .document import GraphDocument
+
+        args = frame, layer_index, source
+        if not isinstance(self, Document) or _live_of(self).get("trial"):
+            return GraphDocument.stage_drawing_reference(self, *args)
+        changes = _core_stage_drawing_reference(self, *args)
+        return self._run("stage_drawing_reference", args, {}) if changes is None else changes
 
     def insert_track(self, index, slots, *, active=None, staged=False):
         from .document import GraphDocument
@@ -5999,6 +6025,103 @@ def _core_initial_images(document, positions, archived, *, restoring=False, keep
     for tid in tracks:
         state.refresh_track(tid)
         state.forget_track(tid)
+    return _changes_from_json(notices)
+
+
+def _stage_position(live, frame, layer):
+    if live["graph"] is not None or type(frame) is not int or type(layer) is not int:
+        return None
+    state = live["state"]
+    if 0 <= frame < len(state.frame_ids) and 0 <= layer < len(state.track_ids):
+        return state.frame_ids[frame], state.track_ids[layer]
+    return None
+
+
+def _core_stage_numbered_drawing(document, frame, layer, value, content, number):
+    from PySide6.QtGui import QImage
+
+    from .pma_image import attributes_tag, to_pma_image
+
+    live = _live_of(document)
+    key = _stage_position(live, frame, layer)
+    if (key is None or type(content) is not bool
+            or (content and number is not None
+                and (type(number) is not int or not 0 < number <= (1 << 63) - 1))
+            or (value is not None and type(value) not in (QImage, PmaImage, BoundImage))):
+        return None
+    state, cache, core = live["state"], live["cache"], live["core"]
+    bank = _slot_bank_key(document, key)
+    artwork = bank or ("local", *key)
+    old = cache._objects.get(("image", (artwork, False)))
+    try:
+        image = to_pma_image(value)
+        if image is not None and image is not old and type(image._image) is not _native.RgbaImage:
+            # 別の Cell の窓口を代入すると画像の同一性を共有する。
+            return None
+        handle = (_NO_IMAGE._image if image is None else
+                  image._image.copy().with_tag(attributes_tag(image._attributes)))
+        previous = old._image.copy() if old is not None and old is not image else None
+        notices, delta = core.stage_numbered_drawing(
+            frame, layer, handle, content, number if content else None)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+    if previous is not None:
+        cache.pop("image", (artwork, False))
+        old.__class__ = PmaImage
+        object.__setattr__(old, "_image", previous)
+        object.__setattr__(old, "_attributes", tag_attributes(previous.tag))
+    if image is not None and image is not old:
+        _bind(image, _native._CellImage(core, bank is not None, *artwork[1:], False))
+        cache.put("image", (artwork, False), image)
+    if bank is not None:
+        state.refresh_track(key[1])
+        state.forget_track(key[1])
+    state.refresh_position(*key)
+    state.slot_copies.pop(key, None)
+    state.slot_dicts.pop(key, None)
+    if delta:
+        state.resolved = None
+        state.pending.clear()
+    Layer.timeline_revision += delta
+    return _changes_from_json(notices)
+
+
+def _core_stage_drawing_reference(document, frame, layer, source):
+    live = _live_of(document)
+    key = _stage_position(live, frame, layer)
+    if (key is None or type(source) is not LiveLayer or _m(source, "_owner") is not document):
+        return None
+    state, cache = live["state"], live["cache"]
+    source_key = _m(source, "_key")
+    if (source_key[1] != key[1]
+            or cache._objects.get(("layer", source_key)) is not source):
+        return None
+    plan = _detach_plan(document, [key], [])
+    if plan is None:
+        return None
+    tokens = live["tokens"]
+    old_token = tokens.get(key)
+    values = state.position(*key)[0]
+    retain = values["sequence_only"] and not values.get("pending_detached")
+    source_frame = state.frame_index[source_key[0]]
+    core = live["core"]
+    try:
+        notices, delta = core.stage_drawing_reference(frame, layer, source_frame, _blank_handle())
+    except ValueError:
+        return None
+    _detach(document, plan, release=False)
+    tokens[key] = PendingToken()
+    if retain and old_token is not None:
+        extra = live.setdefault("extra_pending", {})
+        extra.setdefault(key[1], WeakSet()).add(old_token)
+    state.refresh_position(*key)
+    state.slot_copies.pop(key, None)
+    state.slot_dicts.pop(key, None)
+    state.layer_lists.pop(key[0], None)
+    state.resolved = None
+    state.pending.clear()
+    Layer.timeline_revision += delta
     return _changes_from_json(notices)
 
 

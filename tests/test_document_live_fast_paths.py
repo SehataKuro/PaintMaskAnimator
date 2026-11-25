@@ -4896,3 +4896,214 @@ def test_tween_commands_noop_and_fallback(monkeypatch):
     assert _signature(live) == _signature(plain)
     assert _pixels(live) == _pixels(plain)
     assert live.frames[0].layers[0].image is live.frames[4].layers[0].image
+
+
+@pytest.mark.parametrize("shape", [
+    "bank", "local", "qt_image", "none_image", "numberless", "existing_number",
+    "reference", "pending_reference",
+])
+def test_staged_drawing_matches_python(monkeypatch, tmp_path, shape):
+    from zipfile import ZipFile
+
+    from paintmaskanimator import constants, project_io, utils
+    from paintmaskanimator.document import mark_pending
+
+    monkeypatch.setattr(constants, "CANVAS_WIDTH", 8)
+    monkeypatch.setattr(constants, "CANVAS_HEIGHT", 8)
+    monkeypatch.setattr(utils, "OUTSIDE_MARGIN", 0)
+    plain, live = _pair()
+    docs = plain, live
+    source_column, target_column, layer = 0, 2, 1
+    if shape == "pending_reference":
+        for doc in docs:
+            mark_pending(doc.frames[source_column].layers[layer])
+        target_column = 1
+        for doc in docs:
+            mark_pending(doc.frames[target_column].layers[layer])
+    before = [doc.snapshot() for doc in docs]
+
+    original = document_live.Document._run
+
+    def forbid(self, name, args, kwargs):
+        # 画像なしの Cell は既存のスナップショット経路で素に戻して複製する。
+        if shape == "none_image" and name in ("clone_graph", "snapshot", "restore_snapshot"):
+            return original(self, name, args, kwargs)
+        pytest.fail(f"{name} called _run")
+
+    monkeypatch.setattr(document_live.Document, "_run", forbid)
+    results = []
+    revisions = []
+    for doc in docs:
+        slot = doc.frames[target_column].layers[layer]
+        source = doc.frames[source_column].layers[layer]
+        token = slot.__dict__["_pending_token"]
+        old = slot.image
+        revision = Layer.timeline_revision
+        if shape.endswith("reference"):
+            results.append(doc.stage_drawing_reference(target_column, layer, source))
+            staged = doc.frames[target_column].layers[layer]
+            assert staged is not slot and slot.image is old
+            assert staged._cell is source._cell
+            assert staged._track is source._track
+            assert staged.__dict__["_pending_token"] is not token
+            assert staged.sequence_only == source.sequence_only
+            assert staged.__dict__["_pending_token"] not in staged._track.pending_slots
+            assert (token in staged._track.pending_slots) == (shape == "pending_reference")
+            assert staged.__dict__["_v1_position"].pending is False
+        else:
+            if shape == "bank":
+                target = source
+                column = source_column
+            else:
+                target = slot
+                column = target_column
+            cell, old = target._cell, target.image
+            pixels = _filled((45, 78, 123, 255))
+            image = pixels if shape == "qt_image" else PmaImage.from_qimage(pixels)
+            if shape == "none_image":
+                image = None
+            number = source.sequence_number if shape in ("bank", "existing_number") else None
+            results.append(doc.stage_numbered_drawing(
+                column, layer, image, shape not in ("local", "qt_image", "none_image"), number))
+            assert doc.frames[column].layers[layer] is target
+            if shape == "existing_number":
+                assert target._cell is source._cell and cell.image is image
+                assert target.__dict__["_cell"] is cell
+            else:
+                assert target._cell is cell
+                if shape == "qt_image":
+                    assert isinstance(target.image, PmaImage)
+                    assert target.image.rgba()[0, 0].tolist() == [45, 78, 123, 255]
+                else:
+                    assert target.image is image
+            assert cell.image is not old
+            assert old.read_rgba(0, 0, 1, 1).tolist() == [[[0, 0, 0, 0]]]
+        revisions.append(Layer.timeline_revision - revision)
+    assert results[0] == results[1]
+    assert revisions[0] == revisions[1]
+    assert _signature(live) == _signature(plain)
+    assert _pixels(live) == _pixels(plain)
+
+    install_revisions = []
+    for doc in docs:
+        slot = doc.frames[target_column].layers[layer]
+        cell, image = slot._cell, slot.image
+        revision = Layer.timeline_revision
+        doc.install_legacy_frames(doc.frames)
+        assert doc.frames[target_column].layers[layer] is slot
+        assert slot._cell is cell and slot.image is image
+        assert (slot.__dict__["_pending_token"] in slot._track.pending_slots) == slot.sequence_only
+        install_revisions.append(Layer.timeline_revision - revision)
+    assert install_revisions[0] == install_revisions[1]
+    assert _signature(live) == _signature(plain)
+    assert _pixels(live) == _pixels(plain)
+
+    def saved(doc, name):
+        path = tmp_path / f"{name}.pman"
+        project_io.write_project_snapshot(path, project_io.ProjectSnapshot.capture({}, doc))
+        with ZipFile(path) as archive:
+            return {key: archive.read(key) for key in archive.namelist()}
+
+    assert saved(plain, "plain") == saved(live, "live")
+    after = [doc.snapshot() for doc in docs]
+    for snapshots in (before, after):
+        changes = [doc.restore_snapshot(snap) for doc, snap in zip(docs, snapshots)]
+        assert changes[0] == changes[1]
+        assert _signature(live) == _signature(plain)
+        assert _pixels(live) == _pixels(plain)
+        assert saved(plain, "plain") == saved(live, "live")
+
+
+@pytest.mark.parametrize("flow", ["import", "separate"])
+def test_staged_columns_skip_graph_payload_until_install(monkeypatch, tmp_path, flow):
+    from zipfile import ZipFile
+
+    from paintmaskanimator import constants, project_io, utils
+
+    monkeypatch.setattr(constants, "CANVAS_WIDTH", 8)
+    monkeypatch.setattr(constants, "CANVAS_HEIGHT", 8)
+    monkeypatch.setattr(utils, "OUTSIDE_MARGIN", 0)
+    plain, live = _pair()
+    docs = plain, live
+    before = [doc.snapshot() for doc in docs]
+    results = []
+    columns = (2,) if flow == "import" else (2, 3)
+
+    def forbid_payload(*args, **kwargs):
+        pytest.fail("attempted to serialize a graph with unpublished columns")
+
+    for doc in docs:
+        revision = Layer.timeline_revision
+        changes = []
+        published = doc.tracks
+        existing = doc.frames[0].layers[0]
+        for column in columns:
+            slots = [Layer("Staged", PmaImage.blank(8, 8)) for _ in doc.frames]
+            changes.append(doc.insert_track(column, slots, staged=True))
+            assert doc.tracks is published and len(published) == 2
+            assert doc.frames[0].layers[column] is slots[0]
+        assert doc.frames[0].layers[0] is existing
+        with monkeypatch.context() as scoped:
+            scoped.setattr(document_live, "graph_payload", forbid_payload)
+            for index, frame in enumerate(doc.frames):
+                for column in columns:
+                    slot = frame.layers[column]
+                    track = slot._track
+                    token = slot.__dict__.get("_pending_token")
+                    if flow == "separate" and index % 2:
+                        source = doc.frames[index - 1].layers[column]
+                        changes.append(doc.stage_drawing_reference(index, column, source))
+                        staged = frame.layers[column]
+                        assert staged is not slot
+                        assert staged._track is source._track and staged._cell is source._cell
+                        assert staged.__dict__["_pending_token"] is not token
+                    else:
+                        image = _filled((45, 78, 123 + index, 255))
+                        number = index + 1 if flow == "import" else index // 2 + 1
+                        changes.append(doc.stage_numbered_drawing(
+                            index, column, image, True, number))
+                        staged = frame.layers[column]
+                        assert staged is slot and staged._track is track
+                        assert staged.__dict__.get("_pending_token") is token
+                        assert staged.sequence_number == number
+                    assert not staged._track.connected
+                    assert staged.__dict__.get("_pending_token") not in staged._track.pending_slots
+        staged_signature, staged_pixels = _signature(doc), _pixels(doc)
+        first = doc.frames[0].layers[2]
+        first_image = first.image
+        first_token = first.__dict__.get("_pending_token")
+        if flow == "separate":
+            doc.sync_columns()
+            assert doc.tracks is not published and len(published) == 2
+        doc.install_legacy_frames(doc.frames)
+        assert doc.frames[0].layers[2] is first and first._track is doc.tracks[2]
+        assert first.image is first_image
+        if first_token is not None:
+            assert first.__dict__["_pending_token"] is first_token
+        for frame in doc.frames:
+            for column in columns:
+                slot = frame.layers[column]
+                assert (slot.__dict__["_pending_token"] in slot._track.pending_slots) == slot.sequence_only
+        assert doc.frames[0].layers[0] is existing
+        results.append((changes, staged_signature, staged_pixels,
+                        Layer.timeline_revision - revision))
+    assert results[0] == results[1]
+    assert live._live()["graph"] is None
+
+    def saved(doc, name):
+        path = tmp_path / f"{name}.pman"
+        project_io.write_project_snapshot(path, project_io.ProjectSnapshot.capture({}, doc))
+        with ZipFile(path) as archive:
+            return {key: archive.read(key) for key in archive.namelist()}
+
+    def check_documents():
+        assert _signature(live) == _signature(plain)
+        assert _pixels(live) == _pixels(plain)
+        assert saved(plain, "plain") == saved(live, "live")
+
+    check_documents()
+    after = [doc.snapshot() for doc in docs]
+    for snapshots in (before, after):
+        changes = [doc.restore_snapshot(snap) for doc, snap in zip(docs, snapshots)]
+        assert changes[0] == changes[1]
+        check_documents()
