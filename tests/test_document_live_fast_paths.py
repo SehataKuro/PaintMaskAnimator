@@ -5212,3 +5212,46 @@ def test_v2_open_publishes_complete_graph_once(monkeypatch, tmp_path):
         saved = contents(tmp_path / "redo.pman", doc)
         results.append((changes, undo, restored, redo, saved, _signature(doc), _pixels(doc)))
     assert results[0] == results[1]
+
+
+@pytest.mark.parametrize("kind", ["plain", "tuple", "fallback", "demoted"])
+def test_restored_snapshot_keeps_the_snapshot_canvas_size(monkeypatch, kind):
+    """大きさを変えたあとで変える前の写しへ戻すと、Rust の文書も写しの大きさになる。
+
+    Rust へ移し直す写しは、戻す時点の作業領域（変えたあとの大きさ）を持っていたので、
+    戻したあとに作る空キーが変えたあとの大きさになっていた（Python 版は写しの大きさ）。
+    """
+    from paintmaskanimator import constants, pma_image, utils
+    monkeypatch.setattr(constants, "CANVAS_WIDTH", 8)
+    monkeypatch.setattr(constants, "CANVAS_HEIGHT", 8)
+    plain, live = _pair()
+    source = plain.snapshot()
+    if kind == "tuple":
+        source = tuple(source)[:5]
+    # 大きさを変えたあと（作業領域は 16×12）に、変える前の写しへ戻す。
+    monkeypatch.setattr(constants, "CANVAS_WIDTH", 16)
+    monkeypatch.setattr(constants, "CANVAS_HEIGHT", 12)
+    if kind == "fallback":
+        # Rust へ直接移せない写しとして、従来経路（Python で戻して移し直す）を通す。
+        monkeypatch.setattr(document_live, "_materialized_snapshot_core", lambda *args: None)
+    elif kind == "demoted":
+        live._demote()
+    calls = _round_trips(live, monkeypatch)
+    assert live.restore_snapshot(source) == plain.restore_snapshot(source)
+    assert live._live()["graph"] is None
+    assert live._live()["core"].canvas_size() == (8, 8)
+    if kind in ("plain", "tuple"):
+        assert calls == []
+    calls.clear()
+    # canvas_changes.publish_restored_document と同じく、作業領域を写しの大きさへ戻す。
+    monkeypatch.setattr(constants, "CANVAS_WIDTH", 8)
+    monkeypatch.setattr(constants, "CANVAS_HEIGHT", 8)
+    monkeypatch.setattr(pma_image, "_last_import", None)
+    monkeypatch.setattr(utils._BlankTemplate, "model_image", None)
+    utils.blank_model_image()
+    assert live.create_blank_key(2, 0) == plain.create_blank_key(2, 0)
+    assert calls == []
+    for doc in (plain, live):
+        sizes = {(slot.image.width, slot.image.height) for frame in doc.frames for slot in frame.layers}
+        assert sizes == {(8, 8)}, type(doc)
+    assert _signature(live) == _signature(plain)

@@ -2137,7 +2137,13 @@ class Document:
     def restore_snapshot(self, snapshot):
         changes = _CORE_COMMANDS["restore_snapshot"](self, snapshot)
         if changes is None:
-            return self._run("restore_snapshot", (snapshot,), {})
+            changes = self._run("restore_snapshot", (snapshot,), {})
+            # 従来経路は Python の表を今の作業領域の大きさで Rust に移し直す。戻した写しの
+            # 大きさ（あとで作業領域もこの大きさになる）を Rust の文書に入れる。
+            from .document_changes import DocumentRestored
+            for change in getattr(changes, "changes", ()):
+                if type(change) is DocumentRestored:
+                    self.adopt_canvas_size(change.width, change.height)
         return changes
 
     def make_position_editable(self, current, layer_index, mode):
@@ -6771,9 +6777,11 @@ def _materialized_snapshot_core(snapshot, previous):
         current, active = scratch.current_frame, scratch.active_layer_index
         selection = (current if _in_range(current, len(scratch.frames)) else 0,
                      active if _in_range(active, len(scratch.tracks)) else 0)
+        # 戻す写しの大きさを渡す（今の作業領域は、大きさを変えたあとの値のことがある）。
         text, images = graph_payload(
-            scratch, ids=(range(first_frame, last_frame), range(first_track, last_track),
-                          last_frame, last_track), selection=selection)
+            scratch, width, height,
+            ids=(range(first_frame, last_frame), range(first_track, last_track),
+                 last_frame, last_track), selection=selection)
         core = _native._CoreDocument.from_graph(text, images)
     except (GraphError, ValueError, TypeError, AttributeError, KeyError, IndexError, OverflowError):
         Layer.timeline_revision = revision
