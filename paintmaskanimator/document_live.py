@@ -2142,6 +2142,28 @@ class Document:
                 return changes
         return self._in_place_or_run("replace_drawing_images", (groups,), {})
 
+    def set_initial_images(self, positions=(), archived=(), *, restoring=False):
+        """位置と保管の絵の初期画像を入力順に付ける。"""
+        from .document import GraphDocument
+
+        if not isinstance(self, Document) or _live_of(self).get("trial"):
+            return GraphDocument.set_initial_images(self, positions, archived, restoring=restoring)
+        changes = _core_initial_images(self, positions, archived, restoring=restoring)
+        if changes is not None:
+            return changes
+        return self._run("set_initial_images", (positions, archived), {"restoring": restoring})
+
+    def keep_initial_images(self, positions):
+        """各位置の現画像を複製して初期画像にする。"""
+        from .document import GraphDocument
+
+        if not isinstance(self, Document) or _live_of(self).get("trial"):
+            return GraphDocument.keep_initial_images(self, positions)
+        changes = _core_initial_images(self, positions, (), keep=True)
+        if changes is not None:
+            return changes
+        return self._run("keep_initial_images", (positions,), {})
+
     def restore_drawing(self, frame, layer_index, number, image, has_content, *,
                         sheet, patches=None):
         """戻す絵がバンクの一枚で位置の has_content が変わるなら、書き出し往復なしで当てる
@@ -5335,6 +5357,120 @@ def _core_replace_drawing_images(document, groups, *, single=False, has_content=
         state.pending.clear()
     Layer.timeline_revision += revisions
     _detach(document, plan)
+    return _changes_from_json(notices)
+
+
+def _core_initial_images(document, positions, archived, *, restoring=False, keep=False):
+    """初期画像だけを一括で差し替え、最後に採用した画像を同じ Cell の窓口に結ぶ。"""
+    from PySide6.QtGui import QImage
+
+    from .document_changes import ChangeSet
+    from .pma_image import attributes_tag, copy_image, to_pma_image
+    from .utils import blank_model_image
+
+    live = _live_of(document)
+    # 生成器は直前の代入を読めるので、従来どおり一件ずつ評価する。
+    if (live["graph"] is not None or type(restoring) is not bool
+            or type(positions) not in (tuple, list) or type(archived) not in (tuple, list)):
+        return None
+    state, cache, core = live["state"], live["cache"], live["core"]
+    assignments, image_keys, command = {}, {}, []
+    banks, hints = {}, {}
+    needs_blank = False
+    for in_archive, entries in ((False, positions), (True, archived)):
+        for entry in entries:
+            if type(entry) not in (tuple, list) or len(entry) != (2 if keep else 3):
+                return None
+            first, second = entry[:2]
+            if type(first) is not int or type(second) is not int:
+                return None
+            frame, layer = (None, first) if in_archive else (first, second)
+            if not 0 <= layer < len(state.track_ids) or (
+                    frame is not None and not 0 <= frame < len(state.frame_ids)):
+                if keep:
+                    # keep は添字で現画像を読む。負の添字や範囲外の挙動は従来経路に任せる。
+                    return None
+                continue
+            tid = state.track_ids[layer]
+            if tid not in banks:
+                track = state.track(tid)[0]
+                banks[tid] = {number for number, _ in track["cells"]}
+                hints[tid] = {number for number, _ in track["hints"]}
+            if in_archive:
+                number = second
+                if number not in hints[tid] or number not in banks[tid]:
+                    continue
+                key = ("bank", tid, number)
+            else:
+                fid = state.frame_ids[frame]
+                values = state.position(fid, tid)[0]
+                number = values["sequence_number"]
+                key = _slot_bank_key(document, (fid, tid))
+                if key is not None:
+                    if number not in banks[tid]:
+                        return None
+                else:
+                    if values.get("local_share") is not None or values.get("local_bank"):
+                        return None
+                    key = ("local", fid, tid)
+                    needs_blank |= values["local"] is None
+            if restoring and key in assignments:
+                continue
+            if keep:
+                source = (blank_model_image() if key[0] == "local" and values["local"] is None
+                          else document._bound_image(key, False))
+                image = copy_image(source)
+            else:
+                value = entry[2]
+                if value is not None and type(value) not in (QImage, PmaImage, BoundImage):
+                    return None
+                image = to_pma_image(value)
+            handle = None
+            if image is not None:
+                old = cache._objects.get(("image", (key, True)))
+                if (old is not image and type(image._image) is not _native.RgbaImage
+                        or image_keys.get(id(image), (key, image))[0] != key):
+                    return None
+                # 途中で上書きされる画像も、計画中は参照を持ち続ける。
+                image_keys[id(image)] = key, image
+                handle = image._image.copy().with_tag(attributes_tag(image._attributes))
+            assignments[key] = image
+            command.append((layer, frame, number if in_archive else None, handle))
+
+    if not command:
+        return ChangeSet()
+    replaced = {}
+    for key, image in assignments.items():
+        old = cache._objects.get(("image", (key, True)))
+        if old is not None and old is not image:
+            replaced[key] = old, old._image.copy()
+    try:
+        blank = _blank_handle() if needs_blank else None
+        notices = core.set_initial_images(command, restoring, blank)
+    except ValueError:
+        return None
+
+    for key, (old, handle) in replaced.items():
+        cache.pop("image", (key, True))
+        old.__class__ = PmaImage
+        object.__setattr__(old, "_image", handle)
+        object.__setattr__(old, "_attributes", tag_attributes(handle.tag))
+    tracks = set()
+    for key, image in assignments.items():
+        bank = key[0] == "bank"
+        if image is not None:
+            _bind(image, _native._CellImage(core, bank, *key[1:], True))
+            cache.put("image", (key, True), image)
+        if bank:
+            tracks.add(key[1])
+        else:
+            position = key[1:]
+            state.refresh_position(*position)
+            state.slot_copies.pop(position, None)
+            state.slot_dicts.pop(position, None)
+    for tid in tracks:
+        state.refresh_track(tid)
+        state.forget_track(tid)
     return _changes_from_json(notices)
 
 

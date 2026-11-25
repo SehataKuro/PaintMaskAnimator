@@ -320,11 +320,22 @@ impl Document {
     }
 
     /// Python の set_initial_images と同様に指定順で初期画像を設定する。
-    /// 位置を先に渡す。履歴復元の場合は同じ絵の最初の指定を採用する。
     pub fn set_initial_images(
         &mut self,
         updates: &[(usize, DrawingTarget, Option<RgbaImage>)],
         restoring: bool,
+    ) -> Result<ChangeSet, Error> {
+        self.set_initial_images_with_blank(updates, restoring, None)
+    }
+
+    /// 位置、保管の順で初期画像を設定する。履歴復元では同じ絵の最初の指定を採用する。
+    /// 局所の絵がまだ無ければ、余白を含む Python の空画像を使う。
+    /// 局所の共有を含む更新はエラーとし、文書を変更しない。
+    pub fn set_initial_images_with_blank(
+        &mut self,
+        updates: &[(usize, DrawingTarget, Option<RgbaImage>)],
+        restoring: bool,
+        blank: Option<&RgbaImage>,
     ) -> Result<ChangeSet, Error> {
         let mut edited = self.clone();
         let mut seen = BTreeSet::new();
@@ -337,11 +348,23 @@ impl Document {
                 continue;
             };
             if let DrawingTarget::Bank(number) = target {
-                if !edited.tracks[&track]
-                    .legacy_archive_hints
-                    .contains_key(number)
+                let bank = edited.tracks.get(&track).ok_or_else(missing)?;
+                if !bank.legacy_archive_hints.contains_key(number)
+                    || !bank.cells.contains_key(number)
                 {
                     continue;
+                }
+            }
+            if let Artwork::Local(column) = artwork {
+                let position = edited
+                    .frame_order
+                    .get(column)
+                    .and_then(|id| edited.sheet.get(id))
+                    .and_then(|row| row.positions.get(&track))
+                    .ok_or_else(missing)?;
+                if position.compatibility.local_share.is_some() || position.compatibility.local_bank
+                {
+                    return Err(Error::Invalid("共有された局所の絵です".into()));
                 }
             }
             if restoring && !seen.insert((track, artwork)) {
@@ -350,15 +373,18 @@ impl Document {
             if let Some(cell) = edited.artwork_mut(track, artwork) {
                 cell.initial_image.clone_from(image);
             } else if let Artwork::Local(column) = artwork {
-                let blank = RgbaImage::blank(edited.width, edited.height)?;
+                let image_to_keep = match blank {
+                    Some(blank) => blank.clone(),
+                    None => RgbaImage::blank(edited.width, edited.height)?,
+                };
                 let position = edited.position_mut(column, track);
                 position.compatibility.local = Some(Cell {
-                    image: blank,
+                    image: image_to_keep,
                     initial_image: image.clone(),
                     cell_name: None,
                 });
             } else {
-                continue;
+                return Err(missing());
             }
             changes.push(Change::DrawingAttributes {
                 layer_index: *layer_index,
@@ -379,6 +405,81 @@ mod tests {
     use super::*;
     use crate::document::v2;
     use crate::project::payload::decode_v2_plan;
+
+    #[test]
+    fn initial_images_restore_once_and_reject_shared_locals_atomically() {
+        let input = json!({
+            "canvas": {"width": 1, "height": 1},
+            "frame_durations": [1, 1, 1],
+            "tracks": [{"cells": [{"number": 1, "image": "one.png"}],
+                        "sheet": [1, 1, null]}],
+        });
+        let plan = decode_v2_plan(&input, &["one.png".into()]).unwrap();
+        let image = RgbaImage::blank(1, 1).unwrap();
+        let mut doc = v2::from_plan(&input, &plan, std::slice::from_ref(&image)).unwrap();
+        let number = CellNumber::new(1).unwrap();
+        let track = doc.track_order()[0];
+        doc.tracks
+            .get_mut(&track)
+            .unwrap()
+            .legacy_archive_hints
+            .insert(
+                number,
+                super::super::compatibility::ArchiveHint {
+                    has_content: true,
+                    is_blank_key: false,
+                    exposure: 1,
+                    pending: false,
+                    tween: None,
+                    tween_member: None,
+                },
+            );
+        let updates = [
+            (0, DrawingTarget::Frame(0), Some(image)),
+            (0, DrawingTarget::Frame(1), None),
+            (0, DrawingTarget::Bank(number), None),
+        ];
+        assert_eq!(
+            doc.set_initial_images(&updates, true).unwrap(),
+            [Change::DrawingAttributes {
+                layer_index: 0,
+                number: Some(number),
+                frame: Some(0),
+                fields: vec!["initial_image"],
+            }]
+        );
+        assert!(doc.tracks[&track].cells[&number].initial_image.is_some());
+        assert_eq!(doc.set_initial_images(&updates, false).unwrap().len(), 3);
+        assert!(doc.tracks[&track].cells[&number].initial_image.is_none());
+
+        doc.position_mut(2, track).compatibility.local_share = Some(1);
+        let update = (
+            0,
+            DrawingTarget::Bank(number),
+            Some(RgbaImage::blank(1, 1).unwrap()),
+        );
+        assert!(doc
+            .set_initial_images(&[update, (0, DrawingTarget::Frame(2), None)], false)
+            .is_err());
+        assert!(doc.tracks[&track].cells[&number].initial_image.is_none());
+        assert!(doc.position_mut(2, track).compatibility.local.is_none());
+
+        doc.position_mut(2, track).compatibility.local_share = None;
+        let blank = RgbaImage::blank(3, 2).unwrap();
+        doc.set_initial_images_with_blank(
+            &[(0, DrawingTarget::Frame(2), None)],
+            false,
+            Some(&blank),
+        )
+        .unwrap();
+        let cell = doc
+            .position_mut(2, track)
+            .compatibility
+            .local
+            .as_ref()
+            .unwrap();
+        assert_eq!(cell.image.generation(), blank.generation());
+    }
 
     // tests/test_core_document_compare.py:test_review_patch_and_replace_pixels
     #[test]

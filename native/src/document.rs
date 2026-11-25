@@ -1,6 +1,6 @@
 use crate::image::PyRgbaImage;
 use pma_core::document::access::{ArtworkSlot, ImageField};
-use pma_core::document::drawing_commands::DrawingImageGroup;
+use pma_core::document::drawing_commands::{DrawingImageGroup, DrawingTarget};
 use pma_core::document::model::{CellNumber, Document, FrameId, TrackId};
 use pma_core::document::{comparison, graph, v2};
 use pma_core::image::{Rect, RgbaImage};
@@ -9,6 +9,12 @@ use pyo3::{exceptions::PyValueError, prelude::*, types::PyBytes};
 
 type PositionKeys = Vec<(u64, u64)>;
 type PyDrawingImageGroup<'py> = (Vec<(usize, usize)>, PyRef<'py, PyRgbaImage>);
+type PyInitialImage<'py> = (
+    usize,
+    Option<usize>,
+    Option<i64>,
+    Option<PyRef<'py, PyRgbaImage>>,
+);
 type LegacyInstallOutput = (
     usize,
     PositionKeys,
@@ -171,6 +177,34 @@ impl PyCoreDocument {
             .collect();
         self.0
             .replace_drawing_images(&groups)
+            .map(comparison::command_notices)
+            .map_err(value_error)
+    }
+
+    /// 位置と保管の絵の初期画像を更新し、ChangeSet の JSON を返す。
+    #[pyo3(signature = (updates, restoring, blank))]
+    fn set_initial_images(
+        &mut self,
+        updates: Vec<PyInitialImage<'_>>,
+        restoring: bool,
+        blank: Option<PyRef<'_, PyRgbaImage>>,
+    ) -> PyResult<String> {
+        let updates = updates
+            .into_iter()
+            .map(|(layer, frame, number, image)| {
+                let target = match (frame, number) {
+                    (Some(frame), None) => DrawingTarget::Frame(frame),
+                    (None, Some(number)) => {
+                        DrawingTarget::Bank(CellNumber::new(number).map_err(value_error)?)
+                    }
+                    _ => return Err(value_error("初期画像の対象が不正です")),
+                };
+                Ok((layer, target, image.map(|image| image.share())))
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        let blank = blank.map(|image| image.share());
+        self.0
+            .set_initial_images_with_blank(&updates, restoring, blank.as_ref())
             .map(comparison::command_notices)
             .map_err(value_error)
     }

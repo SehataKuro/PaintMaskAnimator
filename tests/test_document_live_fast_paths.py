@@ -4106,3 +4106,140 @@ def test_link_layer_tracks_preserves_state(shape, monkeypatch, tmp_path):
         results.append((changes, after_state, saved, undo))
 
     assert results[0] == results[1]
+
+
+@pytest.mark.parametrize("operation", ["set", "keep"])
+def test_initial_images_use_core(operation, monkeypatch, tmp_path):
+    from zipfile import ZipFile
+
+    from paintmaskanimator import constants, project_io
+    from paintmaskanimator.models import Cell
+    from paintmaskanimator.pma_image import copy_image
+
+    monkeypatch.setattr(constants, "CANVAS_WIDTH", 8)
+    monkeypatch.setattr(constants, "CANVAS_HEIGHT", 8)
+    plain, live = _pair()
+    results = []
+
+    def state(doc, cells):
+        path = tmp_path / "initial.pman"
+        project_io.write_project_snapshot(path, project_io.ProjectSnapshot.capture({}, doc))
+        with ZipFile(path) as saved:
+            files = {name: saved.read(name) for name in saved.namelist()}
+        initial = [cell.initial_image for cell in cells]
+        return (_signature(doc), _pixels(doc), files,
+                [image.rgba().tobytes() if image is not None else None for image in initial])
+
+    for doc in (plain, live):
+        graph = live._demote().plain if doc is live else doc
+        graph.frames[1].layers[0].set_pending(True)
+        graph.tracks[0].legacy_archive_hints[1] = ArchiveHint(has_content=True)
+        graph.tracks[0].cells[9] = Cell(PmaImage.blank(8, 8))
+        graph.tracks[0].legacy_archive_hints[9] = ArchiveHint(has_content=True)
+        if doc is live:
+            assert live._promote()
+
+        slot, held, local = (doc.frames[f].layers[l] for f, l in [(0, 0), (1, 0), (2, 1)])
+        track = doc.tracks[0]
+        token = held.__dict__["_pending_token"]
+        bank, local_cell, archive = slot._cell, local._cell, track.cells[9]
+        drawing = slot.image
+        before = PmaImage(_filled((10, 20, 30, 255)))
+        doc.set_initial_images([(0, 0, before)])
+        before_pixels = before.rgba().tobytes()
+        undo_positions = [(0, 0, copy_image(slot.initial_image)),
+                          (1, 0, None), (2, 1, None)]
+        undo_archive = [(0, 1, None), (0, 9, None)]
+        first = PmaImage(_filled((30, 40, 50, 255)))
+        last = PmaImage(_filled((70, 80, 90, 255)))
+
+        original = state(doc, (bank, local_cell, archive))
+        with monkeypatch.context() as guard:
+            guard.setattr(document_live.Document, "_run",
+                          lambda *args: pytest.fail("initial images used _run"))
+            guard.setattr(document_live.Document, "_demote",
+                          lambda *args: pytest.fail("initial images demoted"))
+            revision = Layer.timeline_revision
+            if operation == "set":
+                changes = doc.set_initial_images(
+                    [(0, 0, first), (-1, 0, None), (1, 0, last),
+                     (2, 1, _filled((1, 2, 3, 255)))],
+                    [(0, 999, None), (0, 1, last), (0, 9, _filled((4, 5, 6, 255)))])
+                assert slot.initial_image is last
+            else:
+                changes = doc.keep_initial_images([(0, 0), (1, 0), (2, 1)])
+                assert slot.initial_image is not drawing
+                assert slot.initial_image.rgba().tobytes() == drawing.rgba().tobytes()
+            assert Layer.timeline_revision == revision
+
+        assert slot.initial_image is held.initial_image
+        assert before.rgba().tobytes() == before_pixels
+        after = state(doc, (bank, local_cell, archive))
+        with monkeypatch.context() as guard:
+            guard.setattr(document_live.Document, "_run",
+                          lambda *args: pytest.fail("restoring initial images used _run"))
+            guard.setattr(document_live.Document, "_demote",
+                          lambda *args: pytest.fail("restoring initial images demoted"))
+            revision = Layer.timeline_revision
+            undo = doc.set_initial_images(undo_positions, undo_archive, restoring=True)
+            assert Layer.timeline_revision == revision
+        assert state(doc, (bank, local_cell, archive)) == original
+        assert slot is doc.frames[0].layers[0] and held is doc.frames[1].layers[0]
+        assert track is doc.tracks[0] and token is held.__dict__["_pending_token"]
+        assert token in track.pending_slots
+        assert slot._cell is held._cell is bank and slot.image is drawing
+        assert local._cell is local_cell and archive is track.cells[9]
+        results.append((changes, after, undo))
+
+    assert results[0] == results[1]
+
+
+def test_initial_image_iterator_observes_previous_assignment():
+    plain, live = _pair()
+
+    def updates(document, first):
+        yield 0, 0, first
+        assert document.frames[0].layers[0].initial_image is first
+        yield 0, 1, document.frames[0].layers[0].initial_image
+
+    results = []
+    for doc in (plain, live):
+        first = PmaImage(_filled((15, 25, 35, 255)))
+        results.append(doc.set_initial_images(updates(doc, first)))
+        assert doc.frames[0].layers[0].initial_image is first
+        assert doc.frames[0].layers[1].initial_image is first
+    assert results[0] == results[1]
+
+
+@pytest.mark.parametrize("operation", ["set", "keep"])
+def test_initial_images_create_lazy_local_cell(operation, monkeypatch):
+    from paintmaskanimator import constants, utils
+
+    monkeypatch.setattr(constants, "CANVAS_WIDTH", 8)
+    monkeypatch.setattr(constants, "CANVAS_HEIGHT", 8)
+    monkeypatch.setattr(utils, "OUTSIDE_MARGIN", 2)
+    plain, live = _pair()
+    for doc in (plain, live._demote().plain):
+        doc.frames[2].layers[1].__dict__.pop("_cell")
+    assert live._promote()
+
+    def apply(doc):
+        if operation == "keep":
+            return doc.keep_initial_images([(2, 1)])
+        return doc.set_initial_images([(2, 1, PmaImage.blank(8, 8))])
+
+    expected_changes = apply(plain)
+    slot = live.frames[2].layers[1]
+    monkeypatch.setattr(document_live.Document, "_run",
+                        lambda *args: pytest.fail("initial images used _run"))
+    monkeypatch.setattr(document_live.Document, "_demote",
+                        lambda *args: pytest.fail("initial images demoted"))
+    revision = Layer.timeline_revision
+    assert apply(live) == expected_changes
+    assert Layer.timeline_revision == revision
+    assert slot is live.frames[2].layers[1]
+    for field in ("image", "initial_image"):
+        actual = getattr(slot, field)
+        expected = getattr(plain.frames[2].layers[1], field)
+        assert (actual.width, actual.height) == (expected.width, expected.height)
+        assert np.array_equal(actual.rgba(), expected.rgba())

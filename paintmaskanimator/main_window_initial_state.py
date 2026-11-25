@@ -175,8 +175,8 @@ class InitialStateController:
              for li, number, _ in archived],
         ))
         changes = canvas._document.set_initial_images(
-            ((fi, li, QImage(image)) for fi, li, image in cells),
-            ((li, number, QImage(image)) for li, number, image in archived),
+            [(fi, li, QImage(image)) for fi, li, image in cells],
+            [(li, number, QImage(image)) for li, number, image in archived],
         )
         publish_initial_images(canvas, changes)
         count = len(cells) + len(archived)
@@ -250,7 +250,7 @@ class InitialStateController:
         )
         if answer != QMessageBox.StandardButton.Yes:
             return 0
-        canvas._document.set_initial_images((frame, layer, None) for frame, layer in cells)
+        canvas._document.set_initial_images([(frame, layer, None) for frame, layer in cells])
         self.set_compare(False)
         status.showMessage(tr("{count}セルの初期状態を消しました。").format(count=kept), 4000)
         return kept
