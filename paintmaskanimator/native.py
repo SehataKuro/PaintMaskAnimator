@@ -32,6 +32,7 @@ REQUIRED_API = (
     "flow_part_color",
     "surface_guided_palette_labels", "map_known_colors", "region_neighbors",
     "history_trim_count", "history_shift_branch_positions", "history_branch_overflow",
+    "history_switch_steps", "history_retained_positions",
     "FillSession", "LineCache", "compute_fill_region_once", "fill_target_mask", "extend_line_ends", "flood_fill", "dilate", "erode", "label_regions", "remove_line_noise", "decode_png", "encode_png", "ZipReader", "ZipWriter", "decode_v2_plan",
 )
 TIMELINE_API_VERSION = 2
@@ -1134,3 +1135,13 @@ def history_shift_branch_positions(positions, removed: int) -> list:
 def history_branch_overflow(count: int, max_branches: int) -> int:
     """分岐を足したあと、上限を超えて古い側から捨てる本数（上限 0 なら捨てない）。"""
     return _native.history_branch_overflow(count, max_branches)
+
+
+def history_switch_steps(position: int, undo_len: int):
+    """分岐へ切り替えるときに戻す手数。分岐点が今の長さを超える（到達できない）なら ``None``。"""
+    return _native.history_switch_steps(position, undo_len)
+
+
+def history_retained_positions(keep, positions) -> list:
+    """一部の件を除いたあとの分岐点：分岐点より前に残る件の数（負の分岐点は末尾から数える）。"""
+    return _native.history_retained_positions(keep, positions)

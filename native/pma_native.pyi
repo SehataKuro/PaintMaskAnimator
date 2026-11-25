@@ -373,3 +373,9 @@ def history_shift_branch_positions(positions: list[int], removed: int) -> list[i
 def history_branch_overflow(count: int, max_branches: int) -> int:
     """分岐を足したあと、上限を超えて古い側から捨てる本数（上限 0 なら捨てない）。"""
 
+def history_switch_steps(position: int, undo_len: int) -> int | None:
+    """分岐へ切り替えるときに戻す手数。到達できない分岐は None。"""
+
+def history_retained_positions(keep: list[bool], positions: list[int]) -> list[int]:
+    """一部の件を除いたあとの分岐点（分岐点より前に残る件の数）。"""
+

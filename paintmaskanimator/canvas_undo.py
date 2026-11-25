@@ -197,6 +197,40 @@ class UndoMixin(CanvasMembers):
             branch = branches[branch]
         if branch not in branches:
             return False
+        # 戻す手数と到達できるかは Rust（``switch_steps``）が決める。
+        steps = native.history_switch_steps(int(branch.position), len(self.undo_stack))
+        if steps is None:
+            # 履歴が縮んで到達できなくなったブランチは捨てる。
+            branches.remove(branch)
+            return False
+        for _ in range(steps):
+            if not self.undo_stack:
+                break
+            self.undo()
+        branches.remove(branch)
+        # 巻き戻しで redo_stack に溜まった「いま辿っていた未来」を保存する。
+        self._archive_redo_branch(len(self.undo_stack))
+        self.redo_stack[:] = branch.entries
+        self._invalidate_display_caches()
+        return True
+
+    def switch_history_branch_python(self, branch):
+        """:meth:`switch_history_branch` の Python 版。Rust との突き合わせ用（テスト専用）。
+
+        分岐点まで巻き戻し、そのブランチの未来をRedo列として採用する。
+
+        ``branch`` は :class:`HistoryBranch` か ``history_branches`` の添字。
+        いま辿っていた未来は入れ替わりにブランチとして保存されるので、
+        行ったり来たりできる。
+        """
+        self._commit_brush_stroke()
+        branches = self.history_branches
+        if isinstance(branch, int):
+            if not (0 <= branch < len(branches)):
+                return False
+            branch = branches[branch]
+        if branch not in branches:
+            return False
         position = int(branch.position)
         if position > len(self.undo_stack):
             # 履歴が縮んで到達できなくなったブランチは捨てる。

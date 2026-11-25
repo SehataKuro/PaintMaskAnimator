@@ -20,3 +20,15 @@ pub fn history_shift_branch_positions(positions: Vec<i64>, removed: u64) -> Vec<
 pub fn history_branch_overflow(count: usize, max_branches: usize) -> usize {
     core::branch_overflow(count, max_branches)
 }
+
+/// 分岐へ切り替えるときに戻す手数。到達できない分岐は None。
+#[pyfunction]
+pub fn history_switch_steps(position: i64, undo_len: usize) -> Option<usize> {
+    core::switch_steps(position, undo_len)
+}
+
+/// 一部の件を除いたあとの分岐点（分岐点より前に残る件の数）。
+#[pyfunction]
+pub fn history_retained_positions(keep: Vec<bool>, positions: Vec<i64>) -> Vec<usize> {
+    core::retained_positions(&keep, &positions)
+}

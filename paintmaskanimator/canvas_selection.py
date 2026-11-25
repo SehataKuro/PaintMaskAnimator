@@ -20,7 +20,7 @@ from .time_display import frame_position
 from .optional_deps import PILImage, PILImageFilter
 from .constants import OUTSIDE_MARGIN
 from ._canvas_members import CanvasMembers
-from . import constants, imaging
+from . import constants, imaging, native
 from .progress import close_counter, create_counter, update_counter
 from .logging_setup import get_logger
 from .undo_entries import LayerBatchUndo, LayerUndo, TransformUndo
@@ -543,6 +543,22 @@ class SelectionMixin(CanvasMembers):
 
     def _discard_transform_history(self):
         # Geometry is temporary; confirmation stores a single image edit.
+        # 分岐点の付け替え（分岐点より前に残る件の数）は Rust（retained_positions）が決める。
+        branches = self.history_branches
+        positions = native.history_retained_positions(
+            [not isinstance(e, TransformUndo) for e in self.undo_stack],
+            [branch.position for branch in branches],
+        )
+        for branch, position in zip(branches, positions):
+            branch.position = position
+            branch.entries[:] = [e for e in branch.entries
+                                 if not isinstance(e, TransformUndo)]
+        self.history_branches[:] = [b for b in self.history_branches if b.entries]
+        self.undo_stack[:] = [e for e in self.undo_stack if not isinstance(e, TransformUndo)]
+        self.redo_stack[:] = [e for e in self.redo_stack if not isinstance(e, TransformUndo)]
+
+    def _discard_transform_history_python(self):
+        """:meth:`_discard_transform_history` の Python 版（テスト専用）。"""
         old_stack = list(self.undo_stack)
         for branch in self.history_branches:
             branch.position = sum(not isinstance(e, TransformUndo)

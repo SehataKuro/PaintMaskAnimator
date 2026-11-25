@@ -11,7 +11,9 @@ import random
 import pytest
 
 from paintmaskanimator import canvas_undo, native
+from paintmaskanimator.canvas_selection import SelectionMixin
 from paintmaskanimator.canvas_undo import HistoryBranch, UndoMixin
+from paintmaskanimator.undo_entries import TransformUndo
 
 
 class _Entry:
@@ -148,3 +150,118 @@ def test_push_undo_sequence_matches_python(monkeypatch, restore_limits, seed):
     monkeypatch.setattr(UndoMixin, "_archive_redo_branch", python_cap)
     python = _replay(_History(), steps)
     assert rust == python
+
+
+class _Transform(TransformUndo):
+    """変形の履歴の1件（名前つき）。"""
+
+    def __init__(self, name):
+        super().__init__((), 1, 1, ())
+        self.name = name
+
+
+class _Canvas(_History):
+    """本物の undo・redo・分岐の切り替え・変形の履歴の除去を動かすキャンバスの代わり。
+
+    戻すときの「今の状態」は名前に ``~`` を付けた写し。``stale`` の名前の件は対象が
+    既に無い古い履歴として捨てられる。
+    """
+
+    transform_active = False
+
+    def __init__(self, stale=()):
+        super().__init__()
+        self.stale = set(stale)
+
+    def _commit_brush_stroke(self):
+        pass
+
+    def _invalidate_display_caches(self):
+        pass
+
+    def current_state_for(self, entry):
+        if entry.name in self.stale:
+            return None
+        name = f"~{entry.name}"
+        return _Transform(name) if isinstance(entry, TransformUndo) else _Entry(name, entry.nbytes)
+
+    def apply_undo_entry(self, entry):
+        pass
+
+
+def _replay_all(history, steps):
+    """手順を当て、最後の履歴の形と、分岐の切り替えが返した値の並びを返す。"""
+    switched = []
+    for kind, value in steps:
+        if kind == "push":
+            history.push_undo(value)
+        elif kind == "undo":
+            history.undo()
+        elif kind == "redo":
+            history.redo()
+        elif kind == "switch":
+            switched.append(history.switch_history_branch(value))
+        elif kind == "switch_object":
+            branches = history.history_branches
+            if branches:
+                switched.append(history.switch_history_branch(branches[value % len(branches)]))
+        else:
+            SelectionMixin._discard_transform_history(history)
+    return history.shape(), switched
+
+
+@pytest.mark.parametrize("seed", range(12))
+def test_switch_and_discard_sequence_matches_python(monkeypatch, restore_limits, seed):
+    """分岐の切り替えと変形の履歴の除去を混ぜても、Rust の判断と Python 版の結果が同じ。"""
+    rng = random.Random(100 + seed)
+    canvas_undo.MAX_UNDO = rng.choice([3, 6, 30])
+    canvas_undo.MAX_UNDO_BYTES = rng.choice([60, 10**9])
+    canvas_undo.MAX_HISTORY_BRANCHES = rng.choice([2, 20])
+    stale = {index for index in range(300) if rng.random() < 0.05}
+    steps = []
+    for index in range(300):
+        kind = rng.choice(["push", "push", "push", "undo", "undo", "redo",
+                           "switch", "switch_object", "discard"])
+        if kind == "push":
+            value = _Transform(index) if rng.random() < 0.3 else _Entry(index, rng.choice([0, 10, 40]))
+        elif kind == "switch":
+            value = rng.randrange(-1, 4)
+        else:
+            value = rng.randrange(0, 10)
+        steps.append((kind, value))
+
+    rust = _replay_all(_Canvas(stale), steps)
+
+    monkeypatch.setattr(UndoMixin, "switch_history_branch", UndoMixin.switch_history_branch_python)
+    monkeypatch.setattr(SelectionMixin, "_discard_transform_history",
+                        SelectionMixin._discard_transform_history_python)
+    python = _replay_all(_Canvas(stale), steps)
+    assert rust == python
+
+
+def test_switch_history_branch_drops_unreachable_branch():
+    history = _Canvas()
+    for name in ("a", "b"):
+        history.push_undo(_Entry(name, 0))
+    history.undo()
+    history.push_undo(_Entry("c", 0))  # 分岐点 1
+    history.undo()
+    history.undo()
+    assert history.switch_history_branch(0) is False
+    assert history.history_branches == []
+
+
+@pytest.mark.parametrize("undo_len", [0, 1, 5])
+@pytest.mark.parametrize("position", [0, 1, 3, 5, 6, 40])
+def test_switch_steps_matches_python(position, undo_len):
+    expected = None if position > undo_len else undo_len - position
+    assert native.history_switch_steps(position, undo_len) == expected
+
+
+def test_retained_positions_follow_python_slices():
+    rng = random.Random(64)
+    for _ in range(200):
+        keep = [rng.random() < 0.6 for _ in range(rng.randrange(0, 15))]
+        positions = [rng.randrange(-20, 20) for _ in range(rng.randrange(0, 6))]
+        expected = [sum(keep[:position]) for position in positions]
+        assert native.history_retained_positions(keep, positions) == expected

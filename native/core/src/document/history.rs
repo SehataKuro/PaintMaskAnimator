@@ -63,10 +63,58 @@ pub fn branch_overflow(count: usize, max_branches: usize) -> usize {
     }
 }
 
+/// 分岐へ切り替えるときに戻す手数。分岐点が今の Undo 列の長さを超える分岐は到達できないので
+/// `None`（呼び出し側が捨てる）。`UndoMixin.switch_history_branch_python` と一致する。
+pub fn switch_steps(position: i64, undo_len: usize) -> Option<usize> {
+    let undo_len = undo_len as i128;
+    let position = position as i128;
+    if position > undo_len {
+        return None;
+    }
+    Some(usize::try_from(undo_len - position).unwrap_or(usize::MAX))
+}
+
+/// 一部の件を除いたあとの分岐点：分岐点より前に残る件の数。
+///
+/// `keep` は古い順の Undo 列の各件を残すか。数える範囲は Python のスライス
+/// `old_stack[:position]` と同じ（負なら末尾から数える）。
+/// `canvas_selection._discard_transform_history_python` と一致する。
+pub fn retained_positions(keep: &[bool], positions: &[i64]) -> Vec<usize> {
+    let len = keep.len() as i128;
+    let mut prefix = Vec::with_capacity(keep.len() + 1);
+    let mut kept = 0usize;
+    prefix.push(kept);
+    for &value in keep {
+        kept += usize::from(value);
+        prefix.push(kept);
+    }
+    positions
+        .iter()
+        .map(|&position| {
+            let position = position as i128;
+            let end = if position < 0 {
+                (len + position).max(0)
+            } else {
+                position.min(len)
+            };
+            prefix[end as usize]
+        })
+        .collect()
+}
+
 /// Undo 列の1件。論理バイトは上限での切り詰めに使う。
 pub trait HistoryItem {
     /// 持っている画像の論理バイト（幅×高さ×4 の和）。
     fn logical_bytes(&self) -> u64;
+}
+
+/// 履歴を当てる先（文書と画面）。Python 版の `current_state_for`・`apply_undo_entry` に当たる。
+pub trait HistoryTarget<E> {
+    /// 戻す（進める）前の今の状態を、逆向きの1件として写す。`None` なら対象が既に無い
+    /// 古い履歴として捨て、次の件へ進む。
+    fn capture(&mut self, entry: &E) -> Option<E>;
+    /// 1件を当てる。
+    fn apply(&mut self, entry: E);
 }
 
 /// 捨てられた「もう一つの未来」1本分。
@@ -142,28 +190,76 @@ impl<E: HistoryItem> History<E> {
         }
     }
 
-    /// 1手戻す。`capture` は戻す前の今の状態（Redo 用の逆向きの1件）を返し、
-    /// `None` なら既に無い対象の古い履歴として捨てて次の件へ進む。
-    /// 戻す1件（呼び出し側が当てる）を返す。
-    pub fn undo(&mut self, mut capture: impl FnMut(&E) -> Option<E>) -> Option<E> {
+    /// 1手戻す。対象が既に無い件は捨てて次の件へ進む。戻せたら `true`。
+    pub fn undo(&mut self, target: &mut impl HistoryTarget<E>) -> bool {
         while let Some(entry) = self.undo.pop() {
-            if let Some(current) = capture(&entry) {
+            if let Some(current) = target.capture(&entry) {
                 self.redo.push(current);
-                return Some(entry);
+                target.apply(entry);
+                return true;
             }
         }
-        None
+        false
     }
 
     /// 1手進める。[`History::undo`] の逆向き（Python 版と同じく切り詰めない）。
-    pub fn redo(&mut self, mut capture: impl FnMut(&E) -> Option<E>) -> Option<E> {
+    pub fn redo(&mut self, target: &mut impl HistoryTarget<E>) -> bool {
         while let Some(entry) = self.redo.pop() {
-            if let Some(current) = capture(&entry) {
+            if let Some(current) = target.capture(&entry) {
                 self.undo.push(current);
-                return Some(entry);
+                target.apply(entry);
+                return true;
             }
         }
-        None
+        false
+    }
+
+    /// 分岐点まで戻し、その分岐の未来を Redo 列にする。今の Redo 列は入れ替わりに
+    /// 分岐として残す。範囲外の添字なら `false`、到達できない分岐は捨てて `false`。
+    ///
+    /// Python 版 `UndoMixin.switch_history_branch` と同じ順で処理する。
+    pub fn switch_branch(&mut self, index: usize, target: &mut impl HistoryTarget<E>) -> bool {
+        let Some(branch) = self.branches.get(index) else {
+            return false;
+        };
+        let position = i64::try_from(branch.position).unwrap_or(i64::MAX);
+        let Some(steps) = switch_steps(position, self.undo.len()) else {
+            self.branches.remove(index);
+            return false;
+        };
+        for _ in 0..steps {
+            if self.undo.is_empty() {
+                break;
+            }
+            self.undo(target);
+        }
+        let branch = self.branches.remove(index);
+        self.archive_redo(self.undo.len());
+        self.redo = branch.entries;
+        true
+    }
+
+    /// `keep` が偽の件を Undo 列・Redo 列・分岐から除く（変形の確定・取り消しのとき）。
+    ///
+    /// 分岐点は分岐点より前に残る件の数に付け替え、空になった分岐は捨てる。
+    pub fn retain(&mut self, keep: impl Fn(&E) -> bool) {
+        let kept: Vec<bool> = self.undo.iter().map(&keep).collect();
+        let positions: Vec<i64> = self
+            .branches
+            .iter()
+            .map(|branch| i64::try_from(branch.position).unwrap_or(i64::MAX))
+            .collect();
+        for (branch, position) in self
+            .branches
+            .iter_mut()
+            .zip(retained_positions(&kept, &positions))
+        {
+            branch.position = position;
+            branch.entries.retain(&keep);
+        }
+        self.branches.retain(|branch| !branch.entries.is_empty());
+        self.undo.retain(&keep);
+        self.redo.retain(&keep);
     }
 
     fn shift_branches(&mut self, removed: usize) {
@@ -198,20 +294,65 @@ impl<E: HistoryItem> History<E> {
 mod tests {
     use super::*;
 
+    /// 描いた線の並びの写し（全体の写しで戻す Undo の1件）。
     #[derive(Clone, Debug, PartialEq, Eq)]
-    struct Edit {
-        name: &'static str,
+    struct Snapshot {
+        strokes: Vec<&'static str>,
         bytes: u64,
+        transform: bool,
     }
 
-    impl HistoryItem for Edit {
+    impl HistoryItem for Snapshot {
         fn logical_bytes(&self) -> u64 {
             self.bytes
         }
     }
 
-    fn edit(name: &'static str) -> Edit {
-        Edit { name, bytes: 0 }
+    /// 描いた線の並びを持つキャンバスの代わり。
+    #[derive(Default)]
+    struct Canvas {
+        strokes: Vec<&'static str>,
+        /// 写せない（対象が既に無い）件の線の数。
+        gone: Option<usize>,
+    }
+
+    impl Canvas {
+        fn snapshot(&self) -> Snapshot {
+            Snapshot {
+                strokes: self.strokes.clone(),
+                bytes: 0,
+                transform: false,
+            }
+        }
+
+        fn paint(&mut self, history: &mut History<Snapshot>, stroke: &'static str) {
+            history.push(self.snapshot());
+            self.strokes.push(stroke);
+        }
+    }
+
+    impl HistoryTarget<Snapshot> for Canvas {
+        fn capture(&mut self, entry: &Snapshot) -> Option<Snapshot> {
+            if self.gone == Some(entry.strokes.len()) {
+                return None;
+            }
+            Some(Snapshot {
+                transform: entry.transform,
+                ..self.snapshot()
+            })
+        }
+
+        fn apply(&mut self, entry: Snapshot) {
+            self.strokes = entry.strokes;
+        }
+    }
+
+    fn entry(bytes: u64) -> Snapshot {
+        Snapshot {
+            strokes: Vec::new(),
+            bytes,
+            transform: false,
+        }
     }
 
     const LIMITS: HistoryLimits = HistoryLimits {
@@ -254,19 +395,71 @@ mod tests {
     }
 
     #[test]
+    fn switch_steps_rejects_unreachable_branch() {
+        assert_eq!(switch_steps(2, 5), Some(3));
+        assert_eq!(switch_steps(5, 5), Some(0));
+        assert_eq!(switch_steps(6, 5), None);
+    }
+
+    #[test]
+    fn retained_positions_count_kept_entries_before_the_point() {
+        let keep = [true, false, true, false, true];
+        assert_eq!(
+            retained_positions(&keep, &[0, 1, 2, 4, 5, 9]),
+            vec![0, 1, 1, 2, 3, 3]
+        );
+        // Python の old_stack[:-1] と同じく、負は末尾から数える。
+        assert_eq!(retained_positions(&keep, &[-1, -5, -9]), vec![2, 0, 0]);
+        assert_eq!(retained_positions(&[], &[0, 3]), vec![0, 0]);
+    }
+
+    #[test]
     fn new_edit_after_undo_keeps_old_future_as_branch() {
         let mut history = History::new(LIMITS);
-        history.push(edit("red"));
-        assert_eq!(
-            history.undo(|_| Some(edit("before red"))),
-            Some(edit("red"))
-        );
-        history.push(edit("blue"));
+        let mut canvas = Canvas::default();
+        canvas.paint(&mut history, "red");
+        assert!(history.undo(&mut canvas));
+        canvas.paint(&mut history, "blue");
         assert!(history.redo_entries().is_empty());
         assert_eq!(history.branches().len(), 1);
         let branch = &history.branches()[0];
         assert_eq!(branch.position, history.undo_entries().len() - 1);
-        assert_eq!(branch.entries, vec![edit("before red")]);
+        assert_eq!(branch.entries.len(), 1);
+    }
+
+    #[test]
+    fn switch_branch_restores_the_other_future_and_back() {
+        let mut history = History::new(LIMITS);
+        let mut canvas = Canvas::default();
+        canvas.paint(&mut history, "red");
+        history.undo(&mut canvas);
+        canvas.paint(&mut history, "blue");
+        assert_eq!(canvas.strokes, vec!["blue"]);
+
+        assert!(history.switch_branch(0, &mut canvas));
+        assert_eq!(canvas.strokes, Vec::<&str>::new());
+        assert_eq!(history.branches().len(), 1);
+        assert!(history.redo(&mut canvas));
+        assert_eq!(canvas.strokes, vec!["red"]);
+
+        assert!(history.switch_branch(0, &mut canvas));
+        history.redo(&mut canvas);
+        assert_eq!(canvas.strokes, vec!["blue"]);
+        assert!(!history.switch_branch(1, &mut canvas));
+    }
+
+    #[test]
+    fn unreachable_branch_is_dropped() {
+        let mut history = History::new(LIMITS);
+        let mut canvas = Canvas::default();
+        canvas.paint(&mut history, "a");
+        canvas.paint(&mut history, "b");
+        history.undo(&mut canvas);
+        canvas.paint(&mut history, "c"); // 分岐点 1
+        history.undo(&mut canvas);
+        history.undo(&mut canvas); // Undo 列は空、分岐点 1 には戻せない
+        assert!(!history.switch_branch(0, &mut canvas));
+        assert!(history.branches().is_empty());
     }
 
     #[test]
@@ -276,15 +469,20 @@ mod tests {
             ..LIMITS
         };
         let mut history = History::new(limits);
-        history.push(edit("a"));
-        history.undo(|_| Some(edit("not a")));
-        history.push(edit("b")); // 分岐点 0
-        history.push(edit("c"));
+        let mut canvas = Canvas::default();
+        canvas.paint(&mut history, "a");
+        history.undo(&mut canvas);
+        canvas.paint(&mut history, "b"); // 分岐点 0
+        canvas.paint(&mut history, "c");
         assert_eq!(history.branches()[0].position, 0);
-        history.push(edit("d")); // b を捨てて分岐点が -1 になる
+        canvas.paint(&mut history, "d"); // 最古の1件を捨てて分岐点が -1 になる
         assert!(history.branches().is_empty());
-        let names: Vec<_> = history.undo_entries().iter().map(|e| e.name).collect();
-        assert_eq!(names, vec!["c", "d"]);
+        let kept: Vec<_> = history
+            .undo_entries()
+            .iter()
+            .map(|entry| entry.strokes.clone())
+            .collect();
+        assert_eq!(kept, vec![vec!["b"], vec!["b", "c"]]);
     }
 
     #[test]
@@ -294,29 +492,60 @@ mod tests {
             ..LIMITS
         };
         let mut history = History::new(limits);
-        for name in ["a", "b", "c", "d"] {
-            history.push(edit(name));
-            history.undo(|entry| Some(entry.clone()));
+        let mut canvas = Canvas::default();
+        for stroke in ["a", "b", "c", "d"] {
+            canvas.paint(&mut history, stroke);
+            history.undo(&mut canvas);
         }
-        history.push(edit("e"));
+        canvas.paint(&mut history, "e");
         let kept: Vec<_> = history
             .branches()
             .iter()
-            .map(|branch| branch.entries[0].name)
+            .map(|branch| branch.entries[0].strokes.clone())
             .collect();
-        assert_eq!(kept, vec!["c", "d"]);
+        assert_eq!(kept, vec![vec!["c"], vec!["d"]]);
     }
 
     #[test]
     fn undo_skips_entries_whose_target_is_gone() {
         let mut history = History::new(LIMITS);
-        history.push(edit("kept"));
-        history.push(edit("gone"));
-        let undone = history.undo(|entry| (entry.name == "kept").then(|| edit("inverse")));
-        assert_eq!(undone, Some(edit("kept")));
+        let mut canvas = Canvas::default();
+        canvas.paint(&mut history, "kept");
+        canvas.paint(&mut history, "gone");
+        canvas.gone = Some(1);
+        assert!(history.undo(&mut canvas));
+        assert_eq!(canvas.strokes, Vec::<&str>::new());
         assert!(history.undo_entries().is_empty());
-        assert_eq!(history.redo_entries(), &[edit("inverse")]);
-        assert_eq!(history.redo(|_| Some(edit("again"))), Some(edit("inverse")));
-        assert_eq!(history.undo_entries(), &[edit("again")]);
+        assert_eq!(history.redo_entries().len(), 1);
+        assert!(!history.undo(&mut canvas));
+    }
+
+    #[test]
+    fn retain_removes_transform_entries_everywhere() {
+        let mut history = History::new(LIMITS);
+        let transform = Snapshot {
+            transform: true,
+            ..entry(0)
+        };
+        history.push(entry(1));
+        history.push(transform.clone());
+        history.push(entry(2));
+        history.redo = vec![transform.clone(), entry(3)];
+        history.branches = vec![
+            HistoryBranch {
+                position: 3,
+                entries: vec![entry(4)],
+            },
+            HistoryBranch {
+                position: 1,
+                entries: vec![transform.clone()],
+            },
+        ];
+        history.retain(|entry| !entry.transform);
+        let bytes = |entries: &[Snapshot]| entries.iter().map(|e| e.bytes).collect::<Vec<_>>();
+        assert_eq!(bytes(history.undo_entries()), vec![1, 2]);
+        assert_eq!(bytes(history.redo_entries()), vec![3]);
+        assert_eq!(history.branches().len(), 1);
+        assert_eq!(history.branches()[0].position, 2);
     }
 }
