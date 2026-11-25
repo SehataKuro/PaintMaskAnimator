@@ -1025,3 +1025,28 @@ def test_save_shares_generations_when_qimage_conversion_returns_copies(
         patch.setPixelColor(0, 0, QColor("red"))
     assert save() != expected
     assert calls["count"] == 4
+
+
+@pytest.mark.parametrize("name", ["v1/all-unplaced.pman", "v2/basic-bank-sheet.pman", "v2/paper-draft.pman"])
+def test_opened_document_makes_blanks_at_the_file_canvas_size(qapp, monkeypatch, name):
+    """作業領域と違う大きさのファイルを開いても、あとで作る空画像はファイルの大きさになる。
+
+    Rust の文書は読み込みの途中で Rust に移した時点の作業領域の大きさを持っていたので、
+    開いたあとに作った空キーが開く前の作業領域の大きさ（1280×720）になっていた。
+    """
+    path = Path(__file__).parent / "fixtures" / "projects" / name
+    monkeypatch.setattr(constants, "CANVAS_WIDTH", 1280)
+    monkeypatch.setattr(constants, "CANVAS_HEIGHT", 720)
+    loaded = project_io.load_project(path)
+    assert (loaded.width, loaded.height) != (1280, 720)
+    # アプリ（main_window_project_io）と同じく、読み込みのあとに作業領域を合わせる。
+    monkeypatch.setattr(constants, "CANVAS_WIDTH", loaded.width)
+    monkeypatch.setattr(constants, "CANVAS_HEIGHT", loaded.height)
+    document = loaded.document
+    if os.environ.get("PMA_CORE_DOCUMENT") != "0":
+        # Rust の文書のまま（Python の表に戻っていない）で確かめる。
+        assert document.__dict__["_live_state"]["graph"] is None
+    document.create_blank_key(0, 0)
+    sizes = {(layer.image.width, layer.image.height)
+             for frame in document.frames for layer in frame.layers}
+    assert sizes == {(loaded.width, loaded.height)}

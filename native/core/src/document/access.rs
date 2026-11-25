@@ -208,6 +208,20 @@ impl Document {
         self.blank = Some(image);
     }
 
+    /// キャンバスの幅と高さを設定する。命令が作る空画像はこの大きさになる。
+    ///
+    /// 読み込みの途中で文書を Rust に移すと、その時点の作業領域の大きさが入るので、
+    /// 読み込んだファイルの大きさに合わせ直すときに使う（Python 版は空画像を作るたびに
+    /// その時の作業領域の大きさを使う）。どちらかが 0 ならエラー。
+    pub fn set_size(&mut self, width: usize, height: usize) -> Result<(), Error> {
+        if width == 0 || height == 0 {
+            return Err(Error::Invalid("キャンバスの大きさが不正です".into()));
+        }
+        self.width = width;
+        self.height = height;
+        Ok(())
+    }
+
     /// 指定したコマの行を to_graph のコマと同じ JSON で、コマ・列の並びと次の ID とともに返す。
     pub fn frames_graph(&self, frames: &[FrameId]) -> Result<(Value, Vec<RgbaImage>), Error> {
         self.frames_tracks_graph(frames, &self.track_order)
@@ -436,6 +450,16 @@ mod tests {
                        {"duration": 1, "positions": [position]}],
         });
         (Document::from_graph(&value, &images).unwrap(), images)
+    }
+
+    #[test]
+    fn set_size_changes_the_canvas_and_rejects_zero() {
+        let (mut document, _) = document();
+        document.set_size(4, 3).unwrap();
+        assert_eq!(document.size(), (4, 3));
+        assert!(document.set_size(0, 3).is_err());
+        assert!(document.set_size(4, 0).is_err());
+        assert_eq!(document.size(), (4, 3));
     }
 
     #[test]

@@ -1629,6 +1629,16 @@ class Document:
             cache.put("image", (key, initial), image)
         return True
 
+    def adopt_canvas_size(self, width, height):
+        """Rust の文書のキャンバスの大きさを (width, height) にする（読み込んだ直後に使う）。
+
+        素の状態なら何もしない（Rust に戻すときにその時の作業領域の大きさが入る）。
+        """
+        live = _live_of(self)
+        core = live["core"]
+        if live["graph"] is None and core is not None:
+            core.set_canvas_size(int(width), int(height))
+
     def _sync_selection(self):
         live = _live_of(self)
         frame, layer = live["cursor"]

@@ -465,6 +465,16 @@ impl PyCoreDocument {
         self.0.set_blank_image(image.share());
     }
 
+    /// キャンバスの幅と高さを設定する（読み込んだファイルの大きさに合わせ直す）。
+    fn set_canvas_size(&mut self, width: usize, height: usize) -> PyResult<()> {
+        self.0.set_size(width, height).map_err(value_error)
+    }
+
+    /// キャンバスの幅と高さ。
+    fn canvas_size(&self) -> (usize, usize) {
+        self.0.size()
+    }
+
     /// 指定したコマの行を to_graph と同じ JSON で、並びと次の ID とともに返す。
     fn frames_graph(&self, frames: Vec<u64>) -> PyResult<(String, Vec<PyRgbaImage>)> {
         let frames: Vec<_> = frames.into_iter().map(FrameId).collect();

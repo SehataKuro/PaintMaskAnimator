@@ -66,6 +66,18 @@ class LoadedProject:
     format_version: int = 1
 
 
+def _adopt_canvas_size(document, width, height):
+    """読み込んだファイルの大きさを Rust の文書に合わせる（Python の文書では何もしない）。
+
+    読み込みの途中で Rust に移した文書には、その時点の作業領域の大きさが入っている。
+    呼び出し側（main_window_project_io）は読み込みのあとに作業領域をファイルの大きさに
+    するので、Python 版と同じく、あとで作る空画像がファイルの大きさになるようにする。
+    """
+    adopt = getattr(document, "adopt_canvas_size", None)
+    if adopt is not None:
+        adopt(width, height)
+
+
 def load_project(path, png_cache=None):
     """Adapt the legacy reader without changing its raw four-value API.
 
@@ -75,6 +87,7 @@ def load_project(path, png_cache=None):
     read_cache = PngCache() if png_cache is not None else None
     result = read_project_archive(path, read_cache, _allow_v2=True)
     if isinstance(result, LoadedProject):
+        _adopt_canvas_size(result.document, result.width, result.height)
         if png_cache is not None:
             png_cache.replace_from(read_cache)
         return result
@@ -90,6 +103,7 @@ def load_project(path, png_cache=None):
         raise OperationError(tr("プロジェクトの選択位置が不正です。")) from error
     document.install_legacy_frames(
         frames, metadata.pop("_loaded_sequence_archive", {}), canvas_size=(width, height))
+    _adopt_canvas_size(document, width, height)
     if png_cache is not None:
         png_cache.replace_from(read_cache)
     return LoadedProject(metadata, document, width, height)
