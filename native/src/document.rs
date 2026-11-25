@@ -198,6 +198,33 @@ impl PyCoreDocument {
         .map_err(value_error)
     }
 
+    /// 位置の画像の矩形を書き込み、内容の印を確定する。
+    fn write_drawing_patch_with_content(
+        &mut self,
+        frame: usize,
+        layer: usize,
+        rect: (usize, usize, usize, usize),
+        pixels: &Bound<'_, PyBytes>,
+        has_content: bool,
+    ) -> PyResult<()> {
+        let (x, y, width, height) = rect;
+        self.0
+            .write_drawing_patch_with_content(
+                frame,
+                layer,
+                Rect {
+                    x,
+                    y,
+                    width,
+                    height,
+                },
+                pixels.as_bytes(),
+                has_content,
+            )
+            .map(|_| ())
+            .map_err(value_error)
+    }
+
     /// 位置の画像と内容の印を入力順に差し替え、ChangeSet の JSON を返す。
     fn replace_drawing_image(
         &mut self,

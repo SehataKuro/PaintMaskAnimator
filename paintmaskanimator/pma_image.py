@@ -182,6 +182,12 @@ class PmaImage:
         self._write_patch(patch, x, y)
 
     def _write_patch(self, patch: QImage, x: int, y: int) -> None:
+        prepared = self._prepare_qimage_patch(patch, x, y)
+        if prepared is not None:
+            self._write_prepared_patch(*prepared, self._image.write_rect)
+
+    def _prepare_qimage_patch(self, patch: QImage, x: int, y: int):
+        """画像内の矩形と、Qt の丸めを通したストレート RGBA を用意する。"""
         if patch.isNull():
             return
         left, top = max(x, 0), max(y, 0)
@@ -203,18 +209,24 @@ class PmaImage:
             patch = normalized
         elif width != patch.width() or height != patch.height():
             patch = patch.copy(left - x, top - y, width, height)
+        return (left, top, width, height), _straight_bytes(patch)
+
+    def _write_prepared_patch(self, rect, straight, write):
+        """画素を書き、既にある表示用画像を同じ矩形で更新する。"""
+        left, top, width, height = rect
         global _last_import
         if _last_import is not None and _last_import[1].generation == self.generation:
             # 取り込みの共有を手放してから書き、画素全体の複製を起こさない。
             _last_import = None
         old_key = model_image_key(self)
-        straight = _straight_bytes(patch)
-        self._image.write_rect(left, top, width, height, straight)
+        if write(*rect, straight) is False:
+            return False
         if old_key in display_images:
             # 表示用の画像を全体で作り直さず、書いた矩形だけ差し替える。
             rect = QImage(straight, width, height, width * 4, QImage.Format.Format_RGBA8888)
             display_images.replace_rect(old_key, model_image_key(self),
                                         rect.convertToFormat(_PREMULTIPLIED), left, top)
+        return True
 
     def write_qimages(self, patches: Iterable[tuple[int, int, QImage]]) -> None:
         """(x, y, QImage) の列を順に置換する。"""
@@ -223,6 +235,11 @@ class PmaImage:
 
     def write_rgba(self, rgba: np.ndarray, x: int = 0, y: int = 0) -> None:
         """RGBA を Qt の乗算済み形式に丸めて書く。範囲外は ValueError、範囲内の空領域は no-op。"""
+        patch, x, y = self._prepare_rgba_patch(rgba, x, y)
+        if patch is not None:
+            self.write_qimage(patch, x, y)
+
+    def _prepare_rgba_patch(self, rgba, x, y):
         if (
             not isinstance(rgba, np.ndarray)
             or rgba.dtype != np.uint8
@@ -238,9 +255,9 @@ class PmaImage:
         if x < 0 or y < 0 or x + width > self.width or y + height > self.height:
             raise ValueError("書き込み範囲が画像の外にはみ出しています。")
         if width == 0 or height == 0:
-            return
+            return None, x, y
 
-        self.write_qimage(imaging.rgba_array_to_qimage(rgba), x, y)
+        return imaging.rgba_array_to_qimage(rgba), x, y
 
     def _png_source(self) -> tuple[bytes | None, tuple[int, int]]:
         """PNG 保存に渡すストレート RGBA と解像度。テキストを持つ画像は (None, …) で Qt に回す。"""

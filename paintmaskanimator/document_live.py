@@ -2132,6 +2132,32 @@ class Document:
                 pass
         return self._run(name, args, kwargs)
 
+    def write_drawing_patch(self, frame, layer_index, patch, rect, *,
+                            number=None, rgba=False, has_content=None, stroke_image=None):
+        """位置またはバンクの画素を書き込み、指定された位置の内容の印を確定する。"""
+        from .document import GraphDocument
+
+        args = (frame, layer_index, patch, rect)
+        kwargs = dict(number=number, rgba=rgba, has_content=has_content, stroke_image=stroke_image)
+        if not isinstance(self, Document):
+            return GraphDocument.write_drawing_patch(self, *args, **kwargs)
+        live = _live_of(self)
+        if live["graph"] is None and not live.get("trial"):
+            args = tuple(list(arg) if isinstance(arg, Iterator) else arg for arg in args)
+            if (type(frame) is int and type(layer_index) is int and type(has_content) is bool
+                    and 0 <= frame < len(live["state"].frame_ids)
+                    and 0 <= layer_index < len(live["state"].track_ids)):
+                state = live["state"]
+                key = state.frame_ids[frame], state.track_ids[layer_index]
+                if not _unchanged_position(self, key, "has_content", has_content):
+                    changes = _core_write_drawing_patch(
+                        self, key, *args, rgba, has_content, stroke_image)
+                    if changes is not None:
+                        return changes
+                    # 書き込む画像が外にある場合も、従来手順を一度だけ当てる。
+                    return self._run("write_drawing_patch", args, kwargs)
+        return self._in_place_or_run("write_drawing_patch", args, kwargs)
+
     def set_drawing_content(self, frame, layer_index, has_content):
         """位置の has_content が変わるなら Rust の命令で当てる（_core_set_drawing_content）。
         それ以外は今までどおり窓口のまま試し、素のグラフが要れば今の経路。"""
@@ -5504,6 +5530,74 @@ def _core_position_command(document, name, column, layer_index, replace):
     return changes
 
 
+def _core_write_drawing_patch(document, key, frame, layer_index, patch, rect,
+                              rgba, has_content, stroke_image):
+    """現在の絵への矩形書き込みと位置の内容変更を一緒に当てる。"""
+    import numpy as np
+    from PySide6.QtGui import QImage
+
+    from .document_changes import ChangeSet, DrawingPixels
+
+    if (type(rgba) is not bool or type(patch) is not (np.ndarray if rgba else QImage)
+            or type(rect) is not tuple or len(rect) != 4
+            or any(type(value) is not int for value in rect)):
+        return None
+    live = _live_of(document)
+    state = live["state"]
+    values = state.position(*key)[0]
+    number = values["sequence_number"]
+    bank = _slot_bank_key(document, key)
+    changed = values["has_content"] != has_content
+    replaces_local = changed and not has_content and bank is not None
+    if (values["sequence_only"] or values.get("local_share") is not None
+            or values.get("local_bank") or (has_content and values["is_blank_key"])
+            or (replaces_local and values["blank_start"])):
+        return None
+    artwork = bank if bank is not None else ("local", *key)
+    if document._cell_value(artwork) is None:
+        return None
+    image = document._bound_image(artwork, False)
+    if type(image) is not BoundImage or (stroke_image is not None and stroke_image is not image):
+        return None
+    plan = _detach_plan(document, [], [key] if replaces_local else [])
+    if plan is None:
+        return None
+    core = live["core"]
+
+    def write(x, y, width, height, pixels):
+        try:
+            core.write_drawing_patch_with_content(
+                frame, layer_index, (x, y, width, height), pixels, has_content)
+        except ValueError:
+            return False
+        return True
+
+    x, y, _, _ = rect
+    try:
+        if rgba:
+            patch, x, y = image._prepare_rgba_patch(patch, x, y)
+        prepared = None if patch is None else image._prepare_qimage_patch(patch, x, y)
+    except ValueError:
+        return None
+    written = (write(0, 0, 0, 0, b"") if prepared is None
+               else image._write_prepared_patch(*prepared, write))
+    if not written:
+        return None
+
+    if bank is not None and prepared is not None:
+        state.refresh_track(key[1])
+        state.forget_track(key[1])
+    state.refresh_position(*key)
+    state.slot_copies.pop(key, None)
+    state.slot_dicts.pop(key, None)
+    if changed:
+        Layer.timeline_revision += 1
+        state.resolved = None
+        state.pending.clear()
+    _detach(document, plan)
+    return ChangeSet((DrawingPixels(layer_index, number, frame, (rect,)),))
+
+
 def _core_replace_drawing_images(document, groups, *, single=False, has_content=True):
     """変更前に位置と画像の所属を検査し、Rust の差し替えをまとめて当てる。
 
@@ -6611,7 +6705,7 @@ _IN_PLACE = frozenset((
 # 来たら（_NeedsGraph）、最初から今の経路でやり直す。素のグラフを要る書き込みより前に
 # 文書の外へ副作用を出さない操作だけを入れる。
 _TRY_IN_PLACE = frozenset((
-    "write_drawing_patch", "set_drawing_content",
+    "set_drawing_content",
     "set_track_properties", "set_position_track_properties", "restore_drawing",
 ))
 

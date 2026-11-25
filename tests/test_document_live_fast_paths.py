@@ -4556,3 +4556,133 @@ def test_invalid_prepared_track_edits_skip_run(monkeypatch):
     assert live.insert_track(1, slots[:1]) == plain.insert_track(1, slots[:1])
     assert live.merge_tracks((1, 0), slots) == plain.merge_tracks((1, 0), slots)
     assert _signature(live) == _signature(plain)
+
+
+@pytest.mark.parametrize("shape", ["brush", "rgba", "clipped", "empty"])
+def test_first_drawing_patch_matches_python_without_run(monkeypatch, tmp_path, shape):
+    from zipfile import ZipFile
+
+    from paintmaskanimator import constants, project_io, utils
+    from paintmaskanimator.display_image_cache import display_images
+
+    monkeypatch.setattr(constants, "CANVAS_WIDTH", 8)
+    monkeypatch.setattr(constants, "CANVAS_HEIGHT", 8)
+    monkeypatch.setattr(utils, "OUTSIDE_MARGIN", 0)
+
+    def apply(factory):
+        doc = factory()
+        doc.install_legacy_frames([
+            Frame([Layer("A", PmaImage.blank(8, 8)),
+                   Layer("B", _filled((21, 7, 10, 255)), has_content=True)]),
+        ])
+        layer, pending = doc.frames[0].layers
+        pending.set_pending(True)
+        track = pending._track
+        token = pending.__dict__["_pending_token"]
+        assert token in track.pending_slots
+        cell, image = layer._cell, layer.image
+        rect = (-1, 2, 2, 2) if shape == "clipped" else (1, 2, 2, 2)
+        undo_rect = (0, 2, 1, 2) if shape == "clipped" else rect
+        before = image.read_qimage(*undo_rect)
+        if shape == "rgba":
+            patch = np.full((2, 2, 4), (200, 61, 30, 117), dtype=np.uint8)
+        elif shape == "empty":
+            patch = QImage()
+        else:
+            patch = _filled((200, 61, 30, 117)).copy(0, 0, 2, 2)
+        display_images.get(image)
+
+        def saved():
+            snapshot = project_io.ProjectSnapshot.capture({}, doc)
+            snapshot.document.normalize_sheet_numbers((0, 1))
+            path = tmp_path / "patch.pman"
+            project_io.write_project_snapshot(path, snapshot)
+            with ZipFile(path) as archive:
+                return {name: archive.read(name) for name in archive.namelist()}
+
+        with monkeypatch.context() as guard:
+            guard.setattr(document_live.Document, "_run",
+                          lambda *args: pytest.fail("drawing patch used _run"))
+            revision = Layer.timeline_revision
+            changes = doc.write_drawing_patch(
+                0, 0, patch, rect, rgba=shape == "rgba", has_content=True,
+                stroke_image=image if shape == "brush" else None,
+            )
+            delta = Layer.timeline_revision - revision
+        assert delta == 1
+        assert doc.frames[0].layers[0] is layer and layer._cell is cell and layer.image is image
+        assert doc.frames[0].layers[1] is pending and pending._track is track
+        assert pending.__dict__["_pending_token"] is token and token in track.pending_slots
+        assert display_images.get(image) == image.to_qimage()
+        after = _signature(doc), _pixels(doc), saved()
+        redo_patch = image.read_qimage(*undo_rect)
+        undo = doc.restore_drawing(
+            0, 0, None, None, False, sheet=False, patches=((undo_rect, before),))
+        undone = _signature(doc), _pixels(doc), saved()
+        redo = doc.restore_drawing(
+            0, 0, None, None, True, sheet=False, patches=((undo_rect, redo_patch),))
+        assert (_signature(doc), _pixels(doc), saved()) == after
+        return changes, delta, after, undo, undone, redo
+
+    assert apply(GraphDocument) == apply(document_live.Document)
+
+
+def test_numbered_patch_content_changes_match_python_without_run(monkeypatch, tmp_path):
+    from zipfile import ZipFile
+
+    from paintmaskanimator import constants, project_io, utils
+
+    monkeypatch.setattr(constants, "CANVAS_WIDTH", 8)
+    monkeypatch.setattr(constants, "CANVAS_HEIGHT", 8)
+    monkeypatch.setattr(utils, "OUTSIDE_MARGIN", 0)
+    plain, live = _pair(count=2)
+
+    def observe(doc):
+        path = tmp_path / "numbered.pman"
+        snapshot = project_io.ProjectSnapshot.capture({}, doc)
+        project_io.write_project_snapshot(path, snapshot)
+        with ZipFile(path) as archive:
+            saved = {name: archive.read(name) for name in archive.namelist()}
+        return _signature(doc), _pixels(doc), saved
+
+    def apply(doc):
+        layer, neighbor = doc.frames[0].layers
+        held = doc.frames[1].layers[0]
+        pending = doc.frames[1].layers[1]
+        pending.set_pending(True)
+        token = pending.__dict__["_pending_token"]
+        track, cell, bank_image = layer._track, layer._cell, layer.image
+        assert held.image is bank_image
+        before = doc.snapshot()
+        first = np.full((1, 1, 4), (120, 45, 60, 255), dtype=np.uint8)
+        second = np.full((1, 1, 4), (0, 30, 90, 255), dtype=np.uint8)
+        rect = (2, 3, 1, 1)
+        with monkeypatch.context() as guard:
+            guard.setattr(document_live.Document, "_run",
+                          lambda *args: pytest.fail("numbered drawing patch used _run"))
+            revision = Layer.timeline_revision
+            clear = doc.write_drawing_patch(0, 0, first, rect, rgba=True, has_content=False)
+            assert Layer.timeline_revision - revision == 1
+            local, local_image = layer._cell, layer.image
+            assert local is not cell and local_image is not bank_image
+            assert local_image.rgba().tobytes() == bank_image.rgba().tobytes()
+            assert layer.__dict__["_content_origin"] == layer.sequence_number
+            cleared = observe(doc)
+            revision = Layer.timeline_revision
+            restore = doc.write_drawing_patch(0, 0, second, rect, rgba=True, has_content=True)
+            assert Layer.timeline_revision - revision == 1
+        assert layer.image is held.image is bank_image and layer._cell is cell
+        assert layer._track is track and doc.frames[0].layers[1] is neighbor
+        assert "_content_origin" not in layer.__dict__
+        assert pending.__dict__["_pending_token"] is token and token in pending._track.pending_slots
+        assert np.array_equal(bank_image.rgba()[3, 2], first[0, 0])
+        assert np.array_equal(local_image.rgba()[3, 2], second[0, 0])
+        after = observe(doc)
+        snapshot = doc.snapshot()
+        undo = doc.restore_snapshot(before)
+        undone = observe(doc)
+        redo = doc.restore_snapshot(snapshot)
+        assert observe(doc) == after
+        return clear, cleared, restore, after, undo, undone, redo
+
+    assert apply(plain) == apply(live)

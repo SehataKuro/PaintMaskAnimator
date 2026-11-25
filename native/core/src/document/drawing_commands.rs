@@ -93,6 +93,7 @@ impl Document {
     }
 
     /// Python の write_drawing_patch と同じ順で矩形と絵の有無を確定する。
+    /// 表現できない位置や無効な矩形はエラーとし、画素も変更しない。
     pub fn write_drawing_patch_with_content(
         &mut self,
         frame: usize,
@@ -104,9 +105,31 @@ impl Document {
         let track = *self.track_order.get(layer_index).ok_or_else(missing)?;
         let target = DrawingTarget::Frame(frame);
         let (_, number, _) = self.artwork_target(track, target)?;
+        let position = &self.sheet[&self.frame_order[frame]].positions[&track];
+        let compatibility = &position.compatibility;
+        if position.pending
+            || compatibility.local_share.is_some()
+            || compatibility.local_bank
+            || (has_content && position.reference == Reference::Blank)
+            || (!has_content
+                && position.blank_start
+                && matches!(position.reference, Reference::Number(_)))
+        {
+            return Err(Error::Invalid(
+                "位置の内容の印を同じ形で書き込めません".into(),
+            ));
+        }
         self.validate_drawing_content(frame, track, number, has_content)?;
         let changes = self.write_drawing_patch(layer_index, target, rect, rgba)?;
         self.update_drawing_content(frame, track, number, has_content)?;
+        if has_content
+            && self.sheet[&self.frame_order[frame]].positions[&track]
+                .compatibility
+                .content_origin
+                .is_some()
+        {
+            self.position_mut(frame, track).compatibility.content_origin = None;
+        }
         Ok(changes)
     }
 
@@ -603,6 +626,36 @@ mod tests {
             position.compatibility.local.as_ref().unwrap().image.rgba(),
             pixels
         );
+    }
+
+    #[test]
+    fn patch_rejects_incompatible_content_before_touching_pixels() {
+        let input = json!({
+            "canvas": {"width": 1, "height": 1},
+            "frame_durations": [1, 1],
+            "tracks": [{"cells": [{"number": 3, "image": "3.png"}], "sheet": [3, null]}],
+        });
+        let plan = decode_v2_plan(&input, &["3.png".into()]).unwrap();
+        let blank = RgbaImage::blank(1, 1).unwrap();
+        let mut doc = v2::from_plan(&input, &plan, std::slice::from_ref(&blank)).unwrap();
+        let track = doc.track_order()[0];
+        doc.position_mut(0, track).blank_start = true;
+        doc.position_mut(1, track).reference = Reference::Blank;
+        let before = doc.clone();
+        let rect = Rect {
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+        };
+        let pixel = [33, 44, 55, 255];
+        assert!(doc
+            .write_drawing_patch_with_content(0, 0, rect, &pixel, false)
+            .is_err());
+        assert!(doc
+            .write_drawing_patch_with_content(1, 0, rect, &pixel, true)
+            .is_err());
+        assert_eq!(doc.graph_fingerprints(), before.graph_fingerprints());
     }
 
     // tests/test_core_document_compare.py:test_patch_content_and_replace_group
