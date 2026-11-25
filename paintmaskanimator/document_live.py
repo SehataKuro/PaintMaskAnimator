@@ -20,6 +20,7 @@ import inspect
 import json
 from collections.abc import Iterator, MutableMapping, MutableSequence, MutableSet
 from copy import deepcopy
+from dataclasses import replace
 from weakref import WeakSet, ref
 
 from .document_core import (
@@ -2172,9 +2173,7 @@ class Document:
 
     def restore_drawing(self, frame, layer_index, number, image, has_content, *,
                         sheet, patches=None):
-        """戻す絵がバンクの一枚で位置の has_content が変わるなら、書き出し往復なしで当てる
-        （_core_restore_drawing）。それ以外は今までどおり窓口のまま試し、素のグラフが要れば
-        今の経路。"""
+        """履歴の画像と内容の印を戻し、Rust で表せる形は書き出し往復なしで当てる。"""
         if not isinstance(self, Document):
             from .document import GraphDocument
             return GraphDocument.restore_drawing(
@@ -5575,12 +5574,11 @@ def _content_change_diverges(values, has_content):
 
 def _core_restore_drawing(document, frame, layer_index, number, image, has_content, sheet,
                           patches):
-    """restore_drawing の、位置の has_content が変わる場合を書き出し往復なしで当てる。
-    今の手順と同じにできなければ None（文書は変えていない）。
+    """保管の絵と位置の has_content が変わる復元を書き出し往復なしで当てる。
 
     今の手順は戻す絵を探し（resolve_numbered_target）、画像を入れ替える（patches なら画素を
-    書く）。そのあと位置の has_content を代入する。画像はバンクの一枚の差し替えの近道
-    （_replace_bank_image）か画素の書き込みで、has_content は _core_set_drawing_content で当てる。
+    書く）。そのあと位置か既存の保管ヒントの has_content を代入する。番号のない局所の絵の
+    差し替えは、画像と位置の印を一緒に変える既存の命令で当てる。
     """
     from .document import GraphDocument
     from .document_changes import ChangeSet, Cursor, DrawingPixels, Selection
@@ -5592,9 +5590,24 @@ def _core_restore_drawing(document, frame, layer_index, number, image, has_conte
                                (frame, layer_index, number), {"sheet": sheet})
     except _NeedsGraph:
         return None
-    if target is None or target.slot is None or type(target.column) is not int:
+    if target is None or not isinstance(target.cell, LiveCell):
         return None
+    cell_key = _m(target.cell, "_key")
+    if target.slot is None:
+        if (patches is not None or type(number) is not int
+                or not isinstance(target.track, LiveTrack)
+                or not _replace_bank_image(document, cell_key, "image", image)):
+            return None
+        content = bool(has_content)
+        hint = target.track.legacy_archive_hints.get(number)
+        if hint is not None and not _core_set_hint(
+                target.track, number, replace(hint, has_content=content)):
+            # 画像は同じオブジェクトを入れ直すだけなので、従来経路で印の代入まで進める。
+            return None
+        return ChangeSet((DrawingPixels(layer_index, number, None, ()),))
     column = target.column
+    if type(column) is not int or type(layer_index) is not int:
+        return None
     content = bool(has_content)
     state = live["state"]
     if not (0 <= column < len(state.frame_ids) and 0 <= layer_index < len(state.track_ids)):
@@ -5608,14 +5621,18 @@ def _core_restore_drawing(document, frame, layer_index, number, image, has_conte
     if not content and values["sequence_number"] is not None and values[
             "sequence_number"] not in {n for n, _ in state.track(key[1])[0]["cells"]}:
         return None
-    cell = target.cell
-    # 局所の絵は画素の差分（patches）なら窓口のまま書ける。画像ごとの差し替えはバンクの一枚だけ。
-    if not isinstance(cell, LiveCell) or (_m(cell, "_key")[0] != "bank" and patches is None):
-        return None
     if patches is None:
-        if not _replace_bank_image(document, _m(cell, "_key"), "image", image):
-            return None
         rects = ()
+        if cell_key[0] == "local":
+            if (values["sequence_number"] is not None or cell_key != ("local", *key)
+                    or _core_replace_drawing_images(
+                        document, [([(column, layer_index)], image)], single=True,
+                        has_content=content) is None):
+                return None
+            return ChangeSet((Cursor(column, notify=False), Selection(layer_index),
+                              DrawingPixels(layer_index, number, column, rects)))
+        if not _replace_bank_image(document, cell_key, "image", image):
+            return None
     else:
         try:
             _try_in_place(document, lambda doc: target.image.write_qimages(

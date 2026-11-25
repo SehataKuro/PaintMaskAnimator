@@ -4340,3 +4340,83 @@ def test_apply_sheet_remap_matches_python_without_run(monkeypatch, tmp_path, sha
 
     assert live._live()["graph"] is None
     assert results[0] == results[1]
+
+
+@pytest.mark.parametrize("shape", ["archive", "archive_same_content", "local"])
+def test_restore_drawing_keeps_history_on_core(shape, monkeypatch, tmp_path):
+    from zipfile import ZipFile
+
+    from paintmaskanimator import constants, project_io, utils
+    from paintmaskanimator.document import is_pending, mark_pending
+    from paintmaskanimator.models import Cell
+    from paintmaskanimator.pma_image import copy_image
+
+    monkeypatch.setattr(constants, "CANVAS_WIDTH", 8)
+    monkeypatch.setattr(constants, "CANVAS_HEIGHT", 8)
+    monkeypatch.setattr(utils, "OUTSIDE_MARGIN", 0)
+    plain, live = _pair()
+    archived = shape.startswith("archive")
+    column, layer = 2, 1
+    number = 9 if archived else None
+    results = []
+    for doc in (plain, live):
+        slot = doc.frames[column].layers[layer]
+        pending = doc.frames[0].layers[0]
+        mark_pending(pending)
+        track = doc.tracks[layer]
+        if archived:
+            track.cells[number] = Cell(PmaImage(_filled((20, 30, 40, 255))))
+            doc.put_archive_hint(track, number, ArchiveHint(
+                has_content=True, exposure=3, sequence_only=True))
+        if doc is live:
+            assert live._promote()
+
+        token = pending.__dict__["_pending_token"]
+        target = doc.resolve_numbered_target(column, layer, number, sheet=True)
+        cell = target.cell
+        undo_content = shape != "archive"
+        undo_image = PmaImage(_filled((200, 30, 40, 255)))
+        redo_image = copy_image(target.image)
+        redo_content = target.has_content
+        states = []
+        for step, (image, content) in enumerate(
+                ((undo_image, undo_content), (redo_image, redo_content),
+                 (undo_image, undo_content))):
+            old = target.image
+            old_pixels = old.rgba().tobytes()
+            with monkeypatch.context() as guard:
+                guard.setattr(document_live.Document, "_run",
+                              lambda *args: pytest.fail("restore_drawing used _run"))
+                guard.setattr(document_live.Document, "_demote",
+                              lambda *args: pytest.fail("restore_drawing demoted"))
+                revision = Layer.timeline_revision
+                changes = doc.restore_drawing(column, layer, number, image, content, sheet=True)
+                delta = Layer.timeline_revision - revision
+            if doc is live:
+                assert live._live()["graph"] is None
+            resolved = doc.resolve_numbered_target(column, layer, number, sheet=True)
+            assert resolved.cell is cell and resolved.track is track
+            assert resolved.slot is (None if archived else slot)
+            assert doc.frames[column].layers[layer] is slot
+            assert resolved.image is image and old is not image
+            assert old.rgba().tobytes() == old_pixels
+            assert resolved.has_content == content
+            assert is_pending(pending)
+            assert pending.__dict__["_pending_token"] is token
+            assert token in pending._track.pending_slots
+            assert delta == (0 if archived else 1)
+            path = tmp_path / f"{type(doc).__module__}-{step}.pman"
+            snapshot = project_io.ProjectSnapshot.capture({}, doc)
+            payload, pngs = project_io.build_v2_payload(snapshot)
+            # 番号なしの内容キーは v2 の読み戻しには番号が要る。保存用の写しだけに採番する。
+            if not archived and content:
+                snapshot.document.normalize_sheet_numbers((layer,))
+            project_io.write_project_snapshot(path, snapshot)
+            with ZipFile(path) as saved:
+                entries = {name: saved.read(name) for name in saved.namelist()}
+            hints = dict(track.legacy_archive_hints)
+            payload_pixels = [(name, pixels.rgba().tobytes()) for name, pixels, _ in pngs]
+            states.append((changes, _signature(doc), _pixels(doc), image.rgba().tobytes(),
+                           hints, payload, payload_pixels, entries, delta))
+        results.append(states)
+    assert results[0] == results[1]
