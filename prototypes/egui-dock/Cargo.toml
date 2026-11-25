@@ -1,0 +1,22 @@
+[package]
+name = "pma-proto-egui-dock"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "画面を Rust にする判断のための試作（egui + egui_dock）。アプリには組み込まない。"
+
+[workspace]
+
+[dependencies]
+eframe = "0.37"
+egui = "0.37"
+egui_dock = "0.22"
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSEvent", "block2", "NSApplication", "NSResponder", "NSWindow", "NSScreen", "NSGraphics", "NSView"] }
+block2 = "0.6"
+objc2-core-graphics = { version = "0.3", features = ["CGEvent", "CGEventTypes", "CGRemoteOperation", "libc"] }
+objc2-core-foundation = { version = "0.3", features = ["CFCGTypes"] }
+objc2-foundation = { version = "0.3", features = ["NSString", "NSRange"] }

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>PMA 試作：Tauri + dockview</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #1e1e1e; color: #ddd;
+    font: 13px -apple-system, "Hiragino Sans", "Yu Gothic UI", sans-serif; overflow: hidden; }
+  #dock { position: absolute; inset: 0; }
+  .panel { padding: 8px; box-sizing: border-box; height: 100%; overflow: auto; }
+  .panel input, .panel textarea { width: 100%; box-sizing: border-box; background: #111; color: #eee;
+    border: 1px solid #444; border-radius: 3px; padding: 4px; font: inherit; margin: 2px 0; }
+  .canvas-host { position: relative; height: 100%; background: #3c3c3c; }
+  .canvas-host canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain;
+    touch-action: none; }
+  .swatches { display: grid; grid-template-columns: repeat(6, 22px); gap: 4px; margin-top: 6px; }
+  .swatches div { width: 22px; height: 22px; border-radius: 3px; cursor: pointer; }
+  .frames { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+  .frames span { padding: 1px 5px; border-radius: 3px; background: #2a2a2a; }
+  .frames span.on { background: #2563eb; color: #fff; }
+  #cursor { position: fixed; left: 0; top: 0; width: 14px; height: 22px; pointer-events: none;
+    z-index: 100000; display: none; }
+  #caption { position: fixed; left: 0; right: 0; bottom: 0; height: 34px; line-height: 34px;
+    padding-left: 12px; background: rgba(0,0,0,.8); color: #fff; font-size: 17px;
+    pointer-events: none; z-index: 100000; display: none; }
+</style>
+</head>
+<body>
+<div id="dock" class="dockview-theme-dark"></div>
+<svg id="cursor" viewBox="0 0 14 22"><path id="cursor-path" d="M0 0 L0 18 L4.5 14 L8 21 L10.5 20 L7 13 L12.5 13 Z"
+  fill="#fff" stroke="#000" stroke-width="1.2"/></svg>
+<div id="caption"></div>
+<script>window.addEventListener("error", e => window.__err = (window.__err || "") + e.message + "@" + e.lineno + ";");</script>
+<script src="dockview-core.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

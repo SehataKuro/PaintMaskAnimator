@@ -1,0 +1,5 @@
+# 試作のビルド・録画・取ってきた部品は管理しない
+*/target/
+videos/
+tauri-dock/gen/
+tauri-dock/ui/dockview-core.min.js
