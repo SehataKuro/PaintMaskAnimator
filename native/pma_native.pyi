@@ -214,6 +214,10 @@ def remove_line_noise(
     """線近傍の孤立色を多数決で置き換えた RGBA8888 と変更画素数。"""
 
 
+def alpha_runs(data: bytes, width: int, height: int, stride: int, alpha_offset: int) -> list[tuple[int, int, int]]:
+    """1画素4バイトの画像で、``alpha_offset`` 番目のバイトが 0 でない横の並び ``(y, left, right)``。"""
+
+
 def decode_png(data: bytes, max_bytes: int) -> tuple[int, int, bytes]:
     """PNG を幅・高さ・乗算していない RGBA8888 にする。未対応・不正・上限超過は ValueError。"""
 

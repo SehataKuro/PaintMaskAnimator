@@ -33,7 +33,7 @@ REQUIRED_API = (
     "surface_guided_palette_labels", "map_known_colors", "region_neighbors",
     "history_trim_count", "history_shift_branch_positions", "history_branch_overflow",
     "history_switch_steps", "history_retained_positions", "history_branch_columns",
-    "FillSession", "LineCache", "compute_fill_region_once", "fill_target_mask", "extend_line_ends", "flood_fill", "dilate", "erode", "label_regions", "remove_line_noise", "decode_png", "encode_png", "ZipReader", "ZipWriter", "decode_v2_plan",
+    "FillSession", "LineCache", "compute_fill_region_once", "fill_target_mask", "extend_line_ends", "flood_fill", "dilate", "erode", "label_regions", "remove_line_noise", "alpha_runs", "decode_png", "encode_png", "ZipReader", "ZipWriter", "decode_v2_plan",
 )
 TIMELINE_API_VERSION = 2
 
@@ -798,6 +798,11 @@ def remove_line_noise(rgba, line_luma, radius, majority, isolation):
     if not changed:
         return pixels.copy(), 0
     return np.frombuffer(data, dtype=np.uint8).reshape(height, width, 4).copy(), changed
+
+
+def alpha_runs(data, width, height, stride, alpha_offset):
+    """1画素4バイトの画像で、``alpha_offset`` 番目のバイトが 0 でない横の並び ``(y, left, right)`` の一覧。"""
+    return _native.alpha_runs(bytes(data), int(width), int(height), int(stride), int(alpha_offset))
 
 
 def decode_png(data, max_bytes):

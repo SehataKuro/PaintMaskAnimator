@@ -115,3 +115,27 @@ def test_hover_damage_contains_snapped_pixel_outlines(canvas, monkeypatch, zoom,
                 assert QRectF(damage).contains(QRectF(
                     widget_point.x() - 0.5, widget_point.y() - 0.5, 1, 1,
                 ))
+
+
+@pytest.mark.parametrize("width", [1, 1.5, 2, 3.25, 7, 12.8, 40])
+@pytest.mark.parametrize("phase", [(0, 0), (0.25, 0.75), (0.5, 0.5), (0.9, 0.1)])
+def test_native_alpha_runs_match_the_numpy_scan(width, phase):
+    from paintmaskanimator.brush_raster import _alpha_runs, _alpha_runs_numpy
+
+    QApplication.instance() or QApplication([])
+    image, _ = stamp_mask(QPointF(*phase), width)
+    runs = _alpha_runs(image)
+    assert runs
+    assert runs == _alpha_runs_numpy(image)
+
+
+def test_native_alpha_runs_cover_rows_open_at_the_right_edge():
+    from paintmaskanimator.brush_raster import _alpha_runs, _alpha_runs_numpy
+    from PySide6.QtGui import QImage
+
+    image = QImage(5, 3, QImage.Format.Format_ARGB32_Premultiplied)
+    image.fill(0)
+    for x, y in [(1, 0), (2, 0), (4, 0), (0, 2), (3, 2), (4, 2)]:
+        image.setPixelColor(x, y, QColor(255, 255, 255, 255))
+    assert _alpha_runs(image) == [(0, 1, 3), (0, 4, 5), (2, 0, 1), (2, 3, 5)]
+    assert _alpha_runs(image) == _alpha_runs_numpy(image)

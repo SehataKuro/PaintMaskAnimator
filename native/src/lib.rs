@@ -107,6 +107,19 @@ fn py_remove_line_noise<'py>(
     Ok((PyBytes::new(py, &result), changed))
 }
 
+#[pyfunction(name = "alpha_runs")]
+fn py_alpha_runs(
+    py: Python<'_>,
+    data: &[u8],
+    width: usize,
+    height: usize,
+    stride: usize,
+    alpha_offset: usize,
+) -> PyResult<Vec<(usize, usize, usize)>> {
+    py.detach(|| pma_core::alpha_runs::alpha_runs(data, width, height, stride, alpha_offset))
+        .map_err(|error| pyo3::exceptions::PyValueError::new_err(error.to_string()))
+}
+
 #[pyfunction(name = "flood_fill")]
 fn py_flood_fill<'py>(
     py: Python<'py>,
@@ -298,6 +311,7 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
         history::history_retained_positions,
         module
     )?)?;
+    module.add_function(wrap_pyfunction!(py_alpha_runs, module)?)?;
     module.add_function(wrap_pyfunction!(py_flood_fill, module)?)?;
     module.add_function(wrap_pyfunction!(py_remove_line_noise, module)?)?;
     module.add_function(wrap_pyfunction!(py_dilate, module)?)?;
