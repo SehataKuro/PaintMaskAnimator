@@ -648,16 +648,20 @@ impl Document {
             }
         }
         let mut edited = self.clone();
-        let mut changes = edited.ensure_frame_count(range.end)?;
+        let mut changes = Vec::new();
         for column in columns {
             let layer_index = column.layer_index;
             let track = edited.track_order[layer_index];
-            let span_start = edited.display_spans(range.start, &[layer_index])?[0]
-                .as_ref()
-                .map_or(range.start, |span| span.start);
-            let span_stop = edited.display_spans(range.end - 1, &[layer_index])?[0]
-                .as_ref()
-                .map_or(range.end, |span| span.end);
+            let span_start = edited
+                .timeline_block_at(range.start, layer_index)
+                .map_or(range.start, |(_, start, _)| start);
+            let span_stop = match edited.timeline_block_at(range.end - 1, layer_index) {
+                Some((_, start, length)) => start.checked_add(length).ok_or_else(invalid)?,
+                None => range.end,
+            };
+            if edited.frame_order.len() < range.end {
+                changes.extend(edited.ensure_frame_count(range.end)?);
+            }
             let settings = edited.tracks[&track].settings.clone();
             let empty = Position::default();
             for (offset, &state) in column.states.iter().enumerate() {
@@ -667,7 +671,12 @@ impl Document {
                     blank_start: state.is_none() && run_start,
                     ..Position::default()
                 };
-                let cleared = edited.cleared_position(range.start + offset, track)?;
+                let index = range.start.checked_add(offset).ok_or_else(invalid)?;
+                let cleared = edited.cleared_position(index, track)?;
+                // clear_slot は旧キーと密な参照を取り直すが、この3つの取り込み記録は残す。
+                position.compatibility.legacy_missing = cleared.compatibility.legacy_missing;
+                position.compatibility.length_imported = cleared.compatibility.length_imported;
+                position.compatibility.resolved_source = cleared.compatibility.resolved_source;
                 if state.is_none() {
                     position.compatibility.local = cleared.compatibility.local.clone();
                 }
@@ -699,7 +708,7 @@ impl Document {
                     pending: false,
                     input_length: None,
                 });
-                *edited.position_mut(range.start + offset, track) = position;
+                *edited.position_mut(index, track) = position;
             }
             let placed: std::collections::BTreeSet<_> = edited
                 .frame_order
@@ -715,7 +724,11 @@ impl Document {
             let bank = edited.tracks.get_mut(&track).ok_or_else(invalid)?;
             for (index, image) in column.bank.iter().enumerate() {
                 let Some(image) = image else { continue };
-                let number = CellNumber::new(i64::try_from(index + 1).map_err(|_| invalid())?)?;
+                let number = i64::try_from(index)
+                    .ok()
+                    .and_then(|index| index.checked_add(1))
+                    .ok_or_else(invalid)?;
+                let number = CellNumber::new(number)?;
                 let is_placed = placed.contains(&number);
                 if is_placed || !bank.legacy_archive_hints.contains_key(&number) {
                     bank.cells.entry(number).or_insert_with(|| Cell {
@@ -1175,5 +1188,63 @@ mod tests {
             original
         );
         assert_eq!(doc.resolve_sources().unwrap().1, [0, -1, 0, -1, -1, -1]);
+    }
+
+    #[test]
+    fn remap_rebuilds_legacy_positions_and_preserves_v2_import_flags() {
+        use super::super::compatibility::{DenseImport, PositionGuard, ResolvedSource};
+
+        let mut doc = document();
+        let track = doc.track_order[0];
+        let one = CellNumber::new(1).unwrap();
+        let previous = doc.position_mut(0, track);
+        let guard = PositionGuard::capture(previous);
+        previous.compatibility.legacy_missing = true;
+        previous.compatibility.length_imported = Some(false);
+        previous.compatibility.dense_import = Some(DenseImport {
+            guard,
+            sheet: Reference::Blank,
+            resolved: Reference::Empty,
+        });
+        previous.compatibility.resolved_source = Some(ResolvedSource {
+            guard,
+            column: 0,
+            frame_count: 2,
+            source_column: None,
+        });
+
+        doc.apply_sheet_remap(
+            0..3,
+            &[RemapColumn {
+                layer_index: 0,
+                states: &[Some(one), Some(one), None],
+                bank: &[Some(RgbaImage::blank(1, 1).unwrap())],
+            }],
+            2,
+        )
+        .unwrap();
+        let head = &doc.position_mut(0, track).compatibility;
+        assert!(head.legacy_missing);
+        assert_eq!(head.length_imported, Some(false));
+        assert_eq!(head.resolved_source.unwrap().guard, guard);
+        assert!(head.dense_import.is_none());
+        let head = head.legacy.as_ref().unwrap();
+        assert!(head.key_start);
+        assert_eq!(head.legacy.as_ref().unwrap().number, Some(one));
+        let held = doc
+            .position_mut(1, track)
+            .compatibility
+            .legacy
+            .as_ref()
+            .unwrap();
+        assert!(!held.key_start);
+        assert_eq!(held.legacy.as_ref().unwrap().number, None);
+        let blank = doc
+            .position_mut(2, track)
+            .compatibility
+            .legacy
+            .as_ref()
+            .unwrap();
+        assert!(blank.key_start && blank.blank_start);
     }
 }

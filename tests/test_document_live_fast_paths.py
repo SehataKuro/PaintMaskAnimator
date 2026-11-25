@@ -4243,3 +4243,100 @@ def test_initial_images_create_lazy_local_cell(operation, monkeypatch):
         expected = getattr(plain.frames[2].layers[1], field)
         assert (actual.width, actual.height) == (expected.width, expected.height)
         assert np.array_equal(actual.rgba(), expected.rgba())
+
+
+@pytest.mark.parametrize("shape", ["in_range", "grow", "pending", "pending_template", "invalid"])
+def test_apply_sheet_remap_matches_python_without_run(monkeypatch, tmp_path, shape):
+    from zipfile import ZipFile
+
+    from paintmaskanimator import constants, project_io, utils
+    from paintmaskanimator.legacy_v1 import EMPTY
+    from paintmaskanimator.timeline_metadata import set_dense_import
+
+    monkeypatch.setattr(constants, "CANVAS_WIDTH", 8)
+    monkeypatch.setattr(constants, "CANVAS_HEIGHT", 8)
+    monkeypatch.setattr(utils, "OUTSIDE_MARGIN", 0)
+    plain, live = _pair()
+
+    def saved_files(doc):
+        path = tmp_path / "remap.pman"
+        project_io.write_project_snapshot(path, project_io.ProjectSnapshot.capture({}, doc))
+        with ZipFile(path) as saved:
+            return {name: saved.read(name) for name in saved.namelist()}
+
+    results = []
+    for doc in (plain, live):
+        graph = live._demote().plain if doc is live else doc
+        imported = graph.frames[2].layers[1]
+        signature = (False, False, None, False, False)
+        imported.__dict__["_v2_length_imported"] = False
+        imported.__dict__["_v2_resolve_source"] = (signature, None, 2, len(graph.frames))
+        set_dense_import(imported, (signature, EMPTY, EMPTY))
+        if doc is live:
+            assert live._promote()
+        doc.current_frame = 3
+        doc.active_layer_index = 0
+        track = doc.tracks[0]
+        numbered = track.cells[1]
+        drawing = numbered.image
+        doc.put_archive_hint(track, 1, ArchiveHint())
+        doc.set_initial_images([(2, 1, _filled((12, 34, 56, 255)))])
+        slot = doc.frames[2].layers[1]
+        local = slot._cell
+        local_image, local_initial = local.image, local.initial_image
+        pixels = local_image.rgba().tobytes()
+        numbered_slot = doc.frames[1].layers[0]
+        outside = doc.frames[0].layers[0]
+        has_pending = shape in ("pending", "pending_template")
+        if has_pending:
+            numbered_slot.set_pending(True)
+            outside.set_pending(True)
+        token = slot.__dict__["_pending_token"]
+        pending = numbered_slot.__dict__["_pending_token"]
+        outside_token = outside.__dict__["_pending_token"]
+        undo = doc.snapshot()
+        bank = [_filled((1, 2, 3, 255)), None,
+                _filled((4, 5, 6, 255)), PmaImage(_filled((7, 8, 9, 255)))]
+        end = 7 if shape == "grow" else 3
+        columns = [(1, [3, None, 3] + [None] * (end - 3), bank),
+                   (0, [1, 1, 3] + [None] * (end - 3), bank)]
+        if shape == "invalid":
+            columns[1][1][0] = 2
+        template = {"grow": end, "pending_template": 1}.get(shape, 0)
+
+        with monkeypatch.context() as guard:
+            guard.setattr(document_live.Document, "_run",
+                          lambda *args: pytest.fail("apply_sheet_remap used _run"))
+            guard.setattr(document_live.Document, "_demote",
+                          lambda *args: pytest.fail("apply_sheet_remap demoted"))
+            before = Layer.timeline_revision
+            changes = doc.apply_sheet_remap(1, end, columns, template)
+            delta = Layer.timeline_revision - before
+
+        assert doc.frames[2].layers[1] is slot and slot.__dict__["_pending_token"] is token
+        assert doc.frames[1].layers[0] is numbered_slot
+        assert numbered_slot.__dict__["_pending_token"] is pending
+        assert pending not in track.pending_slots
+        assert (outside_token in track.pending_slots) == has_pending
+        assert (doc.current_frame, doc.active_layer_index) == (3, 0)
+        assert track is doc.tracks[0] and track.cells[1] is numbered and numbered.image is drawing
+        assert local.image is local_image and local.initial_image is local_initial
+        assert local_image.rgba().tobytes() == pixels
+        if shape != "invalid":
+            assert slot._cell is not local
+            assert slot.initial_image is not local_initial
+            assert 1 not in track.legacy_archive_hints and 4 in track.legacy_archive_hints
+            assert doc.frames[3].layers[0].image is track.cells[3].image
+            assert track.cells[4].image is not bank[3]
+            assert track.cells[4].image.rgba().tobytes() == bank[3].rgba().tobytes()
+            assert "_dense_import" not in slot.__dict__
+            assert slot.__dict__["_v2_length_imported"] is False
+            assert slot.__dict__["_v2_resolve_source"] == (signature, None, 2, 6)
+            legacy = slot.__dict__["_v1_position"]
+            assert legacy.key_start and legacy.blank_start and legacy.legacy.is_blank_key
+        results.append((changes, delta, _signature(doc), _pixels(doc), saved_files(doc)))
+        undo_changes = doc.restore_snapshot(undo)
+        results[-1] += (undo_changes, _signature(doc), _pixels(doc), saved_files(doc))
+
+    assert live._live()["graph"] is None
+    assert results[0] == results[1]

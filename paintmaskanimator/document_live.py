@@ -1823,6 +1823,12 @@ class Document:
             return self._run("resize_sheet_exposure", (layer_index, edge, prepared), {})
         return changes
 
+    def apply_sheet_remap(self, start, end, columns, template_frame):
+        changes = _core_apply_sheet_remap(self, start, end, columns, template_frame)
+        if changes is None:
+            return self._run("apply_sheet_remap", (start, end, columns, template_frame), {})
+        return changes
+
     def timeline_block_at(self, column, layer_index):
         """保持の範囲。Rust の状態なら Rust の文書から求める（GraphDocument と同じ値）。"""
         block = _core_timeline_block_at(self, column, layer_index)
@@ -5731,6 +5737,112 @@ def _editable_in_place(values):
     """make_position_editable が Rust の命令で書き換えてよい位置の値か（配置待ち・バンクの絵を
     局所に持つ位置は今の経路）。"""
     return not (values["sequence_only"] or values.get("local_bank"))
+
+
+def _core_apply_sheet_remap(document, start, end, columns, template_frame):
+    """範囲の Layer を保ち、局所の Cell だけを外して素材番号への参照を書き直す。"""
+    from sys import maxsize
+
+    from PySide6.QtGui import QImage
+
+    from .document_changes import ChangeSet
+    from .pma_image import attributes_tag, to_pma_image
+
+    live = _live_of(document)
+    if (live["graph"] is not None or live.get("trial") or type(columns) not in (list, tuple)
+            or any(type(value) is not int for value in (start, end, template_frame))):
+        return None
+    if not columns or start < 0 or end < start:
+        return ChangeSet()
+    state = live["state"]
+    frame_ids = state.frame_ids
+    stop = end + 1
+    if not frame_ids or not 0 <= template_frame < max(len(frame_ids), stop):
+        return ChangeSet()
+    if stop > maxsize:
+        return None
+
+    tracks = []
+    for column in columns:
+        if type(column) not in (list, tuple) or len(column) != 3:
+            return None
+        index, numbers, bank = column
+        if (type(index) is not int or type(numbers) not in (list, tuple)
+                or type(bank) not in (list, tuple)):
+            return None
+        if not 0 <= index < len(state.track_ids) or len(numbers) != stop - start:
+            return ChangeSet()
+        for number in numbers:
+            if number is None:
+                continue
+            # Python は変換前の値で区間の頭を比較する。
+            if type(number) is not int:
+                return None
+            if not 1 <= number <= len(bank) or bank[number - 1] is None:
+                return ChangeSet()
+        tracks.append(state.track_ids[index])
+    if len(set(tracks)) != len(tracks):
+        return None
+
+    rows = frame_ids[start:stop]
+    cleared = []
+    revision = 0
+    prepared = []
+    for tid, (index, numbers, bank) in zip(tracks, columns):
+        for offset, fid in enumerate(rows):
+            key = fid, tid
+            values = state.position(*key)[0]
+            if values.get("local_bank") or values.get("pending_detached"):
+                return None
+            cleared.append(key)
+            revision += _move_clear_revision(values)
+            # attach_track は札を一度外すため、同じ列に戻しても配置待ちの位置では進む。
+            revision += values["sequence_only"] and start + offset != template_frame
+        for offset, number in enumerate(numbers):
+            # 番号付きは番号と内容、空キーは空キーの印と区間の頭で進む。
+            revision += 2 if number is not None else 1 + (
+                offset == 0 or numbers[offset - 1] is not None)
+        bank_data, handles = state.track(tid)
+        existing = {number: handles[cell["image"]] for number, cell in bank_data["cells"]}
+        images = []
+        for number, image in enumerate(bank, 1):
+            if image is None:
+                images.append(None)
+                continue
+            if type(image) not in (PmaImage, BoundImage, QImage):
+                return None
+            if type(image) is QImage and number in existing:
+                # setdefault は既存の絵を使う。素材の Qt 画像を RGBA に取り込み直さない。
+                images.append(existing[number])
+                continue
+            try:
+                model = to_pma_image(image)
+                images.append(model._image.copy().with_tag(attributes_tag(model._attributes)))
+            except (TypeError, ValueError):
+                return None
+        prepared.append((index, numbers, images))
+
+    plan = _detach_plan(document, (), cleared)
+    if plan is None:
+        return None
+
+    def apply(core):
+        return core.apply_sheet_remap(start, stop, prepared, template_frame)
+
+    result = _apply_core_command(document, None, lambda ids: rows, apply, tracks=tracks,
+                                 revision_delta=revision)
+    if result is None:
+        return None
+    changes, new_ids = result
+    tokens = live.setdefault("tokens", {})
+    for fid in new_ids:
+        for tid in state.track_ids:
+            tokens[fid, tid] = PendingToken()
+    for tid in tracks:
+        state.refresh_track(tid)
+        state.forget_track(tid)
+    _detach(document, plan)
+    return changes
 
 
 def _core_make_position_editable(document, current, layer_index):

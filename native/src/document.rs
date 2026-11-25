@@ -1,6 +1,7 @@
 use crate::image::PyRgbaImage;
 use pma_core::document::access::{ArtworkSlot, ImageField};
 use pma_core::document::drawing_commands::{DrawingImageGroup, DrawingTarget};
+use pma_core::document::frame_commands::RemapColumn;
 use pma_core::document::model::{CellNumber, Document, FrameId, TrackId};
 use pma_core::document::{comparison, graph, v2};
 use pma_core::image::{Rect, RgbaImage};
@@ -9,6 +10,11 @@ use pyo3::{exceptions::PyValueError, prelude::*, types::PyBytes};
 
 type PositionKeys = Vec<(u64, u64)>;
 type PyDrawingImageGroup<'py> = (Vec<(usize, usize)>, PyRef<'py, PyRgbaImage>);
+type PyRemapColumn<'py> = (
+    usize,
+    Vec<Option<i64>>,
+    Vec<Option<PyRef<'py, PyRgbaImage>>>,
+);
 type PyInitialImage<'py> = (
     usize,
     Option<usize>,
@@ -134,6 +140,45 @@ impl PyCoreDocument {
         let document = &mut self.0;
         py.detach(|| comparison::apply_operations(document, &operations))
             .map_err(value_error)
+    }
+
+    /// 素材の画像を共有して範囲の参照を置換し、ChangeSet の JSON を返す。
+    fn apply_sheet_remap(
+        &mut self,
+        py: Python<'_>,
+        start: usize,
+        stop: usize,
+        columns: Vec<PyRemapColumn<'_>>,
+        template_frame: usize,
+    ) -> PyResult<String> {
+        let columns = columns
+            .into_iter()
+            .map(|(layer, states, bank)| {
+                let states = states
+                    .into_iter()
+                    .map(|number| number.map(cell_number).transpose())
+                    .collect::<PyResult<Vec<_>>>()?;
+                let bank = bank
+                    .into_iter()
+                    .map(|image| image.map(|image| image.share()))
+                    .collect::<Vec<_>>();
+                Ok((layer, states, bank))
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        let columns: Vec<_> = columns
+            .iter()
+            .map(|(layer, states, bank)| RemapColumn {
+                layer_index: *layer,
+                states,
+                bank,
+            })
+            .collect();
+        py.detach(|| {
+            self.0
+                .apply_sheet_remap(start..stop, &columns, template_frame)
+        })
+        .map(comparison::command_notices)
+        .map_err(value_error)
     }
 
     /// 空画像番号を挿入し、ChangeSet の JSON を返す。
