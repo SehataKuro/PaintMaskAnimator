@@ -225,6 +225,58 @@ impl PyCoreDocument {
             .map_err(value_error)
     }
 
+    /// 新しい中割りに割り当てる番号を返す。
+    fn tween_numbers(&self, layer: usize, count: usize) -> PyResult<Vec<i64>> {
+        self.0
+            .tween_numbers(layer, count)
+            .map(|numbers| numbers.into_iter().map(CellNumber::get).collect())
+            .map_err(value_error)
+    }
+
+    /// 補間を取り付け、通知の JSON と世代の増分を返す。
+    fn install_tween(
+        &mut self,
+        frame: usize,
+        layer: usize,
+        images: Vec<PyRef<'_, PyRgbaImage>>,
+        spec: &str,
+        numbers: Vec<i64>,
+    ) -> PyResult<(String, usize)> {
+        let spec = v2::parse_json(spec).map_err(value_error)?;
+        let numbers = numbers
+            .into_iter()
+            .map(CellNumber::new)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(value_error)?;
+        let images: Vec<_> = images.iter().map(|image| image.share()).collect();
+        self.0
+            .install_tween(frame, layer, &images, spec, &numbers)
+            .map(|(changes, delta)| (comparison::command_notices(changes), delta))
+            .map_err(value_error)
+    }
+
+    /// 補間を再編集用の参照に戻し、通知の JSON と世代の増分を返す。
+    fn reopen_tween(
+        &mut self,
+        frame: usize,
+        layer: usize,
+        length: usize,
+        image: PyRef<'_, PyRgbaImage>,
+    ) -> PyResult<(String, usize)> {
+        self.0
+            .reopen_tween(frame, layer, length, image.share())
+            .map(|(changes, delta)| (comparison::command_notices(changes), delta))
+            .map_err(value_error)
+    }
+
+    /// 補間の印だけを外し、通知の JSON を返す。
+    fn release_tween(&mut self, frame: usize, layer: usize, length: usize) -> PyResult<String> {
+        self.0
+            .release_tween(frame, layer, length)
+            .map(comparison::command_notices)
+            .map_err(value_error)
+    }
+
     /// 位置の画像と内容の印を入力順に差し替え、ChangeSet の JSON を返す。
     fn replace_drawing_image(
         &mut self,

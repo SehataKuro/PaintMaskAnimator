@@ -1733,6 +1733,16 @@ class Document:
         changes = _CORE_COMMANDS["ensure_frame_count"](self, count)
         return self._run("ensure_frame_count", (count,), {}) if changes is None else changes
 
+    def install_tween(self, column, layer_index, images, spec, previous_numbers):
+        args = (column, layer_index, images, spec, previous_numbers)
+        return _tween_command(self, "install_tween", args)
+
+    def reopen_tween(self, column, layer_index, length, image):
+        return _tween_command(self, "reopen_tween", (column, layer_index, length, image))
+
+    def release_tween(self, column, layer_index, length):
+        return _tween_command(self, "release_tween", (column, layer_index, length))
+
     def advance_frame(self):
         changes = _CORE_COMMANDS["advance_frame"](self)
         return self._run("advance_frame", (), {}) if changes is None else changes
@@ -2705,6 +2715,160 @@ def _apply_core_command(document, operation, rows, apply=None, tracks=None, *, r
     # 選択は Python の値が正（命令は Rust の選択を動かすことがある）。
     document._sync_selection()
     return _changes_from_json(text), new_ids
+
+
+def _tween_command(document, name, args):
+    from .document import GraphDocument
+
+    if not isinstance(document, Document) or _live_of(document).get("trial"):
+        return getattr(GraphDocument, name)(document, *args)
+    changes = _core_tween(document, name, *args)
+    return document._run(name, args, {}) if changes is None else changes
+
+
+def _core_tween(document, name, column, layer_index, *args):
+    """補間操作を Rust で適用し、交換された画像・絵・位置の窓口を付け替える。"""
+    from PySide6.QtGui import QImage
+
+    from .document_changes import ChangeSet
+    from .pma_image import attributes_tag, to_pma_image
+
+    live = _live_of(document)
+    if live["graph"] is not None or type(column) is not int or type(layer_index) is not int:
+        return None
+    state, cache, core = live["state"], live["cache"], live["core"]
+    if not (0 <= column < len(state.frame_ids) and 0 <= layer_index < len(state.track_ids)):
+        return ChangeSet()
+    install = name == "install_tween"
+    reopen = name == "reopen_tween"
+    if install:
+        raw, spec, previous = args
+        if type(raw) not in (list, tuple):
+            return None
+        length = len(raw)
+    else:
+        length = args[0]
+        if type(length) is not int:
+            return None
+    stop = column + length
+    if length <= 0 or (not install and stop > len(state.frame_ids)):
+        return ChangeSet()
+    tid = state.track_ids[layer_index]
+    rows = state.frame_ids[column:stop]
+    keys = [(fid, tid) for fid in rows]
+    if not install and not reopen:
+        result = _apply_core_command(
+            document, None, lambda _: rows,
+            apply=lambda core: core.release_tween(column, layer_index, length),
+            tracks=[tid], revision_delta=0)
+        return None if result is None else result[0]
+
+    if reopen:
+        raw = (args[1],)
+    if any(type(image) not in (QImage, PmaImage, BoundImage) for image in raw):
+        return None
+    images = [to_pma_image(image) for image in raw]
+    if (any(type(image._image) is not _native.RgbaImage for image in images)
+            or len({id(image) for image in images}) != len(images)):
+        return None
+    handles = [image._image.copy().with_tag(attributes_tag(image._attributes)) for image in images]
+
+    numbers = []
+    if install:
+        if (type(spec) is not dict or type(spec.get("id")) is not str
+                or type(spec.get("reverse")) is not bool
+                or (previous is not None and type(previous) not in (list, tuple))):
+            return None
+        try:
+            spec_json = json.dumps(spec, allow_nan=False)
+            if previous and len(previous) == length - 1:
+                if any(type(number) is not int or not 0 < number <= 2**63 - 1
+                       for number in previous):
+                    return None
+                numbers = list(previous)
+            else:
+                numbers = core.tween_numbers(layer_index, length - 1)
+        except (TypeError, ValueError, RecursionError):
+            return None
+
+    key_art = _slot_bank_key(document, keys[0]) or ("local", *keys[0])
+    assignments = {key_art: images[0]}
+    assignments.update({("bank", tid, number): image
+                        for number, image in zip(numbers, images[1:])})
+    if len(assignments) != len(images):
+        return None
+    # 再利用番号の Cell は新しくなる。以前の Cell と画像を現在の画素で文書から外す。
+    old_cells, old_images = {}, {}
+    for artwork in assignments:
+        if artwork != key_art:
+            old_cell = cache._objects.get(("cell", artwork))
+            if old_cell is not None:
+                old_cells[artwork] = (old_cell, Cell(old_cell.image, old_cell.initial_image,
+                                                     old_cell.cell_name))
+        for initial in (False, True) if artwork != key_art else (False,):
+            old = cache._objects.get(("image", (artwork, initial)))
+            if old is not None:
+                old_images[artwork, initial] = old, old._image.copy()
+
+    replaced = keys[1:] if reopen else ()
+    plan = _detach_plan(document, replaced, keys[1:] if install else ())
+    if plan is None:
+        return None
+    # create_drawing は内容も配置待ちもない位置では、外す前に局所 Cell の画像にも代入する。
+    local_cells = []
+    if install:
+        local_images = {key: image for key, image in zip(keys[1:], images[1:])}
+        for (_, fid, track), cell, _, values, _ in plan["cells"]:
+            if cell is not None and not (values["has_content"] or values["sequence_only"]):
+                local_cells.append((cell, local_images[fid, track]))
+    tokens = live.setdefault("tokens", {})
+    kept = []
+    for key in replaced:
+        values = state.position(*key)[0]
+        if key in tokens and values["sequence_only"] and not values.get("pending_detached"):
+            kept.append(tokens[key])
+
+    def apply(core):
+        nonlocal delta
+        if install:
+            notices, delta = core.install_tween(column, layer_index, handles, spec_json, numbers)
+        else:
+            notices, delta = core.reopen_tween(column, layer_index, length, handles[0])
+        return notices
+
+    delta = 0
+    result = _apply_core_command(document, None, lambda _: rows, apply=apply,
+                                 tracks=[tid], revision_delta=0)
+    if result is None:
+        return None
+    changes, new_ids = result
+    Layer.timeline_revision += delta
+    if key_art[0] == "bank" or numbers:
+        state.refresh_track(tid)
+        state.forget_track(tid)
+    for fid in new_ids:
+        for track in state.track_ids:
+            tokens[fid, track] = PendingToken()
+    for key in replaced:
+        tokens[key] = PendingToken()
+    if kept:
+        live.setdefault("extra_pending", {}).setdefault(tid, WeakSet()).update(kept)
+    state.pending.clear()
+    _detach(document, plan, release=False)
+    for key, (old, pixels) in old_images.items():
+        cache.pop("image", key)
+        old.__class__ = PmaImage
+        object.__setattr__(old, "_image", pixels)
+        object.__setattr__(old, "_attributes", tag_attributes(pixels.tag))
+    for artwork, (old, cell) in old_cells.items():
+        cache.pop("cell", artwork)
+        _transplant(old, cell)
+    for artwork, image in assignments.items():
+        _bind(image, _native._CellImage(core, artwork[0] == "bank", *artwork[1:], False))
+        cache.put("image", (artwork, False), image)
+    for cell, image in local_cells:
+        cell.image = image
+    return changes
 
 
 def _core_duplicate_frame(document, column):

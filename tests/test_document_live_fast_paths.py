@@ -4686,3 +4686,213 @@ def test_numbered_patch_content_changes_match_python_without_run(monkeypatch, tm
         return clear, cleared, restore, after, undo, undone, redo
 
     assert apply(plain) == apply(live)
+
+
+@pytest.mark.parametrize("shape", [
+    "reuse", "grow", "pending", "empty_member", "blank_member", "unnumbered",
+])
+def test_tween_commands_keep_core_and_match_graph(monkeypatch, tmp_path, shape):
+    import json
+    from zipfile import ZipFile
+
+    from paintmaskanimator import constants, project_io, utils
+    from paintmaskanimator.errors import OperationError
+
+    monkeypatch.setattr(constants, "CANVAS_WIDTH", 8)
+    monkeypatch.setattr(constants, "CANVAS_HEIGHT", 8)
+    monkeypatch.setattr(utils, "OUTSIDE_MARGIN", 0)
+    plain, live = _pair(count=6)
+    docs = plain, live
+    column = 5 if shape == "grow" else 0
+    length = 1 if shape == "unnumbered" else 3
+    if shape == "pending":
+        for doc in docs:
+            doc.frames[column + 1].layers[0].set_pending(True)
+    if shape == "blank_member":
+        for doc in docs:
+            member = doc.frames[column + 1].layers[0]
+            member.has_content = False
+            member.sequence_number = None
+            member.is_blank_key = True
+    if shape == "unnumbered":
+        # The unused position has no numbered Cell to receive the key image.
+        column = 2
+    if shape == "empty_member":
+        column = 1
+    layer = int(shape in ("empty_member", "unnumbered"))
+    if shape == "pending":
+        for doc in docs:
+            doc.frames[column].layers[layer].set_pending(True)
+
+    def forbid(self, name, args, kwargs):
+        pytest.fail(f"{name} called _run")
+
+    monkeypatch.setattr(document_live.Document, "_run", forbid)
+    spec = {"id": "tween", "reverse": shape == "grow", "length": length}
+    initial = [doc.snapshot() for doc in docs]
+
+    def compare():
+        assert _signature(live) == _signature(plain)
+        assert _pixels(live) == _pixels(plain)
+        assert [(slot.tween, slot.tween_member) for slot in
+                (frame.layers[layer] for frame in live.frames)] == [
+                    (frame.layers[layer].tween, frame.layers[layer].tween_member)
+                    for frame in plain.frames]
+
+    def saved(doc, name):
+        path = tmp_path / f"{name}.pman"
+        project_io.write_project_snapshot(path, project_io.ProjectSnapshot.capture({}, doc))
+        with ZipFile(path) as archive:
+            return {entry: (json.loads(archive.read(entry)) if entry == "project.json"
+                            else archive.read(entry)) for entry in archive.namelist()}
+
+    def compare_save(*, numbered):
+        if numbered:
+            try:
+                expected = saved(plain, "plain")
+            except OperationError as error:
+                # The existing v2 read-back can reject a converted blank start.
+                assert shape == "blank_member"
+                with pytest.raises(OperationError) as live_error:
+                    saved(live, "live")
+                assert str(error) == str(live_error.value)
+            else:
+                assert expected == saved(live, "live")
+        else:
+            errors = []
+            for doc in docs:
+                with pytest.raises(OperationError) as error:
+                    saved(doc, "unnumbered")
+                errors.append(str(error.value))
+            assert errors[0] == errors[1]
+
+    def apply(name, inputs):
+        changes, revisions = [], []
+        for doc, args in zip(docs, inputs):
+            revision = Layer.timeline_revision
+            changes.append(getattr(doc, name)(column, layer, *args))
+            revisions.append(Layer.timeline_revision - revision)
+        assert changes[0] == changes[1]
+        assert revisions[0] == revisions[1]
+        compare()
+        compare_save(numbered=shape != "unnumbered")
+
+    def image(color):
+        result = QImage(8, 8, QImage.Format.Format_RGBA8888)
+        result.fill(QColor(color))
+        return PmaImage.from_qimage(result)
+
+    def install(previous):
+        groups = [[image(color) for color in ("red", "green", "blue")[:length]]
+                  for _ in docs]
+        before = [[frame.layers[layer] for frame in doc.frames] for doc in docs]
+        key_cells = [slots[column]._cell for slots in before]
+        key_tokens = [slots[column].__dict__["_pending_token"] for slots in before]
+        unused_cells = [
+            [(offset, slot._cell, slot.image)
+             for offset, slot in enumerate(slots[column:column + length])
+             if offset and not slot.has_content and not slot.sequence_only]
+            for slots in before
+        ]
+        apply("install_tween", [(group, spec, previous) for group in groups])
+        for unused, group in zip(unused_cells, groups):
+            for offset, cell, old_image in unused:
+                assert cell.image is group[offset]
+                assert cell.image is not old_image
+        for doc, slots, cell, token, group in zip(docs, before, key_cells, key_tokens, groups):
+            for offset, new_image in enumerate(group):
+                slot = doc.frames[column + offset].layers[layer]
+                assert slot.image is new_image
+                if column + offset < len(slots):
+                    assert slot is slots[column + offset]
+                if offset:
+                    assert slot.__dict__["_pending_token"] not in doc.tracks[layer].pending_slots
+                else:
+                    assert slot._cell is cell
+                    assert slot.__dict__["_pending_token"] is token
+                    assert (token in doc.tracks[layer].pending_slots) == (shape == "pending")
+
+    for doc in docs:
+        if length > 1 and column + 1 < len(doc.frames):
+            member = doc.frames[column + 1].layers[layer]
+            member.initial_image = image("yellow")
+            member.cell_name = "previous"
+    install(None)
+    numbers = [plain.frames[column + offset].layers[layer].sequence_number
+               for offset in range(1, length)]
+    if shape == "pending":
+        for doc in docs:
+            doc.frames[column + 1].layers[layer].set_pending(True)
+    old_members = [[doc.frames[column + offset].layers[layer] for offset in range(1, length)]
+                   for doc in docs]
+    old_cells = [[(slot._cell, slot.image, slot.initial_image) for slot in slots]
+                 for slots in old_members]
+    heads = [doc.frames[column].layers[layer] for doc in docs]
+    replacement = [image("orange") for _ in docs]
+    apply("reopen_tween", [(length, item) for item in replacement])
+    for doc, head, members, new_image in zip(docs, heads, old_members, replacement):
+        assert doc.frames[column].layers[layer] is head
+        assert head.image is new_image
+        for offset, old in enumerate(members, 1):
+            slot = doc.frames[column + offset].layers[layer]
+            assert slot is not old
+            assert slot._cell is head._cell
+            assert (old.__dict__["_pending_token"] in doc.tracks[layer].pending_slots) == (
+                shape == "pending" and offset == 1)
+
+    install(numbers)
+    for doc, cells in zip(docs, old_cells):
+        for number, (cell, previous_image, previous_initial) in zip(numbers, cells):
+            current = doc.tracks[layer].cells[number]
+            assert current is not cell
+            assert cell.image is previous_image
+            assert cell.initial_image is previous_initial
+            assert current.cell_name is None
+    slots_before_release = [
+        [(slot, slot._cell, slot.image) for slot in
+         (doc.frames[column + offset].layers[layer] for offset in range(length))]
+        for doc in docs
+    ]
+    apply("release_tween", [(length,), (length,)])
+    for doc, slots in zip(docs, slots_before_release):
+        for offset, (old_slot, cell, art) in enumerate(slots):
+            slot = doc.frames[column + offset].layers[layer]
+            assert slot is old_slot
+            assert slot._cell is cell
+            assert slot.image is art
+    edited = [doc.snapshot() for doc in docs]
+    for snapshots in (initial, edited):
+        changes = [doc.restore_snapshot(snapshot) for doc, snapshot in zip(docs, snapshots)]
+        assert changes[0] == changes[1]
+        compare()
+        compare_save(numbered=all(
+            slot.sequence_number is not None or not slot.has_content
+            for frame in plain.frames for slot in frame.layers))
+
+
+def test_tween_commands_noop_and_fallback(monkeypatch):
+    from paintmaskanimator.document_changes import ChangeSet
+
+    plain, live = _pair()
+    original = document_live.Document._run
+    calls = []
+
+    def trace(self, name, args, kwargs):
+        calls.append(name)
+        return original(self, name, args, kwargs)
+
+    monkeypatch.setattr(document_live.Document, "_run", trace)
+    assert live.install_tween(0, 0, [], {}, None) == ChangeSet()
+    assert live.reopen_tween(0, 0, 7, None) == ChangeSet()
+    assert live.release_tween(0, 0, 0) == ChangeSet()
+    assert calls == []
+
+    # A different bank Cell already owns the input image. Python permits sharing it.
+    spec = {"id": "linked", "reverse": False, "length": 1}
+    inputs = [doc.frames[4].layers[0].image for doc in (plain, live)]
+    expected = plain.install_tween(0, 0, [inputs[0]], spec, None)
+    assert live.install_tween(0, 0, [inputs[1]], spec, None) == expected
+    assert calls == ["install_tween"]
+    assert _signature(live) == _signature(plain)
+    assert _pixels(live) == _pixels(plain)
+    assert live.frames[0].layers[0].image is live.frames[4].layers[0].image
