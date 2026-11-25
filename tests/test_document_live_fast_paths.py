@@ -439,6 +439,7 @@ def _held_view(document, layer_index, held):
 def test_create_blank_key_at_a_key_shifts_the_track_and_matches_python(monkeypatch):
     # キーを選んだとき：保持の後ろへ同じ長さの空キーを入れ、後ろの位置を寄せる。保持の長さ
     # 1〜3、途中のキー・最後のキー（末尾の空いた位置は移り先が無く落ちる）・コマを足す場合。
+    from paintmaskanimator import pma_image, utils
     for shape, column, layer_index in (({"hold": 2, "count": 6}, 2, 0),
                                        ({"hold": 3, "count": 9}, 3, 0),
                                        ({"hold": 3, "count": 9}, 6, 0),
@@ -449,6 +450,11 @@ def test_create_blank_key_at_a_key_shifts_the_track_and_matches_python(monkeypat
         plain, live = _pair(**shape)
         held = _held_windows(live, layer_index)
         plain_held = _held_windows(plain, layer_index)
+        # 空キーの画像が雛形と世代を共有するかは直前の取り込みしだいなので、ほかのテストと
+        # 同じくそろえる（前のテストで描いたかどうかで _whole_signature が変わらないように）。
+        monkeypatch.setattr(pma_image, "_last_import", None)
+        monkeypatch.setattr(utils._BlankTemplate, "model_image", None)
+        utils.blank_model_image()
         calls = _round_trips(live, monkeypatch)
         assert (live.create_blank_key(column, layer_index)
                 == plain.create_blank_key(column, layer_index)), (shape, column)
