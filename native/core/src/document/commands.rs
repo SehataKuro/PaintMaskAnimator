@@ -579,16 +579,21 @@ mod tests {
         let before = v2::project(&doc, &json!({})).unwrap().payload;
         // コマ数が違う・範囲外の列は失敗し、文書を変えない。
         let short = document();
-        assert!(crate::document::comparison::insert_track_from(&mut doc, &short, 0, 0, 0).is_err());
         assert!(
-            crate::document::comparison::insert_track_from(&mut doc, &source, 1, 0, 0).is_err()
+            crate::document::comparison::insert_track_from(&mut doc, &short, 0, 0, Some(0))
+                .is_err()
         );
         assert!(
-            crate::document::comparison::insert_track_from(&mut doc, &source, 0, 2, 0).is_err()
+            crate::document::comparison::insert_track_from(&mut doc, &source, 1, 0, Some(0))
+                .is_err()
+        );
+        assert!(
+            crate::document::comparison::insert_track_from(&mut doc, &source, 0, 2, Some(0))
+                .is_err()
         );
         assert_eq!(v2::project(&doc, &json!({})).unwrap().payload, before);
-        let text =
-            crate::document::comparison::insert_track_from(&mut doc, &source, 0, 0, 1).unwrap();
+        let text = crate::document::comparison::insert_track_from(&mut doc, &source, 0, 0, Some(1))
+            .unwrap();
         let changes: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert_eq!(changes.as_array().unwrap().len(), 1);
         assert_eq!(doc.track_order().len(), 2);
@@ -598,6 +603,46 @@ mod tests {
         for frame in doc.frame_order().to_vec() {
             assert!(doc.frame(frame).unwrap().positions.contains_key(&inserted));
         }
+    }
+
+    #[test]
+    fn prepared_column_can_be_inserted_without_selection_and_merged_atomically() {
+        use crate::document::comparison::{insert_track_from, merge_tracks_from};
+
+        let mut doc = document();
+        let original = doc.selection().1;
+        let mut source = document();
+        let source_id = source.track_order()[0];
+        source.tracks.get_mut(&source_id).unwrap().settings.name = "準備済み".into();
+
+        let inserted = insert_track_from(&mut doc, &source, 0, 0, None).unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&inserted).unwrap(),
+            json!([[{"kind": "TrackStructure", "operation": "insert", "before": [], "after": [0]}]])
+        );
+        assert_eq!(doc.selection().1, original);
+
+        let before = v2::project(&doc, &json!({})).unwrap().payload;
+        let mut long = source.clone();
+        long.ensure_frame_count(2).unwrap();
+        assert!(merge_tracks_from(&mut doc, &source, 0, &[1, 0]).is_err());
+        assert!(merge_tracks_from(&mut doc, &source, 1, &[0, 1]).is_err());
+        assert!(merge_tracks_from(&mut doc, &long, 0, &[0, 1]).is_err());
+        assert_eq!(v2::project(&doc, &json!({})).unwrap().payload, before);
+
+        let merged = merge_tracks_from(&mut doc, &source, 0, &[0, 1]).unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&merged).unwrap(),
+            json!([[
+                {"kind": "TrackStructure", "operation": "merge", "before": [0, 1], "after": [0]},
+                {"kind": "Selection", "layer_index": 0}
+            ]])
+        );
+        let [id] = doc.track_order() else {
+            panic!("統合後は一列だけ残る");
+        };
+        assert_eq!(doc.tracks[id].settings.name, "準備済み");
+        assert_eq!(source.track_order(), &[source_id]);
     }
 
     #[test]

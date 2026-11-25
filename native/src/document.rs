@@ -257,14 +257,26 @@ impl PyCoreDocument {
     /// 別の文書 source の列 source_layer を列 index へ挿入する（restore_inserted_track）。
     ///
     /// apply_command と同じ形の JSON を返す。失敗時は文書を変えない。
+    #[pyo3(signature = (source, source_layer, index, active=None))]
     fn insert_track_from(
         &mut self,
         source: PyRef<'_, PyCoreDocument>,
         source_layer: usize,
         index: usize,
-        active: usize,
+        active: Option<usize>,
     ) -> PyResult<String> {
         comparison::insert_track_from(&mut self.0, &source.0, source_layer, index, active)
+            .map_err(value_error)
+    }
+
+    /// 別の文書 source の列 source_layer で連続列を置き換える。
+    fn merge_tracks_from(
+        &mut self,
+        source: PyRef<'_, PyCoreDocument>,
+        source_layer: usize,
+        columns: Vec<usize>,
+    ) -> PyResult<String> {
+        comparison::merge_tracks_from(&mut self.0, &source.0, source_layer, &columns)
             .map_err(value_error)
     }
 

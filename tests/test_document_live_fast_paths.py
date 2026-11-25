@@ -4420,3 +4420,139 @@ def test_restore_drawing_keeps_history_on_core(shape, monkeypatch, tmp_path):
                            hints, payload, payload_pixels, entries, delta))
         results.append(states)
     assert results[0] == results[1]
+
+
+@pytest.mark.parametrize("operation,connected,active,staged", [
+    ("insert", True, None, False),
+    ("insert", False, 2, False),
+    ("merge", False, None, False),
+    ("merge", True, None, False),
+    ("merge", True, None, True),
+])
+def test_prepared_track_edits_match_python_without_run(
+        monkeypatch, tmp_path, operation, connected, active, staged):
+    from zipfile import ZipFile
+
+    from paintmaskanimator import constants, project_io, utils
+    from paintmaskanimator.legacy_v1 import DenseReference
+    from paintmaskanimator.timeline_metadata import set_dense_import
+
+    monkeypatch.setattr(constants, "CANVAS_WIDTH", 8)
+    monkeypatch.setattr(constants, "CANVAS_HEIGHT", 8)
+    monkeypatch.setattr(utils, "OUTSIDE_MARGIN", 0)
+
+    def saved(doc):
+        path = tmp_path / "track.pman"
+        project_io.write_project_snapshot(path, project_io.ProjectSnapshot.capture({}, doc))
+        with ZipFile(path) as project:
+            return {name: project.read(name) for name in project.namelist()}
+
+    def apply(factory):
+        doc = factory()
+        doc.install_legacy_frames([
+            Frame([Layer(name, _filled((i, 5, 10, 255)), has_content=True)
+                   for name in ("A", "B", "C")])
+            for i in (20, 30)
+        ])
+        doc.current_frame = 1
+        doc.active_layer_index = 2
+        last = doc.frames[0].layers[2]
+        last.set_pending(True)
+        first = doc.frames[0].layers[0]
+        first.set_pending(True)
+        old_track = first._track
+        old_token = first.__dict__["_pending_token"]
+        old_cell, old_image = first._cell, first.image
+        old_frames, old_tracks = doc.frames, doc.tracks
+        old_frame = old_frames[0]
+        old_row = old_frame.layers
+        undo = doc.snapshot()
+        slots = [Layer("New", _filled((i, 9, 7, 255)), has_content=True) for i in (40, 50)]
+        imported = None
+        if connected:
+            prepared = GraphDocument()
+            prepared.install_legacy_frames([Frame([slot]) for slot in slots])
+            slots[1].set_pending(True)
+            number = slots[1].sequence_number
+            imported = ((True, False, number, True, False),
+                        DenseReference(), DenseReference("CELL", number))
+            set_dense_import(slots[1], imported)
+        else:
+            slots[1].set_pending(False)
+        new_track = slots[0]._track
+        token = slots[1].__dict__["_pending_token"]
+        image = slots[0].image
+        with monkeypatch.context() as guard:
+            guard.setattr(document_live.Document, "_run",
+                          lambda *args: pytest.fail("prepared track used _run"))
+            guard.setattr(document_live.Document, "_demote",
+                          lambda *args: pytest.fail("prepared track demoted"))
+            revision = Layer.timeline_revision
+            if operation == "insert":
+                changes = doc.insert_track(1, iter(slots), active=active)
+                index = 1
+            else:
+                changes = doc.merge_tracks(iter((0, 1)), iter(slots), staged=staged)
+                index = 0
+            delta = Layer.timeline_revision - revision
+
+        assert doc.active_layer_index == 2
+        assert doc.frames[0].layers[-1] is last and last.sequence_only
+        assert doc.frames[0].layers[index] is slots[0] and slots[0].image is image
+        assert doc.frames[1].layers[index] is slots[1]
+        assert slots[1].__dict__["_pending_token"] is token
+        assert slots[1].__dict__.get("_dense_import") == imported
+        assert (token in slots[1]._track.pending_slots) is connected
+        assert (doc.tracks[index] is new_track) is connected
+        assert doc.tracks is not old_tracks and old_tracks[0] is old_track
+        replaces_frames = not staged and (operation == "merge" or not connected)
+        assert (doc.frames is not old_frames) is replaces_frames
+        assert (doc.frames[0] is not old_frame) is replaces_frames
+        assert old_row[index] is slots[0]
+        assert first._cell is old_cell and first.image is old_image
+        assert first.__dict__["_pending_token"] is old_token
+        assert (old_token in old_track.pending_slots) is (operation == "insert")
+        redo = doc.snapshot()
+        after = _signature(doc), saved(doc), slots[0].image.rgba().tobytes()
+        undo_changes = doc.restore_snapshot(undo)
+        undone = _signature(doc), saved(doc)
+        redo_changes = doc.restore_snapshot(redo)
+        assert (_signature(doc), saved(doc)) == after[:2]
+        return changes, delta, after, undo_changes, undone, redo_changes
+
+    assert apply(GraphDocument) == apply(document_live.Document)
+
+
+@pytest.mark.parametrize("operation", ["insert", "merge"])
+def test_staged_disconnected_track_edits_keep_plain_slots(monkeypatch, operation):
+    plain, live = _pair(count=2)
+    calls = _round_trips(live, monkeypatch)
+    results = []
+    for doc in (plain, live):
+        tracks = doc.tracks
+        slots = [Layer("Staged", _filled((0, 40, i, 255)), has_content=True) for i in range(2)]
+        if operation == "insert":
+            changes = doc.insert_track(0, iter(slots), staged=True)
+            assert doc.tracks is tracks
+        else:
+            changes = doc.merge_tracks((0, 1), iter(slots), staged=True)
+            assert doc.tracks is not tracks
+        assert all(frame.layers[0] is slot for frame, slot in zip(doc.frames, slots))
+        assert all(not slot._track.connected and slot.sequence_number is None for slot in slots)
+        if doc is live:
+            assert calls == [True]
+            assert live._live()["graph"] is not None
+        doc.install_legacy_frames(doc.frames)
+        results.append((changes, _signature(doc), _pixels(doc)))
+    assert results[0] == results[1]
+
+
+def test_invalid_prepared_track_edits_skip_run(monkeypatch):
+    plain, live = _pair(count=2)
+    slots = [Layer("New", PmaImage.blank(8, 8)) for _ in range(2)]
+    monkeypatch.setattr(document_live.Document, "_run",
+                        lambda *args: pytest.fail("invalid track edit used _run"))
+    assert live.insert_track(1, slots, active=3) == plain.insert_track(1, slots, active=3)
+    assert live.insert_track(1, slots[:1]) == plain.insert_track(1, slots[:1])
+    assert live.merge_tracks((1, 0), slots) == plain.merge_tracks((1, 0), slots)
+    assert _signature(live) == _signature(plain)

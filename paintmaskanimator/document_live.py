@@ -19,13 +19,13 @@ from __future__ import annotations
 import inspect
 import json
 from collections.abc import Iterator, MutableMapping, MutableSequence, MutableSet
-from copy import deepcopy
+from copy import copy, deepcopy
 from dataclasses import replace
 from weakref import WeakSet, ref
 
 from .document_core import (
-    _NO_IMAGE, GraphError, _plain_settings, _settings, graph_from_core, graph_payload, model_image,
-    plain_slot, plain_track, slot_metadata,
+    _KNOWN_SLOT_KEYS, _NO_IMAGE, GraphError, _plain_settings, _settings, graph_from_core,
+    graph_payload, model_image, plain_slot, plain_track, slot_metadata,
 )
 from .models import ArchiveHint, Cell, Frame, Layer, PendingToken, Track, TRACK_FIELDS
 from .native import _native
@@ -2019,6 +2019,28 @@ class Document:
         changes = _CORE_COMMANDS["add_track"](self)
         return self._run("add_track", (), {}) if changes is None else changes
 
+    def insert_track(self, index, slots, *, active=None, staged=False):
+        from .document import GraphDocument
+
+        if not isinstance(self, Document) or _live_of(self).get("trial"):
+            return GraphDocument.insert_track(self, index, slots, active=active, staged=staged)
+        slots = tuple(slots)
+        changes = _core_insert_track(self, index, slots, active=active, staged=staged)
+        if changes is None:
+            return self._run("insert_track", (index, slots), {"active": active, "staged": staged})
+        return changes
+
+    def merge_tracks(self, indices, slots, *, staged=False):
+        from .document import GraphDocument
+
+        if not isinstance(self, Document) or _live_of(self).get("trial"):
+            return GraphDocument.merge_tracks(self, indices, slots, staged=staged)
+        indices, slots = tuple(indices), tuple(slots)
+        changes = _core_merge_tracks(self, indices, slots, staged=staged)
+        if changes is None:
+            return self._run("merge_tracks", (indices, slots), {"staged": staged})
+        return changes
+
     def create_blank_key(self, column, layer_index):
         changes = _CORE_COMMANDS["create_blank_key"](self, column, layer_index)
         if changes is None:
@@ -3105,6 +3127,249 @@ def _has_no_image(cell, handles):
     """Cell の絵が None（Rust では 0×0 の番兵）か。"""
     index = cell["image"]
     return index is not None and handles[index].generation == _NO_IMAGE.generation
+
+
+def _prepared_column(document, slots, normalize):
+    """新しい列だけを検査し、Rust に渡す。正規化の試行では入力の札・設定・絵を変えない。"""
+    from .document import GraphDocument
+    from .timeline_metadata import METADATA_FIELDS, set_dense_import
+
+    tracks = {slot._track for slot in slots}
+    cells = [slot.__dict__.get("_cell") for slot in slots]
+    for track in tracks:
+        if type(track) is not Track:
+            return None
+        cells.extend(track.cells.values())
+    for cell in cells:
+        if cell is None:
+            continue
+        if (type(cell) is not Cell
+                or any(isinstance(image, BoundImage) and type(image._image) is _native._CellImage
+                       for image in (cell.image, cell.initial_image))):
+            return None
+    if any("_legacy_input" in slot.__dict__
+           or (not normalize and slot.__dict__.get("_pending_detached")) for slot in slots):
+        return None
+
+    plain = object.__new__(GraphDocument)
+    plain.current_frame = document.current_frame
+    plain.active_layer_index = 0
+    revision = Layer.timeline_revision
+    try:
+        if normalize:
+            copies = {}
+            for track in tracks:
+                probe = copy(track)
+                probe.pending_slots = WeakSet(track.pending_slots)
+                probe.cells = dict(track.cells)
+                copies[track] = probe
+            trial = []
+            for slot in slots:
+                state = slot.__dict__
+                if state.keys() - _KNOWN_SLOT_KEYS:
+                    return None
+                probe = object.__new__(Layer)
+                probe_state = probe.__dict__
+                # 札と局所 Cell の同一性を保ち、所属とメタデータの変更は試行に閉じる。
+                for key in (
+                    "_cell", "_pending_token", "_pending_detached", "_v1_position",
+                    "_content_origin", "_v2_length_imported", "_v2_resolve_source",
+                    "_legacy_missing", "tween", "tween_member",
+                ):
+                    if key in state:
+                        probe_state[key] = state[key]
+                probe_state["_track"] = copies[slot._track]
+                metadata = _native.TimelineCell()
+                for field in METADATA_FIELDS:
+                    setattr(metadata, field, getattr(slot, field))
+                probe_state["_timeline_metadata"] = metadata
+                if "_dense_import" in state:
+                    set_dense_import(probe, state["_dense_import"])
+                trial.append(probe)
+            plain.install_legacy_frames([Frame([slot]) for slot in trial])
+        else:
+            plain.frames = [Frame([slot]) for slot in slots]
+            plain.tracks = [slots[0]._track]
+        payload, images = graph_payload(plain, selection=(0, 0))
+        # 共有の組の番号は元の文書と独立している。二つの文書の番号が重なる場合は今の経路。
+        if any(position["local_share"] is not None
+               for frame in json.loads(payload)["frames"] for position in frame["positions"]):
+            if _live_of(document)["state"].share_leaders:
+                return None
+        return _native._CoreDocument.from_graph(payload, images)
+    except (ValueError, TypeError, KeyError, AttributeError, OverflowError):
+        return None
+    finally:
+        Layer.timeline_revision = revision
+
+
+def _adopt_prepared_column(document, plain, tid):
+    """新しい列の窓口を、呼び出し元が渡したオブジェクトへ付ける。"""
+    live = _live_of(document)
+    fids = live["state"].frame_ids
+    keys, image_keys = _graph_keys(plain, fids, [tid])
+    track = plain.tracks[0]
+    tokens = live.setdefault("tokens", {})
+    incoming = {}
+    for fid, frame in zip(fids, plain.frames):
+        incoming[fid, tid] = frame.layers[0].__dict__.get("_pending_token") or PendingToken()
+    tokens.update(incoming)
+    own = set(incoming.values())
+    extra = WeakSet(token for token in track.pending_slots if token not in own)
+    if extra:
+        live.setdefault("extra_pending", {})[tid] = extra
+    cache = live["cache"]
+    classes = {"layer": LiveLayer, "track": LiveTrack, "cell": LiveCell}
+    for obj_id, (kind, key) in keys.items():
+        if kind in classes:
+            obj = keys.objects[obj_id]
+            cache.put(kind, key, _adopt(obj, classes[kind], document, key))
+    for image, key, initial in image_keys.values():
+        _bind(image, _native._CellImage(live["core"], key[0] == "bank", key[1], key[2], initial))
+        cache.put("image", (key, initial), image)
+
+
+def _core_edit_prepared_track(document, index, slots, *, active=None, columns=(), staged=False):
+    """準備済みの列を挿入・結合する。Rust で途中の状態も表せる場合だけ当てる。"""
+    from .document import GraphDocument
+
+    live = _live_of(document)
+    if live["graph"] is not None or live.get("trial") or (staged and not columns):
+        return None
+    state = live["state"]
+    shared = slots[0]._track.connected and all(slot._track is slots[0]._track for slot in slots)
+    if staged and not shared:
+        return None
+    normalize = not staged and (bool(columns) or not shared)
+    removed = {state.track_ids[column] for column in columns}
+    waiting = []
+    revision = 0
+    banks = {}
+    for (fid, tid), (values, handles) in state.positions.items():
+        pending = values["sequence_only"]
+        if tid in removed:
+            if values.get("local_share") is not None:
+                return None
+            if pending:
+                waiting.append((fid, tid, values, handles))
+            continue
+        if values.get("pending_detached"):
+            return None
+        if normalize:
+            number = values["sequence_number"]
+            if ((values["has_content"] and number is None)
+                    or ((values["has_content"] or pending)
+                        and (values["local"] is not None or values["local_bank"]))):
+                return None
+            if number is not None:
+                if tid not in banks:
+                    banks[tid] = {n for n, _ in state.track(tid)[0]["cells"]}
+                if number not in banks[tid]:
+                    return None
+            revision += pending
+    source = _prepared_column(document, slots, normalize)
+    if source is None:
+        return None
+
+    core = live["core"]
+    frozen = core.copy() if removed else None
+    old_state = state
+    try:
+        if waiting:
+            # release_slots は外した Layer にも効く。外す側の写しで札だけを解く。
+            for fid, tid, values, handles in waiting:
+                released = dict(values, sequence_only=False, dense_import=None)
+                frozen.set_position_graph(fid, tid, json.dumps(released), handles)
+            old_state = _CoreState.restored(frozen, state)
+        if columns:
+            notices = core.merge_tracks_from(source, 0, columns)
+        else:
+            notices = core.insert_track_from(source, 0, index, active)
+    except ValueError:
+        return None
+
+    old_tracks = list(document.tracks) if "tracks_view" in live else None
+    old_frames = list(document.frames) if normalize and "frames_view" in live else None
+    # この時点では窓口がまだ命令前の並びを読む。次に読み取り用の写しを更新する。
+    live["state"] = new_state = _CoreState.restored(core, state)
+    tid = new_state.track_ids[index]
+    prepared = object.__new__(GraphDocument)
+    prepared.current_frame = document.current_frame
+    prepared.frames = [Frame([slot]) for slot in slots]
+    if normalize:
+        prepared.install_legacy_frames(prepared.frames)
+    else:
+        prepared.tracks = [slots[0]._track]
+    _adopt_prepared_column(document, prepared, tid)
+    if removed:
+        _retire_columns(document, removed, frozen, old_state)
+    if normalize:
+        # install_legacy_frames は古いコマの行を更新したあと、新しい Frame の列を公開する。
+        cache = live["cache"]
+        for (kind, key), frame in cache.items():
+            if kind != "frame":
+                continue
+            fid = key[0]
+            row = [document._layer(fid, track) for track in new_state.track_ids]
+            view = frame.__dict__.get("_layers_view")
+            if view is not None:
+                view._frozen = row
+            cache.pop(kind, key)
+            _transplant(frame, Frame(row, state.durations[fid]))
+        document._retire_view("frames_view", old_frames)
+    document._retire_view("tracks_view", old_tracks)
+    Layer.timeline_revision += revision + len(waiting)
+    document._sync_selection()
+    return _changes_from_json(notices)
+
+
+def _core_insert_track(document, index, slots, *, active, staged):
+    """挿入の検証を行い、表せる準備済みの列だけ Rust で入れる。"""
+    from .document_changes import ChangeSet
+
+    live = _live_of(document)
+    if live["graph"] is not None or live.get("trial"):
+        return None
+    if (type(index) is not int or type(staged) is not bool
+            or (active is not None and type(active) is not int)):
+        return None
+    state = live["state"]
+    count = len(state.track_ids)
+    if (not _valid_prepared_slots(state, slots) or not 0 <= index <= count
+            or (active is not None and not 0 <= active <= count)):
+        return ChangeSet()
+    if not _plain_prepared_slots(slots):
+        return None
+    return _core_edit_prepared_track(document, index, slots, active=active, staged=staged)
+
+
+def _core_merge_tracks(document, indices, slots, *, staged):
+    """結合の検証を行い、表せる準備済みの列だけ Rust で置換する。"""
+    from .document_changes import ChangeSet
+
+    live = _live_of(document)
+    if (live["graph"] is not None or live.get("trial") or type(staged) is not bool
+            or any(type(i) is not int for i in indices)):
+        return None
+    state = live["state"]
+    count = len(state.track_ids)
+    if (len(indices) < 2 or not 0 <= indices[0] <= indices[-1] < count
+            or indices != tuple(range(indices[0], indices[-1] + 1))
+            or not _valid_prepared_slots(state, slots)):
+        return ChangeSet()
+    if not _plain_prepared_slots(slots):
+        return None
+    return _core_edit_prepared_track(document, indices[0], slots, columns=indices, staged=staged)
+
+
+def _valid_prepared_slots(state, slots):
+    return (bool(slots) and len(slots) == len(state.frame_ids)
+            and all(isinstance(slot, Layer) for slot in slots))
+
+
+def _plain_prepared_slots(slots):
+    return (all(type(slot) is Layer for slot in slots)
+            and len({id(slot) for slot in slots}) == len(slots))
 
 
 def _core_duplicate_tracks(document, names):
