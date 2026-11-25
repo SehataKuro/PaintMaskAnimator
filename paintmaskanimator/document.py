@@ -6,6 +6,10 @@ rendering. The PaintCanvas widget delegates its state to a Document instance
 so that this core model can be reasoned about and tested without a GUI.
 
 Frames and layers carry PmaImage payloads.
+
+既定で使う Document は、Rust の pma-core を正本にする ``document_live.Document``
+（このファイルの末尾で差し替える）。このファイルの Document は素のグラフとして
+``GraphDocument`` の名前でも使い、``PMA_CORE_DOCUMENT=0`` のときはこちらに戻る。
 """
 from copy import deepcopy
 from dataclasses import dataclass, replace
@@ -2546,8 +2550,10 @@ def project_v1_state(frames, sequence_archive=None) -> tuple[list[Any], dict[Any
             for row, frame in zip(projected, frames)], archive
 
 
-# 段階8-4：既定は Rust の文書を正本にする Document（document_live）。
+# 段階8-5a から、既定は Rust の文書を正本にする Document（document_live）。
 # 環境変数 PMA_CORE_DOCUMENT=0 のときだけ、上の Python の Document に戻す。
+# 上の Python の Document は、Rust で表せない途中の状態の素のグラフ（GraphDocument）、
+# まだ Rust に無い操作の手順、突き合わせ・切り戻し用の実装として残す。
 GraphDocument = Document
 if __import__("os").environ.get("PMA_CORE_DOCUMENT") != "0":
     from .document_live import Document  # noqa: E402,F811

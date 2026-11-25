@@ -10,6 +10,7 @@ diverging from the block it branched off; several branches sharing one
 divergence point fan out into separate columns side by side. Clicking a
 main-line block jumps there by replaying the right number of undo/redo steps;
 clicking a branch block switches the canvas over to that future instead.
+Which column each branch goes in is decided in Rust (:func:`branch_columns`).
 """
 from PySide6.QtCore import QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen

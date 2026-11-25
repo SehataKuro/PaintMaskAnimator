@@ -3,6 +3,13 @@
 Split out of ``canvas.py`` as a mixin. These methods push document / layer /
 region snapshots onto the undo stack and apply them on undo/redo. They run
 against a live ``PaintCanvas`` instance and its ``_document`` + stacks.
+
+履歴の入れ物（``undo_stack``・``redo_stack``・``history_branches``）は Python の
+リストのまま持ち、上限での切り詰め件数・分岐点の付け替え・分岐の本数の上限・
+分岐へ切り替えるときの手数は Rust（``pma_core::document::history``）が決める
+（変形の履歴を除くときの分岐点は canvas_selection、パネルの列は history_panel から同じく Rust を呼ぶ）。
+入れ物を Python に残す理由は docs/design-principles.md「履歴の入れ物は画面を移すまで
+Python に置く」。
 """
 from .canvas_changes import (
     finish_restored_batch, publish_drawing_cells, publish_initial_images,
