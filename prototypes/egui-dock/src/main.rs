@@ -15,11 +15,13 @@
 
 mod ime_native;
 mod pen_selftest;
+mod popout;
 mod pressure;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use eframe::egui;
@@ -180,8 +182,9 @@ impl Latency {
 struct Viewer<'a> {
     canvas: &'a mut Canvas,
     latency: &'a mut Latency,
-    layer_names: &'a mut Vec<String>,
-    script: &'a mut String,
+    shared: &'a mut popout::Shared,
+    popout_request: &'a mut Option<Panel>,
+    menu_rect: &'a mut Option<Rect>,
     tab_rects: &'a mut HashMap<Panel, Rect>,
     body_rects: &'a mut HashMap<Panel, Rect>,
     pressure: f32,
@@ -201,6 +204,17 @@ impl TabViewer for Viewer<'_> {
 
     fn on_tab_button(&mut self, tab: &mut Panel, response: &egui::Response) {
         self.tab_rects.insert(*tab, response.rect);
+    }
+
+    fn context_menu(&mut self, ui: &mut egui::Ui, tab: &mut Panel, _path: egui_dock::NodePath) {
+        if popout::can_pop_out(*tab) {
+            let response = ui.button("別の窓に出す");
+            *self.menu_rect = Some(response.rect);
+            if response.clicked() {
+                *self.popout_request = Some(*tab);
+                ui.close();
+            }
+        }
     }
 
     fn is_closeable(&self, tab: &Panel) -> bool {
@@ -246,14 +260,8 @@ impl TabViewer for Viewer<'_> {
                     });
                 }
             }
-            Panel::Layers => {
-                ui.label("レイヤー名（日本語入力の確認）");
-                for (i, name) in self.layer_names.iter_mut().enumerate() {
-                    let response = ui.text_edit_singleline(name);
-                    if i == 0 {
-                        *self.name_rect = Some(response.rect);
-                    }
-                }
+            Panel::Layers | Panel::Script => {
+                popout::small_panel_ui(ui, *tab, self.shared, Some(self.name_rect), None)
             }
             Panel::Timeline => {
                 ui.label(self.latency.summary());
@@ -262,10 +270,6 @@ impl TabViewer for Viewer<'_> {
                         let _ = ui.selectable_label(frame == 1, format!("{frame}"));
                     }
                 });
-            }
-            Panel::Script => {
-                ui.label("スクリプト（日本語入力の確認）");
-                ui.add(egui::TextEdit::multiline(self.script).desired_rows(6).code_editor());
             }
         }
     }
@@ -544,8 +548,12 @@ struct App {
     dock: DockState<Panel>,
     canvas: Canvas,
     latency: Latency,
-    layer_names: Vec<String>,
-    script: String,
+    shared: Arc<Mutex<popout::Shared>>,
+    popouts: popout::Popouts,
+    popout_request: Option<Panel>,
+    menu_rect: Option<Rect>,
+    /// PMA_POPOUT_OUT：別の窓に出す台本。
+    pop_demo: Option<popout::PopDemo>,
     tab_rects: HashMap<Panel, Rect>,
     body_rects: HashMap<Panel, Rect>,
     demo: Option<Demo>,
@@ -574,8 +582,17 @@ impl App {
             dock,
             canvas: self::Canvas::new(),
             latency: Latency::default(),
-            layer_names: vec!["線画".into(), "影".into(), "Layer 3".into()],
-            script: "# ここに日本語を入力して確かめる\n".into(),
+            shared: Arc::new(Mutex::new(popout::Shared {
+                layer_names: vec!["線画".into(), "影".into(), "Layer 3".into()],
+                script: "# ここに日本語を入力して確かめる\n".into(),
+                widgets: HashMap::new(),
+                windows: HashMap::new(),
+                inject: HashMap::new(),
+            })),
+            popouts: popout::Popouts::new(),
+            popout_request: None,
+            menu_rect: None,
+            pop_demo: std::env::var_os("PMA_POPOUT_OUT").map(|d| popout::PopDemo::new(PathBuf::from(d))),
             tab_rects: HashMap::new(),
             body_rects: HashMap::new(),
             demo: demo.map(Demo::new),
@@ -593,6 +610,26 @@ impl App {
 
 impl eframe::App for App {
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        // eframe はすべての窓（別の窓も）でこれを呼ぶ。別の窓は台本の事件を入れるだけにする。
+        if raw_input.viewport_id != egui::ViewportId::ROOT {
+            if self.pop_demo.is_some() {
+                raw_input.events.retain(|e| {
+                    !matches!(
+                        e,
+                        egui::Event::PointerMoved(_)
+                            | egui::Event::PointerButton { .. }
+                            | egui::Event::PointerGone
+                            | egui::Event::MouseMoved(_)
+                    )
+                });
+                let id = raw_input.viewport_id;
+                if let Some(inner) = raw_input.viewports.get(&id).and_then(|v| v.inner_rect) {
+                    let injected = self.shared.lock().unwrap().inject.remove(&id).unwrap_or_default();
+                    raw_input.events.extend(popout::to_events(injected, inner.min));
+                }
+            }
+            return;
+        }
         if self.pen_selftest.is_some() && std::env::var_os("PMA_DEBUG").is_some() {
             for e in &raw_input.events {
                 if matches!(e, egui::Event::PointerButton { .. }) {
@@ -670,6 +707,35 @@ impl eframe::App for App {
                 _ => {}
             }
         }
+        if self.pop_demo.is_some() {
+            raw_input.events.retain(|e| {
+                !matches!(
+                    e,
+                    egui::Event::PointerMoved(_)
+                        | egui::Event::PointerButton { .. }
+                        | egui::Event::PointerGone
+                        | egui::Event::MouseMoved(_)
+                )
+            });
+            let id = raw_input.viewport_id;
+            let inner = |id| raw_input.viewports.get(&id).and_then(|v| v.inner_rect);
+            let outer = raw_input.viewports.get(&egui::ViewportId::ROOT).and_then(|v| v.outer_rect);
+            if id == egui::ViewportId::ROOT {
+                if let (Some(main_inner), Some(main_outer)) = (inner(id), outer) {
+                    let demo = self.pop_demo.as_mut().unwrap();
+                    let injected = demo.step(
+                        ctx,
+                        &self.popouts,
+                        main_outer,
+                        main_inner,
+                        &self.tab_rects,
+                        self.menu_rect,
+                        &self.shared,
+                    );
+                    raw_input.events.extend(popout::to_events(injected, main_inner.min));
+                }
+            }
+        }
         if self.demo.is_some() {
             let screen = ctx.content_rect();
             let demo = self.demo.as_mut().unwrap();
@@ -713,10 +779,10 @@ impl eframe::App for App {
                 }
             }
             if n == 15 || n == 17 {
-                println!("IME 変換中（{n}）：{:?}", self.layer_names[0]);
+                println!("IME 変換中（{n}）：{:?}", self.shared.lock().unwrap().layer_names[0]);
             }
             if n >= 24 {
-                println!("IME 確定後：{:?}", self.layer_names[0]);
+                println!("IME 確定後：{:?}", self.shared.lock().unwrap().layer_names[0]);
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
             ctx.request_repaint();
@@ -747,11 +813,13 @@ impl eframe::App for App {
         }
         let pressure = pressure::current().unwrap_or(1.0);
         self.tab_rects.clear();
+        let mut shared = self.shared.lock().unwrap();
         let mut viewer = Viewer {
             canvas: &mut self.canvas,
             latency: &mut self.latency,
-            layer_names: &mut self.layer_names,
-            script: &mut self.script,
+            shared: &mut shared,
+            popout_request: &mut self.popout_request,
+            menu_rect: &mut self.menu_rect,
             tab_rects: &mut self.tab_rects,
             body_rects: &mut self.body_rects,
             pressure,
@@ -761,6 +829,25 @@ impl eframe::App for App {
             .style(Style::from_egui(ui.style().as_ref()))
             .show_leaf_collapse_buttons(false)
             .show_inside(ui, &mut viewer);
+        drop(shared);
+
+        let (main_outer, main_inner) = ctx.input(|i| (i.viewport().outer_rect, i.viewport().inner_rect));
+        if let Some(panel) = self.popout_request.take() {
+            let offset = main_inner.map(|r| r.min.to_vec2()).unwrap_or_default();
+            let at = self.tab_rects.get(&panel).map(|r| r.left_bottom() + offset).unwrap_or(Pos2::new(200.0, 200.0));
+            self.popouts.pop_out(&mut self.dock, panel, at);
+            self.menu_rect = None;
+        }
+        self.popouts.show(&ctx, &mut self.dock, &self.shared, main_outer, main_inner);
+        if self.popouts.hovering {
+            popout::paint_drop_hint(&ctx, ctx.content_rect());
+        }
+        if let (Some(demo), Some(outer), Some(inner)) = (&mut self.pop_demo, main_outer, main_inner) {
+            if demo.capture(&ctx, &self.popouts, &self.shared, (outer, inner), self.popouts.hovering) {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+            ctx.request_repaint();
+        }
 
         if let Some(demo) = &mut self.demo {
             // 台本の指先と説明を一番上に描く。

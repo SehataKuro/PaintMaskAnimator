@@ -137,13 +137,99 @@ const PANELS = {
   layers: ["レイヤー", layersPanel], timeline: ["タイムライン", timelinePanel], script: ["スクリプト", scriptPanel],
 };
 
+// ---- 別の OS の窓（dockview の popout。Tauri の on_new_window で WKWebView の窓を開く） ----
+// 別の窓の label は Rust が開いた順に popout-1, popout-2, … と付ける。dockview が開いた順と同じ。
+const popouts = []; // { label, group, lastOuter, moved, still }
+let popoutCount = 0;
+const isPopout = (group) => group.api.location.type === "popout";
+async function popOut(group) {
+  await api.addPopoutGroup(group);
+}
+function popBack(group) {
+  const entry = popouts.find((p) => p.group === group);
+  if (entry) invoke("close_window", { label: entry.label }); // 窓を閉じると dockview がもとの場所に戻す
+}
+function headerAction(group) {
+  const el = document.createElement("div");
+  el.style.cssText = "display:flex;align-items:center;height:100%;padding:0 6px;";
+  const button = document.createElement("button");
+  button.style.cssText = "background:#333;color:#ddd;border:1px solid #555;border-radius:3px;font:12px inherit;padding:1px 6px;cursor:pointer;";
+  el.appendChild(button);
+  const refresh = () => {
+    const out = isPopout(group);
+    button.textContent = out ? "メインの窓に戻す" : "⧉";
+    button.title = out ? "メインの窓に戻す" : "別の窓に出す";
+    button.className = out ? "pma-back" : "pma-popout";
+  };
+  button.addEventListener("click", () => (isPopout(group) ? popBack(group) : popOut(group)));
+  return {
+    element: el,
+    init: () => { refresh(); group.api.onDidLocationChange?.(refresh); },
+    dispose: () => {},
+  };
+}
+
 const api = DV.createDockview(document.getElementById("dock"), {
   theme: DV.themeDark,
+  popoutUrl: "/popout.html",
+  createRightHeaderActionComponent: headerAction,
   createComponent: (options) => {
     const element = PANELS[options.name][1]();
     return { element, init: () => {} };
   },
 });
+api.onDidAddPopoutGroup((e) => {
+  popoutCount++;
+  const label = `popout-${popoutCount}`;
+  popouts.push({ label, group: e.group, lastOuter: null, wasOutside: false, moved: false, still: 0 });
+  const names = e.group.panels.map((p) => p.title).join("・");
+  invoke("shape_window", { label, width: e.group.panels.some((p) => p.id === "timeline") ? 520 : 320,
+    height: e.group.panels.some((p) => p.id === "timeline") ? 200 : 380, title: `${names} — PMA 試作（別の窓）` });
+  invoke("log", { line: `別の窓に出した：${e.group.panels.map((p) => p.title).join("・")} → popout-${popoutCount}` });
+});
+api.onDidRemovePopoutGroup((e) => {
+  const i = popouts.findIndex((p) => p.group === e.group);
+  if (i >= 0) {
+    invoke("log", { line: `メインの窓に戻った：${popouts[i].label}` });
+    popouts.splice(i, 1);
+  }
+});
+// 一度外へ出した別の窓をメインの窓の上まで動かして止めたら戻す（動かしている間は戻る先を出す）。
+const hint = document.createElement("div");
+hint.style.cssText = "position:fixed;inset:24px;border:3px solid #3c8cff;border-radius:8px;background:rgba(40,110,230,.27);"
+  + "display:none;align-items:center;justify-content:center;color:#fff;font-size:28px;z-index:99999;pointer-events:none;";
+hint.textContent = "ここで止めると、もとの場所に戻る";
+document.body.appendChild(hint);
+let windowsNow = [];
+async function watchPopouts() {
+  if (!popouts.length) { hint.style.display = "none"; return; }
+  windowsNow = await invoke("window_rects");
+  const main = windowsNow.find((w) => w.label === "main");
+  let hovering = false;
+  for (const p of popouts) {
+    const w = windowsNow.find((x) => x.label === p.label);
+    if (!w || !main) continue;
+    const [x, y, width, height] = w.outer;
+    if (p.lastOuter && (Math.abs(p.lastOuter[0] - x) > 0.5 || Math.abs(p.lastOuter[1] - y) > 0.5)) { p.moved = true; p.still = 0; }
+    else p.still++;
+    p.lastOuter = w.outer;
+    const [mx, my, mw, mh] = main.inner;
+    // 一度メインの窓の外へ完全に出てからでないと、メインの窓の上で止めても戻さない。
+    const [ox, oy, ow, oh] = main.outer;
+    if (x >= ox + ow || x + width <= ox || y >= oy + oh || y + height <= oy) p.wasOutside = true;
+    const cx = x + width / 2, cy = y + height / 2;
+    const over = p.wasOutside && cx > mx + 40 && cx < mx + mw - 40 && cy > my + 40 && cy < my + mh - 40;
+    if (p.moved && over) {
+      if (p.still >= 15) { p.moved = false; invoke("log", { line: `メインの窓の上で止めたので戻す：${p.label}` }); popBack(p.group); }
+      else hovering = true;
+    }
+  }
+  hint.style.display = hovering ? "flex" : "none";
+}
+let watching = false;
+setInterval(() => { if (!watching && !popoutMode) { watching = true; watchPopouts().finally(() => watching = false); } }, 33);
+let popoutMode = false;
+
 const add = (id, position) => api.addPanel({ id, component: id, title: PANELS[id][0], position });
 add("canvas");
 add("tools", { referencePanel: "canvas", direction: "left" });
@@ -396,6 +482,130 @@ invoke("ime_selftest_mode").then(async (on) => {
   await invoke("log", { line: `IME 確定後：${JSON.stringify(input.value)}　事件：${seen.join(" ")}` });
   await invoke("quit");
 });
+// ---- 別の窓の台本（PMA_POPOUT_OUT があるときだけ）。窓ごとの写しと位置を保存し、動画は compose_popout.py で作る ----
+async function popoutDemo(dir) {
+  popoutMode = true;
+  const log = [];
+  let n = 0, caption = "", dragging = false;
+  const g = { x: 500, y: 400 }; // 指先（画面の座標）
+  const rects = async () => (windowsNow = await invoke("window_rects"));
+  const win = (label) => windowsNow.find((w) => w.label === label);
+  const tick = async () => {
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    await rects();
+    await watchPopouts();
+    windowsNow = await invoke("window_rects");
+    const shots = windowsNow.map((w) => w.label === "main"
+      ? invoke("snapshot", { path: `${dir}/main_${String(n).padStart(5, "0")}.png` })
+      : invoke("snapshot_window", { label: w.label, path: `${dir}/${w.label}_${String(n).padStart(5, "0")}.png` })
+        .catch(() => {})); // 戻して閉じた直後の窓は写せない
+    await Promise.all(shots);
+    log.push(JSON.stringify({ n, caption, pointer: [g.x, g.y], dragging, hint: hint.style.display === "flex",
+      windows: windowsNow.map((w) => ({ label: w.label, title: w.label === "main" ? "PMA 試作：Tauri + dockview" : w.title, outer: w.outer, inner: w.inner })) }));
+    n++;
+  };
+  const wait = async (k) => { for (let i = 0; i < k; i++) await tick(); };
+  // 要素の画面の座標：メインの窓なら inner の位置を、別の窓ならその窓の inner の位置を足す。
+  const screenOf = (el, label) => {
+    const r = el.getBoundingClientRect();
+    const w = win(label);
+    // tao の中身の位置は窓の上端（題名の帯を含む）。ページは帯の下から始まるので、その分を足す。
+    const bar = w.outer[3] - el.ownerDocument.defaultView.innerHeight;
+    return { x: w.inner[0] + r.left + r.width / 2, y: w.inner[1] + bar + r.top + r.height / 2 };
+  };
+  const moveTo = async (to, frames = 14) => {
+    const from = { ...g };
+    for (let i = 1; i <= frames; i++) { const t = ease(i / frames); g.x = from.x + (to.x - from.x) * t; g.y = from.y + (to.y - from.y) * t; await tick(); }
+  };
+  const click = async (el, label) => {
+    await moveTo(screenOf(el, label));
+    dragging = true; await tick();
+    el.click();
+    dragging = false; await tick();
+  };
+  const labelOf = (id) => popouts.find((p) => p.group === api.getPanel(id).group)?.label;
+  const moveWindow = async (label, target, frames = 45) => {
+    const w = win(label);
+    const start = { x: w.outer[0], y: w.outer[1] };
+    const grip = { x: w.outer[2] / 2, y: 14 };
+    await moveTo({ x: start.x + grip.x, y: start.y + grip.y }, 12);
+    dragging = true;
+    for (let i = 1; i <= frames; i++) {
+      const t = ease(i / frames);
+      const x = start.x + (target.x - start.x) * t, y = start.y + (target.y - start.y) * t;
+      await invoke("move_window", { label, x, y });
+      g.x = x + grip.x; g.y = y + grip.y;
+      await tick();
+    }
+    dragging = false;
+  };
+  const findButton = (group) => group.element.querySelector("button.pma-popout, button.pma-back");
+
+  await rects();
+  caption = "Tauri + dockview：パネルを別の OS の窓に出す。「スクリプト」のグループの ⧉ を押す";
+  await wait(15);
+  api.getPanel("script").api.setActive();
+  await wait(3);
+  const scriptGroup = api.getPanel("script").group;
+  await click(findButton(scriptGroup), "main");
+  caption = "「スクリプト」と「レイヤー」のグループが自分の OS の窓になる（dockview の popout）";
+  await wait(30);
+  const sLabel = labelOf("script");
+  if (!sLabel) throw new Error("別の窓が開かない");
+  const main = win("main");
+  // 別の画面があればその画面へ、無ければメインの窓の右へ。
+  const mcx = main.outer[0] + main.outer[2] / 2;
+  const other = (await invoke("monitors")).find((m) => mcx < m[0] || mcx > m[0] + m[2]);
+  const outX = other ? other[0] + 80 : main.outer[0] + main.outer[2] + 30;
+  caption = other ? "別の窓をもう1つの画面へ動かす（台本は OS の窓を動かす命令で動かす）"
+    : "別の窓をメインの窓の外へ動かす（台本は OS の窓を動かす命令で動かす）";
+  await moveWindow(sLabel, { x: outX, y: main.outer[1] + 20 });
+  await wait(10);
+
+  caption = "別の窓の中で入力する（窓の外でもふつうに使える）";
+  api.getPanel("script").api.setActive();
+  await wait(3);
+  const textarea = api.getPanel("script").group.element.ownerDocument.querySelector("textarea");
+  await click(textarea, sLabel);
+  textarea.focus();
+  for (const c of "\nlayer.hide(\"影\")  # 別の窓から") {
+    textarea.value += c;
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    await tick(); await tick();
+  }
+  await wait(15);
+
+  caption = "「タイムライン」も別の窓に出して、スクリプトの下に置く";
+  await click(findButton(api.getPanel("timeline").group), "main");
+  await wait(25);
+  const tLabel = labelOf("timeline");
+  await moveWindow(tLabel, { x: outX, y: main.outer[1] + 440 }, 40);
+  await wait(10);
+  const report = await invoke("os_windows");
+  await rects();
+  const m = win("main").outer;
+  for (const p of popouts) {
+    const o = win(p.label).outer;
+    const outside = o[0] >= m[0] + m[2] || o[0] + o[2] <= m[0] || o[1] >= m[1] + m[3] || o[1] + o[3] <= m[1];
+    report.push(`別の窓 ${p.label}（${p.group.panels.map((x) => x.title).join("・")}）：外枠 ${o.map((v) => v.toFixed(0)).join(",")}、メインの窓 ${m.map((v) => v.toFixed(0)).join(",")} の外に${outside ? "ある" : "ない"}`);
+  }
+  await invoke("log", { line: "OS の窓：\n  " + report.join("\n  ") });
+  await wait(10);
+
+  caption = "「メインの窓に戻す」→ タイムラインがもとの場所に戻る";
+  await click(findButton(api.getPanel("timeline").group), tLabel);
+  await wait(30);
+
+  caption = "スクリプトの窓をメインの窓の上まで動かして止める → もとの場所に戻る";
+  const mw = win("main"), sw = win(sLabel);
+  await moveWindow(sLabel, { x: mw.inner[0] + mw.inner[2] / 2 - sw.outer[2] / 2, y: mw.inner[1] + mw.inner[3] / 2 - sw.outer[3] / 2 });
+  await wait(40);
+  await invoke("write_text", { path: `${dir}/frames.jsonl`, text: log.join("\n") });
+  await invoke("write_text", { path: `${dir}/report.txt`, text: report.join("\n") });
+  await invoke("log", { line: `${n} フレームを ${dir} に保存　残りの別の窓：${popouts.length}` });
+  await invoke("quit");
+}
+invoke("popout_out").then((dir) => dir && setTimeout(() => popoutDemo(dir).catch((e) => invoke("log", { line: `台本の失敗：${e} ${e.stack}` }).then(() => invoke("quit"))), 800));
 invoke("latency_mode").then((on) => on && setTimeout(() => latencyRun().catch((e) => invoke("log", { line: `${e}` })), 600));
 invoke("log", { line: "ui 起動" });
 invoke("demo_out").then((dir) => {
