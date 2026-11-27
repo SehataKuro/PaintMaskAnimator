@@ -396,7 +396,6 @@ def extend_line_ends(boundary, max_length, cache=None):
     :returns: 延長線の画素。``boundary`` の画素は含まない。
     """
     height, width = boundary.shape
-    extension = np.zeros((height, width), dtype=bool)
     max_length = max(1, int(max_length))
     # 端から max_length 以内の帯だけを細線化する（全体を細線化すると大きな
     # キャンバスで遅い）。向きを測るために少し内側まで含める。
