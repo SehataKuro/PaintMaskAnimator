@@ -906,4 +906,9 @@ impl PyCoreDocument {
     pub(crate) fn document(&self) -> &Document {
         &self.0
     }
+
+    /// ツール操作（バケツなど）が画素を書く文書。
+    pub(crate) fn document_mut(&mut self) -> &mut Document {
+        &mut self.0
+    }
 }

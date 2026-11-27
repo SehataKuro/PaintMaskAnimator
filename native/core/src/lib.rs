@@ -29,5 +29,7 @@ pub mod selection;
 pub mod thin;
 pub mod tiled_color;
 pub mod tone_curve;
+/// 画面のツール操作（バケツ・串刺し塗り）。
+pub mod tools;
 
 pub use error::Error;

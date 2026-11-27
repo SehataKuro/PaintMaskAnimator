@@ -601,3 +601,73 @@ def selection_lift(
     image: RgbaImage, selection: Selection
 ) -> tuple[RgbaImage, RgbaImage, _Rect, bytes] | None: ...
 def selection_cleared(image: RgbaImage, selection: Selection) -> RgbaImage: ...
+# バケツ・串刺し塗り（pma-core の tools）。settings は bucket_fill.BucketOptions の欄
+# （adjacent, island_max_width, include_masks, mask_colors, include_background_mask,
+#   close_gap, gap_width, extend_lines, extend_length, require_closed, target_color,
+#   reference, island_replacements）と、塗る色 color (RGB)・不透明度 opacity (float)。
+# 欄がなければ BucketOptions() の既定値。矩形は (x, y, 幅, 高さ)。selection は
+# キャンバス全体の 0/1 の bytes。理由は bucket_fill.REASON_* の文字列。
+_Rect = tuple[int, int, int, int]
+_Cell = tuple[int, int]
+_DragStep = tuple[str | None, list[tuple[_Rect, list[_RGB]]]]
+_SkewerStatus = tuple[str, _Cell | None]
+_SkewerEvent = tuple[str, Any]
+_SkewerApplied = tuple[int, int, list[_RGB], int, list[tuple[_Cell, list[_Cell], _Rect]]]
+
+def bucket_fill_at(
+    document: _CoreDocument, frame: int, layer: int, settings: dict[str, Any],
+    x: float, y: float, selection: bytes | None = None,
+) -> tuple[str, _Rect | None, list[_RGB]]:
+    """1か所を塗る。(理由, 書いた矩形か None, 書き込んだ RGB の列)。"""
+def bucket_reference_pixels(
+    document: _CoreDocument, frame: int, layer: int, reference: str,
+) -> bytes:
+    """塗る範囲の判定に使う絵（"layer"・"canvas"・"initial"）のストレート RGBA。"""
+def bucket_replace_color_request(
+    document: _CoreDocument, frame: int, layer: int, color: _RGB, x: float, y: float,
+) -> tuple[str, tuple[_RGB, _RGB, bool] | None]:
+    """色置換の判定。("ok", (元の RGB, 置き換える RGB, 線の色か)) か
+    ("out_of_bounds"・"no_artwork"・"transparent"・"same_color", None)。"""
+def skewer_cells(document: _CoreDocument, layer: int) -> list[_Cell]:
+    """串刺し塗りで見るセル（露出元のコマ, レイヤー）。"""
+
+class _BucketDrag:
+    """なぞり塗り。begin で押した所を塗り、extend でなぞった先を塗る。"""
+
+    @staticmethod
+    def begin(
+        document: _CoreDocument, frame: int, layer: int, settings: dict[str, Any],
+        x: float, y: float, selection: bytes | None = None,
+    ) -> tuple[_BucketDrag, _DragStep] | None: ...
+    def extend(self, document: _CoreDocument, x: float, y: float) -> _DragStep: ...
+    def finish(self, document: _CoreDocument) -> tuple[int, int, _Rect, bytes] | None:
+        """(コマ, レイヤー, 塗った外接矩形, 押す前の画素) か None。"""
+
+class _SkewerFill:
+    """串刺し塗り。start のあと advance で追跡し、("ready", None) になったら apply。
+
+    操作の結果 _SkewerEvent は ("invalidated"・"ignored", None)、("show_pending", セル)、
+    ("failed", 理由)、("advanced", _SkewerStatus)。_SkewerStatus は ("pending", セル) か
+    ("ready", None)。
+    """
+
+    @staticmethod
+    def start(
+        document: _CoreDocument, frame: int, layer: int, settings: dict[str, Any],
+        x: float, y: float, selection: bytes | None = None,
+    ) -> tuple[str, _SkewerFill | None, str | None]:
+        """("ignored"・"no_artwork"・"failed"・"started", 串刺し塗りか None, 理由か None)。"""
+    def advance(self, document: _CoreDocument) -> _SkewerStatus: ...
+    def pending(self) -> _Cell | None: ...
+    def has_guess(self) -> bool: ...
+    def guide(self) -> tuple[bytes, tuple[int, int, int, int], bool] | None:
+        """指定待ちのコマに重ねる (マスク, RGBA, 推測か)。"""
+    def resume_click(
+        self, document: _CoreDocument, frame: int, x: float, y: float,
+    ) -> _SkewerEvent: ...
+    def accept_guess(self, document: _CoreDocument) -> _SkewerEvent: ...
+    def skip_frame(self, document: _CoreDocument) -> _SkewerEvent: ...
+    def skip_direction(self, document: _CoreDocument) -> _SkewerEvent: ...
+    def apply(self, document: _CoreDocument) -> tuple[str, _SkewerApplied | None]:
+        """("done", (塗ったセル数, 飛ばしたコマ数, 書き込んだ RGB, 元のコマ,
+        [(セル, 共有するセル, 矩形), ...])) か ("invalidated", None)。"""
