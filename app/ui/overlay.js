@@ -36,7 +36,7 @@ export class Overlay {
     });
     // 点線を流す（選択があるときだけ回す）。
     setInterval(() => {
-      if (toolStore.view?.selection) {
+      if (toolStore.view?.selection || toolStore.view?.transform) {
         this.dash = (this.dash + 1) % 8;
         this.requestDraw();
       }
@@ -46,6 +46,12 @@ export class Overlay {
 
   setPreview(preview) {
     this.preview = preview;
+    this.requestDraw();
+  }
+
+  /// 変形の今の形で描いた画素（{x, y, image}。null で消す）。
+  setTransformPreview(preview) {
+    this.transformPreview = preview;
     this.requestDraw();
   }
 
@@ -105,11 +111,20 @@ export class Overlay {
     ctx.clearRect(0, 0, w, h);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const selection = toolStore.view?.selection;
-    if (selection) {
+    const transform = toolStore.view?.transform;
+    // 変形の見た目（Qt：通常は不透明度 85%、クオリティは 100%）。点線・ハンドルより下に描く。
+    if (transform && this.transformPreview) {
+      const t = this.transformPreview;
+      this.drawImagePixels(ctx, dpr, t.image, t.x, t.y, transform.quality ? 1 : 0.85);
+    }
+    // 変形中は、選択の輪郭を今の形へ写して引く（transformed_selection_outline）。
+    const outlines = transform ? transform.outlines : selection?.outlines;
+    if (outlines?.length) {
       this.ants(ctx, () => {
-        for (const outline of selection.outlines) this.path(ctx, outline, outline.length >= 3);
+        for (const outline of outlines) this.path(ctx, outline, outline.length >= 3);
       });
     }
+    if (transform) this.drawTransform(ctx, transform);
     const p = this.preview;
     if (p?.kind === "lasso" && p.points.length > 1) {
       this.ants(ctx, () => this.path(ctx, p.points, false));
@@ -134,6 +149,63 @@ export class Overlay {
       ctx.stroke();
       ctx.restore();
     }
+  }
+
+  /// 変形の枠・メッシュの格子・回転のつまみ・ハンドル（Qt の paintEvent と同じ色と大きさ）。
+  drawTransform(ctx, t) {
+    const pts = t.points.map((p) => this.toScreen(p));
+    if (!pts.length) return;
+    ctx.save();
+    ctx.strokeStyle = "rgb(0,220,255)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    const seg = (a, b) => {
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+    };
+    let left;
+    let right;
+    if (t.mode === "mesh") {
+      const { cols, rows } = t;
+      if (pts.length === cols * rows) {
+        for (let gy = 0; gy < rows; gy++) for (let gx = 0; gx < cols - 1; gx++) seg(pts[gy * cols + gx], pts[gy * cols + gx + 1]);
+        for (let gx = 0; gx < cols; gx++) for (let gy = 0; gy < rows - 1; gy++) seg(pts[gy * cols + gx], pts[(gy + 1) * cols + gx]);
+      }
+      [left, right] = [t.points[0], t.points[cols - 1]];
+    } else if (pts.length === 4) {
+      for (let i = 0; i < 4; i++) seg(pts[i], pts[(i + 1) % 4]);
+      [left, right] = [t.points[0], t.points[1]];
+    }
+    ctx.stroke();
+    // 回転のつまみ（上辺の中点から外へ 36/表示倍率。transform_rotation_handle）。
+    if (left && right) {
+      const n = t.points.length;
+      const c = t.points.reduce((a, p) => [a[0] + p[0] / n, a[1] + p[1] / n], [0, 0]);
+      const mid = [(left[0] + right[0]) / 2, (left[1] + right[1]) / 2];
+      const dx = mid[0] - c[0];
+      const dy = mid[1] - c[1];
+      const length = Math.hypot(dx, dy) || 1;
+      const distance = 36 / Math.max(this.viewer.zoom, 0.01);
+      const handle = this.toScreen([mid[0] + (dx / length) * distance, mid[1] + (dy / length) * distance]);
+      const m = this.toScreen(mid);
+      ctx.beginPath();
+      ctx.moveTo(m.x, m.y);
+      ctx.lineTo(handle.x, handle.y);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(handle.x, handle.y, 6, 0, Math.PI * 2);
+      ctx.fillStyle = "rgb(255,220,70)";
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.fillStyle = "#fff";
+    for (const p of pts) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   /// 画像の座標から画面の座標への行列（ctx.setTransform の 6 つの値）。

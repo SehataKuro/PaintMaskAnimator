@@ -20,6 +20,8 @@ mod session;
 mod timeline;
 // ツール・ツールプロパティ・アクションのパネル（tools.rs）。
 mod tools;
+// 選択範囲の変形（transform.rs）。
+mod transform;
 // 【アプリの外枠】メニュー・環境設定・ショートカット・自動保存など（shell.rs ほか）。
 mod actions;
 mod autosave;
@@ -393,6 +395,9 @@ fn main() {
             tools::tool_line_preview,
             tools::tool_fill,
             tools::tool_transform,
+            // 選択範囲の変形（transform.rs）。
+            transform::transform_drag,
+            transform::transform_preview,
             tools::tool_dust_apply,
             tools::tool_eyedropper,
             tools::action_run,

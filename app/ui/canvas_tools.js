@@ -7,7 +7,7 @@
 // - ブラシの線は app.js（筆圧の経路）が描く。ここはブラシ以外のツールと、ブラシの
 //   Shift＋クリックの直線、Ctrl＋Alt のドラッグでのサイズ変更を受け持つ。
 // - ツールのキー（P・G など）と、選択範囲・描画色のショートカット。
-import { toolStore, selectTool, nextInGroup, groupOf, pickColor, holdKeys, refreshShortcuts } from "./tools.js";
+import { toolStore, el, openDialog, selectTool, nextInGroup, groupOf, pickColor, holdKeys, refreshShortcuts } from "./tools.js";
 import { toolFlags, notify, openPressureDialog } from "./tool_properties.js";
 // 塗りの操作（paint_ops.js）：バケツのなぞり塗り・串刺し塗り・色置換・線整え。
 import { bucketDown, bucketMove, bucketUp, skewerClick, replaceColor, dustApply } from "./paint_ops.js";
@@ -174,6 +174,96 @@ export function createCanvasTools({ canvas, viewer, overlay, applyRect }) {
     brushAnchor = state.end;
   }
 
+  // ---- 選択範囲の変形（Rust の transform.rs、計算は pma-core） ----
+  // ドラッグは1つずつ順に送る。動かしている途中の点は最後のものだけを送る。
+  let dragChain = Promise.resolve();
+  let dragMove = null;
+  function transformDrag(phase, p) {
+    const send = (ph, q) => invoke("transform_drag", { phase: ph, x: q[0], y: q[1], zoom: viewer.zoom });
+    if (phase === "move") {
+      const scheduled = dragMove !== null;
+      dragMove = p;
+      if (scheduled) return;
+    } else {
+      dragMove = null;
+    }
+    dragChain = dragChain.then(() => {
+      if (phase === "move") {
+        const q = dragMove;
+        dragMove = null;
+        return q ? send("move", q) : null;
+      }
+      return send(phase, p);
+    }).catch((e) => notify(String(e)));
+  }
+  // 今の形で描いた画素（確定と同じ画素）。形が変わるたびに1つずつ求める。
+  let transformKey = null;
+  let transformBusy = false;
+  let transformAgain = false;
+  async function refreshTransformPreview() {
+    if (transformBusy) {
+      transformAgain = true;
+      return;
+    }
+    transformBusy = true;
+    try {
+      do {
+        transformAgain = false;
+        const buffer = await invoke("transform_preview");
+        overlay.setTransformPreview(toolStore.view?.transform ? pixelsPreview(buffer) : null);
+      } while (transformAgain);
+    } catch (e) {
+      notify(String(e));
+    } finally {
+      transformBusy = false;
+    }
+  }
+  function transformChanged(view) {
+    const t = view?.transform;
+    const key = t ? JSON.stringify([t.mode, t.points, t.quality]) : null;
+    if (key === transformKey) return;
+    transformKey = key;
+    if (key) refreshTransformPreview();
+    else overlay.setTransformPreview(null);
+  }
+  async function transformCommand(kind) {
+    const message = await run("tool_transform", { kind });
+    if (typeof message === "string") notify(message);
+  }
+  // 取り消しのキー（変形の途中は形を戻す）で形が変わったら、ツールの状態を読み直す。
+  window.__TAURI__.event.listen("document-changed", async ({ payload }) => {
+    if (payload.source !== "history" || !toolStore.view?.transform) return;
+    try {
+      toolStore.receive(await invoke("tools_state"));
+    } catch {
+      // 作品を閉じたときなど。
+    }
+  });
+
+  /// メッシュの格子数（Qt の choose_transform_mesh_grid）。
+  function chooseMeshGrid() {
+    const s = settings();
+    const spin = (value) => el("input", { type: "number", min: 2, max: 12, step: 1, value, class: "pma-spin" });
+    const cols = spin(s.transform_mesh_x);
+    const rows = spin(s.transform_mesh_y);
+    const content = el("div", { class: "pma-form" },
+      el("label", { class: "pma-row" }, el("span", { text: "横の格子数" }), cols),
+      el("label", { class: "pma-row" }, el("span", { text: "縦の格子数" }), rows));
+    const clamp = (v) => Math.max(2, Math.min(12, Math.round(Number(v) || 2)));
+    openDialog("メッシュ格子数", content, [
+      { label: "キャンセル" },
+      {
+        label: "OK",
+        primary: true,
+        action: async () => {
+          const [c, r] = [clamp(cols.value), clamp(rows.value)];
+          await toolStore.set({ transform_mesh_x: c, transform_mesh_y: r });
+          if (!toolStore.view?.transform) notify(`次回のメッシュ変形を 横${c}×縦${r} 格子に設定しました。`);
+        },
+      },
+    ]);
+  }
+
   /// 1点を受け取る。ブラシの線として app.js に任せるときは false を返す。
   api.feed = (phase, device, x, y) => {
     if (!api.enabled || !settings()) return false;
@@ -190,6 +280,12 @@ export function createCanvasTools({ canvas, viewer, overlay, applyRect }) {
       if (t === "hand" || t === "zoom" || t === "rotate") {
         active = { kind: t, x, y, anchor: { x, y } };
         updateCursor();
+        return true;
+      }
+      // 選択範囲の変形中は、ハンドル・回転のつまみ・中のドラッグだけ（Qt の begin_transform_drag）。
+      if (toolStore.view?.transform) {
+        active = { kind: "transform" };
+        transformDrag("begin", p);
         return true;
       }
       if (t === "brush") {
@@ -238,7 +334,9 @@ export function createCanvasTools({ canvas, viewer, overlay, applyRect }) {
     }
     if (!active) return phase === "up" ? false : !!curve || t !== "brush";
     const a = active;
-    if (a.kind === "resize") {
+    if (a.kind === "transform") {
+      transformDrag(phase === "up" ? "end" : "move", p);
+    } else if (a.kind === "resize") {
       toolStore.set({ brush_size: Math.max(0.5, Math.min(400, Math.round((a.size + (x - a.x) * 0.1) * 2) / 2)) });
     } else if (a.kind === "hand") {
       viewer.panBy(x - a.x, y - a.y);
@@ -387,6 +485,12 @@ export function createCanvasTools({ canvas, viewer, overlay, applyRect }) {
     }
     if (spaceTap) spaceTap.interrupted = true;
     lastKey = { code: e.code, at: performance.now() };
+    // 変形中の Esc はキャンセル（Qt の keyPressEvent。Enter はメニューの「変形を確定」）。
+    if (e.key === "Escape" && toolStore.view?.transform && !curve) {
+      e.preventDefault();
+      transformCommand("cancel");
+      return;
+    }
     // 曲線の2段目：Enter で確定、Esc でやめる。
     if (curve && (e.key === "Enter" || e.key === "Escape")) {
       e.preventDefault();
@@ -460,16 +564,17 @@ export function createCanvasTools({ canvas, viewer, overlay, applyRect }) {
     a_brush_larger: () => brushStep(1),
     a_pressure: () => openPressureDialog(),
     a_mainline_repaint: () => run("action_run", { id: "main_line_repaint" }),
-    a_selection_transform: () => run("tool_transform", { kind: "free" }),
-    a_selection_scale: () => run("tool_transform", { kind: "scale" }),
-    a_selection_mesh: () => run("tool_transform", { kind: "mesh" }),
-    a_transform_rotate_left: () => run("tool_transform", { kind: "rotate_left" }),
-    a_transform_rotate_right: () => run("tool_transform", { kind: "rotate_right" }),
-    a_transform_cancel: () => run("tool_transform", { kind: "cancel" }),
+    a_selection_transform: () => transformCommand("free"),
+    a_selection_scale: () => transformCommand("scale"),
+    a_selection_mesh: () => transformCommand("mesh"),
+    a_transform_rotate_left: () => transformCommand("rotate_left"),
+    a_transform_rotate_right: () => transformCommand("rotate_right"),
+    a_transform_cancel: () => transformCommand("cancel"),
+    a_transform_mesh_grid: () => chooseMeshGrid(),
     a_transform_commit: () => {
-      // 曲線の2段目なら確定（Enter）。変形はまだ移していない（HOOK）。
+      // Enter：曲線の2段目なら曲線を確定、変形中なら変形を確定。
       if (curve) return commitLine(curve);
-      return run("tool_transform", { kind: "commit" });
+      return transformCommand("commit");
     },
     a_dust_apply: () => dustApply(null),
     a_bucket_include_sub: () => toolStore.set({ bucket_include_sub: !settings().bucket_include_sub }),
@@ -537,7 +642,8 @@ export function createCanvasTools({ canvas, viewer, overlay, applyRect }) {
     updateHold();
   });
 
-  toolStore.subscribe(() => {
+  toolStore.subscribe((view) => {
+    transformChanged(view);
     if (curve && effectiveTool() !== "line") {
       curve = null;
       clearPreview();

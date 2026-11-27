@@ -428,6 +428,8 @@ pub struct ToolState {
     pub config: Option<PathBuf>,
     /// 塗りの途中の状態（なぞり塗り・串刺し塗り・使用色の選択。paint_ops.rs）。
     pub paint: crate::paint_ops::PaintState,
+    /// 選択範囲の変形の途中（transform.rs）。
+    pub transform: Option<crate::transform::ActiveTransform>,
 }
 
 /// 画面へ渡す選択範囲。
@@ -450,6 +452,8 @@ pub struct View {
     /// 「選択範囲を解除」を押せるか（ツールに関係なく、選択があれば真。issue #110）。
     pub can_clear_selection: bool,
     pub pen_pressure: Pressure,
+    /// 選択範囲の変形の途中なら、その形（transform.rs）。
+    pub transform: Option<crate::transform::TransformView>,
 }
 
 impl ToolState {
@@ -479,6 +483,7 @@ impl ToolState {
             selection,
             can_clear_selection: self.selection.can_clear(),
             pen_pressure: self.settings.effective_pressure(),
+            transform: self.transform.as_ref().map(|t| t.view()),
         }
     }
 
@@ -1367,21 +1372,27 @@ pub fn replace_color(s: &mut Session, x: f64, y: f64) -> Result<Option<Rect>, St
     }
 }
 
-/// HOOK(transform)：選択範囲の変形（自由変形・拡大縮小・メッシュ変形・回転・反転・確定・
-/// キャンセル）。`kind` はボタンの名前（free / scale / mesh / rotate_left / rotate_right /
-/// commit / cancel）。
-pub fn transform(_s: &mut Session, kind: &str) -> Result<(), String> {
-    let name = match kind {
-        "free" => "自由変形",
-        "scale" => "拡大縮小",
-        "mesh" => "メッシュ変形",
-        "rotate_left" => "左へ90°回転",
-        "rotate_right" => "右へ90°回転",
-        "commit" => "変形を確定",
-        "cancel" => "変形をキャンセル",
-        _ => "変形",
-    };
-    Err(pending(name))
+/// 選択範囲の変形（transform.rs、計算は pma-core の tools::transform）。`kind` はボタンの
+/// 名前（free / scale / mesh / rotate_left / rotate_right / commit / cancel）。知らせを返す。
+pub fn transform(s: &mut Session, kind: &str) -> Result<Option<String>, String> {
+    use crate::transform as t;
+    match kind {
+        "free" | "scale" | "mesh" => return t::begin(s, kind).map(|o| o.message),
+        "rotate_left" => {
+            t::rotate(s, -90.0);
+        }
+        "rotate_right" => {
+            t::rotate(s, 90.0);
+        }
+        "commit" => {
+            t::commit(s)?;
+        }
+        "cancel" => {
+            t::cancel(s)?;
+        }
+        other => return Err(format!("知らない変形の操作：{other}")),
+    }
+    Ok(None)
 }
 
 /// ゴミ取り・塗り抜け・線周りのノイズ・線整えを適用（paint_ops.rs）。
@@ -1593,13 +1604,24 @@ pub fn install(app: &tauri::AppHandle) {
 
 /// ツールの状態を変える操作をし、`tools-changed` の事件で画面へ知らせる。
 /// 文書が変わったら `document-changed`（with_session）も送る。
-fn with_tools<T>(
+pub(crate) fn with_tools<T>(
     app: &tauri::AppHandle,
     save: bool,
     f: impl FnOnce(&mut Session) -> Result<T, String>,
 ) -> Result<T, String> {
+    use tauri::Manager;
     let mut view = None;
-    let out = crate::with_session(app, "canvas", |s| {
+    // 変形のあいだの操作は表示の画像ごと変わる（選択の中を消した絵・確定・取り消し）ので、
+    // 画面に読み直させる（source が canvas の知らせは画面が読み直さない）。
+    let transforming = app
+        .state::<Shared>()
+        .lock()
+        .unwrap()
+        .tools
+        .transform
+        .is_some();
+    let source = if transforming { "transform" } else { "canvas" };
+    let out = crate::with_session(app, source, |s| {
         let out = f(s);
         if save {
             if let Err(e) = s.tools.save() {
@@ -1628,7 +1650,18 @@ pub fn tools_state(session: State<Shared>) -> View {
 #[tauri::command]
 pub fn tools_set(app: tauri::AppHandle, patch: Value) -> Result<View, String> {
     with_tools(&app, true, |s| {
+        let before = s.tools.settings.clone();
         s.tools.apply_patch(&patch)?;
+        // 変形中に格子数・実線の太さを変えたら、今の変形にも効かせる（Qt と同じ）。
+        let after = &s.tools.settings;
+        let (cols, rows) = (after.transform_mesh_x, after.transform_mesh_y);
+        let threshold = after.transform_line_width;
+        if (before.transform_mesh_x, before.transform_mesh_y) != (cols, rows) {
+            crate::transform::set_mesh_grid(s, cols as usize, rows as usize);
+        }
+        if before.transform_line_width != threshold {
+            crate::transform::set_line_threshold(s, threshold);
+        }
         Ok(s.tools.view())
     })
 }
@@ -1713,12 +1746,10 @@ pub fn tool_fill(app: tauri::AppHandle, tool: String, x: f64, y: f64) -> Result<
     })
 }
 
+/// 変形のボタン・メニュー（[`transform`]）。知らせ（状態の帯に出す）を返す。
 #[tauri::command]
-pub fn tool_transform(app: tauri::AppHandle, kind: String) -> Result<View, String> {
-    with_tools(&app, false, |s| {
-        transform(s, &kind)?;
-        Ok(s.tools.view())
-    })
+pub fn tool_transform(app: tauri::AppHandle, kind: String) -> Result<Option<String>, String> {
+    with_tools(&app, false, |s| transform(s, &kind))
 }
 
 #[tauri::command]
@@ -1774,7 +1805,11 @@ pub fn select(s: &mut Session, args: &SelectArgs) -> Result<bool, String> {
         "used_area" => select_used_area(s),
         "all" => Ok(select_all(s)),
         "invert" => Ok(select_invert(s)),
-        "clear" => Ok(s.tools.selection.clear().changed),
+        "clear" => {
+            // 変形中の解除は変形を取り消してから（Qt の _clear_selection_state）。
+            crate::transform::cancel(s)?;
+            Ok(s.tools.selection.clear().changed)
+        }
         other => Err(format!("知らない選択の操作：{other}")),
     }
 }
@@ -2331,9 +2366,11 @@ mod tests {
     #[test]
     fn hooks_report_pending_without_changing_the_document() {
         let mut s = big();
-        assert!(transform(&mut s, "mesh")
-            .unwrap_err()
-            .contains("メッシュ変形"));
+        assert!(transform(&mut s, "nonsense").is_err());
+        // 変形を始めてやめても履歴は積まない。
+        if transform(&mut s, "mesh").is_ok() {
+            transform(&mut s, "cancel").unwrap();
+        }
         assert!(run_action(&mut s, "main_line_repaint")
             .unwrap_err()
             .contains("MainLineRepaint"));
