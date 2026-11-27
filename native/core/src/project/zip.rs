@@ -132,7 +132,7 @@ impl<R: Read + Seek> ZipReader<R> {
 }
 
 /// Python の localtime から渡す DOS 日時。奇数秒は zipfile と同じく切り捨てる。
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ZipTime(pub u16, pub u8, pub u8, pub u8, pub u8, pub u8);
 
 /// zipfile.writestr と同じ順で項目を書く。時刻・ファイル操作は呼び出し側が担当する。

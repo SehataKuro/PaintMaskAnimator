@@ -27,6 +27,7 @@ mod map_colors;
 mod mask_transform;
 mod palette;
 mod palette_labels;
+mod project_archive;
 mod project_payload;
 mod project_zip;
 mod reference_check;
@@ -190,6 +191,8 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<project_zip::ZipReader>()?;
     module.add_class::<project_zip::ZipWriter>()?;
     module.add_function(wrap_pyfunction!(project_payload::decode_v2_plan, module)?)?;
+    module.add_function(wrap_pyfunction!(project_archive::_open_project, module)?)?;
+    module.add_function(wrap_pyfunction!(project_archive::_save_project, module)?)?;
     module.add_function(wrap_pyfunction!(
         document_compare::_compare_document_v2,
         module

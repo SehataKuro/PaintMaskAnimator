@@ -69,6 +69,18 @@ fn artwork_slot(bank: bool, first: u64, second: i64) -> PyResult<ArtworkSlot> {
     })
 }
 
+impl PyCoreDocument {
+    /// コアの文書を窓口にする（.pman を開く入口で使う）。
+    pub(crate) fn wrap(document: Document) -> Self {
+        Self(document)
+    }
+
+    /// 窓口のコアの文書。
+    pub(crate) fn inner(&self) -> &Document {
+        &self.0
+    }
+}
+
 #[pymethods]
 impl PyCoreDocument {
     /// v2 の JSON と復号済み画像から文書を作る。画素バッファは共有する。
