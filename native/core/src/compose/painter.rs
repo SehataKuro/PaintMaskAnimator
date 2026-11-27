@@ -463,7 +463,7 @@ impl Transform {
     }
 
     /// `qt_scaleForTransform` の戻り値（回転と等倍の拡大だけか）。
-    fn no_shear(&self) -> bool {
+    pub(super) fn no_shear(&self) -> bool {
         let m = &self.m;
         match self.kind() {
             TxType::None | TxType::Translate => true,
@@ -507,12 +507,31 @@ impl RectF {
         }
     }
 
-    fn right(&self) -> f64 {
+    pub(super) fn right(&self) -> f64 {
         self.x + self.width
     }
 
-    fn bottom(&self) -> f64 {
+    pub(super) fn bottom(&self) -> f64 {
         self.y + self.height
+    }
+
+    /// 中心（`QRectF::center`）。
+    pub fn center(&self) -> (f64, f64) {
+        // Qt と同じ式（(x + x + w) / 2）で丸めの違いを出さない。
+        (
+            (self.x + self.x + self.width) / 2.0,
+            (self.y + self.y + self.height) / 2.0,
+        )
+    }
+
+    /// 四辺をずらした矩形（`QRectF::adjusted`）。
+    pub fn adjusted(&self, x1: f64, y1: f64, x2: f64, y2: f64) -> Self {
+        Self::new(
+            self.x + x1,
+            self.y + y1,
+            self.width + x2 - x1,
+            self.height + y2 - y1,
+        )
     }
 }
 
@@ -547,8 +566,13 @@ impl<'a> Device<'a> {
         }
     }
 
+    /// 画面の大きさ（`deviceRect`）。
+    pub(super) fn size(&self) -> (i64, i64) {
+        (self.width, self.height)
+    }
+
     #[inline]
-    fn put(&mut self, x: i64, y: i64, src: Premul, alpha: u8) {
+    pub(super) fn put(&mut self, x: i64, y: i64, src: Premul, alpha: u8) {
         let (lx, ly) = (x - self.origin.0, y - self.origin.1);
         if lx < 0 || ly < 0 || lx >= self.image.width() as i64 || ly >= self.image.height() as i64 {
             return;

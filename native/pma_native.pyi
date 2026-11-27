@@ -828,3 +828,51 @@ class TransformSession:
     def apply_to(self, original: RgbaImage) -> RgbaImage: ...
     def commit(self) -> tuple[RgbaImage, _Rect, bytes, bytes]: ...
     def cancel(self) -> RgbaImage: ...
+
+# オニオンのずらし・回転・拡大を掛けた描画と外周の枠（compose::onion）、ドラッグで
+# 合わせる操作とクリックしたコマの判定（tools::onion）。オニオンの設定は
+# compose_onion_draws と同じ辞書（前後の辞書に shift_x・shift_y・rotation・scale）。
+# 表示は (パン x, パン y, 回転, 表示倍率)。オニオンの値は
+# (前の (ずらし x, ずらし y, 回転, 拡大 %), 後ろの同じ値, TU／TB の拡大率)。
+
+_View = tuple[float, float, float, float]
+_RectF = tuple[float, float, float, float]
+_OnionSideValues = tuple[float, float, float, float]
+_OnionValues = tuple[_OnionSideValues, _OnionSideValues, float]
+
+def onion_draw(
+    target: bytes, width: int, height: int, base: list[float], work_rect: _RectF,
+    side: dict[str, Any], zoom: float, image: bytes, image_width: int, image_height: int,
+    opacity: float,
+) -> bytes: ...
+def onion_draw_outline(
+    target: bytes, width: int, height: int, base: list[float], work_rect: _RectF,
+    canvas_rect: _RectF, side: dict[str, Any], zoom: float,
+) -> bytes: ...
+def onion_source_position(
+    point: _Point, side: dict[str, Any], size: tuple[int, int],
+) -> _Point: ...
+def onion_frame_at_point(
+    document: _CoreDocument, point: _Point, current: int, active: int, onion_skin: bool,
+    onion: dict[str, Any],
+) -> tuple[int, int] | None: ...
+def onion_set_view_rotation(
+    value: float, view: _View, onion: dict[str, Any],
+) -> tuple[bool, _View, _OnionValues]: ...
+
+class OnionInteraction:
+    @staticmethod
+    def shift(direction: int, axis: str = "x") -> OnionInteraction: ...
+    @staticmethod
+    def canvas() -> OnionInteraction: ...
+    def dragging(self) -> bool: ...
+    def operation(self) -> str | None: ...
+    def begin_drag(
+        self, widget: _Point, rotate: bool, view: _View, onion: dict[str, Any],
+    ) -> None: ...
+    def update_drag(
+        self, widget: _Point, view: _View, onion: dict[str, Any],
+    ) -> tuple[_View, _OnionValues, bool, bool]: ...
+    def cancel(
+        self, restore: bool, view: _View, onion: dict[str, Any],
+    ) -> tuple[bool, _View, _OnionValues]: ...

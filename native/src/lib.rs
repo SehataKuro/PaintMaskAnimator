@@ -30,6 +30,7 @@ mod image;
 mod image_ops;
 mod map_colors;
 mod mask_transform;
+mod onion;
 mod palette;
 mod palette_labels;
 mod project_archive;
@@ -209,6 +210,7 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<project_zip::ZipWriter>()?;
     selection::register(module)?;
     transform::register(module)?;
+    onion::register(module)?;
     module.add_function(wrap_pyfunction!(project_payload::decode_v2_plan, module)?)?;
     module.add_function(wrap_pyfunction!(project_archive::_open_project, module)?)?;
     module.add_function(wrap_pyfunction!(project_archive::_save_project, module)?)?;
