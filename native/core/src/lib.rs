@@ -14,6 +14,8 @@ pub mod fill;
 pub mod flow_color;
 /// ストレート RGBA8888 の画像と矩形操作。
 pub mod image;
+/// 線・色のメニューの操作を 1 枚の層の画素にかける。
+pub mod image_ops;
 pub mod line_flow;
 pub mod line_noise;
 pub mod local_shift;

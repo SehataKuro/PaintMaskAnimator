@@ -671,3 +671,65 @@ class _SkewerFill:
     def apply(self, document: _CoreDocument) -> tuple[str, _SkewerApplied | None]:
         """("done", (塗ったセル数, 飛ばしたコマ数, 書き込んだ RGB, 元のコマ,
         [(セル, 共有するセル, 矩形), ...])) か ("invalidated", None)。"""
+
+
+# --- 線・色のメニューの操作（pma_core::image_ops） -------------------------------
+# 編集の結果は (書き戻す画像, 変わった範囲 (x, y, w, h) | None, 変えた画素数)。
+_Rgb = tuple[int, int, int]
+_Edit = tuple[RgbaImage, _Rect | None, int]
+_Contour = list[tuple[int, int]]
+
+def image_ops_remove_dust(
+    image: RgbaImage, mode: str, max_area: int, selected: list[_Rgb] | None = None,
+) -> _Edit | None:
+    """ゴミ取りツール（mode は "despeckle" / "fill_holes" / "line_noise"）。"""
+def image_ops_tidy_lines(
+    image: RgbaImage, colours: list[_Rgb], diagonal_mode: str | None = "add",
+    region: bytes | None = None, region_size: tuple[int, int] | None = None,
+) -> tuple[_Edit | None, int, int]:
+    """線整え。(結果, 足した画素数, 消した画素数)。"""
+def image_ops_tidy_preview(
+    image: RgbaImage, colours: list[_Rgb], diagonal_mode: str | None = "add",
+    region: bytes | None = None, region_size: tuple[int, int] | None = None,
+    scale: int = 8, margin: int = 6, limit: int = 480,
+) -> tuple[RgbaImage, _Rect, int, int, int] | None:
+    """線整えのプレビュー。(画像, 切り出し, 拡大率, 足す数, 消す数)。"""
+def image_ops_tidy_line_colours(image: RgbaImage, selected: list[_Rgb]) -> list[_Rgb]: ...
+def image_ops_replace_colors(
+    image: RgbaImage, mapping: list[tuple[_Rgb, _Rgb]],
+    selection: bytes | None = None, selection_size: tuple[int, int] | None = None,
+) -> _Edit | None:
+    """使用色の置換・削除・統合（置換先が白なら透明）。"""
+def image_ops_delete_mapping(selected: list[_Rgb]) -> list[tuple[_Rgb, _Rgb]]: ...
+def image_ops_merge_mapping(parent: _Rgb, selected: list[_Rgb]) -> list[tuple[_Rgb, _Rgb]] | None: ...
+def image_ops_aligned_mapping(source: RgbaImage, target: RgbaImage) -> list[tuple[_Rgb, _Rgb]] | None: ...
+def hsv_shifted_color(rgb: _Rgb, hue: int, saturation: int, value: int) -> _Rgb: ...
+def hsv_shifted_mapping(rgbs_in: list[_Rgb], hue: int, saturation: int, value: int) -> list[tuple[_Rgb, _Rgb]]: ...
+def image_ops_mask_contours(mask: bytes, width: int, height: int) -> list[_Contour]: ...
+def image_ops_color_selection(image: RgbaImage, rgb: _Rgb) -> tuple[bytes, list[_Contour], int, _Rect] | None:
+    """(色のマスク, 輪郭, いちばん大きい輪郭の添字, 囲む矩形)。"""
+def image_ops_contains_rgb(image: RgbaImage, rgb: _Rgb) -> bool: ...
+def image_ops_split_line(image: RgbaImage, selected: list[_Rgb]) -> tuple[RgbaImage, RgbaImage, bool, bool]:
+    """MainLineRepaint の 1 枚分。(LINE, Paint, 線があるか, 塗りが残ったか)。"""
+def image_ops_count_antialias(rgba: bytes, width: int, height: int) -> int: ...
+def image_ops_remove_antialias(rgba: bytes, width: int, height: int) -> tuple[bytes, int]: ...
+def image_ops_remove_isolated_specks(rgba: bytes, width: int, height: int, max_pixels: int) -> tuple[bytes, int]: ...
+def image_ops_soft_blur(rgba: bytes, width: int, height: int, sigma: float) -> bytes: ...
+def image_ops_rgb_hsv_features(colours: list[_Rgb]) -> bytes:
+    """単精度 4 つずつの特徴量（colors.rgb_hsv_features と同じ値）。"""
+def image_ops_priority_palette_colors(sample: list[_Rgb], maximum: int) -> list[_Rgb]: ...
+def image_ops_hue_cluster_palette(sample: list[_Rgb], color_count: int) -> list[_Rgb]: ...
+def image_ops_build_palette(
+    images: list[RgbaImage], color_count: int, alpha_threshold: int = 128, max_samples: int = 262144,
+    opaque_background: bool = False, background: _Rgb | None = None, line: bool = False,
+) -> list[_Rgb]: ...
+def image_ops_binarize(
+    image: RgbaImage, mode: str, palette: list[_Rgb] | None = None, blur: float = 0.0,
+    despeckle_pixels: int = 0, alpha_threshold: int = 128, opaque_background: bool = False,
+    background: _Rgb | None = None, tone_curve_points: list[tuple[float, float]] | None = None,
+    flatten_paper: bool = False,
+) -> _Edit | None:
+    """2 値化の 1 セル分（mode は "surface" / "line" / "digital"）。flatten_paper は未移植で ValueError。"""
+def image_ops_border_background_transparent(
+    rgba: bytes, width: int, height: int, tolerance: int = 24,
+) -> bytes | None: ...
