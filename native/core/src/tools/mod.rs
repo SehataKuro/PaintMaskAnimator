@@ -8,8 +8,12 @@
 pub mod bucket;
 /// 選択レイヤーのセルへまとめて操作をかける（色置換・ゴミ取り・線整え）。
 pub mod scope;
+/// オニオンスキンをドラッグで合わせる操作と、クリックした所のオニオンのコマ。
+pub mod onion;
 /// 串刺し塗り（バケツの全コマ一括適用）。
 pub mod skewer;
+/// 変形ツール（拡大縮小・自由変形・メッシュ・回転・反転）。
+pub mod transform;
 
 #[cfg(test)]
 mod tests;

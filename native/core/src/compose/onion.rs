@@ -2,14 +2,17 @@
 //!
 //! Python の `canvas_onion_render.OnionRenderMixin` に対応する。どのコマを何の濃さで
 //! 出すか（[`onion_draws`]）と、色を付けたオニオンの画像（[`tinted_onion_image`]）を返す。
-//! ずらし・回転・拡大を掛けて画面へ描くのは画面側（GPU）の仕事で、
-//! [`draw_onions`] は変形のない場合だけを CPU で描く。
+//! ずらし・回転・拡大を掛けて画面へ描くときの行列は [`onion_matrix`]、その行列で
+//! Qt と同じ画素に描くのが [`draw_onion`] と外周の [`draw_onion_outline`]。
+//! [`draw_onions`] は変形のない場合だけを文書の大きさで描く。
 
 use crate::display::{tint_onion_of, Rgb};
 use crate::document::model::Document;
 use crate::Error;
 
+use super::cosmetic::draw_rect_outline;
 use super::layers::{display_pixels, full_rect, Sources};
+use super::painter::{draw_image, Device, RectF, Transform};
 use super::pixel::{premultiply, PremulImage};
 use super::scale::draw_scaled;
 use super::{active_layer, composite_with, Background, DisplayOptions};
@@ -249,6 +252,59 @@ pub fn onion_target_size(
         limit.min(scaled.max(1) as usize)
     };
     (grow(display.0, source.0), grow(display.1, source.1))
+}
+
+/// オニオンを描く行列（`_draw_onion_range` の `painter.translate`・`rotate`・`scale`）。
+///
+/// `base` は画面の行列（キャンバスの回転と TU／TB の拡大）、`center` は作業領域の
+/// 中心（`work_rect.center()`）、`zoom` は表示倍率。ずらしは表示倍率を掛けて画面の
+/// 画素にする。
+pub fn onion_matrix(
+    base: &Transform,
+    center: (f64, f64),
+    side: &OnionSide,
+    zoom: f64,
+) -> Transform {
+    let (shift_x, shift_y, rotation, scale) = side.transform();
+    let mut matrix = *base;
+    matrix.translate(center.0 + shift_x * zoom, center.1 + shift_y * zoom);
+    matrix.rotate(rotation);
+    matrix.scale(scale, scale);
+    matrix.translate(-center.0, -center.1);
+    matrix
+}
+
+/// 色を付けたオニオンの画像 `onion` を、作業領域 `work_rect` へ変形して重ねる
+/// （`painter.setOpacity(draw_opacity)`・`painter.drawImage(work_rect, onion)`）。
+/// 反転は `onion` に掛けておく。
+pub fn draw_onion(
+    device: &mut Device,
+    base: &Transform,
+    work_rect: RectF,
+    side: &OnionSide,
+    zoom: f64,
+    onion: &PremulImage,
+    opacity: f64,
+) {
+    let matrix = onion_matrix(base, work_rect.center(), side, zoom);
+    let source = RectF::new(0.0, 0.0, onion.width() as f64, onion.height() as f64);
+    draw_image(device, &matrix, work_rect, onion, source, opacity);
+}
+
+/// オニオンの外周の枠（キャンバスの矩形を半画素広げた所）を、濃さとは別に
+/// 不透明な 1px 線で描く。描くオニオンが 1 枚でもあるときに呼ぶ。
+pub fn draw_onion_outline(
+    device: &mut Device,
+    base: &Transform,
+    work_rect: RectF,
+    canvas_rect: RectF,
+    side: &OnionSide,
+    zoom: f64,
+) {
+    let matrix = onion_matrix(base, work_rect.center(), side, zoom);
+    let outline = canvas_rect.adjusted(-0.5, -0.5, 0.5, 0.5);
+    let (r, g, b) = side.color;
+    draw_rect_outline(device, &matrix, outline, [r, g, b, 255]);
 }
 
 /// コマ `frame` の絵に色を付けたオニオンの画像（`_tinted_onion_image`）。

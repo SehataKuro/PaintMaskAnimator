@@ -5,6 +5,7 @@
 //! 演算は Qt と同じ順にしてあり、出力を `fill_path`（巻き数）で塗ると Qt の画素になる。
 
 use super::arc::{curves_for_arc, KAPPA};
+use super::bezier::Bezier;
 use super::qt::{fuzzy_compare, points_equal, Line, Point};
 use super::raster::{Path, PathElement};
 
@@ -137,38 +138,67 @@ impl Stroker {
 
     /// `qt_stroke_side`。`closed` の部分経路なら、始点の角を最後につなぐ。
     /// 戻り値は（閉じたか, 最初の線）。
-    fn stroke_side(&mut self, points: &[Point], cap_first: bool) -> (bool, Option<Line>) {
+    fn stroke_side(
+        &mut self,
+        start: Point,
+        segments: &[Segment],
+        cap_first: bool,
+    ) -> (bool, Option<Line>) {
         let offset = self.width / 2.0;
-        let Some(&start) = points.first() else {
-            return (false, None);
-        };
         let mut previous = start;
         let mut first = true;
         let mut start_tangent = None;
-        for &point in &points[1..] {
-            let mut line = Line {
-                p1: previous,
-                p2: point,
-            };
-            if points_equal(line.p1, line.p2) {
-                continue;
-            }
-            let mut normal = line.normal_vector();
-            normal.set_length(offset);
-            line.translate(normal.dx(), normal.dy());
-            if first {
-                if cap_first {
-                    self.join_points(previous, &line, Join::RoundCap);
-                } else {
-                    self.emit_move_to(line.p1);
+        for segment in segments {
+            match *segment {
+                Segment::Line(point) => {
+                    let mut line = Line {
+                        p1: previous,
+                        p2: point,
+                    };
+                    if points_equal(line.p1, line.p2) {
+                        continue;
+                    }
+                    let mut normal = line.normal_vector();
+                    normal.set_length(offset);
+                    line.translate(normal.dx(), normal.dy());
+                    if first {
+                        if cap_first {
+                            self.join_points(previous, &line, Join::RoundCap);
+                        } else {
+                            self.emit_move_to(line.p1);
+                        }
+                        start_tangent = Some(line);
+                        first = false;
+                    } else {
+                        self.join_points(previous, &line, Join::RoundJoin);
+                    }
+                    self.emit_line_to(line.p2);
+                    previous = point;
                 }
-                start_tangent = Some(line);
-                first = false;
-            } else {
-                self.join_points(previous, &line, Join::RoundJoin);
+                Segment::Cubic(c1, c2, end) => {
+                    let bezier = Bezier::new(previous, c1, c2, end);
+                    let curves = bezier.shifted(MAX_OFFSET, offset, curve_threshold(self.width));
+                    if let Some(head) = curves.first() {
+                        let mut tangent = bezier.start_tangent();
+                        tangent.translate(head.p1.x - bezier.p1.x, head.p1.y - bezier.p1.y);
+                        if first {
+                            if cap_first {
+                                self.join_points(previous, &tangent, Join::RoundCap);
+                            } else {
+                                self.emit_move_to(head.p1);
+                            }
+                            start_tangent = Some(tangent);
+                            first = false;
+                        } else {
+                            self.join_points(previous, &tangent, Join::RoundJoin);
+                        }
+                        for curve in &curves {
+                            self.emit_cubic_to(curve.p2, curve.p3, curve.p4);
+                        }
+                    }
+                    previous = end;
+                }
             }
-            self.emit_line_to(line.p2);
-            previous = point;
         }
         if points_equal(start, previous) {
             if let Some(tangent) = start_tangent {
@@ -180,26 +210,101 @@ impl Stroker {
     }
 }
 
-/// 直線だけの部分経路 `points` を、幅 `width` の丸い端・丸い角の線として塗る輪郭を返す。
-/// 始点と終点が（あいまいに）等しい部分経路は閉じた形として扱う。
-pub fn stroke_polyline(points: &[Point], width: f64) -> Path {
-    let mut stroker = Stroker {
+/// 部分経路の 1 区間（直線か 3 次曲線の終点まで）。
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Segment {
+    Line(Point),
+    Cubic(Point, Point, Point),
+}
+
+/// `qt_stroke_side` の `MAX_OFFSET`。
+const MAX_OFFSET: usize = 16;
+/// 曲線をずらすときの許容の誤差。Qt 6.11 の `QStroker::setStrokeWidth` は
+/// `qBound(0.00025, 1 / width, 0.25)` にする（6.9 のソースは 0.25 の固定）。
+/// `QBezier::shifted` は `float` で受け取る。
+fn curve_threshold(width: f64) -> f32 {
+    (1.0 / width).clamp(0.00025, 0.25) as f32
+}
+
+/// 逆向きにたどる区間（`QSubpathBackwardIterator`）。曲線は制御点を入れ替える。
+fn reversed(start: Point, segments: &[Segment]) -> (Point, Vec<Segment>) {
+    let mut points = vec![start];
+    for segment in segments {
+        points.push(match *segment {
+            Segment::Line(point) | Segment::Cubic(_, _, point) => point,
+        });
+    }
+    let mut out = Vec::with_capacity(segments.len());
+    for (index, segment) in segments.iter().enumerate().rev() {
+        let begin = points[index];
+        out.push(match *segment {
+            Segment::Line(_) => Segment::Line(begin),
+            Segment::Cubic(c1, c2, _) => Segment::Cubic(c2, c1, begin),
+        });
+    }
+    (*points.last().unwrap_or(&start), out)
+}
+
+fn stroke_subpath(stroker: &mut Stroker, start: Point, segments: &[Segment]) {
+    let (forward_closed, forward_tangent) = stroker.stroke_side(start, segments, false);
+    let (back_start, back) = reversed(start, segments);
+    let (backward_closed, _) = stroker.stroke_side(back_start, &back, !forward_closed);
+    if !backward_closed {
+        if let Some(tangent) = forward_tangent {
+            stroker.join_points(start, &tangent, Join::RoundCap);
+        }
+    }
+}
+
+fn new_stroker(width: f64) -> Stroker {
+    Stroker {
         width,
         back1: Point::new(0.0, 0.0),
         back2: Point::new(0.0, 0.0),
         output: Path::new(),
-    };
+    }
+}
+
+/// 直線だけの部分経路 `points` を、幅 `width` の丸い端・丸い角の線として塗る輪郭を返す。
+/// 始点と終点が（あいまいに）等しい部分経路は閉じた形として扱う。
+pub fn stroke_polyline(points: &[Point], width: f64) -> Path {
+    let mut stroker = new_stroker(width);
     if points.len() < 2 {
         return stroker.output;
     }
-    let (forward_closed, forward_tangent) = stroker.stroke_side(points, false);
-    let reversed: Vec<Point> = points.iter().rev().copied().collect();
-    let (backward_closed, _) = stroker.stroke_side(&reversed, !forward_closed);
-    if !backward_closed {
-        if let Some(tangent) = forward_tangent {
-            stroker.join_points(points[0], &tangent, Join::RoundCap);
+    let segments: Vec<Segment> = points[1..]
+        .iter()
+        .map(|&point| Segment::Line(point))
+        .collect();
+    stroke_subpath(&mut stroker, points[0], &segments);
+    stroker.output
+}
+
+/// 経路 `path`（直線と 3 次曲線）を、幅 `width` の丸い端・丸い角の線として塗る輪郭
+/// （`QStroker`、曲線は `QBezier::shifted` で半幅ずらす）。巻き数で塗る。
+pub fn stroke_outline(path: &Path, width: f64) -> Path {
+    let mut stroker = new_stroker(width);
+    let mut start: Option<Point> = None;
+    let mut segments: Vec<Segment> = Vec::new();
+    let flush = |stroker: &mut Stroker, start: Option<Point>, segments: &mut Vec<Segment>| {
+        if let Some(start) = start {
+            if !segments.is_empty() {
+                stroke_subpath(stroker, start, segments);
+            }
+        }
+        segments.clear();
+    };
+    for element in path.elements() {
+        match *element {
+            PathElement::MoveTo(point) => {
+                flush(&mut stroker, start, &mut segments);
+                start = Some(point);
+            }
+            PathElement::LineTo(point) => segments.push(Segment::Line(point)),
+            PathElement::CubicTo(c1, c2, end) => segments.push(Segment::Cubic(c1, c2, end)),
         }
     }
+    flush(&mut stroker, start, &mut segments);
     stroker.output
 }
 
