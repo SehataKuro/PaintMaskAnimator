@@ -484,3 +484,53 @@ def compose_scale_for_display(
     mode: str = "nearest", flip_horizontal: bool = False, flip_vertical: bool = False,
     straight: bool = False,
 ) -> _Rendered: ...
+
+
+# ブラシ・図形の線（pma_core::brush）。Qt の経路との突き合わせに使う。
+# 経路の要素は [0, x, y]（moveTo）・[1, x, y]（lineTo）・[2, x1, y1, x2, y2, x, y]（cubicTo）・[3]（閉じる）。
+_Rect = tuple[int, int, int, int]
+
+class BrushStroke:
+    """押してから離すまでのブラシ・消しゴムのストローク。"""
+
+    @staticmethod
+    def begin(
+        layer: RgbaImage, x: float, y: float, pressure: float | None = None, time_ms: float = 0.0, *,
+        size: float, color: tuple[int, int, int], eraser: bool = False,
+        pressure_enabled: bool = False, pressure_min: float = 0.1, pressure_max: float = 1.0,
+        pressure_points: list[tuple[float, float]] = ..., pressure_exponent: float = 1.0,
+        stabilizer: int = 0, zoom: float = 1.0, alpha_lock: bool = False,
+        mask_colors: list[tuple[int, int, int]] | None = None, mask_background: bool = False,
+        selection_polygon: list[tuple[float, float]] | None = None, selection_mask: bytes | None = None,
+    ) -> tuple[BrushStroke, list[_Rect]]:
+        """押した点を描き、(ストローク, 画素が変わりうる矩形) を返す。"""
+    def move_to(self, x: float, y: float, pressure: float | None = None, time_ms: float = 0.0) -> list[_Rect]: ...
+    def tick(self) -> list[_Rect]: ...
+    def advance_time(self, now_ms: float) -> list[_Rect]: ...
+    def image(self) -> RgbaImage: ...
+    @property
+    def dirty_rect(self) -> _Rect | None: ...
+    def finish(
+        self, x: float | None = None, y: float | None = None, pressure: float | None = None,
+        time_ms: float = 0.0,
+    ) -> tuple[RgbaImage, tuple[_Rect, bytes, bytes] | None, list[tuple[int, int, int]]]:
+        """(画像, (矩形, 前の画素, 後の画素) | None, 塗った色)。"""
+
+def brush_segment_mask(
+    start: tuple[float, float], end: tuple[float, float], pen_width: float, width: int, height: int,
+) -> bytes:
+    """paint_segment の画素（width × height の 0/1）。"""
+
+def brush_stamp_mask(center: tuple[float, float], width: float) -> tuple[int, int, int, bytes]:
+    """stamp_mask の (x, y, 一辺, 0/1 の並び)。"""
+
+def fill_polygon_mask(polygon: list[tuple[float, float]], width: int, height: int, winding: bool = False) -> bytes: ...
+def fill_path_mask(path: list[list[float]], width: int, height: int, winding: bool = False) -> bytes: ...
+def stroke_path_mask(path: list[list[float]], pen_width: float, width: int, height: int) -> bytes | None: ...
+def ellipse_path(rect: tuple[float, float, float, float]) -> list[list[float]]: ...
+def pressure_bezier_at(points: list[tuple[float, float]], value: float) -> float: ...
+def pressure_bezier_segments(points: list[tuple[float, float]]) -> list[list[tuple[float, float]]]: ...
+def stabilizer_segments(
+    strength: int, zoom: float, events: list[tuple[str, float, float, float | None]],
+) -> list[tuple[float, float, float, float, float]]:
+    """("press"|"move"|"tick"|"release", x, y, 筆圧 | None) を描く線分 (x1, y1, x2, y2, 筆圧) にする。"""

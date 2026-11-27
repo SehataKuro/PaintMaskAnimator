@@ -11,6 +11,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 
 mod auto_paint;
+mod brush;
 mod clip;
 mod color_stats;
 mod colors;
@@ -187,6 +188,16 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(py_encode_png, module)?)?;
     module.add_class::<clip::ClipAnimationReader>()?;
     module.add_class::<image::PyRgbaImage>()?;
+    module.add_class::<brush::PyBrushStroke>()?;
+    module.add_function(wrap_pyfunction!(brush::brush_segment_mask, module)?)?;
+    module.add_function(wrap_pyfunction!(brush::brush_stamp_mask, module)?)?;
+    module.add_function(wrap_pyfunction!(brush::fill_polygon_mask, module)?)?;
+    module.add_function(wrap_pyfunction!(brush::fill_path_mask, module)?)?;
+    module.add_function(wrap_pyfunction!(brush::stroke_path_mask, module)?)?;
+    module.add_function(wrap_pyfunction!(brush::ellipse_path, module)?)?;
+    module.add_function(wrap_pyfunction!(brush::pressure_bezier_at, module)?)?;
+    module.add_function(wrap_pyfunction!(brush::pressure_bezier_segments, module)?)?;
+    module.add_function(wrap_pyfunction!(brush::stabilizer_segments, module)?)?;
     module.add_class::<document::PyCoreDocument>()?;
     module.add_class::<document::PyCellImage>()?;
     module.add_class::<project_zip::ZipReader>()?;
