@@ -1,0 +1,31 @@
+[package]
+name = "pma-app"
+version = "0.9.0-dev"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+description = "PaintMaskAnimator の画面（Tauri）。0.9.0 で Qt の画面と置き換える。"
+
+# native/（pyo3）とは別に組む。0.9.0 で Python を外すときに、こちらが本体になる。
+[workspace]
+
+[build-dependencies]
+tauri-build = { version = "2.5", features = [] }
+
+[dependencies]
+tauri = { version = "2.12", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# 筆圧：WKWebView はペンの筆圧を JavaScript に渡さないので、NSEvent を直接読む。
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSGeometry"] }
+objc2-app-kit = { version = "0.3", features = ["NSEvent", "NSApplication", "NSResponder", "NSWindow", "NSView", "NSGraphics", "NSScreen"] }
+objc2-core-foundation = { version = "0.3", features = ["CFCGTypes"] }
+objc2-core-graphics = { version = "0.3", features = ["CGEvent", "CGEventTypes", "CGRemoteOperation", "libc"] }
+block2 = "0.6"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

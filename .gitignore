@@ -24,3 +24,7 @@ pyrightconfig.json
 .ua/tmp/
 .ua/.trash-*/
 .ua/diff-overlay.json
+
+# Tauri の画面（app/）のビルドと生成物
+app/target/
+app/gen/
