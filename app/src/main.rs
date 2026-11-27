@@ -1,10 +1,14 @@
 //! PaintMaskAnimator の画面（Tauri）。0.9.0 で Qt の画面と置き換える。
 //!
-//! 画面は ui/ の HTML と JavaScript。計算とデータは `pma-core`（native/core）を使う予定。
-//! 今あるのは骨組みと、ペンの筆圧を画面へ送る部品（pen.rs）だけ。
+//! 画面は ui/ の HTML と JavaScript。計算とデータは `pma-core`（native/core）を使う。
+//! 開いている作品（文書と履歴）は `Session` に一つだけ持ち、キャンバスもタイムラインも
+//! それを読み書きする。文書が変わったら `document-changed` の事件で画面へ知らせる
+//! （[`with_session`]）。
 //!
 //! - `cargo run --release`：普通に開く
 //! - `PMA_PEN_SELFTEST=1 cargo run --release`：筆圧の経路を自分で確かめて終わる（macOS）
+//! - `PMA_PLAYBACK_SELFTEST=コマ数 cargo run --release`：再生してキャンバスの fps を測り、
+//!   報告して終わる（`PMA_TIMELINE_SAMPLE`・`PMA_TIMELINE_SAMPLE_SIZE` で見本の文書を開ける）
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod history;
@@ -16,7 +20,27 @@ mod timeline;
 
 use session::{pack_rect, Point, Session, Shared, StrokeTool, Summary};
 use tauri::ipc::Response;
-use tauri::State;
+use tauri::{Emitter, Manager, State};
+
+/// Session を変える操作をし、文書が変わったら `document-changed` の事件で画面へ知らせる。
+/// 知らせは錠を外してから送る（受けた画面がすぐ読みに来ても待たせない）。
+pub(crate) fn with_session<T>(
+    app: &tauri::AppHandle,
+    source: &'static str,
+    f: impl FnOnce(&mut Session) -> T,
+) -> T {
+    let state = app.state::<Shared>();
+    let (out, changed) = {
+        let mut s = state.lock().unwrap();
+        let before = s.mark();
+        let out = f(&mut s);
+        (out, s.changes_since(before, source))
+    };
+    if let Some(changed) = changed {
+        let _ = app.emit("document-changed", changed);
+    }
+    out
+}
 
 /// 画面が知りたい起動の情報。
 #[derive(serde::Serialize)]
@@ -24,6 +48,8 @@ struct Startup {
     /// macOS では筆圧を `pen` の事件で送る（PointerEvent の筆圧は使えない）。
     native_pen: bool,
     pen_selftest: bool,
+    /// 再生の自己確認で数えるコマ数（PMA_PLAYBACK_SELFTEST）。
+    playback_selftest: Option<usize>,
     /// 起動のときに開く .pman（コマンドラインの最初の引数）。
     open: Option<String>,
 }
@@ -33,6 +59,9 @@ fn startup() -> Startup {
     Startup {
         native_pen: cfg!(target_os = "macos"),
         pen_selftest: std::env::var_os("PMA_PEN_SELFTEST").is_some(),
+        playback_selftest: std::env::var("PMA_PLAYBACK_SELFTEST")
+            .ok()
+            .and_then(|v| v.parse().ok()),
         open: std::env::args().nth(1),
     }
 }
@@ -86,10 +115,11 @@ fn summary(session: State<Shared>) -> Summary {
 
 /// .pman を開く。
 #[tauri::command]
-fn open_project(session: State<Shared>, path: String) -> Result<Summary, String> {
-    let mut s = session.lock().unwrap();
-    s.open(std::path::Path::new(&path))?;
-    Ok(s.summary())
+fn open_project(app: tauri::AppHandle, path: String) -> Result<Summary, String> {
+    with_session(&app, "open", |s| {
+        s.open(std::path::Path::new(&path))?;
+        Ok(s.summary())
+    })
 }
 
 /// .pman に保存する。path が無ければ開いたときの場所に上書きする。
@@ -100,26 +130,26 @@ fn save_project(session: State<Shared>, path: Option<String>) -> Result<String, 
     Ok(saved.display().to_string())
 }
 
-/// レイヤーを1つ足す（Qt 版の「レイヤーを追加」と同じく pma-core の add_track）。
+/// レイヤーを1つ足す（Qt 版の「レイヤーを追加」と同じく pma-core の add_track。
+/// 履歴の名前は Qt の LayerRemoveUndo と同じ「レイヤー構成」）。
 #[tauri::command]
-fn add_layer(session: State<Shared>) -> Result<Summary, String> {
-    let mut s = session.lock().unwrap();
-    s.edit("レイヤーを追加", |doc| {
-        doc.add_track().map(|_| ()).map_err(|e| e.to_string())
-    })?;
-    Ok(s.summary())
+fn add_layer(app: tauri::AppHandle) -> Result<Summary, String> {
+    with_session(&app, "timeline", |s| {
+        s.timeline_apply(timeline::Edit::AddLayer)?;
+        Ok(s.summary())
+    })
 }
 
-/// 取り消す。取り消せたら true。
+/// 取り消す（キャンバスもタイムラインも同じ履歴）。取り消せたら true。
 #[tauri::command]
-fn undo(session: State<Shared>) -> Result<bool, String> {
-    session.lock().unwrap().undo()
+fn undo(app: tauri::AppHandle) -> Result<bool, String> {
+    with_session(&app, "history", |s| s.undo())
 }
 
 /// やり直す。やり直せたら true。
 #[tauri::command]
-fn redo(session: State<Shared>) -> Result<bool, String> {
-    session.lock().unwrap().redo()
+fn redo(app: tauri::AppHandle) -> Result<bool, String> {
+    with_session(&app, "history", |s| s.redo())
 }
 
 /// 履歴の一覧（ヒストリーパネル用）。
@@ -130,10 +160,11 @@ fn history(session: State<Shared>) -> history::Listing {
 
 /// 今のコマを変える。
 #[tauri::command]
-fn set_frame(session: State<Shared>, frame: usize) -> Result<Summary, String> {
-    let mut s = session.lock().unwrap();
-    s.set_frame(frame)?;
-    Ok(s.summary())
+fn set_frame(app: tauri::AppHandle, frame: usize) -> Result<Summary, String> {
+    with_session(&app, "frame", |s| {
+        s.set_frame(frame)?;
+        Ok(s.summary())
+    })
 }
 
 /// 線を始める（画像の座標）。変わった範囲の画素を返す。
@@ -156,12 +187,14 @@ fn stroke_move(session: State<Shared>, points: Vec<Point>) -> Result<Response, S
     Ok(Response::new(pack_rect(&s.display, rect)))
 }
 
-/// 線を終える。変わった範囲の画素を返す。
+/// 線を終える。変わった範囲の画素を返す（キャンバスはこの画素で足りるので、
+/// 知らせのもとは `canvas`。タイムラインはサムネイルを読み直す）。
 #[tauri::command]
-fn stroke_end(session: State<Shared>, point: Option<Point>) -> Result<Response, String> {
-    let mut s = session.lock().unwrap();
-    let rect = s.stroke_end(point)?;
-    Ok(Response::new(pack_rect(&s.display, rect)))
+fn stroke_end(app: tauri::AppHandle, point: Option<Point>) -> Result<Response, String> {
+    with_session(&app, "canvas", |s| {
+        let rect = s.stroke_end(point)?;
+        Ok(Response::new(pack_rect(&s.display, rect)))
+    })
 }
 
 /// 別の窓の大きさと題名を変える（別の窓の題名は dockview が主の窓の題名を写すので、パネルの名前にする）。
@@ -173,7 +206,6 @@ fn shape_window(
     height: f64,
     title: String,
 ) -> Result<(), String> {
-    use tauri::Manager;
     let window = app.get_webview_window(&label).ok_or("窓が無い")?;
     window
         .set_size(tauri::LogicalSize::new(width, height))
@@ -184,7 +216,6 @@ fn shape_window(
 /// 別の窓を閉じる（dockview がパネルをもとの場所に戻す）。
 #[tauri::command]
 fn close_window(app: tauri::AppHandle, label: String) -> Result<(), String> {
-    use tauri::Manager;
     let window = app.get_webview_window(&label).ok_or("窓が無い")?;
     window.close().map_err(|e| e.to_string())
 }
@@ -229,10 +260,15 @@ fn open_main_window(app: &tauri::App) -> tauri::Result<()> {
 }
 
 fn main() {
+    let mut session = Session::empty(1920, 1080);
+    // 確かめ用の見本の文書（PMA_TIMELINE_SAMPLE）。.pman を渡したときは、そちらを開く。
+    if std::env::args().nth(1).is_none() {
+        if let Err(e) = timeline::open_sample_from_env(&mut session) {
+            eprintln!("見本の文書を開けなかった：{e}");
+        }
+    }
     tauri::Builder::default()
-        .manage::<Shared>(std::sync::Mutex::new(Session::empty(1920, 1080)))
-        // タイムラインの状態（文書は Option<Document>。timeline.rs）。
-        .manage::<timeline::SharedTimeline>(timeline::shared())
+        .manage::<Shared>(std::sync::Mutex::new(session))
         .setup(|app| {
             open_main_window(app)?;
             pen::install(app.handle());
@@ -260,15 +296,12 @@ fn main() {
             quit,
             // タイムライン（timeline.rs）。
             timeline::timeline_view,
-            timeline::timeline_debug_load_sample,
             timeline::timeline_debug_options,
             timeline::timeline_select,
             timeline::timeline_select_rect,
             timeline::timeline_set_frame,
             timeline::timeline_navigate,
             timeline::timeline_edit,
-            timeline::timeline_undo,
-            timeline::timeline_redo,
             timeline::timeline_set_mode,
             timeline::timeline_set_fps,
             timeline::timeline_set_range,

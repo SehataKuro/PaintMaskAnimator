@@ -27,6 +27,18 @@ cd app && cargo run --release
 cd app && PMA_PEN_SELFTEST=1 cargo run --release
 ```
 
+開いている作品（文書と履歴）は Rust の `Session`（[`src/session.rs`](src/session.rs)）に一つだけあり、
+キャンバスもタイムラインもそれを読み書きします。文書が変わると Rust が `document-changed` の事件を
+送り、キャンバスとタイムラインはそれを受けて表示を合わせます。取り消しはアプリ全体で一つです。
+
+確かめ用の見本の文書（.pman を渡さないとき）と、再生の速さの自己確認。再生して、キャンバスが
+何 fps で今のコマを表示できたかを報告して終わります。
+
+```bash
+cd app && PMA_TIMELINE_SAMPLE=48 PMA_TIMELINE_SAMPLE_SIZE=1920x1080 \
+  PMA_PLAYBACK_SELFTEST=96 cargo run --release
+```
+
 ## まだ確かめていないこと
 
 - 実機のペンタブレット（Wacom など）で、筆圧・傾き・消しゴム側が取れるか（macOS・Windows）
