@@ -328,6 +328,62 @@ pub fn import_image_file(
     to_document_image(&placed).map_err(decode_error)
 }
 
+/// 置く前の変換のやり方（`convert_import_image` の引数）。
+#[derive(Clone, Debug)]
+pub enum Conversion {
+    /// 変換せず読み込む（下書きレイヤー）。
+    Draft,
+    /// 2値化の設定なし：JPEG は外周の背景、それ以外は純白を透明にする。
+    Plain,
+    /// 2値化の設定をかける（`reduce_image_with_settings`。デジタル TP のアンチエイリアス除去も）。
+    Reduce(crate::image_ops::reduce::ReduceSettings),
+}
+
+/// 読み込んだ1枚に [`Conversion`] をかける（`convert_import_image`）。
+pub fn convert_with(
+    image: &PremulImage,
+    is_jpeg: bool,
+    conversion: &Conversion,
+) -> Result<PremulImage, Error> {
+    match conversion {
+        Conversion::Draft => convert_import_image(image, is_jpeg, true),
+        Conversion::Plain => convert_import_image(image, is_jpeg, false),
+        Conversion::Reduce(settings) => {
+            // Python は QImage（乗算済み）を qimage_rgba_array でストレートへ戻してから計算し、
+            // 結果を乗算済みの QImage に戻す。
+            let rgba = qt_unpremultiply(image);
+            let out = crate::image_ops::reduce::reduce_rgba(
+                &rgba,
+                image.width(),
+                image.height(),
+                settings,
+            )?;
+            to_premultiplied(image.width(), image.height(), &out)
+        }
+    }
+}
+
+/// 画像ファイル1枚を読み、`conversion` をかけてキャンバスの中央に置いた文書の絵にする
+/// （`import_image_sequence` の1枚分）。
+pub fn import_image_file_with(
+    data: &[u8],
+    path: &str,
+    canvas_width: usize,
+    canvas_height: usize,
+    conversion: &Conversion,
+) -> Result<RgbaImage, ReadError> {
+    let image = read_image(data)?;
+    let converted = convert_with(&image, is_jpeg_path(path), conversion).map_err(decode_error)?;
+    let placed = place_centered(canvas_width, canvas_height, &converted).map_err(decode_error)?;
+    to_document_image(&placed).map_err(decode_error)
+}
+
+/// 画像を Qt が計算に使うストレート RGBA（`qimage_rgba_array`）で読む。
+pub fn read_straight(data: &[u8]) -> Result<(usize, usize, Vec<u8>), ReadError> {
+    let image = read_image(data)?;
+    Ok((image.width(), image.height(), qt_unpremultiply(&image)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

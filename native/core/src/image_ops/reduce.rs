@@ -26,7 +26,7 @@ pub struct ReduceSettings {
     pub mode: ExtractionMode,
     /// 共通パレット。`None` ならパレットへ寄せない。
     pub palette: Option<Vec<[u8; 3]>>,
-    /// 紙の地色をそろえるか（#51）。純 Rust には未移植で、真ならエラーを返す。
+    /// 紙の地色をそろえるか（#51）。
     pub flatten_paper: bool,
     /// ぼかしの半径（0 で無し）。
     pub blur: f64,
@@ -126,9 +126,11 @@ pub fn reduce_rgba(
         pixels = make_white_transparent(&pixels, width);
     } else {
         if settings.flatten_paper {
-            return Err(Error::Unsupported(
-                "紙の地色をそろえる処理（scan_paper）は純 Rust に未移植です".into(),
-            ));
+            // スキャンした紙の地色とムラを白へそろえてから2値化する（#51）。
+            pixels = roundtrip(
+                super::scan_paper::flatten_paper(&pixels, width, height),
+                width,
+            );
         }
         if settings.blur > 0.0 {
             pixels = roundtrip(
@@ -284,7 +286,7 @@ mod tests {
     }
 
     #[test]
-    fn identity_settings_change_nothing_and_paper_is_unsupported() {
+    fn identity_settings_change_nothing_and_paper_is_white() {
         let source = image(2, 1, &[[1, 2, 3, 255], [4, 5, 6, 255]]);
         assert!(binarize(&source, &settings(ExtractionMode::Surface))
             .unwrap()
@@ -293,7 +295,8 @@ mod tests {
             flatten_paper: true,
             ..settings(ExtractionMode::Surface)
         };
-        assert!(binarize(&source, &paper).is_err());
+        // 暗い絵だけのブロックは紙が見えないので変えない。
+        assert!(binarize(&source, &paper).unwrap().is_none());
     }
 
     #[test]
