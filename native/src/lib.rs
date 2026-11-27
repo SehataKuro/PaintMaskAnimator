@@ -11,6 +11,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 
 mod auto_paint;
+mod auto_plan;
 mod brush;
 mod bucket_tools;
 mod clip;
@@ -36,6 +37,7 @@ mod project_archive;
 mod project_payload;
 mod project_zip;
 mod reference_check;
+mod reference_scan;
 mod selection;
 mod tiled_color;
 mod timeline;
@@ -278,6 +280,11 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
         module
     )?)?;
     module.add_function(wrap_pyfunction!(bucket_tools::bucket_fill_at, module)?)?;
+    module.add_function(wrap_pyfunction!(
+        reference_scan::reference_check_layer,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(auto_plan::auto_paint_layer, module)?)?;
     module.add_function(wrap_pyfunction!(
         bucket_tools::bucket_reference_pixels,
         module

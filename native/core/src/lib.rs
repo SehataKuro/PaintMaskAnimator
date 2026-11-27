@@ -2,6 +2,8 @@
 //! 規約は issue #96 §2。
 pub mod alpha_runs;
 pub mod auto_paint;
+/// 自動塗り（見本から前後のセルへ塗り進める）。
+pub mod auto_plan;
 pub mod brush;
 pub mod color_stats;
 pub mod colors;
@@ -29,6 +31,8 @@ pub mod palette;
 pub mod palette_labels;
 pub mod project;
 pub mod reference_check;
+/// 見本との違い・塗り間違いのチェック。
+pub mod reference_scan;
 pub mod regions;
 /// 画素の選択範囲と、その中の編集。
 pub mod selection;
