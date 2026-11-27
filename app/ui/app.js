@@ -8,12 +8,23 @@
 // 線の点は画像の座標にして1フレーム分ずつ Rust へ送り、変わった範囲の画素を受け取って
 // テクスチャへ書き戻す。
 import { Viewer } from "./viewer.js";
+import { createLayout } from "./layout.js";
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
-const canvas = document.getElementById("canvas");
 const statusLine = document.getElementById("status");
+
+// キャンバスのパネル。WebGL の canvas と、表示の切り替えボタン。
+const canvasPanel = document.createElement("div");
+canvasPanel.className = "canvas-panel";
+const canvas = document.createElement("canvas");
+canvasPanel.appendChild(canvas);
+const viewButtons = document.createElement("div");
+viewButtons.className = "view-buttons";
+viewButtons.innerHTML = '<button id="fit" type="button">全体を表示</button><button id="actual" type="button">100%</button>';
+canvasPanel.appendChild(viewButtons);
+createLayout(document.getElementById("dock"), { canvas: () => canvasPanel });
 const viewer = new Viewer(canvas);
 
 // 描いた線の点（自己確認で調べる）。{x, y, pressure, device}（x, y は画面の座標）
@@ -162,7 +173,15 @@ function useViewControls() {
     const r = canvas.getBoundingClientRect();
     viewer.zoomAt(1 / viewer.zoom, r.width / 2, r.height / 2);
   });
-  new ResizeObserver(() => viewer.requestDraw()).observe(canvas);
+  let fitted = false;
+  new ResizeObserver(() => {
+    // 配置が決まって大きさが出たところで、一度だけ全体を表示する。
+    if (!fitted && canvas.getBoundingClientRect().width > 0) {
+      fitted = true;
+      viewer.fit();
+    }
+    viewer.requestDraw();
+  }).observe(canvas);
 }
 
 // 筆圧の自己確認：Rust がペンの形の事件を窓へ渡し、線が筆圧どおりに届いたかを調べる。

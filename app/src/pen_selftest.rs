@@ -58,9 +58,9 @@ pub fn step(_app: &tauri::AppHandle, n: usize) -> Option<bool> {
 /// マウスの線の m 手目（1 から）：(種類, 窓の中の割合の位置)。押す・3回動かす・離す。
 pub fn mouse_plan(m: usize) -> Option<(Kind, f64, f64)> {
     match m {
-        1 => Some((Kind::Down, 0.3, 0.7)),
-        2..=4 => Some((Kind::Drag, 0.3 + 0.1 * (m - 1) as f64, 0.7)),
-        5 => Some((Kind::Up, 0.6, 0.7)),
+        1 => Some((Kind::Down, 0.3, 0.4)),
+        2..=4 => Some((Kind::Drag, 0.3 + 0.1 * (m - 1) as f64, 0.4)),
+        5 => Some((Kind::Up, 0.6, 0.4)),
         _ => None,
     }
 }

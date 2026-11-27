@@ -80,6 +80,31 @@ fn stroke(session: State<Shared>, points: Vec<Point>, begin: bool) -> Response {
     Response::new(pack_rect(&s.canvas, rect))
 }
 
+/// 別の窓の大きさと題名を変える（別の窓の題名は dockview が主の窓の題名を写すので、パネルの名前にする）。
+#[tauri::command]
+fn shape_window(
+    app: tauri::AppHandle,
+    label: String,
+    width: f64,
+    height: f64,
+    title: String,
+) -> Result<(), String> {
+    use tauri::Manager;
+    let window = app.get_webview_window(&label).ok_or("窓が無い")?;
+    window
+        .set_size(tauri::LogicalSize::new(width, height))
+        .map_err(|e| e.to_string())?;
+    window.set_title(&title).map_err(|e| e.to_string())
+}
+
+/// 別の窓を閉じる（dockview がパネルをもとの場所に戻す）。
+#[tauri::command]
+fn close_window(app: tauri::AppHandle, label: String) -> Result<(), String> {
+    use tauri::Manager;
+    let window = app.get_webview_window(&label).ok_or("窓が無い")?;
+    window.close().map_err(|e| e.to_string())
+}
+
 /// 画面からの報告を標準出力へ出す（自己確認の結果）。
 #[tauri::command]
 fn report(line: String) {
@@ -91,10 +116,39 @@ fn quit(app: tauri::AppHandle, code: i32) {
     app.exit(code);
 }
 
+/// 主の窓を開く。パネルを別の窓に出すとき（dockview の window.open）は、同じ設定の
+/// WebView を持つ窓として開く。同じ設定でないと、開いた側の JavaScript から中身を動かせない。
+fn open_main_window(app: &tauri::App) -> tauri::Result<()> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let handle = app.handle().clone();
+    let count = AtomicUsize::new(0);
+    tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
+        .title("PaintMaskAnimator")
+        .inner_size(1440.0, 900.0)
+        .on_new_window(move |url, features| {
+            let n = count.fetch_add(1, Ordering::SeqCst) + 1;
+            match tauri::WebviewWindowBuilder::new(
+                &handle,
+                format!("popout-{n}"),
+                tauri::WebviewUrl::External(url),
+            )
+            .window_features(features)
+            .title("PaintMaskAnimator")
+            .build()
+            {
+                Ok(window) => tauri::webview::NewWindowResponse::Create { window },
+                Err(_) => tauri::webview::NewWindowResponse::Deny,
+            }
+        })
+        .build()?;
+    Ok(())
+}
+
 fn main() {
     tauri::Builder::default()
         .manage::<Shared>(std::sync::Mutex::new(Session::new(1920, 1080)))
         .setup(|app| {
+            open_main_window(app)?;
             pen::install(app.handle());
             Ok(())
         })
@@ -104,6 +158,8 @@ fn main() {
             canvas_size,
             read_canvas,
             stroke,
+            shape_window,
+            close_window,
             report,
             quit
         ])
