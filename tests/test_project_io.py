@@ -970,7 +970,10 @@ def test_rust_zip_writer_failure_cleanup(qapp, tmp_path, monkeypatch):
         _write_v2(path, _metadata(), [make_frame()])
     assert path.read_bytes() == b"original"
     assert not path.with_suffix(".pman.tmp").exists()
-    with pytest.raises(IsADirectoryError):
+    # フォルダを書き込み用に開くと、Windows では IsADirectoryError ではなく
+    # PermissionError（os error 5）になる。
+    folder_error = PermissionError if os.name == "nt" else IsADirectoryError
+    with pytest.raises(folder_error):
         project_io._create_project_zip(tmp_path)
 
 
