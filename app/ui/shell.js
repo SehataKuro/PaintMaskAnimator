@@ -188,9 +188,10 @@ export async function initShell({ invoke, listen, hooks, startup }) {
     });
     if (!values) return;
     try {
-      await invoke("project_new", values);
+      const created = await invoke("project_new", values);
       await afterOpen(null);
-      if (values.paper) status(tr("この機能はまだ移していません：{name}", { name: tr("レイアウト用紙") }));
+      // 読み込み（imports.rs）：レイアウト用紙を入れられなかったときの知らせ。
+      if (created?.warning) status(tr(created.warning));
     } catch (e) {
       await message(tr("新規作成"), String(e));
     }

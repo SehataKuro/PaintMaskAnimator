@@ -3,4 +3,5 @@
 //! ファイルには触れない。読み込んだバイト列から画素と文書を作る。
 
 pub mod image;
+pub mod sequence;
 pub mod tga;

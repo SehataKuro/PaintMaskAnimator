@@ -12,6 +12,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod history;
+// 読み込み（imports.rs）：画像・フォルダー・PSD・CLIP・線画の初期状態・レイアウト用紙。
+mod imports;
 mod paint_ops;
 mod pen;
 mod pen_selftest;
@@ -337,6 +339,8 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage::<Shared>(std::sync::Mutex::new(session))
+        // 読み込み（imports.rs）の途中の状態。
+        .manage::<imports::ImportsShared>(Default::default())
         .setup(move |app| {
             setup_shell(app, sample)?;
             open_main_window(app)?;
@@ -413,6 +417,16 @@ fn main() {
             paint_ops::paint_reference_check,
             paint_ops::paint_job_cancel,
             paint_ops::paint_show_finding,
+            // 読み込み（imports.rs）。
+            imports::import_pick,
+            imports::import_set_material,
+            imports::import_inspect,
+            imports::import_reduce_preview,
+            imports::import_cancel,
+            imports::import_scan_antialias,
+            imports::import_images,
+            imports::import_initial_pending,
+            imports::import_keep_initial,
             // 【アプリの外枠】（shell.rs）。
             shell::shell_init,
             shell::shell_menu_state,

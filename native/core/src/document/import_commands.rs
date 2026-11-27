@@ -27,6 +27,8 @@ pub struct ImportedTrack {
     pub images: Vec<RgbaImage>,
     /// 読み込んだファイル（「元のファイルから再変換」が使う、`track.import_sources`）。
     pub sources: Option<Vec<String>>,
+    /// 原画の印を付けるか（「原画を読み込む」、`mark_layer_as_genga`）。
+    pub genga: bool,
 }
 
 impl ImportedTrack {
@@ -39,6 +41,7 @@ impl ImportedTrack {
             opacity: 1.0,
             images,
             sources: None,
+            genga: false,
         }
     }
 }
@@ -124,7 +127,7 @@ impl Document {
                         image,
                         initial_image: None,
                         cell_name: None,
-                        is_genga: false,
+                        is_genga: imported.genga,
                     },
                 );
                 let slot = &mut prepared.positions[start_frame + offset];
@@ -198,6 +201,58 @@ impl Document {
         changes.push(Change::Selection { layer_index: layer });
         *self = edited;
         Ok(changes)
+    }
+}
+
+impl Document {
+    /// 置いてある絵のうち、色塗り前の初期状態をまだ持たない絵の今の絵を初期状態にする
+    /// （`InitialStateController.keep_cells`・`keep(confirm=False)`）。`layers` が None なら
+    /// 全レイヤー。同じ絵（番号）は1回。初期状態にした数を返す。
+    pub fn keep_initial_images(&mut self, layers: Option<&[usize]>) -> usize {
+        let mut kept = 0;
+        let order = self.track_order.clone();
+        for (index, tid) in order.iter().enumerate() {
+            if layers.is_some_and(|l| !l.contains(&index)) {
+                continue;
+            }
+            let mut numbers = std::collections::BTreeSet::new();
+            for fid in &self.frame_order {
+                let Some(position) = self.sheet.get(fid).and_then(|r| r.positions.get(tid)) else {
+                    continue;
+                };
+                if let Reference::Number(number) = position.reference {
+                    numbers.insert(number);
+                } else if position.compatibility.unnumbered_content {
+                    let row = std::sync::Arc::make_mut(self.sheet.get_mut(fid).unwrap());
+                    if let Some(cell) = row
+                        .positions
+                        .get_mut(tid)
+                        .and_then(|p| p.compatibility.local.as_mut())
+                    {
+                        if cell.initial_image.is_none() {
+                            cell.initial_image = Some(cell.image.clone());
+                            kept += 1;
+                        }
+                    }
+                }
+            }
+            if let Some(track) = self.tracks.get_mut(tid) {
+                for number in numbers {
+                    if let Some(cell) = track.cells.get_mut(&number) {
+                        if cell.initial_image.is_none() {
+                            cell.initial_image = Some(cell.image.clone());
+                            kept += 1;
+                        }
+                    }
+                }
+            }
+        }
+        kept
+    }
+
+    /// 置いてある絵のうち、色塗り前の初期状態をまだ持たない絵の数。
+    pub fn cells_without_initial(&self, layers: Option<&[usize]>) -> usize {
+        self.clone().keep_initial_images(layers)
     }
 }
 
@@ -317,6 +372,9 @@ mod tests {
         assert!(matches!(refs[1], Reference::Number(n) if n.get() == 1));
         assert!(matches!(refs[3], Reference::Number(n) if n.get() == 3));
         assert_eq!(doc.selection(), (doc.frame_order()[1], tid));
+        assert_eq!(doc.cells_without_initial(Some(&[1])), 3);
+        assert_eq!(doc.keep_initial_images(Some(&[1])), 3);
+        assert_eq!(doc.keep_initial_images(None), 0);
     }
 
     #[test]

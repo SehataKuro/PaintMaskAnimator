@@ -124,6 +124,8 @@ pub struct ProjectState {
     pub suffix: String,
     pub app_name: String,
     pub summary: Summary,
+    /// 読み込み（imports.rs）：新規作成でレイアウト用紙を入れられなかったときの知らせ。
+    pub warning: Option<String>,
 }
 
 fn project_state_locked(session: &crate::session::Session, shell: &Shell) -> ProjectState {
@@ -138,6 +140,7 @@ fn project_state_locked(session: &crate::session::Session, shell: &Shell) -> Pro
         suffix,
         app_name: display_name(),
         summary,
+        warning: None,
     }
 }
 
@@ -402,7 +405,7 @@ fn after_install(app: &AppHandle, path: Option<&Path>) {
     }
 }
 
-/// 新規作成（Qt の new_doc）。レイアウト用紙の id は覚えるだけ（用紙を入れるのはまだ）。
+/// 新規作成（Qt の new_doc）。選んだレイアウト用紙を一番下の下書きレイヤーに入れる。
 #[tauri::command]
 pub fn project_new(
     app: AppHandle,
@@ -412,8 +415,17 @@ pub fn project_new(
 ) -> Result<ProjectState, String> {
     let (low, high) = prefs::CANVAS_SIZE_RANGE;
     let clamp = |v: usize| (v as i64).clamp(low, high) as usize;
-    with_session(&app, "open", |s| {
-        s.new_document(clamp(width), clamp(height))
+    // 読み込み（imports.rs）：選んだレイアウト用紙を一番下の下書きレイヤーに入れる。
+    let paper_path = paper
+        .as_deref()
+        .map(|id| crate::imports::paper_path(&app, id));
+    let paper_warning = with_session(&app, "open", |s| {
+        s.new_document(clamp(width), clamp(height))?;
+        Ok::<_, String>(match &paper_path {
+            Some(Some(path)) => crate::imports::insert_layout_paper(s, path).err(),
+            Some(None) => Some("レイアウト用紙の画像を読み込めませんでした。".into()),
+            None => None,
+        })
     })?;
     after_install(&app, None);
     {
@@ -424,7 +436,9 @@ pub fn project_new(
             paper.map_or(Value::Null, Value::String),
         );
     }
-    Ok(project_state(app.state(), app.state()))
+    let mut state = project_state(app.state(), app.state());
+    state.warning = paper_warning;
+    Ok(state)
 }
 
 /// .pman を開く（Qt の ProjectIOController.open）。最近使ったファイルに入れる。

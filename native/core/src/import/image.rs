@@ -166,28 +166,7 @@ pub fn make_border_background_transparent(
 ) -> Result<PremulImage, Error> {
     let (width, height) = (image.width(), image.height());
     let rgba = qt_unpremultiply(image);
-    // color_ops.detect_opaque_border_background：半透明を含む画像は対象外。
-    if rgba.chunks_exact(4).any(|p| p[3] < 250) {
-        return Ok(image.clone());
-    }
-    let rgb = |x: usize, y: usize| -> [u8; 3] {
-        let i = (y * width + x) * 4;
-        [rgba[i], rgba[i + 1], rgba[i + 2]]
-    };
-    let mut border = Vec::new();
-    for y in [0, height - 1] {
-        for x in 0..width {
-            border.extend_from_slice(&rgb(x, y));
-        }
-    }
-    if height > 2 {
-        for x in [0, width - 1] {
-            for y in 1..height - 1 {
-                border.extend_from_slice(&rgb(x, y));
-            }
-        }
-    }
-    let Some(background) = border_background(&border)? else {
+    let Some(background) = detect_opaque_border_background(&rgba, width, height)? else {
         return Ok(image.clone());
     };
     let limit = tolerance * tolerance * 3;
@@ -246,6 +225,36 @@ pub fn make_border_background_transparent(
         }
     }
     to_premultiplied(width, height, &changed)
+}
+
+/// 外周につながる不透明な明色背景（`color_ops.detect_opaque_border_background`）。
+/// 半透明・透明を含む画像や、背景と見なせる色が無ければ None。
+pub fn detect_opaque_border_background(
+    rgba: &[u8],
+    width: usize,
+    height: usize,
+) -> Result<Option<[u8; 3]>, Error> {
+    if width == 0 || height == 0 || rgba.chunks_exact(4).any(|p| p[3] < 250) {
+        return Ok(None);
+    }
+    let rgb = |x: usize, y: usize| -> [u8; 3] {
+        let i = (y * width + x) * 4;
+        [rgba[i], rgba[i + 1], rgba[i + 2]]
+    };
+    let mut border = Vec::new();
+    for y in [0, height - 1] {
+        for x in 0..width {
+            border.extend_from_slice(&rgb(x, y));
+        }
+    }
+    if height > 2 {
+        for x in [0, width - 1] {
+            for y in 1..height - 1 {
+                border.extend_from_slice(&rgb(x, y));
+            }
+        }
+    }
+    border_background(&border)
 }
 
 /// 置く前の変換（`convert_import_image`、2値化の設定なし）。
