@@ -25,6 +25,7 @@ use pma_core::image_ops::{antialias, despeckle, scan_paper, soft_blur};
 use pma_core::import::image::{
     self as import_image, convert_with, detect_opaque_border_background, Conversion, ReadError,
 };
+use pma_core::import::psd as psd_import;
 use pma_core::import::sequence::{
     is_image_path, reference_frame_indices, sort_natural, REFERENCE_FRAME_COUNT,
 };
@@ -913,6 +914,114 @@ fn apply_tracks(
             true,
         ))
     })
+}
+
+// ---------------------------------------------------------------------------
+// PSD（ImportController.psd_dialog）
+// ---------------------------------------------------------------------------
+
+const PSD_TITLE: &str = "PSD読み込み";
+
+/// PSD を読み、最上位のレイヤーごとに列を足す（タイムシート表示にする）。
+#[tauri::command]
+pub fn import_psd(app: AppHandle, path: String) -> Result<(), String> {
+    {
+        let session = app.state::<Shared>();
+        if session.lock().unwrap().project.is_none() {
+            return Err("作品を開いていません".into());
+        }
+    }
+    let cancel = begin_job(&app)?;
+    std::thread::spawn(move || {
+        let event = run_psd(&app, &path, &cancel);
+        finish(&app, event);
+    });
+    Ok(())
+}
+
+fn run_psd(app: &AppHandle, path: &str, cancel: &AtomicBool) -> ImportEvent {
+    let fail = |text: String| ImportEvent {
+        error: Some((
+            PSD_TITLE.into(),
+            format!("PSDを読み込めませんでした。\n\n{text}"),
+        )),
+        ..ImportEvent::default()
+    };
+    let data = match read_file(path) {
+        Ok(data) => data,
+        Err(e) => return fail(e),
+    };
+    let read = psd_import::read_psd(&data, &mut |done, total| {
+        progress(
+            app,
+            done,
+            total,
+            format!("PSDのレイヤーを合成しています（{done}/{total}）"),
+        );
+        !cancel.load(Ordering::Relaxed)
+    });
+    let read = match read {
+        Ok(Some(read)) => read,
+        Ok(None) => {
+            return ImportEvent {
+                cancelled: true,
+                ..ImportEvent::default()
+            }
+        }
+        Err(e) => return fail(e.to_string()),
+    };
+    let (width, height) = (read.width, read.height);
+    let count = read.tracks.len();
+    let mut premultiplied = Vec::with_capacity(count);
+    for track in &read.tracks {
+        let mut images = Vec::with_capacity(track.images.len());
+        for rgba in &track.images {
+            match import_image::to_premultiplied(width, height, rgba) {
+                Ok(image) => images.push(image),
+                Err(e) => return fail(e.to_string()),
+            }
+        }
+        premultiplied.push(images);
+    }
+    let result = crate::with_session(app, "import", |s| {
+        apply_tracks(
+            s,
+            |doc| {
+                let (w, h) = doc.size();
+                let mut tracks = Vec::with_capacity(count);
+                for (source, images) in read.tracks.iter().zip(&premultiplied) {
+                    let mut placed = Vec::with_capacity(images.len());
+                    for image in images {
+                        placed.push(
+                            import_image::place_centered(w, h, image)
+                                .and_then(|p| import_image::to_document_image(&p))
+                                .map_err(|e| e.to_string())?,
+                        );
+                    }
+                    let mut track = ImportedTrack::new(source.name.clone(), placed);
+                    track.visible = source.visible;
+                    track.opacity = source.opacity;
+                    tracks.push(track);
+                }
+                Ok((tracks, Mode::Sheet))
+            },
+            vec![(width, height)],
+        )
+    });
+    if let Err(e) = result {
+        return fail(e);
+    }
+    let mut text = format!("PSDから{count}レイヤーを読み込みました。");
+    if read.skipped > 0 {
+        text.push_str(&format!(
+            "\n調整レイヤーなど{}項目は破棄しました。",
+            read.skipped
+        ));
+    }
+    ImportEvent {
+        info: Some((PSD_TITLE.into(), text)),
+        ..ImportEvent::default()
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -427,6 +427,7 @@ fn main() {
             imports::import_images,
             imports::import_initial_pending,
             imports::import_keep_initial,
+            imports::import_psd,
             // 【アプリの外枠】（shell.rs）。
             shell::shell_init,
             shell::shell_menu_state,

@@ -551,8 +551,17 @@ async function importRaw() {
   );
 }
 
+/// ImportController.psd_dialog：最上位のレイヤーごとに列を足す。
+async function importPsd() {
+  const picked = await invoke("import_pick", { kind: "psd", title: tr("PSDを読み込む") });
+  const path = picked?.paths?.[0];
+  if (!path) return;
+  await runJob(tr("PSD読み込み"), tr("PSDを読み込んでいます"), () => invoke("import_psd", { path }));
+}
+
 const ACTIONS = {
   a_import_images: importImages,
+  a_import_psd: importPsd,
   a_import_genga: importGenga,
   a_import_folder: importFolder,
   a_import_images_raw: importRaw,
