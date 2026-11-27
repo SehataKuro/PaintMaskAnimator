@@ -92,6 +92,14 @@ impl Undo {
         self.history.redo(&mut Target { document })
     }
 
+    pub fn can_undo(&self) -> bool {
+        !self.history.undo_entries().is_empty()
+    }
+
+    pub fn can_redo(&self) -> bool {
+        !self.history.redo_entries().is_empty()
+    }
+
     pub fn listing(&self) -> Listing {
         Listing {
             undo: self

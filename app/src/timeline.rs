@@ -5,15 +5,14 @@
 //! 組み立て、画面の操作を既存の文書の命令へ渡す。Python だけにあった判断は
 //! `pma_core::document::timeline_panel` に移してあり、ここは値の受け渡しだけにする。
 //!
-//! セッション（session.rs）はまだ文書を持たないので、タイムラインの状態は別に
-//! `SharedTimeline`（`Arc<Mutex<TimelineState>>`）で持つ。文書は `Option<Document>` で、
-//! 開く・保存（.pman）が入るまでは `timeline_debug_load_sample` で見本の文書を入れる。
+//! 文書と履歴は `Session`（session.rs）の作品のものを使う。ここが持つのは画面の状態
+//! （`TimelineUi`：表示の種類・fps・再生範囲・選択・控えたセル・再生の時計）だけ。
+//! 編集は `Session::edit_with` を通し、Qt のヒストリーパネルと同じ名前で履歴に積む。
 //!
-//! 再生は Rust の別スレッドがコマを進め、`timeline-playhead` の事件で画面へ知らせる
-//! （#107：再生中も再生ヘッドが動く）。
+//! 再生は Rust の別スレッドがコマを進め、`document-changed` の事件（`playhead` 付き）で
+//! 画面へ知らせる（#107：再生中も再生ヘッドとキャンバスが動く）。
 
 use std::collections::BTreeSet;
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use pma_core::document::commands::TrackProperty;
@@ -22,6 +21,9 @@ use pma_core::document::timeline_panel::{self, InbetweenError};
 use pma_core::image::{Rect, RgbaImage};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+
+use crate::session::{current_index, Changed, Session, Shared};
+use crate::with_session;
 
 /// シート（タイムシートの絵番号を保持）か、連番（番号順に並べる）か。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -48,12 +50,9 @@ struct PlayClock {
     emitted: u64,
 }
 
-/// Undo の写しの上限。文書の写しは行と画素を共有するので軽い。
-const UNDO_LIMIT: usize = 100;
-
-/// タイムラインの状態。表示の設定（拡大率・サムネイルの開閉）は画面が持つ。
-pub struct TimelineState {
-    pub document: Option<Document>,
+/// タイムラインの画面の状態。文書と履歴は Session の作品が持つ。
+/// 表示の設定（拡大率・サムネイルの開閉）は画面が持つ。
+pub struct TimelineUi {
     pub mode: Mode,
     pub fps: u32,
     /// 再生範囲の先頭と終わり（未満）。終わりが None なら最後のコマまで。
@@ -62,7 +61,7 @@ pub struct TimelineState {
     pub playing: bool,
     /// 再生中にタイムラインを追いかけるか（#107 の環境設定。既定 ON）。
     pub follow_playback: bool,
-    /// オニオンスキンの ON／OFF（キャンバスがまだ文書を描かないので、状態だけ持つ）。
+    /// オニオンスキンの ON／OFF（キャンバスがまだオニオンを描かないので、状態だけ持つ）。
     pub onion: bool,
     /// 選んだセル（レイヤー番号, 表示の列）。連番表示の列は番号 - 1。
     pub selection: BTreeSet<(usize, usize)>,
@@ -70,16 +69,18 @@ pub struct TimelineState {
     anchor: Option<(usize, usize)>,
     clock: PlayClock,
     clipboard: Option<Clip>,
-    undo: Vec<Document>,
-    redo: Vec<Document>,
 }
 
-pub type SharedTimeline = Arc<Mutex<TimelineState>>;
+/// 編集に失敗したときに戻す、選択と控えたセル。
+pub struct UiSnapshot {
+    selection: BTreeSet<(usize, usize)>,
+    anchor: Option<(usize, usize)>,
+    clipboard: Option<Clip>,
+}
 
-impl Default for TimelineState {
+impl Default for TimelineUi {
     fn default() -> Self {
         Self {
-            document: None,
             mode: Mode::Sheet,
             fps: 24,
             range_start: 0,
@@ -95,14 +96,35 @@ impl Default for TimelineState {
                 emitted: 0,
             },
             clipboard: None,
-            undo: Vec::new(),
-            redo: Vec::new(),
         }
     }
 }
 
-pub fn shared() -> SharedTimeline {
-    Arc::new(Mutex::new(TimelineState::default()))
+impl TimelineUi {
+    /// 作品を開き直したとき：fps と追従の設定だけ残す。再生中なら止める（世代を進める）。
+    pub fn reset(&mut self) {
+        let generation = self.clock.generation + 1;
+        *self = Self {
+            fps: self.fps,
+            follow_playback: self.follow_playback,
+            ..Self::default()
+        };
+        self.clock.generation = generation;
+    }
+
+    pub fn save(&self) -> UiSnapshot {
+        UiSnapshot {
+            selection: self.selection.clone(),
+            anchor: self.anchor,
+            clipboard: self.clipboard.clone(),
+        }
+    }
+
+    pub fn restore(&mut self, snapshot: UiSnapshot) {
+        self.selection = snapshot.selection;
+        self.anchor = snapshot.anchor;
+        self.clipboard = snapshot.clipboard;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -197,14 +219,6 @@ pub struct Playhead {
 fn position(doc: &Document, column: usize, layer: usize) -> Option<&Position> {
     let frame = doc.frame(*doc.frame_order().get(column)?)?;
     frame.positions.get(doc.track_order().get(layer)?)
-}
-
-fn current_index(doc: &Document) -> (usize, usize) {
-    let (frame, track) = doc.selection();
-    (
-        doc.frame_index(frame).unwrap_or(0),
-        doc.track_index(track).unwrap_or(0),
-    )
 }
 
 fn cell_label(cell: Option<&Cell>, number: Option<CellNumber>) -> String {
@@ -329,16 +343,9 @@ pub fn sequence_row(doc: &Document, layer: usize) -> Vec<SpanView> {
         .collect()
 }
 
-impl TimelineState {
-    fn frame_count(&self) -> usize {
-        self.document
-            .as_ref()
-            .map_or(1, |doc| doc.frame_order().len())
-    }
-
+impl TimelineUi {
     /// 現在コマの表示の列（#108：連番では選択レイヤーの位置の番号から直接求める）。
-    pub fn current_column(&self) -> Option<usize> {
-        let doc = self.document.as_ref()?;
+    pub fn current_column(&self, doc: &Document) -> Option<usize> {
         let (current, active) = current_index(doc);
         match self.mode {
             Mode::Sheet => Some(current),
@@ -346,16 +353,17 @@ impl TimelineState {
         }
     }
 
-    pub fn playhead(&self) -> Playhead {
+    pub fn playhead(&self, doc: Option<&Document>) -> Playhead {
         Playhead {
-            current: self.document.as_ref().map_or(0, |doc| current_index(doc).0),
-            column: self.current_column(),
+            current: doc.map_or(0, |doc| current_index(doc).0),
+            column: doc.and_then(|doc| self.current_column(doc)),
             playing: self.playing,
         }
     }
 
-    pub fn view(&self) -> TimelineView {
-        let Some(doc) = self.document.as_ref() else {
+    /// 画面に出す値。`history` は（取り消せるか, やり直せるか）。
+    pub fn view(&self, doc: Option<&Document>, history: (bool, bool)) -> TimelineView {
+        let Some(doc) = doc else {
             return TimelineView {
                 loaded: false,
                 mode: self.mode,
@@ -419,7 +427,7 @@ impl TimelineState {
             frame_count,
             sheet_frames,
             current,
-            current_column: self.current_column(),
+            current_column: self.current_column(doc),
             active_layer: active,
             fps: self.fps,
             playing: self.playing,
@@ -431,17 +439,17 @@ impl TimelineState {
                 Mode::Sequence => 0,
             },
             clipboard: self.clipboard.is_some(),
-            can_undo: !self.undo.is_empty(),
-            can_redo: !self.redo.is_empty(),
+            can_undo: history.0,
+            can_redo: history.1,
             rows,
             selection: self.selection.iter().copied().collect(),
         }
     }
 
     /// 選択を今のコマだけにする（Qt の select_current の setCurrentCell）。
-    fn select_current(&mut self) {
+    pub fn select_current(&mut self, doc: &Document) {
         self.selection.clear();
-        if let (Some(column), Some(doc)) = (self.current_column(), self.document.as_ref()) {
+        if let Some(column) = self.current_column(doc) {
             let (_, active) = current_index(doc);
             self.selection.insert((active, column));
             self.anchor = Some((active, column));
@@ -449,64 +457,16 @@ impl TimelineState {
     }
 
     /// 文書の形が変わったあと、無くなったセルの選択を外す。
-    fn prune_selection(&mut self) {
-        let Some(doc) = self.document.as_ref() else {
-            self.selection.clear();
-            return;
-        };
+    pub fn prune_selection(&mut self, doc: &Document) {
         let layers = doc.track_order().len();
         self.selection.retain(|&(layer, _)| layer < layers);
     }
 
-    fn push_undo(&mut self) {
-        if let Some(doc) = &self.document {
-            self.undo.push(doc.clone());
-            if self.undo.len() > UNDO_LIMIT {
-                self.undo.remove(0);
-            }
-            self.redo.clear();
-        }
-    }
-
-    pub fn undo(&mut self) -> bool {
-        let Some(previous) = self.undo.pop() else {
-            return false;
-        };
-        if let Some(doc) = self.document.replace(previous) {
-            self.redo.push(doc);
-        }
-        self.prune_selection();
-        true
-    }
-
-    pub fn redo(&mut self) -> bool {
-        let Some(next) = self.redo.pop() else {
-            return false;
-        };
-        if let Some(doc) = self.document.replace(next) {
-            self.undo.push(doc);
-        }
-        self.prune_selection();
-        true
-    }
-
-    pub fn load(&mut self, doc: Document) {
-        *self = Self {
-            document: Some(doc),
-            fps: self.fps,
-            follow_playback: self.follow_playback,
-            ..Self::default()
-        };
-        self.select_current();
-    }
-
     /// 表示の列 `column`・レイヤー `layer` のコマへ移る（Qt の select_exposure）。
     /// シートでは最後のコマより後ろを選ぶとコマを延ばす。連番では番号の代表のコマへ移る。
-    pub fn set_frame(&mut self, column: usize, layer: usize) -> Result<(), String> {
-        let mode = self.mode;
-        let doc = self.document.as_mut().ok_or("文書がありません")?;
-        let layer = layer.min(doc.track_order().len() - 1);
-        match mode {
+    pub fn set_frame(&self, doc: &mut Document, column: usize, layer: usize) -> Result<(), String> {
+        let layer = layer.min(doc.track_order().len().saturating_sub(1));
+        match self.mode {
             Mode::Sheet => {
                 if column >= doc.frame_order().len() {
                     doc.ensure_frame_count(column + 1)
@@ -531,13 +491,16 @@ impl TimelineState {
 
     /// セルを選ぶ。`how` は `replace`（クリック）・`toggle`（Ctrl）・`range`（Shift）。
     /// Qt と同じく、選んだセルのコマへも移る。
-    pub fn select(&mut self, layer: usize, column: usize, how: &str) -> Result<(), String> {
+    pub fn select(
+        &mut self,
+        doc: &mut Document,
+        layer: usize,
+        column: usize,
+        how: &str,
+    ) -> Result<(), String> {
         let limit = match self.mode {
             Mode::Sheet => usize::MAX,
-            Mode::Sequence => self
-                .document
-                .as_ref()
-                .map_or(1, Document::sequence_frame_count),
+            Mode::Sequence => doc.sequence_frame_count(),
         };
         if column >= limit {
             return Ok(());
@@ -560,7 +523,7 @@ impl TimelineState {
                 self.anchor = Some((layer, column));
             }
         }
-        self.set_frame(column, layer)
+        self.set_frame(doc, column, layer)
     }
 
     /// ドラッグで囲んだ範囲を選ぶ。
@@ -574,12 +537,10 @@ impl TimelineState {
     }
 
     /// 前後のコマ・前後の区切り・先頭・末尾へ移る（Qt の timeline_ops の移動）。
-    pub fn navigate(&mut self, to: &str) -> Result<(), String> {
-        let mode = self.mode;
-        let doc = self.document.as_mut().ok_or("文書がありません")?;
+    pub fn navigate(&mut self, doc: &mut Document, to: &str) -> Result<(), String> {
         let (current, active) = current_index(doc);
         let count = doc.frame_order().len();
-        let target = match (mode, to) {
+        let target = match (self.mode, to) {
             (Mode::Sequence, "previous") => doc.sequence_step(active, current, -1, false),
             (Mode::Sequence, "next") => doc.sequence_step(active, current, 1, false),
             (Mode::Sequence, "previous_key") => doc.sequence_step(active, current, -1, true),
@@ -602,48 +563,39 @@ impl TimelineState {
             doc.set_selection_index(target, active)
                 .map_err(|e| e.to_string())?;
         }
-        self.select_current();
+        self.select_current(doc);
         Ok(())
     }
 
     /// シート・連番を切り替える（Qt の set_mode）。連番からシートへ移るときは配置待ちを置く。
-    pub fn set_mode(&mut self, mode: Mode) -> Result<(), String> {
-        if self.mode == Mode::Sequence
-            && mode == Mode::Sheet
-            && self
-                .document
-                .as_ref()
-                .is_some_and(Document::has_pending_positions)
-        {
-            self.push_undo();
-            let doc = self.document.as_mut().unwrap();
+    /// 配置待ちを置いたら（文書を変えたら）true。
+    pub fn set_mode(&mut self, doc: &mut Document, mode: Mode) -> Result<bool, String> {
+        let mut placed = false;
+        if self.mode == Mode::Sequence && mode == Mode::Sheet && doc.has_pending_positions() {
             doc.place_pending_entries().map_err(|e| e.to_string())?;
+            placed = true;
         }
         if mode != self.mode {
-            if let Some(doc) = self.document.as_mut() {
-                let (current, active) = current_index(doc);
-                if let Some(column) =
-                    doc.mode_switch_column(active, current, mode == Mode::Sequence)
-                {
-                    let _ = doc.set_selection_index(column, active);
-                }
+            let (current, active) = current_index(doc);
+            if let Some(column) = doc.mode_switch_column(active, current, mode == Mode::Sequence) {
+                let _ = doc.set_selection_index(column, active);
             }
         }
         self.mode = mode;
         // 切り替え前の選択を残すと、赤枠が旧タブの列へ残る。
-        self.select_current();
-        Ok(())
+        self.select_current(doc);
+        Ok(placed)
     }
 
     /// 再生範囲の端を動かす（Qt の resize_range。シートだけ）。
-    pub fn set_range_edge(&mut self, end: bool, column: usize) {
+    pub fn set_range_edge(&mut self, frame_count: usize, end: bool, column: usize) {
         if self.mode != Mode::Sheet {
             return;
         }
         if let Some((start, stop)) = timeline_panel::playback_range_edge(
             self.range_start,
             self.range_end,
-            self.frame_count(),
+            frame_count,
             end,
             column,
         ) {
@@ -652,14 +604,13 @@ impl TimelineState {
         }
     }
 
-    pub fn playback_bounds(&self) -> (usize, usize) {
-        timeline_panel::playback_bounds(self.range_start, self.range_end, self.frame_count())
+    pub fn playback_bounds(&self, frame_count: usize) -> (usize, usize) {
+        timeline_panel::playback_bounds(self.range_start, self.range_end, frame_count)
     }
 
     /// 再生を始める（範囲の外なら範囲の先頭から）。新しい再生の世代を返す。
-    pub fn start_playback(&mut self) -> Option<u64> {
-        let bounds = self.playback_bounds();
-        let doc = self.document.as_mut()?;
+    pub fn start_playback(&mut self, doc: &mut Document) -> Option<u64> {
+        let bounds = self.playback_bounds(doc.frame_order().len());
         let (current, active) = current_index(doc);
         let start = timeline_panel::playback_start_frame(current, bounds);
         doc.set_selection_index(start, active).ok()?;
@@ -672,15 +623,21 @@ impl TimelineState {
         Some(self.clock.generation)
     }
 
-    pub fn stop_playback(&mut self) {
+    pub fn stop_playback(&mut self, doc: Option<&Document>) {
         self.playing = false;
         self.clock.generation += 1;
         // 再生中に省いた選択の同期を、止めたときに一度行う。
-        self.select_current();
+        if let Some(doc) = doc {
+            self.select_current(doc);
+        }
     }
 
     /// 再生の一刻み。進めたら新しい現在コマを返す。世代が変わっていたら Err（止める）。
-    fn playback_tick(&mut self, generation: u64) -> Result<Option<Playhead>, ()> {
+    fn playback_tick(
+        &mut self,
+        doc: &mut Document,
+        generation: u64,
+    ) -> Result<Option<Playhead>, ()> {
         if !self.playing || self.clock.generation != generation {
             return Err(());
         }
@@ -693,12 +650,11 @@ impl TimelineState {
             return Ok(None);
         }
         self.clock.emitted += steps;
-        let bounds = self.playback_bounds();
-        let doc = self.document.as_mut().ok_or(())?;
+        let bounds = self.playback_bounds(doc.frame_order().len());
         let (current, active) = current_index(doc);
         let next = timeline_panel::playback_advance(current, steps as usize, bounds);
         doc.set_selection_index(next, active).map_err(|_| ())?;
-        Ok(Some(self.playhead()))
+        Ok(Some(self.playhead(Some(doc))))
     }
 
     pub fn set_fps(&mut self, fps: u32) {
@@ -851,12 +807,26 @@ pub enum Edit {
 }
 
 impl Edit {
-    /// Undo に積まない操作（Qt でも表示・不透明度・選択は Undo に積まない）。
-    fn records_undo(&self) -> bool {
-        !matches!(
-            self,
-            Edit::SelectLayer { .. } | Edit::SetVisible { .. } | Edit::SetOpacity { .. }
-        )
+    /// ヒストリーパネルに出す名前（Qt の undo_entries の HISTORY_LABEL と同じ）。
+    /// None は履歴に積まない操作（Qt でも選択・表示・不透明度・コピーは積まない）。
+    ///
+    /// - レイヤーの追加と、一つだけの削除（「−」ボタン。Qt の canvas.delete_layer）は
+    ///   LayerRemoveUndo／LayerInsertUndo の「レイヤー構成」。
+    /// - 帯の右端を動かす（伸ばす）のは ExposureUndo の「コマの長さ変更」。
+    /// - ほかは push_doc_undo（DocUndo）の「全体編集」。
+    pub fn history_label(&self) -> Option<&'static str> {
+        match self {
+            Edit::SelectLayer { .. }
+            | Edit::SetVisible { .. }
+            | Edit::SetOpacity { .. }
+            | Edit::CopyClip { .. } => None,
+            Edit::AddLayer => Some(LABEL_LAYERS),
+            Edit::DeleteLayers { layers } if layers.len() == 1 => Some(LABEL_LAYERS),
+            Edit::ResizeExposure { left: false, .. } | Edit::ExtendExposure { .. } => {
+                Some(LABEL_EXPOSURE)
+            }
+            _ => Some(LABEL_DOCUMENT),
+        }
     }
 
     /// シート表示でだけ行う操作。
@@ -890,36 +860,48 @@ fn failed(message: &str) -> impl Fn(pma_core::Error) -> String + '_ {
     move |_| message.to_owned()
 }
 
-impl TimelineState {
-    /// 編集を当てる。成功したら画面の下に出す文（無ければ None）、失敗したら理由を返す。
-    /// 失敗しても文書は変えない（命令が写しで行うので、積んだ Undo だけを戻す）。
-    pub fn apply(&mut self, edit: Edit) -> Result<Option<String>, String> {
-        if self.document.is_none() {
-            return Err("文書がありません".into());
-        }
-        if self.mode == Mode::Sequence && edit.sheet_only() {
-            return Err("この操作はシートの表示で行ってください。".into());
-        }
-        let records = edit.records_undo();
-        if records {
-            self.push_undo();
-        }
-        let result = self.apply_inner(edit);
-        match &result {
-            Ok(_) => {
-                self.prune_selection();
-            }
-            Err(_) if records => {
-                self.undo.pop();
-            }
-            Err(_) => {}
-        }
-        result
-    }
+/// Qt の DocUndo（push_doc_undo）の名前。
+pub const LABEL_DOCUMENT: &str = "全体編集";
+/// Qt の ExposureUndo の名前。
+pub const LABEL_EXPOSURE: &str = "コマの長さ変更";
+/// Qt の LayerRemoveUndo・LayerInsertUndo の名前。
+pub const LABEL_LAYERS: &str = "レイヤー構成";
 
+/// 編集を当てた結果。
+struct Applied {
+    /// 画面の下に出す文。
+    message: Option<String>,
+    /// 文書を変えたか（変えなければ履歴に積まない）。
+    changed: bool,
+}
+
+/// 文書を変えた。
+fn done() -> Applied {
+    Applied {
+        message: None,
+        changed: true,
+    }
+}
+
+/// 文書を変え、文を出す。
+fn said(message: String) -> Applied {
+    Applied {
+        message: Some(message),
+        changed: true,
+    }
+}
+
+/// 何も変えなかった（範囲の外・動かす先が同じなど。Qt でも Undo を積まずに戻る）。
+fn nothing() -> Applied {
+    Applied {
+        message: None,
+        changed: false,
+    }
+}
+
+impl TimelineUi {
     /// 連番表示の列（番号 - 1）を、その番号の代表のコマにする。シートではそのまま。
-    fn frame_of(&self, layer: usize, column: usize) -> Result<usize, String> {
-        let doc = self.document.as_ref().unwrap();
+    fn frame_of(&self, doc: &Document, layer: usize, column: usize) -> Result<usize, String> {
         match self.mode {
             Mode::Sheet => Ok(column),
             Mode::Sequence => doc
@@ -928,7 +910,7 @@ impl TimelineState {
         }
     }
 
-    fn apply_inner(&mut self, edit: Edit) -> Result<Option<String>, String> {
+    fn apply_inner(&mut self, doc: &mut Document, edit: Edit) -> Result<Applied, String> {
         let mode = self.mode;
         match edit {
             Edit::MoveCell {
@@ -937,7 +919,6 @@ impl TimelineState {
                 to_layer,
                 to_column,
             } => {
-                let doc = self.document.as_mut().unwrap();
                 if mode == Mode::Sequence {
                     if layer != to_layer {
                         return Err("連番画像は同じレイヤー内で入れ替えてください。".into());
@@ -949,12 +930,12 @@ impl TimelineState {
                     )
                     .map_err(failed("連番画像を入れ替えられませんでした。"))?;
                     self.selection = BTreeSet::from([(layer, to_column)]);
-                    return Ok(None);
+                    return Ok(done());
                 }
                 doc.move_sheet_cell((column, layer), (to_column, to_layer))
                     .map_err(failed("コマを移動できませんでした。"))?;
-                self.select_current();
-                Ok(None)
+                self.select_current(doc);
+                Ok(done())
             }
             Edit::CopyCell {
                 layer,
@@ -965,15 +946,14 @@ impl TimelineState {
                 if layer != to_layer {
                     return Err("複製は同じレイヤー内で行ってください。".into());
                 }
-                let doc = self.document.as_mut().unwrap();
                 match doc.timeline_block_at(column, layer) {
                     Some((false, _, _)) => {}
                     _ => return Err("絵のあるセルを選んでください。".into()),
                 }
                 doc.copy_sheet_cell(column, to_column, layer)
                     .map_err(failed("セルを複製できませんでした。"))?;
-                self.select_current();
-                Ok(None)
+                self.select_current(doc);
+                Ok(done())
             }
             Edit::MoveSelection {
                 anchor_layer,
@@ -985,25 +965,27 @@ impl TimelineState {
                     if anchor_layer != to_layer {
                         return Err("連番画像は同じレイヤー内で入れ替えてください。".into());
                     }
-                    return self.apply_inner(Edit::MoveCell {
-                        layer: anchor_layer,
-                        column: anchor_column,
-                        to_layer,
-                        to_column,
-                    });
+                    return self.apply_inner(
+                        doc,
+                        Edit::MoveCell {
+                            layer: anchor_layer,
+                            column: anchor_column,
+                            to_layer,
+                            to_column,
+                        },
+                    );
                 }
                 let layer_delta = to_layer as isize - anchor_layer as isize;
                 let column_delta = to_column as isize - anchor_column as isize;
                 if layer_delta == 0 && column_delta == 0 {
-                    return Ok(None);
+                    return Ok(nothing());
                 }
                 let cells: Vec<_> = self.selection.iter().copied().collect();
-                let doc = self.document.as_mut().unwrap();
                 let moves = doc
                     .prepare_sheet_moves(&cells, layer_delta, column_delta)
                     .ok_or("移動先がタイムライン範囲外です。")?;
                 if moves.is_empty() {
-                    return Ok(None);
+                    return Ok(nothing());
                 }
                 let active = to_layer.min(doc.track_order().len() - 1);
                 doc.move_sheet_cells(&moves, to_column, active)
@@ -1018,7 +1000,7 @@ impl TimelineState {
                         ))
                     })
                     .collect();
-                Ok(None)
+                Ok(done())
             }
             Edit::ResizeExposure {
                 layer,
@@ -1026,9 +1008,8 @@ impl TimelineState {
                 boundary,
                 left,
             } => {
-                let doc = self.document.as_mut().unwrap();
                 let Some(r) = doc.prepare_exposure_resize(layer, key_column, boundary, left) else {
-                    return Ok(None);
+                    return Ok(nothing());
                 };
                 doc.resize_sheet_exposure(
                     layer,
@@ -1039,23 +1020,24 @@ impl TimelineState {
                     r.new_end,
                 )
                 .map_err(failed("露出を変えられませんでした。"))?;
-                self.select_current();
-                Ok(None)
+                self.select_current(doc);
+                Ok(done())
             }
             Edit::ExtendExposure { layer, column } => {
-                let doc = self.document.as_ref().unwrap();
                 let (_, key, exposure) = doc
                     .timeline_block_at(column, layer)
                     .ok_or("伸ばせるセルがありません。")?;
-                self.apply_inner(Edit::ResizeExposure {
-                    layer,
-                    key_column: key,
-                    boundary: key + exposure.max(1),
-                    left: false,
-                })
+                self.apply_inner(
+                    doc,
+                    Edit::ResizeExposure {
+                        layer,
+                        key_column: key,
+                        boundary: key + exposure.max(1),
+                        left: false,
+                    },
+                )
             }
             Edit::CreateBlank { layer, column } => {
-                let doc = self.document.as_mut().unwrap();
                 match mode {
                     Mode::Sheet => {
                         doc.create_blank_key(column, layer)
@@ -1066,12 +1048,11 @@ impl TimelineState {
                             .map_err(failed("空き番号を入れられませんでした。"))?;
                     }
                 }
-                self.select_current();
-                Ok(None)
+                self.select_current(doc);
+                Ok(done())
             }
             Edit::DeleteFrame => {
-                let column = self.current_column();
-                let doc = self.document.as_mut().unwrap();
+                let column = self.current_column(doc);
                 let (current, active) = current_index(doc);
                 match mode {
                     Mode::Sequence => {
@@ -1084,22 +1065,20 @@ impl TimelineState {
                             .map_err(failed("消せるセルがありません。"))?;
                     }
                 }
-                self.select_current();
-                Ok(None)
+                self.select_current(doc);
+                Ok(done())
             }
             Edit::ClearCell { layer, column } => {
-                let frame = self.frame_of(layer, column)?;
-                let doc = self.document.as_mut().unwrap();
+                let frame = self.frame_of(doc, layer, column)?;
                 let (_, start, length) = doc
                     .timeline_block_at(frame, layer)
                     .ok_or("消せるセルがありません。")?;
                 doc.clear_sheet_span(layer, start..start + length)
                     .map_err(failed("セルを消せませんでした。"))?;
-                Ok(None)
+                Ok(done())
             }
             Edit::CopyClip { layer, column } => {
-                let frame = self.frame_of(layer, column)?;
-                let doc = self.document.as_ref().unwrap();
+                let frame = self.frame_of(doc, layer, column)?;
                 let (_, start, length) = doc
                     .timeline_block_at(frame, layer)
                     .ok_or("コピーできるセルがありません。")?;
@@ -1114,39 +1093,39 @@ impl TimelineState {
                     number: n,
                     length,
                 });
-                Ok(Some("セルをコピーしました。".into()))
+                Ok(Applied {
+                    message: Some("セルをコピーしました。".into()),
+                    changed: false,
+                })
             }
             Edit::CutClip { layer, column } => {
-                self.apply_inner(Edit::CopyClip { layer, column })?;
-                self.apply_inner(Edit::ClearCell { layer, column })?;
-                Ok(Some("セルを切り取りました。".into()))
+                self.apply_inner(doc, Edit::CopyClip { layer, column })?;
+                self.apply_inner(doc, Edit::ClearCell { layer, column })?;
+                Ok(said("セルを切り取りました。".into()))
             }
             Edit::PasteClip { layer, column } => {
                 let clip = self
                     .clipboard
                     .clone()
                     .ok_or("貼り付けられるセルがありません。")?;
-                let doc = self.document.as_mut().unwrap();
                 if column >= doc.frame_order().len() {
                     return Err("貼り付けられる位置ではありません。".into());
                 }
                 doc.paste_sheet_cell((column, layer), clip.number, &clip.cell, clip.length)
                     .map_err(failed("セルを貼り付けられませんでした。"))?;
-                Ok(Some("セルを貼り付けました。".into()))
+                Ok(said("セルを貼り付けました。".into()))
             }
             Edit::NewCell { layer, column } => {
-                let doc = self.document.as_mut().unwrap();
                 doc.new_sheet_cell(column, layer)
                     .map_err(failed("セルを作れませんでした。"))?;
-                Ok(None)
+                Ok(done())
             }
             Edit::ToggleGenga { layer, column } => {
-                let frame = self.frame_of(layer, column)?;
-                let doc = self.document.as_mut().unwrap();
+                let frame = self.frame_of(doc, layer, column)?;
                 let (state, _) = doc
                     .toggle_genga(frame, layer)
                     .map_err(failed("絵のあるセルを選んでください。"))?;
-                Ok(Some(
+                Ok(said(
                     if state {
                         "原画の印を付けました。"
                     } else {
@@ -1160,7 +1139,6 @@ impl TimelineState {
                 column,
                 count,
             } => {
-                let doc = self.document.as_mut().unwrap();
                 let columns = doc.inbetween_columns(column, layer, count).map_err(|e| match e {
                     InbetweenError::NotGenga => "原画の印のあるセルを選んでください。".into(),
                     InbetweenError::NoNextGenga => {
@@ -1181,13 +1159,12 @@ impl TimelineState {
                         .map_err(failed("中割りを入れられませんでした。"))?;
                 }
                 *doc = edited;
-                Ok(Some(format!(
+                Ok(said(format!(
                     "原画のあいだに中割りを{}枚入れました（○に描くと番号が付きます）。",
                     columns.len()
                 )))
             }
             Edit::NewNumberHere { layer, column } => {
-                let doc = self.document.as_mut().unwrap();
                 let Some((false, start, _)) = doc.timeline_block_at(column, layer) else {
                     return Err("絵のあるセルを選んでください。".into());
                 };
@@ -1202,10 +1179,9 @@ impl TimelineState {
                 let n = position(doc, column, layer)
                     .and_then(Position::number)
                     .map_or(0, CellNumber::get);
-                Ok(Some(format!("この位置を新しい番号 {n} にしました。")))
+                Ok(said(format!("この位置を新しい番号 {n} にしました。")))
             }
             Edit::SplitClip { layer, column } => {
-                let doc = self.document.as_mut().unwrap();
                 let (_, start, length) = doc
                     .timeline_block_at(column, layer)
                     .ok_or("分割できるセルがありません。")?;
@@ -1214,10 +1190,9 @@ impl TimelineState {
                 }
                 doc.split_sheet_clip(column, layer)
                     .map_err(failed("クリップを分割できませんでした。"))?;
-                Ok(None)
+                Ok(done())
             }
             Edit::MergeClip { layer, column } => {
-                let doc = self.document.as_mut().unwrap();
                 let (_, start, _) = doc
                     .timeline_block_at(column, layer)
                     .ok_or("結合できるセルがありません。")?;
@@ -1226,26 +1201,23 @@ impl TimelineState {
                 }
                 doc.merge_sheet_clip(start, layer)
                     .map_err(failed("クリップを結合できませんでした。"))?;
-                Ok(None)
+                Ok(done())
             }
             Edit::InsertFrameAt { layer, column } => {
-                let doc = self.document.as_mut().unwrap();
                 doc.insert_track_frame(column, layer)
                     .map_err(failed("フレームを挿入できませんでした。"))?;
-                Ok(None)
+                Ok(done())
             }
             Edit::DeleteFrameAt { layer, column } => {
-                let doc = self.document.as_mut().unwrap();
                 doc.delete_track_frame(column, layer)
                     .map_err(failed("フレームを削除できませんでした。"))?;
-                Ok(None)
+                Ok(done())
             }
             Edit::RecallNumber {
                 layer,
                 column,
                 number: n,
             } => {
-                let doc = self.document.as_mut().unwrap();
                 let mut edited = doc.clone();
                 edited
                     .ensure_frame_count(column + 1)
@@ -1254,11 +1226,10 @@ impl TimelineState {
                     .recall_sheet_number(column, layer, number(n)?)
                     .map_err(failed("番号を呼び出せませんでした。"))?;
                 *doc = edited;
-                self.select_current();
-                Ok(None)
+                self.select_current(doc);
+                Ok(done())
             }
             Edit::ReleaseTween { layer, column } => {
-                let doc = self.document.as_mut().unwrap();
                 let group = doc
                     .tween_groups(layer)
                     .into_iter()
@@ -1266,27 +1237,24 @@ impl TimelineState {
                     .ok_or("確定したトゥイーンがありません。")?;
                 doc.release_tween(group.start, layer, group.length)
                     .map_err(failed("トゥイーンを解除できませんでした。"))?;
-                Ok(Some(
+                Ok(said(
                     "トゥイーンを解除しました（中割りは通常のセルになりました）。".into(),
                 ))
             }
             Edit::SelectLayer { layer } => {
-                let doc = self.document.as_mut().unwrap();
                 let (current, _) = current_index(doc);
                 doc.set_selection_index(current, layer)
                     .map_err(|e| e.to_string())?;
-                self.select_current();
-                Ok(None)
+                self.select_current(doc);
+                Ok(nothing())
             }
             Edit::AddLayer => {
-                let doc = self.document.as_mut().unwrap();
                 doc.add_track()
                     .map_err(failed("レイヤーを追加できませんでした。"))?;
-                self.select_current();
-                Ok(None)
+                self.select_current(doc);
+                Ok(done())
             }
             Edit::DeleteLayers { layers } => {
-                let doc = self.document.as_mut().unwrap();
                 let count = doc.track_order().len();
                 let layers: Vec<usize> = layers
                     .into_iter()
@@ -1295,7 +1263,7 @@ impl TimelineState {
                     .into_iter()
                     .collect();
                 if layers.is_empty() {
-                    return Ok(None);
+                    return Ok(nothing());
                 }
                 if layers.len() >= count {
                     return Err("すべてのレイヤーは削除できません。1つ以上残してください。".into());
@@ -1304,11 +1272,10 @@ impl TimelineState {
                 let active = (layers.len() == 1).then(|| layers[0].saturating_sub(1));
                 doc.remove_tracks(&layers, active)
                     .map_err(failed("レイヤーを削除できませんでした。"))?;
-                self.select_current();
-                Ok(None)
+                self.select_current(doc);
+                Ok(done())
             }
             Edit::DuplicateLayers { layers } => {
-                let doc = self.document.as_mut().unwrap();
                 let names: Vec<(usize, String)> = layers
                     .into_iter()
                     .collect::<BTreeSet<_>>()
@@ -1320,11 +1287,10 @@ impl TimelineState {
                     .collect();
                 doc.duplicate_tracks(&names)
                     .map_err(failed("レイヤーを複製できませんでした。"))?;
-                self.select_current();
-                Ok(None)
+                self.select_current(doc);
+                Ok(done())
             }
             Edit::MoveLayerRows { rows, to_row } => {
-                let doc = self.document.as_mut().unwrap();
                 let count = doc.track_order().len();
                 let rows: Vec<usize> = rows
                     .into_iter()
@@ -1335,12 +1301,12 @@ impl TimelineState {
                     || rows.iter().any(|&r| r >= count)
                     || rows != (rows[0]..=rows[rows.len() - 1]).collect::<Vec<_>>()
                 {
-                    return Ok(None);
+                    return Ok(nothing());
                 }
                 let block = rows.len();
                 let to_row = to_row.min(count - block);
                 if to_row == rows[0] {
-                    return Ok(None);
+                    return Ok(nothing());
                 }
                 let mut visual: Vec<usize> = (0..count).rev().collect();
                 let moved: Vec<usize> = visual.drain(rows[0]..=rows[block - 1]).collect();
@@ -1348,43 +1314,39 @@ impl TimelineState {
                 let order: Vec<usize> = visual.into_iter().rev().collect();
                 doc.move_tracks(&order)
                     .map_err(failed("レイヤーを並べ替えられませんでした。"))?;
-                self.select_current();
-                Ok(None)
+                self.select_current(doc);
+                Ok(done())
             }
             Edit::RenameLayer { layer, name } => {
-                let doc = self.document.as_mut().unwrap();
                 let name = match name.trim() {
                     "" => timeline_panel::default_layer_name(layer),
                     name => name.to_owned(),
                 };
                 doc.set_track_properties(&[layer], &[TrackProperty::Name(name)], true)
                     .map_err(failed("レイヤー名を変えられませんでした。"))?;
-                Ok(None)
+                Ok(done())
             }
             Edit::SetVisible { layer, visible } => {
-                let doc = self.document.as_mut().unwrap();
                 doc.set_track_properties(&[layer], &[TrackProperty::Visible(visible)], false)
                     .map_err(|e| e.to_string())?;
-                Ok(None)
+                Ok(done())
             }
             Edit::SetOpacity { layer, opacity } => {
-                let doc = self.document.as_mut().unwrap();
                 doc.set_track_properties(
                     &[layer],
                     &[TrackProperty::Opacity(opacity.clamp(0.0, 1.0))],
                     false,
                 )
                 .map_err(|e| e.to_string())?;
-                Ok(None)
+                Ok(done())
             }
             Edit::ToggleDraft { layers } => {
-                let doc = self.document.as_mut().unwrap();
                 let layers: Vec<usize> = layers
                     .into_iter()
                     .filter(|&l| l < doc.track_order().len())
                     .collect();
                 if layers.is_empty() {
-                    return Ok(None);
+                    return Ok(nothing());
                 }
                 // 一つでも下書きでなければ、すべて下書きにする。
                 let state = !layers.iter().all(|&layer| {
@@ -1393,7 +1355,7 @@ impl TimelineState {
                 });
                 doc.set_track_properties(&layers, &[TrackProperty::IsDraft(state)], false)
                     .map_err(|e| e.to_string())?;
-                Ok(Some(
+                Ok(said(
                     if state {
                         "下書きレイヤーモードを有効化しました。"
                     } else {
@@ -1403,18 +1365,17 @@ impl TimelineState {
                 ))
             }
             Edit::Normalize { layers } => {
-                let doc = self.document.as_mut().unwrap();
                 let layers: Vec<usize> = layers
                     .into_iter()
                     .collect::<BTreeSet<_>>()
                     .into_iter()
                     .collect();
                 if layers.is_empty() {
-                    return Ok(None);
+                    return Ok(nothing());
                 }
                 doc.normalize_sheet_numbers(&layers)
                     .map_err(failed("番号を正規化できませんでした。"))?;
-                Ok(Some("番号をタイムラインの順番に正規化しました。".into()))
+                Ok(said("番号をタイムラインの順番に正規化しました。".into()))
             }
         }
     }
@@ -1428,30 +1389,163 @@ pub struct NormalizePreview {
     pub changes: Vec<(i64, i64)>,
 }
 
-impl TimelineState {
-    pub fn normalize_preview(&self) -> Vec<NormalizePreview> {
-        let Some(doc) = self.document.as_ref() else {
-            return Vec::new();
-        };
-        (0..doc.track_order().len())
-            .rev()
-            .map(|layer| NormalizePreview {
-                layer,
-                name: doc
-                    .track(doc.track_order()[layer])
-                    .map(|t| t.settings.name.clone())
-                    .unwrap_or_default(),
-                changes: doc
-                    .normalization_changes(layer)
-                    .into_iter()
-                    .map(|(old, new)| (old.get(), new.get()))
-                    .collect(),
-            })
-            .collect()
+pub fn normalize_preview(doc: &Document) -> Vec<NormalizePreview> {
+    (0..doc.track_order().len())
+        .rev()
+        .map(|layer| NormalizePreview {
+            layer,
+            name: doc
+                .track(doc.track_order()[layer])
+                .map(|t| t.settings.name.clone())
+                .unwrap_or_default(),
+            changes: doc
+                .normalization_changes(layer)
+                .into_iter()
+                .map(|(old, new)| (old.get(), new.get()))
+                .collect(),
+        })
+        .collect()
+}
+
+/// サムネイル（幅・高さに収まるよう縮めた RGBA。先頭 8 バイトに幅と高さ）。
+pub fn thumbnail(
+    doc: &Document,
+    layer: usize,
+    column: Option<usize>,
+    number: Option<i64>,
+    width: usize,
+    height: usize,
+) -> Vec<u8> {
+    let cell = match column {
+        Some(column) => doc.position_cell(column, layer),
+        None => number.and_then(|n| {
+            let track = doc.track(*doc.track_order().get(layer)?)?;
+            track.cells.get(&CellNumber::new(n).ok()?)
+        }),
+    };
+    match cell {
+        Some(cell) => shrink(&cell.image, width, height),
+        None => vec![0; 8],
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Session の作品に対するタイムラインの操作
+// ---------------------------------------------------------------------------
+
+impl Session {
+    fn document(&self) -> Option<&Document> {
+        self.project.as_ref().map(|p| &p.document)
     }
 
-    /// サムネイル（幅・高さに収まるよう縮めた RGBA。先頭 8 バイトに幅と高さ）。
-    pub fn thumbnail(
+    pub fn timeline_view(&self) -> TimelineView {
+        self.timeline.view(self.document(), self.history_state())
+    }
+
+    /// 編集を当てる。成功したら画面の下に出す文（無ければ None）、失敗したら理由を返す。
+    /// 文書を変えた編集は、Qt と同じ名前で作品の履歴に積む。失敗したら文書も履歴も変えない。
+    pub fn timeline_apply(&mut self, edit: Edit) -> Result<Option<String>, String> {
+        if self.project.is_none() {
+            return Err("作品を開いていません".into());
+        }
+        if self.timeline.mode == Mode::Sequence && edit.sheet_only() {
+            return Err("この操作はシートの表示で行ってください。".into());
+        }
+        let label = edit.history_label();
+        self.edit_with(label, |doc, ui| {
+            ui.apply_inner(doc, edit).map(|a| (a.message, a.changed))
+        })
+    }
+
+    /// 文書の今のコマ・選択だけを変える操作（履歴に積まない）。
+    /// コマを延ばしたときは、形が変わったとして合成の控えを捨てる。
+    fn timeline_move(
+        &mut self,
+        f: impl FnOnce(&mut TimelineUi, &mut Document) -> Result<(), String>,
+    ) -> Result<(), String> {
+        let p = self.project.as_mut().ok_or("作品を開いていません")?;
+        let frames = p.document.frame_order().len();
+        f(&mut self.timeline, &mut p.document)?;
+        if p.document.frame_order().len() != frames {
+            self.touch_structure();
+        }
+        self.recompose()
+    }
+
+    pub fn timeline_select(
+        &mut self,
+        layer: usize,
+        column: usize,
+        how: &str,
+    ) -> Result<(), String> {
+        self.timeline_move(|ui, doc| ui.select(doc, layer, column, how))
+    }
+
+    /// 見出しのクリック・ドラッグ（シーク）。選択は今のコマだけにする。
+    pub fn timeline_set_frame(&mut self, column: usize) -> Result<(), String> {
+        self.timeline_move(|ui, doc| {
+            let (_, layer) = current_index(doc);
+            ui.set_frame(doc, column, layer)?;
+            ui.select_current(doc);
+            Ok(())
+        })
+    }
+
+    pub fn timeline_navigate(&mut self, to: &str) -> Result<(), String> {
+        self.timeline_move(|ui, doc| ui.navigate(doc, to))
+    }
+
+    /// シート・連番を切り替える。配置待ちを置いたときは「全体編集」として履歴に積む。
+    pub fn timeline_set_mode(&mut self, mode: Mode) -> Result<(), String> {
+        if self.project.is_none() {
+            self.timeline.mode = mode;
+            return Ok(());
+        }
+        self.edit_with(Some(LABEL_DOCUMENT), |doc, ui| {
+            ui.set_mode(doc, mode).map(|placed| ((), placed))
+        })
+    }
+
+    pub fn timeline_set_range(&mut self, end: bool, column: usize) {
+        let frames = self.document().map_or(1, |doc| doc.frame_order().len());
+        self.timeline.set_range_edge(frames, end, column);
+    }
+
+    /// 再生を始める。新しい再生の世代を返す（作品が無ければ None）。
+    pub fn timeline_start_playback(&mut self) -> Option<u64> {
+        if self.timeline.playing {
+            return None;
+        }
+        let p = self.project.as_mut()?;
+        let generation = self.timeline.start_playback(&mut p.document)?;
+        let _ = self.recompose();
+        Some(generation)
+    }
+
+    pub fn timeline_stop_playback(&mut self) {
+        let doc = self.project.as_ref().map(|p| &p.document);
+        self.timeline.stop_playback(doc);
+    }
+
+    /// 再生の一刻み。進めたら合成し直し、新しい現在コマを返す。世代が変わっていたら Err。
+    pub fn timeline_playback_tick(&mut self, generation: u64) -> Result<Option<Playhead>, ()> {
+        let p = self.project.as_mut().ok_or(())?;
+        let tick = self.timeline.playback_tick(&mut p.document, generation)?;
+        if tick.is_some() {
+            self.recompose().map_err(|_| ())?;
+        }
+        Ok(tick)
+    }
+
+    pub fn timeline_playhead(&self) -> Playhead {
+        self.timeline.playhead(self.document())
+    }
+
+    pub fn timeline_normalize_preview(&self) -> Vec<NormalizePreview> {
+        self.document().map_or_else(Vec::new, normalize_preview)
+    }
+
+    pub fn timeline_thumbnail(
         &self,
         layer: usize,
         column: Option<usize>,
@@ -1459,20 +1553,9 @@ impl TimelineState {
         width: usize,
         height: usize,
     ) -> Vec<u8> {
-        let empty = vec![0; 8];
-        let Some(doc) = self.document.as_ref() else {
-            return empty;
-        };
-        let cell = match column {
-            Some(column) => doc.position_cell(column, layer),
-            None => number.and_then(|n| {
-                let track = doc.track(*doc.track_order().get(layer)?)?;
-                track.cells.get(&CellNumber::new(n).ok()?)
-            }),
-        };
-        match cell {
-            Some(cell) => shrink(&cell.image, width, height),
-            None => empty,
+        match self.document() {
+            Some(doc) => thumbnail(doc, layer, column, number, width, height),
+            None => vec![0; 8],
         }
     }
 }
@@ -1522,7 +1605,7 @@ fn shrink(image: &RgbaImage, max_width: usize, max_height: usize) -> Vec<u8> {
 }
 
 // ---------------------------------------------------------------------------
-// 見本の文書（開く・保存が入るまでの確かめ用）
+// 見本の文書（確かめ用。PMA_TIMELINE_SAMPLE で Session の作品として開く）
 // ---------------------------------------------------------------------------
 
 /// 列ごとの記号から文書のグラフを作る。記号：数字は番号の絵、`o` は空キーの頭、`-` は
@@ -1622,7 +1705,7 @@ fn hsv(h: f64, s: f64, v: f64) -> (u8, u8, u8) {
 }
 
 /// 見本の文書：保持・空キー・空き・トゥイーンの帯・原画の印を含む `frames` コマの3レイヤー。
-pub fn sample_document(frames: usize) -> Result<Document, String> {
+pub fn sample_document(frames: usize, size: (usize, usize)) -> Result<Document, String> {
     let frames = frames.max(12);
     let mut a = Vec::with_capacity(frames);
     let mut b = Vec::with_capacity(frames);
@@ -1654,7 +1737,7 @@ pub fn sample_document(frames: usize) -> Result<Document, String> {
     let mut doc = document_from_rows(
         &["C", "B", "A"],
         &[c, b, a],
-        (160, 90),
+        size,
         |layer, column, value| {
             if layer == 0 && column == 0 {
                 value["tween"] = json!({"id": "sample", "length": 6, "reverse": false,
@@ -1677,11 +1760,32 @@ pub fn sample_document(frames: usize) -> Result<Document, String> {
     Ok(doc)
 }
 
+/// 確かめ用：`PMA_TIMELINE_SAMPLE=コマ数` で起動すると、見本の文書を Session の作品として開く
+/// （起動の引数で .pman を渡したときは使わない）。大きさは `PMA_TIMELINE_SAMPLE_SIZE=幅x高さ`
+/// （既定 160x90）。
+pub fn open_sample_from_env(session: &mut Session) -> Result<bool, String> {
+    let Some(frames) = std::env::var("PMA_TIMELINE_SAMPLE")
+        .ok()
+        .and_then(|v| v.parse().ok())
+    else {
+        return Ok(false);
+    };
+    let size = std::env::var("PMA_TIMELINE_SAMPLE_SIZE")
+        .ok()
+        .and_then(|v| {
+            let (w, h) = v.split_once('x')?;
+            Some((w.trim().parse().ok()?, h.trim().parse().ok()?))
+        })
+        .unwrap_or((160, 90));
+    session.open_document(sample_document(frames, size)?)?;
+    Ok(true)
+}
+
 // ---------------------------------------------------------------------------
 // Tauri の命令
 // ---------------------------------------------------------------------------
 
-type TimelineArg<'a> = tauri::State<'a, SharedTimeline>;
+type SessionArg<'a> = tauri::State<'a, Shared>;
 
 /// 編集の結果：新しい表示と、画面の下に出す文。
 #[derive(Serialize)]
@@ -1691,21 +1795,12 @@ pub struct EditResult {
     pub error: bool,
 }
 
+/// タイムラインからの操作で文書が変わったときの知らせのもと。
+const SOURCE: &str = "timeline";
+
 #[tauri::command]
-pub fn timeline_view(state: TimelineArg) -> TimelineView {
-    let mut s = state.lock().unwrap();
-    // 確かめ用：PMA_TIMELINE_SAMPLE=コマ数 で起動すると、見本の文書を入れて開く。
-    if s.document.is_none() {
-        if let Some(frames) = std::env::var("PMA_TIMELINE_SAMPLE")
-            .ok()
-            .and_then(|v| v.parse().ok())
-        {
-            if let Ok(doc) = sample_document(frames) {
-                s.load(doc);
-            }
-        }
-    }
-    s.view()
+pub fn timeline_view(state: SessionArg) -> TimelineView {
+    state.lock().unwrap().timeline_view()
 }
 
 /// 確かめ用の起動の設定（環境変数）。画面が読み込んだあとに当てる。
@@ -1735,133 +1830,110 @@ pub fn timeline_debug_options() -> DebugOptions {
     }
 }
 
-/// 確かめ用：見本の文書を入れる（開く・保存が入るまで）。
-#[tauri::command]
-pub fn timeline_debug_load_sample(
-    state: TimelineArg,
-    frames: Option<usize>,
-) -> Result<TimelineView, String> {
-    let doc = sample_document(frames.unwrap_or(72))?;
-    let mut s = state.lock().unwrap();
-    s.load(doc);
-    Ok(s.view())
-}
-
 #[tauri::command]
 pub fn timeline_select(
-    state: TimelineArg,
+    app: tauri::AppHandle,
     layer: usize,
     column: usize,
     how: String,
 ) -> Result<TimelineView, String> {
-    let mut s = state.lock().unwrap();
-    s.select(layer, column, &how)?;
-    Ok(s.view())
+    with_session(&app, SOURCE, |s| {
+        s.timeline_select(layer, column, &how)?;
+        Ok(s.timeline_view())
+    })
 }
 
 #[tauri::command]
 pub fn timeline_select_rect(
-    state: TimelineArg,
+    state: SessionArg,
     from: (usize, usize),
     to: (usize, usize),
-) -> Result<TimelineView, String> {
+) -> TimelineView {
     // Qt と同じく、ドラッグで囲んでも現在コマは押したセルのまま。
     let mut s = state.lock().unwrap();
-    s.select_rect(from, to);
-    Ok(s.view())
+    s.timeline.select_rect(from, to);
+    s.timeline_view()
 }
 
 /// 見出しのクリック・ドラッグ（シーク）。選択は今のコマだけにする。
 #[tauri::command]
-pub fn timeline_set_frame(state: TimelineArg, column: usize) -> Result<TimelineView, String> {
-    let mut s = state.lock().unwrap();
-    let layer = s.document.as_ref().map_or(0, |doc| current_index(doc).1);
-    s.set_frame(column, layer)?;
-    s.select_current();
-    Ok(s.view())
+pub fn timeline_set_frame(app: tauri::AppHandle, column: usize) -> Result<TimelineView, String> {
+    with_session(&app, SOURCE, |s| {
+        s.timeline_set_frame(column)?;
+        Ok(s.timeline_view())
+    })
 }
 
 #[tauri::command]
-pub fn timeline_navigate(state: TimelineArg, to: String) -> Result<TimelineView, String> {
-    let mut s = state.lock().unwrap();
-    s.navigate(&to)?;
-    Ok(s.view())
+pub fn timeline_navigate(app: tauri::AppHandle, to: String) -> Result<TimelineView, String> {
+    with_session(&app, SOURCE, |s| {
+        s.timeline_navigate(&to)?;
+        Ok(s.timeline_view())
+    })
 }
 
 #[tauri::command]
-pub fn timeline_edit(state: TimelineArg, edit: Edit) -> EditResult {
-    let mut s = state.lock().unwrap();
-    let (message, error) = match s.apply(edit) {
-        Ok(message) => (message, false),
-        Err(message) => (Some(message), true),
-    };
-    EditResult {
-        view: s.view(),
-        message,
-        error,
-    }
+pub fn timeline_edit(app: tauri::AppHandle, edit: Edit) -> EditResult {
+    with_session(&app, SOURCE, |s| {
+        let (message, error) = match s.timeline_apply(edit) {
+            Ok(message) => (message, false),
+            Err(message) => (Some(message), true),
+        };
+        EditResult {
+            view: s.timeline_view(),
+            message,
+            error,
+        }
+    })
 }
 
 #[tauri::command]
-pub fn timeline_undo(state: TimelineArg) -> TimelineView {
-    let mut s = state.lock().unwrap();
-    s.undo();
-    s.view()
+pub fn timeline_set_mode(app: tauri::AppHandle, mode: Mode) -> Result<TimelineView, String> {
+    with_session(&app, SOURCE, |s| {
+        s.timeline_set_mode(mode)?;
+        Ok(s.timeline_view())
+    })
 }
 
 #[tauri::command]
-pub fn timeline_redo(state: TimelineArg) -> TimelineView {
+pub fn timeline_set_fps(state: SessionArg, fps: u32) -> TimelineView {
     let mut s = state.lock().unwrap();
-    s.redo();
-    s.view()
-}
-
-#[tauri::command]
-pub fn timeline_set_mode(state: TimelineArg, mode: Mode) -> Result<TimelineView, String> {
-    let mut s = state.lock().unwrap();
-    s.set_mode(mode)?;
-    Ok(s.view())
-}
-
-#[tauri::command]
-pub fn timeline_set_fps(state: TimelineArg, fps: u32) -> TimelineView {
-    let mut s = state.lock().unwrap();
-    s.set_fps(fps);
-    s.view()
+    s.timeline.set_fps(fps);
+    s.timeline_view()
 }
 
 /// 再生範囲の端（`start` か `end`）を動かす。end の列は「このコマまで」の次。
 #[tauri::command]
-pub fn timeline_set_range(state: TimelineArg, edge: String, column: usize) -> TimelineView {
+pub fn timeline_set_range(state: SessionArg, edge: String, column: usize) -> TimelineView {
     let mut s = state.lock().unwrap();
-    s.set_range_edge(edge == "end", column);
-    s.view()
+    s.timeline_set_range(edge == "end", column);
+    s.timeline_view()
 }
 
 #[tauri::command]
 pub fn timeline_set_options(
-    state: TimelineArg,
+    state: SessionArg,
     follow_playback: Option<bool>,
     onion: Option<bool>,
 ) -> TimelineView {
     let mut s = state.lock().unwrap();
     if let Some(follow) = follow_playback {
-        s.follow_playback = follow;
+        s.timeline.follow_playback = follow;
     }
     if let Some(onion) = onion {
-        s.onion = onion;
+        s.timeline.onion = onion;
     }
-    s.view()
+    s.timeline_view()
 }
 
 #[tauri::command]
-pub fn timeline_normalize_preview(state: TimelineArg) -> Vec<NormalizePreview> {
-    state.lock().unwrap().normalize_preview()
+pub fn timeline_normalize_preview(state: SessionArg) -> Vec<NormalizePreview> {
+    state.lock().unwrap().timeline_normalize_preview()
 }
 
 #[tauri::command]
 pub fn timeline_thumbnail(
-    state: TimelineArg,
+    state: SessionArg,
     layer: usize,
     column: Option<usize>,
     number: Option<i64>,
@@ -1869,51 +1941,64 @@ pub fn timeline_thumbnail(
     height: usize,
 ) -> tauri::ipc::Response {
     let s = state.lock().unwrap();
-    tauri::ipc::Response::new(s.thumbnail(layer, column, number, width, height))
+    tauri::ipc::Response::new(s.timeline_thumbnail(layer, column, number, width, height))
 }
 
-/// 再生／停止。再生は別スレッドが経過時間に合わせてコマを進め、`timeline-playhead` で知らせる。
+/// 再生／停止。再生は別スレッドが経過時間に合わせてコマを進め、合成し直して
+/// `document-changed`（`playhead` 付き）で知らせる。
 #[tauri::command]
-pub fn timeline_play(app: tauri::AppHandle, state: TimelineArg, on: bool) -> TimelineView {
-    let shared = state.inner().clone();
-    let mut s = shared.lock().unwrap();
-    if on && !s.playing {
-        if let Some(generation) = s.start_playback() {
-            let thread_state = shared.clone();
-            std::thread::spawn(move || playback_loop(app, thread_state, generation));
+pub fn timeline_play(app: tauri::AppHandle, on: bool) -> TimelineView {
+    with_session(&app, SOURCE, |s| {
+        if on {
+            if let Some(generation) = s.timeline_start_playback() {
+                let handle = app.clone();
+                std::thread::spawn(move || playback_loop(handle, generation));
+            }
+        } else if s.timeline.playing {
+            s.timeline_stop_playback();
         }
-    } else if !on && s.playing {
-        s.stop_playback();
-    }
-    s.view()
+        s.timeline_view()
+    })
 }
 
-fn playback_loop(app: tauri::AppHandle, shared: SharedTimeline, generation: u64) {
-    use tauri::Emitter;
+fn playback_loop(app: tauri::AppHandle, generation: u64) {
+    use tauri::{Emitter, Manager};
+    let state = app.state::<Shared>();
     loop {
-        let (interval, tick, follow) = {
-            let mut s = shared.lock().unwrap();
+        let (interval, tick) = {
+            let mut s = state.lock().unwrap();
             // 本来の間隔より細かく確かめ、遅れたら経過時間に追いつく（Qt の advance と同じ）。
-            let interval = (500.0 / f64::from(s.fps)).round().clamp(4.0, 16.0) as u64;
-            (interval, s.playback_tick(generation), s.follow_playback)
+            let interval = (500.0 / f64::from(s.timeline.fps)).round().clamp(4.0, 16.0) as u64;
+            (interval, s.timeline_playback_tick(generation))
         };
         match tick {
             Err(()) => break,
-            Ok(Some(playhead)) if follow => {
-                let _ = app.emit("timeline-playhead", playhead);
+            Ok(Some(playhead)) => {
+                let _ = app.emit("document-changed", playback_change(Some(playhead)));
             }
-            Ok(_) => {}
+            Ok(None) => {}
         }
         std::thread::sleep(Duration::from_millis(interval));
     }
     // 止めたときの現在コマを一度知らせる。
-    let playhead = shared.lock().unwrap().playhead();
-    let _ = app.emit("timeline-playhead", playhead);
+    let playhead = state.lock().unwrap().timeline_playhead();
+    let _ = app.emit("document-changed", playback_change(Some(playhead)));
+}
+
+fn playback_change(playhead: Option<Playhead>) -> Changed {
+    Changed {
+        frame: true,
+        structure: false,
+        pixels: false,
+        source: "playback",
+        playhead,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
 
     fn rows(rows: &[&str]) -> Vec<Vec<String>> {
         rows.iter()
@@ -1921,16 +2006,31 @@ mod tests {
             .collect()
     }
 
-    fn doc(layers: &[&str]) -> Document {
+    fn doc_sized(layers: &[&str], size: (usize, usize)) -> Document {
         let names: Vec<String> = (0..layers.len()).map(|i| format!("L{i}")).collect();
         let names: Vec<&str> = names.iter().map(String::as_str).collect();
-        document_from_rows(&names, &rows(layers), (8, 4), |_, _, _| {}).unwrap()
+        document_from_rows(&names, &rows(layers), size, |_, _, _| {}).unwrap()
     }
 
-    fn state(layers: &[&str]) -> TimelineState {
-        let mut s = TimelineState::default();
-        s.load(doc(layers));
+    /// 見本の文書を Session の作品として開く。
+    fn state_sized(layers: &[&str], size: (usize, usize)) -> Session {
+        let mut s = Session::empty(8, 8);
+        s.open_document(doc_sized(layers, size)).unwrap();
         s
+    }
+
+    fn state(layers: &[&str]) -> Session {
+        state_sized(layers, (8, 4))
+    }
+
+    fn fixture(name: &str) -> std::path::PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/fixtures/projects/v2")
+            .join(name)
+    }
+
+    fn document(s: &Session) -> &Document {
+        &s.project.as_ref().unwrap().document
     }
 
     fn summary(spans: &[SpanView]) -> Vec<(usize, usize, &'static str, String)> {
@@ -1943,7 +2043,7 @@ mod tests {
     #[test]
     fn sheet_rows_show_spans_and_gaps_top_layer_first() {
         let s = state(&["1 1 . 2 o - o 3", "4 4 4 4 . . . ."]);
-        let view = s.view();
+        let view = s.timeline_view();
         assert_eq!(view.rows.len(), 2);
         assert_eq!(view.rows[0].layer, 1);
         assert_eq!(view.rows[0].name, "L1");
@@ -1996,8 +2096,8 @@ mod tests {
     fn sequence_mode_shows_numbers_and_follows_the_current_number() {
         // #108：同じ番号が複数のコマにあり、保持中のコマを選んでも、その番号が選ばれる。
         let mut s = state(&["1 1 2 4 4 . 4"]);
-        s.set_mode(Mode::Sequence).unwrap();
-        let view = s.view();
+        s.timeline_set_mode(Mode::Sequence).unwrap();
+        let view = s.timeline_view();
         assert_eq!(view.frame_count, 4);
         assert_eq!(
             summary(&view.rows[0].spans),
@@ -2007,151 +2107,286 @@ mod tests {
                 (3, 1, "cell", "4".into()),
             ]
         );
-        s.mode = Mode::Sheet;
-        s.set_frame(4, 0).unwrap();
-        s.mode = Mode::Sequence;
-        s.select_current();
-        assert_eq!(s.view().current_column, Some(3));
-        assert_eq!(s.view().selection, vec![(0, 3)]);
+        s.timeline.mode = Mode::Sheet;
+        let p = s.project.as_mut().unwrap();
+        s.timeline.set_frame(&mut p.document, 4, 0).unwrap();
+        s.timeline.mode = Mode::Sequence;
+        s.timeline.select_current(&p.document);
+        assert_eq!(s.timeline_view().current_column, Some(3));
+        assert_eq!(s.timeline_view().selection, vec![(0, 3)]);
         // 連番で絵4を選ぶと、代表のコマ（最初のコマ）へ移る。
-        s.select(0, 3, "replace").unwrap();
-        assert_eq!(s.view().current, 3);
+        s.timeline_select(0, 3, "replace").unwrap();
+        assert_eq!(s.timeline_view().current, 3);
+        // 配置待ちが無いので、シートへ戻しても履歴には積まない。
+        s.timeline_set_mode(Mode::Sheet).unwrap();
+        assert!(s.history().undo.is_empty());
     }
 
     #[test]
     fn selection_click_shift_and_rect() {
         let mut s = state(&["1 1 1 1", "2 2 2 2"]);
-        s.select(0, 1, "replace").unwrap();
-        s.select(1, 3, "range").unwrap();
-        assert_eq!(s.selection.len(), 6);
-        assert_eq!(s.view().current, 3);
-        assert_eq!(s.view().active_layer, 1);
-        s.select(0, 0, "toggle").unwrap();
-        assert_eq!(s.selection.len(), 7);
-        s.select_rect((0, 0), (0, 1));
-        assert_eq!(s.view().selection, vec![(0, 0), (0, 1)]);
+        s.timeline_select(0, 1, "replace").unwrap();
+        s.timeline_select(1, 3, "range").unwrap();
+        assert_eq!(s.timeline.selection.len(), 6);
+        assert_eq!(s.timeline_view().current, 3);
+        assert_eq!(s.timeline_view().active_layer, 1);
+        s.timeline_select(0, 0, "toggle").unwrap();
+        assert_eq!(s.timeline.selection.len(), 7);
+        s.timeline.select_rect((0, 0), (0, 1));
+        assert_eq!(s.timeline_view().selection, vec![(0, 0), (0, 1)]);
+        // 選ぶだけでは履歴に積まない。
+        assert!(s.history().undo.is_empty());
     }
 
     #[test]
     fn navigation_steps_frames_and_keys() {
         let mut s = state(&["1 1 2 2 . 3"]);
-        s.navigate("next_key").unwrap();
-        assert_eq!(s.view().current, 2);
-        s.navigate("next_key").unwrap();
-        assert_eq!(s.view().current, 5);
-        s.navigate("previous").unwrap();
-        assert_eq!(s.view().current, 4);
-        s.navigate("first").unwrap();
-        assert_eq!(s.view().current, 0);
-        s.navigate("last").unwrap();
+        s.timeline_navigate("next_key").unwrap();
+        assert_eq!(s.timeline_view().current, 2);
+        s.timeline_navigate("next_key").unwrap();
+        assert_eq!(s.timeline_view().current, 5);
+        s.timeline_navigate("previous").unwrap();
+        assert_eq!(s.timeline_view().current, 4);
+        s.timeline_navigate("first").unwrap();
+        assert_eq!(s.timeline_view().current, 0);
+        s.timeline_navigate("last").unwrap();
         // 最後のコマで「次」はコマを延ばす（advance_frame）。
-        s.navigate("next").unwrap();
-        assert_eq!(s.view().sheet_frames, 7);
-        assert_eq!(s.view().current, 6);
+        s.timeline_navigate("next").unwrap();
+        assert_eq!(s.timeline_view().sheet_frames, 7);
+        assert_eq!(s.timeline_view().current, 6);
+        assert_eq!(s.summary().frames, 7);
     }
 
     #[test]
-    fn edits_change_the_document_and_undo_restores_it() {
+    fn edits_go_through_the_app_history_with_qt_labels() {
         let mut s = state(&["1 1 2 2"]);
-        s.apply(Edit::ExtendExposure {
+        s.timeline_apply(Edit::ExtendExposure {
             layer: 0,
             column: 0,
         })
         .unwrap();
         assert_eq!(
-            summary(&s.view().rows[0].spans),
+            summary(&s.timeline_view().rows[0].spans),
             vec![(0, 3, "cell", "1".into()), (3, 2, "cell", "2".into())]
         );
-        s.apply(Edit::ResizeExposure {
+        s.timeline_apply(Edit::ResizeExposure {
             layer: 0,
             key_column: 3,
             boundary: 4,
             left: true,
         })
         .unwrap();
-        assert_eq!(s.view().rows[0].spans[1].start, 4);
-        assert!(s.undo());
-        assert!(s.undo());
+        assert_eq!(s.timeline_view().rows[0].spans[1].start, 4);
+        s.timeline_apply(Edit::AddLayer).unwrap();
         assert_eq!(
-            summary(&s.view().rows[0].spans),
+            s.history().undo,
+            vec![
+                LABEL_EXPOSURE.to_string(),
+                LABEL_DOCUMENT.to_string(),
+                LABEL_LAYERS.to_string()
+            ]
+        );
+        assert!(s.timeline_view().can_undo);
+        // アプリの取り消しで、タイムラインの表示も戻る。
+        assert!(s.undo().unwrap());
+        assert_eq!(s.timeline_view().rows.len(), 1);
+        assert!(s.undo().unwrap());
+        assert!(s.undo().unwrap());
+        assert_eq!(
+            summary(&s.timeline_view().rows[0].spans),
             vec![(0, 2, "cell", "1".into()), (2, 2, "cell", "2".into())]
         );
-        assert!(s.redo());
-        assert_eq!(s.view().rows[0].spans[0].length, 3);
+        assert!(s.timeline_view().can_redo);
+        assert!(s.redo().unwrap());
+        assert_eq!(s.timeline_view().rows[0].spans[0].length, 3);
+        assert_eq!(s.history().redo.len(), 2);
+    }
+
+    #[test]
+    fn failed_or_empty_edits_leave_document_and_history_unchanged() {
+        let mut s = state(&["1 1 . . . .", "2 2 2 . . ."]);
+        s.timeline_apply(Edit::ToggleGenga {
+            layer: 0,
+            column: 0,
+        })
+        .unwrap();
+        let history = s.history();
+        let spans = summary(&s.timeline_view().rows[1].spans);
+        let selection = s.timeline.selection.clone();
+        // 控えたセルが無い：失敗。
+        assert_eq!(
+            s.timeline_apply(Edit::PasteClip {
+                layer: 0,
+                column: 3
+            }),
+            Err("貼り付けられるセルがありません。".into())
+        );
+        // すべてのレイヤーは消せない：失敗。
+        assert!(s
+            .timeline_apply(Edit::DeleteLayers { layers: vec![0, 1] })
+            .is_err());
+        // 分割できない位置：失敗。
+        assert!(s
+            .timeline_apply(Edit::SplitClip {
+                layer: 0,
+                column: 0
+            })
+            .is_err());
+        // 動かす先が同じ：何もしない。
+        s.timeline_apply(Edit::MoveSelection {
+            anchor_layer: 0,
+            anchor_column: 0,
+            to_layer: 0,
+            to_column: 0,
+        })
+        .unwrap();
+        // コピー・表示・選択は履歴に積まない。
+        s.timeline_apply(Edit::CopyClip {
+            layer: 0,
+            column: 0,
+        })
+        .unwrap();
+        s.timeline_apply(Edit::SetVisible {
+            layer: 1,
+            visible: false,
+        })
+        .unwrap();
+        s.timeline_apply(Edit::SelectLayer { layer: 1 }).unwrap();
+        assert_eq!(s.history(), history);
+        assert_eq!(summary(&s.timeline_view().rows[1].spans), spans);
+        assert!(!s.timeline_view().rows[0].visible);
+        assert_eq!(s.timeline_view().active_layer, 1);
+        assert_ne!(s.timeline.selection, selection);
+    }
+
+    #[test]
+    fn frame_change_and_undo_recompose_the_display() {
+        // 番号ごとに位置の違う丸の絵。コマ 0 は絵 1、コマ 1 は絵 2。
+        let mut s = state_sized(&["1 2 2"], (32, 16));
+        let first = s.display.rgba().to_vec();
+        assert_eq!((s.display.width(), s.display.height()), (32, 16));
+        s.timeline_set_frame(1).unwrap();
+        let second = s.display.rgba().to_vec();
+        assert_ne!(first, second);
+        // アプリのコマ送り（Session::set_frame）でも同じ表示になり、選択も追う。
+        s.set_frame(0).unwrap();
+        assert_eq!(s.display.rgba(), &first[..]);
+        assert_eq!(s.timeline_view().selection, vec![(0, 0)]);
+        // 絵 1 を伸ばすと、コマ 1 にも絵 1 が出る。取り消すと絵 2 に戻る。
+        s.timeline_set_frame(1).unwrap();
+        s.timeline_apply(Edit::ExtendExposure {
+            layer: 0,
+            column: 0,
+        })
+        .unwrap();
+        s.timeline_set_frame(1).unwrap();
+        assert_eq!(s.display.rgba(), &first[..]);
+        // 取り消すと、伸ばす前の文書（今のコマ 1、絵 2）に戻る。
+        assert!(s.undo().unwrap());
+        assert_eq!(s.summary().frame, 1);
+        assert_eq!(s.display.rgba(), &second[..]);
+        // 変わったところの知らせ。
+        let before = s.mark();
+        assert!(s.changes_since(before, "timeline").is_none());
+        s.timeline_navigate("first").unwrap();
+        let changed = s.changes_since(before, "timeline").unwrap();
+        assert!(changed.frame && !changed.structure && !changed.pixels);
+        let before = s.mark();
+        s.timeline_apply(Edit::AddLayer).unwrap();
+        assert!(s.changes_since(before, "timeline").unwrap().structure);
+    }
+
+    #[test]
+    fn fixture_projects_open_in_the_timeline_and_share_the_history() {
+        let mut s = Session::empty(8, 8);
+        s.open(&fixture("basic-bank-sheet.pman")).unwrap();
+        let sum = s.summary();
+        let view = s.timeline_view();
+        assert!(view.loaded);
+        assert_eq!(view.rows.len(), sum.layers);
+        assert_eq!(view.sheet_frames, sum.frames);
+        s.timeline_apply(Edit::AddLayer).unwrap();
+        assert_eq!(s.summary().layers, sum.layers + 1);
+        assert_eq!(s.history().undo, vec![LABEL_LAYERS.to_string()]);
+        assert!(s.undo().unwrap());
+        assert_eq!(s.timeline_view().rows.len(), sum.layers);
+        for name in [
+            "paper-draft.pman",
+            "pending-compat.pman",
+            "tween-initial-display.pman",
+        ] {
+            s.open(&fixture(name)).unwrap();
+            assert!(s.timeline_view().loaded, "{name}");
+            assert!(s.history().undo.is_empty(), "{name}");
+        }
     }
 
     #[test]
     fn group_drag_moves_selected_blocks() {
         let mut s = state(&["1 1 . . .", "2 . . . ."]);
-        s.select_rect((0, 0), (1, 0));
-        s.apply(Edit::MoveSelection {
+        s.timeline.select_rect((0, 0), (1, 0));
+        s.timeline_apply(Edit::MoveSelection {
             anchor_layer: 0,
             anchor_column: 0,
             to_layer: 0,
             to_column: 2,
         })
         .unwrap();
-        let view = s.view();
+        let view = s.timeline_view();
         assert_eq!(view.rows[1].spans[0].start, 2);
         assert_eq!(view.rows[0].spans[0].start, 2);
         assert_eq!(view.selection, vec![(0, 2), (1, 2)]);
-        // 範囲外へは動かさず、Undo も積まない。
-        let undo = s.undo.len();
-        let error = s
-            .apply(Edit::MoveSelection {
-                anchor_layer: 0,
-                anchor_column: 2,
-                to_layer: 0,
-                to_column: 0,
-            })
-            .err();
-        assert!(error.is_none() || s.undo.len() == undo);
+        assert_eq!(s.history().undo, vec![LABEL_DOCUMENT.to_string()]);
+        // 範囲外へは動かさず、履歴も積まない。
+        let error = s.timeline_apply(Edit::MoveSelection {
+            anchor_layer: 0,
+            anchor_column: 2,
+            to_layer: 0,
+            to_column: 0,
+        });
+        assert!(error.is_err() || s.history().undo.len() == 2);
+        if error.is_err() {
+            assert_eq!(s.history().undo.len(), 1);
+        }
     }
 
     #[test]
     fn clipboard_copy_paste_and_messages() {
         let mut s = state(&["1 1 . . . ."]);
-        assert_eq!(
-            s.apply(Edit::PasteClip {
-                layer: 0,
-                column: 3
-            }),
-            Err("貼り付けられるセルがありません。".into())
-        );
-        assert_eq!(s.undo.len(), 0);
-        s.apply(Edit::CopyClip {
+        s.timeline_apply(Edit::CopyClip {
             layer: 0,
             column: 1,
         })
         .unwrap();
-        s.apply(Edit::PasteClip {
+        s.timeline_apply(Edit::PasteClip {
             layer: 0,
             column: 3,
         })
         .unwrap();
         assert_eq!(
-            summary(&s.view().rows[0].spans),
+            summary(&s.timeline_view().rows[0].spans),
             vec![(0, 2, "cell", "1".into()), (3, 2, "cell", "1".into())]
         );
-        assert!(s.view().clipboard);
+        assert!(s.timeline_view().clipboard);
+        assert_eq!(s.history().undo, vec![LABEL_DOCUMENT.to_string()]);
     }
 
     #[test]
     fn genga_and_inbetweens_from_the_menu() {
         let mut s = state(&["1 1 1 1 2 2"]);
-        s.apply(Edit::ToggleGenga {
+        s.timeline_apply(Edit::ToggleGenga {
             layer: 0,
             column: 0,
         })
         .unwrap();
-        s.apply(Edit::ToggleGenga {
+        s.timeline_apply(Edit::ToggleGenga {
             layer: 0,
             column: 4,
         })
         .unwrap();
-        assert!(s.view().rows[0].spans[0].genga);
+        assert!(s.timeline_view().rows[0].spans[0].genga);
         let message = s
-            .apply(Edit::Inbetween {
+            .timeline_apply(Edit::Inbetween {
                 layer: 0,
                 column: 0,
                 count: 1,
@@ -2159,92 +2394,128 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(message.contains("1枚"));
-        assert_eq!(s.view().rows[0].spans[1].kind, "blank");
-        assert_eq!(s.view().rows[0].spans[1].start, 2);
+        assert_eq!(s.timeline_view().rows[0].spans[1].kind, "blank");
+        assert_eq!(s.timeline_view().rows[0].spans[1].start, 2);
+        assert_eq!(s.history().undo.len(), 3);
     }
 
     #[test]
     fn layer_edits_follow_python() {
         let mut s = state(&["1", "2", "3"]);
         // 画面の行 0（一番上、レイヤー 2）を一番下へ。
-        s.apply(Edit::MoveLayerRows {
+        s.timeline_apply(Edit::MoveLayerRows {
             rows: vec![0],
             to_row: 2,
         })
         .unwrap();
-        let names: Vec<_> = s.view().rows.iter().map(|r| r.name.clone()).collect();
+        let names: Vec<_> = s
+            .timeline_view()
+            .rows
+            .iter()
+            .map(|r| r.name.clone())
+            .collect();
         assert_eq!(names, vec!["L1", "L0", "L2"]);
-        s.apply(Edit::RenameLayer {
+        s.timeline_apply(Edit::RenameLayer {
             layer: 0,
             name: "  ".into(),
         })
         .unwrap();
-        assert_eq!(s.view().rows[2].name, "A");
-        s.apply(Edit::ToggleDraft { layers: vec![0, 1] }).unwrap();
-        assert!(s.view().rows[2].draft && s.view().rows[1].draft);
+        assert_eq!(s.timeline_view().rows[2].name, "A");
+        s.timeline_apply(Edit::ToggleDraft { layers: vec![0, 1] })
+            .unwrap();
+        assert!(s.timeline_view().rows[2].draft && s.timeline_view().rows[1].draft);
         assert!(s
-            .apply(Edit::DeleteLayers {
+            .timeline_apply(Edit::DeleteLayers {
                 layers: vec![0, 1, 2]
             })
             .is_err());
-        s.apply(Edit::DuplicateLayers { layers: vec![1] }).unwrap();
-        assert_eq!(s.view().rows.len(), 4);
-        let undo = s.undo.len();
-        s.apply(Edit::SetVisible {
+        s.timeline_apply(Edit::DuplicateLayers { layers: vec![1] })
+            .unwrap();
+        assert_eq!(s.timeline_view().rows.len(), 4);
+        s.timeline_apply(Edit::DeleteLayers { layers: vec![3] })
+            .unwrap();
+        let undo = s.history().undo;
+        assert_eq!(undo.last().map(String::as_str), Some(LABEL_LAYERS));
+        s.timeline_apply(Edit::SetVisible {
             layer: 0,
             visible: false,
         })
         .unwrap();
-        assert_eq!(s.undo.len(), undo);
+        assert_eq!(s.history().undo, undo);
     }
 
     #[test]
-    fn playback_advances_within_the_range_and_wraps() {
-        let mut s = state(&["1 1 2 2 3 3"]);
-        s.set_range_edge(false, 2);
-        s.set_range_edge(true, 5);
-        assert_eq!(s.view().range, (2, 5));
-        let generation = s.start_playback().unwrap();
-        assert_eq!(s.view().current, 2);
+    fn playback_advances_within_the_range_recomposes_and_wraps() {
+        let mut s = state_sized(&["1 1 2 2 3 3"], (16, 8));
+        s.timeline_set_range(false, 2);
+        s.timeline_set_range(true, 5);
+        assert_eq!(s.timeline_view().range, (2, 5));
+        let generation = s.timeline_start_playback().unwrap();
+        assert_eq!(s.timeline_view().current, 2);
         // 経過時間を進めたことにして、刻みを当てる（24fps で 0.5 秒 = 12 コマ）。
-        s.clock.started -= Duration::from_millis(500);
-        let playhead = s.playback_tick(generation).unwrap().unwrap();
+        s.timeline.clock.started -= Duration::from_millis(500);
+        let playhead = s.timeline_playback_tick(generation).unwrap().unwrap();
         // 範囲は 2..5 の 3 コマ。12 コマ進むとちょうど一周して 2 へ戻る。
         assert_eq!(playhead.current, 2);
         assert_eq!(playhead.column, Some(playhead.current));
-        s.stop_playback();
-        assert!(s.playback_tick(generation).is_err());
+        // 1コマずつ進め、表示がそのコマの合成になっていることを確かめる。
+        for _ in 0..3 {
+            s.timeline.clock.started -= Duration::from_millis(42);
+            let Some(playhead) = s.timeline_playback_tick(generation).unwrap() else {
+                continue;
+            };
+            let expected = pma_core::compose::composite(
+                document(&s),
+                playhead.current,
+                &pma_core::compose::DisplayOptions::default(),
+                pma_core::compose::Background::White,
+            )
+            .unwrap()
+            .to_straight_bytes();
+            assert_eq!(s.display.rgba(), &expected[..]);
+        }
+        // 範囲の 3 コマは控えにある（同じ絵 2 のコマ 2・3 は画素を共有する）。
+        assert!(s.cached_frames() >= 2);
+        s.timeline_stop_playback();
+        assert!(s.timeline_playback_tick(generation).is_err());
+        assert!(s.history().undo.is_empty());
     }
 
     #[test]
     fn mode_switch_places_pending_and_normalize_counts() {
         let mut s = state(&["3 1 2 p4"]);
-        assert_eq!(s.view().normalize_pending, 3);
-        s.set_mode(Mode::Sequence).unwrap();
-        assert_eq!(s.view().frame_count, 4);
-        s.set_mode(Mode::Sheet).unwrap();
-        assert!(!s.document.as_ref().unwrap().has_pending_positions());
-        let preview = s.normalize_preview();
+        assert_eq!(s.timeline_view().normalize_pending, 3);
+        s.timeline_set_mode(Mode::Sequence).unwrap();
+        assert_eq!(s.timeline_view().frame_count, 4);
+        s.timeline_set_mode(Mode::Sheet).unwrap();
+        assert!(!document(&s).has_pending_positions());
+        // 配置待ちを置いたのは「全体編集」として取り消せる。
+        assert_eq!(s.history().undo, vec![LABEL_DOCUMENT.to_string()]);
+        let preview = s.timeline_normalize_preview();
         assert_eq!(preview[0].changes, vec![(3, 1), (1, 2), (2, 3)]);
-        s.apply(Edit::Normalize { layers: vec![0] }).unwrap();
-        assert_eq!(s.view().normalize_pending, 0);
+        s.timeline_apply(Edit::Normalize { layers: vec![0] })
+            .unwrap();
+        assert_eq!(s.timeline_view().normalize_pending, 0);
     }
 
     #[test]
     fn sample_document_and_thumbnail() {
-        let mut s = TimelineState::default();
-        s.load(sample_document(72).unwrap());
-        let view = s.view();
+        let mut s = Session::empty(8, 8);
+        s.open_document(sample_document(72, (160, 90)).unwrap())
+            .unwrap();
+        let view = s.timeline_view();
         assert_eq!(view.rows.len(), 3);
         assert_eq!(view.sheet_frames, 72);
         assert!(view.rows[2].spans[0].tween.is_some());
         assert!(view.rows[0].spans[0].genga);
-        let thumb = s.thumbnail(2, Some(0), None, 40, 40);
+        assert_eq!((s.display.width(), s.display.height()), (160, 90));
+        let thumb = s.timeline_thumbnail(2, Some(0), None, 40, 40);
         assert_eq!(&thumb[0..4], &40u32.to_le_bytes());
         assert_eq!(&thumb[4..8], &23u32.to_le_bytes());
         assert_eq!(thumb.len(), 8 + 40 * 23 * 4);
         // 長いカットでも組み立てられる。
-        s.load(sample_document(3000).unwrap());
-        assert_eq!(s.view().sheet_frames, 3000);
+        s.open_document(sample_document(3000, (16, 9)).unwrap())
+            .unwrap();
+        assert_eq!(s.timeline_view().sheet_frames, 3000);
     }
 }

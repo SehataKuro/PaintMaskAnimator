@@ -8,8 +8,9 @@
 // スクロール位置から描く。レイヤー名とセルの行は同じ計算で並ぶので、どこまでスクロール
 // しても横に揃う（#101）。
 //
-// 再生は Rust のスレッドがコマを進め、`timeline-playhead` の事件で知らせる。受け取ったら
-// 再生ヘッドだけを描き直す（#107）。
+// 文書はキャンバスと同じ Session の作品。文書が変わると Rust が `document-changed` の事件を
+// 送る。再生は Rust のスレッドがコマを進め、同じ事件（playhead 付き）で知らせる。受け取ったら
+// 再生ヘッドだけを描き直す（#107。キャンバスも同じ事件で今のコマを表示する）。
 
 const LAYER_WIDTH = 190;
 const HEADER_HEIGHT = 25;
@@ -70,9 +71,12 @@ function framePosition(index) {
   return `${index + 1}コマ目`;
 }
 
-/// タイムラインのパネルを作る。invoke は Tauri の invoke、onChange は文書・現在コマが
-/// 変わったときに呼ぶ（キャンバスなどがあとで表示を合わせる）。
-export function createTimelinePanel({ invoke, onChange = () => {} }) {
+/// タイムラインのパネルを作る。invoke は Tauri の invoke。
+///
+/// 文書は Rust の Session の作品（キャンバスと同じ文書・同じ履歴）。文書が変わると Rust が
+/// `document-changed` の事件を送るので、ほかの所（キャンバス・取り消し）からの変化は
+/// それを受けて表示を読み直す。キャンバスもこの事件で表示を合わせる。
+export function createTimelinePanel({ invoke }) {
   const listen = window.__TAURI__?.event?.listen;
   let view = null;
   let zoom = 1;
@@ -151,11 +155,7 @@ export function createTimelinePanel({ invoke, onChange = () => {} }) {
   const layerDel = button("−", "レイヤーを削除", () => deleteActiveLayer(), "tl-small");
   corner.append(expandAll, el("span", { class: "tl-corner-label" }, "レイヤー"), el("span", { class: "tl-stretch" }), layerAdd, layerDel);
 
-  empty.append(
-    el("div", {}, "文書がありません（開く・保存はまだ移していません）"),
-    button("見本の文書を読み込む（確かめ用）", "", () => loadSample(72)),
-    button("長いカット（3000コマ）", "", () => loadSample(3000)),
-  );
+  empty.append(el("div", {}, "作品を開いていません（.pman を窓へ落とすと開きます）"));
 
   // ---- 寸法 ----
   const cellWidth = () => Math.max(18, Math.round(BASE_CELL_WIDTH * zoom));
@@ -230,7 +230,6 @@ export function createTimelinePanel({ invoke, onChange = () => {} }) {
 
   // ---- Rust とのやり取り ----
   function setView(next, { changed = false, reveal = false } = {}) {
-    const previous = view;
     view = next;
     if (changed) {
       docVersion++;
@@ -245,9 +244,6 @@ export function createTimelinePanel({ invoke, onChange = () => {} }) {
     sizeSpacer();
     if (reveal) revealCurrent();
     requestDraw();
-    if (!previous || changed || previous.current !== view.current || previous.active_layer !== view.active_layer) {
-      onChange({ view, changed });
-    }
   }
   async function call(name, args = {}, options = {}) {
     try {
@@ -268,7 +264,6 @@ export function createTimelinePanel({ invoke, onChange = () => {} }) {
   const navigate = (to) => call("timeline_navigate", { to }, { reveal: true, changed: to === "next" });
   const setMode = (mode) => call("timeline_set_mode", { mode }, { changed: true, reveal: true });
   const setOptions = (options) => call("timeline_set_options", options);
-  const loadSample = (frames) => call("timeline_debug_load_sample", { frames }, { changed: true });
   async function togglePlay() {
     if (!view?.loaded) return;
     await call("timeline_play", { on: !view.playing }, { reveal: true });
@@ -1517,9 +1512,8 @@ export function createTimelinePanel({ invoke, onChange = () => {} }) {
       e.preventDefault();
       return;
     }
-    if (mod && e.key.toLowerCase() === "z") action = () => call(e.shiftKey ? "timeline_redo" : "timeline_undo", {}, { changed: true });
-    else if (mod && e.key.toLowerCase() === "y") action = () => call("timeline_redo", {}, { changed: true });
-    else if (mod && e.key.toLowerCase() === "c") action = () => t && edit({ op: "copy_clip", ...t });
+    // 取り消し・やり直し（Cmd/Ctrl+Z・Shift+Z・Y）は app.js の一つだけ（アプリ全体の履歴）。
+    if (mod && e.key.toLowerCase() === "c") action = () => t && edit({ op: "copy_clip", ...t });
     else if (mod && e.key.toLowerCase() === "x") action = () => t && edit({ op: "cut_clip", ...t });
     else if (mod && e.key.toLowerCase() === "v") action = () => t && edit({ op: "paste_clip", ...t });
     else if (mod && e.shiftKey && e.key.toLowerCase() === "n") action = () => edit({ op: "add_layer" });
@@ -1547,20 +1541,53 @@ export function createTimelinePanel({ invoke, onChange = () => {} }) {
     }
   });
 
-  // ---- 再生ヘッド（Rust のスレッドから） ----
-  listen?.("timeline-playhead", ({ payload }) => {
-    if (!view?.loaded) return;
-    if (!payload.playing) {
-      // 止まったら、省いていた選択などを合わせ直す。
-      call("timeline_view", {}, { reveal: true });
+  // ---- 文書の変化（Rust の document-changed） ----
+  // 自分の操作（source が timeline）は命令の返事で表示を合わせ済み。再生の刻みは
+  // 再生ヘッドだけを動かす。ほかは表示を読み直す（重なったら最後に一度だけ）。
+  let refreshing = false;
+  let refreshAgain = false;
+  let refreshChanged = false;
+  async function refresh(changed) {
+    refreshChanged ||= changed;
+    if (refreshing) {
+      refreshAgain = true;
       return;
     }
-    if (view.current === payload.current && view.current_column === payload.column) return;
-    view = { ...view, current: payload.current, current_column: payload.column };
+    refreshing = true;
+    try {
+      do {
+        refreshAgain = false;
+        const options = { changed: refreshChanged, reveal: true };
+        refreshChanged = false;
+        setView(await invoke("timeline_view"), options);
+      } while (refreshAgain);
+    } catch (e) {
+      showStatus(`タイムラインを読めなかった：${e}`, true);
+    } finally {
+      refreshing = false;
+    }
+  }
+  function followPlayhead(playhead) {
+    if (!view?.loaded) return;
+    if (!playhead.playing) {
+      // 止まったら、省いていた選択などを合わせ直す。
+      refresh(false);
+      return;
+    }
+    if (!view.follow_playback) return;
+    if (view.current === playhead.current && view.current_column === playhead.column) return;
+    view = { ...view, current: playhead.current, current_column: playhead.column };
     updateCounter();
     revealCurrent();
     requestDraw();
-    onChange({ view, changed: false, playing: true });
+  }
+  listen?.("document-changed", ({ payload }) => {
+    if (payload.source === "timeline") return;
+    if (payload.source === "playback" && payload.playhead) {
+      followPlayhead(payload.playhead);
+      return;
+    }
+    refresh(payload.structure || payload.pixels);
   });
 
   new ResizeObserver(() => {

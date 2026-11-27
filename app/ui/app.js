@@ -28,8 +28,8 @@ viewButtons.innerHTML = '<button id="fit" type="button">全体を表示</button>
 canvasPanel.appendChild(viewButtons);
 createLayout(document.getElementById("dock"), {
   canvas: () => canvasPanel,
-  // タイムラインのパネル（timeline.js）。
-  timeline: () => createTimelinePanel({ invoke, onChange: () => {} }),
+  // タイムラインのパネル（timeline.js）。文書の変化は document-changed の事件で知る。
+  timeline: () => createTimelinePanel({ invoke }),
 });
 const viewer = new Viewer(canvas);
 
@@ -280,6 +280,7 @@ function showSummary() {
 
 // 画像の大きさが変わったときはテクスチャを作り直し、全体を読み直す。
 async function reloadCanvas(fit) {
+  const t0 = performance.now();
   summary = await invoke("summary");
   if (summary.width !== viewer.width || summary.height !== viewer.height) {
     viewer.setImageSize(summary.width, summary.height);
@@ -288,12 +289,54 @@ async function reloadCanvas(fit) {
   applyRect(await invoke("read_canvas"));
   if (fit) viewer.fit();
   showSummary();
+  reloadTimes.push(performance.now() - t0);
+  if (reloadTimes.length > 1000) reloadTimes.splice(0, 500);
+  onCanvasShown?.(summary.frame);
+}
+// 読み直し1回の時間（ms、再生の自己確認で出す）と、読み直したときに呼ぶ関数（自己確認用）。
+const reloadTimes = [];
+let onCanvasShown = null;
+
+// 文書が変わったら（Rust の document-changed）キャンバスを読み直す。読み直しの途中に
+// 次の知らせが来たら、終わってから最後の状態を一度だけ読む（再生で知らせが溜まらない）。
+let reloading = false;
+let reloadAgain = false;
+// 自己確認で自分で読み直しているあいだは、知らせで読み直さない。
+let measuring = false;
+let reloadFit = false;
+async function scheduleReload(fit = false) {
+  reloadFit ||= fit;
+  if (reloading) {
+    reloadAgain = true;
+    return;
+  }
+  reloading = true;
+  try {
+    do {
+      reloadAgain = false;
+      const f = reloadFit;
+      reloadFit = false;
+      await reloadCanvas(f);
+    } while (reloadAgain);
+  } catch (e) {
+    statusLine.textContent = `表示を読めませんでした：${e}`;
+  } finally {
+    reloading = false;
+  }
+}
+
+async function useDocumentEvents() {
+  await listen("document-changed", ({ payload }) => {
+    // 線（source が canvas）は、変わった範囲の画素を受け取って書き込み済み。
+    if (payload.source === "canvas" || measuring) return;
+    scheduleReload(payload.source === "open");
+  });
 }
 
 async function openProject(path) {
   try {
+    // 開けたら document-changed（source が open）で全体を表示し直す。
     await invoke("open_project", { path });
-    await reloadCanvas(true);
   } catch (e) {
     statusLine.textContent = `開けませんでした：${e}`;
   }
@@ -302,8 +345,8 @@ async function openProject(path) {
 async function stepFrame(delta) {
   if (!summary?.frames) return;
   const n = summary.frames;
+  // 表示は document-changed で読み直す（タイムラインも同じ知らせで今のコマを合わせる）。
   summary = await invoke("set_frame", { frame: (summary.frame + delta + n) % n });
-  await reloadCanvas(false);
 }
 
 function useDocumentControls() {
@@ -312,8 +355,12 @@ function useDocumentControls() {
     const path = payload.paths?.find((p) => p.toLowerCase().endsWith(".pman"));
     if (path) openProject(path);
   });
+  // 取り消し・やり直しのキーはここだけ（キャンバスもタイムラインも同じ履歴）。表示は
+  // document-changed で、キャンバスとタイムラインの両方が読み直す。
   window.addEventListener("keydown", async (e) => {
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+    // タイムラインのパネルが受けたキー（左右のコマ送りなど）は二重に行わない。
+    if (e.defaultPrevented) return;
     const mod = e.metaKey || e.ctrlKey;
     if (e.key === "ArrowRight" && !mod) {
       e.preventDefault();
@@ -323,10 +370,10 @@ function useDocumentControls() {
       stepFrame(-1);
     } else if (mod && (e.key.toLowerCase() === "y" || (e.shiftKey && e.key.toLowerCase() === "z"))) {
       e.preventDefault();
-      if (await invoke("redo")) await reloadCanvas(false);
+      await invoke("redo");
     } else if (mod && e.key.toLowerCase() === "z") {
       e.preventDefault();
-      if (await invoke("undo")) await reloadCanvas(false);
+      await invoke("undo");
     } else if (mod && e.key.toLowerCase() === "s") {
       e.preventDefault();
       try {
@@ -339,8 +386,61 @@ function useDocumentControls() {
   });
 }
 
+// 再生の自己確認：再生して、キャンバスが何 fps で今のコマを表示できたかを測る。
+// 1) 再生（Rust の時計の fps どおりに進む）で、キャンバスに出せたコマの速さ。
+// 2) 最速：コマを変えて全体を読み込むのを続けたときの速さ（再生の上限の目安）。
+async function runPlaybackSelftest(count) {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  await wait(500);
+  const view = await invoke("timeline_view");
+  if (!view.loaded) {
+    await invoke("report", { line: "再生の自己確認：失敗（作品を開いていません）" });
+    await invoke("quit", { code: 1 });
+    return;
+  }
+  const shown = [];
+  onCanvasShown = (frame) => shown.push({ t: performance.now(), frame });
+  reloadTimes.length = 0;
+  await invoke("timeline_play", { on: true });
+  const deadline = performance.now() + 60_000;
+  while (shown.length < count && performance.now() < deadline) await wait(10);
+  await invoke("timeline_play", { on: false });
+  onCanvasShown = null;
+  await wait(200);
+  const rate = (items) =>
+    items.length > 1 ? ((items.length - 1) * 1000) / (items[items.length - 1].t - items[0].t) : 0;
+  const steady = shown.slice(Math.floor(shown.length / 2));
+  const playTimes = [...reloadTimes];
+  // 飛ばしたコマ（前に出したコマから 2 以上進んだ数。範囲の先頭へ戻るのは数えない）。
+  let skipped = 0;
+  for (let i = 1; i < shown.length; i++) {
+    const d = shown[i].frame - shown[i - 1].frame;
+    if (d > 1) skipped += d - 1;
+  }
+  // 最速：知らせを待たずに、コマを変えては全体を読む。
+  const n = summary.frames;
+  measuring = true;
+  const t0 = performance.now();
+  for (let i = 0; i < count; i++) {
+    await invoke("set_frame", { frame: i % n });
+    await reloadCanvas(false);
+  }
+  const max = (count * 1000) / (performance.now() - t0);
+  measuring = false;
+  const fps = view.fps;
+  const ok = shown.length >= count && rate(steady) >= fps * 0.9;
+  await invoke("report", {
+    line: `再生の自己確認：${ok ? "成功" : "失敗"}（${summary.width}×${summary.height}、${n} コマ、${fps}fps）\n` +
+      `  再生：${shown.length} コマを表示、全体 ${rate(shown).toFixed(1)}fps、後半 ${rate(steady).toFixed(1)}fps、飛ばしたコマ ${skipped}\n` +
+      `  読み直し1回：中央値 ${median(playTimes).toFixed(2)}ms、最大 ${Math.max(0, ...playTimes).toFixed(2)}ms\n` +
+      `  最速（コマを変えて全体を読む）：${max.toFixed(1)}fps`,
+  });
+  await invoke("quit", { code: ok ? 0 : 1 });
+}
+
 async function main() {
   const info = await invoke("startup");
+  await useDocumentEvents();
   await reloadCanvas(true);
   useDocumentControls();
   if (info.open) await openProject(info.open);
@@ -348,6 +448,7 @@ async function main() {
   if (info.native_pen) await useNativePen();
   else usePointerEvents();
   if (info.pen_selftest) await runPenSelftest();
+  if (info.playback_selftest) await runPlaybackSelftest(info.playback_selftest);
 }
 
 main().catch((e) => {
