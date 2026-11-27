@@ -245,9 +245,11 @@ class AppDriver:
 
     def layer_rgba(self, frame: int, layer_index: int | None = None):
         from paintmaskanimator import imaging
+        from paintmaskanimator.pma_image import as_qimage
 
         layer_index = self.active_layer_index if layer_index is None else layer_index
-        return imaging.qimage_rgba_array(self.canvas.frames[frame].layers[layer_index].image)
+        image = self.canvas.frames[frame].layers[layer_index].image
+        return imaging.qimage_rgba_array(as_qimage(image))
 
     def layer_colours(self, frame: int, layer_index: int | None = None) -> set:
         rgba = self.layer_rgba(frame, layer_index)

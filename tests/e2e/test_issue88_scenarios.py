@@ -133,11 +133,13 @@ def test_cleared_replacement_colour_is_not_applied(app):
 def test_line_tidy_evens_out_a_diagonal_of_blocks(app):
     """#64：2×2の塊が角でつながった45°の線を、足して太さをそろえる。"""
     layer = app.canvas.frames[0].layers[0]
+    pixels = layer.image.to_qimage()
     for k in range(4):
         x, y = 100 + 2 * k, 100 + 2 * k
         for dx in range(2):
             for dy in range(2):
-                layer.image.setPixelColor(x + dx, y + dy, QColor("black"))
+                pixels.setPixelColor(x + dx, y + dy, QColor("black"))
+    layer.image.write_qimage(pixels, 0, 0)
     layer.has_content = True
     from paintmaskanimator.document import create_drawing
 
@@ -194,10 +196,12 @@ def test_transforming_a_held_key_becomes_a_tween(app):
     app.select_tool("brush")
     pen = QPen(QColor("black"), 6)
     layer = app.canvas.frames[0].layers[0]
-    painter = QPainter(layer.image)
+    pixels = layer.image.to_qimage()
+    painter = QPainter(pixels)
     painter.setPen(pen)
     painter.drawEllipse(200, 200, 120, 120)
     painter.end()
+    layer.image.write_qimage(pixels, 0, 0)
     from paintmaskanimator.document import create_drawing
 
     create_drawing(layer, layer.image.copy(), number=1)
