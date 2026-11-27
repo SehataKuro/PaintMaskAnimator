@@ -23,6 +23,8 @@ pub mod palette_labels;
 pub mod project;
 pub mod reference_check;
 pub mod regions;
+/// 画素の選択範囲と、その中の編集。
+pub mod selection;
 pub mod thin;
 pub mod tiled_color;
 pub mod tone_curve;

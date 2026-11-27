@@ -32,6 +32,7 @@ mod project_archive;
 mod project_payload;
 mod project_zip;
 mod reference_check;
+mod selection;
 mod tiled_color;
 mod timeline;
 mod tone_curve;
@@ -191,6 +192,7 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<document::PyCellImage>()?;
     module.add_class::<project_zip::ZipReader>()?;
     module.add_class::<project_zip::ZipWriter>()?;
+    selection::register(module)?;
     module.add_function(wrap_pyfunction!(project_payload::decode_v2_plan, module)?)?;
     module.add_function(wrap_pyfunction!(project_archive::_open_project, module)?)?;
     module.add_function(wrap_pyfunction!(project_archive::_save_project, module)?)?;
