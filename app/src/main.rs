@@ -12,6 +12,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod history;
+mod paint_ops;
 mod pen;
 mod pen_selftest;
 mod session;
@@ -396,6 +397,22 @@ fn main() {
             tools::action_run,
             tools::selection_edit,
             tools::selection_delete,
+            // 塗りの操作（paint_ops.rs）：バケツ・串刺し塗り・色置換・ゴミ取り・自動塗り・チェック。
+            paint_ops::paint_bucket_begin,
+            paint_ops::paint_bucket_extend,
+            paint_ops::paint_bucket_end,
+            paint_ops::paint_skewer_click,
+            paint_ops::paint_skewer_key,
+            paint_ops::paint_skewer_guide,
+            paint_ops::paint_replace_color,
+            paint_ops::paint_dust_apply,
+            paint_ops::paint_set_used_colors,
+            paint_ops::paint_auto_dialog,
+            paint_ops::paint_cell_thumbnail,
+            paint_ops::paint_auto_run,
+            paint_ops::paint_reference_check,
+            paint_ops::paint_job_cancel,
+            paint_ops::paint_show_finding,
             // 【アプリの外枠】（shell.rs）。
             shell::shell_init,
             shell::shell_menu_state,
