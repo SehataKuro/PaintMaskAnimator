@@ -3,6 +3,7 @@
 マスクは1画素1バイト（0 か 1）の行優先の並び（numpy の bool 配列の tobytes()）。
 """
 
+import os
 from typing import Any
 
 __version__: str
@@ -534,3 +535,57 @@ def stabilizer_segments(
     strength: int, zoom: float, events: list[tuple[str, float, float, float | None]],
 ) -> list[tuple[float, float, float, float, float]]:
     """("press"|"move"|"tick"|"release", x, y, 筆圧 | None) を描く線分 (x1, y1, x2, y2, 筆圧) にする。"""
+
+# 書き出し・読み込み（pma_core::export・import と pma-io、native/src/export.rs）。
+# 構成 layout_json は CutFolderLayout.to_json() の JSON 文字列。values は入力欄の辞書。
+_Cel = tuple[int, str, int, int]
+"""(列, セル名, セル番号, 最初のコマ)。"""
+
+def export_cut_folder_cels(document: _CoreDocument) -> tuple[list[_Cel], int]:
+    """書き出す絵と、セル番号のない絵の数（MainWindowExport.cut_folder_cels）。"""
+
+def export_plan_cut_folder(layout_json: str, values_dict: dict[str, Any], cel_list: list[_Cel]) -> dict[str, Any]:
+    """cut_folder.plan_export の結果（files は (パス, 列, セル名, セル番号)）。"""
+
+def export_write_cut_folder(
+    document: _CoreDocument, parent: str | os.PathLike[str], layout_json: str,
+    values_dict: dict[str, Any], memo: str = "", playback_range_end: int | None = None,
+) -> str:
+    """カットフォルダーを parent の下に書き出し、そのパスを返す。計画に問題があれば ValueError。"""
+
+def export_sheet_text(
+    document: _CoreDocument, format: str, sheet_name: str, cut: str = "", episode: str = "",
+    scene: str = "", playback_range_end: int | None = None,
+) -> str: ...
+def export_sheet_duration(document: _CoreDocument, playback_range_end: int | None = None) -> int: ...
+def export_write_key_sequence(document: _CoreDocument, destination: str | os.PathLike[str], format: str) -> int | None: ...
+def export_write_shadow_sequence(
+    document: _CoreDocument, destination: str | os.PathLike[str], shadow_rgbs: list[tuple[int, int, int]],
+) -> int | None: ...
+def export_thumbnail_png(document: _CoreDocument, frame: int, options: dict[str, Any] | None = None) -> bytes:
+    """.pman のサムネイルの PNG（project_io._thumbnail_png(window.crop_image(frame))）。"""
+
+def export_thumbnail_scale(width: int, height: int, premultiplied: bytes, max_size: int) -> tuple[int, int, bytes]:
+    """Qt の SmoothTransformation と同じ縮小（乗算済み RGBA）。"""
+
+def export_frame_image(
+    document: _CoreDocument, frame: int, format: str = "png", options: dict[str, Any] | None = None,
+) -> bytes: ...
+def export_after_effects_text(document: _CoreDocument, layer: int, fps: float) -> str | None: ...
+def export_guess_cut_number(name: str) -> str: ...
+def export_encode_tga(width: int, height: int, rgba: bytes) -> bytes:
+    """ストレート RGBA を Pillow の tga_rle と同じバイト列にする。"""
+
+def import_read_image(data: bytes) -> tuple[int, int, bytes]:
+    """画像を Qt の ARGB32_Premultiplied と同じ値の乗算済み RGBA（R, G, B, A の順）にする。"""
+
+def import_image_file(
+    path: str | os.PathLike[str], canvas_width: int, canvas_height: int, draft: bool = False,
+) -> bytes:
+    """読み込み・白の透明化・中央への配置をした文書の絵（ストレート RGBA）。"""
+
+def import_parse_timesheet(raw_text: str) -> dict[str, Any]:
+    """ImportController._parse_xdts_timesheet と同じ辞書。"""
+
+def import_scan_cut_folder(root: str | os.PathLike[str]) -> dict[str, Any]:
+    """cut_folder.scan_cut_folder（パスは root からの相対）。"""

@@ -10,10 +10,14 @@ pub mod compose;
 pub mod display;
 pub mod document;
 pub mod error;
+/// 書き出し（カットフォルダー・タイムシート・連番・影素材・サムネイル）。
+pub mod export;
 pub mod fill;
 pub mod flow_color;
 /// ストレート RGBA8888 の画像と矩形操作。
 pub mod image;
+/// 読み込み（画像の置き方・カットフォルダー・CLIP の合成）。
+pub mod import;
 pub mod line_flow;
 pub mod line_noise;
 pub mod local_shift;

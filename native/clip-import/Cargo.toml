@@ -1,0 +1,13 @@
+[package]
+name = "pma-clip-import"
+version = "0.1.0"
+description = "PaintMaskAnimator の CLIP STUDIO（.clip）の読み取り（pyo3 に依存しない）"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+# clipfile と rusqlite は C の SQLite を含むので pma-core には入れず、ここに置く。
+# Python の窓口（native/）と Tauri の画面（app/）の両方から使う。
+[dependencies]
+clipfile = { version = "1.2", path = "../vendor/clipfile", features = ["raster", "animation"] }
+rusqlite = { version = "0.39.0", default-features = false }
