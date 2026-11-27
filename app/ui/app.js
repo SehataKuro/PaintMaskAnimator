@@ -11,6 +11,12 @@ import { Viewer } from "./viewer.js";
 import { createLayout } from "./layout.js";
 // タイムラインのパネル（timeline.js）。
 import { createTimelinePanel } from "./timeline.js";
+// ツール・ツールプロパティ・アクションのパネルと、キャンバスの上のツール（tools.js ほか）。
+import { toolStore, createToolsPanel } from "./tools.js";
+import { createToolPropertiesPanel } from "./tool_properties.js";
+import { createActionsPanel } from "./actions.js";
+import { Overlay } from "./overlay.js";
+import { createCanvasTools } from "./canvas_tools.js";
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
@@ -30,6 +36,10 @@ createLayout(document.getElementById("dock"), {
   canvas: () => canvasPanel,
   // タイムラインのパネル（timeline.js）。文書の変化は document-changed の事件で知る。
   timeline: () => createTimelinePanel({ invoke }),
+  // ツールのパネル（tools.js・tool_properties.js・actions.js）。
+  tools: () => createToolsPanel(),
+  "tool-properties": () => createToolPropertiesPanel(),
+  actions: () => createActionsPanel(),
 });
 const viewer = new Viewer(canvas);
 
@@ -40,8 +50,9 @@ const strokes = [];
 const queue = [];
 let pendingPoints = [];
 let sending = false;
-// ツールの設定（ツールのパネルができるまでは既定の値）。
-const tool = { size: 5, color: [0, 0, 0], stabilizer: 0 };
+// 線の太さ・色・手ぶれ補正はツールの設定（tools.rs）を使う。筆圧の自己確認だけは決まった値で描く。
+const selftestTool = { size: 5, color: [0, 0, 0], stabilizer: 0 };
+let penSelftest = false;
 // Rust とのやり取り1回の時間（ms、自己確認で出す）。
 const strokeTimes = [];
 
@@ -90,6 +101,9 @@ function showStatus(device, pressure, tiltX, tiltY) {
     `入力：${name}　筆圧 ${pressure.toFixed(3)}　傾き ${tiltX.toFixed(2)}, ${tiltY.toFixed(2)}　${viewText}`;
 }
 viewer.onchange = () => showSummary();
+// キャンバスの上の層（選択範囲の点線など）と、ブラシ以外のツールの操作（overlay.js・canvas_tools.js）。
+const overlay = new Overlay(canvasPanel, viewer);
+const canvasTools = createCanvasTools({ canvas, viewer, overlay, applyRect });
 
 // 窓の中身の座標（CSS の px）をキャンバス要素の座標にする。
 function toCanvas(x, y) {
@@ -99,21 +113,19 @@ function toCanvas(x, y) {
   return { x: cx, y: cy, inside: cx >= 0 && cy >= 0 && cx < rect.width && cy < rect.height };
 }
 
-// 画面を動かしている途中（スペース＋ドラッグ、中ボタン）。
+// 画面を動かしている途中（ハンドは canvas_tools.js が受け持つ）。
 let panning = null;
-let spaceDown = false;
 
 // 1点を受け取る。phase は down / move / up。x, y は窓の中身の座標。
 function feed(phase, device, x, y, pressure, tiltX, tiltY) {
   showStatus(device, pressure, tiltX, tiltY);
   const p = toCanvas(x, y);
+  // ブラシの線の途中でなければ、ツールごとの操作に任せる（canvas_tools.js）。
+  if (!stroke && !panning && (phase !== "down" || (p.inside && document.elementFromPoint(x, y) === canvas)) &&
+      canvasTools.feed(phase, device, p.x, p.y, pressure)) return;
   if (phase === "down") {
     // 線はキャンバスの上で押したときだけ始める（ボタンなどの上は除く）。
     if (!p.inside || document.elementFromPoint(x, y) !== canvas) return;
-    if (spaceDown) {
-      panning = { x, y };
-      return;
-    }
     stroke = [{ x: p.x, y: p.y, pressure, device }];
     strokes.push(stroke);
     pendingPoints = [];
@@ -121,7 +133,7 @@ function feed(phase, device, x, y, pressure, tiltX, tiltY) {
     queue.push({
       cmd: "stroke_begin",
       args: {
-        tool: { ...tool, eraser: device === "eraser", zoom: viewer.zoom },
+        tool: { ...(penSelftest ? selftestTool : {}), eraser: device === "eraser", zoom: viewer.zoom },
         point: { x: q.x, y: q.y, pressure, pen: device !== "mouse", time: performance.now() },
       },
     });
@@ -136,6 +148,7 @@ function feed(phase, device, x, y, pressure, tiltX, tiltY) {
   } else if (phase === "up") {
     const last = stroke[stroke.length - 1];
     stroke = null;
+    canvasTools.strokeEnded(last.x, last.y);
     const q = viewer.screenToImage(last.x, last.y);
     queue.push({
       cmd: "stroke_end",
@@ -161,7 +174,7 @@ function usePointerEvents() {
     feed("down", device(e), e.clientX, e.clientY, pressure(e), ...tilt(e));
   });
   canvas.addEventListener("pointermove", (e) => {
-    if (!stroke && !panning) return;
+    if (!stroke && !panning && !canvasTools.active) return;
     // 1フレームのあいだの点もまとめて受け取る。
     const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
     for (const c of events) feed("move", device(c), c.clientX, c.clientY, pressure(c), ...tilt(c));
@@ -196,12 +209,6 @@ function useViewControls() {
     middle = { x: e.clientX, y: e.clientY };
   });
   canvas.addEventListener("pointerup", () => (middle = null));
-  window.addEventListener("keydown", (e) => {
-    if (e.code === "Space") spaceDown = true;
-  });
-  window.addEventListener("keyup", (e) => {
-    if (e.code === "Space") spaceDown = false;
-  });
   document.getElementById("fit").addEventListener("click", () => viewer.fit());
   document.getElementById("actual").addEventListener("click", () => {
     const r = canvas.getBoundingClientRect();
@@ -440,6 +447,10 @@ async function runPlaybackSelftest(count) {
 
 async function main() {
   const info = await invoke("startup");
+  // ツールの設定（tools.rs）。筆圧の自己確認では、キャンバスのツールを使わずブラシで描く。
+  penSelftest = !!info.pen_selftest;
+  canvasTools.enabled = !penSelftest;
+  await toolStore.init();
   await useDocumentEvents();
   await reloadCanvas(true);
   useDocumentControls();

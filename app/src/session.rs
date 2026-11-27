@@ -43,7 +43,7 @@ struct ActiveStroke {
     before: Document,
     frame: usize,
     layer: usize,
-    label: &'static str,
+    label: String,
 }
 
 pub struct Session {
@@ -59,6 +59,8 @@ pub struct Session {
     structure_revision: u64,
     /// 絵が変わるたびに増える。
     pixels_revision: u64,
+    // ツール（tools.rs）：ツールの設定と画素の選択範囲。
+    pub tools: crate::tools::ToolState,
 }
 
 /// 合成した表示の控え。コマの番号で引き、同じ絵の重なりのコマは画素を共有する。
@@ -146,13 +148,16 @@ impl Point {
     }
 }
 
-/// 線の描き方（ツールの設定）。
+/// 線の描き方。太さ・色・手ぶれ補正を省いたら、ツールの設定（tools.rs）を使う。
 #[derive(Clone, Debug, Deserialize)]
 pub struct StrokeTool {
-    pub size: f64,
-    pub color: [u8; 3],
+    #[serde(default)]
+    pub size: Option<f64>,
+    #[serde(default)]
+    pub color: Option<[u8; 3]>,
     pub eraser: bool,
-    pub stabilizer: i64,
+    #[serde(default)]
+    pub stabilizer: Option<i64>,
     pub zoom: f64,
 }
 
@@ -180,6 +185,7 @@ impl Session {
             cache: FrameCache::default(),
             structure_revision: 0,
             pixels_revision: 0,
+            tools: crate::tools::ToolState::default(),
         }
     }
 
@@ -221,6 +227,8 @@ impl Session {
     fn install(&mut self, project: Project) -> Result<(), String> {
         self.active = None;
         self.last = None;
+        // ツール（tools.rs）：選択範囲は作品ごと。
+        self.tools.selection.clear();
         self.project = Some(project);
         self.timeline.reset();
         self.touch_structure();
@@ -504,24 +512,15 @@ impl Session {
             Some(image) => image.clone(),
             None => RgbaImage::blank(w, h).map_err(|e| e.to_string())?,
         };
-        let settings = BrushSettings {
-            size: tool.size,
-            color: tool.color,
-            eraser: tool.eraser,
-            stabilizer: tool.stabilizer,
-            zoom: tool.zoom,
-            ..BrushSettings::default()
-        };
+        // ツール（tools.rs）：筆圧・手ぶれ補正・マスク色・透明部分の保護・選択範囲。
+        let settings: BrushSettings = self.tools.brush_settings(tool, doc, layer, (w, h));
         let before = doc.clone();
         // 描いているあいだは表示をその場で書き換えるので、控えた合成は使えなくなる。
         self.cache.clear();
         let (stroke, rects) =
             BrushStroke::begin(&base, settings, point.sample()).map_err(|e| e.to_string())?;
-        let label = if tool.eraser {
-            "消しゴム"
-        } else {
-            "ブラシ"
-        };
+        // Qt と同じ履歴の名前（tools.rs）。
+        let label = crate::tools::drawing_label(doc, frame, layer);
         self.active = Some(ActiveStroke {
             stroke,
             before,
@@ -587,7 +586,7 @@ impl Session {
         p.document
             .write_drawing_patch_with_content(frame, layer, undo.rect, &pixels, true)
             .map_err(|e| e.to_string())?;
-        p.undo.record(label, &before);
+        p.undo.record(&label, &before);
         self.touch_pixels();
         self.recompose_rect(undo.rect)?;
         Ok(Some(undo.rect))
@@ -803,10 +802,10 @@ mod tests {
 
     fn tool() -> StrokeTool {
         StrokeTool {
-            size: 5.0,
-            color: [0, 0, 0],
+            size: Some(5.0),
+            color: Some([0, 0, 0]),
             eraser: false,
-            stabilizer: 0,
+            stabilizer: Some(0),
             zoom: 1.0,
         }
     }
@@ -855,7 +854,12 @@ mod tests {
         let rect = s.stroke_end(Some(b)).unwrap().unwrap();
         assert!(rect.width > 0);
         assert_ne!(s.display.rgba(), &before[..]);
-        assert_eq!(s.history().undo, vec!["ブラシ".to_string()]);
+        let label = {
+            let doc = &s.project.as_ref().unwrap().document;
+            let (f, l) = current_index(doc);
+            crate::tools::drawing_label(doc, f, l)
+        };
+        assert_eq!(s.history().undo, vec![label]);
         // 保存して開き直しても線が残る。
         let drawn = s.display.rgba().to_vec();
         assert!(s.undo().unwrap());
