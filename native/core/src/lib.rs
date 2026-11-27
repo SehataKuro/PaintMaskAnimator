@@ -29,6 +29,8 @@ pub mod palette;
 pub mod palette_labels;
 pub mod project;
 pub mod reference_check;
+/// 見本との違い・塗り間違いのチェック。
+pub mod reference_scan;
 pub mod regions;
 /// 画素の選択範囲と、その中の編集。
 pub mod selection;

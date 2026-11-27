@@ -620,6 +620,14 @@ def bucket_fill_at(
     x: float, y: float, selection: bytes | None = None,
 ) -> tuple[str, _Rect | None, list[_RGB]]:
     """1か所を塗る。(理由, 書いた矩形か None, 書き込んだ RGB の列)。"""
+_FindingEntry = tuple[
+    int, int, str, _RGB | None, int, tuple[int, int, int, int] | None, _RGB | None, bytes | None,
+]
+def reference_check_layer(
+    document: _CoreDocument, current_frame: int, layer: int,
+) -> tuple[str, int | None, list[_FindingEntry], list[tuple[_RGB, int, int]]]:
+    """見本との違いチェック。(状態, 見本のコマ, 候補, 見本だけの色)。
+    候補は (コマ, レイヤー, 種類, 色, 画素数, 矩形, 前後の色, 矩形内のマスク)。"""
 def bucket_reference_pixels(
     document: _CoreDocument, frame: int, layer: int, reference: str,
 ) -> bytes:
