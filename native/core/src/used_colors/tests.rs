@@ -1,5 +1,5 @@
 use super::chart::{normalize, Hit, Role};
-use super::pixels::{clip_to_edit_range, remap_image, shifted_color, QtHsv};
+use super::pixels::{remap_image, shifted_color, QtHsv};
 use super::*;
 use crate::image::RgbaImage;
 use crate::project::json::{parse, Json};
@@ -151,23 +151,6 @@ fn edit_range_is_selection_minus_locks() {
 }
 
 #[test]
-fn clip_restores_pixels_outside_edit_range() {
-    let mut p = palette(&[R, G]);
-    p.set_selected(BACKGROUND, true);
-    // 透明・赤・白・緑の4画素へ、全部黒を描いた。
-    let base = [
-        0, 0, 0, 0, 255, 0, 0, 255, 255, 255, 255, 255, 0, 255, 0, 255,
-    ];
-    let mut after = [0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255];
-    let restored = clip_to_edit_range(&base, &mut after, &p.edit_range());
-    assert_eq!(restored, 2);
-    assert_eq!(&after[0..4], &[0, 0, 0, 255]);
-    assert_eq!(&after[4..8], &[255, 0, 0, 255]);
-    assert_eq!(&after[8..12], &[0, 0, 0, 255]);
-    assert_eq!(&after[12..16], &[0, 255, 0, 255]);
-}
-
-#[test]
 fn sweep_records_bulk_labels_and_selection_is_not_recorded() {
     let mut p = palette(&[R, G, B]);
     p.sweep_begin(Column::Visibility, R, false);
@@ -293,10 +276,8 @@ fn remap_image_erases_white_and_respects_mask() {
     let mapping: BTreeMap<Rgb, Rgb> = [(R, BACKGROUND), (G, B)].into();
     let (out, count) = remap_image(&image, &mapping, None).unwrap();
     assert_eq!(count, 2);
-    assert_eq!(
-        out.rgba(),
-        &[255, 255, 255, 0, 0, 0, 255, 128, 255, 0, 0, 0]
-    );
+    // 透明の画素は PmaImage と同じく RGB も 0 に正規化する（バケツの色置換と同じ計算）。
+    assert_eq!(out.rgba(), &[0, 0, 0, 0, 0, 0, 255, 128, 0, 0, 0, 0]);
     let (_, count) = remap_image(&image, &mapping, Some(&[0, 1, 1])).unwrap();
     assert_eq!(count, 1);
 }

@@ -58,6 +58,9 @@ export function startColors() {
   started ??= (async () => {
     await listen("palette-changed", ({ payload }) => publish("palette", payload));
     await listen("chart-changed", ({ payload }) => publish("chart", payload));
+    // 塗りで実際に書いた色（paint_ops.rs。Qt の colorUsed → add_color）：使用色をすぐ数え直して
+    // 新しい色の行を出す（palette_view が数え直し、変われば palette-changed も出す）。
+    await listen("paint-colors-used", async () => publish("palette", await invoke("palette_view")));
     // 描画色はツールの設定から（tools-changed）。同じ色なら知らせない（ツールの他の欄の変化）。
     let last = "";
     toolStore.subscribe((view) => {

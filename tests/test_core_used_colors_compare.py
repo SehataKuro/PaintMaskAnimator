@@ -152,7 +152,9 @@ def test_remap_inside_mask_only():
         hit = (before[..., :3] == src).all(axis=2) & (before[..., 3] != 0) & mask.astype(bool)
         expected[hit, :3] = dst
         if dst == (255, 255, 255):
-            expected[hit, 3] = 0
+            # 白は消しゴム。透明の画素は PmaImage と同じく RGB も 0 にする（バケツの色置換と
+            # 同じ計算。Qt の版との突き合わせは test_remap_matches_qt_replacements）。
+            expected[hit] = 0
     assert np.array_equal(after, expected)
 
 

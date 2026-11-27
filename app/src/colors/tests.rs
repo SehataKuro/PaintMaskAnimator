@@ -325,3 +325,22 @@ fn thousands_separator_matches_python() {
     assert_eq!(thousands(1000), "1,000");
     assert_eq!(thousands(1234567), "1,234,567");
 }
+
+#[test]
+fn sync_passes_selection_and_replacements_to_paint_and_bucket_replace_shares_the_path() {
+    let (mut s, a, b) = with_two_colors();
+    s.colors.palette.select_only(a);
+    s.colors.palette.set_replacements(&[b], (1, 2, 3));
+    sync(&mut s);
+    assert_eq!(s.tools.paint.used_selection, vec![rgb3(a)]);
+    assert_eq!(s.tools.paint.replacements, vec![(rgb3(b), [1, 2, 3])]);
+    // バケツの色置換も使用色パネルと同じ経路・同じ履歴の名前。半透明の画素は Qt と同じく
+    // 乗算済みの往復で丸まるので、丸まらない黒へ置き換える。
+    let feedback =
+        crate::paint_ops::apply_palette_replacements(&mut s, &[(rgb3(a), [0, 0, 0])]).unwrap();
+    assert!(feedback.rect.is_some());
+    assert_eq!(undo_labels(&s).last().unwrap(), "色置換");
+    sync(&mut s);
+    assert!(s.colors.palette.contains((0, 0, 0)));
+    assert!(!s.colors.palette.contains(a));
+}

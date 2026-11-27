@@ -209,6 +209,15 @@ pub fn sync(s: &mut Session) -> Synced {
     out.palette |= std::mem::take(&mut s.colors.touched);
     // 描ける範囲は、ブラシ・塗りと同じマスク色の絞り込みで効かせる（tools.rs）。
     s.tools.mask_filter = edit_filter(&s.colors.palette);
+    // 選んでいる色と登録した置換色を、塗りの計算（paint_ops.rs）へ渡す（ゴミ取りの
+    // 「選択色を対象」・線整え・バケツの「置換色を塗り替え」。`paint_set_used_colors` と同じ）。
+    let palette = &s.colors.palette;
+    s.tools.paint.used_selection = palette.selected().iter().map(|&c| rgb3(c)).collect();
+    s.tools.paint.replacements = palette
+        .replacements_to_apply()
+        .into_iter()
+        .map(|(a, b)| (rgb3(a), rgb3(b)))
+        .collect();
     let background = tup(s.tools.settings.background_color);
     let wanted = s.colors.wanted_display();
     // 絞り込みは選択レイヤーにだけ掛けるので、選択レイヤーが変わったときも合成し直す。
@@ -956,7 +965,11 @@ impl Session {
         })?;
         if result.pixels == 0 {
             return Ok(Outcome::message(
-                "選択した使用色は画像内にありませんでした。",
+                if mask.is_some() {
+                    "選択範囲の中に、選択した使用色はありませんでした。"
+                } else {
+                    "選択した使用色は画像内にありませんでした。"
+                },
                 false,
             ));
         }
@@ -970,7 +983,12 @@ impl Session {
         self.recompose()?;
         Ok(Outcome::message(
             format!(
-                "{}セル・{}ピクセルへ{}を適用しました。",
+                "{}{}セル・{}ピクセルへ{}を適用しました。",
+                if mask.is_some() {
+                    "選択範囲の中で、"
+                } else {
+                    ""
+                },
                 result.cells,
                 thousands(result.pixels),
                 remap.label()

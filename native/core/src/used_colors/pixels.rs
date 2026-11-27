@@ -12,13 +12,12 @@
 use std::collections::{BTreeMap, HashMap};
 
 use crate::compose::layers::Sources;
-use crate::document::drawing_commands::DrawingTarget;
 use crate::document::model::Document;
 use crate::image::RgbaImage;
 use crate::project::json::Json;
 use crate::Error;
 
-use super::{EditRange, Rgb, BACKGROUND, MAX_COLORS};
+use super::{Rgb, BACKGROUND, MAX_COLORS};
 
 /// 画素の色を、使用色の行の色にする。透明と白は背景。
 #[inline]
@@ -141,35 +140,30 @@ pub struct RemapResult {
 
 /// 1枚の絵の色を置き換える。置き換え先が白なら消しゴム（アルファ 0）にする。
 /// `mask` があれば（1 画素 1 バイト、0 以外が選択）、その中だけを置き換える。
-/// 何も変わらなければ None。
+/// 何も変わらなければ None。計算はバケツの色置換・ゴミ取りなどと同じ
+/// [`crate::image_ops::color_replace::replace_colors`]。
 pub fn remap_image(
     image: &RgbaImage,
     mapping: &BTreeMap<Rgb, Rgb>,
     mask: Option<&[u8]>,
 ) -> Option<(RgbaImage, usize)> {
-    let mut rgba = image.rgba().to_vec();
-    let mut count = 0;
-    for (index, pixel) in rgba.chunks_exact_mut(4).enumerate() {
-        if pixel[3] == 0 || mask.is_some_and(|m| m.get(index).is_none_or(|&b| b == 0)) {
-            continue;
-        }
-        let Some(&(r, g, b)) = mapping.get(&(pixel[0], pixel[1], pixel[2])) else {
-            continue;
-        };
-        pixel[0] = r;
-        pixel[1] = g;
-        pixel[2] = b;
-        if (r, g, b) == BACKGROUND {
-            pixel[3] = 0;
-        }
-        count += 1;
-    }
-    if count == 0 {
-        return None;
-    }
-    RgbaImage::from_rgba(image.width(), image.height(), &rgba)
+    let pairs = mapping_pairs(mapping);
+    let mask = mask.map(|data| crate::image_ops::MaskRef {
+        data,
+        width: image.width(),
+        height: image.height(),
+    });
+    crate::image_ops::color_replace::replace_colors(image, &pairs, mask)
         .ok()
-        .map(|image| (image, count))
+        .flatten()
+        .map(|edit| (edit.image, edit.pixels))
+}
+
+fn mapping_pairs(mapping: &BTreeMap<Rgb, Rgb>) -> Vec<([u8; 3], [u8; 3])> {
+    mapping
+        .iter()
+        .map(|(&(a, b, c), &(d, e, f))| ([a, b, c], [d, e, f]))
+        .collect()
 }
 
 /// 置き換えの組を整える：背景を元にする組と、元と先が同じ組は除く。
@@ -182,7 +176,8 @@ pub fn effective_mapping(mapping: &BTreeMap<Rgb, Rgb>) -> BTreeMap<Rgb, Rgb> {
 }
 
 /// 選択レイヤーの全コマの絵の色を置き換える（統合・色置換・色削除）。保持のコマは
-/// 絵を持つコマ（同じ番号の絵）を1回だけ書き換える。
+/// 絵を持つコマ（同じ番号の絵）を1回だけ書き換える。バケツの色置換（tools の
+/// `scope::replace_colors`）と同じ計算・同じ書き込みを通す。
 pub fn remap_layer(
     document: &mut Document,
     layer: usize,
@@ -190,54 +185,21 @@ pub fn remap_layer(
     mask: Option<&[u8]>,
 ) -> Result<RemapResult, Error> {
     let mapping = effective_mapping(mapping);
-    let mut result = RemapResult::default();
     if mapping.is_empty() {
-        return Ok(result);
+        return Ok(RemapResult::default());
     }
-    let sources = Sources::new(document)?;
-    let mut key_frames = Vec::new();
-    for frame in 0..sources.frame_count() {
-        if let Some(key) = sources.key_frame(frame, layer) {
-            if !key_frames.contains(&key) {
-                key_frames.push(key);
-            }
-        }
-    }
-    for key in key_frames {
-        let replaced = {
-            let layers = crate::compose::frame_layers(document, key)?;
-            let Some(image) = layers
-                .get(layer)
-                .and_then(|l| l.as_ref())
-                .and_then(|l| l.image)
-            else {
-                continue;
-            };
-            remap_image(image, &mapping, mask)
-        };
-        if let Some((image, count)) = replaced {
-            document.replace_drawing_pixels(layer, DrawingTarget::Frame(key), image)?;
-            result.cells += 1;
-            result.pixels += count;
-        }
-    }
-    Ok(result)
-}
-
-/// 描ける範囲の外の画素を、元の絵（`base`、描き始めの絵）の画素へ戻す（#104）。
-/// どちらも同じ大きさのストレート RGBA。戻した画素の数を返す。
-pub fn clip_to_edit_range(base: &[u8], after: &mut [u8], range: &EditRange) -> usize {
-    if range.is_unrestricted() {
-        return 0;
-    }
-    let mut restored = 0;
-    for (before, now) in base.chunks_exact(4).zip(after.chunks_exact_mut(4)) {
-        if before != now && !range.permits(pixel_key(before)) {
-            now.copy_from_slice(before);
-            restored += 1;
-        }
-    }
-    restored
+    let cells = crate::tools::scope::scope_cells(document, 0, layer, true)?;
+    let outcome = crate::tools::scope::replace_colors(
+        document,
+        &cells,
+        &mapping_pairs(&mapping),
+        mask,
+        &mut crate::reference_scan::Progress::default(),
+    )?;
+    Ok(RemapResult {
+        cells: outcome.changed_cells,
+        pixels: outcome.changed_pixels,
+    })
 }
 
 // ---- Qt の QColor の HSV ------------------------------------------------------

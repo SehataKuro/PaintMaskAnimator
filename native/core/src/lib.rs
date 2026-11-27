@@ -39,9 +39,9 @@ pub mod selection;
 pub mod thin;
 pub mod tiled_color;
 pub mod tone_curve;
-/// 使用色パネルの状態（親子・選択・表示・鍵・フォルダー・置換色）とカラーチャート。
-pub mod used_colors;
 /// 画面のツール操作（バケツ・串刺し塗り）。
 pub mod tools;
+/// 使用色パネルの状態（親子・選択・表示・鍵・フォルダー・置換色）とカラーチャート。
+pub mod used_colors;
 
 pub use error::Error;
