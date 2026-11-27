@@ -20,6 +20,7 @@
 
 pub mod layers;
 pub mod onion;
+pub mod painter;
 pub mod pixel;
 pub mod scale;
 pub mod view;
