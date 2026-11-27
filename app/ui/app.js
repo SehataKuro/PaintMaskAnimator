@@ -67,10 +67,7 @@ function showStatus(device, pressure, tiltX, tiltY) {
   statusLine.textContent =
     `入力：${name}　筆圧 ${pressure.toFixed(3)}　傾き ${tiltX.toFixed(2)}, ${tiltY.toFixed(2)}　${viewText}`;
 }
-viewer.onchange = () => {
-  viewText = `表示 ${(viewer.zoom * 100).toFixed(0)}%　回転 ${viewer.rotation.toFixed(0)}°`;
-  showStatus("mouse", 0, 0, 0);
-};
+viewer.onchange = () => showSummary();
 
 // 窓の中身の座標（CSS の px）をキャンバス要素の座標にする。
 function toCanvas(x, y) {
@@ -234,12 +231,76 @@ async function runPenSelftest() {
   await invoke("quit", { code: ok ? 0 : 1 });
 }
 
+// 作品の概要（Rust の summary）。
+let summary = null;
+function showSummary() {
+  if (!summary) return;
+  const name = summary.path ? summary.path.split(/[\\/]/).pop() : "（未保存）";
+  document.title = `${name} — PaintMaskAnimator`;
+  viewText = `${summary.frames ? `コマ ${summary.frame + 1}/${summary.frames}　` : ""}表示 ${(viewer.zoom * 100).toFixed(0)}%　回転 ${viewer.rotation.toFixed(0)}°`;
+  showStatus("mouse", 0, 0, 0);
+}
+
+// 画像の大きさが変わったときはテクスチャを作り直し、全体を読み直す。
+async function reloadCanvas(fit) {
+  summary = await invoke("summary");
+  if (summary.width !== viewer.width || summary.height !== viewer.height) {
+    viewer.setImageSize(summary.width, summary.height);
+    fit = true;
+  }
+  applyRect(await invoke("read_canvas"));
+  if (fit) viewer.fit();
+  showSummary();
+}
+
+async function openProject(path) {
+  try {
+    await invoke("open_project", { path });
+    await reloadCanvas(true);
+  } catch (e) {
+    statusLine.textContent = `開けませんでした：${e}`;
+  }
+}
+
+async function stepFrame(delta) {
+  if (!summary?.frames) return;
+  const n = summary.frames;
+  summary = await invoke("set_frame", { frame: (summary.frame + delta + n) % n });
+  await reloadCanvas(false);
+}
+
+function useDocumentControls() {
+  // .pman を窓へ落とすと開く。
+  listen("tauri://drag-drop", ({ payload }) => {
+    const path = payload.paths?.find((p) => p.toLowerCase().endsWith(".pman"));
+    if (path) openProject(path);
+  });
+  window.addEventListener("keydown", async (e) => {
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+    const mod = e.metaKey || e.ctrlKey;
+    if (e.key === "ArrowRight" && !mod) {
+      e.preventDefault();
+      stepFrame(1);
+    } else if (e.key === "ArrowLeft" && !mod) {
+      e.preventDefault();
+      stepFrame(-1);
+    } else if (mod && e.key.toLowerCase() === "s") {
+      e.preventDefault();
+      try {
+        const path = await invoke("save_project", { path: null });
+        statusLine.textContent = `保存しました：${path}`;
+      } catch (err) {
+        statusLine.textContent = `保存できませんでした：${err}`;
+      }
+    }
+  });
+}
+
 async function main() {
   const info = await invoke("startup");
-  const [width, height] = await invoke("canvas_size");
-  viewer.setImageSize(width, height);
-  applyRect(await invoke("read_canvas"));
-  viewer.fit();
+  await reloadCanvas(true);
+  useDocumentControls();
+  if (info.open) await openProject(info.open);
   useViewControls();
   if (info.native_pen) await useNativePen();
   else usePointerEvents();

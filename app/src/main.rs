@@ -11,7 +11,7 @@ mod pen;
 mod pen_selftest;
 mod session;
 
-use session::{pack_rect, Point, Session, Shared};
+use session::{pack_rect, Point, Session, Shared, Summary};
 use tauri::ipc::Response;
 use tauri::State;
 
@@ -21,6 +21,8 @@ struct Startup {
     /// macOS では筆圧を `pen` の事件で送る（PointerEvent の筆圧は使えない）。
     native_pen: bool,
     pen_selftest: bool,
+    /// 起動のときに開く .pman（コマンドラインの最初の引数）。
+    open: Option<String>,
 }
 
 #[tauri::command]
@@ -28,6 +30,7 @@ fn startup() -> Startup {
     Startup {
         native_pen: cfg!(target_os = "macos"),
         pen_selftest: std::env::var_os("PMA_PEN_SELFTEST").is_some(),
+        open: std::env::args().nth(1),
     }
 }
 
@@ -56,7 +59,7 @@ fn pen_selftest_step(app: tauri::AppHandle, n: usize, mouse: bool) -> Result<boo
 #[tauri::command]
 fn canvas_size(session: State<Shared>) -> (usize, usize) {
     let s = session.lock().unwrap();
-    (s.canvas.width(), s.canvas.height())
+    (s.display.width(), s.display.height())
 }
 
 /// 表示する画像の全体（先頭 16 バイトに範囲、続けて RGBA）。
@@ -66,10 +69,40 @@ fn read_canvas(session: State<Shared>) -> Response {
     let rect = pma_core::image::Rect {
         x: 0,
         y: 0,
-        width: s.canvas.width(),
-        height: s.canvas.height(),
+        width: s.display.width(),
+        height: s.display.height(),
     };
-    Response::new(pack_rect(&s.canvas, Some(rect)))
+    Response::new(pack_rect(&s.display, Some(rect)))
+}
+
+/// 作品の概要（大きさ・コマ数・レイヤー数・今のコマ・保存先）。
+#[tauri::command]
+fn summary(session: State<Shared>) -> Summary {
+    session.lock().unwrap().summary()
+}
+
+/// .pman を開く。
+#[tauri::command]
+fn open_project(session: State<Shared>, path: String) -> Result<Summary, String> {
+    let mut s = session.lock().unwrap();
+    s.open(std::path::Path::new(&path))?;
+    Ok(s.summary())
+}
+
+/// .pman に保存する。path が無ければ開いたときの場所に上書きする。
+#[tauri::command]
+fn save_project(session: State<Shared>, path: Option<String>) -> Result<String, String> {
+    let mut s = session.lock().unwrap();
+    let saved = s.save(path.as_deref().map(std::path::Path::new))?;
+    Ok(saved.display().to_string())
+}
+
+/// 今のコマを変える。
+#[tauri::command]
+fn set_frame(session: State<Shared>, frame: usize) -> Result<Summary, String> {
+    let mut s = session.lock().unwrap();
+    s.set_frame(frame)?;
+    Ok(s.summary())
 }
 
 /// 線の点（画像の座標）を描き、変わった範囲の画素を返す。
@@ -77,7 +110,7 @@ fn read_canvas(session: State<Shared>) -> Response {
 fn stroke(session: State<Shared>, points: Vec<Point>, begin: bool) -> Response {
     let mut s = session.lock().unwrap();
     let rect = s.stroke(&points, begin);
-    Response::new(pack_rect(&s.canvas, rect))
+    Response::new(pack_rect(&s.display, rect))
 }
 
 /// 別の窓の大きさと題名を変える（別の窓の題名は dockview が主の窓の題名を写すので、パネルの名前にする）。
@@ -146,7 +179,7 @@ fn open_main_window(app: &tauri::App) -> tauri::Result<()> {
 
 fn main() {
     tauri::Builder::default()
-        .manage::<Shared>(std::sync::Mutex::new(Session::new(1920, 1080)))
+        .manage::<Shared>(std::sync::Mutex::new(Session::empty(1920, 1080)))
         .setup(|app| {
             open_main_window(app)?;
             pen::install(app.handle());
@@ -156,6 +189,10 @@ fn main() {
             startup,
             pen_selftest_step,
             canvas_size,
+            summary,
+            open_project,
+            save_project,
+            set_frame,
             read_canvas,
             stroke,
             shape_window,
