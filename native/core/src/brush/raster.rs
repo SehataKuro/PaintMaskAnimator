@@ -489,6 +489,54 @@ pub fn fill_path(path: &Path, rule: FillRule, width: usize, height: usize) -> Ma
     mask
 }
 
+/// `QRasterizer::rasterize(QPainterPath)`（`fillPath` の非 AA）。輪郭の点は 26.6 へ
+/// 0 の方向へ切り捨て（`PointToVector`）、描く行は実数の外接矩形から決める。
+/// `contours` は閉じた部分経路の点（最後の点から最初の点へも結ぶ）。
+pub(crate) fn rasterize_polygons(
+    contours: &[Vec<Point>],
+    rule: FillRule,
+    width: usize,
+    height: usize,
+) -> Mask {
+    let mut mask = Mask::new(0, 0, width, height);
+    let points: Vec<&Point> = contours.iter().flatten().collect();
+    if width == 0 || height == 0 || points.is_empty() {
+        return mask;
+    }
+    let top_f = points.iter().map(|p| p.y).fold(f64::INFINITY, f64::min);
+    let bottom_f = points.iter().map(|p| p.y).fold(f64::NEG_INFINITY, f64::max);
+    let top = 0.max((top_f + 0.5) as i64);
+    let bottom = (height as i64 - 1).min((bottom_f - 0.5) as i64);
+    if top > bottom {
+        return mask;
+    }
+    let mut converter = ScanConverter {
+        top,
+        bottom,
+        left_fp: 0,
+        right_fp: (width as i64) << 16,
+        edges: Vec::new(),
+    };
+    let vector = |p: &Point| ((p.x * 64.0) as i64, (p.y * 64.0) as i64);
+    for contour in contours {
+        let Some(first) = contour.first() else {
+            continue;
+        };
+        let mut last = vector(first);
+        for point in &contour[1..] {
+            let next = vector(point);
+            converter.merge_line(last, next);
+            last = next;
+        }
+        let start = vector(first);
+        if start != last {
+            converter.merge_line(last, start);
+        }
+    }
+    converter.emit(rule, &mut mask);
+    mask
+}
+
 /// `QCosmeticStroker` の非 AA・実線・両端キャップつきの 1px 線。描く先は
 /// `(0, 0, width, height)` の画像。始点と終点が（あいまいに）等しければ 1 点を打つ。
 pub fn cosmetic_line(p1: Point, p2: Point, width: usize, height: usize) -> Mask {

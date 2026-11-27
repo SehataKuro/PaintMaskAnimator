@@ -303,6 +303,15 @@ pub struct PaletteView {
     /// 描ける範囲を絞っているか（選択か鍵がある）。
     pub restricted: bool,
     pub chart_summary: String,
+    /// 使用色フォルダーと、入っている色（並びの順。影の書き出しなどが使う）。
+    pub folders: Vec<FolderView>,
+}
+
+/// 使用色フォルダー1つ。
+#[derive(Clone, Debug, Serialize)]
+pub struct FolderView {
+    pub name: String,
+    pub colors: Vec<[u8; 3]>,
 }
 
 fn rgb3(rgb: Rgb) -> [u8; 3] {
@@ -353,6 +362,18 @@ impl Session {
             replace_target_count: replace_targets(palette).len(),
             restricted: !palette.edit_range().is_unrestricted(),
             chart_summary: c.chart.summary(),
+            folders: palette
+                .categories()
+                .iter()
+                .map(|name| FolderView {
+                    name: name.clone(),
+                    colors: palette
+                        .category_members(name)
+                        .into_iter()
+                        .map(rgb3)
+                        .collect(),
+                })
+                .collect(),
         }
     }
 }

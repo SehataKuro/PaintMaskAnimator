@@ -82,7 +82,7 @@ fn view_options(view: Option<&Bound<'_, PyDict>>) -> PyResult<ViewOptions> {
     })
 }
 
-fn onion_side(side: Option<Bound<'_, PyDict>>, color: Rgb) -> PyResult<OnionSide> {
+pub(crate) fn onion_side(side: Option<Bound<'_, PyDict>>, color: Rgb) -> PyResult<OnionSide> {
     let side = side.as_ref();
     let defaults = OnionSide::new(color);
     Ok(OnionSide {
@@ -98,7 +98,7 @@ fn onion_side(side: Option<Bound<'_, PyDict>>, color: Rgb) -> PyResult<OnionSide
     })
 }
 
-fn onion_settings(onion: &Bound<'_, PyDict>) -> PyResult<OnionSettings> {
+pub(crate) fn onion_settings(onion: &Bound<'_, PyDict>) -> PyResult<OnionSettings> {
     let defaults = OnionSettings::default();
     let onion = Some(onion);
     Ok(OnionSettings {

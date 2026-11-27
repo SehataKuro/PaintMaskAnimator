@@ -9,6 +9,9 @@
 //!   `QStroker`・`QCosmeticStroker`）と同じ演算順の塗りと線の輪郭。
 
 mod arc;
+mod bezier;
+pub mod cosmetic;
+pub mod line_tool;
 pub mod mask;
 pub mod pressure;
 mod qt;

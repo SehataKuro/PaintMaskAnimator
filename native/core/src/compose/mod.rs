@@ -18,8 +18,10 @@
 //! 置換・表示プレビューで色を変えた半透明の画素と、オニオンの合成結果をストレートへ
 //! 戻す所だけはスカラー版で割るため、CPU によっては Qt と ±1 違いうる。
 
+pub mod cosmetic;
 pub mod layers;
 pub mod onion;
+pub mod painter;
 pub mod pixel;
 pub mod scale;
 pub mod view;

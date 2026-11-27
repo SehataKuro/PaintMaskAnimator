@@ -31,6 +31,7 @@ mod image;
 mod image_ops;
 mod map_colors;
 mod mask_transform;
+mod onion;
 mod palette;
 mod palette_labels;
 mod project_archive;
@@ -42,6 +43,7 @@ mod selection;
 mod tiled_color;
 mod timeline;
 mod tone_curve;
+mod transform;
 mod used_colors;
 
 fn check_size(data: &[u8], width: usize, height: usize) -> PyResult<()> {
@@ -202,6 +204,11 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(brush::fill_path_mask, module)?)?;
     module.add_function(wrap_pyfunction!(brush::stroke_path_mask, module)?)?;
     module.add_function(wrap_pyfunction!(brush::ellipse_path, module)?)?;
+    module.add_function(wrap_pyfunction!(brush::stroke_outline_path, module)?)?;
+    module.add_function(wrap_pyfunction!(brush::line_tool_mask, module)?)?;
+    module.add_function(wrap_pyfunction!(brush::line_tool_commit, module)?)?;
+    module.add_function(wrap_pyfunction!(brush::shape_tool_preview, module)?)?;
+    module.add_function(wrap_pyfunction!(brush::shape_tool_commit, module)?)?;
     module.add_function(wrap_pyfunction!(brush::pressure_bezier_at, module)?)?;
     module.add_function(wrap_pyfunction!(brush::pressure_bezier_segments, module)?)?;
     module.add_function(wrap_pyfunction!(brush::stabilizer_segments, module)?)?;
@@ -211,6 +218,8 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<project_zip::ZipWriter>()?;
     selection::register(module)?;
     used_colors::register(module)?;
+    transform::register(module)?;
+    onion::register(module)?;
     module.add_function(wrap_pyfunction!(project_payload::decode_v2_plan, module)?)?;
     module.add_function(wrap_pyfunction!(project_archive::_open_project, module)?)?;
     module.add_function(wrap_pyfunction!(project_archive::_save_project, module)?)?;

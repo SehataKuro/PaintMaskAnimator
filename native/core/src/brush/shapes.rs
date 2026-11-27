@@ -1,15 +1,15 @@
 //! 直線ツール・図形ツール・投げ縄塗りの形を、Qt と同じ画素で塗る。
 //!
 //! - 塗り：`fill_polygon`（`drawPolygon`）と `raster::fill_path`（`drawPath` のブラシ）。
-//! - 線：`stroke_path`（`drawPath` の丸い端・丸い角のペン）。直線だけからなる経路に限る。
-//!   曲線の線（2 次曲線の直線ツール・楕円の輪郭）は `QBezier::shifted` のずらしが
-//!   まだ無いので `None` を返す。
+//! - 線：`stroke_path`（`drawPath` の丸い端・丸い角のペン）。直線と曲線（2 次曲線の
+//!   直線ツール・楕円の輪郭）のどちらも描く。
 
 use super::arc::curves_for_arc;
+use super::cosmetic::cosmetic_path;
 use super::mask::Mask;
 use super::qt::Point;
-use super::raster::{cosmetic_line, fill_path, FillRule, Path, PathElement};
-use super::stroker::stroke_polyline;
+use super::raster::{fill_path, FillRule, Path};
+use super::stroker::stroke_outline;
 
 /// `QPainter::drawPolygon`（ペンなし、ブラシで塗る）。既定の規則は偶奇。
 pub fn fill_polygon(points: &[Point], rule: FillRule, width: usize, height: usize) -> Mask {
@@ -30,38 +30,20 @@ pub fn ellipse_path(rect: (f64, f64, f64, f64)) -> Path {
     path
 }
 
-/// 経路を、直線の部分経路（点の並び）に分ける。曲線があれば `None`。
-fn polylines(path: &Path) -> Option<Vec<Vec<Point>>> {
-    let mut lines: Vec<Vec<Point>> = Vec::new();
-    for element in path.elements() {
-        match *element {
-            PathElement::MoveTo(point) => lines.push(vec![point]),
-            PathElement::LineTo(point) => lines.last_mut()?.push(point),
-            PathElement::CubicTo(..) => return None,
-        }
-    }
-    Some(lines)
-}
-
-/// `QPainter::drawPath`（丸い端・丸い角、幅 `pen_width` のペン、ブラシなし）の画素。
-/// 曲線を含む経路と、幅 1 以下のペンで 2 点より多い経路は `None`（未対応）。
-pub fn stroke_path(path: &Path, pen_width: f64, width: usize, height: usize) -> Option<Mask> {
-    let subpaths = polylines(path)?;
+/// `QPainter::drawPath`（丸い端・丸い角、幅 `pen_width` のペン、ブラシなし、非 AA）の画素。
+///
+/// 幅 1 以下は `QCosmeticStroker`（`cosmetic::cosmetic_path`。色の不透明度は幅で
+/// 薄くなる）、それより太い線は `QStroker` の輪郭を巻き数で塗る。
+pub fn stroke_path(path: &Path, pen_width: f64, width: usize, height: usize) -> Mask {
     if pen_width <= 1.0 {
-        // 幅 1 以下は QCosmeticStroker。1 本の直線だけを扱う。
-        return match subpaths.as_slice() {
-            [] => Some(Mask::new(0, 0, width, height)),
-            [line] if line.len() == 2 => Some(cosmetic_line(line[0], line[1], width, height)),
-            _ => None,
-        };
+        return cosmetic_path(path, width, height);
     }
-    let mut outline = Path::new();
-    for subpath in subpaths.iter().filter(|subpath| subpath.len() > 1) {
-        for element in stroke_polyline(subpath, pen_width).elements() {
-            outline.push(*element);
-        }
-    }
-    Some(fill_path(&outline, FillRule::Winding, width, height))
+    fill_path(
+        &stroke_outline(path, pen_width),
+        FillRule::Winding,
+        width,
+        height,
+    )
 }
 
 #[cfg(test)]
@@ -88,8 +70,9 @@ mod tests {
         path.line_to(Point::new(12.0, 12.0));
         path.line_to(Point::new(2.0, 12.0));
         path.close();
-        let mask = stroke_path(&path, 3.0, 16, 16).unwrap();
+        let mask = stroke_path(&path, 3.0, 16, 16);
         assert!(mask.get(2, 7) && mask.get(12, 7) && !mask.get(7, 7));
-        assert!(stroke_path(&ellipse_path((0.0, 0.0, 4.0, 4.0)), 3.0, 8, 8).is_none());
+        let ring = stroke_path(&ellipse_path((1.0, 1.0, 10.0, 10.0)), 3.0, 12, 12);
+        assert!(ring.get(1, 6) && !ring.get(6, 6));
     }
 }

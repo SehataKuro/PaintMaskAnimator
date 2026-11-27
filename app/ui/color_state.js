@@ -73,6 +73,12 @@ export function startColors() {
     });
     publish("palette", await invoke("palette_view"));
     publish("chart", await invoke("chart_view"));
+    // 使用色フォルダーを尋ねられたら（影の書き出しなど）、detail.folders に
+    // [{name, colors: [[r, g, b], …]}] を入れて答える（同期の事件なので、最後に受け取った形から）。
+    window.addEventListener("pma-used-color-folders", (e) => {
+      if (!e.detail) return;
+      e.detail.folders = (state.palette?.folders ?? []).map((f) => ({ name: f.name, colors: f.colors.map((c) => [...c]) }));
+    });
     // メニュー・ショートカットの色の操作（shell.js の pma-action を引き受ける）。
     window.addEventListener("pma-action", (e) => {
       const run = ACTIONS[e.detail?.id];

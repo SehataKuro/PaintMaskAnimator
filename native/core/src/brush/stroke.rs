@@ -53,7 +53,7 @@ pub enum Selection {
 
 impl Selection {
     /// 描く先の矩形 `rect`（画像の座標）での選択の画素。
-    fn mask_for(&self, rect: Rect) -> Option<Mask> {
+    pub(crate) fn mask_for(&self, rect: Rect) -> Option<Mask> {
         match self {
             Self::Mask(mask) => {
                 let mut local = Mask::new(rect.x as i64, rect.y as i64, rect.width, rect.height);

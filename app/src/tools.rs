@@ -14,7 +14,7 @@
 
 use crate::session::{pack_rect, Session, Shared, StrokeTool};
 use pma_core::brush::pressure::{pressure_bezier_at, PressureSettings};
-use pma_core::brush::raster::{cosmetic_line, fill_path};
+use pma_core::brush::raster::fill_path;
 use pma_core::brush::shapes::{ellipse_path, fill_polygon, stroke_path};
 use pma_core::brush::{self, BrushSettings, FillRule, MaskColorFilter, Path, PathElement};
 use pma_core::compose::{self, Background, DisplayOptions};
@@ -826,35 +826,11 @@ fn stroke_into(out: &mut Bits, path: &Path, pen: f64) {
     }
     let (w, h) = ((x1 - x0) as usize, (y1 - y0) as usize);
     let local = path.translated(-x0, -y0);
-    let mut put = |mask: &brush::Mask| {
-        let mut shifted = mask.clone();
-        shifted.x += x0 as i64;
-        shifted.y += y0 as i64;
-        out.or_mask(&shifted);
-    };
-    if let Some(mask) = stroke_path(&local, pen, w, h) {
-        put(&mask);
-        return;
-    }
-    let flat = flattened(&local);
-    if let Some(mask) = stroke_path(&flat, pen, w, h) {
-        put(&mask);
-        return;
-    }
-    // 幅 1 以下で 2 点より多い折れ線：区間ごとの細い線を重ねる。
-    let mut previous: Option<brush::Point> = None;
-    for element in flat.elements() {
-        match *element {
-            PathElement::MoveTo(p) => previous = Some(p),
-            PathElement::LineTo(p) => {
-                if let Some(a) = previous {
-                    put(&cosmetic_line(a, p, w, h));
-                }
-                previous = Some(p);
-            }
-            PathElement::CubicTo(..) => {}
-        }
-    }
+    // pma-core の stroke_path は曲線・幅 1 以下の折れ線もそのまま描ける。
+    let mut mask = stroke_path(&local, pen, w, h);
+    mask.x += x0 as i64;
+    mask.y += y0 as i64;
+    out.or_mask(&mask);
 }
 
 /// 線整えでなぞった範囲（`line_tidy_region.region_mask`）：投げ縄は囲んだ中、ブラシは

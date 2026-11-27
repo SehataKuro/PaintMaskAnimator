@@ -1,10 +1,10 @@
 //! ブラシの線（`pma_core::brush`）の薄い Python 入口。Qt の経路との突き合わせに使う。
 use crate::image::PyRgbaImage;
 use pma_core::brush::{
-    pressure, raster, segment, shapes, stabilizer::Stabilizer, BrushSettings, BrushStroke,
-    FillRule, Mask, MaskColorFilter, Point, PointerSample, Selection,
+    line_tool, pressure, raster, segment, shapes, stabilizer::Stabilizer, BrushSettings,
+    BrushStroke, FillRule, Mask, MaskColorFilter, Point, PointerSample, Selection,
 };
-use pma_core::image::Rect;
+use pma_core::image::{Rect, RgbaImage};
 use pyo3::{exceptions::PyValueError, prelude::*, types::PyBytes};
 
 type PyRect = (usize, usize, usize, usize);
@@ -30,6 +30,222 @@ fn rects(rects: Vec<Rect>) -> Vec<PyRect> {
 
 fn points(values: &[(f64, f64)]) -> Vec<Point> {
     values.iter().map(|&(x, y)| Point::new(x, y)).collect()
+}
+
+fn selection(
+    image: &RgbaImage,
+    selection_mask: Option<Vec<u8>>,
+    selection_polygon: Option<Vec<(f64, f64)>>,
+) -> PyResult<Option<Selection>> {
+    Ok(match (selection_mask, selection_polygon) {
+        (Some(bits), _) => Some(Selection::Mask(
+            Mask::from_bits(
+                0,
+                0,
+                image.width(),
+                image.height(),
+                bits.into_iter().map(|bit| bit != 0).collect(),
+            )
+            .ok_or_else(|| PyValueError::new_err("selection mask size"))?,
+        )),
+        (None, Some(polygon)) => Some(Selection::Polygon(points(&polygon))),
+        (None, None) => None,
+    })
+}
+
+fn finish_result<'py>(py: Python<'py>, result: line_tool::ToolResult) -> PyFinish<'py> {
+    let undo = result.undo.map(|undo| {
+        (
+            (undo.rect.x, undo.rect.y, undo.rect.width, undo.rect.height),
+            PyBytes::new(py, &undo.before),
+            PyBytes::new(py, &undo.after),
+        )
+    });
+    let colors = result
+        .colors
+        .into_iter()
+        .map(|[r, g, b]| (r, g, b))
+        .collect();
+    (PyRgbaImage::from(result.image), undo, colors)
+}
+
+fn line_options(
+    start: (f64, f64),
+    end: (f64, f64),
+    control: Option<(f64, f64)>,
+    pen_size: f64,
+    shift_line: bool,
+    taper_in: Option<(f64, f64)>,
+    taper_out: Option<(f64, f64)>,
+) -> (raster::Path, line_tool::LineOptions) {
+    let path = line_tool::line_path(
+        Point::new(start.0, start.1),
+        Point::new(end.0, end.1),
+        control.map(|(x, y)| Point::new(x, y)),
+    );
+    let options = line_tool::LineOptions::from_panel(pen_size, shift_line, taper_in, taper_out);
+    (path, options)
+}
+
+/// 直線ツールの線の画素（確定前の見た目と確定は同じ画素、#117）。
+/// `taper_in`・`taper_out` はパネルの (大きさ, カーブ %)、使わなければ None。
+#[pyfunction]
+#[pyo3(signature = (
+    start, end, control, width, height, *, pen_size, shift_line=false, taper_in=None,
+    taper_out=None,
+))]
+#[allow(clippy::too_many_arguments)]
+pub fn line_tool_mask<'py>(
+    py: Python<'py>,
+    start: (f64, f64),
+    end: (f64, f64),
+    control: Option<(f64, f64)>,
+    width: usize,
+    height: usize,
+    pen_size: f64,
+    shift_line: bool,
+    taper_in: Option<(f64, f64)>,
+    taper_out: Option<(f64, f64)>,
+) -> Bound<'py, PyBytes> {
+    let (path, options) = line_options(
+        start, end, control, pen_size, shift_line, taper_in, taper_out,
+    );
+    mask_bytes(py, &line_tool::line_mask(&path, &options, width, height))
+}
+
+/// 直線ツールを確定する（`commit_line_tool`）。`(画像, (矩形, 前, 後) | None, 塗った色)`。
+#[pyfunction]
+#[pyo3(signature = (
+    layer, start, end, control, *, pen_size, color, shift_line=false, taper_in=None,
+    taper_out=None, selection_polygon=None, selection_mask=None,
+))]
+#[allow(clippy::too_many_arguments)]
+pub fn line_tool_commit<'py>(
+    py: Python<'py>,
+    layer: PyRef<'_, PyRgbaImage>,
+    start: (f64, f64),
+    end: (f64, f64),
+    control: Option<(f64, f64)>,
+    pen_size: f64,
+    color: (u8, u8, u8),
+    shift_line: bool,
+    taper_in: Option<(f64, f64)>,
+    taper_out: Option<(f64, f64)>,
+    selection_polygon: Option<Vec<(f64, f64)>>,
+    selection_mask: Option<Vec<u8>>,
+) -> PyResult<PyFinish<'py>> {
+    let image = layer.share();
+    let selection = selection(&image, selection_mask, selection_polygon)?;
+    let (path, options) = line_options(
+        start, end, control, pen_size, shift_line, taper_in, taper_out,
+    );
+    let rgb = [color.0, color.1, color.2];
+    let overlay = line_tool::line_overlay(&path, &options, rgb, image.width(), image.height());
+    let result = line_tool::paint_overlay(&image, &overlay, &[rgb], selection.as_ref())
+        .map_err(core_error)?;
+    Ok(finish_result(py, result))
+}
+
+fn shape(
+    start: (f64, f64),
+    end: (f64, f64),
+    lock_ratio: bool,
+    kind: &str,
+    corners: usize,
+) -> PyResult<Option<raster::Path>> {
+    let kind = match kind {
+        "ellipse" => line_tool::ShapeKind::Ellipse,
+        "polygon" => line_tool::ShapeKind::Polygon(corners),
+        _ => {
+            return Err(PyValueError::new_err(
+                "shape must be 'ellipse' or 'polygon'",
+            ))
+        }
+    };
+    let rect = line_tool::shape_rect(
+        Point::new(start.0, start.1),
+        Point::new(end.0, end.1),
+        lock_ratio,
+    );
+    Ok(line_tool::shape_path(rect, kind))
+}
+
+/// 図形ツールの確定前の見た目（#117）：確定で書く色の RGBA（`width × height`）。
+/// 書かない画素は透明、消しゴムの画素は白。範囲が空なら None。
+#[pyfunction]
+#[pyo3(signature = (
+    start, end, width, height, *, outline_color, fill_color, shape_type="polygon", corners=4,
+    lock_ratio=false, outline_width=2.0, fill_inside=false,
+))]
+#[allow(clippy::too_many_arguments)]
+pub fn shape_tool_preview<'py>(
+    py: Python<'py>,
+    start: (f64, f64),
+    end: (f64, f64),
+    width: usize,
+    height: usize,
+    outline_color: (u8, u8, u8),
+    fill_color: (u8, u8, u8),
+    shape_type: &str,
+    corners: usize,
+    lock_ratio: bool,
+    outline_width: f64,
+    fill_inside: bool,
+) -> PyResult<Option<Bound<'py, PyBytes>>> {
+    let Some(path) = shape(start, end, lock_ratio, shape_type, corners)? else {
+        return Ok(None);
+    };
+    let fill = fill_inside.then_some([fill_color.0, fill_color.1, fill_color.2]);
+    let outline = [outline_color.0, outline_color.1, outline_color.2];
+    let overlay =
+        line_tool::shape_overlay(&path, outline_width / 2.0, fill, outline, width, height);
+    let palette = line_tool::shape_palette(fill, outline);
+    Ok(Some(PyBytes::new(py, &overlay.preview_rgba(&palette))))
+}
+
+/// 図形ツールを確定する（`commit_shape_tool`）。範囲が空なら None。
+/// `outline_color`・`fill_color` は塗る色（色を分けないときは同じ色）。
+#[pyfunction]
+#[pyo3(signature = (
+    layer, start, end, *, outline_color, fill_color, shape_type="polygon", corners=4,
+    lock_ratio=false, outline_width=2.0, fill_inside=false, selection_polygon=None,
+    selection_mask=None,
+))]
+#[allow(clippy::too_many_arguments)]
+pub fn shape_tool_commit<'py>(
+    py: Python<'py>,
+    layer: PyRef<'_, PyRgbaImage>,
+    start: (f64, f64),
+    end: (f64, f64),
+    outline_color: (u8, u8, u8),
+    fill_color: (u8, u8, u8),
+    shape_type: &str,
+    corners: usize,
+    lock_ratio: bool,
+    outline_width: f64,
+    fill_inside: bool,
+    selection_polygon: Option<Vec<(f64, f64)>>,
+    selection_mask: Option<Vec<u8>>,
+) -> PyResult<Option<PyFinish<'py>>> {
+    let image = layer.share();
+    let selection = selection(&image, selection_mask, selection_polygon)?;
+    let Some(path) = shape(start, end, lock_ratio, shape_type, corners)? else {
+        return Ok(None);
+    };
+    let fill = fill_inside.then_some([fill_color.0, fill_color.1, fill_color.2]);
+    let outline = [outline_color.0, outline_color.1, outline_color.2];
+    let overlay = line_tool::shape_overlay(
+        &path,
+        outline_width / 2.0,
+        fill,
+        outline,
+        image.width(),
+        image.height(),
+    );
+    let palette = line_tool::shape_palette(fill, outline);
+    let result = line_tool::paint_overlay(&image, &overlay, &palette, selection.as_ref())
+        .map_err(core_error)?;
+    Ok(Some(finish_result(py, result)))
 }
 
 /// `paint_segment` の画素（`width × height`、行優先の 0/1）。
@@ -85,7 +301,7 @@ pub fn fill_polygon_mask<'py>(
 
 /// `QPainter::drawPath`（丸い端・丸い角のペン、ブラシなし）の画素。`path` は
 /// `[0, x, y]`（moveTo）・`[1, x, y]`（lineTo）・`[2, x1, y1, x2, y2, x, y]`（cubicTo）・
-/// `[3]`（closeSubpath）の並び。未対応の経路は `None`。
+/// `[3]`（closeSubpath）の並び。
 #[pyfunction]
 pub fn stroke_path_mask<'py>(
     py: Python<'py>,
@@ -93,10 +309,10 @@ pub fn stroke_path_mask<'py>(
     pen_width: f64,
     width: usize,
     height: usize,
-) -> PyResult<Option<Bound<'py, PyBytes>>> {
+) -> PyResult<Bound<'py, PyBytes>> {
     let path = core_path(&path)?;
     let mask = py.detach(|| shapes::stroke_path(&path, pen_width, width, height));
-    Ok(mask.map(|mask| mask_bytes(py, &mask)))
+    Ok(mask_bytes(py, &mask))
 }
 
 /// `QPainter::drawPath`（ペンなし、ブラシで塗る）の画素。
@@ -122,6 +338,16 @@ pub fn fill_path_mask<'py>(
 #[pyfunction]
 pub fn ellipse_path(rect: (f64, f64, f64, f64)) -> Vec<Vec<f64>> {
     python_path(&shapes::ellipse_path(rect))
+}
+
+/// 経路を幅 `pen_width` の丸い端・丸い角の線にした輪郭（`QPainterPathStroker::createStroke`
+/// と同じ要素の並び）。
+#[pyfunction]
+pub fn stroke_outline_path(path: Vec<Vec<f64>>, pen_width: f64) -> PyResult<Vec<Vec<f64>>> {
+    let path = core_path(&path)?;
+    Ok(python_path(&pma_core::brush::stroker::stroke_outline(
+        &path, pen_width,
+    )))
 }
 
 fn core_path(elements: &[Vec<f64>]) -> PyResult<raster::Path> {
@@ -272,20 +498,7 @@ impl PyBrushStroke {
         selection_mask: Option<Vec<u8>>,
     ) -> PyResult<(Self, Vec<PyRect>)> {
         let image = layer.share();
-        let selection = match (selection_mask, selection_polygon) {
-            (Some(bits), _) => Some(Selection::Mask(
-                Mask::from_bits(
-                    0,
-                    0,
-                    image.width(),
-                    image.height(),
-                    bits.into_iter().map(|bit| bit != 0).collect(),
-                )
-                .ok_or_else(|| PyValueError::new_err("selection mask size"))?,
-            )),
-            (None, Some(polygon)) => Some(Selection::Polygon(points(&polygon))),
-            (None, None) => None,
-        };
+        let selection = selection(&image, selection_mask, selection_polygon)?;
         let settings = BrushSettings {
             size,
             color: [color.0, color.1, color.2],
@@ -374,18 +587,13 @@ impl PyBrushStroke {
             _ => None,
         };
         let result = stroke.finish(release).map_err(core_error)?;
-        let undo = result.undo.map(|undo| {
-            (
-                (undo.rect.x, undo.rect.y, undo.rect.width, undo.rect.height),
-                PyBytes::new(py, &undo.before),
-                PyBytes::new(py, &undo.after),
-            )
-        });
-        let colors = result
-            .colors
-            .into_iter()
-            .map(|[r, g, b]| (r, g, b))
-            .collect();
-        Ok((PyRgbaImage::from(result.image), undo, colors))
+        Ok(finish_result(
+            py,
+            line_tool::ToolResult {
+                image: result.image,
+                undo: result.undo,
+                colors: result.colors,
+            },
+        ))
     }
 }

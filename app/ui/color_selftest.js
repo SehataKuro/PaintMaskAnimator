@@ -168,6 +168,15 @@ export async function runColorsSelftest({ invoke, pause }) {
   check("フォーカスの色が画素の選択範囲になる", !!toolStore.view?.selection, JSON.stringify(toolStore.view?.selection?.bounds));
   await invoke("selection_edit", { args: { kind: "clear" } });
   check("「選択色だけ表示」「特定色表示を解除」を引き受ける", action("a_isolate_color") && action("a_clear_color_filter"));
+  // 使用色フォルダーを尋ねる事件（影の書き出し）に答える。
+  await paletteOp({ op: "create_category", name: "影" });
+  await paletteOp({ op: "drop_to_category", dragged: colors[5].rgb, name: "影" });
+  await until(() => view()?.folders?.some((f) => f.name === "影" && f.colors.length === 1));
+  const ask = new CustomEvent("pma-used-color-folders", { detail: {} });
+  window.dispatchEvent(ask);
+  const folder = ask.detail.folders?.find((f) => f.name === "影");
+  check("使用色フォルダーを尋ねられたら答える", folder && folder.colors[0].join(",") === colors[5].rgb.join(","),
+    JSON.stringify(ask.detail.folders));
   await invoke("tools_set", { patch: Object.fromEntries(KEYS.map((k) => [k, saved[k]])) });
   const ok = results.every((r) => r.ok);
   await invoke("report", {
