@@ -26,6 +26,8 @@ pub enum WriteError {
     Core(pma_core::Error),
     /// 同じ名前のファイルがあってフォルダーを作れない。
     FileInTheWay(PathBuf),
+    /// 進み具合の受け手が止めた（書いたファイルは残る）。
+    Cancelled,
 }
 
 impl std::fmt::Display for WriteError {
@@ -33,6 +35,7 @@ impl std::fmt::Display for WriteError {
         match self {
             WriteError::Io(path, error) => write!(f, "{}: {error}", path.display()),
             WriteError::Core(error) => write!(f, "{error}"),
+            WriteError::Cancelled => write!(f, "中止しました"),
             WriteError::FileInTheWay(_) => {
                 write!(
                     f,
@@ -91,6 +94,14 @@ pub fn text_bytes(text: &str) -> Vec<u8> {
     }
 }
 
+fn go_on(proceed: bool) -> Result<(), WriteError> {
+    if proceed {
+        Ok(())
+    } else {
+        Err(WriteError::Cancelled)
+    }
+}
+
 fn write(path: &Path, data: &[u8]) -> Result<(), WriteError> {
     fs::write(path, data).map_err(io_error(path))
 }
@@ -121,11 +132,12 @@ pub struct CutFolderWrite<'a> {
 }
 
 /// カットフォルダーを parent の下に書き出し、カットフォルダーのパスを返す
-/// （`ExportController.write_cut_folder`）。progress は (書いた枚数, 全体)。
+/// （`ExportController.write_cut_folder`）。progress は (書いた枚数, 全体) を受け、false を返すと
+/// そこで止めて [`WriteError::Cancelled`]。
 pub fn write_cut_folder(
     parent: &Path,
     job: &CutFolderWrite<'_>,
-    progress: &mut dyn FnMut(usize, usize),
+    progress: &mut dyn FnMut(usize, usize) -> bool,
 ) -> Result<PathBuf, WriteError> {
     let plan = job.plan;
     let target = parent.join(&plan.folder_name);
@@ -135,7 +147,7 @@ pub fn write_cut_folder(
     }
     let total = plan.files.len();
     for (index, (relative, cel)) in plan.files.iter().enumerate() {
-        progress(index, total);
+        go_on(progress(index, total))?;
         let data = export::encode_cel(job.document, cel, job.image_format)?;
         write(&target.join(relative), &data)?;
     }
@@ -156,6 +168,29 @@ pub fn write_timesheet(path: &Path, text: &str) -> Result<(), WriteError> {
     write(path, &text_bytes(text))
 }
 
+/// 文書を PSD にして path に書く（`ExportController.psd_dialog`）。書けるキーがなければ
+/// 何も書かずに None、書けたらキーの数。progress は (書いた枚数, 全体)。
+pub fn write_psd(
+    path: &Path,
+    document: &Document,
+    progress: &mut dyn FnMut(usize, usize) -> bool,
+) -> Result<Option<usize>, WriteError> {
+    let mut stopped = false;
+    let mut report = |done: usize, total: usize| {
+        stopped |= !progress(done, total);
+        !stopped
+    };
+    let result = export::psd::document_psd(document, &mut report);
+    if stopped {
+        return Err(WriteError::Cancelled);
+    }
+    let Some((data, keys)) = result? else {
+        return Ok(None);
+    };
+    write(path, &data)?;
+    Ok(Some(keys))
+}
+
 /// 連番＋TS.csv を destination に書き出す（`ExportController.key_sequence`）。
 ///
 /// フォルダー（レイヤーごと）は先に作る。書けるキーがなければ None（フォルダーは残る）。
@@ -163,7 +198,7 @@ pub fn write_key_sequence(
     destination: &Path,
     document: &Document,
     format: ImageFormat,
-    progress: &mut dyn FnMut(usize, usize),
+    progress: &mut dyn FnMut(usize, usize) -> bool,
 ) -> Result<Option<usize>, WriteError> {
     ensure_folder(destination)?;
     for name in sheet::key_sequence_layer_names(document) {
@@ -174,7 +209,7 @@ pub fn write_key_sequence(
         return Ok(None);
     }
     for (index, key) in keys.iter().enumerate() {
-        progress(index, keys.len());
+        go_on(progress(index, keys.len()))?;
         let image = export::drawing_at(document, key.frame, key.layer_index)?;
         let data = export::encode_drawing(&image, format)?;
         let path =
@@ -194,7 +229,7 @@ pub fn write_shadow_sequence(
     destination: &Path,
     document: &Document,
     shadow_rgbs: &[[u8; 3]],
-    progress: &mut dyn FnMut(usize, usize),
+    progress: &mut dyn FnMut(usize, usize) -> bool,
 ) -> Result<Option<usize>, WriteError> {
     if shadow_rgbs.is_empty() {
         return Ok(None);
@@ -205,7 +240,7 @@ pub fn write_shadow_sequence(
     }
     let mut written = 0;
     for (index, cel) in cels.iter().enumerate() {
-        progress(index, cels.len());
+        go_on(progress(index, cels.len()))?;
         let image = export::drawing_at(document, cel.frame, cel.layer_index)?;
         let pngs = export::shadow_pngs(&image, shadow_rgbs)?;
         for (kind, data) in export::shadow::KINDS.iter().zip(pngs) {
@@ -344,7 +379,7 @@ mod tests {
             memo: "  memo  ",
             playback_range_end: None,
         };
-        let target = write_cut_folder(&root, &job, &mut |_, _| {}).unwrap();
+        let target = write_cut_folder(&root, &job, &mut |_, _| true).unwrap();
         assert_eq!(target, root.join("T_01_c002"));
         assert!(target.join("BG").is_dir());
         let sheet = fs::read_to_string(target.join("T_01_c002.xdts")).unwrap();

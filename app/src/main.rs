@@ -11,6 +11,7 @@
 //!   報告して終わる（`PMA_TIMELINE_SAMPLE`・`PMA_TIMELINE_SAMPLE_SIZE` で見本の文書を開ける）
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod export; // 書き出し（export.rs）。
 mod history;
 mod paint_ops;
 mod pen;
@@ -413,6 +414,28 @@ fn main() {
             paint_ops::paint_reference_check,
             paint_ops::paint_job_cancel,
             paint_ops::paint_show_finding,
+            // 書き出し（export.rs）：今のコマ・連番・カットフォルダー・影素材・XDTS・PSD・MP4・タイムリマップ。
+            export::export_pick_save,
+            export::export_pick_folder,
+            export::export_target_state,
+            export::export_frame,
+            export::export_xdts,
+            export::export_time_remap,
+            export::export_copy_text,
+            export::export_info,
+            export::export_cut_folder_settings,
+            export::export_cut_folder_layout,
+            export::export_cut_folder_remember,
+            export::export_cut_folder_plan,
+            export::export_cancel,
+            export::export_key_sequence_target,
+            export::export_key_sequence_start,
+            export::export_cut_folder_start,
+            export::export_shadow_start,
+            export::export_psd_start,
+            export::export_slate,
+            export::export_find_ffmpeg,
+            export::export_mp4_start,
             // 【アプリの外枠】（shell.rs）。
             shell::shell_init,
             shell::shell_menu_state,

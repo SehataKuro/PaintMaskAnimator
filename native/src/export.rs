@@ -185,7 +185,7 @@ pub fn export_write_cut_folder(
         memo,
         playback_range_end,
     };
-    py.detach(|| pma_io::write_cut_folder(&parent, &job, &mut |_, _| {}))
+    py.detach(|| pma_io::write_cut_folder(&parent, &job, &mut |_, _| true))
         .map_err(write_error)
 }
 
@@ -244,7 +244,7 @@ pub fn export_write_key_sequence(
 ) -> PyResult<Option<usize>> {
     let format = image_format(format)?;
     let document = document.inner();
-    py.detach(|| pma_io::write_key_sequence(&destination, document, format, &mut |_, _| {}))
+    py.detach(|| pma_io::write_key_sequence(&destination, document, format, &mut |_, _| true))
         .map_err(write_error)
 }
 
@@ -258,7 +258,7 @@ pub fn export_write_shadow_sequence(
 ) -> PyResult<Option<usize>> {
     let document = document.inner();
     py.detach(|| {
-        pma_io::write_shadow_sequence(&destination, document, &shadow_rgbs, &mut |_, _| {})
+        pma_io::write_shadow_sequence(&destination, document, &shadow_rgbs, &mut |_, _| true)
     })
     .map_err(write_error)
 }
@@ -333,6 +333,44 @@ pub fn export_after_effects_text(
 ) -> PyResult<Option<String>> {
     let states = sheet::sheet_numbers(document.inner(), layer).map_err(value_error)?;
     Ok(time_remap::after_effects_text(&states, fps))
+}
+
+/// 文書の PSD（`psd_dialog`）。書けるキーがなければ None。(バイト列, キーの数)。
+#[pyfunction]
+pub fn export_psd_bytes<'py>(
+    py: Python<'py>,
+    document: PyRef<'py, PyCoreDocument>,
+) -> PyResult<Option<(Bound<'py, PyBytes>, usize)>> {
+    let document = document.inner();
+    let result = py
+        .detach(|| export::psd::document_psd(document, &mut |_, _| true))
+        .map_err(value_error)?;
+    Ok(result.map(|(data, keys)| (PyBytes::new(py, &data), keys)))
+}
+
+/// MP4 のコマごとに使うコマの番号（尺の数だけ繰り返す）。
+#[pyfunction]
+pub fn export_movie_frames(document: PyRef<'_, PyCoreDocument>) -> Vec<usize> {
+    export::movie::output_frames(document.inner())
+}
+
+/// MP4 の index 枚目の絵（ストレート RGBA）。overlay は乗算済み RGBA のカット名。
+#[pyfunction]
+#[pyo3(signature = (document, frame, index, overlay=None, options=None))]
+pub fn export_movie_frame<'py>(
+    py: Python<'py>,
+    document: PyRef<'py, PyCoreDocument>,
+    frame: usize,
+    index: usize,
+    overlay: Option<&[u8]>,
+    options: Option<&Bound<'py, PyDict>>,
+) -> PyResult<Bound<'py, PyBytes>> {
+    let options = display_options(options)?;
+    let document = document.inner();
+    let data = py
+        .detach(|| export::movie::output_frame(document, frame, index, &options, overlay))
+        .map_err(value_error)?;
+    Ok(PyBytes::new(py, &data))
 }
 
 /// プロジェクト名のカット番号（`guess_cut_number`）。
