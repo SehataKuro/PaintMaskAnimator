@@ -2511,6 +2511,7 @@ dependencies = [
  "objc2-core-graphics",
  "objc2-foundation",
  "pma-core",
+ "pma-io",
  "serde",
  "serde_json",
  "tauri",
@@ -2527,6 +2528,13 @@ dependencies = [
  "serde_json",
  "zip",
  "zune-jpeg",
+]
+
+[[package]]
+name = "pma-io"
+version = "0.1.0"
+dependencies = [
+ "pma-core",
 ]
 
 [[package]]
