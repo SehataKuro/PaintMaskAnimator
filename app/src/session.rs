@@ -257,6 +257,8 @@ impl Session {
         self.last = None;
         // ツール（tools.rs）：選択範囲は作品ごと。
         self.tools.selection.clear();
+        // 塗り（paint_ops.rs）：なぞり塗り・串刺し塗りの途中と一覧は作品ごと。
+        self.tools.paint.reset();
         project.undo.set_limits(self.history_limits);
         self.project = Some(project);
         self.timeline.reset();

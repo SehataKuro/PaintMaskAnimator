@@ -8,8 +8,9 @@
 //!   関係なく行える（issue #110）。
 //! - 文書を変えるツールの操作（投げ縄塗り・図形・直線・選択範囲の中を消去）は、
 //!   `Session::edit_with` を通して Qt と同じ名前（「描画（A の 1番）」）で履歴に積む。
-//! - バケツ・串刺し塗り・色置換・変形・ゴミ取り・アクションは、計算を pma-core へ
-//!   移しているところなので、[`pending`] の窓口（HOOK と書いた関数）だけを置く。
+//! - バケツ・串刺し塗り・色置換・ゴミ取りは paint_ops.rs（計算は pma-core）。
+//!   変形・アクションは、計算を pma-core へ移しているところなので、[`pending`] の窓口
+//!   （HOOK と書いた関数）だけを置く。
 
 use crate::session::{pack_rect, Session, Shared, StrokeTool};
 use pma_core::brush::pressure::{pressure_bezier_at, PressureSettings};
@@ -425,6 +426,8 @@ pub struct ToolState {
     pub mask_filter: Option<MaskColorFilter>,
     /// 設定を保存する `config.json`。None なら保存しない（試験）。
     pub config: Option<PathBuf>,
+    /// 塗りの途中の状態（なぞり塗り・串刺し塗り・使用色の選択。paint_ops.rs）。
+    pub paint: crate::paint_ops::PaintState,
 }
 
 /// 画面へ渡す選択範囲。
@@ -852,6 +855,42 @@ fn stroke_into(out: &mut Bits, path: &Path, pen: f64) {
             PathElement::CubicTo(..) => {}
         }
     }
+}
+
+/// 線整えでなぞった範囲（`line_tidy_region.region_mask`）：投げ縄は囲んだ中、ブラシは
+/// 太さ `brush_width` の丸い端の線。キャンバス全体の 0/1。
+pub fn tidy_region(
+    points: &[[f64; 2]],
+    shape: &str,
+    brush_width: f64,
+    width: usize,
+    height: usize,
+) -> Vec<u8> {
+    let mut out = Bits::new(width, height);
+    if width == 0 || height == 0 || points.is_empty() {
+        return out.bits;
+    }
+    let poly: Vec<brush::Point> = points
+        .iter()
+        .map(|p| brush::Point::new(p[0], p[1]))
+        .collect();
+    if shape == "lasso" {
+        if poly.len() >= 3 {
+            out.or_mask(&fill_polygon(&poly, FillRule::OddEven, width, height));
+        }
+        return out.bits;
+    }
+    let mut path = Path::new();
+    path.move_to(poly[0]);
+    if poly.len() == 1 {
+        // drawPoint：丸い端のペンの点。
+        path.line_to(brush::Point::new(poly[0].x + 1e-3, poly[0].y));
+    }
+    for p in &poly[1..] {
+        path.line_to(*p);
+    }
+    stroke_into(&mut out, &path, brush_width.max(1.0));
+    out.bits
 }
 
 fn fill_into(out: &mut Bits, path: &Path) {
@@ -1402,21 +1441,32 @@ pub fn delete_selection_contents(s: &mut Session) -> Result<Option<Rect>, String
 // HOOK：計算を pma-core へ移しているところの操作。ここで呼ぶだけにしてある。
 // ---------------------------------------------------------------------------
 
-/// HOOK(bucket)：バケツ（`_bucket_fill_at` / `begin_bucket_drag`）。pma-core の
-/// `fill::session::BucketState` へつなぐ（別の作業で移している）。設定は
-/// `s.tools.settings.bucket_*` と `fill_opacity`。
-pub fn bucket_fill(_s: &mut Session, _x: f64, _y: f64) -> Result<Option<Rect>, String> {
-    Err(pending("バケツ"))
+/// バケツ（押して離す）。なぞり塗りは paint_ops.rs の `paint_bucket_*`。
+pub fn bucket_fill(s: &mut Session, x: f64, y: f64) -> Result<Option<Rect>, String> {
+    let feedback = crate::paint_ops::bucket_click(s, x, y, false)?;
+    match (feedback.rect, feedback.message) {
+        (None, Some(message)) => Err(message),
+        (rect, _) => Ok(rect),
+    }
 }
 
-/// HOOK(skewer)：串刺し塗り（選択レイヤーのすべてのコマ）。
-pub fn skewer_fill(_s: &mut Session, _x: f64, _y: f64) -> Result<Option<Rect>, String> {
-    Err(pending("串刺し塗り"))
+/// 串刺し塗り（選択レイヤーのすべてのコマ）。指定待ちのキーは paint_ops.rs。
+pub fn skewer_fill(s: &mut Session, x: f64, y: f64) -> Result<Option<Rect>, String> {
+    let view = crate::paint_ops::skewer_click(s, x, y, false, &Default::default())?;
+    match view.message {
+        Some(message) if view.pending => Err(message),
+        _ => Ok(crate::paint_ops::full_rect_of(s)),
+    }
 }
 
-/// HOOK(replace_color)：色置換（全コマ、`replace_color_at`）。
-pub fn replace_color(_s: &mut Session, _x: f64, _y: f64) -> Result<Option<Rect>, String> {
-    Err(pending("色置換"))
+/// 色置換（全コマ、`replace_color_at`）。線の色を尋ねるのは paint_ops.rs の
+/// `paint_replace_color`。ここは尋ねずに置き換える。
+pub fn replace_color(s: &mut Session, x: f64, y: f64) -> Result<Option<Rect>, String> {
+    let (_, feedback) = crate::paint_ops::replace_color(s, x, y, true)?;
+    match (feedback.rect, feedback.message) {
+        (None, Some(message)) => Err(message),
+        (rect, _) => Ok(rect),
+    }
 }
 
 /// HOOK(transform)：選択範囲の変形（自由変形・拡大縮小・メッシュ変形・回転・反転・確定・
@@ -1436,15 +1486,13 @@ pub fn transform(_s: &mut Session, kind: &str) -> Result<(), String> {
     Err(pending(name))
 }
 
-/// HOOK(dust)：ゴミ取り・塗り抜け・線周りのノイズ・線整えを適用。
+/// ゴミ取り・塗り抜け・線周りのノイズ・線整えを適用（paint_ops.rs）。
 pub fn dust_apply(s: &mut Session) -> Result<Option<Rect>, String> {
-    let name = match s.tools.settings.dust_mode.as_str() {
-        "fill_holes" => "塗り抜け",
-        "line_noise" => "線周りのノイズ",
-        "line_tidy" => "線整え",
-        _ => "ゴミ取り",
-    };
-    Err(pending(name))
+    let feedback = crate::paint_ops::dust_apply(s, None)?;
+    match (feedback.rect, feedback.message) {
+        (None, Some(message)) => Err(message),
+        (rect, _) => Ok(rect),
+    }
 }
 
 /// HOOK(action)：アクションのパネルのボタン（Qt は actions フォルダーの Python）。
@@ -2332,15 +2380,9 @@ mod tests {
     #[test]
     fn hooks_report_pending_without_changing_the_document() {
         let mut s = big();
-        assert!(bucket_fill(&mut s, 1.0, 1.0)
-            .unwrap_err()
-            .contains("バケツ"));
-        assert!(skewer_fill(&mut s, 1.0, 1.0).is_err());
-        assert!(replace_color(&mut s, 1.0, 1.0).is_err());
         assert!(transform(&mut s, "mesh")
             .unwrap_err()
             .contains("メッシュ変形"));
-        assert!(dust_apply(&mut s).is_err());
         assert!(run_action(&mut s, "main_line_repaint")
             .unwrap_err()
             .contains("MainLineRepaint"));
