@@ -11,6 +11,8 @@ mod history;
 mod pen;
 mod pen_selftest;
 mod session;
+// タイムラインのパネル（timeline.rs）。
+mod timeline;
 
 use session::{pack_rect, Point, Session, Shared, StrokeTool, Summary};
 use tauri::ipc::Response;
@@ -229,6 +231,8 @@ fn open_main_window(app: &tauri::App) -> tauri::Result<()> {
 fn main() {
     tauri::Builder::default()
         .manage::<Shared>(std::sync::Mutex::new(Session::empty(1920, 1080)))
+        // タイムラインの状態（文書は Option<Document>。timeline.rs）。
+        .manage::<timeline::SharedTimeline>(timeline::shared())
         .setup(|app| {
             open_main_window(app)?;
             pen::install(app.handle());
@@ -253,7 +257,25 @@ fn main() {
             shape_window,
             close_window,
             report,
-            quit
+            quit,
+            // タイムライン（timeline.rs）。
+            timeline::timeline_view,
+            timeline::timeline_debug_load_sample,
+            timeline::timeline_debug_options,
+            timeline::timeline_select,
+            timeline::timeline_select_rect,
+            timeline::timeline_set_frame,
+            timeline::timeline_navigate,
+            timeline::timeline_edit,
+            timeline::timeline_undo,
+            timeline::timeline_redo,
+            timeline::timeline_set_mode,
+            timeline::timeline_set_fps,
+            timeline::timeline_set_range,
+            timeline::timeline_set_options,
+            timeline::timeline_normalize_preview,
+            timeline::timeline_thumbnail,
+            timeline::timeline_play
         ])
         .run(tauri::generate_context!())
         .expect("画面を開けなかった");

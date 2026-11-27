@@ -9,6 +9,8 @@
 // テクスチャへ書き戻す。
 import { Viewer } from "./viewer.js";
 import { createLayout } from "./layout.js";
+// タイムラインのパネル（timeline.js）。
+import { createTimelinePanel } from "./timeline.js";
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
@@ -24,7 +26,11 @@ const viewButtons = document.createElement("div");
 viewButtons.className = "view-buttons";
 viewButtons.innerHTML = '<button id="fit" type="button">全体を表示</button><button id="actual" type="button">100%</button>';
 canvasPanel.appendChild(viewButtons);
-createLayout(document.getElementById("dock"), { canvas: () => canvasPanel });
+createLayout(document.getElementById("dock"), {
+  canvas: () => canvasPanel,
+  // タイムラインのパネル（timeline.js）。
+  timeline: () => createTimelinePanel({ invoke, onChange: () => {} }),
+});
 const viewer = new Viewer(canvas);
 
 // 描いた線の点（自己確認で調べる）。{x, y, pressure, device}（x, y は画面の座標）

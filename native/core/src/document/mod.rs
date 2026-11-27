@@ -47,5 +47,8 @@ pub mod pending_commands;
 mod stage_commands;
 mod tween_commands;
 
+/// タイムラインの画面（Tauri）が使う判断。
+pub mod timeline_panel;
+
 /// 比較テストのための操作列適用。
 pub mod comparison;
