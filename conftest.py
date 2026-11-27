@@ -57,6 +57,24 @@ def retain_windows_dock_hierarchies(monkeypatch):
         monkeypatch.setattr(MainWindow, "deleteLater", retain)
 
 
+def pytest_collection_finish(session):
+    """収集で読み込んだものを、ごみ集めの走査の対象から外す。
+
+    後始末（:func:`_delete_new_top_levels`）は、Windows 以外ではテストのたびに
+    ``gc.collect()`` を呼ぶ。全世代を歩くので、収集で読み込んだモジュール・
+    クラス・関数など約 10 万個を毎回たどり直し、1 回に約 19ms かかっていた（全件で約 1 分）。
+    これらはセッションの終わりまで生きるので、``gc.freeze()`` で走査から
+    外す。テストの中で作られたものは今までどおり毎回回収される（約 2ms）。
+    外したものがあとで循環参照のごみになっても回収されないが、メモリが
+    少し残るだけで、テストの結果には関わらない。Windows でも、自動で起きる
+    いちばん古い世代の収集が同じ理由で軽くなる。
+    """
+    import gc
+
+    gc.collect()
+    gc.freeze()
+
+
 @pytest.hookimpl(wrapper=True, tryfirst=True)
 def pytest_runtest_teardown(item):
     # pytest-qt はフィクスチャの後始末より先に、登録済みウィジェットを
