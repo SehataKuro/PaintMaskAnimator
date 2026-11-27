@@ -22,6 +22,7 @@ import tempfile
 from pathlib import Path
 from PySide6.QtWidgets import (QApplication, QDialog, QFileDialog, QInputDialog,
                                QMessageBox)
+from .pma_image import image_rgba
 from .i18n import tr
 from .memo_window import MEMO_FILE_NAME
 from . import movie_slate, native
@@ -52,6 +53,7 @@ class ExportController:
 
     def canvas_image(self):
         """今表示しているコマの、キャンバス範囲の合成画像。"""
+        self.window.canvas._commit_brush_stroke()
         return self.window.crop_image(self.window.canvas.current_frame)
 
     @staticmethod
@@ -230,6 +232,7 @@ class ExportController:
     def cut_folder(self):
         from .cut_folder_dialog import CutFolderExportDialog
 
+        self.window.canvas._commit_brush_stroke()
         cels, images, skipped = self.cut_folder_cels()
         project = self.window.current_project_path
         hint = cut_folder.guess_cut_number(Path(project).stem) if project else ""
@@ -279,7 +282,7 @@ class ExportController:
                     progress, number - 1, len(plan.files),
                     tr("{number}枚目を書き出しています").format(number=number),
                 )
-                image = imaging.without_color_space(images[cel].copy(
+                image = imaging.without_color_space(images[cel].read_qimage(
                     OUTSIDE_MARGIN,
                     OUTSIDE_MARGIN,
                     constants.CANVAS_WIDTH,
@@ -344,6 +347,7 @@ class ExportController:
             return
         if not path.lower().endswith(".psd"):
             path += ".psd"
+        self.window.canvas._commit_brush_stroke()
         try:
             psd = PSDImage.new(
                 "RGB",
@@ -366,7 +370,7 @@ class ExportController:
                     if not layer.has_content or layer.sequence_only:
                         continue
                     key_number += 1
-                    source = layer.image.copy(
+                    source = layer.image.read_qimage(
                         OUTSIDE_MARGIN,
                         OUTSIDE_MARGIN,
                         constants.CANVAS_WIDTH,
@@ -492,6 +496,7 @@ class ExportController:
             )
             return
 
+        self.window.canvas._commit_brush_stroke()
         keys = []
         for layer_index, safe_layer_name in enumerate(safe_layer_names):
             for frame_index, frame in enumerate(self.window.canvas.frames):
@@ -539,7 +544,7 @@ class ExportController:
                     len(keys),
                     tr("{number}枚目を書き出しています").format(number=number),
                 )
-                image = layer.image.copy(
+                image = layer.image.read_qimage(
                     OUTSIDE_MARGIN,
                     OUTSIDE_MARGIN,
                     constants.CANVAS_WIDTH,
@@ -617,6 +622,7 @@ class ExportController:
         path,_=QFileDialog.getSaveFileName(self.window,tr('MP4書き出し'),'animation.mp4','MP4 (*.mp4)')
         if not path:return
         if not path.lower().endswith('.mp4'):path+='.mp4'
+        self.window.canvas._commit_brush_stroke()
         with tempfile.TemporaryDirectory() as td:
             total = sum(max(1, int(frame.duration)) for frame in self.window.canvas.frames)
             progress = create_counter(
@@ -704,7 +710,7 @@ class ExportController:
                 if number in seen:
                     continue
                 seen.add(number)
-                pixels = imaging.qimage_rgba_array(layer.image)
+                pixels = image_rgba(layer.image)
                 images = {
                     kind: imaging.rgba_array_to_qimage(array)
                     for kind, array in shadow_export.materials(
@@ -744,6 +750,7 @@ class ExportController:
 
     def write_shadow_sequence(self, folder_name, destination):
         """``destination`` の下へ、種類ごとのフォルダーを作って書き出す。"""
+        self.window.canvas._commit_brush_stroke()
         materials = self.shadow_materials(folder_name)
         if not materials:
             self.window.statusBar().showMessage(

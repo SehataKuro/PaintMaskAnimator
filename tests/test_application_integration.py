@@ -1,6 +1,9 @@
 """Cross-module smoke tests for release metadata and project persistence."""
 from __future__ import annotations
 
+from image_edit_helpers import edit_qimage
+
+
 from pathlib import Path
 
 try:
@@ -61,7 +64,8 @@ def test_window_document_roundtrips_through_project_archive(
         assert window.canvas.ensure_editable_key()
         layer = window.canvas.frames[0].layers[0]
         expected = QColor(12, 34, 56, 255)
-        layer.image.setPixelColor(0, 0, expected)
+        with edit_qimage(layer.image) as edited:
+            edited.setPixelColor(0, 0, expected)
         layer.has_content = True
         metadata = {
             "format": "PaintMaskAnimatorProject",
@@ -82,6 +86,6 @@ def test_window_document_roundtrips_through_project_archive(
         assert loaded_metadata["format"] == "PaintMaskAnimatorProject"
         assert (width, height) == (constants.CANVAS_WIDTH, constants.CANVAS_HEIGHT)
         assert frames[0].layers[0].has_content
-        assert frames[0].layers[0].image.pixelColor(0, 0) == expected
+        assert frames[0].layers[0].image.to_qimage().pixelColor(0, 0) == expected
     finally:
         window.close()

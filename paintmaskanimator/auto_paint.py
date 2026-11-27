@@ -38,7 +38,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, cast, o
 
 import numpy as np
 
-from . import bucket_fill, fill_tracking, line_flow, reference_check
+from . import bucket_fill, fill_tracking, line_flow, native, reference_check
 
 Rgb = Tuple[int, int, int]
 Bounds = Tuple[int, int, int, int]
@@ -545,26 +545,61 @@ def _local_shift(target: _Cell, guide: _Cell, bounds, context=CONTEXT, margin=SE
     小さな部分は自分の縁だけでは場所を決めにくいので、まわりの線もいっしょに
     重ねる。線が一番多く重なるずれ ``(dy, dx)`` と、重なった割合を返す。
     """
-    problem = _prepare_local_shift(target, guide, bounds, context, margin)
+    problem = _prepare_local_shift(target, guide, bounds, context, margin, lazy=True)
     return ((0, 0), 0.0) if problem is None else _solve_local_shift(problem)
 
 
 class _ShiftProblem(dict):
-    """GPUで作る見本の窓は、CPUへ戻す必要が生じたときだけ構築する。"""
+    """CPU用の境界窓とGPU用の重み付き窓は、それぞれ必要になってから作る。"""
 
     def __getitem__(self, key):
-        if key == 'after' and key not in self:
+        if key in ('boundaries', 'after') and key not in self:
             _target, guide, wx0, wy0, *_crop = dict.__getitem__(self, 'device_spec')
             step = dict.__getitem__(self, 'step')
             height, width = dict.__getitem__(self, 'before').shape
             roi = np.s_[wy0:wy0+height*step:step, wx0:wx0+width*step:step]
-            exact = guide.boundary[roi].astype(np.float32)
-            near = guide.wide_boundary[roi].astype(np.float32)
-            self[key] = exact * (1.0 - NEAR_LINE_WEIGHT) + near * NEAR_LINE_WEIGHT
+            if key == 'boundaries':
+                self[key] = guide.boundary[roi], guide.wide_boundary[roi]
+            else:
+                exact = guide.boundary[roi].astype(np.float32)
+                near = guide.wide_boundary[roi].astype(np.float32)
+                self[key] = exact * (1.0 - NEAR_LINE_WEIGHT) + near * NEAR_LINE_WEIGHT
         return super().__getitem__(key)
 
 
 def _prepare_local_shift(target, guide, bounds, context=CONTEXT, margin=SEARCH_MARGIN, *, lazy=False):
+    """二値の局所ずれ窓を Rust で準備し、非二値は NumPy で処理する。"""
+    if target.boundary.dtype != np.bool_ or not native.available() or margin < 0:
+        return _prepare_local_shift_numpy(target, guide, bounds, context, margin, lazy=lazy)
+    wx0, wy0, wx1, wy1, tx0, ty0, tx1, ty1, step = _local_shift_geometry(
+        target, bounds, context, margin)
+    if not (wx0 <= tx0 <= tx1 <= wx1 and wy0 <= ty0 <= ty1 <= wy1):
+        return _prepare_local_shift_numpy(target, guide, bounds, context, margin, lazy=lazy)
+
+    # 余白付き窓の左上を基準に、対象矩形内の最初のサンプルへそろえる。
+    oy = (ty0 - wy0 + step - 1) // step
+    ox = (tx0 - wx0 + step - 1) // step
+    source = target.boundary[wy0 + oy * step:ty1:step, wx0 + ox * step:tx1:step]
+    wide = np.asarray(guide.wide_boundary[wy0:wy1:step, wx0:wx1:step], dtype=np.bool_)
+    shape = ((wy1 - wy0 + step - 1) // step, (wx1 - wx0 + step - 1) // step)
+    if wide.shape != shape:
+        return _prepare_local_shift_numpy(target, guide, bounds, context, margin, lazy=lazy)
+    limit = margin // step
+    prepared = native.prepare_local_shift(
+        source.tobytes(), source.shape, wide.tobytes(), wide.shape, (oy, ox), limit)
+    if prepared is None:
+        return None
+    before_bytes, size, total, ys, xs, dys, dxs = prepared
+    before = np.frombuffer(before_bytes, dtype=np.bool_).reshape(wide.shape).astype(np.float32)
+    return _shift_problem(
+        target, guide, (wx0, wy0, tx0, ty0, tx1, ty1), lazy,
+        before=before, before_bytes=before_bytes, size=size, total=total, step=step, limit=limit,
+        ys=np.asarray(ys, dtype=np.int_), xs=np.asarray(xs, dtype=np.int_),
+        dys=np.asarray(dys, dtype=np.int_), dxs=np.asarray(dxs, dtype=np.int_))
+
+
+def _local_shift_geometry(target, bounds, context, margin):
+    """画像で切り詰めた探索窓、対象矩形、間引き幅を返す。"""
     height, width = target.values.shape
     x0, y0, x1, y1 = bounds
     tx0, ty0 = max(0, x0 - context), max(0, y0 - context)
@@ -572,9 +607,19 @@ def _prepare_local_shift(target, guide, bounds, context=CONTEXT, margin=SEARCH_M
     wx0, wy0 = max(0, tx0 - margin), max(0, ty0 - margin)
     wx1, wy1 = min(width, tx1 + margin), min(height, ty1 + margin)
     step = max(1, int(np.ceil(max(wx1 - wx0, wy1 - wy0) / _MAX_WINDOW)))
-    before = np.zeros((wy1 - wy0, wx1 - wx0), dtype=np.float32)
-    before[ty0 - wy0:ty1 - wy0, tx0 - wx0:tx1 - wx0] = target.boundary[ty0:ty1, tx0:tx1]
-    before = before[::step, ::step]
+    return wx0, wy0, wx1, wy1, tx0, ty0, tx1, ty1, step
+
+
+def _prepare_local_shift_numpy(target, guide, bounds, context=CONTEXT, margin=SEARCH_MARGIN, *, lazy=False):
+    """局所ずれの窓を従来の NumPy 演算で準備する。"""
+    wx0, wy0, wx1, wy1, tx0, ty0, tx1, ty1, step = _local_shift_geometry(
+        target, bounds, context, margin)
+    target_boundary = target.boundary
+    binary = target_boundary.dtype == np.bool_
+    boundary = np.zeros((wy1 - wy0, wx1 - wx0), dtype=np.bool_ if binary else np.float32)
+    boundary[ty0 - wy0:ty1 - wy0, tx0 - wx0:tx1 - wx0] = target_boundary[ty0:ty1, tx0:tx1]
+    boundary = boundary[::step, ::step]
+    before = boundary.astype(np.float32) if binary else boundary
     # ぴったり重なる線は1、1画素ずれて重なる線は ``NEAR_LINE_WEIGHT`` に数える。
     total = float(before.sum())
     if total == 0 or not guide.wide_boundary[wy0:wy1:step, wx0:wx1:step].any():
@@ -585,9 +630,15 @@ def _prepare_local_shift(target, guide, bounds, context=CONTEXT, margin=SEARCH_M
     xs = np.r_[0:limit + 1, size[1] - limit:size[1]]
     dys = np.where(ys >= size[0] // 2, ys - size[0], ys)
     dxs = np.where(xs >= size[1] // 2, xs - size[1], xs)
-    problem = _ShiftProblem(before=before, size=size, total=total, step=step,
-                limit=limit, ys=ys, xs=xs, dys=dys, dxs=dxs,
-                device_spec=(target, guide, wx0, wy0, tx0, ty0, tx1, ty1))
+    return _shift_problem(
+        target, guide, (wx0, wy0, tx0, ty0, tx1, ty1), lazy,
+        before=before, before_bytes=boundary.tobytes() if binary else None,
+        size=size, total=total, step=step, limit=limit, ys=ys, xs=xs, dys=dys, dxs=dxs)
+
+
+def _shift_problem(target, guide, crop, lazy, **fields):
+    """探索窓と遅延用の切り出し情報を一つの辞書にまとめる。"""
+    problem = _ShiftProblem(**fields, device_spec=(target, guide, *crop))
     if not lazy:
         problem['after']
     return problem
@@ -607,13 +658,40 @@ def _fft_size(length):
         candidate += 1
 
 
+def _weighted_overlap(exact, wide):
+    return exact * (1.0 - NEAR_LINE_WEIGHT) + wide * NEAR_LINE_WEIGHT
+
+
 def _local_shift_window(problem):
-    before, after = problem["before"], problem["after"]
+    """Rust版と同じ評価になるよう、二値境界の重なりを整数で数える。"""
+    before = problem["before"]
     fast_size = problem.get("size") or _correlation_size(before, problem["limit"])
-    correlation = np.fft.irfft2(
-        np.fft.rfft2(after, fast_size) * np.conj(np.fft.rfft2(before, fast_size)), fast_size
-    )
-    return correlation[np.ix_(problem["dys"] % fast_size[0], problem["dxs"] % fast_size[1])]
+    exact, wide = problem["boundaries"]
+    # C_exact は total 以下。桁上がりしない基数で二つの件数を一度に相関する。
+    # 通常は間引き後384²画素以下、既定の探索幅でFFTは432²以下。
+    # 相関のスケール N*(radix+1) に float64 の eps と余裕係数1024を
+    # 掛けても約0.006。長い探索幅などでこの見積もりが0.5に近づく前に
+    # 二つの二値相関へ切り替え、丸め前の値のスケールを下げる。
+    radix = int(problem["total"]) + 1
+    rows, cols = fast_size
+    indices = np.ix_(problem["dys"] % rows, problem["dxs"] % cols)
+    spectrum = np.fft.rfft2(before.astype(np.float64), fast_size)
+    np.conj(spectrum, out=spectrum)
+
+    def rounded_counts(guide):
+        transformed = np.fft.rfft2(guide, fast_size)
+        transformed *= spectrum
+        window = np.fft.irfft2(transformed, fast_size)[indices]
+        return np.rint(window, out=window)
+
+    if rows * cols * (radix + 1) * (1024 * np.finfo(np.float64).eps) >= 0.25:
+        return _weighted_overlap(rounded_counts(exact.astype(np.float64)),
+                                 rounded_counts(wide.astype(np.float64)))
+    packed = wide.astype(np.float64)
+    packed *= radix
+    packed += exact
+    wide_count, exact_count = np.divmod(rounded_counts(packed), radix)
+    return _weighted_overlap(exact_count, wide_count)
 
 
 def _correlation_size(before, limit):
@@ -629,6 +707,7 @@ def _correlation_size(before, limit):
 
 
 def _finish_local_shift(problem, window):
+    """同点では探索窓の行優先で最初（dys、次にdxsの格納順）を選ぶ。"""
     total, step = problem["total"], problem["step"]
     dys, dxs = problem["dys"], problem["dxs"]
     near = window / total
@@ -641,6 +720,33 @@ def _finish_local_shift(problem, window):
 
 
 def _solve_local_shift(problem):
+    if not native.available():
+        return _solve_local_shift_numpy(problem)
+    before = problem['before']
+    exact, wide = problem['boundaries']
+    before_bytes = problem.get('before_bytes')
+    if before_bytes is None:
+        if not np.all((before == 0) | (before == 1)):
+            return _solve_local_shift_numpy(problem)
+        before_bytes = before.astype(np.uint8).tobytes()
+    if exact.dtype != np.bool_ or wide.dtype != np.bool_:
+        if not (np.all((exact == 0) | (exact == 1)) and np.all((wide == 0) | (wide == 1))):
+            return _solve_local_shift_numpy(problem)
+        exact, wide = exact.astype(np.uint8), wide.astype(np.uint8)
+    height, width = before.shape
+    size = problem.get('size') or _correlation_size(before, problem['limit'])
+    share_motion = problem.get('share_motion', False)
+    shift, overlap, gap = native.solve_local_shift(
+        before_bytes, exact.tobytes(), wide.tobytes(), width, height, size,
+        problem['dys'].tolist(), problem['dxs'].tolist(), problem['total'],
+        problem['step'], MOTION_PENALTY, NEAR_LINE_WEIGHT, share_motion)
+    if share_motion:
+        from .auto_motion import LocalShift
+        shift = LocalShift(*shift, gap)
+    return shift, overlap
+
+
+def _solve_local_shift_numpy(problem):
     window = _local_shift_window(problem)
     shift, overlap = _finish_local_shift(problem, window)
     if not problem.get('share_motion', False):
@@ -1839,9 +1945,7 @@ def _plan_auto_paint(
             alignment_hits=alignment.hits, cpu_alignments=alignment.cpu_solves,
             alignment_batches=alignment.cpu_batches,
             batched_alignments=alignment.batched_solves,
-            shared_motion_certified=alignment.motion_certified,
             shared_motion_regions=alignment.shared_support_hits,
-            shared_motion_trials=alignment.motion_trials,
             shared_support_checks=alignment.support_checks,
             gpu_alignment_uploads=0 if alignment._resident is None else alignment._resident.uploads,
             gpu_alignment_return_bytes=0 if alignment._resident is None else alignment._resident.returned_bytes,

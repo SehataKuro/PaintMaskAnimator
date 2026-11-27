@@ -21,6 +21,7 @@ from paintmaskanimator import constants  # noqa: E402
 from paintmaskanimator.canvas import PaintCanvas  # noqa: E402
 from paintmaskanimator.frame_scope import FrameScope, resolve_cells  # noqa: E402
 from paintmaskanimator.models import Frame, Layer  # noqa: E402
+from paintmaskanimator.pma_image import PmaImage  # noqa: E402
 
 #: 測るときのカットの大きさ。長めのカットを1本。
 FRAMES = 600
@@ -52,7 +53,7 @@ def build_canvas():
     for column in range(FRAMES):
         layers = []
         for layer_index in range(LAYERS):
-            layer = Layer(chr(ord("A") + layer_index), QImage(image))
+            layer = Layer(chr(ord("A") + layer_index), PmaImage.from_qimage(image))
             # 10コマごとに次の絵へ移り、番号は DRAWINGS で一周する。
             layer.has_content = True
             layer.sequence_number = (column // 10) % DRAWINGS + 1

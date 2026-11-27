@@ -10,16 +10,15 @@ from copy import deepcopy
 from dataclasses import dataclass
 import math
 import os
+import time
 from concurrent.futures import ThreadPoolExecutor
 import zipfile
 from pathlib import Path, PurePosixPath
 
+from . import native
 from .i18n import tr
 from .document import Document, project_v1_state
 from .errors import OperationError
-
-from PySide6.QtCore import QBuffer, QByteArray, QIODevice, Qt
-from PySide6.QtGui import QImage, QImageReader
 
 from .constants import (
     MAX_PROJECT_ARCHIVE_BYTES,
@@ -30,9 +29,14 @@ from .constants import (
     MAX_PROJECT_LAYERS,
     MAX_PROJECT_METADATA_BYTES,
 )
-from .imaging import white_to_transparent_qimage, without_color_space
+from .imaging import white_to_transparent_qimage
 from .models import Frame, default_layer_name
 from .legacy_v1 import raw_v1_slot as Layer
+from .pma_image import ImageInput, PmaImage, copy_image, image_key
+from .pma_image_io import _decode_png, thumbnail_png
+from .pma_image_io import _decode_png_qt as _decode_png_qt
+from .pma_image_io import _encode_png_qt as _encode_png_qt
+from .pma_image_io import encode_png as encode_png
 from .tween_groups import sanitize_spec
 from .utils import blank_image
 from .logging_setup import get_logger
@@ -62,6 +66,18 @@ class LoadedProject:
     format_version: int = 1
 
 
+def _adopt_canvas_size(document, width, height):
+    """読み込んだファイルの大きさを Rust の文書に合わせる（Python の文書では何もしない）。
+
+    読み込みの途中で Rust に移した文書には、その時点の作業領域の大きさが入っている。
+    呼び出し側（main_window_project_io）は読み込みのあとに作業領域をファイルの大きさに
+    するので、Python 版と同じく、あとで作る空画像がファイルの大きさになるようにする。
+    """
+    adopt = getattr(document, "adopt_canvas_size", None)
+    if adopt is not None:
+        adopt(width, height)
+
+
 def load_project(path, png_cache=None):
     """Adapt the legacy reader without changing its raw four-value API.
 
@@ -71,6 +87,7 @@ def load_project(path, png_cache=None):
     read_cache = PngCache() if png_cache is not None else None
     result = read_project_archive(path, read_cache, _allow_v2=True)
     if isinstance(result, LoadedProject):
+        _adopt_canvas_size(result.document, result.width, result.height)
         if png_cache is not None:
             png_cache.replace_from(read_cache)
         return result
@@ -86,6 +103,7 @@ def load_project(path, png_cache=None):
         raise OperationError(tr("プロジェクトの選択位置が不正です。")) from error
     document.install_legacy_frames(
         frames, metadata.pop("_loaded_sequence_archive", {}), canvas_size=(width, height))
+    _adopt_canvas_size(document, width, height)
     if png_cache is not None:
         png_cache.replace_from(read_cache)
     return LoadedProject(metadata, document, width, height)
@@ -93,20 +111,20 @@ def load_project(path, png_cache=None):
 
 @dataclass(frozen=True)
 class ProjectSnapshot:
-    """Detached save-owned graph; QImages share pixels through Qt COW."""
+    """Detached save-owned graph; images share pixels through Qt COW."""
 
     metadata: dict
     document: Document
     width: int
     height: int
-    thumbnail: QImage | None = None
+    thumbnail: ImageInput = None
 
     @classmethod
     def capture(cls, metadata, document, thumbnail=None):
         from . import constants
         return cls(deepcopy(metadata), document.clone_graph(),
                    constants.CANVAS_WIDTH, constants.CANVAS_HEIGHT,
-                   QImage(thumbnail) if thumbnail is not None else None)
+                   copy_image(thumbnail))
 
 
 def build_v2_payload(snapshot, *, include_default_local_images=False):
@@ -133,9 +151,8 @@ def legacy_fixture_write_snapshot(path, snapshot, png_cache=None):
 class PngCache:
     """変更のないセルの PNG を保存のたびに再エンコードしないためのキャッシュ。
 
-    キーは ``QImage.cacheKey()``。QImage は画素を書き換えると（QPainter や
-    ``bits()`` 経由でも）キーが変わるので、キーが同じなら前回のPNGをそのまま
-    使える。保存のたびに今回使ったセルだけを残し、消えたセルの分は捨てる。
+    モデルの画素世代でキーを引く。Qt 画像が渡された場合は別の名前空間で
+    Qt のキーを使う。保存のたびに今回使ったセルだけを残す。
     """
 
     def __init__(self):
@@ -152,19 +169,19 @@ class PngCache:
         self._entries.clear()
 
     def remember(self, image, data):
-        self._entries[int(image.cacheKey())] = bytes(data)
+        self._entries[image_key(image)] = bytes(data)
 
     def encode_many(self, images, used_keys=None):
-        """``images`` の PNG を ``{cacheKey: bytes | None}`` で返す。
+        """``images`` の PNG を ``{image_key: bytes | None}`` で返す。
 
         キャッシュに無いものだけを、複数のスレッドで同時にエンコードする。
-        QImage.save は実行中 GIL を手放すので、コア数に近い倍率で速くなる
+        Rust の PNG エンコードも Qt の PNG 保存も実行中 GIL を手放すので、コア数に近い倍率で速くなる
         （1920x1080 で1枚約60ms かかり、全セルの書き出しが数十秒になっていた）。
         """
         result = {}
         missing = {}
         for image in images:
-            key = int(image.cacheKey())
+            key = image_key(image)
             if used_keys is not None:
                 used_keys.add(key)
             data = self._entries.get(key)
@@ -183,10 +200,22 @@ class PngCache:
             del self._entries[key]
 
 
+def _install_decoded_image(image, installed, seeded, blob=None):
+    """Give each cell its own handle to the generation shared by the decoder."""
+    key = image_key(image)
+    if key not in installed:
+        installed[key] = PmaImage.from_qimage(image)
+    model_image = installed[key]
+    # A white migration with no changed pixels may share this decoded image.
+    if blob is not None:
+        seeded[model_image.generation] = (model_image, blob)
+    return model_image.copy()
+
+
 def parallel_map(function, items):
     """``map`` を複数スレッドで行う（順番は保つ）。数が少なければそのまま回す。
 
-    QImage のエンコード・デコードのように、GIL を手放す Qt の処理に使う。
+    画像のエンコード・デコードのように、GIL を手放す Qt の処理に使う。
     """
     items = list(items)
     workers = min(_MAX_WORKERS, os.cpu_count() or 1, len(items))
@@ -197,39 +226,6 @@ def parallel_map(function, items):
 
 
 _MAX_WORKERS = 8
-
-
-def encode_png(image):
-    """QImage を PNG のバイト列にする。失敗したら None。"""
-    image = without_color_space(image)
-    data = QByteArray()
-    buffer = QBuffer(data)
-    buffer.open(QIODevice.OpenModeFlag.WriteOnly)
-    try:
-        if not image.save(buffer, "PNG"):
-            return None
-    finally:
-        buffer.close()
-    return bytes(data.data())
-
-
-def _decode_png(data):
-    """PNG を読み、キャンバスと同じ形式（乗算済み ARGB）にする。失敗なら null。
-
-    QImage.fromData は読み込み中も GIL を握ったままなので、スレッドに分けても
-    速くならない。QImageReader.read は GIL を手放すので、こちらを使う。
-    """
-    buffer = QBuffer()
-    buffer.setData(QByteArray(data))
-    buffer.open(QIODevice.OpenModeFlag.ReadOnly)
-    try:
-        image = QImageReader(buffer, b"png").read()
-    finally:
-        buffer.close()
-    if image.isNull():
-        return image
-    # Projects saved before profiles were stripped still carry them.
-    return without_color_space(image.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied))
 
 
 def _prefetch_pngs(archive, entries, width, height, decoded):
@@ -278,6 +274,113 @@ def _prefetch_pngs(archive, entries, width, height, decoded):
     }
 
 
+@dataclass(frozen=True)
+class _RustZipInfo:
+    filename: str
+    file_size: int
+    flag_bits: int
+
+
+class _RustZipArchive:
+    """Rust（pma_core::project::zip）で読み、GIL を手放す。
+
+    Rust で開けないものは _open_project_zip が zipfile に回す。
+    """
+
+    def __init__(self, path):
+        self._reader = native.ZipReader(os.fspath(path))
+        self._path = path
+        self._infos = [_RustZipInfo(*entry) for entry in self._reader.entries()]
+        self._indices = {info.filename: i for i, info in enumerate(self._infos)}
+        self._closed = False
+
+    def infolist(self):
+        return list(self._infos)
+
+    def getinfo(self, name):
+        try:
+            return self._infos[self._indices[name]]
+        except KeyError:
+            raise KeyError(f"There is no item named {name!r} in the archive") from None
+
+    def read(self, name):
+        if self._closed:
+            raise ValueError("Attempt to use ZIP archive that was already closed")
+        info = self.getinfo(name)
+        try:
+            return self._reader.read(self._indices[name])
+        except RuntimeError as error:
+            # 失敗時だけ既存実装の診断を使い、CRC 等の文言も維持する。
+            # 全体の read() は使わず宣言サイズ+1まで。成功してもRustの失敗を隠さない。
+            try:
+                with zipfile.ZipFile(self._path, "r") as archive:
+                    with archive.open(name) as source:
+                        remaining = info.file_size + 1
+                        while remaining:
+                            chunk = source.read(min(remaining, 65536))
+                            if not chunk:
+                                break
+                            remaining -= len(chunk)
+            except zipfile.BadZipFile:
+                raise
+            except Exception as diagnostic:
+                raise zipfile.BadZipFile(str(diagnostic)) from error
+            raise zipfile.BadZipFile(str(error)) from error
+
+    def close(self):
+        self._reader.close()
+        self._closed = True
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        self.close()
+
+
+class _RustZipWriter:
+    """Rust（pma_core::project::zip）で書き、GIL を手放す。"""
+
+    def __init__(self, path):
+        self._writer = native.ZipWriter(os.fspath(path))
+
+    def writestr(self, name, data, compress_type=zipfile.ZIP_DEFLATED):
+        date_time = time.localtime(time.time())[:6]
+        if date_time[0] < 1980:
+            raise ValueError("ZIP does not support timestamps before 1980")
+        if compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
+            raise NotImplementedError("That compression method is not supported")
+        self._writer.write(name, data, compress_type == zipfile.ZIP_DEFLATED, date_time)
+
+    def close(self):
+        self._writer.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        if exc_type is None:
+            self.close()
+        else:
+            try:
+                self.close()
+            except Exception:
+                pass  # 本体の例外を保持する（close の失敗で置き換えない）。
+
+
+def _create_project_zip(path):
+    """Rust（pma_core::project::zip）で書き、GIL を手放す。"""
+    return _RustZipWriter(path)
+
+
+def _open_project_zip(path):
+    """Rust（pma_core::project::zip）で読み、GIL を手放す。Rust で開けないものは zipfile に回す。"""
+    try:
+        return _RustZipArchive(path)
+    except ValueError:
+        return zipfile.ZipFile(path, "r")
+
+
 def read_project_archive(path, png_cache=None, *, _allow_v2=False):
     """Open and validate a project archive.
 
@@ -291,9 +394,9 @@ def read_project_archive(path, png_cache=None, *, _allow_v2=False):
     """
     # 途中で読み込みに失敗したときに今のキャッシュを壊さないよう、
     # 成功してから差し替える。
-    seeded = []
+    seeded = {}
     project_path = Path(path)
-    with zipfile.ZipFile(project_path, "r") as archive:
+    with _open_project_zip(project_path) as archive:
         archive_entries = archive.infolist()
         # セルの画像と、保持した初期状態（あれば）で、セル1つにつき最大2ファイル。
         # ほかに project.json とサムネイル。
@@ -394,12 +497,13 @@ def read_project_archive(path, png_cache=None, *, _allow_v2=False):
         decoded = {}
         # 旧形式の白→透明の変換も、共有している画像ごとに1回だけ行う。
         migrated = {}
+        installed = {}
 
         def migrate_white(image):
-            key = image.cacheKey()
+            key = image_key(image)
             if key not in migrated:
                 migrated[key] = white_to_transparent_qimage(image)
-            return QImage(migrated[key])
+            return migrated[key]
 
         prefetched = _prefetch_pngs(
             archive,
@@ -443,9 +547,8 @@ def read_project_archive(path, png_cache=None, *, _allow_v2=False):
                 raise OperationError(
                     tr("初期状態の画像を復元できません: {path}").format(path=line_path)
                 )
-            if png_cache is not None:
-                seeded.append((line_image, line_bytes))
-            return line_image
+            return _install_decoded_image(line_image, installed, seeded,
+                                          line_bytes if png_cache is not None else None)
 
         for frame_data in frame_entries:
             loaded_layers = []
@@ -475,8 +578,6 @@ def read_project_archive(path, png_cache=None, *, _allow_v2=False):
                     )
                 if image_path in prefetched:
                     image_bytes, image = prefetched[image_path]
-                    # セルごとに別の QImage にする（画素は書き込むまで共有される）。
-                    image = QImage(image)
                 else:
                     image_bytes = archive.read(image_path)
                     image = _decode_png(image_bytes)
@@ -497,8 +598,9 @@ def read_project_archive(path, png_cache=None, *, _allow_v2=False):
                     and not is_draft
                 ):
                     image = migrate_white(image)
-                elif png_cache is not None:
-                    seeded.append((image, image_bytes))
+                    image_bytes = None
+                image = _install_decoded_image(image, installed, seeded,
+                                               image_bytes if png_cache is not None else None)
 
                 filter_rgb = layer_data.get("color_filter_rgb")
                 exposure = int(layer_data.get("exposure", 1))
@@ -633,7 +735,6 @@ def read_project_archive(path, png_cache=None, *, _allow_v2=False):
                 )
             if image_path in prefetched:
                 image_bytes, image = prefetched[image_path]
-                image = QImage(image)
             else:
                 image_bytes = archive.read(image_path)
                 image = _decode_png(image_bytes)
@@ -648,8 +749,9 @@ def read_project_archive(path, png_cache=None, *, _allow_v2=False):
             is_draft = bool(archive_data.get("is_draft", False))
             if needs_white_migration and not is_draft:
                 image = migrate_white(image)
-            elif png_cache is not None:
-                seeded.append((image, image_bytes))
+                image_bytes = None
+            image = _install_decoded_image(image, installed, seeded,
+                                           image_bytes if png_cache is not None else None)
             opacity = float(archive_data.get("opacity", 1.0))
             if not math.isfinite(opacity):
                 raise OperationError(tr("連番保管セルの不透明度が不正です。"))
@@ -683,28 +785,13 @@ def read_project_archive(path, png_cache=None, *, _allow_v2=False):
         metadata["_loaded_sequence_archive"] = loaded_sequence_archive
     if png_cache is not None:
         png_cache.clear()
-        for image, image_bytes in seeded:
+        for image, image_bytes in seeded.values():
             png_cache.remember(image, image_bytes)
     return metadata, loaded_frames, width, height
 
 
 def _thumbnail_png(image):
-    """``image`` を長辺 ``THUMBNAIL_SIZE`` 以下に縮めた PNG のバイト列。"""
-    if image is None or image.isNull():
-        return None
-    if max(image.width(), image.height()) > THUMBNAIL_SIZE:
-        image = image.scaled(
-            THUMBNAIL_SIZE, THUMBNAIL_SIZE,
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        )
-    image = without_color_space(image)
-    data = QByteArray()
-    buffer = QBuffer(data)
-    buffer.open(QIODevice.OpenModeFlag.WriteOnly)
-    ok = image.save(buffer, "PNG")
-    buffer.close()
-    return bytes(data.data()) if ok else None
+    return thumbnail_png(image, THUMBNAIL_SIZE)
 
 
 def legacy_fixture_build_v1_payload(frames, sequence_archive=None):
@@ -718,7 +805,7 @@ def legacy_fixture_build_v1_payload(frames, sequence_archive=None):
     pending_pngs = []
 
     def write_png(image_name, image, message):
-        pending_pngs.append((image_name, image, message))
+        pending_pngs.append((image_name, copy_image(image), message))
 
     for frame_index, frame in enumerate(frames):
         frame_data = {
@@ -838,7 +925,7 @@ def legacy_fixture_write_archive(
     stored without zip compression: they are already deflated, so compressing
     them again only costs time.
 
-    ``thumbnail`` (a QImage, e.g. the current frame) is shrunk and stored as
+    ``thumbnail`` (an image, e.g. the current frame) is shrunk and stored as
     the first entry so the OS file-icon extensions can find it cheaply.
     """
     project_path = Path(project_path)
@@ -870,7 +957,7 @@ def legacy_fixture_write_archive(
                 (image for _name, image, _message in pending_pngs), used_keys
             )
             for image_name, image, message in pending_pngs:
-                data = encoded.get(int(image.cacheKey()))
+                data = encoded.get(image_key(image))
                 if data is None:
                     raise OperationError(message.format(name=image_name))
                 archive.writestr(

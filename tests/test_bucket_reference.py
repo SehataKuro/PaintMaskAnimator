@@ -7,12 +7,15 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from PySide6.QtCore import QPointF
+from PySide6.QtCore import QPointF, QRect
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtWidgets import QApplication
 
+from image_edit_helpers import edit_qimage
+
 from paintmaskanimator import bucket_fill
 from paintmaskanimator.canvas import PaintCanvas
+from paintmaskanimator.pma_image import PmaImage
 from paintmaskanimator.toolpanel import ToolPanel
 
 BLUE = QColor("#3355ff")
@@ -53,7 +56,8 @@ def canvas(qapp):
         if not getattr(layer, "is_paper", False)
     )
     canvas.ensure_editable_key()
-    draw_box(canvas.active_layer.image)
+    with edit_qimage(canvas.active_layer.image) as patch:
+        draw_box(patch)
     canvas.active_layer.has_content = True
     canvas.add_layer()
     canvas.ensure_editable_key()
@@ -76,7 +80,7 @@ def set_reference(host, value):
 
 
 def color_at(canvas, point):
-    return canvas.active_layer.image.pixelColor(*point)
+    return canvas.active_layer.image.to_qimage().pixelColor(*point)
 
 
 def test_layer_reference_does_not_see_the_line_layer(canvas):
@@ -88,9 +92,17 @@ def test_layer_reference_does_not_see_the_line_layer(canvas):
     assert color_at(paint_canvas, OUTSIDE) == BLUE
 
 
-def test_canvas_reference_stops_at_a_line_on_another_layer(canvas):
+@pytest.fixture(params=[False, True])
+def reference_canvas(canvas, request, monkeypatch):
+    if request.param:
+        original = PmaImage.to_qimage
+        monkeypatch.setattr(PmaImage, "to_qimage", lambda source: original(source).copy())
+    return canvas
+
+
+def test_canvas_reference_stops_at_a_line_on_another_layer(reference_canvas):
     """「キャンバス全体」：下のレイヤーの黒枠で区切られた内側だけを塗る。"""
-    host, paint_canvas = canvas
+    host, paint_canvas = reference_canvas
     set_reference(host, bucket_fill.REFERENCE_CANVAS)
     painted = int(paint_canvas.active_layer_index)
     paint_canvas.flood_fill(QPointF(*INSIDE))
@@ -99,27 +111,29 @@ def test_canvas_reference_stops_at_a_line_on_another_layer(canvas):
     # 判定に使っただけで、下のレイヤーには触れない。
     assert painted == paint_canvas.active_layer_index
     lower = paint_canvas.frames[paint_canvas.current_frame].layers[painted - 1]
-    assert lower.image.pixelColor(*INSIDE) == QColor("white")
+    assert lower.image.to_qimage().pixelColor(*INSIDE) == QColor("white")
 
 
-def test_initial_state_reference_ignores_a_later_line(canvas):
+def test_initial_state_reference_ignores_a_later_line(reference_canvas):
     """「色塗り前の初期状態」：あとで引いた仕切り線を見ずに塗る。"""
-    host, paint_canvas = canvas
+    host, paint_canvas = reference_canvas
     layer = paint_canvas.active_layer
-    draw_box(layer.image)
+    with edit_qimage(layer.image) as patch:
+        draw_box(patch)
     layer.has_content = True
     # 塗る前の絵を保持してから、枠の内側を上下に分ける線を引く。
-    layer.initial_image = QImage(layer.image)
-    for x in range(BOX[0], BOX[2] + 1):
-        layer.image.setPixelColor(x, 50, QColor("black"))
+    layer.initial_image = QImage(layer.image.to_qimage())
+    with edit_qimage(layer.image, QRect(BOX[0], 50, BOX[2] - BOX[0] + 1, 1)) as patch:
+        patch.fill(QColor("black"))
 
     set_reference(host, bucket_fill.REFERENCE_LAYER)
     paint_canvas.flood_fill(QPointF(45, 45))
     assert color_at(paint_canvas, (45, 55)) != BLUE, "仕切り線で止まる"
 
-    draw_box(layer.image)
-    for x in range(BOX[0], BOX[2] + 1):
-        layer.image.setPixelColor(x, 50, QColor("black"))
+    with edit_qimage(layer.image) as patch:
+        draw_box(patch)
+    with edit_qimage(layer.image, QRect(BOX[0], 50, BOX[2] - BOX[0] + 1, 1)) as patch:
+        patch.fill(QColor("black"))
     set_reference(host, bucket_fill.REFERENCE_INITIAL)
     paint_canvas.flood_fill(QPointF(45, 45))
     assert color_at(paint_canvas, (45, 45)) == BLUE

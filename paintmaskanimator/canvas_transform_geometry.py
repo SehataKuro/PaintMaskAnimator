@@ -408,10 +408,10 @@ class TransformGeometryMixin(CanvasMembers):
         if not self.transform_active or source is None:
             return None, QRectF()
         target_width = int(
-            target_width if target_width is not None else self.active_layer.image.width()
+            target_width if target_width is not None else self.active_layer.image.width
         )
         target_height = int(
-            target_height if target_height is not None else self.active_layer.image.height()
+            target_height if target_height is not None else self.active_layer.image.height
         )
         if quality is None:
             quality = bool(getattr(self, "transform_quality_active", False))

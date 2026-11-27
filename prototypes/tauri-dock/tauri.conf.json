@@ -1,0 +1,13 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "pma-proto-tauri-dock",
+  "version": "0.1.0",
+  "identifier": "dev.paintmaskanimator.proto.tauridock",
+  "build": { "frontendDist": "ui" },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [],
+    "security": { "csp": null }
+  },
+  "bundle": { "active": false, "icon": ["icons/icon.png"] }
+}

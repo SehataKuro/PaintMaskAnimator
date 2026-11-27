@@ -118,3 +118,49 @@ def test_tracking_ignores_a_neighbouring_region_mostly_outside():
     assert result.ok
     assert result.mask[30, 20] and result.mask[30, 40]
     assert not result.mask[30, 70], "隣の枠は塗らない"
+
+
+def direct_correlation(before, after, size):
+    """ゼロ埋めした配列の巡回相関を直接数える。"""
+    result = np.zeros(size, dtype=np.float64)
+    for y, x in np.argwhere(before):
+        for yy, xx in np.argwhere(after):
+            result[(yy - y) % size[0], (xx - x) % size[1]] += 1
+    return result
+
+
+def test_correlations_match_direct_counts():
+    rng = np.random.default_rng(44)
+    for _ in range(50):
+        shape = tuple(rng.integers(1, 9, size=2))
+        before = rng.random(shape) < .3
+        after = rng.random(shape) < .3
+        for reach in (None, 0, 1, 4):
+            actual, size = fill_tracking._correlate(before, after, reach)
+            assert actual.dtype == np.float64
+            np.testing.assert_array_equal(actual, direct_correlation(before, after, size))
+
+
+def test_color_correlation_matches_direct_counts():
+    rng = np.random.default_rng(45)
+    for _ in range(40):
+        before = rng.integers(0, 8, size=tuple(rng.integers(1, 7, size=2)))
+        after = rng.integers(0, 8, size=tuple(rng.integers(1, 7, size=2)))
+        keep = rng.random(before.shape) < .7
+        values, counts = np.unique(before[keep], return_counts=True)
+        actual, size = fill_tracking._color_correlation(before, after, keep, values, counts)
+        expected = np.zeros(size)
+        for value in values[np.argsort(-counts, kind="stable")[:fill_tracking._CONTEXT_COLORS]]:
+            expected += direct_correlation((before == value) & keep, after == value, size)
+        np.testing.assert_array_equal(actual, expected)
+
+
+def test_equal_peaks_use_stable_order():
+    before, region = ring(80, 120, 45, 30, 10)
+    left, _ = ring(80, 120, 25, 30, 10)
+    right, _ = ring(80, 120, 65, 30, 10)
+    assert fill_tracking.estimate_shifts(before, left | right, region, count=2) == [(0, 20), (0, -20)]
+    template = np.zeros((30, 50), bool)
+    template[10:13, 23:26] = True
+    target = fill_tracking.shift_mask(template, 0, -10) | fill_tracking.shift_mask(template, 0, 10)
+    assert fill_tracking._best_offset(template, target, 12) == (0, 10)

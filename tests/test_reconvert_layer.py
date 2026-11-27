@@ -51,7 +51,7 @@ def import_antialiased(window, tmp_path, monkeypatch, count=2):
 
 def layer_colours(window, frame=0):
     layer = window.canvas.frames[frame].layers[window.canvas.active_layer_index]
-    rgba = imaging.qimage_rgba_array(layer.image)
+    rgba = imaging.qimage_rgba_array(layer.image.to_qimage())
     visible = rgba[:, :, 3] > 0
     return {tuple(int(v) for v in rgb) for rgb in rgba[visible][:, :3]}
 
@@ -119,7 +119,7 @@ def test_import_sources_are_saved_and_reopened(window, tmp_path, monkeypatch):
     image = canvas.frames[0].layers[0].image
     project = tmp_path / "with_sources.pman"
     project_io.write_project_snapshot(
-        project, project_io.ProjectSnapshot({}, canvas._document, image.width(), image.height())
+        project, project_io.ProjectSnapshot({}, canvas._document, image.width, image.height)
     )
 
     reopened = project_io.load_project(project)

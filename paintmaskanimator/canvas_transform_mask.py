@@ -17,9 +17,11 @@ import numpy as np
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QImage, QPainter
 from .i18n import tr
+from .pma_image import as_qimage
 from .optional_deps import PILImage, PILImageFilter
 from .constants import TP_MASK_MAX_TRANSFORM_COLORS, TP_MASK_PROXY_SUBSAMPLES
 from ._canvas_members import CanvasMembers
+from .canvas_changes import publish_drawing_pixels
 from . import geometry, imaging, mask_transform
 from .utils import workspace_size
 from .logging_setup import get_logger
@@ -71,10 +73,10 @@ class TransformMaskMixin(CanvasMembers):
         if source is None or source.isNull() or not self.transform_points:
             return False
         target_width = int(
-            target_width if target_width is not None else self.active_layer.image.width()
+            target_width if target_width is not None else self.active_layer.image.width
         )
         target_height = int(
-            target_height if target_height is not None else self.active_layer.image.height()
+            target_height if target_height is not None else self.active_layer.image.height
         )
         bbox, _raw_selection = self._tp_transform_bbox(target_width, target_height)
         if bbox.isEmpty():
@@ -86,7 +88,9 @@ class TransformMaskMixin(CanvasMembers):
         )
 
     def init_mesh(self):
-        w,h=workspace_size(); self.mesh_original=self.active_layer.image.copy(); self.mesh_points=[]
+        w, h = workspace_size()
+        self.mesh_original = as_qimage(self.active_layer.image).copy()
+        self.mesh_points = []
         for gy in range(self.mesh_grid):
             for gx in range(self.mesh_grid): self.mesh_points.append(QPointF(gx*w/(self.mesh_grid-1),gy*h/(self.mesh_grid-1)))
 
@@ -111,7 +115,12 @@ class TransformMaskMixin(CanvasMembers):
             dist2=(xx-o.x())**2+(yy-o.y())**2; weight=np.exp(-dist2/(2*(radius/2.5)**2)); dx+=(n.x()-o.x())*weight;dy+=(n.y()-o.y())*weight;ws+=weight
         sx=np.clip(np.rint(xx-dx/np.maximum(ws,.001)),0,w-1).astype(np.int32); sy=np.clip(np.rint(yy-dy/np.maximum(ws,.001)),0,h-1).astype(np.int32)
         out=arr[sy,sx]; q=QImage(out.data,w,h,out.strides[0],QImage.Format.Format_RGBA8888).copy().convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
-        self.active_layer.image=q; self.active_layer.has_content=True; self.mesh_original=None; self.mesh_points=[]; self.cellChanged.emit(self.current_frame,self.active_layer_index); self.update()
+        changes = self._document.replace_drawing_image(
+            self.current_frame, self.active_layer_index, q, has_content=True,
+        )
+        self.mesh_original = None
+        self.mesh_points = []
+        publish_drawing_pixels(self, changes)
 
     def cancel_mesh(self):
         self.mesh_original=None; self.mesh_points=[]; self.mesh_active=-1; self.update()
@@ -373,8 +382,8 @@ class TransformMaskMixin(CanvasMembers):
             return None
         source = source_image.convertToFormat(QImage.Format.Format_RGBA8888)
         sw, sh = source.width(), source.height()
-        cw = int(target_width if target_width is not None else self.active_layer.image.width())
-        ch = int(target_height if target_height is not None else self.active_layer.image.height())
+        cw = int(target_width if target_width is not None else self.active_layer.image.width)
+        ch = int(target_height if target_height is not None else self.active_layer.image.height)
         if sw <= 0 or sh <= 0 or cw <= 0 or ch <= 0:
             return None
         sp = imaging.qimage_buffer(source)
@@ -812,12 +821,8 @@ class TransformMaskMixin(CanvasMembers):
         final = max(1, steps[1]) + 1
         if progress_callback is not None:
             progress_callback(final, final, tr("色マスクを再合成しています"))
-        output = mask_transform.labels_to_rgba(labels, label_colors)
-        # v0.7 rule, unchanged: exact #FFFFFF is the transform's transparency.
-        white = (output[:, :, 3] > 0) & np.all(
-            output[:, :, :3] == 255, axis=2
-        )
-        output[white, 3] = 0
+        # v0.7 の規則どおり、完全な白 (#FFFFFF) は透明にする。
+        output = mask_transform.labels_to_rgba_transparent_white(labels, label_colors)
 
         line_soft = []
         for line_color, label in self.transform_tp_line_masks:
@@ -847,12 +852,12 @@ class TransformMaskMixin(CanvasMembers):
         target_width = int(
             target_width
             if target_width is not None
-            else self.active_layer.image.width()
+            else self.active_layer.image.width
         )
         target_height = int(
             target_height
             if target_height is not None
-            else self.active_layer.image.height()
+            else self.active_layer.image.height
         )
         canvas_rect = QRectF(0, 0, target_width, target_height)
 

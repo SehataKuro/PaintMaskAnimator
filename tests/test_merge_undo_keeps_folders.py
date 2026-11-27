@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import pytest
 from PySide6.QtGui import QColor
+from image_edit_helpers import edit_qimage
 from PySide6.QtWidgets import QApplication
 
 BLACK, BLUE = (0, 0, 0), (32, 80, 192)
@@ -31,8 +32,9 @@ def refresh(window):
 
 def prepare(window):
     layer = window.canvas.frames[0].layers[0]
-    for x, rgb in ((5, BLACK), (9, BLUE)):
-        layer.image.setPixelColor(x, 5, QColor(*rgb))
+    with edit_qimage(layer.image) as image:
+        for x, rgb in ((5, BLACK), (9, BLUE)):
+            image.setPixelColor(x, 5, QColor(*rgb))
     layer.has_content = True
     refresh(window)
     panel = window.palette
@@ -48,18 +50,18 @@ def test_undoing_a_merge_puts_the_color_back_in_its_folder(window):
 
     window.used_color.apply_palette_merge(BLUE, {BLACK, BLUE})
     refresh(window)
-    assert layer.image.pixelColor(5, 5) == QColor(*BLUE)
+    assert layer.image.to_qimage().pixelColor(5, 5) == QColor(*BLUE)
     assert BLACK not in panel.source_buttons
 
     window.used_color.undo()
     refresh(window)
-    assert layer.image.pixelColor(5, 5) == QColor(*BLACK)
+    assert layer.image.to_qimage().pixelColor(5, 5) == QColor(*BLACK)
     assert panel.category_colors.get(BLACK) == folder
     assert BLACK in panel._category_members(folder)
 
     window.used_color.redo()
     refresh(window)
-    assert layer.image.pixelColor(5, 5) == QColor(*BLUE)
+    assert layer.image.to_qimage().pixelColor(5, 5) == QColor(*BLUE)
     assert BLACK not in panel.source_buttons
 
 

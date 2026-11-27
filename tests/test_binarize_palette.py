@@ -117,14 +117,15 @@ def prepare(window, frame_count=2):
     canvas._ensure_frame_count(frame_count)
     for index in range(frame_count):
         layer = canvas.frames[index].layers[0]
-        layer.image = QImage(layer.image.size(), QImage.Format.Format_ARGB32_Premultiplied)
-        layer.image.fill(QColor(0, 0, 0, 0))
+        image = QImage(layer.image.width, layer.image.height,
+                       QImage.Format.Format_ARGB32_Premultiplied)
+        image.fill(QColor(0, 0, 0, 0))
         from PySide6.QtGui import QPainter
 
-        painter = QPainter(layer.image)
+        painter = QPainter(image)
         painter.drawImage(0, 0, antialiased())
         painter.end()
-        create_drawing(layer, layer.image.copy(), number=index + 1)
+        create_drawing(layer, image, number=index + 1)
     canvas.current_frame = 0
     canvas.active_layer_index = 0
 
@@ -142,24 +143,24 @@ def settings(palette):
 
 def test_binarizing_a_layer_after_import_covers_every_frame_and_undoes_once(window):
     prepare(window)
-    before = [frame.layers[0].image.copy() for frame in window.canvas.frames]
+    before = [frame.layers[0].image.to_qimage() for frame in window.canvas.frames]
     wanted = [(255, 0, 0), (0, 0, 255)]
 
     assert window.binarize_layer(settings(wanted), all_frames=True)
 
     for frame in window.canvas.frames:
-        found = colours(frame.layers[0].image.copy(0, 0, 48, 32))
+        found = colours(frame.layers[0].image.read_qimage(0, 0, 48, 32))
         assert found == set(wanted)
     assert isinstance(window.canvas.undo_stack[-1], ScopedBatchUndo)
     window.canvas.undo()
     for frame, original in zip(window.canvas.frames, before):
-        assert frame.layers[0].image == original
+        assert frame.layers[0].image.to_qimage() == original
 
 
 def test_binarizing_only_the_current_frame(window):
     prepare(window)
-    second = window.canvas.frames[1].layers[0].image.copy()
+    second = window.canvas.frames[1].layers[0].image.to_qimage()
 
     assert window.binarize_layer(settings([(255, 0, 0), (0, 0, 255)]), all_frames=False)
 
-    assert window.canvas.frames[1].layers[0].image == second
+    assert window.canvas.frames[1].layers[0].image.to_qimage() == second

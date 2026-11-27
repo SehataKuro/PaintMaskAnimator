@@ -1,4 +1,7 @@
 """Drawing within an exposure edits its original cell without splitting it."""
+
+from image_edit_helpers import edit_qimage
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -42,13 +45,14 @@ def test_edit_held_cell_keeps_exposure_and_undo_target(column, blank):
     assert all(canvas.frames[i].layers[0].has_content for i in range(1, 4))
     assert all(canvas.frames[i].layers[0].sequence_number == expected_number for i in range(1, 4))
 
-    before = source.image.pixelColor(10, 10)
+    before = source.image.to_qimage().pixelColor(10, 10)
     canvas.push_layer_undo()
-    source.image.setPixelColor(10, 10, QColor("red"))
+    with edit_qimage(source.image) as edited:
+        edited.setPixelColor(10, 10, QColor("red"))
     canvas.undo()
-    assert canvas.frames[0].layers[0].image.pixelColor(10, 10) == before
+    assert canvas.frames[0].layers[0].image.to_qimage().pixelColor(10, 10) == before
     canvas.redo()
-    assert canvas.frames[0].layers[0].image.pixelColor(10, 10) == QColor("red")
+    assert canvas.frames[0].layers[0].image.to_qimage().pixelColor(10, 10) == QColor("red")
     assert length(canvas, 0) == 4
     assert canvas.frames[4].layers[0] is following
     canvas.close()

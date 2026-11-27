@@ -18,7 +18,7 @@ resampling:
    whole.  For a two-region boundary that is exactly a 50% area threshold, and
    the result is strictly binary: no intermediate colors, no partial alpha.
 
-Everything here is pure NumPy: no Qt, no Pillow.  The functions operate on a
+The Rust and NumPy paths use neither Qt nor Pillow.  The functions operate on a
 *label image* (``uint16``, 0 = outside/background, 1..N = color ids) instead of
 one grayscale mask per color, which also makes the cost independent of the
 palette size.
@@ -29,7 +29,10 @@ import math
 
 import numpy as np
 
-from . import native
+try:
+    from . import native
+except ImportError:
+    native = None
 
 #: Subsample probes per axis.  4 -> 16 probes per output pixel, which resolves
 #: coverage in 1/16 steps: enough to place a 50% boundary within a pixel.
@@ -38,6 +41,9 @@ DEFAULT_SUBSAMPLES = 4
 #: Output rows processed per band.  Bounds peak memory: a band allocates
 #: ``band_rows * width * subsamples^2`` entries rather than the whole image.
 DEFAULT_BAND_ROWS = 64
+
+# 小さい画像では境界をまたぐ固定費が勝る場合がある。
+_SPLAT_NUMPY_MAX_PIXELS = 4096
 
 
 def homography_matrix(source_points, target_points):
@@ -478,26 +484,31 @@ def render_labels_numpy(
     if progress is not None:
         progress(band_count, band_count)
 
-    _protect_lines(
+    _protect_lines_numpy(
         result, coverage, label_image, mapper, protect_labels,
         out_width, out_height,
     )
     return result, coverage
 
 
-def _protect_lines(
+def _protect_lines_numpy(
     result, coverage, label_image, mapper, protect_labels, out_width, out_height
 ):
-    """Union the forward-mapped source pixels of ``protect_labels`` into ``result``.
-
-    Only a shrink can thin a line below one pixel.  At 1:1 or larger the
-    coverage result is already complete, and splatting there would only pad the
-    edge of lines that are perfectly fine.
-    """
+    """縮小時に、前向き写像で命中した主線画素を NumPy で補う。"""
     shrinking = protect_labels and _area_scale(
         mapper, label_image.shape[1], label_image.shape[0]
     ) < 0.999
-    for label in protect_labels if shrinking else ():
+    if shrinking:
+        _splat_protected_numpy(
+            result, coverage, label_image, mapper, protect_labels, out_width, out_height
+        )
+
+
+def _splat_protected_numpy(
+    result, coverage, label_image, mapper, protect_labels, out_width, out_height
+):
+    """主線を指定順に前向きに写し、命中箇所の番号と被覆を書き込む。"""
+    for label in protect_labels:
         label = int(label)
         hit = _splat_label(label_image, mapper, label, out_width, out_height)
         if hit is None:
@@ -508,6 +519,58 @@ def _protect_lines(
             # Report full coverage there so the caller's line-width threshold
             # cannot drop the pixels that keep the line connected.
             buffer[hit] = 255
+
+
+def _protect_lines(
+    result, coverage, label_image, mapper, protect_labels, out_width, out_height
+):
+    """縮小時に主線を補い、命中が重なる場合は後の番号を優先する。"""
+    if not protect_labels or not (
+        _area_scale(mapper, label_image.shape[1], label_image.shape[0]) < 0.999
+    ):
+        return
+    labels = [int(label) for label in protect_labels]
+    matrix = grid = None
+    if (
+        native is not None
+        and native.available()
+        and label_image.size > _SPLAT_NUMPY_MAX_PIXELS
+        and label_image.dtype == np.uint16
+        and all(0 <= label <= 65535 for label in labels)
+        and type(mapper) in (QuadMapper, MeshMapper)
+        and "forward" not in vars(mapper)
+    ):
+        if type(mapper) is QuadMapper:
+            try:
+                matrix = np.linalg.inv(mapper.matrix)
+            except np.linalg.LinAlgError:
+                return
+        elif (
+            type(mapper) is MeshMapper
+            and (mapper.source_height, mapper.source_width) == label_image.shape
+            and mapper.dense_cols >= 2
+            and mapper.dense_rows >= 2
+            and mapper.points.shape == (mapper.dense_rows * mapper.dense_cols, 2)
+        ):
+            grid = (mapper.dense_cols, mapper.dense_rows, mapper.points)
+
+    if matrix is None and grid is None:
+        _splat_protected_numpy(
+            result, coverage, label_image, mapper, labels, out_width, out_height
+        )
+        return
+
+    # matrix か grid があるのは、上で native を使えると確かめたときだけ。
+    assert native is not None
+    hits = native.splat_mask_labels(
+        label_image, out_width, out_height, labels, matrix=matrix, grid=grid
+    )
+    flat_result = result.reshape(-1)
+    for label, indices in zip(labels, hits):
+        flat_result[indices] = label
+        buffer = coverage.get(label)
+        if buffer is not None:
+            buffer.reshape(-1)[indices] = 255
 
 
 def render_labels(
@@ -531,6 +594,12 @@ def render_labels(
     what the coordinates alone would take.  :func:`render_labels_numpy` stays as
     the reference the two are checked against.
     """
+    if native is None or not native.available():
+        return render_labels_numpy(
+            label_image, mapper, out_width, out_height, subsamples=subsamples,
+            coverage_labels=coverage_labels, protect_labels=protect_labels,
+            band_rows=band_rows, progress=progress,
+        )
     label_image = np.ascontiguousarray(label_image, dtype=np.uint16)
     out_width = max(1, int(out_width))
     out_height = max(1, int(out_height))
@@ -559,14 +628,41 @@ def render_labels(
     return result, coverage
 
 
-def labels_to_rgba(labels, colors):
-    """Expand a label image into binary RGBA using ``colors`` indexed by label.
-
-    ``colors`` is an ``(N, 4) uint8`` array whose row 0 is the background.
-    Output alpha is only ever 0 or 255.
-    """
+def labels_to_rgba_numpy(labels, colors):
+    """ラベルをパレットの RGBA へ展開する。パレットの行 0 は背景。"""
     palette = np.asarray(colors, dtype=np.uint8)
     labels = np.asarray(labels)
     clipped = np.clip(labels, 0, len(palette) - 1)
     rgba = palette[clipped]
     return np.ascontiguousarray(rgba)
+
+
+def _labels_to_rgba(labels, colors, transparent_white):
+    """対応する形と型なら Rust で展開し、それ以外は NumPy で展開する。"""
+    palette = np.asarray(colors, dtype=np.uint8)
+    labels = np.asarray(labels)
+    if (
+        native is not None
+        and native.available()
+        and labels.dtype == np.uint16
+        and labels.ndim == 2
+        and palette.ndim == 2
+        and palette.shape[1] == 4
+        and 0 < len(palette) <= 65536
+    ):
+        return native.mask_labels_to_rgba(labels, palette, transparent_white)
+    rgba = labels_to_rgba_numpy(labels, palette)
+    if transparent_white:
+        white = (rgba[:, :, 3] > 0) & np.all(rgba[:, :, :3] == 255, axis=2)
+        rgba[white, 3] = 0
+    return rgba
+
+
+def labels_to_rgba(labels, colors):
+    """ラベルをパレットの RGBA へ展開する。行 0 と全行の alpha を保持する。"""
+    return _labels_to_rgba(labels, colors, False)
+
+
+def labels_to_rgba_transparent_white(labels, colors):
+    """ラベルを RGBA へ展開し、RGB が白の画素の alpha を 0 にする。"""
+    return _labels_to_rgba(labels, colors, True)

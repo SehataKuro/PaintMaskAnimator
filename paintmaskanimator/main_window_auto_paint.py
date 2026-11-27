@@ -23,7 +23,7 @@ from .auto_paint_dialog import AutoPaintDialog
 from . import auto_paint, bucket_fill, fill_tracking, time_display
 from .frame_scope import FrameScope, resolve_cells
 from .i18n import tr
-from .imaging import qimage_rgba_array
+from .pma_image import as_qimage, image_rgba
 from .progress import close_counter, create_counter, update_counter
 
 if TYPE_CHECKING:
@@ -74,7 +74,7 @@ class AutoPaintController:
         layer_name = canvas.frames[cells[0][0]].layers[layer_index].name
         dialog = AutoPaintDialog(
             self.window, layer_name, cells, labels, current,
-            images=[canvas.frames[frame].layers[layer].image for frame, layer in cells],
+            images=[as_qimage(canvas.frames[frame].layers[layer].image) for frame, layer in cells],
             numbers=[canvas.frames[frame].layers[layer].sequence_number for frame, layer in cells],
             fps=fps,
         )
@@ -96,11 +96,11 @@ class AutoPaintController:
         references.update(reference_indices or [])
         for index, (frame, layer) in enumerate(cells):
             cell = canvas.frames[frame].layers[layer]
-            current = np.ascontiguousarray(qimage_rgba_array(cell.image))
+            current = np.ascontiguousarray(image_rgba(cell.image))
             initial = None
             if cell.initial_image is not None:
                 initial = auto_paint.line_only(
-                    np.ascontiguousarray(qimage_rgba_array(cell.initial_image))
+                    np.ascontiguousarray(image_rgba(cell.initial_image))
                 )
             # 見本は人が塗った今の絵。ほかは色塗り前の初期状態があれば、その線だけで
             # 部分を分け、今の絵で手で塗ってある部分はその色を答え（前後のセルの手本）
@@ -137,7 +137,8 @@ class AutoPaintController:
             paint = targets.get((context.frame, context.layer_index))
             if paint is None:
                 return None
-            image, view = canvas._layer_fill_pixels(context.layer.image)
+            # 既存の変換で書き込み用の画像とビューを作る。
+            image, view = canvas._layer_fill_pixels(as_qimage(context.layer.image))
             for rgb, (x0, y0, x1, y1), mask in paint.paints:
                 patch = view[y0:y1, x0:x1]
                 patch[mask, :3] = rgb

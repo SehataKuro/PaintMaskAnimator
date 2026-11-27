@@ -7,6 +7,7 @@ from paintmaskanimator.document import project_v1_state
 from paintmaskanimator.legacy_v1 import raw_v1_slot
 from paintmaskanimator.main_window import MainWindow
 from paintmaskanimator.models import Cell, Frame
+from paintmaskanimator.pma_image import as_qimage
 
 
 def image(color):
@@ -33,9 +34,9 @@ def test_resize_dense_holds_hidden_payload_and_unplaced_bank(qtbot, monkeypatch,
 
     def observe():
         projected, archive = project_v1_state(canvas.frames)
-        return ([(QImage(f.layers[0].image), QImage(f.layers[0].initial_image)
+        return ([(QImage(f.layers[0].image.to_qimage()), QImage(f.layers[0].initial_image.to_qimage())
                   if f.layers[0].initial_image is not None else None) for f in projected],
-                {n: (QImage(c.image), QImage(c.initial_image), c.cell_name)
+                {n: (QImage(c.image.to_qimage()), QImage(c.initial_image.to_qimage()), c.cell_name)
                  for n, c in canvas._document.tracks[0].cells.items()},
                 sorted(archive))
 
@@ -43,10 +44,10 @@ def test_resize_dense_holds_hidden_payload_and_unplaced_bank(qtbot, monkeypatch,
     canvas.push_doc_undo()
     window.replace_doc(6, 7, preserve=True)
     projected, archive = project_v1_state(canvas.frames)
-    assert [f.layers[0].image.size().toTuple() for f in projected] == [(6, 7)] * 3
-    assert projected[1].layers[0].initial_image == image("green")
-    assert archive[0, 8].image == image("blue")
-    assert archive[0, 9].image == image("magenta")
+    assert [f.layers[0].image.to_qimage().size().toTuple() for f in projected] == [(6, 7)] * 3
+    assert as_qimage(projected[1].layers[0].initial_image) == image("green")
+    assert as_qimage(archive[0, 8].image) == image("blue")
+    assert as_qimage(archive[0, 9].image) == image("magenta")
     assert canvas.frames[0].layers[0]._cell is canvas.frames[2].layers[0]._cell
     after = observe()
     canvas.undo()

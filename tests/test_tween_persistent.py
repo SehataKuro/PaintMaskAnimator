@@ -1,6 +1,9 @@
 """あとから直せるトゥイーン：確定・編集し直し・キャンセル・解除・保存。"""
 from __future__ import annotations
 
+from image_edit_helpers import edit_qimage
+
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -19,6 +22,7 @@ from paintmaskanimator.project_io import (  # noqa: E402
     ProjectSnapshot, load_project, write_project_snapshot,
 )
 from paintmaskanimator.timeline import TimelineCellDelegate  # noqa: E402
+from paintmaskanimator.pma_image import as_qimage
 
 LENGTH = 6
 
@@ -42,10 +46,11 @@ def window(qapp, monkeypatch):
     key.has_content = True
     key.sequence_number = 1
     hold(canvas, 0, LENGTH)
-    painter = QPainter(key.image)
-    painter.setPen(QPen(QColor("black"), 8))
-    painter.drawEllipse(300, 200, 200, 200)
-    painter.end()
+    with edit_qimage(key.image) as edited:
+        painter = QPainter(edited)
+        painter.setPen(QPen(QColor("black"), 8))
+        painter.drawEllipse(300, 200, 200, 200)
+        painter.end()
     # 後ろにもう 1 枚（番号 2）。中割りの番号はこの後ろに足される。
     other = canvas.frames[8].layers[0]
     other.has_content = True
@@ -109,7 +114,7 @@ def test_commit_keeps_the_tween_as_one_span(window):
 
 def test_edit_starts_from_the_saved_shape_and_cancel_restores(window):
     _start_and_commit(window)
-    before_images = [layer.image.copy() for layer in _layers(window)]
+    before_images = [layer.image.to_qimage().copy() for layer in _layers(window)]
     spec = dict(_layers(window)[0].tween)
 
     window.tween.edit(_row(window), 0)
@@ -130,21 +135,21 @@ def test_edit_starts_from_the_saved_shape_and_cancel_restores(window):
     assert tween_groups.group_length(window.canvas.frames, 0, 0) == LENGTH
     assert [layer.sequence_number for layer in layers] == [1, 3, 4, 5, 6, 7]
     assert all(
-        layer.image == image for layer, image in zip(layers, before_images)
+        as_qimage(layer.image) == image for layer, image in zip(layers, before_images)
     )
 
 
 def test_edit_and_recommit_keeps_id_and_numbers(window):
     _start_and_commit(window)
     first_id = _layers(window)[0].tween["id"]
-    last_before = _layers(window)[-1].image.copy()
+    last_before = _layers(window)[-1].image.to_qimage().copy()
 
     window.tween.edit(_row(window), 0)
     _commit(window, dx=40.0, dy=-20.0)
     layers = _layers(window)
     assert layers[0].tween["id"] == first_id
     assert [layer.sequence_number for layer in layers] == [1, 3, 4, 5, 6, 7]
-    assert layers[-1].image != last_before
+    assert as_qimage(layers[-1].image) != last_before
     # Undo で直す前の確定済みトゥイーンへ戻る。
     window.canvas.undo()
     assert tween_groups.group_length(window.canvas.frames, 0, 0) == LENGTH
@@ -196,6 +201,34 @@ def test_invalid_spec_is_ignored():
     assert spec is not None and spec["mode"] == "free"
 
 
+def test_release_signal_order_and_history(window, monkeypatch):
+    monkeypatch.setattr(window.project, "confirm_save_before_close", lambda: True)
+    _start_and_commit(window)
+    canvas = window.canvas
+    canvas.changed.disconnect()
+    canvas.selectionChanged.disconnect()
+    canvas.cellChanged.disconnect()
+    events = []
+    canvas.changed.connect(lambda: events.append("changed"))
+    canvas.selectionChanged.connect(lambda: events.append("selection"))
+    canvas.cellChanged.connect(lambda *_: events.append("cell"))
+    monkeypatch.setattr(canvas, "update", lambda: events.append("update"))
+    numbers = [slot.sequence_number for slot in _layers(window)]
+    tween_id = _layers(window)[0].tween["id"]
+
+    window.tween.release(_row(window), 0)
+
+    assert events == ["changed", "update"]
+    assert [slot.sequence_number for slot in _layers(window)] == numbers
+    assert tween_groups.group_length(canvas.frames, 0, 0) is None
+    canvas.undo()
+    assert _layers(window)[0].tween["id"] == tween_id
+    assert tween_groups.group_length(canvas.frames, 0, 0) == LENGTH
+    canvas.redo()
+    assert tween_groups.group_length(canvas.frames, 0, 0) is None
+    assert [slot.sequence_number for slot in _layers(window)] == numbers
+
+
 # -- #61：モード切替なしに、変形からトゥイーンを始める --------------------------
 def _no_question(monkeypatch):
     def fail(*_args, **_kwargs):
@@ -232,10 +265,11 @@ def test_a_single_frame_key_keeps_a_plain_transform(window, monkeypatch):
 
     clear_range(window.canvas, 9, 10)  # 番号2を1コマだけにする
     other = window.canvas.frames[8].layers[0]
-    painter = QPainter(other.image)
-    painter.setPen(QPen(QColor("black"), 8))
-    painter.drawLine(100, 100, 300, 100)
-    painter.end()
+    with edit_qimage(other.image) as edited:
+        painter = QPainter(edited)
+        painter.setPen(QPen(QColor("black"), 8))
+        painter.drawLine(100, 100, 300, 100)
+        painter.end()
     window.canvas._cell_structure_dirty = True
     window.canvas.current_frame = 8
     assert length(window.canvas, 8) == 1

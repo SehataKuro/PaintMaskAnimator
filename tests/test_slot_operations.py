@@ -9,6 +9,7 @@ from paintmaskanimator.document import (
 )
 from paintmaskanimator.models import Frame, Layer
 from paintmaskanimator.utils import blank_image
+from paintmaskanimator.pma_image import as_qimage
 
 
 def image(color):
@@ -41,8 +42,8 @@ def compare(left, right):
         for attr in ('has_content', 'is_blank_key', 'blank_start', 'sequence_number',
                      'sequence_only', 'cell_name', 'tween', 'tween_member'):
             assert getattr(a, attr) == getattr(b, attr)
-        assert a.image == b.image
-        assert a.initial_image == b.initial_image
+        assert as_qimage(a.image) == as_qimage(b.image)
+        assert as_qimage(a.initial_image) == as_qimage(b.initial_image)
     for i in range(len(ls)):
         for j in range(len(ls)):
             assert (ls[i].cell_id == ls[j].cell_id) == (rs[i].cell_id == rs[j].cell_id)
@@ -150,9 +151,9 @@ def test_sequence_image_mapping():
     new, old = pair()
     def snapshots(frames):
         return {layer.sequence_number: (
-            layer.image.copy(), bool(layer.has_content), bool(layer.is_blank_key),
+            layer.image.to_qimage().copy(), bool(layer.has_content), bool(layer.is_blank_key),
             layer.cell_name,
-            QImage(layer.initial_image) if layer.initial_image is not None else None,
+            QImage(layer.initial_image.to_qimage()) if layer.initial_image is not None else None,
         ) for layer in (frames[0].layers[0], frames[2].layers[0])}
     mapping = {5: 2, 2: 5}
     apply_numbered_images(new[0], 0, mapping, snapshots(new[0]))
@@ -200,7 +201,8 @@ def test_v1_projection():
     frames, archive = graph()
     projected_frames, projected_archive = project_v1_state(frames, archive)
     from paintmaskanimator.legacy_v1 import snapshot_frames, snapshot_layer
-    assert snapshot_frames(projected_frames) == snapshot_frames(frames)
-    assert {key: snapshot_layer(slot) for key, slot in projected_archive.items()} == {
-        key: snapshot_layer(slot) for key, slot in archive.items()}
+    from dense_fixtures import qt_legacy_payload, qt_legacy_rows
+    assert qt_legacy_rows(snapshot_frames(projected_frames)) == qt_legacy_rows(snapshot_frames(frames))
+    assert {key: qt_legacy_payload(snapshot_layer(slot)) for key, slot in projected_archive.items()} == {
+        key: qt_legacy_payload(snapshot_layer(slot)) for key, slot in archive.items()}
     assert project_v1_state(frames)[1] == {}

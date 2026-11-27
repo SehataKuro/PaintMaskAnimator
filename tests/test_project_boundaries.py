@@ -1,4 +1,7 @@
 """Save ownership and failure-before-publication contracts for Phase 5-6 B."""
+
+from image_edit_helpers import edit_qimage
+
 import json
 from dataclasses import asdict
 import os
@@ -72,10 +75,12 @@ def test_snapshot_v1_bytes_and_live_independence(tmp_path, monkeypatch, case):
         track.visible = not track.visible
         track.color_filter_rgb = [3, 4, 5]
         for cell in track.cells.values():
-            cell.image.fill(QColor("blue"))
+            with edit_qimage(cell.image) as edited:
+                edited.fill(QColor("blue"))
             if cell.initial_image is not None:
-                cell.initial_image.fill(QColor("green"))
-            cell.initial_image = QImage(cell.image)
+                with edit_qimage(cell.initial_image) as edited:
+                    edited.fill(QColor("green"))
+            cell.initial_image = QImage(cell.image.to_qimage())
             cell.cell_name = "after"
         for hint in track.legacy_archive_hints.values():
             if hint.tween is not None:
@@ -85,9 +90,11 @@ def test_snapshot_v1_bytes_and_live_independence(tmp_path, monkeypatch, case):
     for frame in doc.frames:
         frame.duration += 1
         for slot in frame.layers:
-            slot.image.fill(QColor("red"))
+            with edit_qimage(slot.image) as edited:
+                edited.fill(QColor("red"))
             if slot.initial_image is not None:
-                slot.initial_image.fill(QColor("yellow"))
+                with edit_qimage(slot.initial_image) as edited:
+                    edited.fill(QColor("yellow"))
             slot.cell_name = "local after"
             slot.set_pending(not slot.sequence_only)
             slot.sequence_number = 999

@@ -45,17 +45,18 @@ def paint_two_stairs(window, frame_count=1):
     canvas._ensure_frame_count(frame_count)
     for index in range(frame_count):
         layer = canvas.frames[index].layers[0]
-        layer.image.fill(QColor(0, 0, 0, 0))
+        image = layer.image.to_qimage()
+        image.fill(QColor(0, 0, 0, 0))
         for oy, ox in (LEFT, RIGHT):
             for y, x in zip(*np.nonzero(STAIRS)):
-                layer.image.setPixelColor(int(x) + ox, int(y) + oy, QColor("black"))
-        create_drawing(layer, layer.image.copy(), number=index + 1)
+                image.setPixelColor(int(x) + ox, int(y) + oy, QColor("black"))
+        create_drawing(layer, image, number=index + 1)
     canvas.current_frame = 0
     canvas.active_layer_index = 0
 
 
 def line_pixels(window, frame=0, at=LEFT):
-    rgba = imaging.qimage_rgba_array(window.canvas.frames[frame].layers[0].image)
+    rgba = imaging.qimage_rgba_array(window.canvas.frames[frame].layers[0].image.to_qimage())
     oy, ox = at
     part = rgba[oy:oy + STAIRS.shape[0], ox:ox + STAIRS.shape[1]]
     return int(((part[:, :, 3] > 0) & (part[:, :, :3] == 0).all(axis=2)).sum())

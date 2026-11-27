@@ -1,4 +1,7 @@
 """使用色フォルダーを使った影素材の書き出し（Issue #21）。"""
+
+from image_edit_helpers import edit_qimage
+
 import os
 
 import numpy as np
@@ -81,14 +84,16 @@ def paint_window_cel(window):
     layer = window.canvas.frames[0].layers[0]
     for y in range(10, 20):
         for x in range(10, 20):
-            layer.image.setPixelColor(
-                OUTSIDE_MARGIN + x, OUTSIDE_MARGIN + y, QColor(*NORMAL_RGB)
-            )
+            with edit_qimage(layer.image) as edited:
+                edited.setPixelColor(
+                    OUTSIDE_MARGIN + x, OUTSIDE_MARGIN + y, QColor(*NORMAL_RGB)
+                )
     for y in range(15, 20):
         for x in range(15, 20):
-            layer.image.setPixelColor(
-                OUTSIDE_MARGIN + x, OUTSIDE_MARGIN + y, QColor(*SHADOW_RGB)
-            )
+            with edit_qimage(layer.image) as edited:
+                edited.setPixelColor(
+                    OUTSIDE_MARGIN + x, OUTSIDE_MARGIN + y, QColor(*SHADOW_RGB)
+                )
     layer.has_content = True
     layer._track.cells[1] = layer._cell
     layer.sequence_number = 1

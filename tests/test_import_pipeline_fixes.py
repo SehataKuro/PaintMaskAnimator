@@ -86,7 +86,7 @@ def test_jpeg_now_goes_through_background_removal(window, tmp_path):
 
     assert ok, message
     layer = window.canvas.frames[window.canvas.current_frame].layers[0]
-    pixels = imaging.qimage_rgba_array(layer.image)
+    pixels = imaging.qimage_rgba_array(layer.image.to_qimage())
     # 画像は中央へ置かれるので、キャンバスの隅は必ず背景。
     assert pixels[0, 0, 3] == 0
 

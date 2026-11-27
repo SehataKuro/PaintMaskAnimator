@@ -23,6 +23,7 @@ class OnionInteractionMixin(CanvasMembers):
 
     def begin_onion_shift_interaction(self, direction, axis="x"):
         """前／後オニオンのXYシフトをキャンバス上で調整する。"""
+        self._commit_brush_stroke()
         axis = str(axis).lower()
         if axis not in ("x", "y", "xy"):
             axis = "xy"
@@ -49,6 +50,7 @@ class OnionInteractionMixin(CanvasMembers):
 
     def begin_onion_canvas_position_interaction(self):
         """キャンバスの移動と回転を行い、前後の相対値を補正する。"""
+        self._commit_brush_stroke()
         self._onion_interaction_mode = "canvas"
         self._onion_interaction_direction = 0
         self._onion_interaction_axis = None
@@ -348,9 +350,10 @@ class OnionInteractionMixin(CanvasMembers):
             return None
         layer = self.frames[key].layers[layer_index]
         image = layer.image
-        if not layer.visible or not (0 <= x < image.width() and 0 <= y < image.height()):
+        if not layer.visible or not (0 <= x < image.width and 0 <= y < image.height):
             return None
-        color = image.pixelColor(x, y)
+        # QImage（乗算済み）で読んだときと同じ値にする。
+        color = image.read_qimage(x, y, 1, 1).pixelColor(0, 0)
         if color.alpha() == 0:
             return None
         return (color.red(), color.green(), color.blue(), color.alpha())

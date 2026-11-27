@@ -26,7 +26,7 @@ def repeated(c, number=3):
 
 
 def colors(c, expected):
-    assert all(c.frames[fi].layers[0].image.pixelColor(5, 5) == QColor(expected)
+    assert all(c.frames[fi].layers[0].image.to_qimage().pixelColor(5, 5) == QColor(expected)
                for fi in (0, 2, 3))
 
 
@@ -39,12 +39,23 @@ def test_scoped_one_image_and_metadata(window):
     for fi in (0, 2, 3):
         c.frames[fi].layers[0].has_content = fi == 0
     signals = []
-    c.cellChanged.connect(lambda *args: signals.append(args))
+    content_at_notification = []
+
+    def record(*args):
+        signals.append(args)
+        content_at_notification.append(
+            tuple(c.frames[fi].layers[0].has_content for fi in (0, 2, 3))
+        )
+
+    c.cellChanged.connect(record)
     c.current_frame, c.active_layer_index = 1, 1
     c.undo()
     colors(c, "red")
     assert all(c.frames[fi].layers[0].has_content for fi in (0, 2, 3))
     assert signals == [(0, 0), (2, 0), (3, 0)]
+    assert content_at_notification == [
+        (True, False, False), (True, True, False), (True, True, True),
+    ]
     assert c.current_frame == 1 and c.active_layer_index == 0
 
 
@@ -112,11 +123,11 @@ def test_move_and_redo_resolve_again(window):
     c.frames.insert(0, make_frame(["A", "B"]))
     c.undo()
     assert c.redo_stack[-1].cells[0][0] == 1
-    assert all(c.frames[fi].layers[0].image.pixelColor(5, 5) == QColor("red")
+    assert all(c.frames[fi].layers[0].image.to_qimage().pixelColor(5, 5) == QColor("red")
                for fi in (1, 3, 4))
     c.frames.insert(0, make_frame(["A", "B"]))
     c.redo()
-    assert all(c.frames[fi].layers[0].image.pixelColor(5, 5) == QColor("blue")
+    assert all(c.frames[fi].layers[0].image.to_qimage().pixelColor(5, 5) == QColor("blue")
                for fi in (2, 4, 5))
 
 
@@ -134,11 +145,11 @@ def test_archive_and_redo(window):
     c.cellChanged.connect(lambda *args: signals.append(args))
     c.undo()
     assert c.redo_stack[-1].cells[0][0] == 0
-    assert cell.image.pixelColor(5, 5) == QColor("red")
+    assert cell.image.to_qimage().pixelColor(5, 5) == QColor("red")
     assert c._document.tracks[0].legacy_archive_hints[3].has_content
     assert c.current_frame == 1 and not signals
     c.redo()
-    assert cell.image.pixelColor(5, 5) == QColor("blue")
+    assert cell.image.to_qimage().pixelColor(5, 5) == QColor("blue")
 
 
 def test_missing_discarded(window):

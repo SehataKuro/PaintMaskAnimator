@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING
 import numpy as np
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtWidgets import QDialog, QFileDialog, QMessageBox
+from .display_image_cache import model_image_key
+from .pma_image import PmaImage, as_qimage
 from . import imaging, native, replacement_sets
 from .hsv_adjust_dialog import HsvAdjustDialog
 from .i18n import tr
@@ -22,6 +24,7 @@ from .undo_entries import PaletteStateUndo, attach_palette_state
 
 if TYPE_CHECKING:
     from .main_window import MainWindow
+    from .models import Layer
 
 log = get_logger(__name__)
 
@@ -47,6 +50,7 @@ class UsedColorController:
         self.refresh(request=self.window._used_color_request)
 
     def undo(self):
+        self.window.canvas._commit_brush_stroke()
         if not self.window.canvas.undo_stack:
             return
         self.window.canvas.undo()
@@ -54,6 +58,7 @@ class UsedColorController:
         self.refresh_history_panel()
 
     def redo(self):
+        self.window.canvas._commit_brush_stroke()
         if not self.window.canvas.redo_stack:
             return
         self.window.canvas.redo()
@@ -71,6 +76,7 @@ class UsedColorController:
             steps = int(delta)
         except (TypeError, ValueError):
             return
+        self.window.canvas._commit_brush_stroke()
         if steps < 0:
             for _ in range(-steps):
                 if not self.window.canvas.undo_stack:
@@ -115,11 +121,7 @@ class UsedColorController:
             panel.refresh()
 
     def _cache_key(self, image):
-        try:
-            return (int(image.cacheKey()), image.width(), image.height())
-        except (AttributeError, RuntimeError, TypeError) as exc:
-            log.debug("cacheKey() unavailable, using id() fallback: %s", exc)
-            return (id(image), image.width(), image.height())
+        return model_image_key(image)
 
     def _layer_signature(self, layer_index):
         signature = []
@@ -150,7 +152,7 @@ class UsedColorController:
         # Palette filtering needs the same full-image RGB index. Build it while
         # the used-color scan is already running so the first visibility toggle
         # can reuse it instead of scanning every pixel again.
-        _rgba, packed, opaque = self.window.canvas._color_index_for_image(image)
+        packed, opaque = self.window.canvas._color_index_for_image(image)
         if packed is None or opaque is None:
             return []
         visible_pixels = packed[opaque]
@@ -359,10 +361,10 @@ class UsedColorController:
 
         def replace_colors(context):
             """1レイヤー分の色置換。純粋な op として一括処理ランナーへ渡す。"""
-            layer = context.layer
+            layer: Layer = context.layer
             old_cache_key = self._cache_key(layer.image)
             old_cached_colors = self.window._used_color_cache.get(old_cache_key)
-            rgba = layer.image.convertToFormat(
+            rgba = as_qimage(layer.image).convertToFormat(
                 QImage.Format.Format_RGBA8888
             )
             width, height = rgba.width(), rgba.height()
@@ -399,9 +401,7 @@ class UsedColorController:
                 erased = matches & destination_is_eraser[safe_indices]
                 if erased.any():
                     pixels[:, :, 3][erased] = 0
-            produced = rgba.convertToFormat(
-                QImage.Format.Format_ARGB32_Premultiplied
-            )
+            produced = PmaImage.from_qimage(rgba)
             cache_removals.add(old_cache_key)
             if old_cached_colors is not None:
                 old_colors, exceeded = old_cached_colors

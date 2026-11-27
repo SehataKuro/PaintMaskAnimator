@@ -169,10 +169,11 @@ def _paint_stairs(window, frame_count=2):
     canvas._ensure_frame_count(frame_count)
     for index in range(frame_count):
         layer = canvas.frames[index].layers[0]
-        layer.image.fill(QColor(0, 0, 0, 0))
+        image = layer.image.to_qimage()
+        image.fill(QColor(0, 0, 0, 0))
         for y, x in zip(*np.nonzero(STAIRS)):
-            layer.image.setPixelColor(int(x) + 10, int(y) + 10, QColor("black"))
-        create_drawing(layer, layer.image.copy(), number=index + 1)
+            image.setPixelColor(int(x) + 10, int(y) + 10, QColor("black"))
+        create_drawing(layer, image, number=index + 1)
     canvas.current_frame = 0
     canvas.active_layer_index = 0
 
@@ -186,7 +187,7 @@ def test_preview_marks_the_pixels_it_will_add(window):
     from paintmaskanimator import imaging
 
     _paint_stairs(window, 1)
-    rgba = imaging.qimage_rgba_array(window.canvas.active_layer.image)
+    rgba = imaging.qimage_rgba_array(window.canvas.active_layer.image.to_qimage())
     preview, added, removed = window.line_ops.line_tidy_preview(rgba, [(0, 0, 0)])
     assert preview is not None and (added, removed) == (2, 0)
 
@@ -195,20 +196,20 @@ def test_tidy_every_frame_and_undo_once(window):
     from paintmaskanimator.undo_entries import ScopedBatchUndo
 
     _paint_stairs(window, 2)
-    before = [frame.layers[0].image.copy() for frame in window.canvas.frames]
+    before = [frame.layers[0].image.to_qimage() for frame in window.canvas.frames]
 
     assert window.line_ops.tidy_lines([(0, 0, 0)], all_frames=True)
 
     from paintmaskanimator import imaging
 
     for frame in window.canvas.frames:
-        rgba = imaging.qimage_rgba_array(frame.layers[0].image)
+        rgba = imaging.qimage_rgba_array(frame.layers[0].image.to_qimage())
         line = (rgba[:, :, 3] > 0) & (rgba[:, :, :3] == 0).all(axis=2)
         assert line.sum() == STAIRS.sum() + 2 and four_connected(line)
     assert isinstance(window.canvas.undo_stack[-1], ScopedBatchUndo)
     window.canvas.undo()
     for frame, original in zip(window.canvas.frames, before):
-        assert frame.layers[0].image == original
+        assert frame.layers[0].image.to_qimage() == original
 
 
 def test_nothing_to_tidy_changes_nothing(window):
@@ -223,12 +224,12 @@ def test_the_dialog_applies_to_the_current_frame(window, monkeypatch):
     from PySide6.QtWidgets import QDialog
 
     _paint_stairs(window, 2)
-    second = window.canvas.frames[1].layers[0].image.copy()
+    second = window.canvas.frames[1].layers[0].image.to_qimage()
     monkeypatch.setattr(QDialog, "exec", lambda _self: QDialog.DialogCode.Accepted)
 
     assert window.line_ops.tidy_lines_dialog()
 
-    assert window.canvas.frames[1].layers[0].image == second, "既定は今のコマだけ"
+    assert window.canvas.frames[1].layers[0].image.to_qimage() == second, "既定は今のコマだけ"
 
 
 # -- パターン3：段の重なりが厚くなった所 -------------------------------------

@@ -1,15 +1,17 @@
 """Brush-stroke bookkeeping for PaintCanvas.
 
-Split out of ``canvas.py`` as a mixin. Brush stamps blend directly into the
-live layer image. Adjacent-color preview keeps a stroke-local display image
-and updates only touched pixels. This mixin manages the stroke lifecycle: the
-per-stroke tile snapshot that backs ``LayerTilesUndo`` and the brush-runtime
-warm-up that avoids first-stroke jank. They run against a live ``PaintCanvas``.
+Brush stamps blend into a stroke-local working image. Adjacent-color preview
+keeps a stroke-local display image and updates only touched pixels. The mixin
+also captures the pre-stroke tiles for ``LayerTilesUndo`` and warms up the brush
+runtime.
 """
 import numpy as np
 from PySide6.QtCore import QPoint, QPointF, QRect, Qt
 from PySide6.QtGui import QColor, QImage, QPainter, QPen
+from .document_changes import ChangeSet
+from .canvas_changes import publish_drawing_pixels
 from ._canvas_members import CanvasMembers
+from .pma_image import PmaImage, as_qimage
 from . import imaging
 from .logging_setup import get_logger
 from .undo_entries import LayerTilesUndo
@@ -20,6 +22,16 @@ log = get_logger(__name__)
 class StrokeDisplayMixin(CanvasMembers):
     def _begin_opaque_brush_stroke(self):
         """Start tile undo tracking and, when needed, an incremental preview."""
+        self._commit_brush_stroke()
+        target = self.active_layer.image
+        self._stroke_target = target
+        # Read metadata through a tiny independent crop. A non-unit DPR needs
+        # the original painter coordinate system, so keep a full image then.
+        work = target.read_qimage(0, 0, 1, 1)
+        self._stroke_work_image = work
+        self._stroke_work_rect = QRect()
+        if work.devicePixelRatio() != 1 or self.view_preview.map_colors:
+            self._expand_stroke_work(QRect(0, 0, target.width, target.height))
         self._stroke_before_tiles = {}
         self._stroke_dirty_rect = QRect()
         self._stroke_undo_frame = int(self.current_frame)
@@ -28,13 +40,47 @@ class StrokeDisplayMixin(CanvasMembers):
         self._brush_blended_colors = set()
         self._stroke_view_preview = None
         self._stroke_view_dirty = QRect()
-        if self.view_preview.map_colors:
-            image = self._display_layer_image(self.active_layer, self.active_layer_index)
-            if image is self.active_layer.image:
-                self._stroke_view_preview = (
-                    self.active_layer, self.view_preview.key(),
-                    self.view_layer_image(self.active_layer, self.active_layer_index, image).copy(),
-                )
+        if self.view_preview.map_colors and self._layer_uses_raw_display(
+            self.active_layer, self.active_layer_index,
+        ):
+            preview: QImage | PmaImage = self.view_layer_image(
+                self.active_layer, self.active_layer_index, target,
+            )
+            self._stroke_view_preview = (
+                self.active_layer, self.view_preview.key(),
+                as_qimage(preview).copy(),
+            )
+
+    def _expand_stroke_work(self, rect):
+        """Read the expanded crop and carry over the pixels already painted."""
+        previous = self._stroke_work_rect
+        if previous.contains(rect):
+            return self._stroke_work_image
+        work = self._stroke_target.read_qimage(*rect.getRect())
+        if not previous.isEmpty():
+            painter = QPainter(work)
+            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+            painter.drawImage(previous.topLeft() - rect.topLeft(), self._stroke_work_image)
+            painter.end()
+        self._stroke_work_image = work
+        self._stroke_work_rect = rect
+        return work
+
+    def _grow_stroke_work(self, rect, bounds):
+        previous = self._stroke_work_rect
+        if previous.contains(rect):
+            return
+        expanded = previous.united(rect)
+        # Leave headroom on advancing edges to amortize copies during motion.
+        x_margin = max(64, previous.width() // 2)
+        y_margin = max(64, previous.height() // 2)
+        expanded.adjust(
+            -x_margin if previous.isEmpty() or rect.left() < previous.left() else 0,
+            -y_margin if previous.isEmpty() or rect.top() < previous.top() else 0,
+            x_margin if previous.isEmpty() or rect.right() > previous.right() else 0,
+            y_margin if previous.isEmpty() or rect.bottom() > previous.bottom() else 0,
+        )
+        self._expand_stroke_work(expanded.intersected(bounds))
 
     def _stroke_before_region(self, rect):
         """Assemble a small immutable pre-stroke crop from saved tiles."""
@@ -45,7 +91,7 @@ class StrokeDisplayMixin(CanvasMembers):
         result = QImage(
             rect.width(),
             rect.height(),
-            self.active_layer.image.format(),
+            self._stroke_work_image.format(),
         )
         result.fill(Qt.GlobalColor.transparent)
         painter = QPainter(result)
@@ -83,32 +129,56 @@ class StrokeDisplayMixin(CanvasMembers):
         return result
 
     def _finish_opaque_brush_stroke(self):
-        colors = tuple(
-            getattr(self, "_brush_blended_colors", set())
-        )
-        self._emit_actual_paint_colors(colors)
-        if (
-            self._stroke_before_tiles is not None
-            and self._stroke_dirty_rect is not None
-            and not self._stroke_dirty_rect.isEmpty()
-        ):
-            tiles = tuple(
-                (QRect(rect), image)
-                for rect, image in self._stroke_before_tiles.values()
+        work = self._stroke_work_image
+        if work is None:
+            return
+        self._stop_brush_follow_timer()
+        self._reset_brush_stabilizer()
+        self.drawing = False
+        frame, index = self._stroke_undo_frame, self._stroke_undo_layer
+        layer = self.frames[frame].layers[index]
+        dirty = self._stroke_dirty_rect
+        colors = tuple(self._brush_blended_colors)
+        changes = ChangeSet()
+        entry = None
+        if not dirty.isEmpty():
+            local = dirty.translated(-self._stroke_work_rect.topLeft())
+            patch = work if local == work.rect() else work.copy(local)
+            changes = self._document.write_drawing_patch(
+                frame, index, patch, dirty.getRect(), has_content=True,
+                stroke_image=self._stroke_target,
             )
-            self.push_undo(LayerTilesUndo(
-                int(self._stroke_undo_frame),
-                int(self._stroke_undo_layer),
-                tiles,
-                bool(self._stroke_prev_has_content),
-                layer_name=self.frames[self._stroke_undo_frame].layers[self._stroke_undo_layer].name,
-                number=self.frames[self._stroke_undo_frame].layers[self._stroke_undo_layer].sequence_number,
-            ))
+            entry = LayerTilesUndo(
+                frame, index, tuple(self._stroke_before_tiles.values()),
+                self._stroke_prev_has_content,
+                layer_name=layer.name, number=layer.sequence_number,
+            )
+        self._stroke_target = None
+        self._stroke_work_image = None
+        self._stroke_work_rect = QRect()
         self._stroke_before_tiles = None
         self._stroke_dirty_rect = None
         self._stroke_view_preview = None
         self._stroke_view_dirty = QRect()
         self._brush_blended_colors = set()
+        self._emit_actual_paint_colors(colors)
+        if entry is not None:
+            self.push_undo(entry)
+        return changes
+
+    def _commit_brush_stroke(self):
+        """Finish an input stroke and notify the canvas observers."""
+        if self._stroke_work_image is None:
+            return
+        frame, index = self._stroke_undo_frame, self._stroke_undo_layer
+        changes = self._finish_opaque_brush_stroke()
+        # 作業画像があることは上で確かめたので、ここでは必ず ChangeSet が返る。
+        assert changes is not None
+        layer = self.frames[frame].layers[index]
+        self._cell_structure_dirty = (
+            not self._brush_started_with_content and bool(layer.has_content)
+        )
+        publish_drawing_pixels(self, changes, empty_stroke=(frame, index))
 
     def warm_up_brush_runtime(self):
         """Prime Qt/numpy brush primitives without touching the document."""

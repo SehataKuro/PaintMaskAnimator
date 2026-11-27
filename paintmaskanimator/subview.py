@@ -42,7 +42,9 @@ class SubViewWidget(QWidget):
     pathChanged = Signal(str)
     visibilityChanged = Signal(bool)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, hold_keys_now=True):
+        """``hold_keys_now`` が偽なら、Space・Ctrl の監視は
+        :meth:`watch_hold_keys` を呼ぶまで始めない。"""
         super().__init__(parent)
         self.setAcceptDrops(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -133,6 +135,17 @@ class SubViewWidget(QWidget):
             lambda: self.rotation_slider.setValue(0)
         )
         self._update_navigation()
+        if hold_keys_now:
+            self.watch_hold_keys()
+
+    def watch_hold_keys(self):
+        """アプリ全体のイベントフィルターを付け、Space・Ctrl の監視を始める。
+
+        アプリ全体のフィルターは、付けたあとに作られる部品のイベントもすべて
+        通る。Python のフィルターは呼ばれるたびに引数を包み直すので、中身が
+        すぐ降りても重い。主画面はこれを組み立ての終わりに呼ぶ（組み立ての
+        途中で付けると、約 2 万回呼ばれて主画面の生成時間の約 4 割になる）。
+        """
         install_app_event_filter(self)
 
     def eventFilter(self, watched, event):

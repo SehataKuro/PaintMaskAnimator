@@ -308,6 +308,7 @@ class InputMixin(MainWindowMembers):
         if {"Ctrl", "Alt"}.issubset(held) and self.canvas.tool in ("brush", "line"):
             new_tool = None
         if self.canvas.temp_tool != new_tool:
+            self.canvas._commit_brush_stroke()
             self.canvas.temp_tool = new_tool
             self.canvas.drawing = False
             self.canvas.middle_hand = False
@@ -619,10 +620,14 @@ class InputMixin(MainWindowMembers):
             self.canvas.cancel_selection_transform()
             return True
 
+        if event.type() == QEvent.Type.TabletLeaveProximity:
+            self.canvas._commit_brush_stroke()
+
         if event.type() in (
             QEvent.Type.ApplicationDeactivate,
             QEvent.Type.WindowDeactivate,
         ):
+            self.canvas._commit_brush_stroke()
             self.canvas._brush_resize_anchor = None
             self._held_canvas_shortcut_tokens.clear()
             self.tool_hold.release_all()

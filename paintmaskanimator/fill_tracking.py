@@ -11,14 +11,18 @@
 :func:`warp_region` で範囲を区画に分け、区画ごとのずれで動かした範囲も作る
 （動きの推定を画素ごとに行う方法の、軽い近似）。
 
-numpy 配列だけを扱う純粋な関数にしてあるので、あとで Rust の部品に置き換えやすい
-（``docs/design-principles.md``「将来は Rust へ置き換えていく」）。
+相関は float64 FFT の結果を整数に丸め、Rust 版と同じ結果にする。同じ高さは
+行優先で先に現れる山を選び、近い山を優先する場合の同距離もその順にする。
+
+ずれの推定と周囲の比較は Rust で計算する。numpy 版は一致テストで使う。
 """
 from __future__ import annotations
 
 from typing import Optional, Tuple
 
 import numpy as np
+
+from .numpy_morphology import dilate_numpy
 
 #: ずれを数える窓の一辺の上限。これより大きい窓は間引いて計算する。
 #: ずれは粗くてよい（最後は実際に塗って重なりで選ぶ）ので、速さを優先する。
@@ -46,8 +50,9 @@ def mask_bounds(mask) -> Optional[Tuple[int, int, int, int]]:
     rows = np.flatnonzero(mask.any(axis=1))
     if not rows.size:
         return None
-    cols = np.flatnonzero(mask.any(axis=0))
-    return int(cols[0]), int(rows[0]), int(cols[-1]) + 1, int(rows[-1]) + 1
+    y0, y1 = int(rows[0]), int(rows[-1]) + 1
+    cols = np.flatnonzero(mask[y0:y1].any(axis=0))
+    return int(cols[0]), y0, int(cols[-1]) + 1, y1
 
 
 def shift_mask(mask, dy, dx):
@@ -66,16 +71,15 @@ def shift_mask(mask, dy, dx):
 
 def _outline(region, lines, width=3):
     """``region`` の縁に接する線画だけを残す（遠くの動かない線を比べないため）。"""
-    from .bucket_fill import dilate
-
-    return lines & dilate(region, width) & ~region
+    return lines & dilate_numpy(region, width) & ~region
 
 
 def estimate_shifts(previous_lines, current_lines, region, count=3, margin=None):
     """``region`` の縁の線画が、前のコマから今のコマへどれだけ動いたかの候補。
 
     相関の山の高い順に ``count`` 個まで ``(dy, dx)`` を返す（一番高い山とほぼ同じ
-    高さの山どうしは、ずれの小さい順）。図形の縁の線
+    高さの山どうしは、ずれの小さい順、同距離なら検出順）。同じ高さの山は
+    行優先の最初から検出する。図形の縁の線
     （塗った範囲に接する線）だけを型にするので、近くにある動かない線に
     引きずられにくい。どれが正しいかは、呼び出し側が実際に塗って比べて決める。
 
@@ -84,6 +88,25 @@ def estimate_shifts(previous_lines, current_lines, region, count=3, margin=None)
     :param region: 前のコマで塗った範囲。
     :param margin: 探すずれの最大。省略時は範囲の大きさの3倍。
     """
+    if count <= 0 or (bounds := mask_bounds(region)) is None:
+        return []
+    x0, y0, x1, y1 = bounds
+    if margin is None:
+        margin = max(64, 3 * max(x1 - x0, y1 - y0))
+    margin = int(margin)
+    if margin < 0:
+        return []
+    # 窓には領域全体が含まれるので、窓内の輪郭はここから計算できる。
+    window = np.s_[max(0, y0 - margin):y1 + margin, max(0, x0 - margin):x1 + margin]
+    from . import native
+
+    return native.estimate_shifts(
+        previous_lines[window], current_lines[window], region[window], count, margin
+    )
+
+
+def estimate_shifts_numpy(previous_lines, current_lines, region, count=3, margin=None):
+    """``estimate_shifts`` の numpy 版（一致テスト用）。"""
     bounds = mask_bounds(region)
     if bounds is None:
         return []
@@ -172,8 +195,10 @@ def _correlate(before, after, reach=None):
     else:
         size = (_fast_length(rows + 2 * reach + 1), _fast_length(cols + 2 * reach + 1))
     correlation = np.fft.irfft2(
-        np.fft.rfft2(after, size) * np.conj(np.fft.rfft2(before, size)), size
+        np.fft.rfft2(np.asarray(after, dtype=np.float64), size)
+        * np.conj(np.fft.rfft2(np.asarray(before, dtype=np.float64), size)), size
     )
+    correlation = np.rint(correlation)
     return correlation, size
 
 
@@ -202,7 +227,7 @@ def _best_offset(template, target, limit):
     """``template`` を ``target`` に重ねる、``limit`` 以内のずれ ``(dy, dx)``。
 
     同じくらい重なるずれが並ぶとき（まっすぐな線の一部など）は、一番小さい
-    ずれを選ぶ。測れなければ ``(0, 0)``。
+    ずれを選び、同距離なら行優先で最初を選ぶ。測れなければ ``(0, 0)``。
     """
     if int(np.count_nonzero(template)) < LOCAL_MIN_TEMPLATE or not target.any():
         return 0, 0
@@ -237,6 +262,34 @@ def warp_region(previous_lines, current_lines, region, shift=(0, 0)):
     :param shift: 全体のずれ ``(dy, dx)``（:func:`estimate_shifts` の結果など）。
     :returns: 動かした範囲の真偽マスク。範囲が小さく分けられないときは None。
     """
+    bounds = mask_bounds(region)
+    if bounds is None:
+        return None
+    x0, y0, x1, y1 = bounds
+    if max(x1 - x0, y1 - y0) < 2 * LOCAL_TILE:
+        return None
+    dy, dx = (int(value) for value in shift)
+    radius = max(LOCAL_MIN_RADIUS, min(LOCAL_MAX_RADIUS, max(x1 - x0, y1 - y0) // 4))
+    height, width = region.shape
+    if (y0 + dy - radius >= height or y1 + dy + radius <= 0
+            or x0 + dx - radius >= width or x1 + dx + radius <= 0):
+        return np.zeros_like(region)
+    pad = radius + 3
+    oy = max(0, y0 + min(0, dy) - pad)
+    ox = max(0, x0 + min(0, dx) - pad)
+    window = np.s_[oy:y1 + max(0, dy) + pad, ox:x1 + max(0, dx) + pad]
+    from . import native
+
+    warped = native.warp_region(
+        previous_lines[window], current_lines[window], region[window], (dy, dx), (oy, ox)
+    )
+    out = np.zeros_like(region)
+    out[window] = warped
+    return out
+
+
+def warp_region_numpy(previous_lines, current_lines, region, shift=(0, 0)):
+    """``warp_region`` の numpy 版（一致テスト用）。"""
     from .bucket_fill import dilate
 
     bounds = mask_bounds(region)
@@ -323,6 +376,23 @@ def _labels(pixels):
     return packed
 
 
+def _color_correlation(before, after, keep, values, counts):
+    """色ごとの相関を float64 で求め、それぞれ整数に丸めて足す。"""
+    rows, cols = before.shape
+    size = (after.shape[0] + rows, after.shape[1] + cols)
+    correlation = np.zeros(size, dtype=np.float64)
+    for value in values[np.argsort(-counts, kind="stable")[:_CONTEXT_COLORS]]:
+        found = after == value
+        if not found.any():
+            continue
+        template = (before == value) & keep
+        correlation += np.rint(np.fft.irfft2(
+            np.fft.rfft2(found.astype(np.float64), size)
+            * np.conj(np.fft.rfft2(template.astype(np.float64), size)), size
+        ))
+    return correlation, size
+
+
 def estimate_color_shifts(
     previous_pixels, current_pixels, region, count=3, radius=CONTEXT_RADIUS,
     margin=None,
@@ -330,9 +400,24 @@ def estimate_color_shifts(
     """``region`` のまわりの色の並びが、前のコマから今のコマへどれだけ動いたかの候補。
 
     まわりの色ごとに「その色の画素」を型にして相互相関を取り、足し合わせた山の
-    高い順に ``(dy, dx)`` を返す。``region`` そのものの画素は比べない（前のコマで
+    高い順に ``(dy, dx)`` を返す。同じ高さは行優先で最初の山を選ぶ。``region`` そのものの画素は比べない（前のコマで
     塗った色と、今のコマのまだ塗っていない色は違うので）。
     """
+    bounds = mask_bounds(region)
+    if bounds is None or count <= 0:
+        return []
+    from . import native
+
+    return native.estimate_color_shifts(
+        previous_pixels, current_pixels, region, bounds, count, radius, margin
+    )
+
+
+def estimate_color_shifts_numpy(
+    previous_pixels, current_pixels, region, count=3, radius=CONTEXT_RADIUS,
+    margin=None,
+):
+    """``estimate_color_shifts`` の numpy 版（一致テスト用）。"""
     bounds = mask_bounds(region)
     if bounds is None:
         return []
@@ -350,19 +435,7 @@ def estimate_color_shifts(
     values, counts = np.unique(before[keep], return_counts=True)
     if not values.size:
         return []
-    rows, cols = before.shape
-    size = (after.shape[0] + rows, after.shape[1] + cols)
-    correlation = np.zeros(size, dtype=np.float64)
-    for value in values[np.argsort(-counts)[:_CONTEXT_COLORS]]:
-        found = (after == value)
-        if not found.any():
-            continue
-        template = ((before == value) & keep).astype(np.float32)
-        correlation += np.fft.irfft2(
-            np.fft.rfft2(found.astype(np.float32), size)
-            * np.conj(np.fft.rfft2(template, size)),
-            size,
-        )
+    correlation, size = _color_correlation(before, after, keep, values, counts)
     shifts = []
     for _ in range(count):
         peak_y, peak_x = np.unravel_index(int(np.argmax(correlation)), correlation.shape)
@@ -417,6 +490,18 @@ def context_similarity(
     まわりがほぼ一色の白地なら、どこを比べても一致してしまい手がかりにならないので、
     そのときの色の一致は 0 とする（:func:`_agreement`）。
     """
+    from . import native
+
+    return native.context_similarity(
+        previous_pixels, previous_region, current_pixels, current_region, radius
+    )
+
+
+def context_similarity_numpy(
+    previous_pixels, previous_region, current_pixels, current_region,
+    radius=CONTEXT_RADIUS,
+):
+    """``context_similarity`` の numpy 版（一致テスト用）。"""
     if not previous_region.any() or not current_region.any():
         return 0.0
     before, before_inside = _context_window(

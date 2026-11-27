@@ -1,10 +1,8 @@
 //! Display computations without Qt dependencies, reusable by a future Rust UI.
+use pma_core::display::{filter_palette_of, tint_onion_of, Rgb};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
-use std::collections::{HashMap, HashSet};
-
-type Rgb = (u8, u8, u8);
 
 #[pyfunction]
 pub fn filter_palette<'py>(
@@ -17,25 +15,7 @@ pub fn filter_palette<'py>(
     if !rgba.len().is_multiple_of(4) {
         return Err(PyValueError::new_err("expected packed RGBA pixels"));
     }
-    let output = py.detach(|| {
-        let visible: Option<HashSet<_>> = visible.map(|colors| colors.into_iter().collect());
-        let remap: HashMap<_, _> = remap.into_iter().collect();
-        let mut result = rgba.to_vec();
-        for pixel in result.chunks_exact_mut(4) {
-            let rgb = (pixel[0], pixel[1], pixel[2]);
-            // Test the original color, then remap once: A -> B -> C must
-            // display an original A as B, never cascade to C.
-            let keep = pixel[3] != 0
-                && visible.as_ref().is_none_or(|colors| colors.contains(&rgb))
-                && legacy.is_none_or(|color| color == rgb);
-            if !keep {
-                pixel[3] = 0;
-            } else if let Some(&(r, g, b)) = remap.get(&rgb) {
-                pixel[..3].copy_from_slice(&[r, g, b]);
-            }
-        }
-        result
-    });
+    let output = py.detach(|| filter_palette_of(rgba, visible, legacy, remap));
     Ok(PyBytes::new(py, &output))
 }
 
@@ -50,29 +30,6 @@ pub fn tint_onion<'py>(
     if !rgba.len().is_multiple_of(4) {
         return Err(PyValueError::new_err("expected packed RGBA pixels"));
     }
-    let output = py.detach(|| {
-        let selected: Option<HashSet<_>> = selected.map(|values| values.into_iter().collect());
-        let mut result = rgba.to_vec();
-        for pixel in result.chunks_exact_mut(4) {
-            if selected
-                .as_ref()
-                .is_some_and(|set| !set.contains(&(pixel[0], pixel[1], pixel[2])))
-            {
-                pixel[3] = 0;
-            }
-            if enabled {
-                // Keep NumPy float32 operation order, including truncation.
-                let luminance = (pixel[0] as f32 * 0.299f32
-                    + pixel[1] as f32 * 0.587f32
-                    + pixel[2] as f32 * 0.114f32)
-                    / 255.0f32;
-                for (channel, base) in pixel[..3].iter_mut().zip([color.0, color.1, color.2]) {
-                    *channel = (base as f32 * (1.0f32 - luminance) + 255.0f32 * luminance)
-                        .clamp(0.0, 255.0) as u8;
-                }
-            }
-        }
-        result
-    });
+    let output = py.detach(|| tint_onion_of(rgba, color, enabled, selected));
     Ok(PyBytes::new(py, &output))
 }

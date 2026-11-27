@@ -333,7 +333,7 @@ def test_layout_paper_goes_under_all_layers_as_draft(window, tmp_path):
         layers = window.canvas.frames[0].layers
         assert [layer.name for layer in layers] == ["レイアウト用紙", "A"]
         assert layers[0].is_draft and layers[0].has_content
-        assert layers[0].image.pixelColor(10, 10).red() == 200
+        assert layers[0].image.to_qimage().pixelColor(10, 10).red() == 200
         assert window.canvas.active_layer_index == 1
         window.canvas.add_frame(dup=False)
         composite = window.canvas.composite(len(window.canvas.frames) - 1, True)

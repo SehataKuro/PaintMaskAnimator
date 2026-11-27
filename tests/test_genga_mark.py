@@ -32,9 +32,10 @@ def prepare(window, count=3):
     canvas._ensure_frame_count(count)
     for index in range(count):
         layer = canvas.frames[index].layers[0]
-        layer.image.fill(QColor(0, 0, 0, 0))
-        layer.image.setPixelColor(5 + index, 5, QColor("black"))
-        create_drawing(layer, layer.image.copy(), number=index + 1)
+        image = layer.image.to_qimage()
+        image.fill(QColor(0, 0, 0, 0))
+        image.setPixelColor(5 + index, 5, QColor("black"))
+        create_drawing(layer, image, number=index + 1)
     canvas._cell_structure_dirty = True
     window.refresh_ui()
     return canvas
@@ -77,8 +78,8 @@ def test_the_mark_is_saved_and_loaded(window, tmp_path):
     canvas = prepare(window)
     window.timeline_ops.toggle_genga(visual_row(window), 2)
     path = tmp_path / "genga.pman"
-    snapshot = project_io.ProjectSnapshot({}, canvas._document, canvas.frames[0].layers[0].image.width(),
-                                          canvas.frames[0].layers[0].image.height())
+    snapshot = project_io.ProjectSnapshot({}, canvas._document, canvas.frames[0].layers[0].image.width,
+                                          canvas.frames[0].layers[0].image.height)
     project_io.write_project_snapshot(path, snapshot)
 
     with zipfile.ZipFile(path) as archive:

@@ -68,7 +68,7 @@ def window(qapp, tmp_path, monkeypatch):
 
 def colors(window):
     return [
-        window.canvas.frames[column].layers[0].image.pixelColor(5, 5).name()
+        window.canvas.frames[column].layers[0].image.to_qimage().pixelColor(5, 5).name()
         for column in range(3)
     ]
 

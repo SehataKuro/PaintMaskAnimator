@@ -4,6 +4,7 @@ from __future__ import annotations
 import pytest
 from PySide6.QtCore import QPoint, QPointF, Qt
 from PySide6.QtGui import QColor
+from image_edit_helpers import edit_qimage
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
@@ -27,10 +28,10 @@ def window(qapp, tmp_path, monkeypatch):
         window.deleteLater()
 
 
-def block(layer, x0, y0, size=12, colour="black"):
+def block(image, x0, y0, size=12, colour="black"):
     for x in range(x0, x0 + size):
         for y in range(y0, y0 + size):
-            layer.image.setPixelColor(x, y, QColor(colour))
+            image.setPixelColor(x, y, QColor(colour))
 
 
 def prepare(window):
@@ -39,9 +40,10 @@ def prepare(window):
     canvas._ensure_frame_count(3)
     for index, origin in enumerate(((20, 20), (60, 60), (100, 100))):
         layer = canvas.frames[index].layers[0]
-        layer.image.fill(QColor(0, 0, 0, 0))
-        block(layer, *origin)
-        create_drawing(layer, layer.image.copy(), number=index + 1)
+        image = layer.image.to_qimage()
+        image.fill(QColor(0, 0, 0, 0))
+        block(image, *origin)
+        create_drawing(layer, image, number=index + 1)
     canvas.current_frame = 1
     canvas.active_layer_index = 0
     canvas.onion_skin = True
@@ -84,14 +86,14 @@ def test_ctrl_click_on_the_canvas_switches_without_drawing(window):
     canvas = prepare(window)
     window.show()
     QApplication.processEvents()
-    before = [frame.layers[0].image.copy() for frame in canvas.frames]
+    before = [frame.layers[0].image.to_qimage() for frame in canvas.frames]
     target = canvas.canvas_to_widget(QPointF(25, 25)).toPoint()
 
     QTest.mouseClick(canvas, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.ControlModifier, QPoint(target))
 
     assert canvas.current_frame == 0
     for frame, original in zip(canvas.frames, before):
-        assert frame.layers[0].image == original, "クリックでは描かない"
+        assert frame.layers[0].image.to_qimage() == original, "クリックでは描かない"
     window.hide()
 
 
@@ -100,11 +102,11 @@ def test_frames_on_a_filled_background_can_be_picked(window):
     canvas = prepare(window)
     for index in range(3):
         layer = canvas.frames[index].layers[0]
-        image = layer.image
-        for x in range(0, 160):
-            for y in range(0, 160):
-                if image.pixelColor(x, y).alpha() == 0:
-                    image.setPixelColor(x, y, QColor("#ffe4cd"))
+        with edit_qimage(layer.image) as image:
+            for x in range(0, 160):
+                for y in range(0, 160):
+                    if image.pixelColor(x, y).alpha() == 0:
+                        image.setPixelColor(x, y, QColor("#ffe4cd"))
     assert canvas.onion_frame_at(QPointF(25, 25)) == (0, 0)
     assert canvas.onion_frame_at(QPointF(105, 105)) == (2, 0)
     assert canvas.onion_frame_at(QPointF(5, 5)) is None, "どのコマも同じ肌色の所は選ばない"

@@ -24,11 +24,12 @@ from . import reference_check
 from .frame_scope import FrameScope, resolve_cells
 from .i18n import tr
 from .time_display import frame_position
-from .imaging import qimage_rgba_array
+from .pma_image import as_qimage, image_rgba
 from .progress import close_counter, create_counter, update_counter
 
 if TYPE_CHECKING:
     from .main_window import MainWindow
+    from .pma_image import PmaImage
 
 #: 一覧に載せる1件：(コマ, レイヤー, 見つかったもの)。
 Entry = Tuple[int, int, reference_check.Finding]
@@ -36,7 +37,7 @@ Entry = Tuple[int, int, reference_check.Finding]
 
 def _cell_pixels(image):
     """セル画像を RGBA の ``(高さ, 幅, 4)`` 配列にする。"""
-    return np.ascontiguousarray(qimage_rgba_array(image))
+    return np.ascontiguousarray(image_rgba(image))
 
 
 def _color_label(rgb) -> str:
@@ -266,8 +267,9 @@ class ReferenceCheckController:
         if finding.bounds is None:
             return None
         x0, y0, x1, y1 = finding.bounds
-        image = canvas.frames[frame].layers[layer].image
-        mask = np.zeros((image.height(), image.width()), dtype=bool)
+        image: PmaImage = canvas.frames[frame].layers[layer].image
+        qt_image = as_qimage(image)
+        mask = np.zeros((qt_image.height(), qt_image.width()), dtype=bool)
         if finding.mask is not None:
             mask[y0:y1, x0:x1] = finding.mask
         else:

@@ -10,6 +10,7 @@ from paintmaskanimator import auto_paint, fill_tracking, imaging, line_flow, buc
 from paintmaskanimator.document import create_drawing
 from paintmaskanimator.main_window import MainWindow
 from paintmaskanimator.undo_entries import ScopedBatchUndo
+from paintmaskanimator.pma_image import as_qimage
 
 SKIN = (255, 241, 232)
 LEAF = (197, 174, 103)
@@ -225,7 +226,7 @@ def put_cells(window, cells):
     canvas._ensure_frame_count(len(cells))
     for frame, pixels in zip(canvas.frames, cells):
         layer = frame.layers[canvas.active_layer_index]
-        full = np.zeros((layer.image.height(), layer.image.width(), 4), dtype=np.uint8)
+        full = np.zeros((layer.image.to_qimage().height(), layer.image.to_qimage().width(), 4), dtype=np.uint8)
         full[:pixels.shape[0], :pixels.shape[1]] = pixels
         layer.image = imaging.rgba_array_to_qimage(full)
         create_drawing(layer, layer.image, number=layer.sequence_number)
@@ -331,19 +332,19 @@ def test_auto_paint_paints_only_the_layer_and_undoes_once(window, dense_hold):
         from dense_fixtures import hold
         hold(canvas, len(canvas.frames) - 1, 2)
 
-    before = [frame.layers[other].image.copy() for frame in canvas.frames]
+    before = [frame.layers[other].image.to_qimage().copy() for frame in canvas.frames]
 
     cells = window.auto_paint.cells()
     assert window.auto_paint.run(cells, 0)
 
-    assert canvas.frames[1].layers[0].image.pixelColor(47, 20) == QColor(*LEAF)
+    assert canvas.frames[1].layers[0].image.to_qimage().pixelColor(47, 20) == QColor(*LEAF)
     for frame, original in zip(canvas.frames, before):
-        assert frame.layers[other].image == original, "ほかのレイヤーには触れない"
+        assert as_qimage(frame.layers[other].image) == original, "ほかのレイヤーには触れない"
     entry = canvas.undo_stack[-1]
     assert isinstance(entry, ScopedBatchUndo)
     assert len(entry.cells) == 2
     canvas.undo()
-    assert canvas.frames[1].layers[0].image.pixelColor(47, 20).alpha() == 0
+    assert canvas.frames[1].layers[0].image.to_qimage().pixelColor(47, 20).alpha() == 0
 
 
 def test_auto_paint_lists_spots_to_check(window):
@@ -384,7 +385,7 @@ def test_initial_state_lets_auto_paint_fix_overpainted_areas(window, keep_initia
 
     assert window.auto_paint.run(window.auto_paint.cells(), 0)
 
-    image = canvas.frames[1].layers[0].image
+    image = canvas.frames[1].layers[0].image.to_qimage()
     if keep_initial:
         assert image.pixelColor(47, 20) == QColor(*LEAF), "初期状態の線で部分を分けて塗り直す"
         assert image.pixelColor(47, 45) == QColor(*DRESS)
@@ -404,8 +405,8 @@ def test_initial_state_is_saved_with_the_project(window, tmp_path):
     frames = loaded.document.frames
     initial = frames[0].layers[0].initial_image
     assert initial is not None
-    assert initial.pixelColor(20, 40).alpha() == 0, "保持したのは塗る前の絵"
-    assert frames[0].layers[0].image.pixelColor(20, 40) == QColor(*SKIN)
+    assert initial.to_qimage().pixelColor(20, 40).alpha() == 0, "保持したのは塗る前の絵"
+    assert frames[0].layers[0].image.to_qimage().pixelColor(20, 40) == QColor(*SKIN)
     assert frames[1].layers[0].initial_image is not None
 
 
@@ -661,16 +662,16 @@ def test_two_reference_controller_keeps_both_painted_images_and_undoes(window):
     window.initial_state.keep(confirm=False)
     put_cells(window, [figure(0, painted=True), figure(2), figure(4), figure(6, painted=True)])
     canvas = window.canvas
-    first = canvas.frames[0].layers[0].image.copy()
-    last = canvas.frames[3].layers[0].image.copy()
+    first = canvas.frames[0].layers[0].image.to_qimage().copy()
+    last = canvas.frames[3].layers[0].image.to_qimage().copy()
     assert window.auto_paint.run(window.auto_paint.cells(), 0, 3)
-    assert canvas.frames[0].layers[0].image == first
-    assert canvas.frames[3].layers[0].image == last
-    assert canvas.frames[2].layers[0].image.pixelColor(49, 20) == QColor(*LEAF)
+    assert as_qimage(canvas.frames[0].layers[0].image) == first
+    assert as_qimage(canvas.frames[3].layers[0].image) == last
+    assert canvas.frames[2].layers[0].image.to_qimage().pixelColor(49, 20) == QColor(*LEAF)
     assert len(canvas.undo_stack[-1].cells) == 2
     canvas.undo()
-    assert canvas.frames[2].layers[0].image.pixelColor(49, 20).alpha() == 0
-    assert canvas.frames[3].layers[0].image == last
+    assert canvas.frames[2].layers[0].image.to_qimage().pixelColor(49, 20).alpha() == 0
+    assert as_qimage(canvas.frames[3].layers[0].image) == last
 
 
 def test_reference_picker_supports_three_and_requires_a_cell_to_paint(qapp):
@@ -722,13 +723,13 @@ def test_three_reference_controller_keeps_every_reference(window):
     cells = [figure(index * 2, painted=index in (0, 2, 4)) for index in range(5)]
     put_cells(window, cells)
     canvas = window.canvas
-    originals = {index: canvas.frames[index].layers[0].image.copy() for index in (0, 2, 4)}
+    originals = {index: canvas.frames[index].layers[0].image.to_qimage().copy() for index in (0, 2, 4)}
     assert window.auto_paint.run(window.auto_paint.cells(), 0, reference_indices=[0, 2, 4])
     for index, image in originals.items():
-        assert canvas.frames[index].layers[0].image == image
+        assert as_qimage(canvas.frames[index].layers[0].image) == image
     assert len(canvas.undo_stack[-1].cells) == 2
     canvas.undo()
-    assert canvas.frames[1].layers[0].image.pixelColor(47, 20).alpha() == 0
+    assert canvas.frames[1].layers[0].image.to_qimage().pixelColor(47, 20).alpha() == 0
 
 
 def test_progress_combines_three_rounds_and_estimates_remaining_time(window, monkeypatch):
@@ -767,8 +768,8 @@ def test_auto_paint_keeps_the_existing_selection_and_frame_when_results_open(win
     put_cells(window, [reference, target])
     canvas = window.canvas
     canvas.current_frame = 0
-    selected = np.zeros((canvas.frames[0].layers[0].image.height(),
-                         canvas.frames[0].layers[0].image.width()), dtype=bool)
+    selected = np.zeros((canvas.frames[0].layers[0].image.to_qimage().height(),
+                         canvas.frames[0].layers[0].image.to_qimage().width()), dtype=bool)
     selected[2:6, 3:7] = True
     assert canvas.set_selection_mask(selected)
     assert window.auto_paint.run(window.auto_paint.cells(), 0)
@@ -932,16 +933,16 @@ def test_initial_state_and_auto_paint_process_dense_holds(window):
     hold(canvas, 1, 3)
     assert window.auto_paint.cells() == [(0, 0), (1, 0)]
     assert window.initial_state.keep(confirm=False) == 2
-    originals = [frame.layers[0].image.copy() for frame in canvas.frames]
+    originals = [frame.layers[0].image.to_qimage().copy() for frame in canvas.frames]
     assert window.auto_paint.run(window.auto_paint.cells(), 0)
     for frame in canvas.frames[1:]:
-        assert frame.layers[0].image.pixelColor(47, 20) == QColor(*LEAF)
-        assert frame.layers[0].initial_image == originals[1]
+        assert frame.layers[0].image.to_qimage().pixelColor(47, 20) == QColor(*LEAF)
+        assert as_qimage(frame.layers[0].initial_image) == originals[1]
     assert len(canvas.undo_stack[-1].cells) == 1
     canvas.undo()
-    assert [frame.layers[0].image for frame in canvas.frames] == originals
+    assert [frame.layers[0].image.to_qimage() for frame in canvas.frames] == originals
     canvas.redo()
-    assert all(frame.layers[0].image.pixelColor(47, 20) == QColor(*LEAF)
+    assert all(frame.layers[0].image.to_qimage().pixelColor(47, 20) == QColor(*LEAF)
                for frame in canvas.frames[1:])
 
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import pytest
 from PySide6.QtGui import QColor
+from image_edit_helpers import edit_qimage
 from PySide6.QtWidgets import QApplication
 
 from paintmaskanimator import config
@@ -30,7 +31,8 @@ RED, BLUE = (255, 0, 0), (0, 0, 255)
 
 def prepare(window):
     layer = window.canvas.frames[0].layers[0]
-    layer.image.setPixelColor(5, 5, QColor(*RED))
+    with edit_qimage(layer.image) as image:
+        image.setPixelColor(5, 5, QColor(*RED))
     layer.has_content = True
     window.palette.set_colors([QColor(*RED)])
     # プレビューは置き換えモードのあいだだけ出す。
@@ -45,7 +47,7 @@ def test_registered_replacements_are_previewed_without_changing_pixels(window):
     window.palette._set_replacement_color(RED, QColor(*BLUE))
 
     assert window.canvas.preview_color_remap == {RED: BLUE}
-    assert layer.image.pixelColor(5, 5) == QColor(*RED), "画像はまだ変えない"
+    assert layer.image.to_qimage().pixelColor(5, 5) == QColor(*RED), "画像はまだ変えない"
 
 
 def test_the_preview_can_be_turned_off_and_is_remembered(window):

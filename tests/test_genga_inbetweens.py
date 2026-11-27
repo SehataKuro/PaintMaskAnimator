@@ -28,9 +28,10 @@ def window(qapp, tmp_path, monkeypatch):
 
 def drawing(canvas, column, number, genga=True):
     layer = canvas.frames[column].layers[0]
-    layer.image.fill(QColor(0, 0, 0, 0))
-    layer.image.setPixelColor(number, 3, QColor("black"))
-    create_drawing(layer, layer.image.copy(), number=number)
+    image = layer.image.to_qimage()
+    image.fill(QColor(0, 0, 0, 0))
+    image.setPixelColor(number, 3, QColor("black"))
+    create_drawing(layer, image, number=number)
     layer.is_genga = genga
     return layer
 

@@ -13,6 +13,7 @@ from PySide6.QtWidgets import QApplication
 
 from .i18n import tr
 from .time_display import frame_position
+from .canvas_changes import publish_scope_changes
 from .frame_scope import FrameScope, apply_over_scope
 from .progress import close_counter, create_counter, update_counter
 from .logging_setup import get_logger
@@ -106,10 +107,7 @@ class ScopeOpsController:
 
         if result.changed:
             self.invalidate_caches()
-            for frame_index, layer_index in result.changed_cell_list:
-                self.window.canvas.cellChanged.emit(int(frame_index), int(layer_index))
-            self.window.canvas.changed.emit()
-            self.window.canvas.update()
+            publish_scope_changes(self.window.canvas, result.changes)
         return result
 
     def invalidate_caches(self):

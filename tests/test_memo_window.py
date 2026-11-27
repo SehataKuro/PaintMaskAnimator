@@ -1,4 +1,7 @@
 """カット袋・シートのメモ欄（Issue #25）。"""
+
+from image_edit_helpers import edit_qimage
+
 import os
 
 import pytest
@@ -34,7 +37,8 @@ def draw_cels(window, count):
     window.canvas._ensure_frame_count(count)
     for index in range(count):
         layer = window.canvas.frames[index].layers[0]
-        layer.image.setPixelColor(10, 10, QColor(0, 0, 0))
+        with edit_qimage(layer.image) as edited:
+            edited.setPixelColor(10, 10, QColor(0, 0, 0))
         layer.has_content = True
         layer._track.cells[index + 1] = layer._cell
         layer.sequence_number = index + 1

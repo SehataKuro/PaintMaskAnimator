@@ -18,6 +18,7 @@ from PySide6.QtWidgets import QApplication
 from paintmaskanimator import constants, native
 from paintmaskanimator.canvas import PaintCanvas
 from paintmaskanimator.models import Frame, Layer
+from paintmaskanimator.pma_image import PmaImage
 
 
 def median_ms(function, repeats=7):
@@ -53,7 +54,8 @@ def main():
         constants.CANVAS_WIDTH, constants.CANVAS_HEIGHT = source_width, source_height
     app = QApplication.instance() or QApplication([])
     canvas = PaintCanvas()
-    frames = [Frame([Layer("A", QImage()) for _ in range(layer_count)]) for _ in range(frame_count)]
+    frames = [Frame([Layer("A", PmaImage.from_qimage(QImage())) for _ in range(layer_count)])
+              for _ in range(frame_count)]
     for frame in frames:
         for layer in frame.layers:
             layer.has_content, layer.sequence_number = True, 1
@@ -106,7 +108,7 @@ def main():
         painter = QPainter(destination)
         for source in sources:
             display = canvas._display_image_for_rect(source, rect) if cached else source
-            assert display is not None
+            assert isinstance(display, QImage)
             painter.drawImage(rect, display)
         painter.end()
 
@@ -123,7 +125,7 @@ def main():
     colors[:, 3] = 255
     pixels = colors[np.random.default_rng(26).integers(0, 100, (pixel_height, pixel_width))]
     source = QImage(pixels.data, pixel_width, pixel_height, pixel_width * 4, QImage.Format.Format_RGBA8888).copy()
-    layer = Layer("palette", source)
+    layer = Layer("palette", PmaImage.from_qimage(source))
     canvas.visible_color_rgbs = {tuple(map(int, color[:3])) for color in colors[:80]}
     canvas.preview_color_remap = {
         tuple(map(int, child[:3])): tuple(map(int, parent[:3]))
@@ -142,7 +144,8 @@ def main():
     try:
         constants.CANVAS_WIDTH, constants.CANVAS_HEIGHT = source_width, source_height
         canvas.frames = [Frame([
-            Layer(str(index), QImage(source), has_content=True, sequence_number=frame_index + 1)
+            Layer(str(index), PmaImage.from_qimage(source), has_content=True,
+                  sequence_number=frame_index + 1)
             for index, source in enumerate(sources)
         ]) for frame_index in range(3)]
         canvas.install_legacy_frames()

@@ -15,6 +15,7 @@ from PySide6.QtCore import QPointF
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
+from image_edit_helpers import edit_qimage
 from paintmaskanimator import constants, project_io
 from paintmaskanimator.clip_animation import ClipAnimationLayer, ClipCelKey, build_pma_frames
 from paintmaskanimator.document import clear_slot
@@ -58,6 +59,9 @@ def slot(number=None, color="transparent", **kwargs):
 
 
 def pixels(img):
+    from paintmaskanimator.pma_image import as_qimage
+
+    img = as_qimage(img)
     if img is None:
         return None
     rgba = img.convertToFormat(QImage.Format.Format_RGBA8888)
@@ -177,7 +181,8 @@ def row(c):
 def paint(c):
     c.ensure_editable_key()
     c.push_layer_undo()
-    c.active_layer.image.setPixelColor(5, 5, QColor("magenta"))
+    with edit_qimage(c.active_layer.image) as image:
+        image.setPixelColor(5, 5, QColor("magenta"))
     c.cellChanged.emit(c.current_frame, c.active_layer_index)
 
 
@@ -483,7 +488,8 @@ def test_line_fill_separation(window, monkeypatch):
     monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *_: None))
     monkeypatch.setattr(window.palette, "selected_rgb_set", lambda: {(255, 0, 0)})
     mixed = slot(1, "red", has_content=True, exposure=3)
-    mixed.image.setPixelColor(5, 5, QColor("blue"))
+    with edit_qimage(mixed.image) as image:
+        image.setPixelColor(5, 5, QColor("blue"))
     c = install(window, [mixed, slot(), slot(), slot(2, "blue", has_content=True)])
     r = Recorder(c)
     r.take("before")

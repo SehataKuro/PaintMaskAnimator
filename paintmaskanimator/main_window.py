@@ -30,7 +30,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from PySide6.QtCore import QPointF, QRectF, QTimer, Qt
 from PySide6.QtGui import QCursor, QImage, QImageReader, QPainter
 from PySide6.QtWidgets import (
@@ -42,6 +42,7 @@ from PySide6.QtWidgets import (
     QProgressDialog,
 )
 from .i18n import tr
+from .pma_image import PmaImage, as_qimage, to_pma_image
 from .optional_deps import PILImage
 from .constants import APP_DISPLAY_NAME, OUTSIDE_MARGIN
 from . import color_ops, constants, imaging, layout_paper, preferences, pressure_settings, project_io, session_state, theme, updater
@@ -54,7 +55,7 @@ from .history_panel import HistoryPanel
 from .memo_window import MemoWindow
 from .subview import SubViewWidget
 from .color_reduction import ColorReductionDialog
-from .models import Cell, Frame, Layer, make_frame
+from .models import Frame, Layer, make_frame
 from .pressure import PressureDialog
 from .timeline import TimelineWidget
 from .toolpanel import ToolPanel, ToolSelectorPanel
@@ -101,7 +102,7 @@ class MainWindow(
 ):
     def __init__(self):
         super().__init__();self.setWindowTitle(APP_DISPLAY_NAME);self._fit_window_to_screen(1500,960);self.setAcceptDrops(True)
-        self.canvas=PaintCanvas();self.tool_selector=ToolSelectorPanel();self.tools=ToolPanel();self.timeline=TimelineWidget();self.palette=UsedColorPanel();self.history_panel=HistoryPanel();self.subview=SubViewWidget(self);self.color_chart=ColorChartPanel(self);self.color_chart_data=empty_color_chart();self.timer=QTimer(self);self.timer.timeout.connect(self.advance)
+        self.canvas=PaintCanvas();self.tool_selector=ToolSelectorPanel();self.tools=ToolPanel();self.timeline=TimelineWidget();self.palette=UsedColorPanel();self.history_panel=HistoryPanel();self.subview=SubViewWidget(self, hold_keys_now=False);self.color_chart=ColorChartPanel(self);self.color_chart_data=empty_color_chart();self.timer=QTimer(self);self.timer.timeout.connect(self.advance)
         # Feature controllers the window owns; see this module's docstring.
         self.export=ExportController(self)
         self.workspace=WorkspaceController(self)
@@ -182,6 +183,10 @@ class MainWindow(
         self.shortcut_store.load()
         self._refresh_theme_dependent_ui()
         self.colors._sync_tool_selector_swatch()
+        # サブビューの Space・Ctrl の監視は、組み立てが済んでから付ける
+        # （理由は SubViewWidget.watch_hold_keys）。主画面のフィルターより
+        # 先に付けるので、呼ばれる順（主画面が先）は前と変わらない。
+        self.subview.watch_hold_keys()
         install_app_event_filter(self)
         self.project.update_title()
         QTimer.singleShot(0,self.fit_canvas)
@@ -510,10 +515,10 @@ class MainWindow(
         if key is None:
             self.statusBar().showMessage(tr("2値化：このコマには絵がありません。"), 3000)
             return False
-        first_image = canvas.frames[key].layers[layer_index].image.copy()
+        first_image = as_qimage(canvas.frames[key].layers[layer_index].image)
         cells = [cell for cell in self.initial_state.cells() if cell[1] == layer_index]
         reference_images = [
-            canvas.frames[cells[index][0]].layers[layer_index].image.copy()
+            as_qimage(canvas.frames[cells[index][0]].layers[layer_index].image)
             for index in color_ops.reference_frame_indices(len(cells))
         ] if cells else []
         try:
@@ -553,7 +558,8 @@ class MainWindow(
         canvas = self.canvas
 
         def op(context):
-            image = context.layer.image
+            layer: Layer = context.layer
+            image = as_qimage(layer.image)
             reduced = canvas.reduce_image_with_settings(image, settings)
             if reduced is None or reduced.isNull():
                 return None
@@ -813,11 +819,12 @@ class MainWindow(
         if image is None:
             self.status(tr("レイアウト用紙の画像を読み込めませんでした。"), "warning")
             return
-        for frame in self.canvas.frames:
-            layer = Layer(layout_paper.layer_name(), blank_image(), is_draft=True)
-            self.canvas._place_imported_image(image, layer.image)
-            layer.has_content = True
-            frame.layers.insert(0, layer)
+        slots = [
+            Layer(layout_paper.layer_name(), to_pma_image(self.canvas._placed_imported_image(image)),
+                  is_draft=True, has_content=True)
+            for _ in self.canvas.frames
+        ]
+        self.canvas._document.insert_track(0, slots, staged=True)
         self.canvas.active_layer_index = 1
         self.refresh_ui()
 
@@ -1151,8 +1158,7 @@ class MainWindow(
             if image is None:
                 return None
             converted = canvas.convert_import_image(path, image, settings, draft=draft)
-            target = blank_image()
-            canvas._place_imported_image(converted, target)
+            target = canvas._placed_imported_image(converted)
             return target.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
 
         result = self.scope.run_over(
@@ -1299,6 +1305,7 @@ class MainWindow(
         d=CanvasSizeDialog(constants.CANVAS_WIDTH,constants.CANVAS_HEIGHT,tr("キャンバスサイズの変更"),self)
         if d.exec():self.canvas.push_doc_undo();self.replace_doc(*d.values(),preserve=True)
     def replace_doc(self,w,h,preserve=False):
+        self.canvas._commit_brush_stroke()
         old_frames=self.canvas.frames if preserve else None;oldw,oldh=constants.CANVAS_WIDTH,constants.CANVAS_HEIGHT;constants.CANVAS_WIDTH,constants.CANVAS_HEIGHT=w,h
         if preserve:
             new=[]
@@ -1310,9 +1317,9 @@ class MainWindow(
                     if l.cell_id not in resized_images:
                         ni = blank_image()
                         painter = QPainter(ni)
-                        painter.drawImage(rect, l.image, rect)
+                        painter.drawImage(rect, as_qimage(l.image), rect)
                         painter.end()
-                        resized_images[l.cell_id] = ni
+                        resized_images[l.cell_id] = to_pma_image(ni)
                     ni = resized_images[l.cell_id]
                     copied = l.clone()
                     copied.image = ni
@@ -1322,10 +1329,12 @@ class MainWindow(
                         payload = position.legacy
                         saved_image = blank_image()
                         painter = QPainter(saved_image)
-                        painter.drawImage(rect, payload.image, rect)
+                        # 旧形式の層は必ず絵を持つ（LegacyLayerV1.image は Any で宣言されている）。
+                        legacy_image = cast("QImage | PmaImage", payload.image)
+                        painter.drawImage(rect, as_qimage(legacy_image), rect)
                         painter.end()
                         copied.__dict__["_v1_position"] = replace(
-                            position, legacy=replace(payload, image=saved_image))
+                            position, legacy=replace(payload, image=to_pma_image(saved_image)))
                     ls.append(copied)
                 new.append(Frame(ls,f.duration))
             self.canvas.frames=new
@@ -1356,24 +1365,7 @@ class MainWindow(
         self.canvas.active_layer_index=0
         self.canvas.install_legacy_frames()
         if preserve and old_frames:
-            # Legacy resize only transforms sheet payloads. Preserve the rest
-            # of the bank just as it preserves the compatibility archive.
-            for li, old_layer in enumerate(old_frames[0].layers):
-                track = self.canvas.frames[0].layers[li]._track
-                from copy import deepcopy
-                track.legacy_archive_hints = deepcopy(old_layer._track.legacy_archive_hints)
-                for number, cell in old_layer._track.cells.items():
-                    if (number in track.cells and number in track.legacy_archive_hints
-                            and track.cells[number].initial_image is None
-                            and cell.initial_image is not None):
-                        track.cells[number].initial_image = QImage(cell.initial_image)
-                    if number not in track.cells:
-                        track.cells[number] = Cell(
-                            QImage(cell.image),
-                            QImage(cell.initial_image) if cell.initial_image is not None else None,
-                            cell.cell_name,
-                            cell.is_genga,
-                        )
+            self.canvas._document.retain_resized_bank(old_frames[0])
         if not preserve:
             self.created_app_version = constants.APP_VERSION
             self.current_project_path = None
@@ -1495,7 +1487,9 @@ class MainWindow(
     def crop_image(self,fi):return self.canvas.composite(fi,True).copy(OUTSIDE_MARGIN,OUTSIDE_MARGIN,constants.CANVAS_WIDTH,constants.CANVAS_HEIGHT)
     def save_png(self):
         path,_=QFileDialog.getSaveFileName(self,tr("PNG保存"),"frame.png","PNG (*.png)");
-        if path:imaging.without_color_space(self.crop_image(self.canvas.current_frame)).save(path if path.lower().endswith('.png') else path+'.png','PNG')  # pyright: ignore[reportCallIssue,reportArgumentType]  # QImage.save accepts a str format at runtime
+        if path:
+            self.canvas._commit_brush_stroke()
+            imaging.without_color_space(self.crop_image(self.canvas.current_frame)).save(path if path.lower().endswith('.png') else path+'.png','PNG')  # pyright: ignore[reportCallIssue,reportArgumentType]  # QImage.save accepts a str format at runtime
     def exposure_images(self):
         out=[]
         for i,f in enumerate(self.canvas.frames):
@@ -1517,6 +1511,7 @@ class MainWindow(
     def save_tga(self):
         path,_=QFileDialog.getSaveFileName(self,tr("TGA保存"),"frame.tga","TGA (*.tga)")
         if not path:return
+        self.canvas._commit_brush_stroke()
         if not path.lower().endswith(".tga"):path+=".tga"
         if not self.save_tga_image(self.crop_image(self.canvas.current_frame),Path(path)):
             QMessageBox.warning(self,tr("TGA保存"),tr("TGAを保存できませんでした。Pillowの導入を確認してください。"))

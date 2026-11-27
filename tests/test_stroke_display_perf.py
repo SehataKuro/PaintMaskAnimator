@@ -1,12 +1,4 @@
-"""Brush strokes draw straight into the layer image; no display-buffer detour.
-
-Since #FFFFFF is a true eraser (alpha=0) rather than a pseudo-transparent
-sentinel, the display image equals ``layer.image`` for a plain layer. There is
-no white->transparent transform to amortize, so the brush blends directly into
-the real layer pixels and the incremental display buffer is gone. These tests
-guard the remaining contracts: strokes land in the layer, undo stores only the
-touched tiles, and overlapping stamps keep a stable opacity.
-"""
+"""Brush working image, display, and tiled undo contracts."""
 import os
 
 import numpy as np
@@ -14,10 +6,11 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QPointF  # noqa: E402
-from PySide6.QtGui import QColor, QImage  # noqa: E402
+from PySide6.QtCore import QPoint, QPointF, QRectF  # noqa: E402
+from PySide6.QtGui import QColor, QImage, QPainter  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+from image_edit_helpers import edit_qimage  # noqa: E402
 from paintmaskanimator.undo_entries import LayerTilesUndo  # noqa: E402
 
 
@@ -56,19 +49,19 @@ def test_brush_runtime_warmup_is_idempotent_and_non_mutating(qapp):
     from paintmaskanimator.canvas import PaintCanvas
 
     canvas = PaintCanvas()
-    image_key = int(canvas.active_layer.image.cacheKey())
+    image_key = int(canvas.active_layer.image.generation)
     undo_count = len(canvas.undo_stack)
 
     canvas.warm_up_brush_runtime()
     canvas.warm_up_brush_runtime()
 
     assert canvas._brush_runtime_warmed
-    assert int(canvas.active_layer.image.cacheKey()) == image_key
+    assert int(canvas.active_layer.image.generation) == image_key
     assert len(canvas.undo_stack) == undo_count
     assert not canvas.active_layer.has_content
 
 
-def test_stroke_is_visible_through_layer_image(qapp, monkeypatch, tmp_path):
+def test_stroke_is_visible_before_model_commit(qapp, monkeypatch, tmp_path):
     monkeypatch.setenv("APPDATA", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     from paintmaskanimator import constants
@@ -79,25 +72,94 @@ def test_stroke_is_visible_through_layer_image(qapp, monkeypatch, tmp_path):
     window = MainWindow()
     try:
         canvas = window.canvas
-        idx = _draw_test_stroke(canvas)
+        _draw_test_stroke(canvas)
+        canvas.drawing = True
+        for layer in canvas.frames[canvas.current_frame].layers:
+            if layer is not canvas.active_layer:
+                layer.visible = False
+        model = canvas.active_layer.image
+        assert not np.any(_rgba(model.to_qimage())[:, :, 3])
+        displayed = QImage(model.width, model.height, QImage.Format.Format_ARGB32_Premultiplied)
+        displayed.fill(QColor("transparent"))
+        painter = QPainter(displayed)
+        canvas.draw_frame_direct(painter, QRectF(displayed.rect()), canvas.current_frame)
+        painter.end()
+        assert displayed.pixelColor(310, 295) == QColor("#3355ff")
 
-        # No detour buffer: the display path is the live layer image itself, so
-        # in-progress stamps are already visible.
-        assert (
-            canvas._display_layer_image(canvas.active_layer, idx)
-            is canvas.active_layer.image
-        )
-        painted = _rgba(canvas.active_layer.image)
-        assert np.any(painted[:, :, 3] == 255)
+        writes = []
+        write = type(model).write_qimage
 
+        def track(image, patch, x, y):
+            writes.append((image, x, y, patch.size()))
+            write(image, patch, x, y)
+
+        monkeypatch.setattr(type(model), "write_qimage", track)
+        dirty = canvas._stroke_dirty_rect
         canvas._finish_opaque_brush_stroke()
-        assert np.array_equal(_rgba(canvas.active_layer.image), painted)
+        canvas._finish_opaque_brush_stroke()
+        assert writes == [(model, dirty.x(), dirty.y(), dirty.size())]
+        assert np.array_equal(_rgba(model.to_qimage()), _rgba(displayed))
     finally:
         window.close()
         window.deleteLater()
         window = None
         qapp.processEvents()
         qapp.processEvents()
+
+
+@pytest.mark.parametrize("view", ["plain", "flip", "rotate", "zoom", "palette", "silhouette"])
+def test_growing_crop_matches_full_layer_display(qapp, monkeypatch, view):
+    from paintmaskanimator import constants
+    from paintmaskanimator.canvas import PaintCanvas
+    from paintmaskanimator.models import make_frame
+
+    monkeypatch.setattr(constants, "CANVAS_WIDTH", 512)
+    monkeypatch.setattr(constants, "CANVAS_HEIGHT", 384)
+    canvas = PaintCanvas()
+    canvas.frames = [make_frame(["A"])]
+    canvas.ensure_editable_key()
+    layer = canvas.active_layer
+    model = layer.image
+    layer.opacity = .6
+    with edit_qimage(model) as image:
+        image.fill(QColor(255, 0, 0, 128))
+    canvas.color_mode = "main"
+    canvas.main_color = QColor("white")
+    canvas.pen_size = 16
+    canvas._begin_opaque_brush_stroke()
+    canvas.drawing = True
+    canvas.draw_line(QPointF(150, 145), QPointF(150, 145), 1)
+    first = canvas._stroke_work_rect
+    canvas.draw_line(QPointF(150, 145), QPointF(265, 150), 1)
+    assert first.width() < canvas._stroke_work_rect.width() < model.width
+    assert model.read_qimage(150, 145, 1, 1).pixelColor(0, 0) == QColor(255, 0, 0, 128)
+    canvas.flip_horizontal = view == "flip"
+    canvas.silhouette_non_background = view == "silhouette"
+    if view == "palette":
+        canvas.visible_color_rgbs = {(255, 0, 0)}
+    target = QRectF(10, 12, model.width, model.height)
+    if view == "zoom":
+        target.setWidth(model.width * .8)
+        target.setHeight(model.height * .8)
+
+    def render():
+        result = QImage(560, 450, QImage.Format.Format_ARGB32_Premultiplied)
+        result.fill(QColor(60, 90, 120))
+        painter = QPainter(result)
+        if view == "rotate":
+            painter.rotate(7)
+        canvas.draw_frame_direct(painter, target, canvas.current_frame)
+        painter.end()
+        return result
+
+    shown = render()
+    if view == "plain":
+        assert canvas._stroke_work_rect.width() < model.width
+    bounds = model.to_qimage().rect()
+    full = canvas._expand_stroke_work(bounds)
+    assert shown == render()
+    canvas._finish_opaque_brush_stroke()
+    assert model.read_qimage(*bounds.getRect()) == full
 
 
 def test_brush_undo_stores_only_touched_tiles(qapp, monkeypatch, tmp_path):
@@ -111,9 +173,9 @@ def test_brush_undo_stores_only_touched_tiles(qapp, monkeypatch, tmp_path):
     window = MainWindow()
     try:
         canvas = window.canvas
-        before = _rgba(canvas.active_layer.image)
+        before = _rgba(canvas.active_layer.image.to_qimage())
         _draw_test_stroke(canvas)
-        painted = _rgba(canvas.active_layer.image)
+        painted = _rgba(canvas._expand_stroke_work(canvas.active_layer.image.to_qimage().rect()))
         canvas._finish_opaque_brush_stroke()
 
         entry = canvas.undo_stack[-1]
@@ -126,14 +188,14 @@ def test_brush_undo_stores_only_touched_tiles(qapp, monkeypatch, tmp_path):
             rect.width() * rect.height() for rect, _image in tiles
         )
         assert stored_pixels < (
-            canvas.active_layer.image.width()
-            * canvas.active_layer.image.height()
+            canvas.active_layer.image.to_qimage().width()
+            * canvas.active_layer.image.to_qimage().height()
         )
 
         canvas.undo()
-        assert np.array_equal(_rgba(canvas.active_layer.image), before)
+        assert np.array_equal(_rgba(canvas.active_layer.image.to_qimage()), before)
         canvas.redo()
-        assert np.array_equal(_rgba(canvas.active_layer.image), painted)
+        assert np.array_equal(_rgba(canvas.active_layer.image.to_qimage()), painted)
     finally:
         window.close()
 
@@ -165,9 +227,10 @@ def test_brush_is_always_opaque(qapp, monkeypatch, tmp_path):
         end = QPointF(210, 200)
         canvas._begin_opaque_brush_stroke()
         canvas.draw_line(start, end, 1.0)
-        once = canvas.active_layer.image.pixelColor(200, 200)
+        local = QPoint(200, 200) - canvas._stroke_work_rect.topLeft()
+        once = canvas._stroke_work_image.pixelColor(local)
         canvas.draw_line(start, end, 1.0)
-        twice = canvas.active_layer.image.pixelColor(200, 200)
+        twice = canvas._stroke_work_image.pixelColor(local)
         canvas._finish_opaque_brush_stroke()
 
         assert once == twice

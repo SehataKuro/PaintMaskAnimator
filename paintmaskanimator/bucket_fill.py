@@ -14,10 +14,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Optional, Tuple
+from weakref import ref
 
 import numpy as np
 
 from . import native
+from .numpy_morphology import dilate_numpy as dilate_numpy
+from .numpy_morphology import erode_numpy as erode_numpy
 from .imaging import (
     background_mask_packed,
     mask_bounds,
@@ -263,46 +266,9 @@ def dilate(mask, iterations):
     return native.dilate(mask, iterations)
 
 
-def dilate_numpy(mask, iterations):
-    """8 近傍で ``iterations`` 回膨張させる（numpy 版）。"""
-    result = mask.copy()
-    for _ in range(iterations):
-        source = result.copy()
-        result[1:, :] |= source[:-1, :]
-        result[:-1, :] |= source[1:, :]
-        result[:, 1:] |= source[:, :-1]
-        result[:, :-1] |= source[:, 1:]
-        result[1:, 1:] |= source[:-1, :-1]
-        result[:-1, :-1] |= source[1:, 1:]
-        result[1:, :-1] |= source[:-1, 1:]
-        result[:-1, 1:] |= source[1:, :-1]
-    return result
-
-
 def erode(mask, iterations):
     """8 近傍で ``iterations`` 回収縮させる（Rust）。"""
     return native.erode(mask, iterations)
-
-
-def erode_numpy(mask, iterations):
-    """8 近傍で ``iterations`` 回収縮させる（numpy 版）。"""
-    result = mask.copy()
-    for _ in range(iterations):
-        padded = np.pad(
-            result, ((1, 1), (1, 1)), mode="constant", constant_values=False
-        )
-        result = (
-            padded[0:-2, 0:-2]
-            & padded[0:-2, 1:-1]
-            & padded[0:-2, 2:]
-            & padded[1:-1, 0:-2]
-            & padded[1:-1, 1:-1]
-            & padded[1:-1, 2:]
-            & padded[2:, 0:-2]
-            & padded[2:, 1:-1]
-            & padded[2:, 2:]
-        )
-    return result
 
 
 #: 線の向きを測るために、端からたどる骨格の画素数。
@@ -430,6 +396,52 @@ def extend_line_ends(boundary, max_length, cache=None):
     :returns: 延長線の画素。``boundary`` の画素は含まない。
     """
     height, width = boundary.shape
+    max_length = max(1, int(max_length))
+    # 端から max_length 以内の帯だけを細線化する（全体を細線化すると大きな
+    # キャンバスで遅い）。向きを測るために少し内側まで含める。
+    band = max_length + EXTEND_TRACE_LENGTH + EXTEND_THIN_ITERATIONS + 2
+    strips_for_native = []
+    strips = (
+        (0, min(height, band), 0, width),
+        (max(0, height - band), height, 0, width),
+        (0, height, 0, min(width, band)),
+        (0, height, max(0, width - band), width),
+    )
+    for y0, y1, x0, x1 in strips:
+        part = boundary[y0:y1, x0:x1]
+        if not part.any():
+            continue
+        key = (y0, y1, x0, x1, EXTEND_THIN_ITERATIONS)
+        cached = cache.get(key) if cache is not None else None
+        if cached is not None and np.array_equal(cached[0], part):
+            skeleton = cached[1]
+        else:
+            skeleton = _thin(part, EXTEND_THIN_ITERATIONS)
+            if cache is not None:
+                # ドラッグ中だけ保持する。線や参照が変わった帯は必ず計算し直す。
+                if key not in cache and len(cache) >= 4:
+                    cache.clear()
+                cache[key] = (part.copy(), skeleton)
+        strips_for_native.append((y0, y1, x0, x1, skeleton))
+    return native.extend_line_ends(boundary, strips_for_native, max_length)
+
+
+def extend_line_ends_numpy(boundary, max_length, cache=None):
+    """キャンバス端の手前で途切れた線を、端まで延ばした画素の真偽マスク。
+
+    作画では画面に映る範囲（スタンダードフレーム）の外まで素材を用意するが、
+    フレームの外では線を端まで引かないことが多い。そのまま塗ると線の切れ目から
+    隣の領域へ漏れるので、端点の向きのまま線を延ばした仮想の境界を返す。
+
+    延ばすのは「その向きでキャンバス端まで ``max_length`` 以内」の端点だけで、
+    途中で別の線に当たればそこで止める。絵の内側の端点（髪のハネなど）は
+    延長しないので、ふつうの塗りには影響しない。
+
+    :param boundary: 塗りを止める画素（線など）の真偽マスク。
+    :param cache: ドラッグ中だけ保持する細線化のキャッシュ。衝突判定は再利用しない。
+    :returns: 延長線の画素。``boundary`` の画素は含まない。
+    """
+    height, width = boundary.shape
     extension = np.zeros((height, width), dtype=bool)
     max_length = max(1, int(max_length))
     # 端から max_length 以内の帯だけを細線化する（全体を細線化すると大きな
@@ -517,6 +529,14 @@ def seed_category(pixels, start_x, start_y):
 
 
 def fill_target_mask(pixels, target_color, category, packed=None):
+    """対象色に一致する画素を Rust で判定し、numpy 版 fill_target_mask_numpy と同じ結果を返す。
+
+    packed は互換のため受け取るが使わない。呼び出し元では常に pixels から作った同じ画素。
+    """
+    return native.fill_target_mask(pixels, target_color, category)
+
+
+def fill_target_mask_numpy(pixels, target_color, category, packed=None):
     """``target_color`` の設定で、たどってよい画素の真偽マスクを返す。
 
     ``TARGET_ALL`` は従来どおり、開始点の色種別 ``category``（背景なら None）と
@@ -549,6 +569,11 @@ def fill_target_mask(pixels, target_color, category, packed=None):
 
 
 def _enclosed_by(region):
+    """キャンバス端から4近傍でたどれない穴を返す。"""
+    return native.enclosed_by(region, mask_bounds(region))
+
+
+def _enclosed_by_numpy(region):
     """``region`` の外側（キャンバス端につながる部分）以外の、region でない画素。"""
     outside_candidates = ~region
     edge = np.zeros_like(region)
@@ -575,6 +600,64 @@ class CompactFill:
     result_bounds: Optional[Tuple[int, int, int, int]]
     _sample_mask_key: object = field(default=None, repr=False, compare=False)
 
+    def __post_init__(self):
+        # キャッシュに載る局所マスク・島の配列は生成後に寸法を変えない。
+        self._mask_bytes = self._count_mask_bytes()
+        # 同じ結果が複数のキャッシュやレコードに入った分も計上する。
+        self._byte_owners = None
+
+    def _count_mask_bytes(self):
+        """局所マスクと島の配列のサイズを数える。"""
+        return (0 if self.local is None else self.local.nbytes) + sum(
+            local.nbytes for _color, _box, local in self.islands
+        )
+
+    def __setattr__(self, name, value):
+        """計上済みのマスクの差し替えや圧縮 runs の変更を反映する。"""
+        if name == "_native_runs":
+            delta = len(value) - len(getattr(self, name, b""))
+            self._adjust_owner_bytes(delta)
+        object.__setattr__(self, name, value)
+        if name in ("local", "islands") and "_mask_bytes" in self.__dict__:
+            old = self._mask_bytes
+            self._mask_bytes = self._count_mask_bytes()
+            self._adjust_owner_bytes(self._mask_bytes - old)
+
+    def _adjust_owner_bytes(self, delta):
+        """結果を保持しているキャッシュに、登録一件ごとの差分を加える。"""
+        if delta and self._byte_owners:
+            for owner_ref in self._byte_owners:
+                owner = owner_ref()
+                if owner is not None:
+                    owner._fill_bytes += delta
+
+    def _add_byte_owner(self, owner):
+        """結果を一件分計上し、キャッシュを弱参照で登録する。"""
+        if self._byte_owners is None:
+            self._byte_owners = []
+        self._byte_owners.append(ref(owner))
+        owner._fill_bytes += self._mask_bytes + len(getattr(self, "_native_runs", b""))
+
+    def _remove_byte_owner(self, owner):
+        """退去したレコード一件分の計上と登録を取り消す。"""
+        # 計上済みのキャッシュからだけ呼ばれるので、登録の一覧は必ずある。
+        assert self._byte_owners is not None
+        self._byte_owners.remove(ref(owner))
+        owner._fill_bytes -= self._mask_bytes + len(getattr(self, "_native_runs", b""))
+
+    def __getstate__(self):
+        """コピー・保存する結果には元のキャッシュへの登録を含めない。"""
+        state = self.__dict__.copy()
+        del state["_byte_owners"]
+        del state["_mask_bytes"]
+        return state
+
+    def __setstate__(self, state):
+        """復元した結果のサイズを計算し、キャッシュへの登録を初期化する。"""
+        for name, value in state.items():
+            object.__setattr__(self, name, value)
+        self.__post_init__()
+
     @classmethod
     def from_result(cls, result):
         bounds = result.bounds
@@ -599,9 +682,7 @@ class CompactFill:
 
     @property
     def nbytes(self):
-        return (0 if self.local is None else self.local.nbytes) + sum(
-            local.nbytes for _color, _box, local in self.islands
-        )
+        return self._mask_bytes
 
     def materialize(self, shape):
         region = None
@@ -642,6 +723,17 @@ class _RegionIndex:
         region[y0:y1, x0:x1] = self.labels[y0:y1, x0:x1] == label
         return region
 
+    @property
+    def nbytes(self):
+        """Python 側の索引を挿入・退去するときに配列分を数える。"""
+        return self.labels.nbytes + self.x0.nbytes + self.y0.nbytes + self.x1.nbytes + self.y1.nbytes
+
+
+class _NativeRegionIndex(_RegionIndex):
+    def __init__(self, state, category):
+        self.labels, boxes = state.index(category)
+        self.x0, self.y0, self.x1, self.y1 = boxes.T
+
 
 class BucketSession:
     """変更しない参照画像で、複数回クリックするときの共通前処理。
@@ -659,40 +751,57 @@ class BucketSession:
         self._indices = {}
         self._results = {}
         self._result_bytes = 0
+        # Python の索引分と、結果マスクおよび遅延生成した runs の合計。
+        self._index_bytes = 0
+        self._fill_bytes = 0
         self.gpu_regions = gpu_regions
+        self._native_session = None
 
     @property
     def background(self):
         if self._background is None:
-            self._background = background_mask_packed(rgba_packed_view(self.pixels))
+            self._background = self._native().background()
         return self._background
 
     @property
     def nbytes(self):
-        """共有キャッシュの上限判定用。重複する配列も保守的に数える。"""
-        total = self.pixels.nbytes + (0 if self._background is None else self._background.nbytes)
-        total += sum(array.nbytes for prepared in self._prepared.values()
-                     for array in prepared if array is not None)
-        total += sum(array.nbytes for index in self._indices.values()
-                     for array in (index.labels, index.x0, index.y0, index.x1, index.y1))
-        total += sum(array.nbytes for pair in self._lines.values() for array in pair)
-        total += sum(result.nbytes + len(getattr(result, "_native_runs", b""))
-                     for result in self._results.values())
+        """共有マスクは Rust 側で一度だけ数える。"""
+        total = self.pixels.nbytes + self._index_bytes + self._fill_bytes
+        if self._lines:
+            total += sum(array.nbytes for pair in self._lines.values() for array in pair)
+        if self._native_session is not None:
+            total += self._native_session.nbytes()
         return total
 
+    def _native(self):
+        if self._native_session is None:
+            self._native_session = native.FillSession(self.pixels, self.options, self.indexed)
+        return self._native_session
+
+    def _sync_prepared(self):
+        categories = self._native().categories()
+        removed = [c for c in self._prepared if c not in categories]
+        for category in removed:
+            del self._prepared[category]
+            index = self._indices.pop(category, None)
+            if index is not None and not isinstance(index, _NativeRegionIndex):
+                self._index_bytes -= index.nbytes
+        if removed:
+            self._clear_results()
+
+    def _clear_results(self):
+        """結果を全件退去し、マスクだけを使う結果キャッシュの上限用集計も戻す。"""
+        for result in self._results.values():
+            result._remove_byte_owner(self)
+        self._results.clear()
+        self._result_bytes = 0
+
     def prepare(self, category):
+        state = self._native()
         if category not in self._prepared:
-            # 多色の原画でも、画像全体の配列を色数ぶん保持し続けない。
-            if len(self._prepared) >= 4:
-                oldest = next(iter(self._prepared))
-                del self._prepared[oldest]
-                self._indices.pop(oldest, None)
-                # 領域番号は索引ごとに異なるので、その索引の結果も捨てる。
-                self._results.clear()
-                self._result_bytes = 0
-            self._prepared[category] = _prepare_bucket(
-                self.pixels, category, self.options, self.background, None, self._lines,
-            )
+            prepared = state.prepared(category)
+            self._sync_prepared()
+            self._prepared[category] = prepared
         return self._prepared[category]
 
     def compute(self, x, y):
@@ -700,7 +809,12 @@ class BucketSession:
 
     def index(self, category, passable):
         if category not in self._indices:
-            self._indices[category] = _RegionIndex(passable, self.gpu_regions)
+            if self.gpu_regions is None:
+                self._indices[category] = _NativeRegionIndex(self._native(), category)
+            else:
+                index = _RegionIndex(passable, self.gpu_regions)
+                self._indices[category] = index
+                self._index_bytes += index.nbytes
         return self._indices[category]
 
     def compact(self, x, y):
@@ -717,11 +831,12 @@ class BucketSession:
             result = self._compact_indexed(x, y, category, passable, _gaps)
             if result is None:
                 result = CompactFill.from_result(self.compute(x, y))
-            if self._result_bytes + result.nbytes > 32 * 1024 * 1024:
-                self._results.clear()
-                self._result_bytes = 0
+            size = result.nbytes
+            if self._result_bytes + size > 32 * 1024 * 1024:
+                self._clear_results()
             self._results[key] = result
-            self._result_bytes += result.nbytes
+            self._result_bytes += size
+            result._add_byte_owner(self)
         return self._results[key]
 
     def _compact_indexed(self, x, y, category, passable, gaps):
@@ -864,6 +979,85 @@ def compute_fill_region(
     if selection_mask is not None and not selection_mask[start_y, start_x]:
         return FillResult(REASON_OUTSIDE_SELECTION)
 
+    if session is not None and (
+        session.pixels is not pixels or session.options != options or selection_mask is not None
+    ):
+        raise ValueError("BucketSession requires its original image, options and no selection")
+    # 完全透明の種は RGB を読む必要も全画像を転送する必要もない。
+    if options.target_color in (TARGET_OPAQUE_AND_INNER_TRANSPARENT,
+                                TARGET_SURROUNDED_BY_TRANSPARENT):
+        if int(pixels[start_y, start_x, 3]) == 0:
+            return FillResult(REASON_NOT_TARGET)
+    if options.target_color != TARGET_ALL and (session is None or session._native_session is None):
+        category = seed_category(pixels, start_x, start_y)
+        seed = pixels[start_y:start_y+1, start_x:start_x+1]
+        if not native.fill_target_mask(seed, options.target_color, category)[0, 0]:
+            return FillResult(REASON_NOT_TARGET, target=category)
+    if session is not None:
+        if session.pixels is not pixels or session.options != options or selection_mask is not None:
+            raise ValueError("BucketSession requires its original image, options and no selection")
+        output = session._native().compute(start_x, start_y)
+        session._sync_prepared()
+    else:
+        output = native.compute_fill_region_once(
+            pixels, start_x, start_y, options, selection_mask, line_cache)
+    return _native_fill_result(output, (height, width))
+
+
+def _native_fill_result(output, shape):
+    reason, region, bounds, category, islands = native.fill_region_output(output, shape)
+    return FillResult(
+        reason, region=region, target=category,
+        bounds=bounds if reason == REASON_OK else None, islands=islands,
+    )
+
+
+def skewer_fill_once(pixels, reference, options, selection_mask=None):
+    """隣接 OFF の串刺し塗り。参照色の最初の点を種に塗る。"""
+    seed = native.skewer_seed(pixels, reference)
+    if seed is None:
+        return None
+    result = compute_fill_region(pixels, *seed, options, selection_mask)
+    return result if result.ok else None
+
+
+def skewer_seed_numpy(pixels, reference):
+    """隣接 OFF の串刺し塗りの種を求める numpy 版。"""
+    if reference is None:
+        target = background_mask(pixels)
+    else:
+        target = np.all(pixels[:, :, :3] == reference, axis=2)
+        target &= pixels[:, :, 3] > 0
+    points = np.argwhere(target)
+    if not points.size:
+        return None
+    y, x = points[0]
+    return int(x), int(y)
+
+
+def compute_fill_region_numpy(
+    pixels,
+    start_x,
+    start_y,
+    options: BucketOptions,
+    selection_mask=None,
+    *,
+    line_cache=None,
+    session=None,
+) -> FillResult:
+    """``(start_x, start_y)`` から塗る画素の真偽マスクを求める。
+
+    :param pixels: ``(height, width, 4)`` の RGBA8888 配列。読み取りのみ。
+    :param selection_mask: 選択範囲の真偽マスク。``None`` なら制限なし。
+    :param line_cache: 同じドラッグ内で共有する線端下処理のキャッシュ。
+    :param session: 変更しない同じ画像・設定で前処理を再利用する場合に指定する。
+    """
+    height, width = pixels.shape[:2]
+    if not (0 <= start_x < width and 0 <= start_y < height):
+        return FillResult(REASON_OUT_OF_BOUNDS)
+    if selection_mask is not None and not selection_mask[start_y, start_x]:
+        return FillResult(REASON_OUTSIDE_SELECTION)
+
     category = seed_category(pixels, start_x, start_y)
     # RGBA を uint32 にまとめて比較する（チャンネルごとの np.all より
     # 1桁以上速く、一時配列も小さい）。
@@ -932,9 +1126,9 @@ def compute_fill_region(
 
         # 閉じ込められた穴・島も一緒に塗る対象色。
         if target_color == TARGET_OPAQUE_AND_INNER_TRANSPARENT:
-            region |= _enclosed_by(region) & (pixels[:, :, 3] == 0)
+            region |= _enclosed_by_numpy(region) & (pixels[:, :, 3] == 0)
         elif target_color == TARGET_TRANSPARENT_AND_CLOSED_OPAQUE:
-            region |= _enclosed_by(region) & (pixels[:, :, 3] != 0)
+            region |= _enclosed_by_numpy(region) & (pixels[:, :, 3] != 0)
     else:
         # 「隣接」OFFでは、対象色の画素（既定はクリック位置と同じ色）を一括で塗る。
         region = target_mask
@@ -982,7 +1176,7 @@ def compute_fill_region(
         return FillResult(REASON_EMPTY, target=category)
     islands = ()
     if options.island_replacements:
-        islands = enclosed_islands(
+        islands = enclosed_islands_numpy(
             pixels, final_region, options.island_replacements, selection_mask
         )
         # 島は塗る範囲の縁からはみ出すことがある。書き込み・Undo の矩形に含める。
@@ -1004,7 +1198,14 @@ def compute_fill_region(
 ISLAND_MIN_SHARE = 0.6
 
 
-def enclosed_islands(
+def enclosed_islands(pixels, region, replacements, selection_mask=None, min_share=ISLAND_MIN_SHARE):
+    """囲まれた色の島を置換表の順で返す。"""
+    if not replacements or (bounds := mask_bounds(region)) is None:
+        return ()
+    return native.enclosed_islands(pixels, region, bounds, replacements, selection_mask, min_share)
+
+
+def enclosed_islands_numpy(
     pixels, region, replacements, selection_mask=None,
     min_share=ISLAND_MIN_SHARE,
 ):
@@ -1116,6 +1317,53 @@ def track_fill_region(
     :returns: 結果の ``score`` に重なりを入れる。自信がなくても候補があれば ok で返し、
         採用するかは呼び出し側が ``score`` で決める。候補が無ければ ``REASON_EMPTY``。
     """
+    from .fill_tracking import shift_mask
+
+    if not previous.any():
+        return FillResult(REASON_EMPTY, target=reference)
+    if previous_pixels is not None and previous_pixels.shape != pixels.shape:
+        previous_pixels = None
+    if previous_lines is not None and previous_lines.shape != previous.shape:
+        # 形が違う線画を明示した場合は、前の画素からの線画生成も省く。
+        previous_lines = np.empty(0, dtype=bool)
+    score, outputs, shift, warped = native.track_fill_region(
+        pixels, previous, reference, options, selection_mask, previous_pixels, previous_lines
+    )
+    if not outputs:
+        return FillResult(REASON_EMPTY, target=reference, score=score)
+
+    if warped is not None:
+        matched = np.frombuffer(warped, dtype=bool).reshape(previous.shape).copy()
+    elif shift is not None:
+        matched = shift_mask(previous, *shift)
+    else:
+        matched = previous
+
+    if len(outputs) == 1:
+        result = _native_fill_result(outputs[0], previous.shape)
+        result.score = score
+        result.matched = matched
+        return result
+
+    union = np.zeros_like(previous, dtype=bool)
+    islands = []
+    for output in outputs:
+        _, region, _, _, member_islands = native.fill_region_output(
+            output, previous.shape, include_island_bounds=False
+        )
+        union |= region
+        islands.extend(member_islands)
+    return FillResult(
+        REASON_OK, union, target=reference, bounds=mask_bounds(union),
+        islands=tuple(islands), score=score, matched=matched,
+    )
+
+
+def track_fill_region_numpy(
+    pixels, previous, reference, options: BucketOptions, selection_mask=None,
+    previous_pixels=None, previous_lines=None,
+) -> FillResult:
+    """追跡の候補選択を NumPy で実行する（一致テスト用）。"""
     from . import fill_tracking
 
     previous_area = int(np.count_nonzero(previous))
@@ -1237,7 +1485,7 @@ def track_fill_region(
         and previous_area <= TRACK_SMALL_AREA
         and best_iou < TRACK_GOOD_IOU
     ):
-        rescued = _track_small_region(
+        rescued = _track_small_region_numpy(
             pixels, previous, previous_pixels, target, options, selection_mask
         )
         if rescued is not None and rescued.score is not None and rescued.score > best_iou:
@@ -1248,7 +1496,7 @@ def track_fill_region(
     return best
 
 
-def _shift_candidates(previous_pixels, pixels, previous):
+def _shift_candidates_numpy(previous_pixels, pixels, previous):
     """前のコマから今のコマへの、ずれの候補（重複なし、``(0, 0)`` を含む）。
 
     主線の縁の重なりと、まわりの色の並びの2通りで推定する。
@@ -1265,7 +1513,7 @@ def _shift_candidates(previous_pixels, pixels, previous):
     return list(dict.fromkeys(shifts))
 
 
-def _track_small_region(pixels, previous, previous_pixels, target, options, selection_mask):
+def _track_small_region_numpy(pixels, previous, previous_pixels, target, options, selection_mask):
     """小さい図形を、まわりの色の並びが一番似ている閉じた領域として探す。
 
     ``score`` には :func:`fill_tracking.context_similarity` の値から
@@ -1278,7 +1526,7 @@ def _track_small_region(pixels, previous, previous_pixels, target, options, sele
     tried = np.zeros_like(target)
     best: Optional[FillResult] = None
     best_score = 0.0
-    for dy, dx in _shift_candidates(previous_pixels, pixels, previous):
+    for dy, dx in _shift_candidates_numpy(previous_pixels, pixels, previous):
         moved = fill_tracking.shift_mask(previous, dy, dx)
         bounds = mask_bounds(moved)
         if bounds is None:
@@ -1297,7 +1545,8 @@ def _track_small_region(pixels, previous, previous_pixels, target, options, sele
             continue
         center_y, center_x = np.argwhere(moved).mean(axis=0)
         order = np.argsort(
-            (points[:, 0] + y0 - center_y) ** 2 + (points[:, 1] + x0 - center_x) ** 2
+            (points[:, 0] + y0 - center_y) ** 2 + (points[:, 1] + x0 - center_x) ** 2,
+            kind="stable",
         )
         seeds = 0
         for index in order:
@@ -1328,6 +1577,18 @@ def _track_small_region(pixels, previous, previous_pixels, target, options, sele
 
 
 def guess_target_categories(pixels, previous, previous_pixels, count=2):
+    """図形の移動先の色を得票順で返す。背景の候補は None。"""
+    from .fill_tracking import CONTEXT_RADIUS
+
+    bounds = mask_bounds(previous)
+    if bounds is None:
+        return []
+    return native.guess_target_categories(
+        pixels, previous, previous_pixels, bounds, CONTEXT_RADIUS,
+    )[:count]
+
+
+def guess_target_categories_numpy(pixels, previous, previous_pixels, count=2):
     """``previous`` の図形が今のコマで何色の上にあるか、候補を多い順に返す。
 
     見本のコマで塗った図形を、まだ塗っていない（あるいは違う色で塗った）コマへ
@@ -1339,7 +1600,7 @@ def guess_target_categories(pixels, previous, previous_pixels, count=2):
 
     lines = fill_tracking.line_art(pixels)
     votes = {}
-    for dy, dx in _shift_candidates(previous_pixels, pixels, previous):
+    for dy, dx in _shift_candidates_numpy(previous_pixels, pixels, previous):
         moved = fill_tracking.shift_mask(previous, dy, dx) & ~lines
         sample = pixels[moved]
         if not len(sample):

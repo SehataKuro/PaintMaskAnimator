@@ -223,8 +223,11 @@ def legacy_layer_to_slot(layer: LegacyLayerV1):
     an exposure property to the live Layer.
     """
     from .models import Layer
+    from .pma_image import to_pma_image
 
     copied = snapshot_layer(layer)
+    copied = replace(copied, image=to_pma_image(copied.image),
+                     initial_image=to_pma_image(copied.initial_image))
     slot = Layer(**{field.name: getattr(copied, field.name)
                     for field in fields(LegacyLayerV1) if field.name != "exposure"})
     slot.__dict__["_legacy_input"] = copied

@@ -374,3 +374,63 @@ def test_mesh_render_keeps_protected_lines_connected():
     for row in rows:
         assert coverage[1][row][labels[row] == 1].min() == 255
     assert connected_components(labels == 1) == 1
+
+
+@pytest.mark.parametrize("mode", ["shrink", "grow", "flipped", "mesh"])
+def test_render_and_rgba_match_numpy_for_random_transforms(mode, monkeypatch):
+    """ランダムな全ラベルの被覆と、白の透明化まで含めた RGBA を比較する。"""
+    rng = np.random.default_rng(660)
+    width, height = 79, 61
+    # 同じラベルが順序の途中と最後に現れ、別ラベルと命中を争う。
+    options = dict(coverage_labels=tuple(range(8)), protect_labels=(3, 2, 5, 3))
+    palette = rng.integers(0, 256, (7, 4), dtype=np.uint8)
+    palette[:4] = [[255, 255, 255, 128], [255, 255, 255, 0],
+                   [255, 255, 254, 255], [255, 255, 255, 255]]
+    for _ in range(4):
+        image = rng.integers(0, 8, (height, width), dtype=np.uint16)
+        if mode == "mesh":
+            points = np.asarray(curved_mesh(rng, 4, 3, width, height)) * 0.45 + 4
+            mapper = mask_transform.MeshMapper(points, 4, 3, width, height)
+        else:
+            scale = rng.uniform(1.2, 1.7) if mode == "grow" else rng.uniform(0.3, 0.7)
+            quad = rotation_quad(width, height, rng.uniform(-40, 40), 16, 14, scale)
+            quad = np.asarray(quad) + rng.uniform(-0.5, 0.5, (4, 2))
+            if mode == "flipped":
+                quad = quad[[1, 0, 3, 2]]
+            mapper = mask_transform.QuadMapper(quad, width, height)
+
+        expected, expected_coverage = mask_transform.render_labels_numpy(
+            image, mapper, 43, 35, **options
+        )
+        actual, actual_coverage = mask_transform.render_labels(
+            image, mapper, 43, 35, **options
+        )
+        assert np.array_equal(actual, expected)
+        assert actual_coverage.keys() == expected_coverage.keys()
+        for label in expected_coverage:
+            assert np.array_equal(actual_coverage[label], expected_coverage[label])
+
+        rgba = mask_transform.labels_to_rgba_numpy(expected, palette)
+        assert np.array_equal(mask_transform.labels_to_rgba(actual, palette), rgba)
+        white = (rgba[:, :, 3] > 0) & np.all(rgba[:, :, :3] == 255, axis=2)
+        rgba[white, 3] = 0
+        assert np.array_equal(
+            mask_transform.labels_to_rgba_transparent_white(actual, palette), rgba
+        )
+
+    # 拡張を利用できない経路でも、元の配列と被覆を返す。
+    monkeypatch.setattr(mask_transform, "native", None)
+    fallback, fallback_coverage = mask_transform.render_labels(image, mapper, 43, 35, **options)
+    assert np.array_equal(fallback, expected)
+    assert all(np.array_equal(fallback_coverage[k], v) for k, v in expected_coverage.items())
+    assert np.array_equal(mask_transform.labels_to_rgba_transparent_white(fallback, palette), rgba)
+
+
+def test_labels_to_rgba_dtype_fallback():
+    """符号付きラベルでは負の番号も NumPy と同じように背景へ丸める。"""
+    labels = np.array([[-1, 0, 1, 200]], dtype=np.int64)
+    palette = [[10, 20, 30, 40], [255, 255, 255, 150]]
+    rgba = mask_transform.labels_to_rgba_numpy(labels, palette)
+    assert np.array_equal(mask_transform.labels_to_rgba(labels, palette), rgba)
+    rgba[0, 2:, 3] = 0
+    assert np.array_equal(mask_transform.labels_to_rgba_transparent_white(labels, palette), rgba)

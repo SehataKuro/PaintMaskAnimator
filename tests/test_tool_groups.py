@@ -116,10 +116,11 @@ def test_the_replace_colour_tool_replaces_in_every_frame(window):
     canvas._ensure_frame_count(2)
     for index in range(2):
         layer = canvas.frames[index].layers[0]
-        layer.image.fill(QColor(0, 0, 0, 0))
+        image = layer.image.to_qimage()
+        image.fill(QColor(0, 0, 0, 0))
         for x in range(10, 20):
-            layer.image.setPixelColor(x, 10, QColor("#ffe0c0"))
-        create_drawing(layer, layer.image.copy(), number=index + 1)
+            image.setPixelColor(x, 10, QColor("#ffe0c0"))
+        create_drawing(layer, image, number=index + 1)
     canvas.current_frame = 0
     canvas.main_color = QColor("#3355ff")
     canvas.color_mode = "main"
@@ -130,7 +131,7 @@ def test_the_replace_colour_tool_replaces_in_every_frame(window):
     canvas.flood_fill(QPoint(12, 10))
 
     for index in range(2):
-        assert canvas.frames[index].layers[0].image.pixelColor(12, 10) == QColor("#3355ff")
+        assert canvas.frames[index].layers[0].image.to_qimage().pixelColor(12, 10) == QColor("#3355ff")
 
 
 def test_the_tool_options_follow_the_new_tools(window):

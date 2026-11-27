@@ -252,7 +252,7 @@ def test_equal_source_artwork_can_normalize(window, tmp_path, candidates, source
               for i in range(8)]
     d = install_legacy(window, frames)
     # Distinct QImage objects with the same pixels must also be accepted.
-    d.frames[source_column].layers[0].image = d.tracks[0].cells[9].image.copy()
+    d.frames[source_column].layers[0].image = d.tracks[0].cells[9].image.to_qimage().copy()
     target = d.frames[7].layers[0]
     signature = (target.has_content, target.is_blank_key, target.sequence_number,
                  target.sequence_only, target.blank_start)

@@ -1,0 +1,18 @@
+[package]
+name = "pma-core"
+version = "0.1.0"
+description = "PaintMaskAnimator の計算とデータ（Python・Qt に依存しない）"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+# PNG のデコード（段階3）。純 Rust（fdeflate・miniz_oxide）だけを使う。
+png = "0.18.1"
+# .pman（ZIP）の読み取り（段階3-3）。deflate だけ。圧縮の実装は png と同じ
+# flate2 の純 Rust バックエンド（miniz_oxide）で、C ライブラリは入らない。
+zip = { version = "9.6.1", default-features = false, features = ["deflate-flate2"] }
+# project.json の解釈（段階3-4）。値の型（serde_json::Value）として使う。純 Rust。
+serde_json = { version = "1", features = ["float_roundtrip"] }
+# 追跡の相関（段階4-4b）。実数 FFT。純 Rust（rustfft）で C ライブラリは入らない。
+realfft = "3.5.1"

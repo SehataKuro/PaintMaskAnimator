@@ -1,0 +1,359 @@
+"""画像コンテナの暗黙共有と RGBA 変換を検証する。"""
+
+import numpy as np
+import pytest
+from PySide6.QtCore import QRect
+from PySide6.QtGui import QColor, QColorSpace, QImage, QPainter
+
+from image_edit_helpers import edit_qimage
+
+from paintmaskanimator import imaging
+from paintmaskanimator.pma_image import PmaImage, as_qimage, copy_image, image_rgba, snapshot_image
+
+
+def _blank(width, height):
+    image = QImage(width, height, QImage.Format.Format_ARGB32_Premultiplied)
+    image.fill(0)
+    return PmaImage.from_qimage(image)
+
+
+def test_copy_shares_pixels_until_write():
+    original = _blank(3, 2)
+    duplicate = original.copy()
+
+    assert (original.width, original.height) == (3, 2)
+    assert duplicate.to_qimage() is not original.to_qimage()
+    assert duplicate.generation == original.generation
+
+    duplicate.write_rgba(np.array([[[255, 0, 0, 255]]], dtype=np.uint8), x=2, y=1)
+
+    assert duplicate.generation != original.generation
+    assert not original.rgba().any()
+    assert duplicate.rgba()[1, 2].tolist() == [255, 0, 0, 255]
+
+
+def test_rgba_is_readonly_red_snapshot():
+    source = QImage(1, 1, QImage.Format.Format_ARGB32)
+    source.fill(QColor(255, 0, 0))
+    image = PmaImage.from_qimage(source)
+    pixels = image.rgba()
+    assert image.to_qimage().format() == QImage.Format.Format_ARGB32_Premultiplied
+    assert pixels.dtype == np.uint8
+    assert pixels.shape == (1, 1, 4)
+    assert pixels.tolist() == [[[255, 0, 0, 255]]]
+    assert not pixels.flags.writeable
+    with pytest.raises(ValueError):
+        pixels[0, 0, 0] = 0
+
+    image.write_rgba(np.array([[[0, 0, 255, 255]]], dtype=np.uint8))
+    assert pixels.tolist() == [[[255, 0, 0, 255]]]
+
+
+def test_rectangle_qimage_is_independent_until_writeback():
+    image = _blank(3, 2)
+    with edit_qimage(image, QRect(2, 1, 1, 1)) as patch:
+        painter = QPainter(patch)
+        painter.fillRect(patch.rect(), QColor(0, 0, 255))
+        painter.end()
+        assert not image.rgba().any()
+
+    assert image.read_rgba(2, 1, 1, 1).tolist() == [[[0, 0, 255, 255]]]
+    with pytest.raises(RuntimeError), edit_qimage(image) as patch:
+        patch.fill(0)
+        raise RuntimeError("discard")
+    assert image.read_rgba(2, 1, 1, 1).tolist() == [[[0, 0, 255, 255]]]
+
+
+def test_rectangle_padding_clipping_and_empty():
+    image = _blank(2, 2)
+    source = QImage(2, 2, QImage.Format.Format_ARGB32_Premultiplied)
+    source.fill(QColor(201, 18, 63, 128))
+    source.setDevicePixelRatio(2)
+    image.write_qimage(source, -1, 1)
+
+    patch = image.read_qimage(-1, 0, 3, 2)
+    assert patch.format() == source.format()
+    assert patch.pixel(1, 1) == source.pixel(1, 0)
+    assert patch.pixel(0, 1) == patch.pixel(2, 1) == 0
+    pixels = image.read_rgba(-1, 0, 3, 2)
+    pixels.fill(0)
+    assert image.read_qimage(0, 1, 1, 1).pixel(0, 0) == source.pixel(1, 0)
+    assert image.read_qimage(0, 0, 0, 0).isNull()
+    assert image.read_rgba(0, 0, 0, 2).shape == (2, 0, 4)
+    image.write_qimage(QImage(), 0, 1)
+    assert image.read_qimage(0, 1, 1, 1).pixel(0, 0) == source.pixel(1, 0)
+
+
+@pytest.mark.parametrize("width", [1, 63, 64, 65])
+def test_write_rgba_at_edges(width):
+    image = _blank(width + 1, 3)
+    patch = np.arange(2 * width * 4, dtype=np.uint8).reshape(2, width, 4)[:, ::-1]
+    patch[..., 3] = 255
+    image.write_rgba(patch, x=1, y=1)
+
+    expected = np.zeros((3, width + 1, 4), dtype=np.uint8)
+    expected[1:, 1:] = patch
+    np.testing.assert_array_equal(image.rgba(), expected)
+
+    single = _blank(width, 1)
+    single.write_rgba(patch[:1])
+    np.testing.assert_array_equal(single.rgba(), patch[:1])
+
+
+def test_translucent_round_trip_matches_imaging():
+    straight = np.array([[[235, 51, 19, 129], [29, 67, 211, 53]]], dtype=np.uint8)
+    source = imaging.rgba_array_to_qimage(straight)
+    snapshot = PmaImage.from_qimage(source).rgba()
+    expected = imaging.rgba_array_to_qimage(imaging.qimage_rgba_array(source))
+    destination = _blank(2, 1)
+    destination.write_rgba(snapshot)
+
+    np.testing.assert_array_equal(destination.rgba(), snapshot)
+    assert destination.to_qimage() == expected
+    assert destination.to_qimage() == source
+
+
+def test_null_image_returns_readonly_rgba():
+    image = PmaImage.from_qimage(QImage())
+    pixels = image.rgba()
+    assert pixels.shape == (0, 0, 4)
+    assert pixels.dtype == np.uint8
+    assert not pixels.flags.writeable
+    image.write_rgba(pixels)
+
+
+@pytest.mark.parametrize(
+    ("patch", "x", "y"),
+    [
+        (np.zeros((1, 1, 4), dtype=np.float32), 0, 0),
+        (np.zeros((1, 1, 3), dtype=np.uint8), 0, 0),
+        (np.zeros((1, 4), dtype=np.uint8), 0, 0),
+        ([], 0, 0),
+        (np.zeros((1, 1, 4), dtype=np.uint8), -1, 0),
+        (np.zeros((1, 1, 4), dtype=np.uint8), 0, -1),
+        (np.zeros((1, 2, 4), dtype=np.uint8), 1, 0),
+        (np.zeros((2, 1, 4), dtype=np.uint8), 0, 1),
+        (np.zeros((1, 1, 4), dtype=np.uint8), 2, 0),
+        (np.zeros((1, 1, 4), dtype=np.uint8), 0, 2),
+        (np.zeros((1, 1, 4), dtype=np.uint8), 0.5, 0),
+    ],
+)
+def test_write_rgba_rejects_invalid_input(patch, x, y):
+    image = _blank(2, 2)
+    key = image.generation
+    with pytest.raises(ValueError):
+        image.write_rgba(patch, x=x, y=y)
+    assert image.generation == key
+
+
+def test_helpers_preserve_qimage_identity_copy_and_rgba():
+    image = QImage(2, 1, QImage.Format.Format_ARGB32)
+    image.fill(QColor(201, 18, 63, 128))
+
+    assert as_qimage(image) is image
+    duplicate = copy_image(image)
+    assert isinstance(duplicate, QImage)
+    assert duplicate is not image
+    assert duplicate.cacheKey() == QImage(image).cacheKey()
+    assert duplicate.format() == image.format()
+
+    pixels = image_rgba(image)
+    np.testing.assert_array_equal(pixels, imaging.qimage_rgba_array(image))
+    assert pixels.flags.writeable
+
+    duplicate.fill(0)
+    assert image.pixelColor(0, 0) == QColor(201, 18, 63, 128)
+
+
+def test_helpers_use_pma_image_operations():
+    image = _blank(2, 1)
+    image.write_rgba(np.array([[[255, 0, 0, 255]]], dtype=np.uint8))
+
+    assert as_qimage(image) == image.to_qimage()
+    assert as_qimage(image) is not image.to_qimage()
+    duplicate = copy_image(image)
+    assert isinstance(duplicate, PmaImage)
+    assert duplicate is not image
+    assert as_qimage(duplicate) is not as_qimage(image)
+    assert duplicate.generation == image.generation
+
+    pixels = image_rgba(image)
+    np.testing.assert_array_equal(pixels, image.rgba())
+    assert pixels.flags.writeable
+
+    duplicate.write_rgba(np.zeros((1, 1, 4), dtype=np.uint8))
+    assert image.rgba()[0, 0].tolist() == [255, 0, 0, 255]
+
+
+@pytest.mark.parametrize("helper", [as_qimage, copy_image, image_rgba, snapshot_image])
+def test_helpers_accept_none(helper):
+    assert helper(None) is None
+
+
+@pytest.mark.parametrize("wrap", [False, True])
+def test_helpers_accept_null_qimage(wrap):
+    image = QImage()
+    source = PmaImage.from_qimage(image) if wrap else image
+    qt_image = source.to_qimage() if wrap else image
+
+    if wrap:
+        assert as_qimage(source).isNull()
+        assert as_qimage(source) is not qt_image
+    else:
+        assert as_qimage(source) is qt_image
+    duplicate = copy_image(source)
+    assert type(duplicate) is type(source)
+    assert as_qimage(duplicate) is not qt_image
+    assert as_qimage(duplicate).isNull()
+
+    pixels = image_rgba(source)
+    assert pixels.shape == (0, 0, 4)
+    assert pixels.dtype == np.uint8
+    assert pixels.flags.writeable
+
+
+@pytest.mark.parametrize("wrap", [False, True])
+def test_snapshot_image_preserves_type_and_copy_semantics(wrap):
+    qt_image = QImage(2, 1, QImage.Format.Format_ARGB32_Premultiplied)
+    qt_image.fill(QColor("red"))
+    image = PmaImage.from_qimage(qt_image) if wrap else qt_image
+
+    snapshot = snapshot_image(image)
+    assert type(snapshot) is type(image)
+    assert as_qimage(snapshot) is not as_qimage(image)
+    assert as_qimage(snapshot) == qt_image
+    assert as_qimage(snapshot).cacheKey() != as_qimage(image).cacheKey()
+    if wrap:
+        with edit_qimage(snapshot) as edited:
+            edited.fill(0)
+    else:
+        snapshot.fill(0)
+    assert as_qimage(image).pixelColor(0, 0) == QColor("red")
+
+
+@pytest.mark.parametrize("wrap", [False, True])
+def test_legacy_snapshot_copies_images_without_changing_their_type(wrap):
+    from paintmaskanimator.legacy_v1 import snapshot_layer
+    from paintmaskanimator.models import Layer
+
+    qt_image = QImage(2, 1, QImage.Format.Format_ARGB32_Premultiplied)
+    qt_image.fill(QColor("red"))
+    image = PmaImage.from_qimage(qt_image) if wrap else qt_image
+    original = Layer("線画", image, initial_image=image)
+
+    snapshot = snapshot_layer(original)
+
+    for duplicate, source in ((snapshot.image, original.image), (snapshot.initial_image, original.initial_image)):
+        assert type(duplicate) is type(original.image)
+        assert as_qimage(duplicate) is not as_qimage(original.image)
+        assert duplicate.generation == source.generation
+        with edit_qimage(duplicate) as edited:
+            edited.fill(0)
+        assert as_qimage(image).pixelColor(0, 0) == QColor("red")
+
+
+@pytest.mark.parametrize("kind", ["qimage", "pma_image", "none"])
+def test_helpers_preserve_png_source_metadata(kind):
+    qt_image = QImage(2, 1, QImage.Format.Format_ARGB32_Premultiplied)
+    qt_image.fill(QColor(201, 18, 63, 128))
+    qt_image.setText("Description", "PNG metadata")
+    qt_image.setDotsPerMeterX(3937)
+    image = {"qimage": qt_image, "pma_image": PmaImage.from_qimage(qt_image),
+             "none": None}[kind]
+
+    source = as_qimage(image)
+    duplicate = copy_image(image)
+    if image is None:
+        assert source is duplicate is None
+        return
+
+    if kind == "pma_image":
+        assert source is not image.to_qimage()
+        assert source == image.to_qimage()
+        assert duplicate.generation == image.generation
+    else:
+        assert source is image
+    assert type(duplicate) is type(image)
+    copied = as_qimage(duplicate)
+    assert copied is not source
+    if kind == "qimage":
+        assert copied.cacheKey() == source.cacheKey()
+    assert copied.text("Description") == "PNG metadata"
+    assert copied.dotsPerMeterX() == 3937
+
+
+def test_generation_tracks_pixel_writes_across_copies():
+    original = _blank(3, 2)
+    duplicate = original.copy()
+    independent = _blank(3, 2)
+    initial = original.generation
+    assert duplicate.generation == initial < independent.generation
+    with pytest.raises(AttributeError):
+        original.generation = 0
+
+    patch = QImage(1, 1, QImage.Format.Format_ARGB32_Premultiplied)
+    patch.fill(QColor("red"))
+    duplicate.write_qimages([(0, 0, QImage()), (3, 0, patch), (-1, 1, patch)])
+    duplicate.write_rgba(np.empty((0, 3, 4), dtype=np.uint8))
+    assert duplicate.generation == initial
+
+    duplicate.write_qimage(patch, 0, 0)
+    assert original.generation == initial < independent.generation < duplicate.generation
+    assert not original.rgba().any()
+    assert duplicate.rgba()[0, 0].tolist() == [255, 0, 0, 255]
+
+    original.write_rgba(np.full((2, 3, 4), 255, dtype=np.uint8))
+    assert original.generation > duplicate.generation
+    replacement = PmaImage.from_qimage(original.to_qimage())
+    assert replacement.generation > original.generation
+    assert np.array_equal(replacement.rgba(), original.rgba())
+
+
+def test_display_image_cache_reuses_copies_and_evicts_by_bytes(monkeypatch):
+    from paintmaskanimator.display_image_cache import DisplayImageCache
+
+    original_to_qimage = PmaImage.to_qimage
+    monkeypatch.setattr(PmaImage, "to_qimage", lambda image: original_to_qimage(image).copy())
+    cache = DisplayImageCache(budget=32)
+    first, second, third = (_blank(2, 2) for _ in range(3))
+    first_qt = cache.get(first)
+    cache.get(second)
+    assert cache.get(first.copy()) is first_qt
+    cache.get(third)
+    assert (cache.hits, cache.misses, cache.converted_bytes, cache.bytes_used) == (1, 3, 48, 32)
+    assert cache.get(first) is first_qt
+    cache.get(second)
+    assert cache.misses == 4
+
+    first.write_rgba(np.full((1, 1, 4), 255, dtype=np.uint8))
+    assert cache.get(first).pixelColor(0, 0) == QColor("white")
+    assert first_qt.pixelColor(0, 0).alpha() == 0
+    assert cache.misses == 5
+
+
+
+def test_to_qimage_pixels_and_attributes_are_independent():
+    qt_image = QImage(2, 1, QImage.Format.Format_ARGB32_Premultiplied)
+    qt_image.fill(QColor(201, 18, 63, 128))
+    qt_image.setColorSpace(QColorSpace(QColorSpace.NamedColorSpace.SRgb))
+    qt_image.setDevicePixelRatio(2)
+    qt_image.setDotsPerMeterX(2900)
+    qt_image.setDotsPerMeterY(3700)
+    qt_image.setOffset(qt_image.rect().bottomRight())
+    qt_image.setText("Description", "PNG metadata")
+    image = PmaImage.from_qimage(qt_image)
+    generation = image.generation
+
+    edited = image.to_qimage()
+    edited.fill(0)
+    edited.setColorSpace(QColorSpace())
+    edited.setText("Description", "temporary")
+
+    assert image.generation == generation
+    for preserved in (image.to_qimage(), image.read_qimage(0, 0, 1, 1)):
+        assert preserved.pixel(0, 0) == qt_image.pixel(0, 0)
+        assert preserved.colorSpace() == qt_image.colorSpace()
+        assert preserved.devicePixelRatio() == 2
+        assert (preserved.dotsPerMeterX(), preserved.dotsPerMeterY()) == (2900, 3700)
+        assert preserved.offset() == qt_image.offset()
+        assert preserved.text("Description") == "PNG metadata"

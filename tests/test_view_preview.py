@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from PySide6.QtCore import QPointF
+from PySide6.QtCore import QPointF, QRect
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QAbstractSpinBox, QApplication
+
+from image_edit_helpers import edit_qimage
 
 from paintmaskanimator import view_preview
 from paintmaskanimator.view_preview import ViewPreview
@@ -128,15 +130,18 @@ def test_label_regions_numpy_numbers_in_first_appearance_order():
 # ----------------------------------------------------------------------
 def test_map_stroke_converts_only_pending_pixels(qapp, monkeypatch):
     from PySide6.QtCore import QRect
+    from image_edit_helpers import edit_qimage
     from paintmaskanimator.canvas import PaintCanvas
 
     canvas = PaintCanvas()
     layer = canvas.active_layer
-    layer.image.fill(QColor(*NORMAL))
+    with edit_qimage(layer.image) as image:
+        image.fill(QColor(*NORMAL))
     canvas.set_view_preview(map_colors=True)
-    original = canvas.view_layer_image(layer, canvas.active_layer_index, layer.image)
+    original = canvas.view_layer_image(layer, canvas.active_layer_index, layer.image.to_qimage())
     canvas._begin_opaque_brush_stroke()
     canvas.drawing = True
+    work = canvas._stroke_work_image
     converted = []
     real_map = view_preview.map_color_pixels
 
@@ -148,20 +153,20 @@ def test_map_stroke_converts_only_pending_pixels(qapp, monkeypatch):
     try:
         for x, color in [(30, QColor(*SHADOW)), (600, QColor(0, 0, 0, 0))]:
             canvas._ensure_before_region(QRect(x, 30, 4, 4))
-            layer.image.setPixelColor(x, 30, color)
-            shown = canvas.view_layer_image(layer, canvas.active_layer_index, layer.image)
+            work.setPixelColor(x, 30, color)
+            shown = canvas.view_layer_image(layer, canvas.active_layer_index, work)
             assert shown.pixelColor(0, 0) == original.pixelColor(0, 0)
             if color.alpha() == 0:
                 assert shown.pixelColor(x, 30).alpha() == 0
             else:
                 assert shown.pixelColor(x, 30) != original.pixelColor(x, 30)
-            assert canvas.view_layer_image(layer, canvas.active_layer_index, layer.image) is shown
+            assert canvas.view_layer_image(layer, canvas.active_layer_index, work) is shown
         assert converted == [(4, 4), (4, 4)]
         assert original.pixelColor(600, 30).alpha() == 255
     finally:
         canvas.drawing = False
         canvas._finish_opaque_brush_stroke()
-    assert canvas.view_layer_image(layer, canvas.active_layer_index, layer.image) == shown
+    assert canvas.view_layer_image(layer, canvas.active_layer_index, layer.image.to_qimage()) == shown
 
 
 @pytest.fixture(scope="module")
@@ -184,10 +189,11 @@ def window(qapp, tmp_path, monkeypatch):
 
 def painted_layer(window):
     layer = window.canvas.frames[0].layers[window.canvas.active_layer_index]
-    layer.image.fill(QColor(*NORMAL))
-    for y in range(10, 20):
-        for x in range(10, 20):
-            layer.image.setPixelColor(x, y, QColor(*SHADOW))
+    with edit_qimage(layer.image) as patch:
+        patch.fill(QColor(*NORMAL))
+        for y in range(10, 20):
+            for x in range(10, 20):
+                patch.setPixelColor(x, y, QColor(*SHADOW))
     layer.has_content = True
     return layer
 
@@ -201,10 +207,10 @@ def test_preview_changes_only_the_screen_not_exports(window):
     window.channel_combo.setCurrentIndex(window.channel_combo.findData("red"))
     window.map_colors_button.click()
 
-    shown = canvas.view_layer_image(layer, canvas.active_layer_index, layer.image)
-    assert shown is not layer.image
+    shown = canvas.view_layer_image(layer, canvas.active_layer_index, layer.image.to_qimage())
+    assert shown is not layer.image.to_qimage()
     assert QColor(shown.pixel(15, 15)) != QColor(*SHADOW)
-    assert layer.image.pixelColor(15, 15) == QColor(*SHADOW), "画素データは変えない"
+    assert layer.image.to_qimage().pixelColor(15, 15) == QColor(*SHADOW), "画素データは変えない"
     assert window.crop_image(0) == before, "書き出し・サムネイルには掛けない"
 
 
@@ -213,10 +219,11 @@ def test_map_colors_remain_stable_during_the_stroke(qapp, monkeypatch):
 
     canvas = PaintCanvas()
     layer = canvas.frames[0].layers[canvas.active_layer_index]
-    layer.image.fill(QColor(*NORMAL))
-    layer.image.setPixelColor(15, 15, QColor(*SHADOW))
+    with edit_qimage(layer.image) as patch:
+        patch.fill(QColor(*NORMAL))
+        patch.setPixelColor(15, 15, QColor(*SHADOW))
     canvas.set_view_preview(map_colors=True)
-    before = canvas.view_layer_image(layer, canvas.active_layer_index, layer.image)
+    before = canvas.view_layer_image(layer, canvas.active_layer_index, layer.image.to_qimage())
     normal_color = before.pixelColor(0, 0)
     shadow_color = before.pixelColor(15, 15)
 
@@ -226,21 +233,22 @@ def test_map_colors_remain_stable_during_the_stroke(qapp, monkeypatch):
     monkeypatch.setattr(view_preview, "label_regions", unexpected_labels)
     canvas.drawing = True
     try:
-        layer.image.setPixelColor(30, 30, QColor(*SHADOW))
-        shown = canvas.view_layer_image(layer, canvas.active_layer_index, layer.image)
+        with edit_qimage(layer.image, QRect(30, 30, 1, 1)) as patch:
+            patch.fill(QColor(*SHADOW))
+        shown = canvas.view_layer_image(layer, canvas.active_layer_index, layer.image.to_qimage())
         assert shown.pixelColor(0, 0) == normal_color
         assert shown.pixelColor(30, 30) == shadow_color
-        assert layer.image.pixelColor(30, 30) == QColor(*SHADOW)
+        assert layer.image.to_qimage().pixelColor(30, 30) == QColor(*SHADOW)
     finally:
         canvas.drawing = False
-    assert canvas.view_layer_image(layer, canvas.active_layer_index, layer.image) == shown
+    assert canvas.view_layer_image(layer, canvas.active_layer_index, layer.image.to_qimage()) == shown
 
 
 def test_canvas_map_colors_keep_the_same_rgb_when_switching_images(window):
     canvas = window.canvas
     layer = painted_layer(window)
     canvas.set_view_preview(map_colors=True)
-    first_image = layer.image.copy()
+    first_image = layer.image.to_qimage().copy()
     first = canvas.view_layer_image(layer, canvas.active_layer_index, first_image)
     second_image = first_image.copy()
     second_image.fill(QColor(*SHADOW))

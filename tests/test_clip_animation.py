@@ -1,3 +1,5 @@
+from image_edit_helpers import edit_qimage
+
 from paintmaskanimator.timeline_span import span_at
 from paintmaskanimator.document import Document, project_v1_state
 import os
@@ -449,8 +451,8 @@ def test_read_clip_animation_restores_rendered_cell_and_timeline(tmp_path):
     assert key.cell_name is None
     assert key.sequence_number == 1
     assert span_at(document.frames, 0, 0)[2] == 3
-    assert key.image.pixelColor(0, 0) == QColor(10, 20, 30, 255)
-    assert key.image.pixelColor(1, 0) == QColor(40, 50, 60, 255)
+    assert key.image.to_qimage().pixelColor(0, 0) == QColor(10, 20, 30, 255)
+    assert key.image.to_qimage().pixelColor(1, 0) == QColor(40, 50, 60, 255)
     assert path.read_bytes() == original
 
 
@@ -603,13 +605,13 @@ def test_hidden_tracks_and_ancestors_are_skipped_and_stack_order_is_preserved(tm
     parsed = read_clip_animation(path, progress=lambda *args: updates.append(args))
     assert [layer.name for layer in parsed.layers] == ["動画", "Top"]
     assert {total for _, total, _ in updates if total} == {2}
-    assert parsed.frames[0].layers[1].image.pixelColor(0, 0) == QColor(40, 50, 60, 255)
+    assert parsed.frames[0].layers[1].image.to_qimage().pixelColor(0, 0) == QColor(40, 50, 60, 255)
     composite = QImage(2, 2, QImage.Format.Format_ARGB32_Premultiplied)
     composite.fill(QColor(0, 0, 0, 0))
     from PySide6.QtGui import QPainter
     painter = QPainter(composite)
     for layer in parsed.frames[0].layers:
-        painter.drawImage(0, 0, layer.image)
+        painter.drawImage(0, 0, layer.image.to_qimage())
     painter.end()
     assert composite.pixelColor(0, 0) == QColor(40, 50, 60, 255)
 
@@ -639,9 +641,10 @@ def test_held_frames_use_shared_image_budget(monkeypatch):
     doc = Document()
     doc.install_legacy_frames(frames)
     frames, _ = project_v1_state(doc.frames)
-    assert frames[1].layers[0].image.cacheKey() == frames[120].layers[0].image.cacheKey()
-    frames[1].layers[0].image.fill(QColor("blue"))
-    assert frames[120].layers[0].image.pixelColor(0, 0).alpha() == 0
+    assert frames[1].layers[0].image.generation == frames[120].layers[0].image.generation
+    with edit_qimage(frames[1].layers[0].image) as edited:
+        edited.fill(QColor("blue"))
+    assert frames[120].layers[0].image.to_qimage().pixelColor(0, 0).alpha() == 0
     monkeypatch.setattr(clip_module, "MAX_PROJECT_DECODED_PIXELS", 7)
     with pytest.raises(ClipImportError, match="PMA"):
         build_pma_frames(2, 2, 0, 120, (layer,))
@@ -795,7 +798,7 @@ def test_successful_ui_import_replaces_document_in_sheet_mode(
         assert 2 in window.canvas._document.tracks[0].legacy_archive_hints
         archived = window.canvas._document.tracks[0].cells[2]
         assert archived.cell_name == "B-8"
-        assert archived.image.pixelColor(0, 0) == QColor("magenta")
+        assert archived.image.to_qimage().pixelColor(0, 0) == QColor("magenta")
         window.timeline_ops.set_mode("sequence")
         sequence_cell = window.timeline.table.item(0, 1)
         assert sequence_cell is not None and sequence_cell.text() == "B-8"
@@ -881,7 +884,7 @@ def test_cell_name_roundtrips_in_pman(tmp_path):
     restored = loaded.document.tracks[0].cells[2]
     assert restored.cell_name == "未配置A"
     assert 2 in loaded.document.tracks[0].cells
-    assert restored.image.pixelColor(0, 0) == QColor("yellow")
+    assert restored.image.to_qimage().pixelColor(0, 0) == QColor("yellow")
 
 
 _LAYER_COLUMNS = (
@@ -1069,7 +1072,7 @@ def test_cel_folder_applies_clipping_blend_mode_mask_and_visibility(tmp_path):
             ]
         },
     )
-    image = read_clip_animation(path).frames[0].layers[0].image
+    image = read_clip_animation(path).frames[0].layers[0].image.to_qimage()
     shaded = image.pixelColor(0, 0)
     assert (shaded.red(), shaded.green(), shaded.blue(), shaded.alpha()) == (100, 50, 20, 255)
     assert image.pixelColor(1, 0) == shaded
@@ -1242,18 +1245,19 @@ def test_native_clip_can_restore_initial_line_art_without_replacing_paint(qapp, 
         frames = canvas.frames
         cell = frames[0].layers[0]
         # 読み込みが済んだ時点で、線画は初期状態として保持されている。
-        assert cell.initial_image.pixelColor(0, 0) == QColor(10, 20, 30, 255)
-        cell.image = QImage(cell.image)
-        cell.image.fill(QColor("red"))
+        assert cell.initial_image.to_qimage().pixelColor(0, 0) == QColor(10, 20, 30, 255)
+        cell.image = QImage(cell.image.to_qimage())
+        with edit_qimage(cell.image) as edited:
+            edited.fill(QColor("red"))
         exposure = span_at(frames, 0, 0)[2]
         assert window.initial_state.import_clip_line_art(path) == 1
         assert canvas.frames is frames and span_at(frames, 0, 0)[2] == exposure
-        assert cell.image.pixelColor(0, 0) == QColor("red")
-        assert cell.initial_image.pixelColor(0, 0) == QColor(10, 20, 30, 255)
+        assert cell.image.to_qimage().pixelColor(0, 0) == QColor("red")
+        assert cell.initial_image.to_qimage().pixelColor(0, 0) == QColor(10, 20, 30, 255)
         canvas.undo()
         # 読み込み時に保持した初期状態へ戻る（塗りはそのまま）。
-        assert cell.initial_image.pixelColor(0, 0) == QColor(10, 20, 30, 255)
-        assert cell.image.pixelColor(0, 0) == QColor("red")
+        assert cell.initial_image.to_qimage().pixelColor(0, 0) == QColor(10, 20, 30, 255)
+        assert cell.image.to_qimage().pixelColor(0, 0) == QColor("red")
     finally:
         window.close()
 

@@ -320,19 +320,19 @@ def test_batched_gpu_padding_and_transfer_preserve_alignment(monkeypatch, tmp_pa
     assert cache._resident.pool.used_bytes() == 0
     assert cache._resident.pool.total_bytes() == 0
 
-@pytest.mark.parametrize('shape,margin', [((17, 23), 3), ((31, 42), 12), ((96, 127), 24)])
-def test_short_fft_padding_matches_full_linear_correlation(shape, margin):
-    rng = np.random.default_rng(200)
-    before = rng.random(shape).astype(np.float32)
-    after = rng.random(shape).astype(np.float32)
-    shifts = np.arange(-margin, margin + 1)
-    problem = dict(before=before, after=after, limit=margin, dys=shifts, dxs=shifts)
-    actual = auto_paint._local_shift_window(problem)
-    full_size = tuple(2 * length for length in shape)
-    full = np.fft.irfft2(np.fft.rfft2(after, full_size)
-                        * np.conj(np.fft.rfft2(before, full_size)), full_size)
-    expected = full[np.ix_(shifts % full_size[0], shifts % full_size[1])]
-    np.testing.assert_allclose(actual, expected, rtol=2e-6, atol=2e-3)
+def direct_shift_window(before, exact, wide, dys, dxs):
+    ys, xs = np.nonzero(before)
+    height, width = before.shape
+    window = np.empty((len(dys), len(dxs)), dtype=np.float64)
+    for row, dy in enumerate(dys):
+        for col, dx in enumerate(dxs):
+            y, x = ys + dy, xs + dx
+            valid = (y >= 0) & (y < height) & (x >= 0) & (x < width)
+            exact_count = np.count_nonzero(exact[y[valid], x[valid]])
+            wide_count = np.count_nonzero(wide[y[valid], x[valid]])
+            weight = auto_paint.NEAR_LINE_WEIGHT
+            window[row, col] = exact_count * (1.0 - weight) + wide_count * weight
+    return window
 
 
 @pytest.mark.parametrize('support', [(12, 61, 12, 79), (0, 30, 0, 35), (45, 73, 65, 91)])
@@ -341,16 +341,245 @@ def test_existing_empty_border_replaces_extra_fft_padding(support):
     shape, margin = (73, 91), 12
     before = np.zeros(shape, dtype=np.float32)
     y0, y1, x0, x1 = support
-    before[y0:y1, x0:x1] = rng.random((y1-y0, x1-x0))
-    after = rng.random(shape).astype(np.float32)
+    before[y0:y1, x0:x1] = rng.random((y1-y0, x1-x0)) < 0.3
+    exact = rng.random(shape) < 0.2
+    wide = auto_paint.bucket_fill.dilate(exact, 1)
     shifts = np.arange(-margin, margin + 1)
-    problem = dict(before=before, after=after, limit=margin, dys=shifts, dxs=shifts)
-    actual = auto_paint._local_shift_window(problem)
-    size = tuple(2 * length for length in shape)
-    full = np.fft.irfft2(np.fft.rfft2(after, size) * np.conj(np.fft.rfft2(before, size)), size)
-    expected = full[np.ix_(shifts % size[0], shifts % size[1])]
-    np.testing.assert_allclose(actual, expected, rtol=2e-6, atol=2e-3)
+    problem = dict(before=before, boundaries=(exact, wide), total=float(before.sum()),
+                   limit=margin, dys=shifts, dxs=shifts)
+    expected = direct_shift_window(before, exact, wide, shifts, shifts)
+    np.testing.assert_array_equal(auto_paint._local_shift_window(problem), expected)
     if y0 == x0 == margin:
         reduced = auto_paint._correlation_size(before, margin)
         assert reduced[0] < auto_paint._fft_size(shape[0] + margin)
         assert reduced[1] < auto_paint._fft_size(shape[1] + margin)
+
+
+def test_exact_shift_window_matches_direct_counts_after_subsampling(monkeypatch):
+    from types import SimpleNamespace
+
+    rng = np.random.default_rng(147)
+    steps_seen = set()
+    for index in range(48):
+        height, width = (int(n) for n in rng.integers(15, 49, size=2))
+        values = np.zeros((height, width), dtype=np.uint32)
+        boundary = rng.random(values.shape) < 0.25
+        exact = rng.random(values.shape) < 0.2
+        boundary[0, :] = exact[0, :] = True
+        boundary[-1, :] = exact[-1, :] = True
+        wide = auto_paint.bucket_fill.dilate(exact, 1)
+        target = SimpleNamespace(values=values, boundary=boundary)
+        guide = SimpleNamespace(boundary=exact, wide_boundary=wide)
+        inset = index % 4
+        bounds = (inset, 0, width - inset, height - inset)
+        margin = index % (min(height, width) // 3)
+        monkeypatch.setattr(auto_paint, '_MAX_WINDOW', (12, 18, 28, 50)[index % 4])
+        problem = auto_paint._prepare_local_shift(
+            target, guide, bounds, context=index % 3, margin=margin, lazy=True)
+        assert problem is not None
+        assert 'boundaries' not in problem and 'after' not in problem
+        step = problem['step']
+        steps_seen.add(step)
+        wx0 = max(0, inset - index % 3 - margin)
+        wx1 = min(width, width - inset + index % 3 + margin)
+        wy1 = min(height, height - inset + index % 3 + margin)
+        roi = np.s_[:wy1:step, wx0:wx1:step]
+        expected = direct_shift_window(problem['before'], exact[roi], wide[roi],
+                                       problem['dys'], problem['dxs'])
+        np.testing.assert_array_equal(auto_paint._local_shift_window(problem), expected)
+        assert 'after' not in problem
+    assert {1, 2, 3} <= steps_seen
+
+
+def test_exact_shift_ties_follow_window_order():
+    raw = np.zeros((24, 28, 4), dtype=np.uint8)
+    raw[10:12, 10:12] = (0, 0, 0, 255)
+    guide_raw = np.roll(raw, 4, axis=1) | np.roll(raw, -4, axis=1)
+    target = auto_paint._Cell(raw, target=True)
+    guide = auto_paint._Cell(guide_raw, target=True)
+    assert target.boundary.dtype == guide.wide_boundary.dtype == np.bool_
+    assert np.all(~guide.boundary | guide.wide_boundary)
+    problem = auto_paint._prepare_local_shift(target, guide, (8, 8, 14, 14), margin=6, lazy=True)
+    assert 'boundaries' not in problem
+    after = problem['after']
+    assert after.dtype == np.float32
+    assert 'boundaries' not in problem
+    problem['share_motion'] = True
+    shift, share = auto_paint._solve_local_shift(problem)
+    assert shift == (0, 4)
+    assert share == 1.0
+    assert shift.gap == 0.0
+    expected, expected_share = auto_paint._solve_local_shift_numpy(problem)
+    assert (shift, share, shift.gap) == (expected, expected_share, expected.gap)
+
+
+def test_packed_shift_counts_near_maximum_window(monkeypatch):
+    from types import SimpleNamespace
+
+    size = auto_paint._MAX_WINDOW
+    rng = np.random.default_rng(384)
+    boundary = rng.random((size, size)) < 0.99
+    exact = rng.random(boundary.shape) < 0.81
+    wide = auto_paint.bucket_fill.dilate(exact, 1)
+    target = SimpleNamespace(values=boundary, boundary=boundary)
+    guide = SimpleNamespace(boundary=exact, wide_boundary=wide)
+    problem = auto_paint._prepare_local_shift(
+        target, guide, (0, 0, size, size), lazy=True)
+    assert problem['step'] == 1
+    assert problem['total'] > 0.98 * size**2
+    problem['dys'] = np.array([0, -48, -7, 31, 48])
+    problem['dxs'] = np.array([0, -48, -19, 12, 48])
+    counts = []
+    weighted_overlap = auto_paint._weighted_overlap
+
+    def capture(exact_count, wide_count):
+        counts.extend((exact_count, wide_count))
+        return weighted_overlap(exact_count, wide_count)
+
+    monkeypatch.setattr(auto_paint, '_weighted_overlap', capture)
+    auto_paint._local_shift_window(problem)
+    ys, xs = np.nonzero(boundary)
+    for mask, actual in zip((exact, wide), counts, strict=True):
+        expected = np.empty((len(problem['dys']), len(problem['dxs'])), dtype=np.int64)
+        for row, dy in enumerate(problem['dys']):
+            for col, dx in enumerate(problem['dxs']):
+                y, x = ys + dy, xs + dx
+                valid = (y >= 0) & (y < size) & (x >= 0) & (x < size)
+                expected[row, col] = np.count_nonzero(mask[y[valid], x[valid]])
+        np.testing.assert_array_equal(actual, expected)
+
+
+def test_native_local_shift_matches_numpy(monkeypatch):
+    calls = 0
+    solve = auto_paint.native.solve_local_shift
+
+    def track_native(*args):
+        nonlocal calls
+        calls += 1
+        return solve(*args)
+
+    monkeypatch.setattr(auto_paint.native, 'solve_local_shift', track_native)
+    rng = np.random.default_rng(611)
+    for index in range(60):
+        height, width = (int(n) for n in rng.integers(3, 95, size=2))
+        boundary = rng.random((height, width)) < (index % 4 + 1) / 5
+        exact = rng.random((height, width)) < 0.25
+        boundary[0, 0] = exact[-1, -1] = True
+        wide = auto_paint.bucket_fill.dilate(exact, 1)
+        target = SimpleNamespace(values=boundary, boundary=boundary)
+        guide = SimpleNamespace(boundary=exact, wide_boundary=wide)
+        monkeypatch.setattr(auto_paint, '_MAX_WINDOW', (24, 42, 66, 100)[index % 4])
+        problem = auto_paint._prepare_local_shift(
+            target, guide, (0, 0, width, height), margin=index % 27, lazy=True)
+        assert problem is not None and 'boundaries' not in problem
+        for share_motion in (False, True):
+            problem['share_motion'] = share_motion
+            actual = auto_paint._solve_local_shift(problem)
+            expected = auto_paint._solve_local_shift_numpy(problem)
+            assert actual == expected
+            if share_motion:
+                assert actual[0].gap == expected[0].gap
+        assert 'after' not in problem
+    assert calls == 120
+
+
+def test_local_shift_numpy_fallback(monkeypatch):
+    before = np.array([[0.5, 0, 1]], dtype=np.float32)
+    exact = np.array([[True, False, True]])
+    problem = dict(before=before, boundaries=(exact, exact), total=1.5,
+                   size=(1, 3), dys=np.array([0]), dxs=np.array([0, 1]),
+                   step=1, share_motion=True)
+
+    def unexpected_native(*args):
+        pytest.fail("nonbinary or unavailable backend must use NumPy")
+
+    monkeypatch.setattr(auto_paint.native, 'solve_local_shift', unexpected_native)
+    for binary in (False, True):
+        if binary:
+            monkeypatch.setattr(auto_paint.native, 'available', lambda: False)
+            before[0, 0] = 1
+            problem['total'] = 2.0
+        actual = auto_paint._solve_local_shift(problem)
+        expected = auto_paint._solve_local_shift_numpy(problem)
+        assert actual == expected
+        assert actual[0].gap == expected[0].gap
+
+
+def test_prepare_local_shift_matches_numpy(monkeypatch):
+    """画像端、間引き、探索幅、遅延キーを含めて二つの実装を照合する。"""
+    rng = np.random.default_rng(682)
+    rust_prepare = auto_paint.native.prepare_local_shift
+    calls = []
+
+    def record(*args):
+        calls.append(args[1])
+        return rust_prepare(*args)
+
+    monkeypatch.setattr(auto_paint.native, "prepare_local_shift", record)
+    steps = set()
+    none_cases = 0
+    for index in range(140):
+        height, width = [(1, 1), (1, 25), (480, 800), (780, 490), (71, 53)][index % 5]
+        bounds_x = sorted(rng.integers(0, width + 1, 2).tolist())
+        bounds_y = sorted(rng.integers(0, height + 1, 2).tolist())
+        if index % 3 == 0:
+            bounds_x, bounds_y = (0, width), (0, height)
+        bounds = bounds_x[0], bounds_y[0], bounds_x[1], bounds_y[1]
+        context = int(rng.integers(0, 41))
+        margin = int(rng.integers(0, 120))
+        target = SimpleNamespace(
+            values=np.empty((height, width), dtype=np.uint8),
+            boundary=rng.random((height, width)) < rng.choice([0, 0.001, 0.2, 0.9, 1]),
+        )
+        guide = SimpleNamespace(
+            boundary=rng.random((height, width)) < 0.2,
+            wide_boundary=rng.random((height, width)) < rng.choice([0, 0.01, 0.5, 1]),
+        )
+        lazy = bool(index % 2)
+        expected = auto_paint._prepare_local_shift_numpy(
+            target, guide, bounds, context, margin, lazy=lazy)
+        actual = auto_paint._prepare_local_shift(target, guide, bounds, context, margin, lazy=lazy)
+        assert len(calls) == index + 1
+        assert (actual is None) == (expected is None)
+        if actual is None:
+            none_cases += 1
+            continue
+
+        steps.add(actual["step"])
+        assert tuple(actual) == tuple(expected)
+        assert ("after" in actual) == (not lazy)
+        assert "boundaries" not in actual
+        for key in (*expected, "after", "boundaries"):
+            left, right = actual[key], expected[key]
+            if key == "boundaries":
+                for a, b in zip(left, right, strict=True):
+                    assert a.dtype == b.dtype
+                    assert np.array_equal(a, b)
+            elif isinstance(right, np.ndarray):
+                assert left.dtype == right.dtype
+                assert left.flags.writeable == right.flags.writeable
+                assert np.array_equal(left, right)
+            elif key == "device_spec":
+                assert left[0] is right[0] and left[1] is right[1]
+                assert left[2:] == right[2:]
+            else:
+                assert type(left) is type(right)
+                assert left == right
+    assert {1, 2, 3} <= steps
+    assert none_cases > 0
+
+
+def test_prepare_local_shift_numpy_fallback(monkeypatch):
+    """非二値と拡張が使えない場合には NumPy 版を呼ぶ。"""
+    target, guide = pair()
+    prepare_numpy = auto_paint._prepare_local_shift_numpy
+    bounds = (80, 80, 112, 112)
+    monkeypatch.setattr(auto_paint, "_prepare_local_shift_numpy", lambda *a, **kw: "numpy")
+    monkeypatch.setattr(auto_paint.native, "available", lambda: False)
+    assert auto_paint._prepare_local_shift(target, guide, bounds) == "numpy"
+    monkeypatch.setattr(auto_paint.native, "available", lambda: True)
+    target.boundary = target.boundary.astype(np.float32) * 0.75
+    assert auto_paint._prepare_local_shift(target, guide, bounds) == "numpy"
+    result = prepare_numpy(target, guide, bounds)
+    assert result["before_bytes"] is None
+    assert result["total"] == float(result["before"].sum())

@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 from paintmaskanimator import constants  # noqa: E402
 from paintmaskanimator.frame_scope import FrameScope, apply_over_scope  # noqa: E402
 from dense_fixtures import hold
+from image_edit_helpers import edit_qimage
 from paintmaskanimator.document import create_drawing, project_v1_state
 from paintmaskanimator.main_window import MainWindow  # noqa: E402
 from paintmaskanimator.models import make_frame  # noqa: E402
@@ -50,7 +51,7 @@ def window(qapp, tmp_path, monkeypatch):
 
 def put(canvas, frame, number, color="red", exposure=1):
     layer = canvas.frames[frame].layers[0]
-    image = layer.image.copy()
+    image = layer.image.to_qimage().copy()
     image.fill(QColor(color))
     if number is None:
         # Raw unnumbered history fixtures intentionally precede installation.
@@ -68,7 +69,7 @@ def state(canvas):
     # 未使用／保持セルの画素も省略せず、対象レイヤーの全コマを比較する。
     return ([
         (layer.sequence_number, layer.exposure, layer.has_content,
-         layer.image.pixelColor(5, 5).name(QColor.NameFormat.HexArgb))
+         layer.image.to_qimage().pixelColor(5, 5).name(QColor.NameFormat.HexArgb))
         for frame in project_v1_state(canvas.frames)[0] for layer in [frame.layers[0]]
     ], canvas.current_frame, canvas.active_layer_index,
         len(canvas.undo_stack), len(canvas.redo_stack))
@@ -88,7 +89,8 @@ def paint(canvas, route):
         kind = LayerRegionUndo
     else:
         canvas.push_layer_undo()
-        canvas.active_layer.image.setPixelColor(5, 5, QColor("blue"))
+        with edit_qimage(canvas.active_layer.image) as image:
+            image.setPixelColor(5, 5, QColor("blue"))
         kind = LayerUndo
     assert isinstance(canvas.undo_stack[-1], kind)
     # Phase 4 第3段階で (layer, 番号) 単位へ。
@@ -282,14 +284,14 @@ def test_archived_number_drawing_undo(window):
     record(canvas, states)
     archive = canvas._document.tracks[0].cells[1]
     assert sorted(canvas._document.tracks[0].legacy_archive_hints) == [1]
-    assert archive.image.pixelColor(5, 5).name() == "#0000ff"
+    assert archive.image.to_qimage().pixelColor(5, 5).name() == "#0000ff"
     canvas.undo()
     record(canvas, states)
     canvas.undo()
     record(canvas, states)
     # J1-A: restoring the pre-deletion document also restores its empty archive.
     assert canvas._document.tracks[0].legacy_archive_hints == {}
-    assert canvas.frames[3].layers[0].image.pixelColor(5, 5).name() == "#ff0000"
+    assert canvas.frames[3].layers[0].image.to_qimage().pixelColor(5, 5).name() == "#ff0000"
     assert states == [
         ([E, E, E, R], 0, 0, 0, 0),
         ([E, E, E, B], 3, 0, 1, 0),

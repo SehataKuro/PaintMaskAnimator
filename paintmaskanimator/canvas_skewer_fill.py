@@ -21,6 +21,7 @@ import numpy as np
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QImage, QPainter
 
+from .pma_image import PmaImage, as_qimage
 from . import bucket_fill, frame_scope, imaging
 from ._canvas_members import CanvasMembers
 from .i18n import tr
@@ -61,18 +62,17 @@ class SkewerFillSession:
     # 走査対象のセル一覧。途中でタイムラインが変わっていないかの確認用。
     cells: List[Cell]
     direction: int = 0
-    # ``id(image)`` → ``(外接矩形, 切り出したマスク, ((置換色, 切り出した島), ...))``。
+    # ``PmaImage`` → ``(外接矩形, 切り出したマスク, ((置換色, 切り出した島), ...))``。
     regions: Dict[
-        int,
+        PmaImage,
         Tuple[
             Tuple[int, int, int, int],
             np.ndarray,
             Tuple[Tuple[Tuple[int, int, int], np.ndarray], ...],
         ],
     ] = field(default_factory=dict)
-    # ``id(image)`` → ``(image, 計画したときの cacheKey)``。途中で描き換えられて
-    # いないかの確認用。
-    images: Dict[int, Tuple[QImage, int]] = field(default_factory=dict)
+    # 計画時の画素世代。キーが編集対象を強参照する。
+    images: Dict[PmaImage, int] = field(default_factory=dict)
     skipped: int = 0
     # 手動指定を待っているセル ``(frame, layer)``。
     pending: Optional[Cell] = None
@@ -115,9 +115,9 @@ class SkewerFillMixin(CanvasMembers):
 
         options = self.bucket_options()
         selection_mask = self.selection_mask_bool(
-            pivot_image.width(), pivot_image.height()
+            pivot_image.width, pivot_image.height
         )
-        _converted, layer_pixels = self._layer_fill_pixels(pivot_image)
+        _converted, layer_pixels = self._layer_fill_pixels(as_qimage(pivot_image))
         # 判定は参照レイヤーの絵で行う（塗る先は変わらない）。
         _reference, pixels = self.bucket_reference_pixels(
             options, key_frame, layer_index, _converted, layer_pixels
@@ -227,7 +227,7 @@ class SkewerFillMixin(CanvasMembers):
                     )
                     done += 1
                     image = self.frames[frame_index].layers[layer_index].image
-                    if id(image) in session.regions:
+                    if image in session.regions:
                         queue.pop(0)
                         continue
                     result, pixels = self._skewer_locate(
@@ -266,7 +266,7 @@ class SkewerFillMixin(CanvasMembers):
     def _skewer_reference_image(self, session, frame_index, layer_index, image):
         """``frame_index`` のコマで判定に使う絵。参照レイヤーの設定に従う。"""
         return self._bucket_reference_image(
-            session.options, frame_index, layer_index, image
+            session.options, frame_index, layer_index, as_qimage(image)
         )
 
     def _skewer_locate(self, session, image):
@@ -286,33 +286,21 @@ class SkewerFillMixin(CanvasMembers):
                 session.selection_mask,
                 previous_pixels=session.previous_pixels[session.direction],
             ), pixels
-        # 「隣接」OFF はレイヤー内の同色を一括で塗るので、位置を追う必要がない。
-        reference = session.reference
-        if reference is None:
-            target = bucket_fill.background_mask(pixels)
-        else:
-            target = np.all(pixels[:, :, :3] == reference, axis=2)
-            target &= pixels[:, :, 3] > 0
-        points = np.argwhere(target)
-        if not points.size:
-            return None, pixels
-        start_y, start_x = (int(value) for value in points[0])
-        result = bucket_fill.compute_fill_region(
-            pixels, start_x, start_y, session.options, session.selection_mask
-        )
-        return (result if result.ok else None), pixels
+        return bucket_fill.skewer_fill_once(
+            pixels, session.reference, session.options, session.selection_mask
+        ), pixels
 
     def _skewer_remember(self, session, image, result):
         assert result.bounds is not None  # ok なら必ず外接矩形がある
         x0, y0, x1, y1 = result.bounds
-        session.regions[id(image)] = (
+        session.regions[image] = (
             result.bounds,
             result.mask[y0:y1, x0:x1].copy(),
             tuple(
                 (rgb, island[y0:y1, x0:x1].copy()) for rgb, island in result.islands
             ),
         )
-        session.images[id(image)] = (image, int(image.cacheKey()))
+        session.images[image] = image.generation
 
     def _skewer_wait_for(self, session, cell):
         frame_index, layer_index = cell
@@ -391,7 +379,7 @@ class SkewerFillMixin(CanvasMembers):
             self._skewer_wait_for(session, session.pending)
             return
         start_x, start_y = int(p.x()), int(p.y())
-        if not self._seed_in_bounds(start_x, start_y, pending_image):
+        if not self._seed_in_bounds(start_x, start_y, as_qimage(pending_image)):
             return
         _converted, view = self._layer_fill_pixels(
             self._skewer_reference_image(
@@ -421,14 +409,14 @@ class SkewerFillMixin(CanvasMembers):
             return False
         if cells != session.cells:
             return False
-        for image, cache_key in session.images.values():
-            if int(image.cacheKey()) != cache_key:
+        for image, generation in session.images.items():
+            if image.generation != generation:
                 return False
         live = {
-            id(self.frames[frame_index].layers[layer_index].image)
+            self.frames[frame_index].layers[layer_index].image
             for frame_index, layer_index in cells
         }
-        return all(image_id in live for image_id in session.images)
+        return session.images.keys() <= live
 
     # ------------------------------------------------------------------
     # 書き込み
@@ -449,11 +437,11 @@ class SkewerFillMixin(CanvasMembers):
         written_colors = set()
 
         def op(context):
-            planned = session.regions.get(id(context.layer.image))
+            planned = session.regions.get(context.layer.image)
             if planned is None:
                 return None
             bounds, mask, islands = planned
-            image, pixels = self._layer_fill_pixels(context.layer.image)
+            image, pixels = self._layer_fill_pixels(as_qimage(context.layer.image))
             x0, y0, x1, y1 = bounds
             patch = pixels[y0:y1, x0:x1]
             written_colors.update(self._fill_patch(patch, mask, session.replacement))

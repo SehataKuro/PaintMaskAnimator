@@ -1,11 +1,17 @@
 """Shared non-antialiased brush geometry for painting and cursor previews."""
 import math
+import sys
 from functools import lru_cache
 
 import numpy as np
 from PySide6.QtCore import QPointF, QRect
 from PySide6.QtGui import QColor, QImage, QPainter, QPainterPath, QPen
 from PySide6.QtCore import Qt
+
+from . import native
+
+# ARGB32 は 32bit の整数として並ぶので、アルファのバイトの位置は CPU のバイト順で決まる。
+_ALPHA_OFFSET = 3 if sys.byteorder == "little" else 0
 
 
 def paint_segment(painter, start, end, color, width):
@@ -46,11 +52,25 @@ def stamp_outline(center, width):
 @lru_cache(maxsize=64)
 def _local_outline(phase_x, phase_y, width):
     image, rect = stamp_mask(QPointF(phase_x, phase_y), width)
-    alpha = np.frombuffer(image.constBits(), np.uint8).reshape(image.height(), image.bytesPerLine())[:, 3::4]
     path = QPainterPath()
+    for y, left, right in _alpha_runs(image):
+        path.addRect(float(rect.x() + left), float(rect.y() + y), float(right - left), 1.0)
+    return path.simplified()
+
+
+def _alpha_runs(image):
+    return native.alpha_runs(
+        image.constBits(), image.width(), image.height(), image.bytesPerLine(), _ALPHA_OFFSET
+    )
+
+
+def _alpha_runs_numpy(image):
+    """``_alpha_runs`` の元の NumPy 版。突き合わせの試験で使う。"""
+    alpha = np.frombuffer(image.constBits(), np.uint8).reshape(image.height(), image.bytesPerLine())
+    alpha = alpha[:, _ALPHA_OFFSET::4][:, :image.width()]
+    runs = []
     for y, row in enumerate(alpha):
         edges = np.flatnonzero(np.diff(np.r_[False, row != 0, False]))
-        for left, right in zip(edges[::2], edges[1::2]):
-            path.addRect(float(rect.x() + left), float(rect.y() + y), float(right - left), 1.0)
-    return path.simplified()
+        runs.extend((y, int(left), int(right)) for left, right in zip(edges[::2], edges[1::2]))
+    return runs
 

@@ -1,4 +1,7 @@
 """追加したショートカット：Space 短押しで再生、選択範囲の消去、表示・ブラシサイズほか。"""
+
+from image_edit_helpers import edit_qimage
+
 import os
 
 import pytest
@@ -117,10 +120,10 @@ def test_shift_space_tap_does_not_play(window, clock):
 def test_delete_clears_inside_the_selection_and_undoes(window):
     canvas = window.canvas
     canvas.ensure_editable_key()
-    image = canvas.active_layer.image
-    painter = QPainter(image)
-    painter.fillRect(image.rect(), QColor("#40c070"))
-    painter.end()
+    with edit_qimage(canvas.active_layer.image) as image:
+        painter = QPainter(image)
+        painter.fillRect(image.rect(), QColor("#40c070"))
+        painter.end()
     canvas.active_layer.has_content = True
     m = OUTSIDE_MARGIN
     canvas.selection_polygon = [
@@ -130,12 +133,12 @@ def test_delete_clears_inside_the_selection_and_undoes(window):
     # 反転した選択（マスクで持つ選択）でも中だけを消す。
     assert canvas.invert_selection()
     assert canvas.delete_selection_contents()
-    image = canvas.active_layer.image
+    image = canvas.active_layer.image.to_qimage()
     assert image.pixelColor(m + 20, m + 20) == QColor("#40c070"), "選択の外は残る"
     assert image.pixelColor(m + 100, m + 100).alpha() == 0, "選択の中は消える"
 
     canvas.undo()
-    assert canvas.active_layer.image.pixelColor(m + 100, m + 100) == QColor("#40c070")
+    assert canvas.active_layer.image.to_qimage().pixelColor(m + 100, m + 100) == QColor("#40c070")
 
 
 def test_delete_without_selection_does_nothing(window):

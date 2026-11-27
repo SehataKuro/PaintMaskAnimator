@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 import pytest
-from PySide6.QtCore import QPointF, Qt
+from PySide6.QtCore import QPointF, QRect, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
+from image_edit_helpers import edit_qimage
 from paintmaskanimator.main_window import MainWindow
 
 BLUE = QColor("#3355ff")
@@ -39,16 +40,16 @@ def three_boxes(window):
     """白地に、横に並んだ3つの黒枠（内側は 6〜13 px 四方）を描く。"""
     canvas = window.canvas
     canvas.ensure_editable_key()
-    image = canvas.active_layer.image
-    image.fill(QColor("white"))
-    black = QColor("black")
-    for left in (40, 80, 120):
-        for i in range(left, left + 20):
-            for y in (40, 59):
-                image.setPixelColor(i, y, black)
-        for y in range(40, 60):
-            for x in (left, left + 19):
-                image.setPixelColor(x, y, black)
+    with edit_qimage(canvas.active_layer.image) as image:
+        image.fill(QColor("white"))
+        black = QColor("black")
+        for left in (40, 80, 120):
+            for i in range(left, left + 20):
+                for y in (40, 59):
+                    image.setPixelColor(i, y, black)
+            for y in range(40, 60):
+                for x in (left, left + 19):
+                    image.setPixelColor(x, y, black)
     canvas.active_layer.has_content = True
     canvas.set_tool("bucket")
     canvas.color_mode = "main"
@@ -66,7 +67,7 @@ def drag(canvas, points):
 
 
 def pixel(window, x, y):
-    return window.canvas.active_layer.image.pixelColor(x, y)
+    return window.canvas.active_layer.image.to_qimage().pixelColor(x, y)
 
 
 def test_dragging_fills_every_enclosed_area_it_crosses(window):
@@ -130,14 +131,14 @@ def test_dragging_fills_areas_closed_by_the_frame_edge(window):
 
     canvas = window.canvas
     canvas.ensure_editable_key()
-    image = canvas.active_layer.image
-    image.fill(QColor("white"))
-    painter = QPainter(image)
-    painter.setPen(QPen(QColor("black"), 3))
-    for left in (40, 140, 240):  # 上端に3つの「山」。上はフレームの端で閉じる
-        painter.drawLine(left, 0, left + 40, 60)
-        painter.drawLine(left + 40, 60, left + 80, 0)
-    painter.end()
+    with edit_qimage(canvas.active_layer.image) as image:
+        image.fill(QColor("white"))
+        painter = QPainter(image)
+        painter.setPen(QPen(QColor("black"), 3))
+        for left in (40, 140, 240):  # 上端に3つの「山」。上はフレームの端で閉じる
+            painter.drawLine(left, 0, left + 40, 60)
+            painter.drawLine(left + 40, 60, left + 80, 0)
+        painter.end()
     canvas.active_layer.has_content = True
     canvas.set_tool("bucket")
     canvas.color_mode = "main"
@@ -169,7 +170,7 @@ def test_drag_cache_keeps_the_same_pixels_for_every_reference(window, monkeypatc
         for point in points[1:]:
             canvas.continue_bucket_drag(QPointF(*point))
         canvas.finish_bucket_drag()
-        return canvas.active_layer.image.copy()
+        return canvas.active_layer.image.to_qimage().copy()
     cached = stroke()
     original_extension = bucket_fill.extend_line_ends
     monkeypatch.setattr(bucket_fill, "extend_line_ends",
@@ -192,7 +193,8 @@ def test_drag_reuses_conversion_and_invalidates_after_external_edit(window, monk
     canvas.begin_bucket_drag(QPointF(50, 50))
     canvas.continue_bucket_drag(QPointF(90, 50))
     assert len(calls) == 1
-    canvas.active_layer.image.setPixelColor(200, 200, QColor("red"))
+    with edit_qimage(canvas.active_layer.image, QRect(200, 200, 1, 1)) as patch:
+        patch.setPixelColor(0, 0, QColor("red"))
     canvas.continue_bucket_drag(QPointF(130, 50))
     canvas.finish_bucket_drag()
     assert len(calls) == 2

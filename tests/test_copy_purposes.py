@@ -1,4 +1,7 @@
 """Copy ownership contracts; no widget or full-size image allocations."""
+
+from image_edit_helpers import edit_qimage
+
 from PySide6.QtCore import QRect
 from PySide6.QtGui import QColor, QImage, QPainter
 
@@ -32,8 +35,9 @@ def test_slot_shares_drawing_and_display():
     copied = source.clone_slot()
     assert copied.cell_id == source.cell_id
     assert copied.track_id == source.track_id
-    copied.image.fill(QColor("blue"))
-    assert source.image.pixelColor(0, 0) == QColor("blue")
+    with edit_qimage(copied.image) as edited:
+        edited.fill(QColor("blue"))
+    assert source.image.to_qimage().pixelColor(0, 0) == QColor("blue")
     copied.opacity = 0.5
     assert source.opacity == 0.5
 
@@ -61,14 +65,16 @@ def test_independent_clone_fill_and_settings():
     assert copied.track_id != source.track_id
     assert copied.image is not source.image
     assert copied.initial_image is not source.initial_image
-    copied.image.fill(QColor("blue"))
-    copied.initial_image.fill(QColor("black"))
+    with edit_qimage(copied.image) as edited:
+        edited.fill(QColor("blue"))
+    with edit_qimage(copied.initial_image) as edited:
+        edited.fill(QColor("black"))
     copied.cell_name = "changed"
     copied.name = "B"
     copied.opacity = 0.2
     copied.tween["nested"].append(2)
-    assert source.image.pixelColor(0, 0) == QColor("red")
-    assert source.initial_image.pixelColor(0, 0) == QColor("green")
+    assert source.image.to_qimage().pixelColor(0, 0) == QColor("red")
+    assert source.initial_image.to_qimage().pixelColor(0, 0) == QColor("green")
     assert (source.cell_name, source.name, source.opacity) == ("drawing", "A", 1.0)
     assert source.tween == {"nested": [1]}
 
@@ -77,11 +83,12 @@ def test_independent_clone_painter():
     source = layer()
     copied = source.clone()
     for target in (copied.image, copied.initial_image):
-        painter = QPainter(target)
-        painter.fillRect(QRect(0, 0, 4, 4), QColor("blue"))
-        painter.end()
-    assert source.image.pixelColor(0, 0) == QColor("red")
-    assert source.initial_image.pixelColor(0, 0) == QColor("green")
+        with edit_qimage(target) as edited:
+            painter = QPainter(edited)
+            painter.fillRect(QRect(0, 0, 4, 4), QColor("blue"))
+            painter.end()
+    assert source.image.to_qimage().pixelColor(0, 0) == QColor("red")
+    assert source.initial_image.to_qimage().pixelColor(0, 0) == QColor("green")
 
 
 def test_graph_preserves_sharing_and_archive():
@@ -106,17 +113,19 @@ def test_graph_is_independent_from_live_edits():
     doc.install_legacy_frames(doc.frames, archive)
     copied = doc.clone_graph()
     copied_hints = copied.tracks[0].legacy_archive_hints
-    doc.active_layer.image.fill(QColor("black"))
+    with edit_qimage(doc.active_layer.image) as edited:
+        edited.fill(QColor("black"))
     doc.active_layer.image = image("blue")
-    doc.active_layer.initial_image.fill(QColor("black"))
+    with edit_qimage(doc.active_layer.initial_image) as edited:
+        edited.fill(QColor("black"))
     doc.active_layer.initial_image = image("blue")
     doc.active_layer.cell_name = "changed"
     doc.active_layer.opacity = 0.2
     doc.tracks[0].legacy_archive_hints.clear()
     doc.put_archive_hint(doc.tracks[0], 9, ArchiveHint())
     target = copied.active_layer
-    assert target.image.pixelColor(0, 0) == QColor("red")
-    assert target.initial_image.pixelColor(0, 0) == QColor("green")
+    assert target.image.to_qimage().pixelColor(0, 0) == QColor("red")
+    assert target.initial_image.to_qimage().pixelColor(0, 0) == QColor("green")
     assert (target.cell_name, target.opacity) == ("drawing", 1.0)
     assert list(copied_hints) == [3]
 
@@ -140,8 +149,9 @@ def test_graph_allocates_once_per_cell_and_track(monkeypatch):
     monkeypatch.setattr(Track, "__init__", counted_track)
     monkeypatch.setattr(Cell, "__init__", counted)
     copied = doc.clone_graph()
-    assert len(created) == 1
-    assert len(created_tracks) == 1
+    # Rust の文書（既定）は写しを Rust 側で作るので、Python の Cell・Track は作らない。
+    assert len(created) <= 1
+    assert len(created_tracks) <= 1
     assert len({frame.layers[0].track_id for frame in copied.frames}) == 1
 
 
@@ -152,7 +162,7 @@ def test_graph_does_not_coalesce_legacy_conflicts():
     doc.frames.append(Frame([conflicting]))
     copied_frames, _ = clone_frame_graph(doc.frames, archive)
     assert copied_frames[0].layers[0].cell_id != copied_frames[2].layers[0].cell_id
-    assert copied_frames[2].layers[0].image.pixelColor(0, 0) == QColor("blue")
+    assert copied_frames[2].layers[0].image.to_qimage().pixelColor(0, 0) == QColor("blue")
     settings = Track(name="settings", color_filter_rgb=(1, 2, 3))
     assert settings.copy_settings() is not settings
     assert settings.copy().color_filter_rgb == settings.copy_settings().color_filter_rgb

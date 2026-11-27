@@ -1,4 +1,7 @@
 """カットフォルダーを開く: 書き出したフォルダーがそのまま読み戻せる。"""
+
+from image_edit_helpers import edit_qimage
+
 import os
 
 import pytest
@@ -61,7 +64,8 @@ def _draw_timeline(window):
         layer.sequence_number = None
     for frame, number, exposure in ((0, 1, 2), (3, 2, 1)):
         layer = layers[frame]
-        layer.image.fill(COLORS[number])
+        with edit_qimage(layer.image) as edited:
+            edited.fill(COLORS[number])
         layer.has_content = True
         layer._track.cells.setdefault(number, layer._cell)
         layer.sequence_number = number
@@ -112,7 +116,7 @@ def test_exported_cut_folder_opens_with_the_same_timeline(qapp, tmp_path, layout
         assert frames[0].layers[0].name == "A"
         assert [_shown(target, frame) for frame in range(4)] == [1, 1, None, 2]
         for frame, number in ((0, 1), (3, 2)):
-            image = frames[frame].layers[0].image
+            image = frames[frame].layers[0].image.to_qimage()
             assert QColor(image.pixel(5, 5)) == COLORS[number]
         assert target.current_project_path is None
     finally:
@@ -198,7 +202,7 @@ def test_import_asks_to_keep_the_initial_state(window, tmp_path, monkeypatch, is
     assert asked and "初期状態" in asked[0]
     layer = window.canvas.frames[0].layers[0]
     assert layer.initial_image is not None
-    assert QColor(layer.initial_image.pixel(5, 5)) == QColor("red")
+    assert QColor(layer.initial_image.to_qimage().pixel(5, 5)) == QColor("red")
     assert isolated_config["keep_initial_state_on_cut_folder"] is True
 
     # 「常に保存する」にしたあとは、尋ねずに保持する。

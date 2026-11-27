@@ -13,6 +13,7 @@ from PySide6.QtGui import QImage, QPainter
 from PySide6.QtWidgets import (
     QApplication, QDialog, QFileDialog, QLabel, QMessageBox, QProgressBar, QVBoxLayout,
 )
+from .canvas_changes import publish_remap_changes
 from .i18n import tr
 from .optional_deps import PILImage, PSDImage
 from .constants import (
@@ -37,6 +38,7 @@ from .clip_animation import (
 from . import cut_folder, timesheet_file
 from .errors import OPERATION_ERRORS as _OPERATION_ERRORS, OperationError
 from .models import Layer
+from .pma_image import PmaImage
 from .utils import blank_image
 from .logging_setup import get_logger
 
@@ -448,6 +450,7 @@ class ImportController:
 
         CLIP STUDIO とカットフォルダーの読み込みで共通。失敗したら元へ戻す。
         """
+        self.window.canvas._commit_brush_stroke()
         old_state = {
             "width": constants.CANVAS_WIDTH,
             "height": constants.CANVAS_HEIGHT,
@@ -511,7 +514,7 @@ class ImportController:
                     normalized_number = stripped_tag.lstrip("0") or "0"
                     sequence_archive[(layer_index, number)] = Layer(
                         source_layer.name,
-                        QImage(image),
+                        PmaImage.from_qimage(image),
                         has_content=True,
                         sequence_number=number,
                         cell_name=(
@@ -823,27 +826,14 @@ class ImportController:
 
         self.window.timeline_ops.set_mode("sheet")
         self.window.canvas.push_doc_undo()
-        for _column, layer_index, states, source_bank in prepared:
-            self.window.time_remap._apply_time_remap_states_to_layer(
-                states,
-                start_frame,
-                end_frame,
-                layer_index,
-                source_bank,
-                current_frame,
-            )
-            self.window.time_remap.keep_unplaced_in_archive(layer_index, source_bank)
-        self.window.canvas.current_frame = start_frame
-        self.window.canvas.active_layer_index = prepared[0][1]
-        self.window.canvas._onion_cache.clear()
-        self.window.canvas._color_filter_cache.clear()
-        self.window.canvas._color_index_cache.clear()
-        self.window.canvas._silhouette_cache.clear()
-        self.window._used_color_cache.clear()
-        self.window.canvas.changed.emit()
-        self.window.canvas.selectionChanged.emit()
-        self.window.canvas.update()
-        self.window.used_color.schedule_refresh()
+        changes = self.window.canvas._document.apply_sheet_remap(
+            start_frame, end_frame,
+            [(layer_index, states, bank) for _column, layer_index, states, bank in prepared],
+            current_frame,
+        )
+        if not changes:
+            return False
+        publish_remap_changes(self.window, changes)
         self.window.statusBar().showMessage(
             tr("XDTSの{len}個のCELLを{value}～{value2}フレームへ反映しました。").format(len=len(prepared), value=start_frame + 1, value2=end_frame + 1),
             4200,
@@ -941,18 +931,16 @@ class ImportController:
         first_new_layer = len(self.window.canvas.frames[0].layers)
         for name, visible, opacity, key_images in imported:
             layer_index = len(self.window.canvas.frames[0].layers)
-            for frame in self.window.canvas.frames:
-                frame.layers.append(Layer(
-                    name,
-                    blank_image(),
-                    visible=visible,
-                    opacity=opacity,
-                ))
+            slots = [
+                Layer(name, PmaImage.from_qimage(blank_image()), visible=visible, opacity=opacity)
+                for _ in self.window.canvas.frames
+            ]
+            self.window.canvas._document.insert_track(layer_index, slots, staged=True)
             for offset, image in enumerate(key_images):
-                target = self.window.canvas.frames[start_frame + offset].layers[layer_index]
-                self.window.canvas._place_imported_image(image, target.image)
-                target.has_content = True
-                target.sequence_number = offset + 1
+                self.window.canvas._document.stage_numbered_drawing(
+                    start_frame + offset, layer_index, self.window.canvas._placed_imported_image(image),
+                    True, offset + 1,
+                )
         self.window.canvas.current_frame = start_frame
         self.window.canvas.install_legacy_frames()
         self.window.canvas.active_layer_index = first_new_layer

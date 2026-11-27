@@ -8,6 +8,7 @@ from bisect import bisect_right
 
 from .i18n import tr
 from .document import project_v1_state
+from .pma_image import PmaImage, as_qimage, image_key, is_transparent_image
 from .timeline_metadata import reference_for, set_dense_import
 
 
@@ -90,7 +91,7 @@ def compatibility_scalars(sheet, blank_starts, pending, projected, inputs, resol
 
 
 def build_payload(snapshot, *, include_default_local_images=False):
-    """Return a new metadata dictionary and ordered (path, QImage, error) PNGs.
+    """Return a new metadata dictionary and ordered (path, image, error) PNGs.
 
     The snapshot must contain an installed dense document. This builder never
     numbers drawings, synthesizes hints, encodes images or mutates metadata.
@@ -109,15 +110,16 @@ def build_payload(snapshot, *, include_default_local_images=False):
                    canvas={"width": snapshot.width, "height": snapshot.height},
                    frame_durations=[frame.duration for frame in frames], tracks=[])
     pngs = []
+    transparent = {}
 
     def artwork(cell, path):
         entry = {"image": path, "initial": None, "cell_name": cell.cell_name}
         if cell.is_genga:
             entry["genga"] = True
-        pngs.append((path, cell.image, "画像を書き出せませんでした: {name}"))
+        pngs.append((path, cell.image.copy(), "画像を書き出せませんでした: {name}"))
         if cell.initial_image is not None:
             entry["initial"] = f"initial/{path}"
-            pngs.append((entry["initial"], cell.initial_image,
+            pngs.append((entry["initial"], cell.initial_image.copy(),
                          "初期状態の画像を書き出せませんでした: {name}"))
         return entry
 
@@ -183,17 +185,17 @@ def build_payload(snapshot, *, include_default_local_images=False):
                              source if source >= 0 else None))
             # Only live local Cells are collected, never old.legacy artwork.
             if not ((slot.has_content or slot.sequence_only) and slot.sequence_number is not None):
-                from PySide6.QtGui import QImage
                 cell = slot._cell
                 local = {"column": column, "retained_number": slot.sequence_number}
-                keep_image = (include_default_local_images or cell.image.isNull()
-                              or not cell.image.hasAlphaChannel()
+                image: PmaImage = cell.image
+                keep_image = (include_default_local_images or not image.width or not image.height
                               or cell.initial_image is not None or cell.cell_name is not None
                               or cell.is_genga)
                 if not keep_image:
-                    transparent = QImage(cell.image.size(), cell.image.format())
-                    transparent.fill(0)
-                    keep_image = cell.image != transparent
+                    generation = image.generation
+                    if generation not in transparent:
+                        transparent[generation] = is_transparent_image(as_qimage(image))
+                    keep_image = not transparent[generation]
                 if keep_image:
                     local.update(artwork(cell,
                         f"compatibility/layer_{li:04d}/position_{column:06d}.png"))
@@ -215,7 +217,7 @@ def build_payload(snapshot, *, include_default_local_images=False):
                 # This pixel comparison belongs only to payload preparation.
                 original = frames[source].layers[li].image
                 bank = track.cells[value].image
-                if original is not bank and original != bank:
+                if original.generation != bank.generation and as_qimage(original) != as_qimage(bank):
                     continue
                 index = bisect_right(candidates, source)
                 resolved[column] = (value, candidates[max(0, index - 1)])
@@ -229,13 +231,179 @@ def build_payload(snapshot, *, include_default_local_images=False):
     return payload, pngs
 
 
+def _decode_v2_images(payload, archive, *, seed_cache=False):
+    """Validate the read plan and decode its images in request order."""
+    import math
+    import struct
+    from . import project_io as io
+    from .errors import OperationError
+    from .native import decode_v2_plan
+
+    def require(ok):
+        if not ok:
+            raise OperationError(tr("プロジェクトの構造が不正です。"))
+
+    def finite(value):
+        if isinstance(value, float):
+            require(math.isfinite(value))
+        elif isinstance(value, dict):
+            for child in value.values():
+                finite(child)
+        elif isinstance(value, list):
+            for child in value:
+                finite(child)
+    finite(payload)
+    names = [i.filename for i in archive.infolist()]
+    plan, requests, error = decode_v2_plan(
+        payload, names,
+        (io.MAX_PROJECT_FRAMES, io.MAX_PROJECT_LAYERS, io.MAX_PROJECT_LAYER_CELLS))
+    width, height = plan["width"], plan["height"]
+    decoded, installed, seeded = {}, {}, {}
+
+    def image(path, paper, draft):
+        try:
+            info = archive.getinfo(path)
+        except KeyError as error:
+            raise OperationError(tr("プロジェクト内の画像がありません。")) from error
+        require(info.file_size <= io.MAX_PROJECT_IMAGE_BYTES)
+        blob = archive.read(path)
+        require(len(blob) >= 24 and blob[:8] == b"\x89PNG\r\n\x1a\n"
+                and blob[12:16] == b"IHDR")
+        require(struct.unpack(">II", blob[16:24]) == (width, height))
+        if blob not in decoded:
+            require((len(decoded) + 1) * width * height <= io.MAX_PROJECT_DECODED_PIXELS)
+            result = io._decode_png(blob)
+            require(not result.isNull() and result.width() == width and result.height() == height)
+            decoded[blob] = result
+        result = decoded[blob]
+        if payload.get("mask_format", 1) < io.CURRENT_MASK_FORMAT and not (
+                paper or draft):
+            result = io.white_to_transparent_qimage(result)
+            blob = None
+        return io._install_decoded_image(result, installed, seeded,
+                                         blob if seed_cache else None)
+
+    images = [image(path, paper, draft) for path, paper, draft in requests]
+    require(error is None)
+    return plan, names, images, seeded
+
+
+def _decode_core_document(payload, archive):
+    """Install a private Rust document from the existing v2 image requests."""
+    import json
+    from pma_native.pma_native import _CoreDocument
+
+    plan, names, images, _ = _decode_v2_images(payload, archive)
+    document = _CoreDocument.from_v2(
+        json.dumps(payload, ensure_ascii=False, allow_nan=False),
+        names,
+        [image._image for image in images],
+    )
+    return document, plan["width"], plan["height"]
+
+
 def _decode_payload(payload, archive, png_cache=None):
+    """Build a private dense graph directly, without legacy installation."""
+    from . import project_io as io
+    from .document import Document
+    from .legacy_v1 import DenseReference, LegacyLayerV1, V1Position
+    from .models import ArchiveHint, Cell, Frame, Layer, Track, default_layer_name
+    from .tween_groups import sanitize_spec
+
+    plan, _, images, seeded = _decode_v2_images(payload, archive, seed_cache=png_cache is not None)
+    width, height = plan["width"], plan["height"]
+
+    def blank():
+        return PmaImage.blank(width, height)
+
+    def artwork(values):
+        image_index, initial_index, name, genga = values
+        return Cell(blank() if image_index is None else images[image_index],
+                    None if initial_index is None else images[initial_index], name, genga)
+
+    # DenseReference は frozen dataclass。同じ参照を共有しても変更されない。
+    references = {}
+
+    def dense(values):
+        key = tuple(values)
+        result = references.get(key)
+        if result is None:
+            result = references[key] = DenseReference(*values)
+        return result
+
+    # 保存時の検証もここを通る。組み立て中は素のリストに足し、
+    # 全列がそろってから一度だけ公開する。
+    frames = [Frame([], duration) for duration in plan["durations"]]
+    tracks = []
+    for li, data in enumerate(plan["tracks"]):
+        original = payload["tracks"][li]
+        name, visible, opacity, paper, draft, filter_enabled, rgb = data["display"]
+        track = Track(default_layer_name(li) if name is None else name,
+                      visible, opacity, paper, draft,
+                      color_filter_enabled=filter_enabled,
+                      color_filter_rgb=None if rgb is None else tuple(rgb))
+        if data["import_sources"] is not None:
+            track.import_sources = list(data["import_sources"])
+        for number, values in data["cells"]:
+            track.cells[number] = artwork(values)
+        for number, content, blank_key, length, pending, index in data["hints"]:
+            entry = original["drawing_states"][index]
+            track.legacy_archive_hints[number] = ArchiveHint(
+                content, blank_key, length, pending, sanitize_spec(entry.get("tween")),
+                entry.get("tween_member"))
+        track.connected = True
+        for column, values in enumerate(data["slots"]):
+            (content, blank_key, number, pending, start, local,
+             legacy_kind, legacy_number, exposure, input_length, imported,
+             ref, resolve_ref, has_resolved, source, position_index) = values
+            slot = Layer(track.name, blank(), has_content=content,
+                         is_blank_key=blank_key, sequence_number=number,
+                         sequence_only=pending, blank_start=start)
+            if local is not None:
+                slot.__dict__["_cell"] = artwork(local)
+            slot.attach_track(track)
+            if number is not None and (content or pending):
+                slot.__dict__.pop("_cell", None)
+            position = {} if position_index is None else original["positions"][position_index]
+            slot.tween = sanitize_spec(position.get("tween"))
+            slot.tween_member = position.get("tween_member")
+            if imported is not None:
+                slot.__dict__["_v2_length_imported"] = imported
+            legacy = LegacyLayerV1(track.name, slot.image,
+                has_content=legacy_kind == "CELL", is_blank_key=legacy_kind == "BLANK",
+                sequence_number=legacy_number, sequence_only=pending,
+                exposure=exposure, tween=deepcopy(slot.tween), tween_member=slot.tween_member)
+            slot.__dict__["_v1_position"] = V1Position(
+                legacy, legacy_kind in ("CELL", "BLANK"), start, pending, input_length)
+            signature = (content, blank_key, number, pending, start)
+            set_dense_import(slot, (signature, dense(ref), dense(resolve_ref)))
+            if has_resolved:
+                slot.__dict__["_v2_resolve_source"] = (signature, source, column, len(frames))
+            frames[column].layers.append(slot)
+        tracks.append(track)
+    document = object.__new__(Document)
+    document.frames = frames
+    document.tracks = tracks
+    document.current_frame = plan["current_frame"]
+    document.active_layer_index = plan["active_layer_index"]
+    promote = getattr(document, "_promote", None)
+    if promote is not None:
+        promote()
+    metadata = deepcopy(payload)
+    for key in ("tracks", "frame_durations"):
+        metadata.pop(key, None)
+    if png_cache is not None:
+        png_cache.clear()
+        for result, blob in seeded.values():
+            png_cache.remember(result, blob)
+    return io.LoadedProject(metadata, document, width, height, 2)
+
+
+def _decode_payload_python(payload, archive, png_cache=None):
     """Build a private dense graph directly, without legacy installation."""
     import math
     import struct
     from pathlib import PurePosixPath
-    from PySide6.QtCore import Qt
-    from PySide6.QtGui import QImage
     from . import project_io as io
     from .document import Document
     from .errors import OperationError
@@ -311,12 +479,10 @@ def _decode_payload(payload, archive, png_cache=None):
         normalized = PurePosixPath(name)
         require(not normalized.is_absolute() and ".." not in normalized.parts
                 and "\\" not in name and ":" not in name)
-    decoded, seeded = {}, []
+    decoded, installed, seeded = {}, {}, {}
 
     def blank():
-        image = QImage(width, height, QImage.Format.Format_ARGB32_Premultiplied)
-        image.fill(Qt.GlobalColor.transparent)
-        return image
+        return PmaImage.blank(width, height)
 
     def image(path, track):
         require(isinstance(path, str) and bool(path))
@@ -342,10 +508,9 @@ def _decode_payload(payload, archive, png_cache=None):
         if payload.get("mask_format", 1) < io.CURRENT_MASK_FORMAT and not (
                 track.is_paper or track.is_draft):
             result = io.white_to_transparent_qimage(result)
-        if payload.get("mask_format", 1) >= io.CURRENT_MASK_FORMAT or track.is_paper or track.is_draft:
-            seeded.append((result, blob))
-        assert result is not None  # decoded above; only a None input stays None
-        return QImage(result)
+            blob = None
+        return io._install_decoded_image(result, installed, seeded,
+                                         blob if png_cache is not None else None)
 
     def artwork(entry, track, optional=False):
         name = entry.get("cell_name")
@@ -514,7 +679,7 @@ def _decode_payload(payload, archive, png_cache=None):
         metadata.pop(key, None)
     if png_cache is not None:
         png_cache.clear()
-        for result, blob in seeded:
+        for result, blob in seeded.values():
             png_cache.remember(result, blob)
     return io.LoadedProject(metadata, document, width, height, 2)
 
@@ -536,7 +701,8 @@ def write_snapshot(path, snapshot, png_cache=None):
                    for t in payload["tracks"]) > io.MAX_PROJECT_LAYER_CELLS):
         raise OperationError(tr("プロジェクト内のセル数が多すぎます。"))
     for _, image, _ in pngs:
-        if (image.isNull() or image.width() != snapshot.width or image.height() != snapshot.height):
+        if (not image.width or not image.height
+                or image.width != snapshot.width or image.height != snapshot.height):
             raise OperationError(tr("プロジェクト内の画像サイズがキャンバスと一致しません。"))
     cache = png_cache if png_cache is not None else io.PngCache()
     used = set()
@@ -548,12 +714,12 @@ def write_snapshot(path, snapshot, png_cache=None):
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
     try:
-        with zipfile.ZipFile(temporary, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        with io._create_project_zip(temporary) as archive:
             thumbnail = io._thumbnail_png(snapshot.thumbnail)
             if thumbnail is not None:
                 archive.writestr(io.THUMBNAIL_NAME, thumbnail, compress_type=zipfile.ZIP_STORED)
             for name, image, message in pngs:
-                blob = encoded.get(int(image.cacheKey()))
+                blob = encoded.get(image_key(image))
                 if blob is None:
                     raise OperationError(tr(message).format(name=name))
                 archive.writestr(name, blob, compress_type=zipfile.ZIP_STORED)

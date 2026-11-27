@@ -28,6 +28,7 @@ from . import imaging, line_noise, line_tidy
 from .i18n import tr
 from .time_display import frame_position
 from .models import Layer
+from .pma_image import PmaImage, as_qimage, image_rgba
 from .frame_scope import resolve_cells
 from .utils import blank_image
 from .errors import OPERATION_ERRORS
@@ -365,8 +366,12 @@ class LineOpsController:
     def _qimage_rgba_array(image):
         return imaging.qimage_rgba_array(image)
 
-    def _replacement_mapping_for_aligned_images(self, source_image, target_image):
+    def _replacement_mapping_for_aligned_images(
+        self, source_image: QImage | PmaImage, target_image: QImage | PmaImage,
+    ):
         """Return source->target RGB mapping when every aligned pixel is consistent."""
+        source_image = as_qimage(source_image)
+        target_image = as_qimage(target_image)
         if (
             source_image.isNull()
             or target_image.isNull()
@@ -526,7 +531,7 @@ class LineOpsController:
             source = frame.layers[source_index]
             if not source.has_content:
                 continue
-            pixels = imaging.qimage_rgba_array(source.image)
+            pixels = image_rgba(source.image)
             height, width = pixels.shape[:2]
             visible = pixels[:, :, 3] > 0
             rgb24 = (
@@ -559,26 +564,15 @@ class LineOpsController:
         paint_index = source_index + 1
         line_index = source_index + 2
 
-        for frame in self.window.canvas.frames:
-            source_layer = frame.layers[source_index]
-            source_layer.visible = False
-
-            paint_layer = Layer(
-                "Paint",
-                blank_image(),
-                visible=True,
-                opacity=1.0,
-                has_content=False,
-            )
-            line_layer = Layer(
-                "LINE",
-                blank_image(),
-                visible=True,
-                opacity=1.0,
-                has_content=False,
-            )
-            frame.layers.insert(paint_index, paint_layer)
-            frame.layers.insert(line_index, line_layer)
+        document = self.window.canvas._document
+        document.set_track_properties((source_index,), visible=False)
+        paint_slots = []
+        line_slots = []
+        for _ in self.window.canvas.frames:
+            paint_slots.append(Layer("Paint", PmaImage.from_qimage(blank_image())))
+            line_slots.append(Layer("LINE", PmaImage.from_qimage(blank_image())))
+        document.insert_track(paint_index, paint_slots, staged=True)
+        document.insert_track(line_index, line_slots, staged=True)
 
         separated = {}
         for frame_index, frame in enumerate(self.window.canvas.frames):
@@ -594,11 +588,11 @@ class LineOpsController:
                 continue
             if source.cell_id in separated:
                 line, paint = separated[source.cell_id]
-                frame.layers[line_index] = line.clone_reference()
-                frame.layers[paint_index] = paint.clone_reference()
+                document.stage_drawing_reference(frame_index, line_index, line)
+                document.stage_drawing_reference(frame_index, paint_index, paint)
                 continue
 
-            pixels = imaging.qimage_rgba_array(source.image)
+            pixels = image_rgba(source.image)
             height, width = pixels.shape[:2]
 
             visible = pixels[:, :, 3] > 0
@@ -675,15 +669,13 @@ class LineOpsController:
                 QImage.Format.Format_RGBA8888,
             ).copy().convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
 
-            frame.layers[line_index].image = line_image
-            frame.layers[line_index].has_content = bool(np.any(line_mask))
-
-            frame.layers[paint_index].image = paint_image
-            frame.layers[paint_index].has_content = bool(np.any(paint_pixels[:, :, 3] > 0))
             number = len(separated) + 1
-            for target_index in (line_index, paint_index):
-                if frame.layers[target_index].has_content:
-                    frame.layers[target_index].sequence_number = number
+            document.stage_numbered_drawing(
+                frame_index, line_index, line_image, bool(np.any(line_mask)), number,
+            )
+            document.stage_numbered_drawing(
+                frame_index, paint_index, paint_image, bool(np.any(paint_pixels[:, :, 3] > 0)), number,
+            )
             separated[source.cell_id] = (frame.layers[line_index], frame.layers[paint_index])
 
         self.window.canvas._document.sync_columns()
@@ -713,7 +705,7 @@ class LineOpsController:
         if selected:
             return sorted(selected)
         canvas = self.window.canvas
-        rgba = imaging.qimage_rgba_array(canvas.active_layer.image)
+        rgba = imaging.qimage_rgba_array(as_qimage(canvas.active_layer.image))
         opaque = rgba[:, :, 3] > 0
         if not opaque.any():
             return []
@@ -756,7 +748,7 @@ class LineOpsController:
             )
             return False
         canvas = self.window.canvas
-        rgba = imaging.qimage_rgba_array(canvas.active_layer.image)
+        rgba = imaging.qimage_rgba_array(as_qimage(canvas.active_layer.image))
         has_selection = bool(canvas.selection_polygon)
         selection = (
             canvas.selection_mask_bool(rgba.shape[1], rgba.shape[0]) if has_selection else None
@@ -856,7 +848,7 @@ class LineOpsController:
         counts = {"added": 0, "removed": 0}
 
         def op(context):
-            rgba = imaging.qimage_rgba_array(context.layer.image)
+            rgba = imaging.qimage_rgba_array(as_qimage(context.layer.image))
             out, added, removed = line_tidy.tidy_lines(
                 rgba, colours, diagonal, _fit_region(region, rgba.shape[:2])
             )
@@ -907,7 +899,7 @@ class LineOpsController:
             canvas = self.window.canvas
             if canvas.selection_polygon:
                 image = canvas.active_layer.image
-                region = canvas.selection_mask_bool(image.width(), image.height())
+                region = canvas.selection_mask_bool(image.width, image.height)
         return self.tidy_lines(
             colours, all_frames=tools.dust_all_frames.isChecked(),
             diagonal=tools.line_tidy_diagonal.currentData(), region=region,
@@ -1011,7 +1003,8 @@ class LineOpsController:
             対象セルの決定・進捗・Undo のまとめ上げはランナー側が持つ。
             """
             layer = context.layer
-            pixels = imaging.qimage_rgba_array(layer.image)
+            # この配列に直接書き込むため、従来の可変コピーを作る。
+            pixels = imaging.qimage_rgba_array(as_qimage(layer.image))
             height, width = pixels.shape[:2]
             if width <= 0 or height <= 0:
                 return None

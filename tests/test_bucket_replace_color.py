@@ -35,7 +35,7 @@ def window(qapp, tmp_path, monkeypatch):
 def cell(window, frame_index, layer_index=0):
     """左に肌・右に離れた肌の島・黒い線・赤の小さな点があるコマ。"""
     layer = window.canvas.frames[frame_index].layers[layer_index]
-    image = layer.image
+    image = layer.image.to_qimage()
     image.fill(QColor(0, 0, 0, 0))
     for x in range(2, 10):
         for y in range(2, 10):
@@ -62,12 +62,12 @@ def prepare(window, frame_count=3):
 
 
 def pixel(window, frame, x, y, layer=0):
-    return window.canvas.frames[frame].layers[layer].image.pixelColor(x, y)
+    return window.canvas.frames[frame].layers[layer].image.to_qimage().pixelColor(x, y)
 
 
 def test_replaces_the_exact_colour_in_every_frame_and_undoes_once(window):
     prepare(window)
-    before = [frame.layers[0].image.copy() for frame in window.canvas.frames]
+    before = [frame.layers[0].image.to_qimage() for frame in window.canvas.frames]
 
     window.canvas.flood_fill(QPoint(3, 3))
 
@@ -81,7 +81,7 @@ def test_replaces_the_exact_colour_in_every_frame_and_undoes_once(window):
 
     window.canvas.undo()
     for frame, original in zip(window.canvas.frames, before):
-        assert frame.layers[0].image == original
+        assert frame.layers[0].image.to_qimage() == original
 
 
 def test_bucket_options_do_not_widen_the_replacement(window):
@@ -131,7 +131,7 @@ def test_other_layers_and_outside_the_selection_stay(window):
         cell(window, index, layer_index=1)
     canvas.active_layer_index = 0
     image = canvas.frames[0].layers[0].image
-    selection = np.zeros((image.height(), image.width()), dtype=bool)
+    selection = np.zeros((image.height, image.width), dtype=bool)
     selection[0:12, 0:12] = True
     assert canvas.set_selection_mask(selection)
 

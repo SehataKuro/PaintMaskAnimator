@@ -3,8 +3,42 @@
 マスクは1画素1バイト（0 か 1）の行優先の並び（numpy の bool 配列の tobytes()）。
 """
 
+from typing import Any
+
 __version__: str
 TIMELINE_API_VERSION: int
+
+class RgbaImage:
+    def __init__(self, width: int, height: int, pixels: bytes) -> None: ...
+    @staticmethod
+    def blank(width: int, height: int) -> RgbaImage: ...
+    @property
+    def width(self) -> int: ...
+    @property
+    def height(self) -> int: ...
+    @property
+    def generation(self) -> int: ...
+    def copy(self) -> RgbaImage: ...
+    def rgba_bytes(self) -> bytes: ...
+    def read_rect(self, x: int, y: int, width: int, height: int) -> bytes: ...
+    def write_rect(self, x: int, y: int, width: int, height: int, pixels: bytes) -> None: ...
+    @property
+    def tag(self) -> int: ...
+    def with_tag(self, tag: int) -> RgbaImage: ...
+
+class _CoreDocument:
+    """Python の文書窓口が所有するコア文書。窓口が多いので、ここでは型を Any にする。"""
+
+    @staticmethod
+    def from_graph(graph_json: str, images: list[RgbaImage]) -> _CoreDocument: ...
+    def __init__(self, *args: Any, **kwargs: Any) -> None: ...
+    def __getattr__(self, name: str) -> Any: ...
+
+class _CellImage:
+    """文書のセルの画像を指す窓口。RgbaImage と同じ読み書きの口を持つ。"""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None: ...
+    def __getattr__(self, name: str) -> Any: ...
 
 class TimelineCell:
     has_content: bool
@@ -42,6 +76,48 @@ def connect_runs(starts: bytes, ends: bytes, kinds: bytes, rows: bytes) -> tuple
 def label_runs(data: bytes, width: int, height: int, itemsize: int
                ) -> tuple[bytes, int, bytes, bytes, bytes, bytes]: ...
 
+def reference_color_stats(
+    rgba: bytes, width: int,
+) -> list[tuple[int, int, tuple[int, int, int, int]]]: ...
+
+def reference_line_art(rgba: bytes, line_max: int) -> bytearray: ...
+
+def reference_region_stats(
+    runs: tuple[bytes, bytes, bytes, bytes], count: int, width: int, height: int,
+) -> list[tuple[int, tuple[int, int, int, int], bool]]: ...
+
+def reference_region_under(
+    labels: bytes, lines: bytes, shape: tuple[int, int], mask: bytes,
+    bounds: tuple[int, int, int, int],
+) -> tuple[int | None, float]: ...
+
+_TileRect = tuple[int, int, int, int]
+_TileWindow = tuple[_TileRect, bytes]
+_TileInput = tuple[
+    _TileRect, bytes, bytes, _TileRect, tuple[int, int, int, int],
+    _TileWindow, _TileWindow, tuple[bytes, bytes], tuple[bytes, bytes, bytes, bytes, bytes],
+    bytes | None, bytes, bytes,
+]
+def tiled_part_color(
+    tiles: list[_TileInput], local: _TileWindow, size: int, sizes: bytes,
+) -> tuple[int, int, int] | None: ...
+
+_FlowCoordinates = tuple[tuple[bytes, bytes, bytes, bytes], bytes]
+_FlowOutline = tuple[
+    _TileWindow, _FlowCoordinates, _TileWindow, tuple[bytes, bytes],
+    _TileRect, tuple[bytes, bytes], _TileWindow,
+]
+_FlowInterior = tuple[
+    _TileWindow, _FlowCoordinates, _TileRect, tuple[bytes, bytes, bytes, bytes, bytes],
+    bytes | None, bytes, bytes,
+]
+
+def flow_outline_matches(outline: _FlowOutline, part: _TileRect) -> bool: ...
+
+def flow_part_color(
+    interior: _FlowInterior, sizes: bytes,
+) -> tuple[int, int, int] | None: ...
+
 def refine_face(
     values: bytes, labels: bytes, usable: bytes, excluded: bytes, sizes: bytes,
     points: bytes, width: int, height: int, radius: int,
@@ -50,6 +126,10 @@ def refine_face(
 
 def thin(mask: bytes, width: int, height: int, iterations: int) -> bytes:
     """Zhang-Suen 細線化。線端の判定に使い、描画画像自体は変えない。"""
+
+def line_flow_interpolate(
+    dy: bytes, dx: bytes, width: int, height: int, block: int, ys: bytes, xs: bytes,
+) -> tuple[bytes, bytes] | None: ...
 
 def line_flow_scores(
     target: bytes, guide: bytes, width: int, height: int, block: int,
@@ -75,6 +155,22 @@ def label_regions(codes: bytes, width: int, height: int) -> tuple[bytes, int]:
     番号は各領域の最初の画素（行優先）が現れた順。``(番号, 領域の数)`` を返す。
     """
 def unique_colors(pixels: bytes, limit: int) -> list[int]: ...
+def local_color_variation(rgb: bytes, width: int, height: int) -> bytes: ...
+def median_cut_palette_from_samples(sample: bytes, color_count: int) -> bytes: ...
+def normalize_tone_curve_points(points: list[tuple[float, float]]) -> list[tuple[float, float]]: ...
+def tone_curve_samples(points: list[tuple[float, float]], values: bytes) -> bytes | None: ...
+def tone_curve_lut(points: list[tuple[float, float]]) -> bytes: ...
+def apply_tone_curve(
+    rgba: bytes, width: int, height: int, points: list[tuple[float, float]],
+    background: tuple[int, int, int] | None = None,
+) -> bytes: ...
+def tone_preview_background_mask(
+    rgba: bytes, width: int, height: int, background: tuple[int, int, int],
+) -> bytes: ...
+def apply_tone_preview_lut(
+    rgba: bytes, width: int, height: int, lut: bytes,
+    background: tuple[int, int, int] | None, mask: bytes | None,
+) -> bytes: ...
 def map_known_colors(
     rgba: bytes, codes: list[int], indices: list[int],
     palette: list[tuple[int, int, int]], line_max: int,
@@ -128,3 +224,184 @@ def filter_palette(rgba: bytes, visible: list[tuple[int, int, int]] | None,
                    remap: list[tuple[tuple[int, int, int], tuple[int, int, int]]]) -> bytes: ...
 def tint_onion(rgba: bytes, color: tuple[int, int, int], enabled: bool,
                selected: list[tuple[int, int, int]] | None) -> bytes: ...
+
+
+def remove_line_noise(
+    rgba: bytes, width: int, height: int, line_luma: int,
+    radius: int, majority: int, isolation: int,
+) -> tuple[bytes, int]:
+    """線近傍の孤立色を多数決で置き換えた RGBA8888 と変更画素数。"""
+
+
+def alpha_runs(data: bytes, width: int, height: int, stride: int, alpha_offset: int) -> list[tuple[int, int, int]]:
+    """1画素4バイトの画像で、``alpha_offset`` 番目のバイトが 0 でない横の並び ``(y, left, right)``。"""
+
+
+def decode_png(data: bytes, max_bytes: int) -> tuple[int, int, bytes]:
+    """PNG を幅・高さ・乗算していない RGBA8888 にする。未対応・不正・上限超過は ValueError。"""
+
+
+def encode_png(rgba: bytes, width: int, height: int, dots_per_meter_x: int, dots_per_meter_y: int) -> bytes:
+    """乗算していない RGBA8888 を PNG にし、失敗は ValueError。"""
+
+
+class ZipReader:
+    """ZIP を GIL を手放して開き、宣言サイズ内で読み取る。"""
+    def __init__(self, path: str) -> None: ...
+    def entries(self) -> list[tuple[str, int, int]]: ...
+    def read(self, index: int) -> bytes: ...
+    def close(self) -> None: ...
+
+
+def decode_v2_plan(payload: dict, archive_names: list[str], limits: tuple[int, int, int] | None = None) -> tuple[dict, list[list], str | None]:
+    """v2 の構造計画、要求順の画像、構造エラーの理由を返す。"""
+
+
+class ZipWriter:
+    def __init__(self, path: str) -> None: ...
+    def write(self, name: str, data: bytes, deflate: bool, date_time: tuple[int, int, int, int, int, int]) -> None: ...
+    def close(self) -> None: ...
+
+
+def extend_line_ends(boundary: bytes, width: int, height: int,
+                     strips: list[tuple[int, int, int, int, bytes]], max_length: int) -> bytes:
+    """細線化済みの帯から端点の延長マスクを返す。"""
+    ...
+
+def fill_target_mask(rgba: bytes, width: int, height: int, target_color: str,
+                     category: tuple[int, int, int] | None = None) -> bytes: ...
+
+class LineCache:
+    def __init__(self) -> None: ...
+
+class FillSession:
+    def __init__(self, rgba: bytes, width: int, height: int, options: _FillOptions, indexed: bool = False) -> None: ...
+    def compute(self, x: int, y: int) -> _FillOutput: ...
+    def prepared(self, category: tuple[int, int, int] | None) -> tuple: ...
+    def index(self, category: tuple[int, int, int] | None) -> tuple[bytes, bytes]: ...
+    def background(self) -> bytes: ...
+    def categories(self) -> list: ...
+    def nbytes(self) -> int: ...
+
+def compute_fill_region_once(rgba: bytes, width: int, height: int, x: int, y: int,
+                             options: _FillOptions, selection: bytes | None = None,
+                             line_cache: LineCache | None = None) -> _FillOutput: ...
+
+
+def estimate_shifts(
+    previous: bytes, current: bytes, region: bytes, width: int, height: int,
+    count: int, margin: int | None,
+) -> list[tuple[int, int]]: ...
+def warp_region(
+    previous: bytes, current: bytes, region: bytes, width: int, height: int,
+    shift: tuple[int, int], origin: tuple[int, int] = (0, 0),
+) -> bytes | None: ...
+def estimate_color_shifts(
+    previous: bytes, current: bytes, region: bytes, before: tuple[int, int],
+    after: tuple[int, int], offset: tuple[int, int], count: int,
+) -> list[tuple[int, int]]: ...
+def tracking_region_center(region: bytes, width: int, height: int) -> tuple[int, int] | None: ...
+def context_similarity(
+    before: tuple[bytes, bytes, tuple[int, int], tuple[int, int]],
+    after: tuple[bytes, bytes, tuple[int, int], tuple[int, int]],
+) -> float: ...
+
+_Rgb = tuple[int, int, int]
+_Bounds = tuple[int, int, int, int]
+_Replacement = tuple[_Rgb, _Rgb]
+_Island = tuple[_Rgb, _Bounds, bytes]
+_FillOptions = tuple[str, bool, int, bool, int, bool, bool, int, bool, bool,
+                     tuple[_Rgb, ...], tuple[_Replacement, ...]]
+_FillOutput = tuple[str, _Bounds | None, bytes | None, _Rgb | None, list[_Island]]
+
+def enclosed_by(region: bytes, width: int, height: int) -> bytes: ...
+def enclosed_islands(
+    rgba: bytes, dimensions: tuple[int, int], region: bytes, bounds: _Bounds,
+    replacements: tuple[_Replacement, ...], min_share: float, selection: bytes | None = None,
+) -> list[_Island]: ...
+def guess_target_categories(
+    rgba: bytes, previous: bytes, before: bytes, width: int, height: int,
+) -> list[_Rgb | None]: ...
+def skewer_seed(
+    rgba: bytes, width: int, height: int, reference: _Rgb | None,
+) -> tuple[int, int] | None: ...
+
+def track_fill_region(
+    rgba: bytes, previous: bytes, width: int, height: int,
+    reference: tuple[int, int, int] | None, options: _FillOptions,
+    selection: bytes | None = ..., previous_rgba: bytes | None = ...,
+    previous_lines: bytes | None = ...,
+) -> tuple[float | None, list[_FillOutput], tuple[int, int] | None, bytes | None]: ...
+
+
+def image_alpha_statistics(rgba: bytes, width: int, height: int) -> tuple[int, int, int]: ...
+
+
+def binarize_alpha_for_pixel_art(rgba: bytes, width: int, height: int, threshold: int) -> bytes: ...
+
+
+def opaque_rgb_color_count(rgba: bytes, width: int, height: int) -> int: ...
+
+
+def border_background(border: bytes) -> tuple[int, int, int] | None: ...
+
+
+def estimate_mixed_boundary_pixels(rgba: bytes, width: int, height: int, background: tuple[int, int, int] | None = None) -> int: ...
+
+
+def snap_overlay_to_exact_rgbs(rgba: bytes, width: int, height: int, mask: bytes, palette: bytes) -> bytes: ...
+
+def palette_color_counts(sample: bytes) -> tuple[bytes, bytes]: ...
+def hue_cluster_palette(colors: bytes, features: bytes, weights: bytes, log_weights: bytes, color_count: int) -> bytes: ...
+def palette_training_samples(rgba: bytes, width: int, height: int, threshold: int, opaque: bool, background: tuple[int, int, int] | None) -> bytes: ...
+def select_palette_colors(training: bytes, priority: bytes, clustered: bytes, color_count: int, line: bool, background: tuple[int, int, int] | None) -> bytes: ...
+def line_palette_labels(rgb: bytes, width: int, height: int, visible: bytes, palette: bytes) -> bytes: ...
+def apply_color_reduction_palette(rgba: bytes, width: int, height: int, palette: bytes, threshold: int, opaque: bool, background: tuple[int, int, int] | None, points: list[tuple[float, float]] | None, line: bool) -> bytes: ...
+
+def prepare_local_shift(
+    target: bytes, target_shape: tuple[int, int],
+    wide: bytes, wide_shape: tuple[int, int],
+    offset: tuple[int, int], limit: int,
+) -> tuple[bytes, tuple[int, int], float, list[int], list[int], list[int], list[int]] | None: ...
+
+def solve_local_shift(
+    before: bytes, exact: bytes, wide: bytes, width: int, height: int,
+    fast_size: tuple[int, int], dys: list[int], dxs: list[int], total: float,
+    step: int, motion_penalty: float, near_line_weight: float, share_motion: bool,
+) -> tuple[tuple[int, int], float, float]: ...
+
+
+def splat_mask_labels(
+    labels: bytes,
+    source_width: int,
+    source_height: int,
+    out_width: int,
+    out_height: int,
+    protect_labels: list[int],
+    matrix: list[float] | None,
+    grid: tuple[int, int, list[tuple[float, float]]] | None,
+) -> list[bytes]: ...
+
+def mask_labels_to_rgba(
+    labels: bytes, width: int, height: int, palette: bytes, transparent_white: bool,
+) -> bytes: ...
+
+
+def history_trim_count(entry_bytes: list[int], max_entries: int, max_bytes: int) -> int:
+    """Undo 列の古い側から捨てる件数（件数→論理バイトの順、最低1件は残す）。"""
+
+def history_shift_branch_positions(positions: list[int], removed: int) -> list[int | None]:
+    """古い側が removed 件削られたあとの分岐点。捨てる分岐は None。"""
+
+def history_branch_overflow(count: int, max_branches: int) -> int:
+    """分岐を足したあと、上限を超えて古い側から捨てる本数（上限 0 なら捨てない）。"""
+
+def history_switch_steps(position: int, undo_len: int) -> int | None:
+    """分岐へ切り替えるときに戻す手数。到達できない分岐は None。"""
+
+def history_retained_positions(keep: list[bool], positions: list[int]) -> list[int]:
+    """一部の件を除いたあとの分岐点（分岐点より前に残る件の数）。"""
+
+def history_branch_columns(branches: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """ヒストリーパネルで分岐を置く列。並べた順に (一覧の添字, 列)。"""
+

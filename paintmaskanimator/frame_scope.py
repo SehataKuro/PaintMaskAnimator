@@ -11,17 +11,21 @@ Undo のまとめ方もその場ごとに組み立てられていた。新しい
 表す :class:`FrameScope` の2つだけ。走査順・保持コマの重複除去・共有画像の扱い・
 進捗通知・キャンセル・Undo へのまとめ上げは :func:`apply_over_scope` が持つ。
 
-UI から独立している（QWidget を触らない）ので、GUI なしで単体テストできる。
-``doc`` に要求するのは ``frames`` 属性だけで、``resolve_key_frame`` と
-``push_undo`` は在れば使う。
+UI から独立しているので、GUI なしで単体テストできる。編集先は Document
+またはそれを持つキャンバス。resolve_key_frame と push_undo は在れば使う。
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple
 
 from .logging_setup import get_logger
+from .pma_image import as_qimage
+from .document_changes import ChangeSet
 from .undo_entries import ScopedBatchUndo
+
+if TYPE_CHECKING:
+    from .models import Layer
 
 log = get_logger(__name__)
 
@@ -137,7 +141,7 @@ class LayerContext:
 
     @property
     def image(self):
-        return self.layer.image
+        return as_qimage(self.layer.image)
 
 
 @dataclass
@@ -154,6 +158,7 @@ class ScopeResult:
     cancelled: bool = False
     #: 走査したセル数（変更の有無を問わない）。
     visited_cells: int = 0
+    changes: ChangeSet = field(default_factory=ChangeSet, compare=False, repr=False)
 
     @property
     def changed(self) -> bool:
@@ -205,10 +210,10 @@ def _group_shared_images(doc, cells):
     """同じ絵（``Cell``）を指すセルをまとめる。
 
     接続済みの同番号セルは Track の bank にある同じ ``Cell`` を参照し、
-    結果として同じ ``QImage`` を指す。セルごとに個別処理すると同じ絵を何度も
+    結果として同じ ``PmaImage`` を指す。セルごとに個別処理すると同じ絵を何度も
     処理することになるので、共有グループは1回だけ処理して結果を全員へ配る。
 
-    判定は ``QImage`` の同一性で行う。``Cell`` の共有はこれを含むうえ、
+    判定は ``PmaImage`` の同一性で行う。``Cell`` の共有はこれを含むうえ、
     取り込み経路などが ``Cell`` を通さず同じ画像を指す場合も拾えるため
     （Issue #31 Phase 1 では、共有の判定をこれまでより狭めない）。
     """
@@ -220,13 +225,14 @@ def _group_shared_images(doc, cells):
         origin = layer.__dict__.get("_content_origin")
         if (origin is not None and origin == layer.sequence_number
                 and origin in layer._track.cells):
-            key = id(layer._track.cells[origin].image)
+            key = layer._track.cells[origin].image
         else:
-            key = id(layer.image)
+            key = layer.image
         position = index_of.get(key)
         if position is None:
             index_of[key] = len(groups)
-            groups.append(((frame_index, layer_index), [(frame_index, layer_index)]))
+            cell = (frame_index, layer_index)
+            groups.append((cell, [cell]))
         else:
             groups[position][1].append((frame_index, layer_index))
     return groups
@@ -318,24 +324,22 @@ def apply_over_scope(
             for fi, li in shared_cells
         )
         for frame_index, layer_index in (shared_cells[:1] if numbered else shared_cells):
-            layer = doc.frames[frame_index].layers[layer_index]
+            layer: Layer = doc.frames[frame_index].layers[layer_index]
             undo_cells.append((
-                int(frame_index), int(layer_index), layer.image.copy(),
+                int(frame_index), int(layer_index), as_qimage(layer.image).copy(),
                 bool(layer.has_content), number if numbered else None,
             ))
 
-    for _lead_cell, shared_cells, produced, changed_pixels in pending:
+    document = getattr(doc, "_document", doc)
+    result.changes = document.replace_drawing_images(
+        (shared_cells, produced) for _, shared_cells, produced, _ in pending
+    )
+    for _, shared_cells, _, changed_pixels in pending:
+        result.changed_cells += len(shared_cells)
+        result.changed_pixels += changed_pixels
         for frame_index, layer_index in shared_cells:
-            layer = doc.frames[frame_index].layers[layer_index]
-            # 同じ絵を指すセルは1つの Cell を共有しているので、書き込みは
-            # グループの先頭1回で全員に行き渡る。共有が切れていた場合に
-            # そなえ、ここでも結び直しておく。
-            layer.image = produced
-            layer.has_content = True
-            result.changed_cells += 1
             result.changed_frames.append(int(frame_index))
             result.changed_cell_list.append((int(frame_index), int(layer_index)))
-        result.changed_pixels += changed_pixels
 
     if push_undo:
         entry = ScopedBatchUndo(undo_cells, label)

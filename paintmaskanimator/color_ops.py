@@ -13,7 +13,120 @@ from . import native
 from . import colors as _colors  # noqa: F401
 
 
-def _snap_overlay_to_exact_rgbs(
+def _is_rgba8(rgba):
+    return rgba.dtype == np.uint8 and rgba.ndim == 3 and rgba.shape[2] == 4
+
+
+def _snap_overlay_to_exact_rgbs(overlay_rgba, active_mask, exact_colors):
+    """境界の丸め誤差を、指定された正規RGBへ吸着する。"""
+    rgba = np.asarray(overlay_rgba, dtype=np.uint8).copy()
+    mask = np.asarray(active_mask, dtype=bool)
+    palette = _colors.paint_rgb_palette(exact_colors)
+    if not _is_rgba8(rgba) or mask.shape != rgba.shape[:2]:
+        return _snap_normalized_overlay_numpy(rgba, mask, palette)
+    if palette.size == 0 or not np.any(mask):
+        return rgba
+    return native.snap_overlay_to_exact_rgbs(rgba, mask, palette)
+
+
+def image_alpha_statistics(image):
+    """透明・半透明・不透明画素数を返す。"""
+    counts = (0, 0, 0)
+    if image is not None and not image.isNull():
+        rgba = imaging.qimage_rgba_array(image, readonly=True)
+        if rgba.size:
+            if not _is_rgba8(rgba):
+                return image_alpha_statistics_numpy(image)
+            counts = native.image_alpha_statistics(rgba)
+    transparent, semi_transparent, opaque = counts
+    return {
+        "transparent": transparent,
+        "semi_transparent": semi_transparent,
+        "opaque": opaque,
+    }
+
+
+def binarize_alpha_for_pixel_art(image, alpha_threshold=128):
+    """半透明を完全透明／完全不透明へ二値化する。"""
+    if image is None or image.isNull():
+        return QImage()
+    rgba = imaging.qimage_rgba_array(image, readonly=True)
+    if rgba.size == 0:
+        return image.copy()
+    if not _is_rgba8(rgba):
+        return binarize_alpha_for_pixel_art_numpy(image, alpha_threshold)
+    threshold = max(1, min(254, int(alpha_threshold)))
+    return imaging.rgba_array_to_qimage(native.binarize_alpha_for_pixel_art(rgba, threshold))
+
+
+def opaque_rgb_color_count(image):
+    """透明画素を除外したRGB色数を返す。"""
+    if image is None or image.isNull():
+        return 0
+    rgba = imaging.qimage_rgba_array(image, readonly=True)
+    if rgba.size == 0:
+        return 0
+    if not _is_rgba8(rgba):
+        return opaque_rgb_color_count_numpy(image)
+    return native.opaque_rgb_color_count(rgba)
+
+
+def detect_opaque_border_background(image):
+    """外周につながる不透明な明色背景を検出する。"""
+    if image is None or image.isNull():
+        return None
+
+    rgba = imaging.qimage_rgba_array(image)
+    if rgba.size == 0:
+        return None
+
+    alpha = rgba[:, :, 3]
+    # 半透明・透明を含む画像は従来のアルファ二値化を使う。
+    if np.any(alpha < 250):
+        return None
+
+    rgb = rgba[:, :, :3]
+    height, width = rgb.shape[:2]
+    if width <= 0 or height <= 0:
+        return None
+
+    border_parts = [
+        rgb[0, :, :],
+        rgb[height - 1, :, :],
+    ]
+    if height > 2:
+        border_parts.extend([
+            rgb[1:height - 1, 0, :],
+            rgb[1:height - 1, width - 1, :],
+        ])
+    border = np.concatenate(border_parts, axis=0)
+    if border.size == 0:
+        return None
+
+    return native.border_background(border)
+
+
+def estimate_mixed_boundary_pixels(image, background_rgb=None):
+    """白背景上のアンチエイリアス境界のおおよその画素数。"""
+    if image is None or image.isNull():
+        return 0
+    rgba = imaging.qimage_rgba_array(image, readonly=True)
+    if rgba.size == 0:
+        return 0
+    if not _is_rgba8(rgba):
+        return estimate_mixed_boundary_pixels_numpy(image, background_rgb)
+    if background_rgb is not None:
+        if (
+            type(background_rgb) not in (tuple, list)
+            or len(background_rgb) != 3
+            or not all(type(value) is int and 0 <= value <= 255 for value in background_rgb)
+        ):
+            return estimate_mixed_boundary_pixels_numpy(image, background_rgb)
+        background_rgb = tuple(background_rgb)
+    return native.estimate_mixed_boundary_pixels(rgba, background_rgb)
+
+
+def _snap_overlay_to_exact_rgbs_numpy(
     overlay_rgba,
     active_mask,
     exact_colors,
@@ -30,6 +143,10 @@ def _snap_overlay_to_exact_rgbs(
     palette = _colors.paint_rgb_palette(
         exact_colors
     )
+    return _snap_normalized_overlay_numpy(rgba, mask, palette)
+
+
+def _snap_normalized_overlay_numpy(rgba, mask, palette):
     if (
         palette.size == 0
         or not np.any(mask)
@@ -61,7 +178,7 @@ def _snap_overlay_to_exact_rgbs(
     return rgba
 
 
-def image_alpha_statistics(image):
+def image_alpha_statistics_numpy(image):
     """透明・半透明・不透明画素数を返す。"""
     if image is None or image.isNull():
         return {
@@ -86,7 +203,7 @@ def image_alpha_statistics(image):
     }
 
 
-def binarize_alpha_for_pixel_art(
+def binarize_alpha_for_pixel_art_numpy(
     image,
     alpha_threshold=128,
 ):
@@ -113,7 +230,7 @@ def binarize_alpha_for_pixel_art(
     return imaging.rgba_array_to_qimage(result)
 
 
-def opaque_rgb_color_count(image):
+def opaque_rgb_color_count_numpy(image):
     """透明画素を除外したRGB色数を返す。"""
     if image is None or image.isNull():
         return 0
@@ -132,7 +249,7 @@ def opaque_rgb_color_count(image):
     return int(np.unique(packed).size)
 
 
-def detect_opaque_border_background(image):
+def detect_opaque_border_background_numpy(image):
     """外周につながる不透明な明色背景を検出する。"""
     if image is None or image.isNull():
         return None
@@ -185,7 +302,7 @@ def detect_opaque_border_background(image):
     return tuple(int(value) for value in dominant)
 
 
-def estimate_mixed_boundary_pixels(
+def estimate_mixed_boundary_pixels_numpy(
     image,
     background_rgb=None,
 ):
@@ -384,6 +501,22 @@ def _surface_guided_palette_labels_numpy(
 
 def _line_palette_labels(rgb, visible, palette):
     """ライン抽出用。色相よりRGB差と明度差を優先して実線を保つ。"""
+    colors = np.asarray(palette, dtype=np.uint8).reshape(-1, 3)
+    if (
+        type(rgb) is not np.ndarray
+        or rgb.dtype != np.uint8
+        or type(visible) is not np.ndarray
+        or visible.dtype != np.bool_
+        or visible.ndim != 2
+        or rgb.shape != (*visible.shape, 3)
+        or not 0 < len(colors) <= 32767
+    ):
+        return _line_palette_labels_numpy(rgb, visible, colors)
+    return native.line_palette_labels(rgb, visible, colors)
+
+
+def _line_palette_labels_numpy(rgb, visible, palette):
+    """ライン抽出用。色相よりRGB差と明度差を優先して実線を保つ。"""
     palette_array = np.asarray(palette, dtype=np.uint8).reshape((-1, 3))
     source = rgb.reshape((-1, 3)).astype(np.float32) / 255.0
     targets = palette_array.astype(np.float32) / 255.0
@@ -446,7 +579,59 @@ def _line_palette_labels(rgb, visible, palette):
     return labels.reshape(visible.shape)
 
 
-def tone_curve_samples(
+def tone_curve_samples(tone_curve_points, input_values):
+    """制御点を通る形状保持型3次曲線を評価する。"""
+    if (
+        type(input_values) is not np.ndarray
+        or input_values.ndim != 1
+        or input_values.dtype != np.float64
+    ):
+        return tone_curve_samples_numpy(tone_curve_points, input_values)
+    points = [] if tone_curve_points is None else _colors._float_tone_curve_points(tone_curve_points)
+    if np.geterr()["under"] != "ignore":
+        return tone_curve_samples_numpy(points, input_values)
+    result = native.tone_curve_samples(points, input_values)
+    if result is None:
+        return tone_curve_samples_numpy(points, input_values)
+    return result
+
+
+def tone_curve_lut(tone_curve_points=None):
+    """256段階のトーンカーブ変換表を返す。"""
+    points = [] if tone_curve_points is None else _colors._float_tone_curve_points(tone_curve_points)
+    if np.geterr()["under"] != "ignore":
+        return tone_curve_lut_numpy(points)
+    return native.tone_curve_lut(points)
+
+
+def apply_tone_curve(image, tone_curve_points=None, background_rgb=None):
+    """256段階LUTを適用し、元の背景に近い画素を保持する。"""
+    if image is None or image.isNull():
+        return image
+    points = _colors.normalize_tone_curve_points(
+        tone_curve_points if tone_curve_points is not None else [(0.0, 0.0), (1.0, 1.0)]
+    )
+    if points == [(0.0, 0.0), (1.0, 1.0)]:
+        return image.copy()
+
+    rgba = imaging.qimage_rgba_array(image, readonly=True)
+    if rgba.size == 0:
+        return image.copy()
+    if not _is_rgba8(rgba) or np.geterr()["under"] != "ignore":
+        return _apply_tone_curve_rgba_numpy(rgba, points, background_rgb)
+    if background_rgb is not None:
+        if (
+            type(background_rgb) not in (tuple, list)
+            or len(background_rgb) != 3
+            or not all(type(value) is int and 0 <= value <= 255 for value in background_rgb)
+        ):
+            return _apply_tone_curve_rgba_numpy(rgba, points, background_rgb)
+        background_rgb = tuple(background_rgb)
+    result = native.apply_tone_curve(rgba, points, background_rgb)
+    return imaging.rgba_array_to_qimage(result)
+
+
+def tone_curve_samples_numpy(
     tone_curve_points,
     input_values,
 ):
@@ -580,11 +765,11 @@ def tone_curve_samples(
     return np.clip(outputs, 0.0, 1.0)
 
 
-def tone_curve_lut(tone_curve_points=None):
+def tone_curve_lut_numpy(tone_curve_points=None):
     inputs = (
         np.arange(256, dtype=np.float64) / 255.0
     )
-    outputs = tone_curve_samples(
+    outputs = tone_curve_samples_numpy(
         tone_curve_points,
         inputs,
     )
@@ -595,7 +780,7 @@ def tone_curve_lut(tone_curve_points=None):
     ).astype(np.uint8)
 
 
-def apply_tone_curve(
+def apply_tone_curve_numpy(
     image,
     tone_curve_points=None,
     background_rgb=None,
@@ -616,7 +801,11 @@ def apply_tone_curve(
     if rgba.size == 0:
         return image.copy()
 
-    lut = tone_curve_lut(points)
+    return _apply_tone_curve_rgba_numpy(rgba, points, background_rgb)
+
+
+def _apply_tone_curve_rgba_numpy(rgba, points, background_rgb):
+    lut = tone_curve_lut_numpy(points)
     result = rgba.copy()
     result[:, :, :3] = lut[result[:, :, :3]]
 
@@ -643,7 +832,27 @@ def apply_tone_curve(
     return imaging.rgba_array_to_qimage(result)
 
 
-def _hue_cluster_palette_from_samples(
+def _native_palette_background(background):
+    return background is None or (
+        type(background) in (tuple, list)
+        and len(background) == 3
+        and all(type(value) is int and 0 <= value <= 255 for value in background)
+    )
+
+
+def _hue_cluster_palette_from_samples(sample, color_count):
+    """色相を主軸に、近い色を同じ原色面へまとめる。"""
+    sample = np.asarray(sample, dtype=np.uint8).reshape(-1, 3)
+    color_count = max(1, int(color_count))
+    colors, weights = native.palette_color_counts(sample)
+    if len(colors) <= color_count:
+        return colors.copy()
+    return native.hue_cluster_palette(
+        colors, _colors.rgb_hsv_features(colors), weights, np.log1p(weights), color_count,
+    )
+
+
+def _hue_cluster_palette_from_samples_numpy(
     sample,
     color_count,
 ):
@@ -760,7 +969,22 @@ def _hue_cluster_palette_from_samples(
     return np.asarray(palette, dtype=np.uint8)
 
 
-def _palette_training_samples(
+def _palette_training_samples(image, alpha_threshold=128, opaque_background=False, background_rgb=None):
+    """背景と境界のにじみを外して、パレットの手本の RGB を返す。"""
+    threshold = max(1, min(254, int(alpha_threshold)))
+    rgba = imaging.qimage_rgba_array(image, readonly=True)
+    if rgba.size == 0:
+        return np.zeros((0, 3), dtype=np.uint8)
+    if not _is_rgba8(rgba) or (opaque_background and not _native_palette_background(background_rgb)):
+        return _palette_training_samples_numpy(image, threshold, opaque_background, background_rgb)
+    background = (
+        tuple(map(int, np.asarray(background_rgb, dtype=np.uint8)))
+        if opaque_background and background_rgb is not None else None
+    )
+    return native.palette_training_samples(rgba, threshold, bool(opaque_background), background)
+
+
+def _palette_training_samples_numpy(
     image,
     alpha_threshold=128,
     opaque_background=False,
@@ -848,6 +1072,11 @@ def build_color_reduction_palette(
     1枚だけから作ると、中間で色が増えるカットやフラッシュで、その1枚に無い色が
     最近傍へ潰れてしまうため（Issue #10）。
     """
+    if opaque_background and not _native_palette_background(background_rgb):
+        return build_color_reduction_palette_numpy(
+            image, color_count, alpha_threshold, max_samples, opaque_background,
+            background_rgb, tone_curve_points, extraction_mode, extra_images,
+        )
     color_count = max(2, min(100, int(color_count)))
     reserved_background = (
         np.asarray(background_rgb, dtype=np.uint8)
@@ -899,6 +1128,84 @@ def build_color_reduction_palette(
             foreground_count if foreground_count >= 6 else 0,
         )
     clustered_palette = _hue_cluster_palette_from_samples(
+        training_rgb,
+        foreground_count,
+    )
+    background = None if reserved_background is None else tuple(map(int, reserved_background))
+    return native.select_palette_colors(
+        training_rgb, priority_palette, clustered_palette, color_count,
+        extraction_mode == "line", background,
+    )
+
+
+def build_color_reduction_palette_numpy(
+    image,
+    color_count,
+    alpha_threshold=128,
+    max_samples=262144,
+    opaque_background=False,
+    background_rgb=None,
+    tone_curve_points=None,
+    extraction_mode="surface",
+    extra_images=(),
+):
+    """近い色相を同じ原色面としてまとめる共通パレット。
+
+    ``extra_images`` に代表フレームを渡すと、それらの画素もまとめて手本にする。
+    1枚だけから作ると、中間で色が増えるカットやフラッシュで、その1枚に無い色が
+    最近傍へ潰れてしまうため（Issue #10）。
+    """
+    color_count = max(2, min(100, int(color_count)))
+    reserved_background = (
+        np.asarray(background_rgb, dtype=np.uint8)
+        if opaque_background and background_rgb is not None
+        else None
+    )
+    samples = [
+        _palette_training_samples_numpy(
+            source,
+            alpha_threshold=alpha_threshold,
+            opaque_background=opaque_background,
+            background_rgb=background_rgb,
+        )
+        for source in (image, *(extra_images or ()))
+    ]
+    samples = [block for block in samples if block.size]
+    if not samples:
+        return np.asarray([[0, 0, 0]], dtype=np.uint8)
+    training_rgb = (
+        samples[0] if len(samples) == 1 else np.vstack(samples)
+    )
+
+    if len(training_rgb) > int(max_samples):
+        sample_indices = np.linspace(
+            0,
+            len(training_rgb) - 1,
+            int(max_samples),
+            dtype=np.int64,
+        )
+        training_rgb = training_rgb[sample_indices]
+
+    foreground_count = (
+        color_count - 1
+        if reserved_background is not None
+        else color_count
+    )
+    foreground_count = max(1, foreground_count)
+    extraction_mode = (
+        "line" if extraction_mode == "line" else "surface"
+    )
+    if extraction_mode == "line":
+        priority_palette = _colors.priority_palette_colors_from_samples(
+            training_rgb,
+            foreground_count,
+        )
+    else:
+        priority_palette = _colors.priority_palette_colors_from_samples(
+            training_rgb,
+            foreground_count if foreground_count >= 6 else 0,
+        )
+    clustered_palette = _hue_cluster_palette_from_samples_numpy(
         training_rgb,
         foreground_count,
     )
@@ -982,6 +1289,48 @@ def apply_color_reduction_palette(
     """色相面を確定し、境界混合色を二分してからトーンを適用する。"""
     if image is None or image.isNull():
         return image
+    rgba = imaging.qimage_rgba_array(image, readonly=True)
+    if rgba.size == 0:
+        return image.copy()
+    colors = np.asarray(palette, dtype=np.uint8).reshape(-1, 3)
+    if colors.size == 0:
+        return image.copy()
+    if (
+        not _is_rgba8(rgba)
+        or len(colors) > 32767
+        or not _native_palette_background(background_rgb)
+        or np.geterr()["under"] != "ignore"
+    ):
+        return apply_color_reduction_palette_numpy(
+            image, colors, alpha_threshold, opaque_background, background_rgb,
+            tone_curve_points, extraction_mode,
+        )
+    threshold = max(1, min(254, int(alpha_threshold)))
+    background = (
+        None if background_rgb is None else tuple(map(int, np.asarray(background_rgb, dtype=np.uint8)))
+    )
+    points = _colors.normalize_tone_curve_points(tone_curve_points)
+    if points == [(0.0, 0.0), (1.0, 1.0)]:
+        points = None
+    result = native.apply_color_reduction_palette(
+        rgba, colors, threshold, bool(opaque_background), background, points,
+        extraction_mode == "line",
+    )
+    return imaging.rgba_array_to_qimage(result)
+
+
+def apply_color_reduction_palette_numpy(
+    image,
+    palette,
+    alpha_threshold=128,
+    opaque_background=False,
+    background_rgb=None,
+    tone_curve_points=None,
+    extraction_mode="surface",
+):
+    """色相面を確定し、境界混合色を二分してからトーンを適用する。"""
+    if image is None or image.isNull():
+        return image
 
     rgba = imaging.qimage_rgba_array(image)
     if rgba.size == 0:
@@ -1006,7 +1355,7 @@ def apply_color_reduction_palette(
     )
 
     if extraction_mode == "line":
-        labels = _line_palette_labels(
+        labels = _line_palette_labels_numpy(
             rgb, visible, palette_array
         )
     else:

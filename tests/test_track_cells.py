@@ -2,8 +2,10 @@
 import pytest
 from PySide6.QtGui import QImage
 
+from image_edit_helpers import edit_qimage
 from paintmaskanimator.document import ArchiveHint, Document, clear_slot, clone_frame_graph, project_v1_state
 from paintmaskanimator.models import Cell, Frame, Layer
+from paintmaskanimator.pma_image import as_qimage
 
 
 def image(color=0xff123456):
@@ -40,8 +42,8 @@ def test_install_uses_current_image_and_first_non_none_attributes():
     doc.current_frame = 1
     doc.install_legacy_frames([Frame([first]), Frame([second])])
     assert first.cell_id == second.cell_id
-    assert first.image.pixel(0, 0) == 0xffabcdef
-    assert second.initial_image.pixel(0, 0) == 0xff111111
+    assert first.image.to_qimage().pixel(0, 0) == 0xffabcdef
+    assert second.initial_image.to_qimage().pixel(0, 0) == 0xff111111
     assert second.cell_name == "first"
     second.image = image(0xff998877)
     assert doc.tracks[0].cells[3].image is first.image is second.image
@@ -55,7 +57,7 @@ def test_retained_only_image_is_rescued_and_projected_without_live_mutation():
     assert frames is not doc.frames
     assert frames[0].layers[0].sequence_number == retained.sequence_number
     assert doc.tracks[0].legacy_archive_hints == {}
-    assert archive[(0, 12)].image.pixel(0, 0) == retained.image.pixel(0, 0)
+    assert archive[(0, 12)].image.to_qimage().pixel(0, 0) == retained.image.to_qimage().pixel(0, 0)
     assert archive[(0, 12)].cell_name == "rescued"
     assert retained.is_blank_key and not retained.has_content
     assert retained.sequence_number == 12
@@ -68,7 +70,7 @@ def test_clear_preserves_bank_and_projection_uses_same_cell():
     cell = layer._cell
     clear_slot(layer)
     assert doc.tracks[0].cells[3] is cell
-    assert cell.image.pixel(0, 0) == 0xff123456
+    assert cell.image.to_qimage().pixel(0, 0) == 0xff123456
     assert layer.sequence_number is None
     _, archive = project_v1_state(doc.frames)
     assert archive[(0, 3)].image is cell.image
@@ -90,8 +92,9 @@ def test_graph_copy_copies_unplaced_cells_once_and_preserves_sharing():
     assert track.legacy_archive_hints == doc.tracks[0].legacy_archive_hints
     assert track.legacy_archive_hints is not doc.tracks[0].legacy_archive_hints
     assert track.cells[9] is not doc.tracks[0].cells[9]
-    track.cells[9].image.fill(0xffabcdef)
-    assert doc.tracks[0].cells[9].image.pixel(0, 0) == 0xff123456
+    with edit_qimage(track.cells[9].image) as edited:
+        edited.fill(0xffabcdef)
+    assert doc.tracks[0].cells[9].image.to_qimage().pixel(0, 0) == 0xff123456
 
 
 def test_snapshot_restores_bank_archive_and_is_reusable():
@@ -100,14 +103,16 @@ def test_snapshot_restores_bank_archive_and_is_reusable():
                               {(0, 8): slot(8, has_content=True)})
     doc.tracks[0].cells[9] = Cell(image(), image(), "unplaced")
     snap = doc.snapshot()
-    doc.tracks[0].cells[9].image.fill(0xff000000)
+    with edit_qimage(doc.tracks[0].cells[9].image) as edited:
+        edited.fill(0xff000000)
     doc.tracks[0].legacy_archive_hints.clear()
     doc.restore(snap)
     assert set(doc.tracks[0].legacy_archive_hints) == {8}
-    assert doc.tracks[0].cells[9].image.pixel(0, 0) == 0xff123456
-    doc.tracks[0].cells[9].image.fill(0xffffffff)
+    assert doc.tracks[0].cells[9].image.to_qimage().pixel(0, 0) == 0xff123456
+    with edit_qimage(doc.tracks[0].cells[9].image) as edited:
+        edited.fill(0xffffffff)
     doc.restore(snap)
-    assert doc.tracks[0].cells[9].image.pixel(0, 0) == 0xff123456
+    assert doc.tracks[0].cells[9].image.to_qimage().pixel(0, 0) == 0xff123456
 
 
 def test_clone_one_drawing_and_slot_have_distinct_copy_contracts():
@@ -119,9 +124,10 @@ def test_clone_one_drawing_and_slot_have_distinct_copy_contracts():
     assert copied.track_id != layer.track_id
     assert copied.cell_id != layer.cell_id
     assert 9 not in copied._track.cells
-    copied.image.fill(0xffabcdef)
+    with edit_qimage(copied.image) as edited:
+        edited.fill(0xffabcdef)
     copied.cell_name = "copy"
-    assert layer.image.pixel(0, 0) == 0xff123456
+    assert layer.image.to_qimage().pixel(0, 0) == 0xff123456
     assert layer.cell_name == "three"
     position = layer.clone_slot()
     assert position.track_id == layer.track_id and position.cell_id == layer.cell_id
@@ -151,7 +157,7 @@ def test_all_save_paths_include_unplaced_bank(tmp_path, monkeypatch, save_mode):
                         "mask_format": 2, "canvas": {"width": 2, "height": 2},
                         "frames": []}
     canvas = SimpleNamespace(frames=doc.frames, _document=doc,
-                             drawing=False)
+                             drawing=False, _commit_brush_stroke=lambda: None)
     window = SimpleNamespace(canvas=canvas, build_project_metadata=metadata,
                              png_cache=project_io.PngCache())
     owner = AutosaveController(window)
@@ -168,8 +174,8 @@ def test_all_save_paths_include_unplaced_bank(tmp_path, monkeypatch, save_mode):
         loaded = project_io.load_project(path)
         assert loaded.format_version == 2
         archived = loaded.document.tracks[0].cells[9]
-        assert archived.image.pixel(0, 0) == 0xffabcdef
-        assert archived.initial_image.pixel(0, 0) == 0xff123456
+        assert archived.image.to_qimage().pixel(0, 0) == 0xffabcdef
+        assert archived.initial_image.to_qimage().pixel(0, 0) == 0xff123456
         assert archived.cell_name == "unplaced"
         assert doc.tracks[0].legacy_archive_hints == {}
         from zipfile import ZipFile
@@ -194,8 +200,12 @@ def test_unplaced_images_attributes_and_membership_change_signature():
     previous = owner._content_signature()
     cell = doc.tracks[0].cells[9] = Cell(image(), image(), "nine")
     assert owner._content_signature() != previous
-    for edit in (lambda: cell.image.fill(0xffabcdef),
-                 lambda: cell.initial_image.fill(0xff000000),
+    def fill(model_image, color):
+        with edit_qimage(model_image) as patch:
+            patch.fill(color)
+
+    for edit in (lambda: fill(cell.image, 0xffabcdef),
+                 lambda: fill(cell.initial_image, 0xff000000),
                  lambda: setattr(cell, "cell_name", "changed"),
                  lambda: doc.tracks[0].cells.pop(9)):
         previous = owner._content_signature()
@@ -217,7 +227,7 @@ def test_doc_undo_bytes_count_each_bank_image_and_initial_once():
 @pytest.mark.parametrize("mode", ["sheet", "sequence"])
 def test_painting_retained_slot_allocates_tail_and_keeps_rescued_drawing(monkeypatch, mode):
     from types import SimpleNamespace
-    from paintmaskanimator import canvas_key_frame
+    from paintmaskanimator import canvas_key_frame, document
 
     doc = Document()
     layer = slot(12, is_blank_key=True)
@@ -226,16 +236,17 @@ def test_painting_retained_slot_allocates_tail_and_keeps_rescued_drawing(monkeyp
     canvas = SimpleNamespace(frames=doc.frames, current_frame=0, active_layer_index=0,
                              active_layer=layer, timeline_mode=mode,
                              _document=doc, _playback_active=False,
+                             _commit_brush_stroke=lambda: None,
                              timeline_block_at=lambda *_args: None)
-    canvas._next_drawing_number = lambda index: canvas_key_frame.KeyFrameMixin._next_drawing_number(canvas, index)
-    monkeypatch.setattr(canvas_key_frame, "blank_image", lambda: image(0))
+    monkeypatch.setattr(document, "blank_image", lambda: image(0))
     assert canvas_key_frame.KeyFrameMixin.ensure_editable_key(canvas)
     assert layer.sequence_number == 13
     assert layer._cell is doc.tracks[0].cells[13]
     assert doc.tracks[0].cells[12] is rescued
-    assert rescued.image.pixel(0, 0) == 0xff123456
-    layer.image.fill(0xffabcdef)
-    assert rescued.image.pixel(0, 0) == 0xff123456
+    assert rescued.image.to_qimage().pixel(0, 0) == 0xff123456
+    with edit_qimage(layer.image) as edited:
+        edited.fill(0xffabcdef)
+    assert rescued.image.to_qimage().pixel(0, 0) == 0xff123456
 
 
 def test_sequence_only_empty_slot_does_not_override_content_attributes():
@@ -244,7 +255,7 @@ def test_sequence_only_empty_slot_does_not_override_content_attributes():
     doc = Document()
     doc.install_legacy_frames([Frame([pending]), Frame([content])])
     assert pending.cell_name == content.cell_name == "content"
-    assert pending.initial_image.pixel(0, 0) == 0xffabcdef
+    assert pending.initial_image.to_qimage().pixel(0, 0) == 0xffabcdef
 
 
 def test_new_drawing_detaches_shared_unused_slot_payload():
@@ -258,11 +269,13 @@ def test_new_drawing_detaches_shared_unused_slot_payload():
     canvas = SimpleNamespace(frames=doc.frames, current_frame=0, active_layer_index=0,
                              active_layer=first, timeline_mode="sheet",
                              _document=doc, _playback_active=False,
+                             _commit_brush_stroke=lambda: None,
                              timeline_block_at=lambda *_args: None,
                              _next_drawing_number=lambda _index: 1)
     assert KeyFrameMixin.ensure_editable_key(canvas)
-    first.image.fill(0xffabcdef)
-    assert second.image.pixel(0, 0) == 0xff123456
+    with edit_qimage(first.image) as edited:
+        edited.fill(0xffabcdef)
+    assert second.image.to_qimage().pixel(0, 0) == 0xff123456
     assert not second.has_content and second.sequence_number is None
 
 
@@ -320,7 +333,7 @@ def test_last_reference_survives_save_reload_and_recall(small_window, tmp_path, 
     doc = canvas._document
     number = 2 if operation in ("merge", "overwrite", "remap", "trim") else 1
     cell = doc.tracks[0].cells[number]
-    original = (QImage(cell.image), cell.initial_image, cell.cell_name)
+    original = (QImage(cell.image.to_qimage()), as_qimage(cell.initial_image), cell.cell_name)
     if operation == "clear":
         clear_slot(canvas.frames[0].layers[0])
     elif operation == "blank":
@@ -345,16 +358,16 @@ def test_last_reference_survives_save_reload_and_recall(small_window, tmp_path, 
     assert not any(layer.has_content and layer.sequence_number == number
                    for frame in doc.frames for layer in frame.layers)
     assert doc.tracks[0].cells[number] is cell
-    assert (cell.image, cell.initial_image, cell.cell_name) == original
+    assert (as_qimage(cell.image), as_qimage(cell.initial_image), cell.cell_name) == original
     # The live bank is available in the sequence UI before a save too.
     window.refresh_ui()
     assert number in window.timeline.table._sequence_numbers_by_row[0]
     restored = saved_document(doc, tmp_path / "roundtrip.pman")
     recovered = restored.tracks[0].cells[number]
-    assert (recovered.image, recovered.initial_image, recovered.cell_name) == original
+    assert (as_qimage(recovered.image), as_qimage(recovered.initial_image), recovered.cell_name) == original
     window.timeline_ops.recall_sequence_number(0, 3, number)
     assert canvas.frames[3].layers[0]._cell is cell
-    assert canvas.frames[3].layers[0].image == original[0]
+    assert as_qimage(canvas.frames[3].layers[0].image) == original[0]
 
 
 def test_sequence_delete_removes_all_references_and_bank_with_undo(small_window, tmp_path):
@@ -394,7 +407,7 @@ def test_number_cycles_insertion_and_image_move_keep_all_cell_attributes(small_w
     assert canvas.insert_sequence_blank(0, 1)
     assert track.cells[3] is one and track.cells[4] is two and track.cells[1] is three
     assert canvas.frames[2].layers[0].sequence_number == 1
-    assert track.cells[2].image.pixelColor(0, 0).alpha() == 0
+    assert track.cells[2].image.to_qimage().pixelColor(0, 0).alpha() == 0
     # Moving an unplaced entry moves the complete Cell, including initial/name.
     assert canvas.move_sequence_image(0, 1, 3)
     assert track.cells[3] is three
@@ -403,7 +416,7 @@ def test_number_cycles_insertion_and_image_move_keep_all_cell_attributes(small_w
     assert 3 in track.legacy_archive_hints
     assert track.cells[3] is three
     assert three.cell_name == "empty-unplaced"
-    assert three.initial_image.pixel(0, 0) == 0xff111111
+    assert three.initial_image.to_qimage().pixel(0, 0) == 0xff111111
 
 
 def test_layer_structure_undo_and_duplicate_keep_unplaced_bank_and_archive(small_window):
@@ -430,8 +443,9 @@ def test_layer_structure_undo_and_duplicate_keep_unplaced_bank_and_archive(small
     window.layers.duplicate_rows([1])
     original, copied = canvas._document.tracks[:2]
     assert copied.cells[9] is not original.cells[9]
-    copied.cells[9].image.fill(0xff000000)
-    assert original.cells[9].image.pixel(0, 0) == 0xffabcdef
+    with edit_qimage(copied.cells[9].image) as edited:
+        edited.fill(0xff000000)
+    assert original.cells[9].image.to_qimage().pixel(0, 0) == 0xffabcdef
     assert 9 in copied.legacy_archive_hints
     assert canvas._document.tracks[1].cells[9] is copied.cells[9]
     canvas.undo()
@@ -452,13 +466,14 @@ def test_retained_drawing_round_trip_keeps_original_attributes(small_window, tmp
     layer.is_blank_key = blank
     assert canvas.ensure_editable_key()
     assert layer.sequence_number == 3
-    layer.image.fill(0xff000000)
+    with edit_qimage(layer.image) as edited:
+        edited.fill(0xff000000)
     restored = saved_document(canvas._document, tmp_path / "retained.pman")
     recovered = restored.tracks[0].cells[1]
-    assert recovered.image == old.image
-    assert recovered.initial_image == old.initial_image
+    assert as_qimage(recovered.image) == as_qimage(old.image)
+    assert as_qimage(recovered.initial_image) == as_qimage(old.initial_image)
     assert recovered.cell_name == "one"
-    assert restored.tracks[0].cells[3].image.pixel(0, 0) == 0xff000000
+    assert restored.tracks[0].cells[3].image.to_qimage().pixel(0, 0) == 0xff000000
 
 
 def test_snapshot_freezes_every_cell_payload_and_position_metadata():
@@ -470,9 +485,11 @@ def test_snapshot_freezes_every_cell_payload_and_position_metadata():
     snap = doc.snapshot()
     copied = doc.clone_graph()
     for cell in doc.tracks[0].cells.values():
-        cell.image.fill(0xff000000)
+        with edit_qimage(cell.image) as edited:
+            edited.fill(0xff000000)
         cell.image = image(0xffffffff)
-        cell.initial_image.fill(0xff000000)
+        with edit_qimage(cell.initial_image) as edited:
+            edited.fill(0xff000000)
         cell.initial_image = image(0xffffffff)
         cell.cell_name = "changed"
     doc.tracks[0].cells.pop(9)
@@ -481,8 +498,8 @@ def test_snapshot_freezes_every_cell_payload_and_position_metadata():
     for track in (snap.tracks[0], copied.tracks[0]):
         assert set(track.cells) == {1, 9}
         for cell in track.cells.values():
-            assert cell.image.pixel(0, 0) == 0xff123456
-            assert cell.initial_image.pixel(0, 0) == 0xff123456
+            assert cell.image.to_qimage().pixel(0, 0) == 0xff123456
+            assert cell.initial_image.to_qimage().pixel(0, 0) == 0xff123456
         assert track.cells[9].cell_name == "unplaced"
     assert snap.frames[0].layers[0].tween == {"points": [1, 2]}
     assert copied.frames[0].layers[0].tween == {"points": [1, 2]}
@@ -511,11 +528,11 @@ def test_remap_reads_registered_edits_instead_of_stale_import_cache(small_window
     cell = canvas._document.tracks[0].cells[1]
     cell.image = image(0xff112233)
     bank = window.time_remap._time_remap_source_bank(0)
-    assert bank[0] == cell.image
+    assert bank[0] == as_qimage(cell.image)
     assert window.time_remap.apply_to_active_layer(
         {"states": [2, 1], "start_frame": 0, "end_frame": 1}, confirm=False)
     assert canvas.frames[1].layers[0]._cell is cell
-    assert cell.image.pixel(0, 0) == 0xff112233
+    assert cell.image.to_qimage().pixel(0, 0) == 0xff112233
     assert cell.cell_name == "one"
 
 
@@ -581,13 +598,13 @@ def test_cross_track_collision_keeps_legacy_pixels_and_attribute_priority(small_
         assert window.timeline_ops.copy_cell_to_clipboard(1, 0)
         assert window.timeline_ops.paste_cell_from_clipboard(0, 1)
     assert canvas.frames[1].layers[1]._cell is destination_cell
-    expected = source_cell.image if preferred == 1 else image(0xff998877)
-    assert destination_cell.image == expected
+    expected = source_cell.image.to_qimage() if preferred == 1 else image(0xff998877)
+    assert as_qimage(destination_cell.image) == expected
     assert destination_cell.cell_name == "destination-first"
-    assert destination_cell.initial_image.pixel(0, 0) == 0xff445566
+    assert destination_cell.initial_image.to_qimage().pixel(0, 0) == 0xff445566
     assert canvas._document.tracks[0].cells[1] is source_cell
     canvas.undo()
-    assert canvas._document.tracks[1].cells[1].image.pixel(0, 0) == 0xff998877
+    assert canvas._document.tracks[1].cells[1].image.to_qimage().pixel(0, 0) == 0xff998877
 
 
 def test_new_animation_cell_preserves_legacy_initial_residue_without_editing_old_bank(small_window):
@@ -597,10 +614,11 @@ def test_new_animation_cell_preserves_legacy_initial_residue_without_editing_old
     assert window.timeline_ops.new_animation_cell(0, 0)
     created = canvas.frames[0].layers[0]._cell
     assert created is not old
-    assert created.initial_image == old.initial_image
+    assert as_qimage(created.initial_image) == as_qimage(old.initial_image)
     assert created.cell_name is None
-    created.initial_image.fill(0xff000000)
-    assert old.initial_image.pixel(0, 0) == 0xffaabbcc
+    with edit_qimage(created.initial_image) as edited:
+        edited.fill(0xff000000)
+    assert old.initial_image.to_qimage().pixel(0, 0) == 0xffaabbcc
     assert old.cell_name == "one"
 
 

@@ -10,21 +10,22 @@ Each entry also reports ``nbytes``, letting the stack be bounded by memory
 rather than by entry count alone (a 4K full-layer snapshot and a 32x32 tile
 patch are not remotely the same cost).
 
-The classes are deliberately dumb records: the logic that captures the inverse
-state and re-applies an entry lives on ``PaintCanvas`` (``current_state_for`` /
-``apply_undo_entry``), because it needs the live document.
+PaintCanvas captures the inverse state and dispatches each record. Document
+restores model state, and PaintCanvas restores palette and transform state.
 """
 from __future__ import annotations
 
-from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, List, Optional, Sequence, Tuple
 
 from .i18n import tr
+from .pma_image import PmaImage
 
 
 def _image_bytes(image) -> int:
-    """Best-effort in-memory size of a QImage (0 when it is not one)."""
+    """Best-effort size of the image pixels in memory."""
+    if isinstance(image, PmaImage):
+        return image.width * image.height * 4
     try:
         return int(image.sizeInBytes())
     except (AttributeError, TypeError):
@@ -69,13 +70,7 @@ class ExposureUndo(UndoEntry):
     @classmethod
     def capture(cls, canvas, layer, column):
         # Metadata only: never clone a Layer/Cell or retain drawing snapshots.
-        references = tuple(
-            (slot.has_content, slot.is_blank_key, slot.blank_start,
-             slot.sequence_number, slot.sequence_only,
-             deepcopy(slot.tween), slot.tween_member,
-             slot.__dict__.get("_dense_import"), slot.__dict__.get("_v1_position"))
-            for frame in canvas.frames[column:]
-            for slot in (frame.layers[layer],))
+        references = canvas._document.exposure_references(layer, column)
         block = canvas.timeline_block_at(column, layer)
         return cls(layer, column, block[2] if block else 1,
                    len(canvas.frames), canvas.current_frame, canvas.active_layer_index,
@@ -92,6 +87,10 @@ class DocUndo(UndoEntry):
 
     @property
     def nbytes(self) -> int:
+        # Rust 正本の文書（document_live）の遅延の写しは、中身を作らずに同じ値を返す。
+        image_bytes = getattr(self.snapshot, "image_bytes", None)
+        if image_bytes is not None:
+            return image_bytes()
         try:
             frames = self.snapshot[0]
         except (TypeError, IndexError):

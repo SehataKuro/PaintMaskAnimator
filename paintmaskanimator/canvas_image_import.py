@@ -11,6 +11,7 @@ from pathlib import Path
 from PySide6.QtCore import QPoint
 from PySide6.QtGui import QImage, QImageReader, QPainter
 from .i18n import tr
+from .pma_image import as_qimage, to_pma_image
 from .optional_deps import PILImage
 from .constants import MAX_IMAGE_DIMENSION, MAX_SINGLE_IMAGE_PIXELS, OUTSIDE_MARGIN
 from .errors import OperationError
@@ -102,7 +103,9 @@ class ImageImportMixin(CanvasMembers):
     def _natural_path_key(*args, **kwargs):
         return natural_path_key(*args, **kwargs)
 
-    def _place_imported_image(self, image, target):
+    def _placed_imported_image(self, image):
+        """Build a workspace image with the decoded image centered in it."""
+        target = blank_image()
         x = OUTSIDE_MARGIN + (constants.CANVAS_WIDTH - image.width()) // 2
         y = OUTSIDE_MARGIN + (constants.CANVAS_HEIGHT - image.height()) // 2
         painter = QPainter(target)
@@ -110,6 +113,7 @@ class ImageImportMixin(CanvasMembers):
         painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
         painter.drawImage(QPoint(x, y), image)
         painter.end()
+        return target
 
     def _make_white_transparent(self, image):
         """Convert exact #FFFFFF pixels to fully transparent before placement."""
@@ -311,21 +315,19 @@ class ImageImportMixin(CanvasMembers):
         if not name:
             name = Path(decoded[0][0]).stem or f"Image {len(self.layers)}"
         insert_index = len(self.frames[0].layers)
-        for frame in self.frames:
-            frame.layers.append(Layer(name, blank_image(), is_draft=bool(draft)))
+        slots = [Layer(name, to_pma_image(blank_image()), is_draft=bool(draft)) for _ in self.frames]
+        self._document.insert_track(insert_index, slots, staged=True)
         for offset, (_, image) in enumerate(decoded):
             if progress_callback:
                 progress_callback(offset, len(decoded), tr("{value} / {len} 枚を配置しています").format(value=offset + 1, len=len(decoded)))
-            layer = self.frames[start_frame + offset].layers[insert_index]
-            self._place_imported_image(image, layer.image)
-            layer.has_content = True
-            layer.sequence_number = offset + 1
+            self._document.stage_numbered_drawing(
+                start_frame + offset, insert_index, self._placed_imported_image(image), True, offset + 1,
+            )
         self.install_legacy_frames()
         track = self.frames[start_frame].layers[insert_index]._track
         track.import_sources = [str(path) for path, _image in decoded]
         self._sequence_source_bank = [
-            self.frames[start_frame + offset]
-            .layers[insert_index].image.copy()
+            as_qimage(self.frames[start_frame + offset].layers[insert_index].image).copy()
             for offset in range(len(decoded))
         ]
         self._sequence_source_bank_layer_index = int(insert_index)

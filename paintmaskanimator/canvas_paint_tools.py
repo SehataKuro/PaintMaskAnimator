@@ -14,6 +14,9 @@ from typing import Any
 from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, Qt
 from PySide6.QtGui import QColor, QImage, QPainter, QPainterPath, QPen, QPolygonF
 from PySide6.QtWidgets import QApplication
+from .canvas_changes import publish_content_edit, publish_drawing_pixels
+from .display_image_cache import display_images, model_image_key
+from .pma_image import as_qimage, copy_image
 from .i18n import tr
 from ._canvas_members import CanvasMembers
 from . import bucket_fill, imaging
@@ -97,11 +100,11 @@ class PaintToolsMixin(CanvasMembers):
             int(math.floor(min(a.y(), b.y()))) - margin,
         )
         right = min(
-            self.active_layer.image.width(),
+            self.active_layer.image.width,
             int(math.ceil(max(a.x(), b.x()))) + margin + 1,
         )
         bottom = min(
-            self.active_layer.image.height(),
+            self.active_layer.image.height,
             int(math.ceil(max(a.y(), b.y()))) + margin + 1,
         )
         if right <= left or bottom <= top:
@@ -114,7 +117,7 @@ class PaintToolsMixin(CanvasMembers):
             bottom - top,
         ).toAlignedRect()
         self._ensure_before_region(rect)
-        before_region = self._stroke_before_region(rect)
+        work = self._stroke_work_image
         overlay = QImage(
             rect.width(),
             rect.height(),
@@ -153,7 +156,7 @@ class PaintToolsMixin(CanvasMembers):
         )
         if sub_only:
             overlay_rgba = self._qimage_rgba_array(overlay)
-            base_region = before_region
+            base_region = self._stroke_before_region(rect)
             base_rgba = self._qimage_rgba_array(base_region)
 
             selected_rgbs = self.selected_mask_colors()
@@ -203,6 +206,7 @@ class PaintToolsMixin(CanvasMembers):
             overlay,
             rect.topLeft(),
             exact_colors=(source_color,),
+            brush=work is not None,
         )
         color_set = getattr(
             self,
@@ -212,7 +216,8 @@ class PaintToolsMixin(CanvasMembers):
         if color_set is not None:
             color_set.update(colors)
 
-        self.active_layer.has_content = True
+        if work is None:
+            self._document.set_drawing_content(self.current_frame, self.active_layer_index, True)
         self._update_stroke_region(a, b, draw_width)
 
     @staticmethod
@@ -303,64 +308,61 @@ class PaintToolsMixin(CanvasMembers):
         画素は返した QImage のバッファを指すので、使い終わるまで QImage を
         手放さないように両方を返す。
         """
-        image = self._bucket_reference_image(
-            options, frame, layer_index, layer_image
-        )
-        if image is layer_image:
+        key, source = self._bucket_reference_source(options, frame, layer_index, layer_image)
+        if key is None:
             return layer_image, layer_pixels
         drag = self._bucket_drag
         if drag is not None:
-            key = image.cacheKey()
             cached = drag["reference_pixels"].get(key)
-            if cached is None:
-                cached = self._layer_fill_pixels(image)
-                drag["reference_pixels"].clear()
-                drag["reference_pixels"][key] = cached
-            return cached
-        return self._layer_fill_pixels(image)
+            if cached is not None:
+                return cached
+        image = self._render_bucket_reference(key, source, layer_image)
+        pixels = self._layer_fill_pixels(image)
+        if drag is not None:
+            drag["reference_pixels"].clear()
+            drag["reference_pixels"][key] = pixels
+        return pixels
 
     def _bucket_reference_image(self, options, frame, layer_index, fallback):
-        """参照レイヤーの設定に合う絵を返す。無ければ ``fallback`` のまま。"""
-        reference = getattr(
-            options, "reference", bucket_fill.REFERENCE_LAYER
-        )
-        if reference == bucket_fill.REFERENCE_CANVAS:
-            return self._bucket_canvas_reference(frame, fallback)
+        key, source = self._bucket_reference_source(options, frame, layer_index, fallback)
+        return self._render_bucket_reference(key, source, fallback)
+
+    def _bucket_reference_source(self, options, frame, layer_index, fallback):
+        """参照元と画素のキーを決める。キーが None なら呼び出し元の画素を使う。"""
+        reference = getattr(options, "reference", bucket_fill.REFERENCE_LAYER)
+        width, height = fallback.width(), fallback.height()
         if reference == bucket_fill.REFERENCE_INITIAL:
             key_frame = self.resolve_key_frame(frame, layer_index)
-            if key_frame is None:
-                return fallback
-            initial = self.frames[key_frame].layers[layer_index].initial_image
-            # 初期状態を保持していないセルは、今の絵で判定するしかない。
-            if initial is None or initial.size() != fallback.size():
-                return fallback
-            return initial
-        return fallback
+            if key_frame is not None:
+                initial = self.frames[key_frame].layers[layer_index].initial_image
+                if initial is not None and (initial.width, initial.height) == (width, height):
+                    return ("initial", model_image_key(initial)), initial
+        if reference == bucket_fill.REFERENCE_CANVAS and 0 <= frame < len(self.frames):
+            sources = []
+            for index in range(len(self.frames[frame].layers)):
+                key_frame = self.resolve_key_frame(frame, index)
+                if key_frame is None:
+                    continue
+                layer = self.frames[key_frame].layers[index]
+                image = layer.image
+                if layer.visible and not layer.is_paper and image.width and image.height:
+                    sources.append((image, layer.opacity))
+            signature = tuple((model_image_key(image), opacity) for image, opacity in sources)
+            return ("canvas", width, height, signature), sources
+        return None, None
 
-    def _bucket_canvas_reference(self, frame, fallback):
-        """表示しているレイヤーを重ねた絵。別のレイヤーの線でも区切れるように。
-
-        用紙レイヤーは外す。キャンバス一面の不透明な色で覆われると、透明を
-        たどる対象色が働かなくなるため。表示プレビューを通さない生の絵を重ねる。
-        """
-        if not (0 <= frame < len(self.frames)):
+    @staticmethod
+    def _render_bucket_reference(key, source, fallback):
+        if key is None:
             return fallback
-        result = QImage(
-            fallback.size(), QImage.Format.Format_ARGB32_Premultiplied
-        )
+        if key[0] == "initial":
+            return display_images.get(source)
+        result = QImage(fallback.size(), QImage.Format.Format_ARGB32_Premultiplied)
         result.fill(Qt.GlobalColor.transparent)
         painter = QPainter(result)
-        for layer_index in range(len(self.frames[frame].layers)):
-            key_frame = self.resolve_key_frame(frame, layer_index)
-            if key_frame is None:
-                continue
-            layer = self.frames[key_frame].layers[layer_index]
-            if not layer.visible or layer.is_paper:
-                continue
-            if layer.image is None or layer.image.isNull():
-                continue
-            painter.setOpacity(layer.opacity)
-            painter.drawImage(0, 0, layer.image)
+        for image, opacity in source:
+            painter.setOpacity(opacity)
+            painter.drawImage(0, 0, display_images.get(image))
         painter.end()
         return result
 
@@ -430,10 +432,10 @@ class PaintToolsMixin(CanvasMembers):
         active = self.active_layer.image
         if (drag is not None and drag["frame"] == self.current_frame
                 and drag["layer"] == self.active_layer_index
-                and drag["pixels_key"] == active.cacheKey()):
+                and drag["pixels_key"] == model_image_key(active)):
             image, pixels = drag["pixels"]
         else:
-            image, pixels = self._layer_fill_pixels(active)
+            image, pixels = self._layer_fill_pixels(as_qimage(active))
         start_x, start_y = int(p.x()), int(p.y())
         selection_mask = self.selection_mask_bool(image.width(), image.height())
         options = self.bucket_options()
@@ -466,15 +468,14 @@ class PaintToolsMixin(CanvasMembers):
         ))
         written_colors.update(self._fill_islands(patch, result.islands, result.bounds))
         written_colors = tuple(sorted(written_colors))
-        self._write_rgba_patch(patch, fill_rect)
+        changes = self._write_rgba_patch(patch, fill_rect)
         if drag is not None:
             drag["pixels"] = (image, pixels)
-            drag["pixels_key"] = self.active_layer.image.cacheKey()
-        self.active_layer.has_content = True
+            drag["pixels_key"] = model_image_key(self.active_layer.image)
+        self._document.set_drawing_content(self.current_frame, self.active_layer_index, True)
         if written_colors:
             self._emit_actual_paint_colors(written_colors)
-        self.cellChanged.emit(self.current_frame, self.active_layer_index)
-        self.update()
+        publish_drawing_pixels(self, changes)
         return result.mask, None
 
     # ------------------------------------------------------------------
@@ -485,9 +486,10 @@ class PaintToolsMixin(CanvasMembers):
         self.finish_bucket_drag()
         layer = self.active_layer
         # 画像は暗黙共有なので、ここでは複製しない（塗った時点で分かれる）。
-        before = QImage(layer.image)
-        converted, layer_pixels = self._layer_fill_pixels(before)
-        width, height = before.width(), before.height()
+        before = copy_image(layer.image)
+        before_image = as_qimage(before)
+        converted, layer_pixels = self._layer_fill_pixels(before_image)
+        width, height = before_image.width(), before_image.height()
         x, y = int(p.x()), int(p.y())
         if not (0 <= x < width and 0 <= y < height):
             self._bucket_drag = None
@@ -516,7 +518,7 @@ class PaintToolsMixin(CanvasMembers):
             "last": QPointF(p),
             "line_cache": {},
             "pixels": (converted, layer_pixels),
-            "pixels_key": layer.image.cacheKey(),
+            "pixels_key": model_image_key(layer.image),
             "reference_pixels": {},
         }
         # 最初の1か所はクリックと同じ（開いた領域も設定どおりに塗る）。
@@ -601,7 +603,7 @@ class PaintToolsMixin(CanvasMembers):
         )
         self.push_undo(LayerRegionUndo(
             drag["frame"], drag["layer"], rect,
-            drag["before"].copy(rect), drag["has_content"],
+            drag["before"].read_qimage(rect.x(), rect.y(), rect.width(), rect.height()), drag["has_content"],
             layer_name=self.frames[drag["frame"]].layers[drag["layer"]].name,
             number=self.frames[drag["frame"]].layers[drag["layer"]].sequence_number,
         ))
@@ -654,7 +656,8 @@ class PaintToolsMixin(CanvasMembers):
             self.status_message.emit(tr("色置換：このコマには絵がありません。"))
             return False
         image = self.frames[key].layers[layer_index].image
-        clicked = image.pixelColor(x, y)
+        # QImage（乗算済み）で読んだときと同じ値にする。
+        clicked = image.read_qimage(x, y, 1, 1).pixelColor(0, 0)
         if clicked.alpha() == 0:
             self.status_message.emit(
                 tr("色置換：透明の所は置き換えません。置き換えたい色をクリックしてください。")
@@ -698,22 +701,19 @@ class PaintToolsMixin(CanvasMembers):
         return answer == QMessageBox.StandardButton.Yes
 
     def _seed_in_bounds(self, start_x, start_y, image=None):
-        image = image if image is not None else self.active_layer.image
+        image = image if image is not None else as_qimage(self.active_layer.image)
         return 0 <= start_x < image.width() and 0 <= start_y < image.height()
 
     def _write_rgba_patch(self, patch, rect):
         """RGBA8888 の部分配列を、アクティブレイヤーの rect へそのまま書き戻す。"""
-        patch_image = imaging.rgba_array_to_qimage(patch)
-        painter = QPainter(self.active_layer.image)
-        painter.setCompositionMode(
-            QPainter.CompositionMode.CompositionMode_Source
+        return self._document.write_drawing_patch(
+            self.current_frame, self.active_layer_index, patch, rect.getRect(),
+            rgba=True,
         )
-        painter.drawImage(rect.topLeft(), patch_image)
-        painter.end()
 
     def auto_select_region(self, point, modifiers=Qt.KeyboardModifier.NoModifier):
         """バケツと同じ連続領域判定で選択マスクを作成・加減算する。"""
-        image = self.active_layer.image.convertToFormat(
+        image = as_qimage(self.active_layer.image).convertToFormat(
             QImage.Format.Format_RGBA8888
         )
         width, height = image.width(), image.height()
@@ -889,6 +889,7 @@ class PaintToolsMixin(CanvasMembers):
             previous = point
 
     def _begin_brush_straight_line(self, point):
+        self._commit_brush_stroke()
         anchor = getattr(self, "_brush_line_anchor", None)
         key = (self.current_frame, self.active_layer_index)
         self._brush_shift_line = True
@@ -943,8 +944,8 @@ class PaintToolsMixin(CanvasMembers):
         if not self.push_layer_region_undo(undo_rect):
             return
         overlay = QImage(
-            self.active_layer.image.width(),
-            self.active_layer.image.height(),
+            self.active_layer.image.width,
+            self.active_layer.image.height,
             QImage.Format.Format_ARGB32_Premultiplied,
         )
         overlay.fill(Qt.GlobalColor.transparent)
@@ -994,11 +995,8 @@ class PaintToolsMixin(CanvasMembers):
         )
         self._emit_actual_paint_colors(colors)
 
-        self.active_layer.has_content = True
-        self.cellChanged.emit(
-            self.current_frame,
-            self.active_layer_index,
-        )
+        changes = self._document.set_drawing_content(self.current_frame, self.active_layer_index, True)
+        publish_content_edit(self, changes)
         if getattr(self, "_brush_shift_line", False):
             self._brush_line_anchor = (
                 (self.current_frame, self.active_layer_index), QPointF(self.line_end),
@@ -1110,8 +1108,8 @@ class PaintToolsMixin(CanvasMembers):
             fill_color = QColor(outline_color)
 
         overlay = QImage(
-            self.active_layer.image.width(),
-            self.active_layer.image.height(),
+            self.active_layer.image.width,
+            self.active_layer.image.height,
             QImage.Format.Format_ARGB32_Premultiplied,
         )
         overlay.fill(Qt.GlobalColor.transparent)
@@ -1159,11 +1157,8 @@ class PaintToolsMixin(CanvasMembers):
         )
         self._emit_actual_paint_colors(colors)
 
-        self.active_layer.has_content = True
-        self.cellChanged.emit(
-            self.current_frame,
-            self.active_layer_index,
-        )
+        changes = self._document.set_drawing_content(self.current_frame, self.active_layer_index, True)
+        publish_content_edit(self, changes)
         self.shape_start = None
         self.shape_end = None
         self.drawing = False
@@ -1194,7 +1189,7 @@ class PaintToolsMixin(CanvasMembers):
         margin = int(math.ceil(outline_width / 2.0)) + 2
         rect = polygon.boundingRect().adjusted(
             -margin, -margin, margin, margin
-        ).toAlignedRect().intersected(self.active_layer.image.rect())
+        ).toAlignedRect().intersected(QRect(0, 0, self.active_layer.image.width, self.active_layer.image.height))
         if rect.isEmpty():
             return
         local_polygon = QPolygonF([
@@ -1252,7 +1247,7 @@ class PaintToolsMixin(CanvasMembers):
             window.tools if hasattr(window, "tools") else None,
         )
         reference = self._bucket_reference_image(
-            options, self.current_frame, self.active_layer_index, self.active_layer.image,
+            options, self.current_frame, self.active_layer_index, as_qimage(self.active_layer.image),
         )
         reference_owner, reference_pixels = self._layer_fill_pixels(reference.copy(rect))
         if options.target_color != bucket_fill.TARGET_ALL:
@@ -1343,10 +1338,7 @@ class PaintToolsMixin(CanvasMembers):
             opacity=getattr(self, "fill_opacity", 1.0),
         )
 
-        self.active_layer.has_content = True
+        changes = self._document.set_drawing_content(self.current_frame, self.active_layer_index, True)
         self._emit_actual_paint_colors(colors)
-        self.cellChanged.emit(
-            self.current_frame,
-            self.active_layer_index,
-        )
+        publish_content_edit(self, changes)
         self.update()

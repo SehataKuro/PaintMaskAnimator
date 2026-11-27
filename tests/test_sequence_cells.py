@@ -6,6 +6,9 @@
 
 設計は docs/sequence-first-data-model.md。
 """
+
+from image_edit_helpers import edit_qimage
+
 import os
 
 import pytest
@@ -71,8 +74,9 @@ def test_sharing_makes_writes_show_on_both(qapp):
     second.share_cell_with(first)
 
     assert second.cell_id == first.cell_id
-    second.image.setPixelColor(5, 5, QColor("#ff0000"))
-    assert first.image.pixelColor(5, 5) == QColor("#ff0000")
+    with edit_qimage(second.image) as edited:
+        edited.setPixelColor(5, 5, QColor("#ff0000"))
+    assert first.image.to_qimage().pixelColor(5, 5) == QColor("#ff0000")
 
 
 def test_assigning_a_new_image_also_shows_on_both(qapp):
@@ -85,13 +89,14 @@ def test_assigning_a_new_image_also_shows_on_both(qapp):
     replacement.setPixelColor(1, 1, QColor("#00ff00"))
     second.image = replacement
 
-    assert first.image.pixelColor(1, 1) == QColor("#00ff00")
+    assert first.image.to_qimage().pixelColor(1, 1) == QColor("#00ff00")
     assert first.cell_id == second.cell_id
 
 
 def test_detaching_keeps_the_picture_but_ends_the_sharing(qapp):
     first = Layer("A", blank_image())
-    first.image.setPixelColor(2, 2, QColor("#0000ff"))
+    with edit_qimage(first.image) as edited:
+        edited.setPixelColor(2, 2, QColor("#0000ff"))
     second = Layer("A", blank_image())
     second.share_cell_with(first)
 
@@ -99,9 +104,10 @@ def test_detaching_keeps_the_picture_but_ends_the_sharing(qapp):
 
     assert second.cell_id != first.cell_id
     # 切り離しても、いまの絵はそのまま持っている。
-    assert second.image.pixelColor(2, 2) == QColor("#0000ff")
-    second.image.setPixelColor(3, 3, QColor("#ffff00"))
-    assert first.image.pixelColor(3, 3) != QColor("#ffff00")
+    assert second.image.to_qimage().pixelColor(2, 2) == QColor("#0000ff")
+    with edit_qimage(second.image) as edited:
+        edited.setPixelColor(3, 3, QColor("#ffff00"))
+    assert first.image.to_qimage().pixelColor(3, 3) != QColor("#ffff00")
 
 
 def test_a_clone_owns_its_drawing(qapp):
@@ -111,8 +117,9 @@ def test_a_clone_owns_its_drawing(qapp):
     copied = original.clone()
 
     assert copied.cell_id != original.cell_id
-    original.image.setPixelColor(4, 4, QColor("#ff00ff"))
-    assert copied.image.pixelColor(4, 4) != QColor("#ff00ff")
+    with edit_qimage(original.image) as edited:
+        edited.setPixelColor(4, 4, QColor("#ff00ff"))
+    assert copied.image.to_qimage().pixelColor(4, 4) != QColor("#ff00ff")
 
 
 # --- 文書の中での共有 --------------------------------------------------------
@@ -136,7 +143,7 @@ def test_a_replacement_image_reaches_every_frame_with_that_number(window):
     replacement.setPixelColor(7, 7, QColor("#123456"))
     window.canvas.frames[0].layers[0].image = replacement
 
-    assert window.canvas.frames[4].layers[0].image.pixelColor(7, 7) == QColor(
+    assert window.canvas.frames[4].layers[0].image.to_qimage().pixelColor(7, 7) == QColor(
         "#123456"
     )
     assert cell_ids(window, (0, 4))[0] == cell_ids(window, (0, 4))[1]
@@ -146,13 +153,14 @@ def test_clearing_a_cell_does_not_erase_the_other_frames(window):
     """シート操作は共有を切ってから。消すのはこの位置だけ。"""
     put_cell(window, 0, 1)
     put_cell(window, 4, 1)
-    window.canvas.frames[0].layers[0].image.setPixelColor(9, 9, QColor("#abcdef"))
+    with edit_qimage(window.canvas.frames[0].layers[0].image) as edited:
+        edited.setPixelColor(9, 9, QColor("#abcdef"))
 
     window.canvas._clear_timeline_layer_cell(
         window.canvas.frames[4].layers[0]
     )
 
-    assert window.canvas.frames[0].layers[0].image.pixelColor(9, 9) == QColor(
+    assert window.canvas.frames[0].layers[0].image.to_qimage().pixelColor(9, 9) == QColor(
         "#abcdef"
     )
     assert cell_ids(window, (0,))[0] != cell_ids(window, (4,))[0]

@@ -5,9 +5,12 @@
 元になる。これを近傍の多数決でまわりの色へ寄せる。
 
 意図して置いた色面を壊さないよう、対象は「線の近く」かつ「まわりと色が違う」
-画素だけに限る。Qt には依存しない素の numpy 配列として扱う。
+画素だけに限る。判定は Rust（pma_core::line_noise）で行い、numpy 版はテスト用に残す。
+Qt には依存しない。
 """
 import numpy as np
+
+from . import native
 
 #: 黒い線とみなす明るさの上限（0-255）。色トレス線も拾えるよう少し高め。
 DEFAULT_LINE_LUMA = 110
@@ -90,6 +93,24 @@ def remove_line_noise(
     :param rgba: ``(H, W, 4)`` uint8。書き換えず、新しい配列を返す。
     :returns: ``(塗り替えた配列, 塗り替えた画素数)``。
     """
+    rgba = np.asarray(rgba, dtype=np.uint8)
+    if rgba.ndim != 3 or rgba.shape[2] != 4 or rgba.shape[0] < 3 or rgba.shape[1] < 3:
+        return rgba, 0
+    result, changed = native.remove_line_noise(rgba, line_luma, radius, majority, isolation)
+    if not changed:
+        return rgba, 0
+    return result, changed
+
+
+def remove_line_noise_numpy(
+    rgba,
+    *,
+    line_luma=DEFAULT_LINE_LUMA,
+    radius=DEFAULT_RADIUS,
+    majority=DEFAULT_MAJORITY,
+    isolation=DEFAULT_ISOLATION,
+):
+    """:func:`remove_line_noise` の numpy 版。Rust との突き合わせ用（テスト専用）。"""
     rgba = np.asarray(rgba, dtype=np.uint8)
     if rgba.ndim != 3 or rgba.shape[2] != 4 or rgba.shape[0] < 3 or rgba.shape[1] < 3:
         return rgba, 0

@@ -8,6 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 
 from paintmaskanimator import project_io
+from paintmaskanimator.pma_image import as_qimage
 from paintmaskanimator.project_v2 import compatibility_scalars, placement_keys
 from p5_6_support import CASES, ROOT, pixels
 from test_project_boundaries import graph_state
@@ -47,7 +48,7 @@ def test_v2_builder_preserves_snapshot_and_all_numbered_artwork(case):
             if "image" in local:
                 assert pixels(paths[local["image"]]) == pixels(slot.image)
             else:
-                assert slot.image.pixelColor(0, 0).alpha() == 0
+                assert slot.image.to_qimage().pixelColor(0, 0).alpha() == 0
                 assert slot.initial_image is None and slot.cell_name is None
             assert local["retained_number"] == slot.sequence_number
     # Mutable nested JSON is save-owned, even when the caller alters the result.
@@ -573,7 +574,7 @@ def test_v2_default_blank_has_no_png_and_fits_zero_pixel_budget(tmp_path, monkey
     loaded = project_io.load_project(path)
     assert len(loaded.document.frames) == 6
     assert not loaded.document.tracks[0].cells
-    assert all(frame.layers[0].image == image for frame in loaded.document.frames)
+    assert all(as_qimage(frame.layers[0].image) == image for frame in loaded.document.frames)
 
 
 @pytest.mark.parametrize("boundary", ["reader", "writer"])
@@ -598,3 +599,109 @@ def test_v2_pixel_budget_combines_art_initial_and_local(tmp_path, monkeypatch, b
             operation()
     else:
         operation()
+
+
+def test_local_transparency_is_checked_once_per_generation(monkeypatch):
+    from PySide6.QtGui import QColor
+
+    from image_edit_helpers import edit_qimage
+    from paintmaskanimator import project_v2
+    from paintmaskanimator.document import Document
+    from paintmaskanimator.models import Frame, Layer
+    from paintmaskanimator.pma_image import PmaImage
+
+    blank = PmaImage.blank(2, 2)
+    frames = [Frame([Layer("A", blank.copy())]) for _ in range(2)]
+    document = Document()
+    document.install_legacy_frames(frames, {}, canvas_size=(2, 2))
+    snapshot = project_io.ProjectSnapshot({}, document, 2, 2)
+    check = project_v2.is_transparent_image
+    checks = []
+
+    def count(image):
+        checks.append(None)
+        return check(image)
+
+    monkeypatch.setattr(project_v2, "is_transparent_image", count)
+    _, pngs = project_io.build_v2_payload(snapshot)
+    assert pngs == []
+    assert len(checks) == 1
+
+    with edit_qimage(document.frames[1].layers[0].image) as patch:
+        patch.setPixelColor(0, 0, QColor(255, 0, 0, 1))
+    _, pngs = project_io.build_v2_payload(snapshot)
+    assert [name for name, _, _ in pngs] == ["compatibility/layer_0000/position_000001.png"]
+    assert len(checks) == 3
+
+
+@pytest.mark.parametrize("pixels_equal", [True, False])
+@pytest.mark.parametrize("share_generation", [True, False])
+def test_bank_comparison_falls_back_to_pixels(monkeypatch, pixels_equal, share_generation):
+    import numpy as np
+    from PySide6.QtGui import QColor
+
+    from image_edit_helpers import edit_qimage
+    from paintmaskanimator import native
+    from paintmaskanimator.document import Document
+    from paintmaskanimator.models import Frame, Layer
+    from paintmaskanimator.pma_image import PmaImage
+
+    bank = PmaImage.blank(2, 2)
+    local = bank.copy() if share_generation else PmaImage.blank(2, 2)
+    if not pixels_equal:
+        with edit_qimage(local) as patch:
+            patch.fill(QColor("red"))
+    frames = [
+        Frame([Layer("A", bank, has_content=True, sequence_number=1)]),
+        Frame([Layer("A", local, cell_name="local")]),
+    ]
+    document = Document()
+    document.install_legacy_frames(frames, {}, canvas_size=(2, 2))
+    # The live resolver can return a source in a virtual v1 tail. Column 0 is
+    # the only reconstructible bank slot, so remap only if the artwork matches.
+    monkeypatch.setattr(native, "resolve_timeline", lambda frames: np.array([[1], [-1]]))
+    conversions = []
+    to_qimage = PmaImage.to_qimage
+
+    def with_copy(image):
+        conversions.append(image.generation)
+        return to_qimage(image).copy()
+
+    monkeypatch.setattr(PmaImage, "to_qimage", with_copy)
+    payload, _ = project_io.build_v2_payload(project_io.ProjectSnapshot({}, document, 2, 2))
+    compat = payload["tracks"][0]["compatibility"]
+    if pixels_equal:
+        assert "resolved_overrides" not in compat
+    else:
+        assert compat["resolved_overrides"] == [{"column": 0, "value": 1, "source_column": 1}]
+    assert len(conversions) == (0 if share_generation and pixels_equal else 2)
+
+
+def test_legacy_noop_white_migration_keeps_shared_cached_png(tmp_path, monkeypatch):
+    from zipfile import ZipFile
+
+    from PySide6.QtGui import QColor, QImage
+
+    payload = handwritten_payload()
+    payload["mask_format"] = 1
+    paper = deepcopy(payload["tracks"][0])
+    paper["is_paper"] = True
+    payload["tracks"].append(paper)
+    path = tmp_path / "old-mask-format.pman"
+    with ZipFile(path, "w") as archive:
+        archive.writestr("project.json", json.dumps(payload))
+        for name, color in (("art.png", "red"), ("start.png", "blue")):
+            image = QImage(4, 3, QImage.Format.Format_ARGB32_Premultiplied)
+            image.fill(QColor(color))
+            archive.writestr(name, project_io.encode_png(image))
+
+    cache = project_io.PngCache()
+    loaded = project_io.load_project(path, cache)
+    snapshot = project_io.ProjectSnapshot(loaded.metadata, loaded.document,
+                                           loaded.width, loaded.height)
+
+    def unexpected_encode(image):
+        pytest.fail("the unchanged red and blue PNGs should be reused")
+
+    monkeypatch.setattr(project_io, "encode_png", unexpected_encode)
+    project_io.write_project_snapshot(tmp_path / "resaved.pman", snapshot, cache)

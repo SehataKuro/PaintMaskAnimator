@@ -3,6 +3,9 @@
 もとは「閉領域フィル」という別のツールだったが、バケツの「隙間閉じ」「線の延長」と
 同じことなのでなくした。古い設定やショートカットから閉領域フィルが来たらバケツにする。
 """
+
+from image_edit_helpers import edit_qimage
+
 import os
 
 import pytest
@@ -38,12 +41,14 @@ def draw_leaky_box(window, left=10, top=10, size=20, gap_at=None):
     layer = window.canvas.frames[0].layers[0]
     black = QColor(0, 0, 0)
     for offset in range(size):
-        layer.image.setPixelColor(left + offset, top, black)
-        layer.image.setPixelColor(left + offset, top + size, black)
-        layer.image.setPixelColor(left, top + offset, black)
-        layer.image.setPixelColor(left + size, top + offset, black)
+        with edit_qimage(layer.image) as edited:
+            edited.setPixelColor(left + offset, top, black)
+            edited.setPixelColor(left + offset, top + size, black)
+            edited.setPixelColor(left, top + offset, black)
+            edited.setPixelColor(left + size, top + offset, black)
     if gap_at is not None:
-        layer.image.setPixelColor(left + gap_at, top, QColor(0, 0, 0, 0))
+        with edit_qimage(layer.image) as edited:
+            edited.setPixelColor(left + gap_at, top, QColor(0, 0, 0, 0))
     layer.has_content = True
     return layer
 
@@ -68,7 +73,7 @@ def test_the_bucket_with_gap_closing_holds_a_one_dot_gap(window):
     window.canvas.set_tool("bucket")
     window.canvas.flood_fill(QPoint(20, 20))
 
-    image = window.canvas.frames[0].layers[0].image
+    image = window.canvas.frames[0].layers[0].image.to_qimage()
     assert image.pixelColor(20, 20) == QColor("#ff0000")
     assert image.pixelColor(2, 2) != QColor("#ff0000"), "囲いの外へこぼれない"
 
@@ -83,5 +88,5 @@ def test_the_bucket_leaks_through_the_same_gap_without_gap_closing(window):
     window.canvas.set_tool("bucket")
     window.canvas.flood_fill(QPoint(20, 20))
 
-    image = window.canvas.frames[0].layers[0].image
+    image = window.canvas.frames[0].layers[0].image.to_qimage()
     assert image.pixelColor(2, 2) == QColor("#00ff00")

@@ -13,6 +13,7 @@ from PySide6.QtGui import QColor, QImage  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from paintmaskanimator.canvas import PaintCanvas  # noqa: E402
+from paintmaskanimator.document import Document
 from paintmaskanimator.frame_scope import (  # noqa: E402
     FrameScope,
     ScopeCancelled,
@@ -20,7 +21,9 @@ from paintmaskanimator.frame_scope import (  # noqa: E402
     resolve_cells,
 )
 from paintmaskanimator.models import Frame, Layer  # noqa: E402
+from paintmaskanimator.pma_image import PmaImage  # noqa: E402
 from paintmaskanimator.undo_entries import ScopedBatchUndo  # noqa: E402
+from paintmaskanimator.pma_image import as_qimage
 
 
 @pytest.fixture(scope="session")
@@ -34,8 +37,8 @@ def make_image(color):
     return image
 
 
-class FakeDoc:
-    """``frames`` / ``push_undo`` だけを持つ最小のドキュメント。"""
+class FakeDoc(Document):
+    """未接続のテスト用フレームを持ち、Undo を記録するドキュメント。"""
 
     def __init__(self, frame_count=3, layer_count=1, color="white"):
         self.frames = [
@@ -71,8 +74,8 @@ def test_current_frame_scope_touches_one_cell(qapp):
         doc, FrameScope.current_frame(doc), fill_op("red"), label="テスト"
     )
     assert result.changed_cells == 1
-    assert doc.frames[0].layers[0].image.pixelColor(0, 0) == QColor("red")
-    assert doc.frames[1].layers[0].image.pixelColor(0, 0) == QColor("white")
+    assert doc.frames[0].layers[0].image.to_qimage().pixelColor(0, 0) == QColor("red")
+    assert doc.frames[1].layers[0].image.to_qimage().pixelColor(0, 0) == QColor("white")
 
 
 def test_all_frames_scope_touches_every_key_frame(qapp):
@@ -83,7 +86,7 @@ def test_all_frames_scope_touches_every_key_frame(qapp):
     assert result.changed_cells == 3
     assert result.changed_frames == [0, 1, 2]
     assert all(
-        frame.layers[0].image.pixelColor(0, 0) == QColor("red")
+        frame.layers[0].image.to_qimage().pixelColor(0, 0) == QColor("red")
         for frame in doc.frames
     )
 
@@ -131,15 +134,22 @@ def test_blank_key_cells_are_skipped(qapp):
     assert resolve_cells(doc, FrameScope.all_frames(doc)) == [(1, 0)]
 
 
-def test_shared_images_are_processed_once_and_stay_shared(qapp):
+@pytest.mark.parametrize("wrap", [False, True])
+def test_shared_images_are_processed_once_and_stay_shared(qapp, wrap):
     doc = FakeDoc(frame_count=2)
     # 同じQImageを共有する素材（同一画像を1回処理）。
-    doc.frames[1].layers[0].image = doc.frames[0].layers[0].image
+    first = doc.frames[0].layers[0]
+    if wrap:
+        first.image = PmaImage.from_qimage(first.image.to_qimage())
+    image = first.image.to_qimage()
+    doc.frames[1].layers[0].image = first.image
 
     calls = []
 
     def op(context):
         calls.append((context.frame, context.layer_index))
+        assert context.layer.image is first.image
+        assert context.image == image
         return make_image("red")
 
     result = apply_over_scope(
@@ -148,6 +158,10 @@ def test_shared_images_are_processed_once_and_stay_shared(qapp):
     assert calls == [(0, 0)]
     assert result.changed_cells == 2
     assert doc.frames[0].layers[0].image is doc.frames[1].layers[0].image
+    for _frame, _layer, snapshot, _has_content, _number in result.undo.cells:
+        assert isinstance(snapshot, QImage)
+        assert snapshot.cacheKey() != image.cacheKey()
+        assert snapshot.pixelColor(0, 0) == QColor("white")
 
 
 def test_returning_none_leaves_the_cell_untouched(qapp):
@@ -161,8 +175,8 @@ def test_returning_none_leaves_the_cell_untouched(qapp):
     )
     assert result.changed_cells == 1
     assert result.visited_cells == 3
-    assert doc.frames[0].layers[0].image.pixelColor(0, 0) == QColor("white")
-    assert doc.frames[1].layers[0].image.pixelColor(0, 0) == QColor("red")
+    assert doc.frames[0].layers[0].image.to_qimage().pixelColor(0, 0) == QColor("white")
+    assert doc.frames[1].layers[0].image.to_qimage().pixelColor(0, 0) == QColor("red")
 
 
 def test_cancel_leaves_no_partial_application(qapp):
@@ -187,7 +201,7 @@ def test_cancel_leaves_no_partial_application(qapp):
     assert result.changed_cells == 0
     assert doc.undo_stack == []
     assert all(
-        frame.layers[0].image.pixelColor(0, 0) == QColor("white")
+        frame.layers[0].image.to_qimage().pixelColor(0, 0) == QColor("white")
         for frame in doc.frames
     )
 
@@ -205,7 +219,7 @@ def test_op_raising_scope_cancelled_also_rolls_back(qapp):
     )
     assert result.cancelled
     assert all(
-        frame.layers[0].image.pixelColor(0, 0) == QColor("white")
+        frame.layers[0].image.to_qimage().pixelColor(0, 0) == QColor("white")
         for frame in doc.frames
     )
 
@@ -258,7 +272,7 @@ def test_canvas_undo_restores_every_scoped_cell(qapp):
     from paintmaskanimator.document import create_drawing
     for column, frame in enumerate(canvas.frames):
         create_drawing(frame.layers[0], frame.layers[0].image, number=column + 1)
-    before = [frame.layers[0].image.copy() for frame in canvas.frames]
+    before = [frame.layers[0].image.to_qimage().copy() for frame in canvas.frames]
 
     result = apply_over_scope(
         canvas,
@@ -271,11 +285,58 @@ def test_canvas_undo_restores_every_scoped_cell(qapp):
 
     canvas.undo()
     assert all(
-        frame.layers[0].image == original
+        as_qimage(frame.layers[0].image) == original
         for frame, original in zip(canvas.frames, before)
     )
     canvas.redo()
     assert all(
-        frame.layers[0].image.pixelColor(0, 0) == QColor("red")
+        frame.layers[0].image.to_qimage().pixelColor(0, 0) == QColor("red")
         for frame in canvas.frames
     )
+
+
+@pytest.mark.parametrize("independent", [False, True])
+def test_edit_scope_uses_model_identity_even_with_qimage_copy(qapp, monkeypatch, independent):
+    original_to_qimage = PmaImage.to_qimage
+    monkeypatch.setattr(PmaImage, "to_qimage", lambda image: original_to_qimage(image).copy())
+    doc = FakeDoc(frame_count=2)
+    first, second = (frame.layers[0] for frame in doc.frames)
+    second.image = first.image.copy() if independent else first.image
+    assert first.image.generation == second.image.generation
+
+    calls = []
+
+    def op(context):
+        calls.append(context.frame)
+        return make_image("red") if context.frame == 0 else None
+
+    result = apply_over_scope(doc, FrameScope.all_frames(doc), op, label="テスト")
+    assert calls == ([0, 1] if independent else [0])
+    assert result.changed_cells == (1 if independent else 2)
+    assert second.image.to_qimage().pixelColor(0, 0) == QColor(
+        "white" if independent else "red"
+    )
+
+
+@pytest.mark.parametrize("replace", [False, True])
+@pytest.mark.parametrize("at_end", [False, True])
+def test_scope_applies_plan_if_progress_changes_source(qapp, replace, at_end):
+    doc = FakeDoc(frame_count=2)
+    first = doc.frames[0].layers[0]
+    original = first.image
+
+    def progress(done, total, cell):
+        if done == (total if at_end else 0):
+            if replace:
+                first.image = original.copy()  # Same generation, different editing target.
+            else:
+                original.write_qimage(make_image("blue"), 0, 0)
+
+    result = apply_over_scope(
+        doc, FrameScope.all_frames(doc), fill_op("red"), label="test", progress=progress,
+    )
+    assert not result.cancelled
+    assert result.changed_cells == 2
+    assert doc.undo_stack
+    assert first.image.to_qimage().pixelColor(0, 0) == QColor("red")
+    assert doc.frames[1].layers[0].image.to_qimage().pixelColor(0, 0) == QColor("red")

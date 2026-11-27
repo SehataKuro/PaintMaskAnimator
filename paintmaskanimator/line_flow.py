@@ -20,6 +20,7 @@ from . import bucket_fill, native
 
 #: 区画の大きさ（画素）。
 BLOCK = 32
+_NATIVE_COORD_DTYPES = (np.dtype(np.int64), np.dtype(np.float64))
 #: いちばん粗い縮小率と、そこで探すずれの範囲（画素）。
 COARSE = 8
 REACH = 96
@@ -47,6 +48,21 @@ class Flow:
 
     def at(self, ys, xs):
         """画素 ``(ys, xs)`` のずれ。区画の中心のあいだを直線でつないで滑らかにする。"""
+        ys, xs = np.broadcast_arrays(ys, xs)
+        if (native.available() and ys.size and ys.dtype in _NATIVE_COORD_DTYPES
+                and xs.dtype in _NATIVE_COORD_DTYPES
+                and type(self.dy) is np.ndarray and type(self.dx) is np.ndarray
+                and self.dy.shape == self.dx.shape and self.dy.ndim == 2
+                and all(self.dy.shape)
+                and self.dy.dtype == self.dx.dtype == np.float64
+                and np.geterr()["under"] == "ignore"):
+            result = native.line_flow_interpolate(self.dy, self.dx, BLOCK, ys, xs)
+            if result is not None:
+                return result
+        return self._at_numpy(ys, xs)
+
+    def _at_numpy(self, ys, xs):
+        """NumPy 版の参照実装。"""
         ys, xs = np.broadcast_arrays(ys, xs)
         dy = np.empty(ys.shape, dtype=np.float64)
         dx = np.empty(xs.shape, dtype=np.float64)

@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QApplication
 from paintmaskanimator import constants, project_io
 from paintmaskanimator.document import Document, project_v1_state
 from paintmaskanimator.main_window import MainWindow
+from paintmaskanimator.pma_image import as_qimage
 from paintmaskanimator.models import Cell, Frame
 from paintmaskanimator.legacy_v1 import raw_v1_slot as Layer
 
@@ -45,7 +46,7 @@ def projection_observation():
     frame_data, archive_data, pngs = project_io.legacy_fixture_build_v1_payload(frames, archive)
     return {"frames": frame_data, "archive": archive_data,
             "pngs": [[name, img.width(), img.height(), img.pixelColor(0, 0).name()]
-                     for name, img, _ in pngs]}
+                     for name, payload, _ in pngs for img in (as_qimage(payload),)]}
 
 
 @pytest.fixture(scope="module")
@@ -126,8 +127,8 @@ def color_resize_observation(window, monkeypatch):
     window.replace_doc(6, 7, preserve=True)
     track = canvas.frames[0].layers[0]._track
     return {"colors": [list(c) for c in colors],
-            "sizes": {str(n): [c.image.width(), c.image.height(),
-                               None if c.initial_image is None else [c.initial_image.width(), c.initial_image.height()],
+            "sizes": {str(n): [c.image.to_qimage().width(), c.image.to_qimage().height(),
+                               None if c.initial_image is None else [c.initial_image.to_qimage().width(), c.initial_image.to_qimage().height()],
                                c.cell_name] for n, c in sorted(track.cells.items())}}
 
 

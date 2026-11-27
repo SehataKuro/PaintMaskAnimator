@@ -7,7 +7,9 @@ import zipfile
 
 from PySide6.QtGui import QImage
 
-from paintmaskanimator import project_io
+from paintmaskanimator.pma_image import PmaImage, image_key
+
+from paintmaskanimator import native, project_io
 from paintmaskanimator.models import Frame, Layer, TRACK_FIELDS
 from paintmaskanimator.legacy_v1 import raw_v1_slot
 from paintmaskanimator.document import project_v1_state
@@ -48,7 +50,25 @@ def json_bytes(data):
 
 # Filled from the original writer, before moving its conversion loop.
 LEGACY_JSON_SHA256 = "4b479aac8bb1cc06017bf6df0761531b56f1828a33e41f52f01d5fa4208ff4ea"
-LEGACY_PNG_SHA256 = "d3fba234bbff8ce0849d2f216baee0fd536ea9f21419dc4764f57f42a5ca4970"
+# Stage 3-2 switched PNG writing to Rust, changing the encoded bytes, so compare
+# decoded pixels, IHDR, and pHYs. This baseline comes from the Qt path
+# (_encode_png_qt) output.
+LEGACY_PNG_CONTENT_SHA256 = "02fe2f637af73091bd85dbdf41cf6299359c1bf21ba39697f5d2677191a008fb"
+
+
+def _png_content_sha256(data):
+    chunks = []
+    offset = 8
+    while offset < len(data):
+        size = int.from_bytes(data[offset:offset + 4], "big")
+        chunks.append((data[offset + 4:offset + 8], data[offset + 8:offset + 8 + size]))
+        offset += size + 12
+    assert {kind for kind, _ in chunks} <= {b"IHDR", b"pHYs", b"IDAT", b"IEND"}
+    ihdr = next(payload for kind, payload in chunks if kind == b"IHDR")
+    assert len(ihdr) == 13
+    phys = next((payload for kind, payload in chunks if kind == b"pHYs"), b"")
+    _width, _height, rgba = native.decode_png(data, 1 << 30)
+    return hashlib.sha256(ihdr + phys + rgba).hexdigest()
 
 
 def test_payload_matches_original_v1_metadata_and_entry_order(tmp_path):
@@ -65,15 +85,15 @@ def test_payload_matches_original_v1_metadata_and_entry_order(tmp_path):
         assert saved.namelist() == [name for name, _image, _error in pngs] + ["project.json"]
 
 
-def test_saved_json_and_png_bytes_match_original_writer(tmp_path):
+def test_saved_json_and_png_content_match_original_writer(tmp_path):
     frames, archive = document()
     path = tmp_path / "original.pman"
     project_io.legacy_fixture_write_archive(path, metadata(), frames, archive)
     with zipfile.ZipFile(path) as saved:
         assert hashlib.sha256(saved.read("project.json")).hexdigest() == LEGACY_JSON_SHA256
-        pngs = [(name, hashlib.sha256(saved.read(name)).hexdigest())
+        pngs = [(name, _png_content_sha256(saved.read(name)))
                 for name in saved.namelist() if name.endswith(".png")]
-    assert hashlib.sha256(json_bytes(pngs)).hexdigest() == LEGACY_PNG_SHA256
+    assert hashlib.sha256(json_bytes(pngs)).hexdigest() == LEGACY_PNG_CONTENT_SHA256
 
 
 def test_v1_save_load_save_preserves_json(tmp_path):
@@ -100,8 +120,10 @@ def test_build_payload_does_not_mutate_document():
             values = []
             for field in fields(Layer):
                 value = getattr(layer, field.name)
-                values.append((field.name, (id(value), value.cacheKey())
-                               if isinstance(value, QImage) else copy.deepcopy(value)))
+                if isinstance(value, (QImage, PmaImage)):
+                    values.append((field.name, (id(value), image_key(value))))
+                else:
+                    values.append((field.name, copy.deepcopy(value)))
             return id(layer), id(layer._cell), id(layer._track), values
         return (id(frames), [(id(frame), frame.duration, id(frame.layers),
                              [layer_state(layer) for layer in frame.layers]) for frame in frames],

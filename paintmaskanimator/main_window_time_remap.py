@@ -12,14 +12,12 @@ import math
 import re
 from pathlib import Path
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
+from .canvas_changes import publish_remap_changes
+from .pma_image import as_qimage
 from . import sheet, timesheet_file
 from .i18n import tr
 from .main_window_import import ImportController
 from .errors import OPERATION_ERRORS as _OPERATION_ERRORS, OperationError
-from .models import ArchiveHint, Cell
-from .document import clear_slot
-from .legacy_v1 import V1Position, snapshot_layer
-from .utils import blank_image
 from .widgets import (
     TimeRemapPasteDialog,
     default_layer_bindings,
@@ -29,6 +27,7 @@ from .logging_setup import get_logger
 
 if TYPE_CHECKING:
     from .main_window import MainWindow
+    from .models import Layer, Track
 
 log = get_logger(__name__)
 
@@ -324,7 +323,7 @@ class TimeRemapController:
                 ].layers[layer_index].name
             )
 
-        track = self.window.canvas.frames[0].layers[layer_index]._track
+        track: Track = self.window.canvas.frames[0].layers[layer_index]._track
         if not track.connected and stored_bank and (
             stored_index == layer_index
             or (
@@ -335,14 +334,14 @@ class TimeRemapController:
             return [image.copy() for image in stored_bank]
 
         if track.connected:
-            return [track.cells[n].image.copy() if n in track.cells else None
+            return [as_qimage(track.cells[n].image).copy() if n in track.cells else None
                     for n in range(1, max(track.cells, default=0) + 1)]
 
-        numbered_bank = {n: cell.image.copy() for n, cell in track.cells.items()}
+        numbered_bank = {n: as_qimage(cell.image).copy() for n, cell in track.cells.items()}
         for frame in self.window.canvas.frames:
             if layer_index >= len(frame.layers):
                 continue
-            layer = frame.layers[layer_index]
+            layer: Layer = frame.layers[layer_index]
             number = layer.sequence_number
             if (
                 layer.has_content
@@ -350,7 +349,7 @@ class TimeRemapController:
                 and int(number) >= 1
                 and int(number) not in numbered_bank
             ):
-                numbered_bank[int(number)] = layer.image.copy()
+                numbered_bank[int(number)] = as_qimage(layer.image).copy()
         if numbered_bank:
             # 本当に抜けている番号は None にしておき、参照されたら
             # 「存在しない絵番号」として止める（勝手に詰めない）。
@@ -365,9 +364,11 @@ class TimeRemapController:
         for frame in self.window.canvas.frames:
             if layer_index >= len(frame.layers):
                 continue
-            layer = frame.layers[layer_index]
-            if layer.has_content and not layer.image.isNull():
-                bank.append(layer.image.copy())
+            layer: Layer = frame.layers[layer_index]
+            if layer.has_content:
+                image = as_qimage(layer.image)
+                if not image.isNull():
+                    bank.append(image.copy())
         return bank
 
     @staticmethod
@@ -379,79 +380,6 @@ class TimeRemapController:
             or number > len(source_bank)
             or source_bank[number - 1] is None
         ]
-
-    def keep_unplaced_in_archive(self, layer_index, source_bank):
-        """シートで使わなかった絵番号を連番保管セルに残す（使った番号は外す）。"""
-        canvas = self.window.canvas
-        placed = {
-            int(frame.layers[layer_index].sequence_number)
-            for frame in canvas.frames
-            if layer_index < len(frame.layers)
-            and frame.layers[layer_index].has_content
-            and frame.layers[layer_index].sequence_number is not None
-        }
-        track = canvas.frames[0].layers[layer_index]._track
-        for number, image in enumerate(source_bank, 1):
-            if image is None:
-                continue
-            if number in placed:
-                canvas._document.remove_archive_hint(track, number)
-            elif number not in track.legacy_archive_hints:
-                track.cells.setdefault(number, Cell(image.copy()))
-                canvas._document.put_archive_hint(track, number, ArchiveHint())
-
-    def _apply_time_remap_states_to_layer(
-        self,
-        states,
-        start_frame,
-        end_frame,
-        layer_index,
-        source_bank,
-        current_frame,
-    ):
-        """検証済みのセル番号列を1レイヤーのシートへ展開する。"""
-        self.window.canvas._ensure_frame_count(end_frame + 1)
-        template = self.window.canvas.frames[
-            current_frame
-        ].layers[layer_index]
-
-        # 対象範囲をいったん明示空セルに戻す。
-        for frame_index in range(start_frame, end_frame + 1):
-            layer = self.window.canvas.frames[frame_index].layers[layer_index]
-            layer.share_track_with(template)
-            clear_slot(layer)
-            layer.__dict__["_v1_position"] = V1Position(snapshot_layer(layer))
-
-        # The parsed range is already a dense reference column.
-        for offset, run_state in enumerate(states):
-            target = self.window.canvas.frames[start_frame + offset].layers[layer_index]
-            target.share_track_with(template)
-            run_start = offset == 0 or states[offset - 1] != run_state
-            position = target.__dict__["_v1_position"]
-            target.__dict__["_v1_position"] = V1Position(
-                position.legacy, key_start=run_start, blank_start=run_state is None and run_start)
-            target.blank_start = run_state is None and run_start
-            if run_state is None:
-                target.image = blank_image()
-                target.has_content = False
-                target.is_blank_key = True
-                target.sequence_number = None
-                target.cell_name = None
-            else:
-                number = int(run_state)
-                if target._track.connected:
-                    target._track.cells.setdefault(number, Cell(source_bank[number - 1].copy()))
-                else:
-                    target.image = source_bank[number - 1].copy()
-                target.sequence_number = number
-                target.has_content = True
-                if target._track.connected:
-                    target.__dict__.pop("_cell", None)
-                target.is_blank_key = False
-            if run_start:
-                target.__dict__["_v1_position"] = V1Position(
-                    snapshot_layer(target), key_start=True, blank_start=run_state is None)
-
 
     def apply_to_active_layer(self, parsed, confirm=True):
         states = list(parsed.get("states", []))
@@ -538,27 +466,12 @@ class TimeRemapController:
 
         self.window.timeline_ops.set_mode("sheet")
         self.window.canvas.push_doc_undo()
-        self._apply_time_remap_states_to_layer(
-            states,
-            start_frame,
-            end_frame,
-            layer_index,
-            source_bank,
-            current_frame,
+        changes = self.window.canvas._document.apply_sheet_remap(
+            start_frame, end_frame, [(layer_index, states, source_bank)], current_frame,
         )
-        self.keep_unplaced_in_archive(layer_index, source_bank)
-
-        self.window.canvas.current_frame = start_frame
-        self.window.canvas.active_layer_index = layer_index
-        self.window.canvas._onion_cache.clear()
-        self.window.canvas._color_filter_cache.clear()
-        self.window.canvas._color_index_cache.clear()
-        self.window.canvas._silhouette_cache.clear()
-        self.window._used_color_cache.clear()
-        self.window.canvas.changed.emit()
-        self.window.canvas.selectionChanged.emit()
-        self.window.canvas.update()
-        self.window.used_color.schedule_refresh()
+        if not changes:
+            return False
+        publish_remap_changes(self.window, changes)
 
         self.window.statusBar().showMessage(
             tr("{name}を{value}～{value2}フレームへ反映しました。").format(name=format_name, value=start_frame + 1, value2=end_frame + 1),

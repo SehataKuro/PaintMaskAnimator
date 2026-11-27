@@ -1,40 +1,14 @@
 //! Automatic painting kernels. No image masks or decision thresholds are changed.
+use pma_core::auto_paint::{connected, label_runs_of, refine_face_of, Guide, Sample};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
-use std::collections::{HashMap, HashSet};
 
-#[derive(Clone, Copy, PartialEq)]
-struct Span {
-    start: usize,
-    end: usize,
-    value: u64,
-    label: usize,
-    flags: u8,
-}
-
-/// Immutable run-compressed guide. Large flat faces are counted by interval
-/// lengths instead of constructing shifted coordinate arrays for every pixel.
+/// `native.py::sample_region` が保持する不変の見本の Python 用入口。
 #[pyclass(frozen)]
 pub struct GuideSampler {
-    width: usize,
-    height: usize,
-    rows: Vec<usize>,
-    spans: Vec<Span>,
-    sizes: Vec<u64>,
+    guide: Guide,
 }
-
-type Sample = (
-    usize,
-    usize,
-    Option<u64>,
-    usize,
-    u64,
-    bool,
-    bool,
-    usize,
-    usize,
-);
 
 #[pymethods]
 impl GuideSampler {
@@ -61,41 +35,14 @@ impl GuideSampler {
         }
         let sizes = u64s(sizes)?;
         py.detach(|| {
-            let mut spans: Vec<Span> = Vec::new();
-            let mut rows = Vec::with_capacity(height + 1);
-            for y in 0..height {
-                rows.push(spans.len());
-                for x in 0..width {
-                    let at = y * width + x;
-                    let value = u64::from_ne_bytes(values[at * 8..at * 8 + 8].try_into().unwrap());
-                    let label =
-                        u32::from_ne_bytes(labels[at * 4..at * 4 + 4].try_into().unwrap()) as usize;
-                    if label >= sizes.len() {
-                        return Err(PyValueError::new_err("invalid guide label"));
-                    }
-                    if x > 0 {
-                        let last = spans.last_mut().unwrap();
-                        if (last.value, last.label, last.flags) == (value, label, flags[at]) {
-                            last.end = x + 1;
-                            continue;
-                        }
-                    }
-                    spans.push(Span {
-                        start: x,
-                        end: x + 1,
-                        value,
-                        label,
-                        flags: flags[at],
-                    });
+            for label in labels.chunks_exact(4) {
+                let label = u32::from_ne_bytes(label.try_into().unwrap()) as usize;
+                if label >= sizes.len() {
+                    return Err(PyValueError::new_err("invalid guide label"));
                 }
             }
-            rows.push(spans.len());
             Ok(Self {
-                width,
-                height,
-                rows,
-                spans,
-                sizes,
+                guide: Guide::build(values, labels, flags, sizes, width, height),
             })
         })
     }
@@ -132,80 +79,7 @@ impl GuideSampler {
         }) {
             return Err(PyValueError::new_err("invalid shifted mask coordinates"));
         }
-        Ok(py.detach(|| {
-            let (mut inside, mut total, mut unknown_any) = (0usize, 0usize, false);
-            let mut counts: HashMap<u64, usize> = HashMap::new();
-            let mut pieces = Vec::new();
-            for (y, x, end) in runs {
-                let y = y + dy;
-                if y < 0 || y >= self.height as i64 {
-                    continue;
-                }
-                let start = (x + dx).max(0);
-                let end = (end + dx).min(self.width as i64);
-                if start >= end {
-                    continue;
-                }
-                inside += (end - start) as usize;
-                let row = &self.spans[self.rows[y as usize]..self.rows[y as usize + 1]];
-                let first = row.partition_point(|span| span.end <= start as usize);
-                for span in &row[first..] {
-                    if span.start >= end as usize {
-                        break;
-                    }
-                    if span.flags & ignore != 0 || span.flags & require != require {
-                        continue;
-                    }
-                    let left = span.start.max(start as usize);
-                    let right = span.end.min(end as usize);
-                    let length = right - left;
-                    let key = if by_label {
-                        span.label as u64
-                    } else {
-                        span.value
-                    };
-                    *counts.entry(key).or_default() += length;
-                    total += length;
-                    unknown_any |= span.flags & 4 != 0;
-                    pieces.push((key, span.label, span.flags, y as usize, left, length));
-                }
-            }
-            let Some((&key, &count)) = counts
-                .iter()
-                .max_by(|(a, ac), (b, bc)| ac.cmp(bc).then_with(|| b.cmp(a)))
-            else {
-                return (inside, total, None, 0, 0, false, unknown_any, 0, 0);
-            };
-            let mut touched = HashSet::new();
-            let (mut unknown, mut offset, mut seed) = (false, count / 2, None);
-            for (value, label, flags, y, x, length) in pieces {
-                if value != key {
-                    continue;
-                }
-                touched.insert(label);
-                unknown |= flags & 4 != 0;
-                if seed.is_none() {
-                    if offset < length {
-                        seed = Some((y, x + offset));
-                    } else {
-                        offset -= length;
-                    }
-                }
-            }
-            let other = touched.iter().map(|label| self.sizes[*label]).sum();
-            let (y, x) = seed.unwrap_or((0, 0));
-            (
-                inside,
-                total,
-                Some(key),
-                count,
-                other,
-                unknown,
-                unknown_any,
-                y,
-                x,
-            )
-        }))
+        Ok(py.detach(|| self.guide.sample(&runs, dy, dx, ignore, require, by_label)))
     }
 }
 
@@ -217,51 +91,6 @@ fn u64s(data: &[u8]) -> PyResult<Vec<u64>> {
         .chunks_exact(8)
         .map(|v| u64::from_ne_bytes(v.try_into().unwrap()))
         .collect())
-}
-
-fn root(parent: &mut [usize], mut index: usize) -> usize {
-    while parent[index] != index {
-        parent[index] = parent[parent[index]];
-        index = parent[index];
-    }
-    index
-}
-
-fn connected(starts: &[u64], ends: &[u64], kinds: &[u64], rows: &[u64]) -> (Vec<u32>, usize) {
-    let count = starts.len();
-    let mut parent: Vec<usize> = (0..count).collect();
-    for row in rows.windows(3) {
-        let (mut upper, upper_end) = (row[0] as usize, row[1] as usize);
-        let (mut lower, lower_end) = (row[1] as usize, row[2] as usize);
-        while upper < upper_end && lower < lower_end {
-            if kinds[upper] == kinds[lower]
-                && starts[upper] < ends[lower]
-                && starts[lower] < ends[upper]
-            {
-                let a = root(&mut parent, upper);
-                let b = root(&mut parent, lower);
-                parent[a.max(b)] = a.min(b);
-            }
-            if ends[upper] < ends[lower] {
-                upper += 1;
-            } else {
-                lower += 1;
-            }
-        }
-    }
-    let roots: Vec<usize> = (0..count).map(|i| root(&mut parent, i)).collect();
-    let mut compact = vec![u32::MAX; count];
-    let mut regions = 0;
-    for i in 0..count {
-        if roots[i] == i {
-            compact[i] = regions;
-            regions += 1;
-        }
-    }
-    (
-        roots.iter().map(|r| compact[*r]).collect(),
-        regions as usize,
-    )
 }
 
 type RunBuffers<'py> = (
@@ -292,44 +121,8 @@ pub fn label_runs<'py>(
         return Err(PyValueError::new_err("invalid region image"));
     }
     let (labels, count, ys, starts, ends, run_labels) = py.detach(|| {
-        let mut starts = Vec::new();
-        let mut ends = Vec::new();
-        let mut kinds = Vec::new();
-        let mut ys: Vec<u64> = Vec::new();
-        let mut rows = Vec::with_capacity(height + 1);
-        for y in 0..height {
-            rows.push(starts.len() as u64);
-            let mut previous = None;
-            for x in 0..width {
-                let at = (y * width + x) * itemsize;
-                let value = match itemsize {
-                    1 => data[at] as u64,
-                    2 => u16::from_ne_bytes(data[at..at + 2].try_into().unwrap()) as u64,
-                    4 => u32::from_ne_bytes(data[at..at + 4].try_into().unwrap()) as u64,
-                    _ => u64::from_ne_bytes(data[at..at + 8].try_into().unwrap()),
-                };
-                if previous == Some(value) {
-                    continue;
-                }
-                if x > 0 {
-                    ends.push(x as u64);
-                }
-                ys.push(y as u64);
-                starts.push(x as u64);
-                kinds.push(value);
-                previous = Some(value);
-            }
-            if width > 0 {
-                ends.push(width as u64);
-            }
-        }
-        rows.push(starts.len() as u64);
-        let (run_labels, count) = connected(&starts, &ends, &kinds, &rows);
-        let mut labels = vec![0u32; pixels];
-        for i in 0..starts.len() {
-            let base = ys[i] as usize * width;
-            labels[base + starts[i] as usize..base + ends[i] as usize].fill(run_labels[i]);
-        }
+        let (labels, count, ys, starts, ends, run_labels) =
+            label_runs_of(data, width, height, itemsize);
         let bytes64 =
             |values: Vec<u64>| -> Vec<u8> { values.iter().flat_map(|v| v.to_ne_bytes()).collect() };
         let bytes32 =
@@ -447,68 +240,97 @@ pub fn refine_face(
         return Err(PyValueError::new_err("point coordinate overflow"));
     }
     Ok(py.detach(|| {
-        let size = points.len() as f64;
-        let mut answers: Vec<(u64, f64)> = Vec::new();
-        let mut sample = Vec::with_capacity(points.len());
-        let mut counts = HashMap::new();
-        let mut touched = HashSet::new();
-        for dy in -radius..=radius {
-            for dx in -radius..=radius {
-                sample.clear();
-                counts.clear();
-                for &(y, x) in &points {
-                    let (y, x) = (y + dy, x + dx);
-                    if y < 0 || x < 0 || y >= height as i64 || x >= width as i64 {
-                        continue;
-                    }
-                    let at = y as usize * width + x as usize;
-                    if usable[at] == 0 {
-                        continue;
-                    }
-                    sample.push(at);
-                    *counts.entry(values[at]).or_insert(0usize) += 1;
-                }
-                if (sample.len() as f64) < size * thresholds.0 {
-                    continue;
-                }
-                let Some((&value, &count)) = counts
-                    .iter()
-                    .max_by(|(a, ac), (b, bc)| ac.cmp(bc).then_with(|| b.cmp(a)))
-                else {
-                    continue;
-                };
-                if (count as f64) / (sample.len() as f64) < thresholds.1 {
-                    continue;
-                }
-                touched.clear();
-                let mut unknown = false;
-                for &at in &sample {
-                    if values[at] == value {
-                        unknown |= excluded[at] != 0;
-                        touched.insert(labels[at]);
-                    }
-                }
-                if unknown {
-                    continue;
-                }
-                let other = touched
-                    .iter()
-                    .map(|label| sizes[*label] as f64)
-                    .sum::<f64>();
-                if other < size / thresholds.2
-                    || other > size * thresholds.2
-                    || (count as f64) < other * thresholds.3
-                {
-                    continue;
-                }
-                let fit = 2.0 * count as f64 / (size + other);
-                if let Some(answer) = answers.iter_mut().find(|v| v.0 == value) {
-                    answer.1 = answer.1.max(fit);
-                } else {
-                    answers.push((value, fit));
-                }
-            }
+        refine_face_of(
+            &values, &labels, usable, excluded, &sizes, &points, width, height, radius, thresholds,
+        )
+    }))
+}
+
+#[pyfunction]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+pub fn solve_local_shift(
+    py: Python<'_>,
+    before: &[u8],
+    exact: &[u8],
+    wide: &[u8],
+    width: usize,
+    height: usize,
+    fast_size: (usize, usize),
+    dys: Vec<i64>,
+    dxs: Vec<i64>,
+    total: f64,
+    step: i64,
+    motion_penalty: f64,
+    near_line_weight: f64,
+    share_motion: bool,
+) -> PyResult<((i64, i64), f64, f64)> {
+    py.detach(|| {
+        pma_core::local_shift::solve_local_shift(
+            before,
+            exact,
+            wide,
+            width,
+            height,
+            fast_size,
+            &dys,
+            &dxs,
+            total,
+            step,
+            motion_penalty,
+            near_line_weight,
+            share_motion,
+        )
+    })
+    .map_err(|error| PyValueError::new_err(error.to_string()))
+}
+
+type PreparedShift<'py> = (
+    Bound<'py, PyBytes>,
+    (usize, usize),
+    f64,
+    Vec<i64>,
+    Vec<i64>,
+    Vec<i64>,
+    Vec<i64>,
+);
+
+/// 間引き済みの二値窓を検査し、局所相関の準備結果を Python に返す。
+#[pyfunction]
+pub fn prepare_local_shift<'py>(
+    py: Python<'py>,
+    target: &[u8],
+    target_shape: (usize, usize),
+    wide: &[u8],
+    wide_shape: (usize, usize),
+    offset: (usize, usize),
+    limit: usize,
+) -> PyResult<Option<PreparedShift<'py>>> {
+    for (window, (height, width)) in [(target, target_shape), (wide, wide_shape)] {
+        if height.checked_mul(width) != Some(window.len()) {
+            return Err(PyValueError::new_err("invalid local shift window size"));
         }
-        answers
+    }
+    let prepared = py
+        .detach(|| {
+            pma_core::local_shift::prepare_local_shift(
+                target,
+                target_shape,
+                wide,
+                wide_shape,
+                offset,
+                limit,
+            )
+        })
+        .map_err(|error| PyValueError::new_err(error.to_string()))?;
+    Ok(prepared.map(|window| {
+        (
+            PyBytes::new(py, &window.before),
+            window.size,
+            window.total,
+            window.ys,
+            window.xs,
+            window.dys,
+            window.dxs,
+        )
     }))
 }

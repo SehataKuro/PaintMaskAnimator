@@ -47,7 +47,7 @@ def test_stroke_leaving_the_canvas_is_not_bridged_on_return():
             canvas, QMouseEvent.Type.MouseButtonRelease, 300, 120,
             Qt.MouseButton.NoButton,
         )
-        image = canvas.active_layer.image
+        image = canvas.active_layer.image.to_qimage()
         red = QColor(255, 0, 0).rgb()
         # 出入りした縦線は描かれ、外を通った区間を結ぶ直線（y=20）は描かれない。
         assert image.pixel(20, 5) == red

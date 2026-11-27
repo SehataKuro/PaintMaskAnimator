@@ -245,9 +245,11 @@ class AppDriver:
 
     def layer_rgba(self, frame: int, layer_index: int | None = None):
         from paintmaskanimator import imaging
+        from paintmaskanimator.pma_image import as_qimage
 
         layer_index = self.active_layer_index if layer_index is None else layer_index
-        return imaging.qimage_rgba_array(self.canvas.frames[frame].layers[layer_index].image)
+        image = self.canvas.frames[frame].layers[layer_index].image
+        return imaging.qimage_rgba_array(as_qimage(image))
 
     def layer_colours(self, frame: int, layer_index: int | None = None) -> set:
         rgba = self.layer_rgba(frame, layer_index)
@@ -327,7 +329,7 @@ class AppDriver:
     def pixel(self, canvas_point: tuple[float, float], layer_index: int = 0) -> QColor:
         x, y = canvas_point
         layer = self.canvas.layers[layer_index]
-        return layer.image.pixelColor(round(x), round(y))
+        return layer.image.to_qimage().pixelColor(round(x), round(y))
 
     def canvas_center(self) -> tuple[float, float]:
         from paintmaskanimator.utils import workspace_size

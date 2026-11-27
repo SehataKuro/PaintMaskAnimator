@@ -1,4 +1,7 @@
 """線周りの色ノイズ除去（Issue #19）。"""
+
+from image_edit_helpers import edit_qimage
+
 import os
 
 import numpy as np
@@ -91,8 +94,9 @@ def test_the_tool_offers_the_mode_and_applies_it(window):
     layer = window.canvas.frames[0].layers[0]
     for y in range(10, 19):
         for x in range(10, 19):
-            layer.image.setPixelColor(x, y, QColor(0, 0, 0))
-    layer.image.setPixelColor(14, 14, QColor(255, 255, 0))
+            with edit_qimage(layer.image) as edited:
+                edited.setPixelColor(x, y, QColor(0, 0, 0))
+        edited.setPixelColor(14, 14, QColor(255, 255, 0))
     layer.has_content = True
 
     assert window.tools.dust_mode.findData("line_noise") >= 0
@@ -102,6 +106,6 @@ def test_the_tool_offers_the_mode_and_applies_it(window):
 
     window.line_ops.remove_dust_fill_surrounding()
 
-    assert window.canvas.frames[0].layers[0].image.pixelColor(14, 14) == QColor(
+    assert window.canvas.frames[0].layers[0].image.to_qimage().pixelColor(14, 14) == QColor(
         0, 0, 0
     )

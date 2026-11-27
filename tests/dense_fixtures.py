@@ -1,6 +1,9 @@
 """Explicit dense timeline setup for tests that formerly wrote Layer.exposure."""
+from dataclasses import replace
+
 from paintmaskanimator.document import create_drawing, replace_slot
 from paintmaskanimator.models import Cell
+from paintmaskanimator.pma_image import as_qimage
 
 
 def hold(canvas, column, length, layer_index=0):
@@ -47,3 +50,13 @@ def dense_raw(frames):
             layers.append(layer)
         result.append(Frame(layers))
     return result
+
+
+def qt_legacy_payload(payload):
+    """Compare a legacy payload using Qt's pixel equality."""
+    return replace(payload, image=as_qimage(payload.image),
+                   initial_image=as_qimage(payload.initial_image))
+
+
+def qt_legacy_rows(rows):
+    return tuple(tuple(qt_legacy_payload(payload) for payload in row) for row in rows)

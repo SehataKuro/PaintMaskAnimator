@@ -1,4 +1,7 @@
 """Drawing history follows a drawing number after sheet edits."""
+
+from image_edit_helpers import edit_qimage
+
 # ruff: noqa: F811
 import pytest
 from PySide6.QtCore import QRect
@@ -16,22 +19,23 @@ def test_move_undo_redo(window, kind):
     c = window.canvas
     layer = put(c, 0, 3)
     rect = QRect(0, 0, 16, 16)
-    args = ([layer.image.copy()] if kind is LayerUndo else
-            [rect, layer.image.copy()] if kind is LayerRegionUndo else
-            [((rect, layer.image.copy()),)])
+    args = ([layer.image.to_qimage().copy()] if kind is LayerUndo else
+            [rect, layer.image.to_qimage().copy()] if kind is LayerRegionUndo else
+            [((rect, layer.image.to_qimage().copy()),)])
     c.push_undo(kind(0, 0, *args, True, layer_name="A", number=3))
-    layer.image.fill(QColor("blue"))
+    with edit_qimage(layer.image) as edited:
+        edited.fill(QColor("blue"))
     c.frames.insert(0, make_frame(["A", "B"]))
     other = put(c, 0, 7, "green")
     c.undo()
     assert c.current_frame == 1
-    assert layer.image.pixelColor(5, 5) == QColor("red")
-    assert other.image.pixelColor(5, 5) == QColor("green")
+    assert layer.image.to_qimage().pixelColor(5, 5) == QColor("red")
+    assert other.image.to_qimage().pixelColor(5, 5) == QColor("green")
     assert c.redo_stack[-1].frame == 1
     c.frames.insert(0, make_frame(["A", "B"]))
     c.redo()
     assert c.current_frame == 2
-    assert layer.image.pixelColor(5, 5) == QColor("blue")
+    assert layer.image.to_qimage().pixelColor(5, 5) == QColor("blue")
 
 
 def test_archive(window):
@@ -40,7 +44,8 @@ def test_archive(window):
     c.install_legacy_frames()
     cell = layer._cell
     c.push_layer_undo()
-    layer.image.fill(QColor("blue"))
+    with edit_qimage(layer.image) as edited:
+        edited.fill(QColor("blue"))
     c._document.put_archive_hint(layer._track, 3, ArchiveHint())
     clear_slot(layer)
     c.current_frame = 2
@@ -49,10 +54,10 @@ def test_archive(window):
     c.undo()
     assert c.current_frame == 2
     assert not signals
-    assert cell.image.pixelColor(5, 5) == QColor("red")
+    assert cell.image.to_qimage().pixelColor(5, 5) == QColor("red")
     c.redo()
     assert c.current_frame == 2
-    assert cell.image.pixelColor(5, 5) == QColor("blue")
+    assert cell.image.to_qimage().pixelColor(5, 5) == QColor("blue")
 
 
 def test_missing_number_discarded(window):
@@ -76,10 +81,11 @@ def test_unnumbered_legacy(window, mode, paper, draft):
     c.push_layer_undo()
     assert c.undo_stack[-1].number is None
     assert c.sequence_entry_columns(0) == before
-    layer.image.fill(QColor("blue"))
+    with edit_qimage(layer.image) as edited:
+        edited.fill(QColor("blue"))
     layer.sequence_number = 9
     c.undo()
-    assert layer.image.pixelColor(5, 5) == QColor("red")
+    assert layer.image.to_qimage().pixelColor(5, 5) == QColor("red")
 
 
 def test_paint_unused_paper_cell_assigns_number(window):
@@ -92,7 +98,8 @@ def test_paint_unused_paper_cell_assigns_number(window):
 
     c.ensure_editable_key()
     c.push_layer_undo()
-    layer.image.setPixelColor(5, 5, QColor("blue"))
+    with edit_qimage(layer.image) as edited:
+        edited.setPixelColor(5, 5, QColor("blue"))
 
     assert layer.has_content
     assert layer.sequence_number == 1
@@ -141,3 +148,30 @@ def test_label(window, qapp):
         assert history_label_for(e) == "Draw"
     finally:
         i18n.install(qapp, i18n.DEFAULT_LANGUAGE)
+
+
+def test_undo_after_number_reuse_restores_the_current_bank_owner(window):
+    c = window.canvas
+    original = put(c, 0, 3, "red")
+    c.push_layer_undo()
+    track = original._track
+    clear_slot(original)
+    track.cells.pop(3)
+    reused = put(c, 2, 3, "green")
+    assert reused._track is track
+    c.current_frame = 1
+    events = []
+    c.cellChanged.disconnect()
+    c.cellChanged.connect(lambda *pos: events.append(pos))
+
+    c.undo()
+    assert c.current_frame == 2
+    assert events == [(2, 0)]
+    assert reused.image.to_qimage().pixelColor(5, 5) == QColor("red")
+    assert [history_label_for(e) for e in c.redo_stack] == ["描画（A の 3番）"]
+
+    c.redo()
+    assert c.current_frame == 2
+    assert events == [(2, 0), (2, 0)]
+    assert reused.image.to_qimage().pixelColor(5, 5) == QColor("green")
+    assert not c.redo_stack

@@ -1,4 +1,7 @@
 """タイムラインのセル右クリックメニューと、その操作（Issue #48）。"""
+
+from image_edit_helpers import edit_qimage
+
 import os
 
 import pytest
@@ -36,7 +39,8 @@ def visual_row(window, layer_index=0):
 
 def paint(window, column, layer_index=0, color="#ff0000"):
     layer = window.canvas.frames[column].layers[layer_index]
-    layer.image.setPixelColor(10, 10, QColor(color))
+    with edit_qimage(layer.image) as edited:
+        edited.setPixelColor(10, 10, QColor(color))
     layer.has_content = True
     return layer
 
@@ -70,7 +74,7 @@ def test_cut_and_paste_moves_the_drawing(window):
 
     pasted = window.canvas.frames[4].layers[0]
     assert pasted.has_content
-    assert pasted.image.pixelColor(10, 10) == QColor("#123456")
+    assert pasted.image.to_qimage().pixelColor(10, 10) == QColor("#123456")
 
 
 def test_pasting_without_a_clipboard_is_refused(window):
@@ -129,7 +133,7 @@ def test_inserting_a_frame_pushes_the_later_cells_right(window):
     assert window.timeline_ops.insert_frame_at(visual_row(window), 2)
 
     assert not window.canvas.frames[2].layers[0].has_content
-    assert window.canvas.frames[3].layers[0].image.pixelColor(10, 10) == QColor(
+    assert window.canvas.frames[3].layers[0].image.to_qimage().pixelColor(10, 10) == QColor(
         "#00ff00"
     )
 
@@ -139,7 +143,7 @@ def test_deleting_a_frame_pulls_the_later_cells_left(window):
 
     assert window.timeline_ops.delete_frame_at(visual_row(window), 1)
 
-    assert window.canvas.frames[1].layers[0].image.pixelColor(10, 10) == QColor(
+    assert window.canvas.frames[1].layers[0].image.to_qimage().pixelColor(10, 10) == QColor(
         "#0000ff"
     )
 

@@ -3,12 +3,15 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QRect
-from PySide6.QtGui import QColor, QPainter
+from PySide6.QtCore import QRect, QRectF
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication
+
+from image_edit_helpers import edit_qimage
 
 from paintmaskanimator.canvas import PaintCanvas
 from paintmaskanimator.history_panel import HistoryPanel
+from paintmaskanimator.pma_image import PmaImage
 
 
 def _app():
@@ -18,9 +21,8 @@ def _app():
 def _paint(canvas, rect, color):
     """1手ぶんの編集（Undoエントリ付き）を行う。"""
     canvas.push_layer_region_undo(rect)
-    painter = QPainter(canvas.active_layer.image)
-    painter.fillRect(rect, QColor(color))
-    painter.end()
+    with edit_qimage(canvas.active_layer.image, rect) as patch:
+        patch.fill(QColor(color))
     canvas.active_layer.has_content = True
 
 
@@ -51,19 +53,19 @@ def test_switch_history_branch_restores_the_other_future():
     _paint(canvas, red_rect, "red")
     canvas.undo()
     _paint(canvas, blue_rect, "blue")
-    assert canvas.active_layer.image.pixelColor(blue_rect.center()) == QColor("blue")
+    assert canvas.active_layer.image.to_qimage().pixelColor(blue_rect.center()) == QColor("blue")
 
     assert canvas.switch_history_branch(0) is True
     # 青の未来が入れ替わりに分岐として残り、赤へ進めるようになる。
     assert len(canvas.history_branches) == 1
     assert canvas.redo_stack
     canvas.redo()
-    assert canvas.active_layer.image.pixelColor(red_rect.center()) == QColor("red")
+    assert canvas.active_layer.image.to_qimage().pixelColor(red_rect.center()) == QColor("red")
 
     # 元の（青の）分岐へも戻れる。
     assert canvas.switch_history_branch(0) is True
     canvas.redo()
-    assert canvas.active_layer.image.pixelColor(blue_rect.center()) == QColor("blue")
+    assert canvas.active_layer.image.to_qimage().pixelColor(blue_rect.center()) == QColor("blue")
 
 
 def test_switch_history_branch_invalidates_display_cache():
@@ -169,8 +171,8 @@ def test_clicking_branch_block_lands_on_that_state():
     assert canvas.switch_history_branch(green_block["value"]) is True
     for _ in range(green_block["steps"]):
         canvas.redo()
-    assert canvas.active_layer.image.pixelColor(green_rect.center()) == QColor("green")
-    assert canvas.active_layer.image.pixelColor(red_rect.center()) == QColor("red")
+    assert canvas.active_layer.image.to_qimage().pixelColor(green_rect.center()) == QColor("green")
+    assert canvas.active_layer.image.to_qimage().pixelColor(red_rect.center()) == QColor("red")
     panel.deleteLater()
 
 
@@ -194,3 +196,32 @@ def test_history_panel_spreads_sibling_branches_into_columns():
     assert len(cols) == 2
     assert all(c >= 1 for c in cols)
     panel.deleteLater()
+
+
+
+def test_branch_display_uses_restored_pixels_with_detached_qimages(monkeypatch):
+    _app()
+    original_to_qimage = PmaImage.to_qimage
+    monkeypatch.setattr(PmaImage, "to_qimage", lambda image: original_to_qimage(image).copy())
+    canvas = PaintCanvas()
+    rect = QRect(0, 0, 64, 64)
+    model = canvas.active_layer.image
+    target = QRectF(0, 0, model.width / 2, model.height / 2)
+
+    def display():
+        return canvas._display_image_for_rect(canvas.active_layer.image, target)
+
+    _paint(canvas, rect, "red")
+    red = display()
+    canvas.undo()
+    _paint(canvas, rect, "blue")
+    blue = display()
+    assert red.pixelColor(4, 4) == QColor("red")
+    assert blue.pixelColor(4, 4) == QColor("blue")
+
+    assert canvas.switch_history_branch(0)
+    canvas.redo()
+    assert display().pixelColor(4, 4) == QColor("red")
+    assert canvas.switch_history_branch(0)
+    canvas.redo()
+    assert display().pixelColor(4, 4) == QColor("blue")

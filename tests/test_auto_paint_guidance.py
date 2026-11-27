@@ -108,12 +108,12 @@ def test_keep_cells_does_not_overwrite_a_kept_initial_state(window):
     canvas = window.canvas
     cell = canvas.frames[0].layers[0]
     cell.has_content = True
-    kept = QImage(cell.image)
+    kept = cell.image.to_qimage()
     kept.fill(QColor("red"))
     cell.initial_image = kept
 
     assert window.initial_state.keep_cells([(0, 0)]) == 0
-    assert QColor(cell.initial_image.pixel(0, 0)) == QColor("red")
+    assert QColor(cell.initial_image.to_qimage().pixel(0, 0)) == QColor("red")
 
 
 def _cell(fill=None, lines=True):

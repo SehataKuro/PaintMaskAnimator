@@ -86,7 +86,7 @@ class CanvasMembers(_MembersBase):
         _current_stroke_color: Any
         _curved_mesh_points: Any
         _display_layer_image: Any
-        _layer_display_source: Any
+        _model_display_source: Any
         _document: Document
         _draw_onion_range: Any
         _draw_stabilized_brush_to: Any
@@ -98,6 +98,7 @@ class CanvasMembers(_MembersBase):
         _eyedropper_preview_ns: int
         _eyedropper_sample_pixel: tuple[int, int] | None
         _finish_opaque_brush_stroke: Any
+        _commit_brush_stroke: Any
         _finish_stabilized_brush: Any
         _hue_cluster_palette_from_samples: Any
         _invalidate_exposure_index: Any
@@ -105,6 +106,7 @@ class CanvasMembers(_MembersBase):
         _last_brush_pressure: Any
         _last_raw_canvas: Any
         _right_eyedropper_drag: bool
+        _layer_uses_raw_display: Any
         _line_palette_labels: Any
         _line_preview_path: Any
         _local_color_variation: Any
@@ -142,7 +144,7 @@ class CanvasMembers(_MembersBase):
         _paint_rgb_palette: Any
         _pil_l_to_qimage: Any
         _pil_rgba_to_qimage: Any
-        _place_imported_image: Any
+        _placed_imported_image: Any
         _playback_active: Any
         _playback_cache_dimensions: Any
         _playback_cache_limit: Any
@@ -194,6 +196,10 @@ class CanvasMembers(_MembersBase):
         _stop_brush_follow_timer: Any
         _stroke_before_region: Any
         _stroke_before_tiles: Any
+        _stroke_target: Any
+        _stroke_work_image: Any
+        _stroke_work_rect: Any
+        _grow_stroke_work: Any
         _stroke_dirty_rect: Any
         _stroke_prev_has_content: Any
         _stroke_undo_frame: Any
@@ -232,7 +238,7 @@ class CanvasMembers(_MembersBase):
         _update_selection_clear_overlay: Any
         _update_selection_fade: Any
         _update_stroke_region: Any
-        active_layer: Any
+        active_layer: Layer
         active_layer_index: int
         add_frame: Any
         add_layer: Any
@@ -384,6 +390,7 @@ class CanvasMembers(_MembersBase):
         previous_key_frame: Any
         push_doc_undo: Any
         push_layer_region_undo: Any
+        _capture_layer_region_undo: Any
         push_layer_undo: Any
         push_undo: Any
         raster_triangle: Any

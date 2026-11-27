@@ -1,4 +1,7 @@
 """Cell の3属性と、シート順での旧データ統一（Issue #31 Phase 5-4）。"""
+
+from image_edit_helpers import edit_qimage
+
 from types import SimpleNamespace
 
 import pytest
@@ -11,6 +14,7 @@ from paintmaskanimator.legacy_v1 import raw_v1_slot
 from paintmaskanimator.document import Document
 from paintmaskanimator.main_window import MainWindow
 from paintmaskanimator.models import Frame, Layer
+from paintmaskanimator.pma_image import as_qimage
 
 
 def image(color):
@@ -46,7 +50,7 @@ def test_shared_attributes():
     obj.install_legacy_frames()
     second.initial_image = image("blue")
     second.cell_name = "原画"
-    assert first.initial_image.pixelColor(0, 0) == QColor("blue")
+    assert first.initial_image.to_qimage().pixelColor(0, 0) == QColor("blue")
     assert first.cell_name == "原画"
 
 
@@ -72,14 +76,16 @@ def test_all_attributes_survive_independent_copy(operation):
         other.detach_cell()
     else:
         other = original.clone()
-    assert other.image.cacheKey() == original.image.cacheKey()
-    assert other.initial_image.cacheKey() == original.initial_image.cacheKey()
+    assert other.image.generation == original.image.generation
+    assert other.initial_image.generation == original.initial_image.generation
     assert other.cell_name == "原画"
-    other.image.setPixelColor(0, 0, QColor("green"))
-    other.initial_image.setPixelColor(0, 0, QColor("yellow"))
+    with edit_qimage(other.image) as edited:
+        edited.setPixelColor(0, 0, QColor("green"))
+    with edit_qimage(other.initial_image) as edited:
+        edited.setPixelColor(0, 0, QColor("yellow"))
     other.cell_name = "別"
-    assert original.image.pixelColor(0, 0) == QColor("red")
-    assert original.initial_image.pixelColor(0, 0) == QColor("blue")
+    assert original.image.to_qimage().pixelColor(0, 0) == QColor("red")
+    assert original.initial_image.to_qimage().pixelColor(0, 0) == QColor("blue")
     assert original.cell_name == "原画"
 
 
@@ -92,9 +98,9 @@ def test_sheet_first_values_are_independent_of_image_owner():
     obj.current_frame = 4
     obj.install_legacy_frames()
     for index in (0, 2, 4):
-        assert layers[index].initial_image.pixelColor(0, 0) == QColor("blue")
+        assert layers[index].initial_image.to_qimage().pixelColor(0, 0) == QColor("blue")
         assert layers[index].cell_name == "先"
-        assert layers[index].image.pixelColor(0, 0) == QColor("yellow")
+        assert layers[index].image.to_qimage().pixelColor(0, 0) == QColor("yellow")
 
 
 def test_archive_fallback():
@@ -102,7 +108,7 @@ def test_archive_fallback():
     stored = layer(initial_image=image("blue"), cell_name="保管")
     obj = canvas([first], {(0, 1): stored})
     obj.install_legacy_frames()
-    assert first.initial_image.pixelColor(0, 0) == QColor("blue")
+    assert first.initial_image.to_qimage().pixelColor(0, 0) == QColor("blue")
     assert first.cell_name == "保管"
     assert first._cell is obj._document.tracks[0].cells[1]
     assert first.initial_image is stored.initial_image
@@ -134,7 +140,7 @@ def test_ui_initial_import_undo_redo(window, tmp_path):
                           ("blue", window.canvas.redo)]:
         if action:
             action()
-        assert all(item.initial_image.pixelColor(0, 0) == QColor(color)
+        assert all(item.initial_image.to_qimage().pixelColor(0, 0) == QColor(color)
                    for item in (first, second))
 
 
@@ -147,7 +153,7 @@ def test_conflicting_v1_load_and_roundtrip(window, tmp_path):
     project_io.legacy_fixture_write_archive(path, metadata, frames, {})
     assert window.project.open(path)
     for attempt in range(2):
-        assert all(frame.layers[0].initial_image.pixelColor(0, 0) == QColor("blue")
+        assert all(frame.layers[0].initial_image.to_qimage().pixelColor(0, 0) == QColor("blue")
                    and frame.layers[0].cell_name == "先" for frame in window.canvas.frames)
         if attempt == 0:
             saved = tmp_path / "saved.pman"
@@ -159,21 +165,21 @@ def test_drawing_does_not_revive_blank_or_unused_with_same_number(window):
     drawing = layer(3)
     blank = Layer("A", image("green"), sequence_number=3, is_blank_key=True)
     unused = Layer("A", image("yellow"), sequence_number=3)
-    before = [item.image.copy() for item in (blank, unused)]
+    before = [item.image.to_qimage().copy() for item in (blank, unused)]
     c = window.canvas
     c.frames = [Frame([item]) for item in (drawing, blank, unused)]
     c.current_frame = 0
     c.active_layer_index = 0
     window.refresh_ui()
-    drawing_before = drawing.image.copy()
+    drawing_before = drawing.image.to_qimage().copy()
     c.line_start = QPointF(2, 2)
     c.line_end = QPointF(12, 12)
     c.line_control = None
     c.commit_line_tool()
-    assert drawing.image != drawing_before
+    assert as_qimage(drawing.image) != drawing_before
     for item, original in zip((blank, unused), before):
         assert not item.has_content
         assert item.sequence_number == 3
-        assert item.image == original
+        assert as_qimage(item.image) == original
     assert blank.is_blank_key
     assert not unused.is_blank_key

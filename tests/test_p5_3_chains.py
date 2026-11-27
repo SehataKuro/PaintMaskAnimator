@@ -9,6 +9,7 @@ from paintmaskanimator.models import Frame
 from paintmaskanimator.sheet import sheet_from_frames
 from test_p5_3_characterization import image, install, numbers, observe, payload, row, slot
 from test_pending_slots import assert_pending_graph
+from paintmaskanimator.pma_image import as_qimage
 
 
 @pytest.fixture
@@ -97,10 +98,10 @@ def test_old_v1_open_fixed_semantics_and_pending_recall(window, tmp_path):
     assert set(track.legacy_archive_hints) == {9}
     assert c._document.unplaced_numbers(track) == {2, 9, 12}
     assert [(e.column, e.slot.sequence_number) for e in c._document.pending_entries(track)] == [(5, 2)]
-    assert track.cells[1].image == image("red")
-    assert track.cells[1].initial_image == image("blue")
+    assert as_qimage(track.cells[1].image) == image("red")
+    assert as_qimage(track.cells[1].initial_image) == image("blue")
     assert track.cells[1].cell_name == "one"
-    assert track.cells[9].image == image("cyan")
+    assert as_qimage(track.cells[9].image) == image("cyan")
     assert track.cells[9].cell_name == "archive"
     # v1 archive entries do not serialize exposure; the reader defaults to 1.
     assert track.legacy_archive_hints[9].exposure == 1

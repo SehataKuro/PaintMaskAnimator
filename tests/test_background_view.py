@@ -1,4 +1,7 @@
 """Background sampling stays semantic even with a custom view colour."""
+
+from image_edit_helpers import edit_qimage
+
 import pytest
 from PySide6.QtCore import QPointF, QRect
 from PySide6.QtGui import QColor, QImage, QPainter
@@ -20,7 +23,8 @@ def canvas():
 
 def test_custom_background_sample_selects_background(canvas):
     for layer in canvas.frames[0].layers:
-        layer.image.fill(QColor(0, 0, 0, 0))
+        with edit_qimage(layer.image) as edited:
+            edited.fill(QColor(0, 0, 0, 0))
     canvas.transparent_display_color = QColor("#ff00ff")
     canvas.main_color = QColor("#123456")
     sampled = []
