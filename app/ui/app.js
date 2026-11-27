@@ -1,58 +1,67 @@
-// 0.9.0 の画面の骨組み。今は筆圧つきの線を描くだけ。
+// 0.9.0 の画面の骨組み。キャンバスの表示（viewer.js）と、筆圧つきの線の入力。
 //
 // 入力の列は OS で分ける。
 // - macOS：Rust（pen.rs）が NSEvent から送る `pen` の事件だけを使う。WKWebView の
 //   PointerEvent は筆圧が 0 で、位置の列も別なので、線を描くのには使わない。
 // - それ以外（Windows の WebView2 など）：PointerEvent の筆圧をそのまま使う。
-"use strict";
+//
+// 線の点は画像の座標にして1フレーム分ずつ Rust へ送り、変わった範囲の画素を受け取って
+// テクスチャへ書き戻す。
+import { Viewer } from "./viewer.js";
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
-const MAX_WIDTH = 24; // 筆圧 1 のときの線の太さ（CSS の px）
-
 const canvas = document.getElementById("canvas");
-const ctx = canvas.getContext("2d");
 const statusLine = document.getElementById("status");
+const viewer = new Viewer(canvas);
 
-// 描いた線の点（自己確認で調べる）。{x, y, pressure, device}
+// 描いた線の点（自己確認で調べる）。{x, y, pressure, device}（x, y は画面の座標）
 let stroke = null;
 const strokes = [];
+// Rust へまだ送っていない点（画像の座標）と、線の始まりかどうか。
+let pending = [];
+let pendingBegin = false;
+let sending = false;
+// Rust とのやり取り1回の時間（ms、自己確認で出す）。
+const strokeTimes = [];
 
-function fitCanvas() {
-  const rect = canvas.getBoundingClientRect();
-  const dpr = window.devicePixelRatio || 1;
-  const w = Math.round(rect.width * dpr);
-  const h = Math.round(rect.height * dpr);
-  if (canvas.width === w && canvas.height === h) return;
-  canvas.width = w;
-  canvas.height = h;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  redraw();
+// Rust から届いた「範囲＋画素」をテクスチャに書く。
+function applyRect(buffer) {
+  const head = new DataView(buffer, 0, 16);
+  const [x, y, w, h] = [0, 4, 8, 12].map((o) => head.getUint32(o, true));
+  if (w && h) viewer.writeRect(x, y, w, h, new Uint8Array(buffer, 16));
 }
 
-function redraw() {
-  const rect = canvas.getBoundingClientRect();
-  ctx.clearRect(0, 0, rect.width, rect.height);
-  for (const s of strokes) drawStroke(s);
+async function flush() {
+  if (sending || pending.length === 0) return;
+  sending = true;
+  const points = pending;
+  const begin = pendingBegin;
+  pending = [];
+  pendingBegin = false;
+  try {
+    const t0 = performance.now();
+    applyRect(await invoke("stroke", { points, begin }));
+    strokeTimes.push(performance.now() - t0);
+  } finally {
+    sending = false;
+  }
+  if (pending.length) requestAnimationFrame(flush);
 }
 
-function drawSegment(a, b) {
-  const width = Math.max(0.5, MAX_WIDTH * (a.pressure + b.pressure) / 2);
-  ctx.strokeStyle = b.device === "eraser" ? "#fff" : "#000";
-  ctx.lineWidth = width;
-  ctx.lineCap = "round";
-  ctx.beginPath();
-  ctx.moveTo(a.x, a.y);
-  ctx.lineTo(b.x, b.y);
-  ctx.stroke();
+let viewText = "";
+function showStatus(device, pressure, tiltX, tiltY) {
+  const name = { mouse: "マウス", pen: "ペン", eraser: "消しゴム" }[device] ?? device;
+  statusLine.textContent =
+    `入力：${name}　筆圧 ${pressure.toFixed(3)}　傾き ${tiltX.toFixed(2)}, ${tiltY.toFixed(2)}　${viewText}`;
 }
+viewer.onchange = () => {
+  viewText = `表示 ${(viewer.zoom * 100).toFixed(0)}%　回転 ${viewer.rotation.toFixed(0)}°`;
+  showStatus("mouse", 0, 0, 0);
+};
 
-function drawStroke(points) {
-  for (let i = 1; i < points.length; i++) drawSegment(points[i - 1], points[i]);
-}
-
-// 窓の中身の座標（CSS の px）をキャンバスの座標にする。キャンバスの外なら null。
+// 窓の中身の座標（CSS の px）をキャンバス要素の座標にする。
 function toCanvas(x, y) {
   const rect = canvas.getBoundingClientRect();
   const cx = x - rect.left;
@@ -60,32 +69,41 @@ function toCanvas(x, y) {
   return { x: cx, y: cy, inside: cx >= 0 && cy >= 0 && cx < rect.width && cy < rect.height };
 }
 
-function showStatus(device, pressure, tiltX, tiltY) {
-  const name = { mouse: "マウス", pen: "ペン", eraser: "消しゴム" }[device] ?? device;
-  statusLine.textContent =
-    `入力：${name}　筆圧 ${pressure.toFixed(3)}　傾き ${tiltX.toFixed(2)}, ${tiltY.toFixed(2)}`;
-}
+// 画面を動かしている途中（スペース＋ドラッグ、中ボタン）。
+let panning = null;
+let spaceDown = false;
 
-// 1点を受け取る。phase は down / move / up。
+// 1点を受け取る。phase は down / move / up。x, y は窓の中身の座標。
 function feed(phase, device, x, y, pressure, tiltX, tiltY) {
   showStatus(device, pressure, tiltX, tiltY);
   const p = toCanvas(x, y);
   if (phase === "down") {
     // 線はキャンバスの上で押したときだけ始める（ボタンなどの上は除く）。
     if (!p.inside || document.elementFromPoint(x, y) !== canvas) return;
+    if (spaceDown) {
+      panning = { x, y };
+      return;
+    }
     stroke = [{ x: p.x, y: p.y, pressure, device }];
     strokes.push(stroke);
-    drawSegment(stroke[0], stroke[0]);
+    pending = [];
+    pendingBegin = true;
+  } else if (panning) {
+    viewer.panBy(x - panning.x, y - panning.y);
+    panning = phase === "up" ? null : { x, y };
     return;
-  }
-  if (!stroke) return;
-  if (phase === "up") {
+  } else if (!stroke) {
+    return;
+  } else if (phase === "up") {
     stroke = null;
+    requestAnimationFrame(flush);
     return;
+  } else {
+    stroke.push({ x: p.x, y: p.y, pressure, device });
   }
-  const point = { x: p.x, y: p.y, pressure, device };
-  drawSegment(stroke[stroke.length - 1], point);
-  stroke.push(point);
+  const q = viewer.screenToImage(p.x, p.y);
+  pending.push({ x: q.x, y: q.y, pressure });
+  requestAnimationFrame(flush);
 }
 
 function usePointerEvents() {
@@ -93,11 +111,12 @@ function usePointerEvents() {
   const pressure = (e) => (e.pointerType === "pen" ? e.pressure : 1);
   const tilt = (e) => [(e.tiltX || 0) / 90, (e.tiltY || 0) / 90];
   canvas.addEventListener("pointerdown", (e) => {
+    if (e.button === 1) return;
     canvas.setPointerCapture(e.pointerId);
     feed("down", device(e), e.clientX, e.clientY, pressure(e), ...tilt(e));
   });
   canvas.addEventListener("pointermove", (e) => {
-    if (!stroke) return;
+    if (!stroke && !panning) return;
     // 1フレームのあいだの点もまとめて受け取る。
     const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
     for (const c of events) feed("move", device(c), c.clientX, c.clientY, pressure(c), ...tilt(c));
@@ -111,12 +130,53 @@ async function useNativePen() {
   await listen("pen", ({ payload: s }) => feed(s.phase, s.device, s.x, s.y, s.pressure, s.tilt_x, s.tilt_y));
 }
 
-// 筆圧の自己確認：Rust がペンの形の事件を窓へ渡し、線が筆圧どおりに描けたかを調べる。
+function useViewControls() {
+  // ホイール：カーソルの位置を中心にズーム（Qt 版と同じ 1 目盛り 1.15 倍）。
+  canvas.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const p = toCanvas(e.clientX, e.clientY);
+    const delta = e.deltaMode === 1 ? -e.deltaY * 40 : -e.deltaY;
+    viewer.zoomAt(1.15 ** (delta / 120), p.x, p.y);
+  }, { passive: false });
+  // 中ボタンのドラッグで画面を動かす。
+  let middle = null;
+  canvas.addEventListener("pointerdown", (e) => {
+    if (e.button !== 1) return;
+    middle = { x: e.clientX, y: e.clientY };
+    canvas.setPointerCapture(e.pointerId);
+  });
+  canvas.addEventListener("pointermove", (e) => {
+    if (!middle) return;
+    viewer.panBy(e.clientX - middle.x, e.clientY - middle.y);
+    middle = { x: e.clientX, y: e.clientY };
+  });
+  canvas.addEventListener("pointerup", () => (middle = null));
+  window.addEventListener("keydown", (e) => {
+    if (e.code === "Space") spaceDown = true;
+  });
+  window.addEventListener("keyup", (e) => {
+    if (e.code === "Space") spaceDown = false;
+  });
+  document.getElementById("fit").addEventListener("click", () => viewer.fit());
+  document.getElementById("actual").addEventListener("click", () => {
+    const r = canvas.getBoundingClientRect();
+    viewer.zoomAt(1 / viewer.zoom, r.width / 2, r.height / 2);
+  });
+  new ResizeObserver(() => viewer.requestDraw()).observe(canvas);
+}
+
+// 筆圧の自己確認：Rust がペンの形の事件を窓へ渡し、線が筆圧どおりに届いたかを調べる。
+function median(xs) {
+  if (!xs.length) return 0;
+  const s = [...xs].sort((a, b) => a - b);
+  return s[Math.floor(s.length / 2)];
+}
+
 async function runPenSelftest() {
   const frame = () => new Promise((r) => requestAnimationFrame(() => r()));
-  await frame();
-  await frame();
   const settle = () => new Promise((r) => setTimeout(r, 300));
+  await frame();
+  await frame();
   // 1本目：ペンの形の事件（筆圧 0.1 → 1.0 → 0.1）。
   for (let n = 1; ; n++) {
     if (!(await invoke("pen_selftest_step", { n, mouse: false }))) break;
@@ -137,27 +197,37 @@ async function runPenSelftest() {
   const penOk = s.length === 61 && pen && Math.abs(min - 0.1) < 0.01 && Math.abs(max - 1) < 0.01;
   const m = strokes[1] ?? [];
   const mouseOk = m.length === 4 && m.every((p) => p.device === "mouse" && p.pressure === 1);
-  const ok = strokes.length === 2 && penOk && mouseOk;
+  // 描いた線が Rust の画像に入り、表示へ戻ってきたか（線の中ほどの画素が黒い）。
+  const mid = s[30];
+  const q = mid ? viewer.screenToImage(mid.x, mid.y) : { x: -1, y: -1 };
+  const buffer = await invoke("read_canvas");
+  const [w] = [new DataView(buffer, 8, 4).getUint32(0, true)];
+  const i = 16 + (Math.floor(q.y) * w + Math.floor(q.x)) * 4;
+  const painted = new Uint8Array(buffer)[i] === 0;
+  const ok = strokes.length === 2 && penOk && mouseOk && painted;
   await invoke("report", {
     line: `筆圧の自己確認：${ok ? "成功" : "失敗"}（線 ${strokes.length} 本）\n` +
       `  ペン：${penOk ? "成功" : "失敗"}（${s.length} 点、ペン ${pen ? "はい" : "いいえ"}、筆圧 ${min.toFixed(2)}〜${max.toFixed(2)}）\n` +
-      `  マウス（モニター経由）：${mouseOk ? "成功" : "失敗"}（${m.length} 点）`,
+      `  マウス（モニター経由）：${mouseOk ? "成功" : "失敗"}（${m.length} 点）\n` +
+      `  画像に描けたか：${painted ? "成功" : "失敗"}\n` +
+      `  Rust とのやり取り：${strokeTimes.length} 回、中央値 ${median(strokeTimes).toFixed(2)}ms、最大 ${Math.max(0, ...strokeTimes).toFixed(2)}ms`,
   });
   await invoke("quit", { code: ok ? 0 : 1 });
 }
 
 async function main() {
   const info = await invoke("startup");
-  fitCanvas();
-  new ResizeObserver(fitCanvas).observe(canvas);
-  document.getElementById("clear").addEventListener("click", () => {
-    strokes.length = 0;
-    stroke = null;
-    redraw();
-  });
+  const [width, height] = await invoke("canvas_size");
+  viewer.setImageSize(width, height);
+  applyRect(await invoke("read_canvas"));
+  viewer.fit();
+  useViewControls();
   if (info.native_pen) await useNativePen();
   else usePointerEvents();
   if (info.pen_selftest) await runPenSelftest();
 }
 
-main();
+main().catch((e) => {
+  statusLine.textContent = `起動できなかった：${e}`;
+  invoke("report", { line: `起動できなかった：${e}` });
+});

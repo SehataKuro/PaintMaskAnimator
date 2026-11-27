@@ -9,6 +9,11 @@
 
 mod pen;
 mod pen_selftest;
+mod session;
+
+use session::{pack_rect, Point, Session, Shared};
+use tauri::ipc::Response;
+use tauri::State;
 
 /// 画面が知りたい起動の情報。
 #[derive(serde::Serialize)]
@@ -47,6 +52,34 @@ fn pen_selftest_step(app: tauri::AppHandle, n: usize, mouse: bool) -> Result<boo
     }
 }
 
+/// 作品の大きさ（画素）。
+#[tauri::command]
+fn canvas_size(session: State<Shared>) -> (usize, usize) {
+    let s = session.lock().unwrap();
+    (s.canvas.width(), s.canvas.height())
+}
+
+/// 表示する画像の全体（先頭 16 バイトに範囲、続けて RGBA）。
+#[tauri::command]
+fn read_canvas(session: State<Shared>) -> Response {
+    let s = session.lock().unwrap();
+    let rect = pma_core::image::Rect {
+        x: 0,
+        y: 0,
+        width: s.canvas.width(),
+        height: s.canvas.height(),
+    };
+    Response::new(pack_rect(&s.canvas, Some(rect)))
+}
+
+/// 線の点（画像の座標）を描き、変わった範囲の画素を返す。
+#[tauri::command]
+fn stroke(session: State<Shared>, points: Vec<Point>, begin: bool) -> Response {
+    let mut s = session.lock().unwrap();
+    let rect = s.stroke(&points, begin);
+    Response::new(pack_rect(&s.canvas, rect))
+}
+
 /// 画面からの報告を標準出力へ出す（自己確認の結果）。
 #[tauri::command]
 fn report(line: String) {
@@ -60,6 +93,7 @@ fn quit(app: tauri::AppHandle, code: i32) {
 
 fn main() {
     tauri::Builder::default()
+        .manage::<Shared>(std::sync::Mutex::new(Session::new(1920, 1080)))
         .setup(|app| {
             pen::install(app.handle());
             Ok(())
@@ -67,6 +101,9 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             startup,
             pen_selftest_step,
+            canvas_size,
+            read_canvas,
+            stroke,
             report,
             quit
         ])
