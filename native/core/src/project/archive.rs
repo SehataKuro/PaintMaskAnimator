@@ -3,8 +3,9 @@
 //! Python の project_io.read_project_archive（v2 の経路）・project_v2._decode_payload と
 //! project_v2.write_snapshot に対応する。検証の順序・上限・エラーの文言を同じにする。
 //!
+//! format_version 1（旧形式）は project::legacy（非公開）で読み、Python と同じく保存は v2 にする。
+//!
 //! Python と異なる点:
-//! - format_version 1（旧形式）は開けない（[`ProjectError::LegacyFormat`]）。
 //! - Rust の ZipReader で開けない ZIP（zipfile だけが読める LZMA・BZIP2 や特殊な拡張など）は
 //!   [`ProjectError::Archive`]。ファイル数・暗号化・展開後サイズ・重複名の検査は
 //!   中央ディレクトリを直接読んで Python と同じエラーにする。
@@ -74,8 +75,9 @@ pub enum ProjectError {
     InvalidStructure,
     /// プロジェクト内の画像がありません。
     MissingImage,
-    /// format_version 1（旧形式）。Rust では未対応。
-    LegacyFormat,
+    /// 旧形式（format_version 1）の読み込みで Python が OperationError にする失敗。
+    /// 値は Python の tr() に渡す文言（{path} などは埋めたもの）。
+    Legacy(String),
     /// project.json が UTF-8 でない（Python は UnicodeDecodeError）。
     Encoding(String),
     /// project.json が JSON でない（Python は JSONDecodeError）。
@@ -111,7 +113,7 @@ impl ProjectError {
             Self::DuplicateKeys => "DuplicateKeys",
             Self::InvalidStructure => "InvalidStructure",
             Self::MissingImage => "MissingImage",
-            Self::LegacyFormat => "LegacyFormat",
+            Self::Legacy(_) => "Legacy",
             Self::Encoding(_) => "Encoding",
             Self::Json(_) => "Json",
             Self::Archive(_) => "Archive",
@@ -141,7 +143,7 @@ impl ProjectError {
             Self::DuplicateKeys => "プロジェクト情報に重複したキーがあります。".into(),
             Self::InvalidStructure => "プロジェクトの構造が不正です。".into(),
             Self::MissingImage => "プロジェクト内の画像がありません。".into(),
-            Self::LegacyFormat => "旧形式（format_version 1）のプロジェクトには対応していません。".into(),
+            Self::Legacy(message) => message.clone(),
             Self::Encoding(reason) => format!("project.json が UTF-8 ではありません: {reason}"),
             Self::Json(error) => format!("project.json を読めません: {error}"),
             Self::Archive(reason) => format!("ZIP を読めません: {reason}"),
@@ -217,14 +219,15 @@ impl PngCache {
 pub struct OpenedProject {
     /// 文書。
     pub document: Document,
-    /// project.json から tracks と frame_durations を除いた値（Python の metadata と同じ順序）。
+    /// v2 は project.json から tracks と frame_durations を除いた値、v1 は project.json の値
+    /// （frames・sequence_archive を含む）。Python の metadata と同じ順序。
     /// created_app_version・saved_app_version は文字列でなければ null。
     pub metadata: Json,
     /// キャンバスの幅。
     pub width: usize,
     /// キャンバスの高さ。
     pub height: usize,
-    /// 読んだ形式（常に 2）。
+    /// 読んだ形式（1 か 2）。Python の LoadedProject.format_version と同じ。
     pub format_version: i64,
     /// 白消しをしていない画像の、元の PNG のバイト列（世代で引く）。
     pub png_cache: PngCache,
@@ -299,14 +302,14 @@ fn fallback_error(bytes: &[u8]) -> Option<ProjectError> {
     check_entries(entries.iter().copied()).err()
 }
 
-struct Archive<'a> {
+pub(super) struct Archive<'a> {
     zip: ZipReader<Cursor<&'a [u8]>>,
-    entries: Vec<ZipEntry>,
-    index: BTreeMap<String, usize>,
+    pub(super) entries: Vec<ZipEntry>,
+    pub(super) index: BTreeMap<String, usize>,
 }
 
 impl Archive<'_> {
-    fn read(&mut self, index: usize) -> Result<Vec<u8>, ProjectError> {
+    pub(super) fn read(&mut self, index: usize) -> Result<Vec<u8>, ProjectError> {
         let size = usize::try_from(self.entries[index].file_size)
             .map_err(|_| ProjectError::Archive("展開サイズ".into()))?;
         let mut out = Vec::new();
@@ -387,8 +390,17 @@ pub fn open_project(bytes: &[u8]) -> Result<OpenedProject, ProjectError> {
             },
         ));
     }
-    if version != 2 {
-        return Err(ProjectError::LegacyFormat);
+    if version == 1 {
+        // 旧形式は重複キーを拒まない（Python の dict と同じく後の値を使う）。
+        let opened = super::legacy::decode_v1(&metadata, &mut archive)?;
+        return Ok(OpenedProject {
+            document: opened.document,
+            metadata,
+            width: opened.width,
+            height: opened.height,
+            format_version: 1,
+            png_cache: opened.png_cache,
+        });
     }
     if parsed.duplicates > 0 {
         return Err(ProjectError::DuplicateKeys);
@@ -870,7 +882,8 @@ mod tests {
             ),
             (
                 project(&MINIMAL.replace("\"format_version\": 2", "\"format_version\": 1"), &[]),
-                ProjectError::LegacyFormat,
+                // 旧形式は frames を読む。
+                ProjectError::Legacy("フレーム情報がありません。".into()),
             ),
             (
                 project(
@@ -992,5 +1005,50 @@ mod tests {
         assert!(text.starts_with(
             "{\n  \"format\": \"PaintMaskAnimatorProject\",\n  \"format_version\": 2,"
         ));
+    }
+
+    #[test]
+    fn opens_legacy_v1_and_saves_as_v2() {
+        // 尺 3 の絵（番号なし）、旧連番保管の番号 5、配置待ちの番号 5。
+        let text = r#"{"format": "PaintMaskAnimatorProject", "format_version": 1,
+            "canvas": {"width": 2, "height": 1}, "current_frame": 2,
+            "frames": [
+                {"duration": 2, "layers": [{"image": "a.png", "has_content": true, "exposure": 3}]},
+                {"layers": [{"image": "a.png"}]},
+                {"layers": [{"image": "a.png", "has_content": true, "sequence_number": 5,
+                             "sequence_only": true}]}],
+            "sequence_archive": [{"layer_index": 0, "sequence_number": 5, "image": "a.png"}]}"#;
+        let bytes = project(text, &[("a.png", red_png(2, 1))]);
+        let opened = open_project(&bytes).unwrap();
+        assert_eq!(opened.format_version, 1);
+        assert!(opened.metadata.get("frames").is_some());
+        let document = &opened.document;
+        let track = document.track_order()[0];
+        // 番号のない絵は、旧連番保管の番号の次（6）になる。
+        let numbers: Vec<i64> = document
+            .bank_numbers(track)
+            .unwrap()
+            .map(|n| n.get())
+            .collect();
+        assert_eq!(numbers, [5, 6]);
+        assert_eq!(
+            document
+                .placed_numbers(track)
+                .iter()
+                .map(|n| n.get())
+                .collect::<Vec<_>>(),
+            [6]
+        );
+        assert_eq!(document.track(track).unwrap().legacy_archive_hints.len(), 1);
+        let saved = save_project(
+            document,
+            &opened.metadata,
+            &SaveOptions::new(ZipTime(2026, 1, 1, 0, 0, 0)),
+            None,
+        )
+        .unwrap();
+        let reopened = open_project(&saved).unwrap();
+        assert_eq!(reopened.format_version, 2);
+        assert!(reopened.metadata.get("frames").is_none());
     }
 }

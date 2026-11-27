@@ -79,7 +79,8 @@ fn tween_int(value: &Value) -> Option<Value> {
     }
 }
 
-fn tween(value: &Value) -> Option<Value> {
+/// tween_groups.sanitize_spec：読み込んだ補間キー設定を検証する。不正なら None。
+pub(crate) fn sanitize_tween(value: &Value) -> Option<Value> {
     let fields = value.as_object()?;
     let id = match fields.get("id")? {
         Value::String(id) => id.clone(),
@@ -218,7 +219,7 @@ pub fn from_plan(payload: &Value, plan: &V2Plan, images: &[RgbaImage]) -> Result
                     is_blank_key: flag(&entry[2])?,
                     exposure: index(&entry[3])?,
                     pending: flag(&entry[4])?,
-                    tween: tween(&hint["tween"]),
+                    tween: sanitize_tween(&hint["tween"]),
                     tween_member: string(&hint["tween_member"]),
                 },
             );
@@ -250,7 +251,7 @@ pub fn from_plan(payload: &Value, plan: &V2Plan, images: &[RgbaImage]) -> Result
             let legacy_content = slot[6] == "CELL";
             let legacy_blank = slot[6] == "BLANK";
             let blank_start = flag(&slot[4])?;
-            let tween = tween(&raw["tween"]);
+            let tween = sanitize_tween(&raw["tween"]);
             let tween_member = string(&raw["tween_member"]);
             let mut position = Position {
                 reference,
