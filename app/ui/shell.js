@@ -48,7 +48,7 @@ export async function initShell({ invoke, listen, hooks, startup }) {
   setCatalogue(info.language, info.catalogue);
   if (info.language !== "ja") translateTitles(tr);
   let prefs = info.prefs;
-  const selftest = Boolean(startup?.pen_selftest || startup?.playback_selftest);
+  const selftest = Boolean(startup?.pen_selftest || startup?.playback_selftest || startup?.tools_selftest);
   const status = (text) => hooks.status?.(text);
 
   // ---- テーマ ----

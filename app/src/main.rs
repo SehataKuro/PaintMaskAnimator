@@ -62,6 +62,8 @@ struct Startup {
     pen_selftest: bool,
     /// 再生の自己確認で数えるコマ数（PMA_PLAYBACK_SELFTEST）。
     playback_selftest: Option<usize>,
+    /// キーの持ち主の自己確認（PMA_TOOLS_SELFTEST。ui/tools_selftest.js）。
+    tools_selftest: bool,
     /// 起動のときに開く .pman（コマンドラインの最初の引数）。
     open: Option<String>,
 }
@@ -74,6 +76,7 @@ fn startup() -> Startup {
         playback_selftest: std::env::var("PMA_PLAYBACK_SELFTEST")
             .ok()
             .and_then(|v| v.parse().ok()),
+        tools_selftest: std::env::var_os("PMA_TOOLS_SELFTEST").is_some(),
         open: std::env::args().nth(1),
     }
 }

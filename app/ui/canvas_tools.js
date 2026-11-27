@@ -7,8 +7,8 @@
 // - ブラシの線は app.js（筆圧の経路）が描く。ここはブラシ以外のツールと、ブラシの
 //   Shift＋クリックの直線、Ctrl＋Alt のドラッグでのサイズ変更を受け持つ。
 // - ツールのキー（P・G など）と、選択範囲・描画色のショートカット。
-import { toolStore, selectTool, nextInGroup, groupOf } from "./tools.js";
-import { toolFlags, notify } from "./tool_properties.js";
+import { toolStore, selectTool, nextInGroup, groupOf, pickColor, holdKeys, refreshShortcuts } from "./tools.js";
+import { toolFlags, notify, openPressureDialog } from "./tool_properties.js";
 
 const { invoke } = window.__TAURI__.core;
 
@@ -34,7 +34,6 @@ export function createCanvasTools({ canvas, viewer, overlay, applyRect }) {
   const api = { enabled: true, get active() { return !!active; } };
 
   const settings = () => toolStore.settings;
-  const mod = (e) => (IS_MAC ? e.metaKey : e.ctrlKey);
 
   /// 今のツール（押している間のツールが先。図形の直線・曲線はライン）。
   function effectiveTool() {
@@ -45,11 +44,12 @@ export function createCanvasTools({ canvas, viewer, overlay, applyRect }) {
   }
 
   function updateHold() {
-    const zoomKeys = IS_MAC ? ["Alt", "Space"] : ["Ctrl", "Space"];
-    const bindings = [["zoom", zoomKeys], ["rotate", ["Shift", "Space"]], ["hand", ["Space"]], ["eyedropper", ["Alt"]]];
+    // キーはショートカット設定の「キャンバス操作」（actions.rs の a_hold_*）。
+    const keys = holdKeys();
+    const bindings = [["zoom", keys.a_hold_zoom], ["rotate", keys.a_hold_rotate], ["hand", keys.a_hold_hand], ["eyedropper", keys.a_hold_eyedropper]];
     let best = null;
     bindings.forEach(([tool, keys], priority) => {
-      if (!keys.every((k) => held.has(k))) return;
+      if (!keys?.length || !keys.every((k) => held.has(k))) return;
       const score = [keys.length, -priority];
       if (!best || score[0] > best[0][0] || (score[0] === best[0][0] && score[1] > best[0][1])) best = [score, tool];
     });
@@ -289,6 +289,8 @@ export function createCanvasTools({ canvas, viewer, overlay, applyRect }) {
   canvas.addEventListener("pointerup", (e) => {
     if (e.button === 2) rightDrag = false;
   });
+  // ショートカット設定で変えた押している間のキーを読み直す。
+  canvas.addEventListener("pointerenter", () => refreshShortcuts());
   canvas.addEventListener("pointerleave", () => {
     hover = null;
     showBrushCursor();
@@ -298,22 +300,22 @@ export function createCanvasTools({ canvas, viewer, overlay, applyRect }) {
   });
 
   // ---- キー ----
+  // キーの持ち主は1つにする。修飾キーの付いた操作は OS のメニュー（menu.rs）、それ以外の
+  // ショートカット（ツールのキー・Delete・E・C・X・[ ]）は shortcuts.js が受け、まだ移して
+  // いない操作として `pma-action` {id, source} を送る。ここはそれを引き受ける（preventDefault）。
+  // ここで直接キーを受けるのは、押している間の操作（Space・Alt など、ショートカット設定の
+  // 「キャンバス操作」のキー）と、曲線の2段目の Enter／Esc だけ。
   const token = (e) => {
     if (e.code === "Space") return "Space";
     if (e.key === "Shift") return "Shift";
     if (e.key === "Alt") return "Alt";
     if (e.key === (IS_MAC ? "Meta" : "Control")) return "Ctrl";
+    if (e.key === (IS_MAC ? "Control" : "Meta")) return "Meta";
     return null;
   };
   const typing = (e) =>
     e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement ||
-    e.target instanceof HTMLSelectElement || e.target.closest?.(".tl-dialog-overlay");
-
-  function toolForKey(key) {
-    const s = settings();
-    for (const [tool, k] of Object.entries(s.shortcuts)) if (k && k.toUpperCase() === key) return tool;
-    return null;
-  }
+    e.target instanceof HTMLSelectElement || e.target.closest?.(".tl-dialog-overlay, .sh-dialog-overlay, dialog");
 
   async function togglePlayback() {
     try {
@@ -323,6 +325,9 @@ export function createCanvasTools({ canvas, viewer, overlay, applyRect }) {
       notify(String(e));
     }
   }
+
+  // 最後に押したキー（ツールのキーの一時切り替えで、離したのを知るため）。
+  let lastKey = null;
 
   window.addEventListener("keydown", (e) => {
     if (typing(e) || !api.enabled) return;
@@ -338,83 +343,125 @@ export function createCanvasTools({ canvas, viewer, overlay, applyRect }) {
       return;
     }
     if (spaceTap) spaceTap.interrupted = true;
-    if (e.defaultPrevented) return;
-    const s = settings();
-    if (!s) return;
-    const m = mod(e);
-    const key = e.key.length === 1 ? e.key.toUpperCase() : e.key;
+    lastKey = { code: e.code, at: performance.now() };
     // 曲線の2段目：Enter で確定、Esc でやめる。
-    if (curve && (key === "Enter" || key === "Escape")) {
+    if (curve && (e.key === "Enter" || e.key === "Escape")) {
       e.preventDefault();
-      if (key === "Enter") commitLine(curve);
+      if (e.key === "Enter") commitLine(curve);
       else {
         curve = null;
         overlay.setPreview(null);
       }
-      return;
     }
-    if (m && !e.altKey) {
-      if ((key === "D" && !e.shiftKey) || (key === "A" && e.shiftKey)) {
-        e.preventDefault();
-        select({ kind: "clear" });
-      } else if (key === "A") {
-        e.preventDefault();
-        select({ kind: "all" });
-      } else if (key === "I" && e.shiftKey) {
-        e.preventDefault();
-        select({ kind: "invert" });
-      }
-      return;
-    }
-    if (m || e.altKey) return;
-    if (key === "Delete" || key === "Backspace") {
-      e.preventDefault();
-      run("selection_delete");
-      return;
-    }
-    if (key === "[" || key === "]") {
-      // 1段（約15%、最低 0.5px）。
-      const current = s.brush_size;
-      let target = key === "]" ? Math.max(current + 0.5, current * 1.15) : Math.min(current - 0.5, current / 1.15);
-      target = Math.round(target * 2) / 2;
-      toolStore.set({ brush_size: Math.max(0.5, Math.min(400, target)) });
-      return;
-    }
-    if (e.shiftKey) return;
-    if (key === "E") {
-      const patch = { color_mode: "transparent" };
-      if (!DRAW_TOOLS.includes(s.tool)) patch.tool = s.background_color_tool;
-      toolStore.set(patch);
-      return;
-    }
-    if (key === "C") {
-      if (s.color_mode === "transparent") toolStore.set({ color_mode: ["main", "sub"].includes(previousColorMode) ? previousColorMode : "main" });
-      else {
-        previousColorMode = s.color_mode;
-        toolStore.set({ color_mode: "transparent" });
-      }
-      return;
-    }
-    if (key === "X") {
-      toolStore.set({ color_mode: s.color_mode === "main" ? "sub" : "main" });
-      notify("メインカラーとサブカラーを切り替えました。");
-      return;
-    }
-    const pressed = toolForKey(key);
-    if (!pressed) return;
-    e.preventDefault();
-    if (e.repeat || toolHold?.tool === pressed) return;
+  }, true);
+
+  /// ツールのショートカット（shortcuts.js → pma-action の tool:<id>）。
+  function pressTool(pressed, source) {
+    const s = settings();
     const view = toolStore.view;
+    if (toolHold?.tool === pressed) return; // キーの自動リピート
     // まとめているときは、グループの先頭のキーをもう一度押すと次のツール（Qt の next_in_group）。
     let tool = pressed;
     const group = groupOf(pressed, view);
     if (!toolHold && group && view.groups.find(([g]) => g === group)[1][0] === pressed && groupOf(s.tool, view) === group) {
       tool = nextInGroup(s.tool, view);
     }
-    if (s.tool_hold_enabled) {
-      toolHold = { tool, key, previous: toolHold?.previous ?? s.tool, at: performance.now() };
+    const fromKey = source === "key" && lastKey && performance.now() - lastKey.at < 500;
+    if (s.tool_hold_enabled && fromKey) {
+      toolHold = { tool, code: lastKey.code, previous: toolHold?.previous ?? s.tool, at: performance.now() };
+    } else {
+      toolHold = null;
     }
     selectTool(tool);
+  }
+
+  function brushStep(direction) {
+    // 1段（約15%、最低 0.5px）。
+    const current = settings().brush_size;
+    let target = direction > 0 ? Math.max(current + 0.5, current * 1.15) : Math.min(current - 0.5, current / 1.15);
+    target = Math.round(target * 2) / 2;
+    toolStore.set({ brush_size: Math.max(0.5, Math.min(400, target)) });
+  }
+
+  /// ここで引き受ける操作（actions.rs の id）。
+  const ACTIONS = {
+    a_selection_clear: () => select({ kind: "clear" }),
+    a_selection_all: () => select({ kind: "all" }),
+    a_selection_invert: () => select({ kind: "invert" }),
+    a_selection_delete: () => run("selection_delete"),
+    a_select_main: () => toolStore.set({ color_mode: "main" }),
+    a_select_sub: () => toolStore.set({ color_mode: "sub" }),
+    a_select_transparent: () => {
+      const s = settings();
+      const patch = { color_mode: "transparent" };
+      if (!DRAW_TOOLS.includes(s.tool)) patch.tool = s.background_color_tool;
+      toolStore.set(patch);
+    },
+    a_toggle_draw_background: () => {
+      const s = settings();
+      if (s.color_mode === "transparent") toolStore.set({ color_mode: ["main", "sub"].includes(previousColorMode) ? previousColorMode : "main" });
+      else {
+        previousColorMode = s.color_mode;
+        toolStore.set({ color_mode: "transparent" });
+      }
+    },
+    a_swap_main_sub: () => {
+      toolStore.set({ color_mode: settings().color_mode === "main" ? "sub" : "main" });
+      notify("メインカラーとサブカラーを切り替えました。");
+    },
+    a_choose_background: async () => {
+      const rgb = await pickColor(settings().background_color);
+      if (rgb) toolStore.set({ background_color: rgb, color_mode: "transparent" });
+    },
+    a_brush_smaller: () => brushStep(-1),
+    a_brush_larger: () => brushStep(1),
+    a_pressure: () => openPressureDialog(),
+    a_mainline_repaint: () => run("action_run", { id: "main_line_repaint" }),
+    a_selection_transform: () => run("tool_transform", { kind: "free" }),
+    a_selection_scale: () => run("tool_transform", { kind: "scale" }),
+    a_selection_mesh: () => run("tool_transform", { kind: "mesh" }),
+    a_transform_rotate_left: () => run("tool_transform", { kind: "rotate_left" }),
+    a_transform_rotate_right: () => run("tool_transform", { kind: "rotate_right" }),
+    a_transform_cancel: () => run("tool_transform", { kind: "cancel" }),
+    a_transform_commit: () => {
+      // 曲線の2段目なら確定（Enter）。変形はまだ移していない（HOOK）。
+      if (curve) return commitLine(curve);
+      return run("tool_transform", { kind: "commit" });
+    },
+    a_dust_apply: () => run("tool_dust_apply"),
+    a_bucket_include_sub: () => toolStore.set({ bucket_include_sub: !settings().bucket_include_sub }),
+    a_bucket_close_gap: () => toolStore.set({ bucket_close_gap: !settings().bucket_close_gap }),
+    a_bucket_adjacent: () => toolStore.set({ bucket_adjacent: !settings().bucket_adjacent }),
+    a_bucket_extend_lines: () => toolStore.set({ bucket_extend_lines: !settings().bucket_extend_lines }),
+    a_bucket_island_fill: () => toolStore.set({ bucket_island_fill: !settings().bucket_island_fill }),
+    a_bucket_all_frames: () => selectTool(settings().tool === "skewer_fill" ? "bucket" : "skewer_fill"),
+    a_bucket_replace_color: () => selectTool(settings().tool === "replace_color" ? "bucket" : "replace_color"),
+    a_dust_all_frames: () => toolStore.set({ dust_all_frames: !settings().dust_all_frames }),
+    a_selection_all_frames: () => toolStore.set({ selection_all_frames: !settings().selection_all_frames }),
+  };
+  /// 引き受ける id の一覧（確かめ用）。
+  api.claimed = () => [...Object.keys(ACTIONS), ...toolStore.view.tools.map(([id]) => `tool:${id}`)];
+
+  /// 操作を1つ行う。引き受けたら true。
+  api.runAction = (id, source = "menu") => {
+    if (!settings()) return false;
+    if (id.startsWith("tool:")) {
+      const tool = id.slice(5);
+      if (!toolStore.view.tools.some(([t]) => t === tool)) return false;
+      pressTool(tool, source);
+      return true;
+    }
+    const f = ACTIONS[id];
+    if (!f) return false;
+    Promise.resolve(f()).catch((e) => notify(String(e)));
+    return true;
+  };
+
+  window.addEventListener("pma-action", (e) => {
+    const { id, source } = e.detail ?? {};
+    // 筆圧の自己確認のあいだは触らない。
+    if (!api.enabled || !id) return;
+    if (api.runAction(id, source)) e.preventDefault();
   });
 
   window.addEventListener("keyup", (e) => {
@@ -429,8 +476,7 @@ export function createCanvasTools({ canvas, viewer, overlay, applyRect }) {
       updateHold();
       return;
     }
-    const key = e.key.length === 1 ? e.key.toUpperCase() : e.key;
-    if (toolHold && key === toolHold.key) {
+    if (toolHold && e.code === toolHold.code) {
       const h = toolHold;
       toolHold = null;
       const s = settings();

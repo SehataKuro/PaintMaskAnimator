@@ -54,19 +54,8 @@ pub const TOOL_GROUPS: &[(&str, &[&str])] = &[
     ("select", &["lasso", "rect_select", "auto_select"]),
 ];
 
-/// ツールのショートカットの既定（Qt の main_window_ui_build.py の defaults）。
-pub const DEFAULT_SHORTCUTS: &[(&str, &str)] = &[
-    ("brush", "P"),
-    ("line", "U"),
-    ("shape", "O"),
-    ("bucket", "G"),
-    ("lasso_fill", "F"),
-    ("lasso", "L"),
-    ("rect_select", "R"),
-    ("auto_select", "W"),
-    ("eyedropper", "I"),
-    ("dust", "D"),
-];
+// ツールのショートカットの正本は、外枠の操作の一覧（actions.rs の `tool:<id>`）と
+// ショートカット設定（shortcuts.rs）。ここでは持たない。
 
 /// 計算をまだ pma-core へ移していない操作の知らせ。
 pub fn pending(name: &str) -> String {
@@ -147,7 +136,6 @@ pub struct Settings {
     pub tool_order: Vec<String>,
     /// グループごとに表に出ているツール。
     pub group_current: BTreeMap<String, String>,
-    pub shortcuts: BTreeMap<String, String>,
 
     // 描画色（メイン・サブ・背景）。color_mode は main / sub / transparent。
     pub color_main: [u8; 3],
@@ -240,10 +228,6 @@ impl Default for Settings {
                 .iter()
                 .map(|(g, m)| (g.to_string(), m[0].to_string()))
                 .collect(),
-            shortcuts: DEFAULT_SHORTCUTS
-                .iter()
-                .map(|(t, k)| (t.to_string(), k.to_string()))
-                .collect(),
             color_main: [0, 0, 0],
             color_sub: [255, 0, 0],
             color_mode: "main".into(),
@@ -316,7 +300,7 @@ impl Settings {
         if self.tool == "closed_fill" {
             self.tool = "bucket".into();
         }
-        // ライン（U）はアイコンを持たないツール（図形の「直線」「曲線」と同じ設定）。
+        // ライン はアイコンを持たないツール（図形の「直線」「曲線」と同じ設定）。
         if self.tool != "line" && !TOOLS.iter().any(|(id, _)| *id == self.tool) {
             self.tool = "brush".into();
         }
@@ -584,21 +568,6 @@ impl ToolState {
         }
         if let Some(Value::String(v)) = get("background_color_tool") {
             settings.background_color_tool = v;
-        }
-        // Qt 版のショートカットの変更（`shortcuts` の `actions` の `tool:<id>`）。
-        // 1つ目のキーを使う。空なら キー無し。
-        if let Some(Value::Object(actions)) =
-            get("shortcuts").and_then(|v| v.get("actions").cloned())
-        {
-            for (id, state) in actions {
-                let Some(tool) = id.strip_prefix("tool:") else {
-                    continue;
-                };
-                if let Some(Value::Array(keys)) = state.get("keys") {
-                    let key = keys.first().and_then(Value::as_str).unwrap_or("");
-                    settings.shortcuts.insert(tool.to_string(), key.to_string());
-                }
-            }
         }
         settings.normalize();
         self.settings = settings;
