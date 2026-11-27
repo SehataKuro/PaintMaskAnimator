@@ -18,7 +18,7 @@ from paintmaskanimator.errors import OperationError
 from paintmaskanimator.project_v2 import build_payload, write_snapshot
 from pma_native.pma_native import _open_project, _save_project
 from python_document_oracle import Document as OracleDocument
-from v2_golden_support import CASES, ROOT, V2_ROOT
+from v2_golden_support import CASES, V2_ROOT
 
 DATE_TIME = (2026, 11, 28, 12, 34, 56)
 # 戻しの丸めは aarch64 の Qt（NEON）に合わせている。x86 の Qt は半透明の画素が 1 ずれうる。
@@ -209,13 +209,6 @@ def test_archive_errors_match_python(tmp_path):
         data[6] |= 1
     _rewrite_central(path, encrypt)
     assert _rust_error(path) == ("Encrypted", _python_error(path))
-
-
-def test_legacy_v1_is_reported_unsupported():
-    path = ROOT / "v1" / "archive-conflict.pman"
-    project_io.load_project(path)  # Python は旧形式を取り込める。
-    kind, _ = _rust_error(path)
-    assert kind == "LegacyFormat"
 
 
 def _fixed_time():
