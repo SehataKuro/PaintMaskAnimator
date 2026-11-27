@@ -46,6 +46,8 @@ mod v2_order;
 mod number_commands;
 /// 配置待ちの番号をシートへ移す操作と窓口への更新情報。
 pub mod pending_commands;
+/// タイムシートに書くコマ数。
+mod sheet_length;
 mod stage_commands;
 mod tween_commands;
 

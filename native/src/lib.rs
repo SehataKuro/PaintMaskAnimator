@@ -20,6 +20,7 @@ mod compose;
 mod display;
 mod document;
 mod document_compare;
+mod export;
 mod fill_decisions;
 mod fill_session;
 mod fill_tracking;
@@ -390,6 +391,26 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(fill_session::track_fill_region, module)?)?;
     module.add_function(wrap_pyfunction!(py_extend_line_ends, module)?)?;
     image_ops::register(module)?;
+    module.add_function(wrap_pyfunction!(export::export_cut_folder_cels, module)?)?;
+    module.add_function(wrap_pyfunction!(export::export_plan_cut_folder, module)?)?;
+    module.add_function(wrap_pyfunction!(export::export_write_cut_folder, module)?)?;
+    module.add_function(wrap_pyfunction!(export::export_sheet_text, module)?)?;
+    module.add_function(wrap_pyfunction!(export::export_sheet_duration, module)?)?;
+    module.add_function(wrap_pyfunction!(export::export_write_key_sequence, module)?)?;
+    module.add_function(wrap_pyfunction!(
+        export::export_write_shadow_sequence,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(export::export_thumbnail_png, module)?)?;
+    module.add_function(wrap_pyfunction!(export::export_thumbnail_scale, module)?)?;
+    module.add_function(wrap_pyfunction!(export::export_frame_image, module)?)?;
+    module.add_function(wrap_pyfunction!(export::export_after_effects_text, module)?)?;
+    module.add_function(wrap_pyfunction!(export::export_guess_cut_number, module)?)?;
+    module.add_function(wrap_pyfunction!(export::export_encode_tga, module)?)?;
+    module.add_function(wrap_pyfunction!(export::import_read_image, module)?)?;
+    module.add_function(wrap_pyfunction!(export::import_image_file, module)?)?;
+    module.add_function(wrap_pyfunction!(export::import_parse_timesheet, module)?)?;
+    module.add_function(wrap_pyfunction!(export::import_scan_cut_folder, module)?)?;
     module.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
 }

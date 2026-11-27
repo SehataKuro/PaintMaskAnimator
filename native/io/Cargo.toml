@@ -1,0 +1,15 @@
+[package]
+name = "pma-io"
+version = "0.1.0"
+description = "PaintMaskAnimator の書き出し・読み込みのファイル操作（pma-core の判断をファイルにする）"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+# pma-core はファイルに触れないので、フォルダーの一覧・作成・書き込みをここで行う。
+# Python の窓口（native/）と Tauri の画面（app/）の両方から使う。pyo3 には依存しない。
+[dependencies]
+pma-core = { path = "../core" }
+
+[dev-dependencies]
+serde_json = "1"
