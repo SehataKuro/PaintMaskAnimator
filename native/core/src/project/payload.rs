@@ -133,6 +133,8 @@ struct Decoder {
 impl Decoder {
     fn artwork(&mut self, e: &Value, paper: bool, draft: bool, optional: bool) -> R<Value> {
         require(e["cell_name"].is_null() || e["cell_name"].is_string())?;
+        // 原画の印（#24）。無ければ false。
+        let genga = boolean(get(e, "genga", &Value::Bool(false)))?;
         let mut request = |path: &Value| -> R<Value> {
             let path = png_path(path)?;
             let index = self.images.len();
@@ -149,7 +151,7 @@ impl Decoder {
         } else {
             request(&e["initial"])?
         };
-        Ok(json!([image, initial, e["cell_name"]]))
+        Ok(json!([image, initial, e["cell_name"], genga]))
     }
     fn decode(&mut self, p: &Value, names: &[String]) -> R<Value> {
         self.mask = integer(get(p, "mask_format", &json!(1)), 1, self.limits.frames)?;
@@ -213,6 +215,19 @@ impl Decoder {
                     integer(c, 0, 255)?;
                 }
             }
+            // 連番として読み込んだ元のファイル（#89）。空の一覧は無しと同じ。
+            let import_sources = match t.get("import_sources") {
+                None | Some(Value::Null) => Value::Null,
+                Some(sources) => {
+                    let sources = array(sources)?;
+                    require(sources.iter().all(Value::is_string))?;
+                    if sources.is_empty() {
+                        Value::Null
+                    } else {
+                        Value::Array(sources.clone())
+                    }
+                }
+            };
             let mut cells = BTreeSet::new();
             let mut bank = Vec::new();
             for e in array(&t["cells"])? {
@@ -401,7 +416,7 @@ impl Decoder {
                     require(s[2] == e["value"] && (s[0] == true || s[3] == true))?;
                 }
             }
-            output.push(json!({"display":[name,visible,opacity,paper,draft,filter,rgb],"cells":bank,"hints":hints,"slots":slots}));
+            output.push(json!({"display":[name,visible,opacity,paper,draft,filter,rgb],"import_sources":import_sources,"cells":bank,"hints":hints,"slots":slots}));
         }
         let current = integer(get(p, "current_frame", &json!(0)), 0, self.limits.frames)?
             .min(count as i64 - 1);
@@ -472,7 +487,8 @@ mod tests {
             t["display"],
             json!([null, true, 1.0, false, false, false, null])
         );
-        assert_eq!(t["cells"], json!([[1, [0, null, null]]]));
+        assert_eq!(t["cells"], json!([[1, [0, null, null, false]]]));
+        assert_eq!(t["import_sources"], Value::Null);
         let s = &t["slots"];
         assert_eq!(s[0][0], true);
         assert_eq!(s[0][2], 1);
@@ -524,7 +540,7 @@ mod tests {
         assert_eq!(s[0][9], 9);
         assert_eq!(s[0][10], true);
         assert_eq!(s[1][2], 7);
-        assert_eq!(s[1][5], json!([1, null, null]));
+        assert_eq!(s[1][5], json!([1, null, null, false]));
         assert_eq!(s[1][12], json!(["CELL", 1]));
         assert_eq!(s[1][14], 2);
         assert_eq!(s[2][3], true);
@@ -559,6 +575,30 @@ mod tests {
         let mut p = small();
         p["tracks"][0]["compatibility"] = json!({"$invalid":true,"$large_integer":1});
         assert!(decode_v2_plan(&p, &[]).is_ok());
+    }
+    // 原画の印（#24）は真偽値だけ、読み込み元（#89）は文字列の一覧だけを受ける。空の一覧は無し。
+    #[test]
+    fn genga_marks_and_import_sources() {
+        let mut p = small();
+        p["tracks"][0]["cells"][0]["genga"] = json!(true);
+        p["tracks"][0]["import_sources"] = json!(["a/0001.png"]);
+        let t = &decode_v2_plan(&p, &[]).unwrap().data["tracks"][0];
+        assert_eq!(t["cells"], json!([[1, [0, null, null, true]]]));
+        assert_eq!(t["import_sources"], json!(["a/0001.png"]));
+        p["tracks"][0]["import_sources"] = json!([]);
+        let t = &decode_v2_plan(&p, &[]).unwrap().data["tracks"][0];
+        assert_eq!(t["import_sources"], Value::Null);
+        for bad in [json!("a.png"), json!([1]), json!({})] {
+            let mut p = small();
+            p["tracks"][0]["import_sources"] = bad;
+            assert!(decode_v2_plan(&p, &[]).is_err());
+        }
+        for bad in [Value::Null, json!(1), json!("yes")] {
+            let mut p = small();
+            p["tracks"][0]["cells"][0]["genga"] = bad;
+            // 印の検証は画像の要求より先。
+            assert!(decode_v2_plan(&p, &[]).unwrap_err().images.is_empty());
+        }
     }
     #[test]
     fn malformed_values_never_panic() {

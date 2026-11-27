@@ -461,11 +461,11 @@ class LiveCell(Cell):
         owner, key = meta["_owner"], meta["_key"]
         if name in ("image", "initial_image"):
             return owner._bound_image(key, name == "initial_image")
-        if name == "cell_name":
+        if name in ("cell_name", "is_genga"):
             value = owner._cell_value(key)
             if value is None:
                 raise StaleDocumentObject("文書にない絵")
-            return value[0]["cell_name"]
+            return value[0][name]
         return object.__getattribute__(self, name)
 
     def __setattr__(self, name, value):
@@ -689,6 +689,12 @@ class LiveTrack(Track):
                 raise StaleDocumentObject("文書にない列")
             value = value[0]["settings"][name]
             return tuple(value) if name == "color_filter_rgb" and value is not None else value
+        if name == "import_sources":
+            value = _live_of(owner)["state"].tracks.get(key[0])
+            if value is None:
+                raise StaleDocumentObject("文書にない列")
+            value = value[0]["import_sources"]
+            return None if value is None else list(value)
         if name == "cells":
             return _CellsView(self)
         if name == "legacy_archive_hints":
@@ -720,9 +726,13 @@ class LiveTrack(Track):
         if target is not None:
             return target.copy_settings()
         rgb = self.color_filter_rgb
-        return Track(self.name, self.visible, self.opacity, self.is_paper, self.is_draft,
-                     self.alpha_locked, self.color_filter_enabled,
-                     None if rgb is None else tuple(rgb))
+        copied = Track(self.name, self.visible, self.opacity, self.is_paper, self.is_draft,
+                       self.alpha_locked, self.color_filter_enabled,
+                       None if rgb is None else tuple(rgb))
+        sources = self.import_sources
+        if sources is not None:
+            copied.import_sources = list(sources)
+        return copied
 
     def copy(self):
         return self.copy_settings()
@@ -736,7 +746,7 @@ _POSITION_FIELDS = frozenset((*_METADATA, "tween", "tween_member"))
 # 同じ値なら何もしない代入（_unchanged_position）。sequence_only は接続済みの位置への
 # 代入そのものが AttributeError なので含めない。
 _SKIPPABLE = _POSITION_FIELDS - {"sequence_only"}
-_LAYER_CELL_FIELDS = ("image", "initial_image", "cell_name")
+_LAYER_CELL_FIELDS = ("image", "initial_image", "cell_name", "is_genga")
 _LAYER_READS = frozenset(("clone", "clone_slot", "clone_reference"))
 
 
@@ -2840,7 +2850,7 @@ def _core_tween(document, name, column, layer_index, *args):
             old_cell = cache._objects.get(("cell", artwork))
             if old_cell is not None:
                 old_cells[artwork] = (old_cell, Cell(old_cell.image, old_cell.initial_image,
-                                                     old_cell.cell_name))
+                                                     old_cell.cell_name, old_cell.is_genga))
         for initial in (False, True) if artwork != key_art else (False,):
             old = cache._objects.get(("image", (artwork, initial)))
             if old is not None:
@@ -3013,6 +3023,7 @@ def _detach(document, plan, moved=None, between=None, release=True):
                          None if index is None else model_image(handles[index]))
                 object.__setattr__(stand, name, value)
             stand.cell_name = data["cell_name"]
+            stand.is_genga = data["is_genga"]
         if cell is not None:
             cache.pop("cell", local)
             if stand is not None:
@@ -3952,6 +3963,7 @@ def _retire_trimmed(document, plan, *, preserve_tokens=False):
                      None if index is None else model_image(handles[index]))
             object.__setattr__(stand, name, value)
         stand.cell_name = data["cell_name"]
+        stand.is_genga = data["is_genga"]
         return stand
 
     cells = {}
@@ -5630,7 +5642,8 @@ def _core_paste_sheet_cell(document, column, layer_index, source, length):
     except ValueError:
         return None
     cell_value = json.dumps({"image": 0, "initial_image": None if images[1] is None else 1,
-                             "cell_name": source.cell_name}, ensure_ascii=False)
+                             "cell_name": source.cell_name,
+                             "is_genga": bool(source.is_genga)}, ensure_ascii=False)
     plan = _detach_plan(document, reach, [head_key])
     if plan is None:
         return None

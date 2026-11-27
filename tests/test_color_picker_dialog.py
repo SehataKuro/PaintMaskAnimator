@@ -124,6 +124,10 @@ def test_double_clicking_a_used_color_opens_its_replacement_picker(window):
     panel = window.palette
     panel.set_colors([QColor("#112233")])
     rgb = (0x11, 0x22, 0x33)
+    # 通常モードのダブルクリックでは開かない（置き換えモードだけ）。
+    QTest.mouseDClick(panel.source_wrappers[rgb], Qt.MouseButton.LeftButton)
+    assert panel._replacement_popup is None
+    panel.set_replace_mode(True)
     QTest.mouseDClick(panel.source_wrappers[rgb], Qt.MouseButton.LeftButton)
     popup = panel._replacement_popup
     try:

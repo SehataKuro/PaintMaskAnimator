@@ -149,11 +149,14 @@ def test_category_member_is_indented_and_folder_header_is_distinct():
         panel._move_colors_to_category(red, category)
 
         row_layout = panel.row_widgets[red].layout()
-        assert row_layout.contentsMargins().left() >= 20
+        # フォルダーの中の色は字下げし、見出しと同じ薄い面に置く。
+        assert row_layout.contentsMargins().left() >= 16
         assert panel.row_widgets[red].objectName() == "usedColorCategoryMember"
+        assert "background-color" in panel.row_widgets[red].styleSheet()
         header = panel.category_widgets[category]
-        assert header.minimumHeight() >= 32
-        assert "📁 影色" in header.name_label.text()
+        # フォルダーどうしは段落のように間を空ける。
+        assert header.layout().contentsMargins().top() >= 6
+        assert header.name_label.text().startswith("影色")
 
         panel._move_colors_to_uncategorized({red})
         assert row_layout.contentsMargins().left() == 0

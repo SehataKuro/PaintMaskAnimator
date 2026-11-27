@@ -133,6 +133,7 @@ impl Output {
             "image": self.image(&cell.image),
             "initial_image": self.optional(cell.initial_image.as_ref()),
             "cell_name": cell.cell_name,
+            "is_genga": cell.is_genga,
         })
     }
 }
@@ -142,6 +143,7 @@ fn cell(value: &Value, images: &Images<'_>) -> Result<Cell, Error> {
         image: images.get(field(value, "image"))?,
         initial_image: images.optional(field(value, "initial_image"))?,
         cell_name: optional_string(field(value, "cell_name"))?,
+        is_genga: optional_flag(value, "is_genga")?,
     })
 }
 
@@ -568,10 +570,25 @@ fn track(value: &Value, images: &Images<'_>) -> Result<Track, Error> {
             return Err(invalid("重複した連番保管"));
         }
     }
+    let import_sources = match field(value, "import_sources") {
+        Value::Null => None,
+        Value::Array(paths) => Some(
+            paths
+                .iter()
+                .map(|path| {
+                    path.as_str()
+                        .map(str::to_owned)
+                        .ok_or_else(|| invalid("import_sources"))
+                })
+                .collect::<Result<_, _>>()?,
+        ),
+        _ => return Err(invalid("import_sources")),
+    };
     Ok(Track {
         settings: settings(field(value, "settings"))?,
         cells,
         legacy_archive_hints: hints,
+        import_sources,
     })
 }
 
@@ -630,6 +647,7 @@ pub(super) fn track_json(id: TrackId, track: &Track, output: &mut Output) -> Val
         "settings": settings_json(&track.settings),
         "cells": cells,
         "hints": hints,
+        "import_sources": track.import_sources,
     })
 }
 
@@ -878,7 +896,8 @@ mod tests {
 
     fn sample() -> Value {
         let mut held = slot(false, false, json!(3));
-        held["local"] = json!({"image": 1, "initial_image": null, "cell_name": "x"});
+        held["local"] =
+            json!({"image": 1, "initial_image": null, "cell_name": "x", "is_genga": true});
         held["content_origin"] = json!(3);
         held["legacy_missing"] = json!(true);
         held["local_share"] = json!(4);
@@ -897,7 +916,7 @@ mod tests {
                 "state": {"has_content": false, "is_blank_key": true, "exposure": 2,
                           "sequence_only": false, "tween": null, "tween_member": "m"},
                 "sequence_number": null,
-                "artwork": {"image": 0, "initial_image": 0, "cell_name": null},
+                "artwork": {"image": 0, "initial_image": 0, "cell_name": null, "is_genga": false},
             },
             "key_start": true, "blank_start": true, "pending": false, "input_length": 4,
         });
@@ -908,9 +927,10 @@ mod tests {
             "tracks": [{
                 "id": 3,
                 "settings": settings_value("A"),
-                "cells": [[2, {"image": 0, "initial_image": 1, "cell_name": null}]],
+                "cells": [[2, {"image": 0, "initial_image": 1, "cell_name": null, "is_genga": true}]],
                 "hints": [[2, {"has_content": true, "is_blank_key": false, "exposure": 1,
                                "sequence_only": true, "tween": null, "tween_member": null}]],
+                "import_sources": ["a/0001.png", "a/0002.png"],
             }],
             "frames": [
                 {"id": 5, "duration": 1, "positions": [held]},

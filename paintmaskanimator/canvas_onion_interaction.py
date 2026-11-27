@@ -319,3 +319,143 @@ class OnionInteractionMixin(CanvasMembers):
 
         self.onionInteractionChanged.emit()
         self.update()
+
+    # ------------------------------------------------------------------
+    # オニオンのコマをクリックして直接編集する（#60）
+    # ------------------------------------------------------------------
+    def _onion_source_point(self, point, direction):
+        """キャンバス上の ``point`` に重なって見える、前／後オニオンの絵の中の位置。
+
+        オニオンは画面の中心を軸に ``シフト → 回転 → 拡大`` して重ねているので、
+        その逆をかける。
+        """
+        from .utils import workspace_size
+
+        shift_x, shift_y, rotation, scale = self.onion_transform_values(direction)
+        width, height = workspace_size()
+        cx, cy = width / 2.0, height / 2.0
+        dx = float(point.x()) - cx - shift_x
+        dy = float(point.y()) - cy - shift_y
+        angle = math.radians(-rotation)
+        rx = dx * math.cos(angle) - dy * math.sin(angle)
+        ry = dx * math.sin(angle) + dy * math.cos(angle)
+        scale = max(0.01, float(scale))
+        return QPointF(cx + rx / scale, cy + ry / scale)
+
+    def _pixel_at(self, frame_index, point, layer_index):
+        """``frame_index`` の ``layer_index`` で ``point`` の画素 ``(r, g, b, a)``（無ければ None）。"""
+        x, y = int(math.floor(point.x())), int(math.floor(point.y()))
+        key = self.resolve_key_frame(int(frame_index), int(layer_index))
+        if key is None:
+            return None
+        layer = self.frames[key].layers[layer_index]
+        image = layer.image
+        if not layer.visible or not (0 <= x < image.width and 0 <= y < image.height):
+            return None
+        # QImage（乗算済み）で読んだときと同じ値にする。
+        color = image.read_qimage(x, y, 1, 1).pixelColor(0, 0)
+        if color.alpha() == 0:
+            return None
+        return (color.red(), color.green(), color.blue(), color.alpha())
+
+    def _drawn_layer_at(self, frame_index, point, layers, unlike=None, unlike_point=None):
+        """``frame_index`` で ``point`` に絵がある最初のレイヤー（無ければ None）。
+
+        ``unlike`` に今のコマを渡すと、今のコマの ``unlike_point`` と同じ色の画素は
+        「見分けられない」として飛ばす。塗りのある TP では背景まで絵なので、
+        絵があるかどうかだけでは前後のコマを選べない（#88 で見つかった）。
+        """
+        for layer_index in layers:
+            pixel = self._pixel_at(frame_index, point, layer_index)
+            if pixel is None:
+                continue
+            if unlike is not None and pixel == self._pixel_at(
+                unlike, unlike_point if unlike_point is not None else point, layer_index
+            ):
+                continue
+            return int(layer_index)
+        return None
+
+    def onion_frame_at(self, point):
+        """``point`` に見えているオニオンのコマ ``(コマ, レイヤー)``。無ければ None。
+
+        近いコマから順に調べる（近い絵ほど手前に描いているので）。同じ近さなら、
+        あとから描く後ろのコマを先にする。前後のコマの画素が、今のコマの同じ所の
+        画素と同じ色なら見分けられないので選ばない（同じ絵の上では今のコマのまま）。
+        """
+        if not self.onion_skin or not self.frames:
+            return None
+        active = int(self.active_layer_index)
+        if self.onion_all_layers:
+            layer_count = len(self.frames[int(self.current_frame)].layers)
+            # 上のレイヤーほど手前に描かれる。今のレイヤーを先に調べる。
+            layers = [active] + [i for i in reversed(range(layer_count)) if i != active]
+        else:
+            layers = [active]
+        previous = self._onion_frame_indices(-1, self.onion_previous_count)
+        following = self._onion_frame_indices(1, self.onion_next_count)
+        if self._current_owns_point(point, active, previous, following):
+            return None
+        for distance in range(max(len(previous), len(following))):
+            for direction, frames in ((1, following), (-1, previous)):
+                if distance >= len(frames):
+                    continue
+                frame_index = frames[distance]
+                source = self._onion_source_point(point, direction)
+                layer_index = self._drawn_layer_at(
+                    frame_index, source, layers, unlike=self.current_frame, unlike_point=point,
+                )
+                if layer_index is not None:
+                    return int(frame_index), layer_index
+        return None
+
+    #: 「まわりで一番多い色」を数える窓の半径（px）。
+    OWNER_RADIUS = 4
+
+    def _current_owns_point(self, point, layer_index, previous, following):
+        """``point`` は今のコマの絵の上か（そこでは前後のコマへ切り替えない）。
+
+        透明な所は今のコマの絵ではない。塗りのある TP では背景まで絵なので、
+        今のコマの画素が、前後のどのコマとも違う（今のコマにだけある線や塗り）か、
+        まわりで一番多い色（背景や塗り）と違う（線の上）ときに、今のコマの絵とみなす。
+        """
+        current = self._pixel_at(self.current_frame, point, layer_index)
+        if current is None:
+            return False
+        others = [
+            self._pixel_at(frame, self._onion_source_point(point, direction), layer_index)
+            for direction, frames in ((-1, previous), (1, following)) for frame in frames
+        ]
+        if others and all(other != current for other in others):
+            return True
+        counts = {}
+        radius = self.OWNER_RADIUS
+        for dy in range(-radius, radius + 1):
+            for dx in range(-radius, radius + 1):
+                pixel = self._pixel_at(
+                    self.current_frame, QPointF(point.x() + dx, point.y() + dy), layer_index
+                )
+                counts[pixel] = counts.get(pixel, 0) + 1
+        majority = max(counts.items(), key=lambda item: item[1])[0]
+        return current != majority
+
+    def pick_onion_frame(self, point):
+        """``point`` のオニオンのコマへ編集対象を切り替える。切り替えたら真。
+
+        前の今のコマは、切り替えた先から見たオニオンとして薄く残る。
+        """
+        found = self.onion_frame_at(point)
+        if found is None:
+            self.status_message.emit(
+                tr("オニオン：クリックした所に前後のコマの絵がありません。")
+            )
+            return False
+        frame_index, layer_index = found
+        self.current_frame = int(frame_index)
+        self.active_layer_index = int(layer_index)
+        self.selectionChanged.emit()
+        self.update()
+        self.status_message.emit(
+            tr("オニオン：{frame}コマ目を編集します。").format(frame=int(frame_index) + 1)
+        )
+        return True

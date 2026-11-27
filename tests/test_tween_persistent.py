@@ -227,3 +227,57 @@ def test_release_signal_order_and_history(window, monkeypatch):
     canvas.redo()
     assert tween_groups.group_length(canvas.frames, 0, 0) is None
     assert [slot.sequence_number for slot in _layers(window)] == numbers
+
+
+# -- #61：モード切替なしに、変形からトゥイーンを始める --------------------------
+def _no_question(monkeypatch):
+    def fail(*_args, **_kwargs):
+        raise AssertionError("確認ダイアログを出さない")
+
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(fail))
+
+
+def test_transforming_a_held_key_starts_a_tween_when_the_option_is_on(window, monkeypatch):
+    _no_question(monkeypatch)
+    window.tools.transform_as_tween.setChecked(True)
+    window.canvas.current_frame = 2  # 保持の途中から始めてもキーのコマのトゥイーンになる
+
+    window.line_ops.start_wire_transform("free")
+
+    pending = window.canvas.tween_pending
+    assert pending and pending["key_col"] == 0 and pending["exposure"] == LENGTH
+    assert window.canvas.transform_active
+    _commit(window)
+    key, *members = _layers(window)
+    assert key.tween and all(member.tween_member == key.tween["id"] for member in members)
+
+
+def test_the_option_off_keeps_a_plain_transform(window):
+    window.tools.transform_as_tween.setChecked(False)
+    window.line_ops.start_wire_transform("free")
+    assert window.canvas.transform_active and not window.canvas.tween_pending
+
+
+def test_a_single_frame_key_keeps_a_plain_transform(window, monkeypatch):
+    _no_question(monkeypatch)
+    window.tools.transform_as_tween.setChecked(True)
+    from tests.dense_fixtures import clear_range
+
+    clear_range(window.canvas, 9, 10)  # 番号2を1コマだけにする
+    other = window.canvas.frames[8].layers[0]
+    with edit_qimage(other.image) as edited:
+        painter = QPainter(edited)
+        painter.setPen(QPen(QColor("black"), 8))
+        painter.drawLine(100, 100, 300, 100)
+        painter.end()
+    window.canvas._cell_structure_dirty = True
+    window.canvas.current_frame = 8
+    assert length(window.canvas, 8) == 1
+    window.line_ops.start_wire_transform("free")
+    assert window.canvas.transform_active and not window.canvas.tween_pending
+
+
+def test_scaling_is_not_turned_into_a_tween(window):
+    window.tools.transform_as_tween.setChecked(True)
+    window.line_ops.start_wire_transform("scale")
+    assert not window.canvas.tween_pending

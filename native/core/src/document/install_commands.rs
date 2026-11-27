@@ -3,7 +3,7 @@
 use std::collections::{btree_map::Entry, BTreeSet};
 use std::sync::Arc;
 
-use super::model::{CellNumber, Document, FrameId, Reference, TrackId};
+use super::model::{Cell, CellNumber, Document, FrameId, Reference, TrackId};
 use crate::Error;
 
 /// 再公開で窓口の更新が必要になった位置とバンク。
@@ -67,7 +67,12 @@ impl Document {
                 }
                 match track.cells.entry(number) {
                     Entry::Vacant(entry) => {
-                        entry.insert(local.clone());
+                        // Python は初期画像・セル名だけを選んで新しい Cell を作るので、
+                        // 原画の印は付かない。
+                        entry.insert(Cell {
+                            is_genga: false,
+                            ..local.clone()
+                        });
                         result.banks.insert(tid);
                     }
                     Entry::Occupied(mut entry) => {

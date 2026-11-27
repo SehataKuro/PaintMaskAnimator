@@ -63,6 +63,12 @@ class ToolHoldController:
         hold = self._hold
         if hold is not None and hold.tool == tool_id:
             return  # キーの自動リピート
+        if hold is None:
+            # グループの先頭のキー（バケツの G など）をもう一度押すと、グループの中で
+            # 次のツールへ切り替える。
+            from .toolpanel import next_in_group
+
+            tool_id = next_in_group(tools.active_tool, tool_id)
         from_key = (
             self._last_key is not None
             and self._last_key[0] in keys

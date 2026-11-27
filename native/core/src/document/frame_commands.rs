@@ -53,6 +53,7 @@ pub(super) fn held_reference(
                 image: blank,
                 initial_image: None,
                 cell_name: None,
+                is_genga: false,
             }),
         }),
         key_start: false,
@@ -113,14 +114,18 @@ impl Document {
             .legacy
             .as_ref()
             .and_then(|position| position.legacy.as_ref());
-        let artwork = if let Some(legacy) = legacy.filter(|legacy| !legacy.state.has_content) {
-            legacy.artwork.as_ref()
-        } else if let Reference::Number(number) = prior.reference {
+        // detach_cell が写す今の絵。
+        let current = if let Reference::Number(number) = prior.reference {
             self.tracks[&track].cells.get(&number)
         } else if let Some(number) = prior.number().filter(|_| prior.pending) {
             self.tracks[&track].cells.get(&number)
         } else {
             prior.compatibility.local.as_ref()
+        };
+        let artwork = if let Some(legacy) = legacy.filter(|legacy| !legacy.state.has_content) {
+            legacy.artwork.as_ref()
+        } else {
+            current
         };
         // Python の clear_slot は detach_cell で局所の Cell を必ず作り、画像を空にする
         // （初期画像は元の絵のものを残す）。位置をその場で書き換えるので、clear_slot が
@@ -136,6 +141,8 @@ impl Document {
             image: self.blank_artwork()?,
             initial_image: artwork.and_then(|cell| cell.initial_image.clone()),
             cell_name: None,
+            // セル名は消すが、原画の印は detach_cell した絵のまま残る（Python と同じ）。
+            is_genga: current.is_some_and(|cell| cell.is_genga),
         });
         Ok(cleared)
     }
@@ -362,6 +369,7 @@ impl Document {
                     image: blank.clone(),
                     initial_image: None,
                     cell_name: None,
+                    is_genga: false,
                 });
             }
         }
@@ -691,6 +699,7 @@ impl Document {
                                 image: image.clone(),
                                 initial_image: None,
                                 cell_name: None,
+                                is_genga: false,
                             })
                         }
                     }
@@ -735,6 +744,7 @@ impl Document {
                         image: image.clone(),
                         initial_image: None,
                         cell_name: None,
+                        is_genga: false,
                     });
                 }
                 if is_placed {

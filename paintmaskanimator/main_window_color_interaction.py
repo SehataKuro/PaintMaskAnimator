@@ -404,10 +404,15 @@ class ColorInteractionController:
         self.window.canvas.update()
 
     def set_preview_color_groups(self, _mapping):
-        """親子付けでは色を置換せず、残っている旧プレビューも解除する。"""
-        if not getattr(self.window.canvas, "preview_color_remap", {}):
+        """親子付けでは色を置換しない。表示は置換色のプレビューだけにそろえる。"""
+        self.set_replacement_preview(self.window.palette.replacement_preview_mapping())
+
+    def set_replacement_preview(self, mapping):
+        """登録した置換色で置き換えた見た目を、表示だけで見せる（非破壊）。"""
+        mapping = dict(mapping or {})
+        if mapping == dict(getattr(self.window.canvas, "preview_color_remap", None) or {}):
             return
-        self.window.canvas.preview_color_remap = {}
+        self.window.canvas.preview_color_remap = mapping
         self.window.canvas.update()
 
     def apply_sampled_color_to_mode(self, mode, color):
@@ -459,7 +464,8 @@ class ColorInteractionController:
 
     def select_background_color(self):
         if self.window.canvas.tool not in (
-            "brush", "bucket", "closed_fill", "line", "shape", "lasso_fill"
+            "brush", "bucket", "line", "shape", "lasso_fill",
+            "replace_color", "skewer_fill",
         ):
             self.window.tools.select_tool(preferences.background_color_tool())
         self.set_color_mode("transparent")

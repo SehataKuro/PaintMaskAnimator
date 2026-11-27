@@ -23,6 +23,7 @@ fn field_order(field: &str) -> &[&str] {
             "is_draft",
             "color_filter_enabled",
             "color_filter_rgb",
+            "import_sources",
             "cells",
             "sheet",
             "positions",
@@ -30,7 +31,7 @@ fn field_order(field: &str) -> &[&str] {
             "drawing_states",
             "compatibility",
         ],
-        "cells" => &["number", "image", "initial", "cell_name"],
+        "cells" => &["number", "image", "initial", "cell_name", "genga"],
         "positions" => &["column", "blank_start", "tween", "tween_member"],
         "pending" => &["column", "number", "kind", "length"],
         "drawing_states" => &[
@@ -52,7 +53,14 @@ fn field_order(field: &str) -> &[&str] {
         "length_overrides" => &["column", "length", "guard", "input_length"],
         "guard" => &["kind", "number", "pending", "blank_start", "imported"],
         "resolved_overrides" => &["column", "value", "source_column"],
-        "local_states" => &["column", "retained_number", "image", "initial", "cell_name"],
+        "local_states" => &[
+            "column",
+            "retained_number",
+            "image",
+            "initial",
+            "cell_name",
+            "genga",
+        ],
         "tween" => &[
             "id",
             "length",

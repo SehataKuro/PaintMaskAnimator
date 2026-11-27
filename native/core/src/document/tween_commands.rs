@@ -87,6 +87,7 @@ impl Document {
                     image: image.clone(),
                     initial_image: None,
                     cell_name: None,
+                    is_genga: false,
                 });
             cell.image = image;
         }
@@ -162,19 +163,18 @@ impl Document {
                 + usize::from(previous.blank_start != blank)
                 + usize::from(blank)
                 + usize::from(previous.pending);
-            let initial_image =
+            // create_drawing は今の位置の絵（previous）から初期画像と原画の印を引き継ぐ。
+            let (initial_image, is_genga) =
                 if let Some(old) = previous.number().filter(|_| previous.references_bank()) {
-                    edited.tracks[&track]
+                    let cell = edited.tracks[&track]
                         .cells
                         .get(&old)
-                        .ok_or_else(unsupported)?
-                        .initial_image
-                        .clone()
+                        .ok_or_else(unsupported)?;
+                    (cell.initial_image.clone(), cell.is_genga)
                 } else {
-                    compat
-                        .local
-                        .as_ref()
-                        .and_then(|cell| cell.initial_image.clone())
+                    compat.local.as_ref().map_or((None, false), |cell| {
+                        (cell.initial_image.clone(), cell.is_genga)
+                    })
                 };
             edited
                 .tracks
@@ -187,6 +187,7 @@ impl Document {
                         image: image.clone(),
                         initial_image,
                         cell_name: None,
+                        is_genga,
                     },
                 );
             let slot = edited.position_mut(index, track);
@@ -319,6 +320,7 @@ mod tests {
                 image: blank.clone(),
                 initial_image: None,
                 cell_name: Some("key".into()),
+                is_genga: false,
             },
         );
         doc.position_mut(0, track).reference = Reference::Number(key_number);

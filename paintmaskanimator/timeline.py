@@ -208,6 +208,8 @@ class TimelineCellDelegate(QStyledItemDelegate):
     GAP_ROLE = Qt.ItemDataRole.UserRole + 24
     # 確定済みのトゥイーンの帯に含まれるセル（移動・伸縮はさせない）。
     TWEEN_GROUP_ROLE = Qt.ItemDataRole.UserRole + 25
+    # 原画の印のあるセル（#24）。番号の箱の右上に印を描く。
+    GENGA_ROLE = Qt.ItemDataRole.UserRole + 26
     BAR_INSET = 3
     GRIP_WIDTH = 3
 
@@ -409,6 +411,17 @@ class TimelineCellDelegate(QStyledItemDelegate):
                             int(box_rect.width() - 4),
                         ),
                     )
+                    if index.data(self.GENGA_ROLE):
+                        # 原画：箱の右上の角を橙の三角で塗る。
+                        size = min(box_rect.width(), box_rect.height()) * 0.42
+                        corner = QPolygonF([
+                            QPointF(box_rect.right() - size, box_rect.top()),
+                            QPointF(box_rect.right(), box_rect.top()),
+                            QPointF(box_rect.right(), box_rect.top() + size),
+                        ])
+                        painter.setPen(Qt.PenStyle.NoPen)
+                        painter.setBrush(QColor(230, 120, 20))
+                        painter.drawPolygon(corner)
 
             grip_right = rect.right() - 2
             line_right = rect.right() + 1
@@ -661,6 +674,8 @@ class TimelineTable(QTableWidget):
     mergeClipRequested = Signal(int, int)
     splitClipRequested = Signal(int, int)
     newNumberHereRequested = Signal(int, int)
+    gengaToggleRequested = Signal(int, int)
+    inbetweenRequested = Signal(int, int)
     insertFrameAtRequested = Signal(int, int)
     deleteFrameAtRequested = Signal(int, int)
     #: ("start"|"end", 列)。
@@ -1224,6 +1239,13 @@ class TimelineTable(QTableWidget):
         action_clip_merge = menu.addAction(tr("クリップを結合"))
         action_clip_split = menu.addAction(tr("クリップを分割"))
         action_new_number = menu.addAction(tr("この位置を新しい番号にする"))
+        action_genga = menu.addAction(tr("原画の印を付ける／外す"))
+        action_genga.setEnabled(on_cell and item is not None)
+        action_inbetween = menu.addAction(tr("次の原画までに中割りを入れる…"))
+        action_inbetween.setEnabled(
+            on_cell and item is not None
+            and bool(item.data(TimelineCellDelegate.GENGA_ROLE))
+        )
         action_clip_merge.setEnabled(on_cell and item is not None)
         action_clip_split.setEnabled(on_cell and item is not None)
         action_new_number.setEnabled(on_cell and item is not None)
@@ -1331,6 +1353,8 @@ class TimelineTable(QTableWidget):
             action_clip_merge: self.mergeClipRequested,
             action_clip_split: self.splitClipRequested,
             action_new_number: self.newNumberHereRequested,
+            action_genga: self.gengaToggleRequested,
+            action_inbetween: self.inbetweenRequested,
             action_insert_frame: self.insertFrameAtRequested,
             action_delete_frame: self.deleteFrameAtRequested,
         }
@@ -1421,6 +1445,8 @@ class TimelineWidget(QWidget):
     mergeClipRequested=Signal(int,int)
     splitClipRequested=Signal(int,int)
     newNumberHereRequested=Signal(int,int)
+    gengaToggleRequested=Signal(int,int)
+    inbetweenRequested=Signal(int,int)
     insertFrameAtRequested=Signal(int,int)
     deleteFrameAtRequested=Signal(int,int)
     playbackRangeEdgeRequested=Signal(str,int)
@@ -1774,6 +1800,8 @@ class TimelineWidget(QWidget):
         self.table.mergeClipRequested.connect(self.mergeClipRequested)
         self.table.splitClipRequested.connect(self.splitClipRequested)
         self.table.newNumberHereRequested.connect(self.newNumberHereRequested)
+        self.table.gengaToggleRequested.connect(self.gengaToggleRequested)
+        self.table.inbetweenRequested.connect(self.inbetweenRequested)
         self.table.insertFrameAtRequested.connect(self.insertFrameAtRequested)
         self.table.deleteFrameAtRequested.connect(self.deleteFrameAtRequested)
         self.table.playbackRangeEdgeRequested.connect(self.playbackRangeEdgeRequested)
@@ -2702,6 +2730,7 @@ class TimelineWidget(QWidget):
                             group_start, group_length, group_reverse,
                         )
             for col in range(cols):
+                is_genga_cell = False
                 text = ""
                 label = ""
                 sequence_source = None
@@ -2752,6 +2781,7 @@ class TimelineWidget(QWidget):
                         source_cell_name = getattr(
                             source_key_layer, "cell_name", None
                         )
+                        is_genga_cell = bool(getattr(source_key_layer, "is_genga", False))
                         label = str(
                             source_cell_name
                             or content_key_numbers.get(key_col, "")
@@ -2823,6 +2853,7 @@ class TimelineWidget(QWidget):
                         "blank" if span_kind in ("blank", "sequence_blank") else "uncreated"
                     )
                 item.setData(TimelineCellDelegate.STATE_ROLE, state_name)
+                item.setData(TimelineCellDelegate.GENGA_ROLE, is_genga_cell)
                 item.setFlags((item.flags() | Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled) & ~Qt.ItemFlag.ItemIsEditable)
                 item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 # 参考UIに合わせたタイムライン専用配色。
@@ -2949,6 +2980,8 @@ class TimelineWidget(QWidget):
                             exposure=group_cells[col][1]
                         )
                     )
+                if is_genga_cell:
+                    item.setToolTip(tr("原画\n") + item.toolTip())
                 self.table.setItem(visual_row, col, item)
         self._apply_row_heights()
         self.duration.blockSignals(True)

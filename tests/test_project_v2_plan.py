@@ -200,6 +200,31 @@ def test_image_error_precedence(archive):
     assert compare(p, archive)[2] == "プロジェクトの構造が不正です。"
 
 
+@pytest.mark.parametrize("value", [True, False, None, 1, 0, "yes", [], {}])
+@pytest.mark.parametrize("where", ["cell", "local"])
+def test_genga_mark_rules(value, where, archive):
+    """原画の印（#24）：真偽値だけを受け、絵の画像より先に確かめる。"""
+    p = tiny()
+    tracks = p["tracks"][0]
+    entry = tracks["cells"][0] if where == "cell" else tracks["compatibility"]["local_states"][0]
+    entry["genga"] = value
+    compare(p, archive)
+    entry["image"] = "absent.png"
+    compare(p, archive)
+
+
+@pytest.mark.parametrize("value", [
+    None, [], ["a.png"], ["a.png", "b/c.png"], [1], ["a.png", None], "a.png", ("a.png",), {},
+])
+def test_import_sources_rules(value, archive):
+    """連番の読み込み元（#89）：文字列の list だけを受け、空は無しと同じ。"""
+    p = tiny()
+    p["tracks"][0]["import_sources"] = value
+    compare(p, archive)
+    p["tracks"][0]["cells"][0]["image"] = "absent.png"
+    compare(p, archive)
+
+
 @pytest.mark.parametrize("path", ["a//b.PNG/", "./a.png", "a.png/", "a.png/.", ".png", "../a.png",
                                   "/a.png", "a/../b.png", "a\\b.png", "a:b.png", "", "one.png"])
 def test_posix_path_rules(path, archive):

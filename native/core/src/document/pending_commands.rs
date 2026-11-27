@@ -281,6 +281,7 @@ impl PlacementEdit {
                 image: self.document.blank_artwork()?,
                 initial_image: None,
                 cell_name: None,
+                is_genga: false,
             })
         };
         let key = (self.document.frame_order[column], track);
@@ -417,6 +418,7 @@ impl Document {
                         image: blank,
                         initial_image: None,
                         cell_name: None,
+                        is_genga: false,
                     });
                     edit.result.changed.insert((frame, track));
                 }

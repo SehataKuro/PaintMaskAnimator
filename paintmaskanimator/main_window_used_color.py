@@ -20,7 +20,7 @@ from .hsv_adjust_dialog import HsvAdjustDialog
 from .i18n import tr
 from .progress import close_counter, create_counter, update_counter
 from .logging_setup import get_logger
-from .undo_entries import PaletteStateUndo
+from .undo_entries import PaletteStateUndo, attach_palette_state
 
 if TYPE_CHECKING:
     from .main_window import MainWindow
@@ -329,6 +329,9 @@ class UsedColorController:
             self.window.statusBar().showMessage(message, 2200)
             return False
 
+        # Undo で画像と一緒にフォルダーや並びも戻せるよう、操作前のパネル状態を取っておく。
+        palette_before = self.window.palette.capture_history_state()
+
         # 色ごとに画像全体を再走査せず、24bit RGBを一度だけ検索する。
         source_values = np.array(
             sorted(packed_mapping.keys()), dtype=np.uint32
@@ -425,6 +428,8 @@ class UsedColorController:
         )
         changed_cells = result.changed_cells
         changed_pixels = result.changed_pixels
+        if changed_pixels and self.window.canvas.undo_stack:
+            attach_palette_state(self.window.canvas.undo_stack[-1], palette_before)
 
         if not changed_pixels:
             self.window.statusBar().showMessage(

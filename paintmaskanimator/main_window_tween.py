@@ -141,6 +141,37 @@ class TweenController:
                 5000,
             )
 
+    def start_from_transform(self, mode="free"):
+        """変形を始めたコマが保持のあるキーなら、確認なしでトゥイーンにする（#61）。
+
+        ツールの「保持のあるコマの変形はトゥイーンにする」が ON のときだけ。始めたら真
+        （呼び出し側はふつうの変形を始めない）。
+        """
+        canvas = self.window.canvas
+        option = getattr(self.window.tools, "transform_as_tween", None)
+        if (
+            option is None or not option.isChecked()
+            or getattr(self, "_starting", False)
+            or canvas.tween_pending or canvas.transform_active
+            or not canvas.frames
+        ):
+            return False
+        layer_index = int(canvas.active_layer_index)
+        column = int(canvas.current_frame)
+        block = canvas.timeline_block_at(column, layer_index)
+        if block is None or block[0] != "content" or int(block[2]) < 2:
+            return False
+        key_column, exposure = int(block[1]), int(block[2])
+        if not canvas.frames[key_column].layers[layer_index].has_content:
+            return False
+        snapshot = canvas.document_snapshot()
+        self._starting = True
+        try:
+            self._start(layer_index, key_column, exposure, "mesh" if mode == "mesh" else "free", snapshot)
+        finally:
+            self._starting = False
+        return bool(canvas.tween_pending)
+
     def enable(self, visual_row, key_column, mode="free"):
         """タイムライン終端の｜を、自由／メッシュトゥイーンの♦へ切り替える。"""
         mode = "mesh" if mode == "mesh" else "free"
@@ -228,7 +259,11 @@ class TweenController:
             )
             return
 
-        self.window.line_ops.start_wire_transform(mode)
+        self._starting = True
+        try:
+            self.window.line_ops.start_wire_transform(mode)
+        finally:
+            self._starting = False
         if not self.window.canvas.transform_active:
             self._restore_reedit(reedit)
             return

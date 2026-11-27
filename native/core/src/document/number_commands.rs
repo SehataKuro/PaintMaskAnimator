@@ -113,6 +113,7 @@ impl Document {
                         image: RgbaImage::blank(edited.width, edited.height)?,
                         initial_image: None,
                         cell_name: None,
+                        is_genga: false,
                     },
                 };
                 edited
@@ -177,6 +178,7 @@ impl Document {
                     image,
                     initial_image: None,
                     cell_name: None,
+                    is_genga: false,
                 },
             );
         let mut position = Position {

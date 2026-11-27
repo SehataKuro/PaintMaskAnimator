@@ -7,6 +7,7 @@ A collaborator rather than a mixin -- see ``main_window_export.py`` for why.
 """
 
 from .canvas_changes import publish_editable_position, publish_frame_changes
+from .document_changes import ChangeSet, DrawingAttributes
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QItemSelectionModel, QTimer
@@ -576,6 +577,143 @@ class TimelineOpsController:
         changes = canvas._document.new_sheet_cell(column, layer_index)
         self._after_cell_edit(changes)
         return True
+
+    def toggle_genga(self, visual_row, column):
+        """原画の印（#24）を付ける／外す。外から受け取った原画のセルを見分ける。
+
+        印は絵（番号）に付くので、同じ番号のコマすべてに効く。Undo で戻せる。
+        """
+        canvas = self.window.canvas
+        target = self._cell_target(visual_row, column)
+        block = None
+        if target is not None:
+            layer_index, column = target
+            block = canvas.timeline_block_at(column, layer_index)
+        if block is None or block[0] != "content":
+            self.window.statusBar().showMessage(tr("絵のあるセルを選んでください。"), 2400)
+            return False
+        cell = canvas.frames[int(block[1])].layers[layer_index]
+        canvas.push_doc_undo()
+        cell.is_genga = not bool(cell.is_genga)
+        self._after_cell_edit(self._genga_changes(layer_index, [(int(block[1]), cell)]))
+        self.window.statusBar().showMessage(
+            tr("原画の印を付けました。") if cell.is_genga else tr("原画の印を外しました。"),
+            2400,
+        )
+        return True
+
+    def _next_genga_start(self, layer_index, after):
+        """``after`` より後ろで、原画の印のあるセルが始まる列（無ければ None）。"""
+        canvas = self.window.canvas
+        column = int(after) + 1
+        while column < len(canvas.frames):
+            block = canvas.timeline_block_at(column, layer_index)
+            if block is None:
+                column += 1
+                continue
+            kind, start, exposure = block
+            if kind == "content" and int(start) == column and canvas.frames[column].layers[layer_index].is_genga:
+                return column
+            column = int(start) + max(1, int(exposure))
+        return None
+
+    def insert_inbetweens(self, visual_row, column, count):
+        """原画から次の原画までの露出を ``count + 1`` 等分し、後ろの ``count`` 個を○にする（#24）。
+
+        ○は中割りを描く場所の印で、描くと番号の付いたセルになる（描き終えた中割り）。
+        Undo 1回で戻る。あいだにほかのセルがあるときや、コマ数が足りないときは何もしない。
+        """
+        canvas = self.window.canvas
+        count = int(count)
+        status = self.window.statusBar()
+        if canvas.timeline_mode == "sequence":
+            status.showMessage(tr("中割りはタイムシートの表示で入れてください。"), 3000)
+            return False
+        target = self._cell_target(visual_row, column)
+        block = None
+        if target is not None:
+            layer_index, column = target
+            block = canvas.timeline_block_at(column, layer_index)
+        if (block is None or block[0] != "content"
+                or not canvas.frames[int(block[1])].layers[layer_index].is_genga):
+            status.showMessage(tr("原画の印のあるセルを選んでください。"), 3000)
+            return False
+        start, exposure = int(block[1]), max(1, int(block[2]))
+        following = self._next_genga_start(layer_index, start)
+        if following is None:
+            status.showMessage(tr("この原画のあとに、次の原画がありません。"), 3000)
+            return False
+        if start + exposure != following:
+            status.showMessage(
+                tr("原画と次の原画のあいだに、もうセルがあります。中割りは原画どうしが"
+                   "隣り合っているときに入れられます。"),
+                4000,
+            )
+            return False
+        span = following - start
+        if count < 1 or span < count + 1:
+            status.showMessage(
+                tr("原画のあいだが{span}コマなので、中割りは{limit}枚まで入れられます。").format(
+                    span=span, limit=max(0, span - 1)
+                ),
+                4000,
+            )
+            return False
+        columns = sorted({start + (k * span) // (count + 1) for k in range(1, count + 1)})
+        canvas.push_doc_undo()
+        original_push = canvas.push_doc_undo
+        canvas.push_doc_undo = lambda *_args, **_kwargs: None
+        try:
+            for blank_column in columns:
+                canvas.create_blank_key(blank_column, layer_index)
+        finally:
+            canvas.push_doc_undo = original_push
+        # create_blank_key がそれぞれの変更を知らせる。
+        self.window.refresh_ui()
+        status.showMessage(
+            tr("原画のあいだに中割りを{count}枚入れました（○に描くと番号が付きます）。").format(
+                count=len(columns)
+            ),
+            4000,
+        )
+        return True
+
+    def insert_inbetweens_dialog(self, visual_row, column):
+        from PySide6.QtWidgets import QInputDialog
+
+        count, accepted = QInputDialog.getInt(
+            self.window, tr("中割りを入れる"), tr("中割りの枚数："), 1, 1, 99,
+        )
+        if accepted:
+            return self.insert_inbetweens(visual_row, column, count)
+        return False
+
+    def mark_layer_as_genga(self, layer_index):
+        """レイヤーの絵のあるセルすべてに原画の印を付ける。付けた数を返す。"""
+        canvas = self.window.canvas
+        marked = []
+        seen = set()
+        for column, frame in enumerate(canvas.frames):
+            layer = frame.layers[layer_index]
+            number = layer.sequence_number
+            if not layer.has_content or number in seen:
+                continue
+            seen.add(number)
+            if not layer.is_genga:
+                layer.is_genga = True
+                marked.append((column, layer))
+        if marked:
+            self._after_cell_edit(self._genga_changes(layer_index, marked))
+        return len(marked)
+
+    @staticmethod
+    def _genga_changes(layer_index, cells):
+        """原画の印を変えた絵の変更。番号の無い絵はコマで示す。"""
+        return ChangeSet(tuple(
+            DrawingAttributes(
+                int(layer_index), layer.sequence_number,
+                None if layer.sequence_number is not None else int(column), ("is_genga",))
+            for column, layer in cells))
 
     def new_number_here(self, visual_row, column):
         """選んだ1コマを末尾の絵番号で複製し、前後は元の絵を保持する。"""

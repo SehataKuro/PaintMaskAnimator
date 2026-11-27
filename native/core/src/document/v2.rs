@@ -159,6 +159,7 @@ pub fn from_plan(payload: &Value, plan: &V2Plan, images: &[RgbaImage]) -> Result
             image,
             initial_image: optional(&values[1], get)?,
             cell_name: string(&values[2]),
+            is_genga: flag(&values[3])?,
         })
     };
     let mut sheet = BTreeMap::new();
@@ -315,6 +316,15 @@ pub fn from_plan(payload: &Value, plan: &V2Plan, images: &[RgbaImage]) -> Result
                 settings,
                 cells,
                 legacy_archive_hints,
+                import_sources: match &track["import_sources"] {
+                    Value::Null => None,
+                    paths => Some(
+                        array(paths)?
+                            .iter()
+                            .map(|path| string(path).ok_or_else(invalid))
+                            .collect::<Result<_, _>>()?,
+                    ),
+                },
             },
         );
     }
@@ -403,7 +413,10 @@ fn image_entry(cell: &Cell, path: String, pngs: &mut Vec<PngEntry>) -> Value {
         .initial_image
         .as_ref()
         .map(|_| format!("initial/{path}"));
-    let entry = json!({"image": path, "initial": initial, "cell_name": cell.cell_name});
+    let mut entry = json!({"image": path, "initial": initial, "cell_name": cell.cell_name});
+    if cell.is_genga {
+        entry["genga"] = json!(true);
+    }
     pngs.push(PngEntry {
         path,
         image: cell.image.clone(),
@@ -660,6 +673,7 @@ pub fn project(document: &Document, metadata: &Value) -> Result<Projection, Erro
                 if let Some(cell) = &slot.compatibility.local {
                     if cell.initial_image.is_some()
                         || cell.cell_name.is_some()
+                        || cell.is_genga
                         || cell.image.width() == 0
                         || cell.image.height() == 0
                         || cell.image.rgba().iter().any(|byte| *byte != 0)
@@ -669,8 +683,10 @@ pub fn project(document: &Document, metadata: &Value) -> Result<Projection, Erro
                             format!("compatibility/layer_{li:04}/position_{column:06}.png"),
                             &mut pngs,
                         );
-                        for key in ["image", "initial", "cell_name"] {
-                            entry[key] = artwork[key].clone();
+                        for key in ["image", "initial", "cell_name", "genga"] {
+                            if let Some(value) = artwork.get(key) {
+                                entry[key] = value.clone();
+                            }
                         }
                     }
                 }
@@ -688,6 +704,10 @@ pub fn project(document: &Document, metadata: &Value) -> Result<Projection, Erro
             "color_filter_enabled": settings.color_filter_enabled, "color_filter_rgb": settings.color_filter_rgb,
             "cells": cells, "sheet": sheet, "positions": positions, "pending": pending, "drawing_states": hints,
         });
+        // 連番として読み込んだ元のファイル（#89）。Python と同じく空なら書かない。
+        if let Some(sources) = track.import_sources.as_ref().filter(|s| !s.is_empty()) {
+            data["import_sources"] = json!(sources);
+        }
         if compat.as_object().is_some_and(|fields| !fields.is_empty()) {
             data["compatibility"] = compat;
         }

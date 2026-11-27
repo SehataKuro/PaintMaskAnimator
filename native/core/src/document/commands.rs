@@ -256,6 +256,7 @@ impl Document {
             },
             cells: Default::default(),
             legacy_archive_hints: Default::default(),
+            import_sources: None,
         };
         // Python の add_track は Layer(name, blank_model_image()) を作るので、新しい位置は
         // 空画像の局所の Cell を持つ（ensure_frame_count と同じ）。
@@ -264,6 +265,7 @@ impl Document {
             image: self.blank_artwork()?,
             initial_image: None,
             cell_name: None,
+            is_genga: false,
         });
         for frame in self.sheet.values_mut() {
             Arc::make_mut(frame).positions.insert(id, empty.clone());
@@ -462,6 +464,7 @@ impl Document {
             image: self.blank_artwork()?,
             initial_image: None,
             cell_name: None,
+            is_genga: false,
         });
         let blank = Arc::new(Frame {
             duration: 1,
@@ -685,6 +688,7 @@ mod tests {
             image: RgbaImage::blank(1, 1).unwrap(),
             initial_image: None,
             cell_name: None,
+            is_genga: false,
         };
         track
             .cells

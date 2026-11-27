@@ -7,7 +7,8 @@ children laid out under their parent, and the preview / merge signals
 that publish the current grouping to the main window.
 """
 from typing import Any
-from PySide6.QtGui import QColor
+from PySide6.QtCore import Qt
+from . import theme
 from .i18n import tr
 from ._color_panel_members import UsedColorPanelMembers
 from .logging_setup import get_logger
@@ -310,18 +311,21 @@ class ColorGroupingMixin(UsedColorPanelMembers):
         for widget in list(self.category_widgets.values()) + list(self.row_widgets.values()):
             self.rows.removeWidget(widget)
 
+        tint = theme.palette()["surface_alt"]
+
         def set_category_member_visual(widget, in_category):
             row_layout = widget.layout()
             if row_layout is not None:
+                # フォルダーの中の色は字下げし、見出しと同じ薄い面に置く。
                 row_layout.setContentsMargins(
-                    20 if in_category else 0, 0, 0, 0
+                    16 if in_category else 0, 0, 0, 0
                 )
             if in_category:
                 widget.setObjectName("usedColorCategoryMember")
+                widget.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
                 widget.setStyleSheet(
                     "QWidget#usedColorCategoryMember{"
-                    "background-color:palette(alternate-base);"
-                    "border-left:3px solid palette(highlight);}"
+                    f"background-color:{tint};}}"
                 )
                 widget.setToolTip(tr("使用色フォルダーに格納されています。"))
             else:
@@ -377,30 +381,11 @@ class ColorGroupingMixin(UsedColorPanelMembers):
         if button is None:
             return
         parent = self.child_to_parent.get(rgb)
-        if parent is not None:
-            # 元色は保持し、縁取り（ボーダー）だけを親色にする。
-            root = self._group_root(rgb)
-            parent_color = QColor(*root)
-            own = QColor(*rgb)
-            text_color = self._text_color(rgb)
-            button.setStyleSheet(
-                "QToolButton{"
-                f"background:{own.name()};color:{text_color};"
-                f"border:2px solid {parent_color.name()};padding:2px;}}"
-                "QToolButton:hover{"
-                f"background:{own.name()};color:{text_color};"
-                f"border:2px solid {parent_color.name()};}}"
-            )
-            if wrapper is not None:
-                margin = wrapper.layout()
-                if margin is not None:
-                    # 行頭インデントで階層を示す（右余白は0でスウォッチを広げる）。
-                    margin.setContentsMargins(20, 3, 0, 3)
-        else:
-            if wrapper is not None:
-                margin = wrapper.layout()
-                if margin is not None:
-                    margin.setContentsMargins(2, 3, 0, 3)
+        if wrapper is not None:
+            margin = wrapper.layout()
+            if margin is not None:
+                # 子色は字下げで階層を示す（縁の親色は _set_source_button_style が描く）。
+                margin.setContentsMargins(18 if parent is not None else 4, 2, 4, 2)
         # 選択枠・グループ縦ライン・チェック同期・HEX表示・ツールチップを更新。
         self._set_source_button_style(rgb)
         self._apply_swatch_text(rgb)
@@ -439,7 +424,12 @@ class ColorGroupingMixin(UsedColorPanelMembers):
         }
 
     def _refresh_merge_button(self, *_args):
-        self.merge_button.setEnabled(len(self._mergeable_selection()) >= 2)
+        mergeable = len(self._mergeable_selection()) >= 2
+        self.merge_button.setEnabled(mergeable)
+        # 統合先（最後に選んだ色）をボタンに小さく出す。
+        self.merge_button.setTarget(
+            tuple(self.parent_rgb) if mergeable and self.parent_rgb is not None else None
+        )
 
     def _emit_merge(self):
         if self.parent_rgb is None or len(self._mergeable_selection()) < 2:

@@ -44,6 +44,8 @@ pub struct Cell {
     pub initial_image: Option<RgbaImage>,
     /// 絵の名前。
     pub cell_name: Option<String>,
+    /// 外から受け取った原画の印（#24）。番号ではなく絵に付くので、番号を動かしてもついて回る。
+    pub is_genga: bool,
 }
 
 /// Python の Track に対応する列共通の表示設定。
@@ -76,6 +78,9 @@ pub struct Track {
     pub cells: BTreeMap<CellNumber, Cell>,
     /// 旧連番保管の属性。
     pub legacy_archive_hints: BTreeMap<CellNumber, ArchiveHint>,
+    /// 連番として読み込んだ元のファイル（番号 n が `[n - 1]`、#89）。再変換に使う。
+    /// Python の Track.import_sources と同じく、表示設定の写しにもついて回る。
+    pub import_sources: Option<Vec<String>>,
 }
 
 /// 位置に設定された絵、空キー、または未使用。

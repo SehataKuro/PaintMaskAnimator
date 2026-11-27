@@ -20,7 +20,7 @@ from PySide6.QtWidgets import QDialog
 
 from .auto_paint_dialog import AutoPaintDialog
 
-from . import auto_paint, bucket_fill, time_display
+from . import auto_paint, bucket_fill, fill_tracking, time_display
 from .frame_scope import FrameScope, resolve_cells
 from .i18n import tr
 from .pma_image import as_qimage, image_rgba
@@ -125,7 +125,11 @@ class AutoPaintController:
             return False
         targets = {cells[index]: paint for index, paint in plan.cells.items() if paint.paints}
         if not targets:
-            status.showMessage(tr("自動で塗る：塗るところはありませんでした。"), 4000)
+            message = tr("自動で塗る：塗るところはありませんでした。")
+            reason = self.nothing_painted_reason(pixels, references, lines)
+            if reason:
+                message += reason
+            status.showMessage(message, 8000)
             return False
         written = set()
 
@@ -183,6 +187,34 @@ class AutoPaintController:
             for finding in plan.cells[index].notes:
                 entries.append((frame, layer, finding))
         return entries
+
+    @staticmethod
+    def nothing_painted_reason(pixels, references, lines) -> str:
+        """何も塗らなかったときに、考えられる理由を1つ返す（無ければ空文字）。#65"""
+        targets = [
+            auto_paint.white_as_unpainted(image)
+            for index, image in enumerate(pixels) if index not in references
+        ]
+        if not targets:
+            return ""
+        least_lines = min(
+            int(np.count_nonzero(auto_paint.boundary_mask(image))) for image in targets
+        )
+        area = targets[0].shape[0] * targets[0].shape[1]
+        if least_lines < max(16, area // 5000):
+            return tr(
+                "線として認識できる画素がほとんどありません。主線は RGB の各値が {limit} 以下の"
+                "濃い色、色トレス線は赤・緑・青などの原色のときだけ境界になります。"
+            ).format(limit=fill_tracking.LINE_MAX)
+        if not any((image[:, :, 3] == 0).any() for image in targets):
+            reason = tr("塗るセルに、まだ塗っていない（透明な）所がありません。")
+            if all(line is None for line in lines):
+                reason += tr(
+                    "色塗り前の初期状態を保持していれば、塗りかけのセルも塗り直せます"
+                    "（メニューの「今の絵を初期状態として保持」）。"
+                )
+            return reason
+        return ""
 
     def _plan(self, pixels, reference_index, hints=None,
               lines=None, second_reference_index=None,

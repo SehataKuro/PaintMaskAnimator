@@ -299,6 +299,14 @@ class MainWindow(
                 f"{Path(paths[0]).name}\n{error}"
             )
 
+        # 素材の種類で分ける（#63）。デジタルは全コマを検査し、アンチエイリアスが
+        # あったときだけ、いまある色のまま取り除く。アナログは今までの2値化。
+        material = self.ask_import_material()
+        if material is None:
+            return None, "__cancelled__"
+        if material == "digital":
+            return self.inspect_digital_import(paths)
+
         # パレットは代表フレームからまとめて作る。1枚目だけで決めると、
         # 中間で色が増えるカットやフラッシュで色が潰れる（Issue #10）。
         reference_images = []
@@ -347,6 +355,7 @@ class MainWindow(
                 background_rgb,
                 self,
                 reference_images=reference_images,
+                scan=True,
             )
             if (
                 dialog.exec()
@@ -362,12 +371,113 @@ class MainWindow(
                 tr("2値化の準備中にエラーが発生しました。\n{exc}").format(exc=exc)
             )
 
+        return self._color_reduction_settings(
+            dialog, palette, color_count, semi_transparent_count
+        ), ""
+
+    def ask_import_material(self):
+        """読み込む素材の種類を尋ねる（前回の選択が既定）。キャンセルなら None。"""
+        box = QMessageBox(self)
+        box.setObjectName("importMaterialQuestion")
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle(tr("画像の読み込み"))
+        box.setText(tr("読み込む素材の種類を選んでください。"))
+        box.setInformativeText(tr(
+            "デジタル（TP）：ペイントソフトで作った2値の絵。全コマを検査し、"
+            "アンチエイリアスがあったときだけ、いまある色のまま取り除きます。\n"
+            "アナログ（スキャン）：紙をスキャンした絵。トーンカーブと色数を決めて2値化します。"
+        ))
+        digital = box.addButton(tr("デジタル（TP）"), QMessageBox.ButtonRole.AcceptRole)
+        analog = box.addButton(tr("アナログ（スキャン）"), QMessageBox.ButtonRole.AcceptRole)
+        box.addButton(tr("キャンセル"), QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(
+            analog if preferences.import_material_kind() == "analog" else digital
+        )
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is digital:
+            kind = "digital"
+        elif clicked is analog:
+            kind = "analog"
+        else:
+            return None
+        preferences.set_import_material_kind(kind)
+        return kind
+
+    def inspect_digital_import(self, paths):
+        """デジタル TP の全コマでアンチエイリアスを数え、取り除くか尋ねる（#63）。
+
+        どのコマにもなければ ``(None, "")``（そのまま読み込む）。あれば、コマごとの
+        画素数を見せ、取り除くなら ``extraction_mode="digital"`` の設定を返す。
+        """
+        from . import digital_antialias
+
+        found = []
+        progress = create_counter(
+            self, tr("アンチエイリアスの検査"), len(paths), tr("全コマを検査しています"),
+        )
+        try:
+            for index, path in enumerate(paths):
+                update_counter(progress, index, len(paths), Path(path).name)
+                image, error = self.canvas._read_image_file(path)
+                if image is None:
+                    return None, f"{Path(path).name}\n{error}"
+                count = digital_antialias.count_antialias(imaging.qimage_rgba_array(image))
+                if count:
+                    found.append((index + 1, Path(path).name, count))
+        finally:
+            close_counter(progress)
+        if not found:
+            self.statusBar().showMessage(
+                tr("{count}枚ともアンチエイリアスはありませんでした。そのまま読み込みます。").format(
+                    count=len(paths)
+                ),
+                4000,
+            )
+            return None, ""
+        box = QMessageBox(self)
+        box.setObjectName("digitalAntialiasReport")
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle(tr("アンチエイリアスの検査"))
+        box.setText(tr(
+            "{frames}/{total}枚にアンチエイリアス（混ざった色・半透明の画素）があります。"
+        ).format(frames=len(found), total=len(paths)))
+        box.setInformativeText(tr(
+            "取り除くと、混ざった画素だけを、となりにある色面の色へ寄せます。"
+            "色面の色はそのまま残り、色は増えも減りもしません。"
+        ))
+        box.setDetailedText("\n".join(
+            tr("{index}枚目（{name}）：{count:,}px").format(index=index, name=name, count=count)
+            for index, name, count in found
+        ))
+        remove = box.addButton(tr("取り除いて読み込む"), QMessageBox.ButtonRole.AcceptRole)
+        keep = box.addButton(tr("そのまま読み込む"), QMessageBox.ButtonRole.AcceptRole)
+        box.addButton(tr("キャンセル"), QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(remove)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is keep:
+            return None, ""
+        if clicked is not remove:
+            return None, "__cancelled__"
+        return {
+            "extraction_mode": "digital",
+            "palette": None,
+            "antialias_frames": len(found),
+            "antialias_pixels": sum(count for _index, _name, count in found),
+        }, ""
+
+    @staticmethod
+    def _color_reduction_settings(dialog, palette, color_count, semi_transparent_count):
+        """2値化ダイアログで決めた設定を、画像1枚ごとにかけられる dict にする。"""
         return {
             "palette": palette,
             "extraction_mode": dialog.selected_extraction_mode(),
-            "target_colors": int(
-                dialog.color_count.value()
-            ),
+            "flatten_paper": dialog.flatten_paper_enabled(),
+            "despeckle": dialog.despeckle_pixels(),
+            "blur": dialog.blur_amount(),
+            # 出力する色を指定したときは、色数ではなく指定した色の数（#62）。
+            "target_colors": int(len(palette)),
             "source_color_count": int(color_count),
             "alpha_threshold": int(
                 dialog.alpha_threshold_255()
@@ -387,7 +497,94 @@ class MainWindow(
                 (float(x), float(y))
                 for x, y in dialog.tone_curve_points()
             ],
-        }, ""
+        }
+
+    def binarize_layer_dialog(self):
+        """読み込んだあとの今のレイヤーに2値化をかける（#62）。
+
+        読み込み時と同じダイアログで設定を決め、今のコマ／すべてのコマへ
+        ``frame_scope`` の一括処理でかける（同じ絵番号は1回、Undo 1回）。
+        """
+        canvas = self.canvas
+        layer_index = int(canvas.active_layer_index)
+        key = canvas.resolve_key_frame(int(canvas.current_frame), layer_index)
+        if key is None:
+            self.statusBar().showMessage(tr("2値化：このコマには絵がありません。"), 3000)
+            return False
+        first_image = as_qimage(canvas.frames[key].layers[layer_index].image)
+        cells = [cell for cell in self.initial_state.cells() if cell[1] == layer_index]
+        reference_images = [
+            as_qimage(canvas.frames[cells[index][0]].layers[layer_index].image)
+            for index in color_ops.reference_frame_indices(len(cells))
+        ] if cells else []
+        try:
+            color_count = canvas.opaque_rgb_color_count(first_image)
+            semi_transparent_count = int(
+                canvas.image_alpha_statistics(first_image)["semi_transparent"]
+            )
+            background_rgb = canvas.detect_opaque_border_background(first_image)
+            dialog = ColorReductionDialog(
+                first_image,
+                color_count,
+                semi_transparent_count,
+                background_rgb is not None,
+                background_rgb,
+                self,
+                reference_images=reference_images,
+                allow_without_reduction=False,
+                scope_choice=True,
+            )
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return False
+            palette = dialog.selected_palette()
+        except _OPERATION_ERRORS as exc:
+            log.warning("binarizing a layer failed: %s", exc, exc_info=True)
+            QMessageBox.warning(
+                self, tr("2値化"),
+                tr("2値化の準備中にエラーが発生しました。\n{exc}").format(exc=exc),
+            )
+            return False
+        settings = self._color_reduction_settings(
+            dialog, palette, color_count, semi_transparent_count
+        )
+        return self.binarize_layer(settings, all_frames=dialog.selected_all_frames())
+
+    def binarize_layer(self, settings, *, all_frames=True):
+        """``settings`` の2値化を今のレイヤーにかける。変わったら真。"""
+        canvas = self.canvas
+
+        def op(context):
+            image = as_qimage(context.layer.image)
+            reduced = canvas.reduce_image_with_settings(image, settings)
+            if reduced is None or reduced.isNull():
+                return None
+            reduced = reduced.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
+            if reduced == image.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied):
+                return None
+            return reduced
+
+        result = self.scope.run_over(
+            self.scope.current_frame(all_frames, selection_only=False),
+            op,
+            label=tr("2値化"),
+            cancellable=True,
+        )
+        canvas.update()
+        if result.cancelled:
+            self.statusBar().showMessage(tr("2値化を中止しました。"), 2400)
+            return False
+        if not result.changed_cells:
+            self.statusBar().showMessage(tr("2値化：変わったセルはありませんでした。"), 3000)
+            return False
+        self._used_color_cache.clear()
+        self.used_color.schedule_refresh()
+        self.statusBar().showMessage(
+            tr("{cells}セルを{count}色で2値化しました。").format(
+                cells=result.changed_cells, count=len(settings["palette"])
+            ),
+            4000,
+        )
+        return True
 
     def prepare_image_import(self, paths):
         # Keep this step light: inspect dimensions only. Color analysis is deferred
@@ -524,7 +721,11 @@ class MainWindow(
             )
         elif len(paths) > 1:
             reduction_note = ""
-            if color_reduction:
+            if color_reduction and color_reduction.get("extraction_mode") == "digital":
+                reduction_note = tr("、{frames}枚のアンチエイリアスを取り除いて").format(
+                    frames=color_reduction.get("antialias_frames", 0)
+                )
+            elif color_reduction:
                 reduction_method = (
                     tr("元画像へトーンカーブ適用後に2値化")
                     if color_reduction.get("opaque_background")
@@ -536,6 +737,12 @@ class MainWindow(
             self.statusBar().showMessage(
                 tr("{len}枚の画像をタイムラインへ連番配置{note}し、使用色認識まで完了しました。").format(len=len(paths), note=reduction_note),
                 3600,
+            )
+        if ok:
+            # 読み込んだレイヤーだけを、色塗り前の初期状態として保持するか尋ねる（#65）。
+            # 自動塗りは初期状態の線で部分を分けるので、精度が上がる。
+            self.initial_state.offer_after_import(
+                self.initial_state.layer_cells(self.canvas.active_layer_index)
             )
 
 
@@ -890,6 +1097,107 @@ class MainWindow(
             self.import_dropped_image(paths[0])
         else:
             self.import_dropped_images(paths)
+
+    def reconvert_layer_dialog(self):
+        """今のレイヤーを、元のファイルから読み込み直さずに変換し直す（#10）。
+
+        このアプリで連番として読み込んだレイヤーだけが対象。元のファイルを読み直し、
+        読み込み時と同じ流れ（素材の種類・2値化ダイアログ）で決めた設定をかけ直す。
+        """
+        canvas = self.canvas
+        paths = getattr(canvas.active_layer._track, "import_sources", None)
+        if not paths:
+            self.statusBar().showMessage(
+                tr("再変換できるのは、このアプリを起動してから連番として読み込んだレイヤーだけです。"),
+                4000,
+            )
+            return False
+        missing = [path for path in paths if not Path(path).is_file()]
+        if missing:
+            QMessageBox.warning(
+                self, tr("再変換"),
+                tr("元のファイルが見つかりません（{count}枚）。\n{name}").format(
+                    count=len(missing), name=missing[0]
+                ),
+            )
+            return False
+        answer = QMessageBox.question(
+            self, tr("再変換"),
+            tr("元のファイル{count}枚から変換し直します。読み込んだあとに描き足した分は"
+               "元に戻ります（Undo で戻せます）。続けますか？").format(count=len(paths)),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return False
+        settings, error = self.prepare_color_reduction(paths)
+        if error == "__cancelled__":
+            return False
+        if error:
+            QMessageBox.warning(self, tr("再変換"), error)
+            return False
+        return self.reconvert_layer(settings)
+
+    def reconvert_layer(self, settings):
+        """今のレイヤーの各番号へ、元のファイルを ``settings`` で変換し直して入れる。"""
+        canvas = self.canvas
+        paths = list(getattr(canvas.active_layer._track, "import_sources", None) or [])
+        draft = bool(canvas.active_layer.is_draft)
+
+        def op(context):
+            number = context.layer.sequence_number
+            if not isinstance(number, int) or not 1 <= number <= len(paths):
+                return None
+            path = paths[number - 1]
+            image, _error = canvas._read_image_file(path)
+            if image is None:
+                return None
+            converted = canvas.convert_import_image(path, image, settings, draft=draft)
+            target = canvas._placed_imported_image(converted)
+            return target.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
+
+        result = self.scope.run_over(
+            self.scope.current_frame(True, selection_only=False),
+            op,
+            label=tr("再変換"),
+            cancellable=True,
+        )
+        canvas.update()
+        if result.cancelled or not result.changed_cells:
+            return False
+        self._used_color_cache.clear()
+        self.used_color.schedule_refresh()
+        self.statusBar().showMessage(
+            tr("{cells}セルを元のファイルから変換し直しました。").format(cells=result.changed_cells),
+            4000,
+        )
+        return True
+
+    def import_genga_dialog(self):
+        """原画を読み込んで、そのレイヤーのセルに原画の印を付ける（#24）。"""
+        paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            tr("原画を読み込む"),
+            "",
+            tr("画像 (*.png *.jpg *.jpeg *.tga);;"
+            "PNG (*.png);;JPEG (*.jpg *.jpeg);;TGA (*.tga)"),
+        )
+        if paths:
+            self.import_genga(paths)
+
+    def import_genga(self, paths):
+        """``paths`` を新しいレイヤーへ読み込み、原画の印を付ける。付けた数を返す。"""
+        before = len(self.canvas.layers)
+        self.import_dropped_images(list(paths), layer_name=tr("原画"))
+        if len(self.canvas.layers) <= before:
+            return 0
+        marked = self.timeline_ops.mark_layer_as_genga(self.canvas.active_layer_index)
+        if marked:
+            self.statusBar().showMessage(
+                tr("{count}枚の原画を読み込み、原画の印を付けました。").format(count=marked),
+                4000,
+            )
+        return marked
 
     def import_image_folder_dialog(self):
         folder = QFileDialog.getExistingDirectory(

@@ -1,5 +1,7 @@
 """Python document model from 62ca7bb, kept as the migration oracle.
 
+main の原画の印（#24）の扱いだけはあとから足した（document.py と同じ）。
+
 Owns the *what* of a project — the list of frames, which frame is current,
 and which layer is active — independent of any widget, event loop, or
 rendering. The PaintCanvas widget delegates its state to a Document instance
@@ -259,6 +261,7 @@ class Document:
                 if existing is None:
                     track.cells[number] = Cell(
                         copy_image(cell.image), copy_image(cell.initial_image), cell.cell_name,
+                        cell.is_genga,
                     )
                     changes.append(DrawingPixels(index, number, None, ()))
                 elif (number in track.legacy_archive_hints and existing.initial_image is None
@@ -2182,6 +2185,7 @@ def clone_frame_graph(frames, sequence_archive=None):
                 copy_image(cell.image),
                 copy_image(cell.initial_image),
                 cell.cell_name,
+                cell.is_genga,
             )
         return cells[id(cell)]
 
@@ -2263,7 +2267,7 @@ def create_drawing(layer, image, *, number):
         previous = layer._cell
         layer._track.cells[int(number)] = Cell(
             image, copy_image(previous.initial_image),
-            previous.cell_name)
+            previous.cell_name, previous.is_genga)
     layer.sequence_number = number
     layer.image = image
     layer.has_content = True
@@ -2286,6 +2290,7 @@ def place_number(target, source, number):
     target.has_content = bool(copied.has_content)
     target.is_blank_key = not bool(copied.has_content)
     target.cell_name = getattr(copied, "cell_name", None)
+    target.is_genga = bool(getattr(copied, "is_genga", False))
     if target._track.connected:
         target._track.cells.setdefault(int(number), target._cell)
     target.sequence_number = int(number)
@@ -2363,6 +2368,7 @@ def import_drawing_reference(frames, archive, fi, li, source, *, preferred_frame
         cell.image = copy_image(owner.image)
         cell.initial_image = copy_image(initial)
         cell.cell_name = name
+        cell.is_genga = any(bool(getattr(layer, "is_genga", False)) for layer in attrs)
     copy_drawing_reference(target, copied, content=content, blank=blank)
 
 

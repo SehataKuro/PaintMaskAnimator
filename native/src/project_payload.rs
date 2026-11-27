@@ -71,10 +71,12 @@ const KEYS: &[&str] = &[
     "is_draft",
     "color_filter_enabled",
     "color_filter_rgb",
+    "import_sources",
     "number",
     "image",
     "initial",
     "cell_name",
+    "genga",
     "sheet",
     "positions",
     "pending",
@@ -175,6 +177,8 @@ fn convert(v: &Bound<'_, PyAny>, depth: usize, field: &str, strings: &mut String
             "resolved_overrides",
             "length_overrides",
             "placement_keys",
+            // Python の検証は list だけを受ける（#89）。
+            "import_sources",
         ]
         .contains(&field)
         {

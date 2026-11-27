@@ -188,6 +188,16 @@ class InputEventMixin(CanvasMembers):
             return
         if e.button() != Qt.MouseButton.LeftButton:
             return
+        # Ctrl＋クリック：オニオンに見えている前後のコマへ編集対象を切り替える（#60）。
+        if (
+            self.onion_skin
+            and e.modifiers() & Qt.KeyboardModifier.ControlModifier
+            and not e.modifiers() & Qt.KeyboardModifier.AltModifier
+            and not self.transform_active
+        ):
+            self.pick_onion_frame(self.widget_to_canvas(e.position()))
+            e.accept()
+            return
 
         t = self.effective_tool()
         p = self.widget_to_canvas(e.position())
@@ -210,6 +220,7 @@ class InputEventMixin(CanvasMembers):
         if (
             not self.inside(p)
             and t not in ("lasso", "lasso_fill", "rect_select")
+            and not (t == "dust" and self._line_tidy_stroke_active())
         ):
             return
         if t == "eyedropper":
@@ -250,9 +261,12 @@ class InputEventMixin(CanvasMembers):
             used_color = self.opaque_paint_color()
             if not self.is_pseudo_transparent_color(used_color):
                 self.colorUsed.emit(used_color)
-        elif t in ("bucket", "closed_fill"):
-            # 串刺し塗りは既存のセルにだけ塗る。保持セルを新しいキーに分けない。
-            if self._bucket_all_frames_enabled():
+        elif t in ("bucket", "replace_color", "skewer_fill"):
+            # 色置換と串刺し塗りは既存のセルにだけ塗る。保持セルを新しいキーに分けない。
+            if t in ("bucket", "replace_color") and self._bucket_replace_color_enabled():
+                self.abort_skewer_fill()
+                self.replace_color_at(QPoint(int(p.x()), int(p.y())))
+            elif self._bucket_all_frames_enabled():
                 self.flood_fill(QPoint(int(p.x()), int(p.y())))
             else:
                 self.ensure_editable_key()
@@ -269,6 +283,11 @@ class InputEventMixin(CanvasMembers):
             self.ensure_editable_key()
             self.drawing = True
             self.lasso = [p]
+        elif t == "dust" and self._line_tidy_stroke_active():
+            # 線整え：なぞった所（ブラシの帯か投げ縄の中）を離したときに整える。
+            self.drawing = True
+            self.line_tidy_stroke = [QPointF(p)]
+            self.update()
         elif t == "rect_select":
             self.ensure_editable_key()
             self.drawing = True
@@ -395,6 +414,9 @@ class InputEventMixin(CanvasMembers):
             # キャンバス外から開始／通過しても軌跡を保持する。
             self.lasso.append(QPointF(p))
             self.update()
+        elif t == "dust" and self.line_tidy_stroke:
+            self.line_tidy_stroke.append(QPointF(p))
+            self.update()
         elif t == "rect_select":
             # キャンバス外の座標も保持し、確定時に画像領域へクリップする。
             self.rect_end = QPointF(p)
@@ -402,7 +424,7 @@ class InputEventMixin(CanvasMembers):
         elif t == "mesh" and self.mesh_active >= 0:
             self.mesh_points[self.mesh_active] = p
             self.update()
-        elif t in ("bucket", "closed_fill") and self._bucket_drag is not None:
+        elif t == "bucket" and self._bucket_drag is not None:
             self.continue_bucket_drag(QPointF(p))
 
     def mouseDoubleClickEvent(self, e):
@@ -502,6 +524,8 @@ class InputEventMixin(CanvasMembers):
             self.selection_mask_rect = None
             self.lasso = []
             self.selectionChanged.emit()
+        elif t == "dust" and self.line_tidy_stroke:
+            self._finish_line_tidy_stroke()
         elif t == "lasso_fill" and len(self.lasso) >= 3:
             polygon = list(self.lasso)
             self.lasso = []

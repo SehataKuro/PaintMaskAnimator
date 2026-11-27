@@ -80,6 +80,7 @@ impl Document {
                 image,
                 initial_image: None,
                 cell_name: None,
+                is_genga: false,
             });
         } else {
             return Err(missing());
@@ -213,6 +214,7 @@ impl Document {
                 image,
                 initial_image: None,
                 cell_name: None,
+                is_genga: false,
             });
         } else {
             return Err(missing());
@@ -405,6 +407,7 @@ impl Document {
                     image: image_to_keep,
                     initial_image: image.clone(),
                     cell_name: None,
+                    is_genga: false,
                 });
             } else {
                 return Err(missing());

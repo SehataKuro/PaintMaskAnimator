@@ -35,13 +35,15 @@ class Cell:
     ○・未使用の残存番号はローカルの ``Cell`` を持ち、bank を参照しない。
 
     ``Cell`` は ``image``、色塗り前の初期状態（``initial_image``）、
-    セル名（``cell_name``）を持つ。同じ番号の絵は3属性とも共有し、
-    clone・detach ではすべて独立させる（Issue #31 Phase 5-4）。
+    セル名（``cell_name``）、原画の印（``is_genga``、#24）を持つ。同じ番号の絵は
+    すべての属性を共有し、clone・detach ではすべて独立させる（Issue #31 Phase 5-4）。
+    原画の印は、外から受け取った原画を参照として読み込んだセルを、中割りのセルと
+    見分けるためのもの。番号ではなくセルに付く印なので、番号を動かしても絵について回る。
 
     設計は docs/sequence-first-data-model.md。
     """
 
-    __slots__ = ("image", "initial_image", "cell_name")
+    __slots__ = ("image", "initial_image", "cell_name", "is_genga")
 
     image: PmaImage | None
     initial_image: PmaImage | None
@@ -52,10 +54,11 @@ class Cell:
             value = to_pma_image(value)
         object.__setattr__(self, name, value)
 
-    def __init__(self, image=None, initial_image=None, cell_name=None):
+    def __init__(self, image=None, initial_image=None, cell_name=None, is_genga=False):
         self.image = image if image is not None else blank_model_image()
         self.initial_image = initial_image
         self.cell_name = cell_name
+        self.is_genga = bool(is_genga)
 
 
 class PendingToken:
@@ -86,7 +89,7 @@ class Track:
     __slots__ = (
         "name", "visible", "opacity", "is_paper", "is_draft", "alpha_locked",
         "color_filter_enabled", "color_filter_rgb", "cells", "connected",
-        "legacy_archive_hints", "pending_slots",
+        "legacy_archive_hints", "pending_slots", "import_sources",
     )
 
     def __init__(
@@ -97,6 +100,9 @@ class Track:
         self.cells: dict[int, Cell] = {}
         self.legacy_archive_hints: dict[int, ArchiveHint] = {}
         self.pending_slots: WeakSet[PendingToken] = WeakSet()
+        # 連番として読み込んだ元のファイル（番号 n が import_sources[n - 1]）。
+        # 読み込み直さずに2値化し直すのに使う（#10）。保存はしない。
+        self.import_sources: list[str] | None = None
         self.connected = False
         self.name = name
         self.visible = visible
@@ -108,13 +114,16 @@ class Track:
         self.color_filter_rgb = color_filter_rgb
 
     def copy_settings(self):
-        """Copy display settings only."""
-        return Track(
+        """Copy display settings only (and where the drawings were imported from)."""
+        copied = Track(
             self.name, self.visible, self.opacity, self.is_paper,
             self.is_draft, self.alpha_locked, self.color_filter_enabled,
             tuple(self.color_filter_rgb)
             if self.color_filter_rgb is not None else None,
         )
+        if self.import_sources is not None:
+            copied.import_sources = list(self.import_sources)
+        return copied
 
 
     def copy(self):
@@ -178,7 +187,7 @@ class Layer:
                 self.__dict__["_cell"] = Cell(
                     copy_image(cell.image),
                     copy_image(cell.initial_image),
-                    cell.cell_name)
+                    cell.cell_name, cell.is_genga)
                 self.__dict__["_content_origin"] = number
         if (name == "has_content" and value) or (name == "is_blank_key" and value):
             self.__dict__.pop("_content_origin", None)
@@ -214,6 +223,8 @@ class Layer:
     # ここから黒の主線と色トレス線を取り出して部分を分ける。塗りかけの色や、仕上げ色で
     # 塗りつぶした色トレス線に惑わされないように保持する。比較表示にも使う。
     initial_image: Optional[PmaImage] = None
+    # 外から受け取った原画のセルの印（#24）。Cell に持ち、番号を動かしてもついて回る。
+    is_genga: bool = False
 
     def clone_slot(self):
         """Copy position metadata without creating a Cell or Track.
@@ -280,6 +291,7 @@ class Layer:
             self.tween_member,
             copy_image(self.initial_image),
         )
+        copied.is_genga = bool(self.is_genga)
         # Undo のスナップショットが、あとの表示設定の変更で汚れないようにする。
         copied.detach_track()
         if (self._track.connected and self.sequence_number is not None
@@ -405,6 +417,7 @@ class Layer:
             copy_image(current.image),
             copy_image(current.initial_image),
             current.cell_name,
+            current.is_genga,
         )
 
 
@@ -412,7 +425,7 @@ class Layer:
 # 同じ手口（デコレータの順に依存しないよう、ここで行う）。型チェッカーからは
 # dataclass のフィールドに見えるので、代入だけ無視させる。
 for _field, _descriptor in (
-    *((name, _cell_property(name)) for name in ("image", "initial_image", "cell_name")),
+    *((name, _cell_property(name)) for name in ("image", "initial_image", "cell_name", "is_genga")),
     *((name, _track_property(name)) for name in TRACK_FIELDS),
 ):
     setattr(Layer, _field, _descriptor)

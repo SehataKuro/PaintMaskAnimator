@@ -50,6 +50,7 @@ class CanvasMembers(_MembersBase):
         onionInteractionFinished: Signal
         projectDropped: Signal
         selectionChanged: Signal
+        lineTidyRegionDrawn: Signal
         selectionCleared: Signal
         status_message: Signal
         timeRemapDropped: Signal
@@ -121,6 +122,8 @@ class CanvasMembers(_MembersBase):
         _onion_cache: Any
         _onion_frame_identity: Any
         _onion_frame_indices: Any
+        pick_onion_frame: Any
+        onion_frame_at: Any
         _onion_interaction_axis: Any
         _onion_interaction_direction: Any
         _onion_interaction_dragging: Any
@@ -314,6 +317,9 @@ class CanvasMembers(_MembersBase):
         inside: Any
         is_pseudo_transparent_color: Any
         lasso: Any
+        line_tidy_stroke: Any
+        _line_tidy_stroke_active: Any
+        _finish_line_tidy_stroke: Any
         last_canvas: Any
         last_widget: Any
         layers: list[Layer]
@@ -490,6 +496,8 @@ class CanvasMembers(_MembersBase):
         work_rect: Any
         zoom: Any
         _bucket_all_frames_enabled: Any
+        _bucket_replace_color_enabled: Any
+        replace_color_at: Any
         _bucket_tools: Any
         _bucket_failure_message: Any
         _fill_patch: Any

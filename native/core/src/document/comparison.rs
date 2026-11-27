@@ -212,6 +212,7 @@ pub fn apply_operations(document: &mut Document, operations: &Value) -> Result<S
                     image: RgbaImage::from_rgba(index(width)?, index(height)?, &bytes(rgba)?)?,
                     initial_image: None,
                     cell_name: cell_name.as_str().map(Into::into),
+                    is_genga: false,
                 };
                 edited.paste_sheet_cell(
                     (index(frame)?, index(layer)?),

@@ -114,6 +114,8 @@ def build_payload(snapshot, *, include_default_local_images=False):
 
     def artwork(cell, path):
         entry = {"image": path, "initial": None, "cell_name": cell.cell_name}
+        if cell.is_genga:
+            entry["genga"] = True
         pngs.append((path, cell.image.copy(), "画像を書き出せませんでした: {name}"))
         if cell.initial_image is not None:
             entry["initial"] = f"initial/{path}"
@@ -125,6 +127,9 @@ def build_payload(snapshot, *, include_default_local_images=False):
         data = {key: deepcopy(getattr(track, key)) for key in DISPLAY_FIELDS}
         if data["color_filter_rgb"] is not None:
             data["color_filter_rgb"] = list(data["color_filter_rgb"])
+        if track.import_sources:
+            # 連番として読み込んだ元のファイル（再変換に使う、#89）。
+            data["import_sources"] = [str(path) for path in track.import_sources]
         data.update(cells=[], sheet=[], positions=[], pending=[], drawing_states=[])
         for number, cell in sorted(track.cells.items()):
             data["cells"].append({"number": number, **artwork(
@@ -184,7 +189,8 @@ def build_payload(snapshot, *, include_default_local_images=False):
                 local = {"column": column, "retained_number": slot.sequence_number}
                 image = cell.image
                 keep_image = (include_default_local_images or not image.width or not image.height
-                              or cell.initial_image is not None or cell.cell_name is not None)
+                              or cell.initial_image is not None or cell.cell_name is not None
+                              or cell.is_genga)
                 if not keep_image:
                     generation = image.generation
                     if generation not in transparent:
@@ -311,9 +317,9 @@ def _decode_payload(payload, archive, png_cache=None):
         return PmaImage.blank(width, height)
 
     def artwork(values):
-        image_index, initial_index, name = values
+        image_index, initial_index, name, genga = values
         return Cell(blank() if image_index is None else images[image_index],
-                    None if initial_index is None else images[initial_index], name)
+                    None if initial_index is None else images[initial_index], name, genga)
 
     # DenseReference は frozen dataclass。同じ参照を共有しても変更されない。
     references = {}
@@ -336,6 +342,8 @@ def _decode_payload(payload, archive, png_cache=None):
                       visible, opacity, paper, draft,
                       color_filter_enabled=filter_enabled,
                       color_filter_rgb=None if rgb is None else tuple(rgb))
+        if data["import_sources"] is not None:
+            track.import_sources = list(data["import_sources"])
         for number, values in data["cells"]:
             track.cells[number] = artwork(values)
         for number, content, blank_key, length, pending, index in data["hints"]:
@@ -507,10 +515,12 @@ def _decode_payload_python(payload, archive, png_cache=None):
     def artwork(entry, track, optional=False):
         name = entry.get("cell_name")
         require(name is None or isinstance(name, str))
+        genga = entry.get("genga", False)
+        require(isinstance(genga, bool))
         initial = entry.get("initial")
         return Cell(image(entry["image"], track) if "image" in entry else (
             blank() if optional else image(None, track)),
-            image(initial, track) if initial is not None else None, name)
+            image(initial, track) if initial is not None else None, name, genga)
 
     def indexed(entries):
         result = {}
@@ -540,6 +550,10 @@ def _decode_payload_python(payload, archive, png_cache=None):
             for component in track.color_filter_rgb:
                 integer(component, 0, 255)
             track.color_filter_rgb = tuple(track.color_filter_rgb)
+        sources = data.get("import_sources")
+        if sources is not None:
+            require(isinstance(sources, list) and all(isinstance(path, str) for path in sources))
+            track.import_sources = list(sources) or None
         for entry in data["cells"]:
             mapping(entry)
             n = integer(entry.get("number"), 1, io.MAX_PROJECT_FRAMES)

@@ -46,6 +46,17 @@ _PATHS = {
         '<path d="M20.5 15.5s1.5 2 1.5 3a1.5 1.5 0 0 1-3 0c0-1 1.5-3 1.5-3Z" '
         'fill="ACCENT" stroke="ACCENT"/>'
     ),
+    "replace_color": (
+        '<path d="m4.5 11 7-7 7.5 7.5-7 7a2 2 0 0 1-2.8 0L4.5 13.8a2 2 0 0 1 0-2.8Z"/>'
+        '<path d="M15 2.5h4.5V7"/>'
+        '<path d="m19.5 2.5-3 3"/>'
+        '<circle cx="20" cy="17.5" r="2.5" fill="ACCENT" stroke="ACCENT"/>'
+    ),
+    "skewer_fill": (
+        '<rect x="7" y="3" width="13" height="13" rx="1.5" stroke-opacity="0.5"/>'
+        '<rect x="4" y="6" width="13" height="13" rx="1.5" stroke-opacity="0.75"/>'
+        '<path d="m7 13.5 4-4 4 4-4 4Z" fill="ACCENT" stroke="ACCENT"/>'
+    ),
     "closed_fill": (
         '<path d="M12 3.5 20.5 12 12 20.5 3.5 12Z" fill="ACCENT" '
         'fill-opacity="0.45" stroke-dasharray="5 3"/>'
@@ -146,6 +157,20 @@ _PATHS = {
         '<path d="M10 5.7a8.8 8.8 0 0 1 2-.2c6 0 9.5 6.5 9.5 6.5a17 17 0 0 1-2.3 3.1'
         'M6.6 6.7C3.9 8.4 2.5 12 2.5 12S6 18.5 12 18.5a8.7 8.7 0 0 0 5.4-1.8"/>'
         '<path d="m3.5 3.5 17 17"/>'
+    ),
+    "lock": (
+        '<rect x="5.5" y="10.5" width="13" height="9.5" rx="2"/>'
+        '<path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/>'
+    ),
+    "merge": (
+        '<path d="M6.5 4.5v3a5.5 5.5 0 0 0 5.5 5.5 5.5 5.5 0 0 0 5.5-5.5v-3"/>'
+        '<path d="M12 13v6.5"/>'
+    ),
+    "color_wheel": (
+        '<circle cx="12" cy="12" r="8"/>'
+        '<circle cx="12" cy="7.8" r="1.6" fill="currentColor"/>'
+        '<circle cx="15.8" cy="13.6" r="1.6" fill="currentColor"/>'
+        '<circle cx="8.2" cy="13.6" r="1.6" fill="currentColor"/>'
     ),
     "draft": (
         '<path d="M15.5 4.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/>'

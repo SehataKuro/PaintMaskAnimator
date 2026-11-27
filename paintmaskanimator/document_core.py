@@ -95,7 +95,7 @@ def _number(value):
 def _cell(cell, images):
     images.cell(cell)
     return {"image": images.add(cell.image, required=True), "initial_image": images.add(cell.initial_image),
-            "cell_name": cell.cell_name}
+            "cell_name": cell.cell_name, "is_genga": bool(cell.is_genga)}
 
 
 def _settings(source):
@@ -211,7 +211,18 @@ def track_value(track, images):
         "settings": _settings(track),
         "cells": [[_number(n), _cell(cell, images)] for n, cell in track.cells.items()],
         "hints": [[_number(n), _hint(hint)] for n, hint in track.legacy_archive_hints.items()],
+        "import_sources": _import_sources(track.import_sources),
     }
+
+
+def _import_sources(sources):
+    """連番として読み込んだ元のファイル（#89）。None か文字列の一覧。"""
+    if sources is None:
+        return None
+    sources = list(sources)
+    if not all(isinstance(path, str) for path in sources):
+        raise GraphError(f"読み込み元のファイルが文字列でない: {sources!r}")
+    return sources
 
 
 def _position(slot, track, images, groups):
@@ -369,6 +380,7 @@ def _plain_cell(values, image):
     result.image = image(values["image"])
     result.initial_image = image(values["initial_image"])
     result.cell_name = values["cell_name"]
+    result.is_genga = values["is_genga"]
     return result
 
 
@@ -390,6 +402,7 @@ def plain_track(data, handles=None, image=None):
         n: ArchiveHint(h["has_content"], h["is_blank_key"], h["exposure"],
                        h["sequence_only"], h["tween"], h["tween_member"])
         for n, h in data["hints"]}
+    track.import_sources = data["import_sources"]
     track.connected = True
     return track
 
@@ -488,7 +501,8 @@ def _image_signature(image):
 
 
 def _cell_signature(cell):
-    return (_image_signature(cell.image), _image_signature(cell.initial_image), cell.cell_name)
+    return (_image_signature(cell.image), _image_signature(cell.initial_image), cell.cell_name,
+            cell.is_genga)
 
 
 def _legacy_signature(legacy):
@@ -553,7 +567,7 @@ def graph_signature(document):
     画像・Cell のオブジェクトの同一性の分け方も含む。
     """
     tracks = tuple(
-        (tuple(getattr(track, name) for name in _SETTINGS), track.connected,
+        (tuple(getattr(track, name) for name in _SETTINGS), track.import_sources, track.connected,
          tuple(sorted((n, _cell_signature(c)) for n, c in track.cells.items())),
          tuple(sorted(track.legacy_archive_hints.items())))
         for track in document.tracks)

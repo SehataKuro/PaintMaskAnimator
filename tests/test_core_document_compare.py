@@ -521,8 +521,8 @@ def _compare_edits(loaded, edits):
         _compare(loaded, json.dumps(payload), artwork, operations, notices)
 
 
-@pytest.fixture
-def initial_image_document(tmp_path, monkeypatch):
+@pytest.fixture(params=[False, True], ids=["plain", "genga"])
+def initial_image_document(request, tmp_path, monkeypatch):
     from paintmaskanimator.models import Frame
     from p5_6_support import image, slot
 
@@ -532,7 +532,14 @@ def initial_image_document(tmp_path, monkeypatch):
         Frame([slot(), slot(3, "green", has_content=True, initial_image=image("yellow"))]),
         Frame([slot(), slot()]),
     ]
-    return _legacy_project(tmp_path / "initial.pman", frames, {})
+    loaded = _legacy_project(tmp_path / "initial.pman", frames, {})
+    if request.param:
+        # 原画の印（#24）と連番の読み込み元（#89）も、Rust が同じに扱うか比べる。
+        doc = loaded.document
+        doc.tracks[0].cells[1].is_genga = True
+        doc.frames[1].layers[0].is_genga = True  # 番号の無い局所の絵
+        doc.tracks[0].import_sources = ["a/0001.png", "a/0002.png"]
+    return loaded
 
 
 def test_review_frames(initial_image_document):
@@ -741,6 +748,10 @@ def test_prepared_track_after_numbering_detached_input(initial_image_document, c
               initial_image=layer.initial_image)
         for layer in doc.capture_column(0)
     ]
+    # 同じ列にするため、原画の印と読み込み元も移す（Rust には文書の列をそのまま渡す）。
+    for slot, layer in zip(slots, doc.capture_column(0)):
+        slot.is_genga = layer.is_genga
+        slot._track.import_sources = doc.tracks[0].import_sources
     if command == "insert_track":
         edit = ([command, 0, 0, 1], lambda: doc.insert_track(0, slots, active=1))
     else:

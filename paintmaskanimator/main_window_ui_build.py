@@ -71,6 +71,11 @@ class UIBuildMixin(MainWindowMembers):
 
         self.a_import_images=QAction(tr("画像を読み込む…"),self)
         self.a_import_images.triggered.connect(self.import_images_dialog)
+        self.a_import_genga=QAction(tr("原画を読み込む…"),self)
+        self.a_import_genga.setStatusTip(tr(
+            "受け取った原画を新しいレイヤーへ読み込み、すべてのセルに原画の印を付けます。"
+        ))
+        self.a_import_genga.triggered.connect(self.import_genga_dialog)
         self.a_import_folder=QAction(tr("画像フォルダーを読み込む…"),self)
         self.a_import_folder.triggered.connect(self.import_image_folder_dialog)
         self.a_import_images_raw=QAction(tr("変換せず読み込む（下書きレイヤー）…"),self)
@@ -128,6 +133,21 @@ class UIBuildMixin(MainWindowMembers):
         self.a_channel_blue.triggered.connect(lambda: self.view_preview.set_channel("blue"))
         self.a_channel_alpha=QAction(tr("アルファチャンネルを表示"),self)
         self.a_channel_alpha.triggered.connect(lambda: self.view_preview.set_channel("alpha"))
+        self.a_binarize_layer=QAction(tr("2値化…"),self)
+        self.a_binarize_layer.setStatusTip(tr(
+            "今のレイヤーのアンチエイリアスを取り除き、指定した色だけで描き直します。"
+        ))
+        self.a_binarize_layer.triggered.connect(self.binarize_layer_dialog)
+        self.a_reconvert_layer=QAction(tr("元のファイルから再変換…"),self)
+        self.a_reconvert_layer.setStatusTip(tr(
+            "連番として読み込んだレイヤーを、読み込み直さずに別の設定で変換し直します。"
+        ))
+        self.a_reconvert_layer.triggered.connect(self.reconvert_layer_dialog)
+        self.a_tidy_lines=QAction(tr("線整え…"),self)
+        self.a_tidy_lines.setStatusTip(tr(
+            "2値の線で、角だけで接している段をつなぎ、突き出た1画素を消します。"
+        ))
+        self.a_tidy_lines.triggered.connect(self.line_ops.tidy_lines_dialog)
         self.a_remove_dust=QAction(tr("ゴミ取り／塗り抜け…"),self)
         self.a_remove_dust.triggered.connect(self.line_ops.remove_dust_fill_surrounding)
         self.a_auto_paint=QAction(tr("自動で塗る…"),self)
@@ -163,7 +183,7 @@ class UIBuildMixin(MainWindowMembers):
         self.a_preferences.setShortcut("Ctrl+,")
         self.a_preferences.triggered.connect(lambda: self.show_preferences())
         self.tool_actions={}
-        defaults={"brush":"P","line":"U","shape":"O","bucket":"G","closed_fill":"K","lasso_fill":"F","lasso":"L","rect_select":"R","auto_select":"W","eyedropper":"I","dust":"D"}
+        defaults={"brush":"P","line":"U","shape":"O","bucket":"G","lasso_fill":"F","lasso":"L","rect_select":"R","auto_select":"W","eyedropper":"I","dust":"D"}
         for tid,_source_label in ToolPanel.TOOLS:
             a=QAction(tr("ツール：{tool}").format(tool=tool_label(tid)),self);a.setShortcut(defaults.get(tid,""));a.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut);a.triggered.connect(lambda _=False,t=tid,action=a:self.tool_hold.select(t,action));self.addAction(a);self.tool_actions[tid]=a
         self.general_actions=[(tr("新規作成"),self.a_new),(tr("プロジェクトを開く"),self.a_open_project),(tr("上書き保存"),self.a_save_project),(tr("元に戻す"),self.a_undo),(tr("やり直す"),self.a_redo),(tr("前のフレーム"),self.a_prev),(tr("次のフレーム"),self.a_next)]
@@ -323,9 +343,29 @@ class UIBuildMixin(MainWindowMembers):
             tr("バケツ：隙間閉じ ON/OFF"),
             lambda: self.tools.bucket_close_gap.toggle()
         )
+        self.a_bucket_adjacent = self.make_shortcut_action(
+            tr("バケツ：隣接 ON/OFF"),
+            lambda: self.tools.bucket_adjacent.toggle()
+        )
+        self.a_bucket_extend_lines = self.make_shortcut_action(
+            tr("バケツ：線の延長 ON/OFF"),
+            lambda: self.tools.bucket_extend_lines.toggle()
+        )
+        self.a_bucket_island_fill = self.make_shortcut_action(
+            tr("バケツ：塗り残し拾い ON/OFF"),
+            lambda: self.tools.bucket_island_fill.toggle()
+        )
         self.a_bucket_all_frames = self.make_shortcut_action(
-            tr("バケツ：串刺し塗り ON/OFF"),
-            lambda: self.tools.bucket_all_frames.toggle()
+            tr("ツール：串刺し塗り／バケツを切り替え"),
+            lambda: self.tools.select_tool(
+                "bucket" if self.tools.active_tool == "skewer_fill" else "skewer_fill"
+            )
+        )
+        self.a_bucket_replace_color = self.make_shortcut_action(
+            tr("ツール：色置換／バケツを切り替え"),
+            lambda: self.tools.select_tool(
+                "bucket" if self.tools.active_tool == "replace_color" else "replace_color"
+            )
         )
         self.a_dust_all_frames = self.make_shortcut_action(
             tr("ゴミ取り：すべてのコマ ON/OFF"),
@@ -465,7 +505,11 @@ class UIBuildMixin(MainWindowMembers):
             (tr("使用色：この色を選択範囲にする"), self.a_focus_used_color),
             (tr("バケツ：含み塗り ON/OFF"), self.a_bucket_include_sub),
             (tr("バケツ：隙間閉じ ON/OFF"), self.a_bucket_close_gap),
-            (tr("バケツ：串刺し塗り ON/OFF"), self.a_bucket_all_frames),
+            (tr("バケツ：隣接 ON/OFF"), self.a_bucket_adjacent),
+            (tr("バケツ：線の延長 ON/OFF"), self.a_bucket_extend_lines),
+            (tr("バケツ：塗り残し拾い ON/OFF"), self.a_bucket_island_fill),
+            (tr("ツール：串刺し塗り／バケツを切り替え"), self.a_bucket_all_frames),
+            (tr("ツール：色置換／バケツを切り替え"), self.a_bucket_replace_color),
             (tr("ゴミ取り：すべてのコマ ON/OFF"), self.a_dust_all_frames),
             (tr("ゴミ取り／塗り抜けを適用"), self.a_dust_apply),
             (tr("選択変形：すべてのコマ ON/OFF"), self.a_selection_all_frames),
@@ -495,6 +539,7 @@ class UIBuildMixin(MainWindowMembers):
         )
         f.addAction(self.a_open_cut_folder)
         f.addAction(self.a_import_images)
+        f.addAction(self.a_import_genga)
         f.addAction(self.a_import_folder)
         f.addAction(self.a_import_images_raw)
         f.addAction(self.a_import_psd)
@@ -512,7 +557,7 @@ class UIBuildMixin(MainWindowMembers):
         f.addAction(self.a_export_xdts)
         f.addAction(self.a_export_psd)
         f.addAction(self.a_export_mp4)
-        e=self.menuBar().addMenu(tr("編集"));e.addAction(self.a_undo);e.addAction(self.a_redo);e.addSeparator();e.addAction(self.a_cut);e.addAction(self.a_copy);e.addAction(self.a_paste);e.addSeparator();e.addAction(self.a_silhouette);e.addAction(self.a_preview_map);e.addAction(self.a_isolate_color);e.addAction(self.a_clear_color_filter);e.addAction(self.a_swap_main_sub);e.addAction(self.a_remove_dust);e.addSeparator();e.addAction(self.a_resize);e.addAction(self.a_pressure);e.addSeparator();e.addAction(self.a_memo)
+        e=self.menuBar().addMenu(tr("編集"));e.addAction(self.a_undo);e.addAction(self.a_redo);e.addSeparator();e.addAction(self.a_cut);e.addAction(self.a_copy);e.addAction(self.a_paste);e.addSeparator();e.addAction(self.a_silhouette);e.addAction(self.a_preview_map);e.addAction(self.a_isolate_color);e.addAction(self.a_clear_color_filter);e.addAction(self.a_swap_main_sub);e.addAction(self.a_binarize_layer);e.addAction(self.a_reconvert_layer);e.addAction(self.a_tidy_lines);e.addAction(self.a_remove_dust);e.addSeparator();e.addAction(self.a_resize);e.addAction(self.a_pressure);e.addSeparator();e.addAction(self.a_memo)
         e.addSeparator()
         self.a_color_chart = QAction(tr("カラーチャート…"), self)
         self.a_color_chart.triggered.connect(
@@ -954,6 +999,7 @@ class UIBuildMixin(MainWindowMembers):
             self.action_panel_dock: self._build_action_panel_menu,
             self.color_wheel_dock: self._build_color_wheel_menu,
             self.color_slider_dock: self._build_color_slider_menu,
+            self.palette_dock: self.palette.build_panel_menu,
         }
         for dock in (
             self.tool_selector_dock,
@@ -1164,6 +1210,7 @@ class UIBuildMixin(MainWindowMembers):
         self.tools.swapMainSubRequested.connect(self.line_ops.swap_main_sub)
         self.tools.resetMainSubRequested.connect(self.line_ops.reset_main_sub)
         self.tools.removeDustRequested.connect(self.line_ops.remove_dust_fill_surrounding)
+        self.canvas.lineTidyRegionDrawn.connect(self.line_ops.tidy_lines_with_tool)
         self.tools.backgroundColorRequested.connect(self.colors.choose_background_color)
         self.tools.colorEditRequested.connect(self.colors.choose_color)
 
@@ -1223,6 +1270,8 @@ class UIBuildMixin(MainWindowMembers):
         self.timeline.mergeClipRequested.connect(self.timeline_ops.merge_clip)
         self.timeline.splitClipRequested.connect(self.timeline_ops.split_clip)
         self.timeline.newNumberHereRequested.connect(self.timeline_ops.new_number_here)
+        self.timeline.gengaToggleRequested.connect(self.timeline_ops.toggle_genga)
+        self.timeline.inbetweenRequested.connect(self.timeline_ops.insert_inbetweens_dialog)
         self.timeline.insertFrameAtRequested.connect(
             self.timeline_ops.insert_frame_at
         )
@@ -1315,6 +1364,7 @@ class UIBuildMixin(MainWindowMembers):
             self.used_color.load_replacement_set
         )
         self.palette.previewGroupsChanged.connect(self.colors.set_preview_color_groups)
+        self.palette.replacementPreviewChanged.connect(self.colors.set_replacement_preview)
         self.palette.mergeColorsRequested.connect(self.used_color.apply_palette_merge)
         self.palette.deleteColorsRequested.connect(
             self.used_color.apply_palette_delete

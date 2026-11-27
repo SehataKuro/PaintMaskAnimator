@@ -33,6 +33,11 @@ def _pair(**shape):
     plain.install_legacy_frames(_frames(**shape))
     live = document_live.Document()
     live.install_legacy_frames(_frames(**shape))
+    for document in (plain, live):
+        # 原画の印（#24）と読み込み元（#89）も、Rust が同じに扱うか比べる。
+        document.tracks[0].cells[1].is_genga = True
+        document.frames[min(2, len(document.frames) - 1)].layers[1].is_genga = True  # 局所の絵
+        document.tracks[0].import_sources = ["a/0001.png"]
     assert live._live()["graph"] is None
     return plain, live
 
@@ -51,8 +56,9 @@ def _round_trips(document, monkeypatch):
 
 def _signature(document):
     return [[(slot.has_content, slot.is_blank_key, slot.sequence_number, slot.sequence_only,
-              slot.blank_start, slot.visible, slot.opacity, slot.color_filter_rgb)
-             for slot in frame.layers] for frame in document.frames]
+              slot.blank_start, slot.visible, slot.opacity, slot.color_filter_rgb, slot.is_genga)
+             for slot in frame.layers] for frame in document.frames] + [
+        [track.import_sources for track in document.tracks]]
 
 
 def test_resolve_uses_core_and_matches_python():

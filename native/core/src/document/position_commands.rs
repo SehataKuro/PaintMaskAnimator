@@ -179,22 +179,27 @@ impl Document {
         let mut owner = first;
         let mut initial_image = None;
         let mut cell_name = None;
+        // 原画の印はどれか一つにあれば付く（Python の import_drawing_reference の any）。
+        let mut is_genga = false;
         for (id, cell) in candidates {
             if Some(id) == preferred {
                 owner = cell;
             }
             initial_image = initial_image.or_else(|| cell.initial_image.clone());
             cell_name = cell_name.or_else(|| cell.cell_name.clone());
+            is_genga |= cell.is_genga;
         }
         if let Some(archived) = existing.filter(|_| bank.legacy_archive_hints.contains_key(&number))
         {
             initial_image = initial_image.or_else(|| archived.initial_image.clone());
             cell_name = cell_name.or_else(|| archived.cell_name.clone());
+            is_genga |= archived.is_genga;
         }
         Cell {
             image: owner.image.clone(),
             initial_image,
             cell_name,
+            is_genga,
         }
     }
 
@@ -942,6 +947,7 @@ impl Document {
                 image: crate::image::RgbaImage::blank(self.width, self.height)?,
                 initial_image: None,
                 cell_name: None,
+                is_genga: false,
             },
         };
         let number = self.next_drawing_number(layer_index)?;
@@ -987,6 +993,7 @@ impl Document {
                 image: crate::image::RgbaImage::blank(self.width, self.height)?,
                 initial_image: None,
                 cell_name: None,
+                is_genga: false,
             },
         };
         self.tracks
@@ -1034,6 +1041,7 @@ impl Document {
             .cells
             .get(&source_number)
             .ok_or_else(invalid)?;
+        // セル名は消す。原画の印は clone・detach_cell した元の絵のまま（Python と同じ）。
         let new_cell = Cell {
             cell_name: None,
             ..cell.clone()
@@ -1142,8 +1150,9 @@ impl Document {
             editable(self.position_mut(index, track));
         }
         self.drop_single_shares();
-        let (initial_image, cell_name) =
-            local.map_or((None, None), |cell| (cell.initial_image, cell.cell_name));
+        let (initial_image, cell_name, is_genga) = local.map_or((None, None, false), |cell| {
+            (cell.initial_image, cell.cell_name, cell.is_genga)
+        });
         self.tracks
             .get_mut(&track)
             .ok_or_else(invalid)?
@@ -1154,6 +1163,7 @@ impl Document {
                     image,
                     initial_image,
                     cell_name,
+                    is_genga,
                 },
             );
         Ok(vec![Change::SheetSpans {
@@ -1235,6 +1245,7 @@ impl Document {
             image: edited.blank_artwork()?,
             initial_image: artwork.and_then(|cell| cell.initial_image.clone()),
             cell_name: artwork.and_then(|cell| cell.cell_name.clone()),
+            is_genga: artwork.is_some_and(|cell| cell.is_genga),
         });
         // 今の手順は空キーの位置をその場で書き換えるので、clear_pending・detach_cell が外さない
         // 印（_pending_detached・_legacy_missing・_v2_length_imported・_v2_resolve_source）は残る。

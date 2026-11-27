@@ -130,6 +130,7 @@ class PaintCanvas(
     viewChanged=Signal(float, float)
     onionInteractionChanged=Signal()
     onionInteractionFinished=Signal()
+    lineTidyRegionDrawn=Signal(object)
     changed=Signal(); selectionChanged=Signal(); selectionCleared=Signal(); cellChanged=Signal(int,int); imagesDropped=Signal(object); projectDropped=Signal(str); timeRemapDropped=Signal(str); clipAnimationDropped=Signal(str); colorSampled=Signal(QColor)
     def __init__(self):
         super().__init__(); self.setFocusPolicy(Qt.FocusPolicy.StrongFocus); self.setMouseTracking(True); self.setTabletTracking(True); self.setMinimumSize(320,120); self.setAcceptDrops(True)
@@ -287,7 +288,7 @@ class PaintCanvas(
         self._view_preview_cache = {}
         self._view_map_color_mappings = {}
         self._onion_cache = {}
-        self.drawing=False; self.last_canvas=QPointF(); self.last_widget=QPointF(); self.lasso=[]; self.middle_hand=False
+        self.drawing=False; self.last_canvas=QPointF(); self.last_widget=QPointF(); self.lasso=[]; self.line_tidy_stroke=[]; self.middle_hand=False
         self._brush_cursor_widget_pos = QPointF(-1000, -1000)
         self._brush_cursor_inside = False
         # ブラシ確定時にタイムライン全体を作り直さないための状態。
@@ -529,6 +530,8 @@ class PaintCanvas(
         return None
 
     def set_tool(self, t):
+        if t == "closed_fill":
+            t = "bucket"  # 閉領域フィルはなくした（バケツの隙間閉じと同じ）
         if t != self.tool or t == "shape":
             self._commit_brush_stroke()
             self.abort_skewer_fill()
@@ -1816,6 +1819,30 @@ class PaintCanvas(
         window: Any = self.window()
         return window.tools if hasattr(window, "tools") else None
 
+    def _line_tidy_stroke_active(self):
+        panel = self._active_tool_panel()
+        return panel is not None and panel.line_tidy_stroke_active()
+
+    def _line_tidy_stroke_settings(self):
+        """（なぞり方, ブラシの太さ）。パネルが無ければブラシ24px。"""
+        panel = self._active_tool_panel()
+        if panel is None:
+            return "brush", 24.0
+        return panel.line_tidy_shape.currentData(), float(panel.line_tidy_brush_size.value())
+
+    def _finish_line_tidy_stroke(self):
+        """なぞった範囲をマスクにして ``lineTidyRegionDrawn`` で渡す。"""
+        from .line_tidy_region import region_mask
+
+        points = [(point.x(), point.y()) for point in self.line_tidy_stroke]
+        self.line_tidy_stroke = []
+        shape, brush_width = self._line_tidy_stroke_settings()
+        image = self.active_layer.image
+        mask = region_mask(points, shape, image.width, image.height, brush_width)
+        self.update()
+        if mask.any():
+            self.lineTidyRegionDrawn.emit(mask)
+
     def _prepare_draw_painter(self, painter, transparent=False):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, False)
@@ -1995,6 +2022,26 @@ class PaintCanvas(
                 p.drawPath(preview_path)
 
         # overlays are drawn in widget coordinates so rotation is applied only once
+        if self.line_tidy_stroke:
+            shape, brush_width = self._line_tidy_stroke_settings()
+            pts = [self.canvas_to_widget(q) for q in self.line_tidy_stroke]
+            p.save()
+            if shape == "lasso":
+                p.setPen(QPen(QColor(255,70,70),2,Qt.PenStyle.DashLine))
+                for a,b in zip(pts,pts[1:]):p.drawLine(a,b)
+            else:
+                pen = QPen(QColor(255,70,70,90), max(1.0, brush_width * self.zoom))
+                pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+                pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+                p.setPen(pen)
+                path = QPainterPath(pts[0])
+                for point in pts[1:]:
+                    path.lineTo(point)
+                if len(pts) == 1:
+                    p.drawPoint(pts[0])
+                else:
+                    p.drawPath(path)
+            p.restore()
         preview_selection = self.lasso
         if preview_selection:
             p.setPen(QPen(QColor(255,70,70),2,Qt.PenStyle.DashLine));

@@ -157,6 +157,9 @@ class MainWindowMembers(_MembersBase):
         _visible_color_timer: QTimer
         _widget_in_timeline: Any
         a_bucket_close_gap: Any
+        a_bucket_adjacent: Any
+        a_bucket_extend_lines: Any
+        a_bucket_island_fill: Any
         a_bucket_include_sub: Any
         a_focus_used_color: Any
         _timeline_cell_clipboard: Any
@@ -334,6 +337,9 @@ class MainWindowMembers(_MembersBase):
         import_dropped_images_raw: Any
         import_image_folder_dialog: Any
         import_images_dialog: Any
+        binarize_layer_dialog: Any
+        import_genga_dialog: Any
+        reconvert_layer_dialog: Any
         import_images_raw_dialog: Any
         make_shortcut_action: Any
         new_doc: Any

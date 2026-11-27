@@ -85,6 +85,7 @@ impl Document {
                 image,
                 initial_image: None,
                 cell_name: None,
+                is_genga: false,
             });
         }
         *self.position_mut(frame, tid) = slot;
