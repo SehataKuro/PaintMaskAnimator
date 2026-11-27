@@ -9,6 +9,8 @@
 // - ツールのキー（P・G など）と、選択範囲・描画色のショートカット。
 import { toolStore, selectTool, nextInGroup, groupOf, pickColor, holdKeys, refreshShortcuts } from "./tools.js";
 import { toolFlags, notify, openPressureDialog } from "./tool_properties.js";
+// 塗りの操作（paint_ops.js）：バケツのなぞり塗り・串刺し塗り・色置換・線整え。
+import { bucketDown, bucketMove, bucketUp, skewerClick, replaceColor, dustApply } from "./paint_ops.js";
 
 const { invoke } = window.__TAURI__.core;
 
@@ -195,10 +197,19 @@ export function createCanvasTools({ canvas, viewer, overlay, applyRect }) {
       } else if (t === "auto_select") {
         const mode = held.has("Alt") ? "subtract" : held.has("Shift") ? "add" : "replace";
         select({ kind: "auto", points: [p], mode });
-      } else if (["bucket", "skewer_fill", "replace_color"].includes(t)) {
-        run("tool_fill", { tool: t, x: p[0], y: p[1] });
+      } else if (t === "bucket") {
+        // paint_ops.js：押して動かすと、なぞった所をまとめて塗る。
+        active = { kind: "bucket" };
+        bucketDown(p, held.has("Shift"));
+      } else if (t === "skewer_fill") {
+        skewerClick(p, held.has("Shift"));
+      } else if (t === "replace_color") {
+        replaceColor(p);
       } else if (t === "dust") {
-        if (s.dust_mode === "line_tidy") active = { kind: "tidy" };
+        if (s.dust_mode === "line_tidy") {
+          active = { kind: "tidy", points: [p] };
+          if (s.line_tidy_shape === "lasso") overlay.setPreview({ kind: "lasso", points: active.points });
+        }
       }
       return true;
     }
@@ -231,6 +242,12 @@ export function createCanvasTools({ canvas, viewer, overlay, applyRect }) {
     } else if (a.kind === "rect") {
       a.end = p;
       overlay.setPreview({ kind: "rect", start: a.start, end: a.end });
+    } else if (a.kind === "bucket") {
+      if (phase !== "up") bucketMove(p);
+    } else if (a.kind === "tidy") {
+      const last = a.points[a.points.length - 1];
+      if (Math.hypot(p[0] - last[0], p[1] - last[1]) * viewer.zoom >= 1) a.points.push(p);
+      if (settings().line_tidy_shape === "lasso") overlay.setPreview({ kind: "lasso", points: a.points });
     }
     if (phase !== "up") return true;
     active = null;
@@ -255,8 +272,11 @@ export function createCanvasTools({ canvas, viewer, overlay, applyRect }) {
     } else if (a.kind === "rect") {
       overlay.setPreview(null);
       select({ kind: "rect", points: [a.start, a.end] });
+    } else if (a.kind === "bucket") {
+      bucketUp();
     } else if (a.kind === "tidy") {
-      run("tool_dust_apply");
+      overlay.setPreview(null);
+      dustApply(a.points);
     }
     return true;
   };
@@ -428,7 +448,7 @@ export function createCanvasTools({ canvas, viewer, overlay, applyRect }) {
       if (curve) return commitLine(curve);
       return run("tool_transform", { kind: "commit" });
     },
-    a_dust_apply: () => run("tool_dust_apply"),
+    a_dust_apply: () => dustApply(null),
     a_bucket_include_sub: () => toolStore.set({ bucket_include_sub: !settings().bucket_include_sub }),
     a_bucket_close_gap: () => toolStore.set({ bucket_close_gap: !settings().bucket_close_gap }),
     a_bucket_adjacent: () => toolStore.set({ bucket_adjacent: !settings().bucket_adjacent }),
