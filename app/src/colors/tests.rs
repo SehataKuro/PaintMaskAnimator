@@ -187,10 +187,10 @@ fn locked_color_is_protected_from_the_brush() {
     let (w, h) = (s.display.width(), s.display.height());
     let (cx, cy) = (w / 2, h / 2);
     let tool = |color| StrokeTool {
-        size: 9.0,
-        color,
+        size: Some(9.0),
+        color: Some(color),
         eraser: false,
-        stabilizer: 0,
+        stabilizer: Some(0),
         zoom: 1.0,
     };
     let pt = |x: usize, y: usize| Point {
@@ -215,11 +215,17 @@ fn locked_color_is_protected_from_the_brush() {
     .unwrap();
     s.palette_op(PaletteOp::SweepEnd).unwrap();
     assert_eq!(undo_labels(&s).last().unwrap(), "マスクの一括切り替え");
+    // 描ける範囲は sync でツールのマスク色の絞り込みになる（ブラシ・塗りと同じ1か所）。
+    sync(&mut s);
+    let filter = s.tools.mask_filter.clone().unwrap();
+    assert!(!filter.colors.contains(&[255, 0, 0]) && filter.background);
     s.stroke_begin(&tool([0, 0, 255]), pt(cx, cy)).unwrap();
     s.stroke_end(None).unwrap();
     assert_eq!(layer_pixel(&s, cx, cy), [255, 0, 0, 255]);
     // 鍵を外せば描ける。
     s.palette_op(PaletteOp::UnlockAll).unwrap();
+    sync(&mut s);
+    assert!(s.tools.mask_filter.is_none());
     s.stroke_begin(&tool([0, 0, 255]), pt(cx, cy)).unwrap();
     s.stroke_end(None).unwrap();
     assert_eq!(layer_pixel(&s, cx, cy), [0, 0, 255, 255]);
@@ -228,14 +234,10 @@ fn locked_color_is_protected_from_the_brush() {
 #[test]
 fn metadata_round_trips_drawing_colors_categories_and_chart() {
     let (mut s, a, b) = with_two_colors();
-    s.colors.drawing_op(DrawingOp::Set {
-        which: DrawMode::Sub,
-        color: [1, 2, 3],
-    });
-    s.colors.drawing_op(DrawingOp::Mode {
-        mode: DrawMode::Transparent,
-    });
-    assert!(s.colors.current().eraser);
+    // 描画色の正本はツールの設定。
+    s.tools.settings.color_sub = [1, 2, 3];
+    s.tools.settings.color_mode = "transparent".into();
+    s.tools.settings.background_color = [10, 20, 30];
     s.palette_op(PaletteOp::CreateCategory { name: "線".into() })
         .unwrap();
     s.palette_op(PaletteOp::DropToCategory {
@@ -251,10 +253,17 @@ fn metadata_round_trips_drawing_colors_categories_and_chart() {
     .unwrap();
     s.colors.chart_op(ChartOp::Capture).unwrap();
     let mut metadata = s.project.as_ref().unwrap().metadata.clone();
-    s.colors.store(&mut metadata);
+    s.colors.store(&s.tools.settings, &mut metadata);
+    let mut settings = crate::tools::Settings::default();
+    drawing_from_metadata(&metadata, &mut settings);
+    assert_eq!(settings.color_sub, [1, 2, 3]);
+    assert_eq!(settings.color_mode, "transparent");
+    assert_eq!(settings.background_color, [10, 20, 30]);
+    assert_eq!(
+        canvas_background(&settings),
+        Background::Color([10, 20, 30])
+    );
     let mut again = ColorUi::from_metadata(&metadata);
-    assert_eq!(again.sub, (1, 2, 3));
-    assert_eq!(again.mode, DrawMode::Transparent);
     assert_eq!(again.chart, s.colors.chart);
     again
         .palette
@@ -263,6 +272,28 @@ fn metadata_round_trips_drawing_colors_categories_and_chart() {
         .palette
         .restore_categories(again.pending_categories.as_ref());
     assert_eq!(again.palette.category_of(a), Some("線"));
+}
+
+#[test]
+fn edit_filter_follows_selection_and_locks() {
+    let (mut s, a, b) = with_two_colors();
+    assert!(edit_filter(&s.colors.palette).is_none());
+    // a だけ選ぶ：a の上にだけ描ける（背景は選んでいないので描けない）。
+    s.colors.palette.select_only(a);
+    let f = edit_filter(&s.colors.palette).unwrap();
+    assert_eq!(f.colors, vec![rgb3(a)]);
+    assert!(!f.background);
+    // 背景だけ選ぶ：色の一覧は空でも背景には描ける。
+    s.colors.palette.select_only(a);
+    s.colors.palette.set_selected(a, false);
+    s.colors.palette.set_selected(BACKGROUND, true);
+    let f = edit_filter(&s.colors.palette).unwrap();
+    assert!(f.colors.is_empty() && f.background);
+    // 選択なしで b に鍵：b 以外（背景も）に描ける。
+    s.colors.palette.set_selected(BACKGROUND, false);
+    s.colors.palette.set_locked(b, true);
+    let f = edit_filter(&s.colors.palette).unwrap();
+    assert!(f.colors.contains(&rgb3(a)) && !f.colors.contains(&rgb3(b)) && f.background);
 }
 
 #[test]

@@ -480,7 +480,7 @@ export function createUsedColorsPanel() {
       title: "プレビューを見ながら調整し、OKで全コマへ適用します。",
       action: () => adjustHsv(sources.map(rgbOf)),
     });
-    items.push({ label: "この色を選択範囲にする", action: () => paletteOp({ op: "focus", rgb: row.rgb }) });
+    items.push({ label: "この色を選択範囲にする", action: () => paletteOp({ op: "select_pixels", rgb: row.rgb }) });
     const moveSources = inSelection ? selected : [row];
     items.push({
       label: "フォルダーへ移動",

@@ -3,6 +3,7 @@
 マスクは1画素1バイト（0 か 1）の行優先の並び（numpy の bool 配列の tobytes()）。
 """
 
+import os
 from typing import Any
 
 __version__: str
@@ -31,6 +32,8 @@ class _CoreDocument:
 
     @staticmethod
     def from_graph(graph_json: str, images: list[RgbaImage]) -> _CoreDocument: ...
+    @staticmethod
+    def new_blank(width: int, height: int) -> _CoreDocument: ...
     def __init__(self, *args: Any, **kwargs: Any) -> None: ...
     def __getattr__(self, name: str) -> Any: ...
 
@@ -620,3 +623,207 @@ def color_chart_move(
 ) -> str | None: ...
 def color_chart_assign_tag(text: str, target: tuple[str, str, int], tag: str) -> str | None: ...
 def color_chart_read_pmag(text: str) -> str: ...
+# バケツ・串刺し塗り（pma-core の tools）。settings は bucket_fill.BucketOptions の欄
+# （adjacent, island_max_width, include_masks, mask_colors, include_background_mask,
+#   close_gap, gap_width, extend_lines, extend_length, require_closed, target_color,
+#   reference, island_replacements）と、塗る色 color (RGB)・不透明度 opacity (float)。
+# 欄がなければ BucketOptions() の既定値。矩形は (x, y, 幅, 高さ)。selection は
+# キャンバス全体の 0/1 の bytes。理由は bucket_fill.REASON_* の文字列。
+_Rect = tuple[int, int, int, int]
+_Cell = tuple[int, int]
+_DragStep = tuple[str | None, list[tuple[_Rect, list[_RGB]]]]
+_SkewerStatus = tuple[str, _Cell | None]
+_SkewerEvent = tuple[str, Any]
+_SkewerApplied = tuple[int, int, list[_RGB], int, list[tuple[_Cell, list[_Cell], _Rect]]]
+
+def bucket_fill_at(
+    document: _CoreDocument, frame: int, layer: int, settings: dict[str, Any],
+    x: float, y: float, selection: bytes | None = None,
+) -> tuple[str, _Rect | None, list[_RGB]]:
+    """1か所を塗る。(理由, 書いた矩形か None, 書き込んだ RGB の列)。"""
+_FindingEntry = tuple[
+    int, int, str, _RGB | None, int, tuple[int, int, int, int] | None, _RGB | None, bytes | None,
+]
+def reference_check_layer(
+    document: _CoreDocument, current_frame: int, layer: int,
+) -> tuple[str, int | None, list[_FindingEntry], list[tuple[_RGB, int, int]]]:
+    """見本との違いチェック。(状態, 見本のコマ, 候補, 見本だけの色)。
+    候補は (コマ, レイヤー, 種類, 色, 画素数, 矩形, 前後の色, 矩形内のマスク)。"""
+def auto_paint_layer(
+    document: _CoreDocument, layer: int, references: list[int], *,
+    island_max_width: int = 0, close_gap: bool = False, gap_width: int = 4,
+    extend_lines: bool = False, extend_length: int = 150, require_closed: bool = False,
+) -> tuple[
+    str, list[tuple[int, int, tuple[int, int, int, int], bytes]], list[_FindingEntry],
+    list[_RGB], list[tuple[int, int]], int,
+]:
+    """自動塗り。(状態, 書き込み, 確かめたい所, 書いた色, 見本のセル, 塗った回数)。
+    書き込みは (コマ, レイヤー, (x, y, 幅, 高さ), ストレート RGBA)。ドキュメントは変えない。"""
+def bucket_reference_pixels(
+    document: _CoreDocument, frame: int, layer: int, reference: str,
+) -> bytes:
+    """塗る範囲の判定に使う絵（"layer"・"canvas"・"initial"）のストレート RGBA。"""
+def bucket_replace_color_request(
+    document: _CoreDocument, frame: int, layer: int, color: _RGB, x: float, y: float,
+) -> tuple[str, tuple[_RGB, _RGB, bool] | None]:
+    """色置換の判定。("ok", (元の RGB, 置き換える RGB, 線の色か)) か
+    ("out_of_bounds"・"no_artwork"・"transparent"・"same_color", None)。"""
+def skewer_cells(document: _CoreDocument, layer: int) -> list[_Cell]:
+    """串刺し塗りで見るセル（露出元のコマ, レイヤー）。"""
+
+class _BucketDrag:
+    """なぞり塗り。begin で押した所を塗り、extend でなぞった先を塗る。"""
+
+    @staticmethod
+    def begin(
+        document: _CoreDocument, frame: int, layer: int, settings: dict[str, Any],
+        x: float, y: float, selection: bytes | None = None,
+    ) -> tuple[_BucketDrag, _DragStep] | None: ...
+    def extend(self, document: _CoreDocument, x: float, y: float) -> _DragStep: ...
+    def finish(self, document: _CoreDocument) -> tuple[int, int, _Rect, bytes] | None:
+        """(コマ, レイヤー, 塗った外接矩形, 押す前の画素) か None。"""
+
+class _SkewerFill:
+    """串刺し塗り。start のあと advance で追跡し、("ready", None) になったら apply。
+
+    操作の結果 _SkewerEvent は ("invalidated"・"ignored", None)、("show_pending", セル)、
+    ("failed", 理由)、("advanced", _SkewerStatus)。_SkewerStatus は ("pending", セル) か
+    ("ready", None)。
+    """
+
+    @staticmethod
+    def start(
+        document: _CoreDocument, frame: int, layer: int, settings: dict[str, Any],
+        x: float, y: float, selection: bytes | None = None,
+    ) -> tuple[str, _SkewerFill | None, str | None]:
+        """("ignored"・"no_artwork"・"failed"・"started", 串刺し塗りか None, 理由か None)。"""
+    def advance(self, document: _CoreDocument) -> _SkewerStatus: ...
+    def pending(self) -> _Cell | None: ...
+    def has_guess(self) -> bool: ...
+    def guide(self) -> tuple[bytes, tuple[int, int, int, int], bool] | None:
+        """指定待ちのコマに重ねる (マスク, RGBA, 推測か)。"""
+    def resume_click(
+        self, document: _CoreDocument, frame: int, x: float, y: float,
+    ) -> _SkewerEvent: ...
+    def accept_guess(self, document: _CoreDocument) -> _SkewerEvent: ...
+    def skip_frame(self, document: _CoreDocument) -> _SkewerEvent: ...
+    def skip_direction(self, document: _CoreDocument) -> _SkewerEvent: ...
+    def apply(self, document: _CoreDocument) -> tuple[str, _SkewerApplied | None]:
+        """("done", (塗ったセル数, 飛ばしたコマ数, 書き込んだ RGB, 元のコマ,
+        [(セル, 共有するセル, 矩形), ...])) か ("invalidated", None)。"""
+
+
+# --- 線・色のメニューの操作（pma_core::image_ops） -------------------------------
+# 編集の結果は (書き戻す画像, 変わった範囲 (x, y, w, h) | None, 変えた画素数)。
+_Rgb = tuple[int, int, int]
+_Edit = tuple[RgbaImage, _Rect | None, int]
+_Contour = list[tuple[int, int]]
+
+def image_ops_remove_dust(
+    image: RgbaImage, mode: str, max_area: int, selected: list[_Rgb] | None = None,
+) -> _Edit | None:
+    """ゴミ取りツール（mode は "despeckle" / "fill_holes" / "line_noise"）。"""
+def image_ops_tidy_lines(
+    image: RgbaImage, colours: list[_Rgb], diagonal_mode: str | None = "add",
+    region: bytes | None = None, region_size: tuple[int, int] | None = None,
+) -> tuple[_Edit | None, int, int]:
+    """線整え。(結果, 足した画素数, 消した画素数)。"""
+def image_ops_tidy_preview(
+    image: RgbaImage, colours: list[_Rgb], diagonal_mode: str | None = "add",
+    region: bytes | None = None, region_size: tuple[int, int] | None = None,
+    scale: int = 8, margin: int = 6, limit: int = 480,
+) -> tuple[RgbaImage, _Rect, int, int, int] | None:
+    """線整えのプレビュー。(画像, 切り出し, 拡大率, 足す数, 消す数)。"""
+def image_ops_tidy_line_colours(image: RgbaImage, selected: list[_Rgb]) -> list[_Rgb]: ...
+def image_ops_replace_colors(
+    image: RgbaImage, mapping: list[tuple[_Rgb, _Rgb]],
+    selection: bytes | None = None, selection_size: tuple[int, int] | None = None,
+) -> _Edit | None:
+    """使用色の置換・削除・統合（置換先が白なら透明）。"""
+def image_ops_delete_mapping(selected: list[_Rgb]) -> list[tuple[_Rgb, _Rgb]]: ...
+def image_ops_merge_mapping(parent: _Rgb, selected: list[_Rgb]) -> list[tuple[_Rgb, _Rgb]] | None: ...
+def image_ops_aligned_mapping(source: RgbaImage, target: RgbaImage) -> list[tuple[_Rgb, _Rgb]] | None: ...
+def hsv_shifted_color(rgb: _Rgb, hue: int, saturation: int, value: int) -> _Rgb: ...
+def hsv_shifted_mapping(rgbs_in: list[_Rgb], hue: int, saturation: int, value: int) -> list[tuple[_Rgb, _Rgb]]: ...
+def image_ops_mask_contours(mask: bytes, width: int, height: int) -> list[_Contour]: ...
+def image_ops_color_selection(image: RgbaImage, rgb: _Rgb) -> tuple[bytes, list[_Contour], int, _Rect] | None:
+    """(色のマスク, 輪郭, いちばん大きい輪郭の添字, 囲む矩形)。"""
+def image_ops_contains_rgb(image: RgbaImage, rgb: _Rgb) -> bool: ...
+def image_ops_split_line(image: RgbaImage, selected: list[_Rgb]) -> tuple[RgbaImage, RgbaImage, bool, bool]:
+    """MainLineRepaint の 1 枚分。(LINE, Paint, 線があるか, 塗りが残ったか)。"""
+def image_ops_count_antialias(rgba: bytes, width: int, height: int) -> int: ...
+def image_ops_remove_antialias(rgba: bytes, width: int, height: int) -> tuple[bytes, int]: ...
+def image_ops_remove_isolated_specks(rgba: bytes, width: int, height: int, max_pixels: int) -> tuple[bytes, int]: ...
+def image_ops_soft_blur(rgba: bytes, width: int, height: int, sigma: float) -> bytes: ...
+def image_ops_rgb_hsv_features(colours: list[_Rgb]) -> bytes:
+    """単精度 4 つずつの特徴量（colors.rgb_hsv_features と同じ値）。"""
+def image_ops_priority_palette_colors(sample: list[_Rgb], maximum: int) -> list[_Rgb]: ...
+def image_ops_hue_cluster_palette(sample: list[_Rgb], color_count: int) -> list[_Rgb]: ...
+def image_ops_build_palette(
+    images: list[RgbaImage], color_count: int, alpha_threshold: int = 128, max_samples: int = 262144,
+    opaque_background: bool = False, background: _Rgb | None = None, line: bool = False,
+) -> list[_Rgb]: ...
+def image_ops_binarize(
+    image: RgbaImage, mode: str, palette: list[_Rgb] | None = None, blur: float = 0.0,
+    despeckle_pixels: int = 0, alpha_threshold: int = 128, opaque_background: bool = False,
+    background: _Rgb | None = None, tone_curve_points: list[tuple[float, float]] | None = None,
+    flatten_paper: bool = False,
+) -> _Edit | None:
+    """2 値化の 1 セル分（mode は "surface" / "line" / "digital"）。flatten_paper は未移植で ValueError。"""
+def image_ops_border_background_transparent(
+    rgba: bytes, width: int, height: int, tolerance: int = 24,
+) -> bytes | None: ...
+
+# 書き出し・読み込み（pma_core::export・import と pma-io、native/src/export.rs）。
+# 構成 layout_json は CutFolderLayout.to_json() の JSON 文字列。values は入力欄の辞書。
+_Cel = tuple[int, str, int, int]
+"""(列, セル名, セル番号, 最初のコマ)。"""
+
+def export_cut_folder_cels(document: _CoreDocument) -> tuple[list[_Cel], int]:
+    """書き出す絵と、セル番号のない絵の数（MainWindowExport.cut_folder_cels）。"""
+
+def export_plan_cut_folder(layout_json: str, values_dict: dict[str, Any], cel_list: list[_Cel]) -> dict[str, Any]:
+    """cut_folder.plan_export の結果（files は (パス, 列, セル名, セル番号)）。"""
+
+def export_write_cut_folder(
+    document: _CoreDocument, parent: str | os.PathLike[str], layout_json: str,
+    values_dict: dict[str, Any], memo: str = "", playback_range_end: int | None = None,
+) -> str:
+    """カットフォルダーを parent の下に書き出し、そのパスを返す。計画に問題があれば ValueError。"""
+
+def export_sheet_text(
+    document: _CoreDocument, format: str, sheet_name: str, cut: str = "", episode: str = "",
+    scene: str = "", playback_range_end: int | None = None,
+) -> str: ...
+def export_sheet_duration(document: _CoreDocument, playback_range_end: int | None = None) -> int: ...
+def export_write_key_sequence(document: _CoreDocument, destination: str | os.PathLike[str], format: str) -> int | None: ...
+def export_write_shadow_sequence(
+    document: _CoreDocument, destination: str | os.PathLike[str], shadow_rgbs: list[tuple[int, int, int]],
+) -> int | None: ...
+def export_thumbnail_png(document: _CoreDocument, frame: int, options: dict[str, Any] | None = None) -> bytes:
+    """.pman のサムネイルの PNG（project_io._thumbnail_png(window.crop_image(frame))）。"""
+
+def export_thumbnail_scale(width: int, height: int, premultiplied: bytes, max_size: int) -> tuple[int, int, bytes]:
+    """Qt の SmoothTransformation と同じ縮小（乗算済み RGBA）。"""
+
+def export_frame_image(
+    document: _CoreDocument, frame: int, format: str = "png", options: dict[str, Any] | None = None,
+) -> bytes: ...
+def export_after_effects_text(document: _CoreDocument, layer: int, fps: float) -> str | None: ...
+def export_guess_cut_number(name: str) -> str: ...
+def export_encode_tga(width: int, height: int, rgba: bytes) -> bytes:
+    """ストレート RGBA を Pillow の tga_rle と同じバイト列にする。"""
+
+def import_read_image(data: bytes) -> tuple[int, int, bytes]:
+    """画像を Qt の ARGB32_Premultiplied と同じ値の乗算済み RGBA（R, G, B, A の順）にする。"""
+
+def import_image_file(
+    path: str | os.PathLike[str], canvas_width: int, canvas_height: int, draft: bool = False,
+) -> bytes:
+    """読み込み・白の透明化・中央への配置をした文書の絵（ストレート RGBA）。"""
+
+def import_parse_timesheet(raw_text: str) -> dict[str, Any]:
+    """ImportController._parse_xdts_timesheet と同じ辞書。"""
+
+def import_scan_cut_folder(root: str | os.PathLike[str]) -> dict[str, Any]:
+    """cut_folder.scan_cut_folder（パスは root からの相対）。"""

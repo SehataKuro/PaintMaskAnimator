@@ -25,7 +25,6 @@ use pma_core::image::{Rect, RgbaImage};
 use pma_core::project::archive::{self, OpenedProject, PngCache, SaveOptions};
 use pma_core::project::json::Json;
 use pma_core::project::zip::ZipTime;
-use pma_core::used_colors::EditRange;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -46,10 +45,7 @@ struct ActiveStroke {
     before: Document,
     frame: usize,
     layer: usize,
-    label: &'static str,
-    /// 使用色パネル（colors.rs）：描ける範囲（#104）と、描き始めの絵。範囲の外は元の絵へ戻して書く。
-    range: EditRange,
-    base: RgbaImage,
+    label: String,
 }
 
 pub struct Session {
@@ -67,6 +63,10 @@ pub struct Session {
     pixels_revision: u64,
     /// 使用色パネル（colors.rs）：描画色・使用色パネル・カラーチャート・キャンバスの表示の絞り込み。
     pub colors: ColorUi,
+    // ツール（tools.rs）：ツールの設定と画素の選択範囲。
+    pub tools: crate::tools::ToolState,
+    /// 履歴の上限（環境設定。作品を開き直しても使う）。【アプリの外枠：shell.rs】
+    history_limits: pma_core::document::history::HistoryLimits,
 }
 
 /// 合成した表示の控え。コマの番号で引き、同じ絵の重なりのコマは画素を共有する。
@@ -154,13 +154,16 @@ impl Point {
     }
 }
 
-/// 線の描き方（ツールの設定）。
+/// 線の描き方。太さ・色・手ぶれ補正を省いたら、ツールの設定（tools.rs）を使う。
 #[derive(Clone, Debug, Deserialize)]
 pub struct StrokeTool {
-    pub size: f64,
-    pub color: [u8; 3],
+    #[serde(default)]
+    pub size: Option<f64>,
+    #[serde(default)]
+    pub color: Option<[u8; 3]>,
     pub eraser: bool,
-    pub stabilizer: i64,
+    #[serde(default)]
+    pub stabilizer: Option<i64>,
     pub zoom: f64,
 }
 
@@ -177,8 +180,33 @@ pub struct Summary {
 }
 
 impl Session {
-    /// 作品を開いていない状態（白い画像だけを見せる）。
+    /// 起動したときの状態：新しい文書（Qt の起動直後と同じく、コマ 1・レイヤー「A」1）を開く。
+    /// 【アプリの外枠：shell.rs】
     pub fn empty(width: usize, height: usize) -> Self {
+        let mut session = Self::unloaded(width, height);
+        if let Err(e) = session.new_document(width, height) {
+            eprintln!("新しい文書を作れなかった：{e}");
+        }
+        session
+    }
+
+    /// 新しい文書にする（Qt の「新規作成」＝ replace_doc(w, h)）。履歴も空にする。
+    /// 【アプリの外枠：shell.rs】
+    pub fn new_document(&mut self, width: usize, height: usize) -> Result<(), String> {
+        let document = Document::new_blank(width, height).map_err(|e| e.to_string())?;
+        let metadata = crate::project_meta::new_metadata(width, height);
+        // タイムラインの表示は install（TimelineUi::reset）でシートに戻る。
+        self.install(Project {
+            document,
+            metadata,
+            path: None,
+            png_cache: PngCache::new(),
+            undo: Undo::default(),
+        })
+    }
+
+    /// 作品を開いていない状態（白い画像だけを見せる）。
+    pub fn unloaded(width: usize, height: usize) -> Self {
         Self {
             project: None,
             timeline: TimelineUi::default(),
@@ -189,6 +217,8 @@ impl Session {
             structure_revision: 0,
             pixels_revision: 0,
             colors: ColorUi::default(),
+            tools: crate::tools::ToolState::default(),
+            history_limits: crate::history::LIMITS,
         }
     }
 
@@ -227,11 +257,15 @@ impl Session {
     }
 
     /// 作品を入れ替える。描きかけの線・再生・タイムラインの選択は捨てる。
-    fn install(&mut self, project: Project) -> Result<(), String> {
+    fn install(&mut self, mut project: Project) -> Result<(), String> {
         self.active = None;
         self.last = None;
         // 使用色パネル（colors.rs）：描画色・使用色フォルダー・カラーチャートを作品から読む。
         self.colors = ColorUi::from_metadata(&project.metadata);
+        crate::colors::drawing_from_metadata(&project.metadata, &mut self.tools.settings);
+        // ツール（tools.rs）：選択範囲は作品ごと。
+        self.tools.selection.clear();
+        project.undo.set_limits(self.history_limits);
         self.project = Some(project);
         self.timeline.reset();
         self.touch_structure();
@@ -288,7 +322,8 @@ impl Session {
             .or_else(|| project.path.clone())
             .ok_or("保存先がありません")?;
         // 使用色パネル（colors.rs）：描画色・使用色フォルダー・カラーチャートを作品へ書く。
-        self.colors.store(&mut project.metadata);
+        self.colors
+            .store(&self.tools.settings, &mut project.metadata);
         // サムネイルは合成の画像から作る予定（project_io._thumbnail_png と同じ大きさ）。今は入れない。
         let options = SaveOptions::new(zip_time_now());
         let bytes = archive::save_project(
@@ -405,6 +440,69 @@ impl Session {
         self.step_history(true)
     }
 
+    // ---- 【アプリの外枠：shell.rs】ヒストリーパネル・環境設定・保存の印が使う ----
+
+    /// 線を描いている途中か（自動保存は描き終わるのを待つ）。
+    pub fn is_drawing(&self) -> bool {
+        self.active.is_some()
+    }
+
+    /// 文書の中身の世代（形, 絵）。保存したときと比べて未保存の変更を知る。
+    pub fn content_revision(&self) -> (u64, u64) {
+        (self.structure_revision, self.pixels_revision)
+    }
+
+    /// 履歴の上限を変える（今の作品にも、これから開く作品にも使う）。
+    pub fn set_history_limits(&mut self, limits: pma_core::document::history::HistoryLimits) {
+        self.history_limits = limits;
+        if let Some(p) = &mut self.project {
+            p.undo.set_limits(limits);
+        }
+    }
+
+    /// ヒストリーパネルのブロックの並び。
+    pub fn history_graph(&self) -> crate::history::Graph {
+        match &self.project {
+            Some(p) => p.undo.graph(),
+            None => crate::history::Graph {
+                nodes: vec![],
+                current: 0,
+            },
+        }
+    }
+
+    /// ヒストリーパネルのクリック（本線）：delta 回だけ戻す・進める。動いたら true。
+    pub fn jump_history(&mut self, delta: i64) -> Result<bool, String> {
+        self.move_history(|p, palette| p.undo.jump(delta, &mut p.document, palette) > 0)
+    }
+
+    /// ヒストリーパネルのクリック（分岐）：分岐へ切り替え、steps 手進める。
+    pub fn switch_history_branch(&mut self, index: usize, steps: usize) -> Result<bool, String> {
+        self.move_history(|p, palette| p.undo.switch_branch(index, steps, &mut p.document, palette))
+    }
+
+    /// 使用色パネル（colors.rs）の状態も同じ件で戻す。
+    fn move_history(
+        &mut self,
+        f: impl FnOnce(&mut Project, &mut pma_core::used_colors::UsedColors) -> bool,
+    ) -> Result<bool, String> {
+        if self.active.is_some() {
+            return Ok(false);
+        }
+        let Some(p) = &mut self.project else {
+            return Ok(false);
+        };
+        let done = f(p, &mut self.colors.palette);
+        // 分岐の切り替えは失敗しても分岐の一覧が変わることがあるので、形は進める。
+        self.timeline.prune_selection(&p.document);
+        self.touch_structure();
+        if done {
+            self.touch_pixels();
+        }
+        self.recompose()?;
+        Ok(done)
+    }
+
     pub fn redo(&mut self) -> Result<bool, String> {
         self.step_history(false)
     }
@@ -477,7 +575,10 @@ impl Session {
             Some(image) => image.clone(),
             None => {
                 // 使用色パネル（colors.rs）の表示の絞り込み・置換プレビューと背景の表示色。
-                let (options, background) = (&self.colors.display, self.colors.canvas_background());
+                let (options, background) = (
+                    &self.colors.display,
+                    crate::colors::canvas_background(&self.tools.settings),
+                );
                 let image = compose::composite(doc, frame, options, background)
                     .map_err(|e| e.to_string())?;
                 let (w, h) = (image.width(), image.height());
@@ -520,32 +621,21 @@ impl Session {
             Some(image) => image.clone(),
             None => RgbaImage::blank(w, h).map_err(|e| e.to_string())?,
         };
-        let settings = BrushSettings {
-            size: tool.size,
-            color: tool.color,
-            eraser: tool.eraser,
-            stabilizer: tool.stabilizer,
-            zoom: tool.zoom,
-            ..BrushSettings::default()
-        };
+        // ツール（tools.rs）：筆圧・手ぶれ補正・マスク色・透明部分の保護・選択範囲。
+        let settings: BrushSettings = self.tools.brush_settings(tool, doc, layer, (w, h));
         let before = doc.clone();
         // 描いているあいだは表示をその場で書き換えるので、控えた合成は使えなくなる。
         self.cache.clear();
         let (stroke, rects) =
             BrushStroke::begin(&base, settings, point.sample()).map_err(|e| e.to_string())?;
-        let label = if tool.eraser {
-            "消しゴム"
-        } else {
-            "ブラシ"
-        };
+        // Qt と同じ履歴の名前（tools.rs）。
+        let label = crate::tools::drawing_label(doc, frame, layer);
         self.active = Some(ActiveStroke {
             stroke,
             before,
             frame,
             layer,
             label,
-            range: self.colors.palette.edit_range(),
-            base,
         });
         self.apply_stroke_rects(&rects)
     }
@@ -589,8 +679,6 @@ impl Session {
             frame,
             layer,
             label,
-            range,
-            base,
             ..
         } = active;
         let p = self.project.as_mut().ok_or("作品を開いていません")?;
@@ -601,15 +689,14 @@ impl Session {
             self.recompose()?;
             return Ok(Some(full_rect(&self.display)));
         };
-        let mut pixels = result
+        let pixels = result
             .image
             .copy_rgba_rect(undo.rect)
             .map_err(|e| e.to_string())?;
-        clip_to_range(&range, &base, undo.rect, &mut pixels)?;
         p.document
             .write_drawing_patch_with_content(frame, layer, undo.rect, &pixels, true)
             .map_err(|e| e.to_string())?;
-        p.undo.record(label, &before);
+        p.undo.record(&label, &before);
         self.touch_pixels();
         self.recompose_rect(undo.rect)?;
         Ok(Some(undo.rect))
@@ -628,12 +715,11 @@ impl Session {
             let Some(rect) = clip(rect, &self.display) else {
                 continue;
             };
-            let mut pixels = active
+            let pixels = active
                 .stroke
                 .image()
                 .copy_rgba_rect(rect)
                 .map_err(|e| e.to_string())?;
-            clip_to_range(&active.range, &active.base, rect, &mut pixels)?;
             p.document
                 .write_drawing_patch_with_content(active.frame, active.layer, rect, &pixels, true)
                 .map_err(|e| e.to_string())?;
@@ -655,7 +741,7 @@ impl Session {
         let (frame_id, _) = doc.selection();
         let frame = doc.frame_index(frame_id).unwrap_or(0);
         // 使用色パネル（colors.rs）の表示の絞り込み・置換プレビューと背景の表示色。
-        let background = self.colors.canvas_background();
+        let background = crate::colors::canvas_background(&self.tools.settings);
         let image = compose::composite_rect(doc, frame, &self.colors.display, background, rect)
             .map_err(|e| e.to_string())?;
         self.display
@@ -715,22 +801,6 @@ impl Session {
     }
 }
 
-/// 使用色パネル（colors.rs）：描ける範囲の外の画素を、描き始めの絵の画素へ戻す（#104。
-/// 選択・鍵の判断は描き始めの絵の色で行い、書くところはここ1か所）。
-fn clip_to_range(
-    range: &EditRange,
-    base: &RgbaImage,
-    rect: Rect,
-    pixels: &mut [u8],
-) -> Result<(), String> {
-    if range.is_unrestricted() {
-        return Ok(());
-    }
-    let original = base.copy_rgba_rect(rect).map_err(|e| e.to_string())?;
-    pma_core::used_colors::pixels::clip_to_edit_range(&original, pixels, range);
-    Ok(())
-}
-
 impl Session {
     /// 使用色パネル（colors.rs）：表示の設定が変わったので、控えた合成を捨てて合成し直す。
     pub fn redisplay(&mut self) -> Result<(), String> {
@@ -760,7 +830,7 @@ fn white(width: usize, height: usize) -> RgbaImage {
 }
 
 /// ZIP に書く時刻（手元の時計の UTC。ZIP の時刻は 1980 年より前を持てない）。
-fn zip_time_now() -> ZipTime {
+pub(crate) fn zip_time_now() -> ZipTime {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
@@ -852,10 +922,10 @@ mod tests {
 
     fn tool() -> StrokeTool {
         StrokeTool {
-            size: 5.0,
-            color: [0, 0, 0],
+            size: Some(5.0),
+            color: Some([0, 0, 0]),
             eraser: false,
-            stabilizer: 0,
+            stabilizer: Some(0),
             zoom: 1.0,
         }
     }
@@ -872,7 +942,7 @@ mod tests {
 
     #[test]
     fn placeholder_stroke_without_project_paints_black() {
-        let mut s = Session::empty(64, 64);
+        let mut s = Session::unloaded(64, 64);
         let first = s.stroke_begin(&tool(), pt(10.0, 10.0)).unwrap().unwrap();
         let rect = union(
             Some(first),
@@ -904,7 +974,12 @@ mod tests {
         let rect = s.stroke_end(Some(b)).unwrap().unwrap();
         assert!(rect.width > 0);
         assert_ne!(s.display.rgba(), &before[..]);
-        assert_eq!(s.history().undo, vec!["ブラシ".to_string()]);
+        let label = {
+            let doc = &s.project.as_ref().unwrap().document;
+            let (f, l) = current_index(doc);
+            crate::tools::drawing_label(doc, f, l)
+        };
+        assert_eq!(s.history().undo, vec![label]);
         // 保存して開き直しても線が残る。
         let drawn = s.display.rgba().to_vec();
         assert!(s.undo().unwrap());

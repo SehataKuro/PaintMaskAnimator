@@ -1,10 +1,11 @@
 // 色のパネルの自己確認（PMA_COLORS_SELFTEST）。使用色パネル・カラーサークル・カラースライダー・
 // カラーチャート・カラーピッカー・「色相・彩度・明度」を、画面の要素を押して動かし、
-// Rust の状態（palette_view・current_color）と画面が合うかを調べて報告する。
+// Rust の状態（palette_view・ツールの設定 tools_state）と画面が合うかを調べて報告する。
 //
 // 1手ごとに `colors-step:名前` を報告して pause ms 待つ（そのあいだに窓を撮れる）。
 // 色の多い作品を開いて使う（12色以上）。
 import { adjustHsv, paletteOp, state, drawingOp } from "./color_state.js";
+import { toolStore } from "./tools.js";
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -42,6 +43,9 @@ export async function runColorsSelftest({ invoke, pause }) {
     await wait(pause);
   };
   const colorRows = () => [...document.querySelectorAll(".cu-row.cu-color")];
+  // 描画色はツールの設定（config.json に保存される）なので、終わったら元へ戻す。
+  const saved = (await invoke("tools_state")).settings;
+  const KEYS = ["color_main", "color_sub", "color_mode", "background_color"];
   const view = () => state.palette;
 
   check("作品の使用色を数えた", await until(() => view()?.loaded && colorRows().length >= 12, 10000),
@@ -137,15 +141,34 @@ export async function runColorsSelftest({ invoke, pause }) {
   await wait(100);
   const sliders = [...document.querySelectorAll(".cs-number")].map((n) => Number(n.value));
   check("スライダーがメインの色を出す", sliders.join(",") === "12,200,99", sliders.join(","));
-  const current = await invoke("current_color");
-  check("ブラシはメインの色で描く", current.color.join(",") === "12,200,99" && !current.eraser);
+  // 描画色の正本はツールの設定。ツールのパネルの色の欄とブラシ（paint_rgb）が同じ所を読む。
+  const tools = (await invoke("tools_state")).settings;
+  check("ツールの設定（ブラシの色）もメインの色", tools.color_main.join(",") === "12,200,99" && tools.color_mode === "main");
   document.querySelector(".cw-bg").click();
   await until(() => state.drawing?.mode === "transparent");
-  check("背景色を選ぶと消しゴムになる", (await invoke("current_color")).eraser);
+  check("背景色を選ぶとツールも背景色（消しゴム）", (await invoke("tools_state")).settings.color_mode === "transparent");
+  // ツール側（E/C/X のキーと同じ tools_set）で変えると、サークルの欄が合わせる。
+  await invoke("tools_set", { patch: { color_mode: "sub", color_sub: [1, 2, 3] } });
+  await until(() => state.drawing?.mode === "sub");
+  check("ツールで変えた描画色がサークルに出る",
+    document.querySelector(".cw-well.sub")?.classList.contains("active") && state.drawing?.sub === "#010203");
   document.querySelector(".cw-well.main").click();
   await until(() => state.drawing?.mode === "main");
   await step("drawing");
 
+  // メニュー・ショートカットの色の操作（shell.js の pma-action）を色のパネルが引き受ける。
+  const action = (id) => {
+    const e = new CustomEvent("pma-action", { detail: { id, source: "selftest" }, cancelable: true });
+    window.dispatchEvent(e);
+    return e.defaultPrevented;
+  };
+  await paletteOp({ op: "focus", rgb: colors[0].rgb });
+  check("「この色を選択範囲にする」を引き受ける", action("a_focus_used_color"));
+  await until(() => toolStore.view?.selection);
+  check("フォーカスの色が画素の選択範囲になる", !!toolStore.view?.selection, JSON.stringify(toolStore.view?.selection?.bounds));
+  await invoke("selection_edit", { args: { kind: "clear" } });
+  check("「選択色だけ表示」「特定色表示を解除」を引き受ける", action("a_isolate_color") && action("a_clear_color_filter"));
+  await invoke("tools_set", { patch: Object.fromEntries(KEYS.map((k) => [k, saved[k]])) });
   const ok = results.every((r) => r.ok);
   await invoke("report", {
     line: `色のパネルの自己確認：${ok ? "成功" : "失敗"}（${results.filter((r) => r.ok).length}/${results.length}）\n` +

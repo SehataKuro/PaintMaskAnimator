@@ -11,10 +11,16 @@
 //! - 表示の絞り込み（目）と置き換えのプレビューは `DisplayOptions` にしてキャンバスの合成へ渡す。
 //!   変わったら `display-changed` の事件で画面へ知らせる。
 //! - 使用色パネルの編集は、Qt と同じ名前で作品の履歴に積む（件に使用色パネルの状態を添える）。
-//! - 描画色が変わったら `current-color` の事件で知らせる（ブラシの色はここから取る）。
+//! - 描画色（メイン・サブ・背景・描く色の選び）の正本はツールの設定（tools.rs の `Settings`）。
+//!   カラーサークル・スライダー・ツールのパネルの色の欄・ブラシはみなそこを読み書きし、
+//!   `tools-changed` の事件で合わせる。作品の metadata の `colors` はそこへ読み書きする。
+//! - 描ける範囲（#104：選択・鍵）は [`sync`] でツールのマスク色の絞り込み
+//!   （`ToolState::mask_filter`）にして、ブラシ・投げ縄塗りなどの塗りと同じ1か所で絞る。
 
 use crate::session::Session;
+use crate::tools::Settings;
 use crate::with_session;
+use pma_core::brush::stroke::MaskColorFilter;
 use pma_core::compose::{Background, DisplayOptions};
 use pma_core::project::json::Json;
 use pma_core::used_colors::chart::{self, Chart, Hit, Role};
@@ -28,33 +34,8 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use tauri::{Emitter, Manager, State};
 
-/// 描く色の選び（Qt の `color_mode`）。
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum DrawMode {
-    Main,
-    Sub,
-    /// 背景色で描く（消しゴムと同じく透明にする）。
-    Transparent,
-}
-
-impl DrawMode {
-    fn name(self) -> &'static str {
-        match self {
-            Self::Main => "main",
-            Self::Sub => "sub",
-            Self::Transparent => "transparent",
-        }
-    }
-}
-
 /// 描画色と使用色パネルの状態（作品ごと）。
 pub struct ColorUi {
-    pub main: Rgb,
-    pub sub: Rgb,
-    pub mode: DrawMode,
-    /// 背景色の表示色（Qt の `transparent_display_color`）。画像では透明。
-    pub background: Rgb,
     pub palette: UsedColors,
     pub chart: Chart,
     /// キャンバスの表示の絞り込み・置き換えのプレビュー。
@@ -69,15 +50,13 @@ pub struct ColorUi {
     hsv_preview: Option<Vec<(Rgb, Rgb)>>,
     /// 使用色パネルを変えた（次の [`sync`] で `palette-changed` を出す）。
     touched: bool,
+    /// いまの表示を合成したときの背景色の表示色（変わったら [`sync`] が合成し直す）。
+    shown_background: Rgb,
 }
 
 impl Default for ColorUi {
     fn default() -> Self {
         Self {
-            main: (0, 0, 0),
-            sub: (255, 0, 0),
-            mode: DrawMode::Main,
-            background: BACKGROUND,
             palette: UsedColors::new(),
             chart: Chart::default(),
             display: DisplayOptions::default(),
@@ -87,8 +66,63 @@ impl Default for ColorUi {
             replacement_edit: None,
             hsv_preview: None,
             touched: false,
+            shown_background: BACKGROUND,
         }
     }
+}
+
+fn tup(c: [u8; 3]) -> Rgb {
+    (c[0], c[1], c[2])
+}
+
+/// 作品の metadata の描画色（`colors`）をツールの設定へ読む。無い欄は今の設定のまま。
+pub fn drawing_from_metadata(metadata: &Json, settings: &mut Settings) {
+    let Some(colors) = metadata
+        .get("colors")
+        .filter(|c| matches!(c, Json::Object(_)))
+    else {
+        return;
+    };
+    settings.color_main = rgb3(color_field(Some(colors), "main", tup(settings.color_main)));
+    settings.color_sub = rgb3(color_field(Some(colors), "sub", tup(settings.color_sub)));
+    settings.background_color = rgb3(color_field(
+        Some(colors),
+        "background",
+        tup(settings.background_color),
+    ));
+    if let Some(Json::Str(mode)) = colors.get("mode") {
+        if ["main", "sub", "transparent"].contains(&mode.as_str()) {
+            settings.color_mode = mode.clone();
+        }
+    }
+}
+
+/// キャンバスの下地。背景色の表示色が白でなければ、その色で見せる。
+pub fn canvas_background(settings: &Settings) -> Background {
+    if tup(settings.background_color) == BACKGROUND {
+        Background::White
+    } else {
+        Background::Color(settings.background_color)
+    }
+}
+
+/// 描ける範囲（#104：選択した色だけ・鍵の色を除く）を、ツールのマスク色の絞り込みにする。
+/// 絞らないなら None。
+pub fn edit_filter(palette: &UsedColors) -> Option<MaskColorFilter> {
+    let range = palette.edit_range();
+    if range.is_unrestricted() {
+        return None;
+    }
+    let colors = palette
+        .ordered_non_background()
+        .into_iter()
+        .filter(|&c| range.permits(c))
+        .map(rgb3)
+        .collect();
+    Some(MaskColorFilter {
+        colors,
+        background: range.permits(BACKGROUND),
+    })
 }
 
 fn color_field(colors: Option<&Json>, key: &str, default: Rgb) -> Rgb {
@@ -101,19 +135,7 @@ fn color_field(colors: Option<&Json>, key: &str, default: Rgb) -> Rgb {
 impl ColorUi {
     /// 作品の metadata から読む（Qt の `_prepare_ui_state` と `restore_categories`・`set_data`）。
     pub fn from_metadata(metadata: &Json) -> Self {
-        let colors = metadata
-            .get("colors")
-            .filter(|c| matches!(c, Json::Object(_)));
-        let mode = match colors.and_then(|c| c.get("mode")) {
-            Some(Json::Str(m)) if m == "sub" => DrawMode::Sub,
-            Some(Json::Str(m)) if m == "transparent" => DrawMode::Transparent,
-            _ => DrawMode::Main,
-        };
         Self {
-            main: color_field(colors, "main", (0, 0, 0)),
-            sub: color_field(colors, "sub", (255, 0, 0)),
-            mode,
-            background: color_field(colors, "background", BACKGROUND),
             chart: chart::normalize(metadata.get("color_chart").unwrap_or(&Json::Null)),
             pending_categories: metadata.get("used_color_categories").cloned(),
             ..Self::default()
@@ -121,15 +143,18 @@ impl ColorUi {
     }
 
     /// 作品の metadata へ書く（Qt の `MainWindow._project_metadata` の該当部分）。
-    pub fn store(&self, metadata: &mut Json) {
+    pub fn store(&self, settings: &Settings, metadata: &mut Json) {
         if !matches!(metadata, Json::Object(_)) {
             return;
         }
         let colors = Json::Object(vec![
-            ("main".into(), Json::Str(hex(self.main))),
-            ("sub".into(), Json::Str(hex(self.sub))),
-            ("mode".into(), Json::Str(self.mode.name().into())),
-            ("background".into(), Json::Str(hex(self.background))),
+            ("main".into(), Json::Str(hex(tup(settings.color_main)))),
+            ("sub".into(), Json::Str(hex(tup(settings.color_sub)))),
+            ("mode".into(), Json::Str(settings.color_mode.clone())),
+            (
+                "background".into(),
+                Json::Str(hex(tup(settings.background_color))),
+            ),
         ]);
         metadata.set("colors", colors);
         // まだ数えていない（フォルダーを当てていない）なら、読んだままを書き戻す。
@@ -139,30 +164,6 @@ impl ColorUi {
         };
         metadata.set("used_color_categories", categories);
         metadata.set("color_chart", self.chart.to_json());
-    }
-
-    /// キャンバスの下地。背景色の表示色が白でなければ、その色で見せる。
-    pub fn canvas_background(&self) -> Background {
-        if self.background == BACKGROUND {
-            Background::White
-        } else {
-            let (r, g, b) = self.background;
-            Background::Color([r, g, b])
-        }
-    }
-
-    /// いま描く色と、消しゴムとして描くか（背景色で描くときは透明にする）。
-    pub fn current(&self) -> CurrentColor {
-        let rgb = match self.mode {
-            DrawMode::Sub => self.sub,
-            DrawMode::Main => self.main,
-            DrawMode::Transparent => self.background,
-        };
-        CurrentColor {
-            color: [rgb.0, rgb.1, rgb.2],
-            eraser: self.mode == DrawMode::Transparent,
-            hex: hex(rgb),
-        }
     }
 
     fn wanted_display(&self) -> DisplayOptions {
@@ -206,11 +207,15 @@ pub fn sync(s: &mut Session) -> Synced {
         out.palette = true;
     }
     out.palette |= std::mem::take(&mut s.colors.touched);
+    // 描ける範囲は、ブラシ・塗りと同じマスク色の絞り込みで効かせる（tools.rs）。
+    s.tools.mask_filter = edit_filter(&s.colors.palette);
+    let background = tup(s.tools.settings.background_color);
     let wanted = s.colors.wanted_display();
     // 絞り込みは選択レイヤーにだけ掛けるので、選択レイヤーが変わったときも合成し直す。
     let layer_moved = out.palette && wanted != DisplayOptions::default();
-    if wanted != s.colors.display || layer_moved {
+    if wanted != s.colors.display || layer_moved || background != s.colors.shown_background {
         s.colors.display = wanted;
+        s.colors.shown_background = background;
         let _ = s.redisplay();
         out.display = true;
     }
@@ -238,37 +243,6 @@ fn record(s: &mut Session, recorded: Option<Recorded>) -> bool {
 }
 
 // ---- 画面へ渡す形 ---------------------------------------------------------
-
-/// いま描く色（`current-color` の事件）。ブラシはこの色で描く。
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
-pub struct CurrentColor {
-    pub color: [u8; 3],
-    /// 背景色で描く（透明にする）。
-    pub eraser: bool,
-    pub hex: String,
-}
-
-/// 描画色の欄（メイン・サブ・背景）。
-#[derive(Clone, Debug, Serialize)]
-pub struct DrawingView {
-    pub main: String,
-    pub sub: String,
-    pub mode: DrawMode,
-    pub background: String,
-    pub current: CurrentColor,
-}
-
-impl ColorUi {
-    pub fn drawing_view(&self) -> DrawingView {
-        DrawingView {
-            main: hex(self.main),
-            sub: hex(self.sub),
-            mode: self.mode,
-            background: hex(self.background),
-            current: self.current(),
-        }
-    }
-}
 
 /// 使用色の1行。
 #[derive(Clone, Debug, Serialize)]
@@ -319,7 +293,6 @@ pub struct PaletteView {
     pub replace_target_count: usize,
     /// 描ける範囲を絞っているか（選択か鍵がある）。
     pub restricted: bool,
-    pub drawing: DrawingView,
     pub chart_summary: String,
 }
 
@@ -370,7 +343,6 @@ impl Session {
             replacement_count: palette.replacements_to_apply().len(),
             replace_target_count: replace_targets(palette).len(),
             restricted: !palette.edit_range().is_unrestricted(),
-            drawing: c.drawing_view(),
             chart_summary: c.chart.summary(),
         }
     }
@@ -540,6 +512,21 @@ pub enum PaletteOp {
         rgbs: Vec<[u8; 3]>,
         shift: [i32; 3],
     },
+    /// 「この色を選択範囲にする」（Qt の `focus_used_color`）：その色が使われている最初のコマへ
+    /// 移り、その色の画素を画素の選択範囲にする。`rgb` が無ければ、フォーカス・最後に選んだ色・
+    /// 描画色の順に決める（`focus_selected_used_color`、メニューの `a_focus_used_color`）。
+    SelectPixels {
+        #[serde(default)]
+        rgb: Option<[u8; 3]>,
+    },
+    /// 「選択色だけ表示」（Qt の `isolate_selected_color`）：選択レイヤーを描画色だけ表示する
+    /// （レイヤーの色フィルタ。絵は変えない）。`rgb` が無ければ描画色。
+    IsolateLayerColor {
+        #[serde(default)]
+        rgb: Option<[u8; 3]>,
+    },
+    /// 「特定色表示を解除」（Qt の `clear_selected_color_filter`）。
+    ClearLayerColorFilter,
 }
 
 fn rgb(v: [u8; 3]) -> Rgb {
@@ -731,7 +718,8 @@ impl Session {
                 }
             }
             PaletteOp::ReplaceWithDrawingColor => {
-                let current = self.colors.current().color;
+                // 描く色（背景色のモードは消しゴムの白＝透明にする）。
+                let current = self.tools.settings.paint_rgb();
                 let p = &mut self.colors.palette;
                 let targets = replace_targets(p);
                 if targets.is_empty() {
@@ -745,6 +733,9 @@ impl Session {
                 let mapping = self.colors.palette.replacements_to_apply();
                 return self.palette_remap(mapping, Remap::Replace);
             }
+            PaletteOp::SelectPixels { rgb: c } => return self.palette_select_pixels(c),
+            PaletteOp::IsolateLayerColor { rgb: c } => return self.layer_color_filter(Some(c)),
+            PaletteOp::ClearLayerColorFilter => return self.layer_color_filter(None),
             PaletteOp::HsvPreview { rgbs: list, shift } => {
                 self.colors.hsv_preview = shift.map(|[h, s, v]| {
                     pixels::shifted_mapping(&rgbs(&list), h, s, v)
@@ -807,6 +798,115 @@ impl Session {
         ))
     }
 
+    fn palette_select_pixels(&mut self, c: Option<[u8; 3]>) -> Result<Outcome, String> {
+        let palette = &self.colors.palette;
+        let settings = &self.tools.settings;
+        let target = c
+            .map(rgb)
+            .or_else(|| palette.focus())
+            .or_else(|| palette.selected().last().copied());
+        let target = target.unwrap_or_else(|| {
+            tup(if settings.color_mode == "sub" {
+                settings.color_sub
+            } else {
+                settings.color_main
+            })
+        });
+        if target == BACKGROUND {
+            return Ok(Outcome::message(
+                "背景色は選択範囲にできません。使用色を選んでください。",
+                false,
+            ));
+        }
+        let p = self.project.as_mut().ok_or("作品を開いていません")?;
+        let (_, layer) = crate::session::current_index(&p.document);
+        let frames = p.document.frame_order().len();
+        let want = rgb3(target);
+        let mut found = None;
+        for frame in 0..frames {
+            let layers =
+                pma_core::compose::frame_layers(&p.document, frame).map_err(|e| e.to_string())?;
+            let Some(Some(image)) = layers.get(layer).map(|l| l.as_ref().and_then(|l| l.image))
+            else {
+                continue;
+            };
+            if image
+                .rgba()
+                .chunks_exact(4)
+                .any(|px| px[3] > 0 && px[..3] == want)
+            {
+                found = Some(frame);
+                break;
+            }
+        }
+        let Some(frame) = found else {
+            return Ok(Outcome::message(
+                "現在のレイヤー内に、この色が使われているコマはありません。",
+                false,
+            ));
+        };
+        p.document
+            .set_selection_index(frame, layer)
+            .map_err(|e| e.to_string())?;
+        self.timeline.select_current(&p.document);
+        self.touch_structure();
+        self.recompose()?;
+        self.colors.palette.select_only(target);
+        self.colors.palette.set_focus(Some(target));
+        crate::tools::select_color(self, want)?;
+        Ok(Outcome::message(
+            format!("#{} を選択範囲にしました。", code(target)),
+            false,
+        ))
+    }
+
+    /// 選択レイヤーの色フィルタ（`Some(rgb)` で表示する色、`None` で解除）。
+    fn layer_color_filter(&mut self, c: Option<Option<[u8; 3]>>) -> Result<Outcome, String> {
+        use pma_core::document::commands::TrackProperty;
+        let settings = &self.tools.settings;
+        let color = match c {
+            None => None,
+            Some(Some(v)) => Some(v),
+            Some(None) => {
+                if settings.color_mode == "transparent" {
+                    return Ok(Outcome::message(
+                        "背景色では特定色表示を設定できません。メイン色またはサブ色を選択してください。",
+                        false,
+                    ));
+                }
+                Some(if settings.color_mode == "sub" {
+                    settings.color_sub
+                } else {
+                    settings.color_main
+                })
+            }
+        };
+        let changed = self.edit_with(None, |doc, _| {
+            let (_, layer) = crate::session::current_index(doc);
+            let changes = doc
+                .set_track_properties(
+                    &[layer],
+                    &[
+                        TrackProperty::ColorFilterEnabled(color.is_some()),
+                        TrackProperty::ColorFilterRgb(color),
+                    ],
+                    false,
+                )
+                .map_err(|e| e.to_string())?;
+            let changed = !changes.is_empty();
+            Ok((changed, changed))
+        })?;
+        let message = match color {
+            Some(c) => format!(
+                "選択レイヤーを #{} だけ表示しています。元画像は変更されません。",
+                code(tup(c))
+            ),
+            None if changed => "選択レイヤーの特定色表示を解除しました。".into(),
+            None => "選択レイヤーには特定色表示が設定されていません。".into(),
+        };
+        Ok(Outcome::message(message, changed))
+    }
+
     /// 選択レイヤーの全コマの絵の色を置き換える（Qt の `apply_palette_replacements`）。
     /// 履歴の件には、操作前の使用色パネルの状態を添える（取り消しで並びやフォルダーも戻す）。
     pub fn palette_remap(
@@ -837,11 +937,20 @@ impl Session {
         };
         let before = p.document.clone();
         let (_, layer) = crate::session::current_index(&p.document);
+        // 画素の選択範囲があれば、その中だけを置き換える（Qt の `selection_mask_bool`。
+        // 髪の赤は残して頬の赤だけ、など）。選択は tools.rs が持つ。
+        let (w, h) = p.document.size();
+        let mask = self
+            .tools
+            .selection
+            .selection()
+            .and_then(|sel| sel.clip_mask(w, h, (0.0, 0.0)))
+            .map(|m| m.bits().to_vec());
         // 画像を変えるところは edit_with を通す（描いている途中は断り、失敗したら戻す）。
         // 履歴は使用色パネルの状態を添えて、ここで積む。
         let result = self.edit_with(None, |doc, _| {
-            let result =
-                pixels::remap_layer(doc, layer, &mapping, None).map_err(|e| e.to_string())?;
+            let result = pixels::remap_layer(doc, layer, &mapping, mask.as_deref())
+                .map_err(|e| e.to_string())?;
             let changed = result.pixels > 0;
             Ok((result, changed))
         })?;
@@ -868,61 +977,6 @@ impl Session {
             ),
             true,
         ))
-    }
-}
-
-// ---- 描画色 ---------------------------------------------------------------
-
-/// 描画色の変更。
-#[derive(Clone, Debug, Deserialize)]
-#[serde(tag = "op", rename_all = "snake_case")]
-pub enum DrawingOp {
-    /// いま編集している色（メイン／サブ）を変える。背景色で描いているときはメインへ戻す
-    /// （Qt の `wheel_color_changed`）。
-    SetActive {
-        color: [u8; 3],
-    },
-    Set {
-        which: DrawMode,
-        color: [u8; 3],
-    },
-    Mode {
-        mode: DrawMode,
-    },
-    Swap,
-    /// 初期色（黒／白）に戻す。
-    Reset,
-    /// 背景色の表示色。
-    Background {
-        color: [u8; 3],
-    },
-}
-
-impl ColorUi {
-    pub fn drawing_op(&mut self, op: DrawingOp) {
-        match op {
-            DrawingOp::SetActive { color } => {
-                if self.mode == DrawMode::Transparent {
-                    self.mode = DrawMode::Main;
-                }
-                match self.mode {
-                    DrawMode::Sub => self.sub = rgb(color),
-                    _ => self.main = rgb(color),
-                }
-            }
-            DrawingOp::Set { which, color } => match which {
-                DrawMode::Sub => self.sub = rgb(color),
-                DrawMode::Main => self.main = rgb(color),
-                DrawMode::Transparent => self.background = rgb(color),
-            },
-            DrawingOp::Mode { mode } => self.mode = mode,
-            DrawingOp::Swap => std::mem::swap(&mut self.main, &mut self.sub),
-            DrawingOp::Reset => {
-                self.main = (0, 0, 0);
-                self.sub = BACKGROUND;
-            }
-            DrawingOp::Background { color } => self.background = rgb(color),
-        }
     }
 }
 
@@ -1145,32 +1199,22 @@ pub fn palette_view(app: tauri::AppHandle) -> PaletteView {
 /// 使用色パネルの操作。変わったら `palette-changed`（と表示が変われば `display-changed`）で知らせる。
 #[tauri::command]
 pub fn palette_op(app: tauri::AppHandle, op: PaletteOp) -> Result<Outcome, String> {
-    with_session(&app, "colors", |s| {
+    // 「この色を選択範囲にする」は画素の選択範囲（tools.rs）を変えるので、ツールにも知らせる。
+    let selects = matches!(op, PaletteOp::SelectPixels { .. });
+    let mut tools_view = None;
+    let out = with_session(&app, "colors", |s| {
         // 文書を変えない操作でも、使用色パネルと表示を知らせる（with_session の sync）。
         s.colors.touched = true;
-        s.palette_op(op)
-    })
-}
-
-#[tauri::command]
-pub fn current_color(session: State<crate::session::Shared>) -> CurrentColor {
-    session.lock().unwrap().colors.current()
-}
-
-/// 描画色を変える。`current-color` の事件で知らせる（ブラシ・サークル・スライダーが合わせる）。
-#[tauri::command]
-pub fn drawing_op(app: tauri::AppHandle, op: DrawingOp) -> DrawingView {
-    with_session(&app, "colors", |s| {
-        let background = s.colors.background;
-        s.colors.drawing_op(op);
-        if s.colors.background != background {
-            let _ = s.redisplay();
-            let _ = app.emit("display-changed", ());
+        let out = s.palette_op(op);
+        if selects {
+            tools_view = Some(s.tools.view());
         }
-        let view = s.colors.drawing_view();
-        let _ = app.emit("current-color", view.clone());
-        view
-    })
+        out
+    });
+    if let Some(view) = tools_view {
+        let _ = app.emit("tools-changed", view);
+    }
+    out
 }
 
 #[tauri::command]

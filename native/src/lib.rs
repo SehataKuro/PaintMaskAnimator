@@ -11,7 +11,9 @@ use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 
 mod auto_paint;
+mod auto_plan;
 mod brush;
+mod bucket_tools;
 mod clip;
 mod color_stats;
 mod colors;
@@ -19,12 +21,14 @@ mod compose;
 mod display;
 mod document;
 mod document_compare;
+mod export;
 mod fill_decisions;
 mod fill_session;
 mod fill_tracking;
 mod flow_color;
 mod history;
 mod image;
+mod image_ops;
 mod map_colors;
 mod mask_transform;
 mod palette;
@@ -33,6 +37,7 @@ mod project_archive;
 mod project_payload;
 mod project_zip;
 mod reference_check;
+mod reference_scan;
 mod selection;
 mod tiled_color;
 mod timeline;
@@ -276,6 +281,23 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
         compose::compose_scale_for_display,
         module
     )?)?;
+    module.add_function(wrap_pyfunction!(bucket_tools::bucket_fill_at, module)?)?;
+    module.add_function(wrap_pyfunction!(
+        reference_scan::reference_check_layer,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(auto_plan::auto_paint_layer, module)?)?;
+    module.add_function(wrap_pyfunction!(
+        bucket_tools::bucket_reference_pixels,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(
+        bucket_tools::bucket_replace_color_request,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(bucket_tools::skewer_cells, module)?)?;
+    module.add_class::<bucket_tools::PyBucketDrag>()?;
+    module.add_class::<bucket_tools::PySkewerFill>()?;
     module.add_function(wrap_pyfunction!(map_colors::py_map_known_colors, module)?)?;
     module.add_function(wrap_pyfunction!(map_colors::py_region_neighbors, module)?)?;
     module.add_function(wrap_pyfunction!(
@@ -377,6 +399,27 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(fill_decisions::skewer_seed, module)?)?;
     module.add_function(wrap_pyfunction!(fill_session::track_fill_region, module)?)?;
     module.add_function(wrap_pyfunction!(py_extend_line_ends, module)?)?;
+    image_ops::register(module)?;
+    module.add_function(wrap_pyfunction!(export::export_cut_folder_cels, module)?)?;
+    module.add_function(wrap_pyfunction!(export::export_plan_cut_folder, module)?)?;
+    module.add_function(wrap_pyfunction!(export::export_write_cut_folder, module)?)?;
+    module.add_function(wrap_pyfunction!(export::export_sheet_text, module)?)?;
+    module.add_function(wrap_pyfunction!(export::export_sheet_duration, module)?)?;
+    module.add_function(wrap_pyfunction!(export::export_write_key_sequence, module)?)?;
+    module.add_function(wrap_pyfunction!(
+        export::export_write_shadow_sequence,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(export::export_thumbnail_png, module)?)?;
+    module.add_function(wrap_pyfunction!(export::export_thumbnail_scale, module)?)?;
+    module.add_function(wrap_pyfunction!(export::export_frame_image, module)?)?;
+    module.add_function(wrap_pyfunction!(export::export_after_effects_text, module)?)?;
+    module.add_function(wrap_pyfunction!(export::export_guess_cut_number, module)?)?;
+    module.add_function(wrap_pyfunction!(export::export_encode_tga, module)?)?;
+    module.add_function(wrap_pyfunction!(export::import_read_image, module)?)?;
+    module.add_function(wrap_pyfunction!(export::import_image_file, module)?)?;
+    module.add_function(wrap_pyfunction!(export::import_parse_timesheet, module)?)?;
+    module.add_function(wrap_pyfunction!(export::import_scan_cut_folder, module)?)?;
     module.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
 }

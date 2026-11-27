@@ -7,6 +7,8 @@ pub mod timeline;
 pub mod compatibility;
 /// 文書、列、セル、およびシートの所有モデル。
 pub mod model;
+/// 新しい文書（Qt 版の「新規作成」と起動直後の文書）。
+pub mod new_document;
 /// v2 の読込計画と文書の変換。
 pub mod v2;
 
@@ -46,6 +48,8 @@ mod v2_order;
 mod number_commands;
 /// 配置待ちの番号をシートへ移す操作と窓口への更新情報。
 pub mod pending_commands;
+/// タイムシートに書くコマ数。
+mod sheet_length;
 mod stage_commands;
 mod tween_commands;
 

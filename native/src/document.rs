@@ -102,6 +102,14 @@ impl PyCoreDocument {
         })
     }
 
+    /// Python の `Document()` と同じ新しい文書（コマ 1・レイヤー「A」1・空の絵）を作る。
+    #[staticmethod]
+    fn new_blank(width: usize, height: usize) -> PyResult<Self> {
+        Document::new_blank(width, height)
+            .map(Self)
+            .map_err(value_error)
+    }
+
     /// Python の文書グラフ（document_core.graph_payload の JSON）と画像の列から文書を作る。
     #[staticmethod]
     fn from_graph(
@@ -905,5 +913,10 @@ impl PyCoreDocument {
     /// 合成などの読み取り専用の計算に渡す文書。
     pub(crate) fn document(&self) -> &Document {
         &self.0
+    }
+
+    /// ツール操作（バケツなど）が画素を書く文書。
+    pub(crate) fn document_mut(&mut self) -> &mut Document {
+        &mut self.0
     }
 }

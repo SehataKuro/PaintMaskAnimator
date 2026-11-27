@@ -2,13 +2,15 @@
 //
 // 状態は Rust（src/colors.rs）の Session にあり、ここは最後に受け取った形を持つだけ。
 // - `palette-changed`：使用色パネルの全体（PaletteView）
-// - `current-color`：いま描く色（ブラシはこの色で描く。app.js が受ける）
 // - `chart-changed`：カラーチャート（ChartView）
-// 描画色（メイン・サブ・背景）は drawing_op の戻り値で受け取る。
+// 描画色（メイン・サブ・背景・描く色の選び）の正本はツールの設定（tools.rs。toolStore）。
+// ここの `drawing` はそこから作る形で、変えるときも toolStore.set を通す（ツールのパネルの
+// 色の欄・E/C/X のキー・スポイトと同じ所を読み書きするので、どこから変えてもそろう）。
 //
 // ほかに、パネルから開くメニュー・入力の窓・カラーピッカー・「色相・彩度・明度」の窓と、
 // スポイト（WKWebView には EyeDropper が無いので、キャンバスの色を拾う）を置く。
 import { clamp, fromHsv, hex, parseHex, toHsv } from "./color_math.js";
+import { toolStore } from "./tools.js";
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
@@ -40,23 +42,41 @@ function publish(kind, value) {
   }
 }
 
+/// 色のパネルが受け持つメニュー・ショートカットの操作（actions.rs の id）。
+const ACTIONS = {
+  // 使用色：この色を選択範囲にする（フォーカス・選んだ色・描画色の順）。
+  a_focus_used_color: () => paletteOp({ op: "select_pixels" }),
+  // 選択色だけ表示／特定色表示を解除（選択レイヤーの色フィルタ）。
+  a_isolate_color: () => paletteOp({ op: "isolate_layer_color" }),
+  a_clear_color_filter: () => paletteOp({ op: "clear_layer_color_filter" }),
+  a_color_chart: () => import("./color_chart.js").then((m) => m.openColorChart()),
+};
+
 let started = null;
 /// 事件を受け始め、今の形を読む（何度呼んでも1回だけ）。
 export function startColors() {
   started ??= (async () => {
-    await listen("palette-changed", ({ payload }) => {
-      publish("palette", payload);
-      if (payload?.drawing) publish("drawing", payload.drawing);
-    });
+    await listen("palette-changed", ({ payload }) => publish("palette", payload));
     await listen("chart-changed", ({ payload }) => publish("chart", payload));
-    await listen("current-color", ({ payload }) => {
-      // drawing_op の戻り値と同じ形（DrawingView）。
-      if (payload?.main) publish("drawing", payload);
+    // 描画色はツールの設定から（tools-changed）。同じ色なら知らせない（ツールの他の欄の変化）。
+    let last = "";
+    toolStore.subscribe((view) => {
+      const drawing = drawingFromSettings(view?.settings);
+      const key = JSON.stringify(drawing);
+      if (drawing && key !== last) {
+        last = key;
+        publish("drawing", drawing);
+      }
     });
-    const view = await invoke("palette_view");
-    publish("palette", view);
-    publish("drawing", view.drawing);
+    publish("palette", await invoke("palette_view"));
     publish("chart", await invoke("chart_view"));
+    // メニュー・ショートカットの色の操作（shell.js の pma-action を引き受ける）。
+    window.addEventListener("pma-action", (e) => {
+      const run = ACTIONS[e.detail?.id];
+      if (!run) return;
+      e.preventDefault();
+      run();
+    });
   })();
   return started;
 }
@@ -93,11 +113,53 @@ export const chartLoadPmag = () => run("chart_load_pmag", {}, "PMAG読込");
 export const replacementSave = () => run("replacement_set_save", {}, "置換色を保存");
 export const replacementLoad = () => run("replacement_set_load", {}, "置換色を読み込む");
 
-/// 描画色を変える。
+/// ツールの設定から描画色の形を作る。{main, sub, background}（#RRGGBB）、mode（main / sub /
+/// transparent）、current（いま描く色。背景色のモードは消しゴム）。
+function drawingFromSettings(s) {
+  if (!s) return null;
+  const mode = ["main", "sub", "transparent"].includes(s.color_mode) ? s.color_mode : "main";
+  const color = mode === "sub" ? s.color_sub : mode === "main" ? s.color_main : s.background_color;
+  return {
+    main: hex(s.color_main),
+    sub: hex(s.color_sub),
+    background: hex(s.background_color),
+    mode,
+    current: { color, eraser: mode === "transparent", hex: hex(color) },
+  };
+}
+
+/// 描画色を変える（ツールの設定を変える。tools-changed で各パネルへ届く）。
+/// op は set_active {color}・set {which, color}・mode {mode}・swap・reset・background {color}。
 export async function drawingOp(op) {
-  const view = await invoke("drawing_op", { op });
-  publish("drawing", view);
-  return view;
+  const s = toolStore.settings;
+  if (!s) return state.drawing;
+  let patch = null;
+  switch (op.op) {
+    case "set_active": {
+      // 背景色で描いているときはメインへ戻す（Qt の wheel_color_changed）。
+      const mode = s.color_mode === "sub" ? "sub" : "main";
+      patch = { [mode === "sub" ? "color_sub" : "color_main"]: op.color, color_mode: mode };
+      break;
+    }
+    case "set":
+      patch = op.which === "transparent" ? { background_color: op.color }
+        : { [op.which === "sub" ? "color_sub" : "color_main"]: op.color };
+      break;
+    case "mode":
+      patch = { color_mode: op.mode };
+      break;
+    case "swap":
+      patch = { color_main: s.color_sub, color_sub: s.color_main };
+      break;
+    case "reset":
+      patch = { color_main: [0, 0, 0], color_sub: [255, 255, 255] };
+      break;
+    case "background":
+      patch = { background_color: op.color };
+      break;
+  }
+  if (patch) await toolStore.set(patch);
+  return state.drawing;
 }
 
 /// いま編集している色（メイン／サブ。背景色で描いているときはメイン）。

@@ -237,6 +237,156 @@ button:hover { background: #3d3d3d; }
 .tl-normalize-row { display: flex; gap: 8px; align-items: baseline; }
 .tl-normalize-row span { color: #9aa2ad; font-size: 12px; }
 
+/* ---- ツール・ツールプロパティ・アクションのパネル（tools.js ほか） ---- */
+.pma-tooltip {
+  position: fixed;
+  z-index: 2000;
+  display: none;
+  max-width: 320px;
+  padding: 6px 9px;
+  border-radius: 6px;
+  background: #2b2f37;
+  border: 1px solid #3c424c;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  color: #e6e9ee;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-line;
+  pointer-events: none;
+}
+.pma-tooltip-title { font-weight: 700; }
+.pma-tools { padding: 4px; display: flex; flex-direction: column; gap: 8px; user-select: none; -webkit-user-select: none; }
+.pma-tool-grid { display: grid; grid-template-columns: repeat(auto-fill, 30px); justify-content: center; }
+.pma-tool {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  padding: 4px;
+  margin: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: #e6e9ee;
+}
+.pma-tool svg { width: 20px; height: 20px; display: block; }
+.pma-tool:hover { background: #31363f; }
+.pma-tool.active { background: #33507f; border-color: #4d8bff; }
+.pma-tool.drop { border-color: #e0a63a; }
+.pma-tool.grouped::after {
+  content: "";
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  border-left: 5px solid transparent;
+  border-bottom: 5px solid #9aa2ad;
+}
+.pma-swatch { position: relative; width: 52px; height: 70px; margin: 0 auto; flex: none; }
+.pma-swatch button { position: absolute; padding: 0; border: 1px solid #202020; border-radius: 4px; }
+.pma-swatch button.selected { border: 2px solid #4d8bff; }
+.pma-swatch-main { left: 0; top: 0; width: 33px; height: 33px; z-index: 1; }
+.pma-swatch-sub { left: 19px; top: 19px; width: 33px; height: 33px; }
+.pma-swatch-bg { left: 0; top: 55px; width: 52px; height: 14px; }
+.pma-menu-item { display: flex; align-items: center; gap: 6px; }
+.pma-menu-item.checked { font-weight: 700; }
+.pma-menu-item.checked::before { content: "✓"; position: absolute; left: 3px; }
+.pma-menu-icon svg { width: 16px; height: 16px; display: block; }
+.pma-props { display: flex; flex-direction: column; gap: 3px; padding: 4px 6px; font-size: 12px; }
+.pma-active { font-size: 13px; padding: 2px 0 4px; }
+.pma-command-box { display: flex; flex-direction: column; gap: 3px; padding: 2px 0; }
+.pma-section { font-weight: 700; }
+.pma-row { display: flex; align-items: center; gap: 4px; }
+.pma-row > .pma-range { flex: 1; min-width: 58px; }
+.pma-row-title { color: #c9ced6; white-space: nowrap; }
+.pma-value { min-width: 34px; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pma-check { display: flex; align-items: center; gap: 4px; }
+.pma-label.pma-clickable { cursor: pointer; text-decoration: underline dotted; }
+.pma-note { color: #9aa2ad; padding: 0 4px; font-size: 11px; }
+.pma-small-note { font-size: 10px; color: #9aa2ad; }
+.pma-range { width: 100%; margin: 0; accent-color: #4d8bff; }
+.pma-range.inverted { direction: rtl; }
+.pma-combo, .pma-spin, .pma-props select, .pma-dialog select, .pma-dialog input[type=number], .pma-dialog input[type=text] {
+  background: #31363f;
+  color: #e6e9ee;
+  border: 1px solid #3c424c;
+  border-radius: 4px;
+  font: inherit;
+  font-size: 12px;
+  min-width: 0;
+}
+.pma-combo { width: 100%; }
+.pma-row .pma-combo { flex: 1; width: auto; }
+.pma-spin { width: 52px; }
+.pma-prefix { color: #c9ced6; }
+.pma-button { width: 100%; text-align: center; padding: 3px 8px; }
+.pma-button.pma-small { width: auto; height: 22px; }
+.pma-stretch { flex: 1; }
+.pma-props .disabled, .pma-props :disabled { opacity: 0.45; }
+.pma-size { display: flex; align-items: center; gap: 2px; }
+.pma-size-value {
+  min-width: 40px;
+  padding: 1px 4px;
+  text-align: right;
+  background: #31363f;
+  border: 1px solid #3c424c;
+  border-radius: 4px;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+.pma-steppers { display: flex; flex-direction: column; }
+.pma-steppers button { padding: 0 3px; font-size: 7px; line-height: 9px; height: 11px; }
+.pma-include { gap: 5px; }
+.pma-slot {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 4px;
+  border: 1px solid #3c424c;
+  background: var(--slot, transparent);
+}
+.pma-slot.empty { border: 1px dashed #9aa2ad; background: transparent; }
+.pma-slot.empty:hover { border-color: #4d8bff; }
+.pma-slot.off {
+  border: 1px dashed #9aa2ad;
+  background: linear-gradient(135deg, var(--slot) 42%, #9aa2ad 43%, #9aa2ad 57%, var(--slot) 58%);
+}
+.pma-popup {
+  position: fixed;
+  z-index: 1500;
+  width: 260px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px;
+  background: #2b2f37;
+  border: 1px solid #3c424c;
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+.pma-center { text-align: center; }
+.pma-actions { display: flex; flex-direction: column; gap: 3px; padding: 5px; }
+.pma-dialog { min-width: 380px; }
+.pma-prefs { display: flex; flex-direction: column; gap: 6px; }
+.pma-pref-row { display: flex; gap: 10px; align-items: baseline; }
+.pma-pref-title { min-width: 150px; color: #c9ced6; }
+.pma-pref-body label { display: flex; align-items: center; gap: 4px; }
+.pma-pref-section { font-weight: 700; margin-top: 8px; }
+.pma-hint { color: #9aa2ad; font-size: 11px; margin-left: 160px; }
+.pma-pressure-page .pma-hint { margin-left: 0; }
+.pma-pressure, .pma-pressure-dialog, .pma-pressure-page { display: flex; flex-direction: column; gap: 6px; }
+.pma-pressure .pma-pref-title { min-width: 80px; }
+.pma-pressure .pma-row input[type=range] { flex: 1; }
+.pma-indent { padding-left: 22px; }
+.pma-curve { width: 100%; height: 190px; display: block; border-radius: 4px; }
+.pma-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.pma-clear-selection { position: absolute; right: 8px; top: 36px; }
+
 /* ---- 色のパネル（color_state.js・color_wheel.js・color_sliders.js・used_colors.js・color_chart.js） ---- */
 footer.error { color: #ff6b6b; }
 body.eyedropping .canvas-panel canvas { cursor: copy; }

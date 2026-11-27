@@ -46,6 +46,21 @@ cd app && PMA_TIMELINE_SAMPLE=48 PMA_TIMELINE_SAMPLE_SIZE=1920x1080 \
   PMA_PLAYBACK_SELFTEST=96 cargo run --release
 ```
 
+## アプリの外枠（メニュー・環境設定など）
+
+Qt 版の MainWindow のうちパネルの外の部分は、Rust の [`src/shell.rs`](src/shell.rs)（と menu.rs・
+prefs.rs・shortcuts.rs・autosave.rs・papers.rs・i18n.rs）と、画面の `ui/shell.js`（と
+dialogs.js・preferences.js・shortcuts.js・history_panel.js・i18n.js・theme.css）にあります。
+
+- メニューは OS のメニュー（tauri::menu）。項目は Qt と同じ並び・言葉・キー。選ぶと
+  `menu-action` の事件で画面へ送り、画面が処理する。まだ移していない操作は `pma-action` の
+  事件を窓へ出し、どのパネルも受けなければ「まだ移していません」と知らせる。
+- 設定はアプリの設定のフォルダーの `config.json`。初めての起動で Qt 版の設定を写す
+  （ワークスペースは配置の形が違うので写さない）。確かめるときは `PMA_CONFIG_DIR` で別の
+  フォルダーにできる。
+- 英語の表 `i18n/en.json` は `paintmaskanimator_en.ts` から作る
+  （`PMA_UPDATE_I18N=1 cargo test i18n_catalogue`）。
+
 ## まだ確かめていないこと
 
 - 実機のペンタブレット（Wacom など）で、筆圧・傾き・消しゴム側が取れるか（macOS・Windows）

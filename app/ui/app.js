@@ -15,7 +15,17 @@ import { createTimelinePanel } from "./timeline.js";
 import { createColorWheelPanel } from "./color_wheel.js";
 import { createColorSlidersPanel } from "./color_sliders.js";
 import { createUsedColorsPanel } from "./used_colors.js";
-import { eyedrop, startColors, subscribe } from "./color_state.js";
+import { eyedrop, startColors } from "./color_state.js";
+// ツール・ツールプロパティ・アクションのパネルと、キャンバスの上のツール（tools.js ほか）。
+import { toolStore, createToolsPanel } from "./tools.js";
+import { createToolPropertiesPanel } from "./tool_properties.js";
+import { createActionsPanel } from "./actions.js";
+import { Overlay } from "./overlay.js";
+import { createCanvasTools } from "./canvas_tools.js";
+import { runToolsSelftest } from "./tools_selftest.js";
+// 【アプリの外枠】メニュー・ファイル・環境設定など（shell.js）と、ヒストリーのパネル。
+import { initShell } from "./shell.js";
+import { createHistoryPanel } from "./history_panel.js";
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
@@ -31,15 +41,25 @@ const viewButtons = document.createElement("div");
 viewButtons.className = "view-buttons";
 viewButtons.innerHTML = '<button id="fit" type="button">全体を表示</button><button id="actual" type="button">100%</button>';
 canvasPanel.appendChild(viewButtons);
+let timelinePanel = null;
 createLayout(document.getElementById("dock"), {
   canvas: () => canvasPanel,
   // タイムラインのパネル（timeline.js）。文書の変化は document-changed の事件で知る。
-  timeline: () => createTimelinePanel({ invoke }),
-  // 色のパネル。Rust の palette-changed・current-color・chart-changed で表示を合わせる。
+  // ツールのパネル（tools.js・tool_properties.js・actions.js）。
+  tools: () => createToolsPanel(),
+  "tool-properties": () => createToolPropertiesPanel(),
+  actions: () => createActionsPanel(),
+  timeline: () => (timelinePanel = createTimelinePanel({ invoke })),
+  // 【アプリの外枠】ヒストリー（history_panel.js）。
+  history: () => createHistoryPanel({ invoke, listen }),
+  // 色のパネル（color_wheel.js・color_sliders.js・used_colors.js）。描画色はツールの設定
+  // （tools-changed）、使用色とチャートは palette-changed・chart-changed で表示を合わせる。
   "color-wheel": () => createColorWheelPanel(),
   "color-sliders": () => createColorSlidersPanel(),
   "used-colors": () => createUsedColorsPanel(),
 });
+// 【アプリの外枠】shell.js（main で始める）。
+let shell = null;
 const viewer = new Viewer(canvas);
 
 // 描いた線の点（自己確認で調べる）。{x, y, pressure, device}（x, y は画面の座標）
@@ -49,16 +69,9 @@ const strokes = [];
 const queue = [];
 let pendingPoints = [];
 let sending = false;
-// ツールの設定（ツールのパネルができるまでは既定の値）。
-const tool = { size: 5, color: [0, 0, 0], stabilizer: 0 };
-// 背景色で描く（使用色の描画色の欄で背景色を選んだ）ときは消しゴムと同じく透明にする。
-let drawEraser = false;
-// 描画色（Rust の current-color）。ブラシはこの色で描く。
-function useCurrentColor(current) {
-  if (!current) return;
-  tool.color = current.color;
-  drawEraser = current.eraser;
-}
+// 線の太さ・色・手ぶれ補正はツールの設定（tools.rs）を使う。筆圧の自己確認だけは決まった値で描く。
+const selftestTool = { size: 5, color: [0, 0, 0], stabilizer: 0 };
+let penSelftest = false;
 // Rust とのやり取り1回の時間（ms、自己確認で出す）。
 const strokeTimes = [];
 
@@ -107,6 +120,9 @@ function showStatus(device, pressure, tiltX, tiltY) {
     `入力：${name}　筆圧 ${pressure.toFixed(3)}　傾き ${tiltX.toFixed(2)}, ${tiltY.toFixed(2)}　${viewText}`;
 }
 viewer.onchange = () => showSummary();
+// キャンバスの上の層（選択範囲の点線など）と、ブラシ以外のツールの操作（overlay.js・canvas_tools.js）。
+const overlay = new Overlay(canvasPanel, viewer);
+const canvasTools = createCanvasTools({ canvas, viewer, overlay, applyRect });
 
 // 窓の中身の座標（CSS の px）をキャンバス要素の座標にする。
 function toCanvas(x, y) {
@@ -116,26 +132,25 @@ function toCanvas(x, y) {
   return { x: cx, y: cy, inside: cx >= 0 && cy >= 0 && cx < rect.width && cy < rect.height };
 }
 
-// 画面を動かしている途中（スペース＋ドラッグ、中ボタン）。
+// 画面を動かしている途中（ハンドは canvas_tools.js が受け持つ）。
 let panning = null;
-let spaceDown = false;
 
 // 1点を受け取る。phase は down / move / up。x, y は窓の中身の座標。
 function feed(phase, device, x, y, pressure, tiltX, tiltY) {
   showStatus(device, pressure, tiltX, tiltY);
   const p = toCanvas(x, y);
+  // 色のパネルのスポイト（カラーピッカー・置換色）が待っていれば、線もツールも使わずに
+  // ツールのスポイトと同じ拾い方（tool_sample_color）で色を拾う。
+  if (phase === "down" && !stroke && eyedrop.waiting()) {
+    if (p.inside && document.elementFromPoint(x, y) === canvas) pickCanvasColor(p.x, p.y);
+    return;
+  }
+  // ブラシの線の途中でなければ、ツールごとの操作に任せる（canvas_tools.js）。
+  if (!stroke && !panning && (phase !== "down" || (p.inside && document.elementFromPoint(x, y) === canvas)) &&
+      canvasTools.feed(phase, device, p.x, p.y, pressure)) return;
   if (phase === "down") {
     // 線はキャンバスの上で押したときだけ始める（ボタンなどの上は除く）。
     if (!p.inside || document.elementFromPoint(x, y) !== canvas) return;
-    if (spaceDown) {
-      panning = { x, y };
-      return;
-    }
-    // 色のパネルのスポイトが待っていれば、線は描かずにキャンバスの色を拾う。
-    if (eyedrop.waiting()) {
-      pickCanvasColor(p.x, p.y);
-      return;
-    }
     stroke = [{ x: p.x, y: p.y, pressure, device }];
     strokes.push(stroke);
     pendingPoints = [];
@@ -143,7 +158,7 @@ function feed(phase, device, x, y, pressure, tiltX, tiltY) {
     queue.push({
       cmd: "stroke_begin",
       args: {
-        tool: { ...tool, eraser: device === "eraser" || drawEraser, zoom: viewer.zoom },
+        tool: { ...(penSelftest ? selftestTool : {}), eraser: device === "eraser", zoom: viewer.zoom },
         point: { x: q.x, y: q.y, pressure, pen: device !== "mouse", time: performance.now() },
       },
     });
@@ -158,6 +173,7 @@ function feed(phase, device, x, y, pressure, tiltX, tiltY) {
   } else if (phase === "up") {
     const last = stroke[stroke.length - 1];
     stroke = null;
+    canvasTools.strokeEnded(last.x, last.y);
     const q = viewer.screenToImage(last.x, last.y);
     queue.push({
       cmd: "stroke_end",
@@ -183,7 +199,7 @@ function usePointerEvents() {
     feed("down", device(e), e.clientX, e.clientY, pressure(e), ...tilt(e));
   });
   canvas.addEventListener("pointermove", (e) => {
-    if (!stroke && !panning) return;
+    if (!stroke && !panning && !canvasTools.active) return;
     // 1フレームのあいだの点もまとめて受け取る。
     const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
     for (const c of events) feed("move", device(c), c.clientX, c.clientY, pressure(c), ...tilt(c));
@@ -218,12 +234,6 @@ function useViewControls() {
     middle = { x: e.clientX, y: e.clientY };
   });
   canvas.addEventListener("pointerup", () => (middle = null));
-  window.addEventListener("keydown", (e) => {
-    if (e.code === "Space") spaceDown = true;
-  });
-  window.addEventListener("keyup", (e) => {
-    if (e.code === "Space") spaceDown = false;
-  });
   document.getElementById("fit").addEventListener("click", () => viewer.fit());
   document.getElementById("actual").addEventListener("click", () => {
     const r = canvas.getBoundingClientRect();
@@ -295,7 +305,8 @@ let summary = null;
 function showSummary() {
   if (!summary) return;
   const name = summary.path ? summary.path.split(/[\\/]/).pop() : "（未保存）";
-  document.title = `${name} — PaintMaskAnimator`;
+  // 【アプリの外枠】窓の題名は shell.js が付ける（Qt と同じ形）。
+  void name;
   viewText = `${summary.frames ? `コマ ${summary.frame + 1}/${summary.frames}　` : ""}表示 ${(viewer.zoom * 100).toFixed(0)}%　回転 ${viewer.rotation.toFixed(0)}°`;
   showStatus("mouse", 0, 0, 0);
 }
@@ -348,26 +359,22 @@ async function scheduleReload(fit = false) {
 }
 
 // スポイト：表示しているキャンバスの画素（背景の表示色・置換のプレビューを含む）を拾う。
+// 色のパネルのスポイト：ツールのスポイトと同じく、表示しているレイヤーの元の色を拾う
+// （描画色は変えない）。透明・白は白（背景）。画像の外なら null。
 async function pickCanvasColor(sx, sy) {
   const q = viewer.screenToImage(sx, sy);
-  const x = Math.floor(q.x);
-  const y = Math.floor(q.y);
-  if (x < 0 || y < 0 || x >= viewer.width || y >= viewer.height) {
+  try {
+    const picked = await invoke("tool_sample_color", { x: q.x, y: q.y, source: "display" });
+    eyedrop.deliver(picked ? picked.rgb : null);
+  } catch (e) {
+    statusLine.textContent = String(e);
     eyedrop.deliver(null);
-    return;
   }
-  const buffer = await invoke("read_canvas");
-  const w = new DataView(buffer, 8, 4).getUint32(0, true);
-  const px = new Uint8Array(buffer, 16 + (y * w + x) * 4, 4);
-  eyedrop.deliver([px[0], px[1], px[2]]);
 }
 
 async function useColorEvents() {
+  // 描画色はツールの設定にあり、ブラシは Rust（tools.rs）がそこから描く色を取る。
   await startColors();
-  useCurrentColor(await invoke("current_color"));
-  // 描画色の欄（DrawingView）の current。current-color（drawing_op）と、作品を開いたときの
-  // palette-changed のどちらでも color_state.js が知らせる。
-  subscribe("drawing", (drawing) => useCurrentColor(drawing?.current));
   // 表示の絞り込み・置換のプレビュー・背景の表示色が変わったら、キャンバスを読み直す。
   await listen("display-changed", () => {
     if (!measuring) scheduleReload();
@@ -383,6 +390,11 @@ async function useDocumentEvents() {
 }
 
 async function openProject(path) {
+  // 【アプリの外枠】未保存の確かめと、最近使ったファイルは shell.js。
+  if (shell) {
+    await shell.openDropped(path);
+    return;
+  }
   try {
     // 開けたら document-changed（source が open）で全体を表示し直す。
     await invoke("open_project", { path });
@@ -417,22 +429,15 @@ function useDocumentControls() {
     } else if (e.key === "ArrowLeft" && !mod) {
       e.preventDefault();
       stepFrame(-1);
-    } else if (mod && (e.key.toLowerCase() === "y" || (e.shiftKey && e.key.toLowerCase() === "z"))) {
-      e.preventDefault();
-      await invoke("redo");
-    } else if (mod && e.key.toLowerCase() === "z") {
-      e.preventDefault();
-      await invoke("undo");
-    } else if (mod && e.key.toLowerCase() === "s") {
-      e.preventDefault();
-      try {
-        const path = await invoke("save_project", { path: null });
-        statusLine.textContent = `保存しました：${path}`;
-      } catch (err) {
-        statusLine.textContent = `保存できませんでした：${err}`;
-      }
     }
+    // 【アプリの外枠】取り消し・やり直し・保存は、メニュー（menu.rs → shell.js）が受ける。
   });
+}
+
+// 【アプリの外枠】キャンバスの真ん中を中心に拡大・縮小（表示：拡大／縮小）。
+function zoomCenter(factor) {
+  const r = canvas.getBoundingClientRect();
+  viewer.zoomAt(factor, r.width / 2, r.height / 2);
 }
 
 // 再生の自己確認：再生して、キャンバスが何 fps で今のコマを表示できたかを測る。
@@ -489,11 +494,29 @@ async function runPlaybackSelftest(count) {
 
 async function main() {
   const info = await invoke("startup");
+  // ツールの設定（tools.rs）。筆圧の自己確認では、キャンバスのツールを使わずブラシで描く。
+  penSelftest = !!info.pen_selftest;
+  canvasTools.enabled = !penSelftest;
+  await toolStore.init();
   await useDocumentEvents();
   await useColorEvents();
   await reloadCanvas(true);
   useDocumentControls();
-  if (info.open) await openProject(info.open);
+  // 【アプリの外枠】メニュー・キー・題名など（shell.js）。
+  shell = await initShell({
+    invoke,
+    listen,
+    startup: info,
+    hooks: {
+      zoomIn: () => zoomCenter(1.15),
+      zoomOut: () => zoomCenter(1 / 1.15),
+      fit: () => viewer.fit(),
+      stepFrame,
+      timelinePanel: () => timelinePanel,
+      status: (text) => (statusLine.textContent = text),
+    },
+  });
+  if (info.open) await shell.openPath(info.open);
   useViewControls();
   if (info.native_pen) await useNativePen();
   else usePointerEvents();
@@ -504,6 +527,8 @@ async function main() {
     const { runColorsSelftest } = await import("./color_selftest.js");
     await runColorsSelftest({ invoke, pause: info.colors_selftest });
   }
+  // キーの持ち主の自己確認（tools_selftest.js）。
+  if (info.tools_selftest) await runToolsSelftest({ shell });
 }
 
 main().catch((e) => {
