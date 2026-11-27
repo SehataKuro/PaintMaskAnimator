@@ -1,6 +1,6 @@
 # 画面を Rust にする判断のための試作
 
-[docs/design-principles.md](../docs/design-principles.md) の「画面まで Rust にするかの判断」に挙げた
+[docs/design-principles.md](../docs/design-principles.md) の「画面の方式：Tauri に決めた」に挙げた
 4点を、2つの方式の小さな試作で確かめた記録です。どちらもアプリには組み込みません。
 
 | 試作 | 画面 | ドッキング |
@@ -124,3 +124,5 @@ IME が使う macOS の窓口（NSTextInputClient の setMarkedText＝変換中�
 
 別の OS の窓に出すことは、どちらも macOS で確かめられました。残るのは、筆圧の実機（ペンタブレット）での確認と、
 Windows での確認です。これが済むまでは、設計方針どおり画面は Qt のままにします。
+
+この結果から、画面は Tauri で作ることにしました（2026-11-27）。
