@@ -116,28 +116,9 @@ export class Overlay {
     } else if (p?.kind === "rect") {
       const [a, b] = [p.start, p.end];
       this.ants(ctx, () => this.path(ctx, [a, [b[0], a[1]], b, [a[0], b[1]]], true));
-    } else if (p?.kind === "shape" && p.points) {
-      this.ants(ctx, () => {
-        if (p.ellipse) this.ellipse(ctx, p.ellipse);
-        else this.path(ctx, p.points, true);
-      });
-    } else if (p?.kind === "line") {
-      ctx.save();
-      ctx.strokeStyle = "rgba(77,139,255,0.9)";
-      ctx.lineWidth = Math.max(1, p.width * this.viewer.zoom);
-      ctx.lineCap = "round";
-      ctx.beginPath();
-      const a = this.toScreen(p.start);
-      const b = this.toScreen(p.end);
-      ctx.moveTo(a.x, a.y);
-      if (p.control) {
-        const k = this.toScreen(p.control);
-        ctx.quadraticCurveTo(k.x, k.y, b.x, b.y);
-      } else {
-        ctx.lineTo(b.x, b.y);
-      }
-      ctx.stroke();
-      ctx.restore();
+    } else if (p?.kind === "pixels") {
+      // 確定と同じ画素（直線・図形の #117）。画像の画素をそのまま拡大して重ねる。
+      this.drawImagePixels(ctx, dpr, p.image, p.x, p.y, 1);
     }
     if (this.cursor) {
       const { x, y, radius } = this.cursor;
@@ -153,6 +134,24 @@ export class Overlay {
       ctx.stroke();
       ctx.restore();
     }
+  }
+
+  /// 画像の座標から画面の座標への行列（ctx.setTransform の 6 つの値）。
+  imageMatrix(dpr) {
+    const o = this.toScreen([0, 0]);
+    const ax = this.toScreen([1, 0]);
+    const ay = this.toScreen([0, 1]);
+    return [ax.x - o.x, ax.y - o.y, ay.x - o.x, ay.y - o.y, o.x, o.y].map((v) => v * dpr);
+  }
+
+  /// 画像の (x, y) に、画素の絵（canvas）をニアレストで重ねる。
+  drawImagePixels(ctx, dpr, image, x, y, alpha) {
+    ctx.save();
+    ctx.setTransform(...this.imageMatrix(dpr));
+    ctx.imageSmoothingEnabled = false;
+    ctx.globalAlpha = alpha;
+    ctx.drawImage(image, x, y);
+    ctx.restore();
   }
 
   ellipse(ctx, [x, y, w, h]) {

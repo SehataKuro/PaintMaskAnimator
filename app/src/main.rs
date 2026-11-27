@@ -390,6 +390,7 @@ fn main() {
             tools::tool_lasso_fill,
             tools::tool_shape,
             tools::tool_line,
+            tools::tool_line_preview,
             tools::tool_fill,
             tools::tool_transform,
             tools::tool_dust_apply,

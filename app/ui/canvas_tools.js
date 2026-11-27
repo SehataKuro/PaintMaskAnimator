@@ -61,7 +61,7 @@ export function createCanvasTools({ canvas, viewer, overlay, applyRect }) {
     if (next !== holdTool) {
       holdTool = next;
       active = null;
-      overlay.setPreview(curve ? overlay.preview : null);
+      if (!curve) clearPreview();
       updateCursor();
     }
   }
@@ -115,37 +115,60 @@ export function createCanvasTools({ canvas, viewer, overlay, applyRect }) {
     if (insideImage(p)) run("tool_eyedropper", { x: p[0], y: p[1], source: "display" });
   }
 
-  // 図形の形（Rust の shape_path と同じ。画面に出すだけ）。
-  function shapePreview(start, end) {
-    const s = settings();
-    let e = end;
-    if (s.shape_lock_ratio) {
-      const dx = end[0] - start[0];
-      const dy = end[1] - start[1];
-      const size = Math.max(Math.abs(dx), Math.abs(dy));
-      e = [start[0] + (dx >= 0 ? size : -size), start[1] + (dy >= 0 ? size : -size)];
-    }
-    const x = Math.min(start[0], e[0]);
-    const y = Math.min(start[1], e[1]);
-    const w = Math.abs(e[0] - start[0]);
-    const h = Math.abs(e[1] - start[1]);
-    if (s.shape_type === "ellipse") return { kind: "shape", points: [], ellipse: [x, y, w, h] };
-    const n = Math.max(3, s.shape_corners);
-    if (n === 4) return { kind: "shape", points: [[x, y], [x + w, y], [x + w, y + h], [x, y + h]] };
-    const points = [];
-    for (let i = 0; i < n; i++) {
-      const a = -Math.PI / 2 + (2 * Math.PI * i) / n;
-      points.push([x + w / 2 + (Math.cos(a) * w) / 2, y + h / 2 + (Math.sin(a) * h) / 2]);
-    }
-    return { kind: "shape", points };
+  // 直線・図形の確定前の見た目（#117）：確定と同じ画素を Rust（tools.rs の
+  // tool_line_preview、計算は pma-core の line_tool）から受け取って重ねる。
+  // 求めは1つずつ送り、返ってくる前に次の求めが来たら最後のものだけを送る。
+  let previewWant = null;
+  let previewBusy = false;
+  let previewSeq = 0;
+  function pixelsPreview(buffer) {
+    const head = new DataView(buffer, 0, 16);
+    const [x, y, w, h] = [0, 4, 8, 12].map((o) => head.getUint32(o, true));
+    if (!w || !h) return null;
+    const image = document.createElement("canvas");
+    image.width = w;
+    image.height = h;
+    image.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(buffer, 16, w * h * 4), w, h), 0, 0);
+    return { kind: "pixels", x, y, image };
   }
+  async function pumpPreview() {
+    previewBusy = true;
+    try {
+      while (previewWant) {
+        const args = previewWant;
+        previewWant = null;
+        const seq = previewSeq;
+        let buffer = null;
+        try {
+          buffer = await invoke("tool_line_preview", { args });
+        } catch {
+          buffer = null;
+        }
+        if (seq === previewSeq) overlay.setPreview(buffer ? pixelsPreview(buffer) : null);
+      }
+    } finally {
+      previewBusy = false;
+    }
+  }
+  function requestPreview(args) {
+    previewWant = args;
+    previewSeq++;
+    if (!previewBusy) pumpPreview();
+  }
+  /// 確定前の見た目を消す（返ってくる途中の見た目も出さない）。
+  function clearPreview() {
+    previewWant = null;
+    previewSeq++;
+    overlay.setPreview(null);
+  }
+  api.clearPreview = clearPreview;
 
   function linePreview(state) {
-    overlay.setPreview({ kind: "line", start: state.start, end: state.end, control: state.control, width: settings().brush_size });
+    requestPreview({ kind: "line", start: state.start, end: state.end, control: state.control ?? null, brushLine: !!state.brushLine });
   }
 
   async function commitLine(state) {
-    overlay.setPreview(null);
+    clearPreview();
     curve = null;
     await run("tool_line", { start: state.start, end: state.end, control: state.control ?? null, brushLine: !!state.brushLine });
     brushAnchor = state.end;
@@ -234,7 +257,7 @@ export function createCanvasTools({ canvas, viewer, overlay, applyRect }) {
       linePreview(a);
     } else if (a.kind === "shape") {
       a.end = p;
-      overlay.setPreview(shapePreview(a.start, a.end));
+      requestPreview({ kind: "shape", start: a.start, end: a.end });
     } else if (a.kind === "lasso" || a.kind === "lasso_fill") {
       const last = a.points[a.points.length - 1];
       if (Math.hypot(p[0] - last[0], p[1] - last[1]) * viewer.zoom >= 1) a.points.push(p);
@@ -261,7 +284,7 @@ export function createCanvasTools({ canvas, viewer, overlay, applyRect }) {
         commitLine(a);
       }
     } else if (a.kind === "shape") {
-      overlay.setPreview(null);
+      clearPreview();
       run("tool_shape", { start: a.start, end: a.end });
     } else if (a.kind === "lasso_fill") {
       overlay.setPreview(null);
@@ -370,7 +393,7 @@ export function createCanvasTools({ canvas, viewer, overlay, applyRect }) {
       if (e.key === "Enter") commitLine(curve);
       else {
         curve = null;
-        overlay.setPreview(null);
+        clearPreview();
       }
     }
   }, true);
@@ -517,7 +540,7 @@ export function createCanvasTools({ canvas, viewer, overlay, applyRect }) {
   toolStore.subscribe(() => {
     if (curve && effectiveTool() !== "line") {
       curve = null;
-      overlay.setPreview(null);
+      clearPreview();
     }
     updateCursor();
   });
