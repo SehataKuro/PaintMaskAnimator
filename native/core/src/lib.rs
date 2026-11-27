@@ -2,6 +2,7 @@
 //! 規約は issue #96 §2。
 pub mod alpha_runs;
 pub mod auto_paint;
+pub mod brush;
 pub mod color_stats;
 pub mod colors;
 pub mod display;
