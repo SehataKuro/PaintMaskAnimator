@@ -257,6 +257,27 @@ def decode_v2_plan(payload: dict, archive_names: list[str], limits: tuple[int, i
     """v2 の構造計画、要求順の画像、構造エラーの理由を返す。"""
 
 
+def _open_project(data: bytes) -> tuple[_CoreDocument, str, int, int, int, dict[int, bytes]]:
+    """純 Rust で .pman を開く（文書, metadata の JSON, 幅, 高さ, 形式, {世代: PNG}）。
+
+    失敗は ValueError((種類, 文言))。
+    """
+
+
+def _save_project(
+    document: _CoreDocument,
+    metadata_json: str,
+    date_time: tuple[int, int, int, int, int, int],
+    thumbnail: bytes | None = None,
+    dots_per_meter: tuple[int, int] | None = None,
+    cache: dict[int, bytes] | None = None,
+) -> tuple[bytes, dict[int, bytes]]:
+    """純 Rust で文書を .pman のバイト列にする（バイト列, 残した {世代: PNG}）。
+
+    失敗は ValueError((種類, 文言))。
+    """
+
+
 class ZipWriter:
     def __init__(self, path: str) -> None: ...
     def write(self, name: str, data: bytes, deflate: bool, date_time: tuple[int, int, int, int, int, int]) -> None: ...
