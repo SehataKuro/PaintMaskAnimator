@@ -12,7 +12,7 @@ mod pen;
 mod pen_selftest;
 mod session;
 
-use session::{pack_rect, Point, Session, Shared, Summary};
+use session::{pack_rect, Point, Session, Shared, StrokeTool, Summary};
 use tauri::ipc::Response;
 use tauri::State;
 
@@ -134,12 +134,32 @@ fn set_frame(session: State<Shared>, frame: usize) -> Result<Summary, String> {
     Ok(s.summary())
 }
 
-/// 線の点（画像の座標）を描き、変わった範囲の画素を返す。
+/// 線を始める（画像の座標）。変わった範囲の画素を返す。
 #[tauri::command]
-fn stroke(session: State<Shared>, points: Vec<Point>, begin: bool) -> Response {
+fn stroke_begin(
+    session: State<Shared>,
+    tool: StrokeTool,
+    point: Point,
+) -> Result<Response, String> {
     let mut s = session.lock().unwrap();
-    let rect = s.stroke(&points, begin);
-    Response::new(pack_rect(&s.display, rect))
+    let rect = s.stroke_begin(&tool, point)?;
+    Ok(Response::new(pack_rect(&s.display, rect)))
+}
+
+/// 線の続きの点。変わった範囲の画素を返す。
+#[tauri::command]
+fn stroke_move(session: State<Shared>, points: Vec<Point>) -> Result<Response, String> {
+    let mut s = session.lock().unwrap();
+    let rect = s.stroke_move(&points)?;
+    Ok(Response::new(pack_rect(&s.display, rect)))
+}
+
+/// 線を終える。変わった範囲の画素を返す。
+#[tauri::command]
+fn stroke_end(session: State<Shared>, point: Option<Point>) -> Result<Response, String> {
+    let mut s = session.lock().unwrap();
+    let rect = s.stroke_end(point)?;
+    Ok(Response::new(pack_rect(&s.display, rect)))
 }
 
 /// 別の窓の大きさと題名を変える（別の窓の題名は dockview が主の窓の題名を写すので、パネルの名前にする）。
@@ -227,7 +247,9 @@ fn main() {
             redo,
             history,
             read_canvas,
-            stroke,
+            stroke_begin,
+            stroke_move,
+            stroke_end,
             shape_window,
             close_window,
             report,

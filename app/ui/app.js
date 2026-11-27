@@ -30,10 +30,12 @@ const viewer = new Viewer(canvas);
 // 描いた線の点（自己確認で調べる）。{x, y, pressure, device}（x, y は画面の座標）
 let stroke = null;
 const strokes = [];
-// Rust へまだ送っていない点（画像の座標）と、線の始まりかどうか。
-let pending = [];
-let pendingBegin = false;
+// Rust へ送る線の仕事の列。始め・続き（まとめた点）・終わりを、この順で1つずつ送る。
+const queue = [];
+let pendingPoints = [];
 let sending = false;
+// ツールの設定（ツールのパネルができるまでは既定の値）。
+const tool = { size: 5, color: [0, 0, 0], stabilizer: 0 };
 // Rust とのやり取り1回の時間（ms、自己確認で出す）。
 const strokeTimes = [];
 
@@ -44,21 +46,35 @@ function applyRect(buffer) {
   if (w && h) viewer.writeRect(x, y, w, h, new Uint8Array(buffer, 16));
 }
 
-async function flush() {
-  if (sending || pending.length === 0) return;
+async function call(job) {
+  const t0 = performance.now();
+  applyRect(await invoke(job.cmd, job.args));
+  strokeTimes.push(performance.now() - t0);
+}
+
+// 列を順に送る。続きの点は1フレーム分ずつまとめて送る。
+async function pump() {
+  if (sending) return;
   sending = true;
-  const points = pending;
-  const begin = pendingBegin;
-  pending = [];
-  pendingBegin = false;
   try {
-    const t0 = performance.now();
-    applyRect(await invoke("stroke", { points, begin }));
-    strokeTimes.push(performance.now() - t0);
+    while (queue.length || pendingPoints.length) {
+      if (queue.length && queue[0].cmd !== "stroke_end") {
+        await call(queue.shift());
+        continue;
+      }
+      if (pendingPoints.length) {
+        const points = pendingPoints;
+        pendingPoints = [];
+        await call({ cmd: "stroke_move", args: { points } });
+        continue;
+      }
+      await call(queue.shift());
+    }
+  } catch (e) {
+    statusLine.textContent = `描けませんでした：${e}`;
   } finally {
     sending = false;
   }
-  if (pending.length) requestAnimationFrame(flush);
 }
 
 let viewText = "";
@@ -94,8 +110,17 @@ function feed(phase, device, x, y, pressure, tiltX, tiltY) {
     }
     stroke = [{ x: p.x, y: p.y, pressure, device }];
     strokes.push(stroke);
-    pending = [];
-    pendingBegin = true;
+    pendingPoints = [];
+    const q = viewer.screenToImage(p.x, p.y);
+    queue.push({
+      cmd: "stroke_begin",
+      args: {
+        tool: { ...tool, eraser: device === "eraser", zoom: viewer.zoom },
+        point: { x: q.x, y: q.y, pressure, pen: device !== "mouse", time: performance.now() },
+      },
+    });
+    pump();
+    return;
   } else if (panning) {
     viewer.panBy(x - panning.x, y - panning.y);
     panning = phase === "up" ? null : { x, y };
@@ -103,15 +128,21 @@ function feed(phase, device, x, y, pressure, tiltX, tiltY) {
   } else if (!stroke) {
     return;
   } else if (phase === "up") {
+    const last = stroke[stroke.length - 1];
     stroke = null;
-    requestAnimationFrame(flush);
+    const q = viewer.screenToImage(last.x, last.y);
+    queue.push({
+      cmd: "stroke_end",
+      args: { point: { x: q.x, y: q.y, pressure: last.pressure, pen: last.device !== "mouse", time: performance.now() } },
+    });
+    pump();
     return;
   } else {
     stroke.push({ x: p.x, y: p.y, pressure, device });
   }
   const q = viewer.screenToImage(p.x, p.y);
-  pending.push({ x: q.x, y: q.y, pressure });
-  requestAnimationFrame(flush);
+  pendingPoints.push({ x: q.x, y: q.y, pressure, pen: device !== "mouse", time: performance.now() });
+  requestAnimationFrame(pump);
 }
 
 function usePointerEvents() {

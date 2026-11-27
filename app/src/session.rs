@@ -3,10 +3,12 @@
 //! 文書は pma-core の `Document`。表示は `pma_core::compose` で今のコマを合成した
 //! 画像（ストレート RGBA）を持ち、変わった範囲だけを画面へ渡す。
 //!
-//! 線はまだ仮の描き方（表示の画像に丸い点を並べるだけで、文書には入らない）。
-//! pma-core のブラシが入りしだい、選択中のセルへ描くように差し替える。
+//! 線は pma-core のブラシ（`brush::BrushStroke`）で、選択中のレイヤーの今のコマの絵へ描く。
+//! 描いている間も変わった範囲を文書へ書き、その範囲だけ合成し直して画面へ返す。
+//! 作品を開いていないときは、表示の画像に丸い点を並べるだけの仮の描き方をする。
 
 use crate::history::{Listing, Undo};
+use pma_core::brush::stroke::{BrushSettings, BrushStroke, PointerSample};
 use pma_core::compose::{self, Background, DisplayOptions};
 use pma_core::document::model::Document;
 use pma_core::image::{Rect, RgbaImage};
@@ -25,8 +27,19 @@ pub struct Project {
     pub undo: Undo,
 }
 
+/// 描いている途中の線。
+struct ActiveStroke {
+    stroke: BrushStroke,
+    /// 押す前の文書（取り消しに積む）。
+    before: Document,
+    frame: usize,
+    layer: usize,
+    label: &'static str,
+}
+
 pub struct Session {
     pub project: Option<Project>,
+    active: Option<ActiveStroke>,
     /// 今のコマを合成した表示の画像（ストレート RGBA）。
     pub display: RgbaImage,
     last: Option<Point>,
@@ -40,6 +53,33 @@ pub struct Point {
     pub x: f64,
     pub y: f64,
     pub pressure: f64,
+    /// ペンなら真（筆圧を使う）。マウスは偽。
+    #[serde(default)]
+    pub pen: bool,
+    /// 入力の時刻（ミリ秒）。
+    #[serde(default)]
+    pub time: f64,
+}
+
+impl Point {
+    fn sample(&self) -> PointerSample {
+        PointerSample {
+            x: self.x,
+            y: self.y,
+            pressure: self.pen.then_some(self.pressure),
+            time_ms: self.time,
+        }
+    }
+}
+
+/// 線の描き方（ツールの設定）。
+#[derive(Clone, Debug, Deserialize)]
+pub struct StrokeTool {
+    pub size: f64,
+    pub color: [u8; 3],
+    pub eraser: bool,
+    pub stabilizer: i64,
+    pub zoom: f64,
 }
 
 /// 画面へ渡す作品の概要。
@@ -59,6 +99,7 @@ impl Session {
     pub fn empty(width: usize, height: usize) -> Self {
         Self {
             project: None,
+            active: None,
             display: white(width, height),
             last: None,
         }
@@ -218,12 +259,169 @@ impl Session {
         Ok(())
     }
 
-    /// 仮の線：前の点から丸い点を並べる。変わった範囲を返す。
-    pub fn stroke(&mut self, points: &[Point], begin: bool) -> Option<Rect> {
-        const MAX_RADIUS: f64 = 12.0;
-        if begin {
+    /// 線を始める。変わった範囲を返す。
+    pub fn stroke_begin(
+        &mut self,
+        tool: &StrokeTool,
+        point: Point,
+    ) -> Result<Option<Rect>, String> {
+        self.active = None;
+        let Some(p) = &self.project else {
             self.last = None;
+            return Ok(self.placeholder(&[point]));
+        };
+        let doc = &p.document;
+        let (frame_id, track_id) = doc.selection();
+        let frame = doc.frame_index(frame_id).unwrap_or(0);
+        let layer = doc.track_index(track_id).unwrap_or(0);
+        let layers = compose::frame_layers(doc, frame).map_err(|e| e.to_string())?;
+        let (w, h) = doc.size();
+        let base = match layers
+            .get(layer)
+            .and_then(|l| l.as_ref())
+            .and_then(|l| l.image)
+        {
+            Some(image) => image.clone(),
+            None => RgbaImage::blank(w, h).map_err(|e| e.to_string())?,
+        };
+        let settings = BrushSettings {
+            size: tool.size,
+            color: tool.color,
+            eraser: tool.eraser,
+            stabilizer: tool.stabilizer,
+            zoom: tool.zoom,
+            ..BrushSettings::default()
+        };
+        let before = doc.clone();
+        let (stroke, rects) =
+            BrushStroke::begin(&base, settings, point.sample()).map_err(|e| e.to_string())?;
+        let label = if tool.eraser {
+            "消しゴム"
+        } else {
+            "ブラシ"
+        };
+        self.active = Some(ActiveStroke {
+            stroke,
+            before,
+            frame,
+            layer,
+            label,
+        });
+        self.apply_stroke_rects(&rects)
+    }
+
+    /// 線の続きの点。変わった範囲を返す。
+    pub fn stroke_move(&mut self, points: &[Point]) -> Result<Option<Rect>, String> {
+        let Some(active) = &mut self.active else {
+            return Ok(self.placeholder(points));
+        };
+        let mut rects = Vec::new();
+        for point in points {
+            rects.extend(
+                active
+                    .stroke
+                    .move_to(point.sample())
+                    .map_err(|e| e.to_string())?,
+            );
         }
+        if let Some(last) = points.last() {
+            rects.extend(
+                active
+                    .stroke
+                    .advance_time(last.time)
+                    .map_err(|e| e.to_string())?,
+            );
+        }
+        self.apply_stroke_rects(&rects)
+    }
+
+    /// 線を終える。文書に何か描いたら取り消しに積む。変わった範囲を返す。
+    pub fn stroke_end(&mut self, release: Option<Point>) -> Result<Option<Rect>, String> {
+        let Some(active) = self.active.take() else {
+            return Ok(None);
+        };
+        let ActiveStroke {
+            stroke,
+            before,
+            frame,
+            layer,
+            label,
+        } = active;
+        let result = stroke
+            .finish(release.map(|p| p.sample()))
+            .map_err(|e| e.to_string())?;
+        let p = self.project.as_mut().ok_or("作品を開いていません")?;
+        let Some(undo) = result.undo else {
+            // どこにも描かなかった：文書を押す前に戻す。
+            p.document = before;
+            self.recompose()?;
+            return Ok(Some(full_rect(&self.display)));
+        };
+        let pixels = result
+            .image
+            .copy_rgba_rect(undo.rect)
+            .map_err(|e| e.to_string())?;
+        p.document
+            .write_drawing_patch_with_content(frame, layer, undo.rect, &pixels, true)
+            .map_err(|e| e.to_string())?;
+        p.undo.record(label, &before);
+        self.recompose_rect(undo.rect)?;
+        Ok(Some(undo.rect))
+    }
+
+    /// 描いた範囲を文書へ書き、合成し直す。
+    fn apply_stroke_rects(&mut self, rects: &[Rect]) -> Result<Option<Rect>, String> {
+        let Some(active) = &self.active else {
+            return Ok(None);
+        };
+        let Some(p) = &mut self.project else {
+            return Ok(None);
+        };
+        let mut dirty: Option<Rect> = None;
+        for &rect in rects {
+            let Some(rect) = clip(rect, &self.display) else {
+                continue;
+            };
+            let pixels = active
+                .stroke
+                .image()
+                .copy_rgba_rect(rect)
+                .map_err(|e| e.to_string())?;
+            p.document
+                .write_drawing_patch_with_content(active.frame, active.layer, rect, &pixels, true)
+                .map_err(|e| e.to_string())?;
+            dirty = Some(union(dirty, rect));
+        }
+        if let Some(rect) = dirty {
+            self.recompose_rect(rect)?;
+        }
+        Ok(dirty)
+    }
+
+    /// 範囲だけ合成し直す。
+    fn recompose_rect(&mut self, rect: Rect) -> Result<(), String> {
+        let Some(p) = &self.project else {
+            return Ok(());
+        };
+        let doc = &p.document;
+        let (frame_id, _) = doc.selection();
+        let frame = doc.frame_index(frame_id).unwrap_or(0);
+        let image = compose::composite_rect(
+            doc,
+            frame,
+            &DisplayOptions::default(),
+            Background::White,
+            rect,
+        )
+        .map_err(|e| e.to_string())?;
+        self.display
+            .write_rgba(rect, &image.to_straight_bytes())
+            .map_err(|e| e.to_string())
+    }
+
+    /// 仮の線：前の点から丸い点を並べる（作品を開いていないとき）。
+    fn placeholder(&mut self, points: &[Point]) -> Option<Rect> {
+        const MAX_RADIUS: f64 = 12.0;
         let mut dirty: Option<Rect> = None;
         for &p in points {
             let from = self.last.unwrap_or(p);
@@ -311,6 +509,27 @@ fn civil_from_days(z: i64) -> (i64, i64, i64) {
     (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
+fn full_rect(image: &RgbaImage) -> Rect {
+    Rect {
+        x: 0,
+        y: 0,
+        width: image.width(),
+        height: image.height(),
+    }
+}
+
+/// 画像の外にはみ出した分を切る。重ならなければ None。
+fn clip(rect: Rect, image: &RgbaImage) -> Option<Rect> {
+    let x1 = (rect.x + rect.width).min(image.width());
+    let y1 = (rect.y + rect.height).min(image.height());
+    (rect.x < x1 && rect.y < y1).then(|| Rect {
+        x: rect.x,
+        y: rect.y,
+        width: x1 - rect.x,
+        height: y1 - rect.y,
+    })
+}
+
 pub fn union(a: Option<Rect>, b: Rect) -> Rect {
     let Some(a) = a else { return b };
     let x0 = a.x.min(b.x);
@@ -348,26 +567,34 @@ mod tests {
             .join(name)
     }
 
+    fn tool() -> StrokeTool {
+        StrokeTool {
+            size: 5.0,
+            color: [0, 0, 0],
+            eraser: false,
+            stabilizer: 0,
+            zoom: 1.0,
+        }
+    }
+
+    fn pt(x: f64, y: f64) -> Point {
+        Point {
+            x,
+            y,
+            pressure: 0.5,
+            pen: false,
+            time: 0.0,
+        }
+    }
+
     #[test]
-    fn stroke_marks_dirty_rect_and_paints_black() {
+    fn placeholder_stroke_without_project_paints_black() {
         let mut s = Session::empty(64, 64);
-        let rect = s
-            .stroke(
-                &[
-                    Point {
-                        x: 10.0,
-                        y: 10.0,
-                        pressure: 0.5,
-                    },
-                    Point {
-                        x: 30.0,
-                        y: 10.0,
-                        pressure: 0.5,
-                    },
-                ],
-                true,
-            )
-            .unwrap();
+        let first = s.stroke_begin(&tool(), pt(10.0, 10.0)).unwrap().unwrap();
+        let rect = union(
+            Some(first),
+            s.stroke_move(&[pt(30.0, 10.0)]).unwrap().unwrap(),
+        );
         assert!(rect.x <= 4 && rect.x + rect.width >= 36);
         let px = s
             .display
@@ -379,6 +606,28 @@ mod tests {
             })
             .unwrap();
         assert_eq!(px, vec![0, 0, 0, 255]);
+    }
+
+    #[test]
+    fn brush_draws_into_document_and_undo_restores_it() {
+        let mut s = Session::empty(8, 8);
+        s.open(&fixture("v2").join("basic-bank-sheet.pman"))
+            .unwrap();
+        let (w, h) = (s.display.width() as f64, s.display.height() as f64);
+        let before = s.display.rgba().to_vec();
+        let (a, b) = (pt(w * 0.2, h * 0.5), pt(w * 0.8, h * 0.5));
+        s.stroke_begin(&tool(), a).unwrap();
+        s.stroke_move(&[b]).unwrap();
+        let rect = s.stroke_end(Some(b)).unwrap().unwrap();
+        assert!(rect.width > 0);
+        assert_ne!(s.display.rgba(), &before[..]);
+        assert_eq!(s.history().undo, vec!["ブラシ".to_string()]);
+        // 保存して開き直しても線が残る。
+        let drawn = s.display.rgba().to_vec();
+        assert!(s.undo().unwrap());
+        assert_eq!(s.display.rgba(), &before[..]);
+        assert!(s.redo().unwrap());
+        assert_eq!(s.display.rgba(), &drawn[..]);
     }
 
     #[test]
