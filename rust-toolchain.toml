@@ -1,4 +1,4 @@
-# Pins the Rust toolchain for both crates (native/ and
+# Pins the Rust toolchain for every crate (native/, app/ and
 # packaging/windows/pman_thumbnail), which rustup resolves by walking up from
 # the working directory.
 #

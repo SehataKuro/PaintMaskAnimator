@@ -71,6 +71,36 @@ jobs:
         working-directory: native
         run: cargo check -p pma-core --target ${{ matrix.target }}
 
+  # The Tauri screen (app/) that replaces the Qt one in 0.9.0. Built on the two
+  # desktop platforms it ships on: macOS (WKWebView, native pen reader) and
+  # Windows (WebView2). The pen self-test needs a window server, so it is run
+  # locally (`PMA_PEN_SELFTEST=1`), not here.
+  app:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app
+          shared-key: app-${{ matrix.os }}
+
+      - name: Check formatting (rustfmt)
+        working-directory: app
+        run: cargo fmt --all --check
+
+      - name: Lint (clippy)
+        working-directory: app
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Run tests
+        working-directory: app
+        run: cargo test
+
   # The Explorer thumbnail handler is Windows-only (windows-rs) and is built
   # only by release.yml, so without this job a break in it surfaces for the
   # first time while cutting a release.
