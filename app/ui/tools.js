@@ -6,6 +6,7 @@
 import { iconSvg } from "./icons.js";
 import { setTip, hideTip } from "./tooltip.js";
 import { PressureEditor } from "./pressure.js";
+import { displayKey } from "./shortcuts.js";
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
@@ -28,10 +29,42 @@ export const TOOL_LABELS = {
 
 export const toolLabel = (id) => TOOL_LABELS[id] ?? id;
 
+// ショートカットの表（正本は外枠の actions.rs・shortcuts_get。ショートカット設定で変えた
+// キーもここに入る）。ツールの説明と、押している間の操作のキーに使う。
+let shortcutTable = null;
+export async function refreshShortcuts() {
+  try {
+    shortcutTable = await invoke("shortcuts_get");
+  } catch {
+    // 表が無いとき（試験など）は既定のキーのまま。
+  }
+  return shortcutTable;
+}
+
+function keysOf(id) {
+  return shortcutTable?.actions.find((a) => a.id === id)?.keys ?? null;
+}
+
+/// 押している間の操作のキー（a_hold_* → ["Shift", "Space"] など）。
+export function holdKeys() {
+  const fallback = {
+    a_hold_hand: ["Space"],
+    a_hold_rotate: ["Shift", "Space"],
+    a_hold_zoom: /Mac/.test(navigator.platform) ? ["Alt", "Space"] : ["Ctrl", "Space"],
+    a_hold_eyedropper: ["Alt"],
+  };
+  const out = {};
+  for (const [id, keys] of Object.entries(fallback)) {
+    const stored = keysOf(id);
+    out[id] = stored ? (stored[0] ? stored[0].split("+") : []) : keys;
+  }
+  return out;
+}
+
 /// ショートカットを添えた名前（issue #102）。キーが無ければ名前だけ。
-export function toolLabelWithKey(id, settings) {
-  const key = settings?.shortcuts?.[id];
-  return key ? `${toolLabel(id)}（${key}）` : toolLabel(id);
+export function toolLabelWithKey(id) {
+  const key = keysOf(`tool:${id}`)?.[0];
+  return key ? `${toolLabel(id)}（${displayKey(key)}）` : toolLabel(id);
 }
 
 /// ツールの状態の控え。
@@ -39,6 +72,7 @@ export const toolStore = {
   view: null,
   listeners: new Set(),
   async init() {
+    await refreshShortcuts();
     this.view = await invoke("tools_state");
     await listen("tools-changed", ({ payload }) => this.receive(payload));
     this.emit();
@@ -339,6 +373,8 @@ export function createToolsPanel() {
   const grid = el("div", { class: "pma-tool-grid" });
   const swatch = el("div", { class: "pma-swatch" });
   panel.append(grid, swatch);
+  // ショートカット設定で変えたキーを説明に出す。
+  panel.addEventListener("pointerenter", () => refreshShortcuts());
 
   // 描画色（メインが左上・サブが右下、下に背景色の帯）。
   const main = el("button", { type: "button", class: "pma-swatch-main", tip: "クリック：メイン色に切替" });
@@ -388,11 +424,10 @@ export function createToolsPanel() {
     return out;
   }
 
-  function tipFor(item, view) {
-    const s = view.settings;
-    if (!item.group) return toolLabelWithKey(item.shown, s);
-    const names = item.members.map((m) => toolLabelWithKey(m, s)).join("、");
-    return `${toolLabelWithKey(item.shown, s)}\n（もう一度押すか長押しで切り替え：${names}）`;
+  function tipFor(item) {
+    if (!item.group) return toolLabelWithKey(item.shown);
+    const names = item.members.map((m) => toolLabelWithKey(m)).join("、");
+    return `${toolLabelWithKey(item.shown)}\n（もう一度押すか長押しで切り替え：${names}）`;
   }
 
   function showGroupMenu(item, button) {
@@ -417,7 +452,7 @@ export function createToolsPanel() {
       const active = item.members.includes(s.tool);
       if (active) button.classList.add("active");
       button.setAttribute("aria-label", toolLabel(item.shown));
-      setTip(button, () => tipFor(item, toolStore.view));
+      setTip(button, () => tipFor(item));
       button.draggable = true;
       button.addEventListener("pointerdown", (e) => {
         if (e.button !== 0) return;

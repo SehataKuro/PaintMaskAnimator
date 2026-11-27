@@ -17,6 +17,7 @@ import { createToolPropertiesPanel } from "./tool_properties.js";
 import { createActionsPanel } from "./actions.js";
 import { Overlay } from "./overlay.js";
 import { createCanvasTools } from "./canvas_tools.js";
+import { runToolsSelftest } from "./tools_selftest.js";
 // 【アプリの外枠】メニュー・ファイル・環境設定など（shell.js）と、ヒストリーのパネル。
 import { initShell } from "./shell.js";
 import { createHistoryPanel } from "./history_panel.js";
@@ -481,6 +482,8 @@ async function main() {
   else usePointerEvents();
   if (info.pen_selftest) await runPenSelftest();
   if (info.playback_selftest) await runPlaybackSelftest(info.playback_selftest);
+  // キーの持ち主の自己確認（tools_selftest.js）。
+  if (info.tools_selftest) await runToolsSelftest({ shell });
 }
 
 main().catch((e) => {
