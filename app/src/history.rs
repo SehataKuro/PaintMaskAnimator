@@ -7,7 +7,9 @@
 //! 論理バイト（上限の判断に使う量）は、前の件と画素を共有していない画像の大きさの和で数える。
 //! Python 版はタイルや範囲だけを持つ件もあるので、件ごとの量は同じにならない。
 
-use pma_core::document::history::{History, HistoryItem, HistoryLimits, HistoryTarget};
+use pma_core::document::history::{
+    branch_columns, History, HistoryItem, HistoryLimits, HistoryTarget,
+};
 use pma_core::document::model::Document;
 use serde::Serialize;
 
@@ -100,6 +102,108 @@ impl Undo {
         !self.history.redo_entries().is_empty()
     }
 
+    /// 上限を変える（環境設定の「取り消せる回数」「取り消し履歴のメモリ」）。
+    pub fn set_limits(&mut self, limits: HistoryLimits) {
+        self.history.set_limits(limits);
+    }
+
+    /// ヒストリーパネルのクリック：負なら戻す、正なら進める回数だけ動く
+    /// （Qt の UsedColorController.jump_history）。動いた回数を返す。
+    pub fn jump(&mut self, delta: i64, document: &mut Document) -> usize {
+        let mut moved = 0;
+        for _ in 0..delta.unsigned_abs() {
+            let done = if delta < 0 {
+                self.undo(document)
+            } else {
+                self.redo(document)
+            };
+            if !done {
+                break;
+            }
+            moved += 1;
+        }
+        moved
+    }
+
+    /// 分岐へ切り替え、その未来を `steps` 手進める（Qt の switch_history_branch）。
+    /// 到達できない分岐なら false（分岐は捨てる）。
+    pub fn switch_branch(&mut self, index: usize, steps: usize, document: &mut Document) -> bool {
+        if !self.history.switch_branch(index, &mut Target { document }) {
+            return false;
+        }
+        for _ in 0..steps {
+            if !self.redo(document) {
+                break;
+            }
+        }
+        true
+    }
+
+    /// ヒストリーパネルのブロックの並び（Qt の HistoryPanel.refresh と同じ配置）。
+    pub fn graph(&self) -> Graph {
+        let undo = self.history.undo_entries();
+        let redo = self.history.redo_entries();
+        let n = undo.len();
+        let mut nodes = Vec::new();
+        let mut main = |label: &str, delta: i64, position: usize, future: bool| {
+            nodes.push(Node {
+                kind: "main",
+                value: delta,
+                steps: 0,
+                label: label.to_string(),
+                note: if position == n { "current" } else { "" },
+                total: 0,
+                col: 0,
+                row: position,
+                is_future: future,
+                from: (position > 0).then(|| (0, position - 1)),
+                curve: false,
+            });
+        };
+        // 何も積まれていない最初の状態（全部戻せばここへ戻る）。
+        main("開始状態", -(n as i64), 0, false);
+        for (i, entry) in undo.iter().enumerate() {
+            main(&entry.label, i as i64 - (n as i64 - 1), i + 1, false);
+        }
+        for k in 0..redo.len() {
+            let entry = &redo[redo.len() - 1 - k];
+            main(&entry.label, k as i64 + 1, n + k + 1, true);
+        }
+        let branches = self.history.branches();
+        let spans: Vec<(i64, usize)> = branches
+            .iter()
+            .map(|b| (b.position as i64, b.entries.len()))
+            .collect();
+        for (index, col) in branch_columns(&spans) {
+            let branch = &branches[index];
+            let total = branch.entries.len();
+            let mut prev = (0, branch.position);
+            for k in 0..total {
+                let entry = &branch.entries[total - 1 - k];
+                let row = branch.position + 1 + k;
+                nodes.push(Node {
+                    kind: "branch",
+                    value: index as i64,
+                    steps: k + 1,
+                    label: entry.label.clone(),
+                    note: match (k, total) {
+                        (0, 1) => "branch",
+                        (0, _) => "branch_many",
+                        _ => "",
+                    },
+                    total,
+                    col,
+                    row,
+                    is_future: true,
+                    from: Some(prev),
+                    curve: k == 0,
+                });
+                prev = (col, row);
+            }
+        }
+        Graph { nodes, current: n }
+    }
+
     pub fn listing(&self) -> Listing {
         Listing {
             undo: self
@@ -120,8 +224,94 @@ impl Undo {
     }
 }
 
+/// ヒストリーパネルのブロック1つ（Qt の _HistoryGraph のノード）。
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct Node {
+    /// "main"（本線）か "branch"（分岐）。
+    pub kind: &'static str,
+    /// 本線：動く回数（負なら戻す）。分岐：分岐の添字。
+    pub value: i64,
+    /// 分岐：切り替えたあと進める回数。
+    pub steps: usize,
+    pub label: String,
+    /// 名前に添える言葉："current"（現在）・"branch"（分岐）・"branch_many"（分岐 N件）。
+    pub note: &'static str,
+    /// 分岐の件数（note が branch_many のとき）。
+    pub total: usize,
+    pub col: usize,
+    pub row: usize,
+    pub is_future: bool,
+    /// つなぐ元のブロック（列, 行）。
+    pub from: Option<(usize, usize)>,
+    /// 別の列へ枝分かれする曲線か。
+    pub curve: bool,
+}
+
+/// ヒストリーパネルの全体。`current` は現在のブロックの行（＝本線の添字）。
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct Graph {
+    pub nodes: Vec<Node>,
+    pub current: usize,
+}
+
+/// 環境設定の上限（回数と MB）から履歴の上限を作る（preferences_dialog.apply_undo_preferences）。
+pub fn limits(steps: i64, memory_mb: i64) -> HistoryLimits {
+    HistoryLimits {
+        max_entries: steps.max(1) as usize,
+        max_bytes: (memory_mb.max(1) as u64) * 1024 * 1024,
+        max_branches: LIMITS.max_branches,
+    }
+}
+
 /// 1枚の層の画像の大きさ（幅×高さ×4）。件の量の目安にする。
 fn image_bytes(document: &Document) -> u64 {
     let (w, h) = document.size();
     (w as u64) * (h as u64) * 4
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn doc(width: usize) -> Document {
+        Document::new_blank(width, 4).unwrap()
+    }
+
+    #[test]
+    fn jump_and_switch_branch_like_qt() {
+        let mut undo = Undo::default();
+        let mut current = doc(1);
+        // A → B → C と積む（各件は変える前の文書）。
+        for (label, width) in [("A", 2), ("B", 3), ("C", 4)] {
+            undo.record(label, &current);
+            current = doc(width);
+        }
+        assert_eq!(undo.jump(-2, &mut current), 2);
+        assert_eq!(current.size().0, 2);
+        // 戻ってから別の編集：残りの未来（B, C）は分岐になる。
+        undo.record("D", &current);
+        current = doc(9);
+        let graph = undo.graph();
+        assert_eq!(graph.current, 2);
+        let branch: Vec<_> = graph.nodes.iter().filter(|n| n.kind == "branch").collect();
+        assert_eq!(branch.len(), 2);
+        assert_eq!(branch[0].label, "B");
+        assert_eq!(branch[0].note, "branch_many");
+        assert_eq!((branch[0].col, branch[0].row), (1, 2));
+        assert_eq!(branch[0].from, Some((0, 1)));
+        assert!(branch[0].curve);
+        // 分岐の2つ目（C）まで進める。
+        assert!(undo.switch_branch(0, 2, &mut current));
+        assert_eq!(current.size().0, 4);
+        let listing = undo.listing();
+        assert_eq!(listing.undo, vec!["A", "B", "C"]);
+        assert_eq!(listing.branches, 1);
+        assert!(!undo.switch_branch(5, 0, &mut current));
+        // 本線のノード：開始状態・A・B・C（現在）。
+        let graph = undo.graph();
+        let main: Vec<_> = graph.nodes.iter().filter(|n| n.kind == "main").collect();
+        assert_eq!(main[0].label, "開始状態");
+        assert_eq!(main[0].value, -3);
+        assert_eq!(main[3].note, "current");
+    }
 }

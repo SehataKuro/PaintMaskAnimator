@@ -7,6 +7,8 @@ pub mod timeline;
 pub mod compatibility;
 /// 文書、列、セル、およびシートの所有モデル。
 pub mod model;
+/// 新しい文書（Qt 版の「新規作成」と起動直後の文書）。
+pub mod new_document;
 /// v2 の読込計画と文書の変換。
 pub mod v2;
 
