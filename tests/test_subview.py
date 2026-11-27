@@ -121,3 +121,40 @@ def test_wheel_zoom_keeps_the_pixel_under_the_cursor(tmp_path):
     finally:
         view.close()
         app.processEvents()
+
+
+def test_main_window_subview_catches_space_and_keeps_filter_order(monkeypatch):
+    """主画面のサブビューは組み立ての終わりに監視を始める。
+
+    監視を始める時期を遅らせても、主画面の中で Space を捕まえること、
+    アプリ全体のフィルターの並び（サブビューが先に付き、主画面が後に付く。
+    Qt は後に付けたものから呼ぶ）は変わらない。
+    """
+    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtGui import QKeyEvent
+
+    from paintmaskanimator import utils
+    from paintmaskanimator.main_window import MainWindow
+    from paintmaskanimator.main_window_autosave import AutosaveController
+
+    app = _app()
+    monkeypatch.setattr(AutosaveController, "maybe_restore", lambda self: None)
+    window = MainWindow()
+    try:
+        filters = utils._app_event_filters
+        assert filters.index(window.subview) == filters.index(window) - 1
+        target = window.subview.zoom_slider
+        press = QKeyEvent(
+            QEvent.Type.KeyPress, Qt.Key.Key_Space, Qt.KeyboardModifier.NoModifier, " "
+        )
+        QApplication.sendEvent(target, press)
+        assert press.isAccepted()
+        assert window.subview._space_down
+        release = QKeyEvent(
+            QEvent.Type.KeyRelease, Qt.Key.Key_Space, Qt.KeyboardModifier.NoModifier, " "
+        )
+        QApplication.sendEvent(target, release)
+        assert not window.subview._space_down
+    finally:
+        window.close()
+        app.processEvents()

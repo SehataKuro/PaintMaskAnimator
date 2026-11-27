@@ -102,7 +102,7 @@ class MainWindow(
 ):
     def __init__(self):
         super().__init__();self.setWindowTitle(APP_DISPLAY_NAME);self._fit_window_to_screen(1500,960);self.setAcceptDrops(True)
-        self.canvas=PaintCanvas();self.tool_selector=ToolSelectorPanel();self.tools=ToolPanel();self.timeline=TimelineWidget();self.palette=UsedColorPanel();self.history_panel=HistoryPanel();self.subview=SubViewWidget(self);self.color_chart=ColorChartPanel(self);self.color_chart_data=empty_color_chart();self.timer=QTimer(self);self.timer.timeout.connect(self.advance)
+        self.canvas=PaintCanvas();self.tool_selector=ToolSelectorPanel();self.tools=ToolPanel();self.timeline=TimelineWidget();self.palette=UsedColorPanel();self.history_panel=HistoryPanel();self.subview=SubViewWidget(self, hold_keys_now=False);self.color_chart=ColorChartPanel(self);self.color_chart_data=empty_color_chart();self.timer=QTimer(self);self.timer.timeout.connect(self.advance)
         # Feature controllers the window owns; see this module's docstring.
         self.export=ExportController(self)
         self.workspace=WorkspaceController(self)
@@ -183,6 +183,10 @@ class MainWindow(
         self.shortcut_store.load()
         self._refresh_theme_dependent_ui()
         self.colors._sync_tool_selector_swatch()
+        # サブビューの Space・Ctrl の監視は、組み立てが済んでから付ける
+        # （理由は SubViewWidget.watch_hold_keys）。主画面のフィルターより
+        # 先に付けるので、呼ばれる順（主画面が先）は前と変わらない。
+        self.subview.watch_hold_keys()
         install_app_event_filter(self)
         self.project.update_title()
         QTimer.singleShot(0,self.fit_canvas)
