@@ -9,6 +9,8 @@
 
 use pma_core::document::history::{History, HistoryItem, HistoryLimits, HistoryTarget};
 use pma_core::document::model::Document;
+// 使用色パネル（colors.rs）：件に使用色パネルの状態を添える。
+use pma_core::used_colors::{Snapshot, UsedColors};
 use serde::Serialize;
 
 /// Python 版の constants.MAX_UNDO / MAX_UNDO_BYTES と canvas_undo.MAX_HISTORY_BRANCHES。
@@ -24,6 +26,9 @@ pub struct Entry {
     pub label: String,
     pub document: Document,
     pub bytes: u64,
+    /// 使用色パネル（colors.rs）：変える前の使用色パネルの状態（並べ替え・親子・表示・統合など）。
+    /// 戻したあと、使用色を数え直してから当てる（Qt の PaletteStateUndo・attach_palette_state）。
+    pub palette: Option<Snapshot>,
 }
 
 impl HistoryItem for Entry {
@@ -35,6 +40,8 @@ impl HistoryItem for Entry {
 /// 文書を取り替える先。`capture` は今の文書を、`apply` は件の文書を入れる。
 pub struct Target<'a> {
     pub document: &'a mut Document,
+    /// 使用色パネル（colors.rs）。
+    pub palette: &'a mut UsedColors,
 }
 
 impl HistoryTarget<Entry> for Target<'_> {
@@ -43,11 +50,15 @@ impl HistoryTarget<Entry> for Target<'_> {
             label: entry.label.clone(),
             document: self.document.clone(),
             bytes: entry.bytes,
+            palette: entry.palette.as_ref().map(|_| self.palette.capture()),
         })
     }
 
     fn apply(&mut self, entry: Entry) {
         *self.document = entry.document;
+        if let Some(snapshot) = entry.palette {
+            self.palette.restore_after_refresh(snapshot);
+        }
     }
 }
 
@@ -76,20 +87,31 @@ impl Default for Undo {
 impl Undo {
     /// 変える前に呼ぶ。今の文書を件として積む。
     pub fn record(&mut self, label: &str, before: &Document) {
+        self.record_with_palette(label, before, None);
+    }
+
+    /// 使用色パネル（colors.rs）：使用色パネルの変える前の状態も添えて積む。
+    pub fn record_with_palette(
+        &mut self,
+        label: &str,
+        before: &Document,
+        palette: Option<Snapshot>,
+    ) {
         let bytes = image_bytes(before);
         self.history.push(Entry {
             label: label.to_string(),
             document: before.clone(),
             bytes,
+            palette,
         });
     }
 
-    pub fn undo(&mut self, document: &mut Document) -> bool {
-        self.history.undo(&mut Target { document })
+    pub fn undo(&mut self, document: &mut Document, palette: &mut UsedColors) -> bool {
+        self.history.undo(&mut Target { document, palette })
     }
 
-    pub fn redo(&mut self, document: &mut Document) -> bool {
-        self.history.redo(&mut Target { document })
+    pub fn redo(&mut self, document: &mut Document, palette: &mut UsedColors) -> bool {
+        self.history.redo(&mut Target { document, palette })
     }
 
     pub fn can_undo(&self) -> bool {

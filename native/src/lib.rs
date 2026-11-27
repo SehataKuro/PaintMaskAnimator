@@ -37,6 +37,7 @@ mod selection;
 mod tiled_color;
 mod timeline;
 mod tone_curve;
+mod used_colors;
 
 fn check_size(data: &[u8], width: usize, height: usize) -> PyResult<()> {
     if width.checked_mul(height) != Some(data.len()) {
@@ -204,6 +205,7 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<project_zip::ZipReader>()?;
     module.add_class::<project_zip::ZipWriter>()?;
     selection::register(module)?;
+    used_colors::register(module)?;
     module.add_function(wrap_pyfunction!(project_payload::decode_v2_plan, module)?)?;
     module.add_function(wrap_pyfunction!(project_archive::_open_project, module)?)?;
     module.add_function(wrap_pyfunction!(project_archive::_save_project, module)?)?;

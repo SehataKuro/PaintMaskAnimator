@@ -18,6 +18,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # 計算とデータ（Python・Qt に依存しない中身）。
 pma-core = { path = "../native/core" }
+# 使用色パネル（colors.rs）：PMAG・置換色のファイルを選ぶ窓。
+rfd = "0.17"
 
 # 筆圧：WKWebView はペンの筆圧を JavaScript に渡さないので、NSEvent を直接読む。
 [target.'cfg(target_os = "macos")'.dependencies]

@@ -11,6 +11,11 @@ import { Viewer } from "./viewer.js";
 import { createLayout } from "./layout.js";
 // タイムラインのパネル（timeline.js）。
 import { createTimelinePanel } from "./timeline.js";
+// 色のパネル（カラーサークル・カラースライダー・使用色。color_state.js が状態を持つ）。
+import { createColorWheelPanel } from "./color_wheel.js";
+import { createColorSlidersPanel } from "./color_sliders.js";
+import { createUsedColorsPanel } from "./used_colors.js";
+import { eyedrop, startColors, subscribe } from "./color_state.js";
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
@@ -30,6 +35,10 @@ createLayout(document.getElementById("dock"), {
   canvas: () => canvasPanel,
   // タイムラインのパネル（timeline.js）。文書の変化は document-changed の事件で知る。
   timeline: () => createTimelinePanel({ invoke }),
+  // 色のパネル。Rust の palette-changed・current-color・chart-changed で表示を合わせる。
+  "color-wheel": () => createColorWheelPanel(),
+  "color-sliders": () => createColorSlidersPanel(),
+  "used-colors": () => createUsedColorsPanel(),
 });
 const viewer = new Viewer(canvas);
 
@@ -42,6 +51,14 @@ let pendingPoints = [];
 let sending = false;
 // ツールの設定（ツールのパネルができるまでは既定の値）。
 const tool = { size: 5, color: [0, 0, 0], stabilizer: 0 };
+// 背景色で描く（使用色の描画色の欄で背景色を選んだ）ときは消しゴムと同じく透明にする。
+let drawEraser = false;
+// 描画色（Rust の current-color）。ブラシはこの色で描く。
+function useCurrentColor(current) {
+  if (!current) return;
+  tool.color = current.color;
+  drawEraser = current.eraser;
+}
 // Rust とのやり取り1回の時間（ms、自己確認で出す）。
 const strokeTimes = [];
 
@@ -114,6 +131,11 @@ function feed(phase, device, x, y, pressure, tiltX, tiltY) {
       panning = { x, y };
       return;
     }
+    // 色のパネルのスポイトが待っていれば、線は描かずにキャンバスの色を拾う。
+    if (eyedrop.waiting()) {
+      pickCanvasColor(p.x, p.y);
+      return;
+    }
     stroke = [{ x: p.x, y: p.y, pressure, device }];
     strokes.push(stroke);
     pendingPoints = [];
@@ -121,7 +143,7 @@ function feed(phase, device, x, y, pressure, tiltX, tiltY) {
     queue.push({
       cmd: "stroke_begin",
       args: {
-        tool: { ...tool, eraser: device === "eraser", zoom: viewer.zoom },
+        tool: { ...tool, eraser: device === "eraser" || drawEraser, zoom: viewer.zoom },
         point: { x: q.x, y: q.y, pressure, pen: device !== "mouse", time: performance.now() },
       },
     });
@@ -325,6 +347,33 @@ async function scheduleReload(fit = false) {
   }
 }
 
+// スポイト：表示しているキャンバスの画素（背景の表示色・置換のプレビューを含む）を拾う。
+async function pickCanvasColor(sx, sy) {
+  const q = viewer.screenToImage(sx, sy);
+  const x = Math.floor(q.x);
+  const y = Math.floor(q.y);
+  if (x < 0 || y < 0 || x >= viewer.width || y >= viewer.height) {
+    eyedrop.deliver(null);
+    return;
+  }
+  const buffer = await invoke("read_canvas");
+  const w = new DataView(buffer, 8, 4).getUint32(0, true);
+  const px = new Uint8Array(buffer, 16 + (y * w + x) * 4, 4);
+  eyedrop.deliver([px[0], px[1], px[2]]);
+}
+
+async function useColorEvents() {
+  await startColors();
+  useCurrentColor(await invoke("current_color"));
+  // 描画色の欄（DrawingView）の current。current-color（drawing_op）と、作品を開いたときの
+  // palette-changed のどちらでも color_state.js が知らせる。
+  subscribe("drawing", (drawing) => useCurrentColor(drawing?.current));
+  // 表示の絞り込み・置換のプレビュー・背景の表示色が変わったら、キャンバスを読み直す。
+  await listen("display-changed", () => {
+    if (!measuring) scheduleReload();
+  });
+}
+
 async function useDocumentEvents() {
   await listen("document-changed", ({ payload }) => {
     // 線（source が canvas）は、変わった範囲の画素を受け取って書き込み済み。
@@ -441,6 +490,7 @@ async function runPlaybackSelftest(count) {
 async function main() {
   const info = await invoke("startup");
   await useDocumentEvents();
+  await useColorEvents();
   await reloadCanvas(true);
   useDocumentControls();
   if (info.open) await openProject(info.open);
@@ -449,6 +499,11 @@ async function main() {
   else usePointerEvents();
   if (info.pen_selftest) await runPenSelftest();
   if (info.playback_selftest) await runPlaybackSelftest(info.playback_selftest);
+  if (info.colors_selftest != null) {
+    // 色のパネルの自己確認（color_selftest.js）。普段は読み込まない。
+    const { runColorsSelftest } = await import("./color_selftest.js");
+    await runColorsSelftest({ invoke, pause: info.colors_selftest });
+  }
 }
 
 main().catch((e) => {

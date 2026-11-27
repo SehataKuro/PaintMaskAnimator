@@ -14,15 +14,18 @@
 //! 合成した表示はコマごとに控える（`FrameCache`）。再生ではコマを変えるたびに控えから
 //! 取り出すだけにし、文書の中身が変わったら控えを捨てる。
 
+// 使用色パネル（colors.rs）。
+use crate::colors::ColorUi;
 use crate::history::{Listing, Undo};
 use crate::timeline::{Playhead, TimelineUi};
 use pma_core::brush::stroke::{BrushSettings, BrushStroke, PointerSample};
-use pma_core::compose::{self, Background, DisplayOptions};
+use pma_core::compose;
 use pma_core::document::model::Document;
 use pma_core::image::{Rect, RgbaImage};
 use pma_core::project::archive::{self, OpenedProject, PngCache, SaveOptions};
 use pma_core::project::json::Json;
 use pma_core::project::zip::ZipTime;
+use pma_core::used_colors::EditRange;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -44,6 +47,9 @@ struct ActiveStroke {
     frame: usize,
     layer: usize,
     label: &'static str,
+    /// 使用色パネル（colors.rs）：描ける範囲（#104）と、描き始めの絵。範囲の外は元の絵へ戻して書く。
+    range: EditRange,
+    base: RgbaImage,
 }
 
 pub struct Session {
@@ -59,6 +65,8 @@ pub struct Session {
     structure_revision: u64,
     /// 絵が変わるたびに増える。
     pixels_revision: u64,
+    /// 使用色パネル（colors.rs）：描画色・使用色パネル・カラーチャート・キャンバスの表示の絞り込み。
+    pub colors: ColorUi,
 }
 
 /// 合成した表示の控え。コマの番号で引き、同じ絵の重なりのコマは画素を共有する。
@@ -180,6 +188,7 @@ impl Session {
             cache: FrameCache::default(),
             structure_revision: 0,
             pixels_revision: 0,
+            colors: ColorUi::default(),
         }
     }
 
@@ -221,6 +230,8 @@ impl Session {
     fn install(&mut self, project: Project) -> Result<(), String> {
         self.active = None;
         self.last = None;
+        // 使用色パネル（colors.rs）：描画色・使用色フォルダー・カラーチャートを作品から読む。
+        self.colors = ColorUi::from_metadata(&project.metadata);
         self.project = Some(project);
         self.timeline.reset();
         self.touch_structure();
@@ -276,6 +287,8 @@ impl Session {
             .map(Path::to_path_buf)
             .or_else(|| project.path.clone())
             .ok_or("保存先がありません")?;
+        // 使用色パネル（colors.rs）：描画色・使用色フォルダー・カラーチャートを作品へ書く。
+        self.colors.store(&mut project.metadata);
         // サムネイルは合成の画像から作る予定（project_io._thumbnail_png と同じ大きさ）。今は入れない。
         let options = SaveOptions::new(zip_time_now());
         let bytes = archive::save_project(
@@ -404,10 +417,12 @@ impl Session {
         let Some(p) = &mut self.project else {
             return Ok(false);
         };
+        // 使用色パネル（colors.rs）の状態も同じ件で戻す。
+        let palette = &mut self.colors.palette;
         let done = if back {
-            p.undo.undo(&mut p.document)
+            p.undo.undo(&mut p.document, palette)
         } else {
-            p.undo.redo(&mut p.document)
+            p.undo.redo(&mut p.document, palette)
         };
         if done {
             self.timeline.prune_selection(&p.document);
@@ -461,9 +476,10 @@ impl Session {
         let image = match self.cache.by_key.get(&key) {
             Some(image) => image.clone(),
             None => {
-                let image =
-                    compose::composite(doc, frame, &DisplayOptions::default(), Background::White)
-                        .map_err(|e| e.to_string())?;
+                // 使用色パネル（colors.rs）の表示の絞り込み・置換プレビューと背景の表示色。
+                let (options, background) = (&self.colors.display, self.colors.canvas_background());
+                let image = compose::composite(doc, frame, options, background)
+                    .map_err(|e| e.to_string())?;
                 let (w, h) = (image.width(), image.height());
                 RgbaImage::from_rgba(w, h, &image.to_straight_bytes()).map_err(|e| e.to_string())?
             }
@@ -528,6 +544,8 @@ impl Session {
             frame,
             layer,
             label,
+            range: self.colors.palette.edit_range(),
+            base,
         });
         self.apply_stroke_rects(&rects)
     }
@@ -562,16 +580,19 @@ impl Session {
         let Some(active) = self.active.take() else {
             return Ok(None);
         };
+        let result = active
+            .stroke
+            .finish(release.map(|p| p.sample()))
+            .map_err(|e| e.to_string())?;
         let ActiveStroke {
-            stroke,
             before,
             frame,
             layer,
             label,
+            range,
+            base,
+            ..
         } = active;
-        let result = stroke
-            .finish(release.map(|p| p.sample()))
-            .map_err(|e| e.to_string())?;
         let p = self.project.as_mut().ok_or("作品を開いていません")?;
         let Some(undo) = result.undo else {
             // どこにも描かなかった：文書を押す前に戻す。
@@ -580,10 +601,11 @@ impl Session {
             self.recompose()?;
             return Ok(Some(full_rect(&self.display)));
         };
-        let pixels = result
+        let mut pixels = result
             .image
             .copy_rgba_rect(undo.rect)
             .map_err(|e| e.to_string())?;
+        clip_to_range(&range, &base, undo.rect, &mut pixels)?;
         p.document
             .write_drawing_patch_with_content(frame, layer, undo.rect, &pixels, true)
             .map_err(|e| e.to_string())?;
@@ -606,11 +628,12 @@ impl Session {
             let Some(rect) = clip(rect, &self.display) else {
                 continue;
             };
-            let pixels = active
+            let mut pixels = active
                 .stroke
                 .image()
                 .copy_rgba_rect(rect)
                 .map_err(|e| e.to_string())?;
+            clip_to_range(&active.range, &active.base, rect, &mut pixels)?;
             p.document
                 .write_drawing_patch_with_content(active.frame, active.layer, rect, &pixels, true)
                 .map_err(|e| e.to_string())?;
@@ -631,14 +654,10 @@ impl Session {
         let doc = &p.document;
         let (frame_id, _) = doc.selection();
         let frame = doc.frame_index(frame_id).unwrap_or(0);
-        let image = compose::composite_rect(
-            doc,
-            frame,
-            &DisplayOptions::default(),
-            Background::White,
-            rect,
-        )
-        .map_err(|e| e.to_string())?;
+        // 使用色パネル（colors.rs）の表示の絞り込み・置換プレビューと背景の表示色。
+        let background = self.colors.canvas_background();
+        let image = compose::composite_rect(doc, frame, &self.colors.display, background, rect)
+            .map_err(|e| e.to_string())?;
         self.display
             .write_rgba(rect, &image.to_straight_bytes())
             .map_err(|e| e.to_string())
@@ -693,6 +712,36 @@ impl Session {
         }
         self.display.write_rgba(rect, &px).ok()?;
         Some(rect)
+    }
+}
+
+/// 使用色パネル（colors.rs）：描ける範囲の外の画素を、描き始めの絵の画素へ戻す（#104。
+/// 選択・鍵の判断は描き始めの絵の色で行い、書くところはここ1か所）。
+fn clip_to_range(
+    range: &EditRange,
+    base: &RgbaImage,
+    rect: Rect,
+    pixels: &mut [u8],
+) -> Result<(), String> {
+    if range.is_unrestricted() {
+        return Ok(());
+    }
+    let original = base.copy_rgba_rect(rect).map_err(|e| e.to_string())?;
+    pma_core::used_colors::pixels::clip_to_edit_range(&original, pixels, range);
+    Ok(())
+}
+
+impl Session {
+    /// 使用色パネル（colors.rs）：表示の設定が変わったので、控えた合成を捨てて合成し直す。
+    pub fn redisplay(&mut self) -> Result<(), String> {
+        self.cache.clear();
+        self.recompose()
+    }
+
+    /// 使用色パネル（colors.rs）：使用色を数え直すかの印（作品・形・絵・選択レイヤー）。
+    pub fn scan_stamp(&self) -> (bool, u64, u64, usize) {
+        let m = self.mark();
+        (m.loaded, m.structure, m.pixels, m.layer)
     }
 }
 
