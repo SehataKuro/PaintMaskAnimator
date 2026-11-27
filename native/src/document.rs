@@ -900,3 +900,10 @@ impl PyCellImage {
             .map_err(value_error)
     }
 }
+
+impl PyCoreDocument {
+    /// 合成などの読み取り専用の計算に渡す文書。
+    pub(crate) fn document(&self) -> &Document {
+        &self.0
+    }
+}

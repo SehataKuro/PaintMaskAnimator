@@ -426,3 +426,61 @@ def history_retained_positions(keep: list[bool], positions: list[int]) -> list[i
 def history_branch_columns(branches: list[tuple[int, int]]) -> list[tuple[int, int]]:
     """ヒストリーパネルで分岐を置く列。並べた順に (一覧の添字, 列)。"""
 
+
+# キャンバスのレイヤー合成（pma-core の compose）。画素は既定で乗算済みの RGBA
+# （R, G, B, A の順）、straight=True ならストレート。戻り値の末尾は (幅, 高さ, 画素)。
+# options のキー: active_layer (int), visible_colors (list[RGB] | None),
+#   color_remap (list[tuple[RGB, RGB]]), silhouette (bool)。
+# view のキー: show_initial_state (bool), exposure (float), channel ("rgb"・"red"・
+#   "green"・"blue"・"alpha"), map_colors (bool), palette (list[RGB])。
+# mapping は隣接色分けの対応 {0xRRGGBB: 仮の色の番号}。増えた分を書き戻す。
+# onion のキー: previous・next（count, opacity, color, color_enabled, levels, shift_x,
+#   shift_y, rotation, scale）, all_layers, selected_colors_only, selected_colors, tu_tb_scale。
+# background は "transparent"・"white"・(R, G, B)。
+_RGB = tuple[int, int, int]
+_Rendered = tuple[int, int, bytes]
+_RenderedLayer = tuple[int, int, float, int, int, int, int, bytes]
+_Background = str | _RGB | None
+
+def compose_frame(
+    document: _CoreDocument, frame: int, options: dict[str, Any] | None = None,
+    background: _Background = None, rect: tuple[int, int, int, int] | None = None,
+    straight: bool = False,
+) -> _Rendered: ...
+def compose_layer(
+    document: _CoreDocument, frame: int, layer: int, options: dict[str, Any] | None = None,
+    straight: bool = False,
+) -> _RenderedLayer | None: ...
+def compose_view_layers(
+    document: _CoreDocument, frame: int, options: dict[str, Any] | None = None,
+    view: dict[str, Any] | None = None, mapping: dict[int, int] | None = None,
+    straight: bool = False,
+) -> list[_RenderedLayer]: ...
+def compose_view(
+    document: _CoreDocument, frame: int, options: dict[str, Any] | None = None,
+    view: dict[str, Any] | None = None, mapping: dict[int, int] | None = None,
+    background: _Background = None, rect: tuple[int, int, int, int] | None = None,
+    straight: bool = False,
+) -> _Rendered: ...
+def compose_display(
+    document: _CoreDocument, frame: int, width: int, height: int,
+    options: dict[str, Any] | None = None, view: dict[str, Any] | None = None,
+    mapping: dict[int, int] | None = None, background: _Background = None,
+    mode: str = "nearest", flip_horizontal: bool = False, flip_vertical: bool = False,
+    onion: dict[str, Any] | None = None, straight: bool = False,
+) -> _Rendered: ...
+def compose_onion_draws(
+    document: _CoreDocument, current: int, onion: dict[str, Any],
+    options: dict[str, Any] | None = None,
+) -> list[tuple[int, int, int, float]]: ...
+def compose_tinted_onion(
+    document: _CoreDocument, frame: int, color: _RGB, color_enabled: bool,
+    selected: list[_RGB] | None = None, all_layers: bool = True,
+    target_size: tuple[int, int] | None = None, options: dict[str, Any] | None = None,
+    straight: bool = False,
+) -> _Rendered: ...
+def compose_scale_for_display(
+    width: int, height: int, pixels: bytes, target_width: int, target_height: int,
+    mode: str = "nearest", flip_horizontal: bool = False, flip_vertical: bool = False,
+    straight: bool = False,
+) -> _Rendered: ...

@@ -4,6 +4,8 @@ pub mod alpha_runs;
 pub mod auto_paint;
 pub mod color_stats;
 pub mod colors;
+/// キャンバスのレイヤー合成（オニオン・表示プレビュー・縮小表示を含む）。
+pub mod compose;
 pub mod display;
 pub mod document;
 pub mod error;
