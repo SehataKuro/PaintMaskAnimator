@@ -17,6 +17,8 @@ mod pen_selftest;
 mod session;
 // タイムラインのパネル（timeline.rs）。
 mod timeline;
+// ツール・ツールプロパティ・アクションのパネル（tools.rs）。
+mod tools;
 
 use session::{pack_rect, Point, Session, Shared, StrokeTool, Summary};
 use tauri::ipc::Response;
@@ -272,6 +274,8 @@ fn main() {
         .setup(|app| {
             open_main_window(app)?;
             pen::install(app.handle());
+            // ツールの設定を読む（tools.rs）。
+            tools::install(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -308,7 +312,22 @@ fn main() {
             timeline::timeline_set_options,
             timeline::timeline_normalize_preview,
             timeline::timeline_thumbnail,
-            timeline::timeline_play
+            timeline::timeline_play,
+            // ツール（tools.rs）。
+            tools::tools_state,
+            tools::tools_set,
+            tools::tools_set_mask_colors,
+            tools::tools_pressure_curve,
+            tools::tool_lasso_fill,
+            tools::tool_shape,
+            tools::tool_line,
+            tools::tool_fill,
+            tools::tool_transform,
+            tools::tool_dust_apply,
+            tools::tool_eyedropper,
+            tools::action_run,
+            tools::selection_edit,
+            tools::selection_delete
         ])
         .run(tauri::generate_context!())
         .expect("画面を開けなかった");
