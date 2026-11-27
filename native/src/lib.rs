@@ -14,6 +14,7 @@ mod auto_paint;
 mod clip;
 mod color_stats;
 mod colors;
+mod compose;
 mod display;
 mod document;
 mod document_compare;
@@ -244,6 +245,17 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     )?)?;
     module.add_function(wrap_pyfunction!(
         palette_labels::py_surface_guided_palette_labels,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(compose::compose_frame, module)?)?;
+    module.add_function(wrap_pyfunction!(compose::compose_layer, module)?)?;
+    module.add_function(wrap_pyfunction!(compose::compose_view_layers, module)?)?;
+    module.add_function(wrap_pyfunction!(compose::compose_view, module)?)?;
+    module.add_function(wrap_pyfunction!(compose::compose_display, module)?)?;
+    module.add_function(wrap_pyfunction!(compose::compose_onion_draws, module)?)?;
+    module.add_function(wrap_pyfunction!(compose::compose_tinted_onion, module)?)?;
+    module.add_function(wrap_pyfunction!(
+        compose::compose_scale_for_display,
         module
     )?)?;
     module.add_function(wrap_pyfunction!(map_colors::py_map_known_colors, module)?)?;
