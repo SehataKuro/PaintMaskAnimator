@@ -6,6 +6,7 @@
 //! 線はまだ仮の描き方（表示の画像に丸い点を並べるだけで、文書には入らない）。
 //! pma-core のブラシが入りしだい、選択中のセルへ描くように差し替える。
 
+use crate::history::{Listing, Undo};
 use pma_core::compose::{self, Background, DisplayOptions};
 use pma_core::document::model::Document;
 use pma_core::image::{Rect, RgbaImage};
@@ -21,6 +22,7 @@ pub struct Project {
     pub metadata: Json,
     pub path: Option<PathBuf>,
     pub png_cache: PngCache,
+    pub undo: Undo,
 }
 
 pub struct Session {
@@ -75,6 +77,7 @@ impl Session {
             metadata,
             path: Some(path.to_path_buf()),
             png_cache,
+            undo: Undo::default(),
         });
         self.recompose()
     }
@@ -143,6 +146,60 @@ impl Session {
             .set_selection_index(frame.min(count - 1), layer)
             .map_err(|e| e.to_string())?;
         self.recompose()
+    }
+
+    /// 文書を変える操作をまとめて行う。変える前の文書を履歴に積み、失敗したら元に戻す。
+    pub fn edit<T>(
+        &mut self,
+        label: &str,
+        f: impl FnOnce(&mut Document) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let p = self.project.as_mut().ok_or("作品を開いていません")?;
+        let before = p.document.clone();
+        match f(&mut p.document) {
+            Ok(v) => {
+                p.undo.record(label, &before);
+                self.recompose()?;
+                Ok(v)
+            }
+            Err(e) => {
+                p.document = before;
+                Err(e)
+            }
+        }
+    }
+
+    pub fn undo(&mut self) -> Result<bool, String> {
+        let Some(p) = &mut self.project else {
+            return Ok(false);
+        };
+        let done = p.undo.undo(&mut p.document);
+        if done {
+            self.recompose()?;
+        }
+        Ok(done)
+    }
+
+    pub fn redo(&mut self) -> Result<bool, String> {
+        let Some(p) = &mut self.project else {
+            return Ok(false);
+        };
+        let done = p.undo.redo(&mut p.document);
+        if done {
+            self.recompose()?;
+        }
+        Ok(done)
+    }
+
+    pub fn history(&self) -> Listing {
+        match &self.project {
+            Some(p) => p.undo.listing(),
+            None => Listing {
+                undo: vec![],
+                redo: vec![],
+                branches: 0,
+            },
+        }
     }
 
     /// 今のコマを合成し直す。
@@ -366,6 +423,32 @@ mod tests {
         again.open(&out).unwrap();
         assert_eq!(again.summary().frames, sum.frames);
         let _ = std::fs::remove_file(out);
+    }
+
+    #[test]
+    fn edit_records_undo_and_failed_edit_rolls_back() {
+        let dir = fixture("v2");
+        let mut s = Session::empty(8, 8);
+        s.open(&dir.join("basic-bank-sheet.pman")).unwrap();
+        let layers = s.summary().layers;
+        s.edit("レイヤーを追加", |doc| {
+            doc.add_track().map(|_| ()).map_err(|e| e.to_string())
+        })
+        .unwrap();
+        assert_eq!(s.summary().layers, layers + 1);
+        assert_eq!(s.history().undo, vec!["レイヤーを追加".to_string()]);
+        assert!(s.undo().unwrap());
+        assert_eq!(s.summary().layers, layers);
+        assert_eq!(s.history().redo, vec!["レイヤーを追加".to_string()]);
+        assert!(s.redo().unwrap());
+        assert_eq!(s.summary().layers, layers + 1);
+        let err = s.edit("失敗", |doc| {
+            doc.add_track().map_err(|e| e.to_string())?;
+            Err::<(), _>("わざと".to_string())
+        });
+        assert!(err.is_err());
+        assert_eq!(s.summary().layers, layers + 1);
+        assert_eq!(s.history().undo.len(), 1);
     }
 
     #[test]

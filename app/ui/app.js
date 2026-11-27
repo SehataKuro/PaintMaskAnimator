@@ -284,6 +284,12 @@ function useDocumentControls() {
     } else if (e.key === "ArrowLeft" && !mod) {
       e.preventDefault();
       stepFrame(-1);
+    } else if (mod && (e.key.toLowerCase() === "y" || (e.shiftKey && e.key.toLowerCase() === "z"))) {
+      e.preventDefault();
+      if (await invoke("redo")) await reloadCanvas(false);
+    } else if (mod && e.key.toLowerCase() === "z") {
+      e.preventDefault();
+      if (await invoke("undo")) await reloadCanvas(false);
     } else if (mod && e.key.toLowerCase() === "s") {
       e.preventDefault();
       try {

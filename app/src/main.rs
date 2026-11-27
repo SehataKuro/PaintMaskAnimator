@@ -7,6 +7,7 @@
 //! - `PMA_PEN_SELFTEST=1 cargo run --release`：筆圧の経路を自分で確かめて終わる（macOS）
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod history;
 mod pen;
 mod pen_selftest;
 mod session;
@@ -95,6 +96,34 @@ fn save_project(session: State<Shared>, path: Option<String>) -> Result<String, 
     let mut s = session.lock().unwrap();
     let saved = s.save(path.as_deref().map(std::path::Path::new))?;
     Ok(saved.display().to_string())
+}
+
+/// レイヤーを1つ足す（Qt 版の「レイヤーを追加」と同じく pma-core の add_track）。
+#[tauri::command]
+fn add_layer(session: State<Shared>) -> Result<Summary, String> {
+    let mut s = session.lock().unwrap();
+    s.edit("レイヤーを追加", |doc| {
+        doc.add_track().map(|_| ()).map_err(|e| e.to_string())
+    })?;
+    Ok(s.summary())
+}
+
+/// 取り消す。取り消せたら true。
+#[tauri::command]
+fn undo(session: State<Shared>) -> Result<bool, String> {
+    session.lock().unwrap().undo()
+}
+
+/// やり直す。やり直せたら true。
+#[tauri::command]
+fn redo(session: State<Shared>) -> Result<bool, String> {
+    session.lock().unwrap().redo()
+}
+
+/// 履歴の一覧（ヒストリーパネル用）。
+#[tauri::command]
+fn history(session: State<Shared>) -> history::Listing {
+    session.lock().unwrap().history()
 }
 
 /// 今のコマを変える。
@@ -193,6 +222,10 @@ fn main() {
             open_project,
             save_project,
             set_frame,
+            add_layer,
+            undo,
+            redo,
+            history,
             read_canvas,
             stroke,
             shape_window,
