@@ -275,7 +275,8 @@ export function createToolPropertiesPanel() {
   add(box, check("dust_all_frames", "選択レイヤーのすべてのコマに適用"), dust);
   const dustApply = add(box, button("", async () => {
     try {
-      await invoke("tool_dust_apply");
+      // paint_ops.rs：知らせは paint-status で届く。
+      await invoke("paint_dust_apply", { points: null });
     } catch (e) {
       notify(String(e));
     }
