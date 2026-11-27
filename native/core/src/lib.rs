@@ -2,6 +2,8 @@
 //! 規約は issue #96 §2。
 pub mod alpha_runs;
 pub mod auto_paint;
+/// 自動塗り（見本から前後のセルへ塗り進める）。
+pub mod auto_plan;
 pub mod brush;
 pub mod color_stats;
 pub mod colors;
