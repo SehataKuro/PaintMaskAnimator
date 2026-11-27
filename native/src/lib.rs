@@ -11,6 +11,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 
 mod auto_paint;
+mod bucket_tools;
 mod clip;
 mod color_stats;
 mod colors;
@@ -261,6 +262,18 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
         compose::compose_scale_for_display,
         module
     )?)?;
+    module.add_function(wrap_pyfunction!(bucket_tools::bucket_fill_at, module)?)?;
+    module.add_function(wrap_pyfunction!(
+        bucket_tools::bucket_reference_pixels,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(
+        bucket_tools::bucket_replace_color_request,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(bucket_tools::skewer_cells, module)?)?;
+    module.add_class::<bucket_tools::PyBucketDrag>()?;
+    module.add_class::<bucket_tools::PySkewerFill>()?;
     module.add_function(wrap_pyfunction!(map_colors::py_map_known_colors, module)?)?;
     module.add_function(wrap_pyfunction!(map_colors::py_region_neighbors, module)?)?;
     module.add_function(wrap_pyfunction!(
