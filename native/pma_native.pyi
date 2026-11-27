@@ -527,8 +527,46 @@ def brush_stamp_mask(center: tuple[float, float], width: float) -> tuple[int, in
 
 def fill_polygon_mask(polygon: list[tuple[float, float]], width: int, height: int, winding: bool = False) -> bytes: ...
 def fill_path_mask(path: list[list[float]], width: int, height: int, winding: bool = False) -> bytes: ...
-def stroke_path_mask(path: list[list[float]], pen_width: float, width: int, height: int) -> bytes | None: ...
+def stroke_path_mask(path: list[list[float]], pen_width: float, width: int, height: int) -> bytes: ...
 def ellipse_path(rect: tuple[float, float, float, float]) -> list[list[float]]: ...
+def stroke_outline_path(path: list[list[float]], pen_width: float) -> list[list[float]]: ...
+
+_ToolResult = tuple[RgbaImage, tuple[_Rect, bytes, bytes] | None, list[tuple[int, int, int]]]
+
+def line_tool_mask(
+    start: tuple[float, float], end: tuple[float, float], control: tuple[float, float] | None,
+    width: int, height: int, *, pen_size: float, shift_line: bool = False,
+    taper_in: tuple[float, float] | None = None, taper_out: tuple[float, float] | None = None,
+) -> bytes:
+    """直線ツールの線の画素（確定前の見た目と確定は同じ画素、#117）。"""
+
+def line_tool_commit(
+    layer: RgbaImage, start: tuple[float, float], end: tuple[float, float],
+    control: tuple[float, float] | None, *, pen_size: float, color: tuple[int, int, int],
+    shift_line: bool = False, taper_in: tuple[float, float] | None = None,
+    taper_out: tuple[float, float] | None = None,
+    selection_polygon: list[tuple[float, float]] | None = None,
+    selection_mask: list[int] | None = None,
+) -> _ToolResult:
+    """直線ツールの確定（`commit_line_tool`）。(画像, Undo の差分 | None, 塗った色)。"""
+
+def shape_tool_preview(
+    start: tuple[float, float], end: tuple[float, float], width: int, height: int, *,
+    outline_color: tuple[int, int, int], fill_color: tuple[int, int, int],
+    shape_type: str = "polygon", corners: int = 4, lock_ratio: bool = False,
+    outline_width: float = 2.0, fill_inside: bool = False,
+) -> bytes | None:
+    """図形ツールの確定前の見た目（#117）：確定で書く色の RGBA。消しゴムは白。空なら None。"""
+
+def shape_tool_commit(
+    layer: RgbaImage, start: tuple[float, float], end: tuple[float, float], *,
+    outline_color: tuple[int, int, int], fill_color: tuple[int, int, int],
+    shape_type: str = "polygon", corners: int = 4, lock_ratio: bool = False,
+    outline_width: float = 2.0, fill_inside: bool = False,
+    selection_polygon: list[tuple[float, float]] | None = None,
+    selection_mask: list[int] | None = None,
+) -> _ToolResult | None:
+    """図形ツールの確定（`commit_shape_tool`）。範囲が空なら None。"""
 def pressure_bezier_at(points: list[tuple[float, float]], value: float) -> float: ...
 def pressure_bezier_segments(points: list[tuple[float, float]]) -> list[list[tuple[float, float]]]: ...
 def stabilizer_segments(

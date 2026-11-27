@@ -192,7 +192,7 @@ pub fn snap_overlay_to_exact_rgbs(
     Ok(result.into_flattened())
 }
 
-fn snap_distance(left: [u8; 3], right: [u8; 3]) -> i32 {
+pub(crate) fn snap_distance(left: [u8; 3], right: [u8; 3]) -> i32 {
     left.into_iter()
         .zip(right)
         .map(|(a, b)| {

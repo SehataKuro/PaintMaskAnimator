@@ -201,6 +201,11 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(brush::fill_path_mask, module)?)?;
     module.add_function(wrap_pyfunction!(brush::stroke_path_mask, module)?)?;
     module.add_function(wrap_pyfunction!(brush::ellipse_path, module)?)?;
+    module.add_function(wrap_pyfunction!(brush::stroke_outline_path, module)?)?;
+    module.add_function(wrap_pyfunction!(brush::line_tool_mask, module)?)?;
+    module.add_function(wrap_pyfunction!(brush::line_tool_commit, module)?)?;
+    module.add_function(wrap_pyfunction!(brush::shape_tool_preview, module)?)?;
+    module.add_function(wrap_pyfunction!(brush::shape_tool_commit, module)?)?;
     module.add_function(wrap_pyfunction!(brush::pressure_bezier_at, module)?)?;
     module.add_function(wrap_pyfunction!(brush::pressure_bezier_segments, module)?)?;
     module.add_function(wrap_pyfunction!(brush::stabilizer_segments, module)?)?;
