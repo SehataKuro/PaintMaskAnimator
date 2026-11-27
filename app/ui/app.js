@@ -17,6 +17,9 @@ import { createToolPropertiesPanel } from "./tool_properties.js";
 import { createActionsPanel } from "./actions.js";
 import { Overlay } from "./overlay.js";
 import { createCanvasTools } from "./canvas_tools.js";
+// 【アプリの外枠】メニュー・ファイル・環境設定など（shell.js）と、ヒストリーのパネル。
+import { initShell } from "./shell.js";
+import { createHistoryPanel } from "./history_panel.js";
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
@@ -32,15 +35,20 @@ const viewButtons = document.createElement("div");
 viewButtons.className = "view-buttons";
 viewButtons.innerHTML = '<button id="fit" type="button">全体を表示</button><button id="actual" type="button">100%</button>';
 canvasPanel.appendChild(viewButtons);
+let timelinePanel = null;
 createLayout(document.getElementById("dock"), {
   canvas: () => canvasPanel,
   // タイムラインのパネル（timeline.js）。文書の変化は document-changed の事件で知る。
-  timeline: () => createTimelinePanel({ invoke }),
   // ツールのパネル（tools.js・tool_properties.js・actions.js）。
   tools: () => createToolsPanel(),
   "tool-properties": () => createToolPropertiesPanel(),
   actions: () => createActionsPanel(),
+  timeline: () => (timelinePanel = createTimelinePanel({ invoke })),
+  // 【アプリの外枠】ヒストリー（history_panel.js）。
+  history: () => createHistoryPanel({ invoke, listen }),
 });
+// 【アプリの外枠】shell.js（main で始める）。
+let shell = null;
 const viewer = new Viewer(canvas);
 
 // 描いた線の点（自己確認で調べる）。{x, y, pressure, device}（x, y は画面の座標）
@@ -280,7 +288,8 @@ let summary = null;
 function showSummary() {
   if (!summary) return;
   const name = summary.path ? summary.path.split(/[\\/]/).pop() : "（未保存）";
-  document.title = `${name} — PaintMaskAnimator`;
+  // 【アプリの外枠】窓の題名は shell.js が付ける（Qt と同じ形）。
+  void name;
   viewText = `${summary.frames ? `コマ ${summary.frame + 1}/${summary.frames}　` : ""}表示 ${(viewer.zoom * 100).toFixed(0)}%　回転 ${viewer.rotation.toFixed(0)}°`;
   showStatus("mouse", 0, 0, 0);
 }
@@ -341,6 +350,11 @@ async function useDocumentEvents() {
 }
 
 async function openProject(path) {
+  // 【アプリの外枠】未保存の確かめと、最近使ったファイルは shell.js。
+  if (shell) {
+    await shell.openDropped(path);
+    return;
+  }
   try {
     // 開けたら document-changed（source が open）で全体を表示し直す。
     await invoke("open_project", { path });
@@ -375,22 +389,15 @@ function useDocumentControls() {
     } else if (e.key === "ArrowLeft" && !mod) {
       e.preventDefault();
       stepFrame(-1);
-    } else if (mod && (e.key.toLowerCase() === "y" || (e.shiftKey && e.key.toLowerCase() === "z"))) {
-      e.preventDefault();
-      await invoke("redo");
-    } else if (mod && e.key.toLowerCase() === "z") {
-      e.preventDefault();
-      await invoke("undo");
-    } else if (mod && e.key.toLowerCase() === "s") {
-      e.preventDefault();
-      try {
-        const path = await invoke("save_project", { path: null });
-        statusLine.textContent = `保存しました：${path}`;
-      } catch (err) {
-        statusLine.textContent = `保存できませんでした：${err}`;
-      }
     }
+    // 【アプリの外枠】取り消し・やり直し・保存は、メニュー（menu.rs → shell.js）が受ける。
   });
+}
+
+// 【アプリの外枠】キャンバスの真ん中を中心に拡大・縮小（表示：拡大／縮小）。
+function zoomCenter(factor) {
+  const r = canvas.getBoundingClientRect();
+  viewer.zoomAt(factor, r.width / 2, r.height / 2);
 }
 
 // 再生の自己確認：再生して、キャンバスが何 fps で今のコマを表示できたかを測る。
@@ -454,7 +461,21 @@ async function main() {
   await useDocumentEvents();
   await reloadCanvas(true);
   useDocumentControls();
-  if (info.open) await openProject(info.open);
+  // 【アプリの外枠】メニュー・キー・題名など（shell.js）。
+  shell = await initShell({
+    invoke,
+    listen,
+    startup: info,
+    hooks: {
+      zoomIn: () => zoomCenter(1.15),
+      zoomOut: () => zoomCenter(1 / 1.15),
+      fit: () => viewer.fit(),
+      stepFrame,
+      timelinePanel: () => timelinePanel,
+      status: (text) => (statusLine.textContent = text),
+    },
+  });
+  if (info.open) await shell.openPath(info.open);
   useViewControls();
   if (info.native_pen) await useNativePen();
   else usePointerEvents();

@@ -19,6 +19,16 @@ mod session;
 mod timeline;
 // ツール・ツールプロパティ・アクションのパネル（tools.rs）。
 mod tools;
+// 【アプリの外枠】メニュー・環境設定・ショートカット・自動保存など（shell.rs ほか）。
+mod actions;
+mod autosave;
+mod i18n;
+mod menu;
+mod papers;
+mod prefs;
+mod project_meta;
+mod shell;
+mod shortcuts;
 
 use session::{pack_rect, Point, Session, Shared, StrokeTool, Summary};
 use tauri::ipc::Response;
@@ -258,26 +268,81 @@ fn open_main_window(app: &tauri::App) -> tauri::Result<()> {
             }
         })
         .build()?;
+    // 【アプリの外枠】窓を閉じるときは、画面が未保存の変更を確かめてから終わる（shell.js）。
+    let handle = app.handle().clone();
+    if let Some(window) = app.get_webview_window("main") {
+        window.on_window_event(move |event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = handle.emit_to("main", "close-requested", ());
+            }
+        });
+    }
+    Ok(())
+}
+
+/// 【アプリの外枠】設定を読み、起動の文書（環境設定の大きさの新しい文書）・履歴の上限・
+/// メニュー・自動保存・窓を閉じるときの確認を用意する。
+fn setup_shell(app: &tauri::App, sample: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let dir = prefs::config_dir(app.handle())?;
+    let prefs = prefs::Prefs::load(&dir, prefs::qt_config_path());
+    {
+        let state = app.state::<Shared>();
+        let mut s = state.lock().unwrap();
+        s.set_history_limits(history::limits(
+            prefs.undo_max_steps(),
+            prefs.undo_max_memory_mb(),
+        ));
+        if !sample && std::env::args().nth(1).is_none() {
+            let (w, h) = prefs.new_canvas_size();
+            if let Err(e) = s.new_document(w as usize, h as usize) {
+                eprintln!("新しい文書を作れなかった：{e}");
+            }
+        }
+        let mut sh = shell::Shell::new(prefs);
+        sh.mark_saved(s.content_revision());
+        app.manage::<shell::ShellShared>(std::sync::Mutex::new(sh));
+    }
+    app.manage(autosave::Autosave::new(dir.join("autosave.pmap")));
+    let handle = app.handle().clone();
+    autosave::start(app.handle().clone(), move || {
+        let shell = handle.state::<shell::ShellShared>();
+        let sh = shell.lock().unwrap();
+        (
+            sh.prefs.autosave_enabled(),
+            sh.prefs.autosave_interval_minutes(),
+        )
+    });
+    shell::refresh_menu(app.handle());
     Ok(())
 }
 
 fn main() {
-    let mut session = Session::empty(1920, 1080);
+    let mut session = Session::empty(
+        prefs::DEFAULT_CANVAS_SIZE.0 as usize,
+        prefs::DEFAULT_CANVAS_SIZE.1 as usize,
+    );
     // 確かめ用の見本の文書（PMA_TIMELINE_SAMPLE）。.pman を渡したときは、そちらを開く。
+    let mut sample = false;
     if std::env::args().nth(1).is_none() {
+        sample = std::env::var_os("PMA_TIMELINE_SAMPLE").is_some();
         if let Err(e) = timeline::open_sample_from_env(&mut session) {
             eprintln!("見本の文書を開けなかった：{e}");
         }
     }
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage::<Shared>(std::sync::Mutex::new(session))
-        .setup(|app| {
+        .setup(move |app| {
+            setup_shell(app, sample)?;
             open_main_window(app)?;
             pen::install(app.handle());
             // ツールの設定を読む（tools.rs）。
             tools::install(app.handle());
             Ok(())
         })
+        // 【アプリの外枠】メニューの項目は画面へ送る（menu.rs）。
+        .on_menu_event(|app, event| menu::on_event(app, event.id().as_ref()))
         .invoke_handler(tauri::generate_handler![
             startup,
             pen_selftest_step,
@@ -327,7 +392,37 @@ fn main() {
             tools::tool_eyedropper,
             tools::action_run,
             tools::selection_edit,
-            tools::selection_delete
+            tools::selection_delete,
+            // 【アプリの外枠】（shell.rs）。
+            shell::shell_init,
+            shell::shell_menu_state,
+            shell::shell_set_update,
+            shell::project_state,
+            shell::prefs_get,
+            shell::prefs_set,
+            shell::shortcuts_get,
+            shell::shortcuts_set,
+            shell::project_new,
+            shell::project_open,
+            shell::project_save,
+            shell::pick_open_path,
+            shell::pick_save_path,
+            shell::recent_path,
+            shell::recent_clear,
+            shell::memo_get,
+            shell::memo_set,
+            shell::history_graph,
+            shell::history_jump,
+            shell::history_switch,
+            shell::autosave_restore,
+            shell::autosave_discard,
+            shell::shell_quit,
+            shell::set_title,
+            shell::open_url,
+            papers::papers_list,
+            papers::papers_add,
+            papers::papers_rename,
+            papers::papers_remove
         ])
         .run(tauri::generate_context!())
         .expect("画面を開けなかった");

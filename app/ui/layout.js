@@ -67,8 +67,13 @@ export function createLayout(host, panels) {
     popoutUrl: "/popout.html",
     createRightHeaderActionComponent: headerAction,
     createComponent: (options) => {
-      const make = panels[options.name];
-      const element = make ? make() : placeholder(options.name);
+      // 【アプリの外枠】パネルを閉じて出し直すとき・配置を戻すときも同じ中身を使う。
+      let element = made.get(options.name);
+      if (!element) {
+        const make = panels[options.name];
+        element = make ? make() : placeholder(options.name);
+        made.set(options.name, element);
+      }
       return { element, init: () => {} };
     },
   });
@@ -82,21 +87,95 @@ export function createLayout(host, panels) {
   });
   api.onDidRemovePopoutGroup((e) => popoutLabels.delete(e.group));
 
-  const add = (id, position) => api.addPanel({ id, component: id, title: title(id), position });
-  add("canvas");
-  add("tools", { referencePanel: "canvas", direction: "left" });
-  add("tool-properties", { referencePanel: "tools", direction: "right" });
-  add("actions", { referencePanel: "tool-properties", direction: "below" });
-  add("color-wheel", { referencePanel: "canvas", direction: "right" });
-  add("color-sliders", { referencePanel: "color-wheel", direction: "below" });
-  add("used-colors", { referencePanel: "color-sliders", direction: "below" });
-  add("history", { referencePanel: "used-colors", direction: "within" });
+  addDefaults();
+  return api;
+}
+
+/// 既定の並び（パネルの id → 置く場所）。
+const DEFAULT_POSITIONS = [
+  ["canvas", undefined],
+  ["tools", { referencePanel: "canvas", direction: "left" }],
+  ["tool-properties", { referencePanel: "tools", direction: "right" }],
+  ["actions", { referencePanel: "tool-properties", direction: "below" }],
+  ["color-wheel", { referencePanel: "canvas", direction: "right" }],
+  ["color-sliders", { referencePanel: "color-wheel", direction: "below" }],
+  ["used-colors", { referencePanel: "color-sliders", direction: "below" }],
+  ["history", { referencePanel: "used-colors", direction: "within" }],
   // タイムラインは Qt 版と同じく、窓の幅いっぱいに下へ置く。
-  add("timeline", { direction: "below" });
+  ["timeline", { direction: "below" }],
+];
+
+const made = new Map();
+let titleOf = (id) => title(id);
+
+function addPanel(id, position) {
+  return api.addPanel({ id, component: id, title: titleOf(id), position });
+}
+
+function addDefaults() {
+  for (const [id, position] of DEFAULT_POSITIONS) addPanel(id, position);
   api.getPanel("used-colors").api.setActive();
   api.getPanel("canvas").api.setActive();
   sizeDefaults();
-  return api;
+}
+
+// ---- 【アプリの外枠】パネルの表示・配置（shell.js が使う） ----
+
+/// [id, 題名, 表示中か] の並び（メニューの「パネル」）。
+export function panelStates() {
+  return PANELS.map(([id, name]) => [id, name, Boolean(api?.getPanel(id))]);
+}
+
+/// パネルを閉じる・出す（Qt の toggleViewAction）。出すときは既定の場所の近くに置く。
+export function togglePanel(id, visible) {
+  const panel = api.getPanel(id);
+  const show = visible ?? !panel;
+  if (!show && panel) {
+    api.removePanel(panel);
+  } else if (show && !panel) {
+    const position = DEFAULT_POSITIONS.find(([p]) => p === id)?.[1];
+    const reference = position?.referencePanel;
+    addPanel(id, !reference || api.getPanel(reference) ? position : { referencePanel: "canvas", direction: "right" });
+  }
+}
+
+/// 起動したときと同じ配置に戻す（ワークスペース › 初期設定）。
+export function resetLayout() {
+  api.clear();
+  addDefaults();
+}
+
+/// 今の配置（ワークスペースに保存する）。
+export function saveLayout() {
+  return api.toJSON();
+}
+
+/// 保存した配置に戻す。戻せなければ false（配置はそのまま）。
+export function loadLayout(layout) {
+  try {
+    api.fromJSON(layout);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/// 配置が変わったら呼ぶ。
+export function onLayoutChange(callback) {
+  api.onDidAddPanel(callback);
+  api.onDidRemovePanel(callback);
+  api.onDidLayoutFromJSON?.(callback);
+}
+
+/// テーマ（"light" / "dark"）。
+export function setLayoutTheme(name) {
+  api.updateOptions({ theme: name === "dark" ? DV.themeDark : DV.themeLight });
+}
+
+/// パネルの題名を訳す。
+export function translateTitles(tr) {
+  titleOf = (id) => tr(title(id));
+  for (const [id] of PANELS) api.getPanel(id)?.api.setTitle(titleOf(id));
 }
 
 // 既定の幅と高さ（Qt 版の既定に近づける）。

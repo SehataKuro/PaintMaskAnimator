@@ -61,6 +61,8 @@ pub struct Session {
     pixels_revision: u64,
     // ツール（tools.rs）：ツールの設定と画素の選択範囲。
     pub tools: crate::tools::ToolState,
+    /// 履歴の上限（環境設定。作品を開き直しても使う）。【アプリの外枠：shell.rs】
+    history_limits: pma_core::document::history::HistoryLimits,
 }
 
 /// 合成した表示の控え。コマの番号で引き、同じ絵の重なりのコマは画素を共有する。
@@ -174,8 +176,33 @@ pub struct Summary {
 }
 
 impl Session {
-    /// 作品を開いていない状態（白い画像だけを見せる）。
+    /// 起動したときの状態：新しい文書（Qt の起動直後と同じく、コマ 1・レイヤー「A」1）を開く。
+    /// 【アプリの外枠：shell.rs】
     pub fn empty(width: usize, height: usize) -> Self {
+        let mut session = Self::unloaded(width, height);
+        if let Err(e) = session.new_document(width, height) {
+            eprintln!("新しい文書を作れなかった：{e}");
+        }
+        session
+    }
+
+    /// 新しい文書にする（Qt の「新規作成」＝ replace_doc(w, h)）。履歴も空にする。
+    /// 【アプリの外枠：shell.rs】
+    pub fn new_document(&mut self, width: usize, height: usize) -> Result<(), String> {
+        let document = Document::new_blank(width, height).map_err(|e| e.to_string())?;
+        let metadata = crate::project_meta::new_metadata(width, height);
+        // タイムラインの表示は install（TimelineUi::reset）でシートに戻る。
+        self.install(Project {
+            document,
+            metadata,
+            path: None,
+            png_cache: PngCache::new(),
+            undo: Undo::default(),
+        })
+    }
+
+    /// 作品を開いていない状態（白い画像だけを見せる）。
+    pub fn unloaded(width: usize, height: usize) -> Self {
         Self {
             project: None,
             timeline: TimelineUi::default(),
@@ -186,6 +213,7 @@ impl Session {
             structure_revision: 0,
             pixels_revision: 0,
             tools: crate::tools::ToolState::default(),
+            history_limits: crate::history::LIMITS,
         }
     }
 
@@ -224,11 +252,12 @@ impl Session {
     }
 
     /// 作品を入れ替える。描きかけの線・再生・タイムラインの選択は捨てる。
-    fn install(&mut self, project: Project) -> Result<(), String> {
+    fn install(&mut self, mut project: Project) -> Result<(), String> {
         self.active = None;
         self.last = None;
         // ツール（tools.rs）：選択範囲は作品ごと。
         self.tools.selection.clear();
+        project.undo.set_limits(self.history_limits);
         self.project = Some(project);
         self.timeline.reset();
         self.touch_structure();
@@ -398,6 +427,65 @@ impl Session {
 
     pub fn undo(&mut self) -> Result<bool, String> {
         self.step_history(true)
+    }
+
+    // ---- 【アプリの外枠：shell.rs】ヒストリーパネル・環境設定・保存の印が使う ----
+
+    /// 線を描いている途中か（自動保存は描き終わるのを待つ）。
+    pub fn is_drawing(&self) -> bool {
+        self.active.is_some()
+    }
+
+    /// 文書の中身の世代（形, 絵）。保存したときと比べて未保存の変更を知る。
+    pub fn content_revision(&self) -> (u64, u64) {
+        (self.structure_revision, self.pixels_revision)
+    }
+
+    /// 履歴の上限を変える（今の作品にも、これから開く作品にも使う）。
+    pub fn set_history_limits(&mut self, limits: pma_core::document::history::HistoryLimits) {
+        self.history_limits = limits;
+        if let Some(p) = &mut self.project {
+            p.undo.set_limits(limits);
+        }
+    }
+
+    /// ヒストリーパネルのブロックの並び。
+    pub fn history_graph(&self) -> crate::history::Graph {
+        match &self.project {
+            Some(p) => p.undo.graph(),
+            None => crate::history::Graph {
+                nodes: vec![],
+                current: 0,
+            },
+        }
+    }
+
+    /// ヒストリーパネルのクリック（本線）：delta 回だけ戻す・進める。動いたら true。
+    pub fn jump_history(&mut self, delta: i64) -> Result<bool, String> {
+        self.move_history(|p| p.undo.jump(delta, &mut p.document) > 0)
+    }
+
+    /// ヒストリーパネルのクリック（分岐）：分岐へ切り替え、steps 手進める。
+    pub fn switch_history_branch(&mut self, index: usize, steps: usize) -> Result<bool, String> {
+        self.move_history(|p| p.undo.switch_branch(index, steps, &mut p.document))
+    }
+
+    fn move_history(&mut self, f: impl FnOnce(&mut Project) -> bool) -> Result<bool, String> {
+        if self.active.is_some() {
+            return Ok(false);
+        }
+        let Some(p) = &mut self.project else {
+            return Ok(false);
+        };
+        let done = f(p);
+        // 分岐の切り替えは失敗しても分岐の一覧が変わることがあるので、形は進める。
+        self.timeline.prune_selection(&p.document);
+        self.touch_structure();
+        if done {
+            self.touch_pixels();
+        }
+        self.recompose()?;
+        Ok(done)
     }
 
     pub fn redo(&mut self) -> Result<bool, String> {
@@ -710,7 +798,7 @@ fn white(width: usize, height: usize) -> RgbaImage {
 }
 
 /// ZIP に書く時刻（手元の時計の UTC。ZIP の時刻は 1980 年より前を持てない）。
-fn zip_time_now() -> ZipTime {
+pub(crate) fn zip_time_now() -> ZipTime {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
@@ -822,7 +910,7 @@ mod tests {
 
     #[test]
     fn placeholder_stroke_without_project_paints_black() {
-        let mut s = Session::empty(64, 64);
+        let mut s = Session::unloaded(64, 64);
         let first = s.stroke_begin(&tool(), pt(10.0, 10.0)).unwrap().unwrap();
         let rect = union(
             Some(first),
