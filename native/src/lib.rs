@@ -25,6 +25,7 @@ mod fill_tracking;
 mod flow_color;
 mod history;
 mod image;
+mod image_ops;
 mod map_colors;
 mod mask_transform;
 mod palette;
@@ -373,6 +374,7 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(fill_decisions::skewer_seed, module)?)?;
     module.add_function(wrap_pyfunction!(fill_session::track_fill_region, module)?)?;
     module.add_function(wrap_pyfunction!(py_extend_line_ends, module)?)?;
+    image_ops::register(module)?;
     module.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
 }
