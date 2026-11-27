@@ -560,6 +560,8 @@ def _protect_lines(
         )
         return
 
+    # matrix か grid があるのは、上で native を使えると確かめたときだけ。
+    assert native is not None
     hits = native.splat_mask_labels(
         label_image, out_width, out_height, labels, matrix=matrix, grid=grid
     )

@@ -38,6 +38,7 @@ from .clip_animation import (
 from . import cut_folder, timesheet_file
 from .errors import OPERATION_ERRORS as _OPERATION_ERRORS, OperationError
 from .models import Layer
+from .pma_image import PmaImage
 from .utils import blank_image
 from .logging_setup import get_logger
 
@@ -513,7 +514,7 @@ class ImportController:
                     normalized_number = stripped_tag.lstrip("0") or "0"
                     sequence_archive[(layer_index, number)] = Layer(
                         source_layer.name,
-                        QImage(image),
+                        PmaImage.from_qimage(image),
                         has_content=True,
                         sequence_number=number,
                         cell_name=(
@@ -931,7 +932,7 @@ class ImportController:
         for name, visible, opacity, key_images in imported:
             layer_index = len(self.window.canvas.frames[0].layers)
             slots = [
-                Layer(name, blank_image(), visible=visible, opacity=opacity)
+                Layer(name, PmaImage.from_qimage(blank_image()), visible=visible, opacity=opacity)
                 for _ in self.window.canvas.frames
             ]
             self.window.canvas._document.insert_track(layer_index, slots, staged=True)

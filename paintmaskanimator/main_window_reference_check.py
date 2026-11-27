@@ -29,6 +29,7 @@ from .progress import close_counter, create_counter, update_counter
 
 if TYPE_CHECKING:
     from .main_window import MainWindow
+    from .pma_image import PmaImage
 
 #: 一覧に載せる1件：(コマ, レイヤー, 見つかったもの)。
 Entry = Tuple[int, int, reference_check.Finding]
@@ -266,7 +267,7 @@ class ReferenceCheckController:
         if finding.bounds is None:
             return None
         x0, y0, x1, y1 = finding.bounds
-        image = canvas.frames[frame].layers[layer].image
+        image: PmaImage = canvas.frames[frame].layers[layer].image
         qt_image = as_qimage(image)
         mask = np.zeros((qt_image.height(), qt_image.width()), dtype=bool)
         if finding.mask is not None:

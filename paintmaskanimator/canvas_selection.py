@@ -15,7 +15,7 @@ from PySide6.QtWidgets import QApplication
 from .canvas_changes import publish_drawing_cells, publish_drawing_pixels
 from .document_changes import ChangeSet
 from .i18n import tr
-from .pma_image import as_qimage, snapshot_image
+from .pma_image import PmaImage, as_qimage, snapshot_image
 from .time_display import frame_position
 from .optional_deps import PILImage, PILImageFilter
 from .constants import OUTSIDE_MARGIN
@@ -340,7 +340,7 @@ class SelectionMixin(CanvasMembers):
         self.transform_drag_points = []
 
         image = self.active_layer.image
-        patch = image.read_qimage(*rect.getRect())
+        patch = image.read_qimage(rect.x(), rect.y(), rect.width(), rect.height())
         painter = QPainter(patch)
         painter.translate(-rect.x(), -rect.y())
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
@@ -501,7 +501,7 @@ class SelectionMixin(CanvasMembers):
             painter.end()
         return source
 
-    def _cleared_selection_base(self, image):
+    def _cleared_selection_base(self, image: QImage | PmaImage):
         base = as_qimage(image).copy()
         painter = QPainter(base)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
@@ -628,7 +628,8 @@ class SelectionMixin(CanvasMembers):
             range(len(self.frames)) if all_frames else [current_index]
         )
         # 共有 Cell を書き換える前に、変形対象の元画像を確保する。
-        originals = {}
+        # frame -> (元画像の写し, has_content, 番号)
+        originals: dict[int, tuple[QImage | PmaImage, Any, int | None]] = {}
         snapshots = {}
         for fi in frame_indices:
             if not (0 <= fi < len(self.frames)

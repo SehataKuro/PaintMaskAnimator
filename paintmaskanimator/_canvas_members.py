@@ -106,6 +106,7 @@ class CanvasMembers(_MembersBase):
         _last_brush_pressure: Any
         _last_raw_canvas: Any
         _right_eyedropper_drag: bool
+        _layer_uses_raw_display: Any
         _line_palette_labels: Any
         _line_preview_path: Any
         _local_color_variation: Any
@@ -237,7 +238,7 @@ class CanvasMembers(_MembersBase):
         _update_selection_clear_overlay: Any
         _update_selection_fade: Any
         _update_stroke_region: Any
-        active_layer: Any
+        active_layer: Layer
         active_layer_index: int
         add_frame: Any
         add_layer: Any

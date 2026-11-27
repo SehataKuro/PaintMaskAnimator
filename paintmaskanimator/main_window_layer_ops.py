@@ -14,6 +14,7 @@ from .display_image_cache import display_images, model_image_key
 from .i18n import tr
 from .canvas_changes import publish_track_changes
 from .models import Layer, default_layer_name
+from .pma_image import PmaImage
 from .utils import blank_image
 from .progress import close_counter, create_counter, update_counter
 from .logging_setup import get_logger
@@ -86,7 +87,7 @@ class LayerOpsController:
         merged_layers = [
             Layer(
                 result_name,
-                blank_image(),
+                PmaImage.from_qimage(blank_image()),
                 visible=True,
                 opacity=1.0,
                 has_content=False,
@@ -163,7 +164,7 @@ class LayerOpsController:
 
                     merged_layers[frame_index] = Layer(
                         result_name,
-                        merged_image,
+                        PmaImage.from_qimage(merged_image),
                         visible=True,
                         opacity=1.0,
                         has_content=True,

@@ -21,6 +21,8 @@ import json
 from collections.abc import Iterator, MutableMapping, MutableSequence, MutableSet
 from copy import copy, deepcopy
 from dataclasses import replace
+from types import MemberDescriptorType
+from typing import TYPE_CHECKING, Any, cast, overload
 from weakref import WeakSet, ref
 
 from .document_core import (
@@ -30,6 +32,9 @@ from .document_core import (
 from .models import ArchiveHint, Cell, Frame, Layer, PendingToken, Track, TRACK_FIELDS
 from .native import _native
 from .pma_image import PmaImage, tag_attributes
+
+if TYPE_CHECKING:
+    from PySide6.QtGui import QImage
 
 class _NeedsGraph(BaseException):
     """窓口のまま試す操作（_TRY_IN_PLACE）が、素のグラフを要る書き込みに来た印。
@@ -1012,7 +1017,8 @@ def _replace_bank_image(owner, key, field, value):
     old = cache._objects.get(("image", (key, initial)))
     if value is old:
         return True
-    image = to_pma_image(value)
+    # _bank_image_replaceable が value を PmaImage か QImage と確かめている。
+    image = to_pma_image(cast("QImage | PmaImage", value))
     core, tid, number = live["core"], key[1], key[2]
     cell = dict(owner._cell_value(key)[0])
     other = "image" if initial else "initial_image"
@@ -1281,6 +1287,11 @@ class _FramesView(MutableSequence):
         # 呼ぶたびに新しい（読み取り専用の）配列を返す。native.resolve_timeline と同じ。
         return np.frombuffer(data, dtype=np.int64).reshape(len(state.frame_ids), width)
 
+    @overload
+    def __getitem__(self, index: int) -> Any: ...
+    @overload
+    def __getitem__(self, index: slice) -> list[Any]: ...
+
     def __getitem__(self, index):
         if self._frozen is not None:
             return self._frozen[index]
@@ -1371,7 +1382,7 @@ class _Graph:
     def __init__(self, plain):
         self.plain = plain
         # 書き出した時点の (frames のリスト, tracks のリスト)。_promote が入れ替えを見る。
-        self.lists = None
+        self.lists: tuple[list, list] | None = None
         self.frame_ids = {}
         self.track_ids = {}
         # 書き出したオブジェクトを生かしておき、id() の使い回しを防ぐ。
@@ -1873,7 +1884,7 @@ class Document:
         block = _core_timeline_block_at(self, column, layer_index)
         if block is _NO_CORE:
             from .document import GraphDocument
-            return GraphDocument.timeline_block_at(self, column, layer_index)
+            return GraphDocument.timeline_block_at(cast(GraphDocument, self), column, layer_index)
         return block
 
     def move_sheet_cell(self, prepared):
@@ -1901,7 +1912,7 @@ class Document:
         if live["graph"] is None and not live.get("trial"):
             return False
         from .document import GraphDocument
-        return GraphDocument.has_unlinked_tracks(self)
+        return GraphDocument.has_unlinked_tracks(cast(GraphDocument, self))
 
     def link_layer_tracks(self):
         """列の並びを更新し、位置が持つ配置待ちの所属を列へ戻す。"""
@@ -2013,14 +2024,14 @@ class Document:
         if (live is None or live["graph"] is not None or live.get("trial")
                 or type(layer) is not int or type(column) is not int or column < 0
                 or not 0 <= layer < len(live["state"].track_ids)):
-            return GraphDocument.exposure_references(self, layer, column)
+            return GraphDocument.exposure_references(cast(GraphDocument, self), layer, column)
         state = live["state"]
         tid = state.track_ids[layer]
         positions, references = state.positions, []
         for fid in state.frame_ids[column:]:
             values = positions.get((fid, tid))
             if values is None:
-                return GraphDocument.exposure_references(self, layer, column)
+                return GraphDocument.exposure_references(cast(GraphDocument, self), layer, column)
             values = values[0]
             imported = legacy = None
             if values["dense_import"] is not None or values["v1_position"] is not None:
@@ -2056,7 +2067,7 @@ class Document:
 
         args = frame, layer_index, image, has_content, number
         if not isinstance(self, Document) or _live_of(self).get("trial"):
-            return GraphDocument.stage_numbered_drawing(self, *args)
+            return GraphDocument.stage_numbered_drawing(cast(GraphDocument, self), *args)
         changes = _core_stage_numbered_drawing(self, *args)
         return self._run("stage_numbered_drawing", args, {}) if changes is None else changes
 
@@ -2065,7 +2076,7 @@ class Document:
 
         args = frame, layer_index, source
         if not isinstance(self, Document) or _live_of(self).get("trial"):
-            return GraphDocument.stage_drawing_reference(self, *args)
+            return GraphDocument.stage_drawing_reference(cast(GraphDocument, self), *args)
         changes = _core_stage_drawing_reference(self, *args)
         return self._run("stage_drawing_reference", args, {}) if changes is None else changes
 
@@ -2073,7 +2084,8 @@ class Document:
         from .document import GraphDocument
 
         if not isinstance(self, Document) or _live_of(self).get("trial"):
-            return GraphDocument.insert_track(self, index, slots, active=active, staged=staged)
+            return GraphDocument.insert_track(
+                cast(GraphDocument, self), index, slots, active=active, staged=staged)
         slots = tuple(slots)
         changes = _core_insert_track(self, index, slots, active=active, staged=staged)
         if changes is None:
@@ -2084,7 +2096,8 @@ class Document:
         from .document import GraphDocument
 
         if not isinstance(self, Document) or _live_of(self).get("trial"):
-            return GraphDocument.merge_tracks(self, indices, slots, staged=staged)
+            return GraphDocument.merge_tracks(
+                cast(GraphDocument, self), indices, slots, staged=staged)
         indices, slots = tuple(indices), tuple(slots)
         changes = _core_merge_tracks(self, indices, slots, staged=staged)
         if changes is None:
@@ -2163,7 +2176,8 @@ class Document:
         from .document import GraphDocument
         live = _live_of(self)
         if live.get("trial"):
-            return GraphDocument.make_position_editable(self, current, layer_index, mode)
+            return GraphDocument.make_position_editable(
+                cast(GraphDocument, self), current, layer_index, mode)
         changes = _core_make_position_editable(self, current, layer_index)
         if changes is not None:
             return changes
@@ -2194,7 +2208,8 @@ class Document:
         from .document import GraphDocument
 
         args = (frame, layer_index, patch, rect)
-        kwargs = dict(number=number, rgba=rgba, has_content=has_content, stroke_image=stroke_image)
+        kwargs: dict[str, Any] = dict(
+            number=number, rgba=rgba, has_content=has_content, stroke_image=stroke_image)
         if not isinstance(self, Document):
             return GraphDocument.write_drawing_patch(self, *args, **kwargs)
         live = _live_of(self)
@@ -2207,7 +2222,8 @@ class Document:
                 key = state.frame_ids[frame], state.track_ids[layer_index]
                 if not _unchanged_position(self, key, "has_content", has_content):
                     changes = _core_write_drawing_patch(
-                        self, key, *args, rgba, has_content, stroke_image)
+                        self, key, args[0], args[1], args[2], args[3],
+                        rgba, has_content, stroke_image)
                     if changes is not None:
                         return changes
                     # 書き込む画像が外にある場合も、従来手順を一度だけ当てる。
@@ -2258,7 +2274,8 @@ class Document:
         from .document import GraphDocument
 
         if not isinstance(self, Document) or _live_of(self).get("trial"):
-            return GraphDocument.set_initial_images(self, positions, archived, restoring=restoring)
+            return GraphDocument.set_initial_images(
+                cast(GraphDocument, self), positions, archived, restoring=restoring)
         changes = _core_initial_images(self, positions, archived, restoring=restoring)
         if changes is not None:
             return changes
@@ -2269,7 +2286,7 @@ class Document:
         from .document import GraphDocument
 
         if not isinstance(self, Document) or _live_of(self).get("trial"):
-            return GraphDocument.keep_initial_images(self, positions)
+            return GraphDocument.keep_initial_images(cast(GraphDocument, self), positions)
         changes = _core_initial_images(self, positions, (), keep=True)
         if changes is not None:
             return changes
@@ -2329,7 +2346,7 @@ class Document:
         if not isinstance(self, Document) or _live_of(self).get("trial"):
             # 以前の口と同じ：素の入れ物を self にした呼び出しと、窓口のまま試している操作の中は
             # 今の Python の手順のまま。
-            return GraphDocument.clone_graph(self)
+            return GraphDocument.clone_graph(cast(GraphDocument, self))
         copied = _core_clone_graph(self)
         return self._run("clone_graph", (), {}) if copied is None else copied
 
@@ -2504,6 +2521,11 @@ class Document:
             return items if type(value) is list else tuple(items)
         return value
 
+    @overload
+    def _plain_args(self, values: dict) -> dict[str, Any]: ...
+    @overload
+    def _plain_args(self, values: tuple | list) -> tuple: ...
+
     def _plain_args(self, values):
         if isinstance(values, dict):
             return {key: self._plain_value(value) for key, value in values.items()}
@@ -2512,7 +2534,8 @@ class Document:
     # ------------------------------------------------------------------
     # 操作
     # ------------------------------------------------------------------
-    def _run(self, name, args, kwargs):
+    def _run(self, name, args, kwargs) -> Any:
+        # GraphDocument の name の手順の戻り値（手順ごとに型が違う）。
         from .document import GraphDocument
         method = getattr(GraphDocument, name)
         args, kwargs = self._plain_args(args), self._plain_args(kwargs)
@@ -2541,7 +2564,8 @@ class Document:
         keys = live.pop("last_keys", {})
         classes = {"frame": LiveFrame, "layer": LiveLayer, "track": LiveTrack, "cell": LiveCell}
 
-        def convert(item):
+        # 戻り値の形（窓口・入れ物・その入れ子）はさまざまなので、型は Any で受け渡す。
+        def convert(item: Any) -> Any:
             if isinstance(item, (LiveLayer, LiveTrack, LiveCell, LiveFrame)):
                 return item
             if isinstance(item, (Layer, Track, Cell, Frame)):
@@ -2631,10 +2655,10 @@ def _capture_snapshot(document):
         nbytes)
 
 
-_LAZY_SNAPSHOT = []
+_LAZY_SNAPSHOT: list[Any] = []
 
 
-def _lazy_snapshot_class():
+def _lazy_snapshot_class() -> Any:
     """_LazySnapshot（document.DocumentSnapshot の派生）。document との循環 import を避けて作る。"""
     if _LAZY_SNAPSHOT:
         return _LAZY_SNAPSHOT[0]
@@ -2676,7 +2700,8 @@ def _lazy_snapshot_class():
         namespace[name] = delegate(name)
     for index, name in enumerate(DocumentSnapshot._fields):
         namespace[name] = field(index)
-    cls = type("_LazySnapshot", (DocumentSnapshot,), namespace)
+    # 中身の口（_capture・_resolved など）は namespace で足すので、型は Any で扱う。
+    cls: Any = type("_LazySnapshot", (DocumentSnapshot,), namespace)
     _LAZY_SNAPSHOT.append(cls)
     return cls
 
@@ -2813,7 +2838,8 @@ def _core_tween(document, name, column, layer_index, *args):
         raw = (args[1],)
     if any(type(image) not in (QImage, PmaImage, BoundImage) for image in raw):
         return None
-    images = [to_pma_image(image) for image in raw]
+    # 上で型を確かめたので、どれも QImage か PmaImage。
+    images = [to_pma_image(cast("QImage | PmaImage", image)) for image in raw]
     if (any(type(image._image) is not _native.RgbaImage for image in images)
             or len({id(image) for image in images}) != len(images)):
         return None
@@ -3302,7 +3328,7 @@ def _core_restore_inserted_track(document, e):
     if live["graph"] is not None or live.get("trial"):
         return None
     state = live["state"]
-    layers = list(getattr(e, "layers", None) or ())
+    layers: list[Layer] = list(getattr(e, "layers", None) or ())
     if (not state.frame_ids or len(layers) != len(state.frame_ids)
             or not all(isinstance(layer, Layer) for layer in layers)):
         return None
@@ -3513,6 +3539,8 @@ def _core_edit_prepared_track(document, index, slots, *, active=None, columns=()
     old_state = state
     try:
         if waiting:
+            # 待ちの位置は外す列（removed）にだけあるので、frozen はある。
+            assert frozen is not None
             # release_slots は外した Layer にも効く。外す側の写しで札だけを解く。
             for fid, tid, values, handles in waiting:
                 released = dict(values, sequence_only=False, dense_import=None)
@@ -4636,8 +4664,11 @@ def _core_place_pending_entries(document):
         return text
 
     revision = Layer.timeline_revision
-    changes, new_ids = _apply_core_command(document, None, lambda ids: sorted(rows),
-                                           apply, tracks=tracks)
+    result = _apply_core_command(document, None, lambda ids: sorted(rows),
+                                 apply, tracks=tracks)
+    # apply（replace_from_document）は失敗しないので、命令は必ず当たる。
+    assert result is not None
+    changes, new_ids = result
     tokens = live.setdefault("tokens", {})
     for fid in new_ids:
         for tid in state.track_ids:
@@ -4962,6 +4993,8 @@ def _core_move_sheet_cell(document, prepared):
     occupied, shift_limit = None, None
     if sl == dl and sf <= df < max(se, fill.stop):
         if df in fill:
+            # fill が空でないのは前の保持（previous）があるときだけ。
+            assert previous is not None
             occupied = (previous[1], fill.stop)
     elif df < count:
         block = block_at(df, dl)
@@ -5004,6 +5037,8 @@ def _core_move_sheet_cell(document, prepared):
             return None
         if sl == dl:
             if column in fill:
+                # fill が空でないのは前の保持（previous）があるときだけ。
+                assert previous is not None
                 return ("content", previous[1], fill.stop - previous[1])
             if column in sources:
                 return None
@@ -5789,7 +5824,9 @@ def _core_write_drawing_patch(document, key, frame, layer_index, patch, rect,
     try:
         if rgba:
             patch, x, y = image._prepare_rgba_patch(patch, x, y)
-        prepared = None if patch is None else image._prepare_qimage_patch(patch, x, y)
+        # rgba のときは上で QImage に替わっている（patch は型の判定で QImage か ndarray）。
+        prepared = (None if patch is None
+                    else image._prepare_qimage_patch(cast(QImage, patch), x, y))
     except ValueError:
         return None
     written = (write(0, 0, 0, 0, b"") if prepared is None
@@ -5867,7 +5904,8 @@ def _core_replace_drawing_images(document, groups, *, single=False, has_content=
                 # 既存の、バンクの一枚だけを書き換える近道を使う。
                 return None
             if image is None:
-                image = to_pma_image(value)
+                # value は上で型を確かめた QImage か PmaImage。
+                image = to_pma_image(cast("QImage | PmaImage", value))
             if key in touched and touched[key] is not image:
                 return None
             if key in touched and changed and number is not None and bank is None:
@@ -6090,6 +6128,8 @@ def _core_stage_numbered_drawing(document, frame, layer, value, content, number)
         return None
 
     if previous is not None:
+        # previous は old の写しなので、old はある。
+        assert old is not None
         cache.pop("image", (artwork, False))
         old.__class__ = PmaImage
         object.__setattr__(old, "_image", previous)
@@ -6685,7 +6725,7 @@ def _core_recall_sheet_number(document, column, layer_index, number, source):
         return None
     grows = column >= len(state.frame_ids)
     key = None if grows else (state.frame_ids[column], tid)
-    values = None if grows else state.position(*key)[0]
+    values = None if key is None else state.position(*key)[0]
     # 印を外した位置の _content_origin（今の手順は has_content・is_blank_key の代入で外すが、
     # Rust の命令は残す）と、v2 の読み込みの _v2_resolve_source（今の手順は残すが、Rust の命令は
     # 捨てる）を持つ位置も今の経路（独立レビューの指摘）。
@@ -6712,7 +6752,7 @@ def _core_recall_sheet_number(document, column, layer_index, number, source):
     if plan is None:
         return None
     result = _apply_core_command(document, ["recall_sheet_number", column, layer_index, number],
-                                 lambda ids: [] if grows else [key[0]], tracks=[tid])
+                                 lambda ids: [] if key is None else [key[0]], tracks=[tid])
     if result is None:
         return None
     changes, new_ids = result
@@ -6950,8 +6990,9 @@ def _replace_references(plain, replaced):
                 data["_cell"] = swap(data["_cell"])
 
 
-_CELL_SLOT = Cell.image
-_TRACK_SLOT = Track.name
+# Cell.image・Track.name のスロットそのもの（型の注釈は中身の型なので、記述子として見せる）。
+_CELL_SLOT = cast(MemberDescriptorType, Cell.image)
+_TRACK_SLOT = cast(MemberDescriptorType, Track.name)
 
 
 _LIVE = (LiveLayer, LiveTrack, LiveCell, LiveFrame)

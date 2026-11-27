@@ -17,12 +17,15 @@ UI から独立しているので、GUI なしで単体テストできる。編�
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple
 
 from .logging_setup import get_logger
 from .pma_image import as_qimage
 from .document_changes import ChangeSet
 from .undo_entries import ScopedBatchUndo
+
+if TYPE_CHECKING:
+    from .models import Layer
 
 log = get_logger(__name__)
 
@@ -321,7 +324,7 @@ def apply_over_scope(
             for fi, li in shared_cells
         )
         for frame_index, layer_index in (shared_cells[:1] if numbered else shared_cells):
-            layer = doc.frames[frame_index].layers[layer_index]
+            layer: Layer = doc.frames[frame_index].layers[layer_index]
             undo_cells.append((
                 int(frame_index), int(layer_index), as_qimage(layer.image).copy(),
                 bool(layer.has_content), number if numbered else None,

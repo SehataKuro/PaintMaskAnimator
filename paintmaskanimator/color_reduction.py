@@ -1074,6 +1074,7 @@ class ColorReductionDialog(QDialog):
         )
         if (
             self._tone_preview_source_rgba is not None
+            and self.background_rgb is not None
             and preview_ops.is_tone_preview_background_rgb(self.background_rgb)
         ):
             self._tone_preview_background = tuple(self.background_rgb)

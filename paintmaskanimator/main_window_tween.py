@@ -8,10 +8,10 @@ A collaborator rather than a mixin -- see ``main_window_export.py`` for why.
 """
 from .pma_image import as_qimage, snapshot_image
 from .canvas_changes import publish_editable_position, publish_frame_changes, publish_tween_commit
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from PySide6.QtCore import QPoint, QPointF, Qt
-from PySide6.QtGui import QPainter
+from PySide6.QtGui import QImage, QPainter
 from PySide6.QtWidgets import QApplication, QMessageBox
 from .i18n import tr
 from .errors import OPERATION_ERRORS as _OPERATION_ERRORS, OperationError
@@ -567,7 +567,10 @@ class TweenController:
                 )
                 return
 
-        original = as_qimage(snapshot_image(self.window.canvas.transform_original_layer))
+        # 変形を確定する途中なので、変形前の画像は必ずある。
+        original = cast(
+            QImage, as_qimage(snapshot_image(self.window.canvas.transform_original_layer))
+        )
         source = self.window.canvas.transform_source
         generated_images = []
         total_steps = exposure + 2

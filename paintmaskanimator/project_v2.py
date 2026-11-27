@@ -187,7 +187,7 @@ def build_payload(snapshot, *, include_default_local_images=False):
             if not ((slot.has_content or slot.sequence_only) and slot.sequence_number is not None):
                 cell = slot._cell
                 local = {"column": column, "retained_number": slot.sequence_number}
-                image = cell.image
+                image: PmaImage = cell.image
                 keep_image = (include_default_local_images or not image.width or not image.height
                               or cell.initial_image is not None or cell.cell_name is not None
                               or cell.is_genga)

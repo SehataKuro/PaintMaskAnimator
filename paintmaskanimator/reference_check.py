@@ -94,7 +94,7 @@ def _is_line(rgb) -> bool:
     return rgb is not None and max(rgb) <= fill_tracking.LINE_MAX
 
 
-def color_counts(pixels) -> Dict[Rgb, int]:
+def color_counts(pixels) -> Dict[Optional[Rgb], int]:
     """不透明な色ごとの画素数。白（消しゴム）と透明は数えない。"""
     stats = native.reference_color_stats(pixels) if native is not None else None
     if stats is None:
@@ -145,6 +145,8 @@ def _compare_colors(reference, counts, pack_pixels=None, *, bounds=None, min_pix
     ]
     if extra:
         if bounds is None:
+            # bounds が無いときは、呼び出し側が必ず pack_pixels を渡す。
+            assert pack_pixels is not None
             packed = pack_pixels()
         for rgb, count in sorted(extra, key=lambda item: -item[1]):
             value = _pack(rgb)
@@ -187,7 +189,7 @@ def _label_runs(values, *, use_native=True):
         empty = np.zeros(0, dtype=np.int64)
         return np.zeros((height, width), dtype=np.int32), 0, (empty, empty, empty, empty)
     use_native = use_native and native is not None
-    labeled = native.label_runs(values) if use_native else None
+    labeled = native.label_runs(values) if use_native and native is not None else None
     if labeled is not None:
         return labeled
     change = np.ones((height, width), dtype=bool)
@@ -203,7 +205,7 @@ def _label_runs(values, *, use_native=True):
     row_start = np.searchsorted(run_y, np.arange(height + 1))
 
     connected = (native.connect_runs(run_x, run_end, run_value, row_start)
-                 if use_native and values.dtype.kind in "biu" else None)
+                 if use_native and native is not None and values.dtype.kind in "biu" else None)
     if connected is not None:
         run_label, regions = connected
         labels = np.repeat(run_label, run_end - run_x).reshape(height, width)
@@ -257,7 +259,8 @@ class CellRegions:
         self.pixels = pixels
         self.values = fill_tracking._labels(pixels) if values is None else values
         use_native = use_native and native is not None
-        lines = native.reference_line_art(pixels, fill_tracking.LINE_MAX) if use_native else None
+        lines = (native.reference_line_art(pixels, fill_tracking.LINE_MAX)
+                 if use_native and native is not None else None)
         self.lines = fill_tracking.line_art(pixels) if lines is None else lines
         self.height, self.width = self.values.shape
         self.labels, count, runs = _label_runs(self.values, use_native=use_native)
@@ -266,7 +269,8 @@ class CellRegions:
         self._region_values = np.empty(count, dtype=self.values.dtype)
         self._region_values[run_label] = self.values[run_y, run_x]
         stats = (native.reference_region_stats(runs, count, self.width, self.height)
-                 if use_native and self.values.size >= _NATIVE_REGION_STATS_MIN_PIXELS else None)
+                 if use_native and native is not None
+                 and self.values.size >= _NATIVE_REGION_STATS_MIN_PIXELS else None)
         if stats is not None:
             self.sizes = np.array([size for size, _, _ in stats], dtype=np.int64)
             bounds = np.array([box for _, box, _ in stats], dtype=np.int64)
@@ -353,6 +357,8 @@ def _counterpart(current, region, neighbour, min_agreement):
 
 def _counterpart_local(current, local, bounds, neighbour, sample, min_agreement):
     """_counterpart と同じ結果を外接矩形の範囲だけで求める。"""
+    # native の sampler があるときだけ呼ばれる。
+    assert native is not None
     x0, y0, x1, y1 = bounds
     margin = max(64, 3 * max(x1 - x0, y1 - y0))
     left, top = max(0, x0 - margin), max(0, y0 - margin)

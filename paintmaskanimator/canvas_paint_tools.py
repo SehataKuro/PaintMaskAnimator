@@ -603,7 +603,7 @@ class PaintToolsMixin(CanvasMembers):
         )
         self.push_undo(LayerRegionUndo(
             drag["frame"], drag["layer"], rect,
-            drag["before"].read_qimage(*rect.getRect()), drag["has_content"],
+            drag["before"].read_qimage(rect.x(), rect.y(), rect.width(), rect.height()), drag["has_content"],
             layer_name=self.frames[drag["frame"]].layers[drag["layer"]].name,
             number=self.frames[drag["frame"]].layers[drag["layer"]].sequence_number,
         ))

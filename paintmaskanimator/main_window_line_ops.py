@@ -28,7 +28,7 @@ from . import imaging, line_noise, line_tidy
 from .i18n import tr
 from .time_display import frame_position
 from .models import Layer
-from .pma_image import as_qimage, image_rgba
+from .pma_image import PmaImage, as_qimage, image_rgba
 from .frame_scope import resolve_cells
 from .utils import blank_image
 from .errors import OPERATION_ERRORS
@@ -366,7 +366,9 @@ class LineOpsController:
     def _qimage_rgba_array(image):
         return imaging.qimage_rgba_array(image)
 
-    def _replacement_mapping_for_aligned_images(self, source_image, target_image):
+    def _replacement_mapping_for_aligned_images(
+        self, source_image: QImage | PmaImage, target_image: QImage | PmaImage,
+    ):
         """Return source->target RGB mapping when every aligned pixel is consistent."""
         source_image = as_qimage(source_image)
         target_image = as_qimage(target_image)
@@ -567,8 +569,8 @@ class LineOpsController:
         paint_slots = []
         line_slots = []
         for _ in self.window.canvas.frames:
-            paint_slots.append(Layer("Paint", blank_image()))
-            line_slots.append(Layer("LINE", blank_image()))
+            paint_slots.append(Layer("Paint", PmaImage.from_qimage(blank_image())))
+            line_slots.append(Layer("LINE", PmaImage.from_qimage(blank_image())))
         document.insert_track(paint_index, paint_slots, staged=True)
         document.insert_track(line_index, line_slots, staged=True)
 

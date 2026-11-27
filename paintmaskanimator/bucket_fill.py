@@ -640,6 +640,8 @@ class CompactFill:
 
     def _remove_byte_owner(self, owner):
         """退去したレコード一件分の計上と登録を取り消す。"""
+        # 計上済みのキャッシュからだけ呼ばれるので、登録の一覧は必ずある。
+        assert self._byte_owners is not None
         self._byte_owners.remove(ref(owner))
         owner._fill_bytes -= self._mask_bytes + len(getattr(self, "_native_runs", b""))
 

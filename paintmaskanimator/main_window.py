@@ -30,7 +30,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from PySide6.QtCore import QPointF, QRectF, QTimer, Qt
 from PySide6.QtGui import QCursor, QImage, QImageReader, QPainter
 from PySide6.QtWidgets import (
@@ -42,7 +42,7 @@ from PySide6.QtWidgets import (
     QProgressDialog,
 )
 from .i18n import tr
-from .pma_image import as_qimage, to_pma_image
+from .pma_image import PmaImage, as_qimage, to_pma_image
 from .optional_deps import PILImage
 from .constants import APP_DISPLAY_NAME, OUTSIDE_MARGIN
 from . import color_ops, constants, imaging, layout_paper, preferences, pressure_settings, project_io, session_state, theme, updater
@@ -558,7 +558,8 @@ class MainWindow(
         canvas = self.canvas
 
         def op(context):
-            image = as_qimage(context.layer.image)
+            layer: Layer = context.layer
+            image = as_qimage(layer.image)
             reduced = canvas.reduce_image_with_settings(image, settings)
             if reduced is None or reduced.isNull():
                 return None
@@ -819,7 +820,7 @@ class MainWindow(
             self.status(tr("レイアウト用紙の画像を読み込めませんでした。"), "warning")
             return
         slots = [
-            Layer(layout_paper.layer_name(), self.canvas._placed_imported_image(image),
+            Layer(layout_paper.layer_name(), to_pma_image(self.canvas._placed_imported_image(image)),
                   is_draft=True, has_content=True)
             for _ in self.canvas.frames
         ]
@@ -1328,7 +1329,9 @@ class MainWindow(
                         payload = position.legacy
                         saved_image = blank_image()
                         painter = QPainter(saved_image)
-                        painter.drawImage(rect, as_qimage(payload.image), rect)
+                        # 旧形式の層は必ず絵を持つ（LegacyLayerV1.image は Any で宣言されている）。
+                        legacy_image = cast("QImage | PmaImage", payload.image)
+                        painter.drawImage(rect, as_qimage(legacy_image), rect)
                         painter.end()
                         copied.__dict__["_v1_position"] = replace(
                             position, legacy=replace(payload, image=to_pma_image(saved_image)))

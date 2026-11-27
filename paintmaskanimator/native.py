@@ -5,6 +5,8 @@ NumPy remains in use for array conversion and algorithms not yet moved to Rust.
 """
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
 
 from .logging_setup import get_logger
@@ -375,7 +377,10 @@ def reference_context_similarity(previous, previous_local, previous_bounds,
                                  current, current_local, current_bounds, radius):
     """外接矩形内のマスクを使い、二つの部分のまわりの色の並びの類似度を返す。"""
     def context(pixels, local, bounds):
-        y, x = _tracking_center(local)
+        center = _tracking_center(local)
+        # 比べる部分は空でないので、中心は必ず求まる。
+        assert center is not None
+        y, x = center
         x0, y0, x1, y1 = bounds
         cy, cx = y + y0, x + x0
         height, width = pixels.shape[:2]
@@ -846,7 +851,7 @@ def fill_target_mask(pixels, target_color, category):
     height, width = pixels.shape[:2]
     data = _native.fill_target_mask(
         np.ascontiguousarray(pixels, dtype=np.uint8).tobytes(), width, height, target_color,
-        None if category is None else tuple(int(c) for c in category),
+        None if category is None else _rgb3(category),
     )
     return _as_mask(data, height, width)
 
@@ -912,7 +917,7 @@ def track_fill_region(pixels, previous, reference, options, selection=None,
     height, width = previous.shape
     return _native.track_fill_region(
         pixels.tobytes(), _as_bytes(previous), width, height,
-        None if reference is None else tuple(int(c) for c in reference),
+        None if reference is None else _rgb3(reference),
         _fill_options(options),
         None if selection is None else _as_bytes(selection),
         None if previous_pixels is None else previous_pixels.tobytes(),
@@ -920,8 +925,13 @@ def track_fill_region(pixels, previous, reference, options, selection=None,
     )
 
 
+def _rgb3(values) -> tuple[int, int, int]:
+    """色を整数のタプルにする。3要素であることは Rust 側の受け取りで確かめる。"""
+    return cast("tuple[int, int, int]", tuple(int(c) for c in values))
+
+
 def _replacements(replacements):
-    return tuple((tuple(map(int, source[:3])), tuple(map(int, destination[:3])))
+    return tuple((_rgb3(source[:3]), _rgb3(destination[:3]))
                  for source, destination in replacements)
 
 

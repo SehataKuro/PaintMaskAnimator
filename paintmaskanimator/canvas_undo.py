@@ -302,7 +302,7 @@ class UndoMixin(CanvasMembers):
             int(self.current_frame),
             int(self.active_layer_index),
             rect,
-            image.read_qimage(*rect.getRect()),
+            image.read_qimage(rect.x(), rect.y(), rect.width(), rect.height()),
             bool(layer.has_content),
             layer_name=layer.name, number=layer.sequence_number,
         )

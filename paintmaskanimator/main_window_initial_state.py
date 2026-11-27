@@ -24,6 +24,7 @@ from .undo_entries import InitialStateUndo
 
 if TYPE_CHECKING:
     from .main_window import MainWindow
+    from .pma_image import PmaImage
 
 Cell = Tuple[int, int]
 
@@ -117,7 +118,9 @@ class InitialStateController:
                             ))
                         loaded[source] = image.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
                     image = loaded[source]
-                cell_size = as_qimage(layer.image).size()
+                # Layer も DrawingTarget も、絵は PmaImage で持つ。
+                layer_image: PmaImage = layer.image
+                cell_size = as_qimage(layer_image).size()
                 if image.size() != cell_size:
                     raise OperationError(tr(
                         "線画のサイズが現在のセルと一致しません：{name}\n"

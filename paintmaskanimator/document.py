@@ -476,7 +476,7 @@ class Document:
             else:
                 layer = Layer(
                     default_layer_name(index),
-                    blank_image(),
+                    to_pma_image(blank_image()),
                     visible=True,
                     opacity=1.0,
                 )
@@ -845,7 +845,7 @@ class Document:
         target.detach_cell()
         target.has_content = False
         clear_pending(target)
-        target.image = blank_image()
+        target.image = to_pma_image(blank_image())
         properties = self.set_position_track_properties(
             column, layer_index,
             visible=bool(template.visible), opacity=float(template.opacity),
@@ -1422,7 +1422,7 @@ class Document:
         new_column = len(self.frames)
         self.ensure_frame_count(new_column + 1)
         target = self.frames[new_column].layers[layer_index]
-        target.image = blank_image()
+        target.image = to_pma_image(blank_image())
         target.has_content = False
         target.is_blank_key = True
         target.sequence_number = insert_number
@@ -2088,7 +2088,7 @@ class Document:
                 li = len(frame.layers)
                 template = next(other.layers[li] for other in frames if li < len(other.layers))
                 if canvas_size is None:
-                    image = blank_image()
+                    image = to_pma_image(blank_image())
                 else:
                     # width は列の数なので、画像の大きさは別の名前で受ける。
                     image_width, image_height = canvas_size
@@ -2561,4 +2561,5 @@ def project_v1_state(frames, sequence_archive=None) -> tuple[list[Any], dict[Any
 # まだ Rust に無い操作の手順、突き合わせ・切り戻し用の実装として残す。
 GraphDocument = Document
 if __import__("os").environ.get("PMA_CORE_DOCUMENT") != "0":
-    from .document_live import Document  # noqa: E402,F811
+    # 環境変数で Document の実体を差し替える（型の上では二つの Document は別の型）。
+    from .document_live import Document  # noqa: E402,F811  # pyright: ignore[reportAssignmentType]

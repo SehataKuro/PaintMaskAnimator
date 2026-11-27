@@ -11,7 +11,7 @@ from pathlib import Path
 from PySide6.QtCore import QPoint
 from PySide6.QtGui import QImage, QImageReader, QPainter
 from .i18n import tr
-from .pma_image import as_qimage
+from .pma_image import as_qimage, to_pma_image
 from .optional_deps import PILImage
 from .constants import MAX_IMAGE_DIMENSION, MAX_SINGLE_IMAGE_PIXELS, OUTSIDE_MARGIN
 from .errors import OperationError
@@ -315,7 +315,7 @@ class ImageImportMixin(CanvasMembers):
         if not name:
             name = Path(decoded[0][0]).stem or f"Image {len(self.layers)}"
         insert_index = len(self.frames[0].layers)
-        slots = [Layer(name, blank_image(), is_draft=bool(draft)) for _ in self.frames]
+        slots = [Layer(name, to_pma_image(blank_image()), is_draft=bool(draft)) for _ in self.frames]
         self._document.insert_track(insert_index, slots, staged=True)
         for offset, (_, image) in enumerate(decoded):
             if progress_callback:

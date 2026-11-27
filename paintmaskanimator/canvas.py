@@ -26,7 +26,7 @@ from functools import partial
 import math
 import numpy as np
 import time
-from typing import Any
+from typing import Any, Callable
 from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, QTimer, Qt, Signal
 from PySide6.QtGui import (
     QColor,
@@ -100,7 +100,7 @@ def _display_source_key(source):
     return (("qt", int(source.cacheKey())), source.width(), source.height())
 
 
-def _display_qimage(source):
+def _display_qimage(source: "QImage | PmaImage | Callable[[], Any]") -> QImage:
     while callable(source):
         source = source()
     return display_images.get(source) if isinstance(source, PmaImage) else source
@@ -481,7 +481,12 @@ class PaintCanvas(
                 entry.frame if fi is None else fi,
                 entry.layer,
                 tuple(
-                    (QRect(rect), layer.image.read_qimage(*QRect(rect).getRect()))
+                    (
+                        tile := QRect(rect),
+                        layer.image.read_qimage(
+                            tile.x(), tile.y(), tile.width(), tile.height()
+                        ),
+                    )
                     for rect, _image in entry.tiles
                 ),
                 bool(layer.has_content),
@@ -991,7 +996,9 @@ class PaintCanvas(
                     tile_size,
                     tile_size,
                 ).intersected(bounds)
-                tiles[key] = (tile_rect, live.read_qimage(*tile_rect.getRect()))
+                tiles[key] = (tile_rect, live.read_qimage(
+                    tile_rect.x(), tile_rect.y(), tile_rect.width(), tile_rect.height()
+                ))
         dirty = rect
         scale = self._stroke_work_image.devicePixelRatio()
         if scale != 1:

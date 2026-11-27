@@ -45,7 +45,9 @@ class Cell:
 
     __slots__ = ("image", "initial_image", "cell_name", "is_genga")
 
-    image: PmaImage | None
+    # 絵は必ずある（__init__ が None のとき白紙を入れる）。QImage を代入しても
+    # __setattr__ が PmaImage に直すが、型の上では PmaImage を渡す。
+    image: PmaImage
     initial_image: PmaImage | None
 
     def __setattr__(self, name, value):
@@ -199,7 +201,8 @@ class Layer:
             self.__dict__.pop("_dense_import", None)
 
     name: str
-    image: PmaImage | None
+    # Cell.image と同じく必ずある。
+    image: PmaImage
     visible: bool = True
     opacity: float = 1.0
     is_paper: bool = False
@@ -289,7 +292,8 @@ class Layer:
             str(self.cell_name) if self.cell_name is not None else None,
             copy.deepcopy(self.tween) if self.tween is not None else None,
             self.tween_member,
-            copy_image(self.initial_image),
+            # copy_image の型の重ね合わせは PmaImage | None を受ける口が無いので、None を分けて渡す。
+            None if self.initial_image is None else copy_image(self.initial_image),
         )
         copied.is_genga = bool(self.is_genga)
         # Undo のスナップショットが、あとの表示設定の変更で汚れないようにする。

@@ -11,7 +11,7 @@ from PySide6.QtGui import QColor, QImage, QPainter, QPen
 from .document_changes import ChangeSet
 from .canvas_changes import publish_drawing_pixels
 from ._canvas_members import CanvasMembers
-from .pma_image import as_qimage
+from .pma_image import PmaImage, as_qimage
 from . import imaging
 from .logging_setup import get_logger
 from .undo_entries import LayerTilesUndo
@@ -43,7 +43,9 @@ class StrokeDisplayMixin(CanvasMembers):
         if self.view_preview.map_colors and self._layer_uses_raw_display(
             self.active_layer, self.active_layer_index,
         ):
-            preview = self.view_layer_image(self.active_layer, self.active_layer_index, target)
+            preview: QImage | PmaImage = self.view_layer_image(
+                self.active_layer, self.active_layer_index, target,
+            )
             self._stroke_view_preview = (
                 self.active_layer, self.view_preview.key(),
                 as_qimage(preview).copy(),
@@ -170,6 +172,8 @@ class StrokeDisplayMixin(CanvasMembers):
             return
         frame, index = self._stroke_undo_frame, self._stroke_undo_layer
         changes = self._finish_opaque_brush_stroke()
+        # 作業画像があることは上で確かめたので、ここでは必ず ChangeSet が返る。
+        assert changes is not None
         layer = self.frames[frame].layers[index]
         self._cell_structure_dirty = (
             not self._brush_started_with_content and bool(layer.has_content)

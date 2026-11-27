@@ -27,6 +27,7 @@ from .logging_setup import get_logger
 
 if TYPE_CHECKING:
     from .main_window import MainWindow
+    from .models import Layer, Track
 
 log = get_logger(__name__)
 
@@ -322,7 +323,7 @@ class TimeRemapController:
                 ].layers[layer_index].name
             )
 
-        track = self.window.canvas.frames[0].layers[layer_index]._track
+        track: Track = self.window.canvas.frames[0].layers[layer_index]._track
         if not track.connected and stored_bank and (
             stored_index == layer_index
             or (
@@ -340,7 +341,7 @@ class TimeRemapController:
         for frame in self.window.canvas.frames:
             if layer_index >= len(frame.layers):
                 continue
-            layer = frame.layers[layer_index]
+            layer: Layer = frame.layers[layer_index]
             number = layer.sequence_number
             if (
                 layer.has_content
@@ -363,7 +364,7 @@ class TimeRemapController:
         for frame in self.window.canvas.frames:
             if layer_index >= len(frame.layers):
                 continue
-            layer = frame.layers[layer_index]
+            layer: Layer = frame.layers[layer_index]
             if layer.has_content:
                 image = as_qimage(layer.image)
                 if not image.isNull():

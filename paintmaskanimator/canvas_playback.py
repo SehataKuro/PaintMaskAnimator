@@ -5,6 +5,7 @@ used during playback, advance the playback position, and composite/cache the
 image shown for each played-back frame. They run against a live ``PaintCanvas``
 instance.
 """
+from typing import cast
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QImage, QPainter
 from .display_image_cache import display_images
@@ -152,6 +153,8 @@ class PlaybackMixin(CanvasMembers):
                 draw_image = draw_image()
             if isinstance(draw_image, PmaImage):
                 draw_image = display_images.get(draw_image)
+            # 表示用の画像は、呼び出しと PmaImage の変換を済ませた時点で QImage になる。
+            draw_image = cast(QImage, draw_image)
             if self.flip_horizontal or getattr(self, "flip_vertical", False):
                 draw_image = draw_image.mirrored(
                     self.flip_horizontal, getattr(self, "flip_vertical", False)

@@ -3,6 +3,7 @@
 from collections.abc import Iterable
 from dataclasses import dataclass
 from operator import index
+from typing import overload
 
 import numpy as np
 from PySide6.QtCore import QPoint, QRect
@@ -288,6 +289,12 @@ def image_key(image: QImage | PmaImage) -> tuple[str, int]:
     return ("qt", image.cacheKey())
 
 
+@overload
+def to_pma_image(image: QImage | PmaImage) -> PmaImage: ...
+@overload
+def to_pma_image(image: QImage | PmaImage | None) -> PmaImage | None: ...
+
+
 def to_pma_image(image: QImage | PmaImage | None) -> PmaImage | None:
     """モデルへ渡された画像を格納形式に揃える。"""
     if image is None or isinstance(image, PmaImage):
@@ -302,10 +309,26 @@ def is_transparent_image(image: QImage) -> bool:
     return image == transparent
 
 
+@overload
+def as_qimage(image: QImage | PmaImage) -> QImage: ...
+@overload
+def as_qimage(image: QImage | PmaImage | None) -> QImage | None: ...
+
+
 # 7-2f の後に削除または見直す。
 def as_qimage(image: QImage | PmaImage | None) -> QImage | None:
     """PmaImage を独立した QImage に変換する。QImage と None はそのまま返す。"""
     return image.to_qimage() if isinstance(image, PmaImage) else image
+
+
+@overload
+def copy_image(image: PmaImage) -> PmaImage: ...
+@overload
+def copy_image(image: QImage) -> QImage: ...
+@overload
+def copy_image(image: None) -> None: ...
+@overload
+def copy_image(image: QImage | PmaImage | None) -> QImage | PmaImage | None: ...
 
 
 # 7-2f の後に削除または見直す。
@@ -316,6 +339,16 @@ def copy_image(image: QImage | PmaImage | None) -> QImage | PmaImage | None:
     return image.copy() if isinstance(image, PmaImage) else QImage(image)
 
 
+@overload
+def snapshot_image(image: PmaImage) -> PmaImage: ...
+@overload
+def snapshot_image(image: QImage) -> QImage: ...
+@overload
+def snapshot_image(image: None) -> None: ...
+@overload
+def snapshot_image(image: QImage | PmaImage | None) -> QImage | PmaImage | None: ...
+
+
 # 7-2f の後に削除または見直す。
 def snapshot_image(image: QImage | PmaImage | None) -> QImage | PmaImage | None:
     """画素を複製する。同じ型を返し、None はそのまま返す。"""
@@ -324,6 +357,12 @@ def snapshot_image(image: QImage | PmaImage | None) -> QImage | PmaImage | None:
     if isinstance(image, PmaImage):
         return PmaImage.from_qimage(image.read_qimage(0, 0, image.width, image.height))
     return image.copy()
+
+
+@overload
+def image_rgba(image: QImage | PmaImage) -> np.ndarray: ...
+@overload
+def image_rgba(image: QImage | PmaImage | None) -> np.ndarray | None: ...
 
 
 # 7-2f の後に削除または見直す。

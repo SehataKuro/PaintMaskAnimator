@@ -24,6 +24,7 @@ from .undo_entries import PaletteStateUndo, attach_palette_state
 
 if TYPE_CHECKING:
     from .main_window import MainWindow
+    from .models import Layer
 
 log = get_logger(__name__)
 
@@ -360,7 +361,7 @@ class UsedColorController:
 
         def replace_colors(context):
             """1レイヤー分の色置換。純粋な op として一括処理ランナーへ渡す。"""
-            layer = context.layer
+            layer: Layer = context.layer
             old_cache_key = self._cache_key(layer.image)
             old_cached_colors = self.window._used_color_cache.get(old_cache_key)
             rgba = as_qimage(layer.image).convertToFormat(

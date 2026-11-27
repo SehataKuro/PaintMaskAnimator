@@ -14,7 +14,7 @@ import numpy as np
 from PySide6.QtCore import QPoint
 from PySide6.QtGui import QColor, QImage, QPainter
 
-from .pma_image import copy_image
+from .pma_image import PmaImage
 from . import native
 from .i18n import tr
 from .constants import (
@@ -770,7 +770,7 @@ def build_pma_frames(
     transparent.fill(QColor(0, 0, 0, 0))
     frames = [
         Frame([
-            Layer(layer.name, QImage(transparent))
+            Layer(layer.name, PmaImage.from_qimage(transparent))
             for layer in layers
         ])
         for _ in range(duration)
@@ -795,7 +795,7 @@ def build_pma_frames(
                 raise ClipImportError(
                     tr("アニメーションフォルダー「{name}」のセル「{tag}」を画像化できません。").format(name=source_layer.name, tag=tag)
                 )
-            target.image = copy_image(image)
+            target.image = PmaImage.from_qimage(image)
             target.has_content = True
             target.is_blank_key = False
             target.sequence_number = sequence_numbers[tag]
