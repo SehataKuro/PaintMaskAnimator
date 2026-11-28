@@ -30,6 +30,8 @@ pub mod mask_transform;
 pub mod palette;
 pub mod palette_labels;
 pub mod project;
+/// Qt 版で保存したワークスペースのパネル配置（dock_state）を読む。
+pub mod qt_dock_state;
 pub mod reference_check;
 /// 見本との違い・塗り間違いのチェック。
 pub mod reference_scan;

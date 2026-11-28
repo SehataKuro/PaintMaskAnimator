@@ -56,7 +56,7 @@ dialogs.js・preferences.js・shortcuts.js・history_panel.js・i18n.js・theme.
   `menu-action` の事件で画面へ送り、画面が処理する。まだ移していない操作は `pma-action` の
   事件を窓へ出し、どのパネルも受けなければ「まだ移していません」と知らせる。
 - 設定はアプリの設定のフォルダーの `config.json`。初めての起動で Qt 版の設定を写す
-  （ワークスペースは配置の形が違うので写さない）。確かめるときは `PMA_CONFIG_DIR` で別の
+  （ワークスペースは Qt の配置の形のまま写し、選ぶと今の画面の並びへ読み替える）。確かめるときは `PMA_CONFIG_DIR` で別の
   フォルダーにできる。
 - 英語の表 `i18n/en.json` は `paintmaskanimator_en.ts` から作る
   （`PMA_UPDATE_I18N=1 cargo test i18n_catalogue`）。

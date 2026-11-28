@@ -101,6 +101,8 @@ const DEFAULT_POSITIONS = [
   ["color-sliders", { referencePanel: "color-wheel", direction: "below" }],
   ["used-colors", { referencePanel: "color-sliders", direction: "below" }],
   ["history", { referencePanel: "used-colors", direction: "within" }],
+  // 【Group C】サブビューは Qt 版と同じく右端の列（RightDockWidgetArea）。
+  ["subview", { direction: "right" }],
   // タイムラインは Qt 版と同じく、窓の幅いっぱいに下へ置く。
   ["timeline", { direction: "below" }],
 ];
@@ -160,6 +162,78 @@ export function loadLayout(layout) {
   }
 }
 
+/// 【Group C】Qt 版で保存した配置（workspace.rs の QtWorkspace）を組む（Qt の apply）。
+/// 戻せなければ false（配置は元のまま）。
+export function loadQtLayout(ws) {
+  if (!ws?.root) return false;
+  const before = api.toJSON();
+  const first = (node) => (node.type === "area" ? node.panels[0] : first(node.children[0]));
+  const placed = new Set();
+  const put = (id, position) => {
+    if (placed.has(id) || !PANELS.some(([p]) => p === id)) return false;
+    placed.add(id);
+    addPanel(id, position);
+    return true;
+  };
+  // 子の代表（先頭のパネル）を先に向きどおりに並べてから、子の中を組む。こうすると代表の組が
+  // この分割の直下に入る（dockview の分割は入れ子ごとに向きが交互）。
+  const fill = (node) => {
+    if (node.type === "area") {
+      const head = node.panels[0];
+      for (const id of node.panels.slice(1)) put(id, { referencePanel: head, direction: "within" });
+      if (node.current) api.getPanel(node.current)?.api.setActive();
+      return;
+    }
+    const direction = node.horizontal ? "right" : "below";
+    const reps = node.children.map(first);
+    for (let i = 1; i < reps.length; i++) put(reps[i], { referencePanel: reps[i - 1], direction });
+    node.children.forEach(fill);
+  };
+  const resize = (node, width, height) => {
+    if (node.type !== "split") return;
+    node.children.forEach((child, i) => {
+      const share = node.sizes[i] ?? 1 / node.children.length;
+      const w = node.horizontal ? width * share : width;
+      const h = node.horizontal ? height : height * share;
+      if (i < node.children.length - 1) {
+        api.getPanel(first(child))?.group.api.setSize(node.horizontal ? { width: Math.round(w) } : { height: Math.round(h) });
+      }
+      resize(child, w, h);
+    });
+  };
+  try {
+    api.clear();
+    put(first(ws.root), undefined);
+    fill(ws.root);
+    resize(ws.root, api.width, api.height);
+    // 浮いたパネルは窓の中の浮いた組にする（一つの組にまとめる）。
+    ws.floating?.forEach((f, index) => {
+      const ids = [];
+      const collect = (node) => (node.type === "area" ? ids.push(...node.panels) : node.children.forEach(collect));
+      collect(f.root);
+      const head = ids.find((id) => !placed.has(id) && PANELS.some(([p]) => p === id));
+      if (!head) return;
+      placed.add(head);
+      const [, , w, h] = f.geometry ?? [0, 0, 360, 420];
+      api.addPanel({
+        id: head, component: head, title: titleOf(head),
+        floating: { position: { left: 40 + index * 24, top: 40 + index * 24 }, width: Math.min(w, api.width - 60), height: Math.min(h, api.height - 60) },
+      });
+      for (const id of ids) if (id !== head) put(id, { referencePanel: head, direction: "within" });
+    });
+    if (!api.getPanel("canvas")) addPanel("canvas", { direction: "right" });
+    return true;
+  } catch (e) {
+    console.error(e);
+    try {
+      api.fromJSON(before);
+    } catch {
+      resetLayout();
+    }
+    return false;
+  }
+}
+
 /// 配置が変わったら呼ぶ。
 export function onLayoutChange(callback) {
   api.onDidAddPanel(callback);
@@ -178,6 +252,12 @@ export function translateTitles(tr) {
   for (const [id] of PANELS) api.getPanel(id)?.api.setTitle(titleOf(id));
 }
 
+/// 【Group C】既定の幅と高さに戻す（パネルを外すと dockview が列を等分するので、
+/// 起動のときにサブビューを閉じたあとに使う）。
+export function fitDefaultSizes() {
+  sizeDefaults();
+}
+
 // 既定の幅と高さ（Qt 版の既定に近づける）。
 function sizeDefaults() {
   const set = (id, size) => api.getPanel(id)?.group.api.setSize(size);
@@ -185,6 +265,15 @@ function sizeDefaults() {
   set("tool-properties", { width: 220 });
   // 右の列は、使用色へできるだけ高さを回す（サークルとスライダーは中身の分だけ）。
   set("color-wheel", { width: 260 });
+  // 【Group C】サブビューは Qt の DEFAULT_PANEL_WIDTHS の 240。縮めた分は左の色の列へ回るので、
+  // その分をキャンバスへ戻す（キャンバスを広げると、すぐ右の色の列が縮む）。
+  set("subview", { width: 240 });
+  const canvasGroup = api.getPanel("canvas")?.group;
+  const colorGroup = api.getPanel("color-wheel")?.group;
+  if (canvasGroup && colorGroup && colorGroup.api.width > 260) {
+    canvasGroup.api.setSize({ width: canvasGroup.api.width + colorGroup.api.width - 260 });
+    set("subview", { width: 240 });
+  }
   set("used-colors", { height: 2000 });
   set("color-sliders", { height: 112 });
   set("color-wheel", { height: 290 });
