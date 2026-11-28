@@ -1,13 +1,15 @@
 //! PSD の書き出し（`ExportController.psd_dialog`。Qt 版は psd-tools で書く）。
 //!
 //! レイヤーごとにフォルダー（グループ）を作り、その中へキーの絵を1枚ずつ画素レイヤーとして
-//! 入れる。バイト列は psd-tools 1.19.0 の `PSDImage.new("RGB", …, color=白)` →
+//! 入れる。バイト列は psd-tools 1.26.1（0.8.0 に組み込んだ版）の `PSDImage.new("RGB", …, color=白)` →
 //! `create_group` → `create_pixel_layer` → `save` と同じになるように組む。
 //!
 //! - 画素レイヤーは RGB（アルファを落とした色）と、すべて 255 の透明度チャンネル、アルファを
 //!   写したレイヤーマスクを持つ（RGB の文書なので psd-tools はアルファをマスクに入れる）。
 //! - 統合画像は psd-tools の合成（`composite`）を float32 の同じ順の計算でなぞる。白地の上に
 //!   重ねた色から白地の分を引き戻す（`result_isolated`）ので、絵のある所は重ねる前の色になる。
+//!   8 bit へは `_encode_array` と同じく `rint(clip(x, 0, 1) * 255)`（偶数への丸め）で直す。
+//!   1.19 は `composite_pil` を通して切り捨てていたので、そこだけ ±1 ずれる。
 //! - レイヤー名は MacRoman。psd-tools は MacRoman で書けない名前（日本語など）で失敗するが、
 //!   ここでは書けない文字を `?` にし、画素レイヤーにも Unicode の名前（luni）を足して書き出す。
 //!   書ける名前なら psd-tools と同じバイト列になる。
@@ -20,7 +22,7 @@ use crate::Error;
 use super::sheet::{has_content, slot_image};
 
 /// psd-tools が版情報（VersionInfo）に書く名前。
-pub const WRITER_NAME: &str = "psd-tools 1.19.0";
+pub const WRITER_NAME: &str = "psd-tools 1.26.1";
 
 /// MacRoman の 0x80〜0xFF の文字（Python の `mac_roman`）。
 const MAC_ROMAN_HIGH: [u16; 128] = [
@@ -339,6 +341,8 @@ impl Canvas {
     }
 
     /// 白地の分を引き戻した色（`result_isolated`）を 8 bit の面（R, G, B）にする。
+    /// 8 bit への直し方は psd-tools 1.26.1 の `numpy_io._encode_array`：
+    /// `np.rint(np.clip(plane, 0.0, 1.0) * 255.0)`。float32 のまま掛けて、偶数へ丸める。
     fn merged(&self) -> Vec<u8> {
         let len = self.alpha.len();
         let mut planes = vec![0u8; len * 3];
@@ -347,7 +351,7 @@ impl Canvas {
             for channel in 0..3 {
                 let color = self.color[index][channel];
                 let value = clip(color + (color - 1.0) * factor);
-                planes[channel * len + index] = (255.0 * value).clamp(0.0, 255.0) as u8;
+                planes[channel * len + index] = (value * 255.0).round_ties_even() as u8;
             }
         }
         planes
@@ -579,7 +583,7 @@ mod tests {
 
     #[test]
     fn tiny_document_matches_psd_tools_layout() {
-        // psd-tools 1.19.0 で書いた 4×2 の文書（scratch の tiny.py と同じ）の要所。
+        // psd-tools 1.26.1 で書いた 4×2 の文書（scratch の tiny.py と同じ）の要所。
         let mut img = vec![0u8; 4 * 2 * 4];
         img[4..8].copy_from_slice(&[10, 20, 30, 100]);
         img[(4 + 2) * 4..(4 + 2) * 4 + 4].copy_from_slice(&[200, 20, 30, 255]);

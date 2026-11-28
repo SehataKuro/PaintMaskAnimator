@@ -259,3 +259,30 @@ fn sixteen_bit_samples() {
     assert_eq!(pixel(image, 2, 0, 0), [10, 200, 30, 255]);
     assert_eq!(pixel(image, 2, 1, 0), [10, 200, 30, 51]);
 }
+
+#[test]
+fn merged_alpha_plane_follows_psd_tools_has_transparency() {
+    // (面の数, 色の面, レイヤー数, Mtrn など, Alpha Identifiers) → 透明度の面。
+    // psd-tools 1.26.1 の has_transparency / get_transparency_index と同じ。
+    assert_eq!(merged_alpha_plane(4, 3, 6, false, None), None);
+    assert_eq!(merged_alpha_plane(4, 3, -6, false, None), Some(3));
+    assert_eq!(merged_alpha_plane(4, 3, 0, false, None), Some(3));
+    assert_eq!(merged_alpha_plane(2, 1, 1, false, None), None);
+    assert_eq!(merged_alpha_plane(2, 1, 0, false, None), Some(1));
+    // 余分の面がなくても Mtrn があれば透明度ありで、最後の面を使う。
+    assert_eq!(merged_alpha_plane(3, 3, 1, true, None), Some(2));
+    assert_eq!(merged_alpha_plane(4, 3, 0, false, Some(&[5])), None);
+    assert_eq!(merged_alpha_plane(5, 3, 0, false, Some(&[7, 0])), Some(4));
+    assert_eq!(merged_alpha_plane(4, 3, 0, false, Some(&[])), Some(3));
+}
+
+#[test]
+fn remove_white_background_matches_pillow() {
+    // psd-tools 1.26.1・Pillow 13 の `_remove_white_background` で求めた値。
+    assert_eq!(remove_white_background(37, 0), 37);
+    assert_eq!(remove_white_background(255, 1), 255);
+    assert_eq!(remove_white_background(254, 1), 0);
+    assert_eq!(remove_white_background(200, 128), 145);
+    assert_eq!(remove_white_background(100, 128), 0);
+    assert_eq!(remove_white_background(180, 255), 180);
+}

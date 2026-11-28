@@ -1181,8 +1181,105 @@ pub fn read_psd(
     }))
 }
 
+/// レイヤーとマスクの情報から、合成画像の透明度の判断に要るもの（レイヤー数の符号と、
+/// 全体の追加情報に Mtrn・Mt16・Mt32 があるか）を読む。psd-tools は区画の長さが 0 なら
+/// layer_info を None にするが、どの判断でもレイヤー数 0 と同じになる。
+fn merged_layer_info(section: &[u8], psb: bool) -> (i16, bool) {
+    if section.is_empty() {
+        return (0, false);
+    }
+    let mut s = Reader::new(section);
+    let Ok(info) = s.block(psb) else {
+        return (0, false);
+    };
+    let layer_count = if info.len() >= 2 {
+        i16::from_be_bytes([info[0], info[1]])
+    } else {
+        0
+    };
+    // 全体のレイヤーマスク（次が 8BIM・8B64 でなければある）。
+    if s.remaining() >= 4 {
+        let marker = &section[s.pos..s.pos + 4];
+        if marker != b"8BIM" && marker != b"8B64" && s.skip_block().is_err() {
+            return (layer_count, false);
+        }
+    }
+    // 全体の追加情報（4 バイトに揃える）。
+    let mut transparency = false;
+    while s.remaining() >= 8 {
+        let Ok(signature) = s.take(4) else { break };
+        if signature != b"8BIM" && signature != b"8B64" {
+            break;
+        }
+        let Ok(key) = s.take(4) else { break };
+        let key: [u8; 4] = key.try_into().unwrap();
+        let long = psb && LONG_KEYS.contains(&&key);
+        let Ok(data) = s.block(long) else { break };
+        if matches!(&key, b"Mtrn" | b"Mt16" | b"Mt32") {
+            transparency = true;
+        }
+        let pad = data.len().div_ceil(4) * 4 - data.len();
+        if s.take(pad).is_err() {
+            break;
+        }
+    }
+    (layer_count, transparency)
+}
+
+/// 合成画像のどの面を透明度にするか（psd-tools 1.26.1 の `api.utils.has_transparency` と
+/// `get_transparency_index`）。透明度を持たないなら None。planes は全部の面の数、color は
+/// 色の面の数（EXPECTED_CHANNELS）、alpha_ids は画像リソース 1053（Alpha Identifiers）。
+fn merged_alpha_plane(
+    planes: usize,
+    color: usize,
+    layer_count: i16,
+    tagged: bool,
+    alpha_ids: Option<&[u32]>,
+) -> Option<usize> {
+    let alpha_ids = alpha_ids.filter(|ids| !ids.is_empty());
+    let extra = planes > color;
+    let has = if tagged || (layer_count < 0 && extra) {
+        true
+    } else if extra {
+        !(alpha_ids.is_some_and(|ids| ids.iter().all(|&id| id > 0)) || layer_count > 0)
+    } else {
+        false
+    };
+    if !has {
+        return None;
+    }
+    // 見つからなければ -1、つまり最後の面（Python の負の添字）。
+    let mut index = planes as isize - 1;
+    if layer_count < 0 && extra {
+        index = color as isize;
+    } else if let Some(offset) = alpha_ids.and_then(|ids| ids.iter().position(|&id| id == 0)) {
+        let ids = alpha_ids.map_or(0, |ids| ids.len());
+        index = planes as isize - ids as isize + offset as isize;
+        if index < 0 {
+            index += planes as isize;
+        }
+    }
+    // 範囲の外なら psd-tools は IndexError で開けない。ここでは透明度なしとして読む。
+    usize::try_from(index).ok().filter(|&i| i < planes)
+}
+
+/// 合成画像の白地を引く（psd-tools 1.26.1 の `pil_io._remove_white_background`）。
+/// Pillow の ImageMath（float32）で `(x + a - 255) * 255 / max(a, 1) * min(a, 1)
+/// + x * (1 - min(a, 1))` を求め、"L" へは 0〜255 に収めて切り捨てる（全 256×256 の組で確かめた）。
+fn remove_white_background(x: u8, a: u8) -> u8 {
+    if a == 0 {
+        return x;
+    }
+    ((x as i32 + a as i32 - 255) as f32 * 255.0 / a as f32) as u8
+}
+
 /// 保存されている全体の合成画像（Image Data。Photoshop の「互換性を優先」）を 8 ビットの
 /// ストレート RGBA で読む。無い（版の情報が合成無しと言う、8 ビットでない、壊れている）なら None。
+///
+/// psd-tools 1.26.1 の `topil()`（`convert_image_data_to_pil`）と同じく、透明度の面は
+/// `has_transparency` が真のときだけ使い、そのときは白地を引く。偽なら RGB・L のままなので
+/// RGBA にすると不透明度は 255。psd-tools 1.20 からは自分で書く合成画像の余分の面を 0 にする
+/// （1.19 は 255）ので、余分の面をいつも透明度にすると全部が透明になる。
 fn merged_image(data: &[u8], header: &Header) -> Result<Option<Vec<u8>>, PsdError> {
     if header.depth != 8 || data.len() < 26 {
         return Ok(None);
@@ -1194,6 +1291,7 @@ fn merged_image(data: &[u8], header: &Header) -> Result<Option<Vec<u8>>, PsdErro
     // 画像リソース：版の情報（0x0421）の hasRealMergedData。
     let resources = r.block(false)?;
     let mut res = Reader::new(resources);
+    let mut alpha_ids: Option<Vec<u32>> = None;
     while res.remaining() >= 12 {
         if res.take(4)? != b"8BIM" {
             break;
@@ -1207,8 +1305,22 @@ fn merged_image(data: &[u8], header: &Header) -> Result<Option<Vec<u8>>, PsdErro
         if id == 0x0421 && body.len() >= 5 && body[4] == 0 {
             return Ok(None);
         }
+        if id == 0x041D {
+            alpha_ids = Some(
+                body.chunks_exact(4)
+                    .map(|c| u32::from_be_bytes([c[0], c[1], c[2], c[3]]))
+                    .collect(),
+            );
+        }
     }
-    r.block(header.psb)?;
+    let (layer_count, tagged) = merged_layer_info(r.block(header.psb)?, header.psb);
+    let alpha_plane = merged_alpha_plane(
+        planes,
+        header.channels,
+        layer_count,
+        tagged,
+        alpha_ids.as_deref(),
+    );
     if r.remaining() < 2 || planes < header.channels {
         return Ok(None);
     }
@@ -1250,17 +1362,21 @@ fn merged_image(data: &[u8], header: &Header) -> Result<Option<Vec<u8>>, PsdErro
     };
     let mut rgba = Vec::with_capacity(plane * 4);
     for p in 0..plane {
+        let alpha = alpha_plane.map_or(255, |a| pixels[a * plane + p]);
+        let value = |channel: usize| {
+            let x = pixels[channel * plane + p];
+            if alpha_plane.is_some() {
+                remove_white_background(x, alpha)
+            } else {
+                x
+            }
+        };
         if header.channels == 3 {
-            rgba.extend_from_slice(&[pixels[p], pixels[plane + p], pixels[2 * plane + p]]);
+            rgba.extend_from_slice(&[value(0), value(1), value(2)]);
         } else {
-            rgba.extend_from_slice(&[pixels[p]; 3]);
+            rgba.extend_from_slice(&[value(0); 3]);
         }
-        let alpha_plane = header.channels;
-        rgba.push(if planes > alpha_plane {
-            pixels[alpha_plane * plane + p]
-        } else {
-            255
-        });
+        rgba.push(alpha);
     }
     Ok(Some(rgba))
 }
