@@ -28,6 +28,9 @@ rfd = "0.17"
 pma-io = { path = "../native/io" }
 # CLIP STUDIO アニメーションの読み込み（imports_clip.rs）。
 pma-clip-import = { path = "../native/clip-import" }
+# 【Group C】更新のダウンロード（updater.rs）。GitHub の公開リリースだけを HTTPS で読む。
+# TLS は純 Rust の rustls（証明書は webpki-roots）。MIT OR Apache-2.0。
+ureq = { version = "3", default-features = false, features = ["rustls"] }
 
 # 筆圧：WKWebView はペンの筆圧を JavaScript に渡さないので、NSEvent を直接読む。
 [target.'cfg(target_os = "macos")'.dependencies]
