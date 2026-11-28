@@ -61,6 +61,32 @@ dialogs.js・preferences.js・shortcuts.js・history_panel.js・i18n.js・theme.
 - 英語の表 `i18n/en.json` は `paintmaskanimator_en.ts` から作る
   （`PMA_UPDATE_I18N=1 cargo test i18n_catalogue`）。
 
+## 配布物を作る
+
+0.8.0（PyInstaller）と同じ形・同じ名前の配布物を作ります。リリースワークフロー
+（`.github/workflows/release.yml`）は、0.9.0 より前のタグなら Qt の画面を、0.9.0 からは
+この画面を組みます（`tauri-windows`・`tauri-macos` の仕事。手で動かすときは `app` を選べる）。
+
+| | 配布物 | 中身 |
+|---|---|---|
+| macOS | `PaintMaskAnimator-<版>-macOS.dmg` | Apple Silicon の `.app`。Quick Look のサムネイル拡張入り。アドホック署名で公証なし（0.8.0 と同じ。dmg に「開けないときは.txt」） |
+| Windows | `PaintMaskAnimator-Setup-<版>.exe` | Inno Setup（`packaging/installer.iss` を `/DTauriApp` で）。WebView2 が無い PC では Microsoft の bootstrapper で入れる。署名なし（0.8.0 と同じ） |
+
+- 版は `app/Cargo.toml` だけに書く（`tauri.conf.json` には書かない）。`scripts/bump_version.py` が
+  ほかの版の表記と一緒に書き換え、ワークフローは `scripts/check_version.py <版> --app` で確かめる。
+- bundle id は 0.8.0 と同じ `com.sehatakuro.paintmaskanimator`。.pman の関連付けは、macOS は
+  [`Info.plist`](Info.plist)、Windows はインストーラの登録（0.8.0 と同じ）。macOS の Finder から
+  渡された .pman は [`src/file_open.rs`](src/file_open.rs) が受ける。
+- Windows のインストーラは 0.8.0 と同じ AppId・場所・exe の名前なので、0.8.0 の上に入れると
+  更新になる（Python と Qt の `_internal` フォルダーは消す）。Tauri の NSIS にしないのはこのため。
+- MP4 の ffmpeg は 0.8.0 と同じく同梱しない（アプリの隣・`../Resources`・PATH・Homebrew を探す）。
+
+macOS で手元に組む（`CARGO_TARGET_DIR` を決めていればそこに組む。dmgbuild が要る）：
+
+```bash
+packaging/macos/build_tauri_app.sh
+```
+
 ## まだ確かめていないこと
 
 - 実機のペンタブレット（Wacom など）で、筆圧・傾き・消しゴム側が取れるか（macOS・Windows）
