@@ -26,6 +26,7 @@ from paintmaskanimator.color_chart import (
     normalize_color_chart,
     read_pmag,
 )
+from paintmaskanimator.errors import OperationError
 from paintmaskanimator.hsv_adjust_dialog import shifted_mapping
 from paintmaskanimator.main_window import MainWindow
 from paintmaskanimator.pma_image import image_rgba
@@ -331,7 +332,7 @@ def test_pmag_read_matches_python(tmp_path):
     assert _native_chart(native.color_chart_read_pmag(path.read_text(encoding="utf-8"))) == read_pmag(path)
     bad = tmp_path / "bad.pmag"
     bad.write_text(json.dumps({"format": "Other"}), encoding="utf-8")
-    with pytest.raises(Exception):
+    with pytest.raises(OperationError):
         read_pmag(bad)
     with pytest.raises(ValueError):
         native.color_chart_read_pmag(bad.read_text(encoding="utf-8"))

@@ -7,6 +7,8 @@
 
 画素の比べ方と、±1 を許す理由は tests/test_core_compose_compare.py と同じ。
 """
+# 使う fixture（canvas・qapp）を比べ合わせの元から取り込むので、引数の名前と重なる。
+# ruff: noqa: F811
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")

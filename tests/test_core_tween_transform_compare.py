@@ -163,7 +163,8 @@ def test_tween_commit_matches_python(window, monkeypatch, seed):
         mesh_rows=rows)
     assert begun is not None
     session = begun[0]
-    assert session.points() == pytest.approx(start)
+    # pytest 9.2 から approx は入れ子（点の組の並び）を受けないので、平らにして比べる。
+    assert [c for p in session.points() for c in p] == pytest.approx([c for p in start for c in p])
     assert session.set_points(final)
     session.set_quality(quality_end, lines)
     generated = session.tween_images(start, exposure, reverse)

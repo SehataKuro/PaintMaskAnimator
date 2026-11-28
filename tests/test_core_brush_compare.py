@@ -6,6 +6,7 @@
 import math
 import os
 import random
+import sys
 
 import numpy as np
 import pytest
@@ -202,7 +203,15 @@ def test_stabilizer_matches_python(strength, zoom):
     rng = random.Random(strength * 31 + int(zoom * 4))
     for pen in (False, True):
         events = _random_events(rng, pen, 40)
-        assert pma_native.stabilizer_segments(strength, zoom, events) == _python_stabilizer(strength, zoom, events)
+        got = pma_native.stabilizer_segments(strength, zoom, events)
+        want = _python_stabilizer(strength, zoom, events)
+        if sys.version_info >= (3, 12):
+            assert got == want
+        else:
+            # 手ぶれ補正は重みつきの平均を sum() で取る。Python 3.12 から sum() は浮動小数を
+            # 誤差を補って足すようになり、Rust はそれに合わせてある。3.11 では最後の桁がずれる。
+            assert len(got) == len(want)
+            assert [c for s in got for c in s] == pytest.approx([c for s in want for c in s], rel=1e-12, abs=1e-12)
 
 
 # --- ストローク全体 ----------------------------------------------------------
