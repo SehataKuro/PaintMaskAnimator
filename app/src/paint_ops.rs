@@ -51,11 +51,11 @@ const WHITE: Rgb = [255, 255, 255];
 pub struct PaintState {
     drag: Option<Drag>,
     skewer: Option<Box<SkewerFill>>,
-    /// HOOK(used_colors)：使用色パネルで選んでいる色（ゴミ取りの「選択色を対象」・線整え・
-    /// MainLineRepaint が使う）。使用色パネルが `paint_set_used_colors` で渡す。
+    /// 使用色パネルで選んでいる色（ゴミ取りの「選択色を対象」・線整え・MainLineRepaint が
+    /// 使う）。colors.rs の sync が使用色パネルの選択から写す。
     pub used_selection: Vec<Rgb>,
-    /// HOOK(used_colors)：使用色パネルに登録した置換色（元, 置換色）。バケツの
-    /// 「置換色を塗り替え」が使う。
+    /// 使用色パネルに登録した置換色（元, 置換色）。バケツの「置換色を塗り替え」が使う。
+    /// colors.rs の sync が写す。
     pub replacements: Vec<Replacement>,
     /// 一覧に出している見つかったもの（行を選ぶとその場所へ移る）。
     findings: Vec<(usize, usize, Finding)>,
@@ -1508,18 +1508,6 @@ pub fn paint_dust_apply(
     })?;
     status(&app, feedback.message.as_deref());
     Ok(())
-}
-
-/// HOOK(used_colors)：使用色パネルが、選んでいる色と登録した置換色を渡す。
-#[tauri::command]
-pub fn paint_set_used_colors(
-    session: State<Shared>,
-    selected: Vec<Rgb>,
-    replacements: Vec<(Rgb, Rgb)>,
-) {
-    let mut s = session.lock().unwrap();
-    s.tools.paint.used_selection = selected;
-    s.tools.paint.replacements = replacements;
 }
 
 /// 自動塗りの設定画面の中身。塗れるセルが2つ未満なら Err の知らせ。

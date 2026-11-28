@@ -29,8 +29,12 @@ mod timeline;
 // ツール・ツールプロパティ・アクションのパネル（tools.rs）。
 mod tools;
 // 選択範囲の変形（transform.rs）。
+mod line_thickness; // 【Group C】使用色の「線の太さを調整」。
+mod subview;
 mod transform;
-// 【オニオン：onion.rs】
+mod updater; // 【Group C】更新のダウンロードとインストーラの起動。
+mod workspace; // 【Group C】Qt 版のワークスペースの配置を戻す。 // 【Group C】サブビュー。
+               // 【オニオン：onion.rs】
 mod onion;
 // 【タイムリマップの貼り付け：time_remap.rs】
 mod time_remap;
@@ -419,7 +423,6 @@ fn main() {
             // ツール（tools.rs）。
             tools::tools_state,
             tools::tools_set,
-            tools::tools_set_mask_colors,
             tools::tools_pressure_curve,
             tools::tool_lasso_fill,
             tools::tool_shape,
@@ -441,6 +444,19 @@ fn main() {
             onion::onion_interaction,
             onion::onion_drag,
             onion::onion_set_rotation,
+            onion::onion_center,                   // 【Group C】
+            line_thickness::line_thickness_begin,  // 【Group C】
+            line_thickness::line_thickness_finish, // 【Group C】
+            workspace::workspace_from_qt,          // 【Group C】
+            workspace::workspace_set_window,       // 【Group C】
+            updater::update_download,              // 【Group C】
+            updater::update_cancel,                // 【Group C】
+            updater::update_launch,                // 【Group C】
+            subview::subview_open,                 // 【Group C】
+            subview::subview_pick,                 // 【Group C】
+            subview::subview_image,                // 【Group C】
+            subview::subview_state_get,            // 【Group C】
+            subview::subview_state_set,            // 【Group C】
             onion::onion_pick,
             tools::tool_dust_apply,
             tools::tool_eyedropper,
@@ -457,7 +473,6 @@ fn main() {
             paint_ops::paint_skewer_guide,
             paint_ops::paint_replace_color,
             paint_ops::paint_dust_apply,
-            paint_ops::paint_set_used_colors,
             paint_ops::paint_auto_dialog,
             paint_ops::paint_cell_thumbnail,
             paint_ops::paint_auto_run,
