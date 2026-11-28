@@ -1387,6 +1387,18 @@ pub fn paste_image(s: &mut Session, clip: &RgbaImage) -> Result<Option<Rect>, St
     write_active(s, frame, layer, edit.rect, pixels)
 }
 
+/// 画像（ストレートの RGBA）を OS のクリップボードへ載せる。コピー・切り取りと
+/// 「今の絵をクリップボードへ書き出す」（view.rs）が同じ道を使う。
+pub(crate) fn set_clipboard_image(width: usize, height: usize, rgba: &[u8]) -> Result<(), String> {
+    clipboard()?
+        .set_image(arboard::ImageData {
+            width,
+            height,
+            bytes: std::borrow::Cow::Borrowed(rgba),
+        })
+        .map_err(|e| format!("クリップボードへ書けませんでした：{e}"))
+}
+
 fn clipboard() -> Result<arboard::Clipboard, String> {
     arboard::Clipboard::new().map_err(|e| format!("クリップボードを使えません：{e}"))
 }
@@ -1400,13 +1412,7 @@ pub fn edit_clipboard(app: tauri::AppHandle, kind: String) -> Result<Response, S
             let Some(clip) = selection_clip(s)? else {
                 return Ok(rect_response(s, None));
             };
-            clipboard()?
-                .set_image(arboard::ImageData {
-                    width: clip.width(),
-                    height: clip.height(),
-                    bytes: std::borrow::Cow::Borrowed(clip.rgba()),
-                })
-                .map_err(|e| format!("クリップボードへ書けませんでした：{e}"))?;
+            set_clipboard_image(clip.width(), clip.height(), clip.rgba())?;
             let rect = if kind == "cut" {
                 cut_after_copy(s)?
             } else {

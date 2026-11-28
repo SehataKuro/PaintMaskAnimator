@@ -58,8 +58,7 @@ async function initialState(kind) {
     outcome = await invoke("edit_initial_state", { kind, confirmed: true });
   }
   if (outcome.message) notify(outcome.message);
-  // Qt は消したあと「初期状態と見比べる」を外す（表示の側が受ける）。
-  if (outcome.cleared) window.dispatchEvent(new CustomEvent("pma-initial-state-cleared"));
+  // Qt は消したあと「初期状態と見比べる」を外す。canvas_view.js が document-changed で外す。
 }
 
 /// 線整えの窓（tidy_lines_dialog）。

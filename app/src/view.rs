@@ -23,7 +23,6 @@ use pma_core::image::{Rect, RgbaImage};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use tauri::ipc::Response;
 use tauri::{Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
@@ -589,61 +588,25 @@ pub async fn view_save_snapshot(
     })
 }
 
-/// 今の絵をクリップボードへ（`copy_canvas_to_clipboard`）。PNG を一時ファイルに書き、
-/// OS の道具（macOS は osascript、Windows は PowerShell、ほかは xclip）で画像として載せる。
+/// 今の絵をクリップボードへ（`copy_canvas_to_clipboard`：白地の合成を画像として載せる）。
+/// 【Group B】切り取り・コピーと同じクリップボードの道（tools.rs の `set_clipboard_image`）。
 #[tauri::command]
 pub async fn view_copy_canvas(app: tauri::AppHandle) -> Result<(), String> {
-    let png = canvas_png(&app)?;
-    let path = std::env::temp_dir().join(format!("pma-canvas-{}.png", std::process::id()));
-    std::fs::write(&path, png).map_err(|e| e.to_string())?;
-    let result = copy_png_file(&path);
-    let _ = std::fs::remove_file(&path);
-    result
-}
-
-fn copy_png_file(path: &Path) -> Result<(), String> {
-    let file = path.display().to_string();
-    let mut command = if cfg!(target_os = "macos") {
-        let mut c = Command::new("osascript");
-        c.args([
-            "-e",
-            &format!(
-                "set the clipboard to (read (POSIX file \"{}\") as «class PNGf»)",
-                file.replace('\\', "\\\\").replace('"', "\\\"")
-            ),
-        ]);
-        c
-    } else if cfg!(target_os = "windows") {
-        let mut c = Command::new("powershell");
-        c.args([
-            "-NoProfile",
-            "-STA",
-            "-Command",
-            &format!(
-                "Add-Type -AssemblyName System.Windows.Forms,System.Drawing; \
-                 $i=[System.Drawing.Image]::FromFile('{}'); \
-                 [System.Windows.Forms.Clipboard]::SetImage($i); $i.Dispose()",
-                file.replace('\'', "''")
-            ),
-        ]);
-        c
-    } else {
-        let mut c = Command::new("xclip");
-        c.args(["-selection", "clipboard", "-t", "image/png", "-i", &file]);
-        c
+    let (document, frame, options) = {
+        let state = app.state::<Shared>();
+        let s = state.lock().unwrap();
+        let project = s.project.as_ref().ok_or("作品を開いていません")?;
+        let (frame, _) = current_index(&project.document);
+        (
+            project.document.clone(),
+            frame,
+            s.view.display_options(&s.colors.display),
+        )
     };
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        command.creation_flags(CREATE_NO_WINDOW);
-    }
-    let status = command.status().map_err(|e| e.to_string())?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err("クリップボードへ書けませんでした".into())
-    }
+    let image = compose::composite(&document, frame, &options, Background::White)
+        .map_err(|e| e.to_string())?;
+    let rgba = pma_core::export::thumbnail::qt_unpremultiply(&image);
+    crate::tools::set_clipboard_image(image.width(), image.height(), &rgba)
 }
 
 #[cfg(test)]
