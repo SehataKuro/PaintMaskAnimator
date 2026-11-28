@@ -7,6 +7,7 @@
 //! タイムシートの外のセルを数える。ここは列のバンクの絵（番号）を1つずつ数える。
 
 use super::model::{CellNumber, Document};
+use crate::import::clip::{cell_sequence_numbers, ClipAnimation};
 use crate::{image::RgbaImage, Error};
 
 /// 初期状態を合わせる相手（レイヤー・番号）。
@@ -67,6 +68,68 @@ impl Document {
         }
         Ok(count)
     }
+
+    /// CLIP のアニメーションのセルを、アニメーションフォルダー名（前後の空白を除き、大文字と
+    /// 小文字を区別しない）とセルの絵番号で今の絵に合わせる（`_import_line_art` の
+    /// from_clip）。失敗は Qt の文言。
+    pub fn match_clip_line_art(&self, animation: &ClipAnimation) -> Result<LineArtMatch, String> {
+        use crate::export::py;
+        // (フォルダー名, [(番号, 「フォルダー/セル」, 絵)])
+        type Cels<'a> = Vec<(String, Vec<(i64, String, &'a RgbaImage)>)>;
+        let mut cels: Cels = Vec::new();
+        for layer in &animation.layers {
+            let key = py::casefold(py::strip(&layer.name));
+            if cels.iter().any(|(k, _)| *k == key) {
+                return Err(format!(
+                    "CLIP内のアニメーションフォルダー名が重複しています：{}",
+                    layer.name
+                ));
+            }
+            let numbers = cell_sequence_numbers(layer.cels.iter().map(|(t, _)| t.as_str()))
+                .map_err(|e| e.0)?;
+            let entries = layer
+                .cels
+                .iter()
+                .zip(numbers)
+                .map(|((tag, image), number)| (number, format!("{}/{tag}", layer.name), image))
+                .collect();
+            cels.push((key, entries));
+        }
+        let (width, height) = self.size();
+        let mut images = Vec::new();
+        let mut missing = 0;
+        for target in self.initial_targets() {
+            let key = py::casefold(py::strip(&target.name));
+            let source = cels
+                .iter()
+                .find(|(k, _)| *k == key)
+                .and_then(|(_, entries)| {
+                    entries.iter().find(|(n, _, _)| *n == target.number.get())
+                });
+            let Some((_, name, image)) = source else {
+                missing += 1;
+                continue;
+            };
+            if (image.width(), image.height()) != (width, height) {
+                return Err(format!(
+                    "線画のサイズが現在のセルと一致しません：{name}\n線画：{} × {}px／現在のセル：{width} × {height}px",
+                    image.width(),
+                    image.height()
+                ));
+            }
+            images.push((target.layer, target.number, (*image).clone()));
+        }
+        Ok(LineArtMatch { images, missing })
+    }
+}
+
+/// 合わせた線画（Undo の前に全部読んで確かめる）。
+#[derive(Clone, Debug)]
+pub struct LineArtMatch {
+    /// (レイヤー, 番号, 絵)
+    pub images: Vec<(usize, CellNumber, RgbaImage)>,
+    /// 対応する線画がなかった絵の数。
+    pub missing: usize,
 }
 
 #[cfg(test)]

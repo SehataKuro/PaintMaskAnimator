@@ -9,5 +9,7 @@ publish = false
 # clipfile と rusqlite は C の SQLite を含むので pma-core には入れず、ここに置く。
 # Python の窓口（native/）と Tauri の画面（app/）の両方から使う。
 [dependencies]
+# 合成と読み込みの手順は pma-core（import::clip）。ここはファイルを開いて値を渡す。
+pma-core = { path = "../core" }
 clipfile = { version = "1.2", path = "../vendor/clipfile", features = ["raster", "animation"] }
 rusqlite = { version = "0.39.0", default-features = false }

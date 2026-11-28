@@ -45,6 +45,8 @@ pub mod position_commands;
 
 mod v2_order;
 
+/// 読み込んだアニメーション（CLIP STUDIO）で新しい文書を作る。
+pub mod animation_commands;
 /// 読み込んだ絵を新しい列として入れる操作。
 pub mod import_commands;
 pub mod initial_state;
