@@ -39,6 +39,17 @@ footer {
   height: 100%;
   overflow: hidden;
 }
+/* 【キャンバスの見え方】キャンバスと下のバー（canvas_view.js）。 */
+.canvas-dock {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.canvas-dock > .canvas-panel {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+}
 .canvas-panel canvas {
   position: absolute;
   inset: 0;
@@ -47,13 +58,50 @@ footer {
   touch-action: none;
   cursor: crosshair;
 }
-.canvas-panel .view-buttons {
-  position: absolute;
-  right: 8px;
-  top: 8px;
+.cv-bar {
+  flex: none;
   display: flex;
+  align-items: center;
   gap: 4px;
+  padding: 2px 8px;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--window, #22252b);
+  color: var(--text, #e6e9ee);
+  font-size: 12px;
+  user-select: none;
 }
+.cv-bar .cv-title { color: var(--text, #e6e9ee); white-space: nowrap; }
+.cv-bar .cv-value { min-width: 38px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cv-bar .cv-slider { width: 72px; flex: none; }
+.cv-bar .cv-stretch { flex: 1; }
+.cv-bar .cv-sep { width: 1px; height: 16px; background: var(--border, #3c424c); margin: 0 2px; flex: none; }
+.cv-bar .cv-icon {
+  flex: none;
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--text, #e6e9ee);
+}
+.cv-bar .cv-icon svg { width: 16px; height: 16px; }
+.cv-bar .cv-icon:hover { background: var(--hover, #3a404a); }
+.cv-bar .cv-icon.checked { background: var(--selection, #33507f); border-color: var(--accent, #4d8bff); }
+.cv-bar .cv-channel { width: 30px; }
+.cv-bar .cv-exposure-link {
+  color: var(--accent, #4d8bff);
+  text-decoration: underline;
+  padding: 2px 3px;
+  cursor: ew-resize;
+  font-variant-numeric: tabular-nums;
+}
+.cv-bar .cv-exposure-input { width: 62px; }
+.cv-channel-item { display: inline-flex; align-items: center; gap: 4px; }
 button {
   background: #333;
   color: #ddd;

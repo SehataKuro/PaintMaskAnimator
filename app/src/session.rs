@@ -67,6 +67,8 @@ pub struct Session {
     pub tools: crate::tools::ToolState,
     /// 履歴の上限（環境設定。作品を開き直しても使う）。【アプリの外枠：shell.rs】
     history_limits: pma_core::document::history::HistoryLimits,
+    /// 【キャンバスの見え方：view.rs】シルエット・表示プレビュー・初期状態との比較・市松模様。
+    pub view: crate::view::ViewState,
 }
 
 /// 合成した表示の控え。コマの番号で引き、同じ絵の重なりのコマは画素を共有する。
@@ -219,6 +221,7 @@ impl Session {
             colors: ColorUi::default(),
             tools: crate::tools::ToolState::default(),
             history_limits: crate::history::LIMITS,
+            view: crate::view::ViewState::default(), // 【キャンバスの見え方：view.rs】
         }
     }
 
@@ -576,6 +579,8 @@ impl Session {
             return crate::onion::apply(self, None);
         }
         // 同じ絵の重なり（保持のコマなど）は、合成し直さない。
+        // 【キャンバスの見え方：view.rs】初期状態を見せるときは初期画像も見るので、重なりで引かない。
+        let shared = !self.view.show_initial_state;
         let key: Vec<Option<u64>> = compose::frame_layers(doc, frame)
             .map_err(|e| e.to_string())?
             .iter()
@@ -586,16 +591,20 @@ impl Session {
                     .map(RgbaImage::generation)
             })
             .collect();
-        let image = match self.cache.by_key.get(&key) {
+        let image = match self.cache.by_key.get(&key).filter(|_| shared) {
             Some(image) => image.clone(),
             None => {
                 // 使用色パネル（colors.rs）の表示の絞り込み・置換プレビューと背景の表示色。
-                let (options, background) = (
+                // 【キャンバスの見え方：view.rs】シルエット・表示プレビュー・初期状態・市松模様。
+                let image = crate::view::compose_display(
+                    doc,
+                    frame,
                     &self.colors.display,
-                    crate::colors::canvas_background(&self.tools.settings),
-                );
-                let image = compose::composite(doc, frame, options, background)
-                    .map_err(|e| e.to_string())?;
+                    &mut self.view,
+                    &self.tools.settings,
+                    None,
+                )
+                .map_err(|e| e.to_string())?;
                 let (w, h) = (image.width(), image.height());
                 RgbaImage::from_rgba(w, h, &image.to_straight_bytes()).map_err(|e| e.to_string())?
             }
@@ -757,9 +766,16 @@ impl Session {
         let (frame_id, _) = doc.selection();
         let frame = doc.frame_index(frame_id).unwrap_or(0);
         // 使用色パネル（colors.rs）の表示の絞り込み・置換プレビューと背景の表示色。
-        let background = crate::colors::canvas_background(&self.tools.settings);
-        let image = compose::composite_rect(doc, frame, &self.colors.display, background, rect)
-            .map_err(|e| e.to_string())?;
+        // 【キャンバスの見え方：view.rs】シルエット・表示プレビュー・初期状態・市松模様。
+        let image = crate::view::compose_display(
+            doc,
+            frame,
+            &self.colors.display,
+            &mut self.view,
+            &self.tools.settings,
+            Some(rect),
+        )
+        .map_err(|e| e.to_string())?;
         self.display
             .write_rgba(rect, &image.to_straight_bytes())
             .map_err(|e| e.to_string())?;

@@ -291,6 +291,7 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(compose::compose_layer, module)?)?;
     module.add_function(wrap_pyfunction!(compose::compose_view_layers, module)?)?;
     module.add_function(wrap_pyfunction!(compose::compose_view, module)?)?;
+    module.add_function(wrap_pyfunction!(compose::compose_view_background, module)?)?;
     module.add_function(wrap_pyfunction!(compose::compose_display, module)?)?;
     module.add_function(wrap_pyfunction!(compose::compose_onion_draws, module)?)?;
     module.add_function(wrap_pyfunction!(compose::compose_tinted_onion, module)?)?;
