@@ -14,6 +14,9 @@ import numpy as np
 import pytest
 
 psd_tools = pytest.importorskip("psd_tools")
+# 基準は配布した 0.8.0 の psd-tools（pyproject の dev で固定）。Python 3.10 には入らない。
+if psd_tools.__version__ != "1.26.1":
+    pytest.skip(f"psd-tools {psd_tools.__version__} は 0.8.0 の 1.26.1 と合成が違う", allow_module_level=True)
 from PIL import Image  # noqa: E402
 from psd_tools import PSDImage  # noqa: E402
 from psd_tools.api.layers import Group, PixelLayer  # noqa: E402

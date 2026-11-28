@@ -28,6 +28,11 @@ from paintmaskanimator.document_live import _live_of  # noqa: E402
 from paintmaskanimator.main_window import MainWindow  # noqa: E402
 
 psd_tools = pytest.importorskip("psd_tools")
+# PSD のバイト列の基準は配布した 0.8.0 の psd-tools（pyproject の dev で固定）。Python 3.10 には入らない。
+same_psd_tools = pytest.mark.skipif(
+    psd_tools.__version__ != "1.26.1",
+    reason=f"psd-tools {psd_tools.__version__} は 0.8.0 の 1.26.1 と書き出すバイト列が違う",
+)
 
 
 @pytest.fixture(scope="module")
@@ -110,6 +115,7 @@ def _qt_psd(window, monkeypatch, tmp_path):
     return path
 
 
+@same_psd_tools
 def test_psd_matches_psd_tools(window, monkeypatch, tmp_path, messages):
     _build(window)
     path = _qt_psd(window, monkeypatch, tmp_path)
@@ -123,6 +129,7 @@ def test_psd_matches_psd_tools(window, monkeypatch, tmp_path, messages):
     assert first is None and len(data) == len(expected), (first, len(data), len(expected))
 
 
+@same_psd_tools
 def test_psd_hidden_layer_and_opacity_variants(window, monkeypatch, tmp_path):
     _build(window)
     window.canvas.frames[0].layers[0].visible = False
