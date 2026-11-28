@@ -17,6 +17,8 @@ pub mod sheet;
 pub mod tga;
 pub mod thumbnail;
 pub mod time_remap;
+/// タイムリマップの貼り付け（After Effects・東映・XDTS の読み込みと紐づけ）。
+pub mod time_remap_paste;
 pub mod timesheet;
 
 use crate::compose::{self, Background, DisplayOptions};

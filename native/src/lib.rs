@@ -43,6 +43,7 @@ mod reference_check;
 mod reference_scan;
 mod selection;
 mod tiled_color;
+mod time_remap;
 mod timeline;
 mod tone_curve;
 mod transform;
@@ -221,6 +222,7 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     selection::register(module)?;
     used_colors::register(module)?;
     transform::register(module)?;
+    time_remap::register(module)?;
     onion::register(module)?;
     module.add_function(wrap_pyfunction!(project_payload::decode_v2_plan, module)?)?;
     module.add_function(wrap_pyfunction!(project_archive::_open_project, module)?)?;

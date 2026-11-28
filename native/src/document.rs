@@ -79,6 +79,11 @@ impl PyCoreDocument {
     pub(crate) fn inner(&self) -> &Document {
         &self.0
     }
+
+    /// 文書を書き換える窓口（time_remap.rs の比較用）。
+    pub(crate) fn inner_mut(&mut self) -> &mut Document {
+        &mut self.0
+    }
 }
 
 #[pymethods]
