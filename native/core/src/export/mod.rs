@@ -6,7 +6,7 @@
 //!
 //! 一致の程度：タイムシート（XDTS・TDTS）・TS.csv・メモ・TGA は Python とバイト単位で
 //! 同じ。PNG は画素が同じで、圧縮（Qt は libpng/zlib）が違うのでバイト列は一致しない。
-//! PSD は psd-tools 1.19.0 とバイト単位で同じ（MacRoman で書けるレイヤー名のとき）。
+//! PSD は psd-tools 1.26.1（0.8.0 に組み込んだ版）とバイト単位で同じ（MacRoman で書けるレイヤー名のとき）。
 
 pub mod cut_folder;
 pub mod movie;

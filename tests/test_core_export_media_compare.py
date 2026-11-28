@@ -1,6 +1,6 @@
 """Compare pma-core's PSD and MP4 frames (pma_core::export::psd・movie) with the Python app.
 
-PSD は psd-tools（1.19.0）で書いた Qt 版とバイト単位で同じになる（レイヤー名が MacRoman で
+PSD は psd-tools（1.26.1。0.8.0 に組み込んだ版）で書いた Qt 版とバイト単位で同じになる（レイヤー名が MacRoman で
 書けるとき。書けない名前では Qt 版は失敗し、Rust 版は `?` と Unicode の名前で書く）。
 
 MP4 は符号化（ffmpeg）の前の絵の列を比べる。コマの絵は画素が同じ。頭のカット名は、Qt が

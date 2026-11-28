@@ -221,3 +221,25 @@ def test_subview_composite_grayscale():
     psd = PSDImage.new("LA", (W, H))
     psd.append(PixelLayer.frompil(_gradient(74, 8, 8, "LA"), psd, "gray", top=1, left=2))
     _assert_same_composite(_save(psd))
+
+
+@pytest.mark.parametrize("mode", ["RGBA", "LA"])
+def test_subview_composite_merged_transparency(mode):
+    """レイヤーのない文書（``has_transparency`` が真）は合成画像の余分の面を透明度にして、
+    白地を引く（``_remove_white_background``。LA はグレースケールのとき）。"""
+    _assert_same_composite(_save(PSDImage.frompil(_gradient(75, W, H, mode))))
+
+
+def test_subview_composite_negative_layer_count():
+    """レイヤー数が負なら、レイヤーがあっても余分の面が透明度（psd-tools の ``has_transparency``）。"""
+    psd = PSDImage.new("RGBA", (W, H))
+    image = _gradient(76, W, H)
+    psd.append(PixelLayer.frompil(image, psd, "a"))
+    psd = PSDImage.open(io.BytesIO(_save(psd)))
+    psd._record.image_data.set_data([band.tobytes() for band in image.split()], psd._record.header)
+    info = psd._record.layer_and_mask_information.layer_info
+    info.layer_count = -abs(info.layer_count)
+    buffer = io.BytesIO()
+    psd._record.write(buffer)
+    assert psd_tools.api.utils.has_transparency(PSDImage.open(io.BytesIO(buffer.getvalue())))
+    _assert_same_composite(buffer.getvalue())
