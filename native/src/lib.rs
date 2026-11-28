@@ -203,6 +203,7 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(clip::clip_read_animation, module)?)?;
     module.add_function(wrap_pyfunction!(clip::clip_animation_document, module)?)?;
     module.add_function(wrap_pyfunction!(clip::clip_line_art, module)?)?;
+    module.add_function(wrap_pyfunction!(clip::cut_folder_document, module)?)?;
     module.add_class::<image::PyRgbaImage>()?;
     module.add_class::<brush::PyBrushStroke>()?;
     module.add_function(wrap_pyfunction!(brush::brush_segment_mask, module)?)?;
