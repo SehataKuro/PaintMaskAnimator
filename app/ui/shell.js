@@ -503,5 +503,11 @@ export async function initShell({ invoke, listen, hooks, startup }) {
     })();
   }
 
-  return { run, openPath, openDropped, refreshTitle };
+  // 【キャンバスの見え方】canvas_view.js がチェックの付く項目（a_silhouette・a_preview_map）を合わせる。
+  function setChecked(id, on) {
+    if (checked[id] === Boolean(on)) return;
+    checked[id] = Boolean(on);
+    sendMenuState();
+  }
+  return { run, openPath, openDropped, refreshTitle, setChecked };
 }

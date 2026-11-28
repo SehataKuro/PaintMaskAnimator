@@ -148,17 +148,30 @@ pub const ACTIONS: &[Action] = &[
     a("a_preferences", "環境設定…", &["Ctrl+,"])
         .tab(FileEdit, "環境設定")
         .wired(),
+    // 【キャンバスの見え方】canvas_view.js が pma-action で受ける（ここから a_channel_alpha まで）。
     a("a_silhouette", "背景以外を黒シルエット表示", &["Ctrl+B"])
         .tab(FileEdit, "背景以外を黒シルエット表示")
-        .checkable(),
+        .checkable()
+        .wired(),
     a("a_preview_map", "隣接色分けで表示", &[])
         .tab(FileEdit, "隣接色分けで表示")
-        .checkable(),
-    a("a_exposure_toggle", "露光量の調整を切り替え", &[]).tab(FileEdit, "露光量の調整を切り替え"),
-    a("a_channel_red", "赤チャンネルを表示", &[]).tab(FileEdit, "赤チャンネルを表示"),
-    a("a_channel_green", "緑チャンネルを表示", &[]).tab(FileEdit, "緑チャンネルを表示"),
-    a("a_channel_blue", "青チャンネルを表示", &[]).tab(FileEdit, "青チャンネルを表示"),
-    a("a_channel_alpha", "アルファチャンネルを表示", &[]).tab(FileEdit, "アルファチャンネルを表示"),
+        .checkable()
+        .wired(),
+    a("a_exposure_toggle", "露光量の調整を切り替え", &[])
+        .tab(FileEdit, "露光量の調整を切り替え")
+        .wired(),
+    a("a_channel_red", "赤チャンネルを表示", &[])
+        .tab(FileEdit, "赤チャンネルを表示")
+        .wired(),
+    a("a_channel_green", "緑チャンネルを表示", &[])
+        .tab(FileEdit, "緑チャンネルを表示")
+        .wired(),
+    a("a_channel_blue", "青チャンネルを表示", &[])
+        .tab(FileEdit, "青チャンネルを表示")
+        .wired(),
+    a("a_channel_alpha", "アルファチャンネルを表示", &[])
+        .tab(FileEdit, "アルファチャンネルを表示")
+        .wired(),
     a("a_isolate_color", "選択色だけ表示", &[]).tab(FileEdit, "選択色だけ表示"),
     a("a_clear_color_filter", "特定色表示を解除", &[]).tab(FileEdit, "特定色表示を解除"),
     a("a_remove_dust", "ゴミ取り／塗り抜け…", &[]).tab(FileEdit, "ゴミ取り"),
