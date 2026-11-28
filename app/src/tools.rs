@@ -13,10 +13,10 @@
 //!   （HOOK と書いた関数）だけを置く。
 
 use crate::session::{pack_rect, Session, Shared, StrokeTool};
+use pma_core::brush::line_tool::{self, LineOptions, ShapeKind};
 use pma_core::brush::pressure::{pressure_bezier_at, PressureSettings};
-use pma_core::brush::raster::fill_path;
-use pma_core::brush::shapes::{ellipse_path, fill_polygon, stroke_path};
-use pma_core::brush::{self, BrushSettings, FillRule, MaskColorFilter, Path, PathElement};
+use pma_core::brush::shapes::{fill_polygon, stroke_path};
+use pma_core::brush::{self, BrushSettings, FillRule, MaskColorFilter, Path};
 use pma_core::compose::{self, Background, DisplayOptions};
 use pma_core::document::model::Document;
 use pma_core::fill::islands::enclosed_by;
@@ -428,6 +428,10 @@ pub struct ToolState {
     pub config: Option<PathBuf>,
     /// 塗りの途中の状態（なぞり塗り・串刺し塗り・使用色の選択。paint_ops.rs）。
     pub paint: crate::paint_ops::PaintState,
+    /// 選択範囲の変形の途中（transform.rs）。
+    pub transform: Option<crate::transform::ActiveTransform>,
+    /// オニオンスキンの設定と合わせる操作（onion.rs）。
+    pub onion: crate::onion::OnionUi,
 }
 
 /// 画面へ渡す選択範囲。
@@ -450,6 +454,8 @@ pub struct View {
     /// 「選択範囲を解除」を押せるか（ツールに関係なく、選択があれば真。issue #110）。
     pub can_clear_selection: bool,
     pub pen_pressure: Pressure,
+    /// 選択範囲の変形の途中なら、その形（transform.rs）。
+    pub transform: Option<crate::transform::TransformView>,
 }
 
 impl ToolState {
@@ -479,6 +485,7 @@ impl ToolState {
             selection,
             can_clear_selection: self.selection.can_clear(),
             pen_pressure: self.settings.effective_pressure(),
+            transform: self.transform.as_ref().map(|t| t.view()),
         }
     }
 
@@ -774,42 +781,6 @@ impl Bits {
     }
 }
 
-/// 経路を、曲線を細かい直線にした経路にする（Qt の `QBezier::shifted` がまだ無いので、
-/// 曲線の線は折れ線で近づける。画素は Qt と完全には一致しない）。
-fn flattened(path: &Path) -> Path {
-    let mut out = Path::new();
-    let mut last = brush::Point::new(0.0, 0.0);
-    for element in path.elements() {
-        match *element {
-            PathElement::MoveTo(p) => {
-                out.move_to(p);
-                last = p;
-            }
-            PathElement::LineTo(p) => {
-                out.line_to(p);
-                last = p;
-            }
-            PathElement::CubicTo(c1, c2, end) => {
-                let length = (c1.x - last.x).hypot(c1.y - last.y)
-                    + (c2.x - c1.x).hypot(c2.y - c1.y)
-                    + (end.x - c2.x).hypot(end.y - c2.y);
-                let steps = (length / 2.0).ceil().clamp(4.0, 256.0) as usize;
-                for i in 1..=steps {
-                    let t = i as f64 / steps as f64;
-                    let u = 1.0 - t;
-                    let (a, b, c, d) = (u * u * u, 3.0 * u * u * t, 3.0 * u * t * t, t * t * t);
-                    out.line_to(brush::Point::new(
-                        a * last.x + b * c1.x + c * c2.x + d * end.x,
-                        a * last.y + b * c1.y + c * c2.y + d * end.y,
-                    ));
-                }
-                last = end;
-            }
-        }
-    }
-    out
-}
-
 /// `QPainter::drawPath`（丸い端・丸い角、幅 `pen` のペン）の画素を `out` に重ねる。
 /// 経路の周りだけの小さな面で計算し、整数ずらして重ねる（画素は同じ）。
 fn stroke_into(out: &mut Bits, path: &Path, pen: f64) {
@@ -867,10 +838,6 @@ pub fn tidy_region(
     }
     stroke_into(&mut out, &path, brush_width.max(1.0));
     out.bits
-}
-
-fn fill_into(out: &mut Bits, path: &Path) {
-    out.or_mask(&fill_path(path, FillRule::OddEven, out.width, out.height));
 }
 
 /// 選択範囲のクリップ（`apply_selection_clip`）。選択が無ければ None。
@@ -1189,101 +1156,121 @@ pub fn lasso_fill(s: &mut Session, points: &[[f64; 2]]) -> Result<Option<Rect>, 
     )
 }
 
-/// 図形ツールのドラッグの範囲（`_shape_rect`）。比率固定なら正方形にする。
-fn shape_rect(settings: &Settings, start: [f64; 2], end: [f64; 2]) -> (f64, f64, f64, f64) {
-    let mut end = end;
-    if settings.shape_lock_ratio {
-        let (dx, dy) = (end[0] - start[0], end[1] - start[1]);
-        let size = dx.abs().max(dy.abs());
-        end = [
-            start[0] + if dx >= 0.0 { size } else { -size },
-            start[1] + if dy >= 0.0 { size } else { -size },
-        ];
-    }
-    let (x0, x1) = (start[0].min(end[0]), start[0].max(end[0]));
-    let (y0, y1) = (start[1].min(end[1]), start[1].max(end[1]));
-    (x0, y0, x1 - x0, y1 - y0)
-}
-
-/// 図形の経路（`_shape_path`）。範囲が空なら None。
-pub fn shape_path(settings: &Settings, start: [f64; 2], end: [f64; 2]) -> Option<Path> {
-    let (x, y, w, h) = shape_rect(settings, start, end);
-    if w <= 0.0 || h <= 0.0 {
-        return None;
-    }
+/// 図形の種類（設定の `shape_type`・`shape_corners`）。
+fn shape_kind(settings: &Settings) -> ShapeKind {
     if settings.shape_type == "ellipse" {
-        return Some(ellipse_path((x, y, w, h)));
-    }
-    let corners = settings.shape_corners.max(3) as usize;
-    let points: Vec<brush::Point> = if corners == 4 {
-        // 4角はひし形ではなく、ドラッグ範囲に沿う長方形にする。QRectF の right は x + w。
-        vec![
-            brush::Point::new(x, y),
-            brush::Point::new(x + w, y),
-            brush::Point::new(x + w, y + h),
-            brush::Point::new(x, y + h),
-        ]
+        ShapeKind::Ellipse
     } else {
-        let (cx, cy) = (x + w / 2.0, y + h / 2.0);
-        (0..corners)
-            .map(|i| {
-                let a = -std::f64::consts::FRAC_PI_2
-                    + 2.0 * std::f64::consts::PI * i as f64 / corners as f64;
-                brush::Point::new(cx + a.cos() * w / 2.0, cy + a.sin() * h / 2.0)
-            })
-            .collect()
-    };
-    let mut path = Path::new();
-    path.move_to(points[0]);
-    for p in &points[1..] {
-        path.line_to(*p);
+        ShapeKind::Polygon(settings.shape_corners.max(3) as usize)
     }
-    path.close();
-    Some(path)
 }
 
-/// 図形ツール（`commit_shape_tool`）。直線・曲線はライン（[`line`]）で描く。
-pub fn shape(s: &mut Session, start: [f64; 2], end: [f64; 2]) -> Result<Option<Rect>, String> {
-    let settings = s.tools.settings.clone();
-    let Some(path) = shape_path(&settings, start, end) else {
-        return Ok(None);
-    };
-    let (image, frame, layer) = active_image(s)?;
-    let (w, h) = (image.width(), image.height());
-    let width = (settings.shape_outline_width as f64 / 2.0).max(0.5);
-    let mut fill = Bits::new(w, h);
-    if settings.shape_fill_inside {
-        fill_into(&mut fill, &path);
+/// 図形の経路（`_shape_path`、pma-core の `line_tool::shape_path`）。範囲が空なら None。
+pub fn shape_path(settings: &Settings, start: [f64; 2], end: [f64; 2]) -> Option<Path> {
+    let rect = line_tool::shape_rect(pt(start), pt(end), settings.shape_lock_ratio);
+    line_tool::shape_path(rect, shape_kind(settings))
+}
+
+fn pt(p: [f64; 2]) -> brush::Point {
+    brush::Point::new(p[0], p[1])
+}
+
+/// 直線・図形ツールの描画先と、正規の色（`exact_colors`）。
+struct Drawn {
+    overlay: line_tool::Overlay,
+    palette: Vec<[u8; 3]>,
+}
+
+/// 直線・曲線の描画先（`commit_line_tool`）。`brush_line` はブラシの Shift＋クリックの
+/// 直線（入り抜きを使わない）。
+fn line_drawn(
+    settings: &Settings,
+    size: (usize, usize),
+    start: [f64; 2],
+    end: [f64; 2],
+    control: Option<[f64; 2]>,
+    brush_line: bool,
+) -> Drawn {
+    let path = line_tool::line_path(pt(start), pt(end), control.map(pt));
+    let taper = |on: bool, size: i64, curve: i64| on.then_some((size as f64, curve as f64));
+    let options = LineOptions::from_panel(
+        settings.brush_size,
+        brush_line,
+        taper(
+            settings.line_taper_in,
+            settings.line_taper_in_size,
+            settings.line_taper_in_curve,
+        ),
+        taper(
+            settings.line_taper_out,
+            settings.line_taper_out_size,
+            settings.line_taper_out_curve,
+        ),
+    );
+    let rgb = settings.paint_rgb();
+    Drawn {
+        overlay: line_tool::line_overlay(&path, &options, rgb, size.0, size.1),
+        palette: vec![rgb],
     }
-    let mut outline = Bits::new(w, h);
-    stroke_into(&mut outline, &path, width);
-    let mut active = Bits::new(w, h);
-    for i in 0..w * h {
-        active.bits[i] = fill.bits[i] | outline.bits[i];
-    }
-    if let Some(clip) = clip_bits(&s.tools, w, h) {
-        active.and(&clip);
-    }
-    let (outline_rgb, fill_rgb) = if settings.shape_sub_outline_main_fill {
+}
+
+/// 図形の描画先（`commit_shape_tool`）。範囲が空なら None。
+fn shape_drawn(
+    settings: &Settings,
+    size: (usize, usize),
+    start: [f64; 2],
+    end: [f64; 2],
+) -> Option<Drawn> {
+    let path = shape_path(settings, start, end)?;
+    let (outline, fill) = if settings.shape_sub_outline_main_fill {
         (settings.source_rgb(true), settings.source_rgb(false))
     } else {
         (settings.paint_rgb(), settings.paint_rgb())
     };
-    commit_overlay(
-        s,
-        &image,
-        frame,
-        layer,
-        &active,
-        |i| Paint {
-            rgb: if outline.bits[i] != 0 {
-                outline_rgb
-            } else {
-                fill_rgb
-            },
-        },
-        1.0,
-    )
+    let fill = settings.shape_fill_inside.then_some(fill);
+    let width = settings.shape_outline_width as f64 / 2.0;
+    Some(Drawn {
+        overlay: line_tool::shape_overlay(&path, width, fill, outline, size.0, size.1),
+        palette: line_tool::shape_palette(fill, outline),
+    })
+}
+
+/// 選択範囲（ブラシのクリップの形）。
+fn tool_selection(s: &Session, size: (usize, usize)) -> Option<brush::Selection> {
+    s.tools
+        .selection
+        .selection()
+        .map(|sel| brush_selection(sel, size.0, size.1))
+}
+
+/// 描画先を選択レイヤーへ書いて履歴に積む（`_blend_overlay_into_active_layer`）。
+fn commit_drawn(s: &mut Session, drawn: &Drawn) -> Result<Option<Rect>, String> {
+    let (image, frame, layer) = active_image(s)?;
+    let selection = tool_selection(s, (image.width(), image.height()));
+    let result =
+        line_tool::paint_overlay(&image, &drawn.overlay, &drawn.palette, selection.as_ref())
+            .map_err(|e| e.to_string())?;
+    match result.undo {
+        Some(undo) => write_active(s, frame, layer, undo.rect, undo.after),
+        None => Ok(None),
+    }
+}
+
+fn document_size(s: &Session) -> Result<(usize, usize), String> {
+    Ok(s.project
+        .as_ref()
+        .ok_or("作品を開いていません")?
+        .document
+        .size())
+}
+
+/// 図形ツール（`commit_shape_tool`）。直線・曲線はライン（[`line`]）で描く。
+pub fn shape(s: &mut Session, start: [f64; 2], end: [f64; 2]) -> Result<Option<Rect>, String> {
+    let size = document_size(s)?;
+    match shape_drawn(&s.tools.settings, size, start, end) {
+        Some(drawn) => commit_drawn(s, &drawn),
+        None => Ok(None),
+    }
 }
 
 /// 直線・曲線（`commit_line_tool`）。`control` があれば 2 次曲線。`brush_line` は
@@ -1295,106 +1282,48 @@ pub fn line(
     control: Option<[f64; 2]>,
     brush_line: bool,
 ) -> Result<Option<Rect>, String> {
-    let settings = s.tools.settings.clone();
-    let (image, frame, layer) = active_image(s)?;
-    let (w, h) = (image.width(), image.height());
-    let p0 = brush::Point::new(start[0], start[1]);
-    let p1 = brush::Point::new(end[0], end[1]);
-    let mut path = Path::new();
-    path.move_to(p0);
-    match control {
-        Some(c) => {
-            // 2 次曲線を 3 次の形にする（QPainterPath::quadTo と同じ制御点）。
-            let c = brush::Point::new(c[0], c[1]);
-            let c1 = brush::Point::new(
-                p0.x + 2.0 / 3.0 * (c.x - p0.x),
-                p0.y + 2.0 / 3.0 * (c.y - p0.y),
-            );
-            let c2 = brush::Point::new(
-                p1.x + 2.0 / 3.0 * (c.x - p1.x),
-                p1.y + 2.0 / 3.0 * (c.y - p1.y),
-            );
-            path.cubic_to(c1, c2, p1);
+    let size = document_size(s)?;
+    let drawn = line_drawn(&s.tools.settings, size, start, end, control, brush_line);
+    commit_drawn(s, &drawn)
+}
+
+/// 直線・図形の確定前の見た目の求め（`kind` は line / shape）。
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewArgs {
+    pub kind: String,
+    pub start: [f64; 2],
+    pub end: [f64; 2],
+    #[serde(default)]
+    pub control: Option<[f64; 2]>,
+    #[serde(default)]
+    pub brush_line: bool,
+}
+
+/// 確定前の見た目（#117：確定と同じ画素）。確定で書く画素だけの (矩形, RGBA)。
+/// 書かない画素は透明、消しゴムの画素は白。何も書かなければ None。
+pub fn line_preview(s: &Session, args: &PreviewArgs) -> Result<Option<(Rect, Vec<u8>)>, String> {
+    let size = document_size(s)?;
+    let settings = &s.tools.settings;
+    let drawn = if args.kind == "shape" {
+        match shape_drawn(settings, size, args.start, args.end) {
+            Some(drawn) => drawn,
+            None => return Ok(None),
         }
-        None => path.line_to(p1),
-    }
-    let base = settings.brush_size.max(0.5);
-    let (mut start_w, mut end_w) = (None, None);
-    let (mut start_curve, mut end_curve) = (1.0, 1.0);
-    if !brush_line {
-        if settings.line_taper_in {
-            start_w = Some(settings.line_taper_in_size as f64 / 2.0);
-            start_curve = settings.line_taper_in_curve as f64 / 100.0;
-        }
-        if settings.line_taper_out {
-            end_w = Some(settings.line_taper_out_size as f64 / 2.0);
-            end_curve = 1.0 / (settings.line_taper_out_curve as f64 / 100.0).max(0.05);
-        }
-    }
-    let mut active = Bits::new(w, h);
-    if start_w.is_none() && end_w.is_none() {
-        stroke_into(&mut active, &path, base);
     } else {
-        // 入り抜き（`_draw_tapered_path`）：長さに沿って幅を変えた短い線を重ねる。
-        let flat = flattened(&path);
-        let pts: Vec<brush::Point> = flat
-            .elements()
-            .iter()
-            .filter_map(|e| match *e {
-                PathElement::MoveTo(p) | PathElement::LineTo(p) => Some(p),
-                PathElement::CubicTo(..) => None,
-            })
-            .collect();
-        let mut cumulative = vec![0.0];
-        for pair in pts.windows(2) {
-            let d = (pair[1].x - pair[0].x).hypot(pair[1].y - pair[0].y);
-            cumulative.push(cumulative.last().copied().unwrap_or(0.0) + d);
-        }
-        let total = cumulative.last().copied().unwrap_or(0.0);
-        let at = |ratio: f64| -> brush::Point {
-            let target = ratio * total;
-            let i = cumulative
-                .iter()
-                .position(|&c| c >= target)
-                .unwrap_or(cumulative.len() - 1)
-                .max(1)
-                .min(pts.len().saturating_sub(1));
-            if pts.len() < 2 {
-                return pts.first().copied().unwrap_or(p0);
-            }
-            let (a, b) = (pts[i - 1], pts[i]);
-            let span = (cumulative[i] - cumulative[i - 1]).max(1e-12);
-            let t = ((target - cumulative[i - 1]) / span).clamp(0.0, 1.0);
-            brush::Point::new(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)
-        };
-        let length = total.max(1.0);
-        let steps = ((length * 1.5).ceil() as usize).clamp(2, 4096);
-        let mut previous = at(0.0);
-        for index in 1..=steps {
-            let ratio = index as f64 / steps as f64;
-            let point = at(ratio);
-            let mut width = base;
-            if let (Some(sw), true) = (start_w, ratio <= 0.5) {
-                let eased = (ratio * 2.0).clamp(0.0, 1.0).powf(start_curve.max(0.05));
-                width = sw + (base - sw) * eased;
-            } else if let (Some(ew), true) = (end_w, ratio >= 0.5) {
-                let eased = ((ratio - 0.5) * 2.0)
-                    .clamp(0.0, 1.0)
-                    .powf(end_curve.max(0.05));
-                width = base + (ew - base) * eased;
-            }
-            let mut segment = Path::new();
-            segment.move_to(previous);
-            segment.line_to(point);
-            stroke_into(&mut active, &segment, width.max(0.5));
-            previous = point;
-        }
-    }
-    if let Some(clip) = clip_bits(&s.tools, w, h) {
-        active.and(&clip);
-    }
-    let rgb = settings.paint_rgb();
-    commit_overlay(s, &image, frame, layer, &active, |_| Paint { rgb }, 1.0)
+        line_drawn(
+            settings,
+            size,
+            args.start,
+            args.end,
+            args.control,
+            args.brush_line,
+        )
+    };
+    let selection = tool_selection(s, size);
+    Ok(drawn
+        .overlay
+        .preview_within(&drawn.palette, selection.as_ref()))
 }
 
 /// 選択範囲の中を消去（`delete_selection_contents`）。
@@ -1445,21 +1374,27 @@ pub fn replace_color(s: &mut Session, x: f64, y: f64) -> Result<Option<Rect>, St
     }
 }
 
-/// HOOK(transform)：選択範囲の変形（自由変形・拡大縮小・メッシュ変形・回転・反転・確定・
-/// キャンセル）。`kind` はボタンの名前（free / scale / mesh / rotate_left / rotate_right /
-/// commit / cancel）。
-pub fn transform(_s: &mut Session, kind: &str) -> Result<(), String> {
-    let name = match kind {
-        "free" => "自由変形",
-        "scale" => "拡大縮小",
-        "mesh" => "メッシュ変形",
-        "rotate_left" => "左へ90°回転",
-        "rotate_right" => "右へ90°回転",
-        "commit" => "変形を確定",
-        "cancel" => "変形をキャンセル",
-        _ => "変形",
-    };
-    Err(pending(name))
+/// 選択範囲の変形（transform.rs、計算は pma-core の tools::transform）。`kind` はボタンの
+/// 名前（free / scale / mesh / rotate_left / rotate_right / commit / cancel）。知らせを返す。
+pub fn transform(s: &mut Session, kind: &str) -> Result<Option<String>, String> {
+    use crate::transform as t;
+    match kind {
+        "free" | "scale" | "mesh" => return t::begin(s, kind).map(|o| o.message),
+        "rotate_left" => {
+            t::rotate(s, -90.0);
+        }
+        "rotate_right" => {
+            t::rotate(s, 90.0);
+        }
+        "commit" => {
+            t::commit(s)?;
+        }
+        "cancel" => {
+            t::cancel(s)?;
+        }
+        other => return Err(format!("知らない変形の操作：{other}")),
+    }
+    Ok(None)
 }
 
 /// ゴミ取り・塗り抜け・線周りのノイズ・線整えを適用（paint_ops.rs）。
@@ -1680,13 +1615,24 @@ pub fn install(app: &tauri::AppHandle) {
 
 /// ツールの状態を変える操作をし、`tools-changed` の事件で画面へ知らせる。
 /// 文書が変わったら `document-changed`（with_session）も送る。
-fn with_tools<T>(
+pub(crate) fn with_tools<T>(
     app: &tauri::AppHandle,
     save: bool,
     f: impl FnOnce(&mut Session) -> Result<T, String>,
 ) -> Result<T, String> {
+    use tauri::Manager;
     let mut view = None;
-    let out = crate::with_session(app, "canvas", |s| {
+    // 変形のあいだの操作は表示の画像ごと変わる（選択の中を消した絵・確定・取り消し）ので、
+    // 画面に読み直させる（source が canvas の知らせは画面が読み直さない）。
+    let transforming = app
+        .state::<Shared>()
+        .lock()
+        .unwrap()
+        .tools
+        .transform
+        .is_some();
+    let source = if transforming { "transform" } else { "canvas" };
+    let out = crate::with_session(app, source, |s| {
         let out = f(s);
         if save {
             if let Err(e) = s.tools.save() {
@@ -1715,7 +1661,18 @@ pub fn tools_state(session: State<Shared>) -> View {
 #[tauri::command]
 pub fn tools_set(app: tauri::AppHandle, patch: Value) -> Result<View, String> {
     with_tools(&app, true, |s| {
+        let before = s.tools.settings.clone();
         s.tools.apply_patch(&patch)?;
+        // 変形中に格子数・実線の太さを変えたら、今の変形にも効かせる（Qt と同じ）。
+        let after = &s.tools.settings;
+        let (cols, rows) = (after.transform_mesh_x, after.transform_mesh_y);
+        let threshold = after.transform_line_width;
+        if (before.transform_mesh_x, before.transform_mesh_y) != (cols, rows) {
+            crate::transform::set_mesh_grid(s, cols as usize, rows as usize);
+        }
+        if before.transform_line_width != threshold {
+            crate::transform::set_line_threshold(s, threshold);
+        }
         Ok(s.tools.view())
     })
 }
@@ -1772,6 +1729,21 @@ pub fn tool_line(
     })
 }
 
+/// 直線・図形の確定前の見た目（#117）。返す形は [`pack_rect`] と同じ（16 バイトの
+/// 矩形のあとに RGBA）。何も書かないなら幅・高さが 0。
+#[tauri::command]
+pub fn tool_line_preview(session: State<Shared>, args: PreviewArgs) -> Result<Response, String> {
+    let s = session.lock().unwrap();
+    let mut out = vec![0u8; 16];
+    if let Some((rect, pixels)) = line_preview(&s, &args)? {
+        for (i, v) in [rect.x, rect.y, rect.width, rect.height].iter().enumerate() {
+            out[i * 4..i * 4 + 4].copy_from_slice(&(*v as u32).to_le_bytes());
+        }
+        out.extend_from_slice(&pixels);
+    }
+    Ok(Response::new(out))
+}
+
 /// バケツ系（bucket / skewer_fill / replace_color）のクリック。HOOK（[`bucket_fill`] など）。
 #[tauri::command]
 pub fn tool_fill(app: tauri::AppHandle, tool: String, x: f64, y: f64) -> Result<Response, String> {
@@ -1785,12 +1757,10 @@ pub fn tool_fill(app: tauri::AppHandle, tool: String, x: f64, y: f64) -> Result<
     })
 }
 
+/// 変形のボタン・メニュー（[`transform`]）。知らせ（状態の帯に出す）を返す。
 #[tauri::command]
-pub fn tool_transform(app: tauri::AppHandle, kind: String) -> Result<View, String> {
-    with_tools(&app, false, |s| {
-        transform(s, &kind)?;
-        Ok(s.tools.view())
-    })
+pub fn tool_transform(app: tauri::AppHandle, kind: String) -> Result<Option<String>, String> {
+    with_tools(&app, false, |s| transform(s, &kind))
 }
 
 #[tauri::command]
@@ -1858,7 +1828,11 @@ pub fn select(s: &mut Session, args: &SelectArgs) -> Result<bool, String> {
         "used_area" => select_used_area(s),
         "all" => Ok(select_all(s)),
         "invert" => Ok(select_invert(s)),
-        "clear" => Ok(s.tools.selection.clear().changed),
+        "clear" => {
+            // 変形中の解除は変形を取り消してから（Qt の _clear_selection_state）。
+            crate::transform::cancel(s)?;
+            Ok(s.tools.selection.clear().changed)
+        }
         other => Err(format!("知らない選択の操作：{other}")),
     }
 }
@@ -2026,6 +2000,46 @@ mod tests {
         );
     }
 
+    /// 投げ縄塗りの「境界線の内側」と対象色（`fill_lasso_polygon` の inside_boundary・
+    /// target_color）：投げ縄の重心に近い透明・白の画素からつながる所だけを塗り、
+    /// 線の向こう側は塗らない。対象色が透明なら線の上は塗らない。
+    #[test]
+    fn lasso_fill_inside_boundary_and_target_color_follow_qt() {
+        let mut s = big();
+        let (w, h) = size(&s);
+        // 消して透明にし、x = 0.7 に縦の黒い線を引く。
+        select_rect(&mut s, [0.0, 0.0], [w, h]);
+        delete_selection_contents(&mut s).unwrap();
+        s.tools.selection.clear();
+        s.tools.settings.color_main = [0, 0, 0];
+        s.tools.settings.brush_size = 3.0;
+        line(&mut s, [w * 0.7, -2.0], [w * 0.7, h + 2.0], None, false).unwrap();
+        let line_x = (w * 0.7) as usize;
+        let mid = (h * 0.5) as usize;
+        assert_eq!(pixel(&s, line_x, mid), [0, 0, 0, 255]);
+        let rect = [
+            [w * 0.1, h * 0.1],
+            [w * 0.9, h * 0.1],
+            [w * 0.9, h * 0.9],
+            [w * 0.1, h * 0.9],
+        ];
+        // 境界線の内側：重心（x = 0.5）の側だけ。線の上と向こう側は塗らない。
+        s.tools.settings.color_main = [9, 8, 7];
+        s.tools.settings.lasso_inside_boundary = true;
+        lasso_fill(&mut s, &rect).unwrap().unwrap();
+        assert_eq!(pixel(&s, (w * 0.3) as usize, mid), [9, 8, 7, 255]);
+        assert_eq!(pixel(&s, line_x, mid), [0, 0, 0, 255]);
+        assert_eq!(pixel(&s, (w * 0.85) as usize, mid)[3], 0);
+        // 対象色が透明：境界線を使わなければ両側の透明を塗り、線は残す。
+        s.tools.settings.lasso_inside_boundary = false;
+        s.tools.settings.bucket_target_color = "transparent".into();
+        s.tools.settings.color_main = [1, 1, 1];
+        lasso_fill(&mut s, &rect).unwrap().unwrap();
+        assert_eq!(pixel(&s, (w * 0.85) as usize, mid), [1, 1, 1, 255]);
+        assert_eq!(pixel(&s, (w * 0.3) as usize, mid), [9, 8, 7, 255]);
+        assert_eq!(pixel(&s, line_x, mid), [0, 0, 0, 255]);
+    }
+
     #[test]
     fn mask_color_filter_blocks_lasso_fill() {
         let mut s = big();
@@ -2101,18 +2115,9 @@ mod tests {
 
     #[test]
     fn lock_ratio_makes_a_square() {
-        let settings = Settings {
-            shape_lock_ratio: true,
-            ..Settings::default()
-        };
-        assert_eq!(
-            shape_rect(&settings, [10.0, 10.0], [30.0, 15.0]),
-            (10.0, 10.0, 20.0, 20.0)
-        );
-        assert_eq!(
-            shape_rect(&settings, [10.0, 10.0], [0.0, 15.0]),
-            (0.0, 10.0, 10.0, 10.0)
-        );
+        let rect = |end: [f64; 2]| line_tool::shape_rect(pt([10.0, 10.0]), pt(end), true);
+        assert_eq!(rect([30.0, 15.0]), (10.0, 10.0, 20.0, 20.0));
+        assert_eq!(rect([0.0, 15.0]), (0.0, 10.0, 10.0, 10.0));
     }
 
     #[test]
@@ -2152,6 +2157,53 @@ mod tests {
             [4, 4, 4, 255]
         );
         assert_eq!(s.history().undo.len(), 3);
+    }
+
+    /// #117：確定前の見た目は、確定で書く画素と同じ（選択範囲のクリップも同じ）。
+    #[test]
+    fn line_and_shape_preview_equals_committed_pixels() {
+        let mut s = big();
+        let (w, h) = size(&s);
+        s.tools.settings.brush_size = 3.5;
+        s.tools.settings.color_main = [40, 50, 60];
+        s.tools.settings.line_taper_out = true;
+        s.tools.settings.line_taper_out_size = 1;
+        assert!(select_rect(&mut s, [0.0, 0.0], [w * 0.6, h]));
+        let cases = [
+            PreviewArgs {
+                kind: "line".into(),
+                start: [w * 0.1, h * 0.2],
+                end: [w * 0.9, h * 0.7],
+                control: Some([w * 0.2, h * 0.9]),
+                brush_line: false,
+            },
+            PreviewArgs {
+                kind: "shape".into(),
+                start: [w * 0.15, h * 0.15],
+                end: [w * 0.85, h * 0.8],
+                control: None,
+                brush_line: false,
+            },
+        ];
+        for args in cases {
+            let (rect, preview) = line_preview(&s, &args).unwrap().unwrap();
+            let written = if args.kind == "shape" {
+                shape(&mut s, args.start, args.end)
+            } else {
+                line(&mut s, args.start, args.end, args.control, args.brush_line)
+            }
+            .unwrap()
+            .unwrap();
+            assert_eq!(written, rect, "{}", args.kind);
+            let (image, _, _) = active_image(&s).unwrap();
+            let after = image.copy_rgba_rect(rect).unwrap();
+            for (p, a) in preview.chunks_exact(4).zip(after.chunks_exact(4)) {
+                if p[3] != 0 {
+                    assert_eq!(p, a, "{}", args.kind);
+                }
+            }
+            assert!(rect.x + rect.width <= (w * 0.6).ceil() as usize);
+        }
     }
 
     #[test]
@@ -2377,9 +2429,11 @@ mod tests {
     #[test]
     fn hooks_report_pending_without_changing_the_document() {
         let mut s = big();
-        assert!(transform(&mut s, "mesh")
-            .unwrap_err()
-            .contains("メッシュ変形"));
+        assert!(transform(&mut s, "nonsense").is_err());
+        // 変形を始めてやめても履歴は積まない。
+        if transform(&mut s, "mesh").is_ok() {
+            transform(&mut s, "cancel").unwrap();
+        }
         assert!(run_action(&mut s, "main_line_repaint")
             .unwrap_err()
             .contains("MainLineRepaint"));

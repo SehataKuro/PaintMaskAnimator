@@ -7,7 +7,8 @@
 //! - fps・再生範囲（`playback_range`）・表示の種類（`timeline_mode`）はタイムラインの
 //!   パネルの状態（TimelineUi）が持つので、開いたときに読み込み（[`load_into_timeline`]）、
 //!   保存の前に書き戻す（[`store_from_session`]）。
-//! - 色・オニオン・筆圧などの鍵は、それを持つパネル（ツール・色）が移ってから書く。今は
+//! - オニオンの鍵（`display` の onion_*）は onion.rs が読み書きする。色・筆圧などの鍵は、
+//!   それを持つパネル（ツール・色）が移ってから書く。今は
 //!   開いた作品の値をそのまま残す。
 
 use crate::session::Session;
@@ -99,10 +100,14 @@ pub fn load_into_timeline(session: &mut Session) {
             Mode::Sheet
         };
     }
+    // 【オニオン：onion.rs】display のオニオンの鍵。
+    crate::onion::load(session);
 }
 
 /// 保存の前：タイムラインの状態と版を付帯情報へ書き戻す。
 pub fn store_from_session(session: &mut Session) {
+    // 【オニオン：onion.rs】display のオニオンの鍵。
+    crate::onion::store(session);
     let (fps, start, end, mode) = (
         session.timeline.fps,
         session.timeline.range_start,

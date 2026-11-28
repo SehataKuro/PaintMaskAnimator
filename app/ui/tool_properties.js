@@ -5,8 +5,6 @@
 // 計算を pma-core へ移しているところなので、ボタンは Rust の窓口（HOOK）を呼ぶだけ。
 import { toolStore, toolLabel, el, openDialog, openMenu, openToolPreferences, hex } from "./tools.js";
 import { setTip } from "./tooltip.js";
-// 【色のパネル】使用色パネルの選択（実線の太さ）。
-import { state as colorState, subscribe as subscribeColors } from "./color_state.js";
 import { PressureEditor } from "./pressure.js";
 
 const { invoke } = window.__TAURI__.core;
@@ -120,7 +118,8 @@ export function createToolPropertiesPanel() {
   const sel = (t, s, f) => f.isSelection;
   const transform = (kind) => async () => {
     try {
-      await invoke("tool_transform", { kind });
+      const message = await invoke("tool_transform", { kind });
+      if (typeof message === "string") notify(message);
     } catch (e) {
       notify(String(e));
     }
@@ -145,13 +144,14 @@ export function createToolPropertiesPanel() {
   }
   add(box, check("transform_quality", "クオリティ（Tp_mask v0.7方式）", "色ごとに分離して変形し、中間色を作らずに再合成します。拡大・縮小・回転で線や塗りが崩れにくくなります。"), sel);
   add(box, el("div", { class: "pma-note", text: "色選択があるときは実線の太さを調整できます。" }), sel);
-  // 【色のパネル】実線の太さは、使用色パネルで色を選んでいるときだけ出す（palette-changed で出し直す）。
-  const colorSelected = (t, s, f) => f.isSelection && (colorState.palette?.selected_count ?? 0) > 0;
+  // 実線の太さは、変形を始めたときに使用色パネルで色を選んでいたときだけ出す
+  // （Qt の set_transform_line_colors_available）。
+  const lineColors = (t, s, f) => f.isSelection && (toolStore.view?.transform?.line_colors ?? 0) > 0;
   const lineWidthLabel = label("");
-  add(box, lineWidthLabel, colorSelected);
+  add(box, lineWidthLabel, lineColors);
   const lineWidth = range("transform_line_width", 1, 254, { invert: true, onInput: (v) => (lineWidthLabel.textContent = `実線の太さ：${255 - v}`) });
   setTip(lineWidth, "クオリティ変形で、使用色パネルの選択色を実線として残す太さを調整します。右へ動かすほど太くなります。");
-  add(box, lineWidth, colorSelected);
+  add(box, lineWidth, lineColors);
   const allFrames = add(box, check("selection_all_frames", "すべてのコマに適用"), sel);
   setTip(allFrames, () => "選択範囲の変形をすべてのコマへ適用します。" + (toolStore.settings?.transform_quality ? "クオリティ変形はコマごとに時間がかかります。" : ""));
   add(box, check("transform_as_tween", "保持のあるコマの変形はトゥイーンにする",
@@ -332,8 +332,6 @@ export function createToolPropertiesPanel() {
     updateAll(panel, s, view);
   }
   toolStore.subscribe(render);
-  // 【色のパネル】使用色の選択が変わったら出し直す。
-  subscribeColors("palette", () => toolStore.view && render(toolStore.view));
   return panel;
 }
 
