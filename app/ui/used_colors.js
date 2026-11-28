@@ -27,6 +27,8 @@ import {
   subscribe,
 } from "./color_state.js";
 import { openColorChart } from "./color_chart.js";
+import { adjustLineThickness } from "./line_thickness.js"; // 【Group C】
+import { pendingTween } from "./tween.js"; // 【Group C】
 
 const ROW_HEIGHT = 24;
 const IS_MAC = /Mac/.test(navigator.platform);
@@ -447,7 +449,14 @@ export function createUsedColorsPanel() {
       return;
     }
     if (cell?.dataset.column === "lock") {
-      showMenu([{ label: "すべての色の保護を外す", action: () => paletteOp({ op: "unlock_all" }) }], ...at);
+      // 【Group C】Qt の _show_mask_context_menu。Qt のマスク ON は「描ける」＝鍵を外す（#104 で鍵は守る色の一覧）。
+      showMenu([
+        { label: "ON", title: "この色に描けるようにします（鍵を外す）。", action: () => paletteOp({ op: "set_locked", rgb: row.rgb, locked: false }) },
+        { label: "OFF", title: "この色を守ります（鍵をかける）。", action: () => paletteOp({ op: "set_locked", rgb: row.rgb, locked: true }) },
+        "-",
+        { label: "対象以外をOFF", title: "この色だけ描けるようにし、ほかの色すべてに鍵をかけます。", action: () => paletteOp({ op: "lock_others", rgb: row.rgb }) },
+        { label: "全表示", title: "すべての色の保護を外す", action: () => paletteOp({ op: "unlock_all" }) },
+      ], ...at);
       return;
     }
     showMenu(colorMenu(row), ...at);
@@ -473,6 +482,14 @@ export function createUsedColorsPanel() {
           await paletteOp({ op: "focus", rgb: row.rgb });
           await paletteOp({ op: "merge" });
         },
+      });
+    }
+    // 【Group C】線の太さを調整（Qt の can_adjust_thickness：トゥイーン中でなく、選択中の親色を右クリック）。
+    if (!pendingTween() && row.focus && inSelection) {
+      items.push({
+        label: "線の太さを調整",
+        title: "選択中の親色・子色をまとめて調整します。",
+        action: () => adjustLineThickness(selected.map(rgbOf)),
       });
     }
     items.push({

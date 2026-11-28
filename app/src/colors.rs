@@ -210,7 +210,7 @@ pub fn sync(s: &mut Session) -> Synced {
     // 描ける範囲は、ブラシ・塗りと同じマスク色の絞り込みで効かせる（tools.rs）。
     s.tools.mask_filter = edit_filter(&s.colors.palette);
     // 選んでいる色と登録した置換色を、塗りの計算（paint_ops.rs）へ渡す（ゴミ取りの
-    // 「選択色を対象」・線整え・バケツの「置換色を塗り替え」。`paint_set_used_colors` と同じ）。
+    // 「選択色を対象」・線整え・バケツの「置換色を塗り替え」）。
     let palette = &s.colors.palette;
     s.tools.paint.used_selection = palette.selected().iter().map(|&c| rgb3(c)).collect();
     s.tools.paint.replacements = palette
@@ -457,6 +457,14 @@ pub enum PaletteOp {
         visible: bool,
     },
     UnlockAll,
+    /// 【Group C】鍵の列のメニュー（Qt の _show_mask_context_menu）。ON は描ける（鍵を外す）。
+    SetLocked {
+        rgb: [u8; 3],
+        locked: bool,
+    },
+    LockOthers {
+        rgb: [u8; 3],
+    },
     /// 色を色へ落とす。`ratio` は行の高さに対する位置（0..1）。
     Drop {
         dragged: [u8; 3],
@@ -669,6 +677,8 @@ impl Session {
             PaletteOp::Isolate { rgb: c } => p.isolate_visible(rgb(c)),
             PaletteOp::CategoryVisible { name, visible } => p.set_category_visible(&name, visible),
             PaletteOp::UnlockAll => p.unlock_all(),
+            PaletteOp::SetLocked { rgb: c, locked } => p.set_locked(rgb(c), locked),
+            PaletteOp::LockOthers { rgb: c } => p.lock_others(rgb(c)),
             PaletteOp::Drop {
                 dragged,
                 target,

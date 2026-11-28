@@ -262,6 +262,18 @@ impl UsedColors {
         .1
     }
 
+    /// 鍵メニューの「対象以外をOFF」（`_disable_other_masks`）：この色だけ描けるようにし、
+    /// ほかの色すべてに鍵をかける。
+    pub fn lock_others(&mut self, rgb: Rgb) -> Option<Recorded> {
+        self.edit("対象以外のマスクOFF", |s| {
+            if !s.contains(rgb) {
+                return;
+            }
+            s.locked = s.colors.iter().copied().filter(|&c| c != rgb).collect();
+        })
+        .1
+    }
+
     /// 「すべての色の保護を外す」（`_set_all_masks_on`）。
     pub fn unlock_all(&mut self) -> Option<Recorded> {
         self.edit("マスクを全体ON", |s| s.locked.clear()).1

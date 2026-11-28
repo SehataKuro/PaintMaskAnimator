@@ -387,3 +387,15 @@ fn chart_apply_sets_groups_only_for_present_colors() {
     let merged = chart.merge(&p.chart_from_groups());
     assert_eq!(merged.tiles.len(), 1);
 }
+
+#[test]
+fn lock_others_leaves_only_the_target_paintable() {
+    let mut p = palette(&[R, G, B]);
+    p.set_locked(R, true).unwrap();
+    let rec = p.lock_others(R).unwrap();
+    assert_eq!(rec.label, "対象以外のマスクOFF");
+    assert!(!p.is_locked(R));
+    assert!(p.is_locked(G) && p.is_locked(B));
+    assert!(p.lock_others(R).is_none());
+    assert_eq!(p.unlock_all().unwrap().label, "マスクを全体ON");
+}
