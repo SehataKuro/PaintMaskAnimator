@@ -199,6 +199,10 @@ jobs:
         working-directory: app
         run: cargo test --locked
 
+      # app/THIRD_PARTY_LICENSES.md goes into the installer; it must match Cargo.lock.
+      - name: Check third-party licence notice
+        run: python scripts/generate_third_party_licenses.py --check
+
       - name: Build app (tauri build)
         working-directory: app
         shell: bash

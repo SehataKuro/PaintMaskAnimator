@@ -7,7 +7,8 @@
 ;   iscc /DAppVersion=<app/Cargo.toml version> /DTauriApp packaging\installer.iss
 ; Then dist\PaintMaskAnimator\ holds PaintMaskAnimator.exe (tauri build) with
 ; LICENSE and NOTICE, and dist\MicrosoftEdgeWebview2Setup.exe is Microsoft's
-; WebView2 bootstrapper. The AppId, install folder, exe name and .pman
+; WebView2 bootstrapper. The third-party notice is app\THIRD_PARTY_LICENSES.md
+; (scripts/generate_third_party_licenses.py). The AppId, install folder, exe name and .pman
 ; registration stay the same, so it installs over 0.8.0 as an ordinary update.
 
 #ifndef AppVersion
@@ -68,6 +69,8 @@ Source: "windows\pman_thumbnail\target\release\pman_thumbnail.dll"; DestDir: "{a
 Type: filesandordirs; Name: "{app}\_internal"
 
 [Files]
+; Licences of the Rust crates linked into the exe and the DLL, and of the bundled JS.
+Source: "..\app\THIRD_PARTY_LICENSES.md"; DestDir: "{app}"; Flags: ignoreversion
 ; The WebView2 runtime ships with Windows 11 and current Windows 10; install it
 ; only where it is missing (Microsoft's evergreen bootstrapper, about 2 MB).
 Source: "..\dist\MicrosoftEdgeWebview2Setup.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall; Check: NeedsWebView2
