@@ -26,6 +26,8 @@ rfd = "0.17"
 # 書き出しのファイル操作（連番・カットフォルダー・影素材・PSD、export.rs）。
 # カットフォルダーの一覧（線画の初期状態の読み込み）。
 pma-io = { path = "../native/io" }
+# CLIP STUDIO アニメーションの読み込み（imports_clip.rs）。
+pma-clip-import = { path = "../native/clip-import" }
 
 # 筆圧：WKWebView はペンの筆圧を JavaScript に渡さないので、NSEvent を直接読む。
 [target.'cfg(target_os = "macos")'.dependencies]

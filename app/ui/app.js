@@ -130,7 +130,7 @@ const overlay = new Overlay(canvasPanel, viewer);
 const canvasTools = createCanvasTools({ canvas, viewer, overlay, applyRect });
 installPaintOps({ host: canvasPanel, viewer, applyRect }); // paint_ops.js
 installExport(); // 書き出し（export.js）。
-installImports(); // imports.js
+installImports({ save: () => shell?.run("a_save_project") }); // imports.js（CLIP の置き換えの前に保存する）
 
 // 窓の中身の座標（CSS の px）をキャンバス要素の座標にする。
 function toCanvas(x, y) {

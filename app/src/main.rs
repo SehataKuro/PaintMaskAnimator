@@ -19,6 +19,7 @@ mod export; // 書き出し（export.rs）。
 mod history;
 // 読み込み（imports.rs）：画像・フォルダー・PSD・CLIP・線画の初期状態・レイアウト用紙。
 mod imports;
+mod imports_clip; // CLIP STUDIO アニメーションの読み込み（imports_clip.rs）。
 mod paint_ops;
 mod pen;
 mod pen_selftest;
@@ -491,6 +492,12 @@ fn main() {
             imports::import_keep_initial,
             imports::import_psd,
             imports::import_initial_state,
+            // CLIP STUDIO アニメーションの読み込み（imports_clip.rs）。
+            imports_clip::import_clip,
+            imports_clip::import_clip_needs_confirm,
+            imports_clip::import_clip_discard,
+            imports_clip::import_clip_apply,
+            imports_clip::import_clip_initial_state,
             // 【アプリの外枠】（shell.rs）。
             shell::shell_init,
             shell::shell_menu_state,
