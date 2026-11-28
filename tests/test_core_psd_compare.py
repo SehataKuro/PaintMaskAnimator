@@ -164,3 +164,24 @@ def test_pass_through_and_fill_opacity():
     overlay.blend_mode = BlendMode.OVERLAY
     _assert_same(_save(psd))
 
+
+
+def test_layers_without_transparency_channel():
+    """色だけの（不透明度チャンネルのない）3チャンネルのレイヤー。psd-tools は形を
+    文書全体の 1 とみなす（Qt と同じ絵になるか）。合成モードとグループ・単独の両方。"""
+    rng = np.random.default_rng(41)
+    psd = PSDImage.new("RGB", (W, H))
+    psd.append(PixelLayer.frompil(_gradient(40, W, H), psd, "bg"))
+    group = Group.new(psd, "g")
+    for i, mode in enumerate([BlendMode.NORMAL, BlendMode.MULTIPLY, BlendMode.OVERLAY, BlendMode.SCREEN]):
+        pixels = rng.integers(0, 256, size=(4 + i, 5, 3), dtype=np.uint8)
+        layer = PixelLayer.frompil(Image.fromarray(pixels, "RGB"), group, f"rgb{i}", top=i, left=i + 1)
+        layer.blend_mode = mode
+        group.append(layer)
+    psd.append(group)
+    solo = PixelLayer.frompil(
+        Image.fromarray(rng.integers(0, 256, size=(3, 6, 3), dtype=np.uint8), "RGB"),
+        psd, "solo", top=2, left=3,
+    )
+    psd.append(solo)
+    _assert_same(_save(psd))
