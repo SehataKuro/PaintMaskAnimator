@@ -781,6 +781,10 @@ pub enum Edit {
     DuplicateLayers {
         layers: Vec<usize>,
     },
+    /// 【Group C】レイヤーの結合（Qt の merge_rows）。
+    MergeLayers {
+        layers: Vec<usize>,
+    },
     /// レイヤー名のドラッグで並べ替え。行は画面の行（上から 0）。
     MoveLayerRows {
         rows: Vec<usize>,
@@ -1287,6 +1291,25 @@ impl TimelineUi {
                     .collect();
                 doc.duplicate_tracks(&names)
                     .map_err(failed("レイヤーを複製できませんでした。"))?;
+                self.select_current(doc);
+                Ok(done())
+            }
+            Edit::MergeLayers { layers } => {
+                let layers: Vec<usize> = layers
+                    .into_iter()
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
+                    .collect();
+                if layers.len() < 2 {
+                    return Err(
+                        "結合するレイヤーをShift＋クリックで2つ以上選択してください。".into(),
+                    );
+                }
+                if layers != (layers[0]..=layers[layers.len() - 1]).collect::<Vec<_>>() {
+                    return Err("結合できるのは連続しているレイヤーです。".into());
+                }
+                doc.merge_layers(&layers)
+                    .map_err(failed("レイヤーを結合できませんでした。"))?;
                 self.select_current(doc);
                 Ok(done())
             }

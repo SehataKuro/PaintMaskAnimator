@@ -245,6 +245,8 @@ pub fn prefs_set(
     if key == prefs::WORKSPACES || key == prefs::ACTIVE_WORKSPACE {
         refresh_menu(&app);
     }
+    // 【Group C】設定を読むパネル（タイムラインの時間の表示など）へ知らせる。
+    let _ = tauri::Emitter::emit(&app, "prefs-changed", &resolved);
     Ok(resolved)
 }
 
