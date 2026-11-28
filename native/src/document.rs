@@ -75,7 +75,7 @@ impl PyCoreDocument {
         Self(document)
     }
 
-    /// 窓口のコアの文書（書き換え用、CLIP の線画の比較テストで使う）。
+    /// 窓口のコアの文書を書き換える（CLIP の線画・time_remap.rs の比較テストで使う）。
     pub(crate) fn inner_mut(&mut self) -> &mut Document {
         &mut self.0
     }
@@ -83,11 +83,6 @@ impl PyCoreDocument {
     /// 窓口のコアの文書。
     pub(crate) fn inner(&self) -> &Document {
         &self.0
-    }
-
-    /// 文書を書き換える窓口（time_remap.rs の比較用）。
-    pub(crate) fn inner_mut(&mut self) -> &mut Document {
-        &mut self.0
     }
 }
 
