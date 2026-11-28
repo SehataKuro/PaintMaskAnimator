@@ -2555,6 +2555,7 @@ dependencies = [
 name = "pma-core"
 version = "0.1.0"
 dependencies = [
+ "flate2",
  "png",
  "realfft",
  "serde_json",

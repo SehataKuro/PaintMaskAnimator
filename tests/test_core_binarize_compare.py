@@ -283,10 +283,47 @@ def test_binarize_matches_python(app):
         )
 
 
-def test_flatten_paper_is_reported_as_not_ported(app):
-    rgba = _normalized(np.full((4, 4, 4), 255, np.uint8))
-    with pytest.raises(ValueError):
-        pma_native.image_ops_binarize(_core(rgba), "surface", flatten_paper=True)
+def _paper_scan(rng, width, height):
+    """クリーム色の紙に照明のムラと影・線が乗ったスキャン風の画像（#51）。"""
+    ys, xs = np.mgrid[0:height, 0:width]
+    base = np.array([rng.randint(225, 250), rng.randint(220, 245), rng.randint(200, 235)], float)
+    shade = 1.0 - 0.25 * (xs / max(1, width - 1)) * rng.random() - 0.1 * (ys / max(1, height - 1))
+    rgba = np.zeros((height, width, 4), np.uint8)
+    rgba[:, :, :3] = np.clip(base[None, None, :] * shade[:, :, None], 0, 255).astype(np.uint8)
+    rgba[:, :, 3] = 255
+    for _ in range(rng.randint(0, 8)):
+        ink = np.array(rng.choice(INKS))
+        x0, y0 = rng.randrange(width), rng.randrange(height)
+        rgba[y0 : y0 + rng.randint(1, 30), x0 : x0 + rng.randint(1, 4), :3] = ink
+    if rng.random() < 0.2:
+        # タップ穴・黒べた（紙の見えないブロック）。
+        rgba[: rng.randint(1, height), : rng.randint(1, width), :3] = 20
+    return _normalized(rgba)
+
+
+def test_flatten_paper_matches_python(app):
+    """紙の地色をそろえる（scan_paper.flatten_paper）を2値化と一緒にかける。
+
+    Rust はブロックの中の明るさの順位を安定に並べ、numpy の argsort は安定でない。
+    明るさが同じで色の違う画素が順位の境目に並ぶと選ぶ紙の色が変わるので、
+    画素の差は 1 まで許す（灰色・クリーム色の紙と線では一致する）。
+    """
+    from paintmaskanimator import scan_paper
+
+    rng = random.Random(51)
+    exact = 0
+    for case in range(40):
+        width, height = rng.randint(1, 90), rng.randint(1, 70)
+        rgba = _paper_scan(rng, width, height)
+        expected = _normalized(scan_paper.flatten_paper(rgba))
+        got = pma_native.image_ops_binarize(
+            _core(rgba), "surface", flatten_paper=True, tone_curve_points=[],
+        )
+        actual = rgba if got is None else _core_rgba(got[0])
+        difference = np.abs(actual.astype(int) - expected.astype(int)).max()
+        assert difference <= 1, case
+        exact += difference == 0
+    assert exact >= 36
 
 
 def test_border_background_transparent_matches_python(app):
