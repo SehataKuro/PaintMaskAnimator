@@ -479,6 +479,9 @@ def compose_view(
     background: _Background = None, rect: tuple[int, int, int, int] | None = None,
     straight: bool = False,
 ) -> _Rendered: ...
+def compose_view_background(
+    rgb: _RGB, view: dict[str, Any] | None = None,
+) -> _RGB: ...
 def compose_display(
     document: _CoreDocument, frame: int, width: int, height: int,
     options: dict[str, Any] | None = None, view: dict[str, Any] | None = None,

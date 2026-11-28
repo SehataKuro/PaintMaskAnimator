@@ -289,6 +289,19 @@ pub(crate) fn compose_view<'py>(
     Ok(rendered(py, image, straight))
 }
 
+/// キャンバスの背景（擬似透明の表示色）に表示プレビューを掛けた色
+/// （`PaintCanvas.view_background_color` の `view_preview.background_color`）。
+#[pyfunction]
+#[pyo3(signature = (rgb, view=None))]
+pub(crate) fn compose_view_background(
+    rgb: (u8, u8, u8),
+    view: Option<&Bound<'_, PyDict>>,
+) -> PyResult<(u8, u8, u8)> {
+    let preview = view_options(view)?.preview;
+    let [r, g, b] = compose::view::background_color([rgb.0, rgb.1, rgb.2], &preview);
+    Ok((r, g, b))
+}
+
 /// 編集画面の1コマの表示（縮小・反転・オニオン）を width × height で返す。
 #[pyfunction]
 #[pyo3(signature = (document, frame, width, height, options=None, view=None, mapping=None, background=None, mode="nearest", flip_horizontal=false, flip_vertical=false, onion=None, straight=false))]

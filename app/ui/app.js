@@ -34,24 +34,24 @@ import { runToolsSelftest } from "./tools_selftest.js";
 // 【アプリの外枠】メニュー・ファイル・環境設定など（shell.js）と、ヒストリーのパネル。
 import { initShell } from "./shell.js";
 import { createHistoryPanel } from "./history_panel.js";
+import { createCanvasView } from "./canvas_view.js"; // 【キャンバスの見え方】下のバー（canvas_view.js）
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
 const statusLine = document.getElementById("status");
 
-// キャンバスのパネル。WebGL の canvas と、表示の切り替えボタン。
+// キャンバスのパネル。WebGL の canvas と、【キャンバスの見え方】下のバー（canvas_view.js）。
+const canvasDock = document.createElement("div");
+canvasDock.className = "canvas-dock";
 const canvasPanel = document.createElement("div");
 canvasPanel.className = "canvas-panel";
 const canvas = document.createElement("canvas");
 canvasPanel.appendChild(canvas);
-const viewButtons = document.createElement("div");
-viewButtons.className = "view-buttons";
-viewButtons.innerHTML = '<button id="fit" type="button">全体を表示</button><button id="actual" type="button">100%</button>';
-canvasPanel.appendChild(viewButtons);
+canvasDock.appendChild(canvasPanel);
 let timelinePanel = null;
 createLayout(document.getElementById("dock"), {
-  canvas: () => canvasPanel,
+  canvas: () => canvasDock,
   // タイムラインのパネル（timeline.js）。文書の変化は document-changed の事件で知る。
   // ツールのパネル（tools.js・tool_properties.js・actions.js）。
   tools: () => createToolsPanel(),
@@ -128,6 +128,9 @@ function showStatus(device, pressure, tiltX, tiltY) {
     `入力：${name}　筆圧 ${pressure.toFixed(3)}　傾き ${tiltX.toFixed(2)}, ${tiltY.toFixed(2)}　${viewText}`;
 }
 viewer.onchange = () => showSummary();
+// 【キャンバスの見え方】下のバー（拡大・回転・反転・書き出し・見え方のチェック）。
+const canvasView = createCanvasView({ viewer, busy: () => stroke !== null });
+canvasDock.appendChild(canvasView.bar);
 // キャンバスの上の層（選択範囲の点線など）と、ブラシ以外のツールの操作（overlay.js・canvas_tools.js）。
 const overlay = new Overlay(canvasPanel, viewer);
 const canvasTools = createCanvasTools({ canvas, viewer, overlay, applyRect });
@@ -248,11 +251,6 @@ function useViewControls() {
     middle = { x: e.clientX, y: e.clientY };
   });
   canvas.addEventListener("pointerup", () => (middle = null));
-  document.getElementById("fit").addEventListener("click", () => viewer.fit());
-  document.getElementById("actual").addEventListener("click", () => {
-    const r = canvas.getBoundingClientRect();
-    viewer.zoomAt(1 / viewer.zoom, r.width / 2, r.height / 2);
-  });
   let fitted = false;
   new ResizeObserver(() => {
     // 配置が決まって大きさが出たところで、一度だけ全体を表示する。
@@ -454,10 +452,14 @@ function useDocumentControls() {
   });
 }
 
-// 【アプリの外枠】キャンバスの真ん中を中心に拡大・縮小（表示：拡大／縮小）。
+// 【キャンバスの見え方】表示：拡大／縮小は、マウスカーソルの位置を中心にする（Qt の
+// step_canvas_zoom：カーソルがキャンバスの外にあっても、その位置を中心にする）。
+let lastPointer = null;
+window.addEventListener("pointermove", (e) => (lastPointer = { x: e.clientX, y: e.clientY }), { capture: true, passive: true });
 function zoomCenter(factor) {
   const r = canvas.getBoundingClientRect();
-  viewer.zoomAt(factor, r.width / 2, r.height / 2);
+  const p = lastPointer ? toCanvas(lastPointer.x, lastPointer.y) : { x: r.width / 2, y: r.height / 2 };
+  viewer.zoomAt(factor, p.x, p.y);
 }
 
 // 再生の自己確認：再生して、キャンバスが何 fps で今のコマを表示できたかを測る。
@@ -528,14 +530,15 @@ async function main() {
     listen,
     startup: info,
     hooks: {
-      zoomIn: () => zoomCenter(1.15),
-      zoomOut: () => zoomCenter(1 / 1.15),
+      zoomIn: () => zoomCenter(1.25), // Qt と同じ 1.25 倍
+      zoomOut: () => zoomCenter(1 / 1.25),
       fit: () => viewer.fit(),
       stepFrame,
       timelinePanel: () => timelinePanel,
       status: (text) => (statusLine.textContent = text),
     },
   });
+  canvasView.setShell(shell); // 【キャンバスの見え方】メニューのチェック
   if (info.open) await shell.openPath(info.open);
   useViewControls();
   if (info.native_pen) await useNativePen();
