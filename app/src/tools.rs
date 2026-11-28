@@ -1386,6 +1386,13 @@ pub fn transform(s: &mut Session, kind: &str) -> Result<Option<String>, String> 
         "rotate_right" => {
             t::rotate(s, 90.0);
         }
+        // 【トゥイーン】トゥイーンの編集中は、確定・キャンセルの知らせを返す（Qt の
+        // commit_transform_or_tween・cancel_transform_or_tween）。
+        "commit" if t::tween_pending(s) => return t::commit_tween(s).map(Some),
+        "cancel" if t::tween_pending(s) => {
+            t::cancel(s)?;
+            return Ok(Some("トゥイーンをキャンセルしました。".into()));
+        }
         "commit" => {
             t::commit(s)?;
         }
@@ -1703,6 +1710,11 @@ pub fn tools_set(app: tauri::AppHandle, patch: Value) -> Result<View, String> {
         }
         if before.transform_line_width != threshold {
             crate::transform::set_line_threshold(s, threshold);
+        }
+        // 【変形】クオリティの切り替えも今の変形に効かせる（Qt の set_transform_quality）。
+        let quality = s.tools.settings.transform_quality;
+        if before.transform_quality != quality {
+            crate::transform::set_quality(s, quality);
         }
         Ok(s.tools.view())
     })

@@ -227,7 +227,8 @@ export function createCanvasTools({ canvas, viewer, overlay, applyRect }) {
   }
   function transformChanged(view) {
     const t = view?.transform;
-    const key = t ? JSON.stringify([t.mode, t.points, t.quality]) : null;
+    // revision：形が同じでも描き方（クオリティ・実線の太さ）を変えたら描き直す。
+    const key = t ? JSON.stringify([t.mode, t.points, t.quality, t.revision]) : null;
     if (key === transformKey) return;
     transformKey = key;
     if (key) refreshTransformPreview();

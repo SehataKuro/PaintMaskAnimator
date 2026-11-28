@@ -28,6 +28,7 @@ import { installExport } from "./export.js"; // 書き出し（export.js）。
 // 読み込み（imports.js）。
 import { installImports } from "./imports.js";
 import { installTimeRemap } from "./time_remap.js"; // 【タイムリマップの貼り付け】
+import { installTween } from "./tween.js"; // 【トゥイーン】
 import { runToolsSelftest } from "./tools_selftest.js";
 // 【アプリの外枠】メニュー・ファイル・環境設定など（shell.js）と、ヒストリーのパネル。
 import { initShell } from "./shell.js";
@@ -133,6 +134,7 @@ installPaintOps({ host: canvasPanel, viewer, applyRect }); // paint_ops.js
 installExport(); // 書き出し（export.js）。
 installImports(); // imports.js
 installTimeRemap(); // 【タイムリマップの貼り付け】time_remap.js
+installTween(); // 【トゥイーン】tween.js
 
 // 窓の中身の座標（CSS の px）をキャンバス要素の座標にする。
 function toCanvas(x, y) {

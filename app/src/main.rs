@@ -429,6 +429,10 @@ fn main() {
             // 選択範囲の変形（transform.rs）。
             transform::transform_drag,
             transform::transform_preview,
+            // 【トゥイーン：transform.rs】
+            transform::tween_enable,
+            transform::tween_edit,
+            transform::tween_set_reverse,
             // 【オニオン：onion.rs】
             onion::onion_state,
             onion::onion_set,

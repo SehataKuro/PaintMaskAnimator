@@ -690,3 +690,19 @@ input[type="number"], .cw-code, .cp-hex {
 .tr-table tr.excluded td:not(.tr-use) { color: #999; background: rgba(128, 128, 128, 0.18); }
 .tr-table td.tr-mark { color: #777; }
 .tr-note { font-size: 10px; color: var(--muted, #8a8f98); }
+
+/* 【トゥイーンの操作パネル：tween.js】 */
+.tw-panel {
+  position: fixed; top: 56px; right: 16px; z-index: 900; width: 260px;
+  display: flex; flex-direction: column; gap: 5px; padding: 8px;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3); font-size: 12px;
+}
+.tw-title { font-weight: 600; }
+.tw-check { display: flex; align-items: center; gap: 4px; }
+.tw-note { font-size: 10px; color: var(--muted, #8a8f98); }
+.tw-row { display: flex; gap: 5px; }
+.tw-row button { flex: 1; }
+.tw-panel button { padding: 4px 10px; border-radius: 5px; border: 1px solid var(--border); font: inherit; cursor: pointer; }
+.tw-panel button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }

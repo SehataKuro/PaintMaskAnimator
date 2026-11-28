@@ -110,12 +110,39 @@ export async function runToolsSelftest({ shell }) {
   const remapOk = remapClaimed && remapRows === 2 && confirmText.includes("Adobe After Effects") && remapApplied
     && (await undoCount()) === undo2 + 1 && (await lastLabel()).startsWith("全体編集");
 
+  // 【トゥイーン】保持のあるキーを自由変形のトゥイーンにし、操作パネルの確定で「全体編集」を1つ積む。
+  const tl = await invoke("timeline_view");
+  let tweenAt = null;
+  for (const row of tl.rows) {
+    const span = row.spans.find((sp) => sp.kind === "cell" && sp.length >= 2 && !sp.group);
+    if (span) {
+      tweenAt = { layer: row.layer, column: span.start, length: span.length };
+      break;
+    }
+  }
+  let tweenOk = false;
+  let tweenNote = "保持のあるキーなし";
+  if (tweenAt) {
+    const undo3 = await undoCount();
+    await invoke("tween_enable", { layer: tweenAt.layer, column: tweenAt.column, mode: "free" });
+    await wait(300);
+    const panelShown = !!document.querySelector(".tw-panel");
+    await invoke("tool_transform", { kind: "rotate_right" });
+    document.querySelector(".tw-panel button.primary")?.click();
+    await wait(600);
+    const row = (await invoke("timeline_view")).rows.find((r) => r.layer === tweenAt.layer);
+    const group = row?.spans.find((sp) => sp.group && sp.start === tweenAt.column);
+    tweenOk = panelShown && !toolStore.view.transform && !document.querySelector(".tw-panel")
+      && group?.length === tweenAt.length && (await undoCount()) === undo3 + 1 && (await lastLabel()) === "全体編集";
+    tweenNote = `パネル ${panelShown}、帯 ${group ? group.length : "なし"}／${tweenAt.length}`;
+  }
+
   const ok = before.tool === "lasso" && before.selection
     && afterP === "brush" && counts["tool:brush"] === 1
     && viaKeyOnly === 0 && counts.a_selection_clear === 1 && !afterD
     && unclaimed.length === 0 && !toast.includes("まだ移していません")
     && (counts["tool:dust"] ?? 0) === 0
-    && lineOk && transformOk && counts.a_transform_commit === 1 && onionOk && remapOk;
+    && lineOk && transformOk && counts.a_transform_commit === 1 && onionOk && remapOk && tweenOk;
   await invoke("report", {
     line: `ツールのキーの自己確認：${ok ? "成功" : "失敗"}\n` +
       `  P：ツール ${before.tool} → ${afterP}、tool:brush ${counts["tool:brush"] ?? 0} 回\n` +
@@ -124,6 +151,7 @@ export async function runToolsSelftest({ shell }) {
       `  変形：${transformOk ? "成功" : "失敗"}（始めた ${began}、つかんだ ${grabbed}、動いた ${moved}、確定 ${counts.a_transform_commit ?? 0} 回）\n` +
       `  オニオン：${onionOk ? "成功" : "失敗"}（表示 ${shown}、前のずらし ${shifted.previous.shift_x},${shifted.previous.shift_y}）\n` +
       `  タイムリマップ：${remapOk ? "成功" : "失敗"}（引き受け ${remapClaimed}、行 ${remapRows}、確かめ「${confirmText.split("\n")[0]}」、反映 ${remapApplied}）\n` +
+      `  トゥイーン：${tweenOk ? "成功" : "失敗"}（${tweenNote}）\n` +
       `  引き受けなかった操作：${unclaimed.join("、") || "なし"}　知らせ：${toast || "なし"}`,
   });
   await invoke("quit", { code: ok ? 0 : 1 });

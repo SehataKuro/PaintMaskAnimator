@@ -13,6 +13,7 @@
 // 再生ヘッドだけを描き直す（#107。キャンバスも同じ事件で今のコマを表示する）。
 
 import { pasteOnTimeline } from "./time_remap.js"; // 【タイムリマップの貼り付け】
+import { enableTween, editTween, cancelTween, pendingTween } from "./tween.js"; // 【トゥイーン】
 
 const LAYER_WIDTH = 190;
 const HEADER_HEIGHT = 25;
@@ -1112,7 +1113,8 @@ export function createTimelinePanel({ invoke }) {
       startRename(h.row);
     } else if (h.area === "cells" && h.row >= 0) {
       const span = spanAt(h.row, h.column);
-      if (span?.group) showStatus("トゥイーンの形を直すのは、キャンバスが文書を描くようになってから移します。", true);
+      // 【トゥイーン】確定したトゥイーンの帯をダブルクリックすると形を直す（Qt の tweenEditRequested）。
+      if (span?.group) editTween(view.rows[h.row].layer, span.start);
     }
   });
 
@@ -1338,16 +1340,21 @@ export function createTimelinePanel({ invoke }) {
         submenu: numbers.map((n) => ({ label: String(n), action: run("recall_number", { number: n }) })),
       });
     }
+    // 【トゥイーン】tween.js（Qt の timeline の tween メニュー）。
+    const pending = pendingTween();
     if (span?.group) {
       items.push("-",
-        { label: "トゥイーンの形を直す（まだ移していません）", enabled: false },
+        { label: "トゥイーンの形を直す", action: () => editTween(target.layer, span.start) },
         { label: "トゥイーンを解除（中割りを通常のセルにする）", action: run("release_tween") });
+    } else if (span && pending && pending.layer === target?.layer && span.start <= pending.key && pending.key < span.start + span.length) {
+      items.push("-", { label: "トゥイーンをキャンセル", action: () => cancelTween() });
     } else if (span && span.kind === "cell" && h.column === span.start + span.length - 1 && span.length >= 2 && sheet()) {
+      const tween = (mode) => () => enableTween(target.layer, span.start, mode, span.length);
       items.push("-", {
         label: "トゥイーンを有効にする",
         submenu: [
-          { label: "自由変形（まだ移していません）", enabled: false },
-          { label: "メッシュ変形（まだ移していません）", enabled: false },
+          { label: "自由変形", action: tween("free") },
+          { label: "メッシュ変形", action: tween("mesh") },
         ],
       });
     }

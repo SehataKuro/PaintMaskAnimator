@@ -270,6 +270,47 @@ impl PyTransformSession {
         Ok(PyRgbaImage::from(image))
     }
 
+    /// クオリティ変形と実線の色を変える。クオリティで描くか。
+    fn set_quality(&mut self, quality: bool, line_colors: Vec<[u8; 3]>) -> PyResult<bool> {
+        Ok(self.session_mut()?.set_quality(quality, line_colors))
+    }
+
+    /// トゥイーンの各コマの画像（`start` は始めたときの点）。点の数が合わなければ None。
+    fn tween_images(
+        &self,
+        start: Vec<Point>,
+        exposure: usize,
+        reverse: bool,
+    ) -> PyResult<Option<Vec<PyRgbaImage>>> {
+        let images = self
+            .session()?
+            .tween_images(&start, exposure, reverse)
+            .map_err(value_error)?;
+        Ok(images.map(|images| images.into_iter().map(PyRgbaImage::from).collect()))
+    }
+
+    /// トゥイーンのキーに持たせる設定の JSON（`tween_groups.make_spec`）。
+    fn tween_spec(
+        &self,
+        id: &str,
+        length: usize,
+        reverse: bool,
+        start: Vec<Point>,
+    ) -> PyResult<String> {
+        let session = self.session()?;
+        let spec = pma_core::tools::transform::tween_spec(
+            id,
+            length,
+            session.mode(),
+            reverse,
+            &start,
+            session.points(),
+            session.mesh_size(),
+            session.mesh_reference(),
+        );
+        Ok(spec.to_string())
+    }
+
     /// 確定する。(画像, 範囲, 前の画素, あとの画素)。
     fn commit<'py>(
         &mut self,
