@@ -44,6 +44,8 @@ mod prefs;
 mod project_meta;
 mod shell;
 mod shortcuts;
+// 【キャンバスの見え方：view.rs】シルエット・表示プレビュー・比較・市松模様・縮小・今の絵の書き出し。
+mod view;
 
 use session::{pack_rect, Point, Session, Shared, StrokeTool, Summary};
 use tauri::ipc::Response;
@@ -320,6 +322,9 @@ fn setup_shell(app: &tauri::App, sample: bool) -> Result<(), Box<dyn std::error:
             prefs.undo_max_steps(),
             prefs.undo_max_memory_mb(),
         ));
+        // 【キャンバスの見え方：view.rs】隣接色分けの仮の色・市松模様・縮小表示。
+        s.view.apply_prefs(&prefs);
+        let _ = s.redisplay();
         if !sample && std::env::args().nth(1).is_none() {
             let (w, h) = prefs.new_canvas_size();
             if let Err(e) = s.new_document(w as usize, h as usize) {
@@ -394,6 +399,12 @@ fn main() {
             quit,
             // タイムライン（timeline.rs）。
             timeline::timeline_view,
+            // 【キャンバスの見え方：view.rs】
+            view::view_state,
+            view::view_set,
+            view::view_shrunk,
+            view::view_save_snapshot,
+            view::view_copy_canvas,
             timeline::timeline_debug_options,
             timeline::timeline_select,
             timeline::timeline_select_rect,

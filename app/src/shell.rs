@@ -245,6 +245,8 @@ pub fn prefs_set(
     if key == prefs::WORKSPACES || key == prefs::ACTIVE_WORKSPACE {
         refresh_menu(&app);
     }
+    // 【キャンバスの見え方：view.rs】仮の色・市松模様・縮小表示はすぐ表示に使う。
+    crate::view::prefs_changed(&app, &key);
     Ok(resolved)
 }
 
