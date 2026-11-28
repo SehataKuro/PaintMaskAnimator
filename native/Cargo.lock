@@ -319,6 +319,7 @@ name = "pma-clip-import"
 version = "0.1.0"
 dependencies = [
  "clipfile",
+ "pma-core",
  "rusqlite",
 ]
 
@@ -347,6 +348,7 @@ name = "pma_native"
 version = "0.3.0"
 dependencies = [
  "clipfile",
+ "pma-clip-import",
  "pma-core",
  "pma-io",
  "pyo3",

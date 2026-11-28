@@ -3,21 +3,17 @@
 //! 形式の解釈は clipfile に任せ、ここでは合成に要る値（キャンバスの寸法・タイムライン・
 //! レイヤーの行・セルのキー・ラスター）を型のある値で返す。native/src/clip.rs の
 //! `ClipAnimationReader` と同じ値を、pyo3 なしで Tauri の画面からも読めるようにする。
+//! 合成と読み込みの手順（Qt 版 `read_clip_animation`）は pma-core の `import::clip`。
 use std::{fmt, fs::File, io::BufReader, path::Path};
 
 use clipfile::{Animation, ClipFile, Database, Document, Limits, PixelFormat};
+use pma_core::import::clip::{read_animation, Progress};
+use pma_core::import::image::MAX_IMAGE_DIMENSION;
+use pma_core::project::archive::MAX_PROJECT_IMAGE_BYTES;
 
-/// 読めなかった理由（文言は clipfile・SQLite のもの）。
-#[derive(Debug)]
-pub struct ClipError(pub String);
-
-impl fmt::Display for ClipError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl std::error::Error for ClipError {}
+pub use pma_core::import::clip::{
+    CelCurve, ClipAnimation, ClipError, ClipLayerRow, ClipMetadata, ClipRaster, RasterSource,
+};
 
 fn error(e: impl fmt::Display) -> ClipError {
     ClipError(e.to_string())
@@ -46,53 +42,6 @@ pub const EXTRA_COLUMNS: &[&str] = &[
     "LayerPaletteGreen",
     "LayerPaletteBlue",
 ];
-
-/// Layer 表の1行。`values` は列名と値（Python の辞書と同じ名前・並び）。
-#[derive(Clone, Debug, PartialEq)]
-pub struct ClipLayerRow {
-    pub id: i64,
-    pub name: String,
-    pub children: Vec<i64>,
-    pub values: Vec<(&'static str, i64)>,
-}
-
-impl ClipLayerRow {
-    /// 列の値（ない列は 0、Python の `_row_number` の既定と同じ）。
-    pub fn number(&self, name: &str) -> i64 {
-        self.values
-            .iter()
-            .find(|(key, _)| *key == name)
-            .map_or(0, |(_, value)| *value)
-    }
-}
-
-/// セル名の曲線のキー（60Hz の時刻とセル名）。
-pub type CelCurve = Vec<(f64, String)>;
-
-/// アニメーションの値。
-#[derive(Clone, Debug, PartialEq)]
-pub struct ClipMetadata {
-    pub width: f64,
-    pub height: f64,
-    pub fps: f64,
-    pub start_frame: f64,
-    pub end_frame: f64,
-    pub timeline_name: String,
-    pub layers: Vec<ClipLayerRow>,
-    /// セルを並べるトラック（レイヤーの MainId とセル名の曲線）。
-    pub tracks: Vec<(i64, Vec<CelCurve>)>,
-}
-
-/// 展開したラスター。`channels` は 4（RGBA）・1（グレー）・2（グレー＋アルファ）。
-#[derive(Clone, Debug, PartialEq)]
-pub struct ClipRaster {
-    pub width: u32,
-    pub height: u32,
-    pub channels: u8,
-    pub alpha_only: bool,
-    pub default_white: bool,
-    pub pixels: Vec<u8>,
-}
 
 /// 開いた .clip。
 pub struct ClipReader {
@@ -260,4 +209,41 @@ impl ClipReader {
             pixels: raster.pixels().to_vec(),
         })
     }
+}
+
+impl RasterSource for ClipReader {
+    fn raster(&mut self, mipmap_id: i64) -> Result<ClipRaster, ClipError> {
+        ClipReader::raster(self, mipmap_id)
+    }
+}
+
+/// .clip を読み、アニメーションフォルダーごとのセルの絵とキーにする（Qt 版
+/// `read_clip_animation`。元のファイルは変えない）。中止したら Ok(None)。
+pub fn read_clip_animation(
+    path: &Path,
+    progress: &mut Progress<'_>,
+) -> Result<Option<ClipAnimation>, ClipError> {
+    let is_clip = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("clip"));
+    if !is_clip {
+        return Err(ClipError(
+            "CLIP STUDIOの.clipファイルを指定してください。".into(),
+        ));
+    }
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if !progress(
+        0,
+        0,
+        format!("CLIP STUDIOアニメーションを解析しています：{name}"),
+    ) {
+        return Ok(None);
+    }
+    let mut reader = ClipReader::open(path, MAX_IMAGE_DIMENSION as u32, MAX_PROJECT_IMAGE_BYTES)?;
+    let metadata = reader.metadata()?;
+    read_animation(&name, &metadata, &mut reader, progress)
 }

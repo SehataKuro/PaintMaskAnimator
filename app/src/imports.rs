@@ -54,6 +54,8 @@ pub struct Imports {
     job: Option<Arc<AtomicBool>>,
     /// 2値化の窓で使う、1枚目と代表フレーム（ストレート RGBA）。
     prepared: Option<Prepared>,
+    /// CLIP STUDIO アニメーション（imports_clip.rs）：読んで、置き換えを確かめているあいだの結果。
+    pub(crate) clip: Option<pma_core::import::clip::ClipAnimation>,
 }
 
 pub type ImportsShared = Mutex<Imports>;
@@ -528,7 +530,7 @@ pub struct ImportEvent {
     pub cancelled: bool,
 }
 
-fn progress(app: &AppHandle, value: usize, total: usize, label: String) {
+pub(crate) fn progress(app: &AppHandle, value: usize, total: usize, label: String) {
     let _ = app.emit(
         "import-job",
         ImportEvent {
@@ -541,7 +543,7 @@ fn progress(app: &AppHandle, value: usize, total: usize, label: String) {
     );
 }
 
-fn finish(app: &AppHandle, event: ImportEvent) {
+pub(crate) fn finish(app: &AppHandle, event: ImportEvent) {
     app.state::<ImportsShared>().lock().unwrap().job = None;
     let _ = app.emit(
         "import-job",
@@ -561,7 +563,7 @@ pub fn import_cancel(state: State<ImportsShared>) {
 }
 
 /// 読み込みを始める印を立てる（ほかの読み込みが動いていれば Err）。
-fn begin_job(app: &AppHandle) -> Result<Arc<AtomicBool>, String> {
+pub(crate) fn begin_job(app: &AppHandle) -> Result<Arc<AtomicBool>, String> {
     let state = app.state::<ImportsShared>();
     let mut guard = state.lock().unwrap();
     if guard.job.is_some() {

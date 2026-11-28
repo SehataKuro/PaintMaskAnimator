@@ -75,6 +75,11 @@ impl PyCoreDocument {
         Self(document)
     }
 
+    /// 窓口のコアの文書（書き換え用、CLIP の線画の比較テストで使う）。
+    pub(crate) fn inner_mut(&mut self) -> &mut Document {
+        &mut self.0
+    }
+
     /// 窓口のコアの文書。
     pub(crate) fn inner(&self) -> &Document {
         &self.0

@@ -52,10 +52,15 @@ function openProgress(title, label, cancellable = true) {
 
 function onProgress(event) {
   if (!progress) return;
+  progress.text.textContent = event.label;
+  // 全体が 0 なら終わりの見えない棒（Qt の setRange(0, 0)。CLIP の解析）。
+  if (!event.total) {
+    progress.bar.removeAttribute("value");
+    return;
+  }
   const total = Math.max(1, event.total);
   progress.bar.max = total;
   progress.bar.value = Math.max(0, Math.min(total, event.value));
-  progress.text.textContent = event.label;
 }
 
 /// 読み込みを始め、終わり（import-job の done）を待つ。
@@ -568,7 +573,61 @@ async function importInitialState() {
   await runJob(title, tr("線画の初期状態を読み込んでいます…"), () => invoke("import_initial_state", { path }));
 }
 
+// ---------------------------------------------------------------------------
+// CLIP STUDIO アニメーション（ImportController.clip_animation・app/src/imports_clip.rs）
+// ---------------------------------------------------------------------------
+
+let hooks = {}; // {save}：先に保存する（shell.js の「保存」）。
+
+/// 置き換える前に尋ねる（_confirm_replace_document）。続けてよければ true。
+async function confirmReplace() {
+  if (!(await invoke("import_clip_needs_confirm"))) return true;
+  const answer = await message(
+    tr("CLIP STUDIOアニメーションを読み込む"),
+    tr("現在のキャンバスをCLIP STUDIOアニメーションで置き換えます。\n先に現在のプロジェクトを保存しますか？"),
+    [
+      [tr("保存する"), "save", true],
+      [tr("保存せず読み込む"), "discard"],
+      [tr("キャンセル"), "cancel"],
+    ],
+    "cancel",
+  );
+  if (answer === "save") return Boolean(await hooks.save?.());
+  return answer === "discard";
+}
+
+/// clip_animation_dialog：読んでから置き換えを確かめ、今の文書を置き換える。
+async function importClip() {
+  const picked = await invoke("import_pick", { kind: "clip", title: tr("CLIP STUDIOアニメーションを読み込む") });
+  const path = picked?.paths?.[0];
+  // Qt は .clip でなければ何もしない。
+  if (!path || !/\.clip$/i.test(path)) return;
+  const title = tr("CLIP STUDIOアニメーション読み込み");
+  const event = await runJob(title, tr("CLIP STUDIOアニメーションを解析しています…"), () => invoke("import_clip", { path }));
+  if (!event || event.error || event.cancelled) return;
+  if (!(await confirmReplace())) {
+    await invoke("import_clip_discard");
+    return;
+  }
+  try {
+    notify(await invoke("import_clip_apply"));
+  } catch (e) {
+    await message(title, String(e));
+  }
+}
+
+/// InitialStateController.import_clip_line_art_dialog。
+async function importClipInitialState() {
+  const title = tr("CLIPの線画を初期状態として読み込む");
+  const picked = await invoke("import_pick", { kind: "clip", title });
+  const path = picked?.paths?.[0];
+  if (!path) return;
+  await runJob(title, tr("線画の初期状態を読み込んでいます…"), () => invoke("import_clip_initial_state", { path }));
+}
+
 const ACTIONS = {
+  a_import_clip: importClip,
+  a_import_clip_initial_state: importClipInitialState,
   a_import_images: importImages,
   a_import_initial_state: importInitialState,
   a_import_psd: importPsd,
@@ -577,8 +636,9 @@ const ACTIONS = {
   a_import_images_raw: importRaw,
 };
 
-/// 読み込みの画面を組み込む。
-export function installImports() {
+/// 読み込みの画面を組み込む。`save` は先に保存する関数（CLIP の置き換えの確かめ）。
+export function installImports({ save } = {}) {
+  hooks = { save };
   listen("import-job", ({ payload }) => {
     if (payload.phase === "progress") {
       onProgress(payload);
