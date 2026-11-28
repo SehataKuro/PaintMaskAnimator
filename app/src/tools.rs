@@ -1979,6 +1979,46 @@ mod tests {
         );
     }
 
+    /// 投げ縄塗りの「境界線の内側」と対象色（`fill_lasso_polygon` の inside_boundary・
+    /// target_color）：投げ縄の重心に近い透明・白の画素からつながる所だけを塗り、
+    /// 線の向こう側は塗らない。対象色が透明なら線の上は塗らない。
+    #[test]
+    fn lasso_fill_inside_boundary_and_target_color_follow_qt() {
+        let mut s = big();
+        let (w, h) = size(&s);
+        // 消して透明にし、x = 0.7 に縦の黒い線を引く。
+        select_rect(&mut s, [0.0, 0.0], [w, h]);
+        delete_selection_contents(&mut s).unwrap();
+        s.tools.selection.clear();
+        s.tools.settings.color_main = [0, 0, 0];
+        s.tools.settings.brush_size = 3.0;
+        line(&mut s, [w * 0.7, -2.0], [w * 0.7, h + 2.0], None, false).unwrap();
+        let line_x = (w * 0.7) as usize;
+        let mid = (h * 0.5) as usize;
+        assert_eq!(pixel(&s, line_x, mid), [0, 0, 0, 255]);
+        let rect = [
+            [w * 0.1, h * 0.1],
+            [w * 0.9, h * 0.1],
+            [w * 0.9, h * 0.9],
+            [w * 0.1, h * 0.9],
+        ];
+        // 境界線の内側：重心（x = 0.5）の側だけ。線の上と向こう側は塗らない。
+        s.tools.settings.color_main = [9, 8, 7];
+        s.tools.settings.lasso_inside_boundary = true;
+        lasso_fill(&mut s, &rect).unwrap().unwrap();
+        assert_eq!(pixel(&s, (w * 0.3) as usize, mid), [9, 8, 7, 255]);
+        assert_eq!(pixel(&s, line_x, mid), [0, 0, 0, 255]);
+        assert_eq!(pixel(&s, (w * 0.85) as usize, mid)[3], 0);
+        // 対象色が透明：境界線を使わなければ両側の透明を塗り、線は残す。
+        s.tools.settings.lasso_inside_boundary = false;
+        s.tools.settings.bucket_target_color = "transparent".into();
+        s.tools.settings.color_main = [1, 1, 1];
+        lasso_fill(&mut s, &rect).unwrap().unwrap();
+        assert_eq!(pixel(&s, (w * 0.85) as usize, mid), [1, 1, 1, 255]);
+        assert_eq!(pixel(&s, (w * 0.3) as usize, mid), [9, 8, 7, 255]);
+        assert_eq!(pixel(&s, line_x, mid), [0, 0, 0, 255]);
+    }
+
     #[test]
     fn mask_color_filter_blocks_lasso_fill() {
         let mut s = big();
