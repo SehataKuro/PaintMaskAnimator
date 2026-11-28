@@ -62,6 +62,8 @@ struct Snapshot {
     memo: String,
     range_end: Option<i64>,
     fps: u32,
+    /// 【Group C】書き出しの合成の表示フィルタ（display_options）。
+    display: DisplayOptions,
 }
 
 fn snapshot(app: &tauri::AppHandle) -> Result<Snapshot, String> {
@@ -74,14 +76,16 @@ fn snapshot(app: &tauri::AppHandle) -> Result<Snapshot, String> {
         memo: crate::project_meta::memo(&project.metadata),
         range_end: s.timeline.range_end.map(|end| end as i64),
         fps: s.timeline.fps,
+        display: display_options(&s),
     })
 }
 
 /// 書き出しの合成の表示の設定。
-// HOOK(used_colors)：Qt は使用色パネルの絞り込み（visible_color_rgbs など）を書き出しの合成にも
-// 掛ける。使用色パネルが Session に設定を持つようになったら、ここで読む。
-fn display_options() -> DisplayOptions {
-    DisplayOptions::default()
+// 【Group C】Qt の composite は画面と同じ表示フィルタ（使用色の絞り込み visible_color_rgbs・
+// 子色を親色で見せる preview_color_remap・シルエット）を掛ける（canvas.py の
+// _display_layer_image）。キャンバスと同じ設定（colors.rs の sync が合わせる）を読む。
+fn display_options(s: &crate::session::Session) -> DisplayOptions {
+    s.colors.display.clone()
 }
 
 // ---------------------------------------------------------------------------
@@ -156,14 +160,13 @@ pub fn export_target_state(path: String) -> Result<&'static str, String> {
 /// 今のコマの白地の合成を PNG か TGA で書く（`save_png`・`save_tga`）。
 #[tauri::command]
 pub fn export_frame(app: tauri::AppHandle, format: String, path: String) -> Result<(), String> {
-    let (data, frame) = {
+    let (data, frame, options) = {
         let state = app.state::<Shared>();
         let s = state.lock().unwrap();
         let project = s.project.as_ref().ok_or("作品を開いていません")?;
         let (frame, _) = crate::session::current_index(&project.document);
-        (project.document.clone(), frame)
+        (project.document.clone(), frame, display_options(&s))
     };
-    let options = display_options();
     let bytes = match format.as_str() {
         "tga" => export::frame_tga(&data, frame, &options),
         _ => export::frame_png(&data, frame, &options),
@@ -860,7 +863,7 @@ fn encode_mp4(
         text
     });
     let mut stdin = child.stdin.take();
-    let options = display_options();
+    let options = snap.display.clone();
     let mut cached: Option<(usize, Vec<u8>)> = None;
     let mut failure = None;
     for (index, &frame) in order.iter().enumerate() {
