@@ -289,6 +289,19 @@ impl PyCoreDocument {
             .map_err(value_error)
     }
 
+    /// MainLineRepaint（比較テスト用）。選んだ色が無ければ None。
+    fn main_line_repaint(
+        &mut self,
+        layer: usize,
+        selected: Vec<(u8, u8, u8)>,
+    ) -> PyResult<Option<String>> {
+        let selected: Vec<[u8; 3]> = selected.into_iter().map(|(r, g, b)| [r, g, b]).collect();
+        self.0
+            .main_line_repaint(layer, &selected)
+            .map(|done| done.map(|done| comparison::command_notices(done.changes)))
+            .map_err(value_error)
+    }
+
     /// レイアウト用紙を一番下の下書きレイヤーとして入れる（比較テスト用）。
     fn insert_layout_paper(
         &mut self,

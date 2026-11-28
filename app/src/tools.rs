@@ -1406,14 +1406,45 @@ pub fn dust_apply(s: &mut Session) -> Result<Option<Rect>, String> {
     }
 }
 
-/// HOOK(action)：アクションのパネルのボタン（Qt は actions フォルダーの Python）。
-pub fn run_action(_s: &mut Session, id: &str) -> Result<(), String> {
-    let name = match id {
-        "same_image_replacement" => "同一画像から色置換",
-        "main_line_repaint" => "MainLineRepaint",
-        other => other,
-    };
-    Err(pending(name))
+/// アクションのパネルのボタン（Qt は actions フォルダーの Python）。知らせ（Qt の
+/// ステータスバー）を返す。確かめの窓は画面（actions.js）が先に出す。
+pub fn run_action(s: &mut Session, id: &str) -> Result<Option<String>, String> {
+    match id {
+        "main_line_repaint" => main_line_repaint(s),
+        "same_image_replacement" => Err(pending("同一画像から色置換")),
+        other => Err(pending(other)),
+    }
+}
+
+/// MainLineRepaint（`line_ops.main_line_repaint`、計算は pma-core の
+/// `Document::main_line_repaint`）。使用色パネルで選んだ色を LINE へ、残りを Paint へ分け、
+/// 元のレイヤーを隠す。履歴は Qt の DocUndo と同じ「全体編集」。
+pub fn main_line_repaint(s: &mut Session) -> Result<Option<String>, String> {
+    let p = s.project.as_ref().ok_or("作品を開いていません")?;
+    if p.document.frame_order().is_empty() {
+        return Ok(None);
+    }
+    let mut selected: Vec<[u8; 3]> = s.tools.paint.used_selection.clone();
+    selected.sort_unstable();
+    selected.dedup();
+    if selected.is_empty() {
+        return Err("使用色欄で分離したい色を1色以上選択してください。".into());
+    }
+    let (_, layer) = crate::session::current_index(&p.document);
+    if !p.document.line_colours_present(layer, &selected) {
+        return Err(
+            "選択した使用色が選択レイヤー内に見つかりませんでした。\n処理は適用しません。".into(),
+        );
+    }
+    s.edit_with(Some("全体編集"), |doc, _| {
+        let done = doc
+            .main_line_repaint(layer, &selected)
+            .map_err(|e| e.to_string())?;
+        Ok(((), done.is_some()))
+    })?;
+    Ok(Some(
+        "LINE／Paintを作成し、元レイヤーを非表示にしました。".into(),
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -1772,7 +1803,7 @@ pub fn tool_dust_apply(app: tauri::AppHandle) -> Result<Response, String> {
 }
 
 #[tauri::command]
-pub fn action_run(app: tauri::AppHandle, id: String) -> Result<(), String> {
+pub fn action_run(app: tauri::AppHandle, id: String) -> Result<Option<String>, String> {
     with_tools(&app, false, |s| run_action(s, &id))
 }
 
@@ -2434,10 +2465,41 @@ mod tests {
         if transform(&mut s, "mesh").is_ok() {
             transform(&mut s, "cancel").unwrap();
         }
+        assert!(run_action(&mut s, "same_image_replacement")
+            .unwrap_err()
+            .contains("同一画像から色置換"));
+        // MainLineRepaint は使用色を選んでいなければ尋ねるだけ。
+        s.tools.paint.used_selection.clear();
         assert!(run_action(&mut s, "main_line_repaint")
             .unwrap_err()
-            .contains("MainLineRepaint"));
+            .contains("使用色欄"));
         assert!(s.history().undo.is_empty());
+    }
+
+    #[test]
+    fn main_line_repaint_adds_paint_and_line_above_the_hidden_layer() {
+        let mut s = big();
+        let (image, _, layer) = active_image(&s).unwrap();
+        let rgb = image
+            .rgba()
+            .chunks_exact(4)
+            .find(|p| p[3] > 0)
+            .map(|p| [p[0], p[1], p[2]])
+            .expect("見本の文書の今の絵に色がある");
+        let before = s.project.as_ref().unwrap().document.track_order().len();
+        s.tools.paint.used_selection = vec![rgb];
+        let status = run_action(&mut s, "main_line_repaint").unwrap();
+        assert!(status.unwrap().contains("LINE／Paint"));
+        let doc = &s.project.as_ref().unwrap().document;
+        assert_eq!(doc.track_order().len(), before + 2);
+        assert_eq!(crate::session::current_index(doc).1, layer + 2);
+        assert_eq!(s.history().undo.len(), 1);
+        // 選んだ色が無ければ文書を変えない。
+        s.tools.paint.used_selection = vec![[1, 2, 3]];
+        assert!(run_action(&mut s, "main_line_repaint")
+            .unwrap_err()
+            .contains("見つかりませんでした"));
+        assert_eq!(s.history().undo.len(), 1);
     }
 
     #[test]

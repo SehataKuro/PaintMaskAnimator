@@ -13,6 +13,7 @@ import { toolFlags, notify, openPressureDialog } from "./tool_properties.js";
 import { bucketDown, bucketMove, bucketUp, skewerClick, replaceColor, dustApply } from "./paint_ops.js";
 // 【オニオン：onion.js】合わせる操作のドラッグと Ctrl＋クリック（#60）。
 import { onionStore, onionInteraction, toggleOnionSettings } from "./onion.js";
+import { runBuiltinAction } from "./actions.js"; // 【アクション】MainLineRepaint
 
 const { invoke } = window.__TAURI__.core;
 
@@ -591,7 +592,8 @@ export function createCanvasTools({ canvas, viewer, overlay, applyRect }) {
     a_brush_smaller: () => brushStep(-1),
     a_brush_larger: () => brushStep(1),
     a_pressure: () => openPressureDialog(),
-    a_mainline_repaint: () => run("action_run", { id: "main_line_repaint" }),
+    // 【アクション】確かめの窓は actions.js。
+    a_mainline_repaint: () => runBuiltinAction("main_line_repaint"),
     a_selection_transform: () => transformCommand("free"),
     a_selection_scale: () => transformCommand("scale"),
     a_selection_mesh: () => transformCommand("mesh"),
