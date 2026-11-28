@@ -14,6 +14,7 @@ pub mod line_split;
 pub mod line_tidy;
 pub mod palette_build;
 pub mod reduce;
+pub mod scan_paper;
 pub mod soft_blur;
 
 use crate::image::{Rect, RgbaImage};

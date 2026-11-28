@@ -20,6 +20,8 @@ import { createCanvasTools } from "./canvas_tools.js";
 // 塗りの操作（paint_ops.js）：串刺し塗りの案内・自動で塗る・見本との違いチェック。
 import { installPaintOps } from "./paint_ops.js";
 import { installExport } from "./export.js"; // 書き出し（export.js）。
+// 読み込み（imports.js）。
+import { installImports } from "./imports.js";
 import { runToolsSelftest } from "./tools_selftest.js";
 // 【アプリの外枠】メニュー・ファイル・環境設定など（shell.js）と、ヒストリーのパネル。
 import { initShell } from "./shell.js";
@@ -118,6 +120,7 @@ const overlay = new Overlay(canvasPanel, viewer);
 const canvasTools = createCanvasTools({ canvas, viewer, overlay, applyRect });
 installPaintOps({ host: canvasPanel, viewer, applyRect }); // paint_ops.js
 installExport(); // 書き出し（export.js）。
+installImports(); // imports.js
 
 // 窓の中身の座標（CSS の px）をキャンバス要素の座標にする。
 function toCanvas(x, y) {

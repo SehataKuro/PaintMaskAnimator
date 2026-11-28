@@ -264,6 +264,43 @@ impl PyCoreDocument {
             .map_err(value_error)
     }
 
+    /// 読み込んだ絵の列を末尾に足す（比較テスト用、`import_image_tracks`）。
+    /// `tracks` は (名前, 下書き, 表示, 不透明度, 絵の列)。
+    #[allow(clippy::type_complexity)]
+    fn import_image_tracks(
+        &mut self,
+        start_frame: usize,
+        tracks: Vec<(String, bool, bool, f64, Vec<PyRef<'_, PyRgbaImage>>)>,
+    ) -> PyResult<String> {
+        let tracks = tracks
+            .into_iter()
+            .map(|(name, draft, visible, opacity, images)| {
+                let mut track =
+                    pma_core::document::import_commands::ImportedTrack::new(name, shared(&images));
+                track.draft = draft;
+                track.visible = visible;
+                track.opacity = opacity;
+                track
+            })
+            .collect();
+        self.0
+            .import_image_tracks(start_frame, tracks)
+            .map(comparison::command_notices)
+            .map_err(value_error)
+    }
+
+    /// レイアウト用紙を一番下の下書きレイヤーとして入れる（比較テスト用）。
+    fn insert_layout_paper(
+        &mut self,
+        name: &str,
+        image: PyRef<'_, PyRgbaImage>,
+    ) -> PyResult<String> {
+        self.0
+            .insert_layout_paper(name, image.share())
+            .map(comparison::command_notices)
+            .map_err(value_error)
+    }
+
     /// 同じ列のバンク参照を配置前の位置に複製する。
     fn stage_drawing_reference(
         &mut self,

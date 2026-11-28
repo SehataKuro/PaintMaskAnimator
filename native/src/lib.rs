@@ -37,6 +37,8 @@ mod palette_labels;
 mod project_archive;
 mod project_payload;
 mod project_zip;
+// PSD の読み込み（Tauri 移行の読み込み担当が追加）。
+mod psd_import;
 mod reference_check;
 mod reference_scan;
 mod selection;
@@ -407,6 +409,7 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(fill_session::track_fill_region, module)?)?;
     module.add_function(wrap_pyfunction!(py_extend_line_ends, module)?)?;
     image_ops::register(module)?;
+    module.add_function(wrap_pyfunction!(psd_import::import_read_psd, module)?)?;
     module.add_function(wrap_pyfunction!(export::export_cut_folder_cels, module)?)?;
     module.add_function(wrap_pyfunction!(export::export_plan_cut_folder, module)?)?;
     module.add_function(wrap_pyfunction!(export::export_write_cut_folder, module)?)?;

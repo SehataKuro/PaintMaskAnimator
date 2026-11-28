@@ -166,28 +166,7 @@ pub fn make_border_background_transparent(
 ) -> Result<PremulImage, Error> {
     let (width, height) = (image.width(), image.height());
     let rgba = qt_unpremultiply(image);
-    // color_ops.detect_opaque_border_background：半透明を含む画像は対象外。
-    if rgba.chunks_exact(4).any(|p| p[3] < 250) {
-        return Ok(image.clone());
-    }
-    let rgb = |x: usize, y: usize| -> [u8; 3] {
-        let i = (y * width + x) * 4;
-        [rgba[i], rgba[i + 1], rgba[i + 2]]
-    };
-    let mut border = Vec::new();
-    for y in [0, height - 1] {
-        for x in 0..width {
-            border.extend_from_slice(&rgb(x, y));
-        }
-    }
-    if height > 2 {
-        for x in [0, width - 1] {
-            for y in 1..height - 1 {
-                border.extend_from_slice(&rgb(x, y));
-            }
-        }
-    }
-    let Some(background) = border_background(&border)? else {
+    let Some(background) = detect_opaque_border_background(&rgba, width, height)? else {
         return Ok(image.clone());
     };
     let limit = tolerance * tolerance * 3;
@@ -246,6 +225,36 @@ pub fn make_border_background_transparent(
         }
     }
     to_premultiplied(width, height, &changed)
+}
+
+/// 外周につながる不透明な明色背景（`color_ops.detect_opaque_border_background`）。
+/// 半透明・透明を含む画像や、背景と見なせる色が無ければ None。
+pub fn detect_opaque_border_background(
+    rgba: &[u8],
+    width: usize,
+    height: usize,
+) -> Result<Option<[u8; 3]>, Error> {
+    if width == 0 || height == 0 || rgba.chunks_exact(4).any(|p| p[3] < 250) {
+        return Ok(None);
+    }
+    let rgb = |x: usize, y: usize| -> [u8; 3] {
+        let i = (y * width + x) * 4;
+        [rgba[i], rgba[i + 1], rgba[i + 2]]
+    };
+    let mut border = Vec::new();
+    for y in [0, height - 1] {
+        for x in 0..width {
+            border.extend_from_slice(&rgb(x, y));
+        }
+    }
+    if height > 2 {
+        for x in [0, width - 1] {
+            for y in 1..height - 1 {
+                border.extend_from_slice(&rgb(x, y));
+            }
+        }
+    }
+    border_background(&border)
 }
 
 /// 置く前の変換（`convert_import_image`、2値化の設定なし）。
@@ -326,6 +335,62 @@ pub fn import_image_file(
         convert_import_image(&image, is_jpeg_path(path), draft).map_err(decode_error)?;
     let placed = place_centered(canvas_width, canvas_height, &converted).map_err(decode_error)?;
     to_document_image(&placed).map_err(decode_error)
+}
+
+/// 置く前の変換のやり方（`convert_import_image` の引数）。
+#[derive(Clone, Debug)]
+pub enum Conversion {
+    /// 変換せず読み込む（下書きレイヤー）。
+    Draft,
+    /// 2値化の設定なし：JPEG は外周の背景、それ以外は純白を透明にする。
+    Plain,
+    /// 2値化の設定をかける（`reduce_image_with_settings`。デジタル TP のアンチエイリアス除去も）。
+    Reduce(crate::image_ops::reduce::ReduceSettings),
+}
+
+/// 読み込んだ1枚に [`Conversion`] をかける（`convert_import_image`）。
+pub fn convert_with(
+    image: &PremulImage,
+    is_jpeg: bool,
+    conversion: &Conversion,
+) -> Result<PremulImage, Error> {
+    match conversion {
+        Conversion::Draft => convert_import_image(image, is_jpeg, true),
+        Conversion::Plain => convert_import_image(image, is_jpeg, false),
+        Conversion::Reduce(settings) => {
+            // Python は QImage（乗算済み）を qimage_rgba_array でストレートへ戻してから計算し、
+            // 結果を乗算済みの QImage に戻す。
+            let rgba = qt_unpremultiply(image);
+            let out = crate::image_ops::reduce::reduce_rgba(
+                &rgba,
+                image.width(),
+                image.height(),
+                settings,
+            )?;
+            to_premultiplied(image.width(), image.height(), &out)
+        }
+    }
+}
+
+/// 画像ファイル1枚を読み、`conversion` をかけてキャンバスの中央に置いた文書の絵にする
+/// （`import_image_sequence` の1枚分）。
+pub fn import_image_file_with(
+    data: &[u8],
+    path: &str,
+    canvas_width: usize,
+    canvas_height: usize,
+    conversion: &Conversion,
+) -> Result<RgbaImage, ReadError> {
+    let image = read_image(data)?;
+    let converted = convert_with(&image, is_jpeg_path(path), conversion).map_err(decode_error)?;
+    let placed = place_centered(canvas_width, canvas_height, &converted).map_err(decode_error)?;
+    to_document_image(&placed).map_err(decode_error)
+}
+
+/// 画像を Qt が計算に使うストレート RGBA（`qimage_rgba_array`）で読む。
+pub fn read_straight(data: &[u8]) -> Result<(usize, usize, Vec<u8>), ReadError> {
+    let image = read_image(data)?;
+    Ok((image.width(), image.height(), qt_unpremultiply(&image)))
 }
 
 #[cfg(test)]
