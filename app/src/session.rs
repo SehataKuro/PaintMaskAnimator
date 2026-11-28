@@ -14,10 +14,12 @@
 //! 合成した表示はコマごとに控える（`FrameCache`）。再生ではコマを変えるたびに控えから
 //! 取り出すだけにし、文書の中身が変わったら控えを捨てる。
 
+// 使用色パネル（colors.rs）。
+use crate::colors::ColorUi;
 use crate::history::{Listing, Undo};
 use crate::timeline::{Playhead, TimelineUi};
 use pma_core::brush::stroke::{BrushSettings, BrushStroke, PointerSample};
-use pma_core::compose::{self, Background, DisplayOptions};
+use pma_core::compose;
 use pma_core::document::model::Document;
 use pma_core::image::{Rect, RgbaImage};
 use pma_core::project::archive::{self, OpenedProject, PngCache, SaveOptions};
@@ -59,6 +61,8 @@ pub struct Session {
     structure_revision: u64,
     /// 絵が変わるたびに増える。
     pixels_revision: u64,
+    /// 使用色パネル（colors.rs）：描画色・使用色パネル・カラーチャート・キャンバスの表示の絞り込み。
+    pub colors: ColorUi,
     // ツール（tools.rs）：ツールの設定と画素の選択範囲。
     pub tools: crate::tools::ToolState,
     /// 履歴の上限（環境設定。作品を開き直しても使う）。【アプリの外枠：shell.rs】
@@ -212,6 +216,7 @@ impl Session {
             cache: FrameCache::default(),
             structure_revision: 0,
             pixels_revision: 0,
+            colors: ColorUi::default(),
             tools: crate::tools::ToolState::default(),
             history_limits: crate::history::LIMITS,
         }
@@ -255,6 +260,9 @@ impl Session {
     fn install(&mut self, mut project: Project) -> Result<(), String> {
         self.active = None;
         self.last = None;
+        // 使用色パネル（colors.rs）：描画色・使用色フォルダー・カラーチャートを作品から読む。
+        self.colors = ColorUi::from_metadata(&project.metadata);
+        crate::colors::drawing_from_metadata(&project.metadata, &mut self.tools.settings);
         // ツール（tools.rs）：選択範囲は作品ごと。
         self.tools.selection.clear();
         // 【変形：transform.rs】変形の途中も作品ごと（前の作品の文書は捨てる）。
@@ -317,6 +325,9 @@ impl Session {
             .map(Path::to_path_buf)
             .or_else(|| project.path.clone())
             .ok_or("保存先がありません")?;
+        // 使用色パネル（colors.rs）：描画色・使用色フォルダー・カラーチャートを作品へ書く。
+        self.colors
+            .store(&self.tools.settings, &mut project.metadata);
         // サムネイルは合成の画像から作る予定（project_io._thumbnail_png と同じ大きさ）。今は入れない。
         let options = SaveOptions::new(zip_time_now());
         let bytes = archive::save_project(
@@ -469,15 +480,19 @@ impl Session {
 
     /// ヒストリーパネルのクリック（本線）：delta 回だけ戻す・進める。動いたら true。
     pub fn jump_history(&mut self, delta: i64) -> Result<bool, String> {
-        self.move_history(|p| p.undo.jump(delta, &mut p.document) > 0)
+        self.move_history(|p, palette| p.undo.jump(delta, &mut p.document, palette) > 0)
     }
 
     /// ヒストリーパネルのクリック（分岐）：分岐へ切り替え、steps 手進める。
     pub fn switch_history_branch(&mut self, index: usize, steps: usize) -> Result<bool, String> {
-        self.move_history(|p| p.undo.switch_branch(index, steps, &mut p.document))
+        self.move_history(|p, palette| p.undo.switch_branch(index, steps, &mut p.document, palette))
     }
 
-    fn move_history(&mut self, f: impl FnOnce(&mut Project) -> bool) -> Result<bool, String> {
+    /// 使用色パネル（colors.rs）の状態も同じ件で戻す。
+    fn move_history(
+        &mut self,
+        f: impl FnOnce(&mut Project, &mut pma_core::used_colors::UsedColors) -> bool,
+    ) -> Result<bool, String> {
         if self.active.is_some() {
             return Ok(false);
         }
@@ -486,7 +501,7 @@ impl Session {
         let Some(p) = &mut self.project else {
             return Ok(false);
         };
-        let done = f(p);
+        let done = f(p, &mut self.colors.palette);
         // 分岐の切り替えは失敗しても分岐の一覧が変わることがあるので、形は進める。
         self.timeline.prune_selection(&p.document);
         self.touch_structure();
@@ -514,10 +529,12 @@ impl Session {
         let Some(p) = &mut self.project else {
             return Ok(false);
         };
+        // 使用色パネル（colors.rs）の状態も同じ件で戻す。
+        let palette = &mut self.colors.palette;
         let done = if back {
-            p.undo.undo(&mut p.document)
+            p.undo.undo(&mut p.document, palette)
         } else {
-            p.undo.redo(&mut p.document)
+            p.undo.redo(&mut p.document, palette)
         };
         if done {
             self.timeline.prune_selection(&p.document);
@@ -572,9 +589,13 @@ impl Session {
         let image = match self.cache.by_key.get(&key) {
             Some(image) => image.clone(),
             None => {
-                let image =
-                    compose::composite(doc, frame, &DisplayOptions::default(), Background::White)
-                        .map_err(|e| e.to_string())?;
+                // 使用色パネル（colors.rs）の表示の絞り込み・置換プレビューと背景の表示色。
+                let (options, background) = (
+                    &self.colors.display,
+                    crate::colors::canvas_background(&self.tools.settings),
+                );
+                let image = compose::composite(doc, frame, options, background)
+                    .map_err(|e| e.to_string())?;
                 let (w, h) = (image.width(), image.height());
                 RgbaImage::from_rgba(w, h, &image.to_straight_bytes()).map_err(|e| e.to_string())?
             }
@@ -665,16 +686,17 @@ impl Session {
         let Some(active) = self.active.take() else {
             return Ok(None);
         };
+        let result = active
+            .stroke
+            .finish(release.map(|p| p.sample()))
+            .map_err(|e| e.to_string())?;
         let ActiveStroke {
-            stroke,
             before,
             frame,
             layer,
             label,
+            ..
         } = active;
-        let result = stroke
-            .finish(release.map(|p| p.sample()))
-            .map_err(|e| e.to_string())?;
         let p = self.project.as_mut().ok_or("作品を開いていません")?;
         let Some(undo) = result.undo else {
             // どこにも描かなかった：文書を押す前に戻す。
@@ -734,14 +756,10 @@ impl Session {
         let doc = &p.document;
         let (frame_id, _) = doc.selection();
         let frame = doc.frame_index(frame_id).unwrap_or(0);
-        let image = compose::composite_rect(
-            doc,
-            frame,
-            &DisplayOptions::default(),
-            Background::White,
-            rect,
-        )
-        .map_err(|e| e.to_string())?;
+        // 使用色パネル（colors.rs）の表示の絞り込み・置換プレビューと背景の表示色。
+        let background = crate::colors::canvas_background(&self.tools.settings);
+        let image = compose::composite_rect(doc, frame, &self.colors.display, background, rect)
+            .map_err(|e| e.to_string())?;
         self.display
             .write_rgba(rect, &image.to_straight_bytes())
             .map_err(|e| e.to_string())?;
@@ -798,6 +816,20 @@ impl Session {
         }
         self.display.write_rgba(rect, &px).ok()?;
         Some(rect)
+    }
+}
+
+impl Session {
+    /// 使用色パネル（colors.rs）：表示の設定が変わったので、控えた合成を捨てて合成し直す。
+    pub fn redisplay(&mut self) -> Result<(), String> {
+        self.cache.clear();
+        self.recompose()
+    }
+
+    /// 使用色パネル（colors.rs）：使用色を数え直すかの印（作品・形・絵・選択レイヤー）。
+    pub fn scan_stamp(&self) -> (bool, u64, u64, usize) {
+        let m = self.mark();
+        (m.loaded, m.structure, m.pixels, m.layer)
     }
 }
 

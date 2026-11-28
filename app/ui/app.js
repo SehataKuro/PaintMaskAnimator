@@ -11,6 +11,11 @@ import { Viewer } from "./viewer.js";
 import { createLayout } from "./layout.js";
 // タイムラインのパネル（timeline.js）。
 import { createTimelinePanel } from "./timeline.js";
+// 色のパネル（カラーサークル・カラースライダー・使用色。color_state.js が状態を持つ）。
+import { createColorWheelPanel } from "./color_wheel.js";
+import { createColorSlidersPanel } from "./color_sliders.js";
+import { createUsedColorsPanel } from "./used_colors.js";
+import { eyedrop, startColors } from "./color_state.js";
 // ツール・ツールプロパティ・アクションのパネルと、キャンバスの上のツール（tools.js ほか）。
 import { toolStore, createToolsPanel } from "./tools.js";
 import { createToolPropertiesPanel } from "./tool_properties.js";
@@ -52,6 +57,11 @@ createLayout(document.getElementById("dock"), {
   timeline: () => (timelinePanel = createTimelinePanel({ invoke })),
   // 【アプリの外枠】ヒストリー（history_panel.js）。
   history: () => createHistoryPanel({ invoke, listen }),
+  // 色のパネル（color_wheel.js・color_sliders.js・used_colors.js）。描画色はツールの設定
+  // （tools-changed）、使用色とチャートは palette-changed・chart-changed で表示を合わせる。
+  "color-wheel": () => createColorWheelPanel(),
+  "color-sliders": () => createColorSlidersPanel(),
+  "used-colors": () => createUsedColorsPanel(),
 });
 // 【アプリの外枠】shell.js（main で始める）。
 let shell = null;
@@ -137,6 +147,12 @@ let panning = null;
 function feed(phase, device, x, y, pressure, tiltX, tiltY) {
   showStatus(device, pressure, tiltX, tiltY);
   const p = toCanvas(x, y);
+  // 色のパネルのスポイト（カラーピッカー・置換色）が待っていれば、線もツールも使わずに
+  // ツールのスポイトと同じ拾い方（tool_sample_color）で色を拾う。
+  if (phase === "down" && !stroke && eyedrop.waiting()) {
+    if (p.inside && document.elementFromPoint(x, y) === canvas) pickCanvasColor(p.x, p.y);
+    return;
+  }
   // ブラシの線の途中でなければ、ツールごとの操作に任せる（canvas_tools.js）。
   if (!stroke && !panning && (phase !== "down" || (p.inside && document.elementFromPoint(x, y) === canvas)) &&
       canvasTools.feed(phase, device, p.x, p.y, pressure)) return;
@@ -350,6 +366,29 @@ async function scheduleReload(fit = false) {
   }
 }
 
+// スポイト：表示しているキャンバスの画素（背景の表示色・置換のプレビューを含む）を拾う。
+// 色のパネルのスポイト：ツールのスポイトと同じく、表示しているレイヤーの元の色を拾う
+// （描画色は変えない）。透明・白は白（背景）。画像の外なら null。
+async function pickCanvasColor(sx, sy) {
+  const q = viewer.screenToImage(sx, sy);
+  try {
+    const picked = await invoke("tool_sample_color", { x: q.x, y: q.y, source: "display" });
+    eyedrop.deliver(picked ? picked.rgb : null);
+  } catch (e) {
+    statusLine.textContent = String(e);
+    eyedrop.deliver(null);
+  }
+}
+
+async function useColorEvents() {
+  // 描画色はツールの設定にあり、ブラシは Rust（tools.rs）がそこから描く色を取る。
+  await startColors();
+  // 表示の絞り込み・置換のプレビュー・背景の表示色が変わったら、キャンバスを読み直す。
+  await listen("display-changed", () => {
+    if (!measuring) scheduleReload();
+  });
+}
+
 async function useDocumentEvents() {
   await listen("document-changed", ({ payload }) => {
     // 線（source が canvas）は、変わった範囲の画素を受け取って書き込み済み。
@@ -468,6 +507,7 @@ async function main() {
   canvasTools.enabled = !penSelftest;
   await toolStore.init();
   await useDocumentEvents();
+  await useColorEvents();
   await reloadCanvas(true);
   useDocumentControls();
   // 【アプリの外枠】メニュー・キー・題名など（shell.js）。
@@ -490,6 +530,11 @@ async function main() {
   else usePointerEvents();
   if (info.pen_selftest) await runPenSelftest();
   if (info.playback_selftest) await runPlaybackSelftest(info.playback_selftest);
+  if (info.colors_selftest != null) {
+    // 色のパネルの自己確認（color_selftest.js）。普段は読み込まない。
+    const { runColorsSelftest } = await import("./color_selftest.js");
+    await runColorsSelftest({ invoke, pause: info.colors_selftest });
+  }
   // キーの持ち主の自己確認（tools_selftest.js）。
   if (info.tools_selftest) await runToolsSelftest({ shell });
 }

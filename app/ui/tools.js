@@ -235,8 +235,21 @@ const fromHex = (text) => {
 };
 export { hex, fromHex };
 
-/// 色を選ぶ（OS の色の窓）。選んだら [r, g, b] を返す。
-export function pickColor(initial) {
+/// 色を選ぶ。選んだら [r, g, b]、やめたら null を返す。
+// 【色のパネル】カラーサークルと同じカラーピッカー（color_state.js。HSB・RGB・コード・
+// キャンバスのスポイト）を使う。読み込めなければ OS の色の窓（pickColorNative）。
+export async function pickColor(initial) {
+  try {
+    const { pickColor: picker } = await import("./color_state.js");
+    return await picker(initial);
+  } catch (e) {
+    console.error(e);
+    return pickColorNative(initial);
+  }
+}
+
+/// OS の色の窓。選んだら [r, g, b] を返す。
+function pickColorNative(initial) {
   return new Promise((resolve) => {
     const input = el("input", { type: "color", value: hex(initial) });
     input.style.position = "fixed";

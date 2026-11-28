@@ -13,6 +13,13 @@
   - macOS：WKWebView は筆圧を JavaScript に渡さないので、NSEvent のローカルモニターで読み、
     `pen` の事件として送る。画面は macOS ではこの列だけで線を描く。
   - Windows：WebView2 の PointerEvent の筆圧をそのまま使う。
+- 色のパネル：カラーサークル・カラースライダー・使用色・カラーチャートの窓
+  （[`src/colors.rs`](src/colors.rs)、`ui/color_*.js`・`ui/used_colors.js`）
+  - 状態（描画色・使用色の並び・親子・フォルダー・表示・鍵・選択・置換色・チャート）は Rust の
+    `Session` にあり、計算は pma-core の `used_colors`。画面は `palette-changed`・`current-color`・
+    `chart-changed`・`display-changed` の事件で表示を合わせる。
+  - 使用色の選択と鍵で、ブラシの描ける範囲を絞る（#104）。
+  - スポイトは、WKWebView に EyeDropper が無いので、画面ではなくキャンバスの色を拾う。
 
 ## 動かし方
 

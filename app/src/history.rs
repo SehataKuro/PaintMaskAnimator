@@ -11,6 +11,8 @@ use pma_core::document::history::{
     branch_columns, History, HistoryItem, HistoryLimits, HistoryTarget,
 };
 use pma_core::document::model::Document;
+// 使用色パネル（colors.rs）：件に使用色パネルの状態を添える。
+use pma_core::used_colors::{Snapshot, UsedColors};
 use serde::Serialize;
 
 /// Python 版の constants.MAX_UNDO / MAX_UNDO_BYTES と canvas_undo.MAX_HISTORY_BRANCHES。
@@ -26,6 +28,9 @@ pub struct Entry {
     pub label: String,
     pub document: Document,
     pub bytes: u64,
+    /// 使用色パネル（colors.rs）：変える前の使用色パネルの状態（並べ替え・親子・表示・統合など）。
+    /// 戻したあと、使用色を数え直してから当てる（Qt の PaletteStateUndo・attach_palette_state）。
+    pub palette: Option<Snapshot>,
 }
 
 impl HistoryItem for Entry {
@@ -37,6 +42,8 @@ impl HistoryItem for Entry {
 /// 文書を取り替える先。`capture` は今の文書を、`apply` は件の文書を入れる。
 pub struct Target<'a> {
     pub document: &'a mut Document,
+    /// 使用色パネル（colors.rs）。
+    pub palette: &'a mut UsedColors,
 }
 
 impl HistoryTarget<Entry> for Target<'_> {
@@ -45,11 +52,15 @@ impl HistoryTarget<Entry> for Target<'_> {
             label: entry.label.clone(),
             document: self.document.clone(),
             bytes: entry.bytes,
+            palette: entry.palette.as_ref().map(|_| self.palette.capture()),
         })
     }
 
     fn apply(&mut self, entry: Entry) {
         *self.document = entry.document;
+        if let Some(snapshot) = entry.palette {
+            self.palette.restore_after_refresh(snapshot);
+        }
     }
 }
 
@@ -78,20 +89,31 @@ impl Default for Undo {
 impl Undo {
     /// 変える前に呼ぶ。今の文書を件として積む。
     pub fn record(&mut self, label: &str, before: &Document) {
+        self.record_with_palette(label, before, None);
+    }
+
+    /// 使用色パネル（colors.rs）：使用色パネルの変える前の状態も添えて積む。
+    pub fn record_with_palette(
+        &mut self,
+        label: &str,
+        before: &Document,
+        palette: Option<Snapshot>,
+    ) {
         let bytes = image_bytes(before);
         self.history.push(Entry {
             label: label.to_string(),
             document: before.clone(),
             bytes,
+            palette,
         });
     }
 
-    pub fn undo(&mut self, document: &mut Document) -> bool {
-        self.history.undo(&mut Target { document })
+    pub fn undo(&mut self, document: &mut Document, palette: &mut UsedColors) -> bool {
+        self.history.undo(&mut Target { document, palette })
     }
 
-    pub fn redo(&mut self, document: &mut Document) -> bool {
-        self.history.redo(&mut Target { document })
+    pub fn redo(&mut self, document: &mut Document, palette: &mut UsedColors) -> bool {
+        self.history.redo(&mut Target { document, palette })
     }
 
     pub fn can_undo(&self) -> bool {
@@ -109,13 +131,14 @@ impl Undo {
 
     /// ヒストリーパネルのクリック：負なら戻す、正なら進める回数だけ動く
     /// （Qt の UsedColorController.jump_history）。動いた回数を返す。
-    pub fn jump(&mut self, delta: i64, document: &mut Document) -> usize {
+    /// 使用色パネル（colors.rs）の状態も件ごとに戻す・進める。
+    pub fn jump(&mut self, delta: i64, document: &mut Document, palette: &mut UsedColors) -> usize {
         let mut moved = 0;
         for _ in 0..delta.unsigned_abs() {
             let done = if delta < 0 {
-                self.undo(document)
+                self.undo(document, palette)
             } else {
-                self.redo(document)
+                self.redo(document, palette)
             };
             if !done {
                 break;
@@ -127,12 +150,21 @@ impl Undo {
 
     /// 分岐へ切り替え、その未来を `steps` 手進める（Qt の switch_history_branch）。
     /// 到達できない分岐なら false（分岐は捨てる）。
-    pub fn switch_branch(&mut self, index: usize, steps: usize, document: &mut Document) -> bool {
-        if !self.history.switch_branch(index, &mut Target { document }) {
+    pub fn switch_branch(
+        &mut self,
+        index: usize,
+        steps: usize,
+        document: &mut Document,
+        palette: &mut UsedColors,
+    ) -> bool {
+        if !self
+            .history
+            .switch_branch(index, &mut Target { document, palette })
+        {
             return false;
         }
         for _ in 0..steps {
-            if !self.redo(document) {
+            if !self.redo(document, palette) {
                 break;
             }
         }
@@ -281,12 +313,13 @@ mod tests {
     fn jump_and_switch_branch_like_qt() {
         let mut undo = Undo::default();
         let mut current = doc(1);
+        let mut palette = UsedColors::new();
         // A → B → C と積む（各件は変える前の文書）。
         for (label, width) in [("A", 2), ("B", 3), ("C", 4)] {
             undo.record(label, &current);
             current = doc(width);
         }
-        assert_eq!(undo.jump(-2, &mut current), 2);
+        assert_eq!(undo.jump(-2, &mut current, &mut palette), 2);
         assert_eq!(current.size().0, 2);
         // 戻ってから別の編集：残りの未来（B, C）は分岐になる。
         undo.record("D", &current);
@@ -301,12 +334,12 @@ mod tests {
         assert_eq!(branch[0].from, Some((0, 1)));
         assert!(branch[0].curve);
         // 分岐の2つ目（C）まで進める。
-        assert!(undo.switch_branch(0, 2, &mut current));
+        assert!(undo.switch_branch(0, 2, &mut current, &mut palette));
         assert_eq!(current.size().0, 4);
         let listing = undo.listing();
         assert_eq!(listing.undo, vec!["A", "B", "C"]);
         assert_eq!(listing.branches, 1);
-        assert!(!undo.switch_branch(5, 0, &mut current));
+        assert!(!undo.switch_branch(5, 0, &mut current, &mut palette));
         // 本線のノード：開始状態・A・B・C（現在）。
         let graph = undo.graph();
         let main: Vec<_> = graph.nodes.iter().filter(|n| n.kind == "main").collect();

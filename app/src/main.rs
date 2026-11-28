@@ -9,8 +9,12 @@
 //! - `PMA_PEN_SELFTEST=1 cargo run --release`：筆圧の経路を自分で確かめて終わる（macOS）
 //! - `PMA_PLAYBACK_SELFTEST=コマ数 cargo run --release`：再生してキャンバスの fps を測り、
 //!   報告して終わる（`PMA_TIMELINE_SAMPLE`・`PMA_TIMELINE_SAMPLE_SIZE` で見本の文書を開ける）
+//! - `PMA_COLORS_SELFTEST=待つms cargo run --release -- 作品.pman`：色のパネルを画面の操作で動かして
+//!   確かめ、報告して終わる（1手ごとに待つので、そのあいだに窓を撮れる）
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+// 描画色・カラーサークル・カラースライダー・使用色・カラーチャート（colors.rs）。
+mod colors;
 mod export; // 書き出し（export.rs）。
 mod history;
 // 読み込み（imports.rs）：画像・フォルダー・PSD・CLIP・線画の初期状態・レイアウト用紙。
@@ -50,15 +54,19 @@ pub(crate) fn with_session<T>(
     f: impl FnOnce(&mut Session) -> T,
 ) -> T {
     let state = app.state::<Shared>();
-    let (out, changed) = {
+    let (out, changed, synced, palette) = {
         let mut s = state.lock().unwrap();
         let before = s.mark();
         let out = f(&mut s);
-        (out, s.changes_since(before, source))
+        // 使用色パネル（colors.rs）：使用色を数え直し、表示の絞り込みをそろえる。
+        let synced = colors::sync(&mut s);
+        let palette = synced.palette.then(|| s.palette_view());
+        (out, s.changes_since(before, source), synced, palette)
     };
     if let Some(changed) = changed {
         let _ = app.emit("document-changed", changed);
     }
+    colors::emit_synced(app, synced, palette);
     out
 }
 
@@ -70,6 +78,8 @@ struct Startup {
     pen_selftest: bool,
     /// 再生の自己確認で数えるコマ数（PMA_PLAYBACK_SELFTEST）。
     playback_selftest: Option<usize>,
+    /// 色のパネルの自己確認（PMA_COLORS_SELFTEST。値は1手ごとに待つ ms）。
+    colors_selftest: Option<u64>,
     /// キーの持ち主の自己確認（PMA_TOOLS_SELFTEST。ui/tools_selftest.js）。
     tools_selftest: bool,
     /// 起動のときに開く .pman（コマンドラインの最初の引数）。
@@ -82,6 +92,9 @@ fn startup() -> Startup {
         native_pen: cfg!(target_os = "macos"),
         pen_selftest: std::env::var_os("PMA_PEN_SELFTEST").is_some(),
         playback_selftest: std::env::var("PMA_PLAYBACK_SELFTEST")
+            .ok()
+            .and_then(|v| v.parse().ok()),
+        colors_selftest: std::env::var("PMA_COLORS_SELFTEST")
             .ok()
             .and_then(|v| v.parse().ok()),
         tools_selftest: std::env::var_os("PMA_TOOLS_SELFTEST").is_some(),
@@ -391,6 +404,15 @@ fn main() {
             timeline::timeline_normalize_preview,
             timeline::timeline_thumbnail,
             timeline::timeline_play,
+            // 描画色・使用色・カラーチャート（colors.rs）。
+            colors::palette_view,
+            colors::palette_op,
+            colors::chart_view,
+            colors::chart_op,
+            colors::chart_save_pmag,
+            colors::chart_load_pmag,
+            colors::replacement_set_save,
+            colors::replacement_set_load,
             // ツール（tools.rs）。
             tools::tools_state,
             tools::tools_set,
@@ -415,6 +437,7 @@ fn main() {
             onion::onion_pick,
             tools::tool_dust_apply,
             tools::tool_eyedropper,
+            tools::tool_sample_color,
             tools::action_run,
             tools::selection_edit,
             tools::selection_delete,

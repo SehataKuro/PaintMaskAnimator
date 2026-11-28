@@ -183,7 +183,11 @@ function sizeDefaults() {
   const set = (id, size) => api.getPanel(id)?.group.api.setSize(size);
   set("tools", { width: 64 });
   set("tool-properties", { width: 220 });
+  // 右の列は、使用色へできるだけ高さを回す（サークルとスライダーは中身の分だけ）。
   set("color-wheel", { width: 260 });
+  set("used-colors", { height: 2000 });
+  set("color-sliders", { height: 112 });
+  set("color-wheel", { height: 290 });
   set("timeline", { height: 220 });
 }
 

@@ -1527,6 +1527,24 @@ pub struct Picked {
 /// いるレイヤーの不透明な画素の元の色を拾う（表示不透明度は混ぜない）。`layer` なら選択
 /// レイヤーの画素だけを見る。拾った色を今の描画色（メイン・サブ）にする。
 pub fn eyedropper(s: &mut Session, x: f64, y: f64, source: &str) -> Result<Option<Picked>, String> {
+    let Some(picked) = sample_color(s, x, y, source)? else {
+        return Ok(None);
+    };
+    let (rgb, background) = (picked.rgb, picked.background);
+    let settings = &mut s.tools.settings;
+    if background {
+        settings.color_mode = "transparent".into();
+    } else if settings.color_mode == "sub" {
+        settings.color_sub = rgb;
+    } else {
+        settings.color_main = rgb;
+        settings.color_mode = "main".into();
+    }
+    Ok(Some(picked))
+}
+
+// 【色のパネル】スポイトの拾い方だけ（描画色は変えない）。カラーピッカー・置換色のスポイトも使う。
+pub fn sample_color(s: &Session, x: f64, y: f64, source: &str) -> Result<Option<Picked>, String> {
     let p = s.project.as_ref().ok_or("作品を開いていません")?;
     let doc = &p.document;
     let (w, h) = doc.size();
@@ -1566,15 +1584,6 @@ pub fn eyedropper(s: &mut Session, x: f64, y: f64, source: &str) -> Result<Optio
     }
     let rgb = found.unwrap_or([255, 255, 255]);
     let background = rgb == [255, 255, 255];
-    let settings = &mut s.tools.settings;
-    if background {
-        settings.color_mode = "transparent".into();
-    } else if settings.color_mode == "sub" {
-        settings.color_sub = rgb;
-    } else {
-        settings.color_main = rgb;
-        settings.color_mode = "main".into();
-    }
     Ok(Some(Picked { rgb, background }))
 }
 
@@ -1777,6 +1786,18 @@ pub fn tool_eyedropper(
     with_tools(&app, true, |s| {
         eyedropper(s, x, y, source.as_deref().unwrap_or("display"))
     })
+}
+
+// 【色のパネル】スポイトの拾い方だけ（描画色は変えない。color_state.js の eyedrop）。
+#[tauri::command]
+pub fn tool_sample_color(
+    session: State<Shared>,
+    x: f64,
+    y: f64,
+    source: Option<String>,
+) -> Result<Option<Picked>, String> {
+    let s = session.lock().unwrap();
+    sample_color(&s, x, y, source.as_deref().unwrap_or("display"))
 }
 
 /// 選択範囲の操作。`kind` は lasso / rect / auto / color / used_area / all / invert / clear。

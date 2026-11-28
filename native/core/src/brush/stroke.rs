@@ -24,7 +24,7 @@ pub const ERASER_RGB: [u8; 3] = [255, 255, 255];
 /// 「選んだマスク色の上だけに描く」設定（`mask_all_enabled` が偽のとき）。
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct MaskColorFilter {
-    /// 描いてよい下地の色（不透明な画素の RGB）。空なら何も描かない。
+    /// 描いてよい下地の色（不透明な画素の RGB）。空で背景も選んでいなければ何も描かない。
     pub colors: Vec<[u8; 3]>,
     /// 背景のマスク色が選ばれているか。真なら透明と白の画素にも描く。
     pub background: bool,
@@ -32,7 +32,8 @@ pub struct MaskColorFilter {
 
 impl MaskColorFilter {
     fn allows(&self, pixel: &[u8]) -> bool {
-        if self.colors.is_empty() {
+        // 色も背景も選んでいなければ何も描かない（背景だけ選んだときは透明と白にだけ描く）。
+        if self.colors.is_empty() && !self.background {
             return false;
         }
         let rgb = [pixel[0], pixel[1], pixel[2]];

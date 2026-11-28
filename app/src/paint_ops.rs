@@ -642,54 +642,20 @@ pub fn replace_color(
 
 /// 使用色の色置換（`apply_palette_replacements` の "replace"）：選択レイヤーの全コマで、
 /// 選択範囲があればその中だけ置き換える。Undo は1回（「色置換」）。
+// 【色のパネル】使用色パネルの「全コマを置き換え」と同じ経路（colors.rs の `palette_remap`：
+// 計算は pma-core の `scope::replace_colors`、履歴には使用色パネルの状態も添える）。
 pub fn apply_palette_replacements(
     s: &mut Session,
     mapping: &[(Rgb, Rgb)],
 ) -> Result<Feedback, String> {
-    const LABEL: &str = "色置換";
-    if mapping.is_empty() {
-        return Ok(Feedback::say("置換色が登録されていません。"));
-    }
-    let mapping: Vec<(Rgb, Rgb)> = mapping
+    let mapping = mapping
         .iter()
-        .copied()
-        .filter(|(source, destination)| *source != WHITE && source != destination)
+        .map(|&([a, b, c], [d, e, f])| ((a, b, c), (d, e, f)))
         .collect();
-    if mapping.is_empty() {
-        return Ok(Feedback::say("置換前と置換後が同じ色です。"));
-    }
-    let doc = document(s)?;
-    let (frame, layer) = current_index(doc);
-    let cells = scope::scope_cells(doc, frame, layer, true).map_err(err)?;
-    let selection = selection_mask(s);
-    let mut outcome = scope::ScopeOutcome::default();
-    s.edit_with(Some(LABEL), |doc, _| {
-        outcome = scope::replace_colors(
-            doc,
-            &cells,
-            &mapping,
-            selection.as_deref(),
-            &mut Progress::default(),
-        )
-        .map_err(err)?;
-        Ok(((), outcome.changed_pixels > 0))
-    })?;
-    if outcome.changed_pixels == 0 {
-        return Ok(Feedback::say(if selection.is_some() {
-            "選択範囲の中に、選択した使用色はありませんでした。"
-        } else {
-            "選択した使用色は画像内にありませんでした。"
-        }));
-    }
-    s.touch_pixels();
-    let (cells, pixels) = (outcome.changed_cells, thousands(outcome.changed_pixels));
+    let out = s.palette_remap(mapping, crate::colors::Remap::Replace)?;
     Ok(Feedback {
-        rect: full_rect(s),
-        message: Some(if selection.is_some() {
-            format!("選択範囲の中で、{cells}セル・{pixels}ピクセルへ{LABEL}を適用しました。")
-        } else {
-            format!("{cells}セル・{pixels}ピクセルへ{LABEL}を適用しました。")
-        }),
+        rect: if out.changed { full_rect(s) } else { None },
+        message: out.message,
         colors: Vec::new(),
     })
 }
