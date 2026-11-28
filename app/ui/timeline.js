@@ -70,8 +70,16 @@ function el(tag, attrs = {}, ...children) {
   return node;
 }
 
+// 【Group C】環境設定の「時間の表示」（Qt の time_display.frame_position）。
+let timeDisplay = "frames";
+let timeFps = 24;
 function framePosition(index) {
-  return `${index + 1}コマ目`;
+  const i = Math.max(0, index);
+  if (timeDisplay === "seconds_frames") {
+    const rate = Math.max(1, timeFps);
+    return `${Math.floor((i + 1) / rate)}+${(i + 1) % rate}`;
+  }
+  return `${i + 1}コマ目`;
 }
 
 /// タイムラインのパネルを作る。invoke は Tauri の invoke。
@@ -308,6 +316,7 @@ export function createTimelinePanel({ invoke }) {
     expandAll.textContent = allExpanded() ? "▾" : "▸";
   }
   function updateCounter() {
+    timeFps = view?.fps ?? 24;
     if (!view?.loaded) {
       counter.innerHTML = "";
       return;
@@ -517,8 +526,14 @@ export function createTimelinePanel({ invoke }) {
     ctx.font = `bold ${Math.max(10, Math.round(12 * Math.min(zoom, 1.4)))}px ${FONT}`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
+    // 【Group C】編集中のトゥイーン（Qt の tween_pending）の帯は、トゥイーンの色で描き、逆生成ならキーに
+    // ◆、そうでなければ最後のコマに ♦ を出す（timeline.py の is_pending_tween）。
+    const pending = pendingTween();
     for (let i = firstVisible(row.spans, c0); i < row.spans.length && row.spans[i].start < c1; i++) {
-      const span = row.spans[i];
+      let span = row.spans[i];
+      const isPending = pending && pending.layer === row.layer && span.kind === "cell"
+        && span.start === pending.key && span.length === pending.exposure;
+      if (isPending) span = { ...span, tween: pending.reverse ? "reverse" : "forward", label: pending.reverse ? "◆" : span.label };
       const blank = span.kind !== "cell";
       const [fill, box, ink] = spanColors(span.tween);
       const x0 = colX(span.start);
@@ -585,7 +600,10 @@ export function createTimelinePanel({ invoke }) {
             ctx.stroke();
           }
         }
-        if (span.tween === "forward") arrowHead(lineRight + 7, midY, 1, ink);
+        if (isPending && !pending.reverse) {
+          ctx.fillStyle = ink;
+          ctx.fillText("♦", colX(span.start + span.length - 1) + cw / 2, (top + bottom) / 2 + 0.5);
+        } else if (span.tween === "forward") arrowHead(lineRight + 7, midY, 1, ink);
         if (span.tween === "reverse") arrowHead(x0 + cw + 1, midY, -1, ink);
         if (span.tween) {
           // 中割りのコマ。再生位置のコマは赤で塗る。
@@ -716,6 +734,7 @@ export function createTimelinePanel({ invoke }) {
   function drawHeader(c0, c1, w) {
     const cw = cellWidth();
     const fpsValue = Math.max(1, view.fps);
+    timeFps = fpsValue;
     ctx.fillStyle = C.surfaceAlt;
     ctx.fillRect(LAYER_WIDTH, 0, w - LAYER_WIDTH, HEADER_HEIGHT);
     ctx.fillStyle = C.border;
@@ -1284,7 +1303,7 @@ export function createTimelinePanel({ invoke }) {
     const allDraft = view.rows.filter((r) => layerSelection.has(r.layer)).every((r) => r.draft);
     const items = [
       { label: "複製", action: () => edit({ op: "duplicate_layers", layers }) },
-      { label: "結合（まだ移していません）", enabled: false },
+      { label: "結合", enabled: layers.length >= 2, action: () => edit({ op: "merge_layers", layers }) },
       { label: "削除", action: () => edit({ op: "delete_layers", layers }) },
       "-",
       { label: `${allDraft ? "✓ " : ""}下書きレイヤー`, action: () => edit({ op: "toggle_draft", layers }) },
@@ -1321,7 +1340,8 @@ export function createTimelinePanel({ invoke }) {
       // 終端は「このコマまで」。範囲は開始以上・終了未満で持つ。
       { label: "表示終了フレームにする", enabled: onCell && sheet(), action: () => call("timeline_set_range", { edge: "end", column: h.column + 1 }) },
       "-",
-      { label: "タイムリマップをコピー（まだ移していません）", enabled: false },
+      { label: "タイムリマップをコピー", action: () =>
+        window.dispatchEvent(new CustomEvent("pma-action", { detail: { id: "a_tl_copy_time_remap", source: "timeline" }, cancelable: true })) },
       "-",
       { label: "フレームを挿入", enabled: onCell && sheet(), action: run("insert_frame_at") },
       { label: "フレームを削除", enabled: onCell && sheet(), action: run("delete_frame_at") },
@@ -1594,6 +1614,14 @@ export function createTimelinePanel({ invoke }) {
     revealCurrent();
     requestDraw();
   }
+  const applyTimeDisplay = (prefs) => {
+    if (!prefs || prefs.time_display_mode === timeDisplay) return;
+    timeDisplay = prefs.time_display_mode;
+    updateCounter();
+    requestDraw();
+  };
+  invoke("prefs_get").then(applyTimeDisplay, () => {});
+  listen?.("prefs-changed", ({ payload }) => applyTimeDisplay(payload));
   listen?.("document-changed", ({ payload }) => {
     if (payload.source === "timeline") return;
     if (payload.source === "playback" && payload.playhead) {
@@ -1601,6 +1629,16 @@ export function createTimelinePanel({ invoke }) {
       return;
     }
     refresh(payload.structure || payload.pixels);
+  });
+
+  // 【Group C】編集中のトゥイーンが変わったら帯を描き直す。
+  let pendingKey = "";
+  listen?.("tools-changed", ({ payload }) => {
+    const t = payload?.transform?.tween;
+    const key = t ? `${t.layer}:${t.key}:${t.exposure}:${t.reverse}` : "";
+    if (key === pendingKey) return;
+    pendingKey = key;
+    requestDraw();
   });
 
   new ResizeObserver(() => {

@@ -1181,6 +1181,133 @@ pub fn read_psd(
     }))
 }
 
+/// 保存されている全体の合成画像（Image Data。Photoshop の「互換性を優先」）を 8 ビットの
+/// ストレート RGBA で読む。無い（版の情報が合成無しと言う、8 ビットでない、壊れている）なら None。
+fn merged_image(data: &[u8], header: &Header) -> Result<Option<Vec<u8>>, PsdError> {
+    if header.depth != 8 || data.len() < 26 {
+        return Ok(None);
+    }
+    let planes = u16::from_be_bytes([data[12], data[13]]) as usize;
+    let mut r = Reader::new(data);
+    r.take(26)?;
+    r.skip_block()?;
+    // 画像リソース：版の情報（0x0421）の hasRealMergedData。
+    let resources = r.block(false)?;
+    let mut res = Reader::new(resources);
+    while res.remaining() >= 12 {
+        if res.take(4)? != b"8BIM" {
+            break;
+        }
+        let id = res.u16()?;
+        let name = res.u8()? as usize;
+        res.take(name + (name + 1) % 2)?;
+        let size = res.u32()? as usize;
+        let body = res.take(size)?;
+        res.take((size % 2).min(res.remaining()))?;
+        if id == 0x0421 && body.len() >= 5 && body[4] == 0 {
+            return Ok(None);
+        }
+    }
+    r.block(header.psb)?;
+    if r.remaining() < 2 || planes < header.channels {
+        return Ok(None);
+    }
+    let compression = r.u16()?;
+    let (w, h) = (header.width, header.height);
+    let plane = w * h;
+    let total = plane * planes;
+    let pixels = match compression {
+        0 => r.take(total)?.to_vec(),
+        1 => {
+            let rows = planes * h;
+            let mut counts = Vec::with_capacity(rows);
+            for _ in 0..rows {
+                counts.push(if header.psb {
+                    r.u32()? as usize
+                } else {
+                    r.u16()? as usize
+                });
+            }
+            let mut out = Vec::with_capacity(total);
+            for count in counts {
+                unpack_bits(r.take(count)?, &mut out, w)?;
+            }
+            out
+        }
+        2 | 3 => {
+            let rest = r.take(r.remaining())?;
+            let mut out = inflate(rest, total)?;
+            if compression == 3 {
+                for row in out.chunks_exact_mut(w) {
+                    for x in 1..w {
+                        row[x] = row[x].wrapping_add(row[x - 1]);
+                    }
+                }
+            }
+            out
+        }
+        _ => return Ok(None),
+    };
+    let mut rgba = Vec::with_capacity(plane * 4);
+    for p in 0..plane {
+        if header.channels == 3 {
+            rgba.extend_from_slice(&[pixels[p], pixels[plane + p], pixels[2 * plane + p]]);
+        } else {
+            rgba.extend_from_slice(&[pixels[p]; 3]);
+        }
+        let alpha_plane = header.channels;
+        rgba.push(if planes > alpha_plane {
+            pixels[alpha_plane * plane + p]
+        } else {
+            255
+        });
+    }
+    Ok(Some(rgba))
+}
+
+/// PSD の全体の見た目（サブビューの表示。psd-tools の `PSDImage.composite()`）を
+/// (幅, 高さ, ストレート RGBA) で返す。保存された合成画像があればそれ（psd-tools も
+/// `has_preview` なら `topil` を返す）、無ければ表示レイヤーを合成する。
+pub fn composite_psd(data: &[u8]) -> Result<(usize, usize, Vec<u8>), PsdError> {
+    let header = read_header(&mut Reader::new(data))?;
+    if let Ok(Some(rgba)) = merged_image(data, &header) {
+        return Ok((header.width, header.height, rgba));
+    }
+    let records = read_records(data, &header)?;
+    let tree = build_tree(&records);
+    let mut visible = vec![false; records.len()];
+    mark_visible(&tree, &records, true, &mut visible);
+    let ctx = Ctx {
+        w: header.width,
+        h: header.height,
+        c: header.channels,
+        depth: header.depth,
+        records: &records,
+        visible: &visible,
+    };
+    let n = ctx.n();
+    let mut comp = Comp::new(&ctx, vec![1.0; n * ctx.c], vec![0.0; n], false);
+    for index in 0..tree.len() {
+        comp.apply(&ctx, &tree, index, false)?;
+    }
+    let color = comp.result_isolated(&ctx);
+    let byte = |v: f32| (255.0 * v).clamp(0.0, 255.0) as u8;
+    let mut out = Vec::with_capacity(n * 4);
+    for p in 0..n {
+        if ctx.c == 3 {
+            out.extend_from_slice(&[
+                byte(color[p * 3]),
+                byte(color[p * 3 + 1]),
+                byte(color[p * 3 + 2]),
+            ]);
+        } else {
+            out.extend_from_slice(&[byte(color[p]); 3]);
+        }
+        out.push(byte(comp.alpha_g[p]));
+    }
+    Ok((header.width, header.height, out))
+}
+
 #[cfg(test)]
 #[path = "psd_tests.rs"]
 mod tests;

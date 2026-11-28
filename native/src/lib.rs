@@ -420,6 +420,8 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(py_extend_line_ends, module)?)?;
     image_ops::register(module)?;
     module.add_function(wrap_pyfunction!(psd_import::import_read_psd, module)?)?;
+    module.add_function(wrap_pyfunction!(psd_import::import_composite_psd, module)?)?;
+    module.add_function(wrap_pyfunction!(psd_import::import_subview_jpeg, module)?)?;
     module.add_function(wrap_pyfunction!(export::export_cut_folder_cels, module)?)?;
     module.add_function(wrap_pyfunction!(export::export_plan_cut_folder, module)?)?;
     module.add_function(wrap_pyfunction!(export::export_write_cut_folder, module)?)?;

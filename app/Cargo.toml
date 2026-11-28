@@ -31,6 +31,9 @@ pma-clip-import = { path = "../native/clip-import" }
 # 【読み込み・編集：Group B】切り取り・コピー・貼り付けの画像（OS のクリップボード、
 # tools.rs の edit_clipboard）。1Password が保守している MIT/Apache-2.0 の crate。
 arboard = { version = "3.7", default-features = false, features = ["image-data"] }
+# 【Group C】更新のダウンロード（updater.rs）。GitHub の公開リリースだけを HTTPS で読む。
+# TLS は純 Rust の rustls（証明書は webpki-roots）。MIT OR Apache-2.0。
+ureq = { version = "3", default-features = false, features = ["rustls"] }
 
 # 筆圧：WKWebView はペンの筆圧を JavaScript に渡さないので、NSEvent を直接読む。
 [target.'cfg(target_os = "macos")'.dependencies]

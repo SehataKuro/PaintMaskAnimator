@@ -7,7 +7,8 @@
 //! - 書くときは隣に書いてから置き換える（Qt の save_config と同じ）。値が null の鍵は消す。
 //! - 初めて開くとき、Tauri の設定がまだ無く Qt 版の設定（`~/.config/PaintMaskAnimator/config.json`、
 //!   Windows は `%APPDATA%\PaintMaskAnimator\config.json`）があれば、写してから使う。
-//!   パネルの配置（ワークスペース）は Qt の窓の配置の形なので写さない。
+//!   パネルの配置（ワークスペース）は Qt の形（dock_state）のまま写し、選んだときに
+//!   workspace.rs がこの画面の並びへ読み替える。
 
 use serde::Serialize;
 use serde_json::{json, Map, Value};
@@ -112,9 +113,8 @@ impl Prefs {
         if !path.exists() {
             if let Some(qt) = qt.filter(|p| p.is_file()) {
                 if let Some(mut data) = read_object(&qt) {
-                    // 窓の配置は Qt の形（dock の状態）なので写さない。
-                    data.remove(WORKSPACES);
-                    data.remove(ACTIVE_WORKSPACE);
+                    // 【Group C】窓の配置（Qt の dock の状態）も写す。選んだときに workspace.rs が
+                    // この画面の並びへ読み替える。
                     data.insert(
                         MIGRATED_FROM.into(),
                         Value::String(qt.display().to_string()),
@@ -687,7 +687,7 @@ mod tests {
         let tauri = dir.join("tauri");
         let p = Prefs::load(&tauri, Some(qt.clone()));
         assert_eq!(p.theme(), "dark");
-        assert!(p.get(WORKSPACES).is_none());
+        assert_eq!(p.get(WORKSPACES), Some(&json!({"a": {}})));
         assert_eq!(p.recent_projects(), vec!["/x.pman".to_string()]);
         assert!(tauri.join("config.json").is_file());
         // 2回目は Tauri の設定を読む（Qt 版を変えても写し直さない）。

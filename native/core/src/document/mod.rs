@@ -52,6 +52,8 @@ pub mod import_commands;
 pub mod initial_state;
 /// MainLineRepaint（LINE と Paint の列に分ける）。
 pub mod line_split_commands;
+/// タイムラインのレイヤーの結合。
+pub mod merge_commands;
 mod number_commands;
 /// 配置待ちの番号をシートへ移す操作と窓口への更新情報。
 pub mod pending_commands;

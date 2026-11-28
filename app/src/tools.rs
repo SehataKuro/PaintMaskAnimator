@@ -1876,19 +1876,6 @@ pub fn tools_set(app: tauri::AppHandle, patch: Value) -> Result<View, String> {
     })
 }
 
-/// HOOK(mask_colors)：使用色パネルの「選んだマスク色の上だけに描く」。None は全体に描く。
-#[tauri::command]
-pub fn tools_set_mask_colors(
-    app: tauri::AppHandle,
-    colors: Option<Vec<[u8; 3]>>,
-    background: bool,
-) -> Result<View, String> {
-    with_tools(&app, false, |s| {
-        s.tools.mask_filter = colors.map(|colors| MaskColorFilter { colors, background });
-        Ok(s.tools.view())
-    })
-}
-
 #[tauri::command]
 pub fn tools_pressure_curve(points: Vec<[f64; 2]>, count: usize) -> Vec<f64> {
     curve_samples(&points, count.clamp(2, 1000))

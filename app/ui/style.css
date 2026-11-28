@@ -754,3 +754,13 @@ input[type="number"], .cw-code, .cp-hex {
 .tw-row button { flex: 1; }
 .tw-panel button { padding: 4px 10px; border-radius: 5px; border: 1px solid var(--border); font: inherit; cursor: pointer; }
 .tw-panel button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+
+/* 【Group C】サブビュー（subview.js） */
+.sv-panel { display: flex; flex-direction: column; height: 100%; min-width: 180px; min-height: 140px; font-size: 12px; }
+.sv-bar, .sv-controls { display: flex; align-items: center; gap: 4px; padding: 3px 4px; }
+.sv-controls { padding: 3px 5px 4px; }
+.sv-controls input[type="range"] { flex: 1; min-width: 30px; }
+.sv-value { min-width: 3.2em; font-variant-numeric: tabular-nums; }
+.sv-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: text; }
+.sv-view { flex: 1; position: relative; min-height: 0; }
+.sv-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; outline: none; touch-action: none; }

@@ -121,6 +121,24 @@ export async function toggleOnionSettings(viewer) {
     const shiftY = num(-10000, 10000, 0.1);
     const rotation = num(-180, 180, 0.1);
     const scale = num(1, 199, 0.1);
+    // 【Group C】TU/TB拡大率のスライダー（Qt の OnionScaleSlider。中央が100%、1%刻み、Shiftで3%）。
+    const scaleSlider = el("input", {
+      type: "range", min: "1", max: "199", step: "1", class: "pma-onion-scale",
+      title: "中央が100%。左で縮小、右で拡大します。通常は1%ずつ、Shiftを押しながら操作すると3%ずつ動きます。",
+    });
+    scaleSlider.addEventListener("keydown", (e) => {
+      const keys = { ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1, PageDown: -1, PageUp: 1 };
+      if (!(e.key in keys)) return;
+      e.preventDefault();
+      const value = Math.max(1, Math.min(199, Number(scaleSlider.value) + keys[e.key] * (e.shiftKey ? 3 : 1)));
+      scaleSlider.value = String(value);
+      scale.value = String(value);
+      send({ scale: value });
+    });
+    scaleSlider.addEventListener("input", () => {
+      scale.value = scaleSlider.value;
+    });
+    scaleSlider.addEventListener("change", () => send({ scale: Number(scaleSlider.value) || 100 }));
     const direction = key === "previous" ? -1 : 1;
     const dragButton = (axis, label) =>
       el("button", {
@@ -158,6 +176,7 @@ export async function toggleOnionSettings(viewer) {
       put(shiftY, Math.round(s.shift_y * 10) / 10);
       put(rotation, Math.round(s.rotation * 10) / 10);
       put(scale, Math.round(s.scale * 10) / 10);
+      put(scaleSlider, Math.round(s.scale));
       // コマ別濃度（近い順）。
       if (levels.children.length !== s.levels.length) {
         levels.replaceChildren(...s.levels.map((_, i) => {
@@ -182,7 +201,7 @@ export async function toggleOnionSettings(viewer) {
       row("Y", shiftY, dragButton("y", "Y")),
       row("X・Yシフト", dragButton("xy", "X・Yシフト")),
       row("回転", rotation),
-      row("拡大率", scale, el("span", {}, "%")),
+      row("拡大率", scaleSlider, scale, el("span", {}, "%")),
       reset,
     );
   }
@@ -204,6 +223,35 @@ export async function toggleOnionSettings(viewer) {
       if (reply.message) notify(reply.message);
     },
   }, "表示位置");
+  // 【Group C】「キャンバスを中央位置へ」と中央％（Qt の center_canvas_button・center_percent_slider）。
+  const centerSlider = el("input", { type: "range", min: "0", max: "100", step: "1" });
+  const centerValue = num(0, 100);
+  centerSlider.addEventListener("input", () => (centerValue.value = centerSlider.value));
+  const sendCenterPercent = (v) => set({ center_percent: Math.max(0, Math.min(100, Math.round(Number(v) || 0))) });
+  centerSlider.addEventListener("change", () => sendCenterPercent(centerSlider.value));
+  centerValue.addEventListener("change", () => {
+    centerSlider.value = centerValue.value;
+    sendCenterPercent(centerValue.value);
+  });
+  const centerButton = el("button", {
+    type: "button",
+    title: "中央％で指定した前後間の位置・回転・TU／TB拡大率をキャンバス基準へ取り込みます。キャンバス回転は0°へ戻し、表示用デジタルズームは変更しません。",
+    onclick: async () => {
+      try {
+        const reply = await invoke("onion_center", { percent: Number(centerValue.value) || 0, view: viewState(viewer) });
+        applyView(viewer, reply.view);
+        notify(reply.message);
+      } catch (e) {
+        notify(String(e));
+      }
+    },
+  }, "キャンバスを中央位置へ");
+  refreshers.push(() => {
+    const focused = document.activeElement;
+    const value = String(Math.round(view.center_percent));
+    if (centerSlider !== focused) centerSlider.value = value;
+    if (centerValue !== focused) centerValue.value = value;
+  });
   const resetBoth = el("button", { type: "button", onclick: () => invoke("onion_reset", { direction: 0, both: true }) }, "前後の表示をリセット");
   refreshers.push(() => {
     enabled.checked = view.enabled;
@@ -216,6 +264,7 @@ export async function toggleOnionSettings(viewer) {
     el("div", { class: "pma-onion-sides" }, sideBox("previous", "前のコマ"), sideBox("next", "後のコマ")),
     el("label", { class: "pma-onion-row" }, selectedOnly, "選択した使用色のみ表示"),
     row("前後", position, el("span", {}, "回転"), canvasRotation),
+    el("div", { class: "pma-onion-row" }, centerButton, el("span", {}, "中央％"), centerSlider, centerValue, el("span", {}, "%")),
     resetBoth,
   );
   refreshWindow = () => {

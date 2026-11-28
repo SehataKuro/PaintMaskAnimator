@@ -35,6 +35,7 @@ import { runToolsSelftest } from "./tools_selftest.js";
 import { initShell } from "./shell.js";
 import { createHistoryPanel } from "./history_panel.js";
 import { createCanvasView } from "./canvas_view.js"; // 【キャンバスの見え方】下のバー（canvas_view.js）
+import { createSubviewPanel } from "./subview.js"; // 【Group C】サブビュー。
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
@@ -65,6 +66,7 @@ createLayout(document.getElementById("dock"), {
   "color-wheel": () => createColorWheelPanel(),
   "color-sliders": () => createColorSlidersPanel(),
   "used-colors": () => createUsedColorsPanel(),
+  subview: () => createSubviewPanel(), // 【Group C】
 });
 // 【アプリの外枠】shell.js（main で始める）。
 let shell = null;

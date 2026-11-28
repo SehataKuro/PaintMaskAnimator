@@ -25,3 +25,30 @@ pub fn import_read_psd<'py>(
         .collect();
     Ok((read.width, read.height, tracks, read.skipped))
 }
+
+/// PSD の全体の見た目（サブビュー、`PSDImage.composite()`）を (幅, 高さ, RGBA) にする。
+#[pyfunction]
+pub fn import_composite_psd<'py>(
+    py: Python<'py>,
+    data: &[u8],
+) -> PyResult<(usize, usize, Bound<'py, PyBytes>)> {
+    let (width, height, rgba) = py
+        .detach(|| psd::composite_psd(data))
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok((width, height, PyBytes::new(py, &rgba)))
+}
+
+/// 【Group C】サブビューの JPEG（EXIF の向きに従う、`QImageReader.setAutoTransform(True)`）を
+/// (幅, 高さ, RGBA) にする。
+#[pyfunction]
+pub fn import_subview_jpeg<'py>(
+    py: Python<'py>,
+    data: &[u8],
+) -> PyResult<(usize, usize, Bound<'py, PyBytes>)> {
+    use pma_core::import::{image, orientation};
+    let (w, h, rgba) =
+        image::decode_image(data).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let (w, h, rgba) =
+        orientation::apply_orientation(orientation::jpeg_orientation(data), w, h, &rgba);
+    Ok((w, h, PyBytes::new(py, &rgba)))
+}

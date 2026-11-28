@@ -169,7 +169,8 @@ pub fn begin(s: &mut Session, mode: &str) -> Result<Outcome, String> {
     begin_plain(s, mode)
 }
 
-fn begin_plain(s: &mut Session, mode: &str) -> Result<Outcome, String> {
+/// 【Group C】line_thickness.rs も使う（トゥイーンへ切り替えずに始める）。
+pub(crate) fn begin_plain(s: &mut Session, mode: &str) -> Result<Outcome, String> {
     let mode = Mode::from_name(mode);
     // 変形中にもう一度始めたら、今の変形をやめてから始め直す（Qt と同じ）。
     if s.tools.transform.is_some() {
@@ -260,6 +261,13 @@ fn begin_plain(s: &mut Session, mode: &str) -> Result<Outcome, String> {
     Ok(Outcome {
         message: Some(notes.join(" ")),
     })
+}
+
+/// 【Group C】確定の範囲を今のコマだけにする（「線の太さを調整」は commit(all_frames=False)）。
+pub(crate) fn set_current_frame_only(s: &mut Session) {
+    if let Some(t) = s.tools.transform.as_mut() {
+        t.all_frames = false;
+    }
 }
 
 /// 始める前の文書へ戻す（表示も合わせる）。

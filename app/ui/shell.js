@@ -7,11 +7,11 @@
 // 窓へ出し、どのパネルも受けなければ「まだ移していません」と知らせる。
 
 import { tr, setCatalogue } from "./i18n.js";
-import { message, ask, prompt, newDocumentDialog, memoWindow, updateMemoWindow, aboutDialog, toast } from "./dialogs.js";
+import { message, ask, prompt, newDocumentDialog, memoWindow, updateMemoWindow, aboutDialog, toast, openDialog, el } from "./dialogs.js";
 import { createKeyHandler, shortcutDialog } from "./shortcuts.js";
 import { preferencesDialog } from "./preferences.js";
 import {
-  panelStates, togglePanel, resetLayout, saveLayout, loadLayout, onLayoutChange, setLayoutTheme, translateTitles,
+  panelStates, togglePanel, resetLayout, saveLayout, loadLayout, loadQtLayout, onLayoutChange, setLayoutTheme, translateTitles,
 } from "./layout.js";
 
 const REPO = "SehataKuro/PaintMaskAnimator";
@@ -223,10 +223,17 @@ export async function initShell({ invoke, listen, hooks, startup }) {
   }
   async function applyWorkspace(name) {
     const record = prefs.workspaces?.[name];
-    if (!record?.dockview || !loadLayout(record.dockview)) {
-      // Qt 版で保存した配置（dock_state）は、この画面では戻せない。
-      await message(tr("ワークスペース"), tr("この機能はまだ移していません：{name}", { name }));
-      return;
+    if (record?.dockview) {
+      if (!loadLayout(record.dockview)) return;
+    } else {
+      // 【Group C】Qt 版で保存した配置（dock_state・window_geometry）は workspace.rs が読み替える。
+      // 戻せなければ Qt の apply と同じく何もしない。
+      const qt = record?.dock_state ? await invoke("workspace_from_qt", { dockState: String(record.dock_state), windowGeometry: record.window_geometry ? String(record.window_geometry) : null }) : null;
+      if (!qt || !loadQtLayout(qt)) {
+        sendMenuState();
+        return;
+      }
+      if (qt.window) await invoke("workspace_set_window", { geometry: qt.window }).catch(() => {});
     }
     await setPref("active_workspace", name);
     sendMenuState();
@@ -307,8 +314,47 @@ export async function initShell({ invoke, listen, hooks, startup }) {
       return message(tr("更新あり"), tr("新しいバージョン {latest} が利用可能ですが、この環境向けの\nインストーラが見つかりませんでした。リリースページを確認してください。\n\n{url}", { latest: result.latest, url: RELEASES_URL }));
     }
     if (await ask(tr("更新があります"), tr("新しいバージョン {latest} が利用可能です。\n（現在: v{VERSION}）\n\nダウンロードしてインストールしますか？", { latest: result.latest, VERSION: info.version }))) {
-      openUrl(result.asset.url);
+      await downloadAndInstall(result.asset);
     }
+  }
+  // 【Group C】ダウンロードしてインストール（Qt の _download_and_run_installer。中身は updater.rs）。
+  async function downloadAndInstall(asset) {
+    const bar = el("progress", { max: "100", value: "0", style: "width:320px" });
+    let box = null;
+    const finished = new Promise((resolve) => {
+      let unlisten = null;
+      listen("update-download", ({ payload }) => {
+        if (!payload.done) {
+          if (payload.total > 0) bar.value = Math.floor((payload.downloaded * 100) / payload.total);
+          return;
+        }
+        unlisten?.();
+        resolve(payload);
+      }).then((u) => (unlisten = u));
+    });
+    try {
+      await invoke("update_download", { url: asset.url, name: asset.name });
+    } catch (e) {
+      return message(tr("ダウンロード失敗"), tr("更新を取得できませんでした。\n\n{error}", { error: tr(String(e)) }));
+    }
+    const dialog = openDialog({
+      title: tr("更新のダウンロード"),
+      body: el("div", { class: "sh-form" }, el("div", {}, tr("更新をダウンロードしています…")), bar),
+      buttons: [{ label: tr("キャンセル"), value: "cancel", escape: true }],
+    });
+    box = [...document.querySelectorAll(".sh-dialog")].pop();
+    dialog.then((v) => v === "cancel" && invoke("update_cancel"));
+    const result = await finished;
+    box?.close?.(null);
+    if (result.cancelled) return;
+    if (result.error) return message(tr("ダウンロード失敗"), tr("更新を取得できませんでした。\n\n{error}", { error: tr(result.error) }));
+    if (!(await ask(tr("インストール"), tr("ダウンロードが完了しました。インストーラを起動して\nアプリを終了します。よろしいですか？")))) return;
+    try {
+      await invoke("update_launch");
+    } catch (e) {
+      return message(tr("起動失敗"), tr("インストーラを起動できませんでした。\n\n{error}", { error: String(e) }));
+    }
+    await requestClose();
   }
   const openUrl = (url) => invoke("open_url", { url }).catch((e) => status(String(e)));
   const releaseNotes = () => openUrl(update?.release?.html_url || RELEASES_URL);
@@ -411,7 +457,7 @@ export async function initShell({ invoke, listen, hooks, startup }) {
       case "help:check_update":
         return interactiveCheck();
       case "update:install":
-        if (update?.asset) return openUrl(update.asset.url);
+        if (update?.asset) return downloadAndInstall(update.asset);
         return releaseNotes();
       case "update:notes":
         return releaseNotes();
@@ -478,6 +524,11 @@ export async function initShell({ invoke, listen, hooks, startup }) {
   listen("menu-action", ({ payload }) => {
     run(payload.id, "menu", payload.pending).catch((e) => status(String(e)));
   });
+
+  // 【Group C】起動したら、選んでいたワークスペースを当てる（Qt の _finalize_startup_dock_ui）。
+  if (!selftest && prefs.active_workspace && prefs.workspaces?.[prefs.active_workspace]) {
+    await applyWorkspace(prefs.active_workspace).catch(() => {});
+  }
 
   // ---- 異常終了のあとの復元 ----
   if (info.recovery && !selftest && !startup?.open) {

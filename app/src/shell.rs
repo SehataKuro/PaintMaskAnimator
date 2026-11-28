@@ -247,6 +247,8 @@ pub fn prefs_set(
     }
     // 【キャンバスの見え方：view.rs】仮の色・市松模様・縮小表示はすぐ表示に使う。
     crate::view::prefs_changed(&app, &key);
+    // 【Group C】設定を読むパネル（タイムラインの時間の表示など）へ知らせる。
+    let _ = tauri::Emitter::emit(&app, "prefs-changed", &resolved);
     Ok(resolved)
 }
 
