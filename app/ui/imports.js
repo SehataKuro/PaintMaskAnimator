@@ -559,8 +559,18 @@ async function importPsd() {
   await runJob(tr("PSD読み込み"), tr("PSDを読み込んでいます"), () => invoke("import_psd", { path }));
 }
 
+/// InitialStateController.import_line_art_dialog。
+async function importInitialState() {
+  const title = tr("線画カットフォルダーを初期状態として読み込む");
+  const picked = await invoke("import_pick", { kind: "line_art_folder", title });
+  const path = picked?.paths?.[0];
+  if (!path) return;
+  await runJob(title, tr("線画の初期状態を読み込んでいます…"), () => invoke("import_initial_state", { path }));
+}
+
 const ACTIONS = {
   a_import_images: importImages,
+  a_import_initial_state: importInitialState,
   a_import_psd: importPsd,
   a_import_genga: importGenga,
   a_import_folder: importFolder,

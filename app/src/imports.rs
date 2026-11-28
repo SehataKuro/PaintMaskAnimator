@@ -1025,6 +1025,146 @@ fn run_psd(app: &AppHandle, path: &str, cancel: &AtomicBool) -> ImportEvent {
 }
 
 // ---------------------------------------------------------------------------
+// 線画カットフォルダーを初期状態として読み込む（InitialStateController._import_line_art）
+// ---------------------------------------------------------------------------
+
+const LINE_ART_TITLE: &str = "線画カットフォルダーを初期状態として読み込む";
+/// InitialStateUndo.HISTORY_LABEL
+const INITIAL_LABEL: &str = "初期状態の読み込み";
+
+/// レイヤー名をカットフォルダーの列の名前（casefold）にする。見つからなければ
+/// 使えない文字を `_` にした名前でも探す。
+fn line_art_key<'a>(
+    name: &str,
+    cels: &'a [(String, std::collections::BTreeMap<i64, String>)],
+) -> Option<&'a std::collections::BTreeMap<i64, String>> {
+    use pma_core::export::cut_folder::INVALID_NAME_CHARS;
+    use pma_core::export::py;
+    let find = |key: &str| cels.iter().find(|(k, _)| k == key).map(|(_, v)| v);
+    let name = py::strip(name);
+    find(&py::casefold(name)).or_else(|| {
+        let replaced: String = name
+            .chars()
+            .map(|c| {
+                if INVALID_NAME_CHARS.contains(c) || c == '/' {
+                    '_'
+                } else {
+                    c
+                }
+            })
+            .collect();
+        find(&py::casefold(py::strip_chars(&replaced, " .")))
+    })
+}
+
+/// 線画を合わせた結果（Undo の前に全部読んで確かめる）。
+pub struct LineArt {
+    /// (レイヤー, 番号, 絵)
+    pub images: Vec<(usize, pma_core::document::model::CellNumber, RgbaImage)>,
+    /// 対応する線画がなかったセルの数。
+    pub missing: usize,
+}
+
+/// 文書の絵とカットフォルダーのセル画像を合わせる。失敗は Qt の文言。
+pub fn match_line_art(doc: &Document, root: &Path) -> Result<LineArt, String> {
+    let contents = pma_io::scan_cut_folder(root).map_err(|e| e.to_string())?;
+    let (width, height) = doc.size();
+    let mut loaded: std::collections::HashMap<String, RgbaImage> = Default::default();
+    let mut images = Vec::new();
+    let mut missing = 0;
+    for target in doc.initial_targets() {
+        let source = line_art_key(&target.name, &contents.cels)
+            .and_then(|cels| cels.get(&target.number.get()));
+        let Some(relative) = source else {
+            missing += 1;
+            continue;
+        };
+        let name = file_name(relative);
+        if !loaded.contains_key(relative) {
+            let path = root.join(relative);
+            let image = pma_io::read_image_file(&path)
+                .map_err(|error| format!("{name} を読み込めません。\n{error}"))?;
+            if (image.width(), image.height()) != (width, height) {
+                return Err(format!(
+                    "線画のサイズが現在のセルと一致しません：{name}\n線画：{} × {}px／現在のセル：{width} × {height}px",
+                    image.width(),
+                    image.height()
+                ));
+            }
+            let image = import_image::to_document_image(&image).map_err(|e| e.to_string())?;
+            loaded.insert(relative.clone(), image);
+        }
+        images.push((target.layer, target.number, loaded[relative].clone()));
+    }
+    Ok(LineArt { images, missing })
+}
+
+/// 合わせた線画を初期状態にする（Undo 1回「初期状態の読み込み」）。知らせの文を返す。
+pub fn apply_line_art(s: &mut Session, art: LineArt) -> Result<String, String> {
+    let missing = art.missing;
+    let count = s.edit_with(Some(INITIAL_LABEL), |doc, _ui| {
+        let count = doc
+            .set_line_art_initial_images(art.images)
+            .map_err(|e| e.to_string())?;
+        Ok((count, true))
+    })?;
+    Ok(format!(
+        "{count}セルの線画を初期状態として読み込みました。対応する線画がない{missing}セルは変更していません。"
+    ))
+}
+
+/// 線画カットフォルダーを読み、レイヤー名とセル番号で初期状態に合わせる。
+#[tauri::command]
+pub fn import_initial_state(app: AppHandle, path: String) -> Result<(), String> {
+    let cancel = begin_job(&app)?;
+    std::thread::spawn(move || {
+        let fail = |text: String| ImportEvent {
+            error: Some((
+                LINE_ART_TITLE.into(),
+                format!(
+                    "線画を読み込めませんでした。現在の絵と初期状態は変更していません。\n\n{text}"
+                ),
+            )),
+            ..ImportEvent::default()
+        };
+        progress(&app, 0, 1, "線画の初期状態を読み込んでいます…".into());
+        // 読む間は文書の写しを使う（Document は共有の絵なので写しは軽い）。
+        let doc = {
+            let session = app.state::<Shared>();
+            let s = session.lock().unwrap();
+            s.project.as_ref().map(|p| p.document.clone())
+        };
+        let event = match doc {
+            None => fail("作品を開いていません".into()),
+            Some(doc) => match match_line_art(&doc, Path::new(&path)) {
+                Err(e) => fail(e),
+                Ok(_) if cancel.load(Ordering::Relaxed) => ImportEvent {
+                    cancelled: true,
+                    ..ImportEvent::default()
+                },
+                Ok(art) if art.images.is_empty() => ImportEvent {
+                    info: Some((
+                        LINE_ART_TITLE.into(),
+                        "一致するセルがありません。読み込み元のレイヤー名とセル番号を確認してください。"
+                            .into(),
+                    )),
+                    ..ImportEvent::default()
+                },
+                Ok(art) => match crate::with_session(&app, "import", |s| apply_line_art(s, art)) {
+                    Ok(message) => ImportEvent {
+                        message: Some(message),
+                        ..ImportEvent::default()
+                    },
+                    Err(e) => fail(e),
+                },
+            },
+        };
+        finish(&app, event);
+    });
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // 色塗り前の初期状態（offer_after_import）
 // ---------------------------------------------------------------------------
 

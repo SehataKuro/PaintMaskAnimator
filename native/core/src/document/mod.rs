@@ -47,6 +47,7 @@ mod v2_order;
 
 /// 読み込んだ絵を新しい列として入れる操作。
 pub mod import_commands;
+pub mod initial_state;
 mod number_commands;
 /// 配置待ちの番号をシートへ移す操作と窓口への更新情報。
 pub mod pending_commands;

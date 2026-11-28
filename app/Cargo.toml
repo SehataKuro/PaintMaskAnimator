@@ -21,6 +21,8 @@ serde_json = { version = "1", features = ["preserve_order"] }
 tauri-plugin-dialog = "2.8"
 # 計算とデータ（Python・Qt に依存しない中身）。
 pma-core = { path = "../native/core" }
+# カットフォルダーの一覧（線画の初期状態の読み込み）。
+pma-io = { path = "../native/io" }
 
 # 筆圧：WKWebView はペンの筆圧を JavaScript に渡さないので、NSEvent を直接読む。
 [target.'cfg(target_os = "macos")'.dependencies]

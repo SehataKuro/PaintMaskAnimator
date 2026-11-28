@@ -110,3 +110,47 @@ fn reduce_form_uses_the_detected_background() {
     );
     assert_eq!(form.background(None), (false, None));
 }
+
+#[test]
+fn line_art_folder_sets_initial_images_by_layer_name_and_number() {
+    let mut s = Session::empty(2, 2);
+    let blank = |v: u8| {
+        let image = import_image::to_premultiplied(2, 2, &[v; 16]).unwrap();
+        import_image::to_document_image(&image).unwrap()
+    };
+    s.edit_with(None, |doc, _| {
+        doc.import_image_tracks(0, vec![ImportedTrack::new("A", vec![blank(1), blank(2)])])
+            .map_err(|e| e.to_string())?;
+        Ok(((), true))
+    })
+    .unwrap();
+    let root = std::env::temp_dir().join(format!("pma-line-art-{}", std::process::id()));
+    std::fs::create_dir_all(root.join("a")).unwrap();
+    std::fs::write(
+        root.join("a").join("a_0002.png"),
+        encode_png(2, 2, &[90u8; 16], None).unwrap(),
+    )
+    .unwrap();
+    let doc = s.project.as_ref().unwrap().document.clone();
+    let art = match_line_art(&doc, &root).unwrap();
+    assert_eq!(art.images.len(), 1);
+    assert_eq!(art.missing, 1);
+    let message = apply_line_art(&mut s, art).unwrap();
+    assert_eq!(
+        message,
+        "1セルの線画を初期状態として読み込みました。対応する線画がない1セルは変更していません。"
+    );
+    let doc = &s.project.as_ref().unwrap().document;
+    let track = doc.track(doc.track_order()[1]).unwrap();
+    let cell = &track.cells[&pma_core::document::model::CellNumber::new(2).unwrap()];
+    assert_eq!(cell.initial_image.as_ref().unwrap().rgba()[3], 90);
+    // 大きさが違えば何も変えずに Qt の文言で断る。
+    std::fs::write(
+        root.join("a").join("a_0001.png"),
+        encode_png(1, 1, &[0u8; 4], None).unwrap(),
+    )
+    .unwrap();
+    let error = match_line_art(doc, &root).err().unwrap();
+    assert!(error.starts_with("線画のサイズが現在のセルと一致しません：a_0001.png"));
+    std::fs::remove_dir_all(&root).ok();
+}
