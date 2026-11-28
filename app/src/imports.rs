@@ -53,29 +53,32 @@ pub struct Imports {
     /// 動いている読み込みの中止の印。
     job: Option<Arc<AtomicBool>>,
     /// 2値化の窓で使う、1枚目と代表フレーム（ストレート RGBA）。
-    prepared: Option<Prepared>,
+    pub(crate) prepared: Option<Prepared>,
     /// CLIP STUDIO アニメーション（imports_clip.rs）：読んで、置き換えを確かめているあいだの結果。
     pub(crate) clip: Option<pma_core::import::clip::ClipAnimation>,
+    /// カットフォルダー（imports_layer.rs）：読んで、置き換えを確かめているあいだの結果と
+    /// フォルダー名。
+    pub(crate) cut: Option<(pma_core::import::cut_folder::CutFolderRead, String)>,
 }
 
 pub type ImportsShared = Mutex<Imports>;
 
-struct Prepared {
-    paths: Vec<String>,
-    first: Straight,
-    references: Vec<Straight>,
+pub(crate) struct Prepared {
+    pub(crate) paths: Vec<String>,
+    pub(crate) first: Straight,
+    pub(crate) references: Vec<Straight>,
     /// 1枚目の外周の背景（`detect_opaque_border_background`）。
-    background: Option<[u8; 3]>,
+    pub(crate) background: Option<[u8; 3]>,
 }
 
 #[derive(Clone)]
-struct Straight {
-    width: usize,
-    height: usize,
-    rgba: Vec<u8>,
+pub(crate) struct Straight {
+    pub(crate) width: usize,
+    pub(crate) height: usize,
+    pub(crate) rgba: Vec<u8>,
 }
 
-fn file_name(path: &str) -> String {
+pub(crate) fn file_name(path: &str) -> String {
     Path::new(path)
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -96,11 +99,11 @@ fn read_error(path: &str, error: ReadError) -> String {
     }
 }
 
-fn read_file(path: &str) -> Result<Vec<u8>, String> {
+pub(crate) fn read_file(path: &str) -> Result<Vec<u8>, String> {
     std::fs::read(path).map_err(|e| format!("形式: \n{e}"))
 }
 
-fn read_premul(path: &str) -> Result<PremulImage, String> {
+pub(crate) fn read_premul(path: &str) -> Result<PremulImage, String> {
     let data = read_file(path)?;
     import_image::read_image(&data).map_err(|e| read_error(path, e))
 }
@@ -333,6 +336,9 @@ pub struct ReduceForm {
     /// プレビューで決めた共通パレット（読み込むとき）。
     #[serde(default)]
     pub palette: Option<Vec<[u8; 3]>>,
+    /// 人が指定した出力する色（#62）。あれば色数から決めず、この色だけで描き直す。
+    #[serde(default)]
+    pub custom_palette: Option<Vec<[u8; 3]>>,
 }
 
 /// 透明背景のアルファ二値化は中央 50% に固定（`alpha_threshold_255`）。
@@ -352,7 +358,11 @@ impl ReduceForm {
         }
     }
 
-    fn settings(&self, detected: Option<[u8; 3]>, palette: Vec<[u8; 3]>) -> ReduceSettings {
+    pub(crate) fn settings(
+        &self,
+        detected: Option<[u8; 3]>,
+        palette: Vec<[u8; 3]>,
+    ) -> ReduceSettings {
         let (opaque_background, background) = if self.flatten_paper {
             (true, Some([255, 255, 255]))
         } else {
@@ -398,15 +408,25 @@ fn roundtrip(mut pixels: Vec<u8>, width: usize) -> Vec<u8> {
     pixels
 }
 
-/// プレビューの結果：パレットと、元画像（トーンカーブ後）と 2値化の画像。
-fn pack_preview(palette: &[[u8; 3]], semi: usize, images: [&Straight; 2]) -> Vec<u8> {
+/// 並べて見せる、ほかの代表フレームの数（ColorReductionDialog.REFERENCE_PREVIEWS）。
+const REFERENCE_PREVIEWS: usize = 3;
+
+/// プレビューの結果：パレットと、元画像（トーンカーブ後）と 2値化の画像と、
+/// ほかの代表フレームの2値化の画像。
+fn pack_preview(
+    palette: &[[u8; 3]],
+    semi: usize,
+    images: [&Straight; 2],
+    references: &[Straight],
+) -> Vec<u8> {
     let mut out = Vec::new();
     out.extend_from_slice(&(palette.len() as u32).to_le_bytes());
     out.extend_from_slice(&(semi as u32).to_le_bytes());
     for c in palette {
         out.extend_from_slice(&[c[0], c[1], c[2], 255]);
     }
-    for image in images {
+    out.extend_from_slice(&(references.len() as u32).to_le_bytes());
+    for image in images.into_iter().chain(references) {
         out.extend_from_slice(&(image.width as u32).to_le_bytes());
         out.extend_from_slice(&(image.height as u32).to_le_bytes());
         out.extend_from_slice(&image.rgba);
@@ -415,7 +435,8 @@ fn pack_preview(palette: &[[u8; 3]], semi: usize, images: [&Straight; 2]) -> Vec
 }
 
 /// 2値化の窓の「プレビュー」（`_update_preview`）。
-/// 返すのは [色数 u32][半透明 u32][パレット RGBA…][幅 高さ 画素]×2（元画像・2値化）。
+/// 返すのは [色数 u32][半透明 u32][パレット RGBA…][代表の数 u32]
+/// [幅 高さ 画素]×(2＋代表の数)（元画像・2値化・ほかの代表フレームの2値化）。
 #[tauri::command]
 pub async fn import_reduce_preview(app: AppHandle, form: ReduceForm) -> Result<Response, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -454,40 +475,59 @@ pub async fn import_reduce_preview(app: AppHandle, form: ReduceForm) -> Result<R
         for r in &toned_refs {
             images.push(RgbaImage::from_rgba(r.width, r.height, &r.rgba).map_err(error)?);
         }
-        let palette = build_color_reduction_palette(
-            &images.iter().collect::<Vec<_>>(),
-            &PaletteOptions {
-                color_count: form.color_count,
-                alpha_threshold: ALPHA_THRESHOLD,
-                max_samples: 131072,
+        // 指定した色があれば、その色だけで描き直す（自動の色では上書きしない、#62）。
+        let palette = match form.custom_palette.as_ref().filter(|p| !p.is_empty()) {
+            Some(custom) => custom.clone(),
+            None => build_color_reduction_palette(
+                &images.iter().collect::<Vec<_>>(),
+                &PaletteOptions {
+                    color_count: form.color_count,
+                    alpha_threshold: ALPHA_THRESHOLD,
+                    max_samples: 131072,
+                    opaque_background,
+                    background,
+                    line: form.line(),
+                },
+            )
+            .map_err(error)?,
+        };
+        let reduce_one = |image: &Straight| -> Result<Vec<u8>, String> {
+            let mut reduced = reduce::apply_palette(
+                &image.rgba,
+                image.width,
+                image.height,
+                &palette,
+                ALPHA_THRESHOLD,
                 opaque_background,
                 background,
-                line: form.line(),
-            },
-        )
-        .map_err(error)?;
-        let mut reduced = reduce::apply_palette(
-            &toned.rgba,
-            toned.width,
-            toned.height,
-            &palette,
-            ALPHA_THRESHOLD,
-            opaque_background,
-            background,
-            form.line(),
-        )
-        .map_err(error)?;
-        if form.despeckle > 0 {
-            let (cleaned, removed) = despeckle::remove_isolated_specks(
-                &reduced,
-                toned.width,
-                toned.height,
-                form.despeckle,
-            );
-            if removed > 0 {
-                reduced = roundtrip(cleaned, toned.width);
+                form.line(),
+            )
+            .map_err(error)?;
+            if form.despeckle > 0 {
+                let (cleaned, removed) = despeckle::remove_isolated_specks(
+                    &reduced,
+                    image.width,
+                    image.height,
+                    form.despeckle,
+                );
+                if removed > 0 {
+                    reduced = roundtrip(cleaned, image.width);
+                }
             }
-        }
+            Ok(reduced)
+        };
+        let reduced = reduce_one(&toned)?;
+        // ほかの代表フレームも同じ設定で2値化して並べる（reduced_reference_images）。
+        let reference_previews = toned_refs
+            .iter()
+            .take(REFERENCE_PREVIEWS)
+            .map(|r| {
+                Ok(Straight {
+                    rgba: reduce_one(r)?,
+                    ..*r
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
         let semi = reduced
             .chunks_exact(4)
             .filter(|p| p[3] > 0 && p[3] < 255)
@@ -500,6 +540,7 @@ pub async fn import_reduce_preview(app: AppHandle, form: ReduceForm) -> Result<R
             &palette,
             semi,
             [&toned, &reduced],
+            &reference_previews,
         )))
     })
     .await
@@ -656,7 +697,10 @@ pub struct ImageRequest {
     pub antialias_frames: usize,
 }
 
-fn conversion(request: &ImageRequest, detected: Option<[u8; 3]>) -> Result<Conversion, String> {
+pub(crate) fn conversion(
+    request: &ImageRequest,
+    detected: Option<[u8; 3]>,
+) -> Result<Conversion, String> {
     Ok(match request.conversion.as_str() {
         "draft" => Conversion::Draft,
         "plain" => Conversion::Plain,

@@ -123,6 +123,58 @@ impl Document {
     }
 }
 
+/// 色塗り前の初期状態を保持・消去するセル `(コマ, レイヤー)`（コマは露出元）。
+pub type InitialCell = (usize, usize);
+
+impl Document {
+    /// 全レイヤーの、絵のあるセル（`InitialStateController.cells`：保持はキーフレームへ畳む）。
+    /// レイヤー順、各レイヤーではコマ順。
+    pub fn initial_state_cells(&self) -> Result<Vec<InitialCell>, Error> {
+        let mut cells = Vec::new();
+        for layer in 0..self.track_order.len() {
+            cells.extend(crate::tools::scope::scope_cells(self, 0, layer, true)?);
+        }
+        Ok(cells)
+    }
+
+    /// `cells` のうち、初期状態を保持しているセルの数（`InitialStateController.count`）。
+    pub fn count_initial_state(&self, cells: &[InitialCell]) -> usize {
+        use super::access::ImageField;
+        cells
+            .iter()
+            .filter(|&&(frame, layer)| {
+                crate::tools::bucket::position_slot(self, frame, layer)
+                    .and_then(|slot| self.artwork_image(slot, ImageField::Initial))
+                    .is_some()
+            })
+            .count()
+    }
+
+    /// `cells` の今の絵を初期状態にする（すでに保持していても上書きする。
+    /// `InitialStateController.keep` の `keep_initial_images(cells)`）。保持した数を返す。
+    pub fn keep_initial_state(&mut self, cells: &[InitialCell]) -> Result<usize, Error> {
+        use super::drawing_commands::DrawingTarget;
+        let mut updates = Vec::with_capacity(cells.len());
+        for &(frame, layer) in cells {
+            let image = crate::tools::bucket::position_image(self, frame, layer)?;
+            updates.push((layer, DrawingTarget::Frame(frame), Some(image)));
+        }
+        self.set_initial_images(&updates, false)?;
+        Ok(cells.len())
+    }
+
+    /// `cells` の初期状態を消す（`InitialStateController.clear`）。
+    pub fn clear_initial_state(&mut self, cells: &[InitialCell]) -> Result<(), Error> {
+        use super::drawing_commands::DrawingTarget;
+        let updates: Vec<_> = cells
+            .iter()
+            .map(|&(frame, layer)| (layer, DrawingTarget::Frame(frame), None))
+            .collect();
+        self.set_initial_images(&updates, false)?;
+        Ok(())
+    }
+}
+
 /// 合わせた線画（Undo の前に全部読んで確かめる）。
 #[derive(Clone, Debug)]
 pub struct LineArtMatch {
@@ -174,5 +226,25 @@ mod tests {
         assert!(doc
             .set_line_art_initial_images(vec![(1, n(1), image(1, 1, 0))])
             .is_err());
+    }
+
+    #[test]
+    fn keep_overwrites_and_clear_removes_initial_state() {
+        let mut doc = Document::new_blank(2, 2).unwrap();
+        doc.import_image_tracks(
+            0,
+            vec![ImportedTrack::new(
+                "A",
+                vec![image(2, 2, 1), image(2, 2, 2)],
+            )],
+        )
+        .unwrap();
+        let cells = doc.initial_state_cells().unwrap();
+        assert!(cells.contains(&(0, 1)) && cells.contains(&(1, 1)));
+        assert_eq!(doc.count_initial_state(&cells), 0);
+        assert_eq!(doc.keep_initial_state(&cells).unwrap(), cells.len());
+        assert_eq!(doc.count_initial_state(&cells), cells.len());
+        doc.clear_initial_state(&cells).unwrap();
+        assert_eq!(doc.count_initial_state(&cells), 0);
     }
 }

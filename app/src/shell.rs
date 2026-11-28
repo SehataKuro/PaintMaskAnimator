@@ -499,6 +499,8 @@ pub async fn pick_open_path(app: AppHandle, title: String, filter: String) -> Op
         .file()
         .set_title(title)
         .add_filter(filter, &["pman"])
+        // 【読み込み：Group B】Qt の open_dialog と同じく、旧形式の .oap も選べる。
+        .add_filter("旧Oekaki Animation Project", &["oap"])
         .blocking_pick_file()
         .and_then(|p| p.into_path().ok())
         .map(|p| p.display().to_string())

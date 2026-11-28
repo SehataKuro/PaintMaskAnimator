@@ -1343,6 +1343,101 @@ pub fn delete_selection_contents(s: &mut Session) -> Result<Option<Rect>, String
 }
 
 // ---------------------------------------------------------------------------
+// 【読み込み・編集：Group B】切り取り・コピー・貼り付け（Qt の canvas_selection.py の
+// copy_selection・cut_selection・paste_clipboard）。計算は pma-core の selection::edit、
+// 画像は OS のクリップボード（arboard、ストレート RGBA）でやり取りする。
+// ---------------------------------------------------------------------------
+
+/// 選択の形どおりに切り抜いた画像（選択が無ければレイヤー全体）。切り抜けなければ None。
+pub fn selection_clip(s: &Session) -> Result<Option<RgbaImage>, String> {
+    let (image, _, _) = active_image(s)?;
+    let selection = s.tools.selection.selection();
+    Ok(pma_core::selection::copy_selection(&image, selection)
+        .map_err(|e| e.to_string())?
+        .map(|(_, clip)| clip))
+}
+
+/// 切り取り（コピーは呼び出し側が先に済ませる）：選択の中だけを消す。選択が無ければ
+/// レイヤー全体を消す。Undo は1回（描画と同じ名前）。
+pub fn cut_after_copy(s: &mut Session) -> Result<Option<Rect>, String> {
+    if s.tools.selection.selection().is_some() {
+        return delete_selection_contents(s);
+    }
+    let (image, frame, layer) = active_image(s)?;
+    let rect = Rect {
+        x: 0,
+        y: 0,
+        width: image.width(),
+        height: image.height(),
+    };
+    let pixels = vec![0; image.width() * image.height() * 4];
+    write_active(s, frame, layer, rect, pixels)
+}
+
+/// 貼り付け：`clip` を選択の外接矩形の左上（選択が無ければ左上の角）へ重ねる。
+pub fn paste_image(s: &mut Session, clip: &RgbaImage) -> Result<Option<Rect>, String> {
+    let (mut image, frame, layer) = active_image(s)?;
+    let selection = s.tools.selection.selection().cloned();
+    let Some(edit) = pma_core::selection::paste(&mut image, clip, selection.as_ref(), (0, 0))
+        .map_err(|e| e.to_string())?
+    else {
+        return Ok(None);
+    };
+    let pixels = image.copy_rgba_rect(edit.rect).map_err(|e| e.to_string())?;
+    write_active(s, frame, layer, edit.rect, pixels)
+}
+
+/// 画像（ストレートの RGBA）を OS のクリップボードへ載せる。コピー・切り取りと
+/// 「今の絵をクリップボードへ書き出す」（view.rs）が同じ道を使う。
+pub(crate) fn set_clipboard_image(width: usize, height: usize, rgba: &[u8]) -> Result<(), String> {
+    clipboard()?
+        .set_image(arboard::ImageData {
+            width,
+            height,
+            bytes: std::borrow::Cow::Borrowed(rgba),
+        })
+        .map_err(|e| format!("クリップボードへ書けませんでした：{e}"))
+}
+
+fn clipboard() -> Result<arboard::Clipboard, String> {
+    arboard::Clipboard::new().map_err(|e| format!("クリップボードを使えません：{e}"))
+}
+
+/// 切り取り・コピー・貼り付け（`kind`：cut / copy / paste）。変えた範囲を返す。
+/// クリップボードに画像が無ければ貼り付けは何もしない（Qt と同じ）。
+#[tauri::command]
+pub fn edit_clipboard(app: tauri::AppHandle, kind: String) -> Result<Response, String> {
+    match kind.as_str() {
+        "copy" | "cut" => with_tools(&app, false, |s| {
+            let Some(clip) = selection_clip(s)? else {
+                return Ok(rect_response(s, None));
+            };
+            set_clipboard_image(clip.width(), clip.height(), clip.rgba())?;
+            let rect = if kind == "cut" {
+                cut_after_copy(s)?
+            } else {
+                None
+            };
+            Ok(rect_response(s, rect))
+        }),
+        "paste" => {
+            let clip = clipboard()?
+                .get_image()
+                .ok()
+                .and_then(|data| RgbaImage::from_rgba(data.width, data.height, &data.bytes).ok());
+            with_tools(&app, false, |s| {
+                let rect = match &clip {
+                    Some(clip) if clip.width() > 0 && clip.height() > 0 => paste_image(s, clip)?,
+                    _ => None,
+                };
+                Ok(rect_response(s, rect))
+            })
+        }
+        other => Err(format!("知らない編集の操作：{other}")),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // HOOK：計算を pma-core へ移しているところの操作。ここで呼ぶだけにしてある。
 // ---------------------------------------------------------------------------
 
@@ -1418,9 +1513,70 @@ pub fn dust_apply(s: &mut Session) -> Result<Option<Rect>, String> {
 pub fn run_action(s: &mut Session, id: &str) -> Result<Option<String>, String> {
     match id {
         "main_line_repaint" => main_line_repaint(s),
-        "same_image_replacement" => Err(pending("同一画像から色置換")),
+        "same_image_replacement" => same_image_replacement(s),
         other => Err(pending(other)),
     }
+}
+
+/// 同一画像から色置換（`line_ops.register_same_image_replacements`、計算は pma-core の
+/// `aligned_replacement_mapping`）。今のコマの上側レイヤーで、選択レイヤーと画素の並びが
+/// 同じ絵を探し、色の対応を使用色パネルの置換色に登録する（使用色パネルの Undo に積む）。
+/// 断り（Qt の QMessageBox.warning）は Err、登録したら知らせ。
+// 【読み込み・編集：Group B】
+pub fn same_image_replacement(s: &mut Session) -> Result<Option<String>, String> {
+    use pma_core::image_ops::color_replace::aligned_replacement_mapping;
+    use pma_core::tools::{bucket, scope};
+    let Some(p) = s.project.as_ref() else {
+        return Ok(None);
+    };
+    let doc = &p.document;
+    if doc.frame_order().is_empty() || doc.track_order().is_empty() {
+        return Ok(None);
+    }
+    let (frame, source) = crate::session::current_index(doc);
+    let key = |layer: usize| -> Option<usize> {
+        scope::scope_cells(doc, frame, layer, false)
+            .ok()?
+            .first()
+            .map(|cell| cell.0)
+    };
+    const NO_IMAGE: &str = "選択レイヤーの現在位置に画像がありません。";
+    let source_key = key(source).ok_or(NO_IMAGE)?;
+    let source_image =
+        bucket::position_image(doc, source_key, source).map_err(|e| e.to_string())?;
+    let candidates: Vec<(usize, usize)> = (source + 1..doc.track_order().len())
+        .filter_map(|layer| key(layer).map(|k| (layer, k)))
+        .collect();
+    if candidates.is_empty() {
+        return Err("同じタイムライン位置の上側レイヤーに、比較できる画像がありません。".into());
+    }
+    for (layer, key_frame) in candidates {
+        let target = bucket::position_image(doc, key_frame, layer).map_err(|e| e.to_string())?;
+        let Some(mapping) = aligned_replacement_mapping(&source_image, &target) else {
+            continue;
+        };
+        let name = doc
+            .track(doc.track_order()[layer])
+            .map(|t| t.settings.name.clone())
+            .unwrap_or_default();
+        let mapping: std::collections::BTreeMap<_, _> = mapping
+            .into_iter()
+            .map(|([a, b, c], [d, e, f])| ((a, b, c), (d, e, f)))
+            .collect();
+        let (registered, recorded) = s.colors.palette.register_replacements(&mapping);
+        if let (Some(recorded), Some(p)) = (recorded, s.project.as_mut()) {
+            p.undo
+                .record_with_palette(recorded.label, &p.document, Some(recorded.before));
+        }
+        s.colors.touched = true;
+        if registered == 0 {
+            return Err("一致する画像は見つかりましたが、登録できる使用色がありません。".into());
+        }
+        return Ok(Some(format!(
+            "上側レイヤー「{name}」から{registered}色を置換色に登録しました。"
+        )));
+    }
+    Err("上側レイヤーの画像とピクセルが一致していないため、置換色には登録できません。\n画像サイズ、透明度、色領域の形が同じか確認してください。".into())
 }
 
 /// MainLineRepaint（`line_ops.main_line_repaint`、計算は pma-core の
@@ -2477,9 +2633,8 @@ mod tests {
         if transform(&mut s, "mesh").is_ok() {
             transform(&mut s, "cancel").unwrap();
         }
-        assert!(run_action(&mut s, "same_image_replacement")
-            .unwrap_err()
-            .contains("同一画像から色置換"));
+        // 上側に比べる絵が無ければ断る（文書も履歴も変えない）。
+        assert!(run_action(&mut s, "same_image_replacement").is_err());
         // MainLineRepaint は使用色を選んでいなければ尋ねるだけ。
         s.tools.paint.used_selection.clear();
         assert!(run_action(&mut s, "main_line_repaint")

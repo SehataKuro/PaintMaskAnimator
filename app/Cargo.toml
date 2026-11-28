@@ -28,6 +28,9 @@ rfd = "0.17"
 pma-io = { path = "../native/io" }
 # CLIP STUDIO アニメーションの読み込み（imports_clip.rs）。
 pma-clip-import = { path = "../native/clip-import" }
+# 【読み込み・編集：Group B】切り取り・コピー・貼り付けの画像（OS のクリップボード、
+# tools.rs の edit_clipboard）。1Password が保守している MIT/Apache-2.0 の crate。
+arboard = { version = "3.7", default-features = false, features = ["image-data"] }
 
 # 筆圧：WKWebView はペンの筆圧を JavaScript に渡さないので、NSEvent を直接読む。
 [target.'cfg(target_os = "macos")'.dependencies]

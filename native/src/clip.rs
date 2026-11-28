@@ -440,3 +440,44 @@ pub fn clip_animation_document(
     })
     .map_err(error)
 }
+
+/// pma-core でカットフォルダー（セル画像＋XDTS／TDTS）から新しい文書を作る
+/// （Qt の `ImportController.cut_folder` の `_replace_document` まで）。
+/// (文書, 連番に残したセルの数, 知らせ)。
+#[pyfunction]
+pub fn cut_folder_document(
+    py: Python<'_>,
+    path: PathBuf,
+    fps: f64,
+    replaced: (usize, usize),
+) -> PyResult<(PyCoreDocument, usize, Vec<String>)> {
+    py.detach(|| {
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let contents = pma_io::scan_cut_folder(&path).map_err(|e| e.to_string())?;
+        let read = pma_core::import::cut_folder::read_cut_folder(
+            &name,
+            &contents,
+            &mut |relative| std::fs::read_to_string(path.join(relative)).map_err(|e| e.to_string()),
+            &mut |relative| {
+                pma_io::read_image_file(&path.join(relative)).map_err(|e| e.to_string())
+            },
+            fps,
+        )?;
+        let a = &read.animation;
+        let built = pma_core::document::model::Document::from_animation(
+            a.width,
+            a.height,
+            a.start_frame,
+            a.end_frame,
+            &a.layers,
+            replaced,
+        )
+        .map_err(|e| e.to_string())?;
+        Ok::<_, String>((built, read.notes))
+    })
+    .map(|(built, notes)| (PyCoreDocument::wrap(built.document), built.archived, notes))
+    .map_err(error)
+}

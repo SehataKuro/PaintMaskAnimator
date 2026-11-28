@@ -113,7 +113,9 @@ pub const ACTIONS: &[Action] = &[
     a("a_open_project", "プロジェクトを開く…", &["Ctrl+O"])
         .tab(FileEdit, "プロジェクトを開く")
         .wired(),
-    a("a_open_cut_folder", "カットフォルダーを開く…", &[]).tab(FileEdit, "カットフォルダーを開く"),
+    a("a_open_cut_folder", "カットフォルダーを開く…", &[])
+        .tab(FileEdit, "カットフォルダーを開く")
+        .wired(), // 【Group B】
     a("a_import_images", "画像を読み込む…", &[]).tab(FileEdit, "画像を読み込む"),
     a("a_import_folder", "画像フォルダーを読み込む…", &[])
         .tab(FileEdit, "画像フォルダーを読み込む"),
@@ -137,10 +139,18 @@ pub const ACTIONS: &[Action] = &[
     a("a_redo", "やり直す", &["Ctrl+Y", "Ctrl+Shift+Z"])
         .tab(FileEdit, "やり直す")
         .wired(),
-    a("a_cut", "切り取り", &["Ctrl+X"]).tab(FileEdit, "切り取り"),
-    a("a_copy", "コピー", &["Ctrl+C"]).tab(FileEdit, "コピー"),
-    a("a_paste", "貼り付け", &["Ctrl+V"]).tab(FileEdit, "貼り付け"),
-    a("a_resize", "キャンバスサイズの変更…", &[]).tab(FileEdit, "キャンバスサイズ変更"),
+    a("a_cut", "切り取り", &["Ctrl+X"])
+        .tab(FileEdit, "切り取り")
+        .wired(), // 【Group B】
+    a("a_copy", "コピー", &["Ctrl+C"])
+        .tab(FileEdit, "コピー")
+        .wired(), // 【Group B】
+    a("a_paste", "貼り付け", &["Ctrl+V"])
+        .tab(FileEdit, "貼り付け")
+        .wired(), // 【Group B】
+    a("a_resize", "キャンバスサイズの変更…", &[])
+        .tab(FileEdit, "キャンバスサイズ変更")
+        .wired(), // 【Group B】
     a("a_pressure", "筆圧設定…", &[]).tab(FileEdit, "筆圧設定"),
     a("a_memo", "メモを開く", &[])
         .tab(FileEdit, "メモを開く")
@@ -177,7 +187,8 @@ pub const ACTIONS: &[Action] = &[
     a("a_remove_dust", "ゴミ取り／塗り抜け…", &[]).tab(FileEdit, "ゴミ取り"),
     a("a_auto_paint", "自動で塗る…", &[]).tab(FileEdit, "自動で塗る"),
     a("a_keep_initial_state", "今の絵を初期状態として保持", &[])
-        .tab(FileEdit, "今の絵を初期状態として保持"),
+        .tab(FileEdit, "今の絵を初期状態として保持")
+        .wired(), // 【Group B】
     a(
         "a_import_initial_state",
         "線画カットフォルダーを初期状態として読み込む…",
@@ -191,7 +202,8 @@ pub const ACTIONS: &[Action] = &[
     )
     .tab(FileEdit, "CLIPの線画を初期状態として読み込む"),
     a("a_clear_initial_state", "保持した初期状態を消す", &[])
-        .tab(FileEdit, "保持した初期状態を消す"),
+        .tab(FileEdit, "保持した初期状態を消す")
+        .wired(), // 【Group B】
     a("a_reference_check", "見本との違いチェック…", &[]).tab(FileEdit, "見本との違いチェック"),
     // ---- メニューだけの操作（ショートカット設定には出ない） ----
     a("a_import_genga", "原画を読み込む…", &[]),
@@ -204,9 +216,9 @@ pub const ACTIONS: &[Action] = &[
     a("a_import_clip", "CLIP STUDIOアニメーションを読み込む…", &[]),
     a("a_export_xdts", "XDTSタイムシートを書き出す…", &[]),
     a("a_export_psd", "PSDを書き出す…", &[]),
-    a("a_binarize_layer", "2値化…", &[]),
-    a("a_reconvert_layer", "元のファイルから再変換…", &[]),
-    a("a_tidy_lines", "線整え…", &[]),
+    a("a_binarize_layer", "2値化…", &[]).wired(), // 【Group B】
+    a("a_reconvert_layer", "元のファイルから再変換…", &[]).wired(), // 【Group B】
+    a("a_tidy_lines", "線整え…", &[]).wired(),    // 【Group B】
     a("a_color_chart", "カラーチャート…", &[]),
     a("a_shortcuts", "ショートカット設定…", &[]).wired(),
     a("a_prev", "前のフレーム", &["1"]).wired(),

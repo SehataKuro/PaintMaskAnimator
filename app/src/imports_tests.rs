@@ -96,6 +96,7 @@ fn reduce_form_uses_the_detected_background() {
         despeckle: 3,
         tone_curve_points: vec![(0.0, 0.0), (1.0, 1.0)],
         palette: Some(vec![[0, 0, 0]]),
+        custom_palette: None,
     };
     let s = form.settings(Some([250, 250, 250]), vec![[0, 0, 0]]);
     assert!(s.opaque_background);

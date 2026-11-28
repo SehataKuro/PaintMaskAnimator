@@ -20,6 +20,10 @@ mod history;
 // 読み込み（imports.rs）：画像・フォルダー・PSD・CLIP・線画の初期状態・レイアウト用紙。
 mod imports;
 mod imports_clip; // CLIP STUDIO アニメーションの読み込み（imports_clip.rs）。
+                  // 【読み込み・編集：Group B】カットフォルダー・読み込んだレイヤーの2値化と再変換
+                  // （imports_layer.rs）、キャンバスサイズ・初期状態・線整え（edit_ops.rs）。
+mod edit_ops;
+mod imports_layer;
 mod paint_ops;
 mod pen;
 mod pen_selftest;
@@ -523,6 +527,25 @@ fn main() {
             imports_clip::import_clip_discard,
             imports_clip::import_clip_apply,
             imports_clip::import_clip_initial_state,
+            // 【読み込み・編集：Group B】imports_layer.rs・edit_ops.rs・tools.rs。
+            imports_layer::import_cut_folder,
+            imports_layer::import_cut_folder_apply,
+            imports_layer::import_cut_folder_discard,
+            imports_layer::import_read_timesheet,
+            imports_layer::layer_binarize_inspect,
+            imports_layer::layer_binarize_run,
+            imports_layer::layer_reconvert_check,
+            imports_layer::layer_reconvert_run,
+            imports_layer::binarize_presets,
+            imports_layer::binarize_preset_save,
+            imports_layer::binarize_preset_delete,
+            edit_ops::edit_resize_canvas,
+            edit_ops::edit_canvas_size,
+            edit_ops::edit_initial_state,
+            edit_ops::edit_tidy_dialog,
+            edit_ops::edit_tidy_preview,
+            edit_ops::edit_tidy_apply,
+            tools::edit_clipboard,
             // 【アプリの外枠】（shell.rs）。
             shell::shell_init,
             shell::shell_menu_state,

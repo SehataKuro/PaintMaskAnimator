@@ -7,7 +7,9 @@
 // 読み込みは Rust の別のスレッドで行い、終わると `import-job` の事件が来る。
 //
 // app.js が installImports で組み込む。メニューの項目は `pma-action` の事件で受ける。
-import { el, openDialog, message } from "./dialogs.js";
+import { el, openDialog, message, prompt } from "./dialogs.js";
+import { pickColor, showMenu } from "./color_state.js";
+import { showPasteDialog } from "./time_remap.js"; // 【Group B】落とした XDTS
 import { notify } from "./tool_properties.js";
 import { tr } from "./i18n.js";
 
@@ -267,8 +269,31 @@ function toneCurveEditor(onChange) {
     draw();
     onChange(rounded(), true);
   };
+  // プリセットのトーンカーブ（ToneCurveWidget.setPoints・_normalized_points）。
+  const setPoints = (list) => {
+    const normalized = [];
+    for (const point of list) {
+      const [x, y] = point;
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+      normalized.push([Math.max(0, Math.min(1, x)), Math.max(0, Math.min(1, y))]);
+    }
+    normalized.push([0, 0], [1, 1]);
+    normalized.sort((a, b) => a[0] - b[0]);
+    const merged = [];
+    for (const [x, y] of normalized) {
+      if (merged.length && Math.abs(x - merged[merged.length - 1][0]) < 1e-5) merged[merged.length - 1] = [x, y];
+      else merged.push([x, y]);
+    }
+    if (!merged.length || merged[0][0] > 1e-5) merged.unshift([0, 0]);
+    merged[0] = [0, 0];
+    if (merged[merged.length - 1][0] < 1 - 1e-5) merged.push([1, 1]);
+    merged[merged.length - 1] = [1, 1];
+    points = merged;
+    draw();
+    onChange(rounded(), true);
+  };
   requestAnimationFrame(draw);
-  return { canvas, reset, points: rounded };
+  return { canvas, reset, setPoints, points: rounded };
 }
 
 function imageCanvas(view, offset) {
@@ -280,23 +305,41 @@ function imageCanvas(view, offset) {
   return { canvas, next: offset + 8 + width * height * 4 };
 }
 
-/// 2値化の窓。{form}（2値化）・"plain"（そのまま読み込む）・null（キャンセル）。
-async function reduceDialog(inspect, frames) {
+/// 2値化の窓（ColorReductionDialog）。{form, allFrames}（2値化）・"plain"（そのまま読み込む）・
+/// null（キャンセル）。
+/// - allowWithoutReduction：「そのまま読み込む」を出す（読み込むとき）。偽なら読み込んだあとの
+///   レイヤーにかけるとき（ボタンは「2値化」）。
+/// - scopeChoice：「範囲」（今のコマ／すべてのコマ）を出す。
+/// - scan：「紙の地色とムラを白にそろえる」を出して ON にする（ゴミ取りも ON、#51）。
+async function reduceDialog(inspect, frames, { allowWithoutReduction = true, scopeChoice = false, scan = true } = {}) {
   const mode = el("select", {}, el("option", { value: "surface" }, tr("色面抽出")), el("option", { value: "line" }, tr("ライン抽出")));
-  mode.title = tr("色面抽出：塗りの色面を保ちながらアンチエイリアスを除去します。\nライン抽出：白背景の線画から線を取り出し、背景を透明にします。");
+  mode.value = "line";
+  mode.title = tr("色面抽出：塗りの色面を保ちながらアンチエイリアスを除去します。\nライン抽出：白背景と元の線色を保ちながら線画を2値化します。");
   const count = el("input", { type: "number", min: "2", max: "100", value: "8", style: { width: "70px" } });
   const slider = el("input", { type: "range", min: "2", max: "100", value: "8", style: { flex: "1" } });
-  const flatten = el("input", { type: "checkbox", checked: true });
-  const despeckle = el("input", { type: "checkbox", checked: true });
+  const flatten = scan ? el("input", { type: "checkbox", checked: true }) : null;
+  const despeckle = el("input", { type: "checkbox" });
+  despeckle.checked = scan;
   const despeckleSize = el("input", { type: "number", min: "1", max: "100", value: "3", style: { width: "64px" } });
+  despeckleSize.disabled = !despeckle.checked;
   const blur = el("input", { type: "number", min: "0", max: "3", step: "0.5", value: "0", style: { width: "64px" } });
+  blur.title = tr("トーンカーブの前に弱いぼかしをかけ、スキャンや JPEG のざらつきをならします。線のふちのギザギザや小さな点が減ります。0 でかけません。");
+  const range = scopeChoice
+    ? el("select", {}, el("option", { value: "current" }, tr("今のコマ")), el("option", { value: "all" }, tr("すべてのコマ")))
+    : null;
+  if (range) range.value = "all";
   const toneLabel = el("span", { style: { width: "66px", textAlign: "center" } }, tr("標準"));
   const status = el("span", {}, tr("プレビュー反映済み"));
-  const swatches = el("div", { class: "sh-row" });
+  const swatches = el("div", { class: "sh-row", style: { gap: "3px" } });
+  const addColor = el("button", { type: "button", title: tr("出力する色を足します。") }, "＋");
+  const autoPalette = el("button", { type: "button", title: tr("指定した色を捨てて、色数から自動で決めた色に戻します。") }, tr("自動に戻す"));
+  autoPalette.disabled = true;
+  const paletteRow = el("div", { class: "sh-row", title: tr("左クリックで色を変更、右クリックで削除。指定した色だけで描き直します。指定すると色数は使いません。") }, swatches, addColor, autoPalette);
   const originalTitle = el("div", {}, tr("元画像（トーンカーブ）　100%"));
   const reducedTitle = el("div", {}, tr("2値化　100%"));
-  const originalBox = el("div", { style: { width: "320px", height: "240px", overflow: "auto", border: "1px solid var(--border)", background: "repeating-conic-gradient(#ccc 0% 25%, #fff 0% 50%) 50% / 16px 16px" } });
-  const reducedBox = el("div", { style: { width: "320px", height: "240px", overflow: "auto", border: "1px solid var(--border)", background: "repeating-conic-gradient(#ccc 0% 25%, #fff 0% 50%) 50% / 16px 16px" } });
+  const box = () => el("div", { style: { width: "320px", height: "240px", overflow: "auto", border: "1px solid var(--border)", background: "repeating-conic-gradient(#ccc 0% 25%, #fff 0% 50%) 50% / 16px 16px" } });
+  const originalBox = box();
+  const reducedBox = box();
   // 二つのプレビューは同じ所を見せる。
   const sync = (from, to) => from.addEventListener("scroll", () => {
     to.scrollLeft = from.scrollLeft;
@@ -304,15 +347,24 @@ async function reduceDialog(inspect, frames) {
   });
   sync(originalBox, reducedBox);
   sync(reducedBox, originalBox);
+  // ほかの代表フレームも同じ設定で2値化して並べる（#10）。1枚目だけ見て決めると、
+  // 中間や末尾のコマで色が潰れていても気づけない。
+  const referenceCount = Math.min(3, Math.max(0, frames - 1));
+  const referenceBoxes = Array.from({ length: referenceCount }, () =>
+    el("div", { style: { height: "140px", border: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center" } }));
+  const referenceStrip = el("div", { class: "sh-row", style: { display: referenceCount ? "flex" : "none", gap: "6px", alignItems: "center" } },
+    el("span", {}, tr("ほかの代表フレーム（2値化後）")), ...referenceBoxes);
   let tonePoints = [[0, 0], [1, 1]];
-  let palette = null;
+  let palette = null; // プレビューで決めた色
+  let custom = null; // 人が指定した出力する色（#62）
   let dirty = true;
   let busy = false;
+  let lastForm = null;
   const markDirty = () => {
     dirty = true;
     status.textContent = tr("設定未反映");
-    status.style.color = "";
-    status.style.fontWeight = "";
+    status.style.color = "#a15a00";
+    status.style.fontWeight = "bold";
   };
   const tone = toneCurveEditor((points, finished) => {
     tonePoints = points;
@@ -330,16 +382,137 @@ async function reduceDialog(inspect, frames) {
     count.value = slider.value;
     markDirty();
   });
-  for (const input of [mode, flatten, despeckle, despeckleSize, blur]) input.addEventListener("change", markDirty);
+  for (const input of [mode, flatten, despeckle, despeckleSize, blur]) input?.addEventListener("change", markDirty);
   despeckle.addEventListener("change", () => (despeckleSize.disabled = !despeckle.checked));
+
+  // 出力する色（set_custom_palette・_refresh_palette_swatches）。
+  const hexOf = (c) => "#" + c.map((v) => v.toString(16).padStart(2, "0").toUpperCase()).join("");
+  const shown = () => (custom ?? palette ?? []).map((c) => [...c]);
+  let setCustom = () => {};
+  const drawSwatches = (colors) => {
+    swatches.replaceChildren(...colors.map((c, index) => {
+      const b = el("button", { type: "button", title: hexOf(c), style: { width: "22px", height: "22px", padding: "0", background: `rgb(${c[0]},${c[1]},${c[2]})`, border: "1px solid #777" } });
+      b.addEventListener("click", async () => {
+        const picked = await pickColor(c, { title: tr("出力する色") });
+        if (!picked) return;
+        const colors = shown();
+        colors[index] = picked;
+        setCustom(colors);
+      });
+      b.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        const enabled = shown().length > 1;
+        showMenu([{ label: tr("この色を使わない"), disabled: !enabled, action: () => {
+          const colors = shown();
+          if (colors.length <= 1) return;
+          colors.splice(index, 1);
+          setCustom(colors);
+        } }], e.clientX, e.clientY);
+      });
+      return b;
+    }));
+  };
+  setCustom = (colors) => {
+    const unique = [];
+    for (const c of colors) {
+      const rgb = c.slice(0, 3).map(Number);
+      if (!unique.some((u) => u.every((v, i) => v === rgb[i]))) unique.push(rgb);
+    }
+    custom = unique.length ? unique : null;
+    count.disabled = slider.disabled = Boolean(custom);
+    autoPalette.disabled = !custom;
+    drawSwatches(custom ?? palette ?? []);
+    markDirty();
+  };
+  addColor.addEventListener("click", async () => {
+    const colors = shown();
+    const picked = await pickColor(colors.length ? colors[colors.length - 1] : [0, 0, 0], { title: tr("出力する色を足す") });
+    if (picked) setCustom([...colors, picked]);
+  });
+  autoPalette.addEventListener("click", () => setCustom([]));
+
   const form = () => ({
     mode: mode.value,
     color_count: Math.max(2, Math.min(100, Number(count.value) || 8)),
-    flatten_paper: flatten.checked,
+    flatten_paper: Boolean(flatten?.checked),
     blur: Math.max(0, Math.min(3, Number(blur.value) || 0)),
     despeckle: despeckle.checked ? Math.max(1, Math.min(100, Number(despeckleSize.value) || 3)) : 0,
     tone_curve_points: tonePoints,
+    custom_palette: custom,
   });
+
+  // プリセット（#10）：方式・色数・トーンカーブ・出力する色・紙の地色・ゴミ取り・ぼかし。
+  const presetChoice = el("select", { style: { minWidth: "160px" } });
+  const presetSave = el("button", { type: "button", title: tr("今の設定に名前を付けて保存します。") }, tr("保存…"));
+  const presetDelete = el("button", { type: "button" }, tr("削除"));
+  let presets = {};
+  const refreshPresets = async (selected = null) => {
+    presets = await invoke("binarize_presets").catch(() => ({}));
+    const names = Object.keys(presets).sort();
+    presetChoice.replaceChildren(el("option", { value: "" }, tr("（選ぶ）")), ...names.map((n) => el("option", { value: n }, n)));
+    presetChoice.value = selected !== null && names.includes(selected) ? selected : "";
+    presetDelete.disabled = !names.length;
+  };
+  const currentSettings = () => {
+    const f = form();
+    const settings = {
+      extraction_mode: f.mode === "line" ? "line" : "surface",
+      color_count: f.color_count,
+      tone_curve_points: tonePoints.map(([x, y]) => [x, y]),
+      palette: custom ? custom.map((c) => [...c]) : null,
+    };
+    if (flatten) settings.flatten_paper = flatten.checked;
+    settings.despeckle = f.despeckle;
+    settings.blur = f.blur;
+    return settings;
+  };
+  const isInt = (v) => Number.isInteger(v) && typeof v !== "boolean";
+  const applySettings = (settings) => {
+    if (["surface", "line"].includes(settings.extraction_mode)) mode.value = settings.extraction_mode;
+    if (isInt(settings.color_count)) count.value = slider.value = String(Math.max(2, Math.min(100, settings.color_count)));
+    if (Array.isArray(settings.tone_curve_points)) {
+      try {
+        tone.setPoints(settings.tone_curve_points.map(([x, y]) => [Number(x), Number(y)]));
+      } catch {
+        // 壊れたトーンカーブは飛ばす（Qt も記録して飛ばす）。
+      }
+    }
+    if (flatten && typeof settings.flatten_paper === "boolean") flatten.checked = settings.flatten_paper;
+    if (typeof settings.blur === "number") blur.value = String(Math.max(0, Math.min(3, settings.blur)));
+    if (isInt(settings.despeckle)) {
+      despeckle.checked = settings.despeckle > 0;
+      despeckleSize.disabled = !despeckle.checked;
+      if (settings.despeckle > 0) despeckleSize.value = String(Math.max(1, Math.min(100, settings.despeckle)));
+    }
+    let colors = [];
+    try {
+      colors = Array.isArray(settings.palette) ? settings.palette.map((c) => c.slice(0, 3).map((v) => Math.trunc(Number(v)))) : [];
+    } catch {
+      colors = [];
+    }
+    if (colors.every((c) => c.every((v) => Number.isFinite(v) && v >= 0 && v <= 255))) setCustom(colors);
+    markDirty();
+  };
+  presetChoice.addEventListener("change", () => {
+    const settings = presets[presetChoice.value];
+    if (settings) applySettings(settings);
+  });
+  presetSave.addEventListener("click", async () => {
+    const name = await prompt(tr("プリセットを保存"), tr("名前："), presetChoice.value || "");
+    if (name === null || name === undefined) return;
+    const saved = await invoke("binarize_preset_save", { name, settings: currentSettings() }).catch((e) => {
+      notify(String(e));
+      return null;
+    });
+    if (saved) await refreshPresets(saved);
+  });
+  presetDelete.addEventListener("click", async () => {
+    if (!presetChoice.value) return;
+    await invoke("binarize_preset_delete", { name: presetChoice.value });
+    await refreshPresets();
+  });
+  refreshPresets();
+
   const previewButton = el("button", { type: "button" }, tr("プレビュー"));
   previewButton.title = tr("現在のトーンカーブと色数を使って2値化プレビューを更新します。");
   const preview = async () => {
@@ -355,19 +528,26 @@ async function reduceDialog(inspect, frames) {
       const semi = view.getUint32(4, true);
       const colors = [];
       for (let i = 0; i < n; i++) colors.push([view.getUint8(8 + i * 4), view.getUint8(9 + i * 4), view.getUint8(10 + i * 4)]);
-      const original = imageCanvas(view, 8 + n * 4);
+      const refs = view.getUint32(8 + n * 4, true);
+      const original = imageCanvas(view, 12 + n * 4);
       const reduced = imageCanvas(view, original.next);
       originalBox.replaceChildren(original.canvas);
       reducedBox.replaceChildren(reduced.canvas);
-      swatches.replaceChildren(
-        ...colors.map((c) => el("span", { class: "sh-swatch", style: { width: "22px", height: "18px", display: "inline-block", background: `rgb(${c[0]},${c[1]},${c[2]})` } })),
-      );
+      let offset = reduced.next;
+      for (let i = 0; i < refs; i++) {
+        const image = imageCanvas(view, offset);
+        offset = image.next;
+        image.canvas.style.height = "140px";
+        image.canvas.style.width = "auto";
+        referenceBoxes[i]?.replaceChildren(image.canvas);
+      }
+      palette = colors;
+      drawSwatches(custom ?? palette);
       reducedTitle.textContent = tr("{name}　100%（{actual}色／半透明 {transparent}px）", {
         name: mode.selectedOptions[0].textContent,
         actual: n,
         transparent: semi,
       });
-      palette = colors;
       settings.palette = colors;
       lastForm = settings;
       dirty = false;
@@ -382,7 +562,6 @@ async function reduceDialog(inspect, frames) {
       previewButton.disabled = false;
     }
   };
-  let lastForm = null;
   previewButton.addEventListener("click", preview);
   const note = inspect.background
     ? tr("白背景を自動検出")
@@ -396,6 +575,25 @@ async function reduceDialog(inspect, frames) {
       note,
     }),
   );
+  const rows = [
+    el("span", { class: "sh-label" }, tr("2値化方式")), mode,
+    el("span", { class: "sh-label" }, tr("プリセット")), el("div", { class: "sh-row" }, presetChoice, presetSave, presetDelete),
+    el("span", { class: "sh-label" }, tr("色数")), el("div", { class: "sh-row" }, slider, count, el("span", {}, tr(" 色"))),
+    el("span", { class: "sh-label" }, tr("出力する色")), paletteRow,
+  ];
+  if (flatten) {
+    const label = el("label", { class: "sh-check" }, flatten, tr("紙の地色とムラを白にそろえる"));
+    label.title = tr("スキャンした紙のクリーム色・照明のムラ・影を、場所ごとに見積もって白へそろえてから2値化します。鉛筆の濃淡は、紙との比のまま残ります。");
+    rows.push(el("span", { class: "sh-label" }, tr("スキャン")), label);
+  }
+  const despeckleLabel = el("label", { class: "sh-check" }, despeckle, tr("離れた小さな点を消す"));
+  despeckleLabel.title = tr("2値化のあとで、ほかの絵に触れていない小さな点（スキャンのゴミなど）を消します。線や色面にくっついた点は消しません。");
+  rows.push(el("span", { class: "sh-label" }, tr("ゴミ取り")), el("div", { class: "sh-row" }, despeckleLabel, despeckleSize, el("span", {}, tr(" px以下"))));
+  if (range) rows.push(el("span", { class: "sh-label" }, tr("範囲")), range);
+  rows.push(
+    el("span", { class: "sh-label" }, tr("ぼかし")), el("div", { class: "sh-row" }, blur, el("span", {}, tr(" px"))),
+    el("span", { class: "sh-label" }, tr("トーンカーブ")), el("div", { class: "sh-row" }, tone.canvas, toneLabel, toneReset),
+  );
   const body = el(
     "div",
     { style: { display: "flex", flexDirection: "column", gap: "8px" } },
@@ -403,19 +601,14 @@ async function reduceDialog(inspect, frames) {
     el("div", { class: "sh-row", style: { alignItems: "flex-start" } },
       el("div", {}, originalTitle, originalBox),
       el("div", {}, reducedTitle, reducedBox)),
-    el("div", { class: "sh-form" },
-      el("span", { class: "sh-label" }, tr("2値化方式")), mode,
-      el("span", { class: "sh-label" }, tr("色数")), el("div", { class: "sh-row" }, slider, count, el("span", {}, tr(" 色"))),
-      el("span", { class: "sh-label" }, tr("出力する色")), swatches,
-      el("span", { class: "sh-label" }, tr("スキャン")), el("label", { class: "sh-check" }, flatten, tr("紙の地色とムラを白にそろえる")),
-      el("span", { class: "sh-label" }, tr("ゴミ取り")), el("div", { class: "sh-row" }, el("label", { class: "sh-check" }, despeckle, tr("離れた小さな点を消す")), despeckleSize, el("span", {}, tr(" px以下"))),
-      el("span", { class: "sh-label" }, tr("ぼかし")), el("div", { class: "sh-row" }, blur, el("span", {}, tr(" px"))),
-      el("span", { class: "sh-label" }, tr("トーンカーブ")), el("div", { class: "sh-row" }, tone.canvas, toneLabel, toneReset)),
+    referenceStrip,
+    el("div", { class: "sh-form" }, ...rows),
+    el("div", { style: { fontSize: "10px" } }, tr("色数の変更中はプレビューを更新しません。トーンカーブ操作中は元画像へ一時適用し、離すと直前の2値化プレビューへ戻ります。")),
     el("div", { class: "sh-row" }, status, previewButton),
   );
   const buttons = [
     {
-      label: tr("2値化"),
+      label: allowWithoutReduction ? tr("全コマを2値化") : tr("2値化"),
       value: "reduce",
       primary: true,
       validate: async () => {
@@ -426,13 +619,13 @@ async function reduceDialog(inspect, frames) {
         return true;
       },
     },
-    { label: tr("そのまま読み込む"), value: "plain" },
-    { label: tr("キャンセル"), value: null, escape: true },
   ];
+  if (allowWithoutReduction) buttons.push({ label: tr("そのまま読み込む"), value: "plain" });
+  buttons.push({ label: tr("キャンセル"), value: null, escape: true });
   const result = openDialog({ title: tr("2値化"), body, buttons });
   preview();
   const choice = await result;
-  if (choice === "reduce") return { form: lastForm };
+  if (choice === "reduce") return { form: lastForm, allFrames: range ? range.value === "all" : true };
   return choice;
 }
 
@@ -496,8 +689,9 @@ async function offerInitial(layers) {
 // ---------------------------------------------------------------------------
 
 /// import_dropped_image・import_dropped_images（genga・layer_name つき）。
-async function importPaths(paths, { layerName = null, genga = false } = {}) {
-  const single = paths.length === 1 && !layerName && !genga;
+async function importPaths(paths, { layerName = null, genga = false, sequence = false } = {}) {
+  // キャンバスへ落とした画像は、1枚でも import_dropped_images（連番画像読み込み）。
+  const single = !sequence && paths.length === 1 && !layerName && !genga;
   const title = single ? tr("画像読み込み") : tr("連番画像読み込み");
   const reduction = await prepareReduction(paths);
   if (!reduction) return;
@@ -580,11 +774,14 @@ async function importInitialState() {
 let hooks = {}; // {save}：先に保存する（shell.js の「保存」）。
 
 /// 置き換える前に尋ねる（_confirm_replace_document）。続けてよければ true。
-async function confirmReplace() {
+async function confirmReplace(
+  title = tr("CLIP STUDIOアニメーションを読み込む"),
+  text = tr("現在のキャンバスをCLIP STUDIOアニメーションで置き換えます。\n先に現在のプロジェクトを保存しますか？"),
+) {
   if (!(await invoke("import_clip_needs_confirm"))) return true;
   const answer = await message(
-    tr("CLIP STUDIOアニメーションを読み込む"),
-    tr("現在のキャンバスをCLIP STUDIOアニメーションで置き換えます。\n先に現在のプロジェクトを保存しますか？"),
+    title,
+    text,
     [
       [tr("保存する"), "save", true],
       [tr("保存せず読み込む"), "discard"],
@@ -600,8 +797,13 @@ async function confirmReplace() {
 async function importClip() {
   const picked = await invoke("import_pick", { kind: "clip", title: tr("CLIP STUDIOアニメーションを読み込む") });
   const path = picked?.paths?.[0];
+  if (path) await importClipPath(path);
+}
+
+/// ImportController.clip_animation（メニューからも、落としたファイルからも）。
+async function importClipPath(path) {
   // Qt は .clip でなければ何もしない。
-  if (!path || !/\.clip$/i.test(path)) return;
+  if (!/\.clip$/i.test(path)) return;
   const title = tr("CLIP STUDIOアニメーション読み込み");
   const event = await runJob(title, tr("CLIP STUDIOアニメーションを解析しています…"), () => invoke("import_clip", { path }));
   if (!event || event.error || event.cancelled) return;
@@ -625,7 +827,147 @@ async function importClipInitialState() {
   await runJob(title, tr("線画の初期状態を読み込んでいます…"), () => invoke("import_clip_initial_state", { path }));
 }
 
+// ---------------------------------------------------------------------------
+// 【Group B】カットフォルダーを開く（ImportController.cut_folder・app/src/imports_layer.rs）
+// ---------------------------------------------------------------------------
+
+async function openCutFolder() {
+  const title = tr("カットフォルダーを開く");
+  const picked = await invoke("import_pick", { kind: "line_art_folder", title });
+  const path = picked?.paths?.[0];
+  if (!path) return;
+  const event = await runJob(title, tr("カットフォルダーを読み込んでいます：{name}", { name: path.split(/[\\/]/).pop() }), () =>
+    invoke("import_cut_folder", { path }),
+  );
+  if (!event || event.error || event.cancelled) return;
+  if (!(await confirmReplace(title, tr("現在のキャンバスをカットフォルダーの内容で置き換えます。\n先に現在のプロジェクトを保存しますか？")))) {
+    await invoke("import_cut_folder_discard");
+    return;
+  }
+  let applied;
+  try {
+    applied = await invoke("import_cut_folder_apply");
+  } catch (e) {
+    await message(title, String(e));
+    return;
+  }
+  notify(applied.message);
+  if (applied.notes.length) await message(title, `${applied.message}\n\n${applied.notes.join("\n")}`);
+  await offerInitial(null);
+}
+
+// ---------------------------------------------------------------------------
+// 【Group B】読み込んだあとの2値化・再変換（binarize_layer_dialog・reconvert_layer_dialog）
+// ---------------------------------------------------------------------------
+
+async function binarizeLayer() {
+  let inspect;
+  try {
+    inspect = await invoke("layer_binarize_inspect");
+  } catch (e) {
+    await message(tr("2値化"), String(e));
+    return;
+  }
+  if (!inspect) {
+    notify(tr("2値化：このコマには絵がありません。"));
+    return;
+  }
+  const choice = await reduceDialog(inspect, inspect.frames, { allowWithoutReduction: false, scopeChoice: true, scan: false });
+  if (!choice || choice === "plain") return;
+  await runJob(tr("2値化"), tr("2値化しています"), () =>
+    invoke("layer_binarize_run", { form: choice.form, allFrames: choice.allFrames }),
+  );
+}
+
+async function reconvertLayer() {
+  const title = tr("再変換");
+  const check = await invoke("layer_reconvert_check");
+  if (check.status) {
+    notify(check.status);
+    return;
+  }
+  if (check.warning) {
+    await message(title, check.warning);
+    return;
+  }
+  const yes = await message(
+    title,
+    tr("元のファイル{count}枚から変換し直します。読み込んだあとに描き足した分は元に戻ります（Undo で戻せます）。続けますか？", { count: check.paths.length }),
+    [
+      [tr("はい"), true],
+      [tr("いいえ"), false, true],
+    ],
+    false,
+  );
+  if (!yes) return;
+  const reduction = await prepareReduction(check.paths);
+  if (!reduction) return;
+  if (reduction.error) {
+    await message(title, reduction.error);
+    return;
+  }
+  await runJob(title, tr("画像を読み込んでいます"), () =>
+    invoke("layer_reconvert_run", {
+      request: {
+        paths: check.paths,
+        conversion: reduction.conversion,
+        form: reduction.form ?? null,
+        title,
+        single: false,
+        antialias_frames: reduction.antialias_frames ?? 0,
+      },
+    }),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 【Group B】ファイルを落とす（MainWindow.dropEvent・CanvasWidget.dropEvent・タイムライン）
+// ---------------------------------------------------------------------------
+
+const suffix = (p) => {
+  const name = p.split(/[\\/]/).pop();
+  const dot = name.lastIndexOf(".");
+  return dot < 0 ? "" : name.slice(dot).toLowerCase();
+};
+
+/// TimeRemapController.open_dropped：.xdts／.xtds だけを貼り付けの窓へ。
+async function openDroppedRemap(path) {
+  if (![".xdts", ".xtds"].includes(suffix(path))) return;
+  let text;
+  try {
+    text = await invoke("import_read_timesheet", { path });
+  } catch (e) {
+    await message(tr("XDTS読み込み"), String(e));
+    return;
+  }
+  await showPasteDialog(text);
+}
+
+/// 落としたファイルを振り分ける。キャンバスの上なら .pman → .clip → タイムシート → 画像、
+/// それ以外（窓・タイムライン）なら .pman → .xdts／.xtds → .clip（画像は受けない）。
+export async function handleDrop(paths, onCanvas) {
+  const first = (list) => paths.find((p) => list.includes(suffix(p)));
+  const project = first([".pman"]);
+  if (project) return hooks.openProject?.(project);
+  if (onCanvas) {
+    const clip = first([".clip"]);
+    if (clip) return importClipPath(clip);
+    const remap = first([".xdts", ".xtds", ".tdts"]);
+    if (remap) return openDroppedRemap(remap);
+    const images = paths.filter((p) => [".jpg", ".jpeg", ".png", ".tga"].includes(suffix(p)));
+    if (images.length) return importPaths(images, { sequence: true });
+    return;
+  }
+  const remap = first([".xdts", ".xtds"]);
+  if (remap) return openDroppedRemap(remap);
+  const clip = first([".clip"]);
+  if (clip) return importClipPath(clip);
+}
+
 const ACTIONS = {
+  a_open_cut_folder: openCutFolder, // 【Group B】
+  a_binarize_layer: binarizeLayer, // 【Group B】
+  a_reconvert_layer: reconvertLayer, // 【Group B】
   a_import_clip: importClip,
   a_import_clip_initial_state: importClipInitialState,
   a_import_images: importImages,
@@ -637,8 +979,8 @@ const ACTIONS = {
 };
 
 /// 読み込みの画面を組み込む。`save` は先に保存する関数（CLIP の置き換えの確かめ）。
-export function installImports({ save } = {}) {
-  hooks = { save };
+export function installImports({ save, openProject } = {}) {
+  hooks = { save, openProject };
   listen("import-job", ({ payload }) => {
     if (payload.phase === "progress") {
       onProgress(payload);

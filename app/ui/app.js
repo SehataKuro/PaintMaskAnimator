@@ -26,7 +26,8 @@ import { createCanvasTools } from "./canvas_tools.js";
 import { installPaintOps } from "./paint_ops.js";
 import { installExport } from "./export.js"; // 書き出し（export.js）。
 // 読み込み（imports.js）。
-import { installImports } from "./imports.js";
+import { installImports, handleDrop } from "./imports.js"; // 【Group B】handleDrop
+import { installEditOps } from "./edit_ops.js"; // 【Group B】編集・初期状態・線整え
 import { installTimeRemap } from "./time_remap.js"; // 【タイムリマップの貼り付け】
 import { installTween } from "./tween.js"; // 【トゥイーン】
 import { runToolsSelftest } from "./tools_selftest.js";
@@ -135,7 +136,8 @@ const overlay = new Overlay(canvasPanel, viewer);
 const canvasTools = createCanvasTools({ canvas, viewer, overlay, applyRect });
 installPaintOps({ host: canvasPanel, viewer, applyRect }); // paint_ops.js
 installExport(); // 書き出し（export.js）。
-installImports({ save: () => shell?.run("a_save_project") }); // imports.js（CLIP の置き換えの前に保存する）
+installImports({ save: () => shell?.run("a_save_project"), openProject }); // imports.js（CLIP の置き換えの前に保存する・【Group B】落とした .pman）
+installEditOps({ applyRect }); // 【Group B】edit_ops.js
 installTimeRemap(); // 【タイムリマップの貼り付け】time_remap.js
 installTween(); // 【トゥイーン】tween.js
 
@@ -421,10 +423,16 @@ async function stepFrame(delta) {
 }
 
 function useDocumentControls() {
-  // .pman を窓へ落とすと開く。
+  // 【Group B】落としたファイル：キャンバスの上か、それ以外（窓・タイムライン）かで振り分ける
+  // （.pman・.clip・タイムシート・画像。imports.js の handleDrop）。
   listen("tauri://drag-drop", ({ payload }) => {
-    const path = payload.paths?.find((p) => p.toLowerCase().endsWith(".pman"));
-    if (path) openProject(path);
+    const paths = payload.paths ?? [];
+    if (!paths.length) return;
+    const ratio = window.devicePixelRatio || 1;
+    const x = (payload.position?.x ?? -1) / ratio;
+    const y = (payload.position?.y ?? -1) / ratio;
+    const target = document.elementFromPoint(x, y);
+    handleDrop(paths, Boolean(target && canvasPanel.contains(target))).catch((e) => (statusLine.textContent = String(e)));
   });
   // 取り消し・やり直しのキーはここだけ（キャンバスもタイムラインも同じ履歴）。表示は
   // document-changed で、キャンバスとタイムラインの両方が読み直す。

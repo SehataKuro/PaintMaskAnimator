@@ -4,6 +4,7 @@
 
 pub mod clip;
 pub mod clip_render;
+pub mod cut_folder;
 pub mod image;
 pub mod psd;
 pub mod sequence;
