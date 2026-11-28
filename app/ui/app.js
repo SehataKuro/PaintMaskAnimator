@@ -542,6 +542,11 @@ async function main() {
   });
   canvasView.setShell(shell); // 【キャンバスの見え方】メニューのチェック
   if (info.open) await shell.openPath(info.open);
+  // macOS の Finder から渡されたファイル（file_open.rs）。窓に落としたときと同じに開く。
+  const openRequested = (paths) => handleDrop(paths, false).catch((e) => (statusLine.textContent = String(e)));
+  await listen("file-open", ({ payload }) => openRequested(payload));
+  const requested = await invoke("file_open_take");
+  if (requested.length) await openRequested(requested.slice(-1));
   useViewControls();
   if (info.native_pen) await useNativePen();
   else usePointerEvents();
