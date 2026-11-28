@@ -540,7 +540,7 @@ async function main() {
     await runColorsSelftest({ invoke, pause: info.colors_selftest });
   }
   // キーの持ち主の自己確認（tools_selftest.js）。
-  if (info.tools_selftest) await runToolsSelftest({ shell });
+  if (info.tools_selftest) await runToolsSelftest({ shell, canvas, viewer }); // 【オニオン】右ドラッグの確認に canvas・viewer
 }
 
 main().catch((e) => {
