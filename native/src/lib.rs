@@ -424,6 +424,9 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(export::export_frame_image, module)?)?;
     module.add_function(wrap_pyfunction!(export::export_after_effects_text, module)?)?;
     module.add_function(wrap_pyfunction!(export::export_guess_cut_number, module)?)?;
+    module.add_function(wrap_pyfunction!(export::export_psd_bytes, module)?)?;
+    module.add_function(wrap_pyfunction!(export::export_movie_frames, module)?)?;
+    module.add_function(wrap_pyfunction!(export::export_movie_frame, module)?)?;
     module.add_function(wrap_pyfunction!(export::export_encode_tga, module)?)?;
     module.add_function(wrap_pyfunction!(export::import_read_image, module)?)?;
     module.add_function(wrap_pyfunction!(export::import_image_file, module)?)?;

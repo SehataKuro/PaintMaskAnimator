@@ -23,6 +23,8 @@ tauri-plugin-dialog = "2.8"
 pma-core = { path = "../native/core" }
 # 使用色パネル（colors.rs）：PMAG・置換色のファイルを選ぶ窓。
 rfd = "0.17"
+# 書き出しのファイル操作（連番・カットフォルダー・影素材・PSD、export.rs）。
+pma-io = { path = "../native/io" }
 
 # 筆圧：WKWebView はペンの筆圧を JavaScript に渡さないので、NSEvent を直接読む。
 [target.'cfg(target_os = "macos")'.dependencies]
