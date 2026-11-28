@@ -292,6 +292,61 @@ impl Overlay {
         }
         out
     }
+
+    /// 確定前の見た目（#117）を、[`paint_overlay`] が書く画素だけの矩形で返す。
+    /// `selection` も確定と同じに効かせる。書く画素が無ければ None。
+    ///
+    /// 戻り値は (矩形, その矩形の RGBA)。書かない画素は透明、消しゴムは白（α255）。
+    pub fn preview_within(
+        &self,
+        palette: &[[u8; 3]],
+        selection: Option<&Selection>,
+    ) -> Option<(Rect, Vec<u8>)> {
+        let full = Rect {
+            x: 0,
+            y: 0,
+            width: self.width,
+            height: self.height,
+        };
+        let clip = selection.and_then(|selection| selection.mask_for(full));
+        let mut colors: Vec<Option<[u8; 3]>> = vec![None; self.pixels.len()];
+        let (mut left, mut top, mut right, mut bottom) = (usize::MAX, usize::MAX, 0, 0);
+        for y in 0..self.height {
+            for x in 0..self.width {
+                if self.pixels[y * self.width + x][3] < 128
+                    || clip
+                        .as_ref()
+                        .is_some_and(|clip| !clip.get(x as i64, y as i64))
+                {
+                    continue;
+                }
+                colors[y * self.width + x] = self.binary_color(y * self.width + x, palette);
+                left = left.min(x);
+                top = top.min(y);
+                right = right.max(x + 1);
+                bottom = bottom.max(y + 1);
+            }
+        }
+        if left == usize::MAX {
+            return None;
+        }
+        let rect = Rect {
+            x: left,
+            y: top,
+            width: right - left,
+            height: bottom - top,
+        };
+        let mut out = vec![0; rect.width * rect.height * 4];
+        for row in 0..rect.height {
+            for column in 0..rect.width {
+                if let Some(rgb) = colors[(rect.y + row) * self.width + rect.x + column] {
+                    let at = (row * rect.width + column) * 4;
+                    out[at..at + 4].copy_from_slice(&[rgb[0], rgb[1], rgb[2], 255]);
+                }
+            }
+        }
+        Some((rect, out))
+    }
 }
 
 /// 直線ツールの線を描いた描画先（`commit_line_tool`）。
@@ -612,6 +667,40 @@ mod tests {
         assert_eq!(pixel(3, 3), vec![250, 240, 230, 255]);
         assert_eq!(pixel(0, 0), vec![0, 0, 0, 0]);
         assert_eq!(result.colors, vec![[250, 240, 230]]);
+    }
+
+    #[test]
+    fn preview_within_matches_committed_pixels_under_a_selection() {
+        let layer = RgbaImage::blank(24, 16).unwrap();
+        let path = line_path(
+            Point::new(2.0, 3.0),
+            Point::new(21.0, 12.0),
+            Some(Point::new(4.0, 15.0)),
+        );
+        let options = LineOptions::from_panel(3.0, false, Some((1.0, 100.0)), None);
+        let overlay = line_overlay(&path, &options, [10, 20, 30], 24, 16);
+        let selection = Selection::Polygon(vec![
+            Point::new(0.0, 0.0),
+            Point::new(14.0, 0.0),
+            Point::new(14.0, 16.0),
+            Point::new(0.0, 16.0),
+        ]);
+        let palette = [[10, 20, 30]];
+        let (rect, preview) = overlay.preview_within(&palette, Some(&selection)).unwrap();
+        let result = paint_overlay(&layer, &overlay, &palette, Some(&selection)).unwrap();
+        let undo = result.undo.unwrap();
+        assert_eq!(rect, undo.rect);
+        assert_eq!(preview, undo.after);
+        assert!(rect.x + rect.width <= 14);
+        // 何も残らなければ None。
+        let thin = line_overlay(
+            &path,
+            &LineOptions::from_panel(0.5, true, None, None),
+            [0; 3],
+            24,
+            16,
+        );
+        assert!(thin.preview_within(&palette, None).is_none());
     }
 
     #[test]

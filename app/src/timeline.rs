@@ -1912,6 +1912,7 @@ pub fn timeline_set_range(state: SessionArg, edge: String, column: usize) -> Tim
 
 #[tauri::command]
 pub fn timeline_set_options(
+    app: tauri::AppHandle,
     state: SessionArg,
     follow_playback: Option<bool>,
     onion: Option<bool>,
@@ -1921,7 +1922,11 @@ pub fn timeline_set_options(
         s.timeline.follow_playback = follow;
     }
     if let Some(onion) = onion {
-        s.timeline.onion = onion;
+        // 【オニオン：onion.rs】表示を作り直して画面に知らせる。
+        if s.timeline.onion != onion {
+            s.timeline.onion = onion;
+            crate::onion::changed(&app, &mut s);
+        }
     }
     s.timeline_view()
 }

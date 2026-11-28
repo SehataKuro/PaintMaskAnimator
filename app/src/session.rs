@@ -257,6 +257,8 @@ impl Session {
         self.last = None;
         // ツール（tools.rs）：選択範囲は作品ごと。
         self.tools.selection.clear();
+        // 【変形：transform.rs】変形の途中も作品ごと（前の作品の文書は捨てる）。
+        self.tools.transform = None;
         // 塗り（paint_ops.rs）：なぞり塗り・串刺し塗りの途中と一覧は作品ごと。
         self.tools.paint.reset();
         project.undo.set_limits(self.history_limits);
@@ -402,6 +404,9 @@ impl Session {
         if self.active.is_some() {
             return Err("線を描いている途中です".into());
         }
+        // 【変形：transform.rs】変形の途中にほかの編集をするときは、変形を取り消してから
+        // （変形の確定・取り消しは始める前の文書へ戻すので、あいだの編集が消えないように）。
+        crate::transform::cancel(self)?;
         let p = self.project.as_mut().ok_or("作品を開いていません")?;
         let before = p.document.clone();
         let ui = self.timeline.save();
@@ -476,6 +481,8 @@ impl Session {
         if self.active.is_some() {
             return Ok(false);
         }
+        // 【変形：transform.rs】ヒストリーで動くときは変形を取り消してから。
+        crate::transform::cancel(self)?;
         let Some(p) = &mut self.project else {
             return Ok(false);
         };
@@ -498,6 +505,11 @@ impl Session {
         if self.active.is_some() {
             // 描いている途中は取り消さない（線の写しと文書がずれる）。
             return Ok(false);
+        }
+        // 【変形：transform.rs】変形の途中は、変形の形（Qt の「変形操作」）を戻す・進める。
+        if let Some(done) = crate::transform::step_history(self, back) {
+            self.touch_pixels();
+            return Ok(done);
         }
         let Some(p) = &mut self.project else {
             return Ok(false);
@@ -543,7 +555,8 @@ impl Session {
         let (frame, _) = current_index(doc);
         if let Some(image) = self.cache.by_frame.get(&frame) {
             self.display = image.clone();
-            return Ok(());
+            // 【オニオン：onion.rs】今のコマの上に前後のコマを重ねる。
+            return crate::onion::apply(self, None);
         }
         // 同じ絵の重なり（保持のコマなど）は、合成し直さない。
         let key: Vec<Option<u64>> = compose::frame_layers(doc, frame)
@@ -568,7 +581,8 @@ impl Session {
         };
         self.cache.insert(frame, key, image.clone());
         self.display = image;
-        Ok(())
+        // 【オニオン：onion.rs】
+        crate::onion::apply(self, None)
     }
 
     /// 控えた合成の数（試験用）。
@@ -730,7 +744,9 @@ impl Session {
         .map_err(|e| e.to_string())?;
         self.display
             .write_rgba(rect, &image.to_straight_bytes())
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+        // 【オニオン：onion.rs】
+        crate::onion::apply(self, Some(rect))
     }
 
     /// 仮の線：前の点から丸い点を並べる（作品を開いていないとき）。
