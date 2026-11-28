@@ -52,7 +52,10 @@ fn invalid(reason: &str) -> Error {
 
 impl Document {
     /// `Layer(name, blank_image(), ...)` を各コマに並べた、まだ番号の無い列。
-    fn blank_import_track(&self, settings: TrackSettings) -> Result<PreparedTrack, Error> {
+    pub(super) fn blank_import_track(
+        &self,
+        settings: TrackSettings,
+    ) -> Result<PreparedTrack, Error> {
         let mut empty = Position::default();
         empty.compatibility.local = Some(Cell {
             image: self.blank_artwork()?,

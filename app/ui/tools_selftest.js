@@ -4,10 +4,12 @@
 // OS のメニュー（menu-action）→ shell.js → `pma-action` → canvas_tools.js の順に届く。
 // それぞれ1回だけ届き、引き受けられ（「まだ移していません」を出さない）、結果が合うかを調べる。
 import { toolStore } from "./tools.js";
+import { showPasteDialog } from "./time_remap.js"; // 【タイムリマップの貼り付け】
+import { onionStore } from "./onion.js"; // 【オニオン】右ボタンのドラッグ
 
 const { invoke } = window.__TAURI__.core;
 
-export async function runToolsSelftest({ shell }) {
+export async function runToolsSelftest({ shell, canvas, viewer }) {
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const counts = {};
   const unclaimed = [];
@@ -90,12 +92,75 @@ export async function runToolsSelftest({ shell }) {
     && shifted.previous.shift_y === onionBefore.previous.shift_y && !shifted.interaction;
   await invoke("onion_set", { patch: { enabled: onionBefore.enabled, previous: { shift_x: onionBefore.previous.shift_x } } });
 
+  // 【オニオン】「表示位置」の合わせる操作で、右ボタンのドラッグはキャンバスを回す（Qt の RightButton）。
+  await invoke("onion_interaction", { mode: "canvas" });
+  await onionStore.refresh();
+  const rotation0 = viewer.rotation;
+  const box = canvas.getBoundingClientRect();
+  const pointer = (type, dx, buttons) => canvas.dispatchEvent(new PointerEvent(type, {
+    pointerId: 77, button: 2, buttons, clientX: box.left + box.width / 2 + dx, clientY: box.top + box.height / 2,
+    bubbles: true, cancelable: true, pointerType: "mouse",
+  }));
+  pointer("pointerdown", 0, 2);
+  pointer("pointermove", 40, 2);
+  pointer("pointerup", 40, 0);
+  await wait(400);
+  const rightRotation = viewer.rotation - rotation0;
+  const onionRightOk = Math.abs(rightRotation - 14) < 1e-6 && !(await invoke("onion_state")).interaction;
+  viewer.setRotation(rotation0);
+
+  // 【タイムリマップの貼り付け】メニューの操作を引き受け、窓の表から反映して「全体編集」を1つ積む。
+  const claimRemap = new CustomEvent("pma-action", { detail: { id: "a_tl_paste_time_remap", source: "selftest" }, cancelable: true });
+  window.dispatchEvent(claimRemap);
+  await wait(400);
+  const remapClaimed = claimRemap.defaultPrevented && !!document.querySelector(".tr-dialog");
+  document.querySelector(".tr-dialog .sh-dialog-buttons button:not(.primary)")?.click();
+  await wait(200);
+  const undo2 = await undoCount();
+  const remapDone = showPasteDialog("Adobe After Effects 8.0 Keyframe Data\n\n\tUnits Per Second\t24\n\nTime Remap\n\tFrame\tseconds\n\t0\t0\n\t1\t0\n\nEnd of Keyframe Data\n");
+  await wait(600);
+  const remapRows = document.querySelectorAll(".tr-dialog tbody tr").length;
+  document.querySelector(".tr-dialog .sh-dialog-buttons button.primary")?.click();
+  await wait(400);
+  const confirmText = document.querySelector(".sh-message")?.textContent ?? "";
+  [...document.querySelectorAll(".sh-dialog-buttons button.primary")].pop()?.click();
+  const remapApplied = await remapDone;
+  const remapOk = remapClaimed && remapRows === 2 && confirmText.includes("Adobe After Effects") && remapApplied
+    && (await undoCount()) === undo2 + 1 && (await lastLabel()).startsWith("全体編集");
+
+  // 【トゥイーン】保持のあるキーを自由変形のトゥイーンにし、操作パネルの確定で「全体編集」を1つ積む。
+  const tl = await invoke("timeline_view");
+  let tweenAt = null;
+  for (const row of tl.rows) {
+    const span = row.spans.find((sp) => sp.kind === "cell" && sp.length >= 2 && !sp.group);
+    if (span) {
+      tweenAt = { layer: row.layer, column: span.start, length: span.length };
+      break;
+    }
+  }
+  let tweenOk = false;
+  let tweenNote = "保持のあるキーなし";
+  if (tweenAt) {
+    const undo3 = await undoCount();
+    await invoke("tween_enable", { layer: tweenAt.layer, column: tweenAt.column, mode: "free" });
+    await wait(300);
+    const panelShown = !!document.querySelector(".tw-panel");
+    await invoke("tool_transform", { kind: "rotate_right" });
+    document.querySelector(".tw-panel button.primary")?.click();
+    await wait(600);
+    const row = (await invoke("timeline_view")).rows.find((r) => r.layer === tweenAt.layer);
+    const group = row?.spans.find((sp) => sp.group && sp.start === tweenAt.column);
+    tweenOk = panelShown && !toolStore.view.transform && !document.querySelector(".tw-panel")
+      && group?.length === tweenAt.length && (await undoCount()) === undo3 + 1 && (await lastLabel()) === "全体編集";
+    tweenNote = `パネル ${panelShown}、帯 ${group ? group.length : "なし"}／${tweenAt.length}`;
+  }
+
   const ok = before.tool === "lasso" && before.selection
     && afterP === "brush" && counts["tool:brush"] === 1
     && viaKeyOnly === 0 && counts.a_selection_clear === 1 && !afterD
     && unclaimed.length === 0 && !toast.includes("まだ移していません")
     && (counts["tool:dust"] ?? 0) === 0
-    && lineOk && transformOk && counts.a_transform_commit === 1 && onionOk;
+    && lineOk && transformOk && counts.a_transform_commit === 1 && onionOk && onionRightOk && remapOk && tweenOk;
   await invoke("report", {
     line: `ツールのキーの自己確認：${ok ? "成功" : "失敗"}\n` +
       `  P：ツール ${before.tool} → ${afterP}、tool:brush ${counts["tool:brush"] ?? 0} 回\n` +
@@ -103,6 +168,9 @@ export async function runToolsSelftest({ shell }) {
       `  直線：${lineOk ? "成功" : "失敗"}（見た目 ${previewRect.join(",")}、確定 ${writtenRect.join(",")}）\n` +
       `  変形：${transformOk ? "成功" : "失敗"}（始めた ${began}、つかんだ ${grabbed}、動いた ${moved}、確定 ${counts.a_transform_commit ?? 0} 回）\n` +
       `  オニオン：${onionOk ? "成功" : "失敗"}（表示 ${shown}、前のずらし ${shifted.previous.shift_x},${shifted.previous.shift_y}）\n` +
+      `  オニオンの右ドラッグ：${onionRightOk ? "成功" : "失敗"}（回転 ${rightRotation.toFixed(2)}°）\n` +
+      `  タイムリマップ：${remapOk ? "成功" : "失敗"}（引き受け ${remapClaimed}、行 ${remapRows}、確かめ「${confirmText.split("\n")[0]}」、反映 ${remapApplied}）\n` +
+      `  トゥイーン：${tweenOk ? "成功" : "失敗"}（${tweenNote}）\n` +
       `  引き受けなかった操作：${unclaimed.join("、") || "なし"}　知らせ：${toast || "なし"}`,
   });
   await invoke("quit", { code: ok ? 0 : 1 });

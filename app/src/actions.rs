@@ -238,7 +238,9 @@ pub const ACTIONS: &[Action] = &[
     a("a_swap_main_sub", "メイン色とサブ色を切り替え", &["X"])
         .tab(ToolCommand, "メイン色とサブ色を切り替え"),
     a("a_choose_background", "背景色の表示色を変更", &[]).tab(ToolCommand, "背景色の表示色を変更"),
-    a("a_mainline_repaint", "MainLineRepaint", &[]).tab(ToolCommand, "MainLineRepaint"),
+    a("a_mainline_repaint", "MainLineRepaint", &[])
+        .tab(ToolCommand, "MainLineRepaint")
+        .wired(),
     a("a_selection_transform", "選択範囲：自由変形", &["Ctrl+T"])
         .tab(ToolCommand, "選択範囲：自由変形"),
     a("a_selection_scale", "選択範囲：拡大縮小", &[]).tab(ToolCommand, "選択範囲：拡大縮小"),
@@ -322,7 +324,8 @@ pub const ACTIONS: &[Action] = &[
         "タイムライン：タイムリマップを貼り付け",
         &[],
     )
-    .tab(Timeline, "タイムリマップを貼り付け"),
+    .tab(Timeline, "タイムリマップを貼り付け")
+    .wired(),
     a(
         "a_tl_copy_time_remap",
         "タイムライン：タイムリマップをコピー",

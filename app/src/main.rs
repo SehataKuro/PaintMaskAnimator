@@ -32,6 +32,8 @@ mod tools;
 mod transform;
 // 【オニオン：onion.rs】
 mod onion;
+// 【タイムリマップの貼り付け：time_remap.rs】
+mod time_remap;
 // 【アプリの外枠】メニュー・環境設定・ショートカット・自動保存など（shell.rs ほか）。
 mod actions;
 mod autosave;
@@ -428,6 +430,10 @@ fn main() {
             // 選択範囲の変形（transform.rs）。
             transform::transform_drag,
             transform::transform_preview,
+            // 【トゥイーン：transform.rs】
+            transform::tween_enable,
+            transform::tween_edit,
+            transform::tween_set_reverse,
             // 【オニオン：onion.rs】
             onion::onion_state,
             onion::onion_set,
@@ -458,6 +464,14 @@ fn main() {
             paint_ops::paint_reference_check,
             paint_ops::paint_job_cancel,
             paint_ops::paint_show_finding,
+            // 【タイムリマップの貼り付け：time_remap.rs】
+            time_remap::time_remap_clipboard,
+            time_remap::time_remap_preview,
+            time_remap::time_remap_set_binding,
+            time_remap::time_remap_plan,
+            time_remap::time_remap_apply,
+            time_remap::time_remap_paste_on_timeline,
+            time_remap::time_remap_pick_file,
             // 書き出し（export.rs）：今のコマ・連番・カットフォルダー・影素材・XDTS・PSD・MP4・タイムリマップ。
             export::export_pick_save,
             export::export_pick_folder,

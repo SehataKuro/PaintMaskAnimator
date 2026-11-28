@@ -669,3 +669,40 @@ input[type="number"], .cw-code, .cp-hex {
 .cc-file-row { display: flex; gap: 4px; }
 .cc-file-row button { flex: 1; }
 .cc-content > button { width: 100%; }
+
+/* 【タイムリマップの貼り付け：time_remap.js】 */
+.tr-dialog { width: min(760px, 96vw); height: min(650px, 92vh); }
+.tr-body { display: flex; flex-direction: column; gap: 5px; height: 100%; min-height: 0; }
+.tr-row { display: flex; align-items: center; gap: 6px; }
+.tr-stretch { flex: 1; }
+.tr-text { height: 150px; min-height: 60px; resize: vertical; font-family: Menlo, Consolas, monospace; font-size: 11px; white-space: pre; }
+.tr-status { font-size: 12px; color: var(--muted, #8a8f98); }
+.tr-status[data-kind="ok"] { color: #3fb950; }
+.tr-status[data-kind="error"] { color: #ff6b6b; }
+.tr-table-box { flex: 1; min-height: 120px; overflow: auto; border: 1px solid var(--border); }
+.tr-table { border-collapse: collapse; font-size: 12px; user-select: none; }
+.tr-table th, .tr-table td { border: 1px solid var(--border); padding: 2px 6px; text-align: center; height: 20px; }
+.tr-table th { position: sticky; top: 0; color: #222; font-weight: 500; min-width: 100px; background: #e7ecef; }
+.tr-table th.tr-use, .tr-table td.tr-use { min-width: 40px; width: 40px; }
+.tr-table th.tr-frame, .tr-table td.tr-frame { min-width: 48px; width: 48px; }
+.tr-table th.bindable { cursor: pointer; }
+.tr-table tr.selected td { background: var(--accent); color: var(--accent-text); }
+.tr-table tr.excluded td:not(.tr-use) { color: #999; background: rgba(128, 128, 128, 0.18); }
+.tr-table td.tr-mark { color: #777; }
+.tr-note { font-size: 10px; color: var(--muted, #8a8f98); }
+
+/* 【トゥイーンの操作パネル：tween.js】 */
+.tw-panel {
+  position: fixed; top: 56px; right: 16px; z-index: 900; width: 260px;
+  display: flex; flex-direction: column; gap: 5px; padding: 8px;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3); font-size: 12px;
+}
+.tw-title { font-weight: 600; }
+.tw-check { display: flex; align-items: center; gap: 4px; }
+.tw-note { font-size: 10px; color: var(--muted, #8a8f98); }
+.tw-row { display: flex; gap: 5px; }
+.tw-row button { flex: 1; }
+.tw-panel button { padding: 4px 10px; border-radius: 5px; border: 1px solid var(--border); font: inherit; cursor: pointer; }
+.tw-panel button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }

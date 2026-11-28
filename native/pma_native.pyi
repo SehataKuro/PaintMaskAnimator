@@ -880,6 +880,21 @@ def import_image_file(
 def import_parse_timesheet(raw_text: str) -> dict[str, Any]:
     """ImportController._parse_xdts_timesheet と同じ辞書。"""
 
+def time_remap_parse(raw_text: str) -> dict[str, Any]:
+    """TimeRemapController.parse_text と同じ辞書。読めなければ ValueError。"""
+
+def time_remap_columns(
+    raw_text: str, cell_name: str, layers: list[tuple[int, str]], active_layer: int,
+) -> tuple[list[dict[str, Any]], list[tuple[str, int]]]:
+    """sheet_columns_from_parsed の列と default_layer_bindings の紐づけ（順）。"""
+
+def time_remap_apply(
+    document: _CoreDocument, raw_text: str, cell_name: str, included: list[bool],
+    bindings: list[tuple[str, int]], active_layer: int, current_frame: int,
+    layer_names: list[str],
+) -> tuple[str, str, str] | None:
+    """parsed_result から apply_* まで。(確かめの文, 知らせ, 変更の JSON)。"""
+
 def import_scan_cut_folder(root: str | os.PathLike[str]) -> dict[str, Any]:
     """cut_folder.scan_cut_folder（パスは root からの相対）。"""
 
@@ -920,6 +935,11 @@ class TransformSession:
     def history_len(self) -> int: ...
     def preview(self) -> tuple[_Rect, bytes]: ...
     def apply_to(self, original: RgbaImage) -> RgbaImage: ...
+    def set_quality(self, quality: bool, line_colors: list[tuple[int, int, int]]) -> bool: ...
+    def tween_images(
+        self, start: list[_Point], exposure: int, reverse: bool,
+    ) -> list[RgbaImage] | None: ...
+    def tween_spec(self, id: str, length: int, reverse: bool, start: list[_Point]) -> str: ...
     def commit(self) -> tuple[RgbaImage, _Rect, bytes, bytes]: ...
     def cancel(self) -> RgbaImage: ...
 

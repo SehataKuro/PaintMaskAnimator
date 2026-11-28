@@ -285,6 +285,60 @@ impl TransformSession {
         self.options.line_threshold = value.clamp(1, 254);
     }
 
+    /// メッシュの基準格子（`transform_mesh_reference_points`）。メッシュでなければ空。
+    pub fn mesh_reference(&self) -> &[Pt] {
+        &self.reference
+    }
+
+    /// クオリティ変形と実線の色を変える（`set_transform_quality`・
+    /// `set_transform_line_colors`）。今の形のまま、元の画像から色の番号を作り直す。
+    /// 色が多すぎて準備できなければ通常変形で描く。クオリティで描くかを返す。
+    pub fn set_quality(&mut self, quality: bool, line_colors: Vec<Rgb>) -> bool {
+        self.options.quality = quality;
+        self.options.line_colors = line_colors;
+        self.labels = if quality {
+            prepare_labels(&self.source, &self.options.line_colors)
+        } else {
+            None
+        };
+        self.quality = self.labels.is_some();
+        self.quality
+    }
+
+    /// トゥイーンの各コマの画像（`TweenController.commit_transform`）。
+    ///
+    /// `start` は始めたときの点、今の点が最後の形。コマ `index` の変形の割合は
+    /// `index / (exposure - 1)`（逆生成は 1 から引く）。割合 0 のコマは変形を始める前の
+    /// 画像をそのまま使う。点の数が合わなければ None。
+    pub fn tween_images(
+        &self,
+        start: &[Pt],
+        exposure: usize,
+        reverse: bool,
+    ) -> Result<Option<Vec<RgbaImage>>, Error> {
+        if start.is_empty() || start.len() != self.points.len() {
+            return Ok(None);
+        }
+        let exposure = exposure.max(2);
+        let mut images = Vec::with_capacity(exposure);
+        let mut step = self.clone();
+        for index in 0..exposure {
+            let timeline = index as f64 / (exposure - 1) as f64;
+            let ratio = if reverse { 1.0 - timeline } else { timeline };
+            if ratio <= 1e-9 {
+                images.push(self.original.clone());
+                continue;
+            }
+            step.points = start
+                .iter()
+                .zip(&self.points)
+                .map(|(s, f)| (s.0 + (f.0 - s.0) * ratio, s.1 + (f.1 - s.1) * ratio))
+                .collect();
+            images.push(step.apply_to(&self.original)?);
+        }
+        Ok(Some(images))
+    }
+
     fn shape(&self) -> Shape<'_> {
         Shape {
             mesh: self.mode == Mode::Mesh,
@@ -667,6 +721,32 @@ impl TransformSession {
     pub fn cancel(self) -> RgbaImage {
         self.original
     }
+}
+
+/// トゥイーンのキーのセルに持たせる設定（`tween_groups.make_spec`）。
+#[allow(clippy::too_many_arguments)]
+pub fn tween_spec(
+    id: &str,
+    length: usize,
+    mode: Mode,
+    reverse: bool,
+    start: &[Pt],
+    final_points: &[Pt],
+    mesh: (usize, usize),
+    mesh_reference: &[Pt],
+) -> serde_json::Value {
+    let points = |points: &[Pt]| -> Vec<[f64; 2]> { points.iter().map(|p| [p.0, p.1]).collect() };
+    serde_json::json!({
+        "id": id,
+        "length": length,
+        "mode": if mode == Mode::Mesh { "mesh" } else { "free" },
+        "reverse": reverse,
+        "start_points": points(start),
+        "final_points": points(final_points),
+        "mesh_cols": mesh.0,
+        "mesh_rows": mesh.1,
+        "mesh_reference_points": points(mesh_reference),
+    })
 }
 
 /// 番号の画像をそのまま色にした画素（白は透明）。

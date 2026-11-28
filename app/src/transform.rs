@@ -13,10 +13,15 @@
 //!   履歴の名前は Qt と同じ（1 コマなら「描画（A の 1番）」、すべてのコマなら「色編集」）。
 //! - 変形の途中の形の取り消し（Qt の TransformUndo「変形操作」）は、変形のあいだだけ
 //!   取り消し・やり直しのキーで戻す（session.rs の step_history から呼ぶ）。
+//! - 保持のあるキーのトゥイーン（Qt の `main_window_tween.TweenController`）：変形を
+//!   始めた点から確定した点までを各コマに割り振り（pma-core の
+//!   `TransformSession::tween_images`）、`Document::install_tween` で 1 回の「全体編集」
+//!   として書く。確定したトゥイーンの形は、帯から直せる（`reopen_tween`）。
+//! - 変形の途中でクオリティを切り替えたら、今の変形にも効かせる（`set_transform_quality`）。
 
 use crate::session::{current_index, Session};
 use crate::tools::{drawing_label, select_used_area};
-use pma_core::document::model::Document;
+use pma_core::document::model::{CellNumber, Document};
 use pma_core::image::Rect;
 use pma_core::reference_scan::Progress;
 use pma_core::tools::scope;
@@ -37,6 +42,40 @@ pub struct ActiveTransform {
     outlines: Vec<Vec<(f64, f64)>>,
     /// クオリティ変形の線の色（始めたときの使用色の選択）。
     line_colors: usize,
+    /// トゥイーンの編集中（Qt の canvas.tween_pending）。
+    pub tween: Option<TweenPending>,
+    /// 形を変えずに描き方を変えた回数（クオリティの切り替え。画面が描き直す合図）。
+    revision: u32,
+}
+
+/// トゥイーンの編集中の値（Qt の tween_pending）。
+pub struct TweenPending {
+    /// キーのコマとトゥイーンの長さ。
+    pub key: usize,
+    pub exposure: usize,
+    /// 変形を始めたときの点（割合 0 の形）。
+    start: Vec<(f64, f64)>,
+    /// 逆生成（キー側を変形した形、最後のコマを元の形にする）。
+    pub reverse: bool,
+    /// 確定したトゥイーンを直しているとき。
+    reedit: Option<Reedit>,
+}
+
+/// 確定したトゥイーンを直しているときの、戻す先と引き継ぐ値。
+struct Reedit {
+    /// 直し始める前の文書（キャンセルで戻す・確定の取り消しで戻る）。
+    before: Document,
+    id: Option<String>,
+    numbers: Option<Vec<CellNumber>>,
+}
+
+/// 画面へ渡すトゥイーンの状態（ポップアップ）。
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct TweenView {
+    pub key: usize,
+    pub layer: usize,
+    pub exposure: usize,
+    pub reverse: bool,
 }
 
 /// 画面へ渡す変形の状態（`tools-changed` の `transform`）。
@@ -56,6 +95,10 @@ pub struct TransformView {
     pub line_colors: usize,
     /// 形の取り消しの数（ヒストリーの「変形操作」）。
     pub history: usize,
+    /// トゥイーンの編集中なら、その値。
+    pub tween: Option<TweenView>,
+    /// 描き方を変えた回数（形が同じでも描き直す）。
+    pub revision: u32,
 }
 
 fn mode_name(mode: Mode) -> &'static str {
@@ -88,6 +131,13 @@ impl ActiveTransform {
             quality: self.session.quality(),
             line_colors: self.line_colors,
             history: self.session.history_len(),
+            tween: self.tween.as_ref().map(|t| TweenView {
+                key: t.key,
+                layer: self.layer,
+                exposure: t.exposure,
+                reverse: t.reverse,
+            }),
+            revision: self.revision,
         }
     }
 }
@@ -110,7 +160,16 @@ fn options(s: &Session) -> TransformOptions {
 }
 
 /// 変形を始める（`start_wire_transform`）。`mode` は free / scale / mesh。
+/// 「保持のあるコマの変形はトゥイーンにする」が ON で、今のコマが保持のあるキーなら
+/// トゥイーンとして始める（`TweenController.start_from_transform`、#61）。
 pub fn begin(s: &mut Session, mode: &str) -> Result<Outcome, String> {
+    if let Some(outcome) = start_from_transform(s, mode)? {
+        return Ok(outcome);
+    }
+    begin_plain(s, mode)
+}
+
+fn begin_plain(s: &mut Session, mode: &str) -> Result<Outcome, String> {
     let mode = Mode::from_name(mode);
     // 変形中にもう一度始めたら、今の変形をやめてから始め直す（Qt と同じ）。
     if s.tools.transform.is_some() {
@@ -168,6 +227,8 @@ pub fn begin(s: &mut Session, mode: &str) -> Result<Outcome, String> {
         all_frames,
         outlines,
         line_colors,
+        tween: None,
+        revision: 0,
     });
     s.tools.selection.set_transform_active(true);
     s.touch_pixels();
@@ -216,7 +277,12 @@ pub fn cancel(s: &mut Session) -> Result<bool, String> {
     let Some(active) = s.tools.transform.take() else {
         return Ok(false);
     };
-    restore(s, active.before)?;
+    // 直し始めたトゥイーンをやめたら、確定済みのトゥイーンをそのまま戻す。
+    let before = match active.tween.and_then(|t| t.reedit) {
+        Some(reedit) => reedit.before,
+        None => active.before,
+    };
+    restore(s, before)?;
     Ok(true)
 }
 
@@ -238,6 +304,20 @@ fn frames_with_content(doc: &Document, layer: usize) -> Result<usize, String> {
 /// 確定（`commit_selection_transform`）。1 回の編集として履歴に積み、選択範囲を解除する。
 /// 変わった範囲（すべてのコマなら全体）を返す。変形中でなければ None。
 pub fn commit(s: &mut Session) -> Result<Option<Rect>, String> {
+    if s.tools
+        .transform
+        .as_ref()
+        .is_some_and(|t| t.tween.is_some())
+    {
+        commit_tween(s)?;
+        let (w, h) = doc_size(s);
+        return Ok(Some(Rect {
+            x: 0,
+            y: 0,
+            width: w,
+            height: h,
+        }));
+    }
     let Some(active) = s.tools.transform.take() else {
         return Ok(None);
     };
@@ -316,6 +396,17 @@ pub fn set_mesh_grid(s: &mut Session, cols: usize, rows: usize) {
     }
 }
 
+/// クオリティ変形の切り替え（`set_transform_quality`）。変形中なら、今の使用色の選択で
+/// 色の番号を作り直して描き直す。
+pub fn set_quality(s: &mut Session, quality: bool) {
+    let colors = s.tools.paint.used_selection.clone();
+    if let Some(t) = s.tools.transform.as_mut() {
+        t.line_colors = colors.len();
+        t.session.set_quality(quality, colors);
+        t.revision = t.revision.wrapping_add(1);
+    }
+}
+
 /// 実線の太さのしきい値（`set_transform_line_threshold`）。
 pub fn set_line_threshold(s: &mut Session, value: i64) {
     if let Some(t) = s.tools.transform.as_mut() {
@@ -368,6 +459,408 @@ pub fn preview(s: &Session) -> Result<Vec<u8>, String> {
     }
     out.extend_from_slice(&rendered.pixels.to_straight_bytes());
     Ok(out)
+}
+
+// ---------------------------------------------------------------------------
+// トゥイーン（Qt の main_window_tween.TweenController）
+// ---------------------------------------------------------------------------
+
+type Pt = (f64, f64);
+
+fn tween_mode_name(mesh: bool) -> &'static str {
+    if mesh {
+        "メッシュ変形"
+    } else {
+        "自由変形"
+    }
+}
+
+/// `column` を含む保持の範囲が、絵のあるキーで 2 コマ以上なら (キーのコマ, 長さ)。
+fn held_block(
+    doc: &Document,
+    column: usize,
+    layer: usize,
+) -> Result<Option<(usize, usize)>, String> {
+    let Some((blank, start, length)) = doc.timeline_block_at(column, layer) else {
+        return Ok(None);
+    };
+    if blank || length < 2 {
+        return Ok(None);
+    }
+    let has_content = !scope::scope_cells(doc, start, layer, false)
+        .map_err(|e| e.to_string())?
+        .is_empty();
+    Ok(has_content.then_some((start, length)))
+}
+
+fn sheet_mode(s: &Session) -> bool {
+    s.timeline.mode == crate::timeline::Mode::Sheet
+}
+
+/// 変形を始めたコマが保持のあるキーなら、確認なしでトゥイーンにする
+/// （`start_from_transform`）。始めなければ None（ふつうの変形を始める）。
+fn start_from_transform(s: &mut Session, mode: &str) -> Result<Option<Outcome>, String> {
+    if !matches!(mode, "free" | "mesh")
+        || !s.tools.settings.transform_as_tween
+        || s.tools.transform.is_some()
+        || !sheet_mode(s)
+    {
+        return Ok(None);
+    }
+    let Some(p) = s.project.as_ref() else {
+        return Ok(None);
+    };
+    let (frame, layer) = current_index(&p.document);
+    let Some((key, exposure)) = held_block(&p.document, frame, layer)? else {
+        return Ok(None);
+    };
+    start_tween(s, layer, key, exposure, mode, false, None, None).map(Some)
+}
+
+/// キーのコマで変形を始め、トゥイーンの編集中にする（`_start`）。`shape` は直すときの
+/// 保存してあった (変形前の点, 変形後の点)。始められなければ `reedit` の文書へ戻す。
+#[allow(clippy::too_many_arguments)]
+fn start_tween(
+    s: &mut Session,
+    layer: usize,
+    key: usize,
+    exposure: usize,
+    mode: &str,
+    reverse: bool,
+    shape: Option<(Vec<Pt>, Vec<Pt>)>,
+    reedit: Option<Reedit>,
+) -> Result<Outcome, String> {
+    let mode = if mode == "mesh" { "mesh" } else { "free" };
+    let name = tween_mode_name(mode == "mesh");
+    s.timeline_select(layer, key, "only")?;
+    s.tools.selection.clear();
+    // 「すべてのコマに適用」だけはトゥイーン生成と分けて切る（クオリティ・線の色・太さは保つ）。
+    s.tools.settings.selection_all_frames = false;
+    s.tools.settings.tool = "rect_select".into();
+    let failed = |s: &mut Session, reedit: Option<Reedit>, message: String| {
+        if let Some(reedit) = reedit {
+            restore(s, reedit.before)?;
+        }
+        Err(message)
+    };
+    if !select_used_area(s)? {
+        return failed(
+            s,
+            reedit,
+            "画像内に変形対象となる描画領域がありません。".into(),
+        );
+    }
+    if let Err(message) = begin_plain(s, mode) {
+        return failed(s, reedit, message);
+    }
+    let t = s
+        .tools
+        .transform
+        .as_mut()
+        .ok_or("変形を始められませんでした。")?;
+    let start = t.session.points().to_vec();
+    if let Some((saved_start, saved_final)) = shape {
+        // キーの絵を描き足して基準の点が少しずれても形が崩れないよう、保存した
+        // 「変形前→変形後」の差を今の点に足す。
+        if saved_start.len() == saved_final.len() && saved_final.len() == start.len() {
+            let points = start
+                .iter()
+                .zip(saved_start.iter().zip(&saved_final))
+                .map(|(p, (a, b))| (p.0 + b.0 - a.0, p.1 + b.1 - a.1))
+                .collect();
+            t.session.set_points(points);
+        }
+    }
+    t.tween = Some(TweenPending {
+        key,
+        exposure,
+        start,
+        reverse,
+        reedit,
+    });
+    Ok(Outcome {
+        message: Some(format!(
+            "♦ {name}トゥイーン中です。変形形状を指定し、ポップアップの「逆生成」で生成方向を選べます。"
+        )),
+    })
+}
+
+/// タイムラインの「トゥイーンを有効にする」（`enable`）。確かめの窓は画面が先に出す。
+pub fn enable(s: &mut Session, layer: usize, column: usize, mode: &str) -> Result<Outcome, String> {
+    let p = s.project.as_ref().ok_or("作品を開いていません")?;
+    let Some((key, exposure)) = held_block(&p.document, column, layer)? else {
+        return Err("2コマ以上の表示区間を持つ画像キーフレームで実行してください。".into());
+    };
+    cancel(s)?;
+    start_tween(s, layer, key, exposure, mode, false, None, None)
+}
+
+fn points_from(value: Option<&serde_json::Value>) -> Vec<Pt> {
+    value
+        .and_then(|v| v.as_array())
+        .map(|points| {
+            points
+                .iter()
+                .filter_map(|p| Some((p.get(0)?.as_f64()?, p.get(1)?.as_f64()?)))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// 確定したトゥイーンを、保存した変形の形から直し始める（`edit`）。帯の先頭でなければ None。
+pub fn edit(s: &mut Session, layer: usize, column: usize) -> Result<Option<Outcome>, String> {
+    let p = s.project.as_ref().ok_or("作品を開いていません")?;
+    let Some(group) = p
+        .document
+        .tween_groups(layer)
+        .into_iter()
+        .find(|g| g.start == column)
+    else {
+        return Ok(None);
+    };
+    cancel(s)?;
+    let p = s.project.as_mut().ok_or("作品を開いていません")?;
+    let doc = &p.document;
+    let position = |column: usize| {
+        let track = doc.track_order().get(layer)?;
+        doc.frame(*doc.frame_order().get(column)?)?
+            .positions
+            .get(track)
+    };
+    let spec = position(column)
+        .and_then(|p| p.tween.clone())
+        .unwrap_or_default();
+    let reverse = spec
+        .get("reverse")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let length = group.length;
+    let numbers: Option<Vec<CellNumber>> = (column + 1..column + length)
+        .map(|c| position(c).and_then(|p| p.number()))
+        .collect();
+    // 元の形の絵（通常生成は先頭、逆生成は末尾）をキーへ戻し、区間を 1 枚のキーにまとめる。
+    let source = if reverse { column + length - 1 } else { column };
+    let original = doc
+        .position_cell(source, layer)
+        .map(|cell| cell.image.clone())
+        .ok_or("トゥイーンの絵が見つかりませんでした。")?;
+    let reedit = Reedit {
+        before: doc.clone(),
+        id: spec.get("id").and_then(|v| v.as_str()).map(str::to_owned),
+        numbers,
+    };
+    p.document
+        .reopen_tween(column, layer, length, original)
+        .map_err(|e| e.to_string())?;
+    s.touch_structure();
+    let mode = if spec.get("mode").and_then(|v| v.as_str()) == Some("mesh") {
+        let grid = |key: &str| {
+            spec.get(key)
+                .and_then(|v| v.as_i64())
+                .unwrap_or(4)
+                .clamp(2, 12)
+        };
+        s.tools.settings.transform_mesh_x = grid("mesh_cols");
+        s.tools.settings.transform_mesh_y = grid("mesh_rows");
+        "mesh"
+    } else {
+        "free"
+    };
+    let shape = (
+        points_from(spec.get("start_points")),
+        points_from(spec.get("final_points")),
+    );
+    start_tween(
+        s,
+        layer,
+        column,
+        length,
+        mode,
+        reverse,
+        Some(shape),
+        Some(reedit),
+    )
+    .map(Some)
+}
+
+/// 生成の向きを切り替える（`set_reverse_generation`）。知らせを返す。
+pub fn set_reverse(s: &mut Session, reverse: bool) -> Option<String> {
+    let t = s.tools.transform.as_mut()?;
+    let mesh = t.session.mode() == Mode::Mesh;
+    t.tween.as_mut()?.reverse = reverse;
+    let name = tween_mode_name(mesh);
+    Some(if reverse {
+        format!("◆ {name}の逆生成：キーフレーム側を変形形状、ラストコマ側を元の初期形状として生成します。")
+    } else {
+        format!("♦ {name}の通常生成：キーフレーム側を元の初期形状、ラストコマ側を変形形状として生成します。")
+    })
+}
+
+/// トゥイーンの編集中か。
+pub fn tween_pending(s: &Session) -> bool {
+    s.tools
+        .transform
+        .as_ref()
+        .is_some_and(|t| t.tween.is_some())
+}
+
+fn new_tween_id() -> String {
+    use std::hash::{BuildHasher, Hasher};
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    (0..2u8)
+        .map(|salt| {
+            let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+            h.write_u128(now);
+            h.write_u8(salt);
+            format!("{:016x}", h.finish())
+        })
+        .collect()
+}
+
+/// トゥイーンを確定する（`commit_transform`）。キーから中割りまでを 1 回の「全体編集」
+/// として書き、知らせを返す。確定できなければ変形を続けたままエラーを返す。
+pub fn commit_tween(s: &mut Session) -> Result<String, String> {
+    // 始めたあとにクオリティ・使用色を変えた場合も、確定するときの設定を使う。
+    let quality = s.tools.settings.transform_quality;
+    let colors = s.tools.paint.used_selection.clone();
+    let not_ready = || "変形情報を取得できないため、トゥイーンを確定できません。".to_string();
+    let Some(t) = s.tools.transform.as_mut() else {
+        return Err(not_ready());
+    };
+    let Some(pending) = t.tween.as_ref() else {
+        return Err(not_ready());
+    };
+    if pending.start.is_empty() || pending.start.len() != t.session.points().len() {
+        return Err(not_ready());
+    }
+    t.line_colors = colors.len();
+    let quality_active = t.session.set_quality(quality, colors);
+    t.revision = t.revision.wrapping_add(1);
+    if quality && !quality_active {
+        return Err("TPクオリティ用の色マスクを生成できませんでした。\n\
+            Pillowが利用できることと、変形対象に色があることを確認してください。"
+            .into());
+    }
+    let images = t
+        .session
+        .tween_images(&pending.start, pending.exposure, pending.reverse)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(not_ready)?;
+    let Some(active) = s.tools.transform.take() else {
+        return Err(not_ready());
+    };
+    let Some(pending) = active.tween else {
+        return Err(not_ready());
+    };
+    let (layer, key, exposure, reverse) =
+        (active.layer, pending.key, pending.exposure, pending.reverse);
+    let mode = active.session.mode();
+    let id = pending
+        .reedit
+        .as_ref()
+        .and_then(|r| r.id.clone())
+        .unwrap_or_else(new_tween_id);
+    let spec = pma_core::tools::transform::tween_spec(
+        &id,
+        exposure,
+        mode,
+        reverse,
+        &pending.start,
+        active.session.points(),
+        active.session.mesh_size(),
+        active.session.mesh_reference(),
+    );
+    // 取り消しで戻る先は、トゥイーンを始める前（直していたなら直し始める前）の文書。
+    let (undo_to, base, numbers) = match pending.reedit {
+        Some(reedit) => (reedit.before, Some(active.before), reedit.numbers),
+        None => (active.before, None, None),
+    };
+    restore(s, undo_to)?;
+    let cursor = if reverse { key } else { key + exposure - 1 };
+    s.edit_with(Some("全体編集"), move |doc, ui| {
+        if let Some(base) = base {
+            *doc = base;
+        }
+        let numbers = match numbers {
+            Some(numbers) => numbers,
+            None => doc
+                .tween_numbers(layer, exposure - 1)
+                .map_err(|e| e.to_string())?,
+        };
+        doc.install_tween(key, layer, &images, spec, &numbers)
+            .map_err(|e| e.to_string())?;
+        // 確定のあとは通常生成なら最後のコマ、逆生成ならキーへ移る（publish_tween_commit）。
+        ui.set_frame(doc, cursor, layer)?;
+        Ok(((), true))
+    })?;
+    s.touch_pixels();
+    s.tools.selection.clear();
+    let direction = if reverse {
+        "逆生成（◆側が変形／右端が初期）"
+    } else {
+        "通常生成（先頭が初期／♦側が変形）"
+    };
+    let quality_note = if quality_active {
+        "（TPクオリティ適用）"
+    } else {
+        ""
+    };
+    Ok(format!(
+        "{exposure}コマの{}トゥイーンを{direction}で確定しました。{quality_note}帯をダブルクリックすると形を直せます。",
+        tween_mode_name(mode == Mode::Mesh)
+    ))
+}
+
+/// トゥイーンの窓口：変形を始める・終えると表示の画像ごと変わるので、画面に読み直させる。
+fn with_tween<T>(
+    app: &tauri::AppHandle,
+    f: impl FnOnce(&mut Session) -> Result<T, String>,
+) -> Result<T, String> {
+    use tauri::Emitter;
+    let mut view = None;
+    let out = crate::with_session(app, "transform", |s| {
+        let out = f(s);
+        if let Err(e) = s.tools.save() {
+            eprintln!("ツールの設定を保存できなかった：{e}");
+        }
+        view = Some(s.tools.view());
+        out
+    });
+    if let Some(view) = view {
+        let _ = app.emit("tools-changed", view);
+    }
+    out
+}
+
+/// タイムラインの「トゥイーンを有効にする」（[`enable`]）。知らせを返す。
+#[tauri::command]
+pub fn tween_enable(
+    app: tauri::AppHandle,
+    layer: usize,
+    column: usize,
+    mode: String,
+) -> Result<Option<String>, String> {
+    with_tween(&app, |s| enable(s, layer, column, &mode).map(|o| o.message))
+}
+
+/// 確定したトゥイーンの形を直す（[`edit`]）。知らせを返す。
+#[tauri::command]
+pub fn tween_edit(
+    app: tauri::AppHandle,
+    layer: usize,
+    column: usize,
+) -> Result<Option<String>, String> {
+    with_tween(&app, |s| {
+        edit(s, layer, column).map(|o| o.and_then(|o| o.message))
+    })
+}
+
+/// 生成の向き（[`set_reverse`]）。知らせを返す。
+#[tauri::command]
+pub fn tween_set_reverse(app: tauri::AppHandle, reverse: bool) -> Result<Option<String>, String> {
+    crate::tools::with_tools(&app, false, |s| Ok(set_reverse(s, reverse)))
 }
 
 // ---------------------------------------------------------------------------
@@ -525,5 +1018,130 @@ mod tests {
         } else {
             assert_eq!(last, "色編集");
         }
+    }
+
+    /// A（3コマ打ちのレイヤー）の先頭のキーに四角を塗る。
+    fn held_square(s: &mut Session) -> usize {
+        let layer = 2;
+        s.timeline_select(layer, 0, "only").unwrap();
+        s.tools.settings.color_main = [9, 8, 7];
+        lasso_fill(s, &[[10.0, 10.0], [30.0, 10.0], [30.0, 30.0], [10.0, 30.0]]).unwrap();
+        s.tools.selection.clear();
+        layer
+    }
+
+    fn groups(s: &Session, layer: usize) -> Vec<(usize, usize, bool)> {
+        let doc = &s.project.as_ref().unwrap().document;
+        doc.tween_groups(layer)
+            .into_iter()
+            .map(|g| (g.start, g.length, g.reverse))
+            .collect()
+    }
+
+    fn shift_points(s: &mut Session, dx: f64) {
+        let t = s.tools.transform.as_mut().unwrap();
+        let moved = t.session.points().iter().map(|p| (p.0 + dx, p.1)).collect();
+        t.session.set_points(moved);
+    }
+
+    #[test]
+    fn tween_commit_is_one_whole_edit_and_reedit_keeps_the_group() {
+        let mut s = big();
+        let layer = held_square(&mut s);
+        let undo_before = s.history().undo.len();
+        let outcome = enable(&mut s, layer, 0, "free").unwrap();
+        assert!(outcome.message.unwrap().contains("自由変形トゥイーン中"));
+        let view = s.tools.transform.as_ref().unwrap().view();
+        assert_eq!(
+            view.tween,
+            Some(TweenView {
+                key: 0,
+                layer,
+                exposure: 3,
+                reverse: false
+            })
+        );
+        assert!(!s.tools.settings.selection_all_frames);
+        shift_points(&mut s, 6.0);
+        assert!(set_reverse(&mut s, true).unwrap().contains("逆生成"));
+        assert!(set_reverse(&mut s, false).unwrap().contains("通常生成"));
+        let message = commit_tween(&mut s).unwrap();
+        assert!(
+            message.starts_with("3コマの自由変形トゥイーンを通常生成"),
+            "{message}"
+        );
+        assert!(s.tools.transform.is_none());
+        assert_eq!(groups(&s, layer), vec![(0, 3, false)]);
+        let undo = s.history().undo;
+        assert_eq!(undo.len(), undo_before + 1);
+        assert_eq!(undo.last().unwrap(), "全体編集");
+        // 通常生成は最後のコマへ移る。
+        let doc = &s.project.as_ref().unwrap().document;
+        assert_eq!(current_index(doc), (2, layer));
+        let id = |s: &Session| {
+            let doc = &s.project.as_ref().unwrap().document;
+            let track = doc.track_order()[layer];
+            doc.frame(doc.frame_order()[0]).unwrap().positions[&track]
+                .tween
+                .clone()
+                .unwrap()["id"]
+                .clone()
+        };
+        let first_id = id(&s);
+
+        // 直し始めてキャンセルしたら、確定したトゥイーンに戻る。
+        assert!(edit(&mut s, layer, 0).unwrap().is_some());
+        assert!(tween_pending(&s));
+        assert!(groups(&s, layer).is_empty());
+        assert!(cancel(&mut s).unwrap());
+        assert_eq!(groups(&s, layer), vec![(0, 3, false)]);
+        assert_eq!(s.history().undo.len(), undo_before + 1);
+
+        // 直して確定すると、同じ id のまま 1 回の編集になる。
+        edit(&mut s, layer, 0).unwrap().unwrap();
+        // 保存した形（6 画素右）から始まる。
+        let t = s.tools.transform.as_ref().unwrap();
+        let start = &t.tween.as_ref().unwrap().start;
+        assert_eq!(t.session.points()[0].0, start[0].0 + 6.0);
+        set_reverse(&mut s, true);
+        commit_tween(&mut s).unwrap();
+        assert_eq!(groups(&s, layer), vec![(0, 3, true)]);
+        assert_eq!(id(&s), first_id);
+        assert_eq!(s.history().undo.len(), undo_before + 2);
+        s.undo().unwrap();
+        assert_eq!(groups(&s, layer), vec![(0, 3, false)]);
+        s.undo().unwrap();
+        assert!(groups(&s, layer).is_empty());
+    }
+
+    #[test]
+    fn held_key_transform_becomes_a_tween_when_the_option_is_on() {
+        let mut s = big();
+        let layer = held_square(&mut s);
+        // オプションが OFF ならふつうの変形。
+        begin(&mut s, "free").unwrap();
+        assert!(!tween_pending(&s));
+        cancel(&mut s).unwrap();
+        s.tools.settings.transform_as_tween = true;
+        // 拡大縮小はトゥイーンにしない。
+        begin(&mut s, "scale").unwrap();
+        assert!(!tween_pending(&s));
+        cancel(&mut s).unwrap();
+        let outcome = begin(&mut s, "mesh").unwrap();
+        assert!(outcome
+            .message
+            .unwrap()
+            .contains("メッシュ変形トゥイーン中"));
+        assert!(tween_pending(&s));
+        // 途中でクオリティを切り替えても続けられる。
+        set_quality(&mut s, false);
+        assert!(!s.tools.transform.as_ref().unwrap().view().quality);
+        s.tools.settings.transform_quality = false;
+        shift_points(&mut s, 3.0);
+        let message = commit_tween(&mut s).unwrap();
+        assert!(!message.contains("TPクオリティ"), "{message}");
+        assert_eq!(groups(&s, layer), vec![(0, 3, false)]);
+        // 絵のない保持・1コマのキーでは有効にできない。
+        assert!(enable(&mut s, 1, 15, "free").is_err());
     }
 }

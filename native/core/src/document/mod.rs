@@ -50,6 +50,8 @@ pub mod animation_commands;
 /// 読み込んだ絵を新しい列として入れる操作。
 pub mod import_commands;
 pub mod initial_state;
+/// MainLineRepaint（LINE と Paint の列に分ける）。
+pub mod line_split_commands;
 mod number_commands;
 /// 配置待ちの番号をシートへ移す操作と窓口への更新情報。
 pub mod pending_commands;

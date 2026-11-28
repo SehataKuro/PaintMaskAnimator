@@ -12,6 +12,9 @@
 // 送る。再生は Rust のスレッドがコマを進め、同じ事件（playhead 付き）で知らせる。受け取ったら
 // 再生ヘッドだけを描き直す（#107。キャンバスも同じ事件で今のコマを表示する）。
 
+import { pasteOnTimeline } from "./time_remap.js"; // 【タイムリマップの貼り付け】
+import { enableTween, editTween, cancelTween, pendingTween } from "./tween.js"; // 【トゥイーン】
+
 const LAYER_WIDTH = 190;
 const HEADER_HEIGHT = 25;
 const BASE_CELL_WIDTH = 36;
@@ -120,8 +123,9 @@ export function createTimelinePanel({ invoke }) {
   const addBlank = button("○", "空フレームを追加\n現在の位置に空フレーム（○）を作ります。", () => createBlankAtCurrent());
   const addExposure = button("⟶", "コマを伸ばす\n現在のキーフレーム／空フレームを1コマ伸ばします。", () => extendCurrent());
   const del = button("✕", "コマを削除（Shift+E）", () => edit({ op: "delete_frame" }));
-  const remap = button("リマップ", "リマップを貼り付け（まだ移していません）", null);
-  remap.disabled = true;
+  // 【タイムリマップの貼り付け：time_remap.js】メニューと同じ操作を出す。
+  const remap = button("リマップ", "リマップを貼り付け\nAEまたはToeiDigitalTimeSheetのコピー情報をタイムシートへ貼り付けます。", () =>
+    window.dispatchEvent(new CustomEvent("pma-action", { detail: { id: "a_tl_paste_time_remap", source: "timeline" }, cancelable: true })));
   const normalize = button("順番で正規化", "タイムラインの順番で正規化\n左から最初に出てくる順に番号を振り直します。実行前に、振り直す番号の一覧を確認できます。", () => normalizeDialog());
   const badge = el("span", { class: "tl-badge" });
   const first = button("⇤", "先頭へ（Home）", () => navigate("first"));
@@ -1109,7 +1113,8 @@ export function createTimelinePanel({ invoke }) {
       startRename(h.row);
     } else if (h.area === "cells" && h.row >= 0) {
       const span = spanAt(h.row, h.column);
-      if (span?.group) showStatus("トゥイーンの形を直すのは、キャンバスが文書を描くようになってから移します。", true);
+      // 【トゥイーン】確定したトゥイーンの帯をダブルクリックすると形を直す（Qt の tweenEditRequested）。
+      if (span?.group) editTween(view.rows[h.row].layer, span.start);
     }
   });
 
@@ -1335,16 +1340,21 @@ export function createTimelinePanel({ invoke }) {
         submenu: numbers.map((n) => ({ label: String(n), action: run("recall_number", { number: n }) })),
       });
     }
+    // 【トゥイーン】tween.js（Qt の timeline の tween メニュー）。
+    const pending = pendingTween();
     if (span?.group) {
       items.push("-",
-        { label: "トゥイーンの形を直す（まだ移していません）", enabled: false },
+        { label: "トゥイーンの形を直す", action: () => editTween(target.layer, span.start) },
         { label: "トゥイーンを解除（中割りを通常のセルにする）", action: run("release_tween") });
+    } else if (span && pending && pending.layer === target?.layer && span.start <= pending.key && pending.key < span.start + span.length) {
+      items.push("-", { label: "トゥイーンをキャンセル", action: () => cancelTween() });
     } else if (span && span.kind === "cell" && h.column === span.start + span.length - 1 && span.length >= 2 && sheet()) {
+      const tween = (mode) => () => enableTween(target.layer, span.start, mode, span.length);
       items.push("-", {
         label: "トゥイーンを有効にする",
         submenu: [
-          { label: "自由変形（まだ移していません）", enabled: false },
-          { label: "メッシュ変形（まだ移していません）", enabled: false },
+          { label: "自由変形", action: tween("free") },
+          { label: "メッシュ変形", action: tween("mesh") },
         ],
       });
     }
@@ -1517,7 +1527,8 @@ export function createTimelinePanel({ invoke }) {
     // 取り消し・やり直し（Cmd/Ctrl+Z・Shift+Z・Y）は app.js の一つだけ（アプリ全体の履歴）。
     if (mod && e.key.toLowerCase() === "c") action = () => t && edit({ op: "copy_clip", ...t });
     else if (mod && e.key.toLowerCase() === "x") action = () => t && edit({ op: "cut_clip", ...t });
-    else if (mod && e.key.toLowerCase() === "v") action = () => t && edit({ op: "paste_clip", ...t });
+    // 【タイムリマップの貼り付け】クリップボードがタイムシートなら、そのまま反映する（Qt の paste_on_timeline）。
+    else if (mod && e.key.toLowerCase() === "v") action = async () => (await pasteOnTimeline()) || (t && edit({ op: "paste_clip", ...t }));
     else if (mod && e.shiftKey && e.key.toLowerCase() === "n") action = () => edit({ op: "add_layer" });
     else if (mod && (e.key === "=" || e.key === "+")) action = () => setZoom(zoom * 1.15, 0, 0);
     else if (mod && e.key === "-") action = () => setZoom(zoom / 1.15, 0, 0);

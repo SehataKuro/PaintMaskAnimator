@@ -5,6 +5,8 @@
 // 押したら Rust の窓口（tools.rs の action_run、HOOK）を呼ぶ。
 import { el } from "./tools.js";
 import { notify } from "./tool_properties.js";
+import { message } from "./dialogs.js";
+import { tr } from "./i18n.js";
 
 const { invoke } = window.__TAURI__.core;
 
@@ -21,14 +23,30 @@ export function createActionsPanel() {
       class: "pma-button",
       text: label,
       tip,
-      onclick: async () => {
-        try {
-          await invoke("action_run", { id });
-        } catch (e) {
-          notify(String(e));
-        }
-      },
+      onclick: () => runBuiltinAction(id),
     }));
   }
   return panel;
+}
+
+/// 確かめの窓を出してから Rust の action_run を呼ぶ（Qt の各アクションの最初の QMessageBox）。
+/// 知らせはステータスバー、断りは窓で出す（Qt と同じ）。
+export async function runBuiltinAction(id) {
+  const title = BUILTIN.find(([key]) => key === id)?.[1] ?? id;
+  if (id === "main_line_repaint") {
+    const ok = await message(
+      title,
+      tr("選択した使用色と、それ以外の部分を別レイヤーに分離します。"),
+      [[tr("OK"), true], [tr("キャンセル"), false, true]],
+      false,
+    );
+    if (!ok) return;
+  }
+  try {
+    const status = await invoke("action_run", { id });
+    if (status) notify(tr(status));
+  } catch (e) {
+    if (id === "main_line_repaint") await message(title, tr(String(e)));
+    else notify(String(e));
+  }
 }

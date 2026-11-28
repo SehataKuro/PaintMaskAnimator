@@ -135,3 +135,38 @@ fn flip_mirrors_pixels() {
     let at = (4 * 40 + x) * 4;
     assert_eq!(&image.rgba()[at..at + 4], &[60, 36, 40, 255]);
 }
+
+#[test]
+fn tween_images_interpolate_from_start_to_final() {
+    let mut session = begin(Mode::Free, false).session;
+    let start = session.points().to_vec();
+    let moved: Vec<Pt> = start.iter().map(|p| (p.0 + 4.0, p.1 + 2.0)).collect();
+    session.set_points(moved);
+    let original = layer(40, 30);
+    let images = session.tween_images(&start, 3, false).unwrap().unwrap();
+    assert_eq!(images.len(), 3);
+    assert_eq!(images[0].rgba(), original.rgba());
+    assert_eq!(images[1].rgba(), shifted(&original, 2, 1));
+    assert_eq!(
+        images[2].rgba(),
+        session.apply_to(&original).unwrap().rgba()
+    );
+    // 逆生成は並びが逆になる。
+    let reversed = session.tween_images(&start, 3, true).unwrap().unwrap();
+    assert_eq!(reversed[0].rgba(), images[2].rgba());
+    assert_eq!(reversed[2].rgba(), original.rgba());
+    // 点の数が合わなければ作らない。
+    assert!(session
+        .tween_images(&start[..2], 3, false)
+        .unwrap()
+        .is_none());
+}
+
+#[test]
+fn set_quality_switches_rendering_mid_transform() {
+    let mut session = begin(Mode::Free, true).session;
+    assert!(session.quality());
+    assert!(!session.set_quality(false, Vec::new()));
+    assert!(!session.quality());
+    assert!(session.set_quality(true, vec![[0, 0, 0]]));
+}

@@ -13,6 +13,7 @@ import { toolFlags, notify, openPressureDialog } from "./tool_properties.js";
 import { bucketDown, bucketMove, bucketUp, skewerClick, replaceColor, dustApply } from "./paint_ops.js";
 // 【オニオン：onion.js】合わせる操作のドラッグと Ctrl＋クリック（#60）。
 import { onionStore, onionInteraction, toggleOnionSettings } from "./onion.js";
+import { runBuiltinAction } from "./actions.js"; // 【アクション】MainLineRepaint
 
 const { invoke } = window.__TAURI__.core;
 
@@ -226,7 +227,8 @@ export function createCanvasTools({ canvas, viewer, overlay, applyRect }) {
   }
   function transformChanged(view) {
     const t = view?.transform;
-    const key = t ? JSON.stringify([t.mode, t.points, t.quality]) : null;
+    // revision：形が同じでも描き方（クオリティ・実線の太さ）を変えたら描き直す。
+    const key = t ? JSON.stringify([t.mode, t.points, t.quality, t.revision]) : null;
     if (key === transformKey) return;
     transformKey = key;
     if (key) refreshTransformPreview();
@@ -430,15 +432,36 @@ export function createCanvasTools({ canvas, viewer, overlay, applyRect }) {
   // ---- 画面のマウス（右クリックのスポイト、ホバー、回転の戻し） ----
   canvas.addEventListener("contextmenu", (e) => e.preventDefault());
   let rightDrag = false;
+  // 【オニオン】合わせる操作の途中の右ボタンのドラッグは回転（Qt の
+  // _begin_onion_interaction_drag の RightButton）。app.js の線の列（macOS は左ボタンだけの
+  // pen の事件）はボタンを知らないので、ここで受けて app.js へは渡さない。
+  let onionRight = null;
   canvas.addEventListener("pointerdown", (e) => {
     if (e.button !== 2 || !api.enabled) return;
     const r = canvas.getBoundingClientRect();
+    if (onion.armed && !toolStore.view?.transform && !active) {
+      e.stopImmediatePropagation();
+      try {
+        canvas.setPointerCapture(e.pointerId);
+      } catch {
+        // 作った事件（自己確認）は捕まえられない。
+      }
+      onionRight = e.pointerId;
+      active = { kind: "onion" };
+      onion.down(e.clientX - r.left, e.clientY - r.top, true);
+      return;
+    }
     rightDrag = true;
     canvas.setPointerCapture(e.pointerId);
     sample(toImage(e.clientX - r.left, e.clientY - r.top), true);
   });
   canvas.addEventListener("pointermove", (e) => {
     const r = canvas.getBoundingClientRect();
+    if (onionRight === e.pointerId) {
+      e.stopImmediatePropagation();
+      api.feed("move", "mouse", e.clientX - r.left, e.clientY - r.top);
+      return;
+    }
     hover = { x: e.clientX - r.left, y: e.clientY - r.top };
     if (rightDrag) sample(toImage(hover.x, hover.y), false);
     if (curve) {
@@ -447,9 +470,19 @@ export function createCanvasTools({ canvas, viewer, overlay, applyRect }) {
     }
     showBrushCursor();
   });
+  const onionRightEnd = (e) => {
+    if (onionRight !== e.pointerId) return false;
+    e.stopImmediatePropagation();
+    onionRight = null;
+    const r = canvas.getBoundingClientRect();
+    api.feed("up", "mouse", e.clientX - r.left, e.clientY - r.top);
+    return true;
+  };
   canvas.addEventListener("pointerup", (e) => {
+    if (onionRightEnd(e)) return;
     if (e.button === 2) rightDrag = false;
   });
+  canvas.addEventListener("pointercancel", onionRightEnd);
   // ショートカット設定で変えた押している間のキーを読み直す。
   canvas.addEventListener("pointerenter", () => refreshShortcuts());
   canvas.addEventListener("pointerleave", () => {
@@ -591,7 +624,8 @@ export function createCanvasTools({ canvas, viewer, overlay, applyRect }) {
     a_brush_smaller: () => brushStep(-1),
     a_brush_larger: () => brushStep(1),
     a_pressure: () => openPressureDialog(),
-    a_mainline_repaint: () => run("action_run", { id: "main_line_repaint" }),
+    // 【アクション】確かめの窓は actions.js。
+    a_mainline_repaint: () => runBuiltinAction("main_line_repaint"),
     a_selection_transform: () => transformCommand("free"),
     a_selection_scale: () => transformCommand("scale"),
     a_selection_mesh: () => transformCommand("mesh"),
