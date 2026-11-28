@@ -1,0 +1,167 @@
+/* 【アプリの外枠】テーマ（Qt 版の theme.PALETTES と MAC_OVERRIDES）とアクセントカラー。
+   shell.js が <html data-theme="light|dark" data-platform="macos|…"> と --accent を付ける。
+   ここで決めた色は、外枠の窓（環境設定・ショートカット・ヒストリーなど）と、地の部分に使う。 */
+
+:root, :root[data-theme="dark"] {
+  --window: #22252b;
+  --surface: #2b2f37;
+  --surface-alt: #31363f;
+  --border: #3c424c;
+  --text: #e6e9ee;
+  --text-muted: #9aa2ad;
+  --accent: #4d8bff;
+  --accent-text: #ffffff;
+  --hover: #3a404a;
+  --selection: #33507f;
+  --statusbar: #1d2025;
+  --warning: #e0a63a;
+  --error: #ff6b6b;
+  color-scheme: dark;
+}
+:root[data-theme="light"] {
+  --window: #f4f5f7;
+  --surface: #ffffff;
+  --surface-alt: #eceef1;
+  --border: #d3d7de;
+  --text: #1f2329;
+  --text-muted: #6b7280;
+  --accent: #2f6fed;
+  --hover: #e4e8ef;
+  --selection: #cfe0ff;
+  --statusbar: #ffffff;
+  --warning: #b8730a;
+  --error: #c62828;
+  color-scheme: light;
+}
+:root[data-platform="macos"][data-theme="light"] {
+  --window: #ececec;
+  --surface: #ffffff;
+  --surface-alt: #f5f5f5;
+  --border: #d6d6d6;
+  --text: #1d1d1f;
+  --text-muted: #6e6e73;
+  --hover: #e2e2e4;
+  --statusbar: #ececec;
+}
+:root[data-platform="macos"][data-theme="dark"], :root[data-platform="macos"]:not([data-theme]) {
+  --window: #1e1e1e;
+  --surface: #2b2b2b;
+  --surface-alt: #323232;
+  --border: #3f3f3f;
+  --text: #e8e8ea;
+  --text-muted: #98989d;
+  --hover: #3a3a3c;
+  --statusbar: #1e1e1e;
+}
+
+html, body { background: var(--window); color: var(--text); }
+footer { background: var(--statusbar); color: var(--text-muted); border-top: 1px solid var(--border); }
+button { background: var(--surface-alt); color: var(--text); border-color: var(--border); }
+button:hover:not(:disabled) { background: var(--hover); }
+button:disabled { color: var(--text-muted); opacity: 0.6; }
+
+/* 明るいテーマのときのタイムラインの部品（キャンバスの中の色はタイムラインが描く）。 */
+:root[data-theme="light"] .tl-panel { background: var(--window); color: var(--text); }
+:root[data-theme="light"] .tl-toolbar { background: var(--surface); border-bottom-color: var(--border); }
+:root[data-theme="light"] .tl-btn,
+:root[data-theme="light"] .tl-fps { background: var(--surface-alt); color: var(--text); border-color: var(--border); }
+:root[data-theme="light"] .tl-btn:hover:not(:disabled) { background: var(--hover); border-color: var(--accent); }
+:root[data-theme="light"] .tl-btn.active { background: var(--selection); border-color: var(--accent); }
+:root[data-theme="light"] .tl-label,
+:root[data-theme="light"] .tl-hint,
+:root[data-theme="light"] .tl-corner-label { color: var(--text-muted); }
+:root[data-theme="light"] .tl-menu,
+:root[data-theme="light"] .tl-dialog,
+:root[data-theme="light"] .tl-status { background: var(--surface); color: var(--text); border-color: var(--border); }
+:root[data-theme="light"] .tl-menu-item:hover:not(.disabled) { background: var(--selection); }
+
+/* ---- 窓（モーダル） ---- */
+.sh-overlay {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex; align-items: center; justify-content: center;
+}
+.sh-dialog {
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.35);
+  min-width: 320px; max-width: min(860px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  display: flex; flex-direction: column;
+}
+.sh-dialog-title { padding: 10px 16px; font-weight: 600; border-bottom: 1px solid var(--border); }
+.sh-dialog-body { padding: 14px 16px; overflow: auto; min-height: 0; flex: 1; }
+.sh-dialog-buttons { display: flex; gap: 8px; justify-content: flex-end; padding: 10px 16px; border-top: 1px solid var(--border); }
+.sh-dialog-buttons button, .sh-dialog button { padding: 4px 14px; border-radius: 5px; border: 1px solid var(--border); font: inherit; cursor: pointer; }
+.sh-dialog button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.sh-message { white-space: pre-wrap; line-height: 1.5; max-width: 520px; }
+.sh-dialog input[type="text"], .sh-dialog input[type="number"], .sh-dialog select, .sh-dialog textarea {
+  background: var(--window); color: var(--text);
+  border: 1px solid var(--border); border-radius: 4px; padding: 3px 6px; font: inherit;
+}
+.sh-dialog input:focus, .sh-dialog select:focus, .sh-dialog textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.sh-dialog input:disabled, .sh-dialog select:disabled { opacity: 0.55; }
+.sh-form { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 12px; align-items: center; }
+.sh-form > .sh-label { text-align: right; color: var(--text); }
+.sh-form > .sh-hint, .sh-hint { grid-column: 2; color: var(--text-muted); font-size: 12px; line-height: 1.45; margin-top: -2px; }
+.sh-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.sh-check { display: inline-flex; gap: 6px; align-items: center; }
+
+/* ---- 環境設定 ---- */
+.sh-prefs { display: flex; width: 760px; max-width: 100%; height: 520px; max-height: calc(100vh - 160px); }
+.sh-prefs-sections { width: 150px; flex: none; border-right: 1px solid var(--border); padding: 6px 0; overflow: auto; }
+.sh-prefs-section { padding: 6px 14px; cursor: pointer; }
+.sh-prefs-section:hover { background: var(--hover); }
+.sh-prefs-section.active { background: var(--selection); }
+.sh-prefs-page { flex: 1; overflow: auto; padding: 16px 20px; min-width: 0; }
+.sh-swatch { width: 40px; height: 28px; border-radius: 4px; border: 1px solid var(--border); padding: 0; cursor: pointer; }
+.sh-palette { display: grid; grid-template-columns: repeat(6, 40px); gap: 6px; }
+.sh-list { border: 1px solid var(--border); border-radius: 4px; background: var(--window); min-height: 150px; overflow: auto; flex: 1; }
+.sh-list-item { padding: 5px 8px; cursor: default; white-space: pre-line; }
+.sh-list-item.active { background: var(--selection); }
+.sh-list-item.dragging { opacity: 0.5; }
+.sh-side-buttons { display: flex; flex-direction: column; gap: 6px; }
+
+/* ---- ショートカット設定 ---- */
+.sh-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: 8px; flex-wrap: wrap; }
+.sh-tab { padding: 5px 12px; border: 1px solid transparent; border-bottom: none; border-radius: 5px 5px 0 0; cursor: pointer; }
+.sh-tab.active { background: var(--window); border-color: var(--border); }
+.sh-keys-table { width: 100%; border-collapse: collapse; }
+.sh-keys-table td { padding: 3px 6px; border-bottom: 1px solid var(--border); }
+.sh-keys-table td:first-child { width: 50%; }
+.sh-key-edit { width: 100%; box-sizing: border-box; cursor: pointer; }
+.sh-key-edit.recording { outline: 2px solid var(--accent); }
+.sh-shortcuts { width: 640px; max-width: 100%; height: 460px; max-height: calc(100vh - 200px); display: flex; flex-direction: column; }
+.sh-shortcuts-list { flex: 1; overflow: auto; }
+.sh-pending { color: var(--text-muted); font-size: 11px; margin-left: 4px; }
+
+/* ---- メモ ---- */
+.sh-memo { width: 460px; max-width: 100%; }
+.sh-memo textarea { width: 100%; max-width: 100%; height: 260px; box-sizing: border-box; resize: both; }
+
+/* ---- ヒストリー ---- */
+.hp-panel { height: 100%; display: flex; flex-direction: column; background: var(--window); color: var(--text); }
+.hp-header { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-bottom: 1px solid var(--border); background: var(--surface); }
+.hp-header .hp-title { flex: 1; font-size: 12px; color: var(--text-muted); }
+.hp-help { width: 22px; height: 22px; border-radius: 11px; padding: 0; border: 1px solid var(--border); cursor: pointer; }
+.hp-scroll { flex: 1; overflow: auto; min-height: 0; }
+.hp-scroll svg { display: block; }
+.hp-block { cursor: pointer; }
+.hp-block rect { fill: var(--surface); stroke: var(--border); }
+.hp-block text { fill: var(--text); font-size: 12px; dominant-baseline: middle; }
+.hp-block.future rect { fill: var(--window); stroke-dasharray: 3 2; }
+.hp-block.future text { fill: var(--text-muted); }
+.hp-block.branch rect { fill: var(--surface-alt); }
+.hp-block.current rect { fill: var(--selection); stroke: var(--accent); stroke-width: 2; }
+.hp-block:hover rect { stroke: var(--accent); }
+.hp-link { stroke: var(--border); stroke-width: 1.5; fill: none; }
+.hp-link.future { stroke-dasharray: 3 2; }
+.hp-help-text { padding: 8px 10px; font-size: 12px; line-height: 1.5; color: var(--text-muted); border-bottom: 1px solid var(--border); white-space: pre-line; }
+
+/* ---- 「まだ移していません」の知らせ ---- */
+.sh-toast {
+  position: fixed; left: 50%; bottom: 36px; transform: translateX(-50%); z-index: 1100;
+  background: var(--surface); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 14px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  pointer-events: none; transition: opacity 0.2s;
+}

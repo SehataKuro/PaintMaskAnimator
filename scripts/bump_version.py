@@ -1,6 +1,7 @@
 """Bump the release version everywhere it is written down.
 
-The version lives in pyproject.toml, the static README badges and CHANGELOG.md.
+The version lives in pyproject.toml, app/Cargo.toml (the Tauri app; its
+Cargo.lock entry too), the static README badges and CHANGELOG.md.
 Editing them by hand means one is always forgotten, and the release workflow
 only notices after the tag is pushed. This rewrites all of them at once::
 
@@ -37,6 +38,34 @@ def bump_pyproject(text: str, version: str) -> str:
     )
     if count != 1:
         raise ValueError("pyproject.toml: [project] version not found")
+    return new
+
+
+def bump_app_cargo(text: str, version: str) -> str:
+    """app/Cargo.toml: the [package] version (the Tauri app's only version)."""
+    new, count = re.subn(
+        r'^(\[package\][^\[]*?^version\s*=\s*)"[^"]*"',
+        rf'\g<1>"{version}"',
+        text,
+        count=1,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    if count != 1:
+        raise ValueError("app/Cargo.toml: [package] version not found")
+    return new
+
+
+def bump_app_lock(text: str, version: str) -> str:
+    """app/Cargo.lock: the pma-app entry, so `cargo --locked` keeps working."""
+    new, count = re.subn(
+        r'^(name = "pma-app"\nversion = )"[^"]*"',
+        rf'\g<1>"{version}"',
+        text,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    if count != 1:
+        raise ValueError("app/Cargo.lock: pma-app entry not found")
     return new
 
 
@@ -85,6 +114,10 @@ def main() -> int:
     try:
         pyproject = ROOT / "pyproject.toml"
         edits[pyproject] = bump_pyproject(pyproject.read_text(encoding="utf-8"), version)
+        cargo = ROOT / "app" / "Cargo.toml"
+        edits[cargo] = bump_app_cargo(cargo.read_text(encoding="utf-8"), version)
+        lock = ROOT / "app" / "Cargo.lock"
+        edits[lock] = bump_app_lock(lock.read_text(encoding="utf-8"), version)
         for name in READMES:
             path = ROOT / name
             edits[path] = bump_badge(path.read_text(encoding="utf-8"), version)

@@ -1,5 +1,9 @@
 # Third-Party Licenses
 
+> This file covers the Qt/Python build (0.8.x and earlier). The Tauri application
+> (0.9.0 and later, `app/`) ships its own generated notice,
+> [`app/THIRD_PARTY_LICENSES.md`](app/THIRD_PARTY_LICENSES.md).
+
 PaintMaskAnimator itself is licensed under the Apache License 2.0 (see
 [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE)). It depends on, and its binary
 distributions bundle, the third-party components below, each under its own

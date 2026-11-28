@@ -2,15 +2,26 @@
 //! 規約は issue #96 §2。
 pub mod alpha_runs;
 pub mod auto_paint;
+/// 自動塗り（見本から前後のセルへ塗り進める）。
+pub mod auto_plan;
+pub mod brush;
 pub mod color_stats;
 pub mod colors;
+/// キャンバスのレイヤー合成（オニオン・表示プレビュー・縮小表示を含む）。
+pub mod compose;
 pub mod display;
 pub mod document;
 pub mod error;
+/// 書き出し（カットフォルダー・タイムシート・連番・影素材・サムネイル）。
+pub mod export;
 pub mod fill;
 pub mod flow_color;
 /// ストレート RGBA8888 の画像と矩形操作。
 pub mod image;
+/// 線・色のメニューの操作を 1 枚の層の画素にかける。
+pub mod image_ops;
+/// 読み込み（画像の置き方・カットフォルダー・CLIP の合成）。
+pub mod import;
 pub mod line_flow;
 pub mod line_noise;
 pub mod local_shift;
@@ -19,10 +30,20 @@ pub mod mask_transform;
 pub mod palette;
 pub mod palette_labels;
 pub mod project;
+/// Qt 版で保存したワークスペースのパネル配置（dock_state）を読む。
+pub mod qt_dock_state;
 pub mod reference_check;
+/// 見本との違い・塗り間違いのチェック。
+pub mod reference_scan;
 pub mod regions;
+/// 画素の選択範囲と、その中の編集。
+pub mod selection;
 pub mod thin;
 pub mod tiled_color;
 pub mod tone_curve;
+/// 画面のツール操作（バケツ・串刺し塗り）。
+pub mod tools;
+/// 使用色パネルの状態（親子・選択・表示・鍵・フォルダー・置換色）とカラーチャート。
+pub mod used_colors;
 
 pub use error::Error;

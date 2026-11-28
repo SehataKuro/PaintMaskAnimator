@@ -1,6 +1,6 @@
 [package]
 name = "pma-app"
-version = "0.9.0-dev"
+version = "0.9.0"
 edition = "2021"
 license = "Apache-2.0"
 publish = false
@@ -15,7 +15,25 @@ tauri-build = { version = "2.5", features = [] }
 [dependencies]
 tauri = { version = "2.12", features = [] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+# 設定の鍵の順（ワークスペースの並びなど）を保つ。
+serde_json = { version = "1", features = ["preserve_order"] }
+# ファイルを開く・保存する窓（Apache-2.0 OR MIT。中で使う rfd は MIT）。
+tauri-plugin-dialog = "2.8"
+# 計算とデータ（Python・Qt に依存しない中身）。
+pma-core = { path = "../native/core" }
+# 使用色パネル（colors.rs）：PMAG・置換色のファイルを選ぶ窓。
+rfd = "0.17"
+# 書き出しのファイル操作（連番・カットフォルダー・影素材・PSD、export.rs）。
+# カットフォルダーの一覧（線画の初期状態の読み込み）。
+pma-io = { path = "../native/io" }
+# CLIP STUDIO アニメーションの読み込み（imports_clip.rs）。
+pma-clip-import = { path = "../native/clip-import" }
+# 【読み込み・編集：Group B】切り取り・コピー・貼り付けの画像（OS のクリップボード、
+# tools.rs の edit_clipboard）。1Password が保守している MIT/Apache-2.0 の crate。
+arboard = { version = "3.7", default-features = false, features = ["image-data"] }
+# 【Group C】更新のダウンロード（updater.rs）。GitHub の公開リリースだけを HTTPS で読む。
+# TLS は純 Rust の rustls（証明書は webpki-roots）。MIT OR Apache-2.0。
+ureq = { version = "3", default-features = false, features = ["rustls"] }
 
 # 筆圧：WKWebView はペンの筆圧を JavaScript に渡さないので、NSEvent を直接読む。
 [target.'cfg(target_os = "macos")'.dependencies]

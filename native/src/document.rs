@@ -69,6 +69,23 @@ fn artwork_slot(bank: bool, first: u64, second: i64) -> PyResult<ArtworkSlot> {
     })
 }
 
+impl PyCoreDocument {
+    /// コアの文書を窓口にする（.pman を開く入口で使う）。
+    pub(crate) fn wrap(document: Document) -> Self {
+        Self(document)
+    }
+
+    /// 窓口のコアの文書を書き換える（CLIP の線画・time_remap.rs の比較テストで使う）。
+    pub(crate) fn inner_mut(&mut self) -> &mut Document {
+        &mut self.0
+    }
+
+    /// 窓口のコアの文書。
+    pub(crate) fn inner(&self) -> &Document {
+        &self.0
+    }
+}
+
 #[pymethods]
 impl PyCoreDocument {
     /// v2 の JSON と復号済み画像から文書を作る。画素バッファは共有する。
@@ -88,6 +105,14 @@ impl PyCoreDocument {
                 .map(Self)
                 .map_err(value_error)
         })
+    }
+
+    /// Python の `Document()` と同じ新しい文書（コマ 1・レイヤー「A」1・空の絵）を作る。
+    #[staticmethod]
+    fn new_blank(width: usize, height: usize) -> PyResult<Self> {
+        Document::new_blank(width, height)
+            .map(Self)
+            .map_err(value_error)
     }
 
     /// Python の文書グラフ（document_core.graph_payload の JSON）と画像の列から文書を作る。
@@ -241,6 +266,56 @@ impl PyCoreDocument {
         self.0
             .stage_numbered_drawing(frame, layer, image.share(), content, number)
             .map(|(changes, delta)| (comparison::command_notices(changes), delta))
+            .map_err(value_error)
+    }
+
+    /// 読み込んだ絵の列を末尾に足す（比較テスト用、`import_image_tracks`）。
+    /// `tracks` は (名前, 下書き, 表示, 不透明度, 絵の列)。
+    #[allow(clippy::type_complexity)]
+    fn import_image_tracks(
+        &mut self,
+        start_frame: usize,
+        tracks: Vec<(String, bool, bool, f64, Vec<PyRef<'_, PyRgbaImage>>)>,
+    ) -> PyResult<String> {
+        let tracks = tracks
+            .into_iter()
+            .map(|(name, draft, visible, opacity, images)| {
+                let mut track =
+                    pma_core::document::import_commands::ImportedTrack::new(name, shared(&images));
+                track.draft = draft;
+                track.visible = visible;
+                track.opacity = opacity;
+                track
+            })
+            .collect();
+        self.0
+            .import_image_tracks(start_frame, tracks)
+            .map(comparison::command_notices)
+            .map_err(value_error)
+    }
+
+    /// MainLineRepaint（比較テスト用）。選んだ色が無ければ None。
+    fn main_line_repaint(
+        &mut self,
+        layer: usize,
+        selected: Vec<(u8, u8, u8)>,
+    ) -> PyResult<Option<String>> {
+        let selected: Vec<[u8; 3]> = selected.into_iter().map(|(r, g, b)| [r, g, b]).collect();
+        self.0
+            .main_line_repaint(layer, &selected)
+            .map(|done| done.map(|done| comparison::command_notices(done.changes)))
+            .map_err(value_error)
+    }
+
+    /// レイアウト用紙を一番下の下書きレイヤーとして入れる（比較テスト用）。
+    fn insert_layout_paper(
+        &mut self,
+        name: &str,
+        image: PyRef<'_, PyRgbaImage>,
+    ) -> PyResult<String> {
+        self.0
+            .insert_layout_paper(name, image.share())
+            .map(comparison::command_notices)
             .map_err(value_error)
     }
 
@@ -886,5 +961,17 @@ impl PyCellImage {
             .ok_or_else(|| value_error("文書にない絵の画像"))?
             .write_rgba(rect, pixels.as_bytes())
             .map_err(value_error)
+    }
+}
+
+impl PyCoreDocument {
+    /// 合成などの読み取り専用の計算に渡す文書。
+    pub(crate) fn document(&self) -> &Document {
+        &self.0
+    }
+
+    /// ツール操作（バケツなど）が画素を書く文書。
+    pub(crate) fn document_mut(&mut self) -> &mut Document {
+        &mut self.0
     }
 }

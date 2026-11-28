@@ -35,6 +35,11 @@ dev = [
     "ruff>=0.6",
     "pyright>=1.1.390",
     "Pillow>=9.4",
+    # 0.9.0 の比べ合わせのテスト（tests/test_core_psd_compare.py など）は、配布した 0.8.0 が
+    # 組み込んだ psd-tools と同じ振る舞いを基準にする。psd-tools は版ごとに合成や書き出しの
+    # バイト列が変わるので、0.8.0 の版に固定する。1.26.1 は Python 3.11 から（3.10 では
+    # その比べ合わせを飛ばす）。
+    "psd-tools==1.26.1; python_version >= '3.11'",
 ]
 
 [project.gui-scripts]

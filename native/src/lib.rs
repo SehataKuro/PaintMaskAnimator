@@ -11,28 +11,43 @@ use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 
 mod auto_paint;
+mod auto_plan;
+mod brush;
+mod bucket_tools;
 mod clip;
 mod color_stats;
 mod colors;
+mod compose;
 mod display;
 mod document;
 mod document_compare;
+mod export;
 mod fill_decisions;
 mod fill_session;
 mod fill_tracking;
 mod flow_color;
 mod history;
 mod image;
+mod image_ops;
 mod map_colors;
 mod mask_transform;
+mod onion;
 mod palette;
 mod palette_labels;
+mod project_archive;
 mod project_payload;
 mod project_zip;
+// PSD の読み込み（Tauri 移行の読み込み担当が追加）。
+mod psd_import;
 mod reference_check;
+mod reference_scan;
+mod selection;
 mod tiled_color;
+mod time_remap;
 mod timeline;
 mod tone_curve;
+mod transform;
+mod used_colors;
 
 fn check_size(data: &[u8], width: usize, height: usize) -> PyResult<()> {
     if width.checked_mul(height) != Some(data.len()) {
@@ -184,12 +199,39 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(py_decode_png, module)?)?;
     module.add_function(wrap_pyfunction!(py_encode_png, module)?)?;
     module.add_class::<clip::ClipAnimationReader>()?;
+    module.add_function(wrap_pyfunction!(clip::clip_render_cel, module)?)?;
+    module.add_function(wrap_pyfunction!(clip::clip_read_animation, module)?)?;
+    module.add_function(wrap_pyfunction!(clip::clip_animation_document, module)?)?;
+    module.add_function(wrap_pyfunction!(clip::clip_line_art, module)?)?;
+    module.add_function(wrap_pyfunction!(clip::cut_folder_document, module)?)?;
     module.add_class::<image::PyRgbaImage>()?;
+    module.add_class::<brush::PyBrushStroke>()?;
+    module.add_function(wrap_pyfunction!(brush::brush_segment_mask, module)?)?;
+    module.add_function(wrap_pyfunction!(brush::brush_stamp_mask, module)?)?;
+    module.add_function(wrap_pyfunction!(brush::fill_polygon_mask, module)?)?;
+    module.add_function(wrap_pyfunction!(brush::fill_path_mask, module)?)?;
+    module.add_function(wrap_pyfunction!(brush::stroke_path_mask, module)?)?;
+    module.add_function(wrap_pyfunction!(brush::ellipse_path, module)?)?;
+    module.add_function(wrap_pyfunction!(brush::stroke_outline_path, module)?)?;
+    module.add_function(wrap_pyfunction!(brush::line_tool_mask, module)?)?;
+    module.add_function(wrap_pyfunction!(brush::line_tool_commit, module)?)?;
+    module.add_function(wrap_pyfunction!(brush::shape_tool_preview, module)?)?;
+    module.add_function(wrap_pyfunction!(brush::shape_tool_commit, module)?)?;
+    module.add_function(wrap_pyfunction!(brush::pressure_bezier_at, module)?)?;
+    module.add_function(wrap_pyfunction!(brush::pressure_bezier_segments, module)?)?;
+    module.add_function(wrap_pyfunction!(brush::stabilizer_segments, module)?)?;
     module.add_class::<document::PyCoreDocument>()?;
     module.add_class::<document::PyCellImage>()?;
     module.add_class::<project_zip::ZipReader>()?;
     module.add_class::<project_zip::ZipWriter>()?;
+    selection::register(module)?;
+    used_colors::register(module)?;
+    transform::register(module)?;
+    time_remap::register(module)?;
+    onion::register(module)?;
     module.add_function(wrap_pyfunction!(project_payload::decode_v2_plan, module)?)?;
+    module.add_function(wrap_pyfunction!(project_archive::_open_project, module)?)?;
+    module.add_function(wrap_pyfunction!(project_archive::_save_project, module)?)?;
     module.add_function(wrap_pyfunction!(
         document_compare::_compare_document_v2,
         module
@@ -246,6 +288,35 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
         palette_labels::py_surface_guided_palette_labels,
         module
     )?)?;
+    module.add_function(wrap_pyfunction!(compose::compose_frame, module)?)?;
+    module.add_function(wrap_pyfunction!(compose::compose_layer, module)?)?;
+    module.add_function(wrap_pyfunction!(compose::compose_view_layers, module)?)?;
+    module.add_function(wrap_pyfunction!(compose::compose_view, module)?)?;
+    module.add_function(wrap_pyfunction!(compose::compose_view_background, module)?)?;
+    module.add_function(wrap_pyfunction!(compose::compose_display, module)?)?;
+    module.add_function(wrap_pyfunction!(compose::compose_onion_draws, module)?)?;
+    module.add_function(wrap_pyfunction!(compose::compose_tinted_onion, module)?)?;
+    module.add_function(wrap_pyfunction!(
+        compose::compose_scale_for_display,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(bucket_tools::bucket_fill_at, module)?)?;
+    module.add_function(wrap_pyfunction!(
+        reference_scan::reference_check_layer,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(auto_plan::auto_paint_layer, module)?)?;
+    module.add_function(wrap_pyfunction!(
+        bucket_tools::bucket_reference_pixels,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(
+        bucket_tools::bucket_replace_color_request,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(bucket_tools::skewer_cells, module)?)?;
+    module.add_class::<bucket_tools::PyBucketDrag>()?;
+    module.add_class::<bucket_tools::PySkewerFill>()?;
     module.add_function(wrap_pyfunction!(map_colors::py_map_known_colors, module)?)?;
     module.add_function(wrap_pyfunction!(map_colors::py_region_neighbors, module)?)?;
     module.add_function(wrap_pyfunction!(
@@ -347,6 +418,33 @@ fn pma_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(fill_decisions::skewer_seed, module)?)?;
     module.add_function(wrap_pyfunction!(fill_session::track_fill_region, module)?)?;
     module.add_function(wrap_pyfunction!(py_extend_line_ends, module)?)?;
+    image_ops::register(module)?;
+    module.add_function(wrap_pyfunction!(psd_import::import_read_psd, module)?)?;
+    module.add_function(wrap_pyfunction!(psd_import::import_composite_psd, module)?)?;
+    module.add_function(wrap_pyfunction!(psd_import::import_subview_jpeg, module)?)?;
+    module.add_function(wrap_pyfunction!(export::export_cut_folder_cels, module)?)?;
+    module.add_function(wrap_pyfunction!(export::export_plan_cut_folder, module)?)?;
+    module.add_function(wrap_pyfunction!(export::export_write_cut_folder, module)?)?;
+    module.add_function(wrap_pyfunction!(export::export_sheet_text, module)?)?;
+    module.add_function(wrap_pyfunction!(export::export_sheet_duration, module)?)?;
+    module.add_function(wrap_pyfunction!(export::export_write_key_sequence, module)?)?;
+    module.add_function(wrap_pyfunction!(
+        export::export_write_shadow_sequence,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(export::export_thumbnail_png, module)?)?;
+    module.add_function(wrap_pyfunction!(export::export_thumbnail_scale, module)?)?;
+    module.add_function(wrap_pyfunction!(export::export_frame_image, module)?)?;
+    module.add_function(wrap_pyfunction!(export::export_after_effects_text, module)?)?;
+    module.add_function(wrap_pyfunction!(export::export_guess_cut_number, module)?)?;
+    module.add_function(wrap_pyfunction!(export::export_psd_bytes, module)?)?;
+    module.add_function(wrap_pyfunction!(export::export_movie_frames, module)?)?;
+    module.add_function(wrap_pyfunction!(export::export_movie_frame, module)?)?;
+    module.add_function(wrap_pyfunction!(export::export_encode_tga, module)?)?;
+    module.add_function(wrap_pyfunction!(export::import_read_image, module)?)?;
+    module.add_function(wrap_pyfunction!(export::import_image_file, module)?)?;
+    module.add_function(wrap_pyfunction!(export::import_parse_timesheet, module)?)?;
+    module.add_function(wrap_pyfunction!(export::import_scan_cut_folder, module)?)?;
     module.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
 }

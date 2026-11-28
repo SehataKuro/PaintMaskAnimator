@@ -230,6 +230,8 @@ pub fn apply_operations(document: &mut Document, operations: &Value) -> Result<S
             [name, layer, n] if name == "delete_sequence_entry" => {
                 edited.delete_sequence_entry(index(layer)?, number(n)?)
             }
+            // 【Group C】レイヤーの「結合」（main_window_layer_ops.merge_rows）。
+            [name, layers] if name == "merge_layers" => edited.merge_layers(&indices(layers)?),
             [name, layers] if name == "normalize_sheet_numbers" => {
                 edited.normalize_sheet_numbers(&indices(layers)?)
             }

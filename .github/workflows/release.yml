@@ -8,6 +8,11 @@ on:
       version:
         description: "Version (e.g. 0.5.1)"
         required: true
+      app:
+        description: "Which app to build (auto: Qt below 0.9.0, Tauri from 0.9.0)"
+        type: choice
+        options: [auto, qt, tauri]
+        default: auto
 
 permissions:
   contents: write
@@ -16,8 +21,45 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+# Two apps share this workflow until the switch. A tag below v0.9.0 builds the
+# Qt app (PyInstaller, the jobs without a prefix); v0.9.0 and later build the
+# Tauri app (app/, the tauri-* jobs). Both produce the same asset names
+# (PaintMaskAnimator-Setup-<v>.exe, PaintMaskAnimator-<v>-macOS.dmg), which is
+# what the in-app updaters of both apps pick from the latest release.
 jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      app: ${{ steps.plan.outputs.app }}
+    steps:
+      - name: Decide version and app
+        id: plan
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          INPUT_APP: ${{ github.event.inputs.app }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            version="${INPUT_VERSION#v}"
+          else
+            version="${GITHUB_REF_NAME#v}"
+          fi
+          app="${INPUT_APP:-auto}"
+          if [ "$app" = "auto" ]; then
+            if [ "$(printf '%s\n' 0.9.0 "$version" | sort -V | head -n 1)" = "0.9.0" ]; then
+              app=tauri
+            else
+              app=qt
+            fi
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "app=$app" >> "$GITHUB_OUTPUT"
+          echo "Building the $app app, version $version"
+
   build-windows:
+    needs: plan
+    if: needs.plan.outputs.app == 'qt'
     runs-on: windows-latest
     env:
       QT_QPA_PLATFORM: offscreen
@@ -73,6 +115,8 @@ jobs:
           retention-days: 1
 
   build-macos:
+    needs: plan
+    if: needs.plan.outputs.app == 'qt'
     runs-on: macos-latest
     env:
       QT_QPA_PLATFORM: offscreen
@@ -123,9 +167,132 @@ jobs:
           path: PaintMaskAnimator-${{ steps.ver.outputs.version }}-macOS.dmg
           retention-days: 1
 
+  # ---- Tauri app (0.9.0 and later) ----------------------------------------
+  # Windows: tauri build makes PaintMaskAnimator.exe; the installer is still
+  # Inno Setup (packaging/installer.iss with /DTauriApp) so the AppId, install
+  # folder and .pman registration match 0.8.0 and it updates it in place.
+  # Unsigned, like 0.8.0.
+  tauri-windows:
+    needs: plan
+    if: needs.plan.outputs.app == 'tauri'
+    runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+      # Keep in step with packaging/macos/build_tauri_app.sh.
+      TAURI_CLI_VERSION: "2.12.6"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Validate release version
+        run: python scripts/check_version.py "$env:VERSION" --app
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app
+          shared-key: app-windows-latest
+
+      - name: Run tests
+        working-directory: app
+        run: cargo test --locked
+
+      # app/THIRD_PARTY_LICENSES.md goes into the installer; it must match Cargo.lock.
+      - name: Check third-party licence notice
+        run: python scripts/generate_third_party_licenses.py --check
+
+      - name: Build app (tauri build)
+        working-directory: app
+        shell: bash
+        run: npx --yes "@tauri-apps/cli@$TAURI_CLI_VERSION" build --no-bundle -- --locked
+
+      # Explorer's .pman thumbnails, the same DLL 0.8.0 installs.
+      - name: Build thumbnail handler (Rust)
+        run: cargo build --release --manifest-path packaging/windows/pman_thumbnail/Cargo.toml
+
+      - name: Stage files for the installer
+        shell: bash
+        run: |
+          mkdir -p dist/PaintMaskAnimator
+          cp app/target/release/PaintMaskAnimator.exe dist/PaintMaskAnimator/
+          cp LICENSE NOTICE dist/PaintMaskAnimator/
+
+      # Microsoft's evergreen bootstrapper; the installer runs it only where
+      # the WebView2 runtime is missing. Refuse anything not signed by Microsoft.
+      - name: Download WebView2 bootstrapper
+        shell: pwsh
+        run: |
+          $out = "dist\MicrosoftEdgeWebview2Setup.exe"
+          Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutFile $out
+          $sig = Get-AuthenticodeSignature $out
+          if ($sig.Status -ne "Valid" -or $sig.SignerCertificate.Subject -notmatch "O=Microsoft Corporation") {
+            throw "WebView2 bootstrapper signature: $($sig.Status) $($sig.SignerCertificate.Subject)"
+          }
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y
+
+      - name: Build installer (Inno Setup)
+        shell: cmd
+        run: |
+          iscc /DAppVersion=%VERSION% /DTauriApp packaging\installer.iss
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PaintMaskAnimator-Setup-${{ env.VERSION }}
+          path: dist_installer/*.exe
+          retention-days: 1
+
+  # macOS: Apple Silicon .app (tauri build) with the Quick Look thumbnail
+  # extension, ad hoc signed and not notarized (like 0.8.0), in the same
+  # dmgbuild window. packaging/macos/build_tauri_app.sh does all of it.
+  tauri-macos:
+    needs: plan
+    if: needs.plan.outputs.app == 'tauri'
+    runs-on: macos-latest
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Validate release version
+        run: python scripts/check_version.py "$VERSION" --app
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app
+          shared-key: app-macos-latest
+
+      - name: Run tests
+        working-directory: app
+        run: cargo test --locked
+
+      - name: Build app and DMG
+        run: |
+          pip install dmgbuild
+          packaging/macos/build_tauri_app.sh
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PaintMaskAnimator-${{ env.VERSION }}-macOS
+          path: PaintMaskAnimator-${{ env.VERSION }}-macOS.dmg
+          retention-days: 1
+
   publish-release:
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: [build-windows, build-macos]
+    # Exactly one of the two pairs ran; plan skipped the other.
+    if: >-
+      always() && startsWith(github.ref, 'refs/tags/') &&
+      ((needs.build-windows.result == 'success' && needs.build-macos.result == 'success') ||
+       (needs.tauri-windows.result == 'success' && needs.tauri-macos.result == 'success'))
+    needs: [build-windows, build-macos, tauri-windows, tauri-macos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "core"]
+members = [".", "core", "io", "clip-import"]
 resolver = "2"
 
 [package]
@@ -16,11 +16,15 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 pma-core = { path = "core" }
+# 書き出し・読み込みのファイル操作（Tauri の画面と同じ実装を Python からも呼ぶ）。
+pma-io = { path = "io" }
 pyo3 = { version = "0.30.1", features = ["abi3-py39"] }
 # Local 1.2.0 compatibility patch for metadata-only cel mixers; see
 # vendor/clipfile/PMA-PATCHES.md. Keep Cargo.lock for reproducible builds.
 clipfile = { version = "1.2", path = "vendor/clipfile", features = ["raster", "animation"] }
 rusqlite = { version = "0.39.0", default-features = false }
+# Tauri の画面と同じ CLIP の読み込み（pma-core の合成）を比較テストから呼ぶ。
+pma-clip-import = { path = "clip-import" }
 
 [profile.release]
 lto = "thin"

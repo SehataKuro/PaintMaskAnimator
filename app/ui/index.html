@@ -4,17 +4,13 @@
   <meta charset="utf-8">
   <title>PaintMaskAnimator</title>
   <link rel="stylesheet" href="style.css">
+  <!-- 【アプリの外枠】テーマと外枠の窓（theme.css）。 -->
+  <link rel="stylesheet" href="theme.css">
 </head>
 <body>
-  <header>
-    <span class="title">PaintMaskAnimator</span>
-    <span class="note">0.9.0 の画面の骨組み（筆圧の確認用）</span>
-    <button id="clear" type="button">消す</button>
-  </header>
-  <main>
-    <canvas id="canvas"></canvas>
-  </main>
+  <div id="dock" class="dockview-theme-dark"></div>
   <footer id="status">入力：まだ無し</footer>
-  <script src="app.js"></script>
+  <script src="vendor/dockview-core.min.js"></script>
+  <script type="module" src="app.js"></script>
 </body>
 </html>

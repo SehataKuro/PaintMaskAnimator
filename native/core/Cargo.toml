@@ -16,3 +16,7 @@ zip = { version = "9.6.1", default-features = false, features = ["deflate-flate2
 serde_json = { version = "1", features = ["float_roundtrip"] }
 # 追跡の相関（段階4-4b）。実数 FFT。純 Rust（rustfft）で C ライブラリは入らない。
 realfft = "3.5.1"
+# PSD の ZIP 圧縮チャンネル。zip と同じ純 Rust の miniz_oxide を使う。
+flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
+# 画像の読み込み（JPEG）。純 Rust（SIMD は CPU の機能を実行時に選ぶ）で C ライブラリは入らない。
+zune-jpeg = { version = "0.5.15", default-features = false, features = ["std"] }

@@ -202,3 +202,282 @@ impl ClipAnimationReader {
         ))
     }
 }
+
+// ---------------------------------------------------------------------------
+// pma-core の CLIP の読み込み（Tauri の画面と同じ実装、比較テスト用）
+// ---------------------------------------------------------------------------
+
+use crate::document::PyCoreDocument;
+use crate::image::PyRgbaImage;
+use pma_core::import::clip::{self as core_clip, ClipLayerRow, ClipRaster, RasterSource};
+use std::collections::HashMap;
+
+/// 行の列名（pma-core の行は &'static str で持つ）。
+const ROW_COLUMNS: &[&str] = &[
+    "LayerOpacity",
+    "LayerComposite",
+    "LayerClip",
+    "LayerFolder",
+    "LayerVisibility",
+    "LayerFirstChildIndex",
+    "LayerNextIndex",
+    "LayerRenderMipmap",
+    "LayerLayerMaskMipmap",
+    "AnimationFolder",
+    "LayerOffsetX",
+    "LayerOffsetY",
+    "LayerRenderOffscrOffsetX",
+    "LayerRenderOffscrOffsetY",
+    "LayerMaskOffsetX",
+    "LayerMaskOffsetY",
+    "LayerMaskOffscrOffsetX",
+    "LayerMaskOffscrOffsetY",
+    "DrawColorEnable",
+    "DrawColorMainRed",
+    "DrawColorMainGreen",
+    "DrawColorMainBlue",
+    "DrawColorSubRed",
+    "DrawColorSubGreen",
+    "DrawColorSubBlue",
+    "LayerUsePaletteColor",
+    "LayerPaletteRed",
+    "LayerPaletteGreen",
+    "LayerPaletteBlue",
+];
+
+/// 渡されたラスター（ミップマップの番号 → `reader.raster` の値）。
+struct GivenRasters(HashMap<i64, ClipRaster>);
+
+impl RasterSource for GivenRasters {
+    fn raster(&mut self, mipmap: i64) -> Result<ClipRaster, core_clip::ClipError> {
+        self.0
+            .get(&mipmap)
+            .cloned()
+            .ok_or_else(|| core_clip::ClipError(format!("missing raster mipmap {mipmap}")))
+    }
+}
+
+type PyRow = (i64, String, Vec<i64>, Vec<(String, i64)>);
+type PyRaster = (u32, u32, u8, bool, bool, Vec<u8>);
+
+/// pma-core でセル1枚を合成する（`_CelRenderer.render`）。`layers` は
+/// (MainId, LayerName, children, [(列名, 値)])、`rasters` は番号 → `reader.raster` の値。
+#[pyfunction]
+pub fn clip_render_cel(
+    width: usize,
+    height: usize,
+    layers: Vec<PyRow>,
+    rasters: HashMap<i64, PyRaster>,
+    cel: i64,
+) -> PyResult<PyRgbaImage> {
+    let rows: HashMap<i64, ClipLayerRow> = layers
+        .into_iter()
+        .map(|(id, name, children, values)| {
+            let values = values
+                .into_iter()
+                .filter_map(|(key, value)| {
+                    ROW_COLUMNS.iter().find(|c| **c == key).map(|c| (*c, value))
+                })
+                .collect();
+            (
+                id,
+                ClipLayerRow {
+                    id,
+                    name,
+                    children,
+                    values,
+                },
+            )
+        })
+        .collect();
+    let mut source = GivenRasters(
+        rasters
+            .into_iter()
+            .map(
+                |(id, (w, h, channels, alpha_only, default_white, pixels))| {
+                    (
+                        id,
+                        ClipRaster {
+                            width: w,
+                            height: h,
+                            channels,
+                            alpha_only,
+                            default_white,
+                            pixels,
+                        },
+                    )
+                },
+            )
+            .collect(),
+    );
+    let row = rows.get(&cel).ok_or_else(|| error("missing cel"))?.clone();
+    let image = core_clip_render(&mut source, &rows, width, height, &row).map_err(error)?;
+    Ok(PyRgbaImage::from(image))
+}
+
+fn core_clip_render(
+    source: &mut dyn RasterSource,
+    rows: &HashMap<i64, ClipLayerRow>,
+    width: usize,
+    height: usize,
+    cel: &ClipLayerRow,
+) -> Result<pma_core::image::RgbaImage, String> {
+    let image = pma_core::import::clip_render::CelRenderer::new(source, rows, width, height)
+        .render(cel)
+        .map_err(|e| e.0)?;
+    pma_core::import::image::to_document_image(&image).map_err(|e| e.to_string())
+}
+
+type PyAnimationLayer = (String, Vec<(i64, String)>, Vec<(String, PyRgbaImage)>);
+
+/// pma-core で .clip を読む（`read_clip_animation`）。
+/// (ファイル名, タイムライン名, 幅, 高さ, fps, 始め, 終わり, [(名前, キー, [(セル名, 絵)])])。
+#[pyfunction]
+#[allow(clippy::type_complexity)]
+pub fn clip_read_animation(
+    py: Python<'_>,
+    path: PathBuf,
+) -> PyResult<(
+    String,
+    String,
+    usize,
+    usize,
+    f64,
+    i64,
+    i64,
+    Vec<PyAnimationLayer>,
+)> {
+    let read = py
+        .detach(|| pma_clip_import::read_clip_animation(&path, &mut |_, _, _| true))
+        .map_err(error)?
+        .ok_or_else(|| error("cancelled"))?;
+    let layers = read
+        .layers
+        .into_iter()
+        .map(|layer| {
+            (
+                layer.name,
+                layer.keys.into_iter().map(|k| (k.frame, k.tag)).collect(),
+                layer
+                    .cels
+                    .into_iter()
+                    .map(|(tag, image)| (tag, PyRgbaImage::from(image)))
+                    .collect(),
+            )
+        })
+        .collect();
+    Ok((
+        read.source_name,
+        read.timeline_name,
+        read.width,
+        read.height,
+        read.fps,
+        read.start_frame,
+        read.end_frame,
+        layers,
+    ))
+}
+
+/// pma-core で .clip の線画を文書の初期状態に合わせる（`import_clip_line_art`）。
+/// (差し替えた絵の数, 対応する線画のなかった絵の数)。
+#[pyfunction]
+pub fn clip_line_art(
+    py: Python<'_>,
+    mut document: PyRefMut<'_, PyCoreDocument>,
+    path: PathBuf,
+) -> PyResult<(usize, usize)> {
+    let read = py
+        .detach(|| pma_clip_import::read_clip_animation(&path, &mut |_, _, _| true))
+        .map_err(error)?
+        .ok_or_else(|| error("cancelled"))?;
+    let doc = document.inner_mut();
+    let art = doc.match_clip_line_art(&read).map_err(error)?;
+    let missing = art.missing;
+    let count = doc.set_line_art_initial_images(art.images).map_err(error)?;
+    Ok((count, missing))
+}
+
+/// pma-core で .clip から新しい文書を作る（`_replace_document` まで）。`keep` なら
+/// 置いた絵を色塗り前の初期状態にする（`initial_state.keep`）。
+/// `replaced` は置き換える前の文書の大きさ。(文書, 絵のあるキーの数, 連番に残したセルの数)。
+#[pyfunction]
+pub fn clip_animation_document(
+    py: Python<'_>,
+    path: PathBuf,
+    keep: bool,
+    replaced: (usize, usize),
+) -> PyResult<(PyCoreDocument, usize, usize)> {
+    py.detach(|| {
+        let read = pma_clip_import::read_clip_animation(&path, &mut |_, _, _| true)?
+            .ok_or_else(|| core_clip::ClipError("cancelled".into()))?;
+        core_clip::check_frames(
+            read.width,
+            read.height,
+            read.start_frame,
+            read.end_frame,
+            &read.layers,
+        )?;
+        let mut built = pma_core::document::model::Document::from_animation(
+            read.width,
+            read.height,
+            read.start_frame,
+            read.end_frame,
+            &read.layers,
+            replaced,
+        )
+        .map_err(|e| core_clip::ClipError(e.to_string()))?;
+        if keep {
+            built.document.keep_initial_images(None);
+        }
+        Ok::<_, core_clip::ClipError>(built)
+    })
+    .map(|built| {
+        (
+            PyCoreDocument::wrap(built.document),
+            built.content_keys,
+            built.archived,
+        )
+    })
+    .map_err(error)
+}
+
+/// pma-core でカットフォルダー（セル画像＋XDTS／TDTS）から新しい文書を作る
+/// （Qt の `ImportController.cut_folder` の `_replace_document` まで）。
+/// (文書, 連番に残したセルの数, 知らせ)。
+#[pyfunction]
+pub fn cut_folder_document(
+    py: Python<'_>,
+    path: PathBuf,
+    fps: f64,
+    replaced: (usize, usize),
+) -> PyResult<(PyCoreDocument, usize, Vec<String>)> {
+    py.detach(|| {
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let contents = pma_io::scan_cut_folder(&path).map_err(|e| e.to_string())?;
+        let read = pma_core::import::cut_folder::read_cut_folder(
+            &name,
+            &contents,
+            &mut |relative| std::fs::read_to_string(path.join(relative)).map_err(|e| e.to_string()),
+            &mut |relative| {
+                pma_io::read_image_file(&path.join(relative)).map_err(|e| e.to_string())
+            },
+            fps,
+        )?;
+        let a = &read.animation;
+        let built = pma_core::document::model::Document::from_animation(
+            a.width,
+            a.height,
+            a.start_frame,
+            a.end_frame,
+            &a.layers,
+            replaced,
+        )
+        .map_err(|e| e.to_string())?;
+        Ok::<_, String>((built, read.notes))
+    })
+    .map(|(built, notes)| (PyCoreDocument::wrap(built.document), built.archived, notes))
+    .map_err(error)
+}

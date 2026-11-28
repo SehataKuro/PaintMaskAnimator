@@ -72,3 +72,13 @@ def test_pyproject_only_the_project_version_changes():
 def test_badge():
     readme = "[![Release](https://img.shields.io/badge/release-v0.6.4-blue)](x)"
     assert "release-v0.6.5-blue" in bv.bump_badge(readme, "0.6.5")
+
+
+def test_app_cargo_version_is_bumped():
+    cargo = '[package]\nname = "pma-app"\nversion = "0.9.0"\n\n[dependencies]\nx = { version = "1" }\n'
+    bumped = bv.bump_app_cargo(cargo, "0.9.1")
+    assert 'version = "0.9.1"' in bumped
+    assert 'x = { version = "1" }' in bumped
+    lock = 'name = "other"\nversion = "1.0.0"\n\n[[package]]\nname = "pma-app"\nversion = "0.9.0"\n'
+    assert bv.bump_app_lock(lock, "0.9.1").endswith('name = "pma-app"\nversion = "0.9.1"\n')
+    assert 'name = "other"\nversion = "1.0.0"' in bv.bump_app_lock(lock, "0.9.1")

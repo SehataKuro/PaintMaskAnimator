@@ -13,6 +13,13 @@
   - macOS：WKWebView は筆圧を JavaScript に渡さないので、NSEvent のローカルモニターで読み、
     `pen` の事件として送る。画面は macOS ではこの列だけで線を描く。
   - Windows：WebView2 の PointerEvent の筆圧をそのまま使う。
+- 色のパネル：カラーサークル・カラースライダー・使用色・カラーチャートの窓
+  （[`src/colors.rs`](src/colors.rs)、`ui/color_*.js`・`ui/used_colors.js`）
+  - 状態（描画色・使用色の並び・親子・フォルダー・表示・鍵・選択・置換色・チャート）は Rust の
+    `Session` にあり、計算は pma-core の `used_colors`。画面は `palette-changed`・`current-color`・
+    `chart-changed`・`display-changed` の事件で表示を合わせる。
+  - 使用色の選択と鍵で、ブラシの描ける範囲を絞る（#104）。
+  - スポイトは、WKWebView に EyeDropper が無いので、画面ではなくキャンバスの色を拾う。
 
 ## 動かし方
 
@@ -25,6 +32,67 @@ cd app && cargo run --release
 
 ```bash
 cd app && PMA_PEN_SELFTEST=1 cargo run --release
+```
+
+開いている作品（文書と履歴）は Rust の `Session`（[`src/session.rs`](src/session.rs)）に一つだけあり、
+キャンバスもタイムラインもそれを読み書きします。文書が変わると Rust が `document-changed` の事件を
+送り、キャンバスとタイムラインはそれを受けて表示を合わせます。取り消しはアプリ全体で一つです。
+
+確かめ用の見本の文書（.pman を渡さないとき）と、再生の速さの自己確認。再生して、キャンバスが
+何 fps で今のコマを表示できたかを報告して終わります。
+
+```bash
+cd app && PMA_TIMELINE_SAMPLE=48 PMA_TIMELINE_SAMPLE_SIZE=1920x1080 \
+  PMA_PLAYBACK_SELFTEST=96 cargo run --release
+```
+
+## アプリの外枠（メニュー・環境設定など）
+
+Qt 版の MainWindow のうちパネルの外の部分は、Rust の [`src/shell.rs`](src/shell.rs)（と menu.rs・
+prefs.rs・shortcuts.rs・autosave.rs・papers.rs・i18n.rs）と、画面の `ui/shell.js`（と
+dialogs.js・preferences.js・shortcuts.js・history_panel.js・i18n.js・theme.css）にあります。
+
+- メニューは OS のメニュー（tauri::menu）。項目は Qt と同じ並び・言葉・キー。選ぶと
+  `menu-action` の事件で画面へ送り、画面が処理する。まだ移していない操作は `pma-action` の
+  事件を窓へ出し、どのパネルも受けなければ「まだ移していません」と知らせる。
+- 設定はアプリの設定のフォルダーの `config.json`。初めての起動で Qt 版の設定を写す
+  （ワークスペースは Qt の配置の形のまま写し、選ぶと今の画面の並びへ読み替える）。確かめるときは `PMA_CONFIG_DIR` で別の
+  フォルダーにできる。
+- 英語の表 `i18n/en.json` は `paintmaskanimator_en.ts` から作る
+  （`PMA_UPDATE_I18N=1 cargo test i18n_catalogue`）。
+
+## 配布物を作る
+
+0.8.0（PyInstaller）と同じ形・同じ名前の配布物を作ります。リリースワークフロー
+（`.github/workflows/release.yml`）は、0.9.0 より前のタグなら Qt の画面を、0.9.0 からは
+この画面を組みます（`tauri-windows`・`tauri-macos` の仕事。手で動かすときは `app` を選べる）。
+
+| | 配布物 | 中身 |
+|---|---|---|
+| macOS | `PaintMaskAnimator-<版>-macOS.dmg` | Apple Silicon の `.app`。Quick Look のサムネイル拡張入り。アドホック署名で公証なし（0.8.0 と同じ。dmg に「開けないときは.txt」） |
+| Windows | `PaintMaskAnimator-Setup-<版>.exe` | Inno Setup（`packaging/installer.iss` を `/DTauriApp` で）。WebView2 が無い PC では Microsoft の bootstrapper で入れる。署名なし（0.8.0 と同じ） |
+
+- 版は `app/Cargo.toml` だけに書く（`tauri.conf.json` には書かない）。`scripts/bump_version.py` が
+  ほかの版の表記と一緒に書き換え、ワークフローは `scripts/check_version.py <版> --app` で確かめる。
+- bundle id は 0.8.0 と同じ `com.sehatakuro.paintmaskanimator`。.pman の関連付けは、macOS は
+  [`Info.plist`](Info.plist)、Windows はインストーラの登録（0.8.0 と同じ）。macOS の Finder から
+  渡された .pman は [`src/file_open.rs`](src/file_open.rs) が受ける。
+- Windows のインストーラは 0.8.0 と同じ AppId・場所・exe の名前なので、0.8.0 の上に入れると
+  更新になる（Python と Qt の `_internal` フォルダーは消す）。Tauri の NSIS にしないのはこのため。
+- MP4 の ffmpeg は 0.8.0 と同じく同梱しない（アプリの隣・`../Resources`・PATH・Homebrew を探す）。
+- 第三者のライセンス表記は [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md)（手で直さない）。
+  macOS は `tauri.conf.json` の resources で `Contents/Resources` に、Windows はインストーラが
+  インストール先に入れる。依存（`Cargo.lock`、`app/ui/vendor`）を変えたら作り直す：
+  `python scripts/generate_third_party_licenses.py`。macOS と Windows のリリースのバイナリに
+  リンクされる crate（`cargo metadata --filter-platform`。build 用・proc-macro は除く）と、
+  サムネイルの DLL（`packaging/windows/pman_thumbnail`）の crate を拾い、各 crate の配布物の
+  LICENSE などをそのまま載せる。`--check` で今の依存と合っているか確かめる（CI・リリース・
+  `build_tauri_app.sh` が確かめる）。
+
+macOS で手元に組む（`CARGO_TARGET_DIR` を決めていればそこに組む。dmgbuild が要る）：
+
+```bash
+packaging/macos/build_tauri_app.sh
 ```
 
 ## まだ確かめていないこと

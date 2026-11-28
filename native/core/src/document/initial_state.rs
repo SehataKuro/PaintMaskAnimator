@@ -1,0 +1,250 @@
+//! 線画を色塗り前の初期状態として読み込む（Qt 版 `InitialStateController._import_line_art`）。
+//!
+//! 読み込み元の絵（カットフォルダーのセル画像・CLIP のアニメーションセル）を、レイヤー名と
+//! セル番号で今の絵に合わせ、初期状態だけを差し替える（今の絵とタイミングは変えない）。
+//!
+//! Qt との違い：Qt は番号の絵を置いたコマの数（同じ番号の絵を2か所に置けば2）と、
+//! タイムシートの外のセルを数える。ここは列のバンクの絵（番号）を1つずつ数える。
+
+use super::model::{CellNumber, Document};
+use crate::import::clip::{cell_sequence_numbers, ClipAnimation};
+use crate::{image::RgbaImage, Error};
+
+/// 初期状態を合わせる相手（レイヤー・番号）。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InitialTarget {
+    /// レイヤーの位置（下から）。
+    pub layer: usize,
+    /// レイヤー名。
+    pub name: String,
+    /// セル番号。
+    pub number: CellNumber,
+}
+
+impl Document {
+    /// 線画を合わせられる絵（用紙・下書き以外のレイヤーの、番号のある絵）。
+    pub fn initial_targets(&self) -> Vec<InitialTarget> {
+        let mut out = Vec::new();
+        for (layer, tid) in self.track_order.iter().enumerate() {
+            let Some(track) = self.tracks.get(tid) else {
+                continue;
+            };
+            if track.settings.is_paper || track.settings.is_draft {
+                continue;
+            }
+            for number in track.cells.keys() {
+                out.push(InitialTarget {
+                    layer,
+                    name: track.settings.name.clone(),
+                    number: *number,
+                });
+            }
+        }
+        out
+    }
+
+    /// 番号の絵の初期状態を差し替える（`set_initial_images`）。絵の大きさは文書と同じこと。
+    pub fn set_line_art_initial_images(
+        &mut self,
+        images: Vec<(usize, CellNumber, RgbaImage)>,
+    ) -> Result<usize, Error> {
+        let (width, height) = self.size();
+        let mut count = 0;
+        for (layer, number, image) in images {
+            if (image.width(), image.height()) != (width, height) {
+                return Err(Error::Image("初期状態の絵の大きさが文書と違います"));
+            }
+            let tid = *self
+                .track_order
+                .get(layer)
+                .ok_or(Error::Image("レイヤーがありません"))?;
+            let cell = self
+                .tracks
+                .get_mut(&tid)
+                .and_then(|t| t.cells.get_mut(&number))
+                .ok_or(Error::Image("セルがありません"))?;
+            cell.initial_image = Some(image);
+            count += 1;
+        }
+        Ok(count)
+    }
+
+    /// CLIP のアニメーションのセルを、アニメーションフォルダー名（前後の空白を除き、大文字と
+    /// 小文字を区別しない）とセルの絵番号で今の絵に合わせる（`_import_line_art` の
+    /// from_clip）。失敗は Qt の文言。
+    pub fn match_clip_line_art(&self, animation: &ClipAnimation) -> Result<LineArtMatch, String> {
+        use crate::export::py;
+        // (フォルダー名, [(番号, 「フォルダー/セル」, 絵)])
+        type Cels<'a> = Vec<(String, Vec<(i64, String, &'a RgbaImage)>)>;
+        let mut cels: Cels = Vec::new();
+        for layer in &animation.layers {
+            let key = py::casefold(py::strip(&layer.name));
+            if cels.iter().any(|(k, _)| *k == key) {
+                return Err(format!(
+                    "CLIP内のアニメーションフォルダー名が重複しています：{}",
+                    layer.name
+                ));
+            }
+            let numbers = cell_sequence_numbers(layer.cels.iter().map(|(t, _)| t.as_str()))
+                .map_err(|e| e.0)?;
+            let entries = layer
+                .cels
+                .iter()
+                .zip(numbers)
+                .map(|((tag, image), number)| (number, format!("{}/{tag}", layer.name), image))
+                .collect();
+            cels.push((key, entries));
+        }
+        let (width, height) = self.size();
+        let mut images = Vec::new();
+        let mut missing = 0;
+        for target in self.initial_targets() {
+            let key = py::casefold(py::strip(&target.name));
+            let source = cels
+                .iter()
+                .find(|(k, _)| *k == key)
+                .and_then(|(_, entries)| {
+                    entries.iter().find(|(n, _, _)| *n == target.number.get())
+                });
+            let Some((_, name, image)) = source else {
+                missing += 1;
+                continue;
+            };
+            if (image.width(), image.height()) != (width, height) {
+                return Err(format!(
+                    "線画のサイズが現在のセルと一致しません：{name}\n線画：{} × {}px／現在のセル：{width} × {height}px",
+                    image.width(),
+                    image.height()
+                ));
+            }
+            images.push((target.layer, target.number, (*image).clone()));
+        }
+        Ok(LineArtMatch { images, missing })
+    }
+}
+
+/// 色塗り前の初期状態を保持・消去するセル `(コマ, レイヤー)`（コマは露出元）。
+pub type InitialCell = (usize, usize);
+
+impl Document {
+    /// 全レイヤーの、絵のあるセル（`InitialStateController.cells`：保持はキーフレームへ畳む）。
+    /// レイヤー順、各レイヤーではコマ順。
+    pub fn initial_state_cells(&self) -> Result<Vec<InitialCell>, Error> {
+        let mut cells = Vec::new();
+        for layer in 0..self.track_order.len() {
+            cells.extend(crate::tools::scope::scope_cells(self, 0, layer, true)?);
+        }
+        Ok(cells)
+    }
+
+    /// `cells` のうち、初期状態を保持しているセルの数（`InitialStateController.count`）。
+    pub fn count_initial_state(&self, cells: &[InitialCell]) -> usize {
+        use super::access::ImageField;
+        cells
+            .iter()
+            .filter(|&&(frame, layer)| {
+                crate::tools::bucket::position_slot(self, frame, layer)
+                    .and_then(|slot| self.artwork_image(slot, ImageField::Initial))
+                    .is_some()
+            })
+            .count()
+    }
+
+    /// `cells` の今の絵を初期状態にする（すでに保持していても上書きする。
+    /// `InitialStateController.keep` の `keep_initial_images(cells)`）。保持した数を返す。
+    pub fn keep_initial_state(&mut self, cells: &[InitialCell]) -> Result<usize, Error> {
+        use super::drawing_commands::DrawingTarget;
+        let mut updates = Vec::with_capacity(cells.len());
+        for &(frame, layer) in cells {
+            let image = crate::tools::bucket::position_image(self, frame, layer)?;
+            updates.push((layer, DrawingTarget::Frame(frame), Some(image)));
+        }
+        self.set_initial_images(&updates, false)?;
+        Ok(cells.len())
+    }
+
+    /// `cells` の初期状態を消す（`InitialStateController.clear`）。
+    pub fn clear_initial_state(&mut self, cells: &[InitialCell]) -> Result<(), Error> {
+        use super::drawing_commands::DrawingTarget;
+        let updates: Vec<_> = cells
+            .iter()
+            .map(|&(frame, layer)| (layer, DrawingTarget::Frame(frame), None))
+            .collect();
+        self.set_initial_images(&updates, false)?;
+        Ok(())
+    }
+}
+
+/// 合わせた線画（Undo の前に全部読んで確かめる）。
+#[derive(Clone, Debug)]
+pub struct LineArtMatch {
+    /// (レイヤー, 番号, 絵)
+    pub images: Vec<(usize, CellNumber, RgbaImage)>,
+    /// 対応する線画がなかった絵の数。
+    pub missing: usize,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::document::import_commands::ImportedTrack;
+
+    fn image(width: usize, height: usize, value: u8) -> RgbaImage {
+        RgbaImage::from_rgba(width, height, &vec![value; width * height * 4]).unwrap()
+    }
+
+    #[test]
+    fn targets_skip_drafts_and_set_replaces_initial_images() {
+        let mut doc = Document::new_blank(2, 2).unwrap();
+        let mut draft = ImportedTrack::new("下書き", vec![image(2, 2, 9)]);
+        draft.draft = true;
+        doc.import_image_tracks(
+            0,
+            vec![
+                ImportedTrack::new("A", vec![image(2, 2, 1), image(2, 2, 2)]),
+                draft,
+            ],
+        )
+        .unwrap();
+        let targets = doc.initial_targets();
+        let named: Vec<(usize, &str, i64)> = targets
+            .iter()
+            .filter(|t| t.name == "A")
+            .map(|t| (t.layer, t.name.as_str(), t.number.get()))
+            .collect();
+        assert_eq!(named, vec![(1, "A", 1), (1, "A", 2)]);
+        let n = |v| CellNumber::new(v).unwrap();
+        assert!(targets.iter().all(|t| t.name != "下書き"));
+        assert_eq!(
+            doc.set_line_art_initial_images(vec![(1, n(2), image(2, 2, 7))])
+                .unwrap(),
+            1
+        );
+        let tid = doc.track_order()[1];
+        let cell = &doc.track(tid).unwrap().cells[&n(2)];
+        assert_eq!(cell.initial_image.as_ref().unwrap().rgba()[0], 7);
+        assert!(doc
+            .set_line_art_initial_images(vec![(1, n(1), image(1, 1, 0))])
+            .is_err());
+    }
+
+    #[test]
+    fn keep_overwrites_and_clear_removes_initial_state() {
+        let mut doc = Document::new_blank(2, 2).unwrap();
+        doc.import_image_tracks(
+            0,
+            vec![ImportedTrack::new(
+                "A",
+                vec![image(2, 2, 1), image(2, 2, 2)],
+            )],
+        )
+        .unwrap();
+        let cells = doc.initial_state_cells().unwrap();
+        assert!(cells.contains(&(0, 1)) && cells.contains(&(1, 1)));
+        assert_eq!(doc.count_initial_state(&cells), 0);
+        assert_eq!(doc.keep_initial_state(&cells).unwrap(), cells.len());
+        assert_eq!(doc.count_initial_state(&cells), cells.len());
+        doc.clear_initial_state(&cells).unwrap();
+        assert_eq!(doc.count_initial_state(&cells), 0);
+    }
+}
