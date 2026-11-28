@@ -9,6 +9,10 @@ it. The release notes are built from that section, but only in the final
 publish job -- without this check a missing entry is found after both
 installers have already been built.
 
+With ``--app`` the version is read from ``app/Cargo.toml`` instead: the Tauri
+app (0.9.0 and later) takes its version from there (tauri.conf.json has none,
+so the bundle, the installer and the About box all follow Cargo.toml).
+
 ``scripts/bump_version.py`` updates all of these in one go.
 """
 from __future__ import annotations
@@ -21,6 +25,11 @@ from pathlib import Path
 def project_version() -> str:
     data = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
     return str(data["project"]["version"])
+
+
+def app_version() -> str:
+    data = tomllib.loads(Path("app/Cargo.toml").read_text(encoding="utf-8"))
+    return str(data["package"]["version"])
 
 
 READMES = ("README.md", "README.en.md")
@@ -50,10 +59,13 @@ def changelog_problem(version: str) -> str | None:
 
 
 def main() -> int:
-    expected = sys.argv[1].removeprefix("v") if len(sys.argv) > 1 else ""
-    actual = project_version()
+    args = [a for a in sys.argv[1:] if a != "--app"]
+    app = "--app" in sys.argv[1:]
+    expected = args[0].removeprefix("v") if args else ""
+    actual = app_version() if app else project_version()
+    source = "app/Cargo.toml" if app else "pyproject"
     if expected and expected != actual:
-        print(f"release version {expected!r} does not match pyproject version {actual!r}")
+        print(f"release version {expected!r} does not match {source} version {actual!r}")
         print(f"run: python scripts/bump_version.py {expected}")
         return 1
     stale = stale_badges(actual)

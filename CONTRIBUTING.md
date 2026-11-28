@@ -154,8 +154,8 @@ python scripts/update_translations.py
    git log --oneline --no-merges $(git describe --tags --abbrev=0)..HEAD
    ```
 
-2. バージョン表記（`pyproject.toml`・README のバッジ・`CHANGELOG.md` の見出しと
-   リンク）をまとめて更新します。
+2. バージョン表記（`pyproject.toml`・`app/Cargo.toml` と `app/Cargo.lock`・README の
+   バッジ・`CHANGELOG.md` の見出しとリンク）をまとめて更新します。
 
    ```bash
    python scripts/bump_version.py 0.7.4
@@ -167,6 +167,10 @@ python scripts/update_translations.py
    ```bash
    python scripts/preflight.py --release 0.7.4
    ```
+
+   リリースワークフローは、0.9.0 より前のタグなら Qt の画面（PyInstaller）を、
+   0.9.0 からは Tauri の画面（`app/`）を組みます。配布物の名前はどちらも同じです
+   （[`app/README.md`](app/README.md) の「配布物を作る」）。
 
 ## 構造グラフを更新する
 

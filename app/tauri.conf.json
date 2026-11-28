@@ -1,13 +1,24 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "PaintMaskAnimator",
-  "version": "0.9.0-dev",
-  "identifier": "dev.paintmaskanimator.app",
+  "mainBinaryName": "PaintMaskAnimator",
+  "identifier": "com.sehatakuro.paintmaskanimator",
   "build": { "frontendDist": "ui" },
   "app": {
     "withGlobalTauri": true,
     "windows": [],
     "security": { "csp": null }
   },
-  "bundle": { "active": false, "icon": ["icons/icon.png", "icons/icon.ico"] }
+  "bundle": {
+    "active": true,
+    "targets": ["app"],
+    "icon": ["icons/icon.png", "icons/icon.ico", "../packaging/app.icns"],
+    "publisher": "SehataKuro",
+    "category": "GraphicsAndDesign",
+    "resources": { "../LICENSE": "LICENSE", "../NOTICE": "NOTICE" },
+    "macOS": {
+      "minimumSystemVersion": "11.0",
+      "infoPlist": "Info.plist"
+    }
+  }
 }

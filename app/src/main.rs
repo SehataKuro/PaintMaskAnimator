@@ -16,6 +16,7 @@
 // 描画色・カラーサークル・カラースライダー・使用色・カラーチャート（colors.rs）。
 mod colors;
 mod export; // 書き出し（export.rs）。
+mod file_open; // OS から渡されたファイル（file_open.rs）。
 mod history;
 // 読み込み（imports.rs）：画像・フォルダー・PSD・CLIP・線画の初期状態・レイアウト用紙。
 mod imports;
@@ -387,6 +388,7 @@ fn main() {
         .on_menu_event(|app, event| menu::on_event(app, event.id().as_ref()))
         .invoke_handler(tauri::generate_handler![
             startup,
+            file_open::file_open_take,
             pen_selftest_step,
             canvas_size,
             summary,
@@ -592,6 +594,13 @@ fn main() {
             papers::papers_rename,
             papers::papers_remove
         ])
-        .run(tauri::generate_context!())
-        .expect("画面を開けなかった");
+        .build(tauri::generate_context!())
+        .expect("画面を開けなかった")
+        .run(|_app, _event| {
+            // Finder から渡された .pman（file_open.rs）。
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = &_event {
+                file_open::opened(_app, urls);
+            }
+        });
 }
