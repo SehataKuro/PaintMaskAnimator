@@ -5,6 +5,7 @@
 pub mod clip;
 pub mod clip_render;
 pub mod image;
+pub mod orientation;
 pub mod psd;
 pub mod sequence;
 pub mod tga;

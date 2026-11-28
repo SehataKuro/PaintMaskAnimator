@@ -33,6 +33,7 @@ import { runToolsSelftest } from "./tools_selftest.js";
 // 【アプリの外枠】メニュー・ファイル・環境設定など（shell.js）と、ヒストリーのパネル。
 import { initShell } from "./shell.js";
 import { createHistoryPanel } from "./history_panel.js";
+import { createSubviewPanel } from "./subview.js"; // 【Group C】サブビュー。
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
@@ -64,6 +65,7 @@ createLayout(document.getElementById("dock"), {
   "color-wheel": () => createColorWheelPanel(),
   "color-sliders": () => createColorSlidersPanel(),
   "used-colors": () => createUsedColorsPanel(),
+  subview: () => createSubviewPanel(), // 【Group C】
 });
 // 【アプリの外枠】shell.js（main で始める）。
 let shell = null;

@@ -19,7 +19,7 @@ from psd_tools import PSDImage  # noqa: E402
 from psd_tools.api.layers import Group, PixelLayer  # noqa: E402
 from psd_tools.constants import BlendMode, Compression  # noqa: E402
 
-from pma_native.pma_native import import_read_psd  # noqa: E402
+from pma_native.pma_native import import_composite_psd, import_read_psd  # noqa: E402
 
 W, H = 12, 9
 
@@ -164,3 +164,36 @@ def test_pass_through_and_fill_opacity():
     overlay.blend_mode = BlendMode.OVERLAY
     _assert_same(_save(psd))
 
+
+
+def _assert_same_composite(data):
+    """サブビューの表示（``subview._read_image`` の ``PSDImage.composite()``）と比べる。"""
+    psd = PSDImage.open(io.BytesIO(data))
+    want = np.asarray(psd.composite().convert("RGBA"), dtype=np.uint8).astype(int)
+    width, height, got = import_composite_psd(data)
+    assert (width, height) == (psd.width, psd.height)
+    got = np.frombuffer(got, dtype=np.uint8).reshape(height, width, 4).astype(int)
+    assert np.abs(got[..., 3] - want[..., 3]).max() <= 1
+    shown = (got[..., 3] > 0) & (want[..., 3] > 0)
+    colour = np.abs(got[..., :3] - want[..., :3])[shown]
+    assert colour.size == 0 or colour.max() <= 1, colour.max()
+
+
+def test_subview_composite_of_layers_and_groups():
+    psd = PSDImage.new("RGBA", (W, H))
+    psd.append(PixelLayer.frompil(_gradient(70, W, H), psd, "bg"))
+    group = Group.new(psd, "g")
+    group.append(PixelLayer.frompil(_gradient(71, 8, 6), group, "a", top=1, left=1))
+    multiply = PixelLayer.frompil(_gradient(72, 6, 6), group, "b", top=2, left=3)
+    group.append(multiply)
+    multiply.blend_mode = BlendMode.MULTIPLY
+    hidden = PixelLayer.frompil(_gradient(73, W, H), psd, "hidden")
+    psd.append(hidden)
+    hidden.visible = False
+    _assert_same_composite(_save(psd))
+
+
+def test_subview_composite_grayscale():
+    psd = PSDImage.new("LA", (W, H))
+    psd.append(PixelLayer.frompil(_gradient(74, 8, 8, "LA"), psd, "gray", top=1, left=2))
+    _assert_same_composite(_save(psd))
