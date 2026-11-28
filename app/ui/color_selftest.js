@@ -35,7 +35,17 @@ async function until(test, ms = 5000) {
   return false;
 }
 
+// 途中で例外が出ても（色の少ない作品など）止まったままにせず、失敗として報告して終える。
 export async function runColorsSelftest({ invoke, pause }) {
+  try {
+    await runSteps({ invoke, pause });
+  } catch (e) {
+    await invoke("report", { line: `色のパネルの自己確認：失敗（途中で止まった：${e?.message ?? e}）` });
+    await invoke("quit", { code: 1 });
+  }
+}
+
+async function runSteps({ invoke, pause }) {
   const results = [];
   const check = (name, ok, detail = "") => results.push({ name, ok: !!ok, detail });
   const step = async (name) => {
@@ -50,6 +60,7 @@ export async function runColorsSelftest({ invoke, pause }) {
 
   check("作品の使用色を数えた", await until(() => view()?.loaded && colorRows().length >= 12, 10000),
     `${colorRows().length} 行`);
+  if (colorRows().length < 12) throw new Error(`使用色が ${colorRows().length} 色しかない（12色以上の作品で走らせる）`);
   await step("normal");
 
   // 行を押して選ぶ。最後に押した色がフォーカス＝統合先。
