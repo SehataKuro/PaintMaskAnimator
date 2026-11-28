@@ -22,7 +22,8 @@ use pma_core::compose::{DisplayOptions, PremulImage};
 use pma_core::image::Rect;
 use pma_core::project::json::Json;
 use pma_core::tools::onion::{
-    onion_frame_at, set_canvas_view_rotation, Axis, CanvasView, InteractionMode, OnionInteraction,
+    center_canvas_between, onion_frame_at, set_canvas_view_rotation, Axis, CanvasView,
+    InteractionMode, OnionInteraction,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -245,6 +246,13 @@ pub fn load(s: &mut Session) {
         view.selected_colors_only = flag("onion_selected_colors_only");
         view.center_percent = num("onion_center_percent").unwrap_or(50.0);
         ui.apply_view(&view);
+        // 【Group C】TU/TB 拡大率（main_window_project_io の onion_tu_tb_scale）。
+        let scale = num("onion_tu_tb_scale").unwrap_or(1.0);
+        ui.settings.tu_tb_scale = if scale.is_finite() {
+            scale.clamp(0.05, 20.0)
+        } else {
+            1.0
+        };
     }
     s.tools.onion = ui;
     s.timeline.onion = enabled;
@@ -283,6 +291,10 @@ pub fn store(s: &mut Session) {
         Json::Bool(view.selected_colors_only),
     );
     display.set("onion_center_percent", float(view.center_percent));
+    display.set(
+        "onion_tu_tb_scale",
+        float(s.tools.onion.settings.tu_tb_scale),
+    );
     p.metadata.set("display", display);
 }
 
@@ -570,6 +582,24 @@ pub fn set_rotation(s: &mut Session, value: f64, view: &ViewState) -> Option<Vie
     set_canvas_view_rotation(value, &mut v, &mut s.tools.onion.settings).then(|| view_state(&v))
 }
 
+/// 【Group C】「キャンバスを中央位置へ」（`center_canvas_between_shifts`）。新しい表示と知らせを返す。
+pub fn center(s: &mut Session, percent: f64, view: &ViewState) -> (ViewState, String) {
+    let percent = if percent.is_finite() {
+        percent.clamp(0.0, 100.0)
+    } else {
+        50.0
+    };
+    s.tools.onion.center_percent = percent;
+    let mut v = canvas_view(view);
+    let (rotation, scale) = center_canvas_between(percent, &mut v, &mut s.tools.onion.settings);
+    let message = format!(
+        "前後の位置・回転・TU/TB拡大率間の{percent}%をキャンバス基準へ移しました。\
+         （中央回転 {rotation:.1}°を基準として取得／撮影倍率 {:.1}%／キャンバス回転 0°／デジタルズーム変更なし）",
+        scale * 100.0
+    );
+    (view_state(&v), message)
+}
+
 /// Ctrl＋クリックで、見えている前後のコマへ切り替える（`pick_onion_frame`、#60）。
 pub fn pick(s: &mut Session, x: f64, y: f64) -> Result<String, String> {
     let p = s.project.as_ref().ok_or("作品を開いていません")?;
@@ -730,6 +760,29 @@ pub fn onion_set_rotation(
     drop(s);
     emit_view(&app, &onion);
     Some(out)
+}
+
+/// 【Group C】「キャンバスを中央位置へ」。新しい表示と知らせを返す。
+#[derive(Serialize)]
+pub struct CenterReply {
+    pub view: ViewState,
+    pub message: String,
+}
+
+#[tauri::command]
+pub fn onion_center(
+    app: tauri::AppHandle,
+    state: SessionArg,
+    percent: f64,
+    view: ViewState,
+) -> CenterReply {
+    let mut s = state.lock().unwrap();
+    let (view, message) = center(&mut s, percent, &view);
+    changed(&app, &mut s);
+    let onion = s.tools.onion.view(s.timeline.onion);
+    drop(s);
+    emit_view(&app, &onion);
+    CenterReply { view, message }
 }
 
 /// Ctrl＋クリック（#60）。知らせを返す。

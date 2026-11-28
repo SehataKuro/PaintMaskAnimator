@@ -301,6 +301,70 @@ pub fn set_canvas_view_rotation(
     true
 }
 
+/// 「キャンバスを中央位置へ」（`center_canvas_between_shifts`）。前後のずらし・回転・
+/// 拡大率の `percent`（0〜100）の所をキャンバスの基準へ取り込む。表示の回転は 0° に戻し、
+/// 表示倍率（デジタルズーム）は変えない。取り込んだ (中央の回転, 撮影倍率) を返す。
+pub fn center_canvas_between(
+    percent: f64,
+    view: &mut CanvasView,
+    settings: &mut OnionSettings,
+) -> (f64, f64) {
+    let percent = if percent.is_finite() {
+        percent.clamp(0.0, 100.0)
+    } else {
+        50.0
+    };
+    let ratio = percent / 100.0;
+    let (previous, next) = (&settings.previous, &settings.next);
+    let previous_scale = (previous.scale / 100.0).max(0.01);
+    let next_scale = (next.scale / 100.0).max(0.01);
+    let target_x = previous.shift_x + (next.shift_x - previous.shift_x) * ratio;
+    let target_y = previous.shift_y + (next.shift_y - previous.shift_y) * ratio;
+    // 回転は最短方向、TU/TB拡大率は撮影倍率として線形補間する。
+    let rotation_delta = (next.rotation - previous.rotation + 180.0).rem_euclid(360.0) - 180.0;
+    let target_rotation = normalized_angle(previous.rotation + rotation_delta * ratio);
+    let target_scale = (previous_scale + (next_scale - previous_scale) * ratio).max(0.01);
+
+    let digital_zoom = view.zoom.max(0.01);
+    let current_tu_tb = settings.tu_tb_scale.max(0.0001);
+    let old_view_rotation = view.rotation;
+    let (display_x, display_y) = rotated_vector(
+        target_x * digital_zoom * current_tu_tb,
+        target_y * digital_zoom * current_tu_tb,
+        old_view_rotation,
+    );
+    view.pan.0 += display_x;
+    view.pan.1 += display_y;
+    let absorbed_view_rotation = normalized_angle(old_view_rotation + target_rotation);
+    settings.tu_tb_scale = (current_tu_tb * target_scale).clamp(0.05, 20.0);
+
+    // H_target^-1 × H_each で相対位置・回転・倍率を取り直す。
+    let relative = |x: f64, y: f64| {
+        let (rx, ry) = rotated_vector(x - target_x, y - target_y, -target_rotation);
+        rotated_vector(rx / target_scale, ry / target_scale, absorbed_view_rotation)
+    };
+    let previous_shift = relative(previous.shift_x, previous.shift_y);
+    let next_shift = relative(next.shift_x, next.shift_y);
+    let previous_rotation = normalized_angle(previous.rotation - target_rotation);
+    let next_rotation = normalized_angle(next.rotation - target_rotation);
+    for (side, shift, rotation, scale) in [
+        (
+            &mut settings.previous,
+            previous_shift,
+            previous_rotation,
+            previous_scale,
+        ),
+        (&mut settings.next, next_shift, next_rotation, next_scale),
+    ] {
+        side.shift_x = shift.0;
+        side.shift_y = shift.1;
+        side.rotation = rotation;
+        side.scale = (scale / target_scale * 100.0).clamp(1.0, 199.0);
+    }
+    view.rotation = 0.0;
+    (target_rotation, target_scale)
+}
+
 /// キャンバス上の `point` に重なって見える、前後のオニオンの絵の中の位置
 /// （`_onion_source_point`）。オニオンは絵の中心を軸に ずらし → 回転 → 拡大 して
 /// 重ねるので、その逆を掛ける。`size` は絵の大きさ。
@@ -511,5 +575,41 @@ mod tests {
         interaction.update_drag((7.0, 3.0), &mut view, &mut settings);
         assert_eq!((settings.next.shift_x, settings.next.shift_y), (0.0, 3.0));
         assert_eq!(settings.previous.shift_y, 0.0);
+    }
+
+    #[test]
+    fn center_canvas_between_takes_the_midpoint_into_the_canvas() {
+        let mut settings = OnionSettings::default();
+        settings.previous.shift_x = -10.0;
+        settings.next.shift_x = 30.0;
+        settings.previous.rotation = 170.0;
+        settings.next.rotation = -170.0;
+        settings.previous.scale = 80.0;
+        settings.next.scale = 120.0;
+        let mut view = CanvasView {
+            pan: (100.0, 50.0),
+            rotation: 0.0,
+            zoom: 2.0,
+        };
+        let (rotation, scale) = center_canvas_between(50.0, &mut view, &mut settings);
+        // 最短方向で 180°、撮影倍率は 1.0。
+        assert!((rotation.abs() - 180.0).abs() < 1e-9);
+        assert!((scale - 1.0).abs() < 1e-12);
+        assert!((view.pan.0 - 120.0).abs() < 1e-9 && (view.pan.1 - 50.0).abs() < 1e-9);
+        assert_eq!(view.rotation, 0.0);
+        assert!((settings.tu_tb_scale - 1.0).abs() < 1e-12);
+        assert!((settings.previous.scale - 80.0).abs() < 1e-9);
+        assert!((settings.next.scale - 120.0).abs() < 1e-9);
+        // 中央からの差を -180°（= 180°）で回し、表示の回転 180° で戻すので元と同じ向き。
+        assert!(
+            (settings.previous.shift_x + 20.0).abs() < 1e-9,
+            "{}",
+            settings.previous.shift_x
+        );
+        assert!((settings.next.shift_x - 20.0).abs() < 1e-9);
+        assert!(
+            (settings.previous.rotation + 10.0).abs() < 1e-9
+                || (settings.previous.rotation - 350.0).abs() < 1e-9
+        );
     }
 }
