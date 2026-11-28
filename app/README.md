@@ -80,6 +80,14 @@ dialogs.js・preferences.js・shortcuts.js・history_panel.js・i18n.js・theme.
 - Windows のインストーラは 0.8.0 と同じ AppId・場所・exe の名前なので、0.8.0 の上に入れると
   更新になる（Python と Qt の `_internal` フォルダーは消す）。Tauri の NSIS にしないのはこのため。
 - MP4 の ffmpeg は 0.8.0 と同じく同梱しない（アプリの隣・`../Resources`・PATH・Homebrew を探す）。
+- 第三者のライセンス表記は [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md)（手で直さない）。
+  macOS は `tauri.conf.json` の resources で `Contents/Resources` に、Windows はインストーラが
+  インストール先に入れる。依存（`Cargo.lock`、`app/ui/vendor`）を変えたら作り直す：
+  `python scripts/generate_third_party_licenses.py`。macOS と Windows のリリースのバイナリに
+  リンクされる crate（`cargo metadata --filter-platform`。build 用・proc-macro は除く）と、
+  サムネイルの DLL（`packaging/windows/pman_thumbnail`）の crate を拾い、各 crate の配布物の
+  LICENSE などをそのまま載せる。`--check` で今の依存と合っているか確かめる（CI・リリース・
+  `build_tauri_app.sh` が確かめる）。
 
 macOS で手元に組む（`CARGO_TARGET_DIR` を決めていればそこに組む。dmgbuild が要る）：
 

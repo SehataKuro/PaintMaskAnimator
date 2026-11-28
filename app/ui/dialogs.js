@@ -244,7 +244,8 @@ export function aboutDialog({ appName, displayName, repo, openUrl }) {
     p(el("b", {}, tr("サードパーティコンポーネント")), el("br"),
       "Tauri — Apache-2.0 / MIT", el("br"),
       "dockview-core — MIT", el("br"),
-      "tauri-plugin-dialog — Apache-2.0 / MIT（rfd — MIT）"),
+      "tauri-plugin-dialog — Apache-2.0 / MIT（rfd — MIT）", el("br"),
+      tr("ほか Rust の crate（MIT・Apache-2.0・MPL-2.0 など）。一覧とライセンス全文は、配布物に同梱の THIRD_PARTY_LICENSES.md（macOS はアプリの Contents/Resources、Windows はインストール先のフォルダー）を参照してください。")),
   );
   return openDialog({
     title: tr("{app} について", { app: appName }),

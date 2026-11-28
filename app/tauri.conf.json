@@ -15,7 +15,11 @@
     "icon": ["icons/icon.png", "icons/icon.ico", "../packaging/app.icns"],
     "publisher": "SehataKuro",
     "category": "GraphicsAndDesign",
-    "resources": { "../LICENSE": "LICENSE", "../NOTICE": "NOTICE" },
+    "resources": {
+      "../LICENSE": "LICENSE",
+      "../NOTICE": "NOTICE",
+      "THIRD_PARTY_LICENSES.md": "THIRD_PARTY_LICENSES.md"
+    },
     "macOS": {
       "minimumSystemVersion": "11.0",
       "infoPlist": "Info.plist"

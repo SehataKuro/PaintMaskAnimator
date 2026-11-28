@@ -17,6 +17,10 @@ TAURI_CLI_VERSION=${TAURI_CLI_VERSION:-2.12.6}
 version=$(sed -n 's/^version = "\(.*\)"$/\1/p' app/Cargo.toml | head -n 1)
 [ -n "$version" ] || { echo "app/Cargo.toml に version が無い" >&2; exit 1; }
 
+# 第三者のライセンス表記（app/THIRD_PARTY_LICENSES.md。tauri.conf.json の resources で
+# Contents/Resources に入る）が依存の今と合っているか。古ければ作り直してから組む。
+python3 scripts/generate_third_party_licenses.py --check
+
 (cd app && npx --yes "@tauri-apps/cli@$TAURI_CLI_VERSION" build --bundles app)
 
 target_dir=${CARGO_TARGET_DIR:-app/target}

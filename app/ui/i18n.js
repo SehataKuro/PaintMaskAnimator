@@ -36,6 +36,8 @@ const EXTRA_EN = {
   "ライセンス全文: ": "Full license: ",
   "ソースコード: ": "Source code: ",
   サードパーティコンポーネント: "Third-party components",
+  "ほか Rust の crate（MIT・Apache-2.0・MPL-2.0 など）。一覧とライセンス全文は、配布物に同梱の THIRD_PARTY_LICENSES.md（macOS はアプリの Contents/Resources、Windows はインストール先のフォルダー）を参照してください。":
+    "and other Rust crates (MIT, Apache-2.0, MPL-2.0 and others). For the full list and licence texts, see THIRD_PARTY_LICENSES.md in the distribution (on macOS in the app's Contents/Resources, on Windows in the install folder).",
 };
 
 export function tr(text, values) {
