@@ -2,6 +2,13 @@
 ; Compile: iscc /DAppVersion=<version from pyproject.toml> packaging\installer.iss
 ; The release workflow always supplies AppVersion.
 ; Expects the PyInstaller one-folder build at dist\PaintMaskAnimator\.
+;
+; The Tauri app (0.9.0 and later; app/) uses this same script with /DTauriApp:
+;   iscc /DAppVersion=<app/Cargo.toml version> /DTauriApp packaging\installer.iss
+; Then dist\PaintMaskAnimator\ holds PaintMaskAnimator.exe (tauri build) with
+; LICENSE and NOTICE, and dist\MicrosoftEdgeWebview2Setup.exe is Microsoft's
+; WebView2 bootstrapper. The AppId, install folder, exe name and .pman
+; registration stay the same, so it installs over 0.8.0 as an ordinary update.
 
 #ifndef AppVersion
   #error AppVersion must be supplied from pyproject.toml with /DAppVersion=x.y.z
@@ -54,6 +61,42 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Source: "..\dist\PaintMaskAnimator\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 ; Explorer's thumbnail host may still hold the old DLL; replace it on restart then.
 Source: "windows\pman_thumbnail\target\release\pman_thumbnail.dll"; DestDir: "{app}"; Flags: ignoreversion restartreplace uninsrestartdelete
+
+#ifdef TauriApp
+[InstallDelete]
+; 0.8.0 (PyInstaller) kept Python and Qt here; the Tauri app no longer uses them.
+Type: filesandordirs; Name: "{app}\_internal"
+
+[Files]
+; The WebView2 runtime ships with Windows 11 and current Windows 10; install it
+; only where it is missing (Microsoft's evergreen bootstrapper, about 2 MB).
+Source: "..\dist\MicrosoftEdgeWebview2Setup.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall; Check: NeedsWebView2
+
+[Run]
+Filename: "{tmp}\MicrosoftEdgeWebview2Setup.exe"; Parameters: "/silent /install"; StatusMsg: "Microsoft Edge WebView2 Runtime..."; Flags: waituntilterminated; Check: NeedsWebView2
+
+[Code]
+// https://learn.microsoft.com/microsoft-edge/webview2/concepts/distribution#detect-if-a-webview2-runtime-is-already-installed
+const WebView2Key = 'Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}';
+
+function WebView2Version(Root: Integer; Key: String): String;
+begin
+  if not RegQueryStringValue(Root, Key, 'pv', Result) then
+    Result := '';
+end;
+
+function HasWebView2(Version: String): Boolean;
+begin
+  Result := (Version <> '') and (Version <> '0.0.0.0');
+end;
+
+function NeedsWebView2: Boolean;
+begin
+  Result := not (HasWebView2(WebView2Version(HKLM, 'SOFTWARE\WOW6432Node\' + WebView2Key))
+    or HasWebView2(WebView2Version(HKLM, 'SOFTWARE\' + WebView2Key))
+    or HasWebView2(WebView2Version(HKCU, 'Software\' + WebView2Key)));
+end;
+#endif
 
 [Registry]
 ; Double-click a .pman to open it. HKA = per-user or all users, matching the install mode.
