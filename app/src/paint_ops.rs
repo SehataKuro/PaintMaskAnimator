@@ -182,7 +182,8 @@ pub fn full_rect_of(s: &Session) -> Option<Rect> {
 }
 
 /// 選択範囲（キャンバス全体の 0/1、Qt の `selection_mask_bool`）。選択が無ければ None。
-fn selection_mask(s: &Session) -> Option<Vec<u8>> {
+// 【読み込み・編集：Group B】edit_ops.rs の「線整え…」も使う。
+pub(crate) fn selection_mask(s: &Session) -> Option<Vec<u8>> {
     let doc = document(s).ok()?;
     let (w, h) = doc.size();
     let selection = s.tools.selection.selection()?;
@@ -674,7 +675,8 @@ pub fn dust_label(mode: &str) -> &'static str {
     }
 }
 
-fn used_selection(s: &Session) -> Vec<Rgb> {
+// 【読み込み・編集：Group B】edit_ops.rs の「線整え…」も使う。
+pub(crate) fn used_selection(s: &Session) -> Vec<Rgb> {
     let mut colors: Vec<Rgb> = s
         .tools
         .paint

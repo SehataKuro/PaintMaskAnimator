@@ -130,7 +130,8 @@ fn display_fps(fps: f64) -> i64 {
 
 /// 置き換えたあとの付帯情報。Qt は窓の状態（メモ・描画色・表示・カラーチャート）を
 /// 残し、使用色フォルダーは空にし、版・fps・再生範囲・表示の種類・CLIP の出どころは改める。
-fn replaced_metadata(s: &mut Session, parsed: &ClipAnimation, fps: i64) -> Json {
+/// `clip` が偽（カットフォルダー）なら CLIP の出どころは書かない（Qt の source_metadata=None）。
+fn replaced_metadata(s: &mut Session, parsed: &ClipAnimation, fps: i64, clip: bool) -> Json {
     let mut metadata = project_meta::new_metadata(parsed.width, parsed.height);
     if s.project.is_some() {
         project_meta::store_from_session(s);
@@ -144,6 +145,9 @@ fn replaced_metadata(s: &mut Session, parsed: &ClipAnimation, fps: i64) -> Json 
         }
     }
     metadata.set("fps", Json::Int(fps.to_string()));
+    if !clip {
+        return metadata;
+    }
     metadata.set(
         "clip_studio_source",
         Json::Object(vec![
@@ -166,6 +170,43 @@ fn replaced_metadata(s: &mut Session, parsed: &ClipAnimation, fps: i64) -> Json 
 /// 今の文書を読んだアニメーションで置き換え（履歴は空）、絵を色塗り前の初期状態として
 /// 保持する（Qt の `_replace_document` と `initial_state.keep(confirm=False)`）。知らせの文を返す。
 pub fn replace_with_clip(s: &mut Session, parsed: &ClipAnimation) -> Result<String, String> {
+    let ((content_keys, archived), fps) =
+        (replace_document(s, parsed, true)?, display_fps(parsed.fps));
+    let kept = s.edit_with(None, |doc, _| {
+        let kept = doc.keep_initial_images(None);
+        Ok((kept, kept > 0))
+    })?;
+    let archive_note = if archived > 0 {
+        format!(" 未配置セル{archived}枚は連番に保持しました。")
+    } else {
+        String::new()
+    };
+    let fps_note = if (parsed.fps - fps as f64).abs() > 1e-6 {
+        format!("（元FPS {}、PMA表示 {fps} fps）", format_g(parsed.fps))
+    } else {
+        String::new()
+    };
+    // Qt の keep() は絵のあるキーごとに数える（同じ番号を2度置いても2つ）。
+    let initial_note = if kept > 0 {
+        format!(" {content_keys}セルを色塗り前の初期状態として保持しました。")
+    } else {
+        String::new()
+    };
+    Ok(format!(
+        "CLIP STUDIOから{}フォルダー・{}フレームを読み込みました。{archive_note}{fps_note}{initial_note}",
+        parsed.folder_count(),
+        parsed.frame_count()
+    ))
+}
+
+/// 今の文書を読んだアニメーションで置き換える（Qt の `_replace_document`、履歴は空）。
+/// CLIP とカットフォルダーで共通。(絵のあるキーの数, 連番に残したセルの数) を返す。
+// 【読み込み・編集：Group B】カットフォルダー（imports_layer.rs）も使う。
+pub fn replace_document(
+    s: &mut Session,
+    parsed: &ClipAnimation,
+    clip: bool,
+) -> Result<(usize, usize), String> {
     let replaced = s
         .project
         .as_ref()
@@ -180,40 +221,13 @@ pub fn replace_with_clip(s: &mut Session, parsed: &ClipAnimation) -> Result<Stri
     )
     .map_err(|e| e.to_string())?;
     let fps = display_fps(parsed.fps);
-    let metadata = replaced_metadata(s, parsed, fps);
+    let metadata = replaced_metadata(s, parsed, fps, clip);
     s.open_document(built.document)?;
     if let Some(p) = &mut s.project {
         p.metadata = metadata;
     }
     project_meta::load_into_timeline(s);
-    let kept = s.edit_with(None, |doc, _| {
-        let kept = doc.keep_initial_images(None);
-        Ok((kept, kept > 0))
-    })?;
-    let archive_note = if built.archived > 0 {
-        format!(" 未配置セル{}枚は連番に保持しました。", built.archived)
-    } else {
-        String::new()
-    };
-    let fps_note = if (parsed.fps - fps as f64).abs() > 1e-6 {
-        format!("（元FPS {}、PMA表示 {fps} fps）", format_g(parsed.fps))
-    } else {
-        String::new()
-    };
-    // Qt の keep() は絵のあるキーごとに数える（同じ番号を2度置いても2つ）。
-    let initial_note = if kept > 0 {
-        format!(
-            " {}セルを色塗り前の初期状態として保持しました。",
-            built.content_keys
-        )
-    } else {
-        String::new()
-    };
-    Ok(format!(
-        "CLIP STUDIOから{}フォルダー・{}フレームを読み込みました。{archive_note}{fps_note}{initial_note}",
-        parsed.folder_count(),
-        parsed.frame_count()
-    ))
+    Ok((built.content_keys, built.archived))
 }
 
 /// 控えた結果で今の文書を置き換える。失敗は Qt の文言（文書は元のまま）。

@@ -49,7 +49,8 @@ pub struct ColorUi {
     /// 「色相・彩度・明度」のプレビュー（ダイアログを開いているあいだ）。
     hsv_preview: Option<Vec<(Rgb, Rgb)>>,
     /// 使用色パネルを変えた（次の [`sync`] で `palette-changed` を出す）。
-    touched: bool,
+    /// 【読み込み・編集：Group B】tools.rs の「同一画像から色置換」も立てる。
+    pub(crate) touched: bool,
     /// いまの表示を合成したときの背景色の表示色（変わったら [`sync`] が合成し直す）。
     shown_background: Rgb,
 }

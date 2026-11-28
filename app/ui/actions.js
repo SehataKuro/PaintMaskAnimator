@@ -42,6 +42,17 @@ export async function runBuiltinAction(id) {
     );
     if (!ok) return;
   }
+  if (id === "same_image_replacement") {
+    // Qt の組み込みのアクション：断りは窓（「同一画像を置換色に登録」）、そのあと必ず
+    // 「同一画像から色置換を実行しました」をステータスバーへ出す。
+    try {
+      await invoke("action_run", { id });
+    } catch (e) {
+      await message(tr("同一画像を置換色に登録"), tr(String(e)));
+    }
+    notify(tr("同一画像から色置換を実行しました"));
+    return;
+  }
   try {
     const status = await invoke("action_run", { id });
     if (status) notify(tr(status));
