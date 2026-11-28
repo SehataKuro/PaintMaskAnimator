@@ -386,3 +386,14 @@ button:hover { background: #3d3d3d; }
   pointer-events: none;
 }
 .pma-clear-selection { position: absolute; right: 8px; top: 36px; }
+
+/* 【オニオン：onion.js】オニオンスキン設定の窓 */
+.pma-onion { display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+.pma-onion-sides { display: flex; gap: 8px; flex-wrap: wrap; }
+.pma-onion-side { display: flex; flex-direction: column; gap: 4px; min-width: 220px; border: 1px solid var(--border, #8884); border-radius: 6px; padding: 6px 8px; }
+.pma-onion-row { display: flex; align-items: center; gap: 6px; }
+.pma-onion-row > span:first-child { min-width: 64px; }
+.pma-onion input[type="number"] { width: 64px; }
+.pma-onion-levels { display: flex; flex-wrap: wrap; gap: 2px; }
+.pma-onion-levels input[type="number"] { width: 46px; }
+.pma-onion button.active { outline: 2px solid var(--accent, #4a90e2); }

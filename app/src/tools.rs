@@ -430,6 +430,8 @@ pub struct ToolState {
     pub paint: crate::paint_ops::PaintState,
     /// 選択範囲の変形の途中（transform.rs）。
     pub transform: Option<crate::transform::ActiveTransform>,
+    /// オニオンスキンの設定と合わせる操作（onion.rs）。
+    pub onion: crate::onion::OnionUi,
 }
 
 /// 画面へ渡す選択範囲。

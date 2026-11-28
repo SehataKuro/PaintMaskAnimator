@@ -76,18 +76,33 @@ export async function runToolsSelftest({ shell }) {
   const transformOk = began && grabbed && moved && !toolStore.view.transform && !toolStore.view.selection
     && (await undoCount()) === undo1 + 1 && (await lastLabel()).startsWith("描画");
 
+  // オニオン（onion.rs）：タイムラインの ON と設定の窓の値が Rust に届き、ずらしの
+  // ドラッグ（設定の窓の「X・Yシフト」のあとのキャンバスのドラッグ）で値が動く。
+  const onionBefore = await invoke("onion_state");
+  await invoke("timeline_set_options", { onion: true });
+  const shown = (await invoke("onion_state")).enabled;
+  await invoke("onion_interaction", { mode: "shift", direction: -1, axis: "x" });
+  const vs = { pan: [0, 0], rotation: 0, zoom: 1 };
+  await invoke("onion_drag", { phase: "begin", x: 10, y: 10, rotate: false, view: vs });
+  await invoke("onion_drag", { phase: "end", x: 15, y: 30, rotate: false, view: vs });
+  const shifted = await invoke("onion_state");
+  const onionOk = shown && shifted.previous.shift_x === onionBefore.previous.shift_x + 5
+    && shifted.previous.shift_y === onionBefore.previous.shift_y && !shifted.interaction;
+  await invoke("onion_set", { patch: { enabled: onionBefore.enabled, previous: { shift_x: onionBefore.previous.shift_x } } });
+
   const ok = before.tool === "lasso" && before.selection
     && afterP === "brush" && counts["tool:brush"] === 1
     && viaKeyOnly === 0 && counts.a_selection_clear === 1 && !afterD
     && unclaimed.length === 0 && !toast.includes("まだ移していません")
     && (counts["tool:dust"] ?? 0) === 0
-    && lineOk && transformOk && counts.a_transform_commit === 1;
+    && lineOk && transformOk && counts.a_transform_commit === 1 && onionOk;
   await invoke("report", {
     line: `ツールのキーの自己確認：${ok ? "成功" : "失敗"}\n` +
       `  P：ツール ${before.tool} → ${afterP}、tool:brush ${counts["tool:brush"] ?? 0} 回\n` +
       `  ⌘D：キーだけでは ${viaKeyOnly} 回、メニューで a_selection_clear ${counts.a_selection_clear ?? 0} 回、選択範囲 ${before.selection ? "あり" : "なし"} → ${afterD ? "あり" : "なし"}\n` +
       `  直線：${lineOk ? "成功" : "失敗"}（見た目 ${previewRect.join(",")}、確定 ${writtenRect.join(",")}）\n` +
       `  変形：${transformOk ? "成功" : "失敗"}（始めた ${began}、つかんだ ${grabbed}、動いた ${moved}、確定 ${counts.a_transform_commit ?? 0} 回）\n` +
+      `  オニオン：${onionOk ? "成功" : "失敗"}（表示 ${shown}、前のずらし ${shifted.previous.shift_x},${shifted.previous.shift_y}）\n` +
       `  引き受けなかった操作：${unclaimed.join("、") || "なし"}　知らせ：${toast || "なし"}`,
   });
   await invoke("quit", { code: ok ? 0 : 1 });

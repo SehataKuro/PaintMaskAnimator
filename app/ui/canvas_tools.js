@@ -11,6 +11,8 @@ import { toolStore, el, openDialog, selectTool, nextInGroup, groupOf, pickColor,
 import { toolFlags, notify, openPressureDialog } from "./tool_properties.js";
 // 塗りの操作（paint_ops.js）：バケツのなぞり塗り・串刺し塗り・色置換・線整え。
 import { bucketDown, bucketMove, bucketUp, skewerClick, replaceColor, dustApply } from "./paint_ops.js";
+// 【オニオン：onion.js】合わせる操作のドラッグと Ctrl＋クリック（#60）。
+import { onionStore, onionInteraction, toggleOnionSettings } from "./onion.js";
 
 const { invoke } = window.__TAURI__.core;
 
@@ -34,6 +36,10 @@ export function createCanvasTools({ canvas, viewer, overlay, applyRect }) {
   let hover = null;
   let previousColorMode = "main";
   const api = { enabled: true, get active() { return !!active; } };
+  const onion = onionInteraction(viewer);
+  // 【オニオン】タイムラインの「設定」ボタン（timeline.js）から。
+  window.addEventListener("pma-onion-settings", () => toggleOnionSettings(viewer));
+  onionStore.refresh().catch(() => {});
 
   const settings = () => toolStore.settings;
 
@@ -282,6 +288,18 @@ export function createCanvasTools({ canvas, viewer, overlay, applyRect }) {
         updateCursor();
         return true;
       }
+      // 【オニオン】設定の窓の「X・Yシフト」「表示位置」のあとのドラッグ（Qt の
+      // _begin_onion_interaction_drag。Shift で回転）。
+      if (onion.armed && !toolStore.view?.transform) {
+        active = { kind: "onion" };
+        onion.down(x, y, held.has("Shift"));
+        return true;
+      }
+      // 【オニオン】Ctrl＋クリック：オニオンに見えている前後のコマへ移る（#60）。
+      if (onionStore.view?.enabled && held.has("Ctrl") && !held.has("Alt") && !toolStore.view?.transform) {
+        invoke("onion_pick", { x: p[0], y: p[1] }).then(notify, (e) => notify(String(e)));
+        return true;
+      }
       // 選択範囲の変形中は、ハンドル・回転のつまみ・中のドラッグだけ（Qt の begin_transform_drag）。
       if (toolStore.view?.transform) {
         active = { kind: "transform" };
@@ -334,7 +352,9 @@ export function createCanvasTools({ canvas, viewer, overlay, applyRect }) {
     }
     if (!active) return phase === "up" ? false : !!curve || t !== "brush";
     const a = active;
-    if (a.kind === "transform") {
+    if (a.kind === "onion") {
+      onion.move(x, y, phase === "up" ? "end" : "move");
+    } else if (a.kind === "transform") {
       transformDrag(phase === "up" ? "end" : "move", p);
     } else if (a.kind === "resize") {
       toolStore.set({ brush_size: Math.max(0.5, Math.min(400, Math.round((a.size + (x - a.x) * 0.1) * 2) / 2)) });
@@ -485,6 +505,14 @@ export function createCanvasTools({ canvas, viewer, overlay, applyRect }) {
     }
     if (spaceTap) spaceTap.interrupted = true;
     lastKey = { code: e.code, at: performance.now() };
+    // 【オニオン】合わせる操作の Esc は、ドラッグ前に戻してやめる（設定の窓は閉じない）。
+    if (e.key === "Escape" && onion.armed) {
+      e.preventDefault();
+      e.stopPropagation();
+      active = null;
+      onion.cancel();
+      return;
+    }
     // 変形中の Esc はキャンセル（Qt の keyPressEvent。Enter はメニューの「変形を確定」）。
     if (e.key === "Escape" && toolStore.view?.transform && !curve) {
       e.preventDefault();

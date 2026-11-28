@@ -555,7 +555,8 @@ impl Session {
         let (frame, _) = current_index(doc);
         if let Some(image) = self.cache.by_frame.get(&frame) {
             self.display = image.clone();
-            return Ok(());
+            // 【オニオン：onion.rs】今のコマの上に前後のコマを重ねる。
+            return crate::onion::apply(self, None);
         }
         // 同じ絵の重なり（保持のコマなど）は、合成し直さない。
         let key: Vec<Option<u64>> = compose::frame_layers(doc, frame)
@@ -580,7 +581,8 @@ impl Session {
         };
         self.cache.insert(frame, key, image.clone());
         self.display = image;
-        Ok(())
+        // 【オニオン：onion.rs】
+        crate::onion::apply(self, None)
     }
 
     /// 控えた合成の数（試験用）。
@@ -742,7 +744,9 @@ impl Session {
         .map_err(|e| e.to_string())?;
         self.display
             .write_rgba(rect, &image.to_straight_bytes())
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+        // 【オニオン：onion.rs】
+        crate::onion::apply(self, Some(rect))
     }
 
     /// 仮の線：前の点から丸い点を並べる（作品を開いていないとき）。

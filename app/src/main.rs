@@ -22,6 +22,8 @@ mod timeline;
 mod tools;
 // 選択範囲の変形（transform.rs）。
 mod transform;
+// 【オニオン：onion.rs】
+mod onion;
 // 【アプリの外枠】メニュー・環境設定・ショートカット・自動保存など（shell.rs ほか）。
 mod actions;
 mod autosave;
@@ -398,6 +400,14 @@ fn main() {
             // 選択範囲の変形（transform.rs）。
             transform::transform_drag,
             transform::transform_preview,
+            // 【オニオン：onion.rs】
+            onion::onion_state,
+            onion::onion_set,
+            onion::onion_reset,
+            onion::onion_interaction,
+            onion::onion_drag,
+            onion::onion_set_rotation,
+            onion::onion_pick,
             tools::tool_dust_apply,
             tools::tool_eyedropper,
             tools::action_run,

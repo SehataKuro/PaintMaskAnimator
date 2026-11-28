@@ -133,6 +133,8 @@ export function createTimelinePanel({ invoke }) {
   const last = button("⇥", "末尾へ（End）", () => navigate("last"));
   const counter = el("span", { class: "tl-counter", title: "現在位置 / 最後のコマ" });
   const onion = button("オニオンスキン", "オニオンスキン表示のON／OFF", () => setOptions({ onion: !view?.onion }), "tl-chip");
+  // 【オニオン：onion.js】設定の窓（Qt の onion_settings。再クリックで閉じる）。
+  const onionSettings = button("設定", "クリックでオニオンスキン設定を開き、再クリックで閉じます。", () => window.dispatchEvent(new CustomEvent("pma-onion-settings")), "tl-chip");
   const follow = button("追従", "再生中にタイムラインを追いかける（OFF にすると止めたときだけ合わせる）", () => setOptions({ followPlayback: !view?.follow_playback }), "tl-chip");
   const hint = el("span", {
     class: "tl-hint",
@@ -146,7 +148,7 @@ export function createTimelinePanel({ invoke }) {
     el("span", { class: "tl-stretch" }),
     first, prev, prevKey, play, nextKey, next, last, counter,
     el("span", { class: "tl-stretch" }),
-    onion, follow, hint, fps, fpsLabel,
+    onion, onionSettings, follow, hint, fps, fpsLabel,
   );
 
   // レイヤー名の列の見出し（サムネイルの開閉・追加・削除）。
